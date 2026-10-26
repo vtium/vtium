@@ -190,23 +190,23 @@ fn advance_takes_everything_unpaused() {
     assert_eq!(parser.advance(&mut rec, b""), 0);
 }
 
-// The decoder's contract, point 4, through the parser: every pair of bytes
-// from 0x80 up, but the well-formed C1 controls C2 80 to C2 9F, prints and
-// nothing else, so no ill-formed input executes a control or starts a
-// sequence.
+// Through the parser, every pair of bytes from 0x80 up prints and nothing
+// else, so no ill-formed input executes a control or starts a sequence
+// (the decoder's contract, point 4), and the well-formed C1 controls C2 80
+// to C2 9F do nothing at all (a departure, decided by the operator).
 #[test]
-fn no_ill_formed_pair_reaches_the_state_machine_as_a_control() {
+fn no_pair_from_0x80_up_reaches_the_state_machine_as_a_control() {
     for a in 0x80..=0xffu8 {
         for b in 0x80..=0xffu8 {
-            if a == 0xc2 && b <= 0x9f {
-                continue;
-            }
             let acts = parse(&[a, b, b'A']);
             assert!(
                 acts.iter().all(|act| matches!(act, Act::Print(_))),
                 "[{a:#x}, {b:#x}] gave {acts:?}"
             );
             assert_eq!(acts.last(), Some(&Act::Print(0x41)), "[{a:#x}, {b:#x}]");
+            if a == 0xc2 && b <= 0x9f {
+                assert_eq!(acts, [Act::Print(0x41)], "[{a:#x}, {b:#x}]");
+            }
         }
     }
 }

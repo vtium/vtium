@@ -10,7 +10,8 @@ use crate::params::{Intermediates, Params};
 /// both), so the parser asks [`Consumer::input_mode`] before each byte.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum InputMode {
-    /// Bytes are UTF-8. C1 controls arrive as U+0080 to U+009F.
+    /// Bytes are UTF-8. U+0080 to U+009F do nothing, so C1 controls
+    /// arrive only in their 7-bit form, ESC Fe.
     #[default]
     Utf8,
     /// Each byte is the character of its value: 0x80 to 0x9F are C1

@@ -277,6 +277,12 @@ pub fn parse(bytes: &[u8]) -> Vec<Act> {
     parse_in(InputMode::Utf8, bytes)
 }
 
+/// The actions `bytes` gives a fresh parser in 8-bit mode, where C1
+/// controls are single bytes.
+pub fn parse8(bytes: &[u8]) -> Vec<Act> {
+    parse_in(InputMode::EightBit, bytes)
+}
+
 /// The actions `bytes` gives a fresh parser in `mode`.
 pub fn parse_in(mode: InputMode, bytes: &[u8]) -> Vec<Act> {
     let mut parser = Parser::new();

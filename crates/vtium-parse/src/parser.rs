@@ -361,8 +361,13 @@ impl Parser {
                     InputMode::SevenBit => self.parse(consumer, char::from(b & 0x7f)),
                     InputMode::EightBit => self.parse(consumer, char::from(b)),
                     InputMode::Utf8 => {
+                        // U+0080 to U+009F do nothing in UTF-8 mode, a
+                        // departure: the C reference took them as C1
+                        // controls, a way past filters that strip ESC.
                         for c in self.utf8.feed(b).into_iter().flatten() {
-                            self.parse(consumer, c);
+                            if !('\u{80}'..='\u{9f}').contains(&c) {
+                                self.parse(consumer, c);
+                            }
                         }
                     }
                 }

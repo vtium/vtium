@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{Act, Recorder, csi, esc, parse, tcap};
+use common::{Act, Recorder, csi, esc, parse, parse8, tcap};
 use vtium_parse::{Intermediates as I, Parser, XTGETTCAP_MAX};
 
 // test_vte_xtgettcap_found: ESC \ ends the request, which is answered at the
@@ -21,7 +21,7 @@ fn ended_by_esc_backslash() {
 #[test]
 fn ended_by_c1_st() {
     assert_eq!(
-        parse(b"\x1bP+q544e\xc2\x9c"),
+        parse8(b"\x1bP+q544e\x9c"),
         [tcap(b"544e"), Act::Execute(0x9c)]
     );
 }
@@ -50,7 +50,7 @@ fn esc_esc_backslash_drops() {
 // tsm-vte.c:3291-3298, 3164-3168: another C1 control drops it.
 #[test]
 fn dropped_by_other_c1() {
-    assert_eq!(parse(b"\x1bP+q544e\xc2\x85"), [Act::Execute(0x85)]);
+    assert_eq!(parse8(b"\x1bP+q544e\x85"), [Act::Execute(0x85)]);
 }
 
 // test_vte_xtgettcap_end: DCS + q with a parameter, a marker or another

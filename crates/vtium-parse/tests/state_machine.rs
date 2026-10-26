@@ -3,7 +3,9 @@
 
 mod common;
 
-use common::{Act, apc_bytes, csi, dcs_bytes, esc, osc, parse, parse_bytewise, parse_in, prints};
+use common::{
+    Act, apc_bytes, csi, dcs_bytes, esc, osc, parse, parse_bytewise, parse_in, parse8, prints,
+};
 use vtium_parse::{InputMode, Intermediates as I};
 
 // tsm-vte.c:3323-3338: in ground, C0 controls execute and 0x20 to 0x7E print.
@@ -35,11 +37,11 @@ fn ground_prints_past_ascii() {
     assert_eq!(parse("é€😀".as_bytes()), prints("é€😀"));
 }
 
-// tsm-vte.c:3291-3298, 3328-3330: C1 controls arriving as UTF-8 execute.
+// tsm-vte.c:3291-3298, 3328-3330: C1 controls execute (8-bit input).
 #[test]
-fn c1_as_utf8_executes() {
+fn c1_executes() {
     assert_eq!(
-        parse(b"\xc2\x84\xc2\x85\xc2\x88\xc2\x8d\xc2\x9a\xc2\x9c"),
+        parse8(b"\x84\x85\x88\x8d\x9a\x9c"),
         [
             Act::Execute(0x84),
             Act::Execute(0x85),
@@ -139,11 +141,11 @@ fn sos_and_pm_are_ignored() {
         [esc(I::NONE, b'\\'), Act::Print(0x78)]
     );
     assert_eq!(
-        parse(b"\x1b^ab\xc2\x9cx"),
+        parse8(b"\x1b^ab\x9cx"),
         [Act::Execute(0x9c), Act::Print(0x78)]
     );
     assert_eq!(
-        parse(b"\xc2\x98ab\xc2\x9cx"),
+        parse8(b"\x98ab\x9cx"),
         [Act::Execute(0x9c), Act::Print(0x78)]
     );
 }
@@ -306,10 +308,15 @@ fn csi_subparams() {
     );
 }
 
-// tsm-vte.c:3316-3317, 3360-3361: CSI as C1 (UTF-8 U+009B) and as ESC [.
+// Departure, decided by the operator: in UTF-8 mode U+0080 to U+009F do
+// nothing, so C2 9B is not CSI and C2 85 does not cancel a sequence. That
+// closes the way past filters that strip ESC. The C reference took them as
+// C1 controls (tsm-vte.c:3289-3319).
 #[test]
-fn csi_c1_introducer() {
-    assert_eq!(parse(b"\xc2\x9b1m"), [csi(&[1], I::NONE, b'm')]);
+fn c1_as_utf8_does_nothing() {
+    assert_eq!(parse(b"a\xc2\x9b1mb"), prints("a1mb"));
+    assert_eq!(parse(b"\x1b[1\xc2\x85m"), [csi(&[1], I::NONE, b'm')]);
+    assert_eq!(parse(b"\x1b]0;x\xc2\x9cy\x07"), [osc(b"0;xy", 0x07)]);
 }
 
 // libtsm's test_vte_8bit_c1: in 8-bit mode 0x9B introduces a CSI.
@@ -331,7 +338,7 @@ fn osc_ended_by_bel() {
 #[test]
 fn osc_ended_by_c1_st() {
     assert_eq!(
-        parse(b"\xc2\x9d10;?\xc2\x9c"),
+        parse8(b"\x9d10;?\x9c"),
         [osc(b"10;?", 0x9c), Act::Execute(0x9c)]
     );
 }
@@ -395,7 +402,7 @@ fn osc_collects_utf8() {
 #[test]
 fn osc_restart_clears() {
     assert_eq!(
-        parse(b"\x1b]abc\xc2\x9ddef\x07"),
+        parse8(b"\x1b]abc\x9ddef\x07"),
         [osc(b"abc", 0x9d), osc(b"def", 0x07)]
     );
 }
@@ -419,7 +426,7 @@ fn dcs_hook_put_unhook() {
 #[test]
 fn dcs_collects_markers_and_intermediates() {
     assert_eq!(
-        parse(b"\x1bP>|x\xc2\x9c\x1bP$qm\xc2\x9c"),
+        parse8(b"\x1bP>|x\x9c\x1bP$qm\x9c"),
         acts![
             Act::DcsHook(vec![-1], I::GREATER, u32::from(b'|')),
             Act::DcsByte(b'x'),
@@ -525,7 +532,7 @@ fn dcs_ended_by_can() {
 #[test]
 fn dcs_ended_by_c1_csi() {
     assert_eq!(
-        parse(b"\xc2\x90qa\xc2\x9b2J"),
+        parse8(b"\x90qa\x9b2J"),
         acts![
             Act::DcsHook(vec![-1], I::NONE, u32::from(b'q')),
             Act::DcsByte(b'a'),
@@ -550,8 +557,8 @@ fn apc_start_put_end() {
     );
 }
 
-// libtsm's test_vte_kitty C1 framing: APC and ST as UTF-8, and as bytes in
-// 8-bit mode.
+// libtsm's test_vte_kitty C1 framing: APC and ST as bytes in 8-bit mode.
+// As UTF-8 they do nothing (a departure, see c1_as_utf8_does_nothing).
 #[test]
 fn apc_c1_framing() {
     let want = acts![
@@ -560,7 +567,7 @@ fn apc_c1_framing() {
         Act::ApcEnd(0x9c),
         Act::Execute(0x9c),
     ];
-    assert_eq!(parse(b"\xc2\x9fGi=1\xc2\x9c"), want);
+    assert_eq!(parse(b"\xc2\x9fGi=1\xc2\x9c"), prints("Gi=1"));
     assert_eq!(parse_in(InputMode::EightBit, b"\x9fGi=1\x9c"), want);
 }
 
@@ -598,7 +605,7 @@ fn apc_past_ascii() {
 #[test]
 fn apc_restarts() {
     assert_eq!(
-        parse(b"\xc2\x9fa\xc2\x9fb\xc2\x9c"),
+        parse8(b"\x9fa\x9fb\x9c"),
         acts![
             Act::ApcStart,
             Act::ApcByte(b'a'),
