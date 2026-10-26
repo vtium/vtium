@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        A capability is asked for as a work item: what the user sees, the spec it follows, where it lives, and the test that shows it works.
+        A capability is asked for as a work item: what the user sees, the spec it follows, where it lives, and the harness case that proves it works. The pull request that builds it adds that case and shows it red without the capability and green with it (CONTRIBUTING.md).
   - type: input
     id: goal
     attributes:
@@ -38,10 +38,9 @@ body:
     id: acceptance
     attributes:
       label: Acceptance
-      description: The test or probe that shows it works. Give the bytes sent and the screen state, reply or pixels expected.
+      description: The harness case that will prove it works, and would fail without it. Give the bytes sent and the screen state, reply or pixels expected.
       placeholder: |
-        Sending `\e[4:3mx` sets a curly underline on the cell holding x.
-        A unit test in vtium-term checks the cell's underline style.
+        A replay case sends `\e[4:3mx` and expects a curly underline on the cell holding x.
     validations:
       required: true
   - type: textarea

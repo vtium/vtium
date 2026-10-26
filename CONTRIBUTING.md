@@ -2,28 +2,13 @@
 
 Contributions are welcome, written by hand, by a large language model, or both. Read [docs/architecture.md](docs/architecture.md) for the crates and what each one owns.
 
-## Say how the code was written
+## What every contribution must show
 
-Every pull request states how its code was written: by an LLM, naming the model and tool if you know them; by hand; or mixed, saying which parts. The pull request template has a section for it. The maintainer's own code is written by LLMs under review, and says so the same way.
+### It passes the evaluation gauntlet, with proofs
 
-Nothing is rejected for how it was written. Every change is judged by the same tests and the same review.
+Every contribution passes the evaluation gauntlet: the CI gates, and the harness tiers that cover what it touches. [docs/architecture.md](docs/architecture.md#how-it-is-judged) lists the tiers. Until the harness lands in vtium, the tiers are the C fork's, as ADR-304 in [aaronsb/kmscon](https://github.com/aaronsb/kmscon) describes.
 
-## Issues
-
-Bug reports and capability requests have their own forms. A capability request is a work item:
-
-- **Goal:** one sentence on what a user sees or can do once it lands.
-- **Spec:** the document the behaviour follows, such as xterm ctlseqs, the kitty protocol docs or ECMA-48, with a link.
-- **Crates:** the crates it touches.
-- **Acceptance:** the test or probe that shows it works.
-
-A change that needs a design decision first gets the `design` label. The decision is recorded before the code is written.
-
-## Pull requests
-
-- One change per pull request.
-- Tests first. A fix starts with a test that fails without it, and a capability starts with the test that judges it.
-- The C fork, [aaronsb/kmscon](https://github.com/aaronsb/kmscon), is the reference for behaviour. Where vtium and the fork differ, say which is right and why.
+The pull request carries the proofs: the commands run, their results, and a test seen failing before the change and passing after it.
 
 CI runs these gates on every pull request. Run them locally before you push:
 
@@ -34,7 +19,38 @@ cargo test --workspace --all-features
 cargo build --profile minspec
 ```
 
-A change to what the fork's harness judges, such as parsing, the screen or rendering, also names the harness tiers it was run against.
+### Anything new extends the harness
+
+A contribution that adds something new extends the harness in the same pull request. It proves the extension works: the new check is shown red without the feature, or with the defect planted, and green with it. A new capability without a harness case that would catch its absence is not accepted.
+
+### The submitter defends it
+
+The person who submits a pull request answers for it. They can explain its purpose, what caused the need for it (the defect or the capability gap), its effects (what it changes and what could break), and its value. Review will challenge its design, its trade-offs and its proofs, and the submitter is expected to defend them in their own words.
+
+However impressive a change is, it is not merged without a defence: why it is needed, and what happens when it is merged. Effects the submitter has not examined, or that the proofs show to be harmful, block it. A change its submitter cannot defend is closed, whoever or whatever wrote the code.
+
+### It says how the code was written
+
+Every pull request states how its code was written: by an LLM, naming the model and tool if you know them; by hand; or mixed, saying which parts. LLM-written contributions are welcome. The maintainer's own code is written by LLMs under review, and says so the same way.
+
+Nothing is rejected for how it was written. Every change runs the same gauntlet and gets the same review.
+
+## Issues
+
+Bug reports and capability requests have their own forms. A capability request is a work item:
+
+- **Goal:** one sentence on what a user sees or can do once it lands.
+- **Spec:** the document the behaviour follows, such as xterm ctlseqs, the kitty protocol docs or ECMA-48, with a link.
+- **Crates:** the crates it touches.
+- **Acceptance:** the harness case that will prove it works.
+
+A change that needs a design decision first gets the `design` label. The decision is recorded before the code is written.
+
+## Pull requests
+
+- One change per pull request.
+- Tests first. A fix starts with a test that fails without it, and a capability starts with the harness case that judges it.
+- The C fork, [aaronsb/kmscon](https://github.com/aaronsb/kmscon), is the reference for behaviour. Where vtium and the fork differ, say which is right and why.
 
 ## Rules for the code
 
