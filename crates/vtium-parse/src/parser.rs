@@ -294,8 +294,9 @@ fn transition(state: State, c: u32) -> (Option<State>, Action) {
 /// The escape-sequence parser: bytes in, [`Consumer`] calls out.
 ///
 /// It holds every buffer it uses inline (about 1.8 KiB) and allocates
-/// nothing.
-#[derive(Clone, Debug)]
+/// nothing. Its `Debug` shows the bytes its buffers hold, not their unused
+/// room.
+#[derive(Clone)]
 pub struct Parser {
     state: State,
     utf8: Decoder,
@@ -320,6 +321,37 @@ pub struct Parser {
     /// A reset came while an APC string's end waited, so a `\` right after
     /// it is dropped (aaronsb/libtsm#53).
     drop_backslash: bool,
+}
+
+/// Bytes as an escaped string, for `Debug`.
+struct Escaped<'a>(&'a [u8]);
+
+impl core::fmt::Debug for Escaped<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "\"{}\"", self.0.escape_ascii())
+    }
+}
+
+impl core::fmt::Debug for Parser {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Parser")
+            .field("state", &self.state)
+            .field("utf8", &self.utf8)
+            .field("params", &self.params)
+            .field("intermediates", &self.intermediates)
+            .field("too_many_intermediates", &self.too_many_intermediates)
+            .field("osc", &Escaped(self.osc.get(..self.osc_len).unwrap_or(&[])))
+            .field("osc_full", &self.osc_full)
+            .field("dcs", &self.dcs)
+            .field(
+                "tcap",
+                &Escaped(self.tcap.get(..self.tcap_len).unwrap_or(&[])),
+            )
+            .field("tcap_over", &self.tcap_over)
+            .field("pending_end", &self.pending_end)
+            .field("drop_backslash", &self.drop_backslash)
+            .finish()
+    }
 }
 
 impl Default for Parser {
