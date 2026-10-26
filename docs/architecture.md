@@ -20,7 +20,7 @@ The default build is minspec: the smallest complete console, for the small-machi
 
 ## Where each part comes from
 
-vtium is a port of the [aaronsb/kmscon](https://github.com/aaronsb/kmscon) fork's components. The fork's code is the floor for behaviour (see [Beyond the C reference](#beyond-the-c-reference)) and no guide to layout.
+vtium reimplements in Rust what the [aaronsb/kmscon](https://github.com/aaronsb/kmscon) fork's components do. The fork models behaviour, and its code is the floor for it (see [Beyond the C reference](#beyond-the-c-reference)). How vtium gets there is idiomatic Rust: its types, ownership and modules follow Rust, not the C code's layout. The table names the components whose behaviour each crate takes on.
 
 | vtium crate | Fork components it replaces |
 |---|---|
@@ -48,7 +48,7 @@ Work is built in bundles of items that don't collide, then evaluated once per bu
 
 vtium covers everything the C reference does, apart from the listed departures below, judged by the C reference's goldens and probes, and goes further. The capabilities the C reference lacked are vtium issues.
 
-Where the C reference departs from a protocol specification, vtium follows the specification. Each departure is listed in the departures list beside vtium's conformance runner (vtium/vtium#14), with its reason and the specification it follows, and the runner expects vtium's own output for exactly the listed cases. The C reference is frozen apart from security fixes (ADR-304), so a security defect is fixed there too and the goldens agree.
+Where the C reference departs from a protocol specification, vtium follows the specification. Each departure is listed in the departures list beside vtium's conformance runner (vtium/vtium#14), with its reason and the specification it follows, and the runner expects vtium's own output for exactly the listed cases. A defect found in the C reference, a security defect included, is a departure like any other: vtium fixes it and lists it. The C reference changes only for the test infrastructure vtium is judged by.
 
 A bound vtium takes from the C reference is a starting value. vtium may set its own, with the reason in the row that defines it.
 
@@ -58,7 +58,7 @@ A fact vtium states in more than one place has one source. Where a test can be w
 
 | Source | What is generated or checked | The test fails when |
 |---|---|---|
-| The mode table in `vtium-term`: one row per ANSI or DEC private mode vtium recognises, with kind, number, name, status (supported, partial, ignored, refused), default (fixed or a host setting), reset, what the host must do, terminfo, spec and tests | The dispatch's and the resets' calls into each mode's accessors, and the DECRQM replies; `docs/modes.md` and `docs/modes.tsv`, describing the build with `images` | The committed `docs/modes.md` or `.tsv` differs from the table; a number with no row (DEC 0-65535, ANSI 0-255) gets a DECRQM reply other than 0, or SM and RM of it change any of the terminal's state (cell contents, tab stops and image state included); a number with a row replies 0; SM, RM or DECRQM do anything but expand the table, or the mode constants appear outside the accessors and the functions that read them; a supported mode's row names no test that sets and resets it, or names a test that does not exist |
+| The mode table in `vtium-term`: one row per ANSI or DEC private mode vtium recognises, with kind, number, name, status (supported, partial, ignored, refused), default (fixed or a host setting), reset, what the host must do, terminfo, spec and tests | The dispatch's and the resets' calls into each mode's accessors, and the DECRQM replies; `docs/modes.md` and `docs/modes.tsv`, describing the build with `images` | The committed `docs/modes.md` or `.tsv` differs from the table; a number with no row (DEC 0-65535, ANSI 0-255) gets a DECRQM reply other than 0, or SM and RM of it change any of the terminal's state (cell contents, tab stops and image state included); a number with a row replies 0; SM, RM or DECRQM do anything but expand the table; a mode's state is reachable outside its accessors, which vtium enforces with module privacy where the C reference needed a source check; a supported mode's row names no test that sets and resets it, or names a test that does not exist |
 | The parser's bounds: rows in `vtium-parse`'s `src/bounds.rs`, from which its constants take their values | The bounds table in the crate's README | The committed table differs from the rows |
 | The capability list: each probe `works` or `missing`, with the issue for each gap; a `works` probe may name the feature it needs | The probe verdicts | A `works` probe fails, or fails to fail without its feature; a `missing` probe passes; a probe is not in the list, or the list names one that does not exist |
 | The terminfo entry | The XTGETTCAP table | The committed table differs from the entry |
