@@ -23,8 +23,9 @@
 // TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 // SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-//! The state machine: `parse_data`, `do_trans` and `do_action` of the C
-//! reference, with the collection half of each handler. Every dispatch
+//! The state machine, with the collection of parameters, intermediates and
+//! strings. Its behaviour follows the C reference's `tsm-vte.c`, cited rule
+//! by rule, but for the departures the crate's README lists. Every dispatch
 //! goes to the [`Consumer`].
 
 use crate::bounds::{OSC_MAX, XTGETTCAP_MAX};
@@ -32,7 +33,7 @@ use crate::consumer::{Chunk, Consumer, InputMode, StringEnd};
 use crate::params::{Intermediates, Params};
 use crate::utf8::{self, Decoder};
 
-/// `enum parser_state` (tsm-vte.c:65-83).
+/// The parser's states (tsm-vte.c:65-83).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
     Ground,
@@ -52,8 +53,8 @@ enum State {
     ApcString,
 }
 
-/// `enum parser_action` (tsm-vte.c:86-106). `ACTION_NONE` and
-/// `ACTION_IGNORE` both do nothing, so `None` stands for both.
+/// The parser's actions (tsm-vte.c:86-106). The C reference's two actions
+/// that do nothing are one here, `None`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Action {
     None,
@@ -79,7 +80,7 @@ enum Action {
 }
 
 /// What the DCS string in progress goes to, picked when its data starts
-/// (`enum dcs_kind`, tsm-vte.c:124-128).
+/// (tsm-vte.c:124-128).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Dcs {
     None,
@@ -97,7 +98,7 @@ fn string_end(c: char) -> StringEnd {
     }
 }
 
-/// `entry_action` (tsm-vte.c:3239-3247).
+/// The action on entering a state (tsm-vte.c:3239-3247).
 fn entry_action(state: State) -> Action {
     match state {
         State::CsiEntry | State::DcsEntry | State::Esc => Action::Clear,
@@ -108,7 +109,7 @@ fn entry_action(state: State) -> Action {
     }
 }
 
-/// `exit_action` (tsm-vte.c:3250-3255).
+/// The action on leaving a state (tsm-vte.c:3250-3255).
 fn exit_action(state: State) -> Action {
     match state {
         State::DcsPass | State::OscString | State::ApcString => Action::EndString,
@@ -117,13 +118,13 @@ fn exit_action(state: State) -> Action {
 }
 
 /// A byte DCS passthrough collects as it stands, in every input mode
-/// (`sixel_byte`, tsm-vte-image.c:365-368).
+/// (tsm-vte-image.c:365-368).
 fn dcs_run_byte(b: u8) -> bool {
     b < 0x7f && b != 0x18 && b != 0x1a && b != 0x1b
 }
 
 /// A byte an APC string collects as it stands, in every input mode
-/// (`kitty_byte`, tsm-vte-image.c:400-403).
+/// (tsm-vte-image.c:400-403).
 fn apc_run_byte(b: u8) -> bool {
     (0x20..0x7f).contains(&b)
 }
@@ -299,7 +300,7 @@ pub struct Parser {
     tcap_over: bool,
     /// The string state an ESC left, whose end waits for the next
     /// character: `\` makes the ESC an ST, anything else cancels the
-    /// string. The C reference waited so only for XTGETTCAP (`dcs_esc`).
+    /// string. The C reference waited so only for XTGETTCAP.
     pending_end: Option<State>,
     /// A reset came while an APC string's end waited, so a `\` right after
     /// it is dropped (aaronsb/libtsm#53).
@@ -334,7 +335,7 @@ impl Parser {
     }
 
     /// Back to ground state, with the UTF-8 decoder between characters,
-    /// as `tsm_vte_reset` leaves the parser (tsm-vte.c:1043-1047). A string
+    /// as the C reference's reset leaves it (tsm-vte.c:1043-1047). A string
     /// in progress is dropped with no end call, one waiting at the ESC of
     /// its ST included (libtsm's `test_vte_xtgettcap_esc_reset`). The
     /// consumer clears its own string state, such as a sixel picture or a
@@ -353,7 +354,7 @@ impl Parser {
 
     /// Parses `bytes`, driving `consumer`, and returns how many it
     /// consumed: all of them unless [`Consumer::paused`] stopped it
-    /// (`vte_input`, tsm-vte.c:3646-3680). Input may be cut anywhere,
+    /// (tsm-vte.c:3646-3680). Input may be cut anywhere,
     /// inside a UTF-8 character included: the actions are the same as for
     /// the input whole, but for where [`Chunk::Bytes`] runs are cut.
     pub fn advance<C: Consumer>(&mut self, consumer: &mut C, bytes: &[u8]) -> usize {
@@ -418,8 +419,7 @@ impl Parser {
         }
     }
 
-    /// `parse_data` (tsm-vte.c:3280-3642): one character through the state
-    /// machine.
+    /// One character through the state machine (tsm-vte.c:3280-3642).
     fn parse<C: Consumer>(&mut self, consumer: &mut C, c: char) {
         // A string an ESC left ends now: `\` makes the ESC an ST, and
         // anything else cancels the string (tsm-vte.c:3282-3287 for
@@ -450,7 +450,7 @@ impl Parser {
         }
     }
 
-    /// `do_trans` (tsm-vte.c:3258-3273): with a new state, even the
+    /// A transition (tsm-vte.c:3258-3273): with a new state, even the
     /// current one, the exit action, the transition's action, then the
     /// entry action.
     fn trans<C: Consumer>(
@@ -476,7 +476,7 @@ impl Parser {
         }
     }
 
-    /// `do_action` (tsm-vte.c:3173-3236).
+    /// One action (tsm-vte.c:3173-3236).
     ///
     /// The casts to `u8` hold by the arms that reach each action: controls
     /// executed are below 0xA0, final bytes are below 0x7F, and strings end
@@ -519,7 +519,8 @@ impl Parser {
         }
     }
 
-    /// `do_clear` (tsm-vte.c:1216-1230), but for the OSC buffer, which only
+    /// Clears the sequence collected so far (tsm-vte.c:1216-1230), but for
+    /// the OSC buffer, which only
     /// an OSC's start clears, so that an OSC string waiting at an ESC keeps
     /// it.
     fn clear(&mut self) {
@@ -528,7 +529,7 @@ impl Parser {
         self.too_many_intermediates = false;
     }
 
-    /// `do_osc_collect` (tsm-vte.c:2912-2921): the character as UTF-8, or
+    /// Collects an OSC character (tsm-vte.c:2912-2921): as UTF-8, or
     /// nothing for a noncharacter. Once a character would pass
     /// [`OSC_MAX`], the string takes no more, so what it keeps is a prefix
     /// (a departure: the C reference kept a shorter character after it).
@@ -548,10 +549,9 @@ impl Parser {
         self.osc_len += len;
     }
 
-    /// `do_dcs_start` (tsm-vte.c:3128-3140). `DCS + q` with no parameter
-    /// is XTGETTCAP (tsm-vte.c:3134-3135), collected here; every other DCS
-    /// string goes to the consumer, which picks its handler as
-    /// `do_dcs_start` does.
+    /// Starts a DCS string's data (tsm-vte.c:3128-3140). `DCS + q` with no
+    /// parameter is XTGETTCAP (tsm-vte.c:3134-3135), collected here; every
+    /// other DCS string goes to the consumer, which picks its handler.
     fn dcs_start<C: Consumer>(&mut self, consumer: &mut C, c: char) {
         if self.too_many_intermediates {
             // a null operation: the data goes nowhere (vt100.net)
@@ -571,7 +571,7 @@ impl Parser {
         }
     }
 
-    /// `do_dcs_collect` (tsm-vte.c:3142-3154), one character.
+    /// Collects one DCS character (tsm-vte.c:3142-3154).
     fn dcs_collect<C: Consumer>(&mut self, consumer: &mut C, c: char) {
         match self.dcs {
             Dcs::Hooked if c.is_ascii() => consumer.dcs_put(Chunk::Bytes(&[c as u8])),
@@ -583,8 +583,8 @@ impl Parser {
         }
     }
 
-    /// `do_dcs_collect` for a run of [`dcs_run_byte`]s, as `vte_sixel_run`
-    /// takes them (tsm-vte-image.c:376-397).
+    /// Collects a run of [`dcs_run_byte`]s at once, as the C reference's
+    /// sixel fast path takes them (tsm-vte-image.c:376-397).
     fn dcs_collect_run<C: Consumer>(&mut self, consumer: &mut C, run: &[u8]) {
         match self.dcs {
             Dcs::Hooked => consumer.dcs_put(Chunk::Bytes(run)),
@@ -607,8 +607,7 @@ impl Parser {
         }
     }
 
-    /// The end of the string in state `string`: `do_osc_end`, `do_dcs_end`
-    /// and `vte_apc_end` (tsm-vte.c:3004-3015, 3157-3170; tsm-vte-image.c).
+    /// Ends the string in state `string` (tsm-vte.c:3004-3015, 3157-3170).
     /// ST answers an XTGETTCAP request, and anything else drops it.
     fn end_string<C: Consumer>(&mut self, consumer: &mut C, string: State, end: StringEnd) {
         match string {

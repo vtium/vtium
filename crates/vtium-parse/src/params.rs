@@ -18,14 +18,14 @@ use crate::bounds::{INTERMEDIATES_MAX, PARAM_VALUE_CAP, PARAMS_MAX, SUBPARAMS_MA
 #[derive(Clone)]
 pub struct Params {
     marker: Option<u8>,
-    /// The `;` separators taken, at most [`PARAMS_MAX`] (`csi_argc`).
+    /// The `;` separators taken, at most [`PARAMS_MAX`].
     separators: usize,
     /// Each value, or [`OMITTED`].
     values: [u32; PARAMS_MAX],
     sub_len: [u8; PARAMS_MAX],
     subs: [[u32; SUBPARAMS_MAX]; PARAMS_MAX],
     /// Past [`SUBPARAMS_MAX`] colons, digits are dropped until the next
-    /// `;` (`csi_subarg_drop`).
+    /// `;`.
     sub_drop: bool,
 }
 
@@ -45,12 +45,12 @@ impl Params {
         }
     }
 
-    /// `do_clear`'s parameter half (tsm-vte.c:1220-1225).
+    /// Empty, for a new sequence (tsm-vte.c:1220-1225).
     pub(crate) fn clear(&mut self) {
         *self = Self::new();
     }
 
-    /// `do_param` (tsm-vte.c:1277-1326), for a byte from `0` to `;`.
+    /// Takes a byte from `0` to `;` (tsm-vte.c:1277-1326).
     pub(crate) fn put(&mut self, byte: u8) {
         if byte == b';' {
             // An empty parameter stays omitted before a ';' too (ECMA-48
@@ -104,7 +104,7 @@ impl Params {
         self.marker
     }
 
-    /// The parameter count as `do_csi` counts it before dispatch:
+    /// The parameter count as the C reference counts it at dispatch:
     /// one more than the `;` separators, at most [`PARAMS_MAX`]
     /// (tsm-vte.c:2542-2543). It is never 0: `CSI m` has one parameter,
     /// omitted.
@@ -127,8 +127,7 @@ impl Params {
         subs.iter().map(|&v| (v != OMITTED).then_some(v))
     }
 
-    /// Whether any parameter carries sub-parameters, `csi_has_subargs`
-    /// (tsm-vte.c:2457-2465).
+    /// Whether any parameter carries sub-parameters (tsm-vte.c:2457-2465).
     pub fn has_subparams(&self) -> bool {
         self.sub_len[..self.count()].iter().any(|&n| n > 0)
     }

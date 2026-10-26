@@ -6,7 +6,7 @@ vtium's escape-sequence parser: bytes from the pty in, terminal actions out. It 
 |---|---|
 | `src/lib.rs` | The crate's documentation and public names. |
 | `src/consumer.rs` | The `Consumer` trait, one method per kind of action, and the `Chunk` and `InputMode` types its methods take. |
-| `src/parser.rs` | `Parser`: the state machine, ported from `parse_data`, `do_trans` and `do_action`, with the collection half of each handler. |
+| `src/parser.rs` | `Parser`: the state machine and the collection of parameters, intermediates and strings, its behaviour cited to the C reference's `tsm-vte.c`. |
 | `src/params.rs` | `Params` and `Intermediates`, in the C reference's representation: `int` parameters with -1 for omitted, and intermediates as `csi_flags`. |
 | `src/bounds.rs` | Every bound, with its value, what happens past it and its C citation: the one source for the constants and for the table below. |
 | `src/utf8.rs` | The UTF-8 decoder in front of the state machine, written to the Unicode Standard, and the noncharacters an OSC string drops, as `tsm-unicode.c` has them. |
