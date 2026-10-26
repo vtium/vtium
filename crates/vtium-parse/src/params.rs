@@ -155,15 +155,24 @@ impl fmt::Debug for Params {
                 f.debug_list().entries(self.0.subparams(self.1)).finish()
             }
         }
-        let mut list = f.debug_list();
-        for i in 0..self.count() {
-            if self.subparams(i).len() == 0 {
-                list.entry(&self.get(i));
-            } else {
-                list.entry(&(self.get(i), Subs(self, i)));
+        struct Values<'a>(&'a Params);
+        impl fmt::Debug for Values<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let mut list = f.debug_list();
+                for i in 0..self.0.count() {
+                    if self.0.subparams(i).len() == 0 {
+                        list.entry(&self.0.get(i));
+                    } else {
+                        list.entry(&(self.0.get(i), Subs(self.0, i)));
+                    }
+                }
+                list.finish()
             }
         }
-        list.finish()
+        f.debug_struct("Params")
+            .field("marker", &self.marker.map(char::from))
+            .field("values", &Values(self))
+            .finish()
     }
 }
 
@@ -212,6 +221,32 @@ impl Intermediates {
 
 impl fmt::Debug for Intermediates {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.as_bytes().escape_ascii().to_string())
+        write!(f, "\"{}\"", self.as_bytes().escape_ascii())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_shows_the_marker_and_each_value() {
+        let mut params = Params::new();
+        params.set_marker(b'?');
+        for &b in b"25;;38:2" {
+            params.put(b);
+        }
+        assert_eq!(
+            format!("{params:?}"),
+            "Params { marker: Some('?'), values: [Some(25), None, (Some(38), [Some(2)])] }"
+        );
+    }
+
+    #[test]
+    fn debug_shows_intermediates_as_one_escaped_string() {
+        let mut ims = Intermediates::NONE;
+        ims.push(b'"');
+        ims.push(b'$');
+        assert_eq!(format!("{ims:?}"), r#""\"$""#);
     }
 }
