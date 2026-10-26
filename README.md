@@ -9,7 +9,7 @@ vtium is a Rust port derived from [kmscon](https://github.com/kmscon/kmscon) and
 Not started. The plan is recorded as a decision record in the C fork, and the C fork stays the reference implementation until vtium passes the tests that cover each part:
 
 - **Minspec first.** The first vtium is the minimal console as a vertical slice: drm2d or fbdev, a CPU renderer, bitmap fonts, the parser and screen, the pty and keyboard input. Text rendering through FreeType, images, the GPU path and the rest come after it, one layer at a time.
-- **Judged by the fork's existing tests.** The fork's VM harness compares screenshots pixel for pixel and doesn't care what language it is testing. Its conformance and capability suites move behind a language-neutral interface first.
+- **Judged by its harness.** Conformance tests of the parser and terminal state, capability probes, pixel tests of the renderer, and VM runs that boot vtium on a VT and compare screenshots pixel for pixel ([docs/architecture.md](docs/architecture.md#how-it-is-judged)).
 
 ## Provenance
 

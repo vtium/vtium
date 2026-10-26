@@ -6,7 +6,7 @@ Contributions are welcome, written by hand, by a large language model, or both. 
 
 ### It passes the evaluation gauntlet, with proofs
 
-Every contribution passes the evaluation gauntlet: the CI gates, and the harness tiers that cover what it touches. [docs/architecture.md](docs/architecture.md#how-it-is-judged) lists the tiers. Until the harness lands in vtium, the tiers are the C fork's, as ADR-304 in [aaronsb/kmscon](https://github.com/aaronsb/kmscon) describes.
+Every contribution passes the evaluation gauntlet: the CI gates, and the harness tiers that cover what it touches. [docs/architecture.md](docs/architecture.md#how-it-is-judged) lists the tiers.
 
 The pull request carries the proofs: the commands run, their results, and a test seen failing before the change and passing after it.
 
@@ -50,7 +50,7 @@ A change that needs a design decision first gets the `design` label. The decisio
 
 - One change per pull request.
 - Tests first. A fix starts with a test that fails without it, and a capability starts with the harness case that judges it.
-- The C fork, [aaronsb/kmscon](https://github.com/aaronsb/kmscon), is the reference for behaviour. Where vtium and the fork differ, say which is right and why.
+- Behaviour follows the protocol specifications. Where a specification leaves room, vtium's conformance goldens decide, and a change to a golden is its own reviewed change, listing what moved and why.
 
 ## Rules for the code
 
