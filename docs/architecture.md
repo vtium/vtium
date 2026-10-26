@@ -20,7 +20,7 @@ The default build is minspec: the smallest complete console, for the small-machi
 
 ## Where each part comes from
 
-vtium is a port of the [aaronsb/kmscon](https://github.com/aaronsb/kmscon) fork's components. The fork's code is the reference for behaviour, not for layout.
+vtium is a port of the [aaronsb/kmscon](https://github.com/aaronsb/kmscon) fork's components. The fork's code is the floor for behaviour: vtium does everything it does, and more. It is no guide to layout.
 
 | vtium crate | Fork components it replaces |
 |---|---|
@@ -44,6 +44,14 @@ By vtium's harness, in tiers:
 
 Work is built in bundles of items that don't collide, then evaluated once per bundle.
 
+## Beyond the C reference
+
+vtium covers everything the C reference does, judged by its goldens and probes, and goes further. The capabilities the C reference lacked are vtium issues, listed in the tracker.
+
+Where the C reference departs from a protocol specification, vtium follows the specification. Each departure is listed with its reason and the specification it follows, and the conformance runner expects vtium's own output for exactly the listed cases, so no departure is silent. A security defect is fixed in the C reference too, so the goldens agree.
+
+A bound vtium takes from the C reference is a starting value. vtium may set its own, with the reason in the row that defines it.
+
 ## Tables, references and maps
 
 A fact vtium states in more than one place has one source. Where a test can be written, the other places are generated from the source or checked against it, and the test fails on drift. The coverage map and the path tables are kept by hand, in the change that alters what they describe.
@@ -51,7 +59,7 @@ A fact vtium states in more than one place has one source. Where a test can be w
 | Source | What is generated or checked | The test fails when |
 |---|---|---|
 | The mode table in `vtium-term`: one row per ANSI or DEC private mode vtium recognises, with kind, number, name, status (supported, partial, ignored, refused), default (fixed or a host setting), reset, what the host must do, terminfo, spec and tests | The calls into each mode's accessors from the dispatch, the DECRQM replies and the resets; `docs/modes.md` and `docs/modes.tsv`, describing the build with `images` | The committed `docs/modes.md` or `.tsv` differs from the table; a number with no row (DEC 0-65535, ANSI 0-255) gets a DECRQM reply other than 0, or SM and RM of it change the terminal's state; a number with a row replies 0; SM, RM or DECRQM do anything but expand the table, or a mode's state is touched outside its accessors; a supported mode's row names no test that sets and resets it, or names a test that does not exist |
-| The parser's bounds: rows in `vtium-parse`'s `src/bounds.rs`, from which its constants take their values | The bounds table in the crate's README | The committed table differs from the rows; a value differs from the C reference's |
+| The parser's bounds: rows in `vtium-parse`'s `src/bounds.rs`, from which its constants take their values | The bounds table in the crate's README | The committed table differs from the rows |
 | The capability list: each probe `works` or `missing`, with the issue for each gap; a `works` probe may name the feature it needs | The probe verdicts | A `works` probe fails, or fails to fail without its feature; a `missing` probe passes; a probe is not in the list, or the list names one that does not exist |
 | The terminfo entry | The XTGETTCAP table | The committed table differs from the entry |
 
