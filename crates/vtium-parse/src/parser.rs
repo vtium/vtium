@@ -656,7 +656,11 @@ impl Parser {
     fn end_string<C: Consumer>(&mut self, consumer: &mut C, string: State, end: StringEnd) {
         match string {
             State::OscString => {
-                consumer.osc_end(self.osc.get(..self.osc_len).unwrap_or(&[]), end);
+                consumer.osc_end(
+                    self.osc.get(..self.osc_len).unwrap_or(&[]),
+                    self.osc_full,
+                    end,
+                );
             }
             State::DcsPass => {
                 match self.dcs {
@@ -700,7 +704,7 @@ mod tests {
         fn csi_dispatch(&mut self, _: &Params, _: Intermediates, _: u8) {
             self.dispatches = self.dispatches.saturating_add(1);
         }
-        fn osc_end(&mut self, _: &[u8], _: StringEnd) {}
+        fn osc_end(&mut self, _: &[u8], _: bool, _: StringEnd) {}
         fn dcs_hook(&mut self, _: &Params, _: Intermediates, _: u8) {
             self.hooks = self.hooks.saturating_add(1);
         }

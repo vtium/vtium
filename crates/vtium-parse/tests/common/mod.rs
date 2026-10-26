@@ -22,7 +22,8 @@ pub enum Act {
     Esc(String, u8),
     /// The private marker, if any, then the intermediates, as text.
     Csi(Vec<i32>, String, u8),
-    Osc(Vec<u8>, StringEnd),
+    /// The kept bytes, whether the string was truncated, and its end.
+    Osc(Vec<u8>, bool, StringEnd),
     DcsHook(Vec<i32>, String, u32),
     DcsByte(u8),
     DcsChar(u32),
@@ -200,11 +201,11 @@ impl Consumer for Recorder {
         ));
     }
 
-    fn osc_end(&mut self, data: &[u8], end: StringEnd) {
+    fn osc_end(&mut self, data: &[u8], truncated: bool, end: StringEnd) {
         assert!(data.len() <= OSC_MAX, "osc of {} bytes", data.len());
         assert!(std::str::from_utf8(data).is_ok(), "osc not UTF-8");
         check_end(end, true);
-        self.push(Act::Osc(data.to_vec(), end));
+        self.push(Act::Osc(data.to_vec(), truncated, end));
     }
 
     fn dcs_hook(&mut self, params: &Params, intermediates: Intermediates, final_byte: u8) {
@@ -358,7 +359,12 @@ pub fn esc(intermediates: &str, final_byte: u8) -> Act {
 }
 
 pub fn osc(data: &[u8], end: StringEnd) -> Act {
-    Act::Osc(data.to_vec(), end)
+    Act::Osc(data.to_vec(), false, end)
+}
+
+/// An OSC string truncated at [`OSC_MAX`]: `data` is the prefix it kept.
+pub fn osc_truncated(data: &[u8], end: StringEnd) -> Act {
+    Act::Osc(data.to_vec(), true, end)
 }
 
 pub fn dcs_bytes(data: &[u8]) -> Vec<Act> {

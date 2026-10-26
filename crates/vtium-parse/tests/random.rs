@@ -221,7 +221,7 @@ impl Coverage {
                     self.params_full |= p.len() == PARAMS_MAX;
                     "csi"
                 }
-                Act::Osc(d, _) => {
+                Act::Osc(d, ..) => {
                     self.osc_full |= d.len() == OSC_MAX;
                     "osc"
                 }

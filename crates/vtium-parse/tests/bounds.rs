@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{Act, Bel, St, VALUE_MAX, csi, osc, parse};
+use common::{Act, Bel, St, VALUE_MAX, csi, osc, osc_truncated, parse};
 use vtium_parse::{OSC_MAX, PARAMS_MAX, Parser, SUBPARAMS_MAX};
 
 fn csi_with(params: &str, final_byte: char) -> Vec<u8> {
@@ -107,7 +107,8 @@ fn many_intermediates_take_no_room() {
     assert_eq!(parse(&seq), [csi(&[-1], "!%", b'p')]);
 }
 
-// tsm-vte-int.h:31, tsm-vte.c:2915: an OSC string keeps 127 bytes.
+// tsm-vte-int.h:31, tsm-vte.c:2915: an OSC string keeps 127 bytes, and
+// one of exactly 127 is not truncated.
 #[test]
 fn osc_keeps_127_bytes() {
     let body = vec![b'a'; OSC_MAX];
@@ -119,14 +120,14 @@ fn osc_keeps_127_bytes() {
 }
 
 // tsm-vte.c:2915-2917: the bytes past 127 are dropped, and the string still
-// dispatches.
+// dispatches, marked truncated from the 128th byte on.
 #[test]
 fn osc_past_127_dropped() {
     let mut seq = b"\x1b]".to_vec();
     seq.extend_from_slice(&[b'a'; OSC_MAX]);
-    seq.extend_from_slice(b"bcdef");
+    seq.extend_from_slice(b"b");
     seq.push(0x07);
-    assert_eq!(parse(&seq), [osc(&[b'a'; OSC_MAX], Bel)]);
+    assert_eq!(parse(&seq), [osc_truncated(&[b'a'; OSC_MAX], Bel)]);
 }
 
 // Departure, decided by the operator: the kept bytes are always a prefix.
@@ -139,7 +140,7 @@ fn osc_keeps_a_prefix_once_a_character_does_not_fit() {
     seq.extend_from_slice("€".as_bytes());
     seq.extend_from_slice(b"bc");
     seq.push(0x07);
-    assert_eq!(parse(&seq), [osc(&[b'a'; OSC_MAX - 2], Bel)]);
+    assert_eq!(parse(&seq), [osc_truncated(&[b'a'; OSC_MAX - 2], Bel)]);
 }
 
 // A megabyte of OSC takes no more than the bound.
@@ -150,7 +151,7 @@ fn osc_flood_bounded() {
     seq.extend_from_slice(b"\x1b\\");
     let acts = parse(&seq);
     assert_eq!(acts.len(), 2);
-    assert_eq!(acts[0], osc(&[b'x'; OSC_MAX], St));
+    assert_eq!(acts[0], osc_truncated(&[b'x'; OSC_MAX], St));
 }
 
 // tsm-vte.c:3142-3145, tsm-vte-image.c:117-131: DCS data is streamed, not

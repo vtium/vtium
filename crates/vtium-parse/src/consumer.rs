@@ -110,10 +110,12 @@ pub trait Consumer {
     fn csi_dispatch(&mut self, params: &Params, intermediates: Intermediates, final_byte: u8);
 
     /// An OSC string ends (tsm-vte.c:3004-3015). `data` is
-    /// its first bytes as UTF-8, at most [`OSC_MAX`](crate::OSC_MAX). A
-    /// string ended by BEL takes replies ended by BEL, and one ended by ST
-    /// replies ended by `ESC \` (tsm-vte.c:2996-3002).
-    fn osc_end(&mut self, data: &[u8], end: StringEnd);
+    /// its first bytes as UTF-8, at most [`OSC_MAX`](crate::OSC_MAX), and
+    /// `truncated` says a character past that bound was dropped, so a
+    /// handler that must not act on part of a string (OSC 4, 8 or 52)
+    /// refuses it. A string ended by BEL takes replies ended by BEL, and
+    /// one ended by ST replies ended by `ESC \` (tsm-vte.c:2996-3002).
+    fn osc_end(&mut self, data: &[u8], truncated: bool, end: StringEnd);
 
     /// A DCS string starts (tsm-vte.c:3128-3140): its
     /// parameters with their private marker, its intermediates, and

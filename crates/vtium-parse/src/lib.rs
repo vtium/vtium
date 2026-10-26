@@ -33,7 +33,7 @@
 //!     fn execute(&mut self, _: u8) {}
 //!     fn esc_dispatch(&mut self, _: Intermediates, _: u8) {}
 //!     fn csi_dispatch(&mut self, _: &Params, _: Intermediates, _: u8) {}
-//!     fn osc_end(&mut self, _: &[u8], _: StringEnd) {}
+//!     fn osc_end(&mut self, _: &[u8], _: bool, _: StringEnd) {}
 //!     fn dcs_hook(&mut self, _: &Params, _: Intermediates, _: u8) {}
 //!     fn dcs_put(&mut self, _: Chunk<'_>) {}
 //!     fn dcs_unhook(&mut self, _: StringEnd) {}
