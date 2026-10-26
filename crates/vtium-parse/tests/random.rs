@@ -1,7 +1,8 @@
 //! Seeded random and adversarial byte streams. For each stream: no panic,
 //! every bound the recorder checks holds at every call, and the stream cut
-//! at any point and fed in two pieces gives the same actions as fed whole,
-//! as does the stream fed a byte at a time or with pauses.
+//! at any point and fed in two pieces gives the same actions and leaves the
+//! parser in the same state as fed whole, as does the stream fed a byte at
+//! a time or with pauses.
 //!
 //! This is vtium-parse's chunking-invariance gate, the parser's part of the
 //! "Chunking invariance" rule in docs/architecture.md, "Determinism"
@@ -179,7 +180,13 @@ fn bound_stress(rng: &mut Rng) -> Vec<u8> {
     v
 }
 
-fn run(mode: InputMode, pieces: &[&[u8]], pause_every: Option<usize>) -> Vec<Act> {
+/// The actions `pieces` give, and the parser's state, as its `Debug`
+/// shows it, after the first piece and at the end.
+fn run(
+    mode: InputMode,
+    pieces: &[&[u8]],
+    pause_every: Option<usize>,
+) -> (Vec<Act>, String, String) {
     let mut parser = Parser::new();
     let mut rec = Recorder {
         mode,
@@ -194,10 +201,20 @@ fn run(mode: InputMode, pieces: &[&[u8]], pause_every: Option<usize>) -> Vec<Act
             _ => |a: &Act| format!("{a:?}").len() % 3 == 0,
         });
     }
-    for piece in pieces {
+    let mut first = String::new();
+    for (i, piece) in pieces.iter().enumerate() {
         rec.feed(&mut parser, piece);
+        if i == 0 {
+            first = format!("{parser:?}");
+        }
     }
-    rec.acts
+    (rec.acts, first, format!("{parser:?}"))
+}
+
+/// The actions and the end state of `pieces`.
+fn run_to_end(mode: InputMode, pieces: &[&[u8]], pause_every: Option<usize>) -> (Vec<Act>, String) {
+    let (acts, _, end) = run(mode, pieces, pause_every);
+    (acts, end)
 }
 
 /// What the streams reached, so that a generator that stops reaching a
@@ -208,6 +225,12 @@ struct Coverage {
     osc_full: bool,
     params_full: bool,
     tcap_over: bool,
+    /// Cuts inside a UTF-8 character.
+    cuts_in_utf8: usize,
+    /// Cuts inside an ESC, CSI or DCS header.
+    cuts_in_header: usize,
+    /// Cuts between the ESC and the `\` of a string's ST.
+    cuts_in_st: usize,
 }
 
 impl Coverage {
@@ -241,6 +264,43 @@ impl Coverage {
             self.kinds.insert(kind);
         }
     }
+
+    /// Counts a cut by where it fell: `state` is the parser's state after
+    /// the bytes before it, and `after` the bytes after it.
+    fn note_cut(&mut self, mode: InputMode, state: &str, after: &[u8]) {
+        if mode == InputMode::Utf8 && !state.contains("need: 0,") {
+            self.cuts_in_utf8 += 1;
+        }
+        const HEADERS: [&str; 7] = [
+            "state: EscInt,",
+            "state: CsiEntry,",
+            "state: CsiParam,",
+            "state: CsiInt,",
+            "state: DcsEntry,",
+            "state: DcsParam,",
+            "state: DcsInt,",
+        ];
+        if HEADERS.iter().any(|h| state.contains(h)) {
+            self.cuts_in_header += 1;
+        }
+        if state.contains("pending_end: Some(") && after.first() == Some(&b'\\') {
+            self.cuts_in_st += 1;
+        }
+    }
+
+    /// Fails unless the cuts fell inside a UTF-8 character, inside a
+    /// header and inside an ST.
+    fn assert_cuts(&self) {
+        assert!(
+            self.cuts_in_utf8 > 0,
+            "no cut fell inside a UTF-8 character"
+        );
+        assert!(self.cuts_in_header > 0, "no cut fell inside a header");
+        assert!(
+            self.cuts_in_st > 0,
+            "no cut fell between the ESC and the \\ of an ST"
+        );
+    }
 }
 
 const ALL_KINDS: [&str; 14] = [
@@ -267,8 +327,8 @@ fn check_stream(rng: &mut Rng, stream: &[u8], cov: &mut Coverage) {
         InputMode::EightBit,
         InputMode::SevenBit,
     ]);
-    let whole = run(mode, &[stream], None);
-    cov.note(&whole);
+    let whole = run_to_end(mode, &[stream], None);
+    cov.note(&whole.0);
 
     let cuts: Vec<usize> = if stream.len() <= 64 {
         (0..=stream.len()).collect()
@@ -279,8 +339,10 @@ fn check_stream(rng: &mut Rng, stream: &[u8], cov: &mut Coverage) {
     };
     for cut in cuts {
         let (a, b) = stream.split_at(cut);
+        let (acts, at_cut, end) = run(mode, &[a, b], None);
+        cov.note_cut(mode, &at_cut, b);
         assert_eq!(
-            run(mode, &[a, b], None),
+            (acts, end),
             whole,
             "cut at {cut} of {stream:02x?} in {mode:?}"
         );
@@ -289,14 +351,14 @@ fn check_stream(rng: &mut Rng, stream: &[u8], cov: &mut Coverage) {
     if stream.len() <= 512 {
         let bytewise: Vec<&[u8]> = stream.chunks(1).collect();
         assert_eq!(
-            run(mode, &bytewise, None),
+            run_to_end(mode, &bytewise, None),
             whole,
             "bytewise {stream:02x?} in {mode:?}"
         );
     }
     let every = *rng.pick(&[2, 3]);
     assert_eq!(
-        run(mode, &[stream], Some(every)),
+        run_to_end(mode, &[stream], Some(every)),
         whole,
         "paused {stream:02x?} in {mode:?}"
     );
@@ -325,6 +387,10 @@ fn random_bytes_split_anywhere() {
             "random bytes never reached {kind}"
         );
     }
+    // Random bytes rarely open a string and end it with ESC `\`, so only
+    // the tokens below are held to cut inside an ST.
+    assert!(cov.cuts_in_utf8 > 0, "no cut fell inside a UTF-8 character");
+    assert!(cov.cuts_in_header > 0, "no cut fell inside a header");
 }
 
 #[test]
@@ -337,6 +403,7 @@ fn adversarial_tokens_split_anywhere() {
         check_stream(&mut rng, &stream, &mut cov);
     }
     assert_eq!(cov.kinds, BTreeSet::from(ALL_KINDS));
+    cov.assert_cuts();
 }
 
 #[test]
@@ -352,4 +419,5 @@ fn bound_stress_split_anywhere() {
     assert!(cov.osc_full, "no OSC string reached its bound");
     assert!(cov.params_full, "no CSI reached 16 parameters");
     assert!(cov.tcap_over, "no XTGETTCAP payload passed its bound");
+    cov.assert_cuts();
 }
