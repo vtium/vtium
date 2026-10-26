@@ -52,6 +52,16 @@ Where the C reference departs from a protocol specification, vtium follows the s
 
 A bound vtium takes from the C reference is a starting value. vtium may set its own, with the reason in the row that defines it.
 
+## Determinism
+
+vtium's state follows from the bytes it reads, whatever a program sends and however the bytes arrive.
+
+- **Chunking invariance.** The screen, the scrollback and the image store after a byte stream depend only on the bytes, never on how the pty split them or how fast they came. A property test feeds each stream whole and cut at random points, and requires the same state. The work bound and the image pause change when work is done, never what state results.
+- **Every resource is bounded, and its overflow is defined.** The parser's buffers truncate as `vtium-parse`'s bounds table says. The image budget evicts in a fixed order (rank, then sequence number) and refuses a reservation it cannot fit rather than evicting first. A flood reaches a defined state, never a race.
+- **Time enters in named places only, each with a defined outcome.** A decode the helper does not finish in time gets a refusal reply, and input stays paused until either outcome, so nothing reorders around it. Mode 2026's timeout changes when a frame shows, never the state behind it. The replay harness's fixture host answers synchronously, so the conformance runs contain no time.
+- **No observable order comes from a hash.** Rust seeds `HashMap` per process, so nothing that reaches the screen, a reply or eviction iterates one. Images and placements live in ordered maps or carry sequence numbers.
+- **Arithmetic on input-derived values is checked or saturating.** Sizes computed from a program's parameters (width × height × 4, cell boxes, offsets) never wrap. `clippy::arithmetic_side_effects` is denied in the crates that read the pty's bytes (`vtium-parse`, `vtium-term`, `vtium-image`). Tests and fuzzing run with overflow checks. The release profiles keep them off, because with `panic = "abort"` a missed case would let input end the console.
+
 ## Tables, references and maps
 
 A fact vtium states in more than one place has one source. Where a test can be written, the other places are generated from the source or checked against it, and the test fails on drift. The coverage map and the path tables are kept by hand, in the change that alters what they describe.
