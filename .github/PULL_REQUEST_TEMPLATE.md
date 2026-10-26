@@ -20,15 +20,17 @@
 
 <!-- Required if this adds something new. Name the new harness case. Show it failing without the feature, or with the defect planted, and passing with it. Write "nothing new" otherwise. -->
 
-## Defence
+## Purpose / cause / effects / value
 
-<!-- Required, in your own words. Review will challenge this, and you are expected to defend it.
+<!-- Required, in your own words.
 - Purpose: what the change is for.
 - Cause: the defect or capability gap that made it necessary.
 - Effects: what it changes, and what could break.
-- Value: what it is worth to vtium's users.
-- Why this approach over the alternatives, and what it costs.
-- What the proofs above show. -->
+- Value: what it is worth to vtium's users. -->
+
+## Defence (why this approach over the alternatives, what it costs)
+
+<!-- Required, in your own words. Review will challenge the design, the trade-offs and the proofs, and you are expected to defend them. Say what the proofs above show. -->
 
 ## How the code was written
 

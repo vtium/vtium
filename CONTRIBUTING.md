@@ -27,7 +27,7 @@ A contribution that adds something new extends the harness in the same pull requ
 
 The person who submits a pull request answers for it. They can explain its purpose, what caused the need for it (the defect or the capability gap), its effects (what it changes and what could break), and its value. Review will challenge its design, its trade-offs and its proofs, and the submitter is expected to defend them in their own words.
 
-However impressive a change is, it is not merged without a defence: why it is needed, and what happens when it is merged. Effects the submitter has not examined, or that the proofs show to be harmful, block it. A change its submitter cannot defend is closed, whoever or whatever wrote the code.
+However impressive a change is, it is not merged without a defence: why it is needed, and what happens when it is merged. Effects the submitter has not examined, or that the proofs show to be harmful, block it. A change its submitter cannot explain or defend is closed, whoever or whatever wrote the code.
 
 ### It says how the code was written
 
