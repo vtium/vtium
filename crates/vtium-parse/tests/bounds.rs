@@ -182,4 +182,6 @@ fn apc_streams_unbounded_data() {
 fn parser_size_is_fixed() {
     let size = std::mem::size_of::<Parser>();
     assert!(size <= 2048, "Parser is {size} bytes");
+    #[cfg(target_pointer_width = "64")]
+    assert_eq!(size, 1808, "Parser is {size} bytes");
 }

@@ -707,6 +707,25 @@ fn reset_drops_the_string_in_progress() {
     assert_eq!(rec.acts, [Act::Print(0x78), Act::Execute(0x07)]);
 }
 
+// Departure 6 inside an ignored CSI: in 8-bit mode the GR byte 0xED acts
+// as `m` and ends the ignored sequence, so the `x` after it prints.
+#[test]
+fn gr_ends_an_ignored_csi_in_8bit_mode() {
+    assert_eq!(parse8(b"\x9b1?\xedx"), [Act::Print(0x78)]);
+}
+
+// aaronsb/libtsm#53 covers APC strings only: after a reset at the ESC of an
+// OSC string's ST, the `\` prints in ground state, as in the C reference.
+#[test]
+fn reset_after_osc_esc_prints_the_backslash() {
+    let mut parser = vtium_parse::Parser::new();
+    let mut rec = common::Recorder::new();
+    rec.feed(&mut parser, b"\x1b]0;t\x1b");
+    parser.reset();
+    rec.feed(&mut parser, b"\\");
+    assert_eq!(rec.acts, [Act::Print(0x5c)]);
+}
+
 // tsm-vte.c:1043: reset leaves the UTF-8 decoder between characters.
 #[test]
 fn reset_drops_a_partial_character() {

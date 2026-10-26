@@ -206,3 +206,40 @@ fn no_pair_from_0x80_up_reaches_the_state_machine_as_a_control() {
         }
     }
 }
+
+// The decoder's contract, point 3, inside a DCS or APC string: the byte
+// that breaks a sequence comes after its U+FFFD. The run fast path takes
+// plain bytes only while the decoder is between characters, so the `a`
+// after a truncated E2 goes through the decoder, not straight into a run.
+#[test]
+fn run_byte_after_a_truncated_sequence_follows_its_replacement() {
+    assert_eq!(
+        parse(b"\x1bPq\xe2a\x1b\\"),
+        acts![
+            common::hook(&[-1], "", u32::from(b'q')),
+            Act::DcsChar(0xfffd),
+            Act::DcsByte(b'a'),
+            Act::DcsUnhook(St),
+            esc("", b'\\'),
+        ]
+    );
+    assert_eq!(
+        parse(b"\x1b_\xe2a\x1b\\"),
+        acts![
+            Act::ApcStart,
+            Act::ApcChar(0xfffd),
+            Act::ApcByte(b'a'),
+            Act::ApcEnd(St),
+            esc("", b'\\'),
+        ]
+    );
+}
+
+// The decoder's contract, point 2, at the fourth byte of a sequence.
+#[test]
+fn a_bad_fourth_byte_is_its_own_replacement() {
+    assert_eq!(
+        parse(b"\xf0\x90\x80\xc0A"),
+        [Act::Print(0xfffd), Act::Print(0xfffd), Act::Print(0x41)]
+    );
+}

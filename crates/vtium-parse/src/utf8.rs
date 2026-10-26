@@ -268,6 +268,20 @@ mod tests {
         }
     }
 
+    // Contracts 1 to 3 at the fourth byte: for each four-byte lead, after a
+    // well-formed pair of continuations, every possible fourth byte decodes
+    // as the standard library decodes it.
+    #[test]
+    fn matches_lossy_decoding_for_every_fourth_byte() {
+        for a in 0xf0..=0xf4u8 {
+            let b = if a == 0xf0 { 0x90 } else { 0x80 };
+            for d in 0..=0xffu8 {
+                let four = [a, b, 0x80, d, b'A'];
+                assert_eq!(decode(&four), lossy(&four), "{four:02x?}");
+            }
+        }
+    }
+
     // Contract 4: over every two-byte input, a control comes out only from
     // its own byte (C0 and DEL) or from its well-formed C2 sequence (C1), so
     // no ill-formed input yields ESC or any other control.
