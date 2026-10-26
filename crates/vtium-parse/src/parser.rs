@@ -317,7 +317,9 @@ impl Parser {
     /// as `tsm_vte_reset` leaves the parser (tsm-vte.c:1043-1047). A string
     /// in progress is dropped with no end call, and an XTGETTCAP request
     /// waiting for the `\` of its ST is dropped (libtsm's
-    /// `test_vte_xtgettcap_esc_reset`).
+    /// `test_vte_xtgettcap_esc_reset`). The consumer clears its own string
+    /// state, such as a sixel picture or a kitty command in progress, when
+    /// it resets the parser.
     ///
     /// One departure from the C reference: after a reset between the ESC
     /// that ended an APC string and the `\` of its ST, that `\` is dropped

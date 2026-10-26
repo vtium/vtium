@@ -132,6 +132,10 @@ pub trait Consumer {
 
     /// The mode the next byte is decoded in. Read before every byte, so a
     /// mode the consumer changes in a dispatch applies from the next byte.
+    ///
+    /// It is a query because the mode changes inside a dispatch (DECSCL,
+    /// DECSTR, RIS), while [`Parser::advance`](crate::Parser::advance)
+    /// holds the parser borrowed and the consumer has no way to reach it.
     fn input_mode(&self) -> InputMode {
         InputMode::Utf8
     }
