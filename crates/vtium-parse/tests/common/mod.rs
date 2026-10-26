@@ -115,9 +115,9 @@ impl Recorder {
 }
 
 impl Consumer for Recorder {
-    fn print(&mut self, c: u32) {
+    fn print(&mut self, c: char) {
+        let c = u32::from(c);
         assert!(is_printable(c), "print {c:#x}");
-        assert!(c <= 0x1f_ffff, "print {c:#x} past what the decoder makes");
         self.push(Act::Print(c));
     }
 
@@ -175,7 +175,8 @@ impl Consumer for Recorder {
         self.push(Act::Osc(data.to_vec(), terminator));
     }
 
-    fn dcs_hook(&mut self, params: &Params, intermediates: Intermediates, final_char: u32) {
+    fn dcs_hook(&mut self, params: &Params, intermediates: Intermediates, final_char: char) {
+        let final_char = u32::from(final_char);
         assert!(!self.in_dcs && !self.in_apc);
         assert!(
             !params.has_subparams(),
@@ -204,6 +205,7 @@ impl Consumer for Recorder {
                 }
             }
             Chunk::Char(c) => {
+                let c = u32::from(c);
                 assert!(c >= 0xa0, "dcs char {c:#x}");
                 self.push(Act::DcsChar(c));
             }
@@ -235,6 +237,7 @@ impl Consumer for Recorder {
                 }
             }
             Chunk::Char(c) => {
+                let c = u32::from(c);
                 assert!(c >= 0xa0, "apc char {c:#x}");
                 self.push(Act::ApcChar(c));
             }

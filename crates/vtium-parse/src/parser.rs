@@ -355,10 +355,10 @@ impl Parser {
                 let b = rest[0];
                 i += 1;
                 match mode {
-                    InputMode::SevenBit => self.parse(consumer, u32::from(b & 0x7f)),
-                    InputMode::EightBit => self.parse(consumer, u32::from(b)),
+                    InputMode::SevenBit => self.parse(consumer, char::from(b & 0x7f)),
+                    InputMode::EightBit => self.parse(consumer, char::from(b)),
                     InputMode::Utf8 => {
-                        if let Some(c) = self.utf8.feed(b) {
+                        for c in self.utf8.feed(b).into_iter().flatten() {
                             self.parse(consumer, c);
                         }
                     }
@@ -373,11 +373,11 @@ impl Parser {
 
     /// `parse_data` (tsm-vte.c:3280-3642): one character through the state
     /// machine.
-    fn parse<C: Consumer>(&mut self, consumer: &mut C, c: u32) {
+    fn parse<C: Consumer>(&mut self, consumer: &mut C, c: char) {
         // aaronsb/libtsm#53: the `\` of an APC's ST, after a reset
         if self.apc_esc {
             self.apc_esc = false;
-            if self.state == State::Ground && c == u32::from(b'\\') {
+            if self.state == State::Ground && c == '\\' {
                 return;
             }
         }
@@ -385,15 +385,15 @@ impl Parser {
         // tsm-vte.c:3282-3287: an XTGETTCAP request that an ESC ended
         if self.tcap_esc {
             self.tcap_esc = false;
-            if c == u32::from(b'\\') {
+            if c == '\\' {
                 consumer.xtgettcap(&self.tcap[..self.tcap_len], self.tcap_over);
             }
         }
 
-        match any_state(c) {
+        match any_state(u32::from(c)) {
             Some((state, action)) => self.trans(consumer, c, Some(state), action),
             None => {
-                let (next, action) = transition(self.state, c);
+                let (next, action) = transition(self.state, u32::from(c));
                 self.trans(consumer, c, next, action);
             }
         }
@@ -405,7 +405,7 @@ impl Parser {
     fn trans<C: Consumer>(
         &mut self,
         consumer: &mut C,
-        c: u32,
+        c: char,
         next: Option<State>,
         action: Action,
     ) {
@@ -425,14 +425,14 @@ impl Parser {
     /// The casts to `u8` hold by the arms that reach each action: controls
     /// executed are below 0xA0, final bytes are below 0x7F, and strings end
     /// only on a control below 0xA0.
-    fn act<C: Consumer>(&mut self, consumer: &mut C, c: u32, action: Action) {
+    fn act<C: Consumer>(&mut self, consumer: &mut C, c: char, action: Action) {
         match action {
             Action::None => {}
             Action::Print => consumer.print(c),
             Action::Execute => consumer.execute(c as u8),
             Action::Clear => self.clear(),
-            Action::Collect => self.intermediates |= Intermediates::of(c),
-            Action::Param => self.params.put(c),
+            Action::Collect => self.intermediates |= Intermediates::of(u32::from(c)),
+            Action::Param => self.params.put(u32::from(c)),
             Action::EscDispatch => consumer.esc_dispatch(self.intermediates, c as u8),
             Action::CsiDispatch => {
                 consumer.csi_dispatch(&self.params, self.intermediates, c as u8);
@@ -446,14 +446,14 @@ impl Parser {
             Action::OscEnd => consumer.osc_dispatch(&self.osc[..self.osc_len], c as u8),
             Action::ApcStart => consumer.apc_start(),
             Action::ApcCollect => {
-                if c < 0x80 {
+                if c.is_ascii() {
                     consumer.apc_put(Chunk::Bytes(&[c as u8]));
                 } else {
                     consumer.apc_put(Chunk::Char(c));
                 }
             }
             Action::ApcEnd => {
-                self.apc_esc = c == 0x1b;
+                self.apc_esc = c == '\x1b';
                 consumer.apc_end(c as u8);
             }
         }
@@ -469,9 +469,9 @@ impl Parser {
     /// `do_osc_collect` (tsm-vte.c:2912-2921): the character as UTF-8, or
     /// nothing when it would pass [`OSC_MAX`] or has no encoding. A later,
     /// shorter character may still fit.
-    fn osc_collect(&mut self, c: u32) {
+    fn osc_collect(&mut self, c: char) {
         let mut buf = [0; 4];
-        let len = utf8::encode(c, &mut buf);
+        let len = utf8::encode(u32::from(c), &mut buf);
         if self.osc_len + len > OSC_MAX {
             return;
         }
@@ -483,8 +483,8 @@ impl Parser {
     /// is XTGETTCAP (tsm-vte.c:3134-3135), collected here; every other DCS
     /// string goes to the consumer, which picks its handler as
     /// `do_dcs_start` does.
-    fn dcs_start<C: Consumer>(&mut self, consumer: &mut C, c: u32) {
-        if c == u32::from(b'q')
+    fn dcs_start<C: Consumer>(&mut self, consumer: &mut C, c: char) {
+        if c == 'q'
             && self.intermediates == Intermediates::PLUS
             && self.params.count() == 1
             && self.params.get(0) < 0
@@ -499,13 +499,13 @@ impl Parser {
     }
 
     /// `do_dcs_collect` (tsm-vte.c:3142-3154), one character.
-    fn dcs_collect<C: Consumer>(&mut self, consumer: &mut C, c: u32) {
+    fn dcs_collect<C: Consumer>(&mut self, consumer: &mut C, c: char) {
         match self.dcs {
-            Dcs::Hooked if c < 0x80 => consumer.dcs_put(Chunk::Bytes(&[c as u8])),
+            Dcs::Hooked if c.is_ascii() => consumer.dcs_put(Chunk::Bytes(&[c as u8])),
             Dcs::Hooked => consumer.dcs_put(Chunk::Char(c)),
             // the payload is ASCII; anything else is kept as a byte no
             // name holds, so its name is refused
-            Dcs::Xtgettcap => self.tcap_push(if c < 0x80 { c as u8 } else { 0 }),
+            Dcs::Xtgettcap => self.tcap_push(if c.is_ascii() { c as u8 } else { 0 }),
             Dcs::None => {}
         }
     }
@@ -537,13 +537,13 @@ impl Parser {
     /// `do_dcs_end` (tsm-vte.c:3157-3170). ST answers an XTGETTCAP request,
     /// ESC answers it if `\` follows, and CAN, SUB or another C1 control
     /// drops it.
-    fn dcs_end<C: Consumer>(&mut self, consumer: &mut C, c: u32) {
+    fn dcs_end<C: Consumer>(&mut self, consumer: &mut C, c: char) {
         match self.dcs {
             Dcs::Hooked => consumer.dcs_unhook(c as u8),
-            Dcs::Xtgettcap if c == 0x9c => {
+            Dcs::Xtgettcap if c == '\u{9c}' => {
                 consumer.xtgettcap(&self.tcap[..self.tcap_len], self.tcap_over);
             }
-            Dcs::Xtgettcap if c == 0x1b => self.tcap_esc = true,
+            Dcs::Xtgettcap if c == '\x1b' => self.tcap_esc = true,
             Dcs::Xtgettcap | Dcs::None => {}
         }
         self.dcs = Dcs::None;

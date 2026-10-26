@@ -17,42 +17,80 @@ fn utf8_split_across_inputs() {
     assert_eq!(rec.acts, prints("😀€"));
 }
 
-// tsm-unicode.c:775-795: a truncated sequence prints U+FFFD and takes the
-// byte that broke it with it, even an ESC.
+// The decoder's contract, point 3: the byte that ends an ill-formed
+// sequence is processed again, so an ESC after a truncated sequence still
+// starts a sequence.
 #[test]
-fn malformed_utf8_replaces_and_consumes() {
-    assert_eq!(parse(b"\xe2\x82A"), [Act::Print(0xfffd)]);
+fn malformed_utf8_keeps_the_breaking_byte() {
+    assert_eq!(parse(b"\xe2\x82A"), [Act::Print(0xfffd), Act::Print(0x41)]);
     assert_eq!(
         parse(b"\xe2\x1b[1mB"),
-        acts![Act::Print(0xfffd), prints("[1mB")]
+        [
+            Act::Print(0xfffd),
+            csi(&[1], I::NONE, b'm'),
+            Act::Print(0x42)
+        ]
     );
 }
 
-// tsm-unicode.c:755-757, 769-772: a stray continuation byte vanishes, and
-// 0xF8 to 0xFF print U+FFFD.
+// The decoder's contract, point 2: a byte that can neither start nor
+// continue a sequence prints one U+FFFD.
 #[test]
 fn stray_and_invalid_bytes() {
     assert_eq!(
         parse(b"a\x80b\xffc"),
-        acts![prints("ab"), Act::Print(0xfffd), prints("c")]
+        acts![
+            prints("a"),
+            Act::Print(0xfffd),
+            prints("b"),
+            Act::Print(0xfffd),
+            prints("c")
+        ]
     );
 }
 
-// tsm-unicode.c:742,748: an overlong encoding of ESC is ESC to the state
-// machine, so it starts a sequence.
+// The decoder's contract, point 4: an overlong form of ESC is ill-formed and
+// never starts a sequence, whatever its length.
 #[test]
-fn overlong_esc_starts_a_sequence() {
-    assert_eq!(parse(b"\xe0\x80\x9b[1m"), [csi(&[1], I::NONE, b'm')]);
-    assert_eq!(parse(b"\xc0\x9b[1m"), [csi(&[1], I::NONE, b'm')]);
+fn overlong_esc_never_starts_a_sequence() {
+    let r = Act::Print(0xfffd);
+    assert_eq!(
+        parse(b"\xc0\x9b[1m"),
+        acts![vec![r.clone(); 2], prints("[1m")]
+    );
+    assert_eq!(
+        parse(b"\xe0\x80\x9b[1m"),
+        acts![vec![r.clone(); 3], prints("[1m")]
+    );
+    assert_eq!(
+        parse(b"\xf0\x80\x80\x9b[1m"),
+        acts![vec![r; 4], prints("[1m")]
+    );
 }
 
-// tsm-unicode.c has no range check: a surrogate and a value past U+10FFFF
-// print as they decode.
+// The decoder's contract, point 4: a surrogate and a value past U+10FFFF
+// are ill-formed, one U+FFFD for each maximal subpart.
 #[test]
-fn surrogates_and_values_past_unicode_print() {
+fn surrogates_and_values_past_unicode_are_replaced() {
     assert_eq!(
         parse(b"\xed\xa0\x80\xf7\xbf\xbf\xbf"),
-        [Act::Print(0xd800), Act::Print(0x1f_ffff)]
+        vec![Act::Print(0xfffd); 7]
+    );
+}
+
+// The decoder's contract, point 3, inside a string: the ESC after a
+// truncated sequence still ends the APC.
+#[test]
+fn malformed_utf8_inside_a_string_keeps_the_esc() {
+    assert_eq!(
+        parse(b"\x1b_G\xe2\x1b\\"),
+        [
+            Act::ApcStart,
+            Act::ApcByte(b'G'),
+            Act::ApcChar(0xfffd),
+            Act::ApcEnd(0x1b),
+            esc(I::NONE, b'\\'),
+        ]
     );
 }
 
@@ -150,4 +188,25 @@ fn advance_takes_everything_unpaused() {
     let mut rec = Recorder::new();
     assert_eq!(parser.advance(&mut rec, b"\x1b[1mabc\x1b]x"), 10);
     assert_eq!(parser.advance(&mut rec, b""), 0);
+}
+
+// The decoder's contract, point 4, through the parser: every pair of bytes
+// from 0x80 up, but the well-formed C1 controls C2 80 to C2 9F, prints and
+// nothing else, so no ill-formed input executes a control or starts a
+// sequence.
+#[test]
+fn no_ill_formed_pair_reaches_the_state_machine_as_a_control() {
+    for a in 0x80..=0xffu8 {
+        for b in 0x80..=0xffu8 {
+            if a == 0xc2 && b <= 0x9f {
+                continue;
+            }
+            let acts = parse(&[a, b, b'A']);
+            assert!(
+                acts.iter().all(|act| matches!(act, Act::Print(_))),
+                "[{a:#x}, {b:#x}] gave {acts:?}"
+            );
+            assert_eq!(acts.last(), Some(&Act::Print(0x41)), "[{a:#x}, {b:#x}]");
+        }
+    }
 }

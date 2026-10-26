@@ -9,7 +9,7 @@ vtium's escape-sequence parser: bytes from the pty in, terminal actions out. It 
 | `src/parser.rs` | `Parser`: the state machine, ported from `parse_data`, `do_trans` and `do_action`, with the collection half of each handler. |
 | `src/params.rs` | `Params` and `Intermediates`, in the C reference's representation: `int` parameters with -1 for omitted, and intermediates as `csi_flags`. |
 | `src/bounds.rs` | Every bound, with its value, what happens past it and its C citation: the one source for the constants and for the table below. |
-| `src/utf8.rs` | The UTF-8 decoder in front of the state machine, and the encoder OSC strings are collected with, ported from `tsm-unicode.c`. |
+| `src/utf8.rs` | The UTF-8 decoder in front of the state machine, written to the Unicode Standard, and the encoder OSC strings are collected with, ported from `tsm-unicode.c`. |
 | `tests/common/mod.rs` | A consumer that records every action and checks, at each call, the bounds and ranges the parser promises. |
 | `tests/state_machine.rs` | Each state's transitions, transcribed from `parse_data` and libtsm's test_vte cases. |
 | `tests/bounds.rs` | Every bound at its edge, and the C reference's behaviour past it. |
@@ -22,7 +22,9 @@ vtium's escape-sequence parser: bytes from the pty in, terminal actions out. It 
 
 ## Behaviour
 
-The parser reproduces the C reference's behaviour, including where that behaviour looks like a defect, so that the conformance goldens judge it unchanged. Each rule is cited to its line in `tsm-vte.c`. One rule departs on purpose: after a reset between the ESC that ended an APC string and the `\` of its ST, that `\` is dropped, where the C reference printed it (aaronsb/libtsm#53).
+The state machine reproduces the C reference's behaviour, including where that behaviour looks like a defect, so that the conformance goldens judge it unchanged. Each rule is cited to its line in `tsm-vte.c`.
+
+Two parts depart on purpose. The UTF-8 decoder follows the Unicode Standard (Table 3-7, and §3.9's substitution of maximal subparts): each maximal subpart of an ill-formed sequence becomes one U+FFFD, the byte that ends it is decoded again from the start, and overlongs, surrogates and values past U+10FFFF are ill-formed, so no ill-formed input yields ESC or any other control. The C reference is being fixed to the same contract. And after a reset between the ESC that ended an APC string and the `\` of its ST, that `\` is dropped, where the C reference printed it (aaronsb/libtsm#53).
 
 ## Bounds
 

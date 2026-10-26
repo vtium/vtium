@@ -176,13 +176,11 @@ fn reset_between_esc_and_backslash_drops() {
     assert_eq!(rec.acts[1], tcap(b"544e"));
 }
 
-// tsm-vte.c:3282-3287: the check for '\' takes the next character the
-// decoder yields, so a stray UTF-8 continuation byte between ESC and '\',
-// which yields none, does not drop the request.
+// tsm-vte.c:3282-3287: the check for '\' takes the next character, and a
+// stray UTF-8 continuation byte is one: U+FFFD, under the decoder's
+// contract. It drops the request, and the ESC collects it as an
+// intermediate.
 #[test]
-fn stray_continuation_between_esc_and_backslash() {
-    assert_eq!(
-        parse(b"\x1bP+q544e\x1b\x80\\"),
-        [tcap(b"544e"), esc(I::NONE, b'\\')]
-    );
+fn stray_byte_between_esc_and_backslash_drops() {
+    assert_eq!(parse(b"\x1bP+q544e\x1b\x80\\"), [esc(I::OTHER, b'\\')]);
 }

@@ -13,14 +13,14 @@
 //! struct Text(String);
 //!
 //! impl Consumer for Text {
-//!     fn print(&mut self, c: u32) {
-//!         self.0.extend(char::from_u32(c));
+//!     fn print(&mut self, c: char) {
+//!         self.0.push(c);
 //!     }
 //!     fn execute(&mut self, _: u8) {}
 //!     fn esc_dispatch(&mut self, _: Intermediates, _: u8) {}
 //!     fn csi_dispatch(&mut self, _: &Params, _: Intermediates, _: u8) {}
 //!     fn osc_dispatch(&mut self, _: &[u8], _: u8) {}
-//!     fn dcs_hook(&mut self, _: &Params, _: Intermediates, _: u32) {}
+//!     fn dcs_hook(&mut self, _: &Params, _: Intermediates, _: char) {}
 //!     fn dcs_put(&mut self, _: Chunk<'_>) {}
 //!     fn dcs_unhook(&mut self, _: u8) {}
 //!     fn apc_start(&mut self) {}
@@ -41,9 +41,15 @@
 //! vt100.net diagram: DEL prints in ground state, CAN and SUB end an OSC
 //! string by dispatching it, and an ESC ends one whatever follows. Each such
 //! rule is cited to its line in `tsm-vte.c` where it is implemented.
-//! One rule departs from the C reference on purpose: after a reset between
-//! the ESC that ended an APC string and the `\` of its ST, that `\` is
-//! dropped (aaronsb/libtsm#53; see [`Parser::reset`]).
+//!
+//! Two parts depart from the C reference on purpose. The UTF-8 decoder
+//! follows the Unicode Standard: each maximal subpart of an ill-formed
+//! sequence becomes one U+FFFD, the byte that ends it is decoded again, and
+//! overlongs, surrogates and values past U+10FFFF are ill-formed, so no
+//! ill-formed input yields a control. The C reference is being fixed to the
+//! same contract. And after a reset between the ESC that ended an APC string
+//! and the `\` of its ST, that `\` is dropped (aaronsb/libtsm#53; see
+//! [`Parser::reset`]).
 //!
 //! Charset mapping, screen effects and replies are the consumer's.
 //!

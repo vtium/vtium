@@ -375,8 +375,9 @@ fn osc_ignores_c0_and_collects_del() {
     assert_eq!(parse(b"\x1b]a\nb\x7fc\x07"), [osc(b"ab\x7fc", 0x07)]);
 }
 
-// tsm-vte.c:3606, 2912-2921: characters past ASCII are collected as UTF-8;
-// those tsm_ucs4_to_utf8 cannot encode are dropped.
+// tsm-vte.c:3606, 2912-2921: characters past ASCII are collected as UTF-8,
+// ill-formed input as U+FFFD, and the noncharacters tsm_ucs4_to_utf8 cannot
+// encode are dropped.
 #[test]
 fn osc_collects_utf8() {
     assert_eq!(
@@ -384,8 +385,8 @@ fn osc_collects_utf8() {
         [osc("2;é€".as_bytes(), 0x07)]
     );
     assert_eq!(
-        parse(b"\x1b]a\xed\xa0\x80b\xef\xbf\xbfc\x07"),
-        [osc(b"abc", 0x07)]
+        parse(b"\x1b]a\xed\xa0\x80b\xef\xbf\xbfc\xef\xb7\x90d\x07"),
+        [osc("a\u{fffd}\u{fffd}\u{fffd}bcd".as_bytes(), 0x07)]
     );
 }
 

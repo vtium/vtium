@@ -40,10 +40,8 @@ pub enum Chunk<'a> {
     /// the C0 controls other than CAN, SUB and ESC; an APC string's are
     /// 0x20 to 0x7E only.
     Bytes(&'a [u8]),
-    /// One character from U+00A0 up: whatever the UTF-8 decoder made of
-    /// the input, so possibly U+FFFD for malformed input, a surrogate, or
-    /// a value past U+10FFFF.
-    Char(u32),
+    /// One character from U+00A0 up, U+FFFD for ill-formed UTF-8.
+    Char(char),
 }
 
 /// The actions the parser drives, one method for each kind.
@@ -65,9 +63,8 @@ pub enum Chunk<'a> {
 pub trait Consumer {
     /// A character to print, `ACTION_PRINT` (tsm-vte.c:3184-3187): 0x20 to
     /// 0x7F, DEL included (tsm-vte.c:3333), or a character from U+00A0 up,
-    /// which may be U+FFFD, a surrogate or a value past U+10FFFF (see
-    /// [`Chunk::Char`]). The G0 to G3 mapping is the consumer's.
-    fn print(&mut self, c: u32);
+    /// U+FFFD for ill-formed UTF-8. The G0 to G3 mapping is the consumer's.
+    fn print(&mut self, c: char);
 
     /// A C0 or C1 control to execute, `do_execute` (tsm-vte.c:1108): 0x00
     /// to 0x1F other than ESC, or 0x80 to 0x9F. CAN and SUB also cancel the
@@ -97,7 +94,7 @@ pub trait Consumer {
     /// (tsm-vte.c:3512). A string the parser takes as XTGETTCAP goes to
     /// [`xtgettcap`](Self::xtgettcap) instead, and a malformed one (a `:`,
     /// or a marker after a parameter) reaches no method.
-    fn dcs_hook(&mut self, params: &Params, intermediates: Intermediates, final_char: u32);
+    fn dcs_hook(&mut self, params: &Params, intermediates: Intermediates, final_char: char);
 
     /// A piece of the hooked DCS string's data, `do_dcs_collect`
     /// (tsm-vte.c:3142). The parser keeps none of it, so its bound is the
