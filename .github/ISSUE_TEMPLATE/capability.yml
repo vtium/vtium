@@ -1,0 +1,50 @@
+name: Capability request
+description: A terminal capability vtium should have
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A capability is asked for as a work item: what the user sees, the spec it follows, where it lives, and the harness case that proves it works. The pull request that builds it adds that case and shows it red without the capability and green with it (CONTRIBUTING.md).
+  - type: input
+    id: goal
+    attributes:
+      label: Goal
+      description: One sentence on what a user of vtium sees or can do once this lands.
+      placeholder: Curly underlines draw under text set with SGR 4:3.
+    validations:
+      required: true
+  - type: textarea
+    id: spec
+    attributes:
+      label: Protocol or spec
+      description: The document the behaviour follows, with a link and the section. Examples are xterm ctlseqs, the kitty protocol docs, ECMA-48 and DEC STD 070.
+    validations:
+      required: true
+  - type: checkboxes
+    id: crates
+    attributes:
+      label: Crates
+      description: The crates the work touches, if you know. See docs/architecture.md.
+      options:
+        - label: vtium-parse
+        - label: vtium-term
+        - label: vtium-image
+        - label: vtium-font
+        - label: vtium-render
+        - label: vtium-platform
+        - label: vtium (the binary)
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance
+      description: The harness case that will prove it works, and would fail without it. Give the bytes sent and the screen state, reply or pixels expected.
+      placeholder: |
+        A replay case sends `\e[4:3mx` and expects a curly underline on the cell holding x.
+    validations:
+      required: true
+  - type: textarea
+    id: depends
+    attributes:
+      label: Depends on
+      description: Other issues or features this needs first.

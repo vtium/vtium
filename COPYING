@@ -1,8 +1,10 @@
 = Authors =
 
-vtium is a Rust port derived from kmscon and libtsm. Its code is written by
-large language models under the review of:
+vtium is a Rust port derived from kmscon and libtsm. It is maintained by:
 	Aaron Bockelie
+The maintainer's code is written by large language models under the
+maintainer's review. A contribution states in its pull request how its code
+was written.
 
 kmscon, from which vtium is derived, was written by:
 	David Herrmann <dh.herrmann@googlemail.com>

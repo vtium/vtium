@@ -1,0 +1,79 @@
+name: Bug report
+description: vtium does something wrong
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: vtium version or commit
+      description: The release, or the commit you built (`git rev-parse --short HEAD`).
+    validations:
+      required: true
+  - type: dropdown
+    id: build
+    attributes:
+      label: Build
+      options:
+        - minspec (the default build)
+        - minspec with features
+    validations:
+      required: true
+  - type: input
+    id: features
+    attributes:
+      label: Features
+      description: The Cargo features you enabled, if any.
+      placeholder: images
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver
+      description: The card and the kernel driver, from `lspci -k` or `/sys/class/drm`.
+      placeholder: Intel UHD 620, i915
+    validations:
+      required: true
+  - type: input
+    id: mode
+    attributes:
+      label: Display mode
+      description: The resolution and refresh rate, and whether vtium drew through DRM/KMS or fbdev.
+      placeholder: 1366x768@60, DRM/KMS
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: VT or seat setup
+      description: How vtium was started, on which VT, and under which seat manager (systemd-logind, seatd, none).
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The bytes or the program that shows the bug, if you can narrow it down.
+      placeholder: |
+        1. Start vtium on tty3.
+        2. Run `printf '\e[4:3m'`.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+      description: What should happen. Name the spec or the terminal you compared with.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+      description: What happened. A photo or screenshot helps for drawing bugs.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log excerpt
+      description: vtium's output around the failure, from the journal or stderr.
+      render: text

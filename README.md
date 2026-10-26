@@ -13,7 +13,9 @@ Not started. The plan is recorded as a decision record in the C fork, and the C 
 
 ## Provenance
 
-All code in vtium is written by large language models, under the review of its maintainer, and judged by the test harness. Each decision is recorded with the maintainer's words in the decision records.
+The maintainer's code in vtium is written by large language models, under the maintainer's review, and judged by the test harness. Each decision is recorded with the maintainer's words in the decision records.
+
+Contributions are welcome, written by hand or by a large language model. Each pull request says how its code was written. Nothing is rejected for how it was written: every change is judged by the same tests and the same review. See [CONTRIBUTING](CONTRIBUTING.md).
 
 ## Licence
 
