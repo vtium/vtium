@@ -38,7 +38,7 @@ By vtium's harness, in tiers:
 
 - **Unit tests** in each crate, run by `cargo test`.
 - **Conformance:** byte streams in, screen state and replies out, compared with reviewed goldens. They cover the parser and terminal state with no display.
-- **Capability probes:** each capability vtium claims has a probe that fails when the capability is missing, and the probes stay in step with the capability list.
+- **Capability probes:** each capability vtium claims has a probe that fails when the capability is missing, judged against the capability list (below).
 - **Pixel tests (tier 2):** the renderer draws known screens, compared pixel for pixel with goldens.
 - **VM runs (tier 3):** a VM boots vtium on a VT, drives keys and compares screenshots pixel for pixel, including a minspec variant on the small-machine standard.
 
@@ -46,15 +46,17 @@ Work is built in bundles of items that don't collide, then evaluated once per bu
 
 ## Tables, references and maps
 
-A fact vtium states in more than one place has one source, and the other places are generated from it or checked against it by a test.
+A fact vtium states in more than one place has one source. Where a test can be written, the other places are generated from the source or checked against it, and the test fails on drift. The coverage map and the path tables are kept by hand, in the change that alters what they describe.
 
 | Source | What is generated or checked | The test fails when |
 |---|---|---|
-| The mode table in `vtium-term`: one row per ANSI and DEC private mode, with kind, number, name, status (supported, partial, ignored, refused), default, reset, host setting, terminfo, spec and tests | The mode dispatch, DECRQM replies, resets and accessors; `docs/modes.md` and `docs/modes.tsv` | The committed reference differs from the table; a number with no row replies anything but 0 or changes state; SM, RM or DECRQM bypass the table |
-| The parser's bounds, as named constants in `vtium-parse` | The bounds table in the crate's reference | The committed table differs from the constants |
-| The capability list: each probe `works` or `missing`, with the issue for each gap | The probe verdicts | A `works` probe fails, or a `missing` probe passes |
-| The terminfo entry | The XTGETTCAP replies | The entry and the replies disagree |
+| The mode table in `vtium-term`: one row per ANSI or DEC private mode vtium recognises, with kind, number, name, status (supported, partial, ignored, refused), default (fixed or a host setting), reset, what the host must do, terminfo, spec and tests | The calls into each mode's accessors from the dispatch, the DECRQM replies and the resets; `docs/modes.md` and `docs/modes.tsv`, describing the build with `images` | The committed `docs/modes.md` or `.tsv` differs from the table; a number with no row (DEC 0-65535, ANSI 0-255) gets a DECRQM reply other than 0, or SM and RM of it change the terminal's state; a number with a row replies 0; SM, RM or DECRQM do anything but expand the table, or a mode's state is touched outside its accessors; a supported mode's row names no test that sets and resets it, or names a test that does not exist |
+| The parser's bounds: rows in `vtium-parse`'s `src/bounds.rs`, from which its constants take their values | The bounds table in the crate's README | The committed table differs from the rows; a value differs from the C reference's |
+| The capability list: each probe `works` or `missing`, with the issue for each gap; a `works` probe may name the feature it needs | The probe verdicts | A `works` probe fails, or fails to fail without its feature; a `missing` probe passes; a probe is not in the list, or the list names one that does not exist |
+| The terminfo entry | The XTGETTCAP table | The committed table differs from the entry |
 
-The coverage map lists each feature vtium builds, the tests that guard it, and the issue for each gap. A change that adds a feature adds its row.
+The coverage map lists each feature vtium builds, the tests that guard it and the paths they reach (font, renderer, display), and the issue for each gap. A gap is closed by a light test in the same change or filed.
 
-Every directory of tests or data carries a README with a table of what each path is. The mode table, the capability list and the terminfo entry follow the C reference's, so the replay probes judge both.
+Every directory of tests or data carries a README with a table of what each path is.
+
+The mode table follows libtsm's `tsm-modes.def`, and the capability list and terminfo entry follow kmscon's, so one conformance corpus and one set of probe verdicts are checked against vtium and the C reference alike.
