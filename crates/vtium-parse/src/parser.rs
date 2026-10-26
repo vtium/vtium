@@ -27,20 +27,10 @@
 //! reference, with the collection half of each handler. Every dispatch
 //! goes to the [`Consumer`].
 
+use crate::bounds::{OSC_MAX, XTGETTCAP_MAX};
 use crate::consumer::{Chunk, Consumer, InputMode};
 use crate::params::{Intermediates, Params};
 use crate::utf8::{self, Decoder};
-
-/// The bytes an OSC string keeps: `OSC_MAX_LEN` (tsm-vte-int.h:31) less
-/// the NUL the C reference ends it with (tsm-vte.c:2915, 3006). A
-/// character that would not fit is dropped whole.
-pub const OSC_MAX: usize = 128 - 1;
-
-/// The bytes an XTGETTCAP payload keeps, `XTGETTCAP_MAX_LEN`
-/// (tsm-vte-int.h:37-38): 16 hex-encoded names of 32 bytes
-/// (`TSM_VTE_TERMCAP_NAME_MAX`, libtsm.h:1538) and the `;` between each
-/// two, 1039 bytes.
-pub const XTGETTCAP_MAX: usize = 16 * (2 * 32 + 1) - 1;
 
 /// `enum parser_state` (tsm-vte.c:65-83).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

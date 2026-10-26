@@ -8,19 +8,7 @@
 use core::fmt;
 use core::ops::{BitOr, BitOrAssign};
 
-/// The parameters one sequence can carry, `CSI_ARG_MAX` (tsm-vte-int.h:25).
-/// Those past it are dropped (tsm-vte.c:1283,1293).
-pub const PARAMS_MAX: usize = 16;
-
-/// The sub-parameters one parameter can carry, `CSI_SUBARG_MAX`
-/// (tsm-vte-int.h:28). Those past it are dropped, and the sequence still
-/// dispatches (tsm-vte.c:1298-1303).
-pub const SUBPARAMS_MAX: usize = 8;
-
-/// A parameter stops taking digits once its value is past this
-/// (tsm-vte.c:1314-1316), so the largest value one can reach is
-/// `0xffff * 10 + 9`.
-pub(crate) const VALUE_CAP: i32 = 0xffff;
+use crate::bounds::{PARAM_VALUE_CAP, PARAMS_MAX, SUBPARAMS_MAX};
 
 /// The parameters of a CSI sequence or a DCS string, as the C reference
 /// keeps them in `csi_argv`, `csi_subargc` and `csi_subargv`.
@@ -96,13 +84,13 @@ impl Params {
         } else {
             &mut self.values[self.argc]
         };
-        if *val > VALUE_CAP {
+        if *val > PARAM_VALUE_CAP {
             return;
         }
         // Only digits reach here: the state machine sends `0` to `;`, and
         // `<` to `?` are collected as markers.
         if let Some(digit) = char::from_u32(data).and_then(|c| c.to_digit(10)) {
-            // `digit` is below 10 and `*val` at most VALUE_CAP.
+            // `digit` is below 10 and `*val` at most PARAM_VALUE_CAP.
             let digit = digit as i32;
             *val = if *val <= 0 { digit } else { *val * 10 + digit };
         }

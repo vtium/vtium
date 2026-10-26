@@ -51,23 +51,20 @@
 //!
 //! The byte stream comes from an untrusted program, so nothing it sends
 //! grows memory: the parser holds every buffer inline and allocates
-//! nothing. Each bound is the C reference's.
-//!
-//! | What | Bound | Past it |
-//! |---|---|---|
-//! | Parameters | [`PARAMS_MAX`], 16 | dropped; the sequence dispatches |
-//! | Sub-parameters of one parameter | [`SUBPARAMS_MAX`], 8 | dropped, digits too, until the next `;` |
-//! | A parameter's value | takes no digit once past 65535 | the digits are dropped |
-//! | Intermediates and markers | a set of flags | repeats collapse; unknown ones set [`Intermediates::OTHER`] |
-//! | An OSC string | [`OSC_MAX`], 127 bytes | a character that does not fit is dropped |
-//! | An XTGETTCAP payload | [`XTGETTCAP_MAX`], 1039 bytes | the rest is dropped and the request flagged |
-//! | DCS and APC data | not kept: streamed to the consumer | the consumer's bound |
+//! nothing. Each bound is the C reference's, defined once in `src/bounds.rs`
+//! with its citation and tabulated in the crate's README: [`PARAMS_MAX`],
+//! [`SUBPARAMS_MAX`], [`PARAM_VALUE_CAP`], [`OSC_MAX`] and
+//! [`XTGETTCAP_MAX`]. Intermediates are a set of flags, so their count takes
+//! no room, and DCS and APC data are streamed to the consumer, whose bound
+//! applies.
 
+mod bounds;
 mod consumer;
 mod params;
 mod parser;
 mod utf8;
 
+pub use bounds::{OSC_MAX, PARAM_VALUE_CAP, PARAMS_MAX, SUBPARAMS_MAX, XTGETTCAP_MAX};
 pub use consumer::{Chunk, Consumer, InputMode};
-pub use params::{Intermediates, PARAMS_MAX, Params, SUBPARAMS_MAX};
-pub use parser::{OSC_MAX, Parser, XTGETTCAP_MAX};
+pub use params::{Intermediates, Params};
+pub use parser::Parser;
