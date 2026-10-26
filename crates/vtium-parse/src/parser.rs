@@ -88,13 +88,28 @@ enum Dcs {
     Xtgettcap,
 }
 
-/// How the character that left a string state ended the string.
+/// `c` as a byte, when it is one of `range`: the bytes an action takes.
+/// The state machine sends each action only characters in its range, so
+/// the `None` arm is never reached, and does nothing if it is.
+fn byte_in(c: char, range: core::ops::RangeInclusive<u8>) -> Option<u8> {
+    u8::try_from(c).ok().filter(|b| range.contains(b))
+}
+
+/// `c` as a C0 or C1 control to execute, ESC aside.
+fn control(c: char) -> Option<u8> {
+    byte_in(c, 0x00..=0x1a)
+        .or_else(|| byte_in(c, 0x1c..=0x1f))
+        .or_else(|| byte_in(c, 0x80..=0x9f))
+}
+
+/// How the character that left a string state ended the string. Only CAN,
+/// SUB, ESC and the C1 controls cancel one, so a character the parser
+/// cannot name as one of those bytes ends it cancelled by CAN.
 fn string_end(c: char) -> StringEnd {
     match c {
         '\u{9c}' => StringEnd::St,
         '\x07' => StringEnd::Bel,
-        // Every character that leaves a string state is below U+00A0.
-        _ => StringEnd::Cancelled(c as u8),
+        _ => StringEnd::Cancelled(control(c).or(byte_in(c, 0x1b..=0x1b)).unwrap_or(0x18)),
     }
 }
 
@@ -483,29 +498,47 @@ impl Parser {
         }
     }
 
-    /// One action (tsm-vte.c:3173-3236).
-    ///
-    /// The casts to `u8` hold by the arms that reach each action: controls
-    /// executed are below 0xA0, final bytes are below 0x7F, and strings end
-    /// only on a control below 0xA0.
+    /// One action (tsm-vte.c:3173-3236). Each action that takes a byte
+    /// takes only the range the state machine sends it, and does nothing
+    /// with any other character.
     fn act<C: Consumer>(&mut self, consumer: &mut C, c: char, action: Action) {
         match action {
             Action::None => {}
             Action::Print => consumer.print(c),
-            Action::Execute => consumer.execute(c as u8),
+            Action::Execute => {
+                if let Some(b) = control(c) {
+                    consumer.execute(b);
+                }
+            }
             Action::Clear => self.clear(),
             Action::Collect => {
-                if !self.intermediates.push(c as u8) {
+                if let Some(b) = byte_in(c, 0x20..=0x2f)
+                    && !self.intermediates.push(b)
+                {
                     self.too_many_intermediates = true;
                 }
             }
-            Action::Marker => self.params.set_marker(c as u8),
-            Action::Param => self.params.put(c as u8),
+            Action::Marker => {
+                if let Some(b) = byte_in(c, 0x3c..=0x3f) {
+                    self.params.set_marker(b);
+                }
+            }
+            Action::Param => {
+                if let Some(b) = byte_in(c, 0x30..=0x3b) {
+                    self.params.put(b);
+                }
+            }
             Action::EscDispatch if self.too_many_intermediates => {}
-            Action::EscDispatch => consumer.esc_dispatch(self.intermediates, c as u8),
+            Action::EscDispatch => {
+                if let Some(b) = byte_in(c, 0x30..=0x7e) {
+                    consumer.esc_dispatch(self.intermediates, b);
+                }
+            }
             Action::CsiDispatch if self.too_many_intermediates => {}
             Action::CsiDispatch => {
-                consumer.csi_dispatch(&self.params, self.intermediates, c as u8);
+                if let Some(b) = byte_in(c, 0x40..=0x7e) {
+                    consumer.csi_dispatch(&self.params, self.intermediates, b);
+                }
             }
             Action::DcsStart => self.dcs_start(consumer, c),
             Action::DcsCollect => self.dcs_collect(consumer, c),
@@ -516,13 +549,10 @@ impl Parser {
             Action::OscCollect => self.osc_collect(c),
             Action::EndString => self.end_string(consumer, self.state, string_end(c)),
             Action::ApcStart => consumer.apc_start(),
-            Action::ApcCollect => {
-                if c.is_ascii() {
-                    consumer.apc_put(Chunk::Bytes(&[c as u8]));
-                } else {
-                    consumer.apc_put(Chunk::Char(c));
-                }
-            }
+            Action::ApcCollect => match byte_in(c, 0x00..=0x7f) {
+                Some(b) => consumer.apc_put(Chunk::Bytes(&[b])),
+                None => consumer.apc_put(Chunk::Char(c)),
+            },
         }
     }
 
@@ -560,32 +590,38 @@ impl Parser {
     /// parameter is XTGETTCAP (tsm-vte.c:3134-3135), collected here; every
     /// other DCS string goes to the consumer, which picks its handler.
     fn dcs_start<C: Consumer>(&mut self, consumer: &mut C, c: char) {
-        if self.too_many_intermediates {
+        let final_byte = byte_in(c, 0x40..=0x7e);
+        match final_byte {
             // a null operation: the data goes nowhere (vt100.net)
-            self.dcs = Dcs::None;
-        } else if c == 'q'
-            && self.intermediates.as_bytes() == b"+"
-            && self.params.marker().is_none()
-            && self.params.count() == 1
-            && self.params.get(0).is_none()
-        {
-            self.dcs = Dcs::Xtgettcap;
-            self.tcap_len = 0;
-            self.tcap_over = false;
-        } else {
-            self.dcs = Dcs::Hooked;
-            consumer.dcs_hook(&self.params, self.intermediates, c as u8);
+            _ if self.too_many_intermediates => self.dcs = Dcs::None,
+            None => self.dcs = Dcs::None,
+            Some(b'q')
+                if self.intermediates.as_bytes() == b"+"
+                    && self.params.marker().is_none()
+                    && self.params.count() == 1
+                    && self.params.get(0).is_none() =>
+            {
+                self.dcs = Dcs::Xtgettcap;
+                self.tcap_len = 0;
+                self.tcap_over = false;
+            }
+            Some(b) => {
+                self.dcs = Dcs::Hooked;
+                consumer.dcs_hook(&self.params, self.intermediates, b);
+            }
         }
     }
 
     /// Collects one DCS character (tsm-vte.c:3142-3154).
     fn dcs_collect<C: Consumer>(&mut self, consumer: &mut C, c: char) {
         match self.dcs {
-            Dcs::Hooked if c.is_ascii() => consumer.dcs_put(Chunk::Bytes(&[c as u8])),
-            Dcs::Hooked => consumer.dcs_put(Chunk::Char(c)),
+            Dcs::Hooked => match byte_in(c, 0x00..=0x7f) {
+                Some(b) => consumer.dcs_put(Chunk::Bytes(&[b])),
+                None => consumer.dcs_put(Chunk::Char(c)),
+            },
             // the payload is ASCII; anything else is kept as a byte no
             // name holds, so its name is refused
-            Dcs::Xtgettcap => self.tcap_push(if c.is_ascii() { c as u8 } else { 0 }),
+            Dcs::Xtgettcap => self.tcap_push(byte_in(c, 0x00..=0x7f).unwrap_or(0)),
             Dcs::None => {}
         }
     }
@@ -636,5 +672,100 @@ impl Parser {
             State::ApcString => consumer.apc_end(end),
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Records how many times each kind of action reached the consumer.
+    #[derive(Default)]
+    struct Count {
+        executes: Vec<u8>,
+        dispatches: usize,
+        hooks: usize,
+        bytes: Vec<u8>,
+        chars: Vec<char>,
+    }
+
+    impl Consumer for Count {
+        fn print(&mut self, _: char) {}
+        fn execute(&mut self, control: u8) {
+            self.executes.push(control);
+        }
+        fn esc_dispatch(&mut self, _: Intermediates, _: u8) {
+            self.dispatches = self.dispatches.saturating_add(1);
+        }
+        fn csi_dispatch(&mut self, _: &Params, _: Intermediates, _: u8) {
+            self.dispatches = self.dispatches.saturating_add(1);
+        }
+        fn osc_end(&mut self, _: &[u8], _: StringEnd) {}
+        fn dcs_hook(&mut self, _: &Params, _: Intermediates, _: u8) {
+            self.hooks = self.hooks.saturating_add(1);
+        }
+        fn dcs_put(&mut self, data: Chunk<'_>) {
+            self.apc_put(data);
+        }
+        fn dcs_unhook(&mut self, _: StringEnd) {}
+        fn apc_start(&mut self) {}
+        fn apc_put(&mut self, data: Chunk<'_>) {
+            match data {
+                Chunk::Bytes(run) => self.bytes.extend_from_slice(run),
+                Chunk::Char(c) => self.chars.push(c),
+            }
+        }
+        fn apc_end(&mut self, _: StringEnd) {}
+        fn xtgettcap(&mut self, _: Option<&[u8]>) {}
+    }
+
+    // Each action takes a character only in the range the state machine
+    // sends it, so a character past that range does nothing, where a
+    // truncating cast would have made it another byte: U+0107 is not BEL,
+    // U+0128 not `(`, U+013F not `?`, U+0135 not `5`, U+0163 not `c`,
+    // U+016D not `m` and U+0171 not `q`.
+    #[test]
+    fn characters_past_each_actions_range_do_nothing() {
+        let mut parser = Parser::new();
+        let mut count = Count::default();
+
+        parser.act(&mut count, '\u{107}', Action::Execute);
+        assert!(count.executes.is_empty(), "{:?}", count.executes);
+
+        parser.act(&mut count, '\u{128}', Action::Collect);
+        assert!(parser.intermediates.is_empty());
+        parser.act(&mut count, '\u{13f}', Action::Marker);
+        assert_eq!(parser.params.marker(), None);
+        parser.act(&mut count, '\u{135}', Action::Param);
+        assert_eq!(parser.params.get(0), None);
+
+        parser.act(&mut count, '\u{163}', Action::EscDispatch);
+        parser.act(&mut count, '\u{16d}', Action::CsiDispatch);
+        assert_eq!(count.dispatches, 0);
+
+        parser.act(&mut count, '\u{171}', Action::DcsStart);
+        assert_eq!(count.hooks, 0);
+        assert_eq!(parser.dcs, Dcs::None);
+
+        parser.act(&mut count, '\u{141}', Action::ApcCollect);
+        parser.dcs = Dcs::Hooked;
+        parser.act(&mut count, '\u{141}', Action::DcsCollect);
+        assert!(count.bytes.is_empty(), "{:?}", count.bytes);
+        assert_eq!(count.chars, ['\u{141}', '\u{141}']);
+
+        parser.dcs = Dcs::Xtgettcap;
+        parser.act(&mut count, '\u{141}', Action::DcsCollect);
+        assert_eq!(parser.tcap.get(..parser.tcap_len), Some(&[0][..]));
+    }
+
+    // A string ends whatever ends it; one ended by a character the parser
+    // cannot name as a byte ends cancelled by CAN, never by the byte a
+    // truncating cast would make (U+011B is not ESC).
+    #[test]
+    fn a_string_end_past_the_byte_range_is_a_cancel() {
+        assert_eq!(string_end('\u{11b}'), StringEnd::Cancelled(0x18));
+        assert_eq!(string_end('\u{9c}'), StringEnd::St);
+        assert_eq!(string_end('\x07'), StringEnd::Bel);
+        assert_eq!(string_end('\x1b'), StringEnd::Cancelled(0x1b));
     }
 }
