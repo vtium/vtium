@@ -17,4 +17,4 @@ All code in vtium is written by large language models, under the review of its m
 
 ## Licence
 
-MIT, as kmscon and libtsm. The original copyright notices are kept in [COPYING](COPYING).
+MIT, as kmscon and libtsm: see [LICENSE](LICENSE). [COPYING](COPYING) keeps the author lists of kmscon and libtsm and their original copyright notices.
