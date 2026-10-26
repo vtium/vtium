@@ -4,17 +4,14 @@
 
 mod common;
 
-use common::{Act, Recorder, csi, esc, parse, parse8, tcap};
-use vtium_parse::{Intermediates as I, Parser, XTGETTCAP_MAX};
+use common::{Act, Recorder, csi, esc, hook, parse, parse8, tcap};
+use vtium_parse::{Parser, XTGETTCAP_MAX};
 
 // test_vte_xtgettcap_found: ESC \ ends the request, which is answered at the
 // '\', before the ESC \ itself dispatches.
 #[test]
 fn ended_by_esc_backslash() {
-    assert_eq!(
-        parse(b"\x1bP+q544e\x1b\\"),
-        [tcap(b"544e"), esc(I::NONE, b'\\')]
-    );
+    assert_eq!(parse(b"\x1bP+q544e\x1b\\"), [tcap(b"544e"), esc("", b'\\')]);
 }
 
 // test_vte_xtgettcap_end: ST as U+009C answers it.
@@ -37,14 +34,14 @@ fn dropped_by_can_and_sub() {
 // sequence after the ESC runs.
 #[test]
 fn dropped_by_esc_without_backslash() {
-    assert_eq!(parse(b"\x1bP+q544e\x1b[2C"), [csi(&[2], I::NONE, b'C')]);
+    assert_eq!(parse(b"\x1bP+q544e\x1b[2C"), [csi(&[2], "", b'C')]);
 }
 
 // test_vte_xtgettcap_end: the ESC of a dropped request is not left waiting
 // for a '\'.
 #[test]
 fn esc_esc_backslash_drops() {
-    assert_eq!(parse(b"\x1bP+q544e\x1b\x1b\\"), [esc(I::NONE, b'\\')]);
+    assert_eq!(parse(b"\x1bP+q544e\x1b\x1b\\"), [esc("", b'\\')]);
 }
 
 // tsm-vte.c:3291-3298, 3164-3168: another C1 control drops it.
@@ -59,22 +56,10 @@ fn dropped_by_other_c1() {
 fn not_xtgettcap_with_param_or_other_flags() {
     let q = u32::from(b'q');
     let hooked = [
-        (
-            &b"\x1bP1+q544e\x1b\\"[..],
-            Act::DcsHook(vec![1], I::PLUS, q),
-        ),
-        (
-            b"\x1bP>+q544e\x1b\\",
-            Act::DcsHook(vec![-1], I::GREATER | I::PLUS, q),
-        ),
-        (
-            b"\x1bP+$q544e\x1b\\",
-            Act::DcsHook(vec![-1], I::PLUS | I::DOLLAR, q),
-        ),
-        (
-            b"\x1bP;+q544e\x1b\\",
-            Act::DcsHook(vec![-1, -1], I::PLUS, q),
-        ),
+        (&b"\x1bP1+q544e\x1b\\"[..], hook(&[1], "+", q)),
+        (b"\x1bP>+q544e\x1b\\", hook(&[-1], ">+", q)),
+        (b"\x1bP+$q544e\x1b\\", hook(&[-1], "+$", q)),
+        (b"\x1bP;+q544e\x1b\\", hook(&[-1, -1], "+", q)),
     ];
     for (seq, hook) in hooked {
         let acts = parse(seq);
@@ -162,7 +147,7 @@ fn split_at_every_byte() {
     for b in query.chunks(1) {
         rec.feed(&mut parser, b);
     }
-    assert_eq!(rec.acts, [tcap(b"544e;436f"), esc(I::NONE, b'\\')]);
+    assert_eq!(rec.acts, [tcap(b"544e;436f"), esc("", b'\\')]);
 }
 
 // test_vte_xtgettcap_esc_reset: a reset between the ESC and the '\' drops

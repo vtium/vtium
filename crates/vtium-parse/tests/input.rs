@@ -4,7 +4,7 @@
 mod common;
 
 use common::{Act, Recorder, St, csi, esc, parse, parse_in, prints};
-use vtium_parse::{InputMode, Intermediates as I, Parser};
+use vtium_parse::{InputMode, Parser};
 
 // tsm-vte.c:3668-3673: a character cut across inputs decodes whole.
 #[test]
@@ -25,11 +25,7 @@ fn malformed_utf8_keeps_the_breaking_byte() {
     assert_eq!(parse(b"\xe2\x82A"), [Act::Print(0xfffd), Act::Print(0x41)]);
     assert_eq!(
         parse(b"\xe2\x1b[1mB"),
-        [
-            Act::Print(0xfffd),
-            csi(&[1], I::NONE, b'm'),
-            Act::Print(0x42)
-        ]
+        [Act::Print(0xfffd), csi(&[1], "", b'm'), Act::Print(0x42)]
     );
 }
 
@@ -89,7 +85,7 @@ fn malformed_utf8_inside_a_string_keeps_the_esc() {
             Act::ApcByte(b'G'),
             Act::ApcChar(0xfffd),
             Act::ApcEnd(St),
-            esc(I::NONE, b'\\'),
+            esc("", b'\\'),
         ]
     );
 }
@@ -115,8 +111,8 @@ fn seven_bit_mode() {
         parse_in(InputMode::SevenBit, b"\xc1\x9b[1m\x9b7\xe9"),
         [
             Act::Print(0x41),
-            csi(&[1], I::NONE, b'm'),
-            esc(I::NONE, b'7'),
+            csi(&[1], "", b'm'),
+            esc("", b'7'),
             Act::Print(0x69),
         ]
     );
@@ -135,9 +131,9 @@ fn mode_change_applies_from_the_next_byte() {
     assert_eq!(
         rec.acts,
         [
-            csi(&[62], I::DQUOTE, b'p'),
-            csi(&[1], I::NONE, b'm'),
-            csi(&[-1], I::BANG, b'p'),
+            csi(&[62], "\"", b'p'),
+            csi(&[1], "", b'm'),
+            csi(&[-1], "!", b'p'),
             Act::Print(0xe9),
         ]
     );
@@ -178,7 +174,7 @@ fn pause_returns_early_and_resumes() {
     assert_eq!(n, 8, "through the backslash of the ST that ended the APC");
     rec.feed(&mut parser, &input[n..]);
     assert_eq!(rec.acts, parse(input));
-    assert_eq!(rec.acts[rec.acts.len() - 6], esc(I::NONE, b'\\'));
+    assert_eq!(rec.acts[rec.acts.len() - 6], esc("", b'\\'));
 }
 
 // Without a pause, advance takes the whole input.

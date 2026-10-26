@@ -61,6 +61,9 @@ enum Action {
     Execute,
     Clear,
     Collect,
+    /// The private marker of a parameter string; the C reference collected
+    /// it with the intermediates.
+    Marker,
     Param,
     EscDispatch,
     CsiDispatch,
@@ -189,7 +192,7 @@ fn transition(state: State, c: u32) -> (Option<State>, Action) {
             0x7f => (None, A::None),
             0x20..=0x2f => (Some(S::CsiInt), A::Collect),
             0x30..=0x3b => (Some(S::CsiParam), A::Param),
-            0x3c..=0x3f => (Some(S::CsiParam), A::Collect),
+            0x3c..=0x3f => (Some(S::CsiParam), A::Marker),
             0x40..=0x7e => (Some(S::Ground), A::CsiDispatch),
             _ => (Some(S::CsiIgnore), A::None),
         },
@@ -221,7 +224,7 @@ fn transition(state: State, c: u32) -> (Option<State>, Action) {
             0x3a => (Some(S::DcsIgnore), A::None),
             0x20..=0x2f => (Some(S::DcsInt), A::Collect),
             0x30..=0x39 | 0x3b => (Some(S::DcsParam), A::Param),
-            0x3c..=0x3f => (Some(S::DcsParam), A::Collect),
+            0x3c..=0x3f => (Some(S::DcsParam), A::Marker),
             0x40..=0x7e => (Some(S::DcsPass), A::None),
             // A character past ASCII ignores the string, as CSI's rule does
             // (a departure; the C reference took it as the final)
@@ -288,6 +291,9 @@ pub struct Parser {
     utf8: Decoder,
     params: Params,
     intermediates: Intermediates,
+    /// More than [`INTERMEDIATES_MAX`](crate::INTERMEDIATES_MAX) arrived, so the sequence dispatches
+    /// nothing.
+    too_many_intermediates: bool,
     osc: [u8; OSC_MAX],
     osc_len: usize,
     /// A character failed to fit, so the OSC string takes no more.
@@ -320,6 +326,7 @@ impl Parser {
             utf8: Decoder::new(),
             params: Params::new(),
             intermediates: Intermediates::NONE,
+            too_many_intermediates: false,
             osc: [0; OSC_MAX],
             osc_len: 0,
             osc_full: false,
@@ -486,9 +493,16 @@ impl Parser {
             Action::Print => consumer.print(c),
             Action::Execute => consumer.execute(c as u8),
             Action::Clear => self.clear(),
-            Action::Collect => self.intermediates |= Intermediates::of(u32::from(c)),
+            Action::Collect => {
+                if !self.intermediates.push(c as u8) {
+                    self.too_many_intermediates = true;
+                }
+            }
+            Action::Marker => self.params.set_marker(c as u8),
             Action::Param => self.params.put(u32::from(c)),
+            Action::EscDispatch if self.too_many_intermediates => {}
             Action::EscDispatch => consumer.esc_dispatch(self.intermediates, c as u8),
+            Action::CsiDispatch if self.too_many_intermediates => {}
             Action::CsiDispatch => {
                 consumer.csi_dispatch(&self.params, self.intermediates, c as u8);
             }
@@ -517,6 +531,7 @@ impl Parser {
     fn clear(&mut self) {
         self.params.clear();
         self.intermediates = Intermediates::NONE;
+        self.too_many_intermediates = false;
     }
 
     /// `do_osc_collect` (tsm-vte.c:2912-2921): the character as UTF-8, or
@@ -542,8 +557,12 @@ impl Parser {
     /// string goes to the consumer, which picks its handler as
     /// `do_dcs_start` does.
     fn dcs_start<C: Consumer>(&mut self, consumer: &mut C, c: char) {
-        if c == 'q'
-            && self.intermediates == Intermediates::PLUS
+        if self.too_many_intermediates {
+            // a null operation: the data goes nowhere (vt100.net)
+            self.dcs = Dcs::None;
+        } else if c == 'q'
+            && self.intermediates.as_bytes() == b"+"
+            && self.params.marker().is_none()
             && self.params.count() == 1
             && self.params.get(0) < 0
         {

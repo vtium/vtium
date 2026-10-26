@@ -101,8 +101,11 @@ pub trait Consumer {
     /// intermediates, then `final_byte` from 0x30 to 0x7E.
     fn esc_dispatch(&mut self, intermediates: Intermediates, final_byte: u8);
 
-    /// A control sequence, `do_csi` (tsm-vte.c:2537): CSI, its parameters,
-    /// markers and intermediates, then `final_byte` from 0x40 to 0x7E. The
+    /// A control sequence, `do_csi` (tsm-vte.c:2537): CSI, its parameters
+    /// with their private marker, its intermediates, then `final_byte` from
+    /// 0x40 to 0x7E. A sequence with more than
+    /// [`INTERMEDIATES_MAX`](crate::INTERMEDIATES_MAX) intermediates does
+    /// not dispatch. The
     /// C reference runs no sequence but SGR when it carries sub-parameters
     /// (tsm-vte.c:2548-2551); that choice is the consumer's.
     fn csi_dispatch(&mut self, params: &Params, intermediates: Intermediates, final_byte: u8);
@@ -114,12 +117,14 @@ pub trait Consumer {
     fn osc_end(&mut self, data: &[u8], end: StringEnd);
 
     /// A DCS string starts, `do_dcs_start` (tsm-vte.c:3128-3140): its
-    /// parameters, markers and intermediates, and `final_char`, the
+    /// parameters with their private marker, its intermediates, and
+    /// `final_char`, the
     /// character that ended them. That is 0x40 to 0x7E in a well-formed
     /// string, but any character from U+00A0 up ends them too
     /// (tsm-vte.c:3512). A string the parser takes as XTGETTCAP goes to
     /// [`xtgettcap`](Self::xtgettcap) instead, and a malformed one (a `:`,
-    /// or a marker after a parameter) reaches no method.
+    /// a marker after a parameter, or a third intermediate) reaches no
+    /// method.
     fn dcs_hook(&mut self, params: &Params, intermediates: Intermediates, final_char: char);
 
     /// A piece of the hooked DCS string's data, `do_dcs_collect`

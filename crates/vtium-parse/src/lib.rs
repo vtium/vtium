@@ -50,12 +50,11 @@
 //!
 //! The byte stream comes from an untrusted program, so nothing it sends
 //! grows memory: the parser holds every buffer inline and allocates
-//! nothing. Each bound is the C reference's, defined once in `src/bounds.rs`
-//! with its citation and tabulated in the crate's README: [`PARAMS_MAX`],
-//! [`SUBPARAMS_MAX`], [`PARAM_VALUE_CAP`], [`OSC_MAX`] and
-//! [`XTGETTCAP_MAX`]. Intermediates are a set of flags, so their count takes
-//! no room, and DCS and APC data are streamed to the consumer, whose bound
-//! applies.
+//! nothing. Each bound is defined once in `src/bounds.rs` with its
+//! citation and tabulated in the crate's README: [`PARAMS_MAX`],
+//! [`SUBPARAMS_MAX`], [`PARAM_VALUE_CAP`], [`OSC_MAX`], [`XTGETTCAP_MAX`]
+//! and [`INTERMEDIATES_MAX`]. DCS and APC data are streamed to the
+//! consumer, whose bound applies.
 
 mod bounds;
 mod consumer;
@@ -63,7 +62,9 @@ mod params;
 mod parser;
 mod utf8;
 
-pub use bounds::{OSC_MAX, PARAM_VALUE_CAP, PARAMS_MAX, SUBPARAMS_MAX, XTGETTCAP_MAX};
+pub use bounds::{
+    INTERMEDIATES_MAX, OSC_MAX, PARAM_VALUE_CAP, PARAMS_MAX, SUBPARAMS_MAX, XTGETTCAP_MAX,
+};
 pub use consumer::{Chunk, Consumer, InputMode, StringEnd};
 pub use params::{Intermediates, Params};
 pub use parser::Parser;

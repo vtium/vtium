@@ -4,7 +4,7 @@
 mod common;
 
 use common::{Act, Bel, St, VALUE_MAX, csi, osc, parse};
-use vtium_parse::{Intermediates as I, OSC_MAX, PARAMS_MAX, Parser, SUBPARAMS_MAX};
+use vtium_parse::{OSC_MAX, PARAMS_MAX, Parser, SUBPARAMS_MAX};
 
 fn csi_with(params: &str, final_byte: char) -> Vec<u8> {
     format!("\x1b[{params}{final_byte}").into_bytes()
@@ -17,7 +17,7 @@ fn sixteen_params_kept() {
     let want: Vec<i32> = (1..=16).collect();
     assert_eq!(
         parse(&csi_with(&list.join(";"), 'm')),
-        [csi(&want, I::NONE, b'm')]
+        [csi(&want, "", b'm')]
     );
 }
 
@@ -29,7 +29,7 @@ fn params_past_sixteen_dropped() {
     let want: Vec<i32> = (1..=16).collect();
     assert_eq!(
         parse(&csi_with(&list.join(";"), 'm')),
-        [csi(&want, I::NONE, b'm')]
+        [csi(&want, "", b'm')]
     );
 }
 
@@ -38,24 +38,18 @@ fn params_past_sixteen_dropped() {
 #[test]
 fn sixteenth_param_omitted_before_separator() {
     let list = ";".repeat(16);
-    assert_eq!(
-        parse(&csi_with(&list, 'm')),
-        [csi(&[-1; 16], I::NONE, b'm')]
-    );
+    assert_eq!(parse(&csi_with(&list, 'm')), [csi(&[-1; 16], "", b'm')]);
 }
 
 // tsm-vte.c:1314-1316: a value takes digits until it is past 0xffff.
 #[test]
 fn value_stops_past_0xffff() {
-    assert_eq!(parse(b"\x1b[65535m"), [csi(&[65535], I::NONE, b'm')]);
-    assert_eq!(parse(b"\x1b[655359m"), [csi(&[VALUE_MAX], I::NONE, b'm')]);
-    assert_eq!(
-        parse(b"\x1b[6553599999m"),
-        [csi(&[VALUE_MAX], I::NONE, b'm')]
-    );
-    assert_eq!(parse(b"\x1b[65536m"), [csi(&[65536], I::NONE, b'm')]);
-    assert_eq!(parse(b"\x1b[655369m"), [csi(&[65536], I::NONE, b'm')]);
-    assert_eq!(parse(b"\x1b[99999999m"), [csi(&[99999], I::NONE, b'm')]);
+    assert_eq!(parse(b"\x1b[65535m"), [csi(&[65535], "", b'm')]);
+    assert_eq!(parse(b"\x1b[655359m"), [csi(&[VALUE_MAX], "", b'm')]);
+    assert_eq!(parse(b"\x1b[6553599999m"), [csi(&[VALUE_MAX], "", b'm')]);
+    assert_eq!(parse(b"\x1b[65536m"), [csi(&[65536], "", b'm')]);
+    assert_eq!(parse(b"\x1b[655369m"), [csi(&[65536], "", b'm')]);
+    assert_eq!(parse(b"\x1b[99999999m"), [csi(&[99999], "", b'm')]);
 }
 
 // tsm-vte.c:1314-1316 applies to sub-parameters too.
@@ -84,7 +78,7 @@ fn subparams_past_eight_dropped_until_separator() {
     let mut parser = Parser::new();
     let mut rec = common::Recorder::new();
     rec.feed(&mut parser, b"\x1b[1:1:2:3:4:5:6:7:8:9:10;5:6m");
-    assert_eq!(rec.acts, [csi(&[1, 5], I::NONE, b'm')]);
+    assert_eq!(rec.acts, [csi(&[1, 5], "", b'm')]);
     assert_eq!(rec.subs, [vec![vec![1, 2, 3, 4, 5, 6, 7, 8], vec![6]]]);
 }
 
@@ -97,19 +91,20 @@ fn subparams_of_dropped_param_dropped() {
     let mut parser = Parser::new();
     let mut rec = common::Recorder::new();
     rec.feed(&mut parser, &csi_with(&list, 'm'));
-    assert_eq!(rec.acts, [csi(&[0; 16], I::NONE, b'm')]);
+    assert_eq!(rec.acts, [csi(&[0; 16], "", b'm')]);
     assert!(rec.subs[0].iter().all(Vec::is_empty));
 }
 
-// tsm-vte.c:1232-1275: intermediates are flags, so any number of them takes
-// no room.
+// vt100.net: past two intermediates the sequence does nothing, however
+// many follow, and they take no room.
 #[test]
-fn many_intermediates_collapse() {
+fn many_intermediates_take_no_room() {
     let mut seq = b"\x1b[".to_vec();
     seq.extend_from_slice(&b"!".repeat(10_000));
     seq.extend_from_slice(&b"%".repeat(10_000));
     seq.push(b'p');
-    assert_eq!(parse(&seq), [csi(&[-1], I::BANG | I::OTHER, b'p')]);
+    seq.extend_from_slice(b"\x1b[!%p");
+    assert_eq!(parse(&seq), [csi(&[-1], "!%", b'p')]);
 }
 
 // tsm-vte-int.h:31, tsm-vte.c:2915: an OSC string keeps 127 bytes.

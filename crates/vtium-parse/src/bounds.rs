@@ -57,9 +57,17 @@ const XTGETTCAP: Bound = Bound {
     cite: "`XTGETTCAP_MAX_LEN`, tsm-vte-int.h:33-38; libtsm.h:1538; tsm-vte.c:3087-3091, 3149-3152",
 };
 
+const INTERMEDIATES: Bound = Bound {
+    name: "INTERMEDIATES_MAX",
+    value: 2,
+    what: "Intermediate bytes an ESC, CSI or DCS sequence keeps, in order",
+    past: "The sequence dispatches nothing (vt100.net); the C reference kept intermediates as a set of flags with no count bound",
+    cite: "vt100.net, collect: \"If more than two intermediate characters arrive, the parser can just flag this so that the dispatch can be turned into a null operation\"",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 5] = [PARAMS, SUBPARAMS, VALUE, OSC, XTGETTCAP];
+pub(crate) const BOUNDS: [Bound; 6] = [PARAMS, SUBPARAMS, VALUE, OSC, XTGETTCAP, INTERMEDIATES];
 
 /// Parameters a CSI sequence or DCS string keeps; those past it are
 /// dropped and the sequence still dispatches.
@@ -79,6 +87,10 @@ pub const OSC_MAX: usize = OSC.value;
 
 /// Bytes an XTGETTCAP payload keeps. Past it the request is flagged.
 pub const XTGETTCAP_MAX: usize = XTGETTCAP.value;
+
+/// Intermediate bytes an ESC, CSI or DCS sequence keeps. With more, the
+/// sequence dispatches nothing.
+pub const INTERMEDIATES_MAX: usize = INTERMEDIATES.value;
 
 #[cfg(test)]
 mod tests {
@@ -133,5 +145,11 @@ mod tests {
         assert_eq!(PARAM_VALUE_CAP, 0xffff);
         assert_eq!(OSC_MAX, 127);
         assert_eq!(XTGETTCAP_MAX, 1039);
+    }
+
+    // vt100.net, collect; the C reference has no such bound.
+    #[test]
+    fn intermediates_max_is_vt100_nets() {
+        assert_eq!(INTERMEDIATES_MAX, 2);
     }
 }

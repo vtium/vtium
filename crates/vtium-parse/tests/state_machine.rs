@@ -4,10 +4,10 @@
 mod common;
 
 use common::{
-    Act, Bel, Cancelled, St, apc_bytes, csi, dcs_bytes, esc, osc, parse, parse_bytewise, parse_in,
-    parse8, prints,
+    Act, Bel, Cancelled, St, apc_bytes, csi, dcs_bytes, esc, hook, osc, parse, parse_bytewise,
+    parse_in, parse8, prints,
 };
-use vtium_parse::{InputMode, Intermediates as I};
+use vtium_parse::InputMode;
 
 // tsm-vte.c:3323-3338: in ground, C0 controls execute and 0x20 to 0x7E print.
 #[test]
@@ -70,12 +70,7 @@ fn can_and_sub_cancel_a_sequence() {
 fn esc_dispatches() {
     assert_eq!(
         parse(b"\x1b7\x1bc\x1bM\x1b\\"),
-        [
-            esc(I::NONE, b'7'),
-            esc(I::NONE, b'c'),
-            esc(I::NONE, b'M'),
-            esc(I::NONE, b'\\'),
-        ]
+        [esc("", b'7'), esc("", b'c'), esc("", b'M'), esc("", b'\\'),]
     );
 }
 
@@ -86,24 +81,25 @@ fn esc_collects_intermediates() {
     assert_eq!(
         parse(b"\x1b(0\x1b)B\x1b G\x1b#8"),
         [
-            esc(I::LPAREN, b'0'),
-            esc(I::RPAREN, b'B'),
-            esc(I::SPACE, b'G'),
-            esc(I::HASH, b'8'),
+            esc("(", b'0'),
+            esc(")", b'B'),
+            esc(" ", b'G'),
+            esc("#", b'8'),
         ]
     );
 }
 
-// libtsm's test_vte_esc_96_set_not_hts_ri: '-', '.' and '/' have no flag of
-// their own and set CSI_OTHER, so ESC - H is not HTS.
+// libtsm's test_vte_esc_96_set_not_hts_ri: ESC - H is not HTS. Each
+// intermediate keeps its own byte (the C reference set CSI_OTHER).
 #[test]
-fn esc_unknown_intermediate_is_other() {
+fn esc_keeps_every_intermediate() {
     assert_eq!(
-        parse(b"\x1b-H\x1b.A\x1b/A"),
+        parse(b"\x1b-H\x1b.A\x1b/A\x1b%G"),
         [
-            esc(I::OTHER, b'H'),
-            esc(I::OTHER, b'A'),
-            esc(I::OTHER, b'A')
+            esc("-", b'H'),
+            esc(".", b'A'),
+            esc("/", b'A'),
+            esc("%", b'G')
         ]
     );
 }
@@ -123,7 +119,7 @@ fn esc_dropped_by_a_character_past_ascii() {
 fn esc_executes_c0_and_ignores_del() {
     assert_eq!(
         parse(b"\x1b\n\x7f(\r\x7f0"),
-        [Act::Execute(0x0a), Act::Execute(0x0d), esc(I::LPAREN, b'0')]
+        [Act::Execute(0x0a), Act::Execute(0x0d), esc("(", b'0')]
     );
 }
 
@@ -131,8 +127,8 @@ fn esc_executes_c0_and_ignores_del() {
 // collected.
 #[test]
 fn esc_restarts_and_clears() {
-    assert_eq!(parse(b"\x1b(\x1b0"), [esc(I::NONE, b'0')]);
-    assert_eq!(parse(b"\x1b[1;2\x1b[m"), [csi(&[-1], I::NONE, b'm')]);
+    assert_eq!(parse(b"\x1b(\x1b0"), [esc("", b'0')]);
+    assert_eq!(parse(b"\x1b[1;2\x1b[m"), [csi(&[-1], "", b'm')]);
 }
 
 // tsm-vte.c:3369-3371, 3305, 3608-3621: SOS and PM are consumed to their end
@@ -141,7 +137,7 @@ fn esc_restarts_and_clears() {
 fn sos_and_pm_are_ignored() {
     assert_eq!(
         parse(b"\x1bXab\x07\ncd\x1b\\x"),
-        [esc(I::NONE, b'\\'), Act::Print(0x78)]
+        [esc("", b'\\'), Act::Print(0x78)]
     );
     assert_eq!(
         parse8(b"\x1b^ab\x9cx"),
@@ -159,10 +155,10 @@ fn csi_dispatches_with_params() {
     assert_eq!(
         parse(b"\x1b[m\x1b[1m\x1b[3;5H\x1b[007d"),
         [
-            csi(&[-1], I::NONE, b'm'),
-            csi(&[1], I::NONE, b'm'),
-            csi(&[3, 5], I::NONE, b'H'),
-            csi(&[7], I::NONE, b'd'),
+            csi(&[-1], "", b'm'),
+            csi(&[1], "", b'm'),
+            csi(&[3, 5], "", b'H'),
+            csi(&[7], "", b'd'),
         ]
     );
 }
@@ -174,62 +170,63 @@ fn csi_omitted_params() {
     assert_eq!(
         parse(b"\x1b[;5H\x1b[5;H\x1b[;;r\x1b[0;5H"),
         [
-            csi(&[-1, 5], I::NONE, b'H'),
-            csi(&[5, -1], I::NONE, b'H'),
-            csi(&[-1, -1, -1], I::NONE, b'r'),
-            csi(&[0, 5], I::NONE, b'H'),
+            csi(&[-1, 5], "", b'H'),
+            csi(&[5, -1], "", b'H'),
+            csi(&[-1, -1, -1], "", b'r'),
+            csi(&[0, 5], "", b'H'),
         ]
     );
 }
 
-// tsm-vte.c:3414-3415: a marker right after CSI is collected.
+// tsm-vte.c:3414-3415: a marker right after CSI is collected, apart from
+// the intermediates (ECMA-48 5.4.2 b).
 #[test]
 fn csi_collects_markers() {
     assert_eq!(
         parse(b"\x1b[?25h\x1b[>4;1m\x1b[=c\x1b[<1p"),
         [
-            csi(&[25], I::QUESTION, b'h'),
-            csi(&[4, 1], I::GREATER, b'm'),
-            csi(&[-1], I::OTHER, b'c'),
-            csi(&[1], I::OTHER, b'p'),
+            csi(&[25], "?", b'h'),
+            csi(&[4, 1], ">", b'm'),
+            csi(&[-1], "=", b'c'),
+            csi(&[1], "<", b'p'),
         ]
     );
 }
 
 // libtsm's test_vte_csi_other_intermediates: intermediates do_collect has no
-// name for set CSI_OTHER.
+// name for keep their own byte, so none runs as the plain sequence.
 #[test]
-fn csi_unknown_intermediates_are_other() {
-    for seq in [
-        &b"\x1b[1;2,p"[..],
-        b"\x1b[1%p",
-        b"\x1b[1&p",
-        b"\x1b[1-p",
-        b"\x1b[1.p",
-        b"\x1b[1/p",
+fn csi_keeps_every_intermediate() {
+    for (seq, im) in [
+        (&b"\x1b[1;2,p"[..], ","),
+        (b"\x1b[1%p", "%"),
+        (b"\x1b[1&p", "&"),
+        (b"\x1b[1-p", "-"),
+        (b"\x1b[1.p", "."),
+        (b"\x1b[1/p", "/"),
     ] {
         let acts = parse(seq);
         assert_eq!(acts.len(), 1, "{seq:?}");
-        let Act::Csi(_, im, b'p') = &acts[0] else {
+        let Act::Csi(_, got, b'p') = &acts[0] else {
             panic!("{seq:?}: {acts:?}");
         };
-        assert_eq!(*im, I::OTHER, "{seq:?}");
+        assert_eq!(got, im, "{seq:?}");
     }
 }
 
-// tsm-vte.c:3439-3440, 3455-3456: intermediates after the parameters, as
-// flags that keep neither order nor count.
+// tsm-vte.c:3439-3440, 3455-3456: intermediates after the parameters, in
+// order and with their count (the C reference kept neither).
 #[test]
 fn csi_collects_intermediates() {
     assert_eq!(
         parse(b"\x1b[2 q\x1b[!p\x1b[1$p\x1b[61\"p\x1b[!!p\x1b[$!p"),
         [
-            csi(&[2], I::SPACE, b'q'),
-            csi(&[-1], I::BANG, b'p'),
-            csi(&[1], I::DOLLAR, b'p'),
-            csi(&[61], I::DQUOTE, b'p'),
-            csi(&[-1], I::BANG, b'p'),
-            csi(&[-1], I::BANG | I::DOLLAR, b'p'),
+            csi(&[2], " ", b'q'),
+            csi(&[-1], "!", b'p'),
+            csi(&[1], "$", b'p'),
+            csi(&[61], "\"", b'p'),
+            csi(&[-1], "!!", b'p'),
+            csi(&[-1], "$!", b'p'),
         ]
     );
 }
@@ -277,7 +274,7 @@ fn csi_executes_c0_and_ignores_del() {
             Act::Execute(0x0d),
             Act::Execute(0x08),
             Act::Execute(0x09),
-            csi(&[1, 2], I::SPACE, b'q'),
+            csi(&[1, 2], " ", b'q'),
         ]
     );
 }
@@ -294,10 +291,10 @@ fn csi_subparams() {
     assert_eq!(
         rec.acts,
         [
-            csi(&[4], I::NONE, b'm'),
-            csi(&[38, 1], I::NONE, b'm'),
-            csi(&[4], I::NONE, b'm'),
-            csi(&[-1], I::NONE, b'm'),
+            csi(&[4], "", b'm'),
+            csi(&[38, 1], "", b'm'),
+            csi(&[4], "", b'm'),
+            csi(&[-1], "", b'm'),
         ]
     );
     assert_eq!(
@@ -318,7 +315,7 @@ fn csi_subparams() {
 #[test]
 fn c1_as_utf8_does_nothing() {
     assert_eq!(parse(b"a\xc2\x9b1mb"), prints("a1mb"));
-    assert_eq!(parse(b"\x1b[1\xc2\x85m"), [csi(&[1], I::NONE, b'm')]);
+    assert_eq!(parse(b"\x1b[1\xc2\x85m"), [csi(&[1], "", b'm')]);
     assert_eq!(parse(b"\x1b]0;x\xc2\x9cy\x07"), [osc(b"0;xy", Bel)]);
 }
 
@@ -327,7 +324,7 @@ fn c1_as_utf8_does_nothing() {
 fn csi_c1_in_8bit_mode() {
     assert_eq!(
         parse_in(InputMode::EightBit, b"\x9b1mB"),
-        [csi(&[1], I::NONE, b'm'), Act::Print(0x42)]
+        [csi(&[1], "", b'm'), Act::Print(0x42)]
     );
 }
 
@@ -349,10 +346,7 @@ fn osc_ended_by_c1_st() {
 // tsm-vte.c:3300-3301: ESC ends it, and ESC \ then dispatches as ST.
 #[test]
 fn osc_ended_by_esc_backslash() {
-    assert_eq!(
-        parse(b"\x1b]2;x\x1b\\"),
-        [osc(b"2;x", St), esc(I::NONE, b'\\')]
-    );
+    assert_eq!(parse(b"\x1b]2;x\x1b\\"), [osc(b"2;x", St), esc("", b'\\')]);
 }
 
 // tsm-vte.c:3300-3301: an ESC ends the string whatever follows it, so the
@@ -364,7 +358,7 @@ fn osc_ended_by_esc_backslash() {
 fn osc_cancelled_by_esc_alone() {
     assert_eq!(
         parse(b"\x1b]2;x\x1b[1m"),
-        [osc(b"2;x", Cancelled(0x1b)), csi(&[1], I::NONE, b'm')]
+        [osc(b"2;x", Cancelled(0x1b)), csi(&[1], "", b'm')]
     );
 }
 
@@ -374,10 +368,10 @@ fn dcs_and_apc_cancelled_by_esc_alone() {
     assert_eq!(
         parse(b"\x1bPqa\x1b7"),
         acts![
-            Act::DcsHook(vec![-1], I::NONE, u32::from(b'q')),
+            hook(&[-1], "", u32::from(b'q')),
             Act::DcsByte(b'a'),
             Act::DcsUnhook(Cancelled(0x1b)),
-            esc(I::NONE, b'7'),
+            esc("", b'7'),
         ]
     );
     assert_eq!(
@@ -386,7 +380,7 @@ fn dcs_and_apc_cancelled_by_esc_alone() {
             Act::ApcStart,
             apc_bytes(b"Ga"),
             Act::ApcEnd(Cancelled(0x1b)),
-            esc(I::NONE, b'7'),
+            esc("", b'7'),
         ]
     );
 }
@@ -445,10 +439,10 @@ fn dcs_hook_put_unhook() {
     assert_eq!(
         parse(b"\x1bP0;1q#0;2;0~-\x1b\\"),
         acts![
-            Act::DcsHook(vec![0, 1], I::NONE, u32::from(b'q')),
+            hook(&[0, 1], "", u32::from(b'q')),
             dcs_bytes(b"#0;2;0~-"),
             Act::DcsUnhook(St),
-            esc(I::NONE, b'\\'),
+            esc("", b'\\'),
         ]
     );
 }
@@ -459,11 +453,11 @@ fn dcs_collects_markers_and_intermediates() {
     assert_eq!(
         parse8(b"\x1bP>|x\x9c\x1bP$qm\x9c"),
         acts![
-            Act::DcsHook(vec![-1], I::GREATER, u32::from(b'|')),
+            hook(&[-1], ">", u32::from(b'|')),
             Act::DcsByte(b'x'),
             Act::DcsUnhook(St),
             Act::Execute(0x9c),
-            Act::DcsHook(vec![-1], I::DOLLAR, u32::from(b'q')),
+            hook(&[-1], "$", u32::from(b'q')),
             Act::DcsByte(b'm'),
             Act::DcsUnhook(St),
             Act::Execute(0x9c),
@@ -478,10 +472,10 @@ fn dcs_ignores_c0_before_data() {
     assert_eq!(
         parse(b"\x1bP\n1\r;\x7f2\t$\x08qz\x1b\\"),
         acts![
-            Act::DcsHook(vec![1, 2], I::DOLLAR, u32::from(b'q')),
+            hook(&[1, 2], "$", u32::from(b'q')),
             Act::DcsByte(b'z'),
             Act::DcsUnhook(St),
-            esc(I::NONE, b'\\'),
+            esc("", b'\\'),
         ]
     );
 }
@@ -492,10 +486,10 @@ fn dcs_data_takes_c0_and_drops_del() {
     assert_eq!(
         parse(b"\x1bPqa\r\n\x7fb\x1b\\"),
         acts![
-            Act::DcsHook(vec![-1], I::NONE, u32::from(b'q')),
+            hook(&[-1], "", u32::from(b'q')),
             dcs_bytes(b"a\r\nb"),
             Act::DcsUnhook(St),
-            esc(I::NONE, b'\\'),
+            esc("", b'\\'),
         ]
     );
 }
@@ -506,10 +500,10 @@ fn dcs_data_past_ascii() {
     assert_eq!(
         parse("\x1bPqé\x1b\\".as_bytes()),
         acts![
-            Act::DcsHook(vec![-1], I::NONE, u32::from(b'q')),
+            hook(&[-1], "", u32::from(b'q')),
             Act::DcsChar(0xe9),
             Act::DcsUnhook(St),
-            esc(I::NONE, b'\\'),
+            esc("", b'\\'),
         ]
     );
 }
@@ -521,11 +515,7 @@ fn dcs_malformed_is_ignored() {
     for seq in [&b"\x1bP:q"[..], b"\x1bP1:q", b"\x1bP1?q", b"\x1bP$1q"] {
         let mut input = seq.to_vec();
         input.extend_from_slice(b"data\n\x1b\\x");
-        assert_eq!(
-            parse(&input),
-            [esc(I::NONE, b'\\'), Act::Print(0x78)],
-            "{seq:?}"
-        );
+        assert_eq!(parse(&input), [esc("", b'\\'), Act::Print(0x78)], "{seq:?}");
     }
 }
 
@@ -539,7 +529,7 @@ fn dcs_header_with_a_character_past_ascii_is_ignored() {
         let input = format!("{seq}data\x1b\\x");
         assert_eq!(
             parse(input.as_bytes()),
-            [esc(I::NONE, b'\\'), Act::Print(0x78)],
+            [esc("", b'\\'), Act::Print(0x78)],
             "{seq:?}"
         );
     }
@@ -552,19 +542,16 @@ fn dcs_header_with_a_character_past_ascii_is_ignored() {
 #[test]
 fn gr_acts_as_gl_in_8bit_sequences() {
     // CSI 1 m with the final as 0xED
-    assert_eq!(parse8(b"\x9b1\xed"), [csi(&[1], I::NONE, b'm')]);
+    assert_eq!(parse8(b"\x9b1\xed"), [csi(&[1], "", b'm')]);
     // CSI 3 ; 5 H with every byte after CSI in GR
-    assert_eq!(
-        parse8(b"\x9b\xb3\xbb\xb5\xc8"),
-        [csi(&[3, 5], I::NONE, b'H')]
-    );
+    assert_eq!(parse8(b"\x9b\xb3\xbb\xb5\xc8"), [csi(&[3, 5], "", b'H')]);
     // ESC ( 0
-    assert_eq!(parse8(b"\x1b\xa8\xb0"), [esc(I::LPAREN, b'0')]);
+    assert_eq!(parse8(b"\x1b\xa8\xb0"), [esc("(", b'0')]);
     // DCS q, data, ST
     assert_eq!(
         parse8(b"\x90\xf1#\x9c"),
         acts![
-            Act::DcsHook(vec![-1], I::NONE, u32::from(b'q')),
+            hook(&[-1], "", u32::from(b'q')),
             Act::DcsByte(b'#'),
             Act::DcsUnhook(St),
             Act::Execute(0x9c),
@@ -583,7 +570,7 @@ fn dcs_ended_by_can() {
     assert_eq!(
         parse(b"\x1bPqab\x18c"),
         acts![
-            Act::DcsHook(vec![-1], I::NONE, u32::from(b'q')),
+            hook(&[-1], "", u32::from(b'q')),
             dcs_bytes(b"ab"),
             Act::DcsUnhook(Cancelled(0x18)),
             Act::Execute(0x18),
@@ -599,10 +586,10 @@ fn dcs_ended_by_c1_csi() {
     assert_eq!(
         parse8(b"\x90qa\x9b2J"),
         acts![
-            Act::DcsHook(vec![-1], I::NONE, u32::from(b'q')),
+            hook(&[-1], "", u32::from(b'q')),
             Act::DcsByte(b'a'),
             Act::DcsUnhook(Cancelled(0x9b)),
-            csi(&[2], I::NONE, b'J'),
+            csi(&[2], "", b'J'),
         ]
     );
 }
@@ -617,7 +604,7 @@ fn apc_start_put_end() {
             Act::ApcStart,
             apc_bytes(b"Ga=q;AAAA"),
             Act::ApcEnd(St),
-            esc(I::NONE, b'\\'),
+            esc("", b'\\'),
         ]
     );
 }
@@ -645,7 +632,7 @@ fn apc_drops_c0_and_del() {
             Act::ApcStart,
             apc_bytes(b"ab"),
             Act::ApcEnd(St),
-            esc(I::NONE, b'\\'),
+            esc("", b'\\'),
         ]
     );
 }
@@ -660,7 +647,7 @@ fn apc_past_ascii() {
             Act::ApcByte(b'a'),
             Act::ApcChar(0xe9),
             Act::ApcEnd(St),
-            esc(I::NONE, b'\\'),
+            esc("", b'\\'),
         ]
     );
 }
@@ -773,8 +760,41 @@ fn apc_esc_backslash_without_reset_is_st() {
             Act::ApcStart,
             apc_bytes(b"Gq"),
             Act::ApcEnd(St),
-            esc(I::NONE, b'\\'),
+            esc("", b'\\'),
             prints("text"),
         ]
     );
+}
+
+// Departure (ECMA-48 5.4 c, d: intermediate bytes "Together with the Final
+// Byte F ... identify the control function"): intermediates keep their
+// order and count, and each keeps its own byte. The C reference collapsed
+// them to a set of flags, with every unnamed one as OTHER
+// (tsm-vte.c:1232-1275), so `CSI ! ! p` ran as DECSTR.
+#[test]
+fn intermediates_keep_order_count_and_identity() {
+    assert_ne!(parse(b"\x1b[!!p"), parse(b"\x1b[!p"));
+    assert_ne!(parse(b"\x1b[$!p"), parse(b"\x1b[!$p"));
+    assert_ne!(parse(b"\x1b%G"), parse(b"\x1b-G"));
+    assert_ne!(parse(b"\x1b[1,p"), parse(b"\x1b[1.p"));
+    assert_ne!(parse(b"\x1bP<q\x1b\\"), parse(b"\x1bP=q\x1b\\"));
+}
+
+// Departure (vt100.net: "If more than two intermediate characters arrive,
+// the parser can just flag this so that the dispatch can be turned into a
+// null operation"): a third intermediate makes the sequence do nothing, in
+// ESC, CSI and DCS alike. The C reference had no count bound.
+#[test]
+fn a_third_intermediate_makes_a_null_operation() {
+    assert_eq!(parse(b"\x1b[!\"$p"), []);
+    assert_eq!(parse(b"\x1b(((B"), []);
+    let dcs = parse(b"\x1bP!\"$qdata\x1b\\x");
+    assert!(
+        !dcs.iter()
+            .any(|a| matches!(a, Act::DcsHook(..) | Act::DcsByte(_) | Act::DcsUnhook(_))),
+        "{dcs:?}"
+    );
+    assert_eq!(dcs.last(), Some(&Act::Print(u32::from(b'x'))));
+    // two still dispatch
+    assert_eq!(parse(b"\x1b$(B").len(), 1);
 }

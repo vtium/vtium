@@ -4,8 +4,8 @@
 
 pub use vtium_parse::StringEnd::{self, Bel, Cancelled, St};
 use vtium_parse::{
-    Chunk, Consumer, InputMode, Intermediates, OSC_MAX, PARAMS_MAX, Params, Parser, SUBPARAMS_MAX,
-    XTGETTCAP_MAX,
+    Chunk, Consumer, INTERMEDIATES_MAX, InputMode, Intermediates, OSC_MAX, PARAMS_MAX, Params,
+    Parser, SUBPARAMS_MAX, XTGETTCAP_MAX,
 };
 
 /// The largest value a parameter reaches: digits stop once it is past
@@ -18,10 +18,12 @@ pub const VALUE_MAX: i32 = 0xffff * 10 + 9;
 pub enum Act {
     Print(u32),
     Execute(u8),
-    Esc(Intermediates, u8),
-    Csi(Vec<i32>, Intermediates, u8),
+    /// The intermediates as text.
+    Esc(String, u8),
+    /// The private marker, if any, then the intermediates, as text.
+    Csi(Vec<i32>, String, u8),
     Osc(Vec<u8>, StringEnd),
-    DcsHook(Vec<i32>, Intermediates, u32),
+    DcsHook(Vec<i32>, String, u32),
     DcsByte(u8),
     DcsChar(u32),
     DcsUnhook(StringEnd),
@@ -47,6 +49,20 @@ pub struct Recorder {
     pub paused: bool,
     pub in_dcs: bool,
     pub in_apc: bool,
+}
+
+/// A sequence's marker and intermediates as text, for comparing.
+fn text(marker: Option<u8>, intermediates: Intermediates) -> String {
+    let ims = intermediates.as_bytes();
+    assert!(ims.len() <= INTERMEDIATES_MAX);
+    assert!(
+        ims.iter().all(|b| (0x20..=0x2f).contains(b)),
+        "intermediates {ims:?}"
+    );
+    if let Some(m) = marker {
+        assert!((0x3c..=0x3f).contains(&m), "marker {m:#x}");
+    }
+    marker.iter().chain(ims).map(|&b| char::from(b)).collect()
 }
 
 fn values(params: &Params) -> Vec<i32> {
@@ -143,7 +159,7 @@ impl Consumer for Recorder {
         if self.follow_decscl && final_byte == b'c' && intermediates.is_empty() {
             self.mode = InputMode::Utf8;
         }
-        self.push(Act::Esc(intermediates, final_byte));
+        self.push(Act::Esc(text(None, intermediates), final_byte));
     }
 
     fn csi_dispatch(&mut self, params: &Params, intermediates: Intermediates, final_byte: u8) {
@@ -153,11 +169,12 @@ impl Consumer for Recorder {
         );
         check_params(params);
         if self.follow_decscl && final_byte == b'p' && !params.has_subparams() {
-            if intermediates.contains(Intermediates::GREATER) {
-            } else if intermediates.contains(Intermediates::BANG) {
+            // tsm-vte.c:2692-2709, with intermediates matched exactly
+            let ims = intermediates.as_bytes();
+            if params.marker().is_some() {
+            } else if ims == b"!" {
                 self.mode = InputMode::Utf8;
-            } else if intermediates.contains(Intermediates::DOLLAR) {
-            } else if intermediates.difference(Intermediates::DQUOTE).is_empty() {
+            } else if ims.is_empty() || ims == b"\"" {
                 self.mode = match params.get(0) {
                     61 => InputMode::SevenBit,
                     62..=64 => InputMode::EightBit,
@@ -170,7 +187,11 @@ impl Consumer for Recorder {
                 .map(|i| params.subparams(i).to_vec())
                 .collect(),
         );
-        self.push(Act::Csi(values(params), intermediates, final_byte));
+        self.push(Act::Csi(
+            values(params),
+            text(params.marker(), intermediates),
+            final_byte,
+        ));
     }
 
     fn osc_end(&mut self, data: &[u8], end: StringEnd) {
@@ -193,7 +214,11 @@ impl Consumer for Recorder {
             "dcs final {final_char:#x}"
         );
         self.in_dcs = true;
-        self.push(Act::DcsHook(values(params), intermediates, final_char));
+        self.push(Act::DcsHook(
+            values(params),
+            text(params.marker(), intermediates),
+            final_char,
+        ));
     }
 
     fn dcs_put(&mut self, data: Chunk<'_>) {
@@ -311,12 +336,18 @@ pub fn prints(s: &str) -> Vec<Act> {
     s.chars().map(|c| Act::Print(u32::from(c))).collect()
 }
 
-pub fn csi(params: &[i32], intermediates: Intermediates, final_byte: u8) -> Act {
-    Act::Csi(params.to_vec(), intermediates, final_byte)
+/// A CSI dispatch: `prefix` is the marker, if any, then the intermediates.
+pub fn csi(params: &[i32], prefix: &str, final_byte: u8) -> Act {
+    Act::Csi(params.to_vec(), prefix.to_string(), final_byte)
 }
 
-pub fn esc(intermediates: Intermediates, final_byte: u8) -> Act {
-    Act::Esc(intermediates, final_byte)
+/// A DCS hook: `prefix` is the marker, if any, then the intermediates.
+pub fn hook(params: &[i32], prefix: &str, final_char: u32) -> Act {
+    Act::DcsHook(params.to_vec(), prefix.to_string(), final_char)
+}
+
+pub fn esc(intermediates: &str, final_byte: u8) -> Act {
+    Act::Esc(intermediates.to_string(), final_byte)
 }
 
 pub fn osc(data: &[u8], end: StringEnd) -> Act {
