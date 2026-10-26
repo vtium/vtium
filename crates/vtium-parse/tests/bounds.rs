@@ -134,18 +134,17 @@ fn osc_past_127_dropped() {
     assert_eq!(parse(&seq), [osc(&[b'a'; OSC_MAX], 0x07)]);
 }
 
-// tsm-vte.c:2915-2917: a character that would pass the bound is dropped
-// whole, and a shorter one after it can still fit.
+// Departure, decided by the operator: the kept bytes are always a prefix.
+// Once a character fails to fit, nothing after it is kept, where the C
+// reference kept a shorter character after it (tsm-vte.c:2915-2917).
 #[test]
-fn osc_drops_a_character_that_does_not_fit_and_keeps_a_later_one() {
+fn osc_keeps_a_prefix_once_a_character_does_not_fit() {
     let mut seq = b"\x1b]".to_vec();
     seq.extend_from_slice(&[b'a'; OSC_MAX - 2]);
     seq.extend_from_slice("€".as_bytes());
     seq.extend_from_slice(b"bc");
     seq.push(0x07);
-    let mut want = vec![b'a'; OSC_MAX - 2];
-    want.extend_from_slice(b"bc");
-    assert_eq!(parse(&seq), [osc(&want, 0x07)]);
+    assert_eq!(parse(&seq), [osc(&[b'a'; OSC_MAX - 2], 0x07)]);
 }
 
 // A megabyte of OSC takes no more than the bound.

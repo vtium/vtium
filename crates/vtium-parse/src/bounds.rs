@@ -45,7 +45,7 @@ const OSC: Bound = Bound {
     name: "OSC_MAX",
     value: 128 - 1,
     what: "Bytes an OSC string keeps, as UTF-8: `OSC_MAX_LEN` (128) less the NUL that ends it",
-    past: "A character that would pass it is dropped whole, a shorter one after it may still fit, and the string still dispatches",
+    past: "The character that would pass it and everything after it are dropped, so the kept bytes are a prefix, and the string still dispatches",
     cite: "`OSC_MAX_LEN`, tsm-vte-int.h:31; tsm-vte.c:2912-2921, 3006",
 };
 
@@ -73,8 +73,8 @@ pub const SUBPARAMS_MAX: usize = SUBPARAMS.value;
 /// a value reaches at most `PARAM_VALUE_CAP * 10 + 9`.
 pub const PARAM_VALUE_CAP: i32 = VALUE.value as i32;
 
-/// Bytes an OSC string keeps, as UTF-8. A character that would pass it is
-/// dropped whole.
+/// Bytes an OSC string keeps, as UTF-8. The character that would pass it
+/// and everything after it are dropped.
 pub const OSC_MAX: usize = OSC.value;
 
 /// Bytes an XTGETTCAP payload keeps. Past it the request is flagged.

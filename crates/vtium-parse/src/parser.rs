@@ -274,6 +274,8 @@ pub struct Parser {
     intermediates: Intermediates,
     osc: [u8; OSC_MAX],
     osc_len: usize,
+    /// A character failed to fit, so the OSC string takes no more.
+    osc_full: bool,
     dcs: Dcs,
     tcap: [u8; XTGETTCAP_MAX],
     tcap_len: usize,
@@ -304,6 +306,7 @@ impl Parser {
             intermediates: Intermediates::NONE,
             osc: [0; OSC_MAX],
             osc_len: 0,
+            osc_full: false,
             dcs: Dcs::None,
             tcap: [0; XTGETTCAP_MAX],
             tcap_len: 0,
@@ -464,15 +467,21 @@ impl Parser {
         self.params.clear();
         self.intermediates = Intermediates::NONE;
         self.osc_len = 0;
+        self.osc_full = false;
     }
 
     /// `do_osc_collect` (tsm-vte.c:2912-2921): the character as UTF-8, or
-    /// nothing when it would pass [`OSC_MAX`] or has no encoding. A later,
-    /// shorter character may still fit.
+    /// nothing when it has no encoding. Once a character would pass
+    /// [`OSC_MAX`], the string takes no more, so what it keeps is a prefix
+    /// (a departure: the C reference kept a shorter character after it).
     fn osc_collect(&mut self, c: char) {
+        if self.osc_full {
+            return;
+        }
         let mut buf = [0; 4];
         let len = utf8::encode(u32::from(c), &mut buf);
         if self.osc_len + len > OSC_MAX {
+            self.osc_full = true;
             return;
         }
         self.osc[self.osc_len..self.osc_len + len].copy_from_slice(&buf[..len]);
