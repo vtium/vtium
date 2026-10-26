@@ -1,0 +1,15 @@
+[package]
+name = "vtium-image"
+description = "Inline images: sixel and kitty graphics decoding, the image store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+vtium-parse.workspace = true

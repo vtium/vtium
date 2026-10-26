@@ -1,0 +1,68 @@
+= Authors =
+
+vtium is a Rust port derived from kmscon and libtsm. Its code is written by
+large language models under the review of:
+	Aaron Bockelie
+
+kmscon, from which vtium is derived, was written by:
+	David Herrmann <dh.herrmann@googlemail.com>
+	Ran Benita <ran234@gmail.com>
+	Ted Kotz <ted@kotz.us>
+	Scott Moreau <oreaus@gmail.com>
+	Dave Reisner <dreisner@archlinux.org>
+	Matthew Monaco <unknown>
+	Detlef Riekenberg <wine.dev@web.de>
+	Marcin Slusarz <marcin.slusarz@gmail.com>
+	James Buren <ryuo@frugalware.org>
+	Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl>
+	ysangkok <ysangkok@gmail.com>
+	Hoàng Đức Hiếu <github@zahe.me>
+	Swift Geek <swiftgeek@gmail.com>
+	Aetf <aetf@unlimited-code.works>
+	Mirco Müller <macslow@gmail.com>
+	Jocelyn Falempe <jfalempe@redhat.com>
+
+libtsm, from which vtium is derived, was written by:
+	Aetf <aetf@unlimitedcodeworks.xyz>
+	David Herrmann <dh.herrmann@gmail.com>
+	Ran Benita <ran234@gmail.com>
+
+= Copyright Notice =
+
+This software is licensed under the terms of the MIT license. A source file
+may carry its own copyright notice; where it does not, the following applies:
+
+	Copyright (c) 2026 Aaron Bockelie
+
+	From kmscon:
+	Copyright (c) 2011-2013 David Herrmann <dh.herrmann@googlemail.com>
+
+	From libtsm:
+	Copyright (c) 2017-2018 Aetf <aetf@unlimitedcodeworks.xyz>
+	Copyright (c) 2011-2013 David Herrmann <dh.herrmann@gmail.com>
+
+	Permission is hereby granted, free of charge, to any person obtaining
+	a copy of this software and associated documentation files
+	(the "Software"), to deal in the Software without restriction, including
+	without limitation the rights to use, copy, modify, merge, publish,
+	distribute, sublicense, and/or sell copies of the Software, and to
+	permit persons to whom the Software is furnished to do so, subject to
+	the following conditions:
+
+	The above copyright notice and this permission notice shall be included
+	in all copies or substantial portions of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+	OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+	MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+	IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+	CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+	TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+	SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+= Per-File and Third-Party Notices =
+
+A source file ported from kmscon or libtsm keeps the copyright notice that
+file carried, beside vtium's. A third-party component's notice, such as the
+GNU Unifont font's (SIL OFL 1.1) or the Unicode data tables' (Unicode License
+v3), is added here with the code or data it covers, when that is ported.

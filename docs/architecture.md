@@ -1,0 +1,43 @@
+# Architecture
+
+vtium is a Cargo workspace. Each crate owns one responsibility, and the dependency arrows point one way: from the binary down to the terminal state and the platform.
+
+```text
+vtium (binary)
+├── vtium-platform   displays (DRM/KMS, fbdev), VT, seat, input, pty, event loop
+├── vtium-render     frames to pixels: CPU compositor; GPU path behind a feature
+│   ├── vtium-term   screen, cells, lines, scrollback, modes, SGR, replies
+│   │   └── vtium-parse   bytes to actions: the bounded escape-sequence parser
+│   └── vtium-font   glyph sources: PSF and unifont; outline fonts behind a feature
+└── vtium-image      sixel and kitty graphics, the image store (feature `images`)
+```
+
+Only `vtium-platform` may use `unsafe`, for ioctls and FFI. Every other crate carries `#![forbid(unsafe_code)]`.
+
+## The minspec build
+
+The default build is minspec: the smallest complete console, for the small-machine standard (1366x768, 1 vCPU, 512 MB). It covers drm2d or fbdev, the CPU renderer, bitmap fonts, the parser and screen, the pty and keyboard input. Images, outline fonts and the GPU path are features added on top. `cargo build --profile minspec` builds it size-optimised. Its size and memory are measured from the first working build.
+
+## Where each part comes from
+
+vtium is a port of the [aaronsb/kmscon](https://github.com/aaronsb/kmscon) fork's components. The fork's code is the reference for behaviour, not for layout.
+
+| vtium crate | Fork components it replaces |
+|---|---|
+| `vtium-parse` | libtsm's escape parser (`tsm-vte.c` state machine) |
+| `vtium-term` | libtsm's screen, selection, mode registry (`tsm-modes.def`), replies, Unicode tables |
+| `vtium-image` | libtsm's sixel decoder, kitty graphics parser and image store; kmscon's image budget and helper |
+| `vtium-font` | kmscon's font backends (PSF, unifont, FreeType, Pango) and the box/block sprites |
+| `vtium-render` | kmscon's text renderers (bbulk, gltex) and the render timer |
+| `vtium-platform` | kmscon's uterm (video, VT, monitor), seat, input, pty and event loop |
+| `vtium` | kmscon's `main.c`, config and terminal wiring |
+
+## How it is judged
+
+By the fork's harness, where the tests don't depend on the language:
+
+- **Tier 3** boots a VM, drives keys and compares screenshots pixel for pixel. It judges vtium unchanged, and tier3-minimal judges minspec.
+- **Conformance and capability suites** move behind a language-neutral interface, bytes in and screen state or replies out, built in the fork first so the C implementation proves the goldens.
+- **Tier 2's pixel tests** are ported with the renderer and keep their goldens.
+
+Work is built in bundles of items that don't collide, then evaluated once per bundle.

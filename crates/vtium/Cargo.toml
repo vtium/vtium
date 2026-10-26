@@ -1,0 +1,23 @@
+[package]
+name = "vtium"
+description = "A terminal for the Linux virtual console: KMS/DRM, no display server, modern text, sixel and kitty graphics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The minspec build is the default: the smallest complete console.
+default = []
+images = ["dep:vtium-image"]
+
+[dependencies]
+vtium-term.workspace = true
+vtium-render.workspace = true
+vtium-platform.workspace = true
+vtium-image = { workspace = true, optional = true }

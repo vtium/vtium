@@ -1,0 +1,36 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/vtium/vtium"
+authors = ["Aaron Bockelie"]
+
+[workspace.dependencies]
+vtium-parse = { path = "crates/vtium-parse" }
+vtium-term = { path = "crates/vtium-term" }
+vtium-image = { path = "crates/vtium-image" }
+vtium-font = { path = "crates/vtium-font" }
+vtium-render = { path = "crates/vtium-render" }
+vtium-platform = { path = "crates/vtium-platform" }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+
+# The minspec build: smallest binary for the small-machine standard.
+[profile.minspec]
+inherits = "release"
+opt-level = "z"
+strip = true
