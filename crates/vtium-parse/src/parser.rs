@@ -28,7 +28,7 @@
 //! goes to the [`Consumer`].
 
 use crate::bounds::{OSC_MAX, XTGETTCAP_MAX};
-use crate::consumer::{Chunk, Consumer, InputMode};
+use crate::consumer::{Chunk, Consumer, InputMode, StringEnd};
 use crate::params::{Intermediates, Params};
 use crate::utf8::{self, Decoder};
 
@@ -66,13 +66,13 @@ enum Action {
     CsiDispatch,
     DcsStart,
     DcsCollect,
-    DcsEnd,
     OscStart,
     OscCollect,
-    OscEnd,
     ApcStart,
     ApcCollect,
-    ApcEnd,
+    /// The exit action of every string state: `ACTION_DCS_END`,
+    /// `ACTION_OSC_END` and `ACTION_APC_END`.
+    EndString,
 }
 
 /// What the DCS string in progress goes to, picked when its data starts
@@ -82,6 +82,16 @@ enum Dcs {
     None,
     Hooked,
     Xtgettcap,
+}
+
+/// How the character that left a string state ended the string.
+fn string_end(c: char) -> StringEnd {
+    match c {
+        '\u{9c}' => StringEnd::St,
+        '\x07' => StringEnd::Bel,
+        // Every character that leaves a string state is below U+00A0.
+        _ => StringEnd::Cancelled(c as u8),
+    }
 }
 
 /// `entry_action` (tsm-vte.c:3239-3247).
@@ -98,9 +108,7 @@ fn entry_action(state: State) -> Action {
 /// `exit_action` (tsm-vte.c:3250-3255).
 fn exit_action(state: State) -> Action {
     match state {
-        State::DcsPass => Action::DcsEnd,
-        State::OscString => Action::OscEnd,
-        State::ApcString => Action::ApcEnd,
+        State::DcsPass | State::OscString | State::ApcString => Action::EndString,
         _ => Action::None,
     }
 }
@@ -289,13 +297,13 @@ pub struct Parser {
     tcap_len: usize,
     /// The payload passed [`XTGETTCAP_MAX`] (`tcap_over`).
     tcap_over: bool,
-    /// An ESC ended an XTGETTCAP request, which is ST only if `\` comes
-    /// next (`dcs_esc`).
-    tcap_esc: bool,
-    /// The last character was an ESC that ended an APC string. A reset
-    /// keeps it, so the `\` of that ST is dropped after the reset
-    /// (aaronsb/libtsm#53).
-    apc_esc: bool,
+    /// The string state an ESC left, whose end waits for the next
+    /// character: `\` makes the ESC an ST, anything else cancels the
+    /// string. The C reference waited so only for XTGETTCAP (`dcs_esc`).
+    pending_end: Option<State>,
+    /// A reset came while an APC string's end waited, so a `\` right after
+    /// it is dropped (aaronsb/libtsm#53).
+    drop_backslash: bool,
 }
 
 impl Default for Parser {
@@ -319,27 +327,26 @@ impl Parser {
             tcap: [0; XTGETTCAP_MAX],
             tcap_len: 0,
             tcap_over: false,
-            tcap_esc: false,
-            apc_esc: false,
+            pending_end: None,
+            drop_backslash: false,
         }
     }
 
     /// Back to ground state, with the UTF-8 decoder between characters,
     /// as `tsm_vte_reset` leaves the parser (tsm-vte.c:1043-1047). A string
-    /// in progress is dropped with no end call, and an XTGETTCAP request
-    /// waiting for the `\` of its ST is dropped (libtsm's
-    /// `test_vte_xtgettcap_esc_reset`). The consumer clears its own string
-    /// state, such as a sixel picture or a kitty command in progress, when
-    /// it resets the parser.
+    /// in progress is dropped with no end call, one waiting at the ESC of
+    /// its ST included (libtsm's `test_vte_xtgettcap_esc_reset`). The
+    /// consumer clears its own string state, such as a sixel picture or a
+    /// kitty command in progress, when it resets the parser.
     ///
-    /// One departure from the C reference: after a reset between the ESC
-    /// that ended an APC string and the `\` of its ST, that `\` is dropped
-    /// where the C reference printed it (aaronsb/libtsm#53). A host that
-    /// cancels a kitty request it was handed at the ESC resets there.
+    /// After a reset between the ESC of an APC string's ST and its `\`,
+    /// that `\` is dropped where the C reference printed it
+    /// (aaronsb/libtsm#53, a departure).
     pub fn reset(&mut self) {
         self.utf8.reset();
         self.dcs = Dcs::None;
-        self.tcap_esc = false;
+        self.drop_backslash = self.pending_end == Some(State::ApcString);
+        self.pending_end = None;
         self.state = State::Ground;
     }
 
@@ -413,19 +420,23 @@ impl Parser {
     /// `parse_data` (tsm-vte.c:3280-3642): one character through the state
     /// machine.
     fn parse<C: Consumer>(&mut self, consumer: &mut C, c: char) {
-        // aaronsb/libtsm#53: the `\` of an APC's ST, after a reset
-        if self.apc_esc {
-            self.apc_esc = false;
-            if self.state == State::Ground && c == '\\' {
-                return;
-            }
+        // A string an ESC left ends now: `\` makes the ESC an ST, and
+        // anything else cancels the string (tsm-vte.c:3282-3287 for
+        // XTGETTCAP; a departure for every other string)
+        if let Some(string) = self.pending_end.take() {
+            let end = if c == '\\' {
+                StringEnd::St
+            } else {
+                StringEnd::Cancelled(0x1b)
+            };
+            self.end_string(consumer, string, end);
         }
 
-        // tsm-vte.c:3282-3287: an XTGETTCAP request that an ESC ended
-        if self.tcap_esc {
-            self.tcap_esc = false;
+        // aaronsb/libtsm#53: the `\` of an APC's ST, after a reset
+        if self.drop_backslash {
+            self.drop_backslash = false;
             if c == '\\' {
-                consumer.xtgettcap(&self.tcap[..self.tcap_len], self.tcap_over);
+                return;
             }
         }
 
@@ -450,7 +461,12 @@ impl Parser {
     ) {
         match next {
             Some(next) => {
-                self.act(consumer, c, exit_action(self.state));
+                let exit = exit_action(self.state);
+                if exit == Action::EndString && c == '\x1b' {
+                    self.pending_end = Some(self.state);
+                } else {
+                    self.act(consumer, c, exit);
+                }
                 self.act(consumer, c, action);
                 self.act(consumer, c, entry_action(next));
                 self.state = next;
@@ -478,11 +494,12 @@ impl Parser {
             }
             Action::DcsStart => self.dcs_start(consumer, c),
             Action::DcsCollect => self.dcs_collect(consumer, c),
-            Action::DcsEnd => self.dcs_end(consumer, c),
-            // tsm-vte.c:3215-3217
-            Action::OscStart => self.clear(),
+            Action::OscStart => {
+                self.osc_len = 0;
+                self.osc_full = false;
+            }
             Action::OscCollect => self.osc_collect(c),
-            Action::OscEnd => consumer.osc_dispatch(&self.osc[..self.osc_len], c as u8),
+            Action::EndString => self.end_string(consumer, self.state, string_end(c)),
             Action::ApcStart => consumer.apc_start(),
             Action::ApcCollect => {
                 if c.is_ascii() {
@@ -491,19 +508,15 @@ impl Parser {
                     consumer.apc_put(Chunk::Char(c));
                 }
             }
-            Action::ApcEnd => {
-                self.apc_esc = c == '\x1b';
-                consumer.apc_end(c as u8);
-            }
         }
     }
 
-    /// `do_clear` (tsm-vte.c:1216-1230).
+    /// `do_clear` (tsm-vte.c:1216-1230), but for the OSC buffer, which only
+    /// an OSC's start clears, so that an OSC string waiting at an ESC keeps
+    /// it.
     fn clear(&mut self) {
         self.params.clear();
         self.intermediates = Intermediates::NONE;
-        self.osc_len = 0;
-        self.osc_full = false;
     }
 
     /// `do_osc_collect` (tsm-vte.c:2912-2921): the character as UTF-8, or
@@ -579,18 +592,24 @@ impl Parser {
         }
     }
 
-    /// `do_dcs_end` (tsm-vte.c:3157-3170). ST answers an XTGETTCAP request,
-    /// ESC answers it if `\` follows, and CAN, SUB or another C1 control
-    /// drops it.
-    fn dcs_end<C: Consumer>(&mut self, consumer: &mut C, c: char) {
-        match self.dcs {
-            Dcs::Hooked => consumer.dcs_unhook(c as u8),
-            Dcs::Xtgettcap if c == '\u{9c}' => {
-                consumer.xtgettcap(&self.tcap[..self.tcap_len], self.tcap_over);
+    /// The end of the string in state `string`: `do_osc_end`, `do_dcs_end`
+    /// and `vte_apc_end` (tsm-vte.c:3004-3015, 3157-3170; tsm-vte-image.c).
+    /// ST answers an XTGETTCAP request, and anything else drops it.
+    fn end_string<C: Consumer>(&mut self, consumer: &mut C, string: State, end: StringEnd) {
+        match string {
+            State::OscString => consumer.osc_end(&self.osc[..self.osc_len], end),
+            State::DcsPass => {
+                match self.dcs {
+                    Dcs::Hooked => consumer.dcs_unhook(end),
+                    Dcs::Xtgettcap if end == StringEnd::St => {
+                        consumer.xtgettcap(&self.tcap[..self.tcap_len], self.tcap_over);
+                    }
+                    Dcs::Xtgettcap | Dcs::None => {}
+                }
+                self.dcs = Dcs::None;
             }
-            Dcs::Xtgettcap if c == '\x1b' => self.tcap_esc = true,
-            Dcs::Xtgettcap | Dcs::None => {}
+            State::ApcString => consumer.apc_end(end),
+            _ => {}
         }
-        self.dcs = Dcs::None;
     }
 }

@@ -4,7 +4,8 @@
 mod common;
 
 use common::{
-    Act, apc_bytes, csi, dcs_bytes, esc, osc, parse, parse_bytewise, parse_in, parse8, prints,
+    Act, Bel, Cancelled, St, apc_bytes, csi, dcs_bytes, esc, osc, parse, parse_bytewise, parse_in,
+    parse8, prints,
 };
 use vtium_parse::{InputMode, Intermediates as I};
 
@@ -318,7 +319,7 @@ fn csi_subparams() {
 fn c1_as_utf8_does_nothing() {
     assert_eq!(parse(b"a\xc2\x9b1mb"), prints("a1mb"));
     assert_eq!(parse(b"\x1b[1\xc2\x85m"), [csi(&[1], I::NONE, b'm')]);
-    assert_eq!(parse(b"\x1b]0;x\xc2\x9cy\x07"), [osc(b"0;xy", 0x07)]);
+    assert_eq!(parse(b"\x1b]0;x\xc2\x9cy\x07"), [osc(b"0;xy", Bel)]);
 }
 
 // libtsm's test_vte_8bit_c1: in 8-bit mode 0x9B introduces a CSI.
@@ -333,7 +334,7 @@ fn csi_c1_in_8bit_mode() {
 // tsm-vte.c:3363-3364, 3598-3603, 3004-3015: an OSC string ended by BEL.
 #[test]
 fn osc_ended_by_bel() {
-    assert_eq!(parse(b"\x1b]0;title\x07"), [osc(b"0;title", 0x07)]);
+    assert_eq!(parse(b"\x1b]0;title\x07"), [osc(b"0;title", Bel)]);
 }
 
 // tsm-vte.c:3291-3298, 3250-3255: ST as C1 ends it, then executes.
@@ -341,7 +342,7 @@ fn osc_ended_by_bel() {
 fn osc_ended_by_c1_st() {
     assert_eq!(
         parse8(b"\x9d10;?\x9c"),
-        [osc(b"10;?", 0x9c), Act::Execute(0x9c)]
+        [osc(b"10;?", St), Act::Execute(0x9c)]
     );
 }
 
@@ -350,31 +351,59 @@ fn osc_ended_by_c1_st() {
 fn osc_ended_by_esc_backslash() {
     assert_eq!(
         parse(b"\x1b]2;x\x1b\\"),
-        [osc(b"2;x", 0x1b), esc(I::NONE, b'\\')]
+        [osc(b"2;x", St), esc(I::NONE, b'\\')]
     );
 }
 
 // tsm-vte.c:3300-3301: an ESC ends the string whatever follows it, so the
-// OSC dispatches and the ESC sequence runs.
+// Departure (vt100.net: ESC "will "cancel" the control string"; ECMA-48
+// 5.6: a control string ends with ST): an ESC not followed by '\\' cancels
+// the string, and the ESC sequence it starts runs. The C reference acted on
+// the string at the ESC (tsm-vte.c:3300-3301).
 #[test]
-fn osc_ended_by_esc_alone() {
+fn osc_cancelled_by_esc_alone() {
     assert_eq!(
         parse(b"\x1b]2;x\x1b[1m"),
-        [osc(b"2;x", 0x1b), csi(&[1], I::NONE, b'm')]
+        [osc(b"2;x", Cancelled(0x1b)), csi(&[1], I::NONE, b'm')]
     );
 }
 
-// tsm-vte.c:3291-3298: CAN and SUB end the string by dispatching it, where
-// vt100.net cancels it, and then execute.
+// The same for DCS and APC: an ESC not followed by '\\' cancels the string.
+#[test]
+fn dcs_and_apc_cancelled_by_esc_alone() {
+    assert_eq!(
+        parse(b"\x1bPqa\x1b7"),
+        acts![
+            Act::DcsHook(vec![-1], I::NONE, u32::from(b'q')),
+            Act::DcsByte(b'a'),
+            Act::DcsUnhook(Cancelled(0x1b)),
+            esc(I::NONE, b'7'),
+        ]
+    );
+    assert_eq!(
+        parse(b"\x1b_Ga\x1b7"),
+        acts![
+            Act::ApcStart,
+            apc_bytes(b"Ga"),
+            Act::ApcEnd(Cancelled(0x1b)),
+            esc(I::NONE, b'7'),
+        ]
+    );
+}
+
+// Departure (vt100.net: "the C0 controls CAN and SUB cancel any ... control
+// string in progress"; ECMA-48 8.3.6): CAN and SUB end the string as
+// cancelled, then execute. The C reference acted on the string
+// (tsm-vte.c:3291-3298, 3004-3015).
 #[test]
 fn osc_dispatched_by_can_and_sub() {
     assert_eq!(
         parse(b"\x1b]2;x\x18"),
-        [osc(b"2;x", 0x18), Act::Execute(0x18)]
+        [osc(b"2;x", Cancelled(0x18)), Act::Execute(0x18)]
     );
     assert_eq!(
         parse(b"\x1b]2;x\x1a"),
-        [osc(b"2;x", 0x1a), Act::Execute(0x1a)]
+        [osc(b"2;x", Cancelled(0x1a)), Act::Execute(0x1a)]
     );
 }
 
@@ -382,7 +411,7 @@ fn osc_dispatched_by_can_and_sub() {
 // is collected.
 #[test]
 fn osc_ignores_c0_and_collects_del() {
-    assert_eq!(parse(b"\x1b]a\nb\x7fc\x07"), [osc(b"ab\x7fc", 0x07)]);
+    assert_eq!(parse(b"\x1b]a\nb\x7fc\x07"), [osc(b"ab\x7fc", Bel)]);
 }
 
 // tsm-vte.c:3606, 2912-2921: characters past ASCII are collected as UTF-8,
@@ -392,11 +421,11 @@ fn osc_ignores_c0_and_collects_del() {
 fn osc_collects_utf8() {
     assert_eq!(
         parse("\x1b]2;é€\x07".as_bytes()),
-        [osc("2;é€".as_bytes(), 0x07)]
+        [osc("2;é€".as_bytes(), Bel)]
     );
     assert_eq!(
         parse(b"\x1b]a\xed\xa0\x80b\xef\xbf\xbfc\xef\xb7\x90d\x07"),
-        [osc("a\u{fffd}\u{fffd}\u{fffd}bcd".as_bytes(), 0x07)]
+        [osc("a\u{fffd}\u{fffd}\u{fffd}bcd".as_bytes(), Bel)]
     );
 }
 
@@ -405,7 +434,7 @@ fn osc_collects_utf8() {
 fn osc_restart_clears() {
     assert_eq!(
         parse8(b"\x1b]abc\x9ddef\x07"),
-        [osc(b"abc", 0x9d), osc(b"def", 0x07)]
+        [osc(b"abc", Cancelled(0x9d)), osc(b"def", Bel)]
     );
 }
 
@@ -418,7 +447,7 @@ fn dcs_hook_put_unhook() {
         acts![
             Act::DcsHook(vec![0, 1], I::NONE, u32::from(b'q')),
             dcs_bytes(b"#0;2;0~-"),
-            Act::DcsUnhook(0x1b),
+            Act::DcsUnhook(St),
             esc(I::NONE, b'\\'),
         ]
     );
@@ -432,11 +461,11 @@ fn dcs_collects_markers_and_intermediates() {
         acts![
             Act::DcsHook(vec![-1], I::GREATER, u32::from(b'|')),
             Act::DcsByte(b'x'),
-            Act::DcsUnhook(0x9c),
+            Act::DcsUnhook(St),
             Act::Execute(0x9c),
             Act::DcsHook(vec![-1], I::DOLLAR, u32::from(b'q')),
             Act::DcsByte(b'm'),
-            Act::DcsUnhook(0x9c),
+            Act::DcsUnhook(St),
             Act::Execute(0x9c),
         ]
     );
@@ -451,7 +480,7 @@ fn dcs_ignores_c0_before_data() {
         acts![
             Act::DcsHook(vec![1, 2], I::DOLLAR, u32::from(b'q')),
             Act::DcsByte(b'z'),
-            Act::DcsUnhook(0x1b),
+            Act::DcsUnhook(St),
             esc(I::NONE, b'\\'),
         ]
     );
@@ -465,7 +494,7 @@ fn dcs_data_takes_c0_and_drops_del() {
         acts![
             Act::DcsHook(vec![-1], I::NONE, u32::from(b'q')),
             dcs_bytes(b"a\r\nb"),
-            Act::DcsUnhook(0x1b),
+            Act::DcsUnhook(St),
             esc(I::NONE, b'\\'),
         ]
     );
@@ -479,7 +508,7 @@ fn dcs_data_past_ascii() {
         acts![
             Act::DcsHook(vec![-1], I::NONE, u32::from(b'q')),
             Act::DcsChar(0xe9),
-            Act::DcsUnhook(0x1b),
+            Act::DcsUnhook(St),
             esc(I::NONE, b'\\'),
         ]
     );
@@ -537,14 +566,14 @@ fn gr_acts_as_gl_in_8bit_sequences() {
         acts![
             Act::DcsHook(vec![-1], I::NONE, u32::from(b'q')),
             Act::DcsByte(b'#'),
-            Act::DcsUnhook(0x9c),
+            Act::DcsUnhook(St),
             Act::Execute(0x9c),
         ]
     );
     // GR in ground and in strings stays itself
     assert_eq!(
         parse8(b"\xe9\x9d0;\xe9\x07"),
-        [Act::Print(0xe9), osc("0;é".as_bytes(), 0x07)]
+        [Act::Print(0xe9), osc("0;é".as_bytes(), Bel)]
     );
 }
 
@@ -556,7 +585,7 @@ fn dcs_ended_by_can() {
         acts![
             Act::DcsHook(vec![-1], I::NONE, u32::from(b'q')),
             dcs_bytes(b"ab"),
-            Act::DcsUnhook(0x18),
+            Act::DcsUnhook(Cancelled(0x18)),
             Act::Execute(0x18),
             Act::Print(0x63),
         ]
@@ -572,7 +601,7 @@ fn dcs_ended_by_c1_csi() {
         acts![
             Act::DcsHook(vec![-1], I::NONE, u32::from(b'q')),
             Act::DcsByte(b'a'),
-            Act::DcsUnhook(0x9b),
+            Act::DcsUnhook(Cancelled(0x9b)),
             csi(&[2], I::NONE, b'J'),
         ]
     );
@@ -587,7 +616,7 @@ fn apc_start_put_end() {
         acts![
             Act::ApcStart,
             apc_bytes(b"Ga=q;AAAA"),
-            Act::ApcEnd(0x1b),
+            Act::ApcEnd(St),
             esc(I::NONE, b'\\'),
         ]
     );
@@ -600,7 +629,7 @@ fn apc_c1_framing() {
     let want = acts![
         Act::ApcStart,
         apc_bytes(b"Gi=1"),
-        Act::ApcEnd(0x9c),
+        Act::ApcEnd(St),
         Act::Execute(0x9c),
     ];
     assert_eq!(parse(b"\xc2\x9fGi=1\xc2\x9c"), prints("Gi=1"));
@@ -615,7 +644,7 @@ fn apc_drops_c0_and_del() {
         acts![
             Act::ApcStart,
             apc_bytes(b"ab"),
-            Act::ApcEnd(0x1b),
+            Act::ApcEnd(St),
             esc(I::NONE, b'\\'),
         ]
     );
@@ -630,7 +659,7 @@ fn apc_past_ascii() {
             Act::ApcStart,
             Act::ApcByte(b'a'),
             Act::ApcChar(0xe9),
-            Act::ApcEnd(0x1b),
+            Act::ApcEnd(St),
             esc(I::NONE, b'\\'),
         ]
     );
@@ -645,10 +674,10 @@ fn apc_restarts() {
         acts![
             Act::ApcStart,
             Act::ApcByte(b'a'),
-            Act::ApcEnd(0x9f),
+            Act::ApcEnd(Cancelled(0x9f)),
             Act::ApcStart,
             Act::ApcByte(b'b'),
-            Act::ApcEnd(0x9c),
+            Act::ApcEnd(St),
             Act::Execute(0x9c),
         ]
     );
@@ -662,7 +691,7 @@ fn apc_ended_by_sub() {
         acts![
             Act::ApcStart,
             apc_bytes(b"Gx"),
-            Act::ApcEnd(0x1a),
+            Act::ApcEnd(Cancelled(0x1a)),
             Act::Execute(0x1a),
         ]
     );
@@ -715,12 +744,7 @@ fn reset_after_apc_esc_drops_the_st_backslash() {
     rec.feed(&mut parser, b"\\text");
     assert_eq!(
         rec.acts,
-        acts![
-            Act::ApcStart,
-            apc_bytes(b"Ga=T;AAAA"),
-            Act::ApcEnd(0x1b),
-            prints("text"),
-        ]
+        acts![Act::ApcStart, apc_bytes(b"Ga=T;AAAA"), prints("text")]
     );
 }
 
@@ -736,12 +760,7 @@ fn reset_after_apc_esc_keeps_other_characters() {
     rec.feed(&mut parser, b"x\\");
     assert_eq!(
         rec.acts,
-        acts![
-            Act::ApcStart,
-            apc_bytes(b"Gq"),
-            Act::ApcEnd(0x1b),
-            prints("x\\"),
-        ]
+        acts![Act::ApcStart, apc_bytes(b"Gq"), prints("x\\")]
     );
 }
 
@@ -753,7 +772,7 @@ fn apc_esc_backslash_without_reset_is_st() {
         acts![
             Act::ApcStart,
             apc_bytes(b"Gq"),
-            Act::ApcEnd(0x1b),
+            Act::ApcEnd(St),
             esc(I::NONE, b'\\'),
             prints("text"),
         ]

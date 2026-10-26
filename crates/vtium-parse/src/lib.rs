@@ -7,7 +7,7 @@
 //! [`Parser`] drives a [`Consumer`], one method per kind of action.
 //!
 //! ```
-//! use vtium_parse::{Chunk, Consumer, Intermediates, Params, Parser};
+//! use vtium_parse::{Chunk, Consumer, Intermediates, Params, Parser, StringEnd};
 //!
 //! #[derive(Default)]
 //! struct Text(String);
@@ -19,13 +19,13 @@
 //!     fn execute(&mut self, _: u8) {}
 //!     fn esc_dispatch(&mut self, _: Intermediates, _: u8) {}
 //!     fn csi_dispatch(&mut self, _: &Params, _: Intermediates, _: u8) {}
-//!     fn osc_dispatch(&mut self, _: &[u8], _: u8) {}
+//!     fn osc_end(&mut self, _: &[u8], _: StringEnd) {}
 //!     fn dcs_hook(&mut self, _: &Params, _: Intermediates, _: char) {}
 //!     fn dcs_put(&mut self, _: Chunk<'_>) {}
-//!     fn dcs_unhook(&mut self, _: u8) {}
+//!     fn dcs_unhook(&mut self, _: StringEnd) {}
 //!     fn apc_start(&mut self) {}
 //!     fn apc_put(&mut self, _: Chunk<'_>) {}
-//!     fn apc_end(&mut self, _: u8) {}
+//!     fn apc_end(&mut self, _: StringEnd) {}
 //!     fn xtgettcap(&mut self, _: &[u8], _: bool) {}
 //! }
 //!
@@ -36,20 +36,13 @@
 //! ```
 //!
 //! The state machine is the C reference's, libtsm's `tsm-vte.c`, which
-//! follows the DEC/ANSI parser described at vt100.net. It reproduces the C
-//! reference's behaviour, including where that departs from the
-//! vt100.net diagram: DEL prints in ground state, CAN and SUB end an OSC
-//! string by dispatching it, and an ESC ends one whatever follows. Each such
-//! rule is cited to its line in `tsm-vte.c` where it is implemented.
-//!
-//! Two parts depart from the C reference on purpose. The UTF-8 decoder
-//! follows the Unicode Standard: each maximal subpart of an ill-formed
-//! sequence becomes one U+FFFD, the byte that ends it is decoded again, and
-//! overlongs, surrogates and values past U+10FFFF are ill-formed, so no
-//! ill-formed input yields a control. The C reference is being fixed to the
-//! same contract. And after a reset between the ESC that ended an APC string
-//! and the `\` of its ST, that `\` is dropped (aaronsb/libtsm#53; see
-//! [`Parser::reset`]).
+//! follows the DEC/ANSI parser described at vt100.net. The C reference is
+//! the floor: the parser does everything it does, each rule cited to its
+//! line in `tsm-vte.c`, and where the C reference departs from a protocol
+//! specification, the parser follows the specification. The crate's README
+//! lists each departure with its reason and the specification it follows:
+//! among them, UTF-8 decoding to the Unicode Standard, strings that act only
+//! when ST or BEL completes them, and every empty parameter omitted.
 //!
 //! Charset mapping, screen effects and replies are the consumer's.
 //!
@@ -71,6 +64,6 @@ mod parser;
 mod utf8;
 
 pub use bounds::{OSC_MAX, PARAM_VALUE_CAP, PARAMS_MAX, SUBPARAMS_MAX, XTGETTCAP_MAX};
-pub use consumer::{Chunk, Consumer, InputMode};
+pub use consumer::{Chunk, Consumer, InputMode, StringEnd};
 pub use params::{Intermediates, Params};
 pub use parser::Parser;

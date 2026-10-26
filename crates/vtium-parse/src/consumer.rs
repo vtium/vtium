@@ -45,18 +45,43 @@ pub enum Chunk<'a> {
     Char(char),
 }
 
+/// How an OSC, DCS or APC string ended. A consumer acts on a string only
+/// when it ended [`St`](Self::St) or [`Bel`](Self::Bel); a
+/// [`Cancelled`](Self::Cancelled) end lets it release what it holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StringEnd {
+    /// ST: 0x9C, or ESC followed by `\` (ECMA-48 5.6, 8.3.143).
+    St,
+    /// BEL, which ends an OSC string as xterm accepts; replies to it end in
+    /// BEL too.
+    Bel,
+    /// CAN, SUB, another C1 control, or an ESC followed by anything but
+    /// `\`, which cancel a control string (vt100.net; ECMA-48 8.3.6). The
+    /// byte is the one that cancelled it.
+    Cancelled(u8),
+}
+
+impl StringEnd {
+    /// Whether the string ended with its terminator, so the consumer acts
+    /// on it.
+    pub fn is_complete(self) -> bool {
+        !matches!(self, StringEnd::Cancelled(_))
+    }
+}
+
 /// The actions the parser drives, one method for each kind.
 ///
 /// Each method mirrors a handler in the C reference's tsm-vte.c, and is
 /// called where that handler runs, with the same values. The arguments
 /// borrow the parser's buffers or the input, and live only for the call.
 ///
-/// A string (OSC, DCS or APC) ends when the parser leaves its state, by
-/// whatever character moved it: ST, BEL for OSC, ESC, CAN, SUB or any C1
-/// control. The end method gets that character as its `terminator`, and
-/// for CAN, SUB and the C1 controls [`execute`](Self::execute) follows
-/// with the same character. An ESC terminator is followed by whatever ESC
-/// sequence comes next, `ESC \` included.
+/// A string (OSC, DCS or APC) ends when the parser leaves its state, and
+/// its end method gets a [`StringEnd`]. ST and BEL complete it. CAN, SUB
+/// and the other C1 controls cancel it, and [`execute`](Self::execute)
+/// follows with the same control. An ESC waits for the next character: a
+/// `\` makes it ST, and anything else cancels the string and goes on as
+/// the ESC sequence it starts. Acting only on complete strings is a
+/// departure: the C reference acted on a string however it ended.
 ///
 /// [`Parser::reset`](crate::Parser::reset) drops a string in progress
 /// with no end call, as `tsm_vte_reset` does (tsm-vte.c:1032-1049): a
@@ -82,11 +107,11 @@ pub trait Consumer {
     /// (tsm-vte.c:2548-2551); that choice is the consumer's.
     fn csi_dispatch(&mut self, params: &Params, intermediates: Intermediates, final_byte: u8);
 
-    /// An OSC string, `do_osc_end` (tsm-vte.c:3004-3015). `data` is its
-    /// first [`OSC_MAX`](crate::OSC_MAX) bytes as UTF-8. A terminator of
-    /// BEL asks for replies ended by BEL, anything else for replies ended
-    /// by `ESC \` (tsm-vte.c:2996-3002).
-    fn osc_dispatch(&mut self, data: &[u8], terminator: u8);
+    /// An OSC string ends, `do_osc_end` (tsm-vte.c:3004-3015). `data` is
+    /// its first bytes as UTF-8, at most [`OSC_MAX`](crate::OSC_MAX). A
+    /// string ended by BEL takes replies ended by BEL, and one ended by ST
+    /// replies ended by `ESC \` (tsm-vte.c:2996-3002).
+    fn osc_end(&mut self, data: &[u8], end: StringEnd);
 
     /// A DCS string starts, `do_dcs_start` (tsm-vte.c:3128-3140): its
     /// parameters, markers and intermediates, and `final_char`, the
@@ -102,10 +127,8 @@ pub trait Consumer {
     /// consumer's.
     fn dcs_put(&mut self, data: Chunk<'_>);
 
-    /// The hooked DCS string ends, `do_dcs_end` (tsm-vte.c:3157). The C
-    /// reference shows a sixel picture for any terminator but CAN and SUB
-    /// (tsm-vte-image.c:148).
-    fn dcs_unhook(&mut self, terminator: u8);
+    /// The hooked DCS string ends, `do_dcs_end` (tsm-vte.c:3157).
+    fn dcs_unhook(&mut self, end: StringEnd);
 
     /// An APC string starts, `vte_apc_start` (tsm-vte.c:3245). The kitty
     /// graphics protocol rides on these.
@@ -117,7 +140,7 @@ pub trait Consumer {
     fn apc_put(&mut self, data: Chunk<'_>);
 
     /// The APC string ends, `vte_apc_end` (tsm-vte.c:3253).
-    fn apc_end(&mut self, terminator: u8);
+    fn apc_end(&mut self, end: StringEnd);
 
     /// An XTGETTCAP request, `DCS + q names ST`, ended by ST (0x9C or
     /// `ESC \`), as `dcs_xtgettcap` receives it (tsm-vte.c:3078). `payload`

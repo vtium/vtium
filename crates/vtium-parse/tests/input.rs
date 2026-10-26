@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{Act, Recorder, csi, esc, parse, parse_in, prints};
+use common::{Act, Recorder, St, csi, esc, parse, parse_in, prints};
 use vtium_parse::{InputMode, Intermediates as I, Parser};
 
 // tsm-vte.c:3668-3673: a character cut across inputs decodes whole.
@@ -88,7 +88,7 @@ fn malformed_utf8_inside_a_string_keeps_the_esc() {
             Act::ApcStart,
             Act::ApcByte(b'G'),
             Act::ApcChar(0xfffd),
-            Act::ApcEnd(0x1b),
+            Act::ApcEnd(St),
             esc(I::NONE, b'\\'),
         ]
     );
@@ -102,7 +102,7 @@ fn eight_bit_mode() {
         [
             Act::Print(0xe9),
             Act::Execute(0x85),
-            common::osc(b"0;x", 0x9c),
+            common::osc(b"0;x", St),
             Act::Execute(0x9c),
         ]
     );
@@ -175,7 +175,7 @@ fn pause_returns_early_and_resumes() {
         ..Recorder::new()
     };
     let n = parser.advance(&mut rec, input);
-    assert_eq!(n, 7, "through the ESC that ended the APC");
+    assert_eq!(n, 8, "through the backslash of the ST that ended the APC");
     rec.feed(&mut parser, &input[n..]);
     assert_eq!(rec.acts, parse(input));
     assert_eq!(rec.acts[rec.acts.len() - 6], esc(I::NONE, b'\\'));

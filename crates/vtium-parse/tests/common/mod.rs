@@ -2,6 +2,7 @@
 //! bounds and ranges the parser promises.
 #![allow(dead_code)]
 
+pub use vtium_parse::StringEnd::{self, Bel, Cancelled, St};
 use vtium_parse::{
     Chunk, Consumer, InputMode, Intermediates, OSC_MAX, PARAMS_MAX, Params, Parser, SUBPARAMS_MAX,
     XTGETTCAP_MAX,
@@ -19,15 +20,15 @@ pub enum Act {
     Execute(u8),
     Esc(Intermediates, u8),
     Csi(Vec<i32>, Intermediates, u8),
-    Osc(Vec<u8>, u8),
+    Osc(Vec<u8>, StringEnd),
     DcsHook(Vec<i32>, Intermediates, u32),
     DcsByte(u8),
     DcsChar(u32),
-    DcsUnhook(u8),
+    DcsUnhook(StringEnd),
     ApcStart,
     ApcByte(u8),
     ApcChar(u32),
-    ApcEnd(u8),
+    ApcEnd(StringEnd),
     Xtgettcap(Vec<u8>, bool),
 }
 
@@ -72,11 +73,15 @@ fn check_params(params: &Params) {
     assert!(params.subparams(PARAMS_MAX).is_empty());
 }
 
-fn check_terminator(t: u8) {
-    assert!(
-        matches!(t, 0x07 | 0x18 | 0x1a | 0x1b | 0x80..=0x9f),
-        "terminator {t:#x}"
-    );
+fn check_end(end: StringEnd, bel_allowed: bool) {
+    match end {
+        St => {}
+        Bel => assert!(bel_allowed, "BEL ends only an OSC string"),
+        Cancelled(b) => assert!(
+            matches!(b, 0x18 | 0x1a | 0x1b | 0x80..=0x9b | 0x9d..=0x9f),
+            "cancelled by {b:#x}"
+        ),
+    }
 }
 
 fn is_printable(c: u32) -> bool {
@@ -168,11 +173,11 @@ impl Consumer for Recorder {
         self.push(Act::Csi(values(params), intermediates, final_byte));
     }
 
-    fn osc_dispatch(&mut self, data: &[u8], terminator: u8) {
+    fn osc_end(&mut self, data: &[u8], end: StringEnd) {
         assert!(data.len() <= OSC_MAX, "osc of {} bytes", data.len());
         assert!(std::str::from_utf8(data).is_ok(), "osc not UTF-8");
-        check_terminator(terminator);
-        self.push(Act::Osc(data.to_vec(), terminator));
+        check_end(end, true);
+        self.push(Act::Osc(data.to_vec(), end));
     }
 
     fn dcs_hook(&mut self, params: &Params, intermediates: Intermediates, final_char: char) {
@@ -212,12 +217,11 @@ impl Consumer for Recorder {
         }
     }
 
-    fn dcs_unhook(&mut self, terminator: u8) {
+    fn dcs_unhook(&mut self, end: StringEnd) {
         assert!(self.in_dcs, "dcs_unhook outside a DCS string");
-        check_terminator(terminator);
-        assert_ne!(terminator, 0x07);
+        check_end(end, false);
         self.in_dcs = false;
-        self.push(Act::DcsUnhook(terminator));
+        self.push(Act::DcsUnhook(end));
     }
 
     fn apc_start(&mut self) {
@@ -244,12 +248,11 @@ impl Consumer for Recorder {
         }
     }
 
-    fn apc_end(&mut self, terminator: u8) {
+    fn apc_end(&mut self, end: StringEnd) {
         assert!(self.in_apc, "apc_end outside an APC string");
-        check_terminator(terminator);
-        assert_ne!(terminator, 0x07);
+        check_end(end, false);
         self.in_apc = false;
-        self.push(Act::ApcEnd(terminator));
+        self.push(Act::ApcEnd(end));
     }
 
     fn xtgettcap(&mut self, payload: &[u8], overflowed: bool) {
@@ -316,8 +319,8 @@ pub fn esc(intermediates: Intermediates, final_byte: u8) -> Act {
     Act::Esc(intermediates, final_byte)
 }
 
-pub fn osc(data: &[u8], terminator: u8) -> Act {
-    Act::Osc(data.to_vec(), terminator)
+pub fn osc(data: &[u8], end: StringEnd) -> Act {
+    Act::Osc(data.to_vec(), end)
 }
 
 pub fn dcs_bytes(data: &[u8]) -> Vec<Act> {
