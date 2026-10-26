@@ -13,10 +13,9 @@ use crate::bounds::{PARAM_VALUE_CAP, PARAMS_MAX, SUBPARAMS_MAX};
 /// The parameters of a CSI sequence or a DCS string, as the C reference
 /// keeps them in `csi_argv`, `csi_subargc` and `csi_subargv`.
 ///
-/// A parameter is -1 when it was omitted and is the last one, or past
-/// those the sequence carried. An omitted parameter before a `;` is 0
-/// (tsm-vte.c:1284-1286): `CSI ;5H` has 0 and 5, `CSI 5;H` has 5 and -1.
-/// An omitted sub-parameter is -1.
+/// A parameter is -1 when it was empty or past those the sequence carried,
+/// wherever it falls (ECMA-48 5.4.2 e and g): `CSI ;5H` has -1 and 5, and
+/// `CSI 5;H` has 5 and -1. An omitted sub-parameter is -1.
 #[derive(Clone)]
 pub struct Params {
     /// `csi_argc`: the `;` separators taken, at most [`PARAMS_MAX`].
@@ -51,10 +50,9 @@ impl Params {
     /// `do_param` (tsm-vte.c:1277-1326), for a byte from `0` to `;`.
     pub(crate) fn put(&mut self, data: u32) {
         if data == u32::from(b';') {
+            // An empty parameter stays -1 before a ';' too (ECMA-48 5.4.2 e
+            // and g), where the C reference made it 0 (tsm-vte.c:1284-1286).
             if self.argc < PARAMS_MAX {
-                if self.values[self.argc] == -1 {
-                    self.values[self.argc] = 0;
-                }
                 self.argc += 1;
             }
             self.sub_drop = false;

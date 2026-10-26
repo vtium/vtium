@@ -71,7 +71,10 @@ fn not_xtgettcap_with_param_or_other_flags() {
             b"\x1bP+$q544e\x1b\\",
             Act::DcsHook(vec![-1], I::PLUS | I::DOLLAR, q),
         ),
-        (b"\x1bP;+q544e\x1b\\", Act::DcsHook(vec![0, -1], I::PLUS, q)),
+        (
+            b"\x1bP;+q544e\x1b\\",
+            Act::DcsHook(vec![-1, -1], I::PLUS, q),
+        ),
     ];
     for (seq, hook) in hooked {
         let acts = parse(seq);

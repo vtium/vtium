@@ -162,16 +162,17 @@ fn csi_dispatches_with_params() {
     );
 }
 
-// tsm-vte.c:1284-1286: an omitted parameter before ';' is 0, the last one
-// stays -1.
+// Departure (ECMA-48 5.4.2 e and g): every empty parameter is -1, wherever
+// it falls. The C reference made one before a ';' 0 (tsm-vte.c:1284-1286).
 #[test]
 fn csi_omitted_params() {
     assert_eq!(
-        parse(b"\x1b[;5H\x1b[5;H\x1b[;;r"),
+        parse(b"\x1b[;5H\x1b[5;H\x1b[;;r\x1b[0;5H"),
         [
-            csi(&[0, 5], I::NONE, b'H'),
+            csi(&[-1, 5], I::NONE, b'H'),
             csi(&[5, -1], I::NONE, b'H'),
-            csi(&[0, 0, -1], I::NONE, b'r'),
+            csi(&[-1, -1, -1], I::NONE, b'r'),
+            csi(&[0, 5], I::NONE, b'H'),
         ]
     );
 }

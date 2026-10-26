@@ -22,9 +22,13 @@ vtium's escape-sequence parser: bytes from the pty in, terminal actions out. It 
 
 ## Behaviour
 
-The state machine reproduces the C reference's behaviour, including where that behaviour looks like a defect, so that the conformance goldens judge it unchanged. Each rule is cited to its line in `tsm-vte.c`.
+The C reference is the floor: vtium does everything it does, and where it departs from a protocol specification, vtium follows the specification. The state machine otherwise reproduces the C reference's behaviour, each rule cited to its line in `tsm-vte.c`, so that the conformance goldens judge it unchanged. Each departure is listed below with its reason and the specification it follows, and each has a test seen red against the C behaviour.
 
-Two parts depart on purpose. The UTF-8 decoder follows the Unicode Standard (Table 3-7, and §3.9's substitution of maximal subparts): each maximal subpart of an ill-formed sequence becomes one U+FFFD, the byte that ends it is decoded again from the start, and overlongs, surrogates and values past U+10FFFF are ill-formed, so no ill-formed input yields ESC or any other control. The C reference is being fixed to the same contract. And after a reset between the ESC that ended an APC string and the `\` of its ST, that `\` is dropped, where the C reference printed it (aaronsb/libtsm#53).
+## Departures
+
+- **UTF-8 decoding follows the Unicode Standard.** Each maximal subpart of an ill-formed sequence becomes one U+FFFD, the byte that ends it is decoded again from the start, and overlongs, surrogates and values past U+10FFFF are ill-formed, so no ill-formed input yields ESC or any other control. An incomplete sequence survives a cut in the input, and a reset drops it with no U+FFFD. The C reference took overlong forms, surrogates and values past U+10FFFF, and consumed the byte that broke a sequence; it is fixed to the same contract in a separate aaronsb/libtsm change. Spec: Unicode Table 3-7, and §3.9, "U+FFFD Substitution of Maximal Subparts".
+- **A reset drops the `\` of an APC's ST.** After a reset between the ESC that ended an APC string and the `\` of its ST, that `\` is dropped. The C reference printed it, a stray character after a host cancelled a kitty request (aaronsb/libtsm#53).
+- **Every empty parameter is omitted.** An empty parameter is -1 wherever it falls, so an explicit 0 and a default stay distinct; the C reference made an empty parameter before a `;` 0 (tsm-vte.c:1284-1286). Spec: ECMA-48 5.4.2 e), "An empty parameter sub-string represents a default value which depends on the control function", and g).
 
 ## Bounds
 

@@ -33,14 +33,15 @@ fn params_past_sixteen_dropped() {
     );
 }
 
-// tsm-vte.c:1285-1286: the 16th, omitted before a ';', is 0.
+// ECMA-48 5.4.2 g: sixteen empty parameters before separators are all
+// omitted, and the ones past them are dropped.
 #[test]
 fn sixteenth_param_omitted_before_separator() {
-    let mut list = ";".repeat(15);
-    list.push(';');
-    let mut want = vec![0; 16];
-    want[15] = 0;
-    assert_eq!(parse(&csi_with(&list, 'm')), [csi(&want, I::NONE, b'm')]);
+    let list = ";".repeat(16);
+    assert_eq!(
+        parse(&csi_with(&list, 'm')),
+        [csi(&[-1; 16], I::NONE, b'm')]
+    );
 }
 
 // tsm-vte.c:1314-1316: a value takes digits until it is past 0xffff.
