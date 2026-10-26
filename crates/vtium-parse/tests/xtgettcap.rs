@@ -100,21 +100,18 @@ fn payload_of_1039_kept() {
     let acts = parse(&seq);
     assert_eq!(
         acts[0],
-        Act::Xtgettcap(seq[4..4 + XTGETTCAP_MAX].to_vec(), false)
+        Act::Xtgettcap(Some(seq[4..4 + XTGETTCAP_MAX].to_vec()))
     );
     assert_eq!(XTGETTCAP_MAX, 1039);
 }
 
-// test_vte_xtgettcap_bounds: one byte more is flagged, and the payload holds
-// its first 1039 bytes (tsm-vte.c:3149-3152).
+// test_vte_xtgettcap_bounds: one byte more passes the bound, so the request
+// has no payload (tsm-vte.c:3149-3152, 3087-3091).
 #[test]
 fn payload_past_1039_flagged() {
     let seq = request(XTGETTCAP_MAX + 1);
     let acts = parse(&seq);
-    assert_eq!(
-        acts[0],
-        Act::Xtgettcap(seq[4..4 + XTGETTCAP_MAX].to_vec(), true)
-    );
+    assert_eq!(acts[0], Act::Xtgettcap(None));
 }
 
 // A megabyte of payload takes no more than the bound.
@@ -122,10 +119,7 @@ fn payload_past_1039_flagged() {
 fn payload_flood_bounded() {
     let seq = request(1 << 20);
     let acts = parse(&seq);
-    assert_eq!(
-        acts[0],
-        Act::Xtgettcap(seq[4..4 + XTGETTCAP_MAX].to_vec(), true)
-    );
+    assert_eq!(acts[0], Act::Xtgettcap(None));
 }
 
 // A request after a flagged one starts empty and unflagged

@@ -20,13 +20,13 @@
 //!     fn esc_dispatch(&mut self, _: Intermediates, _: u8) {}
 //!     fn csi_dispatch(&mut self, _: &Params, _: Intermediates, _: u8) {}
 //!     fn osc_end(&mut self, _: &[u8], _: StringEnd) {}
-//!     fn dcs_hook(&mut self, _: &Params, _: Intermediates, _: char) {}
+//!     fn dcs_hook(&mut self, _: &Params, _: Intermediates, _: u8) {}
 //!     fn dcs_put(&mut self, _: Chunk<'_>) {}
 //!     fn dcs_unhook(&mut self, _: StringEnd) {}
 //!     fn apc_start(&mut self) {}
 //!     fn apc_put(&mut self, _: Chunk<'_>) {}
 //!     fn apc_end(&mut self, _: StringEnd) {}
-//!     fn xtgettcap(&mut self, _: &[u8], _: bool) {}
+//!     fn xtgettcap(&mut self, _: Option<&[u8]>) {}
 //! }
 //!
 //! let mut parser = Parser::new();

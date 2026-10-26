@@ -1,4 +1,4 @@
-// The encoder is ported from libtsm's src/tsm/tsm-unicode.c
+// The noncharacter rule is ported from libtsm's src/tsm/tsm-unicode.c
 // (tsm_ucs4_to_utf8), which carries this notice:
 //
 // Copyright (c) 2011-2013 David Herrmann <dh.herrmann@gmail.com>
@@ -22,8 +22,8 @@
 // TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 // SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-//! The UTF-8 decoder in front of the state machine, and the encoder that
-//! writes OSC strings back as UTF-8.
+//! The UTF-8 decoder in front of the state machine, and the characters an
+//! OSC string drops.
 //!
 //! The decoder follows the Unicode Standard, which is vtium's contract for
 //! it, and the contract the C reference is being fixed to:
@@ -39,7 +39,7 @@
 //!    no ill-formed input yields ESC or any other control.
 //! 5. The result does not depend on the signedness of `char`.
 //!
-//! The encoder is the C reference's.
+//! The noncharacter rule is the C reference's encoder's.
 
 /// What an ill-formed sequence becomes.
 pub(crate) const REPLACEMENT: char = '\u{fffd}';
@@ -130,40 +130,12 @@ impl Decoder {
     }
 }
 
-/// `tsm_ucs4_to_utf8` (tsm-unicode.c:600-630): writes `g` as UTF-8 into
-/// `out` and returns the length, 0 for a surrogate, a value past U+10FFFF
-/// or a noncharacter (U+FDD0 to U+FDEF, and the last two of every plane).
-pub(crate) fn encode(g: u32, out: &mut [u8; 4]) -> usize {
-    if (0xd800..=0xdfff).contains(&g) {
-        return 0;
-    }
-    if g > 0x10ffff || g & 0xffff == 0xffff || g & 0xffff == 0xfffe {
-        return 0;
-    }
-    if (0xfdd0..=0xfdef).contains(&g) {
-        return 0;
-    }
-    // Each shift and mask leaves a value below 0x100.
-    let byte = |v: u32| (v & 0xff) as u8;
-    if g < 1 << 7 {
-        out[0] = byte(g);
-        1
-    } else if g < 1 << 11 {
-        out[0] = byte(0xc0 | ((g >> 6) & 0x1f));
-        out[1] = byte(0x80 | (g & 0x3f));
-        2
-    } else if g < 1 << 16 {
-        out[0] = byte(0xe0 | ((g >> 12) & 0x0f));
-        out[1] = byte(0x80 | ((g >> 6) & 0x3f));
-        out[2] = byte(0x80 | (g & 0x3f));
-        3
-    } else {
-        out[0] = byte(0xf0 | ((g >> 18) & 0x07));
-        out[1] = byte(0x80 | ((g >> 12) & 0x3f));
-        out[2] = byte(0x80 | ((g >> 6) & 0x3f));
-        out[3] = byte(0x80 | (g & 0x3f));
-        4
-    }
+/// Whether `c` is a noncharacter, U+FDD0 to U+FDEF or the last two of a
+/// plane, which `tsm_ucs4_to_utf8` writes nothing for (tsm-unicode.c:604-607),
+/// so an OSC string drops it.
+pub(crate) fn is_noncharacter(c: char) -> bool {
+    let c = u32::from(c);
+    (0xfdd0..=0xfdef).contains(&c) || c & 0xfffe == 0xfffe
 }
 
 #[cfg(test)]
@@ -336,22 +308,28 @@ mod tests {
         assert!(d.idle());
     }
 
-    // tsm-unicode.c:600-630
+    // tsm-unicode.c:604-607
     #[test]
-    fn encode_matches_the_reference() {
-        let mut out = [0; 4];
-        assert_eq!(encode(0x41, &mut out), 1);
-        assert_eq!(out[..1], *b"A");
-        assert_eq!(encode(0xe9, &mut out), 2);
-        assert_eq!(out[..2], *"é".as_bytes());
-        assert_eq!(encode(0x20ac, &mut out), 3);
-        assert_eq!(out[..3], *"€".as_bytes());
-        assert_eq!(encode(0x1f600, &mut out), 4);
-        assert_eq!(out, *"😀".as_bytes());
-        for g in [
-            0xd800, 0xdfff, 0xfdd0, 0xfdef, 0xfffe, 0xffff, 0x1fffe, 0x110000,
+    fn noncharacters_as_the_reference_has_them() {
+        for c in [
+            '\u{fdd0}',
+            '\u{fdef}',
+            '\u{fffe}',
+            '\u{ffff}',
+            '\u{1fffe}',
+            '\u{10ffff}',
         ] {
-            assert_eq!(encode(g, &mut out), 0, "{g:#x}");
+            assert!(is_noncharacter(c), "{c:?}");
+        }
+        for c in [
+            'A',
+            '\u{fdcf}',
+            '\u{fdf0}',
+            '\u{fffd}',
+            '\u{10000}',
+            '\u{10fffd}',
+        ] {
+            assert!(!is_noncharacter(c), "{c:?}");
         }
     }
 }

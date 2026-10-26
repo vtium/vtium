@@ -229,8 +229,8 @@ impl Coverage {
                 Act::ApcByte(_) => "apc_byte",
                 Act::ApcChar(_) => "apc_char",
                 Act::ApcEnd(_) => "apc_end",
-                Act::Xtgettcap(_, over) => {
-                    self.tcap_over |= *over;
+                Act::Xtgettcap(payload) => {
+                    self.tcap_over |= payload.is_none();
                     "xtgettcap"
                 }
             };

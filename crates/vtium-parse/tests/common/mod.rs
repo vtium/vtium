@@ -31,7 +31,8 @@ pub enum Act {
     ApcByte(u8),
     ApcChar(u32),
     ApcEnd(StringEnd),
-    Xtgettcap(Vec<u8>, bool),
+    /// The names, or `None` when they passed the bound.
+    Xtgettcap(Option<Vec<u8>>),
 }
 
 /// A recording consumer.
@@ -65,8 +66,13 @@ fn text(marker: Option<u8>, intermediates: Intermediates) -> String {
     marker.iter().chain(ims).map(|&b| char::from(b)).collect()
 }
 
+/// A parameter as the tests write it: -1 for omitted.
+fn num(v: Option<u32>) -> i32 {
+    v.map_or(-1, |v| i32::try_from(v).expect("parameter fits i32"))
+}
+
 fn values(params: &Params) -> Vec<i32> {
-    (0..params.count()).map(|i| params.get(i)).collect()
+    (0..params.count()).map(|i| num(params.get(i))).collect()
 }
 
 fn check_params(params: &Params) {
@@ -76,17 +82,17 @@ fn check_params(params: &Params) {
         params.count()
     );
     for i in 0..PARAMS_MAX {
-        let v = params.get(i);
+        let v = num(params.get(i));
         assert!((-1..=VALUE_MAX).contains(&v), "param {i} = {v}");
         let subs = params.subparams(i);
         assert!(subs.len() <= SUBPARAMS_MAX, "{} subparams", subs.len());
-        assert!(subs.is_empty() || i < params.count());
-        for &s in subs {
+        assert!(subs.len() == 0 || i < params.count());
+        for s in subs.map(num) {
             assert!((-1..=VALUE_MAX).contains(&s), "subparam {s}");
         }
     }
-    assert_eq!(params.get(PARAMS_MAX), -1);
-    assert!(params.subparams(PARAMS_MAX).is_empty());
+    assert_eq!(params.get(PARAMS_MAX), None);
+    assert_eq!(params.subparams(PARAMS_MAX).len(), 0);
 }
 
 fn check_end(end: StringEnd, bel_allowed: bool) {
@@ -175,7 +181,7 @@ impl Consumer for Recorder {
             } else if ims == b"!" {
                 self.mode = InputMode::Utf8;
             } else if ims.is_empty() || ims == b"\"" {
-                self.mode = match params.get(0) {
+                self.mode = match num(params.get(0)) {
                     61 => InputMode::SevenBit,
                     62..=64 => InputMode::EightBit,
                     _ => InputMode::Utf8,
@@ -184,7 +190,7 @@ impl Consumer for Recorder {
         }
         self.subs.push(
             (0..params.count())
-                .map(|i| params.subparams(i).to_vec())
+                .map(|i| params.subparams(i).map(num).collect())
                 .collect(),
         );
         self.push(Act::Csi(
@@ -201,8 +207,8 @@ impl Consumer for Recorder {
         self.push(Act::Osc(data.to_vec(), end));
     }
 
-    fn dcs_hook(&mut self, params: &Params, intermediates: Intermediates, final_char: char) {
-        let final_char = u32::from(final_char);
+    fn dcs_hook(&mut self, params: &Params, intermediates: Intermediates, final_byte: u8) {
+        let final_char = u32::from(final_byte);
         assert!(!self.in_dcs && !self.in_apc);
         assert!(
             !params.has_subparams(),
@@ -210,7 +216,7 @@ impl Consumer for Recorder {
         );
         check_params(params);
         assert!(
-            (0x40..=0x7e).contains(&final_char) || final_char >= 0xa0,
+            (0x40..=0x7e).contains(&final_char),
             "dcs final {final_char:#x}"
         );
         self.in_dcs = true;
@@ -280,15 +286,16 @@ impl Consumer for Recorder {
         self.push(Act::ApcEnd(end));
     }
 
-    fn xtgettcap(&mut self, payload: &[u8], overflowed: bool) {
-        assert!(
-            payload.len() <= XTGETTCAP_MAX,
-            "payload of {}",
-            payload.len()
-        );
-        assert!(!overflowed || payload.len() == XTGETTCAP_MAX);
-        assert!(payload.iter().all(|&b| b < 0x80));
-        self.push(Act::Xtgettcap(payload.to_vec(), overflowed));
+    fn xtgettcap(&mut self, payload: Option<&[u8]>) {
+        if let Some(payload) = payload {
+            assert!(
+                payload.len() <= XTGETTCAP_MAX,
+                "payload of {}",
+                payload.len()
+            );
+            assert!(payload.iter().all(|&b| b < 0x80));
+        }
+        self.push(Act::Xtgettcap(payload.map(<[u8]>::to_vec)));
     }
 
     fn input_mode(&self) -> InputMode {
@@ -363,7 +370,7 @@ pub fn apc_bytes(data: &[u8]) -> Vec<Act> {
 }
 
 pub fn tcap(payload: &[u8]) -> Act {
-    Act::Xtgettcap(payload.to_vec(), false)
+    Act::Xtgettcap(Some(payload.to_vec()))
 }
 
 /// Concatenates action lists.

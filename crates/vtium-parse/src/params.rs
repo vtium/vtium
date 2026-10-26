@@ -5,12 +5,12 @@ use core::fmt;
 
 use crate::bounds::{INTERMEDIATES_MAX, PARAM_VALUE_CAP, PARAMS_MAX, SUBPARAMS_MAX};
 
-/// The parameters of a CSI sequence or a DCS string, as the C reference
-/// keeps them in `csi_argv`, `csi_subargc` and `csi_subargv`.
+/// The parameters of a CSI sequence or a DCS string.
 ///
-/// A parameter is -1 when it was empty or past those the sequence carried,
-/// wherever it falls (ECMA-48 5.4.2 e and g): `CSI ;5H` has -1 and 5, and
-/// `CSI 5;H` has 5 and -1. An omitted sub-parameter is -1.
+/// A parameter is `None` when it was empty or past those the sequence
+/// carried, wherever it falls (ECMA-48 5.4.2 e and g): `CSI ;5H` has `None`
+/// and `Some(5)`, and `CSI 5;H` has `Some(5)` and `None`. So is an empty
+/// sub-parameter.
 ///
 /// A private marker, one of `<`, `=`, `>` and `?` as the first byte of
 /// the parameter string (ECMA-48 5.4.2 b), is kept apart: see
@@ -18,58 +18,58 @@ use crate::bounds::{INTERMEDIATES_MAX, PARAM_VALUE_CAP, PARAMS_MAX, SUBPARAMS_MA
 #[derive(Clone)]
 pub struct Params {
     marker: Option<u8>,
-    /// `csi_argc`: the `;` separators taken, at most [`PARAMS_MAX`].
-    argc: usize,
-    values: [i32; PARAMS_MAX],
+    /// The `;` separators taken, at most [`PARAMS_MAX`] (`csi_argc`).
+    separators: usize,
+    /// Each value, or [`OMITTED`].
+    values: [u32; PARAMS_MAX],
     sub_len: [u8; PARAMS_MAX],
-    subs: [[i32; SUBPARAMS_MAX]; PARAMS_MAX],
+    subs: [[u32; SUBPARAMS_MAX]; PARAMS_MAX],
     /// Past [`SUBPARAMS_MAX`] colons, digits are dropped until the next
     /// `;` (`csi_subarg_drop`).
     sub_drop: bool,
 }
 
+/// The stored value of an empty parameter. No value reaches it: digits
+/// stop once a value passes [`PARAM_VALUE_CAP`].
+const OMITTED: u32 = u32::MAX;
+
 impl Params {
     pub(crate) const fn new() -> Self {
         Params {
             marker: None,
-            argc: 0,
-            values: [-1; PARAMS_MAX],
+            separators: 0,
+            values: [OMITTED; PARAMS_MAX],
             sub_len: [0; PARAMS_MAX],
-            subs: [[-1; SUBPARAMS_MAX]; PARAMS_MAX],
+            subs: [[OMITTED; SUBPARAMS_MAX]; PARAMS_MAX],
             sub_drop: false,
         }
     }
 
     /// `do_clear`'s parameter half (tsm-vte.c:1220-1225).
     pub(crate) fn clear(&mut self) {
-        self.marker = None;
-        self.argc = 0;
-        self.values = [-1; PARAMS_MAX];
-        self.sub_len = [0; PARAMS_MAX];
-        self.sub_drop = false;
+        *self = Self::new();
     }
 
     /// `do_param` (tsm-vte.c:1277-1326), for a byte from `0` to `;`.
-    pub(crate) fn put(&mut self, data: u32) {
-        if data == u32::from(b';') {
-            // An empty parameter stays -1 before a ';' too (ECMA-48 5.4.2 e
-            // and g), where the C reference made it 0 (tsm-vte.c:1284-1286).
-            if self.argc < PARAMS_MAX {
-                self.argc += 1;
-            }
+    pub(crate) fn put(&mut self, byte: u8) {
+        if byte == b';' {
+            // An empty parameter stays omitted before a ';' too (ECMA-48
+            // 5.4.2 e and g), where the C reference made it 0
+            // (tsm-vte.c:1284-1286).
+            self.separators = (self.separators + 1).min(PARAMS_MAX);
             self.sub_drop = false;
             return;
         }
 
-        if self.argc >= PARAMS_MAX {
+        let i = self.separators;
+        if i >= PARAMS_MAX {
             return;
         }
 
-        let n = usize::from(self.sub_len[self.argc]);
-        if data == u32::from(b':') {
+        let n = usize::from(self.sub_len[i]);
+        if byte == b':' {
             if n < SUBPARAMS_MAX {
-                self.subs[self.argc][n] = -1;
-                self.sub_len[self.argc] += 1;
+                self.sub_len[i] += 1;
             } else {
                 self.sub_drop = true;
             }
@@ -79,21 +79,18 @@ impl Params {
         if self.sub_drop {
             return;
         }
-        let val = if n > 0 {
-            &mut self.subs[self.argc][n - 1]
-        } else {
-            &mut self.values[self.argc]
+        let val = match n {
+            0 => &mut self.values[i],
+            _ => &mut self.subs[i][n - 1],
         };
-        if *val > PARAM_VALUE_CAP {
-            return;
-        }
         // Only digits reach here: the state machine sends `0` to `;`, and
-        // `<` to `?` are collected as markers.
-        if let Some(digit) = char::from_u32(data).and_then(|c| c.to_digit(10)) {
-            // `digit` is below 10 and `*val` at most PARAM_VALUE_CAP.
-            let digit = digit as i32;
-            *val = if *val <= 0 { digit } else { *val * 10 + digit };
-        }
+        // `<` to `?` are markers.
+        let digit = u32::from(byte - b'0');
+        *val = match *val {
+            OMITTED => digit,
+            v if v > PARAM_VALUE_CAP => v,
+            v => v * 10 + digit,
+        };
     }
 
     /// A private marker opens the parameter string.
@@ -112,23 +109,22 @@ impl Params {
     /// (tsm-vte.c:2542-2543). It is never 0: `CSI m` has one parameter,
     /// omitted.
     pub fn count(&self) -> usize {
-        (self.argc + 1).min(PARAMS_MAX)
+        (self.separators + 1).min(PARAMS_MAX)
     }
 
-    /// Parameter `i`, or -1 when omitted, as `csi_argv[i]` reads. Any `i`
-    /// may be asked for: past the sequence's parameters it is -1.
-    pub fn get(&self, i: usize) -> i32 {
-        self.values.get(i).copied().unwrap_or(-1)
+    /// Parameter `i`, `None` when it was empty. Any `i` may be asked for:
+    /// past the sequence's parameters it is `None`.
+    pub fn get(&self, i: usize) -> Option<u32> {
+        self.values.get(i).copied().filter(|&v| v != OMITTED)
     }
 
-    /// The sub-parameters of parameter `i`, each -1 when omitted:
+    /// The sub-parameters of parameter `i`, each `None` when empty:
     /// `CSI 38:2::255:0:0m` gives parameter 0 the sub-parameters
-    /// `[2, -1, 255, 0, 0]`.
-    pub fn subparams(&self, i: usize) -> &[i32] {
-        match (self.subs.get(i), self.sub_len.get(i)) {
-            (Some(subs), Some(&n)) => &subs[..usize::from(n)],
-            _ => &[],
-        }
+    /// `2, None, 255, 0, 0`.
+    pub fn subparams(&self, i: usize) -> impl ExactSizeIterator<Item = Option<u32>> + '_ {
+        let n = self.sub_len.get(i).map_or(0, |&n| usize::from(n));
+        let subs = self.subs.get(i).map_or(&[][..], |subs| &subs[..n]);
+        subs.iter().map(|&v| (v != OMITTED).then_some(v))
     }
 
     /// Whether any parameter carries sub-parameters, `csi_has_subargs`
@@ -140,13 +136,18 @@ impl Params {
 
 impl fmt::Debug for Params {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        struct Subs<'a>(&'a Params, usize);
+        impl fmt::Debug for Subs<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.debug_list().entries(self.0.subparams(self.1)).finish()
+            }
+        }
         let mut list = f.debug_list();
         for i in 0..self.count() {
-            let subs = self.subparams(i);
-            if subs.is_empty() {
+            if self.subparams(i).len() == 0 {
                 list.entry(&self.get(i));
             } else {
-                list.entry(&(self.get(i), subs));
+                list.entry(&(self.get(i), Subs(self, i)));
             }
         }
         list.finish()

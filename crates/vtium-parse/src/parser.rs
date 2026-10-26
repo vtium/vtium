@@ -148,18 +148,16 @@ fn any_state(c: u32) -> Option<(State, Action)> {
 }
 
 /// The events that depend on the current state (tsm-vte.c:3321-3639):
-/// the new state, if any, and the action. The arms are the C reference's
-/// cases in their order; those for C1 controls are never reached, since
-/// [`any_state`] takes them first, as in the C reference.
+/// the new state, if any, and the action. C1 controls never reach here,
+/// since [`any_state`] takes them first, so their arms in the C reference's
+/// cases are left out.
 fn transition(state: State, c: u32) -> (Option<State>, Action) {
     use Action as A;
     use State as S;
 
     match state {
         S::Ground => match c {
-            0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x80..=0x8f | 0x91..=0x9a | 0x9c => {
-                (None, A::Execute)
-            }
+            0x00..=0x17 | 0x19 | 0x1c..=0x1f => (None, A::Execute),
             // 0x20 to 0x7F print, DEL included (tsm-vte.c:3333), and
             // so does everything else (tsm-vte.c:3337)
             _ => (None, A::Print),
@@ -252,30 +250,26 @@ fn transition(state: State, c: u32) -> (Option<State>, Action) {
         S::DcsPass => match c {
             0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x20..=0x7e => (None, A::DcsCollect),
             0x7f => (None, A::None),
-            0x9c => (Some(S::Ground), A::None),
             _ => (None, A::DcsCollect),
         },
         S::DcsIgnore => match c {
             0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x20..=0x7f => (None, A::None),
-            0x9c => (Some(S::Ground), A::None),
             _ => (None, A::None),
         },
         S::OscString => match c {
             0x00..=0x06 | 0x08..=0x17 | 0x19 | 0x1c..=0x1f => (None, A::None),
             // DEL is collected (tsm-vte.c:3598)
             0x20..=0x7f => (None, A::OscCollect),
-            0x07 | 0x9c => (Some(S::Ground), A::None),
+            0x07 => (Some(S::Ground), A::None),
             _ => (None, A::OscCollect),
         },
         S::StIgnore => match c {
             0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x20..=0x7f => (None, A::None),
-            0x9c => (Some(S::Ground), A::None),
             _ => (None, A::None),
         },
         S::ApcString => match c {
             0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => (None, A::None),
             0x20..=0x7e => (None, A::ApcCollect),
-            0x9c => (Some(S::Ground), A::None),
             _ => (None, A::ApcCollect),
         },
     }
@@ -499,7 +493,7 @@ impl Parser {
                 }
             }
             Action::Marker => self.params.set_marker(c as u8),
-            Action::Param => self.params.put(u32::from(c)),
+            Action::Param => self.params.put(c as u8),
             Action::EscDispatch if self.too_many_intermediates => {}
             Action::EscDispatch => consumer.esc_dispatch(self.intermediates, c as u8),
             Action::CsiDispatch if self.too_many_intermediates => {}
@@ -535,20 +529,22 @@ impl Parser {
     }
 
     /// `do_osc_collect` (tsm-vte.c:2912-2921): the character as UTF-8, or
-    /// nothing when it has no encoding. Once a character would pass
+    /// nothing for a noncharacter. Once a character would pass
     /// [`OSC_MAX`], the string takes no more, so what it keeps is a prefix
     /// (a departure: the C reference kept a shorter character after it).
     fn osc_collect(&mut self, c: char) {
         if self.osc_full {
             return;
         }
-        let mut buf = [0; 4];
-        let len = utf8::encode(u32::from(c), &mut buf);
-        if self.osc_len + len > OSC_MAX {
-            self.osc_full = true;
+        if utf8::is_noncharacter(c) {
             return;
         }
-        self.osc[self.osc_len..self.osc_len + len].copy_from_slice(&buf[..len]);
+        let len = c.len_utf8();
+        let Some(room) = self.osc.get_mut(self.osc_len..self.osc_len + len) else {
+            self.osc_full = true;
+            return;
+        };
+        c.encode_utf8(room);
         self.osc_len += len;
     }
 
@@ -564,14 +560,14 @@ impl Parser {
             && self.intermediates.as_bytes() == b"+"
             && self.params.marker().is_none()
             && self.params.count() == 1
-            && self.params.get(0) < 0
+            && self.params.get(0).is_none()
         {
             self.dcs = Dcs::Xtgettcap;
             self.tcap_len = 0;
             self.tcap_over = false;
         } else {
             self.dcs = Dcs::Hooked;
-            consumer.dcs_hook(&self.params, self.intermediates, c);
+            consumer.dcs_hook(&self.params, self.intermediates, c as u8);
         }
     }
 
@@ -621,7 +617,8 @@ impl Parser {
                 match self.dcs {
                     Dcs::Hooked => consumer.dcs_unhook(end),
                     Dcs::Xtgettcap if end == StringEnd::St => {
-                        consumer.xtgettcap(&self.tcap[..self.tcap_len], self.tcap_over);
+                        let payload = &self.tcap[..self.tcap_len];
+                        consumer.xtgettcap((!self.tcap_over).then_some(payload));
                     }
                     Dcs::Xtgettcap | Dcs::None => {}
                 }

@@ -118,14 +118,11 @@ pub trait Consumer {
 
     /// A DCS string starts, `do_dcs_start` (tsm-vte.c:3128-3140): its
     /// parameters with their private marker, its intermediates, and
-    /// `final_char`, the
-    /// character that ended them. That is 0x40 to 0x7E in a well-formed
-    /// string, but any character from U+00A0 up ends them too
-    /// (tsm-vte.c:3512). A string the parser takes as XTGETTCAP goes to
-    /// [`xtgettcap`](Self::xtgettcap) instead, and a malformed one (a `:`,
-    /// a marker after a parameter, or a third intermediate) reaches no
-    /// method.
-    fn dcs_hook(&mut self, params: &Params, intermediates: Intermediates, final_char: char);
+    /// `final_byte` from 0x40 to 0x7E. A string the parser takes as
+    /// XTGETTCAP goes to [`xtgettcap`](Self::xtgettcap) instead, and a
+    /// malformed one (a `:`, a marker after a parameter, a third
+    /// intermediate, or a character past ASCII) reaches no method.
+    fn dcs_hook(&mut self, params: &Params, intermediates: Intermediates, final_byte: u8);
 
     /// A piece of the hooked DCS string's data, `do_dcs_collect`
     /// (tsm-vte.c:3142). The parser keeps none of it, so its bound is the
@@ -149,12 +146,12 @@ pub trait Consumer {
 
     /// An XTGETTCAP request, `DCS + q names ST`, ended by ST (0x9C or
     /// `ESC \`), as `dcs_xtgettcap` receives it (tsm-vte.c:3078). `payload`
-    /// is at most [`XTGETTCAP_MAX`](crate::XTGETTCAP_MAX) bytes, with each
-    /// character from U+0080 up stored as 0 (tsm-vte.c:3149-3150), and
-    /// `overflowed` says the payload was longer, which the C reference
+    /// is the names, each character from U+0080 up stored as 0
+    /// (tsm-vte.c:3149-3150), or `None` when they passed
+    /// [`XTGETTCAP_MAX`](crate::XTGETTCAP_MAX) bytes, which the C reference
     /// answers `DCS 0 + r ST` (tsm-vte.c:3087-3091). A request ended any
     /// other way is dropped with no call (tsm-vte.c:3162-3167).
-    fn xtgettcap(&mut self, payload: &[u8], overflowed: bool);
+    fn xtgettcap(&mut self, payload: Option<&[u8]>);
 
     /// The mode the next byte is decoded in. Read before every byte, so a
     /// mode the consumer changes in a dispatch applies from the next byte.
