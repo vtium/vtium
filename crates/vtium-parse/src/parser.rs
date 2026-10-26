@@ -292,6 +292,10 @@ pub struct Parser {
     /// An ESC ended an XTGETTCAP request, which is ST only if `\` comes
     /// next (`dcs_esc`).
     tcap_esc: bool,
+    /// The last character was an ESC that ended an APC string. A reset
+    /// keeps it, so the `\` of that ST is dropped after the reset
+    /// (aaronsb/libtsm#53).
+    apc_esc: bool,
 }
 
 impl Default for Parser {
@@ -315,6 +319,7 @@ impl Parser {
             tcap_len: 0,
             tcap_over: false,
             tcap_esc: false,
+            apc_esc: false,
         }
     }
 
@@ -323,6 +328,11 @@ impl Parser {
     /// in progress is dropped with no end call, and an XTGETTCAP request
     /// waiting for the `\` of its ST is dropped (libtsm's
     /// `test_vte_xtgettcap_esc_reset`).
+    ///
+    /// One departure from the C reference: after a reset between the ESC
+    /// that ended an APC string and the `\` of its ST, that `\` is dropped
+    /// where the C reference printed it (aaronsb/libtsm#53). A host that
+    /// cancels a kitty request it was handed at the ESC resets there.
     pub fn reset(&mut self) {
         self.utf8.reset();
         self.dcs = Dcs::None;
@@ -372,6 +382,14 @@ impl Parser {
     /// `parse_data` (tsm-vte.c:3280-3642): one character through the state
     /// machine.
     fn parse<C: Consumer>(&mut self, consumer: &mut C, c: u32) {
+        // aaronsb/libtsm#53: the `\` of an APC's ST, after a reset
+        if self.apc_esc {
+            self.apc_esc = false;
+            if self.state == State::Ground && c == u32::from(b'\\') {
+                return;
+            }
+        }
+
         // tsm-vte.c:3282-3287: an XTGETTCAP request that an ESC ended
         if self.tcap_esc {
             self.tcap_esc = false;
@@ -442,7 +460,10 @@ impl Parser {
                     consumer.apc_put(Chunk::Char(c));
                 }
             }
-            Action::ApcEnd => consumer.apc_end(c as u8),
+            Action::ApcEnd => {
+                self.apc_esc = c == 0x1b;
+                consumer.apc_end(c as u8);
+            }
         }
     }
 

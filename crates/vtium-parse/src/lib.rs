@@ -37,10 +37,13 @@
 //!
 //! The state machine is the C reference's, libtsm's `tsm-vte.c`, which
 //! follows the DEC/ANSI parser described at vt100.net. It reproduces the C
-//! reference's behaviour exactly, including where that departs from the
+//! reference's behaviour, including where that departs from the
 //! vt100.net diagram: DEL prints in ground state, CAN and SUB end an OSC
 //! string by dispatching it, and an ESC ends one whatever follows. Each such
 //! rule is cited to its line in `tsm-vte.c` where it is implemented.
+//! One rule departs from the C reference on purpose: after a reset between
+//! the ESC that ended an APC string and the `\` of its ST, that `\` is
+//! dropped (aaronsb/libtsm#53; see [`Parser::reset`]).
 //!
 //! Charset mapping, screen effects and replies are the consumer's.
 //!

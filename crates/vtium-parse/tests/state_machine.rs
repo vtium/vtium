@@ -656,3 +656,61 @@ fn reset_drops_a_partial_character() {
     rec.feed(&mut parser, b"x");
     assert_eq!(rec.acts, [Act::Print(0x78)]);
 }
+
+// aaronsb/libtsm#53, the one deliberate departure from the C reference: a
+// host reset between the ESC that ended an APC string and the `\` of its ST,
+// as when the host cancels a kitty request it was handed at that ESC, drops
+// the `\`. The C reference printed it in ground state.
+#[test]
+fn reset_after_apc_esc_drops_the_st_backslash() {
+    let mut parser = vtium_parse::Parser::new();
+    let mut rec = common::Recorder::new();
+    rec.feed(&mut parser, b"\x1b_Ga=T;AAAA\x1b");
+    parser.reset();
+    rec.feed(&mut parser, b"\\text");
+    assert_eq!(
+        rec.acts,
+        acts![
+            Act::ApcStart,
+            apc_bytes(b"Ga=T;AAAA"),
+            Act::ApcEnd(0x1b),
+            prints("text"),
+        ]
+    );
+}
+
+// aaronsb/libtsm#53: only a `\` right after the reset is dropped; anything
+// else parses as it would after any reset.
+#[test]
+fn reset_after_apc_esc_keeps_other_characters() {
+    let mut parser = vtium_parse::Parser::new();
+    let mut rec = common::Recorder::new();
+    rec.feed(&mut parser, b"\x1b_Gq\x1b");
+    parser.reset();
+    parser.reset();
+    rec.feed(&mut parser, b"x\\");
+    assert_eq!(
+        rec.acts,
+        acts![
+            Act::ApcStart,
+            apc_bytes(b"Gq"),
+            Act::ApcEnd(0x1b),
+            prints("x\\"),
+        ]
+    );
+}
+
+// aaronsb/libtsm#53: without a reset, ESC \ ends the APC as ST, as before.
+#[test]
+fn apc_esc_backslash_without_reset_is_st() {
+    assert_eq!(
+        parse(b"\x1b_Gq\x1b\\text"),
+        acts![
+            Act::ApcStart,
+            apc_bytes(b"Gq"),
+            Act::ApcEnd(0x1b),
+            esc(I::NONE, b'\\'),
+            prints("text"),
+        ]
+    );
+}
