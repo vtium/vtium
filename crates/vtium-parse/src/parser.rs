@@ -165,14 +165,16 @@ fn transition(state: State, c: u32) -> (Option<State>, Action) {
             0x50 => (Some(S::DcsEntry), A::None),
             0x58 | 0x5e => (Some(S::StIgnore), A::None),
             0x5f => (Some(S::ApcString), A::None),
-            _ => (Some(S::EscInt), A::Collect),
+            // A character past ASCII drops the sequence (a departure; the
+            // C reference collected it as an intermediate)
+            _ => (Some(S::Ground), A::None),
         },
         S::EscInt => match c {
             0x00..=0x17 | 0x19 | 0x1c..=0x1f => (None, A::Execute),
             0x20..=0x2f => (None, A::Collect),
             0x7f => (None, A::None),
             0x30..=0x7e => (Some(S::Ground), A::EscDispatch),
-            _ => (None, A::Collect),
+            _ => (Some(S::Ground), A::None),
         },
         S::CsiEntry => match c {
             0x00..=0x17 | 0x19 | 0x1c..=0x1f => (None, A::Execute),
@@ -213,7 +215,9 @@ fn transition(state: State, c: u32) -> (Option<State>, Action) {
             0x30..=0x39 | 0x3b => (Some(S::DcsParam), A::Param),
             0x3c..=0x3f => (Some(S::DcsParam), A::Collect),
             0x40..=0x7e => (Some(S::DcsPass), A::None),
-            _ => (Some(S::DcsPass), A::None),
+            // A character past ASCII ignores the string, as CSI's rule does
+            // (a departure; the C reference took it as the final)
+            _ => (Some(S::DcsIgnore), A::None),
         },
         S::DcsParam => match c {
             0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => (None, A::None),
@@ -221,14 +225,18 @@ fn transition(state: State, c: u32) -> (Option<State>, Action) {
             0x3a | 0x3c..=0x3f => (Some(S::DcsIgnore), A::None),
             0x20..=0x2f => (Some(S::DcsInt), A::Collect),
             0x40..=0x7e => (Some(S::DcsPass), A::None),
-            _ => (Some(S::DcsPass), A::None),
+            // A character past ASCII ignores the string, as CSI's rule does
+            // (a departure; the C reference took it as the final)
+            _ => (Some(S::DcsIgnore), A::None),
         },
         S::DcsInt => match c {
             0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => (None, A::None),
             0x20..=0x2f => (None, A::Collect),
             0x30..=0x3f => (Some(S::DcsIgnore), A::None),
             0x40..=0x7e => (Some(S::DcsPass), A::None),
-            _ => (Some(S::DcsPass), A::None),
+            // A character past ASCII ignores the string, as CSI's rule does
+            // (a departure; the C reference took it as the final)
+            _ => (Some(S::DcsIgnore), A::None),
         },
         S::DcsPass => match c {
             0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x20..=0x7e => (None, A::DcsCollect),
@@ -359,7 +367,7 @@ impl Parser {
                 i += 1;
                 match mode {
                     InputMode::SevenBit => self.parse(consumer, char::from(b & 0x7f)),
-                    InputMode::EightBit => self.parse(consumer, char::from(b)),
+                    InputMode::EightBit => self.parse(consumer, self.gr_as_gl(char::from(b))),
                     InputMode::Utf8 => {
                         // U+0080 to U+009F do nothing in UTF-8 mode, a
                         // departure: the C reference took them as C1
@@ -377,6 +385,29 @@ impl Parser {
             }
         }
         i
+    }
+
+    /// In 8-bit mode, a GR byte (A0-FF) inside a sequence acts as its GL
+    /// byte, a departure that follows vt100.net ("In all states, these
+    /// codes are treated identically to GL codes 20-7F"). In ground and in
+    /// strings it stays itself, to be printed or collected.
+    fn gr_as_gl(&self, c: char) -> char {
+        let in_sequence = matches!(
+            self.state,
+            State::Esc
+                | State::EscInt
+                | State::CsiEntry
+                | State::CsiParam
+                | State::CsiInt
+                | State::CsiIgnore
+                | State::DcsEntry
+                | State::DcsParam
+                | State::DcsInt
+        );
+        match u8::try_from(c) {
+            Ok(b @ 0xa0..=0xff) if in_sequence => char::from(b - 0x80),
+            _ => c,
+        }
     }
 
     /// `parse_data` (tsm-vte.c:3280-3642): one character through the state

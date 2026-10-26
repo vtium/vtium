@@ -181,9 +181,12 @@ fn reset_between_esc_and_backslash_drops() {
 
 // tsm-vte.c:3282-3287: the check for '\' takes the next character, and a
 // stray UTF-8 continuation byte is one: U+FFFD, under the decoder's
-// contract. It drops the request, and the ESC collects it as an
-// intermediate.
+// contract. It drops the request, and the ESC sequence it interrupts with
+// it, so the '\' prints.
 #[test]
 fn stray_byte_between_esc_and_backslash_drops() {
-    assert_eq!(parse(b"\x1bP+q544e\x1b\x80\\"), [esc(I::OTHER, b'\\')]);
+    assert_eq!(
+        parse(b"\x1bP+q544e\x1b\x80\\"),
+        [Act::Print(u32::from(b'\\'))]
+    );
 }

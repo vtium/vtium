@@ -107,11 +107,13 @@ fn esc_unknown_intermediate_is_other() {
     );
 }
 
-// tsm-vte.c:3377, 3396: in an ESC sequence a character from U+00A0 up is
-// collected as an intermediate.
+// Departure, decided by the operator: in UTF-8 mode a character from
+// U+00A0 up drops the ESC sequence it interrupts. The C reference collected
+// it as an intermediate (tsm-vte.c:3377, 3396).
 #[test]
-fn esc_collects_past_ascii_as_other() {
-    assert_eq!(parse(b"\x1b\xc3\xa9A"), [esc(I::OTHER, b'A')]);
+fn esc_dropped_by_a_character_past_ascii() {
+    assert_eq!(parse(b"\x1b\xc3\xa9A"), [Act::Print(0x41)]);
+    assert_eq!(parse(b"\x1b(\xc3\xa90"), [Act::Print(0x30)]);
 }
 
 // tsm-vte.c:3344, 3346-3347, 3384, 3390: C0 controls execute inside an ESC
@@ -498,17 +500,51 @@ fn dcs_malformed_is_ignored() {
     }
 }
 
-// tsm-vte.c:3512, 3537, 3557: a character from U+00A0 up ends the
-// parameters, as a final byte would.
+// Departure, decided by the operator: in UTF-8 mode a character from
+// U+00A0 up in a DCS header ignores the string to its end, as the C
+// reference's own rule for CSI does (tsm-vte.c:3421). The C reference took
+// it as the final (tsm-vte.c:3512, 3537, 3557).
 #[test]
-fn dcs_final_past_ascii() {
+fn dcs_header_with_a_character_past_ascii_is_ignored() {
+    for seq in ["\x1bPé", "\x1bP1é", "\x1bP$é"] {
+        let input = format!("{seq}data\x1b\\x");
+        assert_eq!(
+            parse(input.as_bytes()),
+            [esc(I::NONE, b'\\'), Act::Print(0x78)],
+            "{seq:?}"
+        );
+    }
+}
+
+// Departure (vt100.net: "In all states, these codes are treated
+// identically to GL codes 20-7F"): in 8-bit mode a GR byte inside a
+// sequence acts as its GL byte. The C reference ignored CSI sequences,
+// collected ESC intermediates and took DCS finals instead.
+#[test]
+fn gr_acts_as_gl_in_8bit_sequences() {
+    // CSI 1 m with the final as 0xED
+    assert_eq!(parse8(b"\x9b1\xed"), [csi(&[1], I::NONE, b'm')]);
+    // CSI 3 ; 5 H with every byte after CSI in GR
     assert_eq!(
-        parse("\x1bP1é\x1b\\".as_bytes()),
+        parse8(b"\x9b\xb3\xbb\xb5\xc8"),
+        [csi(&[3, 5], I::NONE, b'H')]
+    );
+    // ESC ( 0
+    assert_eq!(parse8(b"\x1b\xa8\xb0"), [esc(I::LPAREN, b'0')]);
+    // DCS q, data, ST
+    assert_eq!(
+        parse8(b"\x90\xf1#\x9c"),
         acts![
-            Act::DcsHook(vec![1], I::NONE, 0xe9),
-            Act::DcsUnhook(0x1b),
-            esc(I::NONE, b'\\'),
+            Act::DcsHook(vec![-1], I::NONE, u32::from(b'q')),
+            Act::DcsByte(b'#'),
+            Act::DcsUnhook(0x9c),
+            Act::Execute(0x9c),
         ]
+    );
+    // GR in ground and in strings stays itself
+    assert_eq!(
+        parse8(b"\xe9\x9d0;\xe9\x07"),
+        [Act::Print(0xe9), osc("0;é".as_bytes(), 0x07)]
     );
 }
 
