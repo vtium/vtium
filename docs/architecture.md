@@ -34,10 +34,12 @@ vtium is a port of the [aaronsb/kmscon](https://github.com/aaronsb/kmscon) fork'
 
 ## How it is judged
 
-By the fork's harness, where the tests don't depend on the language:
+By vtium's harness, in tiers:
 
-- **Tier 3** boots a VM, drives keys and compares screenshots pixel for pixel. It judges vtium unchanged, and tier3-minimal judges minspec.
-- **Conformance and capability suites** move behind a language-neutral interface, bytes in and screen state or replies out, built in the fork first so the C implementation proves the goldens.
-- **Tier 2's pixel tests** are ported with the renderer and keep their goldens.
+- **Unit tests** in each crate, run by `cargo test`.
+- **Conformance:** byte streams in, screen state and replies out, compared with reviewed goldens. They cover the parser and terminal state with no display.
+- **Capability probes:** each capability vtium claims has a probe that fails when the capability is missing, and the probes stay in step with the capability list.
+- **Pixel tests (tier 2):** the renderer draws known screens, compared pixel for pixel with goldens.
+- **VM runs (tier 3):** a VM boots vtium on a VT, drives keys and compares screenshots pixel for pixel, including a minspec variant on the small-machine standard.
 
 Work is built in bundles of items that don't collide, then evaluated once per bundle.
