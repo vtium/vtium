@@ -20,7 +20,7 @@ The default build is minspec: the smallest complete console, for the small-machi
 
 ## Where each part comes from
 
-vtium is a port of the [aaronsb/kmscon](https://github.com/aaronsb/kmscon) fork's components. The fork's code is the reference for behaviour, not for layout.
+vtium reimplements in Rust what the [aaronsb/kmscon](https://github.com/aaronsb/kmscon) fork's components do. The fork models behaviour, and its code is the floor for it (see [Beyond the C reference](#beyond-the-c-reference)). How vtium gets there is idiomatic Rust: its types, ownership and modules follow Rust, not the C code's layout. The table names the components whose behaviour each crate takes on.
 
 | vtium crate | Fork components it replaces |
 |---|---|
@@ -38,8 +38,34 @@ By vtium's harness, in tiers:
 
 - **Unit tests** in each crate, run by `cargo test`.
 - **Conformance:** byte streams in, screen state and replies out, compared with reviewed goldens. They cover the parser and terminal state with no display.
-- **Capability probes:** each capability vtium claims has a probe that fails when the capability is missing, and the probes stay in step with the capability list.
+- **Capability probes:** each capability vtium claims has a probe that fails when the capability is missing, judged against the capability list (below).
 - **Pixel tests (tier 2):** the renderer draws known screens, compared pixel for pixel with goldens.
 - **VM runs (tier 3):** a VM boots vtium on a VT, drives keys and compares screenshots pixel for pixel, including a minspec variant on the small-machine standard.
 
 Work is built in bundles of items that don't collide, then evaluated once per bundle.
+
+## Beyond the C reference
+
+vtium covers everything the C reference does, apart from the listed departures below, judged by the C reference's goldens and probes, and goes further. The capabilities the C reference lacked are vtium issues.
+
+Where the C reference departs from a protocol specification, vtium follows the specification. Each departure is listed in the departures list beside vtium's conformance runner (vtium/vtium#14), with its reason and the specification it follows, and the runner expects vtium's own output for exactly the listed cases. A defect found in the C reference, a security defect included, is a departure like any other: vtium fixes it and lists it. The C reference changes only for the test infrastructure vtium is judged by.
+
+A bound vtium takes from the C reference is a starting value. vtium may set its own, with the reason in the row that defines it.
+
+## Tables, references and maps
+
+A fact vtium states in more than one place has one source. Where a test can be written, the other places are generated from the source or checked against it, and the test fails on drift. The coverage map and the path tables are kept by hand, in the change that alters what they describe.
+
+| Source | What is generated or checked | The test fails when |
+|---|---|---|
+| The mode table in `vtium-term`: one row per ANSI or DEC private mode vtium recognises, with kind, number, name, status (supported, partial, ignored, refused), default (fixed or a host setting), reset, what the host must do, terminfo, spec and tests | The dispatch's and the resets' calls into each mode's accessors, and the DECRQM replies; `docs/modes.md` and `docs/modes.tsv`, describing the build with `images` | The committed `docs/modes.md` or `.tsv` differs from the table; a number with no row (DEC 0-65535, ANSI 0-255) gets a DECRQM reply other than 0, or SM and RM of it change any of the terminal's state (cell contents, tab stops and image state included); a number with a row replies 0; SM, RM or DECRQM do anything but expand the table; a mode's state is reachable outside its accessors, which vtium enforces with module privacy where the C reference needed a source check; a supported mode's row names no test that sets and resets it, or names a test that does not exist |
+| The parser's bounds: rows in `vtium-parse`'s `src/bounds.rs`, from which its constants take their values | The bounds table in the crate's README | The committed table differs from the rows |
+| The capability list: each probe `works` or `missing`, with the issue for each gap; a `works` probe may name the feature it needs | The probe verdicts | A `works` probe fails, or fails to fail without its feature; a `missing` probe passes; a probe is not in the list, or the list names one that does not exist |
+| The terminfo entry | The XTGETTCAP table | The committed table differs from the entry |
+| The departures list: each case where vtium follows a specification the C reference departed from, with its reason, the specification and vtium's expected output | The conformance runner's expected output | A case differs from the C reference's golden and is not listed, or a listed case matches the golden |
+
+The coverage map lists each feature vtium builds, the tests that guard it and the paths they reach (font, renderer, display), and the issue for each gap. A gap is closed by a light test in the same change or filed.
+
+Every directory of tests or data carries a README with a table of what each path is.
+
+The mode table follows libtsm's `tsm-modes.def`, and the capability list and terminfo entry follow kmscon's, so vtium is judged by the conformance corpus and the probe verdicts the C reference passed.
