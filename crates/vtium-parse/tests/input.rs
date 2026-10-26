@@ -17,7 +17,7 @@ fn utf8_split_across_inputs() {
     assert_eq!(rec.acts, prints("😀€"));
 }
 
-// tsm-unicode.c:801-822: a truncated sequence prints U+FFFD and takes the
+// tsm-unicode.c:775-795: a truncated sequence prints U+FFFD and takes the
 // byte that broke it with it, even an ESC.
 #[test]
 fn malformed_utf8_replaces_and_consumes() {
@@ -28,7 +28,7 @@ fn malformed_utf8_replaces_and_consumes() {
     );
 }
 
-// tsm-unicode.c:754-756, 769-772: a stray continuation byte vanishes, and
+// tsm-unicode.c:755-757, 769-772: a stray continuation byte vanishes, and
 // 0xF8 to 0xFF print U+FFFD.
 #[test]
 fn stray_and_invalid_bytes() {

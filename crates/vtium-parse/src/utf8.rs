@@ -65,7 +65,7 @@ enum State {
     Expect3,
 }
 
-/// The C reference's `tsm_utf8_mach` (tsm-unicode.c:707-860).
+/// The C reference's `tsm_utf8_mach` (tsm-unicode.c:704-824).
 #[derive(Clone, Debug)]
 pub(crate) struct Decoder {
     state: State,
@@ -80,12 +80,12 @@ impl Decoder {
         }
     }
 
-    /// `tsm_utf8_mach_reset` (tsm-unicode.c:853).
+    /// `tsm_utf8_mach_reset` (tsm-unicode.c:818).
     pub(crate) fn reset(&mut self) {
         self.state = State::Start;
     }
 
-    /// `tsm_utf8_mach_idle` (tsm-unicode.c:838): no character is part way.
+    /// `tsm_utf8_mach_idle` (tsm-unicode.c:804): no character is part way.
     pub(crate) fn idle(&self) -> bool {
         matches!(self.state, State::Start | State::Accept | State::Reject)
     }
@@ -131,7 +131,7 @@ impl Decoder {
                 0xf8..=0xff => State::Reject,
             },
             // A byte that is not a continuation rejects the sequence and is
-            // consumed with it (tsm-unicode.c:801-822).
+            // consumed with it (tsm-unicode.c:775-795).
             State::Expect3 => {
                 self.ch |= (c & 0x3f) << 12;
                 if b & 0xc0 == 0x80 {
@@ -218,14 +218,14 @@ mod tests {
         assert_eq!(decode("😀".as_bytes()), [0x1f600]);
     }
 
-    // tsm-unicode.c:754-756: a stray continuation byte is ignored, with no
+    // tsm-unicode.c:755-757: a stray continuation byte is ignored, with no
     // replacement.
     #[test]
     fn ignores_stray_continuation() {
         assert_eq!(decode(b"\x80\xbfA"), [0x41]);
     }
 
-    // tsm-unicode.c:801-822: the byte that breaks a sequence is consumed
+    // tsm-unicode.c:775-795: the byte that breaks a sequence is consumed
     // with it, so the 'A' after a truncated sequence is lost.
     #[test]
     fn rejected_sequence_consumes_the_breaking_byte() {
@@ -233,7 +233,7 @@ mod tests {
         assert_eq!(decode(b"\xc3AB"), [REPLACEMENT, 0x42]);
     }
 
-    // tsm-unicode.c:769-772: 0xF8 to 0xFF reject, one replacement each.
+    // tsm-unicode.c:770-773: 0xF8 to 0xFF reject, one replacement each.
     #[test]
     fn rejects_f8_to_ff() {
         assert_eq!(decode(b"\xf8\xff"), [REPLACEMENT, REPLACEMENT]);

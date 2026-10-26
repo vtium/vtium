@@ -116,13 +116,13 @@ fn exit_action(state: State) -> Action {
 }
 
 /// A byte DCS passthrough collects as it stands, in every input mode
-/// (`sixel_byte`, tsm-vte-image.c:366-369).
+/// (`sixel_byte`, tsm-vte-image.c:365-368).
 fn dcs_run_byte(b: u8) -> bool {
     b < 0x7f && b != 0x18 && b != 0x1a && b != 0x1b
 }
 
 /// A byte an APC string collects as it stands, in every input mode
-/// (`kitty_byte`, tsm-vte-image.c:401-404).
+/// (`kitty_byte`, tsm-vte-image.c:400-403).
 fn apc_run_byte(b: u8) -> bool {
     (0x20..0x7f).contains(&b)
 }

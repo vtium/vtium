@@ -106,7 +106,7 @@ pub trait Consumer {
 
     /// The hooked DCS string ends, `do_dcs_end` (tsm-vte.c:3157). The C
     /// reference shows a sixel picture for any terminator but CAN and SUB
-    /// (tsm-vte-image.c:153).
+    /// (tsm-vte-image.c:148).
     fn dcs_unhook(&mut self, terminator: u8);
 
     /// An APC string starts, `vte_apc_start` (tsm-vte.c:3245). The kitty
