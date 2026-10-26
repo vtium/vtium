@@ -358,32 +358,39 @@ impl Parser {
     /// inside a UTF-8 character included: the actions are the same as for
     /// the input whole, but for where [`Chunk::Bytes`] runs are cut.
     pub fn advance<C: Consumer>(&mut self, consumer: &mut C, bytes: &[u8]) -> usize {
-        let mut i = 0;
-        while i < bytes.len() {
+        let mut rest = bytes;
+        while let Some((&b, after_one)) = rest.split_first() {
             let mode = consumer.input_mode();
             let between = mode != InputMode::Utf8 || self.utf8.idle();
-            let rest = &bytes[i..];
-            if between && self.state == State::DcsPass && dcs_run_byte(rest[0]) {
-                let n = rest.iter().take_while(|&&b| dcs_run_byte(b)).count();
-                self.dcs_collect_run(consumer, &rest[..n]);
-                i += n;
-            } else if between && self.state == State::ApcString && apc_run_byte(rest[0]) {
-                let n = rest.iter().take_while(|&&b| apc_run_byte(b)).count();
-                consumer.apc_put(Chunk::Bytes(&rest[..n]));
-                i += n;
-            } else {
-                let b = rest[0];
-                i += 1;
-                match mode {
-                    InputMode::SevenBit => self.parse(consumer, char::from(b & 0x7f)),
-                    InputMode::EightBit => self.parse(consumer, self.gr_as_gl(char::from(b))),
-                    InputMode::Utf8 => {
-                        // U+0080 to U+009F do nothing in UTF-8 mode, a
-                        // departure: the C reference took them as C1
-                        // controls, a way past filters that strip ESC.
-                        for c in self.utf8.feed(b).into_iter().flatten() {
-                            if !('\u{80}'..='\u{9f}').contains(&c) {
-                                self.parse(consumer, c);
+            let run_of: Option<fn(u8) -> bool> = match self.state {
+                State::DcsPass if between => Some(dcs_run_byte),
+                State::ApcString if between => Some(apc_run_byte),
+                _ => None,
+            };
+            match run_of.filter(|is_run| is_run(b)) {
+                Some(is_run) => {
+                    let n = rest.iter().take_while(|&&b| is_run(b)).count();
+                    let (run, after) = rest.split_at_checked(n).unwrap_or((rest, &[]));
+                    if self.state == State::DcsPass {
+                        self.dcs_collect_run(consumer, run);
+                    } else {
+                        consumer.apc_put(Chunk::Bytes(run));
+                    }
+                    rest = after;
+                }
+                None => {
+                    rest = after_one;
+                    match mode {
+                        InputMode::SevenBit => self.parse(consumer, char::from(b & 0x7f)),
+                        InputMode::EightBit => self.parse(consumer, self.gr_as_gl(char::from(b))),
+                        InputMode::Utf8 => {
+                            // U+0080 to U+009F do nothing in UTF-8 mode, a
+                            // departure: the C reference took them as C1
+                            // controls, a way past filters that strip ESC.
+                            for c in self.utf8.feed(b).into_iter().flatten() {
+                                if !('\u{80}'..='\u{9f}').contains(&c) {
+                                    self.parse(consumer, c);
+                                }
                             }
                         }
                     }
@@ -393,7 +400,7 @@ impl Parser {
                 break;
             }
         }
-        i
+        bytes.len().saturating_sub(rest.len())
     }
 
     /// In 8-bit mode, a GR byte (A0-FF) inside a sequence acts as its GL
@@ -414,7 +421,7 @@ impl Parser {
                 | State::DcsInt
         );
         match u8::try_from(c) {
-            Ok(b @ 0xa0..=0xff) if in_sequence => char::from(b - 0x80),
+            Ok(b @ 0xa0..=0xff) if in_sequence => char::from(b & 0x7f),
             _ => c,
         }
     }
@@ -540,13 +547,13 @@ impl Parser {
         if utf8::is_noncharacter(c) {
             return;
         }
-        let len = c.len_utf8();
-        let Some(room) = self.osc.get_mut(self.osc_len..self.osc_len + len) else {
+        let end = self.osc_len.saturating_add(c.len_utf8());
+        let Some(room) = self.osc.get_mut(self.osc_len..end) else {
             self.osc_full = true;
             return;
         };
         c.encode_utf8(room);
-        self.osc_len += len;
+        self.osc_len = end;
     }
 
     /// Starts a DCS string's data (tsm-vte.c:3128-3140). `DCS + q` with no
@@ -599,11 +606,12 @@ impl Parser {
 
     /// tsm-vte.c:3149-3152
     fn tcap_push(&mut self, b: u8) {
-        if self.tcap_len < XTGETTCAP_MAX {
-            self.tcap[self.tcap_len] = b;
-            self.tcap_len += 1;
-        } else {
-            self.tcap_over = true;
+        match self.tcap.get_mut(self.tcap_len) {
+            Some(slot) => {
+                *slot = b;
+                self.tcap_len = self.tcap_len.saturating_add(1);
+            }
+            None => self.tcap_over = true,
         }
     }
 
@@ -611,12 +619,14 @@ impl Parser {
     /// ST answers an XTGETTCAP request, and anything else drops it.
     fn end_string<C: Consumer>(&mut self, consumer: &mut C, string: State, end: StringEnd) {
         match string {
-            State::OscString => consumer.osc_end(&self.osc[..self.osc_len], end),
+            State::OscString => {
+                consumer.osc_end(self.osc.get(..self.osc_len).unwrap_or(&[]), end);
+            }
             State::DcsPass => {
                 match self.dcs {
                     Dcs::Hooked => consumer.dcs_unhook(end),
                     Dcs::Xtgettcap if end == StringEnd::St => {
-                        let payload = &self.tcap[..self.tcap_len];
+                        let payload = self.tcap.get(..self.tcap_len).unwrap_or(&[]);
                         consumer.xtgettcap((!self.tcap_over).then_some(payload));
                     }
                     Dcs::Xtgettcap | Dcs::None => {}

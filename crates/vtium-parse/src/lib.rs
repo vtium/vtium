@@ -1,4 +1,18 @@
 #![forbid(unsafe_code)]
+// Determinism under hostile input (docs/architecture.md, "Determinism"):
+// nothing a program sends can panic the parser.
+#![deny(
+    clippy::arithmetic_side_effects,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::indexing_slicing,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::todo
+)]
 //! The escape-sequence parser.
 //!
 //! Turns the byte stream a program writes into actions: printable

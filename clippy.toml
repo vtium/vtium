@@ -1,0 +1,14 @@
+# Determinism under hostile input (docs/architecture.md, "Determinism"):
+# time enters only in named places, and no order comes from a hash.
+# vtium-platform and vtium-render, which hold the timers, allow
+# disallowed_methods; vtium-platform and the binary allow disallowed_types
+# where no order reaches state.
+disallowed-methods = [
+    { path = "std::time::Instant::now", reason = "time enters only in vtium-platform and vtium-render" },
+    { path = "std::time::SystemTime::now", reason = "time enters only in vtium-platform and vtium-render" },
+    { path = "std::thread::sleep", reason = "time enters only in vtium-platform and vtium-render" },
+]
+disallowed-types = [
+    { path = "std::collections::HashMap", reason = "its iteration order is randomised; use BTreeMap" },
+    { path = "std::collections::HashSet", reason = "its iteration order is randomised; use BTreeSet" },
+]

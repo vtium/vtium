@@ -99,7 +99,7 @@ impl Decoder {
         self.ch = (self.ch << 6) | u32::from(b & 0x3f);
         self.lower = 0x80;
         self.upper = 0xbf;
-        self.need -= 1;
+        self.need = self.need.saturating_sub(1);
         if self.need > 0 {
             return [None, None];
         }

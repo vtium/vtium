@@ -2,6 +2,10 @@
 //! every bound the recorder checks holds at every call, and the stream cut
 //! at any point and fed in two pieces gives the same actions as fed whole,
 //! as does the stream fed a byte at a time or with pauses.
+//!
+//! This is vtium-parse's chunking-invariance gate, the parser's part of the
+//! "Chunking invariance" rule in docs/architecture.md, "Determinism"
+//! (vtium/vtium#50). A failure names the stream it failed on.
 
 mod common;
 

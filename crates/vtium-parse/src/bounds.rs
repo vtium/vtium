@@ -79,6 +79,10 @@ pub const SUBPARAMS_MAX: usize = SUBPARAMS.value;
 
 /// A parameter or sub-parameter takes digits while it is at most this, so
 /// a value reaches at most `PARAM_VALUE_CAP * 10 + 9`.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a constant, 0xffff, which fits u32"
+)]
 pub const PARAM_VALUE_CAP: u32 = VALUE.value as u32;
 
 /// Bytes an OSC string keeps, as UTF-8. The character that would pass it
@@ -93,6 +97,11 @@ pub const XTGETTCAP_MAX: usize = XTGETTCAP.value;
 pub const INTERMEDIATES_MAX: usize = INTERMEDIATES.value;
 
 #[cfg(test)]
+#[expect(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "a test fails by panicking"
+)]
 mod tests {
     use super::*;
 

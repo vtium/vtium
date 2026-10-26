@@ -56,20 +56,24 @@ impl Params {
             // An empty parameter stays omitted before a ';' too (ECMA-48
             // 5.4.2 e and g), where the C reference made it 0
             // (tsm-vte.c:1284-1286).
-            self.separators = (self.separators + 1).min(PARAMS_MAX);
+            self.separators = self.separators.saturating_add(1).min(PARAMS_MAX);
             self.sub_drop = false;
             return;
         }
 
+        // Past PARAMS_MAX there is no slot, and the byte is dropped.
         let i = self.separators;
-        if i >= PARAMS_MAX {
+        let (Some(sub_len), Some(value), Some(subs)) = (
+            self.sub_len.get_mut(i),
+            self.values.get_mut(i),
+            self.subs.get_mut(i),
+        ) else {
             return;
-        }
+        };
 
-        let n = usize::from(self.sub_len[i]);
         if byte == b':' {
-            if n < SUBPARAMS_MAX {
-                self.sub_len[i] += 1;
+            if usize::from(*sub_len) < SUBPARAMS_MAX {
+                *sub_len = sub_len.saturating_add(1);
             } else {
                 self.sub_drop = true;
             }
@@ -79,17 +83,23 @@ impl Params {
         if self.sub_drop {
             return;
         }
-        let val = match n {
-            0 => &mut self.values[i],
-            _ => &mut self.subs[i][n - 1],
+        let val = match usize::from(*sub_len).checked_sub(1) {
+            None => value,
+            Some(j) => match subs.get_mut(j) {
+                Some(sub) => sub,
+                None => return,
+            },
         };
         // Only digits reach here: the state machine sends `0` to `;`, and
         // `<` to `?` are markers.
-        let digit = u32::from(byte - b'0');
+        let Some(digit) = char::from(byte).to_digit(10) else {
+            return;
+        };
         *val = match *val {
             OMITTED => digit,
             v if v > PARAM_VALUE_CAP => v,
-            v => v * 10 + digit,
+            // At most 0xffff * 10 + 9 here, far from u32::MAX.
+            v => v.saturating_mul(10).saturating_add(digit),
         };
     }
 
@@ -109,7 +119,7 @@ impl Params {
     /// (tsm-vte.c:2542-2543). It is never 0: `CSI m` has one parameter,
     /// omitted.
     pub fn count(&self) -> usize {
-        (self.separators + 1).min(PARAMS_MAX)
+        self.separators.saturating_add(1).min(PARAMS_MAX)
     }
 
     /// Parameter `i`, `None` when it was empty. Any `i` may be asked for:
@@ -123,13 +133,17 @@ impl Params {
     /// `2, None, 255, 0, 0`.
     pub fn subparams(&self, i: usize) -> impl ExactSizeIterator<Item = Option<u32>> + '_ {
         let n = self.sub_len.get(i).map_or(0, |&n| usize::from(n));
-        let subs = self.subs.get(i).map_or(&[][..], |subs| &subs[..n]);
+        let subs = self
+            .subs
+            .get(i)
+            .and_then(|subs| subs.get(..n))
+            .unwrap_or(&[]);
         subs.iter().map(|&v| (v != OMITTED).then_some(v))
     }
 
     /// Whether any parameter carries sub-parameters (tsm-vte.c:2457-2465).
     pub fn has_subparams(&self) -> bool {
-        self.sub_len[..self.count()].iter().any(|&n| n > 0)
+        self.sub_len.iter().take(self.count()).any(|&n| n > 0)
     }
 }
 
@@ -181,13 +195,13 @@ impl Intermediates {
             return false;
         };
         *slot = byte;
-        self.len += 1;
+        self.len = self.len.saturating_add(1);
         true
     }
 
     /// The intermediates, in order.
     pub fn as_bytes(&self) -> &[u8] {
-        &self.bytes[..usize::from(self.len)]
+        self.bytes.get(..usize::from(self.len)).unwrap_or(&[])
     }
 
     /// Whether there are none.
