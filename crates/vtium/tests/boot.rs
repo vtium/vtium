@@ -957,6 +957,217 @@ fn a_wheel_event_is_one_report_or_three_lines() {
     assert_eq!(h.app.term.terminal.screen().scrolled_back(), 0);
 }
 
+/// The pointer in the middle of cell `col`, `row` (8 by 16 pixels), with
+/// `held` pressed.
+fn over(col: i32, row: i32, held: Option<Button>) -> PointerEvent {
+    PointerEvent::Moved {
+        x: col * 8 + 4,
+        y: row * 16 + 8,
+        held,
+    }
+}
+
+fn press(button: Button, double_click: bool) -> PointerEvent {
+    PointerEvent::Button {
+        button,
+        pressed: true,
+        double_click,
+    }
+}
+
+fn release(button: Button) -> PointerEvent {
+    PointerEvent::Button {
+        button,
+        pressed: false,
+        double_click: false,
+    }
+}
+
+impl Harness {
+    /// Pointer events, each with `mods` held.
+    fn point(&mut self, events: impl IntoIterator<Item = PointerEvent>, mods: Mods) {
+        for event in events {
+            self.app.pointer_event(event, mods, self.at());
+        }
+    }
+}
+
+/// Whether a row of the screen reads `text`.
+fn shows(app: &App, text: &str) -> bool {
+    app.screen_text().iter().any(|l| l == text)
+}
+
+/// A drag across two lines selects them, its release copies them, and the
+/// middle button pastes them back to the program.
+// covers: clipboard.selection
+#[test]
+fn a_drag_across_two_lines_copies_them_and_the_middle_button_pastes_them() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf 'first line\\nsecond one\\n'; read x; read y; echo \"got:$x|$y\"; read z",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "second one")));
+    h.point(
+        [
+            over(0, 0, None),
+            press(Button::Left, false),
+            over(4, 1, Some(Button::Left)),
+            over(9, 1, Some(Button::Left)),
+            release(Button::Left),
+        ],
+        Mods::empty(),
+    );
+    assert_eq!(h.app.selection(), Some(&b"first line\nsecond one"[..]));
+    h.point(
+        [press(Button::Middle, false), release(Button::Middle)],
+        Mods::empty(),
+    );
+    h.type_str("\r");
+    assert!(
+        h.until(SECOND, |a| shows(a, "got:first line|second one")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// A double click selects a word and a triple click a line, each copied
+/// as it is made; Shift+Insert pastes as the middle button does. A click
+/// with no drag copies nothing.
+// covers: clipboard.selection
+#[test]
+fn a_double_click_selects_a_word_and_a_triple_click_a_line() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf 'alpha beta gamma\\nsecond line here\\n'; read x; read y; echo \"got:$x|$y\"; read z",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "second line here")));
+    let none = Mods::empty();
+    h.point(
+        [
+            over(7, 0, None),
+            press(Button::Left, false),
+            release(Button::Left),
+            press(Button::Left, true),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"beta"[..]));
+    // A key clears the selection, and the buffer keeps it.
+    assert!(h.app.term.terminal.screen().has_selection());
+    h.app.input_event(key(Mods::SHIFT, 0xff63), now());
+    assert!(!h.app.term.terminal.screen().has_selection());
+    h.type_str("\r");
+    h.point(
+        [
+            over(3, 1, None),
+            press(Button::Left, false),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(
+        h.app.selection(),
+        Some(&b"beta"[..]),
+        "a click copies nothing"
+    );
+    h.point(
+        [
+            press(Button::Left, true),
+            release(Button::Left),
+            press(Button::Left, true),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"second line here\n"[..]));
+    h.point([press(Button::Middle, false)], none);
+    assert!(
+        h.until(SECOND, |a| shows(a, "got:beta|second line here")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// While a program tracks the pointer, a drag and the middle button with
+/// Shift held select and paste, as xterm's do, and reach the program only
+/// as the paste, bracketed; without Shift the buttons are reported.
+// covers: clipboard.selection
+#[test]
+fn shift_selects_and_pastes_while_the_program_tracks_the_pointer() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty raw -echo; printf 'pick me\\r\\n\\033[?1000h\\033[?1006h\\033[?2004hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    h.point(
+        [
+            over(0, 0, None),
+            press(Button::Left, false),
+            over(6, 0, Some(Button::Left)),
+            release(Button::Left),
+            press(Button::Middle, false),
+            release(Button::Middle),
+        ],
+        Mods::SHIFT,
+    );
+    assert_eq!(h.app.selection(), Some(&b"pick me"[..]));
+    h.point(
+        [press(Button::Left, false), release(Button::Left)],
+        Mods::empty(),
+    );
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(
+            a,
+            "E[200~pick meE[201~E[<0;7;1ME[<0;7;1m"
+        )),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// The program changing its mouse tracking clears the selection.
+#[test]
+fn a_change_of_mouse_tracking_clears_the_selection() {
+    let go = std::env::temp_dir().join(format!("vtium-boot-tracking-{}", std::process::id()));
+    let _ = std::fs::remove_file(&go);
+    let script = format!(
+        "printf 'text\\n'; while [ ! -e '{}' ]; do sleep 0.02; done; \
+         printf '\\033[?1000hon\\n'; read x",
+        go.display()
+    );
+    let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", &script]);
+    assert!(h.until(SECOND, |a| shows(a, "text")));
+    h.point(
+        [
+            over(0, 0, None),
+            press(Button::Left, false),
+            over(3, 0, Some(Button::Left)),
+            release(Button::Left),
+        ],
+        Mods::empty(),
+    );
+    assert!(h.app.term.terminal.screen().has_selection());
+    std::fs::write(&go, b"").expect("the go file");
+    let cleared = h.until(SECOND, |a| {
+        shows(a, "on") && !a.term.terminal.screen().has_selection()
+    });
+    let _ = std::fs::remove_file(&go);
+    assert!(cleared, "{:?}", h.app.screen_text());
+    assert_eq!(h.app.selection(), Some(&b"text"[..]));
+}
+
 /// Every key a file may set is read by the seat as `main` starts it, or
 /// listed as not built.
 #[test]

@@ -2,7 +2,8 @@
 //! after the VT's and the seat's. Each is the C reference's default
 //! (`src/config.c:1275-1303` at kmscon b1f7a7c5), matched as it matched
 //! them (`src/misc/conf.c:1103-1131`): the held modifiers exactly, and the
-//! key's keysyms.
+//! key's keysyms. The C reference had no key to paste; Shift+Insert pastes,
+//! as xterm's `insert-selection` translation does.
 
 /// What a grab does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15,6 +16,7 @@ pub enum Grab {
     ZoomOut,
     RotateCw,
     RotateCcw,
+    Paste,
 }
 
 const SHIFT: u8 = 1;
@@ -28,9 +30,10 @@ const NEXT: u32 = 0xff56;
 const PLUS: u32 = 0x2b;
 const EQUAL: u32 = 0x3d;
 const MINUS: u32 = 0x2d;
+const INSERT: u32 = 0xff63;
 
 /// Each grab: its modifiers and the one keysym it takes.
-const GRABS: [(Grab, u8, u32); 10] = [
+const GRABS: [(Grab, u8, u32); 11] = [
     (Grab::ScrollUp, SHIFT, UP),
     (Grab::ScrollDown, SHIFT, DOWN),
     (Grab::PageUp, SHIFT, PRIOR),
@@ -41,6 +44,7 @@ const GRABS: [(Grab, u8, u32); 10] = [
     (Grab::RotateCw, LOGO, PLUS),
     (Grab::RotateCw, LOGO, EQUAL),
     (Grab::RotateCcw, LOGO, MINUS),
+    (Grab::Paste, SHIFT, INSERT),
 ];
 
 /// The grab a key held with `mods` (the C reference's bits) and making
@@ -63,6 +67,12 @@ mod tests {
         assert_eq!(grab(CTRL, &[EQUAL]), Some(Grab::ZoomIn));
         assert_eq!(grab(CTRL, &[MINUS]), Some(Grab::ZoomOut));
         assert_eq!(grab(LOGO, &[PLUS]), Some(Grab::RotateCw));
+    }
+
+    #[test]
+    fn shift_insert_pastes_as_in_xterm() {
+        assert_eq!(grab(SHIFT, &[INSERT]), Some(Grab::Paste));
+        assert_eq!(grab(0, &[INSERT]), None);
     }
 
     #[test]
