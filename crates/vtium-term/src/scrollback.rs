@@ -82,16 +82,18 @@ impl Scrollback {
     }
 
     /// Takes a line leaving the top of the screen, trimmed; the oldest line
-    /// goes when the scrollback is full, and with no room the line goes.
-    pub(crate) fn push(&mut self, mut line: Line) {
+    /// goes when the scrollback is full. With no room it gives the line
+    /// back.
+    pub(crate) fn push(&mut self, mut line: Line) -> Option<Line> {
         if self.max == 0 {
-            return;
+            return Some(line);
         }
         if self.lines.len() >= self.max {
             self.drop_oldest();
         }
         line.trim();
         self.lines.push_back(line);
+        None
     }
 
     /// Drops the oldest line. A view on a later line stays on it, and a

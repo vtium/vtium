@@ -212,7 +212,8 @@ impl Screen {
         self.segment = None;
         let rows = y..self.bottom.saturating_add(1);
         let n = n.min(rows.len());
-        self.replace_lines(rows.end.saturating_sub(n)..rows.end);
+        let gone = self.replace_lines(rows.end.saturating_sub(n)..rows.end);
+        self.discard_lines(gone);
         if let Some(region) = self.active_mut().get_mut(rows.clone()) {
             region.rotate_right(n);
         }
@@ -232,7 +233,8 @@ impl Screen {
         self.segment = None;
         let rows = y..self.bottom.saturating_add(1);
         let n = n.min(rows.len());
-        self.replace_lines(y..y.saturating_add(n));
+        let gone = self.replace_lines(y..y.saturating_add(n));
+        self.discard_lines(gone);
         if let Some(region) = self.active_mut().get_mut(rows.clone()) {
             region.rotate_left(n);
         }
@@ -252,11 +254,14 @@ impl Screen {
         let rows = self.top..self.bottom.saturating_add(1);
         let n = n.min(rows.len());
         let gone = self.replace_lines(rows.start..rows.start.saturating_add(n));
-        if !self.flags.alternate {
-            for line in gone {
-                self.scrollback.push(line);
-            }
-        }
+        let gone = if self.flags.alternate {
+            gone
+        } else {
+            gone.into_iter()
+                .filter_map(|line| self.scrollback.push(line))
+                .collect()
+        };
+        self.discard_lines(gone);
         if let Some(region) = self.active_mut().get_mut(rows.clone()) {
             region.rotate_left(n);
         }
@@ -277,7 +282,8 @@ impl Screen {
         self.segment = None;
         let rows = self.top..self.bottom.saturating_add(1);
         let n = n.min(rows.len());
-        self.replace_lines(rows.end.saturating_sub(n)..rows.end);
+        let gone = self.replace_lines(rows.end.saturating_sub(n)..rows.end);
+        self.discard_lines(gone);
         if let Some(region) = self.active_mut().get_mut(rows.clone()) {
             region.rotate_right(n);
         }
@@ -285,7 +291,8 @@ impl Screen {
     }
 
     /// Replaces the lines of `rows` with new blank lines of the blank
-    /// style, and returns the lines replaced.
+    /// style, and returns the lines replaced, for the scrollback or for
+    /// `discard_lines`.
     fn replace_lines(&mut self, rows: Range<usize>) -> Vec<crate::Line> {
         let blank = self.blank_style();
         let cols = self.cols;

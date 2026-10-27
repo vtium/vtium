@@ -496,7 +496,8 @@ impl Screen {
                 line.resize(cols);
             }
             if let Some(slot) = self.main.get_mut(row) {
-                *slot = line;
+                let gone = core::mem::replace(slot, line);
+                self.discard_lines(vec![gone]);
             }
         }
     }

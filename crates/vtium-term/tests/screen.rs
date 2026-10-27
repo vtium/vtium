@@ -363,9 +363,9 @@ fn the_width_method_cuts_text_into_cells() {
     assert_eq!(cursor(&t), (6, 0));
 }
 
-// The C reference's tsm-selection.c: a selection from where the pointer
-// started to where it is, across the scrollback and the screen; a word
-// selection stops at spaces.
+// A selection from where the pointer started to where it is, across the
+// scrollback and the screen; a word selection stops at spaces.
+// C notes: the C reference's tsm-selection.c.
 // covers: clipboard.selection
 #[test]
 fn a_selection_copies_its_text() {
@@ -403,6 +403,59 @@ fn a_selection_copies_its_text() {
     let s = t.screen();
     assert_eq!(s.selection_text().as_deref(), Some("three"));
     assert_eq!(frame_selected(s), [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4)]);
+}
+
+// A line the screen discards (IL, DL, SD, RI, a scroll on the alternate
+// screen, the screen's rows a taller screen replaces) takes the selection
+// with it: a copy must not reach into other text. Only a line the
+// scrollback drops when full leaves the selection to start at the oldest
+// line, as the C reference's did.
+#[test]
+fn a_discarded_line_takes_the_selection_with_it() {
+    let mut t = Terminal::new(8, 3, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"secret1\r\nsecret2\r\nx\r\ny\r\nz");
+    t.screen_mut().set_alternate(true);
+    t.input(b"\x1b[Halt-a\r\nalt-b\r\nalt-c");
+    t.screen_mut().select_start(0, 0);
+    t.screen_mut().select_to(4, 2);
+    assert_eq!(
+        t.screen().selection_text().as_deref(),
+        Some("alt-a\nalt-b\nalt-c")
+    );
+    t.input(b"\r\n\r\n");
+    assert_eq!(t.screen().selection_text(), None);
+
+    // A selection from the first row to the last loses its first line to
+    // DL, or its last to IL, SD and RI.
+    for discard in [
+        &b"\x1b[1;1H\x1b[M"[..],
+        b"\x1b[1;1H\x1b[L",
+        b"\x1b[T",
+        b"\x1b[1;1H\x1bM",
+    ] {
+        let mut t = term(8, 3, b"one\r\ntwo\r\nthree");
+        t.screen_mut().select_start(0, 0);
+        t.screen_mut().select_to(4, 2);
+        assert_eq!(
+            t.screen().selection_text().as_deref(),
+            Some("one\ntwo\nthree")
+        );
+        t.input(discard);
+        assert_eq!(t.screen().selection_text(), None, "{discard:?}");
+    }
+
+    // The scrollback dropping its oldest line moves the selection's start
+    // to the next oldest.
+    let mut t = Terminal::new(8, 2, 2);
+    t.screen_mut().set_scrollback_max(2);
+    t.input(b"a\r\nb\r\nc\r\nd");
+    t.screen_mut().scroll_view_up(2);
+    t.screen_mut().select_start(0, 0);
+    t.screen_mut().select_to(0, 1);
+    assert_eq!(t.screen().selection_text().as_deref(), Some("a\nb"));
+    t.input(b"\r\ne");
+    assert_eq!(t.screen().selection_text().as_deref(), Some("b"));
 }
 
 // A shorter screen pushes its top lines into the scrollback; a taller one

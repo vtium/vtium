@@ -2,8 +2,11 @@
 //! screen and in the scrollback, which the host drives.
 //!
 //! The selection holds each end by its line's [`LineId`] and a column, so
-//! it moves with its text as the screen scrolls, and an end whose line has
-//! left the scrollback is gone: copying then starts at the oldest line.
+//! it moves with its text as the screen scrolls. A line the screen discards
+//! (IL, DL, SD, RI, a scroll on the alternate screen) takes the selection
+//! with it, so a copy never reaches into other text. Only an end whose line
+//! the scrollback dropped when full leaves the selection standing: copying
+//! then starts at the oldest line, as in the C reference.
 //! Changing the selection marks everything, since its cells draw inverted.
 
 use core::ops::Range;
@@ -37,9 +40,28 @@ impl Selection {
     pub(super) fn reset(&mut self) {
         *self = Self::default();
     }
+
+    /// Whether an end of the selection, or where it started, is on one of
+    /// `lines`.
+    fn holds_any(&self, lines: &[Line]) -> bool {
+        self.active
+            && [self.begin, self.start, self.end]
+                .into_iter()
+                .flatten()
+                .any(|a| lines.iter().any(|l| l.id() == a.line))
+    }
 }
 
 impl Screen {
+    /// Drops lines the screen discards; one that holds the selection takes
+    /// it with it.
+    pub(super) fn discard_lines(&mut self, lines: Vec<Line>) {
+        if self.selection.holds_any(&lines) {
+            self.selection.reset();
+            self.damage.mark_all();
+        }
+    }
+
     /// Starts a selection at column `x` of view row `y`.
     pub fn select_start(&mut self, x: usize, y: usize) {
         let Some(anchor) = self.anchor(x, y) else {
