@@ -98,6 +98,13 @@ pub(crate) struct State {
     pub(crate) dpms: BTreeMap<u32, u64>,
     /// Connectors that have no DPMS property.
     pub(crate) no_dpms: Vec<u32>,
+    /// Objects whose properties cannot be read: the read fails with
+    /// EFAULT.
+    pub(crate) unreadable: Vec<u32>,
+    /// Planes whose possible CRTCs cannot be read, and whether the plane
+    /// list cannot: each read fails with EIO.
+    pub(crate) crtcs_unreadable: Vec<u32>,
+    pub(crate) planes_unreadable: bool,
     /// The CRTC each connector is on, each CRTC's `ACTIVE`, and the CRTC
     /// each plane is on, as the commits so far left them.
     pub(crate) bound: BTreeMap<u32, u32>,
@@ -360,11 +367,18 @@ impl Kms for FakeCard {
     }
 
     fn planes(&self) -> io::Result<Vec<u32>> {
-        Ok(self.state.borrow().planes.keys().copied().collect())
+        let s = self.state.borrow();
+        if s.planes_unreadable {
+            return Err(err(Errno::IO));
+        }
+        Ok(s.planes.keys().copied().collect())
     }
 
     fn plane_crtcs(&self, id: u32) -> io::Result<u32> {
         let s = self.state.borrow();
+        if s.crtcs_unreadable.contains(&id) {
+            return Err(err(Errno::IO));
+        }
         s.planes
             .get(&id)
             .map(|p| p.crtcs)
@@ -373,6 +387,9 @@ impl Kms for FakeCard {
 
     fn properties(&self, id: u32, kind: Object) -> io::Result<Vec<Property>> {
         let s = self.state.borrow();
+        if s.unreadable.contains(&id) {
+            return Err(err(Errno::FAULT));
+        }
         match kind {
             Object::Connector => {
                 let dpms = *s.dpms.get(&id).ok_or_else(|| err(Errno::NOENT))?;
