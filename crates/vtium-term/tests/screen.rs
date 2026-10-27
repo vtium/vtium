@@ -689,14 +689,70 @@ fn a_wrapped_line_is_flagged() {
     assert!(!flags(1).contains(vtium_term::LineFlags::WRAPPED));
 }
 
+// A line whose next row is gone does not continue onto what replaced it:
+// an erase that clears the screen's first row whole, and IL, DL, SD and RI
+// there, end the wrap of the scrollback's newest line, and a line a region
+// below the first row scrolls into the scrollback enters it unwrapped.
+// xterm joins each.
+// DECSED ends the wrap of each row it clears whole, as xterm's does when
+// no cell is protected.
+// covers: clipboard.selection
+#[test]
+fn a_wrap_ends_where_its_next_row_is_gone() {
+    for erase in [
+        &b"\x1b[H\x1b[2J"[..],
+        b"\x1b[2;1H\x1b[1J\x1b[H",
+        b"\x1b[H\x1b[J",
+        b"\x1b[H\x1b[2K",
+        b"\x1b[H\x1b[K",
+        b"\x1b[H\x1b[L",
+        b"\x1b[H\x1b[M",
+        b"\x1b[T\x1b[H",
+        b"\x1b[H\x1bM",
+    ] {
+        let mut t = Terminal::new(4, 2, 10);
+        t.screen_mut().set_scrollback_max(10);
+        t.input(b"abcdefgh\r\n");
+        t.input(erase);
+        t.input(b"$ ls");
+        t.screen_mut().select_line(0, 0);
+        assert_eq!(
+            t.screen().selection_text().as_deref(),
+            Some("$ ls\n"),
+            "{erase:?}"
+        );
+    }
+    // Clearing the alternate screen leaves the main screen's join.
+    let mut t = Terminal::new(4, 2, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"abcdefgh\r\n\x1b[?1049h\x1b[2J\x1b[H\x1b[L\x1b[?1049l");
+    t.screen_mut().select_line(0, 0);
+    assert_eq!(t.screen().selection_text().as_deref(), Some("abcdefgh\n"));
+    // A row cleared in part keeps the join.
+    let mut t = Terminal::new(4, 2, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"abcdefgh\r\n\x1b[1;3H\x1b[K");
+    t.screen_mut().select_line(0, 0);
+    assert_eq!(t.screen().selection_text().as_deref(), Some("abcdef\n"));
+
+    let mut t = Terminal::new(4, 3, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"HEAD\x1b[2;3r\x1b[2;1Habcdefgh\r\n");
+    t.screen_mut().select_line(0, 0);
+    assert_eq!(t.screen().selection_text().as_deref(), Some("HEAD\n"));
+
+    let mut t = term(4, 2, b"abcdefgh\x1b[H\x1b[?2Jxy\x1b[2;1Hzw");
+    t.screen_mut().select_line(0, 0);
+    assert_eq!(t.screen().selection_text().as_deref(), Some("xy\n"));
+}
+
 // An edit that clears a row's last column ends its wrap, as xterm's
 // `ClearRight` (EL 0, ECH, the cursor's row under ED 0), `ScrnDeleteChar`
-// (DCH) and `ClearBufRows` (the rows ED clears whole) do, and EL 2 as
-// Ghostty's `eraseLine` does: xterm keeps the flag there, but the erased
-// row's text no longer continues. EL 1, ICH, the cursor's row under ED 1,
-// and the rows DECSED clears whole, where a protected cell may stay, keep
-// it. IL, DL and a scroll move lines with their flags and bring in
-// unflagged ones.
+// (DCH) and `ClearBufRows` (the other rows ED and DECSED clear whole) do,
+// and EL 2 as Ghostty's `eraseLine` does: xterm keeps the flag there, but
+// the erased row's text no longer continues. EL 1, ICH, the cursor's row
+// under ED 1, and a row where DECSED leaves a protected cell keep it. IL,
+// DL and a scroll move lines with their flags and bring in unflagged ones.
 #[test]
 fn an_edit_that_clears_the_last_column_ends_the_wrap() {
     let wrapped = |t: &Terminal, row| {
@@ -715,7 +771,7 @@ fn an_edit_that_clears_the_last_column_ends_the_wrap() {
         (b"\x1b[1;3H\x1b[1K", [true, true, false]),
         (b"\x1b[1;1H\x1b[@", [true, true, false]),
         (b"\x1b[1;1H\x1b[1J", [true, true, false]),
-        (b"\x1b[3;1H\x1b[?1J", [true, true, false]),
+        (b"\x1b[3;1H\x1b[?1J", [false, false, false]),
         (b"\x1b[1;1H\x1b[L", [false, true, true]),
         (b"\x1b[1;1H\x1b[M", [true, false, false]),
         (b"\x1b[S", [true, false, false]),
@@ -726,6 +782,17 @@ fn an_edit_that_clears_the_last_column_ends_the_wrap() {
         let got = [wrapped(&t, 0), wrapped(&t, 1), wrapped(&t, 2)];
         assert_eq!(got, flags, "{bytes:?}");
     }
+    // A row where DECSED leaves a protected cell keeps its wrap.
+    let mut t = term(4, 3, b"abcdefghij\x1b[1;1H");
+    let protected = Style {
+        attrs: Attrs::PROTECTED,
+        ..Style::DEFAULT
+    };
+    t.screen_mut().set_pen(protected);
+    t.input(b"P");
+    t.screen_mut().set_pen(Style::DEFAULT);
+    t.input(b"\x1b[3;1H\x1b[?1J");
+    assert_eq!([wrapped(&t, 0), wrapped(&t, 1)], [true, false]);
     // A scroll takes the flag into the scrollback.
     let mut t = Terminal::new(4, 2, 10);
     t.screen_mut().set_scrollback_max(10);

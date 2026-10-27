@@ -10,13 +10,18 @@
 //!
 //! An edit that clears a row's last column ends the row's wrap: its text no
 //! longer continues on the next row. EL 0, EL 2, ECH and DCH end the
-//! cursor's row's, as does ED on the cursor's row from the cursor; ED ends
-//! the wrap of each row it clears whole, and DECSED, which may leave a
-//! protected cell, ends none but the cursor's row's. This is xterm's rule
+//! cursor's row's, as does ED on the cursor's row from the cursor; ED and
+//! DECSED end the wrap of each other row they clear whole, a row where
+//! DECSED leaves a protected cell keeping it. This is xterm's rule
 //! (`ClearRight`, `ScrnDeleteChar`, `ClearBufRows`), with EL 2 as Ghostty's
 //! `eraseLine` has it, since xterm keeps the wrap of a row EL 2 clears.
+//! An erase that clears the main screen's first row whole, and IL, DL and
+//! SD that replace it, also end the wrap of the scrollback's newest line,
+//! whose next row it was; xterm keeps that wrap, joining the line to
+//! whatever is printed there next.
 //! IL, DL and scrolling move lines with their flags and bring in unflagged
-//! ones.
+//! ones; a line a region below the first row scrolls into the scrollback
+//! enters it unwrapped, since its next row stays on the screen.
 //!
 //! [`Line::erase`]: crate::Line::erase
 //! [`Line::insert_cells`]: crate::Line::insert_cells
@@ -72,13 +77,21 @@ impl Screen {
     }
 
     /// Clears from `from` to `to` inclusive, each a column and a row, in
-    /// reading order; `which` says whether protected cells stay.
-    fn erase_region(&mut self, from: (usize, usize), to: (usize, usize), which: Erase) {
+    /// reading order; `which` says whether protected cells stay. Returns
+    /// the rows it cleared whole. Clearing the screen's first row whole
+    /// ends the wrap of the scrollback's newest line.
+    fn erase_region(
+        &mut self,
+        from: (usize, usize),
+        to: (usize, usize),
+        which: Erase,
+    ) -> Vec<usize> {
         self.segment = None;
         let last_col = self.cols.saturating_sub(1);
         let (mut x, first_row) = from;
         let x_to = to.0.min(last_col);
         let y_to = to.1.min(self.rows.saturating_sub(1));
+        let mut whole = Vec::new();
         for y in first_row..=y_to {
             let Some(line) = self.line(y) else {
                 x = 0;
@@ -107,28 +120,39 @@ impl Screen {
                     run = col.saturating_add(1);
                 }
             }
+            if x == 0 && end >= last_col && runs.is_empty() {
+                whole.push(y);
+            }
             runs.push(run..end.saturating_add(1));
             for cols in runs {
                 self.erase_cells(y, cols);
             }
             x = 0;
         }
+        if whole.first() == Some(&0) {
+            self.unwrap_scrollback();
+        }
+        whole
+    }
+
+    /// Ends the wrap of the scrollback's newest line, when the main
+    /// screen's first row, its next row, is cleared or replaced.
+    fn unwrap_scrollback(&mut self) {
+        if self.flags.alternate {
+            return;
+        }
+        if let Some(line) = self.scrollback.newest_mut() {
+            line.flags_mut().remove(LineFlags::WRAPPED);
+        }
     }
 
     /// Ends the wrap of each row of `rows`: their text no longer continues
     /// on the next row.
-    fn unwrap_rows(&mut self, rows: Range<usize>) {
+    fn unwrap_rows(&mut self, rows: impl IntoIterator<Item = usize>) {
         for y in rows {
             if let Some(line) = self.line_mut(y) {
                 line.flags_mut().remove(LineFlags::WRAPPED);
             }
-        }
-    }
-
-    /// Ends the wrap of the rows an erase of `which` clears whole.
-    fn unwrap_cleared_rows(&mut self, rows: Range<usize>, which: Erase) {
-        if which == Erase::All {
-            self.unwrap_rows(rows);
         }
     }
 
@@ -172,22 +196,23 @@ impl Screen {
 
     /// ED 1: from the top of the screen to the cursor.
     pub fn erase_above(&mut self, which: Erase) {
-        self.erase_region((0, 0), (self.cursor_x, self.cursor_y), which);
-        self.unwrap_cleared_rows(0..self.cursor_y, which);
+        let y = self.cursor_y;
+        let whole = self.erase_region((0, 0), (self.cursor_x, y), which);
+        self.unwrap_rows(whole.into_iter().filter(|&row| row != y));
     }
 
     /// ED 0: from the cursor to the end of the screen.
     pub fn erase_below(&mut self, which: Erase) {
         let (x, y) = (self.erase_column(), self.cursor_y);
-        self.erase_region((x, y), (self.cols, self.rows), which);
+        let whole = self.erase_region((x, y), (self.cols, self.rows), which);
+        self.unwrap_rows(whole);
         self.unwrap_rows(y..y.saturating_add(1));
-        self.unwrap_cleared_rows(y.saturating_add(1)..self.rows, which);
     }
 
     /// ED 2: the whole screen.
     pub fn erase_screen(&mut self, which: Erase) {
-        self.erase_region((0, 0), (self.cols, self.rows), which);
-        self.unwrap_cleared_rows(0..self.rows, which);
+        let whole = self.erase_region((0, 0), (self.cols, self.rows), which);
+        self.unwrap_rows(whole);
     }
 
     /// ICH: `n` blank cells at the cursor, the rest of the line moving
@@ -253,6 +278,9 @@ impl Screen {
         if let Some(region) = self.active_mut().get_mut(rows.clone()) {
             region.rotate_right(n);
         }
+        if y == 0 {
+            self.unwrap_scrollback();
+        }
         self.mark_rows(rows);
         self.cursor_x = 0;
     }
@@ -274,14 +302,18 @@ impl Screen {
         if let Some(region) = self.active_mut().get_mut(rows.clone()) {
             region.rotate_left(n);
         }
+        if y == 0 {
+            self.unwrap_scrollback();
+        }
         self.mark_rows(rows);
         self.cursor_x = 0;
     }
 
     /// SU, and a line feed at the bottom margin: the region moves up `n`
     /// rows. On the main screen the lines leaving the region's top enter
-    /// the scrollback, wherever the region starts, as in the C reference;
-    /// blank lines come in at the bottom.
+    /// the scrollback, wherever the region starts, as in the C reference,
+    /// unwrapped when it starts below the first row; blank lines come in
+    /// at the bottom.
     pub fn scroll_up(&mut self, n: usize) {
         if n == 0 {
             return;
@@ -293,8 +325,14 @@ impl Screen {
         let gone = if self.flags.alternate {
             gone
         } else {
+            let below_top = rows.start > 0;
             gone.into_iter()
-                .filter_map(|line| self.scrollback.push(line))
+                .filter_map(|mut line| {
+                    if below_top {
+                        line.flags_mut().remove(LineFlags::WRAPPED);
+                    }
+                    self.scrollback.push(line)
+                })
                 .collect()
         };
         self.discard_lines(gone);
@@ -311,6 +349,9 @@ impl Screen {
             return;
         }
         self.rotate_down(n);
+        if self.top == 0 {
+            self.unwrap_scrollback();
+        }
     }
 
     /// Moves the region down `n` rows, blank lines coming in at the top.

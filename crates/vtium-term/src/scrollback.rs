@@ -75,6 +75,11 @@ impl Scrollback {
         self.lines.get(i)
     }
 
+    /// The newest line.
+    pub(crate) fn newest_mut(&mut self) -> Option<&mut Line> {
+        self.lines.back_mut()
+    }
+
     /// Keeps at most `max` lines, clamped to the cap; the oldest past it go.
     pub(crate) fn set_max(&mut self, max: usize) {
         self.max = max.min(self.cap);
