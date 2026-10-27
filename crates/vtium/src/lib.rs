@@ -25,3 +25,4 @@
 //! where vtium departs from the C reference and the bounds it sets.
 
 pub mod config;
+pub mod termcap;

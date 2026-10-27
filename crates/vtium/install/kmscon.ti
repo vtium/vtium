@@ -1,0 +1,111 @@
+# vtium's terminfo entry, named kmscon, which vtium sets as TERM by default.
+# Installed compiled with tic -x. The XTGETTCAP table in
+# crates/vtium/src/termcap/table.rs is generated from this file, and a test
+# fails when they differ: VTIUM_BLESS=1 cargo test -p vtium termcap rewrites
+# it. The capabilities are the C reference's (scripts/terminfo/kmscon.ti at
+# kmscon b1f7a7c5), whose probes judge them.
+kmscon|KMS Console,
+  am, bce, km, mir, msgr, npc, xenl,
+  colors#256, pairs#32767,
+  cols#80, lines#24,
+
+# Character set mapping (VT100 line drawing)
+  acsc=``aaffggiijjkkllmmnnooppqqrrssttuuvvwwxxyyzz{{||}}~~,
+# Basic controls
+  bel=^G, cr=\r, cud1=\n, ht=^I, ind=\n,
+
+# Cursor movement
+  cub1=^H, cuf1=\E[C, cuu1=\E[A,
+  cub=\E[%p1%dD, cud=\E[%p1%dB, cuf=\E[%p1%dC, cuu=\E[%p1%dA,
+  cup=\E[%i%p1%d;%p2%dH, home=\E[H,
+  hpa=\E[%i%p1%dG, vpa=\E[%i%p1%dd,
+
+# Erasure. E3 is ED 3, which empties the scrollback; clear(1) sends it after
+# clear, as under linux and xterm-256color.
+  clear=\E[H\E[2J, ed=\E[J, el=\E[K, el1=\E[1K,
+  ech=\E[%p1%dX, cbt=\E[Z, E3=\E[3J,
+
+# Insert and delete
+  dch1=\E[P, dch=\E[%p1%dP,
+  dl1=\E[M, dl=\E[%p1%dM,
+  ch1=\E[@, ich=\E[%p1%d@,
+  il1=\E[L, il=\E[%p1%dL,
+  ich1=\E[@,
+
+# Rendition (SGR)
+  sgr=%?%p9%t\E(0%e\E(B%;\E[0%?%p6%t;1%;%?%p5%t;2%;%?%p2%t;4%;%?%p1%p3%|%t;7%;%?%p4%t;5%;%?%p7%t;8%;m,
+  sgr0=\E(B\E[m, bold=\E[1m, smul=\E[4m,
+  rev=\E[7m, smso=\E[7m, rmso=\E[27m,
+  rmul=\E[24m, smacs=\E(0, rmacs=\E(B,
+  flash=\E[?5h$<200/>\E[?5l,
+# Italic, as ncurses' ecma+italics.
+  dim=\E[2m, sitm=\E[3m, ritm=\E[23m,
+
+# Strike-through (user-defined capabilities, ncurses' ecma+strikeout)
+  smxx=\E[9m, rmxx=\E[29m,
+
+# Colour (xterm-256color's)
+  setab=\E[%?%p1%{8}%<%t4%p1%d%e%p1%{16}%<%t10%p1%{8}%-%d%e48;5;%p1%d%;m,
+  setaf=\E[%?%p1%{8}%<%t3%p1%d%e%p1%{16}%<%t9%p1%{8}%-%d%e38;5;%p1%d%;m,
+  op=\E[39;49m,
+
+# 24-bit direct colour (user-defined capabilities). Each ends in 'm' with no
+# empty final parameter, which xterm reads as SGR 0.
+  Tc,
+  setrgbb=\E[48;2;%p1%d;%p2%d;%p3%dm,
+  setrgbf=\E[38;2;%p1%d;%p2%d;%p3%dm,
+
+# Underline styles and colour (user-defined capabilities). Smulx is SGR 4:n,
+# 0 (none) to 5 (dashed). Setulc takes one colour packed as r*65536 + g*256
+# + b, as tmux(1) passes it, and writes ITU T.416's colon form 58:2::r:g:b
+# with the colour space empty, which a terminal that does not know SGR 58
+# cannot read as SGR 2 (dim) and the rest, as it would the semicolon form.
+  Smulx=\E[4:%p1%dm,
+  Setulc=\E[58:2::%p1%{65536}%/%d:%p1%{256}%/%{255}%&%d:%p1%{255}%&%dm,
+
+# Scrolling and margins
+  csr=\E[%i%p1%d;%p2%dr,
+  indn=\E[%p1%dS, rin=\E[%p1%dT,
+  ri=\EM,
+
+# Alternate screen
+  smcup=\E[?1049h, rmcup=\E[?1049l,
+
+# Cursor visibility
+  civis=\E[?25l, cnorm=\E[?25h,
+
+# Cursor shape
+  Se=\E[0 q, Ss=\E[%p1%d q,
+
+# Synchronized output (mode 2026, tmux(1)'s Sync)
+  Sync=\E[?2026%?%p1%{1}%-%tl%eh%;,
+
+# Focus events (mode 1004, ncurses' xterm+focus)
+  XF, fd=\E[?1004l, fe=\E[?1004h, kxIN=\E[I, kxOUT=\E[O,
+
+# SGR mouse (modes 1000 and 1006, ncurses' xterm+sm+1006). ncurses reads XM
+# to enable the mouse and, finding 1006 in it, decodes the SGR reports; kmous
+# is the prefix it matches them by. xm, which no program reads
+# (user_caps(5)), is left out.
+  kmous=\E[<, XM=\E[?1006;1000%?%p1%{1}%=%th%el%;,
+
+# Bracketed paste (mode 2004, ncurses' bracketed+paste)
+  BD=\E[?2004l, BE=\E[?2004h, PE=\E[201~, PS=\E[200~,
+
+# Input keys
+  kbs=^?, kcub1=\E[D, kcud1=\E[B,
+  kcuf1=\E[C, kcuu1=\E[A, kcbt=\E[Z,
+  khome=\E[H, kend=\E[F, knp=\E[6~, kpp=\E[5~,
+  kich1=\E[2~, kdch1=\E[3~,
+  kLFT=\E[1;2D, kRIT=\E[1;2C,
+  kf1=\EOP, kf2=\EOQ, kf3=\EOR, kf4=\EOS,
+  kf5=\E[15~, kf6=\E[17~, kf7=\E[18~, kf8=\E[19~,
+  kf9=\E[20~, kf10=\E[21~, kf11=\E[23~, kf12=\E[24~,
+  kf13=\E[25~, kf14=\E[26~, kf15=\E[28~, kf16=\E[29~,
+  kf17=\E[31~, kf18=\E[32~, kf19=\E[33~, kf20=\E[34~,
+  kf21=\E[23;2~, kf22=\E[24;2~,
+
+# Miscellaneous
+  sc=\E7, rc=\E8, rs2=\Ec, tbc=\E[3g, hts=\EH,
+  rep=%p1%c\E[%p2%{1}%-%db,
+  u6=\E[%i%d;%dR, u7=\E[6n, u8=\E[?%[;0123456789]c, u9=\E[c,
