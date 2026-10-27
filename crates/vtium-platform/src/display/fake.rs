@@ -101,10 +101,11 @@ pub(crate) struct State {
     /// Objects whose properties cannot be read: the read fails with
     /// EFAULT.
     pub(crate) unreadable: Vec<u32>,
-    /// Planes whose possible CRTCs cannot be read, and whether the plane
-    /// list cannot: each read fails with EIO.
+    /// Planes whose possible CRTCs cannot be read, and the reads that
+    /// fail for every object: `planes`, `crtc_mode` and `cap`. Each fails
+    /// with EIO.
     pub(crate) crtcs_unreadable: Vec<u32>,
-    pub(crate) planes_unreadable: bool,
+    pub(crate) failing: Vec<&'static str>,
     /// The CRTC each connector is on, each CRTC's `ACTIVE`, and the CRTC
     /// each plane is on, as the commits so far left them.
     pub(crate) bound: BTreeMap<u32, u32>,
@@ -317,6 +318,9 @@ impl Kms for FakeCard {
     }
 
     fn cap(&self, cap: u32) -> io::Result<u64> {
+        if self.state.borrow().failing.contains(&"cap") {
+            return Err(err(Errno::IO));
+        }
         match cap {
             DRM_CAP_DUMB_BUFFER => Ok(1),
             DRM_CAP_CURSOR_WIDTH | DRM_CAP_CURSOR_HEIGHT => Ok(256),
@@ -363,12 +367,15 @@ impl Kms for FakeCard {
     }
 
     fn crtc_mode(&self, id: u32) -> io::Result<Option<Mode>> {
+        if self.state.borrow().failing.contains(&"crtc_mode") {
+            return Err(err(Errno::IO));
+        }
         Ok(self.state.borrow().crtc_modes.get(&id).copied())
     }
 
     fn planes(&self) -> io::Result<Vec<u32>> {
         let s = self.state.borrow();
-        if s.planes_unreadable {
+        if s.failing.contains(&"planes") {
             return Err(err(Errno::IO));
         }
         Ok(s.planes.keys().copied().collect())
