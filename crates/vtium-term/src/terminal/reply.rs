@@ -239,8 +239,9 @@ impl State {
     }
 
     /// DECRQSS: the setting asked for, `DCS 1 $ r Pt ST`, for SGR, DECSTBM,
-    /// DECSCUSR, DECSCL, DECSCA and DECSACE; anything else, and a request longer than any of
-    /// these, the error form `DCS 0 $ r ST`, with no echo (ADR-1000).
+    /// DECSCUSR, DECSCL, DECSCA and DECSACE; anything else, and a request
+    /// longer than any of these, the error form `DCS 0 $ r ST`, with no
+    /// echo (ADR-1000).
     pub(super) fn reply_status(&mut self, request: Option<&[u8]>) {
         let setting = match request {
             Some(b"m") => Some(format!("{}m", self.pen_sgr())),
