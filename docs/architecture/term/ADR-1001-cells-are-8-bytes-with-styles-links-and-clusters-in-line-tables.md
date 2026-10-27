@@ -23,6 +23,10 @@ considered:
     said: "I reviewed adr 1001 and it seems sane with the memory estimates and approach."
     via: operator, in session 2026-10-27, read before the cluster bound was added
     covers: [default memory]
+  - operator: aaronsb
+    said: "10000 lines is fine but it should be configurable"
+    via: operator, in session 2026-10-26, after the corrected worst case
+    covers: [the cap]
 observable:
   - "`cargo test -p vtium-term --test memory -- --nocapture` prints the resident figures this record quotes, and fails when the model's size changes"
   - "Changing the cell or the line so it grows fails the build at the size assertions in `src/cell.rs` and `src/line.rs`"
@@ -37,14 +41,17 @@ related: []
 
 ## Summary
 
-- **Decided:** A cell is 8 bytes: what it shows and its width, and two 16-bit indices, one into its line's style table and one into its line's link table. A grapheme cluster of several codepoints lives in its line's cluster arena, which holds at most 6 bytes a cell; a cluster past that keeps the codepoints that fit. Each line owns its tables, a permanent id that images and prompt marks anchor to, and 16 bits of flags: the wrapped flag reflow reads, the three shell-integration marks and the line size, with ten spare for bidirectional text. Change ages are kept per screen position, so neither cells nor the scrollback carry them. A frame resolves colours through the palette when it is drawn. `sb-size` defaults to 1,000 lines and is capped at 10,000, 30,000 or 100,000 lines by the machine's memory.
+- **Decided:** A cell is 8 bytes: what it shows and its width, and two 16-bit indices, one into its line's style table and one into its line's link table. A grapheme cluster of several codepoints lives in its line's cluster arena, which holds at most 6 bytes a cell; a cluster past that keeps the codepoints that fit. Each line owns its tables, a permanent id that images and prompt marks anchor to, and 16 bits of flags: the wrapped flag reflow reads, the three shell-integration marks and the line size, with ten spare for bidirectional text. Change ages are kept per screen position, so neither cells nor the scrollback carry them. A frame resolves colours through the palette when it is drawn. `sb-size` defaults to 1,000 lines and is capped by default at 10,000, 30,000 or 100,000 lines by the machine's memory; a configured cap replaces that default, up to 100,000.
 - **Trades away:** A cell no longer holds its style itself, so reading one goes through its line, and moving cells between lines (reflow, rectangle copies) renumbers their indices. A line whose cells each carry their own style, their own link and a long cluster costs 32 bytes a cell where plain text costs 8; a line full of long clusters keeps only part of each past its budget. At the 10,000-line cap the scrollback costs more than the C reference's measured peak allowed, which held 1,000 lines.
 - **One-way?** No. Reversible now; expensive once vtium/vtium#11 builds the screen and vtium/vtium#41 builds reflow on these types.
 - **Probes:**
   - *Confident (default memory):* a console left at the default 1,000 lines of scrollback spends about 1.5 MiB on it, against the C reference's 5.2 MiB, so the minspec build keeps about 4 MiB of headroom under its 15.7 MiB peak.
+
+  > Note 2026-10-26: the 4 MiB holds for full shell lines. The worst a program can write into the default scrollback leaves about 0.3 MiB (Memory).
+
   - *Not confident (the cap):* that on a machine under 2 GiB, setting `sb-size` to the 10,000-line cap may cost about 14.5 MiB of full shell lines, and at worst 53 MiB, when a program gives every cell its own colours, its own link and a long combining cluster; at the 100,000-line cap, from 4 GiB, that worst case is 531 MiB. Squeezing plain text to about a byte a character is possible, at the cost of more code and of unpacking lines as they are scrolled back to.
 
-  > Edited 2026-10-27: review found that clusters, not truecolour art, were the worst case, with no bound on a line's cluster bytes (24.6 KB a line), and the arena is now bounded. This probe read: "that on a machine under 2 GiB, setting `sb-size` to the 10,000-line cap may cost about 15 MiB of full shell lines, and up to 37 MiB if the scrollback fills with pictures printed as coloured text. Squeezing it to about a byte a character for plain text is possible, at the cost of more code and of unpacking lines as they are scrolled back to."
+  > Edited 2026-10-26: review found that clusters, not truecolour art, were the worst case, with no bound on a line's cluster bytes (24.6 KB a line), and the arena is now bounded. This probe read: "that on a machine under 2 GiB, setting `sb-size` to the 10,000-line cap may cost about 15 MiB of full shell lines, and up to 37 MiB if the scrollback fills with pictures printed as coloured text. Squeezing it to about a byte a character for plain text is possible, at the cost of more code and of unpacking lines as they are scrolled back to."
 - **Inversion:** Between "a fat cell that holds everything inline" (the C reference's 32 bytes) and "a tiny cell indexing tables the whole screen shares" (style ids with reference counts). The answer is the tiny cell with its tables owned by its line: no shared table to count references in, hash, or fill, and a line that leaves the scrollback takes everything it used with it.
 
 ## Context
@@ -80,9 +87,9 @@ A line owns its cells and three tables: styles, hyperlinks (each entry a link id
 
 The clusters a line's cells name take at most `CLUSTER_BYTES_PER_CELL`, 6, bytes per cell of the line: a base and two combining marks a cell on average. A cluster that would pass the budget keeps the longest run of its first codepoints that fits, and at least its first codepoint; overwriting or erasing a cluster gives its bytes back. Ordinary text spends little of it: an emoji with a skin tone or a flag takes 9 bytes across its two cells, a letter with an accent 4.
 
-> Added 2026-10-27, after review measured a line of 32-codepoint clusters at 24.6 KB, 26.4 MiB at the default 1,000 lines. The bound holds the worst case at the default inside the minspec peak (Memory).
+> Added 2026-10-26, after review measured a line of 32-codepoint clusters at 24.6 KB, 26.4 MiB at the default 1,000 lines. The bound holds the worst case at the default inside the minspec peak (Memory).
 
-A write looks its style and link up in the line's table, newest entry first, and appends them if absent, so a write is linear in the line's width at worst. Once the style or link table reaches twice the line's cells, or the arena twice the line's cluster budget, the line compacts: it keeps the entries a cell still names and renumbers the cells. Each compaction follows at least as many writes as the line has cells, so its cost is amortised over them, and no table holds more than twice what its line can name, whatever a program writes. Shrinking a line compacts it too. `COLUMNS_MAX` (8192) keeps twice the widest line inside a 16-bit index, and twice its cluster budget inside the cell's 21 bits; compile-time assertions hold both. Nothing is shared between lines, so no table needs a reference count or a hash.
+A write looks its style and link up in the line's table, newest entry first, and appends them if absent, so a write is linear in the line's width at worst. Once the style or link table reaches twice the line's cells, or the arena twice the line's cluster budget, the line compacts: it keeps the entries a cell still names and renumbers the cells. A compaction costs time linear in the line's width, as a lookup does, and no table holds more than twice what its line can name, whatever a program writes. Shrinking a line compacts it too. `COLUMNS_MAX` (8192) keeps twice the widest line inside a 16-bit index, and twice its cluster budget inside the cell's 21 bits; compile-time assertions hold both. Nothing is shared between lines, so no table needs a reference count or a hash.
 
 A line has a `LineId`, unique within its screen buffer for the buffer's life and never reused, and 16 bits of flags:
 
@@ -133,7 +140,9 @@ Bold as bright and dim join the resolution with vtium/vtium#12, the selection wi
 
 ### Scrollback size
 
-`sb-size` defaults to 1,000 lines, the C reference's default. It is accepted up to 10,000 lines below 2 GiB of memory, 30,000 from 2 GiB and 100,000 from 4 GiB, and a larger value is clamped to the cap. The caps are rows of vtium-term's bounds table.
+`sb-size` defaults to 1,000 lines, the C reference's default. By default it is accepted up to 10,000 lines below 2 GiB of memory, 30,000 from 2 GiB and 100,000 from 4 GiB. A cap the configuration sets replaces that default, higher or lower, and is clamped to `SB_SIZE_MAX`, 100,000 lines; its key is wired with the configuration (vtium/vtium#21). A larger `sb-size` is clamped to the cap.
+
+> Added 2026-10-26: the operator, on the corrected worst case, said "10000 lines is fine but it should be configurable". The caps are rows of vtium-term's bounds table.
 
 ### Memory
 
