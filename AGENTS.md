@@ -12,6 +12,8 @@ How to work on vtium, for coding agents and the people who run them. [CONTRIBUTI
 
 The two forks are the frozen C reference: the floor for behaviour, never the ceiling, and no guide to how vtium is built. vtium is idiomatic Rust. Read the forks; change them only for the test infrastructure vtium is judged by. Their local checkouts are often behind, so fetch and read `origin/main` (`git -C ../kmscon show origin/main:<path>`). Every `gh` command for a fork takes `-R aaronsb/kmscon` or `-R aaronsb/libtsm`, since plain `gh` here targets vtium/vtium.
 
+A question about behaviour or structure is answered from the C reference first, through [docs/c-reference.md](docs/c-reference.md) and then the forks' code at `origin/main`, taking its logic flow and never its code structure, before anything new is designed.
+
 Upstream `kmscon/kmscon` and `kmscon/libtsm` are never written to: no issue, PR or comment, and no maintainer tagged. Upstream appears in vtium's text only in code spans, with no links. A defect found in the C reference, a security defect included, is fixed in vtium and listed as a departure; the fork is fixed only when the maintainer asks, and nothing is reported upstream.
 
 ## Writing
@@ -109,6 +111,7 @@ A delegated agent is released explicitly when its work has merged. Messages stil
 | For | Read |
 |---|---|
 | The crates, the tiers, determinism, the reply rule, tables and maps | [docs/architecture.md](docs/architecture.md) |
+| How the C reference worked, part by part, and the vtium issue that takes each part | [docs/c-reference.md](docs/c-reference.md) |
 | What a contribution must show, the code rules, the kitty source rule | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | The target set and its coverage | `docs/architecture/term/ADR-1000-*` |
 | A crate's departures and bounds | `crates/<crate>/README.md` |
