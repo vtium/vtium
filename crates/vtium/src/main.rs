@@ -13,7 +13,7 @@ use std::process::ExitCode;
 use std::rc::Rc;
 use std::time::Instant;
 
-use vtium::app::{App, Exit};
+use vtium::app::{App, Exit, SeatVt};
 use vtium::check;
 use vtium::config::{self, KEYS, Kind, Scope, keys};
 use vtium::start::Start;
@@ -21,7 +21,7 @@ use vtium::term::Clock;
 use vtium_platform::event_loop::{Loop, Signal};
 use vtium_platform::input::{Direct, Input, Keymap, locale};
 use vtium_platform::udev::Udev;
-use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty, Vt};
+use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty};
 
 fn help() -> String {
     let mut out = String::from(
@@ -90,7 +90,7 @@ fn main() -> ExitCode {
         Some(path) => run_kernel(config, start, &path),
         None => {
             log::info!(target: "vt", "no VTs: using a fake VT");
-            run(config, start, |_| Ok(FakeVt::new()))
+            run(config, start, Box::new(|_| Ok(Box::new(FakeVt::new()))))
         }
     };
     match status {
@@ -104,21 +104,24 @@ fn main() -> ExitCode {
 
 fn run_kernel(config: config::Config, start: Start, path: &Path) -> io::Result<i32> {
     let (tty, num) = Tty::open(path)?;
-    run(config, start, move |lp| {
-        let vt = KernelVt::new(lp, tty, num, |app: &mut App| app.vt.get::<KernelVt<Tty>>())?;
-        let restore = vt.restorer()?;
-        vtium::hook::restore_first(move || restore.run());
-        Ok(vt)
-    })
+    run(
+        config,
+        start,
+        Box::new(move |lp| {
+            let vt = KernelVt::new(lp, tty, num, |app: &mut App| app.vt.get::<KernelVt<Tty>>())?;
+            let restore = vt.restorer()?;
+            vtium::hook::restore_first(move || restore.run());
+            Ok(Box::new(vt))
+        }),
+    )
 }
 
+/// How the seat's VT is opened, in the loop it runs in.
+type Open = Box<dyn FnOnce(&mut Loop<App>) -> io::Result<Box<dyn SeatVt>>>;
+
 /// Runs the seat on the VT `open` gives, until it ends; returns the exit
-/// status.
-fn run<V: Vt + 'static>(
-    config: config::Config,
-    start: Start,
-    open: impl FnOnce(&mut Loop<App>) -> io::Result<V>,
-) -> io::Result<i32> {
+/// status. It is compiled once, whichever VT it runs on.
+fn run(config: config::Config, start: Start, open: Open) -> io::Result<i32> {
     let mut lp: Loop<App> = Loop::new()?;
     for signal in [Signal::SIGTERM, Signal::SIGINT] {
         lp.on_signal(signal, |app: &mut App| app.request_exit(Exit::Signal))?;
@@ -129,7 +132,7 @@ fn run<V: Vt + 'static>(
     let clock = clock();
     let mut app = App::new(
         config,
-        Box::new(vt),
+        vt,
         lp.handle(),
         clock.clone(),
         std::env::vars_os().collect(),
