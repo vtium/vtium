@@ -12,9 +12,9 @@ vtium (binary)
 └── vtium-image      sixel and kitty graphics, the image store (feature `images`)
 ```
 
-Only `vtium-platform` may use `unsafe`, for ioctls and FFI. Every other crate carries `#![forbid(unsafe_code)]`.
+Only `vtium-platform` may use `unsafe`. Every other crate carries `#![forbid(unsafe_code)]`.
 
-`vtium-platform` makes its syscalls through rustix, with no `libc` call and no `extern "C"` declaration for one (vtium/vtium#6). Its `unsafe` is of three kinds: an ioctl rustix does not wrap, defined once in the crate's ioctl module with a test that its request number equals the kernel header's; an mmap of a framebuffer; and the pty child's pre-exec hook, which makes it a session leader with the pty as its controlling terminal. The crate denies `unsafe_code`, so each site carries an `#[expect]` with its reason.
+`vtium-platform` makes its syscalls through rustix, with no `libc` call and no `extern "C"` declaration for one (vtium/vtium#6). Its `unsafe` is of four kinds: an ioctl rustix does not wrap, defined once in the crate's ioctl module with a test that its request number equals the kernel header's; an mmap of a framebuffer; the pty child's pre-exec hook, which makes only raw syscalls (it clears the signal mask and makes the child a session leader with the pty as its controlling terminal); and FFI to a C library where vtium must call one, such as libseat (vtium/vtium#34). C stays at that boundary. The crate denies `unsafe_code`, so each site carries an `#[expect]` with its reason.
 
 ## The minspec build
 

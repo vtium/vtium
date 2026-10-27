@@ -16,7 +16,7 @@ vtium's platform layer: everything that touches the kernel and the session. This
 
 ## Behaviour
 
-The C reference's pty (`src/misc/pty.c`) is the floor. vtium opens the pty, starts the child as the leader of a new session with the pty as its controlling terminal, sets `VERASE` and the window size, reads the child's output edge-triggered at most `READS_PER_TURN` reads a turn, and lets the consumer take part of what is read, holding the rest for later turns so the loop serves its other sources in between. A pause stops reading and feeding until the resume, as the C reference's does for an image decode. What the user sends (keys, pastes, button reports) is queued whole and never stalls the reading. A pty closed and opened again starts with nothing queued: the queue belongs to the `Pty`, which is dropped on close.
+The C reference's pty (`src/misc/pty.c`) is the floor. vtium opens the pty, starts the child as the leader of a new session with the pty as its controlling terminal, sets `VERASE` and the window size, reads the child's output edge-triggered at most `READS_PER_TURN` reads a turn, and lets the consumer take part of what is read, holding the rest for later turns so the loop serves its other sources in between. A pause stops reading and feeding until the resume, as the C reference's did for an image decode. What the user sends (keys, pastes, button reports) is queued whole and never stalls the reading. A pty closed and opened again starts with nothing queued: the queue belongs to the `Pty`, which is dropped on close.
 
 The child is watched through a pidfd, so SIGCHLD keeps its default disposition and the loop handles no signal for it. Signals the console handles go through one signalfd in `Loop`; the C reference's eloop used a signalfd the same way.
 
@@ -27,6 +27,12 @@ What the consumer is fed, and every reply it writes, depend only on the bytes th
 - **The consumer stops at the reply that fills the queue, and no reply is dropped.** Once replies the child has not read reach `REPLY_HIGH`, `Replies::full` is true and the consumer returns after the sequence whose reply reached it; nothing more is read or fed until the replies drain below `REPLY_LOW`. The C reference set the same stall after its input callback returned, so the callback parsed the whole read and could pass `REPLY_MAX`, dropping replies, and whether it did depended on how reads split the stream (pty.c:474-517, 579-618). Spec: docs/architecture.md, "Determinism", chunking invariance. `REPLY_MAX` stays as a ceiling for a consumer that does not stop.
 - **Pointer motion is coalesced for a child that does not read.** From `MOTION_COALESCE_AT` bytes queued, a motion report replaces the motion reports queued after the last other write; button reports, keys and replies are queued whole and keep their order. The C reference queued every motion report, so a child that enabled any-motion tracking (mode 1003) and never read grew the queue for as long as the pointer moved (aaronsb/kmscon#247). Spec: vtium/vtium#20.
 - **The child's exit reaches the consumer after the output it left.** The exit is reported once a read finds nothing more, so a program's last output is fed before its session ends; replies written after the exit are dropped and never stall the reading. The C reference reported the exit from SIGCHLD and closed the pty with the output still unread (pty.c:737-768, 830-848), so how much of it the screen showed depended on timing. Spec: docs/architecture.md, "Determinism", chunking invariance.
+
+## Dependencies
+
+- **rustix** for every syscall (vtium/vtium#6), with its `runtime` feature for the one call it keeps there: the empty signal mask the pty's child starts with.
+- **calloop**, the event loop ADR-304 chose, pinned at 0.14.4: 0.14.5 needs Rust 1.86, and the workspace's `rust-version` is 1.85. Move to 0.14.5 or later when the workspace moves to 1.86.
+- **nix** arrives through calloop's `signals` feature, which gives the loop its signalfd. rustix has no signalfd wrapper, and the alternatives are a `libc` call or a raw syscall in `unsafe`, which vtium/vtium#6 excludes. vtium-platform calls nothing in nix. Revisit when rustix wraps signalfd.
 
 ## Left to the host
 
