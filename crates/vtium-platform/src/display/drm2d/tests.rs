@@ -1184,6 +1184,92 @@ fn a_hotplug_retry_waits_for_input_once_blanked() {
     );
 }
 
+// A wake-up runs the modeset a hotplug while blanked left owed, with every
+// display on, and leaves nothing owed to the input after it.
+#[test]
+fn a_wake_up_runs_the_modeset_owed() {
+    let mut v = a_then_b(ModePolicy::default());
+    let (mut blank, at) = blanked(&mut v);
+    let commits = v.card().state().commits.len();
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    assert_eq!(v.card().state().commits.len(), commits);
+    v.sleep();
+    flip(&mut v);
+    v.events().for_each(drop);
+    v.wake_up().unwrap();
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(
+        (c.get(100, "ACTIVE"), c.get(101, "ACTIVE")),
+        (Some(1), Some(1))
+    );
+    assert_eq!(
+        events(&mut v),
+        [
+            Event::Redraw(DisplayId(A)),
+            Event::Added(DisplayId(B)),
+            Event::Awake
+        ]
+    );
+    assert_eq!(v.card().state().dpms[&A], 0);
+    assert_eq!(v.dpms(DisplayId(A)), Some(Dpms::On));
+    flip(&mut v);
+    let commits = v.card().state().commits.len();
+    activity(&mut v, &mut blank, at);
+    assert_eq!(v.card().state().commits.len(), commits, "nothing owed");
+}
+
+// A display plugged in and out again while blanked commits nothing; the
+// input that ends the blank brings the display left on.
+#[test]
+fn a_display_in_and_out_while_blanked_commits_nothing() {
+    let mut v = a_then_b(ModePolicy::default());
+    let (mut blank, at) = blanked(&mut v);
+    v.events().for_each(drop);
+    let commits = v.card().state().commits.len();
+    for _ in 0..2 {
+        v.card().state().listed.push(B);
+        v.poll().unwrap();
+        v.card().state().listed.retain(|&c| c == A);
+        v.poll().unwrap();
+    }
+    assert_eq!(v.card().state().commits.len(), commits, "nothing committed");
+    assert!(events(&mut v).is_empty());
+    activity(&mut v, &mut blank, at);
+    assert_eq!(v.card().state().dpms[&A], 0);
+    assert_eq!(v.dpms(DisplayId(A)), Some(Dpms::On));
+    assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(A)]);
+}
+
+// A wake-up whose modeset fails, with a modeset owed, keeps the recorded
+// DPMS as the hardware has it, and its retry brings every display on.
+#[test]
+fn a_failed_wake_up_keeps_the_recorded_dpms() {
+    let mut v = a_then_b(ModePolicy::default());
+    blanked(&mut v);
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    v.sleep();
+    flip(&mut v);
+    v.events().for_each(drop);
+    v.card().state().commit_errors.extend([Errno::INVAL; 4]);
+    assert!(v.wake_up().is_err());
+    assert_eq!(v.card().state().dpms[&A], 3);
+    assert_eq!(v.dpms(DisplayId(A)), Some(Dpms::Off));
+    assert_eq!(v.waits(), (false, true), "the wake-up retries");
+    v.retry_wake();
+    assert_eq!(v.card().state().dpms[&A], 0);
+    assert_eq!(v.dpms(DisplayId(A)), Some(Dpms::On));
+    assert_eq!(
+        events(&mut v),
+        [
+            Event::Redraw(DisplayId(A)),
+            Event::Added(DisplayId(B)),
+            Event::Awake
+        ]
+    );
+}
+
 // Re-review finding 2: the flip of the modeset the input ending the blank
 // runs is bounded, as every flip in flight is.
 #[test]
