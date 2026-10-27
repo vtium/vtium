@@ -1,0 +1,121 @@
+# ADR Configuration
+# Defines domain numbering and validation rules.
+# Used by: docs/scripts/adr  — and, if the doc catalog is installed,
+#          docs/scripts/{doc,doclint}: prose docs share these same domain bands
+#          (the "shared first octet"; catalog ids are DD.NNN.P). See ADR-302.
+#
+# Customize domains for your project. Each domain reserves a number range.
+# New ADRs get the next available number in their domain.
+
+# Project name (used in generated index)
+project_name: vtium
+
+# Domain Number Series
+# vtium numbers from 1000. The C reference's records hold 100-399, and vtium
+# cites them by number (ADR-304, for one), so the two never share a number.
+domains:
+  term:
+    range: [1000, 1099]
+    name: Term
+    description: Escape protocols and the screen model - parser, modes, cells, scrollback
+    folder: term
+
+  image:
+    range: [1100, 1199]
+    name: Image
+    description: Inline images - sixel and the kitty graphics protocol, storage and placement
+    folder: image
+
+  font:
+    range: [1200, 1299]
+    name: Font
+    description: Font loading, glyph rasterisation, colour glyphs and fallback
+    folder: font
+
+  render:
+    range: [1300, 1399]
+    name: Render
+    description: Cells and images to pixels - the renderer and its display interface
+    folder: render
+
+  platform:
+    range: [1400, 1499]
+    name: Platform
+    description: The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary
+    folder: platform
+
+  project:
+    range: [1500, 1599]
+    name: Project
+    description: Process, harness and contributions - how vtium is built, tested and judged
+    folder: project
+
+# The record contract (ADR-304). With `contract: adr/v1`, records are typed:
+# each declares a kind, and a decision names a verb, a capability and its
+# basis. Delete this line and the v1 blocks below to stay on adr/v0.
+contract: adr/v1
+
+kinds:
+  decision:
+    verb: required
+    requires: [capability, basis, agent]
+    sections: [Summary]
+    edges: { supersedes: decision, amends: decision, extends: decision, basis: [decision, spec, evidence] }
+  spec:
+    verb: forbidden
+    requires: [capability]
+    edges: { supersedes: spec, decided_by: decision }
+  evidence:
+    verb: forbidden
+    requires: [capability]
+    edges: { supersedes: evidence }
+
+# What the project does, one line each. A record's `capability` names one of
+# these, and a decision adds, cuts, changes or constrains them. Replace the
+# `core` placeholder with the project's own list. `process` and `adr` apply
+# to every project that keeps these records.
+capabilities:
+  protocols: Escape-sequence parsing and replies (CSI, OSC, DCS, APC, SGR, DA, DECRQM) and the mode table
+  screen: The screen, cell and scrollback model, and the cell attributes beyond colour
+  images: Inline images - sixel and the kitty graphics protocol - stored, placed and drawn
+  glyphs: Font loading and glyph rasterisation, including colour glyphs and fallback
+  renderer: Turning cells and images into pixels, and the interface the display is drawn through
+  platform: The Linux VT - DRM/KMS, input, ptys and seats
+  harness: The evaluation gauntlet - conformance goldens, probes, fuzzing and CI gates
+  process: Conventions, documentation and the development process that belong to no product capability
+  adr: Decision records, their contract and the adr tool
+
+# This repository, as URLs name it (host/owner/repo, or a list). A URL into
+# it at a branch is a path in the tree: `adr domain` rewrites it when a
+# record moves. Without this key the origin remote is used, so set it to
+# rewrite the same URLs in every clone.
+repository: github.com/vtium/vtium
+
+# Valid ADR statuses (adr/v0 records)
+statuses:
+  - Draft         # Initial creation, not yet proposed
+  - Proposed      # Under discussion/review
+  - Accepted      # Approved and ready for implementation
+  - Superseded    # Replaced by another ADR
+  - Deprecated    # No longer relevant
+  - Rejected      # Decided against; kept for the record
+
+# Default values for new ADRs
+defaults:
+  deciders: [aaronsb]
+  status: Draft
+
+# Legacy ADR range (pre-domain numbering)
+legacy:
+  range: [1, 99]
+  label: "Legacy"
+  # retired: true   # Uncomment ONLY if the legacy range is VACATED (its ADRs
+  #                 # were renumbered into domains). doclint then fails on any
+  #                 # reference into the range. Leave off if the project still
+  #                 # uses its legacy numbers (the common case).
+  # defining_adr: ADR-NNN   # With retired: true, exempt the ADR that vacated the
+  #                         # range — it names retired numbers legitimately.
+
+# Viewer command for `adr view` (use {file} as placeholder)
+# Options: cat {file}, glow {file}, bat {file}
+viewer: cat {file}
