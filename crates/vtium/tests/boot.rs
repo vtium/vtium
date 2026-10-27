@@ -1484,8 +1484,14 @@ fn got(app: &App) -> Option<(String, u32, String)> {
 /// and is drawn whole.
 #[test]
 fn with_the_last_display_gone_the_session_runs_on_and_the_next_is_drawn_whole() {
+    // dash's `read` fails at a trapped SIGWINCH as it does at the end of
+    // input, so a `read` that fails with the count moved is read again.
+    // The boot's resize from the default grid and the next display's
+    // each land in a `read`.
     let script = "n=0; trap 'n=$((n+1))' WINCH; \
-        while read x; do echo \"got:$x winch:$n $(stty size)\"; done";
+        while :; do m=$n; \
+        if read x; then echo \"got:$x winch:$n $(stty size)\"; \
+        elif [ $n = $m ]; then exit; fi; done";
     let mut h = Harness::new(&[
         "--dpms-timeout=1",
         "--no-blink",
