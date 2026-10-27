@@ -67,6 +67,85 @@ struct Pixels<'a> {
     bpp: usize,
 }
 
+/// Lines of pixels in a buffer: each `width` long, `stride` apart from
+/// the start of `out`.
+#[derive(Debug)]
+pub(crate) struct Rows<'a> {
+    pub(crate) out: &'a mut [u32],
+    pub(crate) stride: usize,
+    pub(crate) width: usize,
+}
+
+impl<'a> Rows<'a> {
+    /// `out` as one line.
+    pub(crate) fn one(out: &'a mut [u32]) -> Rows<'a> {
+        let width = out.len();
+        Rows {
+            out,
+            stride: width,
+            width,
+        }
+    }
+}
+
+/// The pixels a 1-bit glyph draws in, `fg` where a bit is set and `bg`
+/// elsewhere, as runs of four pixels for each half byte.
+#[derive(Clone, Debug)]
+pub(crate) struct Pens {
+    colors: (u32, u32),
+    nibbles: [[u32; 4]; 16],
+}
+
+impl Pens {
+    pub(crate) fn new(colors: (u32, u32)) -> Pens {
+        let mut p = Pens {
+            colors: (0, 0),
+            nibbles: [[0; 4]; 16],
+        };
+        p.set(colors);
+        p
+    }
+
+    /// Draws in `fg` and `bg` from now on.
+    #[inline]
+    pub(crate) fn set(&mut self, colors: (u32, u32)) {
+        if self.colors == colors {
+            return;
+        }
+        let (fg, bg) = colors;
+        let flip = fg ^ bg;
+        for (n, run) in (0u8..).zip(self.nibbles.iter_mut()) {
+            for (o, bit) in run.iter_mut().zip([8u8, 4, 2, 1]) {
+                let set = u32::from(n & bit != 0);
+                *o = bg ^ flip & set.wrapping_neg();
+            }
+        }
+        self.colors = colors;
+    }
+
+    /// The 8 pixels of `byte`'s bits, from the left.
+    #[inline]
+    fn eight(&self, byte: u8) -> [u32; 8] {
+        let half = |n: u8| {
+            self.nibbles
+                .get(usize::from(n & 15))
+                .copied()
+                .unwrap_or_default()
+        };
+        let ([a, b, c, d], [e, f, g, h]) = (half(byte >> 4), half(byte));
+        [a, b, c, d, e, f, g, h]
+    }
+
+    /// The pixels of `byte`'s bits from the left, one for each of `out`,
+    /// at most 8.
+    #[inline]
+    fn paint(&self, byte: u8, out: &mut [u32]) {
+        for (o, p) in out.iter_mut().zip(self.eight(byte)) {
+            *o = p;
+        }
+    }
+}
+
 impl Stored {
     /// `glyph`, drawn `scale` times larger, stored for orientation `o`; at
     /// 1 bit a pixel when `bits` allows it and every pixel is 0 or 255.
@@ -223,68 +302,74 @@ impl Stored {
         }
     }
 
-    /// Whether it is held at 1 bit a pixel: [`Stored::bits_lines`] draws it.
+    /// Whether it is held at 1 bit a pixel: [`Stored::bits_rows`] draws it.
     pub(crate) fn is_bits(&self) -> bool {
         self.format == Format::Bits
     }
 
-    /// Drawn lines `y0` to `y0 + n` of a 1-bit glyph from drawn column
-    /// `x0`, `fg` where it is set and `bg` elsewhere, one display pixel for
-    /// each of `out`, each line handed to `each` in turn: what
-    /// [`Stored::mask_line`] and `blend::mask` give, without the coverage
-    /// in between.
-    pub(crate) fn bits_lines(
-        &self,
-        x0: i64,
-        y0: i64,
-        n: usize,
-        (fg, bg): (u32, u32),
-        out: &mut [u32],
-        mut each: impl FnMut(&[u32]),
-    ) {
-        let bits = self.format == Format::Bits;
-        let flip = fg ^ bg;
-        // each bit picks a colour without a branch
-        let paint = |byte: u8, out: &mut [u32]| {
-            for (i, o) in out.iter_mut().enumerate() {
-                let set = u32::from(byte) >> 7usize.wrapping_sub(i) & 1;
-                *o = bg ^ flip & set.wrapping_neg();
-            }
+    /// Drawn line `y` of a 1-bit glyph from drawn column `x0`, `fg` where
+    /// it is set and `bg` elsewhere, one display pixel for each of `out`:
+    /// what [`Stored::mask_line`] and `blend::mask` give, without the
+    /// coverage in between.
+    pub(crate) fn bits_line(&self, x0: i64, y: i64, colors: (u32, u32), out: &mut [u32]) {
+        self.bits_rows(x0, y, &Pens::new(colors), Rows::one(out));
+    }
+
+    /// Drawn lines `y0` onward of a 1-bit glyph from drawn column `x0`,
+    /// as [`Stored::bits_line`] draws each in `pens`, into `rows`.
+    pub(crate) fn bits_rows(&self, x0: i64, y0: i64, pens: &Pens, rows: Rows<'_>) {
+        let Rows { out, stride, width } = rows;
+        let (fg, bg) = pens.colors;
+        let lines = out.chunks_mut(stride.max(1));
+        let lines = lines.filter_map(|line| line.get_mut(..width));
+        if self.format != Format::Bits {
+            lines.for_each(|line| line.fill(bg));
+            return;
+        }
+        let height = i64::from(self.height);
+        // where line `y`'s stored bytes start; `None` above or below
+        let start = |y: i64| {
+            let r = usize::try_from(y).ok().filter(|_| y < height)?;
+            r.checked_mul(self.stride)
         };
-        if bits && self.scale == 1 && x0 == 0 && out.len() == 8 {
-            // minspec's cell, 8 pixels wide at the font's size: a byte a
-            // line, found without slicing the row
-            let height = i64::from(self.height);
-            for y in (y0..).take(n) {
-                let r = usize::try_from(y).ok().filter(|_| y < height);
-                let byte = r.and_then(|r| self.data.get(r.wrapping_mul(self.stride)));
-                paint(byte.copied().unwrap_or(0), out);
-                each(out);
+        if self.scale == 1 && x0 == 0 && width == 8 {
+            // minspec's cell, 8 pixels wide at the font's size: a byte a line
+            for (y, line) in (y0..).zip(out.chunks_mut(stride.max(1))) {
+                let byte = start(y).and_then(|s| self.data.get(s)).copied();
+                if let Some(px) = line.first_chunk_mut::<8>() {
+                    *px = pens.eight(byte.unwrap_or(0));
+                }
             }
             return;
         }
-        for y in (y0..).take(n) {
-            let row = self.row(y).filter(|_| bits);
-            match row {
+        for (y, line) in (y0..).zip(lines) {
+            if self.scale == 1 && x0 == 0 {
                 // at the font's size from the glyph's left edge, a byte at a
                 // time; the padding past the width is clear
-                Some((row, _)) if self.scale == 1 && x0 == 0 => {
-                    let bytes = row.iter().copied().chain(core::iter::repeat(0));
-                    for (chunk, byte) in out.chunks_mut(8).zip(bytes) {
-                        paint(byte, chunk);
-                    }
+                let row = start(y)
+                    .and_then(|s| self.data.get(s..s.saturating_add(self.stride)))
+                    .unwrap_or_default();
+                let mut bytes = row.iter().copied().chain(core::iter::repeat(0));
+                let mut eights = line.chunks_exact_mut(8);
+                for (chunk, byte) in eights.by_ref().zip(bytes.by_ref()) {
+                    pens.paint(byte, chunk);
                 }
+                if let Some(byte) = bytes.next() {
+                    pens.paint(byte, eights.into_remainder());
+                }
+                continue;
+            }
+            match self.row(y) {
                 Some((row, drawn_w)) => {
-                    out.fill(bg);
-                    self.columns(x0, drawn_w, out, |c, o| {
+                    line.fill(bg);
+                    self.columns(x0, drawn_w, line, |c, o| {
                         if row.get(c / 8).is_some_and(|b| b << (c % 8) & 0x80 != 0) {
                             *o = fg;
                         }
                     });
                 }
-                None => out.fill(bg),
+                None => line.fill(bg),
             }
-            each(out);
         }
     }
 
@@ -361,8 +446,61 @@ mod tests {
                         let want: Vec<u32> =
                             cov.iter().map(|&a| if a == 255 { 1 } else { 2 }).collect();
                         let mut got = vec![0u32; w];
-                        s.bits_lines(x0, y, 1, (1, 2), &mut got, |_| {});
+                        s.bits_line(x0, y, (1, 2), &mut got);
                         assert_eq!(got, want, "scale {scale}, line {y}, from {x0}, {w} wide");
+                    }
+                }
+            }
+        }
+    }
+
+    // the table follows each change of colour: the background alone, the
+    // foreground alone, both, and back
+    #[test]
+    fn pens_follow_every_change_of_colour() {
+        let mut pens = Pens::new((1, 2));
+        for colors in [(1, 3), (4, 3), (5, 6), (5, 2), (1, 2)] {
+            pens.set(colors);
+            let (fg, bg) = colors;
+            assert_eq!(
+                pens.eight(0b1010_0110),
+                [fg, bg, fg, bg, bg, fg, fg, bg],
+                "{colors:?}"
+            );
+        }
+    }
+
+    // lines drawn into a buffer of longer lines are each the coverage line
+    // in two colours, and the pixels between them are left alone
+    #[test]
+    fn bits_rows_are_mask_lines_at_a_stride() {
+        for gw in [8, 11] {
+            let g = glyph(gw, 5, |x, y| if (x * 5 + y) % 3 == 0 { 255 } else { 0 });
+            for scale in 1..=2 {
+                let s = Stored::new(&g, scale, Orientation::Normal, true);
+                for y0 in -3..12 {
+                    for x0 in [-2, 0, 3] {
+                        for w in [8, 13] {
+                            for n in 1..=6 {
+                                let stride = w + 5;
+                                let mut buf = vec![7u32; stride * (n - 1) + w];
+                                let rows = Rows {
+                                    out: &mut buf,
+                                    stride,
+                                    width: w,
+                                };
+                                s.bits_rows(x0, y0, &Pens::new((1, 2)), rows);
+                                for (y, line) in (y0..).zip(buf.chunks(stride)) {
+                                    let mut cov = vec![0u8; w];
+                                    s.mask_line(x0, y, &mut cov);
+                                    let mut want: Vec<u32> =
+                                        cov.iter().map(|&a| if a == 255 { 1 } else { 2 }).collect();
+                                    want.extend(core::iter::repeat_n(7, line.len() - w));
+                                    let at = format!("{gw} wide at {scale}, {y0}, {x0}, {w}");
+                                    assert_eq!(line, &want[..], "{at}, line {y}");
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -213,3 +213,47 @@ fn the_pointer_turns_with_the_display() {
     }
     assert!(lit > 10, "the I has pixels");
 }
+
+// An odd remainder is split rounding down in the display's own
+// coordinates in every orientation, as the C reference's edges goldens
+// split it: 5 pixels across and 3 down leave 2 left, 3 right, 1 above and
+// 2 below unturned and upside down; a turned display, 3 across and 5
+// down, leaves 1, 2, 2 and 3.
+#[test]
+fn an_odd_border_rounds_down_in_display_coordinates() {
+    let (cols, rows) = (6usize, 2usize);
+    let mut s = Screen::new(cols, rows, rgb("c0c0c0"), rgb("101010"));
+    for row in 0..rows {
+        s.text(0, row, "      ", style(rgb("ffffff"), rgb("203040")));
+    }
+    let (gw, gh) = (cols as u32 * 8, rows as u32 * 16);
+    let border = 0x10_10_10;
+    for (o, (w, h), want) in [
+        (Orientation::Normal, (gw + 5, gh + 3), [2, 3, 1, 2]),
+        (Orientation::UpsideDown, (gw + 5, gh + 3), [2, 3, 1, 2]),
+        (Orientation::Right, (gh + 3, gw + 5), [1, 2, 2, 3]),
+        (Orientation::Left, (gh + 3, gw + 5), [1, 2, 2, 3]),
+    ] {
+        let config = Config {
+            orientation: o,
+            ..Config::default()
+        };
+        let mut r = Renderer::new(unifont(), w, h, config);
+        let mut c = Canvas::new(w, h, 0);
+        let st = DrawState {
+            foreground: s.palette.fg(),
+            background: s.palette.bg(),
+            ..DrawState::default()
+        };
+        r.draw(&s.frame(Age::NEVER), &mut c, 0, &st);
+        let column = |x: u32| (0..h).all(|y| c.pixel(x, y) == Some(border));
+        let line = |y: u32| (0..w).all(|x| c.pixel(x, y) == Some(border));
+        let got = [
+            (0..w).take_while(|&x| column(x)).count(),
+            (0..w).rev().take_while(|&x| column(x)).count(),
+            (0..h).take_while(|&y| line(y)).count(),
+            (0..h).rev().take_while(|&y| line(y)).count(),
+        ];
+        assert_eq!(got, want, "{o:?}: left, right, top, bottom");
+    }
+}

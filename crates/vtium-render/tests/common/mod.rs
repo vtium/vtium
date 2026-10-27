@@ -2,7 +2,7 @@
 //! model, and the frames a display reads from them.
 #![allow(dead_code)]
 
-use vtium_font::{Font, Unifont};
+use vtium_font::{Font, Psf, Unifont};
 use vtium_render::{Canvas, Target};
 use vtium_term::{
     Age, Attrs, Color, Cursor, Damage, Frame, Glyph, Line, LineId, Palette, Rgb, Style,
@@ -11,6 +11,26 @@ use vtium_term::{
 
 pub fn unifont() -> Font<Unifont> {
     Font::new(Unifont::new(16))
+}
+
+/// A 256-glyph PSF2 font of `w` by `h` cells, glyph i at codepoint i, each
+/// row a pattern of its glyph and row.
+pub fn psf(w: u32, h: u32) -> Font<Psf> {
+    let row_bytes = w.div_ceil(8);
+    let mut b = vec![0x72, 0xb5, 0x4a, 0x86];
+    for v in [0u32, 32, 0, 256, h * row_bytes, h, w] {
+        b.extend(v.to_le_bytes());
+    }
+    for i in 0..256u32 {
+        for r in 0..h {
+            for k in 0..row_bytes {
+                let pad = (k + 1) * 8;
+                let mask = if pad > w { 0xffu32 << (pad - w) } else { 0xff };
+                b.push(((i.wrapping_mul(37) ^ r.wrapping_mul(11) ^ k) & mask & 0xff) as u8);
+            }
+        }
+    }
+    Font::new(Psf::parse(&b).expect("a well-formed font"))
 }
 
 pub fn rgb(hex: &str) -> Rgb {
