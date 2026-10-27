@@ -71,6 +71,7 @@ Rust or replay files, a table cannot be read, or no row has LAYER.
 import argparse
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -79,7 +80,6 @@ TABLES = [
     ROOT / 'docs/architecture/term/ADR-1000-modes.tsv',
     ROOT / 'docs/architecture/term/ADR-1000-features.tsv',
 ]
-SKIP_DIRS = {'target', 'node_modules'}
 
 FAMILIES = {'sgr', 'colour', 'cursor', 'text', 'ctl', 'query', 'window', 'input',
             'clipboard', 'osc', 'dcs', 'image', 'platform'}
@@ -250,21 +250,31 @@ def scan_replay(path, rel, found, errors):
 
 
 def scan(found, errors):
-    """Read every tag under the repository; returns (rust files, replay files)."""
+    """Read every tag in the repository's files; returns (rust files, replay files).
+
+    The files are the ones git tracks or would track: committed, staged, or new and
+    not ignored. A build's output or a fork's extracted copy (gitignored) is never
+    read, so a tag in the C reference's corpus can't count toward vtium's coverage.
+    """
     counts = {'.rs': 0, '.replay': 0}
-    for directory, dirs, files in os.walk(ROOT):
-        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.startswith('.'))
-        for name in sorted(files):
-            suffix = os.path.splitext(name)[1]
-            if suffix not in counts:
-                continue
-            path = Path(directory, name)
-            rel = path.relative_to(ROOT).as_posix()
-            counts[suffix] += 1
-            if suffix == '.rs':
-                scan_rust(path, rel, found, errors)
-            else:
-                scan_replay(path, rel, found, errors)
+    listed = subprocess.run(
+        ['git', '-C', str(ROOT), 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+        capture_output=True, check=False)
+    if listed.returncode != 0:
+        sys.exit(f'coverage: git cannot list the files under {ROOT}: '
+                 f'{listed.stderr.decode(errors="replace").strip()}')
+    for rel in sorted(set(listed.stdout.decode().split('\0')) - {''}):
+        suffix = os.path.splitext(rel)[1]
+        if suffix not in counts:
+            continue
+        path = ROOT / rel
+        if not path.is_file():
+            continue
+        counts[suffix] += 1
+        if suffix == '.rs':
+            scan_rust(path, rel, found, errors)
+        else:
+            scan_replay(path, rel, found, errors)
     return counts['.rs'], counts['.replay']
 
 
