@@ -25,22 +25,37 @@ use crate::glyph::Glyph;
 use crate::policy::SpritePolicy;
 
 /// A run of codepoints of one width whose glyphs lie together.
-struct Block {
-    first: u32,
-    len: u32,
-    wide: bool,
-    /// Where the run's first glyph starts, in the unpacked bytes.
-    offset: u32,
-}
+///
+/// Packed in 8 bytes, high bits first: the first codepoint in 21, the
+/// run's length in 17, whether its glyphs are wide in 1, and where the
+/// run's first glyph starts in the unpacked bytes in 25. `build.rs` checks
+/// each fits.
+struct Block(u64);
 
 impl Block {
     const fn new(first: u32, len: u32, wide: bool, offset: u32) -> Block {
-        Block {
-            first,
-            len,
-            wide,
-            offset,
-        }
+        Block(
+            ((first as u64) << 43)
+                | ((len as u64) << 26)
+                | ((wide as u64) << 25)
+                | (offset as u64 & 0x1ff_ffff),
+        )
+    }
+
+    const fn first(&self) -> u32 {
+        (self.0 >> 43) as u32
+    }
+
+    const fn len(&self) -> u32 {
+        ((self.0 >> 26) & 0x1_ffff) as u32
+    }
+
+    const fn wide(&self) -> bool {
+        (self.0 >> 25) & 1 == 1
+    }
+
+    const fn offset(&self) -> u32 {
+        (self.0 & 0x1ff_ffff) as u32
     }
 }
 
@@ -86,8 +101,12 @@ fn glyph_bytes(offset: u32, len: u32) -> Option<&'static [u8]> {
 
 /// The block holding `code`.
 fn block(code: u32) -> Option<&'static Block> {
-    let i = BLOCKS.partition_point(|b| b.first <= code).checked_sub(1)?;
-    BLOCKS.get(i).filter(|b| code.wrapping_sub(b.first) < b.len)
+    let i = BLOCKS
+        .partition_point(|b| b.first() <= code)
+        .checked_sub(1)?;
+    BLOCKS
+        .get(i)
+        .filter(|b| code.wrapping_sub(b.first()) < b.len())
 }
 
 /// The built-in unifont, drawn at a whole multiple of 8x16.
@@ -132,12 +151,12 @@ impl Unifont {
     fn render_at(&self, c: char, style: Style, scale: u32) -> Option<Glyph> {
         let code = u32::from(c);
         let b = block(code)?;
-        let cells: u32 = if b.wide { 2 } else { 1 };
+        let cells: u32 = if b.wide() { 2 } else { 1 };
         let size = cells.saturating_mul(16);
         let offset = code
-            .checked_sub(b.first)?
+            .checked_sub(b.first())?
             .checked_mul(size)?
-            .checked_add(b.offset)?;
+            .checked_add(b.offset())?;
         let data = glyph_bytes(offset, size)?;
         let scale = scale.max(1);
         let cell_w = scale.saturating_mul(8);
@@ -158,7 +177,7 @@ impl Unifont {
                 }
             }
         }
-        Some(out.with_cells(if b.wide { Width::Wide } else { Width::Narrow }))
+        Some(out.with_cells(if b.wide() { Width::Wide } else { Width::Narrow }))
     }
 }
 
@@ -194,5 +213,40 @@ impl Face for Unifont {
 
     fn draw_unscaled(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         self.render_at(*cluster.first()?, style, 1)
+    }
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::indexing_slicing,
+    clippy::expect_used,
+    reason = "a test fails by panicking"
+)]
+mod tests {
+    use super::*;
+
+    // Each run of the index is 8 bytes: 3,465 runs, 27,720 B.
+    #[test]
+    fn a_block_is_eight_bytes() {
+        assert_eq!(std::mem::size_of::<Block>(), 8);
+        assert_eq!(std::mem::size_of_val(&BLOCKS), BLOCKS.len() * 8);
+    }
+
+    // The last run holds the largest codepoint and offset the index keeps.
+    #[test]
+    fn the_last_run_reads_back() {
+        let last = &BLOCKS[BLOCKS.len() - 1];
+        let code = last.first();
+        assert!(std::ptr::eq(
+            block(code).expect("its first codepoint"),
+            last
+        ));
+        assert!(code >> 16 == 15, "plane 15's last run");
+        assert!(last.offset() > 3_000_000, "past 3 MB of glyphs");
+        assert!(block(0x10FFFF).is_none());
+        let u = Unifont::new(16);
+        let c = char::from_u32(code).expect("a character");
+        assert!(u.render(c, Style::default()).is_some());
+        assert!(u.render('A', Style::default()).is_some());
     }
 }
