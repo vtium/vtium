@@ -822,3 +822,48 @@ fn a_command_word_that_is_not_utf8_is_passed_as_given() {
     assert_eq!(l.reports, []);
     assert_eq!(l.config.command(&LOGIN), Some(&[word][..]));
 }
+
+/// The table's own rules, which the parser leans on: `clamp` panics
+/// when a bound's `min` passes its `max`.
+#[test]
+fn the_key_table_keeps_its_rules() {
+    use std::collections::BTreeSet;
+    let mut names = BTreeSet::new();
+    let mut shorts = BTreeSet::new();
+    for k in &KEYS {
+        assert!(names.insert(k.name), "{} twice", k.name);
+        assert!(
+            !k.name.starts_with("no-"),
+            "{} reads as a switch's no-",
+            k.name
+        );
+        if let Some(c) = k.short {
+            assert!(shorts.insert(c), "-{c} twice");
+        }
+        if let Kind::Number { min, max, .. } = k.kind {
+            assert!(min <= max, "{}: {min} > {max}", k.name);
+        }
+        // A default reads back as itself, inside its bound, with no
+        // report.
+        let text = match k.default {
+            keys::Default::Number(n) => Some(n.to_string()),
+            keys::Default::Text(t) => Some(t.to_owned()),
+            keys::Default::Rgb([r, g, b]) => Some(format!("{r},{g},{b}")),
+            keys::Default::Switch(_) => {
+                assert_eq!(k.kind, Kind::Switch, "{}", k.name);
+                None
+            }
+            keys::Default::Command(_) => {
+                assert_eq!(k.kind, Kind::Command, "{}", k.name);
+                None
+            }
+            keys::Default::Unset => None,
+        };
+        if let Some(text) = text {
+            let mut reports = Reports::default();
+            let parsed = value::parse(k, &text, &Origin::Default, &mut reports);
+            assert_eq!(reports.finish(), [], "{}={text}", k.name);
+            assert_eq!(parsed, value::default(k), "{}", k.name);
+        }
+    }
+}
