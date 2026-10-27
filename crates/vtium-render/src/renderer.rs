@@ -200,6 +200,43 @@ impl Layout {
         Area { x, y, w, h }
     }
 
+    /// The grid's pixels under the display area `a`: [`Layout::area`]
+    /// undone.
+    fn grid_area(&self, g: &Grid, a: Area) -> Area {
+        let (lx, ly, lw, lh) = match self.orientation {
+            Orientation::Normal => (
+                a.x.saturating_sub(g.off_x),
+                a.y.saturating_sub(g.off_y),
+                a.w,
+                a.h,
+            ),
+            Orientation::UpsideDown => (
+                g.max_x.saturating_sub(a.x.saturating_add(a.w)),
+                g.max_y.saturating_sub(a.bottom()),
+                a.w,
+                a.h,
+            ),
+            Orientation::Right => (
+                a.y.saturating_sub(g.off_y),
+                g.max_x.saturating_sub(a.x.saturating_add(a.w)),
+                a.h,
+                a.w,
+            ),
+            Orientation::Left => (
+                g.max_y.saturating_sub(a.bottom()),
+                a.x.saturating_sub(g.off_x),
+                a.h,
+                a.w,
+            ),
+        };
+        Area {
+            x: lx,
+            y: ly,
+            w: lw,
+            h: lh,
+        }
+    }
+
     /// The display area of `n` cells from `col` in `row`.
     fn cells_area(&self, g: &Grid, col: usize, row: usize, n: usize) -> Area {
         self.area(
@@ -251,13 +288,15 @@ struct Paint {
     text: Option<(usize, usize, FontWidth, Style)>,
 }
 
-/// Where the pointer draws, the top left of the two by two cells under it,
-/// and its colours.
+/// Where the pointer draws, the cells it changes and its colours.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Pointer {
     at: Area,
-    col: usize,
-    row: usize,
+    /// The first column and row of the cells it changes, and the column
+    /// and row past the last.
+    cells: (usize, usize, usize, usize),
+    /// It reaches past the grid into the border.
+    outside: bool,
     colors: (Rgb, Rgb),
 }
 
@@ -276,19 +315,26 @@ pub struct Renderer<F> {
     compose: Composer,
 }
 
-/// How many cells the cell at `col`, `width` wide, draws over: 0 for the
-/// trailing half of a wide character, which the leading half draws; 2 for
-/// a leading half with its trailing half on the screen; else 1. A half
-/// whose partner is missing draws as one cell, so no frame leaves a cell
-/// undrawn.
-fn span(frame: &Frame<'_>, row: usize, col: usize, width: Width, cols: usize) -> usize {
-    let width_at = |c: usize| frame.cell(row, c).map(|f| f.width);
-    let next = col.saturating_add(1);
+/// How many cells a cell `width` wide, after a cell `before` wide, draws
+/// over: 0 for the trailing half of a wide character, which the leading
+/// half draws; 2 for a leading half with its trailing half next on the
+/// screen, whose width `next` reads; else 1. A half whose partner is
+/// missing draws as one cell, so no frame leaves a cell undrawn.
+fn span(width: Width, before: Option<Width>, next: impl FnOnce() -> Option<Width>) -> usize {
     match width {
-        Width::WideTail if col.checked_sub(1).and_then(width_at) == Some(Width::Wide) => 0,
-        Width::Wide if next < cols && width_at(next) == Some(Width::WideTail) => 2,
+        Width::WideTail if before == Some(Width::Wide) => 0,
+        Width::Wide if next() == Some(Width::WideTail) => 2,
         _ => 1,
     }
+}
+
+/// The width of the cell after `col` in `row`, among the grid's `cols`.
+fn next_width(frame: &Frame<'_>, row: usize, col: usize, cols: usize) -> Option<Width> {
+    let next = col.saturating_add(1);
+    (next < cols)
+        .then(|| frame.cell(row, next))
+        .flatten()
+        .map(|fc| fc.width)
 }
 
 /// Whether `fc` is hidden by the text blink phase: blinking, not under
@@ -361,8 +407,8 @@ impl<F: Face> Renderer<F> {
         self.compose.cache.pixel_bytes()
     }
 
-    /// Bytes the row scratch holds once a row of several layers is drawn:
-    /// one row of cells across the display, at most `ROW_SCRATCH_MAX`.
+    /// Bytes the row scratch holds once a row is drawn: one row of cells
+    /// across the display, at most `ROW_SCRATCH_MAX`.
     pub fn row_scratch_bytes(&self) -> usize {
         let (line, lines) = self.layout.strip();
         line.saturating_mul(lines).saturating_mul(4)
@@ -405,23 +451,24 @@ impl<F: Face> Renderer<F> {
             self.cursor_at = None;
             self.pointer = None;
         }
-        let full = self.cells.border_stale();
-        if full {
-            self.fill_border(&grid, target, state.background);
-        }
         let pointer = state
             .pointer
             .and_then(|p| self.place_pointer(&grid, state, p));
         if pointer != self.pointer {
             // it appeared, moved, hid or changed colour: the cells it left
-            // and the cells it covers change
+            // and the cells it covers change, and the border where it
+            // reaches past the grid
             for p in [self.pointer, pointer].into_iter().flatten() {
                 self.stamp_pointer(&p);
             }
             self.pointer = pointer;
         }
+        let full = self.cells.border_stale();
+        if full {
+            self.fill_border(&grid, target, state.background);
+        }
         let cells = self.draw_cells(&grid, frame, target, state);
-        if let Some(p) = pointer.filter(|p| self.pointer_cells_drawn(p)) {
+        if let Some(p) = pointer.filter(|p| full || self.pointer_cells_drawn(p)) {
             self.draw_pointer(&p, target);
         }
         let layout = self.layout;
@@ -475,10 +522,10 @@ impl<F: Face> Renderer<F> {
 
     /// Where the cursor draws: the leading cell of a wide character whose
     /// trailing half it sits on.
-    fn cursor_cell(frame: &Frame<'_>, c: &Cursor, cols: usize) -> (usize, usize) {
-        let tail = frame
-            .cell(c.row, c.col)
-            .is_some_and(|fc| span(frame, c.row, c.col, fc.width, cols) == 0);
+    fn cursor_cell(frame: &Frame<'_>, c: &Cursor) -> (usize, usize) {
+        let width_at = |col: usize| frame.cell(c.row, col).map(|fc| fc.width);
+        let before = c.col.checked_sub(1).and_then(width_at);
+        let tail = width_at(c.col).is_some_and(|w| span(w, before, || None) == 0);
         match c.col.checked_sub(1) {
             Some(prev) if tail => (prev, c.row),
             _ => (c.col, c.row),
@@ -493,8 +540,7 @@ impl<F: Face> Renderer<F> {
         state: &DrawState,
     ) -> u32 {
         let cursor = frame.cursor();
-        let at =
-            (cursor.visible && state.cursor_on).then(|| Self::cursor_cell(frame, &cursor, g.cols));
+        let at = (cursor.visible && state.cursor_on).then(|| Self::cursor_cell(frame, &cursor));
         let blink_toggled = state.blink_hidden != self.blink_hidden;
         self.blink_hidden = state.blink_hidden;
         let last_cursor = core::mem::replace(&mut self.cursor_at, at);
@@ -526,14 +572,10 @@ impl<F: Face> Renderer<F> {
         self.compose.jobs.clear();
         self.compose.text.clear();
         let mut count = 0u32;
-        let mut col = 0;
-        while col < g.cols {
-            let Some(fc) = p.frame.cell(row, col) else {
-                break;
-            };
-            let here = col;
-            col = col.saturating_add(1);
-            let ncells = span(p.frame, row, here, fc.width, g.cols);
+        let mut before = None;
+        for (here, fc) in p.frame.cells(row).take(g.cols).enumerate() {
+            let ncells = span(fc.width, before, || next_width(p.frame, row, here, g.cols));
+            before = Some(fc.width);
             // a cell that joins or leaves a wide pair draws differently
             let role = u8::try_from(ncells).unwrap_or(1);
             let mut changed = fc.changed;
@@ -546,8 +588,9 @@ impl<F: Face> Renderer<F> {
             let is_cursor = p.at == Some((here, row));
             let hidden = blink_hides(&fc, is_cursor, p.state);
             if ncells == 2 {
-                changed |= p.frame.cell(row, col).is_some_and(|t| t.changed);
-                if let Some(t) = self.cells.get_mut(col, row) {
+                let tail = here.saturating_add(1);
+                changed |= p.frame.cell(row, tail).is_some_and(|t| t.changed);
+                if let Some(t) = self.cells.get_mut(tail, row) {
                     changed |= core::mem::replace(&mut t.span, 0) != 0;
                 }
             }
@@ -579,14 +622,7 @@ impl<F: Face> Renderer<F> {
             );
         }
         self.widen_to_span(p, row);
-        let span = self.compose.layered_span().map(|(a, b)| {
-            (
-                (a, b),
-                self.layout.cells_area(g, a, row, b.saturating_sub(a)),
-            )
-        });
-        self.compose
-            .draw(&self.font, span, self.layout.strip(), target);
+        self.compose.draw(&self.font, self.layout.strip(), target);
         count
     }
 
@@ -722,14 +758,14 @@ impl<F: Face> Renderer<F> {
             return;
         };
         let g = &p.g;
-        let mut col = first;
-        while col < end {
-            let Some(fc) = p.frame.cell(row, col) else {
-                break;
-            };
-            let here = col;
-            col = col.saturating_add(1);
-            let ncells = span(p.frame, row, here, fc.width, g.cols);
+        let mut before = first
+            .checked_sub(1)
+            .and_then(|c| p.frame.cell(row, c))
+            .map(|fc| fc.width);
+        let run = p.frame.cells(row).take(end.min(g.cols)).enumerate();
+        for (here, fc) in run.skip(first) {
+            let ncells = span(fc.width, before, || next_width(p.frame, row, here, g.cols));
+            before = Some(fc.width);
             if ncells == 0 {
                 continue;
             }
@@ -801,35 +837,68 @@ impl<F: Face> Renderer<F> {
         } else {
             0
         };
+        let at = Area {
+            x: x.saturating_sub(half_w),
+            y: y.saturating_sub(half_h),
+            w,
+            h,
+        };
+        let col = usize::try_from(col)
+            .unwrap_or(0)
+            .min(g.cols.saturating_sub(1));
+        let row = usize::try_from(row)
+            .unwrap_or(0)
+            .min(g.rows.saturating_sub(1));
+        // the box rounds half a cell up each way from a centre kept half a
+        // cell rounded down inside the grid, so at an odd cell size it can
+        // reach a pixel past those cells, or past the grid
+        let b = l.grid_area(g, at);
+        let first = |v: i64, side: i64| {
+            usize::try_from(v.max(0).checked_div(side).unwrap_or(0)).unwrap_or(0)
+        };
+        let past = |v: i64, side: i64, n: usize| {
+            let end = v.saturating_add(side).saturating_sub(1);
+            usize::try_from(end.checked_div(side).unwrap_or(0))
+                .unwrap_or(0)
+                .min(n)
+        };
+        let cells = (
+            col.min(first(b.x, cw)),
+            row.min(first(b.y, ch)),
+            col.saturating_add(2)
+                .min(g.cols)
+                .max(past(b.x.saturating_add(b.w), cw, g.cols)),
+            row.saturating_add(2)
+                .min(g.rows)
+                .max(past(b.bottom(), ch, g.rows)),
+        );
+        let outside = b.x < 0 || b.y < 0 || b.x.saturating_add(b.w) > gw || b.bottom() > gh;
         Some(Pointer {
-            at: Area {
-                x: x.saturating_sub(half_w),
-                y: y.saturating_sub(half_h),
-                w,
-                h,
-            },
-            col: usize::try_from(col)
-                .unwrap_or(0)
-                .min(g.cols.saturating_sub(1)),
-            row: usize::try_from(row)
-                .unwrap_or(0)
-                .min(g.rows.saturating_sub(1)),
+            at,
+            cells,
+            outside,
             colors: (state.foreground, state.background),
         })
     }
 
-    /// The cells under `p` changed on this frame.
+    /// The cells under `p` changed on this frame, and the border when it
+    /// reaches into it.
     fn stamp_pointer(&mut self, p: &Pointer) {
-        for r in p.row..p.row.saturating_add(2) {
-            for c in p.col..p.col.saturating_add(2) {
+        let (c0, r0, c1, r1) = p.cells;
+        for r in r0..r1 {
+            for c in c0..c1 {
                 self.cells.stamp(c, r);
             }
+        }
+        if p.outside {
+            self.cells.stamp_border();
         }
     }
 
     /// Whether this frame drew a cell under `p`, and so drew over it.
     fn pointer_cells_drawn(&self, p: &Pointer) -> bool {
-        (p.row..p.row.saturating_add(2)).any(|r| self.cells.any_drawn(p.col, r, 2))
+        let (c0, r0, c1, r1) = p.cells;
+        (r0..r1).any(|r| self.cells.any_drawn(c0, r, c1.saturating_sub(c0)))
     }
 
     /// Draws the pointer over the cells under it, which join the damage.
@@ -843,8 +912,9 @@ impl<F: Face> Renderer<F> {
             (l.width, l.height),
             target,
         );
-        for r in p.row..p.row.saturating_add(2) {
-            self.cells.mark_drawn(p.col, r, 2);
+        let (c0, r0, c1, r1) = p.cells;
+        for r in r0..r1 {
+            self.cells.mark_drawn(c0, r, c1.saturating_sub(c0));
         }
     }
 }

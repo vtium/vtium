@@ -175,20 +175,16 @@ const EMPTY_POOL: Pool = Pool {
     bytes: 0,
 };
 
-/// splitmix64's finaliser.
-fn mix(z: u64) -> u64 {
-    let z = z.wrapping_add(0x9e37_79b9_7f4a_7c15);
-    let z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    let z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-    z ^ (z >> 31)
-}
-
+/// Each codepoint folded in with one multiply by the golden ratio's
+/// 64-bit constant, after the style; the high half folded into the low
+/// bits a slot is chosen by.
 fn hash(text: &[char], style: Style, wide: bool) -> u64 {
+    const K: u64 = 0x9e37_79b9_7f4a_7c15;
     let flags = u64::from(style.bold) | u64::from(style.italic) << 1 | u64::from(wide) << 2;
-    let h = text
-        .iter()
-        .fold(mix(flags), |h, &c| mix(h ^ u64::from(u32::from(c))));
-    mix(h ^ u64::try_from(text.len()).unwrap_or(0))
+    let h = text.iter().fold(flags, |h, &c| {
+        (h.rotate_left(21) ^ u64::from(u32::from(c))).wrapping_mul(K)
+    });
+    h ^ h >> 32
 }
 
 /// Glyph lookups since the counts were last taken.

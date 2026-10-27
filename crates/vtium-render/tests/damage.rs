@@ -688,3 +688,63 @@ fn an_empty_damage_frame_takes_no_serial() {
         }
     }
 }
+
+// The pointer drawn in software over plain text, which no decorated cell
+// widens, at cell sizes whose halves round: every frame equals a whole
+// draw as the pointer crosses the grid and its edges, in every
+// orientation, so the cells it marks cover every pixel it drew.
+// covers: platform.compositor
+#[test]
+fn the_pointer_leaves_nothing_behind_at_odd_cell_sizes() {
+    for (cw, ch) in [(7u32, 13u32), (9, 17), (13, 11), (8, 16), (6, 9)] {
+        for turn in [
+            Orientation::Normal,
+            Orientation::Right,
+            Orientation::UpsideDown,
+            Orientation::Left,
+        ] {
+            let (cols, rows) = (9usize, 4usize);
+            let turned = matches!(turn, Orientation::Right | Orientation::Left);
+            let (gw, gh) = (cols as u32 * cw, rows as u32 * ch);
+            let (w, h) = if turned {
+                (gh + 5, gw + 3)
+            } else {
+                (gw + 3, gh + 5)
+            };
+            let mut s = Screen::new(cols, rows, rgb(FG), rgb(BG));
+            for row in 0..rows {
+                let line: String = "pointer! ".chars().cycle().skip(row).take(cols).collect();
+                s.text(0, row, &line, style(rgb(FG), rgb(BG)));
+            }
+            let config = Config {
+                orientation: turn,
+                ..Config::default()
+            };
+            let mut r = Renderer::new(common::psf(cw, ch), w, h, config);
+            let mut c = Canvas::new(w, h, 0x00ab_cdef);
+            let mut since = Age::NEVER;
+            let mut age = 0;
+            let mut at = Vec::new();
+            for py in (0..gh + 4).step_by(3) {
+                for px in (0..gw + 4).step_by(2) {
+                    at.push(Some((px, py)));
+                }
+            }
+            at.push(None);
+            for (i, &pointer) in at.iter().enumerate() {
+                let st = DrawState {
+                    pointer,
+                    ..state(&s)
+                };
+                r.draw(&s.frame(since), &mut c, age, &st);
+                since = s.damage.checkpoint();
+                age = 1;
+                let mut whole = Renderer::new(common::psf(cw, ch), w, h, config);
+                let mut want = Canvas::new(w, h, 0);
+                whole.draw(&s.frame(Age::NEVER), &mut want, 0, &st);
+                let what = format!("{cw}x{ch} {turn:?}, frame {i}, pointer {pointer:?}");
+                same_pixels(&c, &want, &what);
+            }
+        }
+    }
+}

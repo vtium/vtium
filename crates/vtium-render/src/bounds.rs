@@ -27,8 +27,8 @@ const POOL_BYTES: Bound = Bound {
 const ROW_SCRATCH: Bound = Bound {
     name: "ROW_SCRATCH_MAX",
     value: 1024 * 1024,
-    what: "Bytes of the row scratch, where a row's span of cells of several layers is composed",
-    past: "The span is composed in bands of pixel lines that fit",
+    what: "Bytes of the row scratch, where each run of a row's drawn cells is composed",
+    past: "The run is composed in bands of pixel lines that fit",
     cite: "ADR-1300 D5: one 16-pixel row across 1366 pixels is 87,424 bytes",
 };
 

@@ -1,0 +1,37 @@
+# Goldens of the C reference's tier 2 that no screen draws yet: GOLDEN,
+# the issue that owes the screen, and why. Every golden at the pin is a
+# screen or a row here; a row whose golden a screen draws is refused.
+ascii	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+bold	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+box	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+cjk	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+combining	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+deco-config	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+deco-force	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+emoji-mono	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+emoji-spaced	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+emoji	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+img-bands	vtium/vtium#30	pictures in the CPU compositor, over outline-font text (vtium/vtium#24)
+img-banner-bg	vtium/vtium#30	pictures in the CPU compositor, over outline-font text (vtium/vtium#24)
+img-banner-text	vtium/vtium#30	pictures in the CPU compositor, over outline-font text (vtium/vtium#24)
+img-ed2	vtium/vtium#30	pictures in the CPU compositor, over outline-font text (vtium/vtium#24)
+img-moves	vtium/vtium#30	pictures in the CPU compositor, over outline-font text (vtium/vtium#24)
+img-region	vtium/vtium#30	pictures in the CPU compositor, over outline-font text (vtium/vtium#24)
+img-rotated	vtium/vtium#30	pictures in the CPU compositor, over outline-font text (vtium/vtium#24)
+img-scale	vtium/vtium#30	pictures in the CPU compositor, over outline-font text (vtium/vtium#24)
+img-sixel	vtium/vtium#30	pictures in the CPU compositor, over outline-font text (vtium/vtium#24)
+inverse	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+kitty-bands	vtium/vtium#30	pictures in the CPU compositor, over outline-font text (vtium/vtium#24)
+kitty-banner-bg	vtium/vtium#30	pictures in the CPU compositor, over outline-font text (vtium/vtium#24)
+kitty-banner-text	vtium/vtium#30	pictures in the CPU compositor, over outline-font text (vtium/vtium#24)
+kitty-text	vtium/vtium#30	pictures in the CPU compositor, over outline-font text (vtium/vtium#24)
+mosaic-spaced	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+mosaic	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+osd	vtium/vtium#24	outline-font text, and the render timer's on-screen display over it
+palette	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+redraw	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+sixel-vte	vtium/vtium#30	pictures in the CPU compositor, over outline-font text (vtium/vtium#24)
+strike	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+underline	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+vs16	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
+wide-deco	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType

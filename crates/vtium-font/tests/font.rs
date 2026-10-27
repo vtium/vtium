@@ -4,7 +4,8 @@
 //! font_unifont.c.
 
 use vtium_font::{
-    CELL_SIDE_MAX, Cell, Decorations, Face, Font, Format, Glyph, Psf, Style, Width, sprite,
+    CELL_SIDE_MAX, Cell, Decorations, Face, Font, Format, Glyph, Psf, SpritePolicy, Style, Width,
+    sprite,
 };
 
 fn plain() -> Style {
@@ -58,9 +59,10 @@ fn a_sprite_character_fills_its_cells() {
             assert_eq!(Some(g), want, "{c}");
         }
     }
-    // a cluster of more than one character is the face's
+    // a cluster on a sprite character the face lacks draws the sprite,
+    // its mark dropped, where the C reference drew U+25A1 (vtium/vtium#85)
     let g = font.glyph(&['│', '\u{301}'], Width::Narrow, plain());
-    assert_ne!(g, sprite::draw('│', 16, 32, 2));
+    assert_eq!(g, sprite::draw('│', 16, 32, 2));
 }
 
 // font.c:267-308: a glyph narrower than its cells is centred, a wider one
@@ -203,7 +205,9 @@ fn a_colour_glyph_keeps_its_pixels_and_alpha() {
             );
         }
     }
-    // a sprite character from a colour face is still a mask sprite
+    // a sprite character from a colour face is still a mask sprite; the
+    // face holds every character, so its own default takes its glyphs
+    let font = font.with_policy(SpritePolicy::SPRITES);
     let block = font
         .glyph(&['█'], Width::Narrow, plain())
         .expect("a sprite");

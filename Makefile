@@ -92,3 +92,13 @@ vt-check: export VTIUM_VT_GUIDE = $(value GUIDE)
 vt-check: export VTIUM_VT_STEPS = $(value GUIDE_STEPS)
 vt-check: $(vt_build) ## Run a guide's checks on a free VT; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3')
 	tools/vt/vt.sh
+
+# Tier 2 against the C reference's goldens at the commit tools/tier2/pin.tsv
+# names, read from a kmscon checkout beside this one, and against vtium's
+# own. Out of cargo test, which needs no checkout of the C repositories.
+KMSCON ?= ../kmscon
+
+.PHONY: tier2
+tier2: ## Draw tier 2's screens and judge them against their goldens (KMSCON=DIR)
+	cargo build --release -p vtium-tier2 --bins
+	target/release/tier2 run --kmscon $(KMSCON)
