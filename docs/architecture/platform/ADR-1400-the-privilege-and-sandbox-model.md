@@ -48,6 +48,10 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: advisor
+    said: "Sound carry-forward; fix the opt-in logind default and two never-silent sentences before acceptance. D1-D3 serve the operator's intent. Drift: logind opt-in left packaged image builds on logind hosts with the weaker pty-owner identity, against the C reference's sd_login=auto. Overstated: file media before login were logged at debug only; the gid-0 rule held only when not root. Unverified: the root table's kernel conditions."
+    via: skeptic subagent (claude-opus-5-5), the operator's requested second opinion, 2026-10-26; read the C reference's working tree and systemd.exec(5); kernel source unreachable
 observable:
   - "The login child's `/proc/<pid>/fd` holds 0, 1 and 2 only, after exec"
   - "The helper's `/proc/<pid>/status` shows the session's uid and `NoNewPrivs: 1`, and at a root login prompt with no logind no helper runs as root"
@@ -76,7 +80,7 @@ related: []
 
 The C reference ran as root for life, and SECURITY.md states the same for vtium today. Only its image helper changed identity. The fork's commits built the helper's protections in an order: who the helper runs as, then the host's distrust of the helper, then the path rules, then the pre-login and root cases. Its units carried no hardening.
 
-vtium runs where there may be no systemd, logind, udev daemon or seat daemon, launched by a plain unit, an init script or by hand (#75). The C reference already ran that way: its default build used none of them.
+vtium runs where there may be no systemd, logind, udev daemon or seat daemon, launched by a plain unit, an init script or by hand (#75). The C reference already ran that way: its minimal build linked none of them but libudev, and its default build linked sd-login only when images were built and the library was present.
 
 ## Decision
 
@@ -86,7 +90,7 @@ The C reference's layers, in its order, each optional above L0:
 
 | Layer | Adds | Builds on | Build layer, issue | Without its convenience |
 |---|---|---|---|---|
-| L0, the baseline | Root for life; the VT, DRM or fbdev, and evdev opened directly; the login child holding only fds 0-2; the reply rule and every bound | nothing | minspec; #12, #18, #19, #20, #21 | Uses none, as the C reference's default build used none. |
+| L0, the baseline | Root for life; the VT, DRM or fbdev, and evdev opened directly; the login child holding only fds 0-2; the reply rule and every bound | nothing | minspec; #12, #18, #19, #20, #21 | Uses none, as the C reference's minimal build used none but libudev. |
 | L1, the helper | Reading and decoding image media as the session's user, with the identity modes below (feature `images`) | L0 | images; #31 | No logind: the identity is the pty's owner, as in the C reference. No pre-login account: `nobody`, then refused, as in the C reference. |
 | L2, logind and libseat | The helper's identity from logind, through sd-login (feature `logind`); devices and VT switching through libseat (feature `libseat`) | L0, L1 | seat; #31, #34 | A build without the feature, or a system where logind or the seat daemon is not running, behaves as L0 and L1, as the C reference did with logind absent and libseat off by default. |
 
@@ -95,13 +99,15 @@ The units and the sysusers file are installed files, never a layer: a hand launc
 ### Each convenience is a Cargo feature
 
 - `images` brings the helper. No build has images without it.
-- `logind` reads sessions through sd-login, from libsystemd or libelogind, and turns on `images`, the only reader of the identity, as the C reference linked sd-login only with images.
+- `logind` reads sessions through sd-login, from libsystemd or libelogind. It is on wherever `images` is in the default feature set, as the C reference's `sd_login=auto` linked sd-login whenever images were built and the library was present; it is used at run time only when logind is running. A build with `images` and without `logind` is an explicit choice for hosts without libsystemd or libelogind, and on a logind host it falls back to the pty's owner, which kmscon ADR-103 rejected as the first identity source because root can chown a pty; vtium lists that build as a departure. (Added 2026-10-26, from the advisor's review.)
 - `libseat` takes devices and VT switching through libseat.
 - A feature turned on without the C library it binds fails the build with a message naming the library, as the C reference's minimal build refused an option without its dependency. The minspec build links none of them.
 
 ### D1: who holds root, and for how long
 
 The main process holds root for life, as the C reference's did. It forks the login child as root, made a session leader with the pty as its controlling terminal, to run `/bin/login -p` with the environment reset; nothing else drops privilege. Root is what these need, from the C reference's code, the kernel's checks being external and not re-verified:
+
+The kernel conditions named in this table (the tty's owner or `CAP_SYS_TTY_CONFIG`, DRM master and `CAP_SYS_ADMIN`, evdev access) are from the C reference's comments and general knowledge, not re-verified against the kernel source; the advisor's review flagged them. They are checked against the kernel before any privilege split is designed.
 
 | Operation | Window | Under libseat |
 |---|---|---|
@@ -134,8 +140,8 @@ The identity, by the C reference's rules:
 These are the C reference's own behaviour:
 
 - The helper never runs as root by fallback. Where the identity comes from the pty's owner and that owner is root, file media are refused and inline media take the pre-login path.
-- File media before login are refused, and the reason is logged.
-- A helper is never started with gid 0 in any id or group: a vtium not running as root whose ids or groups include gid 0 handles every request as before login.
+- File media before login are refused, logged at debug level, as in the C reference.
+- A vtium not running as root whose ids or groups include gid 0 handles every request as before login. When vtium runs as root and the session is root's, the helper runs as uid 0 and gid 0, as the C reference's did (image_host.c:141-180); a change is #31's.
 - Pre-login decoding with no account to run as is refused, and logged.
 
 ### D3: what the unit may harden
