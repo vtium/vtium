@@ -87,6 +87,14 @@ impl Console for Tty {
         ioctl::kd_set_mode(self.fd.as_fd(), mode)
     }
 
+    fn switching(&self) -> io::Result<Switching> {
+        match ioctl::vt_get_mode(self.fd.as_fd())?.mode {
+            ioctl::VT_AUTO => Ok(Switching::Auto),
+            ioctl::VT_PROCESS => Ok(Switching::Process),
+            _ => Err(io::Error::from(io::ErrorKind::InvalidData)),
+        }
+    }
+
     fn set_switching(&self, mode: Switching) -> io::Result<()> {
         let mode = match mode {
             Switching::Auto => ioctl::VtMode {
