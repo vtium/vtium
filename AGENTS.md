@@ -41,7 +41,7 @@ A gate reports executed, with its command and result, or names why it did not ru
 
 ## The target set and its coverage
 
-ADR-1000 (`docs/architecture/term/`) declares what vtium supports, ignores or refuses, in two tables: `ADR-1000-modes.tsv` and `ADR-1000-features.tsv`. The target set is the capabilities terminals generally support plus the maintainer's own list; a mode with `no row` is a decision not to support it. Each row has an `id` (`DEC-2026`, `ANSI-4`, `sgr.dim`), a `status`, the layer it lands in and the issue that carries it. Work scopes itself from rows: an issue's rows are its acceptance list.
+ADR-1000 (`docs/architecture/term/`) declares what vtium supports, ignores or refuses, in two tables: `ADR-1000-modes.tsv` and `ADR-1000-features.tsv`. The target set is the capabilities terminals generally support plus the maintainer's own list; a mode with `no row` is a decision not to support it. Each row has an `id` (`DEC-2026`, `ANSI-4`, `sgr.dim`), a `status`, the layer it lands in and the issue that carries it. Work scopes itself from rows: an issue's rows are its acceptance list, and the issue's Scope names the crate that implements them. Find a row's id with `grep -i <name> docs/architecture/term/ADR-1000-*.tsv` (DECAWM is `DEC-7`).
 
 A test that drives a row's behaviour through the crate that implements it, and checks the result, carries `// covers: <id>` above its test attribute (`# covers: <id>` in a replay file). A test of a lower layer the row depends on carries no tag. `docs/scripts/coverage` reads the tags and checks them against the tables:
 
@@ -82,8 +82,8 @@ A delegated agent proves its branch through the gates and tiers 1 to 3 in its wo
 
 The work runs local-first: GitHub's runners are slow, so they are waited on only at merge points.
 
-1. **A worktree per branch,** beside the repositories: `git -C vtium worktree add -b feat/<topic> ../vtium-<topic> integration`, and `../kmscon-<topic>`, `../libtsm-<topic>` for the forks. Each worktree has its own `target/`, so parallel builds never contend for a lock. No two agents edit the same file; a crate has one owner at a time.
-2. **The branch starts from `integration`,** a local branch that collects reviewed work, so later work builds on earlier work before main sees it.
+1. **A worktree per branch,** beside the repositories. From the vtium checkout: `git worktree add -b feat/<topic> ../vtium-<topic> integration`, and `../kmscon-<topic>`, `../libtsm-<topic>` for the forks. Each worktree has its own `target/`, so parallel builds never contend for a lock. No two agents edit the same file; a crate has one owner at a time.
+2. **The branch starts from `integration`,** a branch in the maintainer's checkout that collects reviewed work, so later work builds on earlier work before main sees it. It reaches GitHub at each merge point; a fresh clone with no `integration` branches from main.
 3. **The author commits locally and runs the gates.** It does not push or open a PR. Its report gives the branch, the head commit, the gate results and the departures, as a PR body would.
 4. **A fresh reviewer reads the diff** (`git diff integration...<branch>`), runs the gates, and plants the defects the change claims to catch. Its findings are fixed in a round on the same branch. A fix round after the second goes to a freshly briefed agent.
 5. **The reviewed branch merges into `integration`** with `git merge --no-ff`, and the full gates run again on the merged tree.
