@@ -2,9 +2,9 @@
 # Defines domain numbering and validation rules.
 # Used by: docs/scripts/adr  — and, if the doc catalog is installed,
 #          docs/scripts/{doc,doclint}: prose docs share these same domain bands
-#          (the "shared first octet"; catalog ids are DD.NNN.P). See ADR-302.
+#          (the "shared first octet"; catalog ids are DD.NNN.P). See agent-ways ADR-302, the ADR tool's own record.
 #
-# Customize domains for your project. Each domain reserves a number range.
+# Each domain reserves a number range.
 # New ADRs get the next available number in their domain.
 
 # Project name (used in generated index)
@@ -12,7 +12,7 @@ project_name: vtium
 
 # Domain Number Series
 # vtium numbers from 1000. The C reference's records hold 100-399, and vtium
-# cites them by number (ADR-304, for one), so the two never share a number.
+# cites them by number (kmscon ADR-304, for one), so the two never share a number.
 domains:
   term:
     range: [1000, 1099]
@@ -50,9 +50,9 @@ domains:
     description: Process, harness and contributions - how vtium is built, tested and judged
     folder: project
 
-# The record contract (ADR-304). With `contract: adr/v1`, records are typed:
-# each declares a kind, and a decision names a verb, a capability and its
-# basis. Delete this line and the v1 blocks below to stay on adr/v0.
+# The record contract (agent-ways ADR-304, the ADR tool's own record). With
+# `contract: adr/v1`, records are typed: each declares a kind, and a decision
+# names a verb, a capability and its basis.
 contract: adr/v1
 
 kinds:
@@ -71,9 +71,8 @@ kinds:
     edges: { supersedes: evidence }
 
 # What the project does, one line each. A record's `capability` names one of
-# these, and a decision adds, cuts, changes or constrains them. Replace the
-# `core` placeholder with the project's own list. `process` and `adr` apply
-# to every project that keeps these records.
+# these, and a decision adds, cuts, changes or constrains them. `process` and
+# `adr` apply to every project that keeps these records.
 capabilities:
   protocols: Escape-sequence parsing and replies (CSI, OSC, DCS, APC, SGR, DA, DECRQM) and the mode table
   screen: The screen, cell and scrollback model, and the cell attributes beyond colour
