@@ -19,7 +19,10 @@ use calloop::generic::Generic;
 use calloop::{Interest, LoopHandle, Mode, PostAction, RegistrationToken};
 use rustix::fs::{OFlags, fcntl_getfl, fcntl_setfl};
 use rustix::process::{Pid, PidfdFlags, ioctl_tiocsctty, pidfd_open, setsid};
+// rustix's runtime module is published under this name while its API is
+// unstable.
 use rustix::pty::{OpenptFlags, grantpt, ioctl_tiocgptpeer, openpt, unlockpt};
+use rustix::runtime_448b8ad740e2a26f::{How, KernelSigSet, kernel_sigprocmask};
 use rustix::termios::{
     OptionalActions, SpecialCodeIndex, Winsize, tcgetattr, tcsetattr, tcsetwinsize,
 };
@@ -100,9 +103,9 @@ impl Pty {
     /// Opens a pty of `size` and runs `command` on it.
     ///
     /// The child leads a new session with the pty's slave as its
-    /// controlling terminal and its stdin, stdout and stderr. std's
-    /// `Command` clears the signal mask the loop's signal handling sets,
-    /// before the child runs.
+    /// controlling terminal and its stdin, stdout and stderr, and with no
+    /// signal blocked: the loop blocks the signals it reads from its
+    /// signalfd, and std's `Command` leaves the mask as it finds it.
     pub fn spawn(mut command: Command, size: Size, erase: Erase) -> io::Result<Pty> {
         let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)?;
         grantpt(&master)?;
@@ -128,14 +131,18 @@ impl Pty {
             .stderr(Stdio::from(slave));
         #[expect(
             unsafe_code,
-            reason = "a new session and its controlling terminal can only be set between fork and exec"
+            reason = "the signal mask, a new session and its controlling terminal can only be set between fork and exec"
         )]
         // SAFETY: the hook runs in the forked child before exec. It makes
-        // two raw syscalls through rustix, setsid and the TIOCSCTTY ioctl,
-        // which allocate nothing and take no lock, so they are safe after
-        // a fork.
+        // three raw syscalls through rustix, rt_sigprocmask, setsid and the
+        // TIOCSCTTY ioctl, which allocate nothing and take no lock, so they
+        // are safe after a fork. rt_sigprocmask sets the empty mask: it
+        // blocks no signal libc reserves, and nothing in the child depends
+        // on a signal staying blocked between here and exec, which keeps
+        // the mask it sets.
         unsafe {
             command.pre_exec(move || {
+                kernel_sigprocmask(How::SETMASK, Some(&KernelSigSet::empty()))?;
                 setsid()?;
                 ioctl_tiocsctty(&ctty)?;
                 Ok(())

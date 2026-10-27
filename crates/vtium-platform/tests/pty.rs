@@ -38,7 +38,7 @@ fn main() {
         .skip(1)
         .filter(|a| !a.starts_with('-'))
         .collect();
-    let cases: [(&str, fn()); 5] = [
+    let cases: [(&str, fn()); 6] = [
         // first: no thread has started yet
         (
             "sigterm_is_served_while_the_loop_waits",
@@ -59,6 +59,10 @@ fn main() {
         (
             "the_window_size_reaches_the_child",
             the_window_size_reaches_the_child,
+        ),
+        (
+            "the_child_starts_with_no_signal_blocked",
+            the_child_starts_with_no_signal_blocked,
         ),
     ];
     let mut ran = 0;
@@ -192,6 +196,17 @@ fn child(role: &str) {
             fs::write(env_path("VTIUM_PTY_OUT"), got).expect("record");
         }
         // Reports its window size, then waits for a SIGWINCH's new size.
+        // Reports the signals blocked in it, from /proc.
+        "sigmask" => {
+            let status = fs::read_to_string("/proc/self/status").expect("status");
+            let line = status
+                .lines()
+                .find(|l| l.starts_with("SigBlk:"))
+                .expect("SigBlk");
+            out.write_all(format!("{line}!").as_bytes()).expect("write");
+            out.flush().expect("flush");
+            read_until(|got| got.ends_with(b"Q"));
+        }
         "winsize" => {
             let first = rustix::termios::tcgetwinsize(stdin.as_fd()).expect("size");
             let line = format!(
@@ -586,6 +601,21 @@ fn the_window_size_reaches_the_child() {
     });
     // 300 cells of 300 pixels pass 16 bits: the pixel width is 65535.
     assert_eq!(&h.term.taken[14..], b"300x100 65535x1600!");
+    h.pty.as_mut().expect("pty").write(b"Q");
+    turn_until(&mut lp, &mut h, 500, |h| h.term.exited.is_some());
+}
+
+// The loop blocks the signals it handles; login, the shell and everything
+// they start must not inherit that.
+fn the_child_starts_with_no_signal_blocked() {
+    let mut lp = host_loop();
+    let mut h = Host::default();
+    open(&lp, &mut h, role("sigmask"));
+    turn_until(&mut lp, &mut h, 500, |h| h.term.taken.ends_with(b"!"));
+    assert_eq!(
+        String::from_utf8_lossy(&h.term.taken),
+        "SigBlk:\t0000000000000000!"
+    );
     h.pty.as_mut().expect("pty").write(b"Q");
     turn_until(&mut lp, &mut h, 500, |h| h.term.exited.is_some());
 }

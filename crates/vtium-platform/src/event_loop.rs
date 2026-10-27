@@ -8,8 +8,9 @@
 //!
 //! A signal handled here is blocked in the thread that adds it and stays
 //! pending until the loop reads it, so signals are added before any other
-//! thread starts, and threads started later inherit the mask. std's
-//! `Command` clears the mask in each child before it runs.
+//! thread starts, and threads started later inherit the mask. A child
+//! process inherits it too, so the pty clears it in its child before the
+//! child runs ([`crate::pty::Pty::spawn`]).
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
