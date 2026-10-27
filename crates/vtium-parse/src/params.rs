@@ -172,6 +172,8 @@ impl fmt::Debug for Params {
         f.debug_struct("Params")
             .field("marker", &self.marker.map(char::from))
             .field("values", &Values(self))
+            .field("separators", &self.separators)
+            .field("sub_drop", &self.sub_drop)
             .finish()
     }
 }
@@ -238,8 +240,32 @@ mod tests {
         }
         assert_eq!(
             format!("{params:?}"),
-            "Params { marker: Some('?'), values: [Some(25), None, (Some(38), [Some(2)])] }"
+            "Params { marker: Some('?'), values: [Some(25), None, (Some(38), [Some(2)])], separators: 2, sub_drop: false }"
         );
+    }
+
+    #[test]
+    fn debug_shows_the_separator_count_past_the_bound() {
+        let mut params = Params::new();
+        for _ in 0..PARAMS_MAX - 1 {
+            params.put(b';');
+        }
+        assert_eq!(params.count(), PARAMS_MAX);
+        assert!(format!("{params:?}").ends_with("separators: 15, sub_drop: false }"));
+        params.put(b';');
+        assert_eq!(params.count(), PARAMS_MAX);
+        assert!(format!("{params:?}").ends_with("separators: 16, sub_drop: false }"));
+    }
+
+    #[test]
+    fn debug_shows_dropped_subparameters() {
+        let mut params = Params::new();
+        for _ in 0..=SUBPARAMS_MAX {
+            params.put(b':');
+        }
+        assert!(format!("{params:?}").ends_with("separators: 0, sub_drop: true }"));
+        params.put(b';');
+        assert!(format!("{params:?}").ends_with("separators: 1, sub_drop: false }"));
     }
 
     #[test]
