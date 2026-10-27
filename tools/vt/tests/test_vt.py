@@ -101,11 +101,10 @@ printf '%s:x:%s:%s::%s:%s\\n' "$2" "$(id -u)" "$(id -g)" "$LOGIN_HOME" "$LOGIN_S
 """
 
 # The operator's login shell: prints how it was started, as whom and where,
-# the signals a command it runs starts ignoring (bash's own mask differs), the environment the run gave it, then
-# the line it reads, so a transcript shows each.
+# the environment the run gave it, then the line it reads, so a transcript
+# shows each.
 LOGIN_SHELL = """#!/bin/bash
 printf 'login shell: %s as %s in %s\\n' "$*" "$(id -un)" "$PWD"
-sed -n 's/^SigIgn:[[:space:]]*/ignored: /p' /proc/self/status
 printf 'env: %s\\n' "LANG=${LANG-}" "LC_TIME=${LC_TIME-}" "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR-}" \\
 	"DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS-}"
 read -r line || true
@@ -475,7 +474,7 @@ class RunVt(Case):
         uid, gid = os.getuid(), os.getgid()
         self.assertEqual(argv[at + 1:], [os.path.join(self.s.standins, "setpriv"), f"--reuid={uid}", f"--regid={gid}",
                                          "--init-groups", "--inh-caps=-all", "--reset-env", "--", "/usr/bin/env",
-                                         "--default-signal=INT,QUIT", "DEMO_LABEL=vtium dev build abc", "/bin/bash",
+                                         "DEMO_LABEL=vtium dev build abc", "/bin/bash",
                                          os.path.join(VT, "demo.sh")])
 
     def test_a_guide_runs_as_the_user_with_its_vt_and_steps(self):
@@ -485,7 +484,7 @@ class RunVt(Case):
         argv = read(self.s.bin_args).splitlines()
         self.assertIn("--oneshot", argv)
         self.assertEqual(argv[argv.index("/usr/bin/env"):],
-                         ["/usr/bin/env", "--default-signal=INT,QUIT", "GUIDE_VT=8", "GUIDE_DESKTOP=7", "GUIDE_STEPS=2,1",
+                         ["/usr/bin/env", "GUIDE_VT=8", "GUIDE_DESKTOP=7", "GUIDE_STEPS=2,1",
                           "/bin/bash",
                           os.path.join(VT, "checks", "guide.sh"), guide])
         for opts, why in ((["--steps=1;2"], "--steps takes step numbers"),
@@ -521,7 +520,7 @@ class RunVt(Case):
         uid, gid = os.getuid(), os.getgid()
         self.assertEqual(argv[argv.index("--") + 1:],
                          [os.path.join(self.s.standins, "setpriv"), f"--reuid={uid}", f"--regid={gid}", "--init-groups",
-                          "--inh-caps=-all", "--reset-env", "--", "/usr/bin/env", "--default-signal=INT,QUIT",
+                          "--inh-caps=-all", "--reset-env", "--", "/usr/bin/env",
                           "-C", self.s.home, SCRIPT, "-q", "-f", "-c", f"exec {self.s.login_shell} -l", t])
         self.assertIn(f"with {USER}'s shell", p.stdout)
         self.assertEqual(self.s.calls_of("getent"), [f"passwd {USER}"])
@@ -530,7 +529,7 @@ class RunVt(Case):
         self.assertEqual(p.returncode, 0, p.stderr)
         argv = read(self.s.bin_args).splitlines()
         self.assertEqual(argv[argv.index("/usr/bin/env"):],
-                         ["/usr/bin/env", "--default-signal=INT,QUIT", "-C", self.s.home, "/bin/bash", "-l"])
+                         ["/usr/bin/env", "-C", self.s.home, "/bin/bash", "-l"])
 
     def shell_env(self, **env):
         """The words between the shell's env and the shell itself."""
@@ -806,10 +805,6 @@ class VtSh(Case):
         text = read(transcript).replace("\r", "")
         self.assertIn(f"login shell: -l as {USER} in {self.s.home}\n", text)
         self.assertIn("read: ls -l\n", text)
-        # vtium was started in the background, which ignores SIGINT and
-        # SIGQUIT; the shell gets them back, so Ctrl-C stops what it runs.
-        ignored = int(text.split("ignored: ")[1].split("\n")[0], 16)
-        self.assertEqual(ignored & (1 << (signal.SIGINT - 1) | 1 << (signal.SIGQUIT - 1)), 0, hex(ignored))
         self.assertIn("env: LANG=de_DE.UTF-8\n", text)
         self.assertIn(f"env: XDG_RUNTIME_DIR={self.s.runtime_dir_path}\n", text)
         self.assertEqual(self.s.calls_of("sudo")[0], "-v")

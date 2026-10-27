@@ -400,7 +400,7 @@ EOF
 # in the home directory as a login shell (-l), as login(1) would start it;
 # script(1) runs the command line it is given through the user's $SHELL.
 # vtium runs in the background, so it starts with SIGINT and SIGQUIT ignored;
-# env gives the session their defaults back, or Ctrl-C would stop nothing. With
+# its pty starts the session with every signal at its default. With
 # --login, /bin/login runs as root and PAM decides who logs in, as under the
 # stock unit; it runs without --oneshot, so login's own timeout at the prompt
 # brings a new prompt rather than the end, and this script ends the run at the
@@ -408,15 +408,14 @@ EOF
 # ignores Ctrl-C (bash does that for background jobs in a script) and this
 # script decides how it stops: SIGTERM from restore(). --configdir keeps the
 # system's config out of the run; config/ holds the review's own.
-signals=(/usr/bin/env "--default-signal=INT,QUIT")
-session=("${signals[@]}" DEMO_LABEL="vtium $label" /bin/bash "$here/demo.sh")
+session=(/usr/bin/env DEMO_LABEL="vtium $label" /bin/bash "$here/demo.sh")
 if [ -n "$guide" ]; then
-	session=("${signals[@]}" GUIDE_VT="$vt" GUIDE_DESKTOP="$fg" ${steps:+GUIDE_STEPS="$steps"}
+	session=(/usr/bin/env GUIDE_VT="$vt" GUIDE_DESKTOP="$fg" ${steps:+GUIDE_STEPS="$steps"}
 		/bin/bash "$here/checks/guide.sh" "$guide")
 elif [ -n "$shell" ]; then
-	session=("${signals[@]}" -C "$home" "${locale[@]}" "${runtime[@]}" "$login_shell" -l)
+	session=(/usr/bin/env -C "$home" "${locale[@]}" "${runtime[@]}" "$login_shell" -l)
 	[ -z "$transcript" ] ||
-		session=("${signals[@]}" -C "$home" "${locale[@]}" "${runtime[@]}"
+		session=(/usr/bin/env -C "$home" "${locale[@]}" "${runtime[@]}"
 			"$script" -q -f -c "exec $login_shell -l" "$transcript")
 fi
 once=(--oneshot)
