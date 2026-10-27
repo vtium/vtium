@@ -3,12 +3,15 @@
 //!
 //! Each frame that draws something takes the next serial. Each cell keeps
 //! the serial of the frame that last changed what it shows, the renderer's
-//! own changes included: the cursor, the blink phase, a wide pairing, the
-//! pointer. A buffer lent at age n holds the frame n serials back, so it
-//! lacks exactly the cells whose stamp is newer; at age 0, or at an age
-//! older than the history, it lacks everything. Nothing assumes the buffers
-//! take turns, and drawing one buffer whole leaves the stamps, and so every
-//! other buffer's history, as they were.
+//! own changes included: the cursor's place, shape and colour, the blink
+//! phase, a wide pairing, the pointer. A buffer lent at age n holds the
+//! frame n serials back, so it lacks exactly the cells whose stamp is
+//! newer; at age 0, or at an age older than the history, it lacks
+//! everything. Nothing assumes the buffers take turns, and drawing one
+//! buffer whole leaves the stamps, and so every other buffer's history, as
+//! they were.
+
+use vtium_term::{CursorShape, Rgb};
 
 use crate::target::Rect;
 
@@ -22,7 +25,8 @@ const DAMAGE_MERGE: u8 = 3;
 pub(crate) struct CellState {
     /// The serial of the frame that last changed what the cell shows.
     stamp: u64,
-    pub(crate) cursor: bool,
+    /// The cursor it drew: its shape and OSC 12's colour.
+    pub(crate) cursor: Option<(CursorShape, Option<Rgb>)>,
     pub(crate) hidden: bool,
     /// The cells it drew over: 0 as a trailing half, 1 or 2.
     pub(crate) span: u8,

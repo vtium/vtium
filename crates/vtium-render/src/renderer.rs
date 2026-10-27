@@ -550,8 +550,9 @@ impl<F: Face> Renderer<F> {
             let Some(s) = self.cells.get_mut(here, row) else {
                 continue;
             };
-            changed |= s.cursor != is_cursor || s.hidden != hidden;
-            s.cursor = is_cursor;
+            let look = is_cursor.then_some((p.cursor.shape, p.cursor.color));
+            changed |= s.cursor != look || s.hidden != hidden;
+            s.cursor = look;
             s.hidden = hidden;
             if changed {
                 self.cells.stamp(here, row);

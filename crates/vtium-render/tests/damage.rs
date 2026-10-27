@@ -581,3 +581,71 @@ fn a_palette_background_change_redraws_the_border() {
     let st = state(&s);
     assert_eq!(area(&d.draw(&mut s, &st)), u64::from(w * h));
 }
+
+/// Draws `s` with the cursor as `edit` leaves it, at rest, into both
+/// buffers: each frame redraws only the cursor's cell, and the frame after
+/// draws nothing.
+fn cursor_at_rest(d: &mut Display, s: &mut Screen, st: &DrawState, edit: impl Fn(&mut Screen)) {
+    let (w, h) = PROMPT;
+    edit(s);
+    for buffer in ["this buffer", "the other buffer"] {
+        assert_eq!(d.draw(s, st), vec![cell(2, 2, w, h, 20, 4)], "{buffer}");
+    }
+    assert!(d.draw(s, st).is_empty(), "idle after");
+}
+
+// DECSCUSR with the cursor still, as vim's `i` sends it: the cell under
+// the cursor redraws in the new shape
+// covers: cursor.style
+#[test]
+fn a_cursor_shape_change_at_rest_redraws_its_cell() {
+    let mut s = prompt();
+    let (w, h) = PROMPT;
+    let mut d = Display::new(2, w, h);
+    let st = state(&s);
+    d.draw(&mut s, &st);
+    d.draw(&mut s, &st);
+    for shape in [CursorShape::Bar, CursorShape::Underline, CursorShape::Block] {
+        cursor_at_rest(&mut d, &mut s, &st, |s| s.cursor.shape = shape);
+    }
+}
+
+// OSC 12 with the cursor still: the cell under it redraws in the colour
+// covers: cursor.colour
+#[test]
+fn a_cursor_colour_change_at_rest_redraws_its_cell() {
+    let mut s = prompt();
+    let (w, h) = PROMPT;
+    let mut d = Display::new(2, w, h);
+    let st = state(&s);
+    d.draw(&mut s, &st);
+    d.draw(&mut s, &st);
+    for color in [Some(rgb("ff8000")), Some(rgb("00ff00")), None] {
+        cursor_at_rest(&mut d, &mut s, &st, |s| s.cursor.color = color);
+    }
+    s.cursor.shape = CursorShape::Bar;
+    cursor_at_rest(&mut d, &mut s, &st, |s| {
+        s.cursor.color = Some(rgb("ff8000"))
+    });
+}
+
+// DECTCEM and the cursor's blink phase with the cursor still: the cell
+// under it redraws as it hides and shows
+// covers: platform.compositor
+#[test]
+fn the_cursor_hiding_and_blinking_at_rest_redraws_its_cell() {
+    let mut s = prompt();
+    let (w, h) = PROMPT;
+    let mut d = Display::new(2, w, h);
+    let on = state(&s);
+    let off = DrawState {
+        cursor_on: false,
+        ..on
+    };
+    d.draw(&mut s, &on);
+    d.draw(&mut s, &on);
+    cursor_at_rest(&mut d, &mut s, &on, |s| s.cursor.visible = false);
+    cursor_at_rest(&mut d, &mut s, &on, |s| s.cursor.visible = true);
+    cursor_at_rest(&mut d, &mut s, &off, |_| {});
+    cursor_at_rest(&mut d, &mut s, &on, |_| {});
+}
