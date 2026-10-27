@@ -649,3 +649,42 @@ fn the_cursor_hiding_and_blinking_at_rest_redraws_its_cell() {
     cursor_at_rest(&mut d, &mut s, &off, |_| {});
     cursor_at_rest(&mut d, &mut s, &on, |_| {});
 }
+
+// A frame that draws nothing takes no serial, so a buffer's age still
+// counts only frames that drew. Two buffers drawn whole are frames 1 and 2;
+// the first buffer, at age 2, takes a red cell as frame 3, and is lent
+// again at age 1 with nothing changed, which draws nothing. The second
+// buffer holds frame 2, at age 2, and must get the red cell.
+// covers: platform.compositor
+#[test]
+fn an_empty_damage_frame_takes_no_serial() {
+    let mut s = prompt();
+    let (w, h) = PROMPT;
+    let st = state(&s);
+    let mut r = Renderer::new(unifont(), w, h, Config::default());
+    let mut bufs: Vec<WriteOnly> = (0..2).map(|_| WriteOnly::new(w, h)).collect();
+    let mut since = Age::NEVER;
+    let mut frame = |r: &mut Renderer<_>, s: &mut Screen, b: &mut WriteOnly, age: u32| {
+        let damage = r.draw(&s.frame(since), b, age, &st).damage.to_vec();
+        since = s.damage.checkpoint();
+        damage
+    };
+    assert_eq!(frame(&mut r, &mut s, &mut bufs[0], 0), whole(w, h));
+    assert_eq!(frame(&mut r, &mut s, &mut bufs[1], 0), whole(w, h));
+    s.put(9, 1, ' ', false, style(rgb(FG), rgb("ff0000")));
+    let red = cell(9, 1, w, h, 20, 4);
+    assert_eq!(frame(&mut r, &mut s, &mut bufs[0], 2), vec![red]);
+    assert!(frame(&mut r, &mut s, &mut bufs[0], 1).is_empty(), "idle");
+    assert_eq!(
+        frame(&mut r, &mut s, &mut bufs[1], 2),
+        vec![red],
+        "the other"
+    );
+    for b in &bufs {
+        for y in red.y..red.y + red.height {
+            for x in red.x..red.x + red.width {
+                assert_eq!(b.canvas().pixel(x, y), Some(0xff_00_00), "{x},{y}");
+            }
+        }
+    }
+}
