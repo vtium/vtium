@@ -239,16 +239,30 @@ fn configdir_names_the_files_read() {
 
 #[test]
 fn a_seat_name_that_names_no_file_is_not_read() {
-    let mut read = Vec::new();
-    let l = load(&[], Some("../etc/shadow"), &mut |p: &Path| {
-        read.push(p.to_owned());
-        Ok(None)
-    });
-    assert_eq!(read, [PathBuf::from("/etc/kmscon/kmscon.conf")]);
-    assert_eq!(
-        problems(&l),
-        [&Problem::BadSeatName("../etc/shadow".to_owned())]
-    );
+    // `.seat.conf` is 10 bytes: a 245-byte name makes a 255-byte file
+    // name, the most one holds.
+    let long = "s".repeat(246);
+    for seat in ["../etc/shadow", "/etc/x", "a/b", ".", "", &long] {
+        let mut read = Vec::new();
+        let l = load(&[], Some(seat), &mut |p: &Path| {
+            read.push(p.to_owned());
+            Ok(None)
+        });
+        assert_eq!(read, [PathBuf::from("/etc/kmscon/kmscon.conf")], "{seat}");
+        assert_eq!(problems(&l), [&Problem::BadSeatName(seat.to_owned())]);
+    }
+    for seat in ["seat0", "seat_1-a", &long[1..]] {
+        let mut read = Vec::new();
+        let l = load(&[], Some(seat), &mut |p: &Path| {
+            read.push(p.to_owned());
+            Ok(None)
+        });
+        assert_eq!(l.reports, [], "{seat}");
+        assert_eq!(
+            read.get(1),
+            Some(&PathBuf::from(format!("/etc/kmscon/{seat}.seat.conf")))
+        );
+    }
 }
 
 #[test]
@@ -691,4 +705,47 @@ fn keyboard_and_mouse() {
     assert_eq!(d.number(&XKB_REPEAT_DELAY), Some(250));
     assert_eq!(d.number(&XKB_REPEAT_RATE), Some(50));
     assert_eq!(d.text(&PALETTE), Some("legacy"));
+}
+
+/// `read_file` on what is not a regular file: a FIFO with no writer, a
+/// directory, a character device. Each is reported and none blocks.
+#[test]
+#[expect(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "a test's set-up, and a read that blocked"
+)]
+fn only_a_regular_file_is_read() {
+    let dir = std::env::temp_dir().join(format!("vtium-notafile-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory");
+    let fifo = dir.join("kmscon.conf");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo runs");
+    assert!(made.success());
+    for path in [fifo.clone(), dir.clone(), PathBuf::from("/dev/null")] {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let p = path.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(read_file(&p).map_err(|e| e.kind()));
+        });
+        let got = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap_or_else(|_| panic!("{} blocked", path.display()));
+        assert_eq!(got, Err(io::ErrorKind::InvalidInput), "{}", path.display());
+    }
+    let args: Vec<OsString> = ["-c".into(), dir.clone().into_os_string()].into();
+    let l = load(&args, None, &mut read_file);
+    assert_eq!(
+        l.reports,
+        [Report {
+            origin: Origin::File {
+                path: fifo,
+                line: 0
+            },
+            problem: Problem::NotAFile,
+        }]
+    );
+    std::fs::remove_dir_all(dir).ok();
 }

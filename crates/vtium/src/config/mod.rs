@@ -163,6 +163,9 @@ pub enum Problem {
     FileTooLong,
     /// The file exists and could not be read.
     Unreadable(io::ErrorKind),
+    /// The path names something other than a regular file, a FIFO or a
+    /// device, which is not read.
+    NotAFile,
     /// A command-line argument that is no option.
     StrayArgument(String),
     /// `--login` with no command after `--`.
@@ -224,6 +227,7 @@ impl fmt::Display for Problem {
                 write!(f, "longer than {FILE_MAX} bytes; the rest is ignored")
             }
             Problem::Unreadable(e) => write!(f, "cannot be read ({e}), ignored"),
+            Problem::NotAFile => write!(f, "is not a regular file, ignored"),
             Problem::StrayArgument(a) => write!(f, "{} is no option, ignored", quote(a)),
             Problem::LoginWithoutCommand => {
                 write!(f, "--login needs a command after --, ignored")
@@ -469,7 +473,12 @@ pub fn load(
             Ok(Some(bytes)) => bytes,
             Ok(None) => continue,
             Err(e) => {
-                reports.push(origin, Problem::Unreadable(e.kind()));
+                let problem = if e.get_ref().is_some_and(|e| e.is::<NotAFile>()) {
+                    Problem::NotAFile
+                } else {
+                    Problem::Unreadable(e.kind())
+                };
+                reports.push(origin, problem);
                 continue;
             }
         };
@@ -490,14 +499,35 @@ pub fn load(
     }
 }
 
+/// The error [`read_file`] gives for a path that is no regular file.
+#[derive(Debug)]
+struct NotAFile;
+
+impl fmt::Display for NotAFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "not a regular file")
+    }
+}
+
+impl std::error::Error for NotAFile {}
+
 /// Reads `path` for [`load`]: `None` when it does not exist, and at most
-/// [`FILE_MAX`] and one bytes.
+/// [`FILE_MAX`] and one bytes. It is opened as the C reference opened it,
+/// so that a tty never becomes the controlling one (`O_NOCTTY`,
+/// `src/misc/conf.c:533-590`), and without blocking, so that a FIFO is
+/// refused at once with anything else that is not a regular file.
 pub fn read_file(path: &Path) -> io::Result<Option<Vec<u8>>> {
-    let file = match std::fs::File::open(path) {
-        Ok(f) => f,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e),
+    use rustix::fs::{Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::NOCTTY | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    let fd = match rustix::fs::open(path, flags, Mode::empty()) {
+        Ok(fd) => fd,
+        Err(e) if e == rustix::io::Errno::NOENT => return Ok(None),
+        Err(e) => return Err(e.into()),
     };
+    let file = std::fs::File::from(fd);
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, NotAFile));
+    }
     let mut bytes = Vec::new();
     let limit = u64::try_from(FILE_MAX)
         .unwrap_or(u64::MAX)

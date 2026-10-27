@@ -25,3 +25,6 @@ vtium-image = { workspace = true, optional = true }
 # The messages vtium-platform writes through it, and the binary's own,
 # which the binary routes to stderr.
 log = "0.4"
+# Opening the configuration with O_NOCTTY and O_NONBLOCK; vtium-platform
+# already builds the same version with these features.
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"] }
