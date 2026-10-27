@@ -330,20 +330,21 @@ impl<K: Kms> Drm2d<K> {
     /// every display on, or else through each display's DPMS.
     pub fn unblank(&mut self) -> io::Result<()> {
         self.blanked = false;
-        if std::mem::take(&mut self.owed) && self.awake {
+        let done = if std::mem::take(&mut self.owed) && self.awake {
             let set = self.request_modeset();
             if set.is_err() {
                 // Nothing changed on the card: still dark, still owed.
                 self.blanked = true;
                 self.owed = true;
             }
-            return set;
-        }
-        let ids: Vec<DisplayId> = self.displays().collect();
-        for id in ids {
-            self.set_dpms(id, Dpms::On)?;
-        }
-        Ok(())
+            set
+        } else {
+            let ids: Vec<DisplayId> = self.displays().collect();
+            ids.into_iter().try_for_each(|id| self.set_dpms(id, Dpms::On))
+        };
+        // The modeset's flip is bounded.
+        self.settle();
+        done
     }
 
     /// Puts `pixels`, ARGB8888 rows of `width`, on the display's cursor

@@ -1128,6 +1128,25 @@ fn a_display_without_dpms_keeps_the_blank() {
     assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
 }
 
+// Re-review finding 2: the flip of the modeset the input ending the blank
+// runs is bounded, as every flip in flight is.
+#[test]
+fn the_flip_of_the_modeset_owed_is_bounded() {
+    let (mut lp, mut app) = in_loop(a_then_b(ModePolicy::default()));
+    let (mut blank, at) = blanked(&mut app.0);
+    app.0.events().for_each(drop);
+    app.0.card().state().listed.push(B);
+    app.0.poll().unwrap();
+    app.0.card().state().lose_flips = true;
+    activity(&mut app.0, &mut blank, at);
+    assert!(app.0.is_flipping(DisplayId(A)));
+    app.0.card().complete_flips();
+    let took = turn_until(&mut lp, &mut app, |app| {
+        app.0.events().any(|e| e == Event::Flipped(DisplayId(A)))
+    });
+    assert!(took.as_millis() >= 900, "flipped after {took:?}");
+}
+
 // Input while blanked with no modeset owed powers the displays on through
 // their DPMS, as before.
 #[test]
