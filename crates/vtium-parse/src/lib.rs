@@ -64,8 +64,9 @@
 //! # Bounds
 //!
 //! The byte stream comes from an untrusted program, so nothing it sends
-//! grows memory: the parser holds every buffer inline and allocates
-//! nothing. Each bound is defined once in `src/bounds.rs` with its
+//! grows memory: the parser holds every buffer inline but the OSC
+//! string's, which the first OSC string reserves at [`OSC_MAX`] and every
+//! later one reuses. Each bound is defined once in `src/bounds.rs` with its
 //! citation and tabulated in the crate's README: [`PARAMS_MAX`],
 //! [`SUBPARAMS_MAX`], [`PARAM_VALUE_CAP`], [`OSC_MAX`], [`XTGETTCAP_MAX`]
 //! and [`INTERMEDIATES_MAX`]. DCS and APC data are streamed to the

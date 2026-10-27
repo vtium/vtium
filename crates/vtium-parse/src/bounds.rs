@@ -43,10 +43,10 @@ const VALUE: Bound = Bound {
 
 const OSC: Bound = Bound {
     name: "OSC_MAX",
-    value: 128 - 1,
-    what: "Bytes an OSC string keeps, as UTF-8: `OSC_MAX_LEN` (128) less the NUL that ends it",
-    past: "The character that would pass it and everything after it are dropped, so the kept bytes are a prefix, and the string still dispatches, marked truncated",
-    cite: "`OSC_MAX_LEN`, tsm-vte-int.h:31; tsm-vte.c:2912-2921, 3006",
+    value: 1 << 20,
+    what: "Bytes an OSC string keeps, as UTF-8, in one buffer the first OSC string reserves at this size and every later one reuses: an OSC 52 payload at vtium-term's `CLIPBOARD_MAX` with room to spare, and 500 times an OSC 8 URI at the 2083 bytes VTE and iTerm2 allow",
+    past: "The character that would pass it and everything after it are dropped as they arrive, so the kept bytes are a prefix, and the string still dispatches, marked truncated; vtium-term acts on no truncated string, so it is dropped whole",
+    cite: "vtium's own, at tmux's `input-buffer-size` (`tmux.h:3509` at `df302c5`), which drops a longer sequence; xterm ignores a string past `maxStringParse`, 20000 bytes, or 600000 with sixel or ReGIS (`main.h:277-283` at `5c75ead`); Ghostty keeps 2048 bytes of an OSC string and 8 MiB of an OSC 52 (`src/terminal/osc.zig:361, 365` at `a732580`) and drops a longer one; foot grows its buffer with no bound short of half the address space (`osc.c:1708-1723` at `152487e`). The C reference kept 127 (`OSC_MAX_LEN`, tsm-vte-int.h:31; tsm-vte.c:2912-2921)",
 };
 
 const XTGETTCAP: Bound = Bound {
@@ -85,8 +85,8 @@ pub const SUBPARAMS_MAX: usize = SUBPARAMS.value;
 )]
 pub const PARAM_VALUE_CAP: u32 = VALUE.value as u32;
 
-/// Bytes an OSC string keeps, as UTF-8. The character that would pass it
-/// and everything after it are dropped.
+/// Bytes an OSC string keeps, as UTF-8, 1 MiB. The character that would
+/// pass it and everything after it are dropped.
 pub const OSC_MAX: usize = OSC.value;
 
 /// Bytes an XTGETTCAP payload keeps. Past it the request is flagged.
@@ -146,14 +146,19 @@ mod tests {
         );
     }
 
-    // tsm-vte-int.h:25, 28, 31, 33-38; libtsm.h:1538
+    // tsm-vte-int.h:25, 28, 33-38; libtsm.h:1538
     #[test]
     fn values_are_the_c_references() {
         assert_eq!(PARAMS_MAX, 16);
         assert_eq!(SUBPARAMS_MAX, 8);
         assert_eq!(PARAM_VALUE_CAP, 0xffff);
-        assert_eq!(OSC_MAX, 127);
         assert_eq!(XTGETTCAP_MAX, 1039);
+    }
+
+    // tmux.h:3509, input-buffer-size; the C reference kept 127.
+    #[test]
+    fn osc_max_is_tmuxs_input_buffer() {
+        assert_eq!(OSC_MAX, 1_048_576);
     }
 
     // vt100.net, collect; the C reference has no such bound.

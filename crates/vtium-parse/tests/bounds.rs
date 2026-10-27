@@ -116,27 +116,32 @@ fn many_intermediates_take_no_room() {
     assert_eq!(parse(&seq), [csi(&[-1], "!%", b'p')]);
 }
 
-// tsm-vte-int.h:31, tsm-vte.c:2915: an OSC string keeps 127 bytes, and
-// one of exactly 127 is not truncated.
+// The OSC bound (src/bounds.rs, OSC_MAX): a string of exactly OSC_MAX
+// bytes is kept whole and not truncated.
 #[test]
-fn osc_keeps_127_bytes() {
+fn osc_keeps_its_bound() {
     let body = vec![b'a'; OSC_MAX];
     let mut seq = b"\x1b]".to_vec();
     seq.extend_from_slice(&body);
     seq.push(0x07);
     assert_eq!(parse(&seq), [osc(&body, Bel)]);
-    assert_eq!(OSC_MAX, 127);
 }
 
-// tsm-vte.c:2915-2917: the bytes past 127 are dropped, and the string still
-// dispatches, marked truncated from the 128th byte on.
+// One byte past the bound is dropped, and the string still dispatches,
+// marked truncated.
 #[test]
-fn osc_past_127_dropped() {
+fn osc_one_past_its_bound_is_truncated() {
     let mut seq = b"\x1b]".to_vec();
-    seq.extend_from_slice(&[b'a'; OSC_MAX]);
+    seq.extend_from_slice(&vec![b'a'; OSC_MAX]);
     seq.extend_from_slice(b"b");
     seq.push(0x07);
-    assert_eq!(parse(&seq), [osc_truncated(&[b'a'; OSC_MAX], Bel)]);
+    assert_eq!(parse(&seq), [osc_truncated(&vec![b'a'; OSC_MAX], Bel)]);
+}
+
+// The bound is 1 MiB, tmux's `input-buffer-size` (src/bounds.rs).
+#[test]
+fn osc_bound_is_a_mebibyte() {
+    assert_eq!(OSC_MAX, 1 << 20);
 }
 
 // Departure, decided by the operator: the kept bytes are always a prefix.
@@ -145,18 +150,18 @@ fn osc_past_127_dropped() {
 #[test]
 fn osc_keeps_a_prefix_once_a_character_does_not_fit() {
     let mut seq = b"\x1b]".to_vec();
-    seq.extend_from_slice(&[b'a'; OSC_MAX - 2]);
+    seq.extend_from_slice(&vec![b'a'; OSC_MAX - 2]);
     seq.extend_from_slice("€".as_bytes());
     seq.extend_from_slice(b"bc");
     seq.push(0x07);
-    assert_eq!(parse(&seq), [osc_truncated(&[b'a'; OSC_MAX - 2], Bel)]);
+    assert_eq!(parse(&seq), [osc_truncated(&vec![b'a'; OSC_MAX - 2], Bel)]);
 }
 
 // An OSC string after a truncated one starts empty and unflagged.
 #[test]
 fn next_osc_starts_clean() {
     let mut seq = b"\x1b]".to_vec();
-    seq.extend_from_slice(&[b'a'; 200]);
+    seq.extend(std::iter::repeat_n(b'a', OSC_MAX + 100));
     seq.push(0x07);
     seq.extend_from_slice(b"\x1b]0;x\x07");
     let acts = parse(&seq);
@@ -164,15 +169,77 @@ fn next_osc_starts_clean() {
     assert_eq!(acts[1], osc(b"0;x", Bel));
 }
 
-// A megabyte of OSC takes no more than the bound.
+// Four times the bound of OSC takes no more than the bound.
 #[test]
 fn osc_flood_bounded() {
     let mut seq = b"\x1b]".to_vec();
-    seq.extend(std::iter::repeat_n(b'x', 1 << 20));
+    seq.extend(std::iter::repeat_n(b'x', 4 * OSC_MAX));
     seq.extend_from_slice(b"\x1b\\");
     let acts = parse(&seq);
     assert_eq!(acts.len(), 2);
-    assert_eq!(acts[0], osc_truncated(&[b'x'; OSC_MAX], St));
+    assert_eq!(acts[0], osc_truncated(&vec![b'x'; OSC_MAX], St));
+}
+
+/// The OSC strings at the bound: exactly `OSC_MAX` bytes, one byte past
+/// it, and a three-byte character across it, each with what it gives.
+fn strings_at_the_bound() -> Vec<(Vec<u8>, Act)> {
+    let mut v = Vec::new();
+    for (body, tail, kept, truncated) in [
+        (OSC_MAX, &b""[..], OSC_MAX, false),
+        (OSC_MAX, b"b", OSC_MAX, true),
+        (OSC_MAX - 1, "€".as_bytes(), OSC_MAX - 1, true),
+    ] {
+        let mut seq = b"\x1b]".to_vec();
+        seq.extend(std::iter::repeat_n(b'a', body));
+        seq.extend_from_slice(tail);
+        seq.extend_from_slice(b"\x1b\\");
+        let data = vec![b'a'; kept];
+        let act = if truncated {
+            osc_truncated(&data, St)
+        } else {
+            osc(&data, St)
+        };
+        v.push((seq, act));
+    }
+    v
+}
+
+// docs/architecture.md, "Determinism": a string at the bound, cut into two
+// input calls at every offset where the parser's state changes (its
+// opening, each byte around the bound, and its ST), gives the actions it
+// gives whole. The bytes between are one state, `a` collected.
+#[test]
+fn osc_at_its_bound_split_at_every_offset() {
+    for (seq, want) in strings_at_the_bound() {
+        let n = seq.len();
+        let around = OSC_MAX + 2;
+        let cuts = (0..=8).chain(around - 8..=around + 8).chain(n - 8..=n);
+        for cut in cuts.filter(|&c| c <= n) {
+            let (a, b) = seq.split_at(cut);
+            let mut parser = Parser::new();
+            let mut rec = common::Recorder::new();
+            rec.feed(&mut parser, a);
+            rec.feed(&mut parser, b);
+            assert_eq!(rec.acts[0], want, "cut at {cut} of {n}");
+            assert_eq!(rec.acts.len(), 2, "cut at {cut} of {n}");
+        }
+    }
+}
+
+// The bound holds however the input is cut: in pieces of 1, 3 and 4096
+// bytes the strings give the actions they give whole.
+#[test]
+fn osc_at_its_bound_in_pieces() {
+    for (seq, want) in strings_at_the_bound() {
+        for size in [1, 3, 4096] {
+            let mut parser = Parser::new();
+            let mut rec = common::Recorder::new();
+            for piece in seq.chunks(size) {
+                rec.feed(&mut parser, piece);
+            }
+            assert_eq!(rec.acts[0], want, "pieces of {size}");
+        }
+    }
 }
 
 // tsm-vte.c:3142-3145, tsm-vte-image.c:117-131: DCS data is streamed, not
@@ -199,11 +266,12 @@ fn apc_streams_unbounded_data() {
     assert_eq!(n, 1 << 20);
 }
 
-// The parser's buffers are inline and fixed; this catches one that grows.
+// The parser's buffers but the OSC string's are inline and fixed; this
+// catches one that grows.
 #[test]
 fn parser_size_is_fixed() {
     let size = std::mem::size_of::<Parser>();
     assert!(size <= 2048, "Parser is {size} bytes");
     #[cfg(target_pointer_width = "64")]
-    assert_eq!(size, 1808, "Parser is {size} bytes");
+    assert_eq!(size, 1704, "Parser is {size} bytes");
 }

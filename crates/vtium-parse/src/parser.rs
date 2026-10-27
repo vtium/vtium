@@ -292,8 +292,10 @@ fn transition(state: State, c: u32) -> (Option<State>, Action) {
 
 /// The escape-sequence parser: bytes in, [`Consumer`] calls out.
 ///
-/// It holds every buffer it uses inline (about 1.8 KiB) and allocates
-/// nothing. Its `Debug` shows only the bytes its buffers hold.
+/// It holds every buffer it uses inline (about 1.7 KiB) but the OSC
+/// string's, which the first OSC string reserves at [`OSC_MAX`] and every
+/// later one reuses, so no string allocates again or grows it. Its `Debug`
+/// shows only the bytes its buffers hold.
 #[derive(Clone)]
 pub struct Parser {
     state: State,
@@ -303,8 +305,9 @@ pub struct Parser {
     /// More than [`INTERMEDIATES_MAX`](crate::INTERMEDIATES_MAX) arrived,
     /// so the sequence dispatches nothing.
     too_many_intermediates: bool,
-    osc: [u8; OSC_MAX],
-    osc_len: usize,
+    /// The OSC string's bytes: empty with no allocation until the first
+    /// OSC string, then reserved at [`OSC_MAX`] and never grown.
+    osc: Vec<u8>,
     /// A character failed to fit, so the OSC string takes no more.
     osc_full: bool,
     dcs: Dcs,
@@ -338,7 +341,7 @@ impl core::fmt::Debug for Parser {
             .field("params", &self.params)
             .field("intermediates", &self.intermediates)
             .field("too_many_intermediates", &self.too_many_intermediates)
-            .field("osc", &Escaped(self.osc.get(..self.osc_len).unwrap_or(&[])))
+            .field("osc", &Escaped(&self.osc))
             .field("osc_full", &self.osc_full)
             .field("dcs", &self.dcs)
             .field(
@@ -367,8 +370,7 @@ impl Parser {
             params: Params::new(),
             intermediates: Intermediates::NONE,
             too_many_intermediates: false,
-            osc: [0; OSC_MAX],
-            osc_len: 0,
+            osc: Vec::new(),
             osc_full: false,
             dcs: Dcs::None,
             tcap: [0; XTGETTCAP_MAX],
@@ -573,7 +575,12 @@ impl Parser {
             Action::DcsStart => self.dcs_start(consumer, c),
             Action::DcsCollect => self.dcs_collect(consumer, c),
             Action::OscStart => {
-                self.osc_len = 0;
+                self.osc.clear();
+                // the first OSC string, or the first after a clone, which
+                // copies only the bytes
+                if self.osc.capacity() < OSC_MAX {
+                    self.osc.reserve_exact(OSC_MAX);
+                }
                 self.osc_full = false;
             }
             Action::OscCollect => self.osc_collect(c),
@@ -607,15 +614,13 @@ impl Parser {
         if utf8::is_noncharacter(c) {
             return;
         }
-        let end = self.osc_len.saturating_add(c.len_utf8());
-        let Some(room) = self.osc.get_mut(self.osc_len..end) else {
+        if self.osc.len().saturating_add(c.len_utf8()) > OSC_MAX {
             self.osc_full = true;
             return;
-        };
-        // `room` is `c.len_utf8()` bytes, all that `encode_utf8` writes, so
-        // its panic on a short buffer cannot fire.
-        c.encode_utf8(room);
-        self.osc_len = end;
+        }
+        // the buffer holds OSC_MAX, so this never reallocates
+        self.osc
+            .extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes());
     }
 
     /// Starts a DCS string's data (tsm-vte.c:3128-3140). `DCS + q` with no
@@ -688,11 +693,7 @@ impl Parser {
     fn end_string<C: Consumer>(&mut self, consumer: &mut C, string: State, end: StringEnd) {
         match string {
             State::OscString => {
-                consumer.osc_end(
-                    self.osc.get(..self.osc_len).unwrap_or(&[]),
-                    self.osc_full,
-                    end,
-                );
+                consumer.osc_end(&self.osc, self.osc_full, end);
             }
             State::DcsPass => {
                 match self.dcs {
@@ -792,6 +793,27 @@ mod tests {
         parser.dcs = Dcs::Xtgettcap;
         parser.act(&mut count, '\u{141}', Action::DcsCollect);
         assert_eq!(parser.tcap.get(..parser.tcap_len), Some(&[0][..]));
+    }
+
+    // The OSC buffer is reserved once, at the bound, by the first OSC
+    // string, and kept: no string allocates again or grows it past the
+    // bound, however long it is and however it is cut.
+    #[test]
+    fn the_osc_buffer_is_reserved_once_at_its_bound() {
+        let mut parser = Parser::new();
+        let mut count = Count::default();
+        assert_eq!(parser.osc.capacity(), 0, "a new parser allocates nothing");
+        parser.advance(&mut count, b"\x1b]0;x\x07");
+        assert_eq!(parser.osc.capacity(), OSC_MAX);
+        let buffer = parser.osc.as_ptr();
+        let flood = [b'x'; 4096];
+        parser.advance(&mut count, b"\x1b]52;c;");
+        for _ in 0..(OSC_MAX / flood.len()).saturating_add(4) {
+            parser.advance(&mut count, &flood);
+        }
+        parser.advance(&mut count, b"\x1b\\\x1b]2;y\x07");
+        assert_eq!(parser.osc.capacity(), OSC_MAX);
+        assert_eq!(parser.osc.as_ptr(), buffer, "the buffer moved");
     }
 
     // A string ends whatever ends it; one ended by a character the parser
