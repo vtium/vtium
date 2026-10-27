@@ -315,19 +315,26 @@ pub struct Renderer<F> {
     compose: Composer,
 }
 
-/// How many cells the cell at `col`, `width` wide, draws over: 0 for the
-/// trailing half of a wide character, which the leading half draws; 2 for
-/// a leading half with its trailing half on the screen; else 1. A half
-/// whose partner is missing draws as one cell, so no frame leaves a cell
-/// undrawn.
-fn span(frame: &Frame<'_>, row: usize, col: usize, width: Width, cols: usize) -> usize {
-    let width_at = |c: usize| frame.cell(row, c).map(|f| f.width);
-    let next = col.saturating_add(1);
+/// How many cells a cell `width` wide, after a cell `before` wide, draws
+/// over: 0 for the trailing half of a wide character, which the leading
+/// half draws; 2 for a leading half with its trailing half next on the
+/// screen, whose width `next` reads; else 1. A half whose partner is
+/// missing draws as one cell, so no frame leaves a cell undrawn.
+fn span(width: Width, before: Option<Width>, next: impl FnOnce() -> Option<Width>) -> usize {
     match width {
-        Width::WideTail if col.checked_sub(1).and_then(width_at) == Some(Width::Wide) => 0,
-        Width::Wide if next < cols && width_at(next) == Some(Width::WideTail) => 2,
+        Width::WideTail if before == Some(Width::Wide) => 0,
+        Width::Wide if next() == Some(Width::WideTail) => 2,
         _ => 1,
     }
+}
+
+/// The width of the cell after `col` in `row`, among the grid's `cols`.
+fn next_width(frame: &Frame<'_>, row: usize, col: usize, cols: usize) -> Option<Width> {
+    let next = col.saturating_add(1);
+    (next < cols)
+        .then(|| frame.cell(row, next))
+        .flatten()
+        .map(|fc| fc.width)
 }
 
 /// Whether `fc` is hidden by the text blink phase: blinking, not under
@@ -515,10 +522,10 @@ impl<F: Face> Renderer<F> {
 
     /// Where the cursor draws: the leading cell of a wide character whose
     /// trailing half it sits on.
-    fn cursor_cell(frame: &Frame<'_>, c: &Cursor, cols: usize) -> (usize, usize) {
-        let tail = frame
-            .cell(c.row, c.col)
-            .is_some_and(|fc| span(frame, c.row, c.col, fc.width, cols) == 0);
+    fn cursor_cell(frame: &Frame<'_>, c: &Cursor) -> (usize, usize) {
+        let width_at = |col: usize| frame.cell(c.row, col).map(|fc| fc.width);
+        let before = c.col.checked_sub(1).and_then(width_at);
+        let tail = width_at(c.col).is_some_and(|w| span(w, before, || None) == 0);
         match c.col.checked_sub(1) {
             Some(prev) if tail => (prev, c.row),
             _ => (c.col, c.row),
@@ -533,8 +540,7 @@ impl<F: Face> Renderer<F> {
         state: &DrawState,
     ) -> u32 {
         let cursor = frame.cursor();
-        let at =
-            (cursor.visible && state.cursor_on).then(|| Self::cursor_cell(frame, &cursor, g.cols));
+        let at = (cursor.visible && state.cursor_on).then(|| Self::cursor_cell(frame, &cursor));
         let blink_toggled = state.blink_hidden != self.blink_hidden;
         self.blink_hidden = state.blink_hidden;
         let last_cursor = core::mem::replace(&mut self.cursor_at, at);
@@ -566,14 +572,10 @@ impl<F: Face> Renderer<F> {
         self.compose.jobs.clear();
         self.compose.text.clear();
         let mut count = 0u32;
-        let mut col = 0;
-        while col < g.cols {
-            let Some(fc) = p.frame.cell(row, col) else {
-                break;
-            };
-            let here = col;
-            col = col.saturating_add(1);
-            let ncells = span(p.frame, row, here, fc.width, g.cols);
+        let mut before = None;
+        for (here, fc) in p.frame.cells(row).take(g.cols).enumerate() {
+            let ncells = span(fc.width, before, || next_width(p.frame, row, here, g.cols));
+            before = Some(fc.width);
             // a cell that joins or leaves a wide pair draws differently
             let role = u8::try_from(ncells).unwrap_or(1);
             let mut changed = fc.changed;
@@ -586,8 +588,9 @@ impl<F: Face> Renderer<F> {
             let is_cursor = p.at == Some((here, row));
             let hidden = blink_hides(&fc, is_cursor, p.state);
             if ncells == 2 {
-                changed |= p.frame.cell(row, col).is_some_and(|t| t.changed);
-                if let Some(t) = self.cells.get_mut(col, row) {
+                let tail = here.saturating_add(1);
+                changed |= p.frame.cell(row, tail).is_some_and(|t| t.changed);
+                if let Some(t) = self.cells.get_mut(tail, row) {
                     changed |= core::mem::replace(&mut t.span, 0) != 0;
                 }
             }
@@ -755,14 +758,14 @@ impl<F: Face> Renderer<F> {
             return;
         };
         let g = &p.g;
-        let mut col = first;
-        while col < end {
-            let Some(fc) = p.frame.cell(row, col) else {
-                break;
-            };
-            let here = col;
-            col = col.saturating_add(1);
-            let ncells = span(p.frame, row, here, fc.width, g.cols);
+        let mut before = first
+            .checked_sub(1)
+            .and_then(|c| p.frame.cell(row, c))
+            .map(|fc| fc.width);
+        let run = p.frame.cells(row).take(end.min(g.cols)).enumerate();
+        for (here, fc) in run.skip(first) {
+            let ncells = span(fc.width, before, || next_width(p.frame, row, here, g.cols));
+            before = Some(fc.width);
             if ncells == 0 {
                 continue;
             }

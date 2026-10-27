@@ -12,6 +12,7 @@ Each top-level `.rs` file is its own test crate, run by `cargo test -p vtium-ren
 | `cursor.rs` | The block, underline and bar cursors, OSC 12's colour, and the pointer. |
 | `blink.rs` | Text blink's hidden phase, and the cursor's cell, which shows its text. |
 | `dim.rs` | SGR 2 against literal colours: the text, its decorations, bold, reverse video and the cursor's shapes. |
+| `selection.rs` | The selection's inversion, starting and ending inside a run of one style, and dim over it, against literal colours. |
 | `write_only.rs` | A buffer of garbage and one of zeros hold the same frames; every write lies inside the display; a run of cells is written a pixel line at a time. |
 | `memory.rs` | ADR-1300's memory table, from caches filled to their budgets. |
 | `figures.rs` | The render timer's figures at 1366x768, printed. |

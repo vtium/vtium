@@ -25,8 +25,8 @@
 //! serves them without ever blocking.
 //!
 //! Syscalls go through rustix, so descriptors are owned values and errors
-//! are `Result`s, and DRM's ioctls through `drm-ffi`. The pty, the event
-//! loop and the displays are here:
+//! are `Result`s, DRM's ioctls through `drm-ffi`, keys through
+//! libxkbcommon and the device monitor through libudev. Here are:
 //!
 //! - [`event_loop::Loop`]: calloop, with one signalfd for every signal the
 //!   console handles. The display, VT, udev and input sources go in
@@ -40,6 +40,13 @@
 //!   and fbdev ([`display::Fbdev`]), each lending its back buffer to the
 //!   compositor and presenting it with the frame's damage, paced by page
 //!   flips, and the DPMS blank ([`display::Blank`]).
+//! - [`vt`]: the seat's VT, the kernel's ([`vt::KernelVt`]) behind a guard
+//!   that restores its keyboard mode, `VT_AUTO` and `KD_TEXT` on every exit,
+//!   with `VT_PROCESS` switching whose release waits for the displays.
+//! - [`udev`]: the seat's cards, framebuffers and input devices, found at
+//!   start and followed as they come and go ([`udev::Udev`]).
+//! - [`input`]: every keyboard and pointer through evdev, keys through
+//!   libxkbcommon with compose and a repeat timer ([`input::Input`]).
 //!
 //! Each bound is defined once in `src/bounds.rs` and tabulated in the
 //! crate's README.
@@ -48,13 +55,17 @@ mod bounds;
 mod channel;
 pub mod display;
 pub mod event_loop;
+pub mod input;
 mod ioctl;
 mod mmap;
 pub mod pty;
 mod queue;
+pub mod udev;
+pub mod vt;
 
 pub use bounds::{
-    DAMAGE_CLIPS_MAX, EXIT_FEED_MAX, FLIP_WAIT_MS, MOTION_COALESCE_AT, READ_MAX, READS_PER_TURN,
-    REPLY_HIGH, REPLY_LOW, REPLY_MAX, WAKE_RETRIES, WAKE_RETRY_MS,
+    DAMAGE_CLIPS_MAX, EXIT_FEED_MAX, FLIP_WAIT_MS, INPUT_READS_PER_TURN, MOTION_COALESCE_AT,
+    READ_MAX, READS_PER_TURN, REPLY_HIGH, REPLY_LOW, REPLY_MAX, RETAKE_QUIET_MS, WAKE_RETRIES,
+    WAKE_RETRY_MS,
 };
 pub use calloop;

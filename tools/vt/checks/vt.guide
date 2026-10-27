@@ -1,0 +1,24 @@
+# vtium holds its VT: the switch away and back, and keys kept from the
+# kernel console (vtium/vtium#19). The steps that read the kernel console
+# are run from the desktop, with sudo, while vtium keeps VT {vt}.
+#
+#   make vt-check GUIDE=vt
+
+title: vtium holds its VT and its keys
+
+step: Switching away and back
+do: press Ctrl-Alt-F{desktop}, wait for the desktop, then press
+do: Ctrl-Alt-F{vt}.
+expect: the desktop at once, and back here this screen drawn whole, as it
+expect: was, with no frame of the kernel console in between.
+
+step: Keys reach vtium only
+probe: shell
+do: at the prompt type: echo vtium-keys-one
+do: then Enter, then exit and Enter. Then press Ctrl-Alt-F{desktop}, and in
+do: a desktop terminal run: sudo kbd_mode -C /dev/tty{vt}
+do: and: sudo cat /dev/vcs{vt} | tr -s ' ' | grep -o vtium-keys-one
+do: then come back with Ctrl-Alt-F{vt}.
+expect: kbd_mode says neither Unicode, ASCII nor raw (the keyboard is
+expect: off), and the grep prints nothing: the kernel console did not see
+expect: the keys.

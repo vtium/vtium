@@ -106,9 +106,25 @@ const DAMAGE_CLIPS: Bound = Bound {
     cite: "vtium/vtium#18",
 };
 
+const INPUT_READS: Bound = Bound {
+    name: "INPUT_READS_PER_TURN",
+    value: 16,
+    what: "Reads of 16 events each that one readiness event makes on an input device before the loop serves its other sources",
+    past: "The device stays readable, and the next turn reads on",
+    cite: "vtium/vtium#19; the C reference read 16 events at a time until a short read, with no cap (input.c:78-113)",
+};
+
+const RETAKE_QUIET: Bound = Bound {
+    name: "RETAKE_QUIET_MS",
+    value: 10_000,
+    what: "Milliseconds with no re-take of the VT after which the next re-take is logged as a warning again",
+    past: "The next re-take is a warning and its count starts again; until then each is counted at debug level, so a steady stream of input on the tty logs one warning",
+    cite: "vtium/vtium#19; the C reference flushed the tty's input and logged nothing (vt_real.c:184-186)",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 11] = [
+pub(crate) const BOUNDS: [Bound; 13] = [
     READ,
     READS,
     HIGH,
@@ -120,6 +136,8 @@ pub(crate) const BOUNDS: [Bound; 11] = [
     WAKE_RETRY,
     RETRIES,
     DAMAGE_CLIPS,
+    INPUT_READS,
+    RETAKE_QUIET,
 ];
 
 // The stall ends below where it starts, and starts below the ceiling.
@@ -161,6 +179,13 @@ pub const WAKE_RETRIES: usize = RETRIES.value;
 /// Damage rectangles one swap sends before they become their bounding
 /// box.
 pub const DAMAGE_CLIPS_MAX: usize = DAMAGE_CLIPS.value;
+
+/// Reads one readiness event makes on an input device.
+pub const INPUT_READS_PER_TURN: usize = INPUT_READS.value;
+
+/// Milliseconds with no re-take of the VT after which the next is logged
+/// as a warning again.
+pub const RETAKE_QUIET_MS: usize = RETAKE_QUIET.value;
 
 #[cfg(test)]
 #[expect(
