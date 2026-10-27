@@ -24,5 +24,7 @@
 //! drives it without a VT, a display or a pty. The crate's README lists
 //! where vtium departs from the C reference and the bounds it sets.
 
+pub mod child;
 pub mod config;
+pub mod respawn;
 pub mod termcap;
