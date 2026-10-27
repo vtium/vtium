@@ -1522,3 +1522,37 @@ fn a_new_display_is_set_on() {
     assert_eq!(v.card().state().dpms[&A], 0);
     assert!(frame(&mut v, &[DOT]).is_ok());
 }
+
+// A key that ends the blank while a sleep waits on a flip starts nothing:
+// once the VT is released, no retry takes master back or commits.
+#[test]
+fn an_unblank_during_a_sleep_starts_no_retry() {
+    let mut v = a_then_b(ModePolicy::default());
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    flip(&mut v);
+    v.events().for_each(drop);
+    frame(&mut v, &[DOT]).unwrap();
+    let (mut blank, at) = blanked(&mut v);
+    v.sleep();
+    assert_eq!(v.waits(), (true, false), "the sleep waits on A's flip");
+    for o in v.outputs.iter_mut().filter(|o| o.id.0 == B) {
+        o.dpms = o.dpms.map(|(p, d)| (p + 5000, d));
+    }
+    assert!(blank.input(at));
+    v.input().unwrap();
+    v.unblank().unwrap();
+    flip(&mut v);
+    assert!(events(&mut v).contains(&Event::Asleep));
+    let commits = v.card().state().commits.len();
+    v.retry_wake();
+    assert!(
+        !v.card().state().master,
+        "master taken back after the release"
+    );
+    assert_eq!(
+        v.card().state().commits.len(),
+        commits,
+        "a commit after the release"
+    );
+}

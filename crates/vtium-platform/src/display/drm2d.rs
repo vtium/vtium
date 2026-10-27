@@ -356,7 +356,9 @@ impl<K: Kms> Drm2d<K> {
     /// does nothing, as the wake-up brings every display on.
     pub fn unblank(&mut self) -> io::Result<()> {
         self.blanked = false;
-        if !self.awake {
+        // Asleep, or letting the displays go for a VT release: nothing to
+        // power on, and no retry may outlive the release.
+        if !self.awake || !self.foreground {
             return Ok(());
         }
         let done = if std::mem::take(&mut self.owed) {
@@ -388,7 +390,7 @@ impl<K: Kms> Drm2d<K> {
     /// while blanked. Otherwise, and while the retries run, it does
     /// nothing.
     pub fn input(&mut self) -> io::Result<()> {
-        if self.retries.is_some() || !std::mem::take(&mut self.wake_failed) {
+        if !self.foreground || self.retries.is_some() || !std::mem::take(&mut self.wake_failed) {
             return Ok(());
         }
         if !self.awake {
@@ -583,6 +585,11 @@ impl<K: Kms> Drm2d<K> {
         let Some(tried) = self.retries else {
             return;
         };
+        // A retry never runs past a VT release.
+        if !self.foreground {
+            self.retries = None;
+            return;
+        }
         let scan = if self.waking {
             Scan::WakeUp
         } else {
@@ -641,6 +648,8 @@ impl<K: Kms> Drm2d<K> {
         }
         self.release_master();
         self.awake = false;
+        self.retries = None;
+        self.owed = false;
         for o in &mut self.outputs {
             o.flipping = false;
         }
