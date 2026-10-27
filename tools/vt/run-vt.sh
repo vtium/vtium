@@ -233,7 +233,7 @@ child=
 running() {
 	[ -n "$child" ] && jobs -rp | grep -x -- "$child" >/dev/null
 }
-# shellcheck disable=SC2329 # invoked by the EXIT trap
+# shellcheck disable=SC2317,SC2329 # invoked by the EXIT trap
 # A second signal, or a closed terminal or pipe, must not cut it short before
 # the units are started again, so it ignores them while it runs.
 restore() {

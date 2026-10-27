@@ -30,9 +30,11 @@ minspec: ## Build the minspec binary, target/minspec/vtium
 	cargo build --profile minspec -p vtium
 
 .PHONY: test-tools
+# shellcheck gates at warning: its info notes differ between versions, and
+# the scripts' `A && B || die` is deliberate.
 test-tools: ## Test the VT review tools without a VT, sudo or logind (shellcheck when installed)
 	python3 -I tools/vt/tests/test_vt.py
-	@if command -v shellcheck >/dev/null; then shellcheck -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh && echo "shellcheck: clean"; else echo "shellcheck: not installed, skipped"; fi
+	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 # The review targets block until the run ends, then print its answers. Their
 # variables reach tools/vt/vt.sh through the environment, unexpanded, never as
