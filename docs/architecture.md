@@ -27,6 +27,8 @@ The machine minspec is judged against is a single-board computer that presents a
 - a DRM dumb buffer to draw into, with no GPU vtium uses;
 - displays that may be small, down to SPI panels at 320x240 through tinydrm.
 
+The display floor is a 320x240 panel with an 8x8 font, a 40 by 30 grid. There vtium starts, draws and stays correct, and a shell, line editing and vim are usable; a program that needs 80 columns is not promised to fit. At 640x480 with an 8x16 font, 80 by 30, everything vtium supports is usable. The 8x8 font comes from a console font on the system for now (vtium/vtium#75).
+
 Tier 3's x86 variant keeps the small-machine standard: 1366x768, 1 vCPU, 512 MB.
 
 `make arm` builds the minspec profile for `aarch64-unknown-linux-gnu` and `armv7-unknown-linux-gnueabihf`, and `make arm-test` runs the workspace's tests on aarch64 under qemu-user, with no cross toolchain and no root ([tools/arm/README.md](../tools/arm/README.md)).
