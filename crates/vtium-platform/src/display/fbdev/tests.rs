@@ -291,3 +291,19 @@ fn a_swap_with_no_damage_does_nothing() {
     assert!(map(&mut v).iter().all(|&b| b == 0), "nothing converted");
     assert!(!v.hardware_cursor(DISPLAY));
 }
+
+// The frame contract, rule 6: no canvas while blanked; unblanked, the
+// buffer is age 0 and the owner is told to redraw.
+#[test]
+fn a_blanked_display_lends_no_canvas() {
+    let mut v = awake(FakeFb::new(32));
+    v.canvas(DISPLAY).unwrap();
+    v.swap(DISPLAY, &[WHOLE]).unwrap();
+    v.events().for_each(drop);
+    v.set_dpms(DISPLAY, Dpms::Off).unwrap();
+    assert!(v.canvas(DISPLAY).is_none());
+    assert!(matches!(v.swap(DISPLAY, &[WHOLE]), Err(SwapError::Off)));
+    v.set_dpms(DISPLAY, Dpms::On).unwrap();
+    assert_eq!(v.events().collect::<Vec<_>>(), [Event::Redraw(DISPLAY)]);
+    assert_eq!(v.canvas(DISPLAY).unwrap().age, 0);
+}

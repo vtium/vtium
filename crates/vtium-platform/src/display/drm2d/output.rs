@@ -216,6 +216,12 @@ pub(super) struct Output<M> {
     /// `None` where the connector has no DPMS property.
     pub(super) dpms: Option<(u32, Dpms)>,
     pub(super) online: bool,
+    /// Left out of a modeset while powered down: powering it on sets its
+    /// mode.
+    pub(super) unset: bool,
+    /// Its buffers hold nothing known since a modeset or a wake-up, so the
+    /// next announcement asks for a redraw.
+    pub(super) redraw: bool,
     pub(super) flipping: bool,
     /// Flips started, so the bound's timer names the flip it bounds.
     pub(super) flips: u64,
@@ -249,6 +255,12 @@ impl<M: AsMut<[u8]>> Output<M> {
         self.dpms.is_none_or(|(_, d)| d == Dpms::On)
     }
 
+    /// Online and powered down: a modeset leaves it out, since its CRTC is
+    /// off and stays off, and the kernel refuses a flip event there.
+    pub(super) fn dark(&self) -> bool {
+        self.online && !self.dpms_on()
+    }
+
     /// Clears the front buffer, which the display shows or flips to.
     pub(super) fn clear_front(&mut self) {
         let front = self.front();
@@ -280,7 +292,10 @@ impl<M: AsMut<[u8]>> Output<M> {
         p.connector_props.set(req, conn, "CRTC_ID", crtc)?;
         p.crtc_props
             .set(req, self.crtc, "MODE_ID", u64::from(mode_blob))?;
-        p.crtc_props.set(req, self.crtc, "ACTIVE", 1)?;
+        // DPMS is ACTIVE on an atomic device; the property alone would be
+        // undone by this commit.
+        p.crtc_props
+            .set(req, self.crtc, "ACTIVE", u64::from(self.dpms_on()))?;
         let plane = p.primary;
         let pp = &p.primary_props;
         pp.set(req, plane, "FB_ID", u64::from(fb))?;

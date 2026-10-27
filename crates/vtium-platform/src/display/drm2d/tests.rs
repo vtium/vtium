@@ -271,6 +271,10 @@ fn a_swap_while_powered_down_is_off() {
     frame(&mut v, &[DOT]).unwrap();
 }
 
+// Finding 3: a wake-up keeps a display powered down, though the monitor's
+// power cycle turned its connector on. The modeset leaves it out, since
+// its ACTIVE would turn it on; powering it on later sets its mode. Only
+// tier 3 proves the kernel ties DPMS to ACTIVE so.
 #[test]
 fn a_power_cycle_restores_dpms() {
     let mut v = awake(one());
@@ -280,6 +284,14 @@ fn a_power_cycle_restores_dpms() {
     flip(&mut v);
     v.wake_up().unwrap();
     assert_eq!(v.card().state().dpms[&A], 1);
+    assert!(v.canvas(DisplayId(A)).is_none());
+    events(&mut v);
+    v.set_dpms(DisplayId(A), Dpms::On).unwrap();
+    let c = v.card().last_commit().unwrap();
+    assert_ne!(c.flags & DRM_MODE_ATOMIC_ALLOW_MODESET, 0);
+    assert_eq!(c.get(100, "ACTIVE"), Some(1));
+    assert_eq!(v.card().state().dpms[&A], 0);
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A))]);
 }
 
 // The cursor commits (aaronsb/kmscon#119).
@@ -948,4 +960,62 @@ fn a_hotplug_after_the_retries_ran_out_wakes_the_card() {
     v.poll().unwrap();
     assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
     assert!(v.card().state().master);
+}
+
+// Finding 2 and the frame contract, rule 6: a display powered down lends
+// no canvas, so no frame is drawn and lost; powered on, every buffer is
+// age 0, its next frame goes whole, and the owner is told to redraw.
+// covers: platform.drm2d-fbdev
+#[test]
+fn a_powered_down_display_lends_no_canvas() {
+    let mut v = awake(one());
+    frame(&mut v, &[DOT]).unwrap();
+    flip(&mut v);
+    frame(&mut v, &[DOT]).unwrap();
+    flip(&mut v);
+    v.events().for_each(drop);
+    v.set_dpms(DisplayId(A), Dpms::Off).unwrap();
+    assert!(v.canvas(DisplayId(A)).is_none());
+    v.set_dpms(DisplayId(A), Dpms::On).unwrap();
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A))]);
+    assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 0);
+    frame(&mut v, &[DOT]).unwrap();
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(clips(&c, primary(&v, A)), None, "the whole frame");
+}
+
+// Finding 3: a hotplug leaves a display powered down out of its modeset,
+// planes included: its ACTIVE stays 0, and a flip event on its CRTC,
+// off and staying off, would be refused.
+#[test]
+fn a_hotplug_leaves_a_powered_down_display_dark() {
+    let mut v = a_then_b(ModePolicy::default());
+    v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
+    v.show_cursor(DisplayId(A), 1, 1).unwrap();
+    v.swap(DisplayId(A), &[]).unwrap();
+    flip(&mut v);
+    v.set_dpms(DisplayId(A), Dpms::Off).unwrap();
+    v.events().for_each(drop);
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
+    assert_eq!(v.card().state().dpms[&A], 3);
+    let c = v.card().last_commit().unwrap();
+    assert!(!c.mentions(100) && !c.mentions(cursor_plane(&v, A)));
+    flip(&mut v);
+    v.events().for_each(drop);
+    v.set_dpms(DisplayId(A), Dpms::On).unwrap();
+    assert_eq!(v.card().state().dpms[&A], 0);
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A))]);
+}
+
+// A display plugged in is set on, whatever DPMS its connector was left at.
+#[test]
+fn a_new_display_is_set_on() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.state().dpms.insert(A, 3);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(v.dpms(DisplayId(A)), Some(Dpms::On));
+    assert_eq!(v.card().state().dpms[&A], 0);
+    assert!(frame(&mut v, &[DOT]).is_ok());
 }

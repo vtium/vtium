@@ -2,8 +2,11 @@
 //! memory, with every commit recorded by property name, flips completed
 //! when a test says, and failures planted where a test wants them. It
 //! behaves as the kernel does where drm2d depends on it: a commit or a
-//! modeset without DRM master is refused with EACCES, and a commit while
-//! a flip is pending with EBUSY.
+//! modeset without DRM master is refused with EACCES, a commit while a
+//! flip is pending with EBUSY, and a commit asking for a flip event on a
+//! CRTC that is off and stays off with EINVAL (`drm_atomic_crtc_check`).
+//! A connector's DPMS and its CRTC's `ACTIVE` are one state, as on an
+//! atomic driver: setting either sets the other.
 
 #![expect(
     clippy::arithmetic_side_effects,
@@ -91,6 +94,11 @@ pub(crate) struct State {
     pub(crate) planes: BTreeMap<u32, Plane>,
     /// The DPMS value of each connector.
     pub(crate) dpms: BTreeMap<u32, u64>,
+    /// The CRTC each connector is on, each CRTC's `ACTIVE`, and the CRTC
+    /// each plane is on, as the commits so far left them.
+    pub(crate) bound: BTreeMap<u32, u32>,
+    pub(crate) active: BTreeMap<u32, bool>,
+    pub(crate) plane_crtc: BTreeMap<u32, u32>,
     pub(crate) master: bool,
     /// Another process holds master: taking it fails.
     pub(crate) master_elsewhere: bool,
@@ -366,8 +374,9 @@ impl Kms for FakeCard {
                 Ok(self.props(&[("DPMS", dpms), ("CRTC_ID", 0)]))
             }
             Object::Crtc => {
+                let active = u64::from(s.active.get(&id).copied().unwrap_or(false));
                 drop(s);
-                Ok(self.props(&[("MODE_ID", 0), ("ACTIVE", 0)]))
+                Ok(self.props(&[("MODE_ID", 0), ("ACTIVE", active)]))
             }
             Object::Plane => {
                 let plane = s
@@ -375,8 +384,12 @@ impl Kms for FakeCard {
                     .get(&id)
                     .cloned()
                     .ok_or_else(|| err(Errno::NOENT))?;
+                let crtc = u64::from(s.plane_crtc.get(&id).copied().unwrap_or(0));
                 drop(s);
-                let mut names: Vec<(&str, u64)> = PLANE_PROPS.iter().map(|&n| (n, 0)).collect();
+                let mut names: Vec<(&str, u64)> = PLANE_PROPS
+                    .iter()
+                    .map(|&n| (n, if n == "CRTC_ID" { crtc } else { 0 }))
+                    .collect();
                 names.push(("type", plane.kind));
                 if plane.damage {
                     names.push(("FB_DAMAGE_CLIPS", 0));
@@ -473,27 +486,66 @@ impl Kms for FakeCard {
         if !s.master {
             return Err(err(Errno::ACCESS));
         }
-        // The CRTCs in the commit's state: each set directly, and each a
-        // plane is put on. The kernel sends a flip event for every one.
+        // The CRTCs in the commit's state: each set directly, each a plane
+        // is put on, and each a plane in the commit was on. The kernel
+        // sends a flip event for every one.
         let mut crtcs: Vec<u32> = commit
             .props
             .iter()
-            .filter_map(|(o, n, v)| {
-                if s.crtcs.contains(o) {
+            .flat_map(|(o, n, v)| {
+                let set = if s.crtcs.contains(o) {
                     Some(*o)
                 } else if n == "CRTC_ID" && *v != 0 && s.planes.contains_key(o) {
                     u32::try_from(*v).ok()
                 } else {
                     None
-                }
+                };
+                set.into_iter().chain(s.plane_crtc.get(o).copied())
             })
             .collect();
         crtcs.sort_unstable();
         crtcs.dedup();
+        let event = flags & DRM_MODE_PAGE_FLIP_EVENT != 0;
+        let active = |c: u32| s.active.get(&c).copied().unwrap_or(false);
+        let stays_off = crtcs.iter().any(|&c| {
+            let now = commit.get(c, "ACTIVE").map_or(active(c), |v| v != 0);
+            !active(c) && !now
+        });
+        if event && stays_off {
+            return Err(err(Errno::INVAL));
+        }
         if crtcs.iter().any(|c| s.pending.contains(c)) {
             return Err(err(Errno::BUSY));
         }
-        if !commit.test_only() && flags & DRM_MODE_PAGE_FLIP_EVENT != 0 {
+        if commit.test_only() {
+            return Ok(());
+        }
+        for (o, n, v) in &commit.props {
+            let v32 = u32::try_from(*v).unwrap_or(0);
+            match n.as_str() {
+                "CRTC_ID" if s.connectors.contains_key(o) => {
+                    s.bound.insert(*o, v32);
+                }
+                "CRTC_ID" if s.planes.contains_key(o) => {
+                    s.plane_crtc.insert(*o, v32);
+                }
+                "ACTIVE" => {
+                    s.active.insert(*o, *v != 0);
+                }
+                _ => {}
+            }
+        }
+        s.plane_crtc.retain(|_, c| *c != 0);
+        let tied: Vec<(u32, u64)> = s
+            .bound
+            .iter()
+            .filter_map(|(&conn, &crtc)| {
+                let on = commit.get(crtc, "ACTIVE")? != 0;
+                Some((conn, if on { 0 } else { 3 }))
+            })
+            .collect();
+        s.dpms.extend(tied);
+        if event {
             s.pending.extend(crtcs);
         }
         Ok(())
@@ -505,6 +557,9 @@ impl Kms for FakeCard {
             return Err(err(Errno::ACCESS));
         }
         s.set_crtcs.push((crtc, fb, connector, *mode));
+        s.bound.insert(connector, crtc);
+        s.active.insert(crtc, true);
+        s.dpms.insert(connector, 0);
         Ok(())
     }
 
@@ -529,7 +584,11 @@ impl Kms for FakeCard {
         if self.prop_name(property) != "DPMS" {
             return Err(err(Errno::INVAL));
         }
-        self.state.borrow_mut().dpms.insert(connector, value);
+        let mut s = self.state.borrow_mut();
+        s.dpms.insert(connector, value);
+        if let Some(&crtc) = s.bound.get(&connector) {
+            s.active.insert(crtc, value == 0);
+        }
         Ok(())
     }
 

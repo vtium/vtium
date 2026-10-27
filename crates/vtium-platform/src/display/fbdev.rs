@@ -209,7 +209,9 @@ impl<F: Framebuffer> Fbdev<F> {
         (id == DISPLAY).then_some(self.dpms).flatten()
     }
 
-    /// Sets the display's power state through `FBIOBLANK`.
+    /// Sets the display's power state through `FBIOBLANK`. While it is not
+    /// on the display lends no canvas; unblanked, its buffer is age 0 and
+    /// [`Event::Redraw`] follows.
     pub fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
         if id != DISPLAY || !self.online || !self.awake {
             return Err(io::Error::new(
@@ -222,14 +224,20 @@ impl<F: Framebuffer> Fbdev<F> {
             Dpms::Standby | Dpms::Suspend => FB_BLANK_NORMAL,
             Dpms::Off => FB_BLANK_POWERDOWN,
         })?;
-        self.dpms = Some(dpms);
+        let was = self.dpms.replace(dpms);
+        if dpms == Dpms::On && was.is_some_and(|d| d != Dpms::On) {
+            if let Some(s) = self.screen.as_mut() {
+                s.fresh = true;
+            }
+            self.events.push(Event::Redraw(DISPLAY));
+        }
         Ok(())
     }
 
     /// Lends the buffer for the next frame. It is the framebuffer itself,
     /// or its copy, and holds the frame before this one.
     pub fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        if id != DISPLAY || !self.awake {
+        if id != DISPLAY || !self.awake || self.dpms.is_some_and(|d| d != Dpms::On) {
             return None;
         }
         let s = self.screen.as_mut()?;
@@ -257,7 +265,7 @@ impl<F: Framebuffer> Fbdev<F> {
     /// where it is drawn into a copy, and starts the stand-in for the flip
     /// event. With no damage it does nothing.
     pub fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        if id != DISPLAY || !self.awake {
+        if id != DISPLAY || !self.awake || self.dpms.is_some_and(|d| d != Dpms::On) {
             return Err(SwapError::Off);
         }
         let s = self.screen.as_mut().ok_or(SwapError::Off)?;
