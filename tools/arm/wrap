@@ -1,0 +1,69 @@
+#!/bin/sh
+# The linker, pkg-config and test runner the Makefile's arm targets name for
+# each ARM target, each a link to this script named TRIPLE-TOOL. It points
+# the tool at the target's sysroot (tools/arm/sysroot):
+#
+#   TRIPLE-cc           clang for the target, linking through lld
+#   TRIPLE-pkg-config   pkg-config reading the sysroot's .pc files
+#   TRIPLE-run          the binary under qemu-user, its libraries from the sysroot
+#
+# The linker is the host's clang with rustc's own lld, so a cross build needs
+# no cross toolchain.
+#
+# A binary under TRIPLE-run starts the target's binaries too, as vtium's
+# tests start vtium, so the kernel must hand them to qemu through
+# binfmt_misc. When the host registers no qemu for the target, TRIPLE-run
+# registers one in a binfmt_misc of its own, in a user namespace (Linux 6.7
+# or later), and runs the binary there as the invoking user. Nothing on the
+# host changes.
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+name=${0##*/}
+case $name in
+aarch64-unknown-linux-gnu-*)
+    arch=arm64 triple=aarch64-linux-gnu clang=aarch64-linux-gnu qemu=qemu-aarch64
+    # The ELF header of an aarch64 executable, as qemu's binfmt rules match it
+    magic='\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\xb7\x00'
+    mask='\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff'
+    ;;
+armv7-unknown-linux-gnueabihf-*)
+    arch=armhf triple=arm-linux-gnueabihf clang=armv7-linux-gnueabihf qemu=qemu-arm
+    magic='\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x28\x00'
+    mask='\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff'
+    ;;
+*) echo "wrap: no ARM target is named $name" >&2; exit 1 ;;
+esac
+sysroot=$("$here/sysroot" dir $arch)
+[ -f "$sysroot/.pins" ] || { echo "wrap: no $arch sysroot at $sysroot; make arm-sysroot fetches it" >&2; exit 1; }
+case $name in
+*-cc)
+    lld=$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/gcc-ld/ld.lld
+    exec clang --target=$clang --sysroot="$sysroot" --ld-path="$lld" "$@"
+    ;;
+*-pkg-config)
+    export PKG_CONFIG_SYSROOT_DIR="$sysroot"
+    export PKG_CONFIG_LIBDIR="$sysroot/usr/lib/$triple/pkgconfig:$sysroot/usr/share/pkgconfig"
+    exec pkg-config "$@"
+    ;;
+*-run)
+    export QEMU_LD_PREFIX="$sysroot"
+    binfmt=/proc/sys/fs/binfmt_misc
+    if [ -n "${VTIUM_ARM_IDS-}" ]; then
+        # In the namespace, as its root: register qemu, then map back to the
+        # invoking user.
+        ids=$VTIUM_ARM_IDS
+        unset VTIUM_ARM_IDS
+        mount -t binfmt_misc binfmt_misc "$binfmt"
+        printf '%s' ":$qemu:M::$magic:$mask:$(command -v $qemu):" > "$binfmt/register"
+        exec unshare --user --map-user="${ids%:*}" --map-group="${ids#*:}" $qemu "$@"
+    fi
+    if [ ! -e "$binfmt/$qemu" ]; then
+        if unshare --user --map-root-user --mount true 2>/dev/null; then
+            VTIUM_ARM_IDS=$(id -u):$(id -g) exec unshare --user --map-root-user --mount "$0" "$@"
+        fi
+        echo "wrap: no binfmt_misc entry for $qemu and no user namespace: the target binaries this one starts will not run" >&2
+    fi
+    exec $qemu "$@"
+    ;;
+*) echo "wrap: no tool is named $name" >&2; exit 1 ;;
+esac

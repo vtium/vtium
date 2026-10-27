@@ -1,0 +1,121 @@
+#!/bin/sh
+# The Debian sysroots vtium's ARM builds link against and qemu-user runs the
+# tests in. pin.tsv names the archive snapshot, the key its index is signed
+# by, and each package by version and SHA-256; a sysroot is those packages
+# extracted, with no package manager and no root.
+#
+#   sysroot fetch ARCH...   extract ARCH's pinned packages into its sysroot
+#   sysroot dir ARCH        print ARCH's sysroot
+#   sysroot pin             resolve pin.tsv's packages again from its snapshot
+#
+# ARCH is a Debian architecture, arm64 or armhf. The sysroots live in
+# VTIUM_ARM_SYSROOTS (default $XDG_CACHE_HOME/vtium/arm), shared by every
+# checkout; a sysroot whose pins differ from pin.tsv's is extracted again.
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+pins=$here/pin.tsv
+root=${VTIUM_ARM_SYSROOTS:-${XDG_CACHE_HOME:-$HOME/.cache}/vtium/arm}
+
+die() { echo "sysroot: $*" >&2; exit 1; }
+field() { awk -F'\t' -v k="$1" '$1 == k { print $2; exit }' "$pins"; }
+debs() { awk -F'\t' -v a="$1" '$1 == "deb" && $2 == a' "$pins"; }
+
+fetch() {
+    arch=$1
+    rows=$(debs "$arch")
+    [ -n "$rows" ] || die "pin.tsv pins no packages for $arch"
+    dir=$root/$arch
+    if [ -f "$dir/.pins" ] && [ "$(cat "$dir/.pins")" = "$rows" ]; then
+        return
+    fi
+    snapshot=$(field snapshot)
+    mkdir -p "$root/debs"
+    tmp=$(mktemp -d "$root/.$arch.XXXXXX")
+    trap 'rm -rf "$tmp"' EXIT
+    # The sysroot is /usr-merged, so the dynamic loader finds every library
+    # in /usr/lib/TRIPLE. qemu-user resolves open() in the sysroot but not
+    # statx(), so a loader search of /lib/TRIPLE that misses marks the
+    # directory absent, and a library only there is then never found.
+    mkdir -p "$tmp/usr/lib" "$tmp/usr/bin" "$tmp/usr/sbin" "$tmp/etc"
+    ln -s usr/lib "$tmp/lib"
+    ln -s usr/bin "$tmp/bin"
+    ln -s usr/sbin "$tmp/sbin"
+    # An empty loader cache, so the loader searches the sysroot's
+    # directories and never reads the host's cache, whose 32-bit entries
+    # name the host's libraries.
+    : > "$tmp/etc/ld.so.cache"
+    echo "$rows" | while IFS="$(printf '\t')" read -r _ _ pkg _ sha path; do
+        deb=$root/debs/${path##*/}
+        if [ ! -f "$deb" ]; then
+            curl -fsSL --retry 3 -o "$deb.part" "$snapshot/$path"
+            mv "$deb.part" "$deb"
+        fi
+        echo "$sha  $deb" | sha256sum -c --quiet - || { rm -f "$deb"; die "$pkg: SHA-256 differs from pin.tsv"; }
+        data=$(ar t "$deb" | grep '^data\.tar')
+        (cd "$tmp" && ar x "$deb" "$data" && tar --keep-directory-symlink -xf "$data" && rm "$data")
+    done
+    echo "$rows" > "$tmp/.pins"
+    rm -rf "$dir.old"
+    [ ! -e "$dir" ] || mv "$dir" "$dir.old"
+    mv "$tmp" "$dir"
+    trap - EXIT
+    rm -rf "$dir.old"
+    echo "sysroot: $arch in $dir"
+}
+
+# Resolves every pinned package again from the snapshot's index: InRelease
+# verified against the pinned key, the arch's Packages.xz against InRelease,
+# and the version, path and SHA-256 read from Packages. The key is fetched
+# into a keyring beside the sysroots, never the user's.
+pin() {
+    snapshot=$(field snapshot)
+    key=$(field key)
+    suite=$(field suite)
+    work=$(mktemp -d)
+    trap 'rm -rf "$work"' EXIT
+    export GNUPGHOME="$root/gnupg"
+    [ -d "$GNUPGHOME" ] || { mkdir -p "$root" && mkdir -m 700 "$GNUPGHOME"; }
+    gpg --batch --list-keys "$key" >/dev/null 2>&1 ||
+        gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "$key"
+    curl -fsSL --retry 3 -o "$work/InRelease" "$snapshot/dists/$suite/InRelease"
+    # gpg fails on InRelease's other signatures, whose keys the keyring
+    # lacks; the status line for the pinned key is the verdict.
+    gpg --batch --status-file "$work/status" --output "$work/Release" \
+        --decrypt "$work/InRelease" 2>/dev/null || true
+    grep -q "^\[GNUPG:\] VALIDSIG .* $key\$" "$work/status" ||
+        die "InRelease is not signed by $key"
+    {
+        grep -v '^deb	' "$pins"
+        for arch in $(awk -F'\t' '$1 == "deb" { print $2 }' "$pins" | uniq); do
+            index=main/binary-$arch/Packages.xz
+            sha=$(awk -v f="$index" '/^SHA256:/ { s = 1; next } /^[^ ]/ { s = 0 } s && $3 == f { print $1 }' "$work/Release")
+            [ -n "$sha" ] || die "Release lists no $index"
+            curl -fsSL --retry 3 -o "$work/Packages.xz" "$snapshot/dists/$suite/$index"
+            echo "$sha  $work/Packages.xz" | sha256sum -c --quiet - || die "$index: SHA-256 differs from Release"
+            xz -dc "$work/Packages.xz" > "$work/Packages"
+            for pkg in $(debs "$arch" | cut -f3); do
+                awk -v p="$pkg" -v a="$arch" '
+                    /^Package: / { hit = ($2 == p) }
+                    hit && /^Version: / { v = $2 }
+                    hit && /^Filename: / { f = $2 }
+                    hit && /^SHA256: / { s = $2 }
+                    /^$/ && hit { print "deb\t" a "\t" p "\t" v "\t" s "\t" f; found = 1; exit }
+                    END { if (!found) exit 1 }' "$work/Packages" ||
+                    die "$suite $arch has no $pkg"
+            done
+        done
+    } > "$work/pin.tsv"
+    mv "$work/pin.tsv" "$pins"
+    echo "sysroot: pin.tsv resolved from $snapshot"
+}
+
+case ${1-} in
+fetch)
+    shift
+    [ $# -gt 0 ] || die "fetch needs an ARCH"
+    for arch; do fetch "$arch"; done
+    ;;
+dir) echo "$root/${2:?sysroot dir needs an ARCH}" ;;
+pin) pin ;;
+*) die "usage: sysroot fetch ARCH... | dir ARCH | pin" ;;
+esac

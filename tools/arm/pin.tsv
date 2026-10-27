@@ -1,0 +1,27 @@
+# The Debian packages tools/arm/sysroot extracts into each ARM sysroot: what
+# vtium links against and what qemu-user runs the tests with. A vtium linked
+# against bookworm's glibc 2.36 runs on that glibc and later.
+# `tools/arm/sysroot pin` resolves the deb rows again from the snapshot's
+# index, verified against the key; a change of snapshot or package goes in a
+# commit of its own.
+snapshot	https://snapshot.debian.org/archive/debian/20261020T000000Z
+suite	bookworm
+key	04B54C3CDCA79751B16BC6B5225629DF75B188BD
+deb	arm64	libc6	2.36-9+deb12u14	01f4330719fd4f65580e16ea5a0527f372fca750e8f588d26deaf09f2d3b1cf4	pool/main/g/glibc/libc6_2.36-9+deb12u14_arm64.deb
+deb	arm64	libc6-dev	2.36-9+deb12u14	8bc395bf2ee9939f1a6ae395f974cffdcf541d98f99adfe89ce7e4bef36d159e	pool/main/g/glibc/libc6-dev_2.36-9+deb12u14_arm64.deb
+deb	arm64	linux-libc-dev	6.1.176-1	eeca5ec13bed7206f8171fab9a48e84119dcc20cc79557f104628447a524ad10	pool/main/l/linux/linux-libc-dev_6.1.176-1_arm64.deb
+deb	arm64	libgcc-s1	12.2.0-14+deb12u1	576926b283613db80168ddf76380a3bd877602778cf0d226caa7bfbfa71eacf3	pool/main/g/gcc-12/libgcc-s1_12.2.0-14+deb12u1_arm64.deb
+deb	arm64	libgcc-12-dev	12.2.0-14+deb12u1	c83d28b7c3397c25f15ae17783fce78716a3d7cd415940940cc2af8dc4db8d6d	pool/main/g/gcc-12/libgcc-12-dev_12.2.0-14+deb12u1_arm64.deb
+deb	arm64	libudev1	252.39-1~deb12u2	b76444b0259abfa416f8c1d9a652d208a24770667a1181aa52317b74d12a7a72	pool/main/s/systemd/libudev1_252.39-1~deb12u2_arm64.deb
+deb	arm64	libudev-dev	252.39-1~deb12u2	d7d5f1255999f1ffe3a033a47f41c4cbcb4de339b3a9172c8c3bb9bb3d465efb	pool/main/s/systemd/libudev-dev_252.39-1~deb12u2_arm64.deb
+deb	arm64	libxkbcommon0	1.5.0-1	ec518d8a19796a399ab95e7bc4dfbb6bd2ed8e151f77b222df26208db412d852	pool/main/libx/libxkbcommon/libxkbcommon0_1.5.0-1_arm64.deb
+deb	arm64	libxkbcommon-dev	1.5.0-1	7d39b34b202fe58e18992b439c79c149ebb1b821b58dfb863ff4898e06420699	pool/main/libx/libxkbcommon/libxkbcommon-dev_1.5.0-1_arm64.deb
+deb	armhf	libc6	2.36-9+deb12u14	758c68b92654747025b48476a45c315bf16df1321224abdd9be672bfd120be45	pool/main/g/glibc/libc6_2.36-9+deb12u14_armhf.deb
+deb	armhf	libc6-dev	2.36-9+deb12u14	ca9486dc7f2dfb25c61c0c93d561c01f8abdf9866bd4c157f0ccd518295bbbb7	pool/main/g/glibc/libc6-dev_2.36-9+deb12u14_armhf.deb
+deb	armhf	linux-libc-dev	6.1.176-1	5641c2f8c252bacc210abb9456deb4344357ccf32ca5821cb8ffe3a9a193a1fb	pool/main/l/linux/linux-libc-dev_6.1.176-1_armhf.deb
+deb	armhf	libgcc-s1	12.2.0-14+deb12u1	f58562bf01efd6112b914182147ee149e0d4c90869046e31844da8803669eeb3	pool/main/g/gcc-12/libgcc-s1_12.2.0-14+deb12u1_armhf.deb
+deb	armhf	libgcc-12-dev	12.2.0-14+deb12u1	f4af3b766ae50185d8c94933bfb369266aeb4b9288916d2c9789bf0283f3df5a	pool/main/g/gcc-12/libgcc-12-dev_12.2.0-14+deb12u1_armhf.deb
+deb	armhf	libudev1	252.39-1~deb12u2	094567c28c3dc3930ea8c7b53c5fef7439a84ae42cdfdd4bd58d37c7d3eaaf4c	pool/main/s/systemd/libudev1_252.39-1~deb12u2_armhf.deb
+deb	armhf	libudev-dev	252.39-1~deb12u2	ea007d7e1d5c05da6377a8d25303e8411b4f57930017631f21fc1dd8de48c90a	pool/main/s/systemd/libudev-dev_252.39-1~deb12u2_armhf.deb
+deb	armhf	libxkbcommon0	1.5.0-1	2ef51eccfd22dc660b28f68db6128e162e7afccf044db0a40c99ab3a41da92c6	pool/main/libx/libxkbcommon/libxkbcommon0_1.5.0-1_armhf.deb
+deb	armhf	libxkbcommon-dev	1.5.0-1	22f86a1c6c1b535d1c071885c41547cb4ec4beeddea8e9fc209a91ca80bc807b	pool/main/libx/libxkbcommon/libxkbcommon-dev_1.5.0-1_armhf.deb
