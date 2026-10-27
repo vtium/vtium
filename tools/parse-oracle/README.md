@@ -32,7 +32,7 @@ The build reads the pinned commit from `$LIBTSM` (default `../libtsm` beside thi
 
 ## The C side
 
-`build.rs` reads each range in `extract.tsv` from the pinned commit and writes it to `OUT_DIR/extract/<name>.inc`, with a `#line` directive back to the source. Extraction refuses to proceed in three cases: the commit is missing, the first or last line of a range differs from the text recorded for it (whitespace collapsed), or the range's braces do not balance. So when the pin moves, every range has to be checked again.
+`build.rs` reads each range in `extract.tsv` from the pinned commit and writes it to `OUT_DIR/extract/<name>.inc`, with a `#line` directive back to the source. Extraction refuses to proceed in three cases: the commit is missing, the first or last line of a range differs from the text recorded for it (whitespace collapsed), or the range's braces do not balance. So when the pin moves, every range has to be checked again, and so does the struct mirror: the fields of `struct tsm_vte` in `harness/shim.c` and in `src/c_side.rs` against the pin's `tsm-vte-int.h`. The layout check compares the shim with the mirror, not with the C reference's header.
 
 The extracted code is the parser: the UTF-8 decoder, `do_clear`, `do_collect`, `do_param`, OSC collection, the DCS start, collect and end, `do_action`, the transition tables, `parse_data`, `vte_input`, and the parser's lines of `tsm_vte_reset`. `harness/shim.c` includes it unchanged and holds no logic of its own:
 
@@ -40,7 +40,7 @@ The extracted code is the parser: the UTF-8 decoder, `do_clear`, `do_collect`, `
 - Each function a departure acts on is renamed `ref_*` as it is included. Its callers reach a Rust hook, which applies the departures and calls the C function back through an `oracle_ref_*` export.
 - Logging, the charset mapping, the sixel handler and the image fast paths compile to nothing.
 
-`src/c_side.rs` mirrors `struct tsm_vte` and the C reference's constants. On start it checks both against the shim's `oracle_layout` and `oracle_constants` and refuses to run on any difference. The C reference runs only inside a call from the Rust side, and a callback reaches the side's state through a thread-local cell for the length of that call.
+Unsafe code lives only in `src/c_side.rs`, the FFI: `src/main.rs` denies `unsafe_code` and allows it for that module alone. `src/c_side.rs` mirrors `struct tsm_vte` and the C reference's constants. On start it checks both against the shim's `oracle_layout` and `oracle_constants` and refuses to run on any difference. The C side runs only inside a call from the Rust side, and a callback reaches the side's state through a thread-local cell for the length of that call.
 
 The trace is written where vtium's parser hands work to its consumer. Each dispatch is traced as it is entered, and what the C reference then did with it belongs to `vtium-term`. Every DCS string except XTGETTCAP is traced as hooked: vtium-parse leaves the choice of handler to its consumer, where the C reference made it in `do_dcs_start` and hooked only sixel. `vte_input` runs without the sixel and kitty fast paths, so every byte goes through `parse_data`.
 
@@ -91,7 +91,7 @@ One line per action, the same on both sides:
 |---|---|
 | `mode` m, `reset`, `pause` offset | The stream's own events. A pause gives the offset in its data record where the parser stopped. |
 | `print` c, `exec` c | A character printed and a control executed, in hex. |
-| `esc` final ims | An ESC dispatch. `ims` is the private marker and intermediates as hex bytes, or `-` for none. |
+| `esc` final ims | An ESC dispatch. `ims` is the private marker and the intermediates as hex bytes, split by `/` (`3f/24`, `/2121`), or `-` for none. |
 | `csi` final ims [params] | A CSI dispatch. Each parameter is a number, or -1 when omitted, followed by `:`-joined sub-parameters. |
 | `osc` end [`t`] data | An OSC string's end (`st`, `bel` or `cancel:`byte), `t` when truncated, and its bytes in hex. |
 | `dcs_hook`, `dcs_put`, `dcs_unhook` | A DCS string's header, each data character and its end. |
