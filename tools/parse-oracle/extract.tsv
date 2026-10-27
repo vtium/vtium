@@ -1,0 +1,26 @@
+# The C reference's parser, by line range at the commit pin.tsv names.
+# build.rs writes each range to OUT_DIR/extract/<name>.inc, which
+# harness/shim.c includes. The extraction refuses a range whose first or last
+# line differs from the text given here (whitespace collapsed), or whose
+# braces do not balance.
+#
+# name	path	first	last	first line	last line
+ucs4-replacement	src/tsm/libtsm.h	116	116	#define TSM_UCS4_REPLACEMENT (0xfffdUL)	#define TSM_UCS4_REPLACEMENT (0xfffdUL)
+symbol	src/tsm/libtsm.h	141	141	typedef uint32_t tsm_symbol_t;	typedef uint32_t tsm_symbol_t;
+input-flags	src/tsm/libtsm.h	881	882	#define TSM_VTE_FLAG_8BIT_MODE 0x00000008 /* Disable UTF-8 mode and enable 8bit compatible mode */	#define TSM_VTE_FLAG_7BIT_MODE 0x00000010 /* Disable 8bit mode and use 7bit compatible mode */
+termcap-name	src/tsm/libtsm.h	1538	1538	#define TSM_VTE_TERMCAP_NAME_MAX 32	#define TSM_VTE_TERMCAP_NAME_MAX 32
+utf8-states	src/tsm/libtsm-int.h	103	112	enum tsm_utf8_mach_state {	};
+bounds	src/tsm/tsm-vte-int.h	24	38	/* max CSI arguments */	(XTGETTCAP_NAMES * (2 * TSM_VTE_TERMCAP_NAME_MAX + 1) - 1)
+ucs4-to-utf8	src/tsm/tsm-unicode.c	600	630	size_t tsm_ucs4_to_utf8(uint32_t g, char *txt)	}
+utf8-mach	src/tsm/tsm-unicode.c	698	830	struct tsm_utf8_mach {	}
+parser-enums	src/tsm/tsm-vte.c	64	128	/* Input parser states */	};
+reset	src/tsm/tsm-vte.c	1042	1048	tsm_utf8_mach_reset(vte->mach);	vte->state = STATE_GROUND;
+do-clear	src/tsm/tsm-vte.c	1216	1230	static void do_clear(struct tsm_vte *vte)	}
+do-collect	src/tsm/tsm-vte.c	1232	1275	static void do_collect(struct tsm_vte *vte, uint32_t data)	}
+do-param	src/tsm/tsm-vte.c	1277	1326	static void do_param(struct tsm_vte *vte, uint32_t data)	}
+do-osc-collect	src/tsm/tsm-vte.c	2912	2921	static void do_osc_collect(struct tsm_vte *vte, uint32_t val) {	}
+dcs	src/tsm/tsm-vte.c	3128	3170	static void do_dcs_start(struct tsm_vte *vte, uint32_t data)	}
+do-action	src/tsm/tsm-vte.c	3172	3236	/* perform parser action */	}
+transitions	src/tsm/tsm-vte.c	3238	3273	/* entry actions to be performed when entering the selected state */	}
+parse-data	src/tsm/tsm-vte.c	3280	3642	static void parse_data(struct tsm_vte *vte, uint32_t raw)	}
+vte-input	src/tsm/tsm-vte.c	3644	3687	/* parses until @len bytes are read, the image work runs out, a kitty	}

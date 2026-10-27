@@ -12,6 +12,8 @@ How to work on vtium, for coding agents and the people who run them. [CONTRIBUTI
 
 The two forks are the frozen C reference: the floor for behaviour, never the ceiling, and no guide to how vtium is built. vtium is idiomatic Rust. Read the forks; change them only for the test infrastructure vtium is judged by. Their local checkouts are often behind, so fetch and read `origin/main` (`git -C ../kmscon show origin/main:<path>`). Every `gh` command for a fork takes `-R aaronsb/kmscon` or `-R aaronsb/libtsm`, since plain `gh` here targets vtium/vtium.
 
+A question about behaviour or structure is answered from the C reference first, through [docs/c-reference.md](docs/c-reference.md) and then the forks' code at `origin/main`, taking its logic flow and never its code structure, before anything new is designed.
+
 Upstream `kmscon/kmscon` and `kmscon/libtsm` are never written to: no issue, PR or comment, and no maintainer tagged. Upstream appears in vtium's text only in code spans, with no links. A defect found in the C reference, a security defect included, is fixed in vtium and listed as a departure; the fork is fixed only when the maintainer asks, and nothing is reported upstream.
 
 ## Writing
@@ -62,7 +64,7 @@ The lint's docstring states how feature ids are formed. An id never changes once
 | Capability probes | each claimed capability, through a replay | `../kmscon/tests/capabilities/` (`probes.replay`, `run.py`) | `make test` in `../kmscon` |
 | 2, pixels | what the renderer draws in memory, pixel for pixel | ported from `../kmscon/tests/` (#17) | with vtium-render |
 | 3, the VM | screenshots of the installed build on a VT in a QEMU/KVM guest with a real KMS device, against goldens, with size and memory figures | `../kmscon/fork/tier3/` | `make tier3-minimal` in `../kmscon` (the minspec variants, 1 vCPU and 512 MB); #22 adds the option that boots a vtium build |
-| VT review | the maintainer's eyes on a real VT, guided step by step | this machine | `make vt-check`, which lands with #68 |
+| VT review | the maintainer's eyes on a real VT, guided step by step | this machine | `make vt-check GUIDE=start` ([docs/vt-review.md](docs/vt-review.md)); the binary arrives with #21 |
 
 Goldens live in the C repositories and are the judge. The author of a change never rewrites, widens or regenerates the golden that judges it; a golden changes only in its own commit, with each moved value listed. vtium's differences from a golden are its listed departures (each crate's README and #14's list); an unlisted difference fails.
 
@@ -76,7 +78,7 @@ The VT review runs one build at a time, from one place, so no stray builds float
 - The maintainer switches to that VT (Ctrl-Alt-F<n>), follows each step of the guide and answers y, n or skip, with a note. Sudo asks for its password in the terminal the run started from.
 - When the run ends, the console comes back on that VT and the steering session reads the answers from the log.
 
-A delegated agent proves its branch through the gates and tiers 1 to 3 in its worktree, and stops there. On this machine, which is the maintainer's live desktop, an agent opens no `/dev/dri` device, takes no DRM master, switches no VT, opens no `/dev/tty<N>` console and runs no sudo. Its own ptys and the tier 3 VM are fine.
+A delegated agent proves its branch through the gates and tiers 1 to 3 in its worktree, and stops there. On this machine, which is the maintainer's live desktop, an agent takes no DRM master, sets no mode, switches no VT, opens no `/dev/tty<N>` console and runs no sudo. Creating GL contexts on a render node and allocating and mapping dumb buffers without a modeset are fine, as are its own ptys and the tier 3 VM.
 
 ## The working loop
 
@@ -109,6 +111,7 @@ A delegated agent is released explicitly when its work has merged. Messages stil
 | For | Read |
 |---|---|
 | The crates, the tiers, determinism, the reply rule, tables and maps | [docs/architecture.md](docs/architecture.md) |
+| How the C reference worked, part by part, and the vtium issue that takes each part | [docs/c-reference.md](docs/c-reference.md) |
 | What a contribution must show, the code rules, the kitty source rule | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | The target set and its coverage | `docs/architecture/term/ADR-1000-*` |
 | A crate's departures and bounds | `crates/<crate>/README.md` |

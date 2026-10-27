@@ -25,3 +25,9 @@ jobs:
       - run: docs/scripts/adr lint --check
       - name: ADR-1000 coverage ledger
         run: docs/scripts/coverage
+
+  tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make test-tools

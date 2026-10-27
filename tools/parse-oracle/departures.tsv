@@ -1,0 +1,16 @@
+# The differences the oracle expects between vtium-parse and the C reference:
+# one row for each departure crates/vtium-parse/README.md lists, matched by
+# its bold lead. A README departure with no row, or a row with no README
+# departure, stops the run. Each id names a switch in src/c_side.rs that
+# applies the departure to the C side; a difference no switch accounts for
+# fails the run.
+#
+# id	README lead	what the switch does to the C side
+string-end	A string acts only when its terminator completes it.	An ESC leaving an OSC, DCS or APC string defers the string's end to the next character: `\` ends it with ST, anything else cancels it. A reset drops a deferred end.
+intermediates	Intermediates keep their order, count and bytes.	The trace shows the collected bytes in order where it showed the flag set, a third intermediate makes the sequence do nothing, and XTGETTCAP is picked by the bytes.
+reset-apc-st	A reset drops the `\` of an APC's ST.	After a reset that dropped a deferred APC end, a `\` next is dropped.
+empty-params	Every empty parameter is omitted.	An empty parameter before `;` stays omitted where the C reference made it 0.
+c1-utf8	C1 controls do nothing in UTF-8 mode.	U+0080 to U+009F from the UTF-8 decoder are dropped before the state machine.
+gr-as-gl	GR acts as GL inside sequences in 8-bit mode.	In 8-bit mode, a byte from A0 to FF in an ESC, CSI or DCS header is read as the byte 80 below it.
+past-ascii	A character past ASCII ends a sequence header in UTF-8 mode.	In UTF-8 mode, a character from U+00A0 up drops an ESC sequence and ignores a DCS string, where the C reference collected it or took it as the final.
+osc-prefix	A truncated OSC string is a prefix.	Once a character fails to fit the OSC buffer, the string takes nothing more.

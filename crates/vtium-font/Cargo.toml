@@ -11,4 +11,19 @@ authors.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = ["gzip", "unifont"]
+# gzip-compressed PSF fonts, as the C reference's zlib option read them
+gzip = ["dep:miniz_oxide"]
+# the built-in unifont, compressed into the binary and inflated a chunk at a time
+unifont = ["dep:miniz_oxide"]
+
 [dependencies]
+miniz_oxide = { version = "0.8.9", optional = true }
+
+[build-dependencies]
+miniz_oxide = "0.8.9"
+
+[dev-dependencies]
+# writes and reads the gzip fonts the tests craft
+miniz_oxide = "0.8.9"

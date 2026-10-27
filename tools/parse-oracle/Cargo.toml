@@ -1,0 +1,18 @@
+# The parse oracle: vtium-parse against the C reference's parser, which
+# build.rs extracts from a pinned libtsm commit and compiles. Its own
+# workspace, so the main workspace and CI need neither gcc nor libtsm.
+[package]
+name = "parse-oracle"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+vtium-parse = { path = "../../crates/vtium-parse" }
+
+# Compiles the C reference's parser and harness/shim.c.
+[build-dependencies]
+cc = "1.2"
+
+[workspace]
+members = ["."]
