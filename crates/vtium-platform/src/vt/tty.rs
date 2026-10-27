@@ -161,6 +161,10 @@ impl Console for Tty {
     fn watch(&self) -> Option<io::Result<OwnedFd>> {
         Some(self.fd.try_clone())
     }
+
+    fn watch_shown(&self) -> Option<io::Result<OwnedFd>> {
+        Some(super::shown::open())
+    }
 }
 
 /// A signal's number, as `struct vt_mode` holds it.

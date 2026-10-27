@@ -47,6 +47,11 @@ pub(crate) struct Kernel {
     pub(crate) num: u16,
     /// The VT on screen.
     pub(crate) on_screen: u16,
+    /// What opening tty0's `active` gives the loop.
+    pub(crate) shown_watch: ShownWatch,
+    /// A switch changed the VT on screen since the last notification
+    /// taken, as `sysfs_notify` on tty0's `active` tells (vt.c:945-946).
+    pub(crate) notified: bool,
     /// Every other VT's switching and display mode.
     pub(crate) others: (Switching, DisplayMode),
     /// The VT a `VT_ACTIVATE` asked for, which the kernel's worker
@@ -88,6 +93,8 @@ impl FakeConsole {
         FakeConsole(Rc::new(RefCell::new(Kernel {
             num,
             on_screen,
+            notified: false,
+            shown_watch: ShownWatch::Absent,
             others: (Switching::Auto, DisplayMode::Text),
             wanted: None,
             display: DisplayMode::Text,
@@ -121,8 +128,17 @@ impl FakeConsole {
         (k.display, k.switching, k.keyboard)
     }
 
+    /// The kernel switches to VT `num`: it is shown, and tty0's `active`
+    /// notifies.
     pub(crate) fn show(&self, num: u16) {
-        self.0.borrow_mut().on_screen = num;
+        switch_screen(&mut self.0.borrow_mut(), num);
+    }
+
+    /// tty0's `active` as a read after its notification finds it, `ttyN`,
+    /// or `None` with no switch since the last one.
+    pub(crate) fn take_notification(&self) -> Option<Vec<u8>> {
+        let mut k = self.0.borrow_mut();
+        std::mem::take(&mut k.notified).then(|| format!("tty{}\n", k.on_screen).into_bytes())
     }
 
     /// The kernel's worker switches to the VT a `VT_ACTIVATE` asked for, as
@@ -143,7 +159,7 @@ impl FakeConsole {
         match shown_modes(&k) {
             (Switching::Process, _) if own => k.pending_switch = Some(want),
             (Switching::Process, _) | (Switching::Auto, DisplayMode::Graphics) => {}
-            (Switching::Auto, DisplayMode::Text) => k.on_screen = want,
+            (Switching::Auto, DisplayMode::Text) => switch_screen(&mut k, want),
         }
     }
 
@@ -210,7 +226,7 @@ impl Console for FakeConsole {
             return Err(io::Error::from(rustix::io::Errno::INVAL));
         };
         if answer != Reldisp::Refuse {
-            k.on_screen = target;
+            switch_screen(&mut k, target);
         }
         Ok(())
     }
@@ -260,6 +276,36 @@ impl Console for FakeConsole {
 
     fn watch(&self) -> Option<io::Result<OwnedFd>> {
         None
+    }
+
+    fn watch_shown(&self) -> Option<io::Result<OwnedFd>> {
+        match self.0.borrow().shown_watch {
+            ShownWatch::Absent => None,
+            ShownWatch::Missing => Some(Err(io::Error::from(rustix::io::Errno::NOENT))),
+            ShownWatch::Unpollable => Some(
+                rustix::fs::memfd_create("active", rustix::fs::MemfdFlags::CLOEXEC)
+                    .map_err(io::Error::from),
+            ),
+        }
+    }
+}
+
+/// What the stand-in gives for tty0's `active`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ShownWatch {
+    /// Nothing, as for a console without it.
+    Absent,
+    /// An attribute that cannot be opened.
+    Missing,
+    /// A file the loop cannot poll, as epoll refuses a regular file.
+    Unpollable,
+}
+
+/// `switch_screen`: VT `num` is shown, and tty0's `active` notifies.
+fn switch_screen(k: &mut Kernel, num: u16) {
+    if k.on_screen != num {
+        k.on_screen = num;
+        k.notified = true;
     }
 }
 

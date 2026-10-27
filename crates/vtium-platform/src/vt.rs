@@ -32,6 +32,7 @@
 
 mod fake_vt;
 mod kernel;
+mod shown;
 mod tty;
 
 #[cfg(test)]
@@ -231,4 +232,7 @@ pub(crate) trait Console: Sized {
     fn try_clone(&self) -> io::Result<Self>;
     /// A descriptor for the loop to watch; `None` for one without.
     fn watch(&self) -> Option<io::Result<OwnedFd>>;
+    /// tty0's `active`, which names the VT shown and notifies on every
+    /// switch; `None` for a console without it.
+    fn watch_shown(&self) -> Option<io::Result<OwnedFd>>;
 }
