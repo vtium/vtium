@@ -2,6 +2,7 @@
 //! cluster into its cells from a face and the sprites.
 
 use crate::glyph::Glyph;
+use crate::hex;
 use crate::policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
 use crate::sprite::{self, Range};
 
@@ -263,10 +264,20 @@ impl<F: Face> Font<F> {
             .has_glyph(first)
             .then(|| self.face.draw(cluster, style))
             .flatten()
+            .or_else(|| self.missing_glyph(first, width))
             .or_else(|| self.face.draw(&[REPLACEMENT], style))
             .or_else(|| self.face.draw(&['?'], style))
             .or_else(|| self.face.last_resort(style))?;
         glyph.fit(w, width)
+    }
+
+    /// The glyph [`Missing`] draws for `c` across `width`, or `None` for
+    /// U+25A1's chain.
+    fn missing_glyph(&self, c: char, width: Width) -> Option<Glyph> {
+        match self.missing {
+            Missing::Replacement => None,
+            Missing::Hex => hex::draw(c, self.face.cell(), width),
+        }
     }
 
     /// [`Font::glyph`] for a renderer that stores bitmap glyphs small: the
@@ -293,11 +304,15 @@ impl<F: Face> Font<F> {
             .width
             .checked_div(scale)?
             .saturating_mul(width.cells());
-        let glyph = self
+        let own = self
             .face
             .has_glyph(first)
             .then(|| self.face.draw_unscaled(cluster, style))
-            .flatten()
+            .flatten();
+        if own.is_none() && self.missing == Missing::Hex {
+            return drawn();
+        }
+        let glyph = own
             .or_else(|| self.face.draw_unscaled(&[REPLACEMENT], style))
             .or_else(|| self.face.draw_unscaled(&['?'], style))
             .or_else(|| self.face.last_resort_unscaled(style));

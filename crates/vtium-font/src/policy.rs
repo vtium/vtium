@@ -47,14 +47,18 @@ impl<T> PerRange<T> {
     }
 }
 
-/// What a character the face lacks draws as.
+/// What a character the face lacks draws as: the configuration's
+/// `missing = box` or `missing = hex` (vtium/vtium#85).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
-#[non_exhaustive]
 pub enum Missing {
-    /// U+25A1, else `?`, else the face's last resort, as the C reference
-    /// drew.
+    /// `box`: U+25A1, else `?`, else the face's last resort, as the C
+    /// reference drew.
     #[default]
     Replacement,
+    /// `hex`: the character's codepoint in hex digits, drawn to fill its
+    /// cells, else U+25A1 as `box` draws it in a cell too small for the
+    /// digits.
+    Hex,
 }
 
 /// A [`Source`] for each [`Range`], set per font.

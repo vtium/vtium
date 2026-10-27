@@ -64,6 +64,7 @@ mod face;
 mod glyph;
 #[cfg(feature = "gzip")]
 mod gzip;
+mod hex;
 mod policy;
 mod psf;
 pub mod sprite;

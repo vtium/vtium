@@ -11,6 +11,7 @@ vtium's glyph sources: font files and built-in fonts in, glyph bitmaps out. It l
 | `src/psf.rs` | `Psf`: the PSF1 and PSF2 loader, its unicode table, and the glyph drawing, with the C reference's notice. |
 | `src/gzip.rs` | gzip (RFC 1952) framing and checks around `miniz_oxide`'s inflate, for gzipped PSF fonts. |
 | `src/unifont.rs` | `Unifont`: the built-in font, inflated a 16 KiB chunk at a time as glyphs are drawn from it. |
+| `src/hex.rs` | The missing glyph `Missing::Hex` draws: the codepoint in 3x5 and 3x4 hex digits. |
 | `src/sprite.rs` | The sprites, ported from the C reference's `font_box.c` with its and Ghostty's notices, and `Range`, the six ranges they fall in. |
 | `src/sprite/legacy.rs` | The Symbols for Legacy Computing sprites the C reference left to the font, adapted from Ghostty's sprite font with its notice. |
 | `src/bounds.rs` | Every bound, with its value, what happens past it and its source: the one source for the constants and for the table below. |
@@ -50,10 +51,15 @@ A sprite's curves and diagonals are supersampled with IEEE 754 `f64` addition, s
   The block's pictographs stay with the face: the pointer, check mark, running man, arrows, folders and squared dot (U+1FBB0-U+1FBBC), the saltire, pointing index, question mark, stick figures, chevrons, cross mark and bracket (U+1FBC0-U+1FBCD), and the segmented digits and alarm bell (U+1FBF0-U+1FBFA). No cell-grid geometry defines them, so they draw from the face, and unifont carries them. `tests/legacy.rs` holds every sprite to a model built from its Unicode name, at every cell size from 1x1 to 32x64 and in larger cells, and to literal masks. `tests/reference.rs` leaves these characters out of the C reference's page digests. A tier 2 screen of the ranges waits for the tier 2 goldens (vtium/vtium#17).
 - **Each sprite range can be drawn from the font instead** (vtium/vtium#85). The C reference always drew its sprites. A `SpritePolicy` gives each `Range` (box drawing, block elements, Braille, sextants, octants and Legacy Computing) a `Source`:
   - `Sprites`: the sprite, whatever the face holds, as the C reference drew.
-  - `Font`: the face's glyph, and `Missing` for a character the face lacks: U+25A1, as for any missing character. A more obvious missing glyph is to come as a second `Missing`.
+  - `Font`: the face's glyph, and the font's `Missing` glyph for a character the face lacks.
   - `Auto`: the face's glyph, and the sprite for a character the face lacks.
 
   `Font::coverage` counts the characters of each range the face holds, 874 in all, through `Face::coverage`, which asks `Face::has_glyph` of each; a face that reads a character map can override it. `Coverage::partial` names the ranges a face covers only partly, for the operator's warning. `Font::new` takes the face's own `Face::sprite_policy`, and `Font::with_policy` sets another; the default is listed under Departures. `tests/policy.rs` holds each source to stand-in faces that cover a range fully, partly and not at all.
+- **A character the face lacks can draw its codepoint** (vtium/vtium#85). `Missing::Replacement`, the configuration's `missing = box` and the default, draws U+25A1, `?` or the face's last resort, as the C reference did. `Missing::Hex`, `missing = hex`, draws the codepoint in hex digits, in the operator's design:
+  - a narrow cell is the text colour with the digits cut out, two rows of two 3x5 digits up to U+FFFF and three rows of two 3x4 digits past it, b and d in lower case;
+  - a wide cell is a box outline with 3x5 digits inside, two rows of two or of three.
+
+  The design is 8x16 narrow and 16x16 wide, scaled by the largest whole factor the cell holds and centred, a narrow cell's margin in the text colour; a cell smaller than the design draws U+25A1. `Font::glyph_unscaled` hands it over at its drawn size, as a sprite. `tests/missing.rs` holds it to literal masks.
 - **A cell is bounded.** A font scales by whole factors only as far as keeps its cell inside `CELL_SIDE_MAX`, and a sprite or glyph past it is not drawn (`CELL_SIDE_MAX` below). The C reference scaled to any height it was asked for.
 
 ## Glyph storage
