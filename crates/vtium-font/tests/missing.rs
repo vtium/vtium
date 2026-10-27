@@ -1,5 +1,6 @@
 //! `Missing::Hex`: a character the face lacks drawn as its codepoint in hex
-//! (vtium/vtium#85), as the operator approved it. The C reference drew
+//! (vtium/vtium#85), in the layout the operator approved; the digit shapes
+//! wait for the operator's approval. The C reference drew
 //! U+25A1, `?` or glyph 0 (font.c:327-339), which `Missing::Replacement`
 //! keeps.
 
@@ -65,10 +66,10 @@ fn picture(g: &Glyph) -> Vec<String> {
         .collect()
 }
 
-// the mock-up the operator approved: the cell in the text colour, the
+// the layout the operator approved: the cell in the text colour, the
 // digits cut out in a 3x5 font, two rows of two
 #[test]
-fn u_2603_in_a_narrow_cell_is_the_approved_mock_up() {
+fn u_2603_in_a_narrow_cell_is_two_rows_of_two_digits() {
     let font = Font::new(Stub::new(8, 16)).with_missing(Missing::Hex);
     let g = hex(&font, '\u{2603}', Width::Narrow);
     assert_eq!((g.width(), g.height(), g.cells()), (8, 16, Width::Narrow));

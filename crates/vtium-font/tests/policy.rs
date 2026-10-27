@@ -3,6 +3,8 @@
 //! cover a range fully, partly and not at all. The C reference always drew
 //! the sprites (font.c:345-357); `Source::Sprites` is that behaviour.
 
+use std::cell::Cell as Count;
+
 use vtium_font::sprite::{self, Range};
 use vtium_font::{Cell, Coverage, Face, Font, Glyph, Missing, RangeCoverage, Source, SpritePolicy};
 use vtium_font::{Style, Width};
@@ -538,4 +540,58 @@ fn a_cluster_on_a_sprite_the_face_lacks_draws_the_sprite() {
         .glyph_unscaled(&cluster, Width::Narrow, plain())
         .expect("drawn");
     assert_eq!((g, scale), (sprite('─'), 1));
+}
+
+/// A face holding every range character, which counts how often it is
+/// asked about one.
+struct Counted {
+    asked: Count<u32>,
+}
+
+impl Counted {
+    fn ask(&self, c: char) {
+        if Range::of(c).is_some() {
+            self.asked.set(self.asked.get() + 1);
+        }
+    }
+}
+
+impl Face for Counted {
+    fn cell(&self) -> Cell {
+        CELL
+    }
+    fn size_step(&self) -> u32 {
+        CELL.height
+    }
+    fn has_glyph(&self, c: char) -> bool {
+        self.ask(c);
+        true
+    }
+    fn draw(&self, cluster: &[char], _style: Style) -> Option<Glyph> {
+        self.ask(*cluster.first()?);
+        Stub::new(full).solid(*cluster.first()?, 1)
+    }
+}
+
+// `sprites` draws the sprite without asking the face, as the C reference
+// did (font.c:345-357)
+#[test]
+fn sprites_never_ask_the_face() {
+    let face = Counted {
+        asked: Count::new(0),
+    };
+    let font = Font::new(face).with_policy(SpritePolicy::SPRITES);
+    // the default policy counted the face's coverage
+    font.face().asked.set(0);
+    for range in Range::ALL {
+        for c in range.chars() {
+            assert_eq!(draw(&font, c), sprite(c));
+            assert!(font.has_glyph(c));
+            let (g, _) = font
+                .glyph_unscaled(&[c], Width::Narrow, plain())
+                .expect("drawn");
+            assert_eq!(g, sprite(c));
+        }
+    }
+    assert_eq!(font.face().asked.get(), 0);
 }

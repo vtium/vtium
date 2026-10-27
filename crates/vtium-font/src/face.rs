@@ -258,9 +258,9 @@ impl<F: Face> Font<F> {
     /// as the base of a cluster the face lacks. A cluster whose first
     /// character the face lacks otherwise draws as the font's [`Missing`]
     /// glyph, whose last fallback is U+25A1, else `?`, else the face's last
-    /// resort; a glyph of another width is centred and cut to the cells. `None` only for an empty cluster or a
-    /// face that can draw nothing. The C reference's `kmscon_font_render`
-    /// (font.c:310-368).
+    /// resort; a glyph of another width is centred and cut to the cells.
+    /// `None` only for an empty cluster or a face that can draw nothing.
+    /// The C reference's `kmscon_font_render` (font.c:310-368).
     pub fn glyph(&self, cluster: &[char], width: Width, style: Style) -> Option<Glyph> {
         let &first = cluster.first()?;
         let cell = self.face.cell();

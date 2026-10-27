@@ -37,7 +37,9 @@
 //!
 //! A [`Face`] draws a character at its own width; a [`Font`] puts a face
 //! and the [`sprite`]s together and draws any cluster exactly into its
-//! cells, falling back to U+25A1 and `?` for a character the face lacks.
+//! cells. A character the face lacks draws as its sprite where the policy
+//! draws one, else as the font's [`Missing`] glyph: U+25A1, `?` or the
+//! face's last resort, or the codepoint in hex.
 //! Its [`SpritePolicy`] chooses, for each [`sprite::Range`], between the
 //! face's glyphs and the sprites, and [`Font::coverage`] counts how much
 //! of each range the face holds.
