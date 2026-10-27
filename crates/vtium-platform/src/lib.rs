@@ -36,9 +36,10 @@
 //!   coalesces pointer motion. The child's output reaches a
 //!   [`pty::Consumer`] in parts it chooses, and what the consumer sees and
 //!   replies depends only on the bytes, never on how reads split them.
-//! - [`display`]: a DRM card drawn into dumb buffers ([`display::Drm2d`]),
-//!   lending its back buffer to the compositor and presenting it with the
-//!   frame's damage, paced by page flips.
+//! - [`display`]: a DRM card drawn into dumb buffers ([`display::Drm2d`])
+//!   and fbdev ([`display::Fbdev`]), each lending its back buffer to the
+//!   compositor and presenting it with the frame's damage, paced by page
+//!   flips, and the DPMS blank ([`display::Blank`]).
 //!
 //! Each bound is defined once in `src/bounds.rs` and tabulated in the
 //! crate's README.

@@ -19,15 +19,19 @@
 //! flight waits for the flip's completion event, at most
 //! [`crate::FLIP_WAIT_MS`].
 
+mod blank;
 mod card;
 mod drm2d;
 #[cfg(test)]
 mod fake;
+mod fbdev;
 mod kms;
 mod mode;
 
+pub use blank::{Blank, DPMS_TIMEOUT};
 pub use card::Card;
 pub use drm2d::Drm2d;
+pub use fbdev::{Fb, Fbdev};
 pub use mode::{Mode, ModeLookup, ModePolicy, Wanted};
 
 use std::io;
