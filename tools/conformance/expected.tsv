@@ -9,11 +9,6 @@
 *	utf8-ill-formed	departure	crates/vtium-parse/README.md	C1 controls do nothing in UTF-8 mode.
 *	host-palette	departure	INTERFACE.md	The C reference erased the screen and reset the current attributes when a palette was chosen; `host-palette` records it, and an implementation may list it as a departure.
 *	host-identify	pending	#48	the sixel test command; the case also differs by DA1 and by XTGETTCAP's uppercase names, crates/vtium-term/README.md
-frame	sgr-basic	pending	#83	bold as bright and dim in the frame's colours (ADR-1001, "The frame")
-frame	sgr-strike	pending	#83	bold as bright and dim in the frame's colours (ADR-1001, "The frame")
-frame	sgr-color-semicolon-subparams	pending	#83	bold as bright and dim in the frame's colours (ADR-1001, "The frame")
-frame	colour-resolve	pending	#83	bold as bright and dim in the frame's colours (ADR-1001, "The frame")
-frame	prog-shell	pending	#83	bold as bright and dim in the frame's colours (ADR-1001, "The frame")
 *	apc-kitty-graphics	pending	#49	kitty graphics
 *	img-alt-1049	pending	#28	images
 *	img-alt-47	pending	#28	images
@@ -110,7 +105,7 @@ frame	prog-shell	pending	#83	bold as bright and dim in the frame's colours (ADR-
 *	six-scroll-bottom	pending	#48	sixel
 *	six-scroll-region	pending	#48	sixel
 *	six-text	pending	#48	sixel
-frame	prog-tmux	pending	#83	bold as bright and dim in the frame's colours (ADR-1001, "The frame")
+frame	prog-tmux	departure	crates/vtium-term/README.md	Moving the cursor marks nothing.
 *	img-scroll-up-bottom	pending	#28	images
 *	img-alt-1047	pending	#28	images
 *	img-alt-shown	pending	#28	images

@@ -7,8 +7,8 @@ palette legacy fg=#e5e5e5 bg=#000000
 changed 1920
 frame-cursor 13,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
 row 0 |user@host:~$|
-cells 0 0-8 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 0 10-10 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
+cells 0 0-8 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 0 10-10 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
 row 1 ||
 row 2 ||
 row 3 ||
@@ -44,12 +44,12 @@ palette legacy fg=#e5e5e5 bg=#000000
 changed 36
 frame-cursor 13,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
 row 0 |user@host:~$ echo left pane|
-cells 0 0-8 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 0 10-10 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
+cells 0 0-8 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 0 10-10 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
 row 1 |left pane|
 row 2 |user@host:~$|
-cells 2 0-8 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 2 10-10 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
+cells 2 0-8 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 2 10-10 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
 row 3 ||
 row 4 ||
 row 5 ||
@@ -83,14 +83,14 @@ palette legacy fg=#e5e5e5 bg=#000000
 changed 1920
 frame-cursor 54,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
 row 0 |user@host:~$ echo left pane             │user@host:~$|
-cells 0 0-8 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 0 10-10 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
-cells 0 41-49 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 0 51-51 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
+cells 0 0-8 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 0 10-10 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
+cells 0 41-49 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 0 51-51 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
 row 1 |left pane                               │|
 row 2 |user@host:~$                            │|
-cells 2 0-8 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 2 10-10 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
+cells 2 0-8 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 2 10-10 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
 row 3 |                                        │|
 row 4 |                                        │|
 row 5 |                                        │|
@@ -135,16 +135,16 @@ palette legacy fg=#e5e5e5 bg=#000000
 changed 38
 frame-cursor 54,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
 row 0 |user@host:~$ echo left pane             │user@host:~$ echo right pane|
-cells 0 0-8 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 0 10-10 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
-cells 0 41-49 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 0 51-51 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
+cells 0 0-8 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 0 10-10 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
+cells 0 41-49 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 0 51-51 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
 row 1 |left pane                               │right pane|
 row 2 |user@host:~$                            │user@host:~$|
-cells 2 0-8 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 2 10-10 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
-cells 2 41-49 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 2 51-51 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
+cells 2 0-8 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 2 10-10 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
+cells 2 41-49 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 2 51-51 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
 row 3 |                                        │|
 row 4 |                                        │|
 row 5 |                                        │|
@@ -189,16 +189,16 @@ palette legacy fg=#e5e5e5 bg=#000000
 changed 1920
 frame-cursor 54,12 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
 row 0 |user@host:~$ echo left pane             │user@host:~$ echo right pane|
-cells 0 0-8 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 0 10-10 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
-cells 0 41-49 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 0 51-51 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
+cells 0 0-8 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 0 10-10 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
+cells 0 41-49 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 0 51-51 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
 row 1 |left pane                               │right pane|
 row 2 |user@host:~$                            │user@host:~$|
-cells 2 0-8 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 2 10-10 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
-cells 2 41-49 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 2 51-51 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
+cells 2 0-8 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 2 10-10 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
+cells 2 41-49 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 2 51-51 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
 row 3 |                                        │|
 row 4 |                                        │|
 row 5 |                                        │|
@@ -211,8 +211,8 @@ row 11 |                                        ├─────────�
 cells 11 40-79 w=1 fg=#00cd00 bg=#000000 ul=#00cd00
 row 12 |                                        │user@host:~$|
 cells 12 40-40 w=1 fg=#00cd00 bg=#000000 ul=#00cd00
-cells 12 41-49 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 12 51-51 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
+cells 12 41-49 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 12 51-51 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
 row 13 |                                        │|
 cells 13 40-40 w=1 fg=#00cd00 bg=#000000 ul=#00cd00
 row 14 |                                        │|
@@ -246,16 +246,16 @@ palette legacy fg=#e5e5e5 bg=#000000
 changed 25
 frame-cursor 54,18 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
 row 0 |user@host:~$ echo left pane             │user@host:~$ echo right pane|
-cells 0 0-8 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 0 10-10 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
-cells 0 41-49 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 0 51-51 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
+cells 0 0-8 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 0 10-10 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
+cells 0 41-49 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 0 51-51 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
 row 1 |left pane                               │right pane|
 row 2 |user@host:~$                            │user@host:~$|
-cells 2 0-8 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 2 10-10 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
-cells 2 41-49 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 2 51-51 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
+cells 2 0-8 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 2 10-10 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
+cells 2 41-49 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 2 51-51 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
 row 3 |                                        │|
 row 4 |                                        │|
 row 5 |                                        │|
@@ -268,8 +268,8 @@ row 11 |                                        ├─────────�
 cells 11 40-79 w=1 fg=#00cd00 bg=#000000 ul=#00cd00
 row 12 |                                        │user@host:~$ seq 1 5|
 cells 12 40-40 w=1 fg=#00cd00 bg=#000000 ul=#00cd00
-cells 12 41-49 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 12 51-51 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
+cells 12 41-49 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 12 51-51 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
 row 13 |                                        │1|
 cells 13 40-40 w=1 fg=#00cd00 bg=#000000 ul=#00cd00
 row 14 |                                        │2|
@@ -282,8 +282,8 @@ row 17 |                                        │5|
 cells 17 40-40 w=1 fg=#00cd00 bg=#000000 ul=#00cd00
 row 18 |                                        │user@host:~$|
 cells 18 40-40 w=1 fg=#00cd00 bg=#000000 ul=#00cd00
-cells 18 41-49 w=1 fg=#00cd00 bg=#000000 ul=#00cd00 bold
-cells 18 51-51 w=1 fg=#0000ee bg=#000000 ul=#0000ee bold
+cells 18 41-49 w=1 fg=#00ff00 bg=#000000 ul=#00ff00 bold
+cells 18 51-51 w=1 fg=#5c5cff bg=#000000 ul=#5c5cff bold
 row 19 |                                        │|
 cells 19 40-40 w=1 fg=#00cd00 bg=#000000 ul=#00cd00
 row 20 |                                        │|
