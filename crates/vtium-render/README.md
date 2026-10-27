@@ -43,9 +43,9 @@ The renderer draws the pointer only when `DrawState::pointer` is set, which the 
 
 ## Not yet
 
-- **Conceal, overline and dim are not drawn.** A concealed cell shows its text, an overline draws nothing, and dim text draws at full intensity. Conceal and overline are vtium/vtium#37's: a concealed cell draws as its background, and an overline as a decoration beside the underline. Dim is ADR-1000's `sgr.dim`, a minspec row whose issue, vtium/vtium#12, scopes vtium-term alone; no issue yet carries drawing it.
+- **Conceal, overline and dim are not drawn.** A concealed cell shows its text, an overline draws nothing, and dim text draws at full intensity. Conceal and overline are vtium/vtium#37's: a concealed cell draws as its background, and an overline as a decoration beside the underline. Drawing dim, ADR-1000's `sgr.dim`, is vtium/vtium#77.
 - **`Frame::palette()` is owed.** The frame does not expose its palette, so the owner passes the default foreground and background in `DrawState`. The frame types the renderers read are vtium/vtium#10's.
-- **A full frame takes about 3 ms.** At 1366x768 a full redraw with a warm cache measures 2.8-3.0 ms in a release build (`tests/figures.rs`), against the 0.33 ms ADR-1300 measured for its draw kernel over the same screen in cached memory. The performance pass is vtium/vtium#16's, after this round.
+- **A full frame takes about 3 ms.** At 1366x768 a full redraw with a warm cache measures 2.8-3.0 ms in a release build (`tests/figures.rs`), against the 0.33 ms ADR-1300 measured for its draw kernel over the same screen in cached memory. The performance pass is vtium/vtium#78.
 
 ## Bounds
 
