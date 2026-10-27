@@ -32,7 +32,7 @@ fn a_clean_configuration_exits_zero_and_says_nothing() {
 
 #[test]
 fn each_warning_is_printed_and_it_exits_one() {
-    let d = dir("warn", "sb-size=200000\npalette=nord\n");
+    let d = dir("warn", "sb-size=200000\npalette=frob\n");
     let out = check(&d, &["--frob"]);
     assert_eq!(out.status.code(), Some(1));
     let err = String::from_utf8_lossy(&out.stderr);
@@ -46,7 +46,14 @@ fn each_warning_is_printed_and_it_exits_one() {
         lines[1].ends_with("kmscon.conf:1: sb-size=\"200000\" is out of bounds, 100000 used"),
         "{err}"
     );
-    assert_eq!(lines[2], "palette=nord is not built yet; legacy is used");
+    assert!(
+        lines[2].ends_with(
+            "kmscon.conf:2: palette=\"frob\" is none of legacy, custom, nord, \
+             solarized, solarized-black, solarized-white, soft-black, base16-dark, base16-light, \
+             vga, ignored"
+        ),
+        "{err}"
+    );
     std::fs::remove_dir_all(d).ok();
 }
 
