@@ -44,6 +44,7 @@ vtium's own screens carry the harness work the C reference had queued, drawn in 
 | `vs16-unifont`, `vs16-wcwidth` | The C reference's `vs16` screen by the Unicode width method and by wcwidth (aaronsb/kmscon#122) |
 | `wide-deco-unifont` | The C reference's `wide-deco` screen, its caption saying the last-column character wraps (aaronsb/kmscon#70) |
 | `redraw-unifont` | Four frames into two buffers, which must end equal to each other and to a fresh draw (aaronsb/kmscon#8) |
+| `ascii-unifont`, `bold-unifont`, `palette-unifont`, `inverse-unifont`, `cjk-unifont`, `box-unifont`, `underline-unifont`, `strike-unifont`, `deco-config-unifont`, `deco-force-unifont`, `combining-unifont`, `mosaic-unifont`, `emoji-unifont` | The C reference's text screens of the same names, byte for byte, in unifont, so tier 2 sees text rendering before outline fonts land; `deco-config` and `deco-force` set `underline-color=196`, `strike-color=#00c0ff` and, for `deco-force`, `force-decoration-colors` |
 
 Each screen sets its own size, display and orientation (aaronsb/kmscon#10). Each is drawn with the default configuration and again with a cache of no glyphs, with the performance profile and with glyphs stored at 8 bits and at their drawn size, which ADR-1300 says change speed and never pixels: a drawing that differs is an error. A screen with a second part is drawn as four frames into two buffers, whose ages follow the swaps; both must hold the same picture at the end, and the picture a fresh renderer draws.
 
@@ -64,6 +65,8 @@ A case is compared with its golden exactly, outside any mask its sidecar gives. 
 
 A departure's rectangles cover whole cells, the cells where its difference shows, so any difference inside them passes as the departure: a defect in a listed cell, such as an underline lost from the cut `中` in `edges-left`, is not seen until that cell's departure row goes or its rectangles shrink.
 
+A screen ported from one of the C reference's carries its bytes exactly: `run` reads `tests/test_pixels.c` at the pin and refuses to run when a ported screen's bytes or second part differ from the C screen it names.
+
 Each list is checked before any case runs: a pending golden the pin lacks or a screen draws, a departure whose case no screen draws or whose title the README does not list, a provisional golden no vtium screen draws, a vtium screen named as a C golden, and two screens of one name are each refused.
 
 Refused rather than judged (aaronsb/kmscon#10): a PPM that is not P6 with a maxval of 255, with a side of 0 or past 16384, or with a raster shorter or longer than its header says; a sidecar line that is not `key=value`, an unknown or repeated key, a value that is not a decimal number, a `max_delta` past 255, one limit at 0 with the other not, and a mask that is empty, inverted or reaches past the golden. A mask that hides no difference is noted in the report.
@@ -76,4 +79,6 @@ The C reference draws the goldens of vtium's screens, so their author is not the
 
 - **PNG.** Tier 3's goldens are PNG; reading them is the shared compare's next step, when tier 3 judges vtium (vtium/vtium#22).
 - **fbdev.** vtium draws fbdev's XRGB8888 framebuffer with the same renderer and the same pixels as drm2d; other layouts are converted by `vtium-platform`, whose tests hold the conversion (vtium/vtium#18).
+- **The C reference's other text screens in unifont.** `emoji-mono` would draw as `emoji-unifont` does, since neither side has a colour font to turn off. `mosaic-spaced` and `emoji-spaced` set a cell taller than the font's line height, which vtium has no setting for. `osd` draws the render timer's figures over the screen, which `vtium-render` keeps (`RenderTimer::osd`) but does not draw.
+- **The picture screens** (`img-*`, `kitty-*`, `sixel-vte`) wait for pictures in the CPU compositor (vtium/vtium#30) and the sixel and kitty handlers (vtium/vtium#48, #49); `pixels.c` would place their pictures through libtsm's test calls, as `test_pixels.c` did.
 - **The GPU path.** ADR-1300 asks tier 2 to draw each screen on the GPU path under llvmpipe as well (vtium/vtium#33).

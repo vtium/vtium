@@ -14,8 +14,11 @@
 //! and at their drawn size. Every one must draw the same bytes.
 
 use vtium_font::{Cell, Face, Font, Glyph, Style as FontStyle, Unifont};
-use vtium_render::{Budgets, Canvas, Config, DrawState, Orientation, Profile, Renderer, Storage};
-use vtium_term::{Age, Glyph as Text, Terminal, WidthMethod};
+use vtium_render::{
+    Budgets, Canvas, Config, DecoColor, DecorationColors, DrawState, Orientation, Profile,
+    Renderer, Storage,
+};
+use vtium_term::{Age, Glyph as Text, Palette, Rgb, Terminal, WidthMethod};
 
 use crate::ppm::Image;
 
@@ -53,6 +56,41 @@ impl Face for SpritesOnly {
     }
 }
 
+/// A configured decoration colour: `underline-color` or `strike-color`
+/// as an index into the palette or as a colour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DecoSpec {
+    Index(u8),
+    Rgb(u8, u8, u8),
+}
+
+/// The decoration colours a screen configures; an absent one follows the
+/// cell's foreground.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Decorations {
+    pub underline: Option<DecoSpec>,
+    pub strike: Option<DecoSpec>,
+    /// `force-decoration-colors`: the configured underline colour wins over
+    /// SGR 58's.
+    pub force: bool,
+}
+
+impl Decorations {
+    /// The colours resolved through `palette`, as the renderer takes them.
+    fn resolve(&self, palette: &Palette) -> DecorationColors {
+        let colour = |spec: Option<DecoSpec>| match spec {
+            None => DecoColor::Foreground,
+            Some(DecoSpec::Index(i)) => DecoColor::Rgb(palette.color(i)),
+            Some(DecoSpec::Rgb(r, g, b)) => DecoColor::Rgb(Rgb::new(r, g, b)),
+        };
+        DecorationColors {
+            underline: colour(self.underline),
+            strike: colour(self.strike),
+            force: self.force,
+        }
+    }
+}
+
 /// One screen of tier 2.
 #[derive(Clone, Copy, Debug)]
 pub struct Screen {
@@ -71,6 +109,7 @@ pub struct Screen {
     pub orientation: Orientation,
     pub font: FontKind,
     pub width_method: WidthMethod,
+    pub decorations: Decorations,
 }
 
 impl Screen {
@@ -94,6 +133,11 @@ impl Screen {
             orientation: Orientation::Normal,
             font: FontKind::Unifont,
             width_method: WidthMethod::Unicode,
+            decorations: Decorations {
+                underline: None,
+                strike: None,
+                force: false,
+            },
         }
     }
 }
@@ -256,6 +300,25 @@ fn check_sprites<F: Face>(font: &Font<F>, term: &Terminal) -> Result<(), String>
     Ok(())
 }
 
+/// Resolves the screen's decoration colours for this frame, as pixels.c
+/// does on every frame, and refuses a frame where they differ from those
+/// the renderer holds: `vtium-render` takes them once, in its `Config`.
+fn check_decorations(
+    screen: &Screen,
+    term: &Terminal,
+    held: DecorationColors,
+) -> Result<(), String> {
+    if screen.decorations.resolve(term.palette()) == held {
+        Ok(())
+    } else {
+        Err(
+            "the decoration colours changed with the palette mid-screen, which the renderer \
+             cannot follow: it takes them once (owed: a per-frame setter in vtium-render)"
+                .to_owned(),
+        )
+    }
+}
+
 fn draw_config<F: Face>(
     screen: &Screen,
     make_font: &impl Fn() -> Font<F>,
@@ -263,6 +326,10 @@ fn draw_config<F: Face>(
 ) -> Result<Image, String> {
     let font = make_font();
     let mut term = Terminal::new(screen.cols, screen.rows, 0);
+    let config = Config {
+        decorations: screen.decorations.resolve(term.palette()),
+        ..config
+    };
     // as a host sets it at start: the screen's method, and what RIS
     // returns to
     term.set_default_width_method(screen.width_method);
@@ -285,11 +352,15 @@ fn draw_config<F: Face>(
     let mut display = Display::new(w, h);
     let mut r = Renderer::new(font, w, h, config);
     let mut since = Age::NEVER;
+    check_decorations(screen, &term, config.decorations)?;
     display.frame(&mut r, &mut term, &mut since);
     if let Some(next) = screen.next {
+        check_decorations(screen, &term, config.decorations)?;
         display.frame(&mut r, &mut term, &mut since);
         feed(&mut term, next)?;
+        check_decorations(screen, &term, config.decorations)?;
         display.frame(&mut r, &mut term, &mut since);
+        check_decorations(screen, &term, config.decorations)?;
         display.frame(&mut r, &mut term, &mut since);
         if display.buffers[0].pixels() != display.buffers[1].pixels() {
             return Err("the two buffers differ after the last frame".to_owned());
@@ -305,4 +376,31 @@ fn draw_config<F: Face>(
     let front = display.front();
     Image::from_xrgb(front.width(), front.height(), front.pixels())
         .ok_or_else(|| format!("a display of {w}x{h} pixels"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decoration_colours_resolve_on_every_frame() {
+        let screen = Screen {
+            decorations: Decorations {
+                underline: Some(DecoSpec::Index(196)),
+                ..Decorations::default()
+            },
+            ..Screen::new("d", "decorations", b"", 4, 1)
+        };
+        let mut term = Terminal::new(4, 1, 0);
+        let held = screen.decorations.resolve(term.palette());
+        assert!(check_decorations(&screen, &term, held).is_ok());
+        // index 196 changes between frames, as OSC 4 would change it
+        let p = term.palette();
+        let mut colors: [Rgb; 256] = core::array::from_fn(|i| p.color(i as u8));
+        colors[196] = Rgb::new(0, 255, 0);
+        let (fg, bg) = (p.fg(), p.bg());
+        term.set_palette(Palette::new(colors, fg, bg));
+        let e = check_decorations(&screen, &term, held).unwrap_err();
+        assert!(e.contains("decoration colours"), "{e}");
+    }
 }

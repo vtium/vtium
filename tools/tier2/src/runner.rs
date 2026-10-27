@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::compare::{self, Verdict};
+use crate::cref;
 use crate::draw;
 use crate::ppm::{self, Image};
 use crate::report::{self, CaseReport, Status};
@@ -24,6 +25,8 @@ use crate::tol::{Rect, Tolerance};
 
 /// Where the C reference keeps its tier 2 goldens.
 pub const GOLDENS: &str = "tests/goldens/tier2";
+/// The C reference's tier 2 screens.
+pub const SCREENS: &str = "tests/test_pixels.c";
 
 /// A repository read at a pinned commit.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -161,9 +164,10 @@ pub fn provisional(text: &str) -> Result<Vec<String>, String> {
         .collect()
 }
 
-/// Extracts the C reference's tier 2 goldens at `pin` from the checkout at
-/// `repo` into `out/<name>-<commit>/`, afresh, through `git archive`, so
-/// the checkout's branch and working tree never reach the judge.
+/// Extracts the C reference's tier 2 goldens and screens at `pin` from the
+/// checkout at `repo` into `out/<name>-<commit>/`, afresh, through `git
+/// archive`, so the checkout's branch and working tree never reach the
+/// judge; returns that directory.
 pub fn extract(repo: &Path, pin: &Pin, out: &Path) -> Result<PathBuf, String> {
     let dest = out.join(format!("{}-{}", pin.name, pin.commit));
     let has = Command::new("git")
@@ -189,7 +193,14 @@ pub fn extract(repo: &Path, pin: &Pin, out: &Path) -> Result<PathBuf, String> {
     let mut git = Command::new("git")
         .arg("-C")
         .arg(repo)
-        .args(["archive", "--format=tar", &pin.commit, "--", GOLDENS])
+        .args([
+            "archive",
+            "--format=tar",
+            &pin.commit,
+            "--",
+            GOLDENS,
+            SCREENS,
+        ])
         .stdout(Stdio::piped())
         .spawn()
         .map_err(|e| format!("git archive: {e}"))?;
@@ -203,9 +214,44 @@ pub fn extract(repo: &Path, pin: &Pin, out: &Path) -> Result<PathBuf, String> {
         .map_err(|e| format!("tar: {e}"))?;
     let git = git.wait().map_err(|e| format!("git archive: {e}"))?;
     if !git.success() || !tar.success() {
-        return Err(format!("extracting {GOLDENS} at {} failed", pin.commit));
+        return Err(format!(
+            "extracting {GOLDENS} and {SCREENS} at {} failed",
+            pin.commit
+        ));
     }
-    Ok(dest.join(GOLDENS))
+    Ok(dest)
+}
+
+/// Checks that every case ported from a C screen carries that screen's
+/// bytes and second part, as `test_pixels.c` at the pin gives them.
+pub fn check_ported(cases: &[Case], test_pixels: &str) -> Result<(), String> {
+    let c = cref::screens(test_pixels)?;
+    for case in cases {
+        let Some(from) = case.ported else { continue };
+        let s = &case.screen;
+        let want = c
+            .get(from)
+            .ok_or_else(|| format!("{}: {SCREENS} has no screen {from} to port", s.name))?;
+        if s.bytes != want.bytes.as_slice() {
+            let at = s
+                .bytes
+                .iter()
+                .zip(&want.bytes)
+                .position(|(a, b)| a != b)
+                .unwrap_or(s.bytes.len().min(want.bytes.len()));
+            return Err(format!(
+                "{}: its bytes differ from {from}'s in {SCREENS} at byte {at}",
+                s.name
+            ));
+        }
+        if s.next != want.next.as_deref() {
+            return Err(format!(
+                "{}: its second part differs from {from}'s in {SCREENS}",
+                s.name
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// The names of the `.ppm` files in `dir`.

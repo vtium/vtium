@@ -7,6 +7,7 @@
 //! [`runner`] runs them all and writes the [`report`].
 
 pub mod compare;
+pub mod cref;
 pub mod draw;
 pub mod ppm;
 pub mod report;
