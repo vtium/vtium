@@ -41,7 +41,9 @@ The renderer draws the pointer only when `DrawState::pointer` is set, which the 
 ## Beyond the C reference
 
 - **The cursor takes OSC 12's colour.** A block cursor's background, and an underline or bar cursor's line, take the colour OSC 12 set, and the character under a block keeps the cell's background as its colour; with none set, the cell is drawn inverted as the C reference drew it, which did not parse OSC 12 (aaronsb/libtsm#22). Test: `a_coloured_block_takes_its_colour`.
+- **The selection takes OSC 17's and 19's colours.** The frame resolves them (`vtium-term`'s README), and a selected cell draws in them; the C reference always drew the selection inverted. Test: `the_selection_draws_in_its_colours`.
 - **A wide half whose partner is missing draws as one cell.** The C reference's frame always paired them; vtium's frame does not promise it, so a leading half without its trailing half, or the reverse, draws in its own cell and no frame leaves a cell undrawn.
+- **A decoration colour may name a palette index.** `DecoColor::Indexed` resolves through each frame's palette, as the C reference resolved its configured decoration colours on every frame (`kmscon_conf_resolve_deco`), so a program's OSC 4 recolours the decorations. Test: `a_palette_decoration_colour_follows_the_palette`.
 - **The two profiles, 1-bit and scale-1 storage, and the row scratch** are ADR-1300's D2, D4 and D5: memory and composition, with no pixel changed. Every run of a row's drawn cells is composed in the scratch and reaches the display a pixel line at a time, where D5 writes a cell of one layer straight, a call for each line of each cell: at 1366x768 a full frame's writes take 0.05 ms where the cell's took 0.48 ms (vtium/vtium#78).
 
 ## Not yet

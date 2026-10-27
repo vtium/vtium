@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 
 use vtium_font::{Face, Font, Style, Width as FontWidth};
-use vtium_term::{Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, Rgb, Width};
+use vtium_term::{Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, Palette, Rgb, Width};
 
 use crate::blend::pixel;
 use crate::bounds::ROW_SCRATCH_MAX;
@@ -26,7 +26,21 @@ pub enum DecoColor {
     /// The cell's foreground as drawn.
     #[default]
     Foreground,
+    /// A palette colour, resolved through each frame's palette, so a
+    /// program that changes it (OSC 4) recolours the decorations.
+    Indexed(u8),
     Rgb(Rgb),
+}
+
+impl DecoColor {
+    /// The colour through `palette`; `None` follows the foreground.
+    fn resolve(self, palette: &Palette) -> Option<Rgb> {
+        match self {
+            DecoColor::Foreground => None,
+            DecoColor::Indexed(i) => Some(palette.color(i)),
+            DecoColor::Rgb(c) => Some(c),
+        }
+    }
 }
 
 /// The configured decoration colours: `underline-color`, `strike-color` and
@@ -312,6 +326,9 @@ pub struct Renderer<F> {
     blink_hidden: bool,
     cursor_at: Option<(usize, usize)>,
     pointer: Option<Pointer>,
+    /// The configured underline and strike colours through the frame being
+    /// drawn's palette; `None` follows the foreground.
+    deco: (Option<Rgb>, Option<Rgb>),
     compose: Composer,
 }
 
@@ -390,6 +407,7 @@ impl<F: Face> Renderer<F> {
             blink_hidden: false,
             cursor_at: None,
             pointer: None,
+            deco: (None, None),
         }
     }
 
@@ -443,6 +461,9 @@ impl<F: Face> Renderer<F> {
         let start = Instant::now();
         self.compose.cache.begin_frame();
         self.cells.begin(age);
+        let d = self.config.decorations;
+        let palette = frame.palette();
+        self.deco = (d.underline.resolve(palette), d.strike.resolve(palette));
         let grid = self.layout.grid_for(frame);
         if self.grid != Some(grid) || self.background != Some(state.background) {
             self.cells.reset(grid.cols, grid.rows);
@@ -636,7 +657,8 @@ impl<F: Face> Renderer<F> {
         cursor: Option<&Cursor>,
         hidden: bool,
     ) {
-        let d = self.config.decorations;
+        let force = self.config.decorations.force;
+        let (deco_ul, deco_strike) = self.deco;
         // the frame has dimmed the foreground; the cursor draws over it
         let (mut fg, mut bg) = (fc.fg, fc.bg);
         let mut underline = fc.attrs.underline();
@@ -663,16 +685,16 @@ impl<F: Face> Renderer<F> {
         let ul_color = if ul_cursor {
             cursor_color.unwrap_or(fg)
         } else {
-            match (fc.underline_color, d.force, d.underline) {
+            match (fc.underline_color, force, deco_ul) {
                 (Some(c), false, _) => c,
-                (_, _, DecoColor::Rgb(c)) => c,
-                (_, _, DecoColor::Foreground) => fg,
+                (_, _, Some(c)) => c,
+                (_, _, None) => fg,
             }
         };
-        let strike = fc.attrs.contains(Attrs::STRIKE).then_some(match d.strike {
-            DecoColor::Foreground => fg,
-            DecoColor::Rgb(c) => c,
-        });
+        let strike = fc
+            .attrs
+            .contains(Attrs::STRIKE)
+            .then_some(deco_strike.unwrap_or(fg));
         let underline = Kind::underline(underline).map(|k| (k, ul_color));
         let style = Style {
             bold: fc.attrs.contains(Attrs::BOLD),
