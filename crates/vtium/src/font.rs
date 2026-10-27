@@ -7,6 +7,58 @@
 //! lookup failed (`src/terminal.c:921-939` at kmscon b1f7a7c5,
 //! aaronsb/kmscon#63).
 
+use vtium_font::sprite::Range;
+use vtium_font::{Missing, Source, SpritePolicy};
+
+use crate::config::Config;
+use crate::config::keys::{
+    GLYPH_SOURCE, GLYPH_SOURCE_BLOCK, GLYPH_SOURCE_BOX, GLYPH_SOURCE_BRAILLE, GLYPH_SOURCE_LEGACY,
+    GLYPH_SOURCE_OCTANTS, GLYPH_SOURCE_SEXTANTS, Key, MISSING,
+};
+
+/// Each sprite range and the key that sets its source alone.
+pub const RANGE_KEYS: [(Range, &Key); 6] = [
+    (Range::BoxDrawing, &GLYPH_SOURCE_BOX),
+    (Range::BlockElements, &GLYPH_SOURCE_BLOCK),
+    (Range::Braille, &GLYPH_SOURCE_BRAILLE),
+    (Range::Sextants, &GLYPH_SOURCE_SEXTANTS),
+    (Range::Octants, &GLYPH_SOURCE_OCTANTS),
+    (Range::LegacyComputing, &GLYPH_SOURCE_LEGACY),
+];
+
+fn source(text: &str) -> Option<Source> {
+    match text {
+        "font" => Some(Source::Font),
+        "sprites" => Some(Source::Sprites),
+        "auto" => Some(Source::Auto),
+        _ => None,
+    }
+}
+
+/// A font's sprite policy from the configuration: `glyph-source` for all
+/// six ranges, else the face's own `default`, then each range's own key
+/// over it (vtium-font's README, "#21 builds a font's policy").
+pub fn policy(config: &Config, default: SpritePolicy) -> SpritePolicy {
+    let base = config
+        .text(&GLYPH_SOURCE)
+        .and_then(source)
+        .map_or(default, SpritePolicy::all);
+    RANGE_KEYS.iter().fold(base, |p, &(range, key)| {
+        match config.text(key).and_then(source) {
+            Some(s) => p.with(range, s),
+            None => p,
+        }
+    })
+}
+
+/// What a character the font lacks draws as, from `missing`.
+pub fn missing(config: &Config) -> Missing {
+    match config.text(&MISSING) {
+        Some("hex") => Missing::Hex,
+        _ => Missing::Replacement,
+    }
+}
+
 /// The size tried once when the first lookup fails.
 pub const FALLBACK_SIZE: u32 = 16;
 
@@ -39,6 +91,39 @@ pub fn auto_size(width: u32, height: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn config(args: &[&str]) -> Config {
+        let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+        crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None)).config
+    }
+
+    #[test]
+    fn the_policy_is_the_faces_unless_a_key_sets_it() {
+        let named = SpritePolicy::all(Source::Font).with(Range::Octants, Source::Sprites);
+        assert_eq!(policy(&config(&[]), named), named);
+        assert_eq!(
+            policy(&config(&["--glyph-source=sprites"]), named),
+            SpritePolicy::SPRITES
+        );
+        let one = policy(&config(&["--glyph-source-braille=auto"]), named);
+        assert_eq!(one, named.with(Range::Braille, Source::Auto));
+        // A range's own key wins over the key for all six.
+        let both = policy(
+            &config(&["--glyph-source=font", "--glyph-source-legacy=sprites"]),
+            SpritePolicy::SPRITES,
+        );
+        assert_eq!(
+            both,
+            SpritePolicy::all(Source::Font).with(Range::LegacyComputing, Source::Sprites)
+        );
+    }
+
+    #[test]
+    fn missing_is_box_or_hex() {
+        assert_eq!(missing(&config(&[])), Missing::Replacement);
+        assert_eq!(missing(&config(&["--missing=hex"])), Missing::Hex);
+        assert_eq!(missing(&config(&["--missing=box"])), Missing::Replacement);
+    }
 
     #[test]
     fn the_automatic_size() {

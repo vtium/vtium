@@ -69,6 +69,9 @@ pub struct Key {
     pub cite: &'static str,
 }
 
+/// The values of `glyph-source` and its per-range keys.
+const GLYPH_SOURCES: &[&str] = &["font", "sprites", "auto"];
+
 /// The C reference's `unsigned int`, the bound of a number it left
 /// unbounded.
 const UINT_MAX: u64 = u32::MAX as u64;
@@ -313,6 +316,94 @@ pub const FONT_SIZE: Key = Key {
     cite: "src/config.c:1423; vtium-font's `CELL_SIDE_MAX`",
 };
 
+pub const GLYPH_SOURCE: Key = Key {
+    name: "glyph-source",
+    short: None,
+    kind: Kind::Choice(GLYPH_SOURCES),
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-font",
+    what: "Where the six sprite ranges draw from: `font`, the font's glyphs; `sprites`, vtium's; `auto`, the font's where it has one. Unset, a named font's glyphs for each range it covers whole and the sprites for the rest; the built-in unifont draws the sprites.",
+    cite: "vtium/vtium#85",
+};
+
+pub const GLYPH_SOURCE_BOX: Key = Key {
+    name: "glyph-source-box",
+    short: None,
+    kind: Kind::Choice(GLYPH_SOURCES),
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-font",
+    what: "`glyph-source` for box drawing, U+2500-U+257F, over it.",
+    cite: "vtium/vtium#85",
+};
+
+pub const GLYPH_SOURCE_BLOCK: Key = Key {
+    name: "glyph-source-block",
+    short: None,
+    kind: Kind::Choice(GLYPH_SOURCES),
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-font",
+    what: "`glyph-source` for block elements, U+2580-U+259F, over it.",
+    cite: "vtium/vtium#85",
+};
+
+pub const GLYPH_SOURCE_BRAILLE: Key = Key {
+    name: "glyph-source-braille",
+    short: None,
+    kind: Kind::Choice(GLYPH_SOURCES),
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-font",
+    what: "`glyph-source` for Braille, U+2800-U+28FF, over it.",
+    cite: "vtium/vtium#85",
+};
+
+pub const GLYPH_SOURCE_SEXTANTS: Key = Key {
+    name: "glyph-source-sextants",
+    short: None,
+    kind: Kind::Choice(GLYPH_SOURCES),
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-font",
+    what: "`glyph-source` for sextants, U+1FB00-U+1FB3B, over it.",
+    cite: "vtium/vtium#85",
+};
+
+pub const GLYPH_SOURCE_OCTANTS: Key = Key {
+    name: "glyph-source-octants",
+    short: None,
+    kind: Kind::Choice(GLYPH_SOURCES),
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-font",
+    what: "`glyph-source` for octants, U+1CD00-U+1CDE5, over it.",
+    cite: "vtium/vtium#85",
+};
+
+pub const GLYPH_SOURCE_LEGACY: Key = Key {
+    name: "glyph-source-legacy",
+    short: None,
+    kind: Kind::Choice(GLYPH_SOURCES),
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-font",
+    what: "`glyph-source` for the rest of Symbols for Legacy Computing's block shapes, over it.",
+    cite: "vtium/vtium#85",
+};
+
+pub const MISSING: Key = Key {
+    name: "missing",
+    short: None,
+    kind: Kind::Choice(&["box", "hex"]),
+    default: Default::Text("box"),
+    scope: Scope::Anywhere,
+    reader: "vtium-font",
+    what: "What a character the font lacks draws as: `box`, U+25A1; `hex`, its codepoint in hex digits.",
+    cite: "src/font/font.c:345-366; vtium/vtium#85",
+};
+
 pub const GLYPH_CACHE: Key = Key {
     name: "glyph-cache",
     short: None,
@@ -336,7 +427,7 @@ pub const RENDER_TIMER: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 22] = [
+pub const KEYS: [Key; 30] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -357,6 +448,14 @@ pub const KEYS: [Key; 22] = [
     FONT_ENGINE,
     FONT_NAME,
     FONT_SIZE,
+    GLYPH_SOURCE,
+    GLYPH_SOURCE_BOX,
+    GLYPH_SOURCE_BLOCK,
+    GLYPH_SOURCE_BRAILLE,
+    GLYPH_SOURCE_SEXTANTS,
+    GLYPH_SOURCE_OCTANTS,
+    GLYPH_SOURCE_LEGACY,
+    MISSING,
     GLYPH_CACHE,
     RENDER_TIMER,
 ];

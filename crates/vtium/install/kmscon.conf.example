@@ -56,6 +56,30 @@
 ## The font's height; 0 picks one from the display's size.
 #font-size=0
 
+## Where the six sprite ranges draw from: `font`, the font's glyphs; `sprites`, vtium's; `auto`, the font's where it has one. Unset, a named font's glyphs for each range it covers whole and the sprites for the rest; the built-in unifont draws the sprites.
+#glyph-source=
+
+## `glyph-source` for box drawing, U+2500-U+257F, over it.
+#glyph-source-box=
+
+## `glyph-source` for block elements, U+2580-U+259F, over it.
+#glyph-source-block=
+
+## `glyph-source` for Braille, U+2800-U+28FF, over it.
+#glyph-source-braille=
+
+## `glyph-source` for sextants, U+1FB00-U+1FB3B, over it.
+#glyph-source-sextants=
+
+## `glyph-source` for octants, U+1CD00-U+1CDE5, over it.
+#glyph-source-octants=
+
+## `glyph-source` for the rest of Symbols for Legacy Computing's block shapes, over it.
+#glyph-source-legacy=
+
+## What a character the font lacks draws as: `box`, U+25A1; `hex`, its codepoint in hex digits.
+#missing=box
+
 ## The glyph cache's budgets. Unset, `minspec`, or `performance` in a build with vtium-render's `performance-cache` feature.
 #glyph-cache=
 

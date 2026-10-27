@@ -9,7 +9,7 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/termcap.rs`, `src/termcap/table.rs` | The XTGETTCAP table, generated from `install/kmscon.ti` |
 | `src/child.rs` | The session's command and environment |
 | `src/respawn.rs` | Whether the session's command starts again |
-| `src/blink.rs`, `src/font.rs`, `src/pointer.rs` | The blink timers, the font fallback and size, and the pointer guard |
+| `src/blink.rs`, `src/font.rs`, `src/pointer.rs` | The blink timers; the font's fallback, size, sprite policy and missing glyph; the pointer guard |
 | `src/sync.rs` | When the terminal presents: the mode 2026 hold and coalescing without it |
 | `src/grab.rs` | The terminal's grabs, third in the key order |
 | `src/term.rs` | The session's terminal as the pty's consumer, and a view per display that draws it |
@@ -17,7 +17,7 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/app.rs` | The seat: the VT's events, the devices, the keys, the blank, the child, the exit |
 | `src/logger.rs` | The log on stderr |
 | `src/main.rs` | Start-up and the loop |
-| `tests/boot.rs` | The seat booted with no hardware: output drawn, keys, a VT switch, the blank, the respawn limit, DECARM, the exit |
+| `tests/boot.rs` | The seat booted with no hardware: output drawn, keys, a VT switch, the blank, the respawn limit, DECARM, the font's policy, the exit |
 | `install/kmscon.conf.example` | The example configuration, generated from the key table |
 | `install/kmscon.ti` | The terminfo entry, installed compiled with `tic -x` |
 

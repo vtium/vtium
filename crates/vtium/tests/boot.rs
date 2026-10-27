@@ -322,3 +322,22 @@ fn a_repeat_is_dropped_once_the_program_resets_decarm() {
         h.app.screen_text()
     );
 }
+
+#[test]
+fn the_fonts_policy_follows_the_keys() {
+    use vtium_font::sprite::Range;
+    use vtium_font::{Missing, Source, SpritePolicy};
+    let h = Harness::new(&[]);
+    // The built-in unifont draws the sprites, as the C reference did.
+    assert_eq!(
+        h.app.font_policy(),
+        Some((SpritePolicy::SPRITES, Missing::Replacement))
+    );
+    let h = Harness::new(&[
+        "--glyph-source=font",
+        "--glyph-source-braille=auto",
+        "--missing=hex",
+    ]);
+    let want = SpritePolicy::all(Source::Font).with(Range::Braille, Source::Auto);
+    assert_eq!(h.app.font_policy(), Some((want, Missing::Hex)));
+}

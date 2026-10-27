@@ -329,7 +329,22 @@ impl<V: Vt + 'static> App<V> {
         match font::select(wanted, in_use, |h| self.face(h)) {
             Ok((face, h)) => {
                 self.font_size = h;
-                Some(Font::new(face))
+                let font = Font::new(face);
+                if !in_use {
+                    for (range, n) in font.coverage().partial() {
+                        log::warn!(
+                            target: "font",
+                            "the font covers {} of {} characters of {range:?}",
+                            n.covered,
+                            n.total
+                        );
+                    }
+                }
+                let policy = font::policy(&self.config, font.policy());
+                Some(
+                    font.with_policy(policy)
+                        .with_missing(font::missing(&self.config)),
+                )
             }
             Err(e) => {
                 log::error!("cannot load the font: {e}");
@@ -987,6 +1002,12 @@ impl<V: Vt + 'static> App<V> {
         due.into_iter()
             .min()
             .map(|d| d.saturating_duration_since(now))
+    }
+
+    /// The sprite policy and missing glyph of the first display's font.
+    pub fn font_policy(&self) -> Option<(vtium_font::SpritePolicy, vtium_font::Missing)> {
+        let font = self.views.values().next()?.renderer.font();
+        Some((font.policy(), font.missing()))
     }
 
     /// The terminal's grid.
