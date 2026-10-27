@@ -9,7 +9,7 @@ vtium's terminal state: the screen, its cells and lines, the scrollback, the mod
 | `src/style.rs` | `Style`, `Color` and `Attrs`: colours kept unresolved, and every SGR attribute, overline, conceal and superscript and subscript among them. |
 | `src/line.rs` | `Line`: its cells, the style and link tables and the cluster arena they index, its `LineId` and its `LineFlags` (the reflow flag, the OSC 133 marks, the line size). |
 | `src/damage.rs` | `Damage`: change ages by screen position, and the rule for what each screen event marks. |
-| `src/frame.rs` | `Frame`, `FrameCell`, `Cursor` and `Palette`: what a renderer reads, with colours resolved at draw time and the selection drawn inverted. |
+| `src/frame.rs` | `Frame`, `FrameCell`, `Cursor` and `Palette`: what a renderer reads, a cell or a row at a time, with colours resolved at draw time and the selection drawn inverted. |
 | `src/screen.rs` | `Screen`: the main and alternate screens' lines, the cursor, the margins and tab stops, the scrollback and its view, the pen, and the accessors the mode table drives; cursor movement and resizing. |
 | `src/screen/print.rs` | Printing: grapheme clusters and the two width methods (mode 2027), wide characters and VS16, the pending wrap, insert mode, REP. |
 | `src/screen/edit.rs` | Erasing (ED, EL, ECH, and their selective forms), inserting and deleting characters and lines, scrolling. |

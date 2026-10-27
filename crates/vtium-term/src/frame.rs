@@ -13,10 +13,10 @@
 
 use core::ops::Range;
 
-use crate::cell::Width;
+use crate::cell::{Cell, StyleIndex, Width};
 use crate::damage::{Age, Damage};
 use crate::line::{Glyph, Line, LinkId};
-use crate::style::{Attrs, Color, Rgb};
+use crate::style::{Attrs, Color, Rgb, Style};
 
 /// The 256-colour palette and the default colours.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -247,7 +247,62 @@ impl<'a> Frame<'a> {
             return None;
         }
         let cell = line.cell(col);
-        let style = line.style(cell);
+        let selected = self.selection.get(row).is_some_and(|r| r.contains(&col));
+        let colors = self.resolve(line.style(cell), selected);
+        Some(self.frame_cell(line, cell, row, col, colors))
+    }
+
+    /// The cells of `row`, left to right, each as [`Frame::cell`] reads it;
+    /// none outside the frame. A run of cells in one style, all selected or
+    /// none, resolves its colours once.
+    pub fn cells(&self, row: usize) -> impl Iterator<Item = FrameCell<'a>> + '_ {
+        let line = self.line(row);
+        let cols = line.map_or(0, |_| self.cols());
+        let selection = self.selection.get(row);
+        let mut last: Option<(StyleIndex, bool, Colors)> = None;
+        line.into_iter()
+            .flat_map(move |line| (0..cols).map(move |col| (line, col)))
+            .map(move |(line, col)| {
+                let cell = line.cell(col);
+                let selected = selection.is_some_and(|r| r.contains(&col));
+                let colors = match last {
+                    Some((style, sel, colors)) if style == cell.style() && sel == selected => {
+                        colors
+                    }
+                    _ => {
+                        let colors = self.resolve(line.style(cell), selected);
+                        last = Some((cell.style(), selected, colors));
+                        colors
+                    }
+                };
+                self.frame_cell(line, cell, row, col, colors)
+            })
+    }
+
+    fn frame_cell(
+        &self,
+        line: &'a Line,
+        cell: Cell,
+        row: usize,
+        col: usize,
+        c: Colors,
+    ) -> FrameCell<'a> {
+        FrameCell {
+            glyph: line.glyph(cell),
+            width: cell.width(),
+            fg: c.fg,
+            bg: c.bg,
+            underline_color: c.underline_color,
+            attrs: c.attrs,
+            default_bg: c.default_bg,
+            link: line.link(cell),
+            selected: c.selected,
+            changed: self.damage.changed(row, col, self.since),
+        }
+    }
+
+    /// `style`'s colours as a cell draws them, `selected` or not.
+    fn resolve(&self, style: Style, selected: bool) -> Colors {
         let fg_color = match style.fg {
             Color::Indexed(i) if i < 8 && style.attrs.contains(Attrs::BOLD) => {
                 Color::Indexed(i.saturating_add(8))
@@ -256,7 +311,6 @@ impl<'a> Frame<'a> {
         };
         let mut fg = self.palette.resolve(fg_color, self.palette.fg);
         let mut bg = self.palette.resolve(style.bg, self.palette.bg);
-        let selected = self.selection.get(row).is_some_and(|r| r.contains(&col));
         let inverse = (style.attrs.contains(Attrs::INVERSE) != self.reverse) != selected;
         if inverse {
             core::mem::swap(&mut fg, &mut bg);
@@ -268,26 +322,33 @@ impl<'a> Frame<'a> {
             Color::Default => None,
             c => Some(self.palette.resolve(c, fg)),
         };
-        Some(FrameCell {
-            glyph: line.glyph(cell),
-            width: cell.width(),
+        Colors {
             fg,
             bg,
             underline_color,
             attrs: style.attrs,
             default_bg: style.bg == Color::Default && !inverse,
-            link: line.link(cell),
             selected,
-            changed: self.damage.changed(row, col, self.since),
-        })
+        }
     }
+}
+
+/// A cell's colours and attributes, resolved from its style.
+#[derive(Clone, Copy)]
+struct Colors {
+    fg: Rgb,
+    bg: Rgb,
+    underline_color: Option<Rgb>,
+    attrs: Attrs,
+    default_bg: bool,
+    selected: bool,
 }
 
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
-    use crate::line::LineId;
+    use crate::line::{LineId, LinkId};
     use crate::style::Style;
 
     const WHITE: Rgb = Rgb::new(0xff, 0xff, 0xff);
@@ -686,6 +747,67 @@ mod tests {
         assert!(past.default_bg);
         assert!(frame.cell(0, 4).is_none());
         assert!(frame.cell(1, 0).is_none());
+    }
+
+    // The row accessor reads each cell as `cell` does: styles changing
+    // and repeating, dim and an underline colour, a wide pair, a cluster,
+    // a link, a selection starting and ending inside a style's run, a
+    // changed cell and the blanks past a trimmed line.
+    #[test]
+    fn a_rows_cells_read_as_each_cell_does() {
+        let mut line = Line::new(LineId::new(1), 8);
+        let red = Style {
+            fg: Color::Indexed(1),
+            ..Style::DEFAULT
+        };
+        let bold = with(
+            Style {
+                bg: Color::Rgb(BG),
+                underline_color: Color::Indexed(3),
+                ..red
+            },
+            &[Attrs::BOLD, Attrs::INVERSE, Attrs::DIM],
+        );
+        line.write(0, Glyph::Char('a'), Width::Narrow, &red, None);
+        line.write(
+            1,
+            Glyph::Char('b'),
+            Width::Narrow,
+            &red,
+            Some(LinkId::new(7)),
+        );
+        line.write(2, Glyph::Char('c'), Width::Narrow, &bold, None);
+        line.write(3, Glyph::Char('\u{4e00}'), Width::Wide, &bold, None);
+        line.write(4, Glyph::Empty, Width::WideTail, &bold, None);
+        line.write(5, Glyph::Cluster("e\u{301}"), Width::Narrow, &red, None);
+        line.trim();
+        let other = Line::new(LineId::new(2), 8);
+        let mut damage = Damage::new(8, 2);
+        let seen = damage.checkpoint();
+        damage.mark_cell(0, 2);
+        let palette = palette();
+        let frame = Frame::new(
+            vec![&line, &other],
+            &damage,
+            &palette,
+            seen,
+            Cursor::default(),
+            true,
+        )
+        .with_selection(vec![Range { start: 1, end: 4 }]);
+        for row in 0..2 {
+            let each: Vec<_> = (0..8).map(|col| frame.cell(row, col).unwrap()).collect();
+            let cells: Vec<_> = frame.cells(row).collect();
+            assert_eq!(cells, each, "row {row}");
+        }
+        let at = |col: usize| frame.cells(0).nth(col).unwrap();
+        assert!(at(2).changed);
+        assert!(at(1).selected);
+        assert_eq!(at(1).link, Some(LinkId::new(7)));
+        assert_eq!(at(3).underline_color, Some(Rgb::new(3, 3, 3)));
+        // bold's 9 dimmed toward BG, 9/2 + 21/2, 9/2 + a0/2, 9/2 + c3/2
+        assert_eq!(at(3).fg, Rgb::new(0x14, 0x54, 0x65), "dim");
+        assert_eq!(frame.cells(2).count(), 0, "outside the frame");
     }
 
     #[test]
