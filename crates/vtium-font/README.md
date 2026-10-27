@@ -71,6 +71,7 @@ Scale does not change what a source keeps, only what a draw returns: a font scal
 - A sprite's thickness is the face's underline thickness (`Font::decorations`), as in the C reference, so lines and underlines match.
 - Bold is drawn into the glyph; italic is not, as in the C reference's bitmap fonts. Overhang is vtium/vtium#26.
 - A glyph's bytes depend only on the font, the size, the style and the character, so a cache may key on those.
+- `Font::glyph_unscaled` hands a bitmap face's glyph over at scale 1 with its scale, for a cache that stores it small and scales it while drawing (ADR-1300 D2). Drawn with each pixel a square `scale` across, it is `Font::glyph`'s glyph exactly. A sprite comes at its drawn size, as does a glyph whose box to its cells centres it in an odd number of spare pixels, which does not scale.
 
 ## Licences
 
