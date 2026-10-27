@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{Act, Bel, St, VALUE_MAX, csi, osc, osc_truncated, parse};
+use common::{Act, Bel, St, VALUE_MAX, csi, csi_subs, osc, osc_truncated, parse};
 use vtium_parse::{OSC_MAX, PARAMS_MAX, Parser, SUBPARAMS_MAX};
 
 fn csi_with(params: &str, final_byte: char) -> Vec<u8> {
@@ -58,7 +58,7 @@ fn subparam_value_stops_past_0xffff() {
     let mut parser = Parser::new();
     let mut rec = common::Recorder::new();
     rec.feed(&mut parser, b"\x1b[4:99999999m");
-    assert_eq!(rec.subs, [vec![vec![99999]]]);
+    assert_eq!(rec.acts, [csi_subs(&[4], "", b'm', &[(0, &[99999])])]);
 }
 
 // tsm-vte.c:1300-1301: 8 sub-parameters are kept.
@@ -67,7 +67,10 @@ fn eight_subparams_kept() {
     let mut parser = Parser::new();
     let mut rec = common::Recorder::new();
     rec.feed(&mut parser, b"\x1b[1:1:2:3:4:5:6:7:8m");
-    assert_eq!(rec.subs, [vec![vec![1, 2, 3, 4, 5, 6, 7, 8]]]);
+    assert_eq!(
+        rec.acts,
+        [csi_subs(&[1], "", b'm', &[(0, &[1, 2, 3, 4, 5, 6, 7, 8])])]
+    );
     assert_eq!(SUBPARAMS_MAX, 8);
 }
 
@@ -78,8 +81,15 @@ fn subparams_past_eight_dropped_until_separator() {
     let mut parser = Parser::new();
     let mut rec = common::Recorder::new();
     rec.feed(&mut parser, b"\x1b[1:1:2:3:4:5:6:7:8:9:10;5:6m");
-    assert_eq!(rec.acts, [csi(&[1, 5], "", b'm')]);
-    assert_eq!(rec.subs, [vec![vec![1, 2, 3, 4, 5, 6, 7, 8], vec![6]]]);
+    assert_eq!(
+        rec.acts,
+        [csi_subs(
+            &[1, 5],
+            "",
+            b'm',
+            &[(0, &[1, 2, 3, 4, 5, 6, 7, 8]), (1, &[6])]
+        )]
+    );
 }
 
 // tsm-vte.c:1293-1294: the 17th parameter's sub-parameters are dropped with
@@ -92,7 +102,6 @@ fn subparams_of_dropped_param_dropped() {
     let mut rec = common::Recorder::new();
     rec.feed(&mut parser, &csi_with(&list, 'm'));
     assert_eq!(rec.acts, [csi(&[0; 16], "", b'm')]);
-    assert!(rec.subs[0].iter().all(Vec::is_empty));
 }
 
 // vt100.net: past two intermediates the sequence does nothing, however

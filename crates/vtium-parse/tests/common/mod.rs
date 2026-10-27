@@ -20,8 +20,10 @@ pub enum Act {
     Execute(u8),
     /// The intermediates as text.
     Esc(String, u8),
-    /// The private marker, if any, then the intermediates, as text.
-    Csi(Vec<i32>, String, u8),
+    /// The values, the private marker if any then the intermediates as
+    /// text, the final byte, and the sub-parameters of each parameter that
+    /// has any, by parameter.
+    Csi(Vec<i32>, String, u8, Vec<(usize, Vec<i32>)>),
     /// The kept bytes, whether the string was truncated, and its end.
     Osc(Vec<u8>, bool, StringEnd),
     DcsHook(Vec<i32>, String, u32),
@@ -40,8 +42,6 @@ pub enum Act {
 #[derive(Default)]
 pub struct Recorder {
     pub acts: Vec<Act>,
-    /// Sub-parameters of each CSI dispatch, by parameter.
-    pub subs: Vec<Vec<Vec<i32>>>,
     pub mode: InputMode,
     /// Switch the input mode as the C reference's DECSCL, DECSTR and RIS
     /// do (tsm-vte.c:1032-1036, 1784-1823, 2692-2709).
@@ -189,15 +189,14 @@ impl Consumer for Recorder {
                 };
             }
         }
-        self.subs.push(
-            (0..params.count())
-                .map(|i| params.subparams(i).map(num).collect())
-                .collect(),
-        );
         self.push(Act::Csi(
             values(params),
             text(params.marker(), intermediates),
             final_byte,
+            (0..params.count())
+                .map(|i| (i, params.subparams(i).map(num).collect::<Vec<_>>()))
+                .filter(|(_, subs)| !subs.is_empty())
+                .collect(),
         ));
     }
 
@@ -346,7 +345,18 @@ pub fn prints(s: &str) -> Vec<Act> {
 
 /// A CSI dispatch: `prefix` is the marker, if any, then the intermediates.
 pub fn csi(params: &[i32], prefix: &str, final_byte: u8) -> Act {
-    Act::Csi(params.to_vec(), prefix.to_string(), final_byte)
+    Act::Csi(params.to_vec(), prefix.to_string(), final_byte, Vec::new())
+}
+
+/// A CSI dispatch with sub-parameters: `subs` has each parameter that
+/// carries any, by index.
+pub fn csi_subs(params: &[i32], prefix: &str, final_byte: u8, subs: &[(usize, &[i32])]) -> Act {
+    Act::Csi(
+        params.to_vec(),
+        prefix.to_string(),
+        final_byte,
+        subs.iter().map(|&(i, s)| (i, s.to_vec())).collect(),
+    )
 }
 
 /// A DCS hook: `prefix` is the marker, if any, then the intermediates.

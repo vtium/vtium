@@ -421,3 +421,25 @@ fn bound_stress_split_anywhere() {
     assert!(cov.tcap_over, "no XTGETTCAP payload passed its bound");
     cov.assert_cuts();
 }
+
+// Cut at every byte, a header past each of the bounds that drop bytes: a
+// ninth sub-parameter colon and a seventeenth parameter. Random streams
+// seldom put a cut and a following digit there.
+#[test]
+fn params_past_their_bounds_split_at_every_byte() {
+    let params: Vec<String> = (1..=18).map(|i| i.to_string()).collect();
+    let streams = [
+        b"\x1b[1:1:1:1:1:1:1:1:1:1:99;7m".to_vec(),
+        format!("\x1b[{}m", params.join(";")).into_bytes(),
+    ];
+    let mut rng = Rng(0x7674_6975_6d04);
+    let mut cov = Coverage::default();
+    for stream in &streams {
+        assert!(stream.len() <= 64, "a longer stream is cut at random");
+        for _ in 0..8 {
+            check_stream(&mut rng, stream, &mut cov);
+        }
+    }
+    assert!(cov.params_full, "no CSI reached 16 parameters");
+    assert!(cov.cuts_in_header > 0, "no cut fell inside a header");
+}

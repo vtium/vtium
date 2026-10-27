@@ -4,8 +4,8 @@
 mod common;
 
 use common::{
-    Act, Bel, Cancelled, St, apc_bytes, csi, dcs_bytes, esc, hook, osc, parse, parse_bytewise,
-    parse_in, parse8, prints,
+    Act, Bel, Cancelled, St, apc_bytes, csi, csi_subs, dcs_bytes, esc, hook, osc, parse,
+    parse_bytewise, parse_in, parse8, prints,
 };
 use vtium_parse::InputMode;
 
@@ -208,7 +208,7 @@ fn csi_keeps_every_intermediate() {
     ] {
         let acts = parse(seq);
         assert_eq!(acts.len(), 1, "{seq:?}");
-        let Act::Csi(_, got, b'p') = &acts[0] else {
+        let Act::Csi(_, got, b'p', _) = &acts[0] else {
             panic!("{seq:?}: {acts:?}");
         };
         assert_eq!(got, im, "{seq:?}");
@@ -292,19 +292,10 @@ fn csi_subparams() {
     assert_eq!(
         rec.acts,
         [
-            csi(&[4], "", b'm'),
-            csi(&[38, 1], "", b'm'),
-            csi(&[4], "", b'm'),
-            csi(&[-1], "", b'm'),
-        ]
-    );
-    assert_eq!(
-        rec.subs,
-        [
-            vec![vec![3]],
-            vec![vec![2, -1, 255, 0, 0], vec![]],
-            vec![vec![-1]],
-            vec![vec![5]],
+            csi_subs(&[4], "", b'm', &[(0, &[3])]),
+            csi_subs(&[38, 1], "", b'm', &[(0, &[2, -1, 255, 0, 0])]),
+            csi_subs(&[4], "", b'm', &[(0, &[-1])]),
+            csi_subs(&[-1], "", b'm', &[(0, &[5])]),
         ]
     );
 }
