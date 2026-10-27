@@ -1,0 +1,4 @@
+# Cases whose difference from their golden a departure in
+# crates/vtium-render/README.md explains: CASE, the departure's bold title
+# exactly as the README gives it, and the rectangles x0,y0,x1,y1
+# (end-exclusive, ";" between) the difference must lie in.
