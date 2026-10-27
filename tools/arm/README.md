@@ -5,7 +5,7 @@ vtium built and tested for the ARM single-board computers minspec is judged agai
 ## Running it
 
 ```sh
-make arm-sysroot   # fetch and verify the Debian sysroots, once per pin
+make arm-sysroot   # fetch and verify the Debian sysroots, once per set of pins
 make arm           # the minspec profile for both targets, in target/TRIPLE/minspec/
 make arm-test      # the workspace's tests for aarch64 under qemu-user
 make arm-test ARM_TEST_TARGETS=armv7-unknown-linux-gnueabihf
@@ -19,14 +19,14 @@ Host needs: the targets' standard libraries (`rustup target add aarch64-unknown-
 
 | Piece | What it does |
 |---|---|
-| `sysroot fetch ARCH` | Downloads the packages `pin.tsv` names for a Debian architecture (`arm64`, `armhf`), checks each against its pinned SHA-256, and extracts them into `VTIUM_ARM_SYSROOTS/ARCH`. A sysroot whose pins differ from `pin.tsv`'s is extracted again. |
+| `sysroot fetch ARCH` | Downloads the packages `pin.tsv` names for a Debian architecture (`arm64`, `armhf`) into `VTIUM_ARM_SYSROOTS/debs`, and extracts them into `VTIUM_ARM_SYSROOTS/ARCH-ID`, where ID is a digest of the architecture's pin rows and of `sysroot` itself. A download enters `debs` only once its SHA-256 matches its pin, and each extraction reads a private copy it has checked again. Absolute symlinks are rewritten as relative ones inside the sysroot, and a member or link that would leave it stops the fetch. |
 | `TRIPLE-cc` | The linker: the host's `clang --target` with the sysroot, linking through rustc's own `lld`. |
 | `TRIPLE-pkg-config` | pkg-config reading the sysroot's `.pc` files, so `libudev-sys` finds the target's libudev. |
 | `TRIPLE-run` | The test runner: the binary under `qemu-aarch64` or `qemu-arm`, its libraries from the sysroot. |
 
 The three `TRIPLE-*` names are links to `wrap`, which reads its own name. The Makefile names them for these targets alone, in `arm` and `arm-test`, so a native build on an ARM machine uses that machine's toolchain.
 
-A test binary under qemu starts other target binaries, as `crates/vtium/tests` start vtium, and the kernel hands those to qemu only through binfmt_misc. When the host registers no qemu for the target, `TRIPLE-run` mounts a binfmt_misc of its own in a user namespace, registers qemu there, and runs the binary in a nested namespace mapped back to the invoking user and group. Nothing on the host changes. Without user namespaces it runs qemu directly and says so, and the tests that start a target binary fail.
+A test binary under qemu starts other target binaries, as `crates/vtium/tests` start vtium, and the kernel hands those to qemu only through binfmt_misc. When the host registers no qemu for the target, `TRIPLE-run` mounts a binfmt_misc of its own in a user namespace, registers qemu there, and runs the binary in a nested namespace mapped back to the invoking user and group. Nothing on the host changes. Where the namespace or its binfmt_misc is refused, as before Linux 6.7, it runs qemu directly and says so, and the tests that start a target binary fail.
 
 The sysroot is `/usr`-merged and carries an empty loader cache. qemu-user finds an `open()` in the sysroot but not a `statx()`, so a loader search that missed in `/lib/TRIPLE` would mark that directory absent; and the host's loader cache names 32-bit host libraries the armv7 loader would take.
 
@@ -51,7 +51,7 @@ qemu-user runs vtium's code on an emulated CPU over the host's kernel, so it jud
 - **Device ioctls qemu does not translate,** such as DRM's `GET_CAP`: qemu answers `ENOTTY`, so a test on the host's render node fails under qemu while it passes natively.
 - **Tracing.** The host's `strace` on a target binary traces qemu.
 
-`TRIPLE-run` exports `VTIUM_QEMU_USER`, naming the qemu it runs, and the tests that depend on these skip when it is set and print why: the render-node test in vtium-platform's `display::card` and check-config's open check. CI's `arm-native` job runs the whole suite natively on an aarch64 runner. The runner has no render node, so the DRM test skips there; a real ARM machine judges it.
+`TRIPLE-run` exports `VTIUM_QEMU_USER`, naming the qemu it runs. The two tests that depend on these skip only when it is set and qemu's symptom shows: the render-node test in vtium-platform's `display::card` when its DRM ioctl answers ENOTTY, and check-config's open check when strace records opens under `QEMU_LD_PREFIX`. `TRIPLE-run` names each on its test binary's run, since a passing test's own output is hidden. CI's `arm-native` job runs the whole suite natively on an aarch64 runner. The runner has no render node, so the DRM test skips there; a real ARM machine judges it.
 
 ## The musl targets
 

@@ -15,7 +15,8 @@
 # binfmt_misc. When the host registers no qemu for the target, TRIPLE-run
 # registers one in a binfmt_misc of its own, in a user namespace (Linux 6.7
 # or later), and runs the binary there as the invoking user. Nothing on the
-# host changes.
+# host changes. Where the namespace or its binfmt_misc is refused, it runs
+# qemu directly and says so.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 name=${0##*/}
@@ -34,7 +35,7 @@ armv7-unknown-linux-gnueabihf-*)
 *) echo "wrap: no ARM target is named $name" >&2; exit 1 ;;
 esac
 sysroot=$("$here/sysroot" dir $arch)
-[ -f "$sysroot/.pins" ] || { echo "wrap: no $arch sysroot at $sysroot; make arm-sysroot fetches it" >&2; exit 1; }
+[ -d "$sysroot" ] || { echo "wrap: no $arch sysroot at $sysroot; make arm-sysroot fetches it" >&2; exit 1; }
 case $name in
 *-cc)
     lld=$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/gcc-ld/ld.lld
@@ -47,7 +48,8 @@ case $name in
     ;;
 *-run)
     export QEMU_LD_PREFIX="$sysroot"
-    # Tests that qemu-user cannot judge read this and say they are skipped.
+    # The tests qemu-user cannot judge skip when this is set and qemu's
+    # symptom shows, and say so; this names them on the test binary's run.
     export VTIUM_QEMU_USER="$qemu"
     binfmt=/proc/sys/fs/binfmt_misc
     if [ -n "${VTIUM_ARM_IDS-}" ]; then
@@ -59,11 +61,17 @@ case $name in
         printf '%s' ":$qemu:M::$magic:$mask:$(command -v $qemu):" > "$binfmt/register"
         exec unshare --user --map-user="${ids%:*}" --map-group="${ids#*:}" $qemu "$@"
     fi
+    case ${1##*/} in
+    vtium_platform-*) echo "wrap: under $qemu, display::card::tests::a_render_node_through_the_real_ioctls skips if its DRM ioctl answers ENOTTY" >&2 ;;
+    check_config-*) echo "wrap: under $qemu, it_opens_nothing_but_the_configuration skips if strace traces qemu" >&2 ;;
+    esac
     if [ ! -e "$binfmt/$qemu" ]; then
-        if unshare --user --map-root-user --mount true 2>/dev/null; then
+        # The probe mounts a binfmt_misc too: before Linux 6.7 a user
+        # namespace has none of its own.
+        if unshare --user --map-root-user --mount mount -t binfmt_misc binfmt_misc "$binfmt" 2>/dev/null; then
             VTIUM_ARM_IDS=$(id -u):$(id -g) exec unshare --user --map-root-user --mount "$0" "$@"
         fi
-        echo "wrap: no binfmt_misc entry for $qemu and no user namespace: the target binaries this one starts will not run" >&2
+        echo "wrap: no binfmt_misc entry for $qemu, and no binfmt_misc in a user namespace: the target binaries this one starts will not run" >&2
     fi
     exec $qemu "$@"
     ;;
