@@ -61,8 +61,8 @@
 //! rounds the same way and Rust never fuses, so a sprite is the same bytes
 //! on every host.
 
-use crate::bitmap::Bitmap;
 use crate::bounds::CELL_SIDE_MAX;
+use crate::glyph::Glyph;
 
 /// Whether `c` is drawn as a sprite rather than taken from a font.
 pub fn has(c: char) -> bool {
@@ -74,13 +74,13 @@ pub fn has(c: char) -> bool {
 
 /// `c` as a `width` by `height` sprite with light lines `thickness` pixels
 /// wide (heavy lines twice that; 0 draws 1), or `None` for a character it
-/// does not draw, a side of 0, a size past [`Bitmap::new`]'s bound, or a
+/// does not draw, a side of 0, a size past [`Glyph::mask`]'s bound, or a
 /// thickness past [`CELL_SIDE_MAX`].
-pub fn draw(c: char, width: u32, height: u32, thickness: u32) -> Option<Bitmap> {
+pub fn draw(c: char, width: u32, height: u32, thickness: u32) -> Option<Glyph> {
     if !has(c) || thickness > CELL_SIDE_MAX {
         return None;
     }
-    let mut buf = Bitmap::new(width, height)?;
+    let mut buf = Glyph::mask(width, height)?;
     let t = thickness.max(1);
     match u32::from(c) {
         cp @ 0x1fb00.. => {
@@ -165,7 +165,7 @@ fn frac_min(size: u32, num: u32, den: u32) -> u32 {
 }
 
 /// linesChar()
-fn draw_lines(buf: &mut Bitmap, spec: u8, t: u32) {
+fn draw_lines(buf: &mut Glyph, spec: u8, t: u32) {
     let (w, h) = (buf.width(), buf.height());
     let (up, right, down, left) = (spec & 3, spec >> 2 & 3, spec >> 4 & 3, spec >> 6);
     let ht = t.saturating_mul(2);
@@ -287,7 +287,7 @@ fn draw_lines(buf: &mut Bitmap, spec: u8, t: u32) {
 /// dashHorizontal(): `count` dashes `thick` high with gaps of up to `gap`,
 /// half a gap at each end so the dashes tile; leftover pixels widen the
 /// dashes.
-fn dash_h(buf: &mut Bitmap, count: u32, thick: u32, gap: u32, t: u32) {
+fn dash_h(buf: &mut Glyph, count: u32, thick: u32, gap: u32, t: u32) {
     let (w, h) = (buf.width(), buf.height());
     if w < count.saturating_mul(2) {
         let y = h.saturating_sub(t) / 2;
@@ -309,7 +309,7 @@ fn dash_h(buf: &mut Bitmap, count: u32, thick: u32, gap: u32, t: u32) {
 }
 
 /// dashVertical(): the same down the cell, with the whole gap at the bottom.
-fn dash_v(buf: &mut Bitmap, count: u32, thick: u32, gap: u32, t: u32) {
+fn dash_v(buf: &mut Glyph, count: u32, thick: u32, gap: u32, t: u32) {
     let (w, h) = (buf.width(), buf.height());
     if h < count.saturating_mul(2) {
         let x = w.saturating_sub(t) / 2;
@@ -375,7 +375,7 @@ fn clamp_floor(v: f64, max: u32) -> u32 {
 /// bitmap holds and each pixel's coverage. The ends lie outside the cell,
 /// so their caps are cut off. Only pixels within two pixels of the line's
 /// reach are sampled; the rest would get no samples.
-fn stroke(buf: &mut Bitmap, p: &[Pt], thick: f64) {
+fn stroke(buf: &mut Glyph, p: &[Pt], thick: f64) {
     let r2 = thick * thick / 4.0;
     let r = thick / 2.0 + 2.0;
     let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
@@ -407,7 +407,7 @@ fn stroke(buf: &mut Bitmap, p: &[Pt], thick: f64) {
                 }
             }
             let v = u8::try_from(hits.saturating_mul(255) / (SS * SS)).unwrap_or(u8::MAX);
-            if let Some(px) = buf.get_mut(x, y) {
+            if let Some(px) = buf.coverage_mut(x, y) {
                 *px = (*px).max(v);
             }
         }
@@ -425,7 +425,7 @@ const ARC_STEPS: u32 = 16;
 /// a radius from the centre, a cubic curve with its control points a
 /// quarter radius from the centre, and on to the horizontal edge `dx` (1
 /// right, -1 left).
-fn arc(buf: &mut Bitmap, dx: f64, dy: f64, t: u32) {
+fn arc(buf: &mut Glyph, dx: f64, dy: f64, t: u32) {
     let (w, h) = (buf.width(), buf.height());
     let (cx, cy) = (centre(w, t), centre(h, t));
     let r = f64::from(w.min(h)) / 2.0;
@@ -474,7 +474,7 @@ fn arc(buf: &mut Bitmap, dx: f64, dy: f64, t: u32) {
 /// bottom corner, overshooting each by half a pixel along the slope, then
 /// on by a line width so the cut-off caps leave the corners as Ghostty's
 /// butt caps would.
-fn diagonal(buf: &mut Bitmap, right: bool, t: u32) {
+fn diagonal(buf: &mut Glyph, right: bool, t: u32) {
     let (w, h) = (f64::from(buf.width()), f64::from(buf.height()));
     let ox = 0.5 * if w < h { w / h } else { 1.0 };
     let oy = 0.5 * if h < w { h / w } else { 1.0 };
@@ -507,7 +507,7 @@ enum Align {
 }
 
 /// block.zig blockShade(): a block `wn`/8 wide and `hn`/8 high.
-fn block(buf: &mut Bitmap, align: Align, wn: u32, hn: u32) {
+fn block(buf: &mut Glyph, align: Align, wn: u32, hn: u32) {
     let (w, h) = (buf.width(), buf.height());
     let bw = frac_max(w, wn, 8);
     let bh = frac_max(h, hn, 8);
@@ -531,7 +531,7 @@ const Q_BR: u32 = 8;
 
 /// quadrant(): `q` holds top left, top right, bottom left, bottom right as
 /// bits 0 to 3.
-fn quadrants(buf: &mut Bitmap, q: u32) {
+fn quadrants(buf: &mut Glyph, q: u32) {
     let (w, h) = (buf.width(), buf.height());
     let (xl, xr) = (frac_max(w, 1, 2), frac_min(w, 1, 2));
     let (yt, yb) = (frac_max(h, 1, 2), frac_min(h, 1, 2));
@@ -549,7 +549,7 @@ fn quadrants(buf: &mut Bitmap, q: u32) {
     }
 }
 
-fn block_element(buf: &mut Bitmap, cp: u32) {
+fn block_element(buf: &mut Glyph, cp: u32) {
     let (w, h) = (buf.width(), buf.height());
     match cp {
         0x2580 => block(buf, Align::Top, 8, 4),
@@ -577,7 +577,7 @@ fn block_element(buf: &mut Bitmap, cp: u32) {
     }
 }
 
-fn box_drawing(buf: &mut Bitmap, cp: u32, t: u32) {
+fn box_drawing(buf: &mut Glyph, cp: u32, t: u32) {
     let gap = t.max(4);
     let t2 = t.saturating_mul(2);
     match cp {
@@ -626,7 +626,7 @@ fn box_drawing(buf: &mut Bitmap, cp: u32, t: u32) {
 /// at least one pixel, a margin of at least one, the gaps, the margins and
 /// the dot. Bits 0 to 7 of the codepoint are dots 1 to 8: 1, 2, 3 and 7
 /// down the left, 4, 5, 6 and 8 down the right.
-fn braille(buf: &mut Bitmap, cp: u32) {
+fn braille(buf: &mut Glyph, cp: u32) {
     const COL: [u32; 8] = [0, 0, 0, 1, 1, 1, 0, 1];
     const ROW: [u32; 8] = [0, 1, 2, 0, 1, 2, 3, 3];
     let (w, h) = (i64::from(buf.width()), i64::from(buf.height()));
@@ -695,7 +695,7 @@ fn braille(buf: &mut Bitmap, cp: u32) {
 /// of `mask` fills the block in column c of row r, its near edges rounded
 /// as Fraction.min() and its far edges as Fraction.max(), so the blocks of
 /// a cell and of its neighbours meet with nothing between them.
-fn mosaic(buf: &mut Bitmap, mask: u32, rows: u32) {
+fn mosaic(buf: &mut Glyph, mask: u32, rows: u32) {
     let (w, h) = (buf.width(), buf.height());
     for i in 0..rows.saturating_mul(2) {
         if mask >> i & 1 == 0 {

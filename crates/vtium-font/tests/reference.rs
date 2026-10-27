@@ -6,7 +6,7 @@
 //! the digests were taken on one host and are checked on every other, it
 //! is also the check that a glyph is the same bytes everywhere.
 
-use vtium_font::{Bitmap, Face, Font, Psf, Style, Width, sprite};
+use vtium_font::{Face, Font, Glyph, Psf, Style, Width, sprite};
 
 const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x100_0000_01b3;
@@ -20,7 +20,7 @@ fn fnv(mut h: u64, bytes: &[u8]) -> u64 {
 
 /// refdigest.c's digest(): the width and height as little-endian u32, then
 /// the pixels.
-fn digest(h: u64, g: &Bitmap) -> u64 {
+fn digest(h: u64, g: &Glyph) -> u64 {
     let h = fnv(h, &g.width().to_le_bytes());
     let h = fnv(h, &g.height().to_le_bytes());
     fnv(h, g.pixels())

@@ -27,11 +27,11 @@ use std::fmt;
 use std::io::Read;
 use std::path::Path;
 
-use crate::bitmap::Bitmap;
 use crate::bounds::{
     CELL_SIDE_MAX, PSF_BYTES_MAX, PSF_ENTRIES_MAX, PSF_GLYPHS_MAX, PSF_HEIGHT_MAX, PSF_WIDTH_MAX,
 };
 use crate::face::{Cell, Face, Style};
+use crate::glyph::Glyph;
 
 const PSF1_MAGIC: [u8; 2] = [0x36, 0x04];
 const PSF1_MODE512: u8 = 0x01;
@@ -290,7 +290,7 @@ impl Psf {
 
     /// Glyph `index` drawn at the font's scale: each source pixel a square
     /// `scale` across, bold widening each row by a pixel to the right.
-    pub fn render(&self, index: u32, style: Style) -> Option<Bitmap> {
+    pub fn render(&self, index: u32, style: Style) -> Option<Glyph> {
         let glyph_bytes = self.height.checked_mul(self.row_bytes)?;
         let start = usize::try_from(index.checked_mul(glyph_bytes)?).ok()?;
         let glyph = self
@@ -299,7 +299,7 @@ impl Psf {
         let row_bytes = usize::try_from(self.row_bytes).ok()?;
         let scale = self.scale.max(1);
         let cell = self.cell();
-        let mut out = Bitmap::new(cell.width, cell.height)?;
+        let mut out = Glyph::mask(cell.width, cell.height)?;
         for (i, row) in (0u32..).zip(out.rows_mut()) {
             let k = usize::try_from(i.checked_div(scale)?).ok()?;
             let src = glyph.get(k.checked_mul(row_bytes)?..)?.get(..row_bytes)?;
@@ -425,13 +425,13 @@ impl Face for Psf {
         self.glyph_index(c).is_some_and(|g| g < self.count)
     }
 
-    fn draw(&self, cluster: &[char], style: Style) -> Option<Bitmap> {
+    fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         let index = self.glyph_index(*cluster.first()?)?;
         self.render(index, style)
     }
 
     /// Glyph 0, for a font that holds neither U+25A1 nor `?`.
-    fn last_resort(&self, style: Style) -> Option<Bitmap> {
+    fn last_resort(&self, style: Style) -> Option<Glyph> {
         self.render(0, style)
     }
 }

@@ -19,9 +19,9 @@
 
 use std::sync::OnceLock;
 
-use crate::bitmap::Bitmap;
 use crate::bounds::CELL_SIDE_MAX;
-use crate::face::{Cell, Face, Style};
+use crate::face::{Cell, Face, Style, Width};
+use crate::glyph::Glyph;
 
 /// A run of codepoints of one width whose glyphs lie together.
 struct Block {
@@ -123,7 +123,7 @@ impl Unifont {
 
     /// The glyph for `c` at its own width, 1 cell or 2, bold widening each
     /// byte of a row by a pixel to the right; `None` if unifont lacks it.
-    pub fn render(&self, c: char, style: Style) -> Option<Bitmap> {
+    pub fn render(&self, c: char, style: Style) -> Option<Glyph> {
         let code = u32::from(c);
         let b = block(code)?;
         let cells: u32 = if b.wide { 2 } else { 1 };
@@ -135,7 +135,7 @@ impl Unifont {
         let data = glyph_bytes(offset, size)?;
         let scale = self.scale.max(1);
         let cell_w = scale.saturating_mul(8);
-        let mut out = Bitmap::new(cell_w.saturating_mul(cells), scale.saturating_mul(16))?;
+        let mut out = Glyph::mask(cell_w.saturating_mul(cells), scale.saturating_mul(16))?;
         let cell_w = usize::try_from(cell_w).ok()?;
         for (i, row) in (0u32..).zip(out.rows_mut()) {
             let src = i.checked_div(scale)?.saturating_mul(cells);
@@ -152,7 +152,7 @@ impl Unifont {
                 }
             }
         }
-        Some(out)
+        Some(out.with_cells(if b.wide { Width::Wide } else { Width::Narrow }))
     }
 }
 
@@ -172,7 +172,7 @@ impl Face for Unifont {
         block(u32::from(c)).is_some()
     }
 
-    fn draw(&self, cluster: &[char], style: Style) -> Option<Bitmap> {
+    fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         self.render(*cluster.first()?, style)
     }
 }

@@ -37,8 +37,10 @@
 //! A [`Face`] draws a character at its own width; a [`Font`] puts a face
 //! and the [`sprite`]s together and draws any cluster exactly into its
 //! cells, falling back to U+25A1 and `?` for a character the face lacks.
-//! Every glyph is a [`Bitmap`] of 8-bit coverage, and the same font, size
-//! and character give the same bytes on every host.
+//! Every glyph is a [`Glyph`]: an 8-bit coverage mask, or premultiplied
+//! RGBA for a colour face. The bitmap faces and the sprites draw masks,
+//! and the same font, size and character give the same bytes on every
+//! host.
 //!
 //! The behaviour is the C reference's (kmscon's `font_psf.c`,
 //! `font_unifont.c`, `font_box.c` and `font.c`), the floor for vtium; the
@@ -52,9 +54,9 @@
 //! README: [`PSF_GLYPHS_MAX`], [`PSF_WIDTH_MAX`], [`PSF_HEIGHT_MAX`],
 //! [`PSF_BYTES_MAX`], [`PSF_ENTRIES_MAX`] and [`CELL_SIDE_MAX`].
 
-mod bitmap;
 mod bounds;
 mod face;
+mod glyph;
 #[cfg(feature = "gzip")]
 mod gzip;
 mod psf;
@@ -62,11 +64,11 @@ pub mod sprite;
 #[cfg(feature = "unifont")]
 mod unifont;
 
-pub use bitmap::Bitmap;
 pub use bounds::{
     CELL_SIDE_MAX, PSF_BYTES_MAX, PSF_ENTRIES_MAX, PSF_GLYPHS_MAX, PSF_HEIGHT_MAX, PSF_WIDTH_MAX,
 };
 pub use face::{Cell, Decorations, Face, Font, REPLACEMENT, Style, Width};
+pub use glyph::{Format, Glyph};
 pub use psf::{Psf, PsfError};
 #[cfg(feature = "unifont")]
 pub use unifont::Unifont;

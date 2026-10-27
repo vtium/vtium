@@ -1,7 +1,7 @@
 //! [`Face`], what a glyph source provides, and [`Font`], which draws a
 //! cluster into its cells from a face and the sprites.
 
-use crate::bitmap::Bitmap;
+use crate::glyph::Glyph;
 use crate::sprite;
 
 /// How a glyph is drawn. Bitmap faces draw bold by widening each row by a
@@ -78,13 +78,14 @@ pub trait Face {
     /// Whether the face holds a glyph for `c`.
     fn has_glyph(&self, c: char) -> bool;
 
-    /// The glyph for `cluster` at the face's own width for it, or `None`
+    /// The glyph for `cluster` at the face's own width for it, marked with
+    /// the cells that width spans, or `None`
     /// when the face lacks it. A face that cannot shape draws the first
     /// character.
-    fn draw(&self, cluster: &[char], style: Style) -> Option<Bitmap>;
+    fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph>;
 
     /// The glyph drawn when the face lacks the character, U+25A1 and `?`.
-    fn last_resort(&self, _style: Style) -> Option<Bitmap> {
+    fn last_resort(&self, _style: Style) -> Option<Glyph> {
         None
     }
 
@@ -104,10 +105,10 @@ impl<F: Face + ?Sized> Face for Box<F> {
     fn has_glyph(&self, c: char) -> bool {
         (**self).has_glyph(c)
     }
-    fn draw(&self, cluster: &[char], style: Style) -> Option<Bitmap> {
+    fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         (**self).draw(cluster, style)
     }
-    fn last_resort(&self, style: Style) -> Option<Bitmap> {
+    fn last_resort(&self, style: Style) -> Option<Glyph> {
         (**self).last_resort(style)
     }
     fn decorations(&self) -> Decorations {
@@ -158,14 +159,14 @@ impl<F: Face> Font<F> {
     /// glyph of another width is centred and cut to the cells. `None` only
     /// for an empty cluster or a face that can draw nothing. The C
     /// reference's `kmscon_font_render` (font.c:310-368).
-    pub fn glyph(&self, cluster: &[char], width: Width, style: Style) -> Option<Bitmap> {
+    pub fn glyph(&self, cluster: &[char], width: Width, style: Style) -> Option<Glyph> {
         let &first = cluster.first()?;
         let cell = self.face.cell();
         let w = cell.width.saturating_mul(width.cells());
         if let [c] = *cluster {
             let thick = self.face.decorations().underline_thickness;
             if let Some(s) = sprite::draw(c, w, cell.height, thick) {
-                return Some(s);
+                return Some(s.with_cells(width));
             }
         }
         let glyph = self
@@ -176,6 +177,6 @@ impl<F: Face> Font<F> {
             .or_else(|| self.face.draw(&[REPLACEMENT], style))
             .or_else(|| self.face.draw(&['?'], style))
             .or_else(|| self.face.last_resort(style))?;
-        glyph.fit(w)
+        glyph.fit(w, width)
     }
 }

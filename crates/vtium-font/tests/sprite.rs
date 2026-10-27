@@ -19,7 +19,7 @@
 //! restating braille.zig's steps (Ghostty, MIT, src/font/sprite/draw/ at
 //! f987028f, Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors).
 
-use vtium_font::{Bitmap, sprite};
+use vtium_font::{Glyph, sprite};
 
 /// The digits of BLOCK SEXTANT-n, U+1FB00 on: 1 2 / 3 4 / 5 6 from the top.
 #[rustfmt::skip]
@@ -181,7 +181,7 @@ fn model(cp: u32, w: u32, h: u32) -> Model {
     m
 }
 
-fn draw(cp: u32, w: u32, h: u32) -> Bitmap {
+fn draw(cp: u32, w: u32, h: u32) -> Glyph {
     let c = char::from_u32(cp).expect("a char");
     let g = sprite::draw(c, w, h, 1).unwrap_or_else(|| panic!("U+{cp:04X} at {w}x{h}"));
     assert_eq!((g.width(), g.height()), (w, h));
@@ -261,7 +261,7 @@ struct Dot {
     n: u32,
 }
 
-fn find_dot(g: &Bitmap, f: &mut Failures) -> Dot {
+fn find_dot(g: &Glyph, f: &mut Failures) -> Dot {
     let mut d = Dot {
         x0: g.width(),
         y0: g.height(),
@@ -269,7 +269,7 @@ fn find_dot(g: &Bitmap, f: &mut Failures) -> Dot {
     };
     for y in 0..g.height() {
         for x in 0..g.width() {
-            let v = g.get(x, y).expect("inside");
+            let v = g.pixel(x, y).expect("inside")[0];
             if v != 0 && v != 0xff {
                 f.fail(0x2800, g.width(), g.height(), "a pixel neither on nor off");
             }
