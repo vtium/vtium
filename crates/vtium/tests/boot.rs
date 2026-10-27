@@ -999,7 +999,7 @@ fn shows(app: &App, text: &str) -> bool {
 
 /// A drag across two lines selects them, its release copies them, and the
 /// middle button pastes them back to the program.
-// covers: clipboard.selection
+// covers: clipboard.selection, clipboard.paste
 #[test]
 fn a_drag_across_two_lines_copies_them_and_the_middle_button_pastes_them() {
     let mut h = Harness::new(&[
@@ -1036,7 +1036,7 @@ fn a_drag_across_two_lines_copies_them_and_the_middle_button_pastes_them() {
 /// A double click selects a word and a triple click a line, each copied
 /// as it is made; Shift+Insert pastes as the middle button does. A click
 /// with no drag copies nothing.
-// covers: clipboard.selection
+// covers: clipboard.selection, clipboard.paste
 #[test]
 fn a_double_click_selects_a_word_and_a_triple_click_a_line() {
     let mut h = Harness::new(&[
@@ -1098,7 +1098,7 @@ fn a_double_click_selects_a_word_and_a_triple_click_a_line() {
 /// While a program tracks the pointer, a drag and the middle button with
 /// Shift held select and paste, as xterm's do, and reach the program only
 /// as the paste, bracketed; without Shift the buttons are reported.
-// covers: clipboard.selection
+// covers: clipboard.selection, clipboard.paste, input.shift-override
 #[test]
 fn shift_selects_and_pastes_while_the_program_tracks_the_pointer() {
     let mut h = Harness::new(&[

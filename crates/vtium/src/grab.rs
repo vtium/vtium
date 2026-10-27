@@ -69,6 +69,7 @@ mod tests {
         assert_eq!(grab(LOGO, &[PLUS]), Some(Grab::RotateCw));
     }
 
+    // covers: clipboard.paste
     #[test]
     fn shift_insert_pastes_as_in_xterm() {
         assert_eq!(grab(SHIFT, &[INSERT]), Some(Grab::Paste));
