@@ -145,9 +145,25 @@ const CLIPBOARD: Bound = Bound {
     cite: "vtium's own: the largest power of two whose base64, 699,052 bytes, fits vtium-parse's `OSC_MAX` with its `52;` and targets, so one byte over still reaches the check; tmux drops a sequence past 1 MiB, its `input-buffer-size` (`tmux.h:3509` at `df302c5`), and Ghostty an OSC 52 past 8 MiB (`src/terminal/osc.zig:365` at `a732580`)",
 };
 
+const SGR_STACK: Bound = Bound {
+    name: "SGR_STACK_MAX",
+    value: 10,
+    what: "Pens XTPUSHSGR keeps",
+    past: "A push keeps nothing and is counted, and the pop that pairs with it restores nothing, so pushes and pops still pair",
+    cite: "ctlseqs, XTPUSHSGR: \"The stack is limited to 10 levels\"; `MAX_SAVED_SGR` and `xtermPushSGR` in xterm 412's `ptyx.h` and `misc.c`",
+};
+
+const COLOR_STACK: Bound = Bound {
+    name: "COLOR_STACK_MAX",
+    value: 10,
+    what: "Palettes XTPUSHCOLORS and kitty's OSC 30001 keep, in one stack",
+    past: "A push with the stack full keeps nothing and moves nothing, and a parameter past it names no entry",
+    cite: "ctlseqs, XTPUSHCOLORS: entries 1 through 10; `MAX_SAVED_SGR` and `xtermPushColors` in xterm 412's `ptyx.h` and `misc.c`. kitty's `color-stack` gives no depth",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 16] = [
+pub(crate) const BOUNDS: [Bound; 18] = [
     COLUMNS,
     ROWS,
     CLUSTER,
@@ -164,6 +180,8 @@ pub(crate) const BOUNDS: [Bound; 16] = [
     XTGETTCAP_NAMES_BOUND,
     XTGETTCAP_REPLY,
     CLIPBOARD,
+    SGR_STACK,
+    COLOR_STACK,
 ];
 
 /// Cells a line holds, and columns a screen and its damage have. The
@@ -235,6 +253,12 @@ pub const XTGETTCAP_REPLY_MAX: usize = XTGETTCAP_REPLY.value;
 
 /// The most bytes of selection one OSC 52 sets, decoded: 512 KiB.
 pub const CLIPBOARD_MAX: usize = CLIPBOARD.value;
+
+/// The most pens XTPUSHSGR keeps.
+pub const SGR_STACK_MAX: usize = SGR_STACK.value;
+
+/// The most palettes XTPUSHCOLORS and OSC 30001 keep.
+pub const COLOR_STACK_MAX: usize = COLOR_STACK.value;
 
 #[cfg(test)]
 #[expect(
