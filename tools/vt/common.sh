@@ -8,9 +8,10 @@
 vt_dir=${VTIUM_VT_DIR:-/tmp/vtium-vt}
 
 # vt_own_dir DIR: creates DIR with mode 0700 when it is missing, and fails when
-# it is a symlink or not a directory of this user's. Another user can make a
-# directory of that name in /tmp first; nothing is written into one.
+# it is a symlink, not a directory of this user's, or open to anyone else.
+# Another user can make a directory of that name in /tmp first; nothing is
+# written into one.
 vt_own_dir() {
 	[ -e "$1" ] || [ -L "$1" ] || mkdir -m 0700 -- "$1" 2>/dev/null || true
-	[ ! -L "$1" ] && [ -d "$1" ] && [ -O "$1" ]
+	[ ! -L "$1" ] && [ -d "$1" ] && [ -O "$1" ] && [ "$(stat -c %a -- "$1")" = 700 ]
 }

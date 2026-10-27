@@ -30,6 +30,9 @@
 # system command is reached, and the run goes through without root. As root
 # the variable is refused.
 set -euo pipefail
+# sudo's own PATH, whatever the caller's, before any command runs: what runs
+# as root is the system's. The tests' stand-ins are named by full path.
+[ -n "${VTIUM_VT_STANDINS:-}" ] || PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
 usage() {
 	sed -n '7,8s/^# \{0,1\}//p' "$0" >&2
@@ -79,8 +82,6 @@ if [ -n "$standins" ]; then
 	setpriv=$standins/setpriv
 	active_file=$standins/active
 else
-	# sudo's own PATH, whatever the caller's: what runs as root is the system's.
-	PATH=/usr/sbin:/usr/bin:/sbin:/bin
 	systemctl=systemctl
 	loginctl=loginctl
 	# vtium starts its session with execve, without a PATH search.
@@ -105,10 +106,11 @@ act() {
 
 [[ $vt =~ ^[1-9][0-9]*$ ]] && [ "$vt" -ge 2 ] && [ "$vt" -le 12 ] ||
 	die "VT must be a number from 2 to 12, not '$vt'"
-# vtium reads the C reference's command line (#21), and the checks below are
-# made for VT $vt with the demo as the session, so only options that cannot
-# change that are let through: an allowlist of exact names, since the C
-# reference's getopt_long also takes a unique prefix (--lo for --login). An
+# The allowlist is written for the command line #21 gives vtium, the C
+# reference's; vtium parses no arguments yet. The checks below are made for
+# VT $vt with the demo as the session, so only options that cannot change that
+# are let through: an allowlist of exact names, since the C reference's
+# getopt_long also took a unique prefix (--lo for --login). An
 # option with a value carries it in the same word: a separate word would be
 # taken as the value, or, as a stray word, moved to the end of argv, into the
 # login command that runs as root. Left out on purpose: the VT, seat and
@@ -138,9 +140,11 @@ for o in "${extra[@]}"; do
 			die "--image-storage-limit takes auto or a size up to 4G here, not '$size'"
 		fi
 	fi
-	if [[ $o == --?*=* ]]; then
+	# A name is lower-case letters and dashes, so no two names of a list,
+	# joined by a space, pass as one.
+	if [[ $o == --* && $name =~ ^[a-z][a-z-]*= ]]; then
 		[[ $valued == *" ${name%%=*} "* ]] && continue
-	elif [[ $o == --?* ]]; then
+	elif [[ $o == --* && $name =~ ^[a-z][a-z-]*$ ]]; then
 		[[ $switches == *" ${name#no-} "* ]] && continue
 	fi
 	die "vtium option '$o' is refused. Accepted: display, font, palette, text and input options, --render-timer, --image-storage-limit and --sync-timeout, one word each: --name=value (quoted as one word: --font-name=\"Monoid Nerd Font Mono\"), or --name / --no-name for a switch (see docs/vt-review.md)"
@@ -183,6 +187,16 @@ if [ -n "$guide" ] && [ -z "$dry" ]; then
 		die "$user cannot read the guide $guide"
 fi
 
+# One run at a time, whoever starts it: one build on a VT. The lock is held
+# until this script ends; it lives in /run, which only root can write, and is
+# opened without truncation. vtium and its session do not inherit it.
+if [ -z "$dry" ]; then
+	lock=/run/vtium-vt.lock
+	[ -z "$standins" ] || lock=$standins/vt.lock
+	exec 9<>"$lock"
+	flock -n 9 || die "another VT review run is in progress (it holds $lock); one build on a VT at a time"
+fi
+
 # Prints "ID STATE" for each logind session on VT $vt, and fails when loginctl
 # cannot list the sessions. A session whose query fails is skipped only when a
 # second list no longer has it, as one that ended between the list and the
@@ -208,6 +222,7 @@ vt_sessions() {
 # dry run asks the same, since asking changes nothing.
 fg=$(cat "$active_file") || die "cannot read $active_file, so the VT on screen is unknown"
 fg=${fg#tty}
+[[ $fg =~ ^[0-9]+$ ]] || die "$active_file reads '$fg', so the VT on screen is unknown"
 [ "$fg" != "$vt" ] || die "VT $vt is on screen now; run this from another VT"
 on_vt=$(vt_sessions) ||
 	die "loginctl could not list the sessions or read one of them, so whether a session is on VT $vt is unknown"
@@ -235,26 +250,28 @@ running() {
 }
 # shellcheck disable=SC2317,SC2329 # invoked by the EXIT trap
 # A second signal, or a closed terminal or pipe, must not cut it short before
-# the units are started again, so it ignores them while it runs.
+# the units are started again, so it ignores them while it runs, and no failed
+# write ends it. A failed start exits 1.
 restore() {
+	set +e
 	trap - EXIT
 	trap '' INT TERM HUP PIPE
 	if running; then
-		show kill -TERM "$child"
+		show kill -TERM "$child" || true
 		kill -TERM "$child" 2>/dev/null || true
 		for _ in $(seq 50); do
 			running || break
 			sleep 0.1
 		done
 		if running; then
-			show kill -KILL "$child"
+			show kill -KILL "$child" || true
 			kill -KILL "$child" 2>/dev/null || true
 		fi
 		wait "$child" 2>/dev/null || true
 	fi
-	if [ ${#active[@]} -gt 0 ]; then
-		act "$systemctl" start "${active[@]}" ||
-			echo "run-vt: restarting ${active[*]} failed; restore it with: sudo systemctl start ${active[*]}" >&2
+	if [ ${#active[@]} -gt 0 ] && ! act "$systemctl" start "${active[@]}"; then
+		echo "run-vt: restarting ${active[*]} failed; restore it with: sudo systemctl start ${active[*]}" >&2
+		exit 1
 	fi
 }
 trap restore EXIT
@@ -327,7 +344,7 @@ show "${cmd[@]}"
 # A signal in the moment between these two lines finds child still empty, so
 # restore() starts the units again without stopping vtium. The window is a few
 # microseconds and is left open.
-"${cmd[@]}" &
+"${cmd[@]}" 9>&- &
 child=$!
 # With --login, the first logout ends the run, so a login left behind does
 # not keep a root dev build on the VT: once a session on VT $vt has been open,

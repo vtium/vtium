@@ -41,6 +41,7 @@ if [ "$1" = is-active ]; then
 	case " ${ACTIVE_UNITS-} " in *" $3 "*) exit 0 ;; esac
 	exit 3
 fi
+[ "$1" != start ] || exit "${START_STATUS:-${SYSTEMCTL_STATUS:-0}}"
 exit "${SYSTEMCTL_STATUS:-0}"
 """
 
@@ -93,6 +94,7 @@ FORBIDDEN = "#!/bin/bash\n" + RECORD + "exit 1\n"
 # $BIN_MODE says: exit (with $BIN_STATUS), wait (until a signal, recording
 # it), or session (runs the argv after --, with $BIN_STDIN as its input).
 BIN = """#!/bin/bash
+echo $$ >"$BIN_PID"
 printf '%s\\n' "$@" >"$BIN_ARGS"
 printf '%b' "${BIN_LOG:-}"
 case ${BIN_MODE:-exit} in
@@ -154,6 +156,7 @@ class Stage:
             COUNT=os.path.join(self.tmp, "count"),
             BIN_ARGS=self.bin_args,
             BIN_SIGNALS=self.signals,
+            BIN_PID=os.path.join(self.tmp, "bin-pid"),
             ACTIVE_UNITS="kmsconvt@tty8.service",
         )
         env.update(extra)
@@ -177,6 +180,14 @@ class Case(unittest.TestCase):
         self.s = Stage(self._tmp.name)
 
     def tearDown(self):
+        # A vtium left running by a failed restore is stopped here, so it
+        # outlives no test.
+        pid = read(os.path.join(self.s.tmp, "bin-pid")).strip()
+        if pid:
+            try:
+                os.kill(int(pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
         # No path of any tool switches a VT.
         self.assertEqual(self.s.calls_of("chvt") + self.s.calls_of("fgconsole"), [])
         self._tmp.cleanup()
@@ -269,6 +280,43 @@ class RunVt(Case):
         self.assertEqual(read(self.s.signals), "TERM\n", "vtium was not stopped with SIGTERM")
         self.assertEqual(self.s.changes(), ["stop kmsconvt@tty8.service", "start kmsconvt@tty8.service"])
 
+    def test_the_unit_comes_back_when_stdout_is_closed(self):
+        # The terminal the run was started from closes, then hangs up: every
+        # write the restore makes fails.
+        errors = open(os.path.join(self.s.tmp, "stderr"), "w")
+        proc = subprocess.Popen(["bash", RUN_VT, f"--bin={self.s.bin}", "8"], env=self.s.env(BIN_MODE="wait"),
+                                stdout=subprocess.PIPE, stderr=errors, cwd=self.s.tmp)
+        errors.close()
+        end = time.monotonic() + 10
+        while not os.path.exists(self.s.bin_args) and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertTrue(os.path.exists(self.s.bin_args), "vtium never started")
+        proc.stdout.close()
+        proc.send_signal(signal.SIGHUP)
+        proc.wait(timeout=15)
+        err = read(os.path.join(self.s.tmp, "stderr"))
+        self.assertEqual(proc.returncode, 129, err)
+        self.assertEqual(read(self.s.signals), "TERM\n", "vtium was left running")
+        self.assertEqual(self.s.changes(), ["stop kmsconvt@tty8.service", "start kmsconvt@tty8.service"])
+
+    def test_one_run_at_a_time(self):
+        first = subprocess.Popen(["bash", RUN_VT, f"--bin={self.s.bin}", "8"], env=self.s.env(BIN_MODE="wait"),
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=self.s.tmp)
+        try:
+            end = time.monotonic() + 10
+            while not os.path.exists(self.s.bin_args) and time.monotonic() < end:
+                time.sleep(0.02)
+            os.unlink(self.s.bin_args)
+            p = self.run_vt("9", ACTIVE_UNITS="getty@tty9.service")
+            self.refused(p, "another VT review run is in progress")
+            self.assertFalse(os.path.exists(self.s.bin_args), "a second vtium ran")
+            self.assertNotIn("stop getty@tty9.service", self.s.changes())
+        finally:
+            first.send_signal(signal.SIGTERM)
+            first.wait(timeout=15)
+        # Released when the first run ends.
+        self.assertEqual(self.run_vt("9").returncode, 0)
+
     def test_the_unit_comes_back_after_ctrl_c(self):
         self.interrupted(signal.SIGINT, 130)
 
@@ -286,7 +334,13 @@ class RunVt(Case):
 
     def test_a_failed_restart_names_the_manual_restore(self):
         p = self.run_vt("8", SYSTEMCTL_STATUS="1")
+        self.assertEqual(p.returncode, 1, p.stderr)
         self.assertIn("restore it with: sudo systemctl start kmsconvt@tty8.service", p.stderr)
+        # Only the start fails, after vtium ended well.
+        p = self.run_vt("8", START_STATUS="1")
+        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertIn("restore it with: sudo systemctl start kmsconvt@tty8.service", p.stderr)
+        self.assertTrue(os.path.exists(self.s.bin_args))
 
     def test_the_vt_number(self):
         for vt in ("1", "13", "05", "3x"):
@@ -298,7 +352,9 @@ class RunVt(Case):
     def test_unsafe_vtium_options_are_refused(self):
         for opts in (["--login"], ["--lo"], ["--vt=tty3"], ["--configdir=/tmp"], ["--oneshot"],
                      ["--font-name", "x"], ["x"], ["--asciicast=/tmp/a"], ["--xkb-keymap=/etc/shadow"],
-                     ["--seats=all"], ["--no-switchvt"], ["--login=/bin/sh"]):
+                     ["--seats=all"], ["--no-switchvt"], ["--login=/bin/sh"],
+                     # Two allowed names joined by a space, as the lists hold them.
+                     ["--sb-size palette=1"], ["--verbose debug"], ["--Mode=1"]):
             with self.subTest(opts=opts):
                 self.refused(self.run_vt("--dry-run", "8", "--", *opts), "is refused")
         for size in ("5G", "4097M", "4194305K", "4294967297", "-1", "1T"):
@@ -324,6 +380,27 @@ class RunVt(Case):
         self.refused(p, "no vtium binary at")
         p = subprocess.run(["bash", RUN_VT, "8"], env=self.s.env(), capture_output=True, text=True, timeout=20)
         self.refused(p, "--bin=PATH names the vtium binary")
+        self.assertEqual(self.s.changes(), [])
+
+    def test_path_is_pinned_before_any_command(self):
+        # Without stand-ins, a command planted on the caller's PATH is never
+        # run. VT 13 is refused before anything is asked of the system.
+        plant = os.path.join(self.s.tmp, "plant")
+        os.mkdir(plant)
+        for name in ("readlink", "dirname", "id", "tr", "cat"):
+            write(os.path.join(plant, name), "#!/bin/sh\necho planted >>" + os.path.join(self.s.tmp, "planted") + "\nexit 1\n")
+        env = self.s.env(PATH=plant + os.pathsep + os.environ["PATH"])
+        del env["VTIUM_VT_STANDINS"]
+        p = subprocess.run(["bash", RUN_VT, f"--bin={self.s.bin}", "--dry-run", "13"], env=env,
+                           capture_output=True, text=True, timeout=20, start_new_session=True)
+        self.refused(p, "VT must be a number from 2 to 12")
+        self.assertFalse(os.path.exists(os.path.join(self.s.tmp, "planted")))
+
+    def test_an_unreadable_vt_on_screen_is_refused(self):
+        for text in ("", "ttyX", "tty", "7 8"):
+            with self.subTest(active=text):
+                self.s.active(text)
+                self.refused(self.run_vt("8"), "the VT on screen is unknown")
         self.assertEqual(self.s.changes(), [])
 
     def test_the_label_takes_a_builds_characters_only(self):
@@ -444,6 +521,11 @@ class VtSh(Case):
         self.refused(self.vt_sh(), "is a symlink, or not a directory of yours")
         p = self.vt_sh(VTIUM_VT_DIR="/usr")
         self.refused(p, "/usr is a symlink, or not a directory of yours")
+        # Another user could read or write the answers in a directory open to them.
+        open_dir = os.path.join(self.s.tmp, "open")
+        os.mkdir(open_dir)
+        os.chmod(open_dir, 0o755)
+        self.refused(self.vt_sh(VTIUM_VT_DIR=open_dir), "is a symlink, or not a directory of yours")
         self.assertEqual(self.s.calls_of("sudo"), [])
 
     def test_a_crash_is_reported_and_the_unit_restored(self):
@@ -659,15 +741,20 @@ class Guide(Case):
     def test_the_answers_log_refuses_a_directory_not_the_users_own(self):
         guide = os.path.join(VT, "checks", "start.guide")
         os.symlink(self.s.tmp, self.s.dir)
+        open_dir = os.path.join(self.s.tmp, "open")
+        os.mkdir(open_dir)
+        os.chmod(open_dir, 0o750)
         for env, why in ((self.guide_env(), b"is a symlink, or not a directory of yours"),
-                         (self.guide_env(VTIUM_VT_DIR="/usr"), b"/usr is a symlink, or not a directory of yours")):
+                         (self.guide_env(VTIUM_VT_DIR="/usr"), b"/usr is a symlink, or not a directory of yours"),
+                         (self.guide_env(VTIUM_VT_DIR=open_dir), b"open is a symlink, or not a directory of yours")):
             with self.subTest(dir=env["VTIUM_VT_DIR"]):
                 g = Pty(["/bin/bash", GUIDE_SH, guide], env)
                 g.wait_for(why)
                 g.wait_for(b"Press Enter to end.")
                 g.send(b"\r")
                 self.assertEqual(g.finish(), 1)
-        self.assertEqual(sorted(os.listdir(self.s.tmp)), sorted(["standins", "vtium", "vt"]))
+        self.assertEqual(sorted(os.listdir(self.s.tmp)), sorted(["standins", "vtium", "vt", "open"]))
+        self.assertEqual(os.listdir(open_dir), [])
 
     def test_a_run_on_a_terminal(self):
         guide = os.path.join(self.s.tmp, "t.guide")
