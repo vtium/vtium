@@ -42,6 +42,8 @@
 mod bounds;
 mod channel;
 pub mod event_loop;
+mod ioctl;
+mod mmap;
 pub mod pty;
 mod queue;
 
