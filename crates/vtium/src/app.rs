@@ -716,6 +716,8 @@ impl App {
                 // The acquire sets every device up: no re-take is owed
                 // to the VT that is not ours.
                 self.retake_owed = false;
+                // The drag's release reaches the VT that is ours next.
+                self.pointer.drag = None;
                 self.deactivate();
                 if let Some(input) = &mut self.input {
                     input.sleep();
@@ -929,10 +931,12 @@ impl App {
                     self.orientation = layout::rotate(self.orientation, g == Grab::RotateCw);
                     self.relayout();
                 }
-                Grab::Paste => {
+                // One paste a press, however long the key repeats.
+                Grab::Paste if !key.repeat => {
                     self.paste();
                     self.send_user_bytes();
                 }
+                Grab::Paste => {}
             }
             self.draw_now = true;
             return;
@@ -1001,6 +1005,11 @@ impl App {
                 self.pointer.y = u32::try_from(y).unwrap_or(0);
                 self.pointer.visible = true;
                 self.pointer.held = held;
+                // A drag whose release was lost ends with the left button
+                // no longer held.
+                if held != Some(Button::Left) {
+                    self.pointer.drag = None;
+                }
                 let (col, row) = self.pointer_cell();
                 if let Some(drag) = &mut self.pointer.drag {
                     drag.moved |= (col, row) != drag.from;
@@ -1079,13 +1088,18 @@ impl App {
         }
     }
 
-    /// The cell under the pointer.
+    /// The cell under the pointer, or the grid's nearest when the pointer
+    /// is in the strip a display leaves past the grid, as the C reference
+    /// kept it (`src/terminal.c:173-190` at kmscon b1f7a7c5).
     fn pointer_cell(&self) -> (usize, usize) {
-        let cell =
-            |p: u32, size: u32| usize::try_from(p.checked_div(size).unwrap_or(0)).unwrap_or(0);
+        let cell = |p: u32, size: u32, cells: usize| {
+            usize::try_from(p.checked_div(size).unwrap_or(0))
+                .unwrap_or(0)
+                .min(cells.saturating_sub(1))
+        };
         (
-            cell(self.pointer.x, self.cell.0),
-            cell(self.pointer.y, self.cell.1),
+            cell(self.pointer.x, self.cell.0, self.grid.0),
+            cell(self.pointer.y, self.cell.1, self.grid.1),
         )
     }
 
@@ -1100,11 +1114,12 @@ impl App {
 
     /// A button that selects or pastes, as the C reference's did
     /// (`src/terminal.c:1509-1542` at kmscon b1f7a7c5): the left button
-    /// starts a selection that its drag extends and its release copies,
-    /// a double click selects and copies a word, and a triple click a
-    /// line, as xterm's does; the middle button pastes, and the right
-    /// clears the selection. A release with no drag copies nothing and
-    /// clears the selection, as xterm's leaves its selection unchanged.
+    /// starts a selection that its drag extends and its release copies, a
+    /// double click selects and copies a word, and a triple click a line,
+    /// as xterm's does; the middle button pastes at its release, as
+    /// xterm's does, and the right clears the selection. A release that
+    /// ends no drag clears the selection and leaves the buffer as it was,
+    /// as xterm takes no empty selection.
     fn select_button(&mut self, button: Button, pressed: bool, double_click: bool) {
         let (col, row) = self.pointer_cell();
         match (button, pressed) {
@@ -1141,11 +1156,11 @@ impl App {
                 }
                 None => {}
             },
-            (Button::Middle, true) => {
+            (Button::Middle, true) => {}
+            (Button::Middle, false) => {
                 self.paste();
                 self.term.terminal.screen_mut().clear_selection();
             }
-            (Button::Middle, false) => {}
             (Button::Right, _) => {
                 self.pointer.drag = None;
                 self.term.terminal.screen_mut().clear_selection();

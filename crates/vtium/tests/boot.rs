@@ -1087,7 +1087,10 @@ fn a_double_click_selects_a_word_and_a_triple_click_a_line() {
         none,
     );
     assert_eq!(h.app.selection(), Some(&b"second line here\n"[..]));
-    h.point([press(Button::Middle, false)], none);
+    h.point(
+        [press(Button::Middle, false), release(Button::Middle)],
+        none,
+    );
     assert!(
         h.until(SECOND, |a| shows(a, "got:beta|second line here")),
         "{:?}",
@@ -1132,6 +1135,144 @@ fn shift_selects_and_pastes_while_the_program_tracks_the_pointer() {
             a,
             "E[200~pick meE[201~E[<0;7;1ME[<0;7;1m"
         )),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// A press in the strip past the grid's last cell selects from that cell,
+/// so a new selection never extends the one before it.
+// covers: clipboard.selection
+#[test]
+fn a_press_past_the_grid_selects_from_its_last_cell() {
+    let mut h = Harness::build(
+        &[
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "printf 'alpha beta gamma\\n'; read x",
+        ],
+        FakeVt::new(),
+        Box::new(Memory::sized(326, 168)),
+    );
+    assert_eq!(h.app.grid(), (40, 10));
+    assert!(h.until(SECOND, |a| shows(a, "alpha beta gamma")));
+    let none = Mods::empty();
+    h.point(
+        [
+            over(7, 0, None),
+            press(Button::Left, false),
+            release(Button::Left),
+            press(Button::Left, true),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"beta"[..]));
+    h.point(
+        [
+            PointerEvent::Moved {
+                x: 323,
+                y: 8,
+                held: None,
+            },
+            press(Button::Left, false),
+            over(0, 0, Some(Button::Left)),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"alpha beta gamma"[..]));
+}
+
+/// A drag ends when its button is no longer held, as when its release was
+/// lost, and when the VT is released.
+#[test]
+fn a_drag_ends_without_its_button_and_at_a_vt_release() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf 'first line\\nsecond one\\n'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "second one")));
+    let none = Mods::empty();
+    let selected = |h: &Harness| h.app.term.terminal.screen().selection_text();
+    h.point(
+        [
+            over(0, 0, None),
+            press(Button::Left, false),
+            over(4, 0, Some(Button::Left)),
+            over(5, 1, None),
+            over(9, 1, Some(Button::Left)),
+        ],
+        none,
+    );
+    assert_eq!(selected(&h).as_deref(), Some("first"));
+    h.point(
+        [
+            over(0, 1, None),
+            press(Button::Left, false),
+            over(2, 1, Some(Button::Left)),
+        ],
+        none,
+    );
+    assert_eq!(selected(&h).as_deref(), Some("sec"));
+    let switch = key(Mods::CTRL.union(Mods::LOGO), 0xffc9);
+    h.app.input_event(switch.clone(), now());
+    assert!(h.until_memory(SECOND, |m| !m.awake), "asleep");
+    assert!(h.until(SECOND, |a| !a.vt.is_active()), "released");
+    h.app.input_event(switch, now());
+    assert!(h.until(SECOND, |a| a.vt.is_active()), "acquired");
+    h.point([over(9, 1, Some(Button::Left))], none);
+    assert_eq!(selected(&h).as_deref(), Some("sec"));
+}
+
+/// A selection a program sets with OSC 52 is pasted as any paste is:
+/// filtered, so its end marker and C0 controls arrive as spaces, each LF
+/// as CR, and bracketed. Shift+Insert pastes once a press, however long
+/// it repeats; the middle button pastes at its release, as xterm's does.
+// covers: clipboard.paste, osc.52.write, input.paste-end-marker
+#[test]
+fn a_hostile_selection_is_pasted_filtered_once_a_press() {
+    let mut h = Harness::build(
+        &[
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "stty raw -echo; \
+             printf '\\033]52;c;%s\\a' \"$(printf 'a\\033[201~b\\003c\\nd' | base64)\"; \
+             printf '\\033[?2004hready'; \
+             awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");gsub(/\\r/,\"R\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x",
+        ],
+        FakeVt::new(),
+        Box::new(Memory::sized(640, 160)),
+    );
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    assert_eq!(h.app.selection(), Some(&b"a\x1b[201~b\x03c\nd"[..]));
+    let shift_insert = |repeat: bool| {
+        InputEvent::Key(KeyEvent {
+            keycode: 0,
+            ascii: 0,
+            mods: Mods::SHIFT,
+            keysyms: vec![0xff63],
+            codepoints: vec![None],
+            repeat,
+        })
+    };
+    h.app.input_event(shift_insert(false), now());
+    h.app.input_event(shift_insert(true), now());
+    h.app.input_event(shift_insert(true), now());
+    h.point([press(Button::Middle, false)], Mods::empty());
+    h.type_str("X");
+    h.point([release(Button::Middle)], Mods::empty());
+    h.type_str("q");
+    let paste = "E[200~a [201~b cRdE[201~";
+    assert!(
+        h.until(SECOND, |a| shows(a, &format!("{paste}X{paste}"))),
         "{:?}",
         h.app.screen_text()
     );
