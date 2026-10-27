@@ -1,6 +1,6 @@
 //! `Missing::Hex`: a character the face lacks drawn as its codepoint in hex
-//! (vtium/vtium#85), in the layout the operator approved; the digit shapes
-//! wait for the operator's approval. The C reference drew
+//! (vtium/vtium#85), in the layout and digit shapes the operator approved.
+//! The C reference drew
 //! U+25A1, `?` or glyph 0 (font.c:327-339), which `Missing::Replacement`
 //! keeps.
 
