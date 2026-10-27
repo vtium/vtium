@@ -13,7 +13,8 @@
 //! the same arrow over the cells. The arrow goes to the plane at a draw,
 //! when the display is lent for one and so awake and online: a display
 //! that is not yet tries again at the next draw, and draws the pointer in
-//! software until then.
+//! software until then. Each decision is logged, as the C reference named
+//! the cursor, `HW` or `SW`, in its display's line.
 //!
 //! A failed renderer set keeps the renderer the display had, and with it
 //! the arrow on its plane. The C reference set the hardware cursor up from
@@ -80,12 +81,12 @@ impl Pointer {
         if self.route == Route::Unset {
             match plane.set_up(id, renderer.arrow()) {
                 Ok(()) => {
-                    log::debug!("display {}: the pointer is on the cursor plane", id.0);
+                    log::info!(target: "pointer", "display {} shows it on its cursor plane", id.0);
                     self.route = Route::Hardware;
                 }
                 Err(e) if e.kind() == io::ErrorKind::InvalidInput => {}
                 Err(e) => {
-                    log::debug!("display {}: the pointer is drawn in software: {e}", id.0);
+                    log::info!(target: "pointer", "display {} draws it in software: {e}", id.0);
                     self.route = Route::Software;
                 }
             }
