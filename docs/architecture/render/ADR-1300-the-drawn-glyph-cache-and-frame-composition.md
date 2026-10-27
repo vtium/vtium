@@ -47,10 +47,13 @@ considered:
   - operator: aaronsb
     said: "Codepoint cache key as proposed sounds superior to the c implementation"
     via: operator, in session 2026-10-26, after the explanation of how it differs from the C reference
+  - operator: aaronsb
+    said: "Sorry agree on adding to the sub pixel thoughts and the adr I agree with too"
+    via: operator, in session 2026-10-26, after reading the record and the subpixel proposal
 observable:
   - "Tier 2 draws each screen with a cache of 0 glyphs and with the performance budgets, on the CPU path and on the GPU path under llvmpipe, and the two agree byte for byte"
   - "`cargo test -p vtium-render --test memory -- --nocapture` prints each profile's figures and fails when they change"
-status: proposed
+status: accepted
 date: 2026-10-26
 deciders:
   - aaronsb
@@ -112,6 +115,9 @@ Each difference says what the C reference did, what vtium does, why, the cost or
 - **Pixels:** none change.
 
 ### D2: storage by format and width, at 1 bit when lossless, and at the font's own size
+
+A third format is reserved (added 2026-10-26, the operator's agreement): a per-channel subpixel mask, three coverage values a pixel, for outline fonts (#23, #24). It takes its own pools beside the mask and colour pools, under the same budgets and the same lossless rule. Its order comes from the DRM connector's `subpixel` property, after rotation, with grayscale when the property reports none or unknown and a configuration key to override it. The GPU path blends it per channel in the shader. Bitmap fonts and colour glyphs never use it.
+
 
 - **The C reference:** bbulk held every glyph 8-bit at its drawn size, in one LRU of both formats. gltex had pools by format and width.
 - **vtium:** both paths keep gltex's four pools, masks and colour glyphs, 1 or 2 cells wide, each with an LRU, a glyph count and a byte ceiling (D4). The colour pools exist only while a colour face is loaded. A mask whose every pixel is 0 or 255 is stored at 1 bit a pixel; any other mask stays 8-bit. A bitmap font's glyph (PSF, unifont) is stored at the font's own size, bold included, and scaled by its whole factor while drawn, each source pixel a square.
