@@ -7,8 +7,9 @@
 //! control functions. The modes go through the mode table (`modes.rs`),
 //! SGR through `sgr.rs`, the replies through `reply.rs`, the character
 //! sets through `charset.rs`, OSC 52 through `clipboard.rs`, the colour
-//! OSC strings through `color.rs`, and the keys,
-//! the pointer, focus and pastes through `input.rs`.
+//! OSC strings through `color.rs`, the in-band reports through
+//! `inband.rs`, and the keys, the pointer, focus and pastes through
+//! `input.rs`.
 //!
 //! A control function is matched by its final byte, its private marker and
 //! its intermediates exactly, as `vtium-parse`'s README asks: `CSI ? 5 A`
@@ -17,6 +18,7 @@
 mod charset;
 mod clipboard;
 mod color;
+mod inband;
 mod input;
 mod modes;
 mod reply;
@@ -36,6 +38,7 @@ pub use modes::MouseTracking;
 pub use reply::VersionError;
 
 use charset::{Charset, Charsets};
+use inband::Inband;
 use modes::Modes;
 use reply::Query;
 
@@ -198,6 +201,8 @@ struct State {
     cursor_blink_ms: Option<u32>,
     /// The selection OSC 52 set last, until the host takes it.
     clipboard: Option<clipboard::Selection>,
+    /// The text area and the visibility the in-band reports compare with.
+    inband: Inband,
     /// The queries answered, in order, for the reply rule's test.
     #[cfg(test)]
     answered: Vec<Query>,
@@ -236,6 +241,7 @@ impl Terminal {
             dcs: Dcs::Ignored,
             cursor_blink_ms: None,
             clipboard: None,
+            inband: Inband::new(cols, rows),
             #[cfg(test)]
             answered: Vec::new(),
         };
@@ -356,7 +362,8 @@ impl Terminal {
         self.state.host.termcap = termcap;
     }
 
-    /// The cell's size in pixels, which XTWINOPS 14 and 16 report.
+    /// The cell's size in pixels, which XTWINOPS 14 and 16 report, and
+    /// mode 2048 at the next [`resize`](Self::resize).
     pub fn set_cell_size(&mut self, width: u32, height: u32) {
         self.state.host.cell = Some((width, height));
     }
@@ -378,13 +385,15 @@ impl Terminal {
     /// ([`Palette::named`], [`Palette::custom`]). It replaces the colours
     /// the program set, and is what the colour resets and RIS return to. A
     /// palette that differs from the one drawn recolours every cell, so
-    /// every cell is marked changed.
+    /// every cell is marked changed, and may change mode 2031's scheme.
     pub fn set_palette(&mut self, palette: Palette) {
+        let scheme = self.state.scheme();
         if self.state.colors != palette {
             self.state.colors = palette.clone();
             self.state.screen.recolour();
         }
         self.state.host.palette = palette;
+        self.state.report_scheme_change(scheme);
     }
 
     /// Whether BackSpace sends DEL (0x7F) in place of BS (0x08).
@@ -740,6 +749,8 @@ impl Consumer for State {
             (Some(b'>'), [], b'c') if params.get(0).unwrap_or(0) == 0 => self.reply_da2(),
             (Some(b'='), [], b'c') if params.get(0).unwrap_or(0) == 0 => self.reply_da3(),
             (Some(b'?'), [], b'n') if params.get(0) == Some(6) => self.reply_cursor(true),
+            (Some(b'?'), [], b'n') if params.get(0) == Some(996) => self.reply_scheme(),
+            (Some(b'?'), [], b'n') if params.get(0) == Some(998) => self.reply_visibility(),
             (Some(b'>'), [], b'm') if !params.has_subparams() => {
                 self.set_modify_other_keys(params);
             }
@@ -759,7 +770,9 @@ impl Consumer for State {
         match data.strip_prefix(b"52;") {
             Some(args) => self.set_clipboard(args),
             None => {
+                let scheme = self.scheme();
                 self.osc_color(data, end);
+                self.report_scheme_change(scheme);
             }
         }
     }
