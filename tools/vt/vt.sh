@@ -1,8 +1,8 @@
 #!/bin/bash
 # The operator's review of vtium on a real VT in one blocking command, as make
-# vt-demo, vt-login and vt-check run it (docs/vt-review.md): picks a free VT,
-# runs run-vt.sh there through sudo, and when the run ends prints a health
-# check of vtium's log and the run's answers.
+# vt-demo, vt-login, vt-check and vt-shell run it (docs/vt-review.md): picks a
+# free VT, runs run-vt.sh there through sudo, and when the run ends prints a
+# health check of vtium's log and the run's answers.
 #
 #   vt.sh [N] [-- VTIUM-OPTION...]
 #
@@ -14,7 +14,8 @@
 #                     it stops anything.
 #   VTIUM_VT_ARGS     vtium options (DEMO_ARGS=), split into words by xargs,
 #                     which honours quotes and backslashes and expands nothing
-#   VTIUM_VT_SESSION  demo (the default), login or guide
+#   VTIUM_VT_SESSION  demo (the default), login, guide or shell; shell's
+#                     session is recorded in a transcript beside vtium's log
 #   VTIUM_VT_GUIDE    for guide: a name in tools/vt/checks (NAME.guide) or a
 #                     path, checked here with guide.sh --check before sudo
 #   VTIUM_VT_STEPS    for guide: only these steps (GUIDE_STEPS="4 8 9")
@@ -48,10 +49,11 @@ extra=()
 session=()
 mode=${VTIUM_VT_SESSION:-demo}
 case $mode in
-demo | login | guide) ;;
-*) die "VTIUM_VT_SESSION=$mode: demo, login or guide" ;;
+demo | login | guide | shell) ;;
+*) die "VTIUM_VT_SESSION=$mode: demo, login, guide or shell" ;;
 esac
 [ "$mode" = login ] && session=(--login)
+[ "$mode" = shell ] && session=(--shell)
 guide=
 if [ "$mode" = guide ]; then
 	guide=${VTIUM_VT_GUIDE:-}
@@ -155,8 +157,16 @@ fi
 
 # The build, for the demo's title page: the checkout's commit, if git knows it.
 label=$(git -C "$here" describe --always --dirty 2>/dev/null | tr -cd '[:alnum:] ._+:/@-' | cut -c1-60) || label=
-cmd=("$here/run-vt.sh" --bin="$bin" --label="dev build ${label:-unknown}" "${session[@]}" "$vt" -- "${extra[@]}")
 log=$vt_dir/vt-$(date +%Y%m%dT%H%M%S)-tty$vt-XXXXXX.log
+transcript=
+
+# The command, once the log's name, and with it the transcript's, is final.
+build_cmd() {
+	local record=()
+	[ -z "$transcript" ] || record=(--transcript="$transcript")
+	cmd=("$here/run-vt.sh" --bin="$bin" --label="dev build ${label:-unknown}" "${session[@]}" "${record[@]}"
+		"$vt" -- "${extra[@]}")
+}
 
 banner() {
 	local rule
@@ -166,6 +176,8 @@ banner() {
 }
 
 if [ -n "$dry" ]; then
+	[ "$mode" != shell ] || transcript=${log%.log}.transcript
+	build_cmd
 	banner
 	show=("$sudo" "${cmd[@]}")
 	printf '+'
@@ -173,7 +185,11 @@ if [ -n "$dry" ]; then
 	printf '\n'
 	answers=$feedback
 	[ -z "$guide" ] || answers=$checklog
-	echo "  (vtium's log would go to $log; the answers are read from $answers)"
+	if [ "$mode" = shell ]; then
+		echo "  (vtium's log would go to $log; the shell's transcript to $transcript)"
+	else
+		echo "  (vtium's log would go to $log; the answers are read from $answers)"
+	fi
 	echo "  run-vt.sh --dry-run, without sudo:"
 	"${cmd[0]}" --dry-run "${cmd[@]:1}"
 	exit
@@ -183,6 +199,13 @@ fi
 # name mktemp creates (never a file already there).
 vt_own_dir "$vt_dir" || die "$vt_dir is a symlink, or not a directory of yours; remove it and run again"
 log=$(mktemp --suffix=.log "${log%.log}") || die "cannot create a log in $vt_dir"
+# The transcript is named after the log, so its name is new as well. The shell
+# writes it as the invoking user.
+if [ "$mode" = shell ]; then
+	transcript=${log%.log}.transcript
+	(umask 077 && set -C && : >"$transcript") || die "cannot create the transcript $transcript"
+fi
+build_cmd
 # Ask for the password, if sudo wants one, here, before the operator leaves
 # for the VT.
 "$sudo" -v || die "sudo failed"
@@ -223,6 +246,7 @@ else
 	echo "health: $panics 'panicked at' lines in vtium's log: vtium panicked"
 fi
 echo "vtium log: $log"
+[ -z "$transcript" ] || echo "transcript: $transcript"
 echo
 
 # The guided checks' lines, from the run's header on.
@@ -236,16 +260,17 @@ if [ -n "$guide" ]; then
 	echo "results: $(readlink -m "$checklog")"
 fi
 
-# The demo's answers; a login's, when a demo was run in it.
-if [ "$mode" = demo ] || { [ "$mode" = login ] && [ -n "$run" ]; }; then
+# The demo's answers; a login's or a shell's, when a demo was run in it.
+if [ "$mode" = demo ] || { [ "$mode" != guide ] && [ -n "$run" ]; }; then
 	[ -z "$run" ] || "$here/feedback.sh" --file "$feedback" --run "$run"
 	echo
 	echo "results: $(readlink -m "$feedback")"
 fi
 
-# A login ends at its logout or at Ctrl-C (130); either is a normal end.
-if [ "$mode" = login ] && [ "$status" -eq 130 ]; then
-	echo "vt-login: ended with Ctrl-C"
+# A login ends at its logout, a shell when it exits, and either at Ctrl-C
+# (130); each is a normal end.
+if { [ "$mode" = login ] || [ "$mode" = shell ]; } && [ "$status" -eq 130 ]; then
+	echo "vt-$mode: ended with Ctrl-C"
 	status=0
 fi
 if [ "$status" -ne 0 ]; then
