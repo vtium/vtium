@@ -32,7 +32,7 @@
 set -euo pipefail
 # sudo's own PATH, whatever the caller's, before any command runs: what runs
 # as root is the system's. The tests' stand-ins are named by full path.
-[ -n "${VTIUM_VT_STANDINS:-}" ] || PATH=/usr/sbin:/usr/bin:/sbin:/bin
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
 usage() {
 	sed -n '7,8s/^# \{0,1\}//p' "$0" >&2
@@ -254,8 +254,8 @@ running() {
 # write ends it. A failed start exits 1.
 restore() {
 	set +e
-	trap - EXIT
 	trap '' INT TERM HUP PIPE
+	trap - EXIT
 	if running; then
 		show kill -TERM "$child" || true
 		kill -TERM "$child" 2>/dev/null || true

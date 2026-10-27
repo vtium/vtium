@@ -95,6 +95,11 @@ FORBIDDEN = "#!/bin/bash\n" + RECORD + "exit 1\n"
 # it), or session (runs the argv after --, with $BIN_STDIN as its input).
 BIN = """#!/bin/bash
 echo $$ >"$BIN_PID"
+# The run's lock is root's; vtium, and the login and shell it starts, never
+# hold it.
+for f in /proc/$$/fd/*; do
+	case $(readlink "$f") in *vt.lock) echo "vtium inherited the lock" >&2; exit 97 ;; esac
+done
 printf '%s\\n' "$@" >"$BIN_ARGS"
 printf '%b' "${BIN_LOG:-}"
 case ${BIN_MODE:-exit} in
@@ -389,12 +394,15 @@ class RunVt(Case):
         os.mkdir(plant)
         for name in ("readlink", "dirname", "id", "tr", "cat"):
             write(os.path.join(plant, name), "#!/bin/sh\necho planted >>" + os.path.join(self.s.tmp, "planted") + "\nexit 1\n")
-        env = self.s.env(PATH=plant + os.pathsep + os.environ["PATH"])
-        del env["VTIUM_VT_STANDINS"]
-        p = subprocess.run(["bash", RUN_VT, f"--bin={self.s.bin}", "--dry-run", "13"], env=env,
-                           capture_output=True, text=True, timeout=20, start_new_session=True)
-        self.refused(p, "VT must be a number from 2 to 12")
-        self.assertFalse(os.path.exists(os.path.join(self.s.tmp, "planted")))
+        for standins in (False, True):
+            with self.subTest(standins=standins):
+                env = self.s.env(PATH=plant + os.pathsep + os.environ["PATH"])
+                if not standins:
+                    del env["VTIUM_VT_STANDINS"]
+                p = subprocess.run(["bash", RUN_VT, f"--bin={self.s.bin}", "--dry-run", "13"], env=env,
+                                   capture_output=True, text=True, timeout=20, start_new_session=True)
+                self.refused(p, "VT must be a number from 2 to 12")
+                self.assertFalse(os.path.exists(os.path.join(self.s.tmp, "planted")))
 
     def test_an_unreadable_vt_on_screen_is_refused(self):
         for text in ("", "ttyX", "tty", "7 8"):
