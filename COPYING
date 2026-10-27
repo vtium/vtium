@@ -68,3 +68,14 @@ A source file ported from kmscon or libtsm keeps the copyright notice that
 file carried, beside vtium's. A third-party component's notice, such as the
 GNU Unifont font's (SIL OFL 1.1) or the Unicode data tables' (Unicode License
 v3), is added here with the code or data it covers, when that is ported.
+
+GNU Unifont (crates/vtium-font/data/unifont.hex), the font vtium-font builds
+in: version 17.0.03, by Roman Czyborra, Paul Hardy and the Unifont
+contributors, dual-licensed under the SIL Open Font License 1.1 and the GNU
+GPL 2 or later with the GNU font embedding exception. vtium takes it under the
+SIL Open Font License 1.1, whose text is crates/vtium-font/data/OFL-1.1.txt.
+
+The geometry of vtium-font's sprites (crates/vtium-font/src/sprite.rs) is
+adapted from Ghostty's sprite font, by way of the C fork's font_box.c, under
+the MIT licence: Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors.
+The file carries the notice.
