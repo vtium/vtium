@@ -25,7 +25,7 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/main.rs` | Start-up and the loop |
 | `tests/check_config.rs` | `vtium check-config` run as a binary: its warnings, exit status and help, and with strace on the machine, that it opens nothing but the configuration |
 | `tests/panic_hook.rs` | The panic hook's order, in a process of its own |
-| `tests/boot.rs` | The seat booted with no hardware: output drawn, keys, a VT switch, the blank and what counts as activity, the respawn limit, DECARM, the font's policy, the wait for a display, the exit |
+| `tests/boot.rs` | The seat booted with no hardware: output drawn, keys, a VT switch, the blank and what counts as activity, the respawn limit, DECARM, the font's policy, the wait for a display and the session with none, the exit |
 | `install/kmscon.conf.example` | The example configuration, generated from the key table |
 | `install/kmscon.ti` | The terminfo entry, installed compiled with `tic -x` |
 
@@ -34,6 +34,12 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 ## The blank
 
 After `dpms-timeout` with no activity every display powers down, and the next activity powers it up. Activity is a key or pointer event, and the wake-up after the user switches back to vtium's VT. A hotplug and a re-take are not: a re-take sets the displays up again and keeps the blank and its timer as they were, and while blanked its set-up waits for the input that ends the blank (the operator's decision on vtium/vtium#21).
+
+## No display
+
+At start vtium waits `display-wait` (10 s by default) for a display it draws on, counted from the first time its VT is shown, and with none by then it exits with status 1, so the unit's `OnFailure=getty@%i` takes the VT. A device whose displays are never set up, as when the modeset fails, counts as none. `display-wait=0` exits at once without one; `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time after boot. The session's command starts during the wait, and is closed if vtium exits.
+
+Once a display has come, vtium never exits for want of one. When the last goes, it logs it and the session runs on: the grid keeps the last display's size, so the program sees no SIGWINCH; keys still reach it; and the blank does not run, a blank in force ending with the display. When the next comes, it is logged and drawn whole, and the grid takes its size where that differs, one SIGWINCH (the operator's decisions on vtium/vtium#21).
 
 ## Bounds
 
@@ -64,7 +70,7 @@ Each was the C reference's behaviour at kmscon `b1f7a7c5`.
 - **The respawn limit times each start from that start, on the monotonic clock.** The C reference recorded a start only when the exit before it was quick, in whole seconds of the wall clock (`src/misc/pty.c:747-767`), so after one slow restart a command that failed at once restarted without end. A slow exit after quick restarts now starts the command again with the count reset, where the C reference exited at the next exit whatever its timing.
 - **The font fallback is tried once,** then the error is returned; the C reference retried for as long as the lookup failed (aaronsb/kmscon#63).
 - **`KMS_START_SCRIPT` is not set.** The C reference set it to `kmscon-launch-gui` on a DRM display (`src/misc/pty.c:286-291`), a script vtium does not install; the operator's decision on vtium/vtium#21.
-- **With no display by `display-wait` after the start, vtium exits with status 1,** so the unit's `OnFailure=getty@%i` takes the VT; the C reference kept running with no display. The wait counts from the first time the VT is shown, and a device whose displays are never set up, as when the modeset fails, counts as none. Once a display has come, displays coming and going are hotplug and vtium runs with none attached (the operator's decision on vtium/vtium#21).
+- **With no display by `display-wait` after the start, vtium exits with status 1** (see "No display"); the C reference kept running with no display, as vtium does under `display-wait=forever`.
 - **A failed renderer set leaves the pointer drawn in software,** and the next successful set gives it back to the hardware cursor; the C reference drew it nowhere (aaronsb/kmscon#211).
 
 - **A child's exit closes its pty after the output it left is read** (vtium-platform's departure), and the next child starts from a hard reset (RIS).

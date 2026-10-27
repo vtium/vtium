@@ -41,7 +41,7 @@
 ## Turn the displays off after this long with no key or pointer event; 0 never does.
 #dpms-timeout=600
 
-## At start, how long to wait for a display, counted from when the VT is first shown; with none by then vtium exits with status 1, so the unit's `OnFailure=` can start a getty. 0 does not wait. Once a display has come, displays coming and going are hotplug.
+## At start, how long to wait for a display, counted from when the VT is first shown; with none by then vtium exits with status 1, so the unit's `OnFailure=` can start a getty. 0 does not wait. `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time. Once a display has come, vtium never exits for want of one.
 #display-wait=10
 
 ## Draw through the GPU, in a build that has it.

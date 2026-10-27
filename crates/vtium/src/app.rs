@@ -24,7 +24,9 @@
 //!   the respawn policy starts it again or ends vtium.
 //! - **No display.** From the first acquire, vtium waits `display-wait`
 //!   for a display it draws on, and with none by then it ends
-//!   ([`crate::wait`]); once one has come, it runs with none.
+//!   ([`crate::wait`]). Once one has come, the last going leaves the
+//!   session running on the grid it had, with the keys reaching it and
+//!   no blank, until the next comes and is drawn whole.
 //! - **Exit.** A request (SIGTERM, SIGINT, a hangup, the policy) switches
 //!   back to the VT shown at the start and serves the loop for up to
 //!   [`LEAVE_WAIT`] while the switch is pending.
@@ -92,6 +94,16 @@ impl Exit {
     }
 }
 
+/// Whether the seat has a display to draw on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Attached {
+    /// None yet since the start.
+    NotYet,
+    Yes,
+    /// The last one went.
+    Gone,
+}
+
 /// Where the exit stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Leaving {
@@ -156,6 +168,7 @@ pub struct App {
     releasing: Option<BTreeSet<PathBuf>>,
     /// The start's wait for a display.
     wait: Wait,
+    attached: Attached,
     /// Every display draws at once at the end of the turn.
     draw_now: bool,
     text_due: Option<Instant>,
@@ -232,9 +245,13 @@ impl App {
             .filter(|d| !d.is_zero());
         let modes = config.modes(&keys::MODE).to_vec();
         let use_original = config.switch(&keys::USE_ORIGINAL_MODE) && modes.is_empty();
-        let wait = Wait::new(Duration::from_secs(
-            config.number(&keys::DISPLAY_WAIT).unwrap_or(10),
-        ));
+        let wait = Wait::new(match config.text(&keys::DISPLAY_WAIT) {
+            // `forever`.
+            Some(_) => None,
+            None => Some(Duration::from_secs(
+                config.number(&keys::DISPLAY_WAIT).unwrap_or(10),
+            )),
+        });
         App {
             oneshot: config.switch(&keys::ONESHOT),
             clipboard_write: config.switch(&keys::CLIPBOARD_WRITE),
@@ -265,6 +282,7 @@ impl App {
             retaking: BTreeSet::new(),
             releasing: None,
             wait,
+            attached: Attached::NotYet,
             draw_now: false,
             text_due: None,
             cursor_due: None,
@@ -592,8 +610,13 @@ impl App {
         self.timer_due = None;
     }
 
-    /// The blank's timer: every display powers down.
+    /// The blank's timer: every display powers down. With none, the
+    /// countdown starts again.
     fn blank_now(&mut self) {
+        if self.views.is_empty() {
+            self.blank.input((self.clock)());
+            return;
+        }
         for video in self.videos.values_mut() {
             power_down(video.as_mut());
         }
@@ -719,6 +742,37 @@ impl App {
                 );
             }
         }
+    }
+
+    /// The last display went, or the next came. With none the session
+    /// runs on at the grid it had, which no display resizes, and the
+    /// blank does not run: the blank in force ends, and the countdown
+    /// starts when the next display comes. The next is drawn whole, and
+    /// resizes the grid when its own differs.
+    fn attachment(&mut self, now: Instant) {
+        let attached = if self.views.is_empty() {
+            match self.attached {
+                Attached::NotYet => Attached::NotYet,
+                Attached::Yes | Attached::Gone => Attached::Gone,
+            }
+        } else {
+            Attached::Yes
+        };
+        let (cols, rows) = self.grid;
+        match (self.attached, attached) {
+            (Attached::Yes, Attached::Gone) => {
+                log::warn!(
+                    "the last display is gone: the session runs on at {cols}x{rows} until the next comes"
+                );
+                self.activity(now);
+            }
+            (Attached::Gone, Attached::Yes) => {
+                log::info!("a display came: the session is drawn again at {cols}x{rows}");
+                self.blank.input(now);
+            }
+            _ => {}
+        }
+        self.attached = attached;
     }
 
     /// A device of the seat came, went or changed. A framebuffer a DRM
@@ -1022,6 +1076,7 @@ impl App {
                 self.video_event(&node, e, now);
             }
         }
+        self.attachment(now);
         if let Some(r) = &self.releasing {
             if r.is_empty() {
                 self.releasing = None;
