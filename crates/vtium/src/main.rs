@@ -106,14 +106,8 @@ fn run_kernel(config: config::Config, start: Start, path: &Path) -> io::Result<i
     let (tty, num) = Tty::open(path)?;
     run(config, start, move |lp| {
         let vt = KernelVt::new(lp, tty, num, |app: &mut App| app.vt.get::<KernelVt<Tty>>())?;
-        // A panic aborts without running the guard: the hook puts the VT
-        // back first.
         let restore = vt.restorer()?;
-        let default = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            restore.run();
-            default(info);
-        }));
+        vtium::hook::restore_first(move || restore.run());
         Ok(vt)
     })
 }
