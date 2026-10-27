@@ -36,6 +36,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import t3_common  # noqa: E402
+import t3_evaluate  # noqa: E402
 import t3_impl  # noqa: E402
 import t3_runner  # noqa: E402
 import t3_scenario  # noqa: E402
@@ -122,6 +123,9 @@ def run(args, log):
     with t3_runner.run_lock():
         golden = t3_common.extract_goldens(args.kmscon)
         log("goldens: %s" % rel(golden))
+        errors = t3_evaluate.check_departures(t3_evaluate.DEPARTURES, t3_scenario.variant_cases)
+        if errors:
+            raise SystemExit("\n".join(errors))
         tree = args.tree or TREE
         if args.tree_target:
             build_tree(args.tree_target, tree, log)
@@ -137,8 +141,9 @@ def run(args, log):
     print("report: %s" % rel(REPORT))
     if interrupted is not None:
         return 130 if isinstance(interrupted, KeyboardInterrupt) else 128 + signal.SIGTERM
-    # "near" is a difference within the case's reviewed tolerance: it passes.
-    passed = all(c["status"] in ("pass", "near") for c in cases)
+    # "near" is a difference within the case's reviewed tolerance, and
+    # "departure" one a listed departure explains: both pass.
+    passed = all(c["status"] in ("pass", "near", "departure") for c in cases)
     return 0 if passed and t3_impl.within_budget(impl) else 1
 
 

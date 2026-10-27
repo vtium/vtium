@@ -658,6 +658,112 @@ class PinTest(unittest.TestCase):
                                              "url": "u"}, golden)
 
 
+class DeparturesTest(unittest.TestCase):
+    """departures.tsv: a listed difference inside its departure's rectangles
+    is a "departure", which passes; anything else about a listed case fails,
+    and a list that names an unknown case or departure refuses the run."""
+
+    TITLE = "DA1 reports a VT220 with colour, `CSI ? 62 ; 22 c`."
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+
+    def tsv(self, text):
+        path = os.path.join(self.dir.name, "departures.tsv")
+        with open(path, "w") as f:
+            f.write("# a comment\n" + text)
+        return path
+
+    def test_shipped(self):
+        # The list in the tree reads, and every case and title in it is known.
+        deps = t3_evaluate.read_departures()
+        self.assertEqual(t3_evaluate.check_departures(deps, t3_scenario.variant_cases), [])
+        self.assertEqual(deps["2d-potato-min-psf/flood"],
+                         {"readme": "crates/vtium-term/README.md", "title": self.TITLE,
+                          "rects": [[203, 16, 491, 32]]})
+        self.assertEqual(len(deps), 20)
+
+    def test_read(self):
+        path = self.tsv("a,b\tx,y\tR.md\tT\t0,0,8,16;8,0,16,16\n")
+        deps = t3_evaluate.read_departures(path)
+        self.assertEqual(sorted(deps), ["a/x", "a/y", "b/x", "b/y"])
+        self.assertEqual(deps["b/y"], {"readme": "R.md", "title": "T",
+                                       "rects": [[0, 0, 8, 16], [8, 0, 16, 16]]})
+
+    def test_refused(self):
+        for text, why in (("a\tx\tR.md\tT\n", "want VARIANTS, SCREENS"),
+                          ("a\tx\tR.md\t\t0,0,1,1\n", "want VARIANTS, SCREENS"),
+                          ("a\tx\tR.md\tT\t0,0,1\n", "a rectangle is"),
+                          ("a\tx\tR.md\tT\t1,0,1,1\n", "a rectangle is"),
+                          ("a\tx\tR.md\tT\tz,0,1,1\n", "a rectangle is"),
+                          ("a\tx,x\tR.md\tT\t0,0,1,1\n", "a/x is listed twice")):
+            with self.subTest(text):
+                with self.assertRaisesRegex(SystemExit, re.escape(why)):
+                    t3_evaluate.read_departures(self.tsv(text))
+
+    def test_checked(self):
+        readme = os.path.join(self.dir.name, "R.md")
+        with open(readme, "w") as f:
+            f.write("## Departures\n\n- **Listed.** Why.\n\n## Other\n\n- **Elsewhere.** No.\n")
+        dep = {"readme": readme, "title": "Listed.", "rects": [[0, 0, 1, 1]]}
+        deps = {"2d-potato-min/sixel": dep,
+                "2d-potato-min/photo-scrollback": dep,
+                "no-such/sgr": dep,
+                "2d-potato-min/vt-switch": dep,
+                "2d-potato-min/cjk": dict(dep, title="Elsewhere."),
+                "2d-potato-min/sgr": dict(dep, readme=readme + ".missing")}
+        errors = t3_evaluate.check_departures(deps, lambda v: t3_scenario.variant_cases(v)
+                                              if v in t3_scenario.VARIANTS else [])
+        self.assertEqual(len(errors), 5, errors)
+        for why in ("lists 2d-potato-min/photo-scrollback, which no variant draws",
+                    "lists no-such/sgr, which no variant draws",
+                    "lists 2d-potato-min/vt-switch, a check without a golden",
+                    "2d-potato-min/cjk: %s lists no departure 'Elsewhere.'" % readme,
+                    "2d-potato-min/sgr: [Errno 2]"):
+            self.assertTrue(any(why in e for e in errors), (why, errors))
+
+    def judged(self, actual_pixels, listed=True, golden_pixels=()):
+        """The entry for 2d-potato-min/sixel with a black 32x32 golden and a capture
+        differing at `actual_pixels`, listed under a departure whose rectangle
+        is 8,0,24,16."""
+        golden = os.path.join(self.dir.name, "golden")
+        img = t3img.Image(32, 32, bytes(32 * 32 * 3))
+        os.makedirs(os.path.join(golden, "2d-potato-min"), exist_ok=True)
+        t3img.write_png(os.path.join(golden, "2d-potato-min", "sixel.png"), img)
+        data = bytearray(img.data)
+        for x, y in actual_pixels:
+            data[(y * 32 + x) * 3] = 200
+        cap = os.path.join(self.dir.name, "cap.png")
+        t3img.write_png(cap, t3img.Image(32, 32, bytes(data)))
+        dep = {"readme": "R.md", "title": "T", "rects": [[8, 0, 24, 16]]}
+        deps = {"2d-potato-min/sixel": dep} if listed else {}
+        with mock.patch.object(t3_evaluate, "GOLDEN", golden), \
+                mock.patch.object(t3_evaluate, "RUNDIR", os.path.join(self.dir.name, "run")), \
+                mock.patch.object(t3_evaluate, "DEPARTURES", deps):
+            return t3_evaluate.evaluate("2d-potato-min", "sixel", cap, {}, LOG)
+
+    def test_judged(self):
+        inside = [(8, 0), (23, 15), (12, 7)]
+        e = self.judged(inside)
+        self.assertEqual((e["status"], e["departure"], e["stats"]["pixels"]),
+                         ("departure", "T", 3))
+        e = self.judged(inside + [(24, 0), (8, 16)])
+        self.assertEqual((e["status"], e["error"]),
+                         ("fail", "2 differing pixel(s) outside the rectangles of the "
+                                  "departure 'T'"))
+        e = self.judged([])
+        self.assertEqual((e["status"], e["error"]),
+                         ("fail", "listed under the departure 'T', which it no longer shows"))
+        e = self.judged(inside, listed=False)
+        self.assertEqual((e["status"], "departure" in e), ("fail", False))
+
+    def test_departure_passes_the_run(self):
+        # The run's verdict counts a departure as a pass.
+        with open(os.path.join(t3_common.HERE, "t3.py")) as f:
+            self.assertIn('c["status"] in ("pass", "near", "departure")', f.read())
+
+
 class BaseImageTest(unittest.TestCase):
     """The provisioned base image is named by what it was built from, in the
     images directory that worktrees share, so every checkout with the same

@@ -7,7 +7,7 @@ import subprocess
 
 import t3_bench
 import t3img
-from t3_common import GOLDEN, GUEST, RUNDIR, rel
+from t3_common import GOLDEN, GUEST, HERE, ROOT, RUNDIR, rel
 
 # Screens drawn by `t3 NAME` in the guest (guest/screens/NAME.sh), in the
 # order of the C reference's VT demo (fork/demo/sections), then sixel-bound and
@@ -104,6 +104,76 @@ CHECKS = {
     "vt-restore": "Back on tty2 after Ctrl+Alt+F2, the %s screen redrawn by the first "
                   "instance. Correct: identical to the %s golden." % (SCREENS[-1], SCREENS[-1]),
 }
+
+DEPARTURES_FILE = os.path.join(HERE, "departures.tsv")
+
+
+def read_departures(path=DEPARTURES_FILE):
+    """departures.tsv as {case "VARIANT/SCREEN": {"readme", "title", "rects"}}:
+    the departure that explains the case's difference from its golden, and
+    the rectangles the difference must lie in. A malformed line, or a case
+    listed twice, is refused."""
+    out = {}
+    with open(path) as f:
+        for n, line in enumerate(f, 1):
+            if not line.strip() or line.startswith("#"):
+                continue
+            where = "%s:%d" % (rel(path), n)
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) != 5 or not all(fields):
+                raise SystemExit("%s: want VARIANTS, SCREENS, README, TITLE and RECTS, "
+                                 "separated by tabs" % where)
+            variants, screens, readme, title, rects = fields
+            try:
+                rects = [[int(v) for v in r.split(",")] for r in rects.split(";")]
+            except ValueError:
+                rects = None
+            if not rects or any(len(r) != 4 or r[0] >= r[2] or r[1] >= r[3] for r in rects):
+                raise SystemExit("%s: a rectangle is x0,y0,x1,y1 with x0<x1 and y0<y1" % where)
+            for v in variants.split(","):
+                for s in screens.split(","):
+                    case = "%s/%s" % (v, s)
+                    if case in out:
+                        raise SystemExit("%s: %s is listed twice" % (where, case))
+                    out[case] = {"readme": readme, "title": title, "rects": rects}
+    return out
+
+
+def readme_departures(text):
+    """The titles a README lists: each "- **Title**" under "## Departures"."""
+    inside, out = False, []
+    for line in text.splitlines():
+        if line.startswith("## "):
+            inside = line[3:].strip() == "Departures"
+        elif inside and line.startswith("- **") and "**" in line[4:]:
+            out.append(line[4:].split("**", 1)[0])
+    return out
+
+
+def check_departures(departures, cases_of):
+    """Every reason departures.tsv cannot judge a run: a case no variant has
+    (`cases_of` gives each variant's cases), one without a golden of its own,
+    or a departure its README does not list."""
+    errors = []
+    for case, d in departures.items():
+        variant, _, screen = case.partition("/")
+        if screen not in cases_of(variant):
+            errors.append("departures.tsv lists %s, which no variant draws" % case)
+        elif golden_for(variant, screen)[0] is None:
+            errors.append("departures.tsv lists %s, a check without a golden" % case)
+        try:
+            with open(os.path.join(ROOT, d["readme"])) as f:
+                titles = readme_departures(f.read())
+        except OSError as e:
+            errors.append("departures.tsv: %s: %s" % (case, e))
+            continue
+        if d["title"] not in titles:
+            errors.append("departures.tsv: %s: %s lists no departure %r"
+                          % (case, d["readme"], d["title"]))
+    return sorted(set(errors))
+
+
+DEPARTURES = read_departures()
 
 # Seconds a screen script may run on the host before its text is given up.
 SCREEN_TIMEOUT = 10
@@ -236,12 +306,38 @@ def evaluate(variant, case, ppm, meta, log):
         entry["thumb_diff"] = write_thumb(t3img.diff_thumbnail(img, points),
                                           stem + ".diff.thumb.png")
     entry["status"] = t3img.verdict(stats, tol)
+    departure = DEPARTURES.get(entry["name"])
+    if departure:
+        judge_departure(entry, departure, stats, points)
     figures = meta.get("bench", {}).get(case, {})
     if figures.get("error"):  # drawn, but not measured
         entry["status"], entry["error"] = "fail", figures["error"]
-    elif case in RATE_CHECKED and entry["status"] in ("pass", "near"):
+    elif case in RATE_CHECKED and entry["status"] in ("pass", "near", "departure"):
         judge_rate(entry, variant, case, figures)
     return entry
+
+
+def judge_departure(entry, departure, stats, points):
+    """A listed case: "departure" when every differing pixel lies in the
+    departure's rectangles; a fail when one lies outside them, or when the
+    case no longer differs, so the line leaves with the difference."""
+    entry["departure"] = departure["title"]
+    if "size_mismatch" in stats:
+        return
+    if not points:
+        entry["status"] = "fail"
+        entry["error"] = ("listed under the departure %r, which it no longer shows"
+                          % departure["title"])
+        return
+    outside = sum(1 for x, y in points
+                  if not any(x0 <= x < x1 and y0 <= y < y1
+                             for x0, y0, x1, y1 in departure["rects"]))
+    if outside:
+        entry["status"] = "fail"
+        entry["error"] = ("%d differing pixel(s) outside the rectangles of the departure %r"
+                          % (outside, departure["title"]))
+    else:
+        entry["status"] = "departure"
 
 
 def judge_rate(entry, variant, case, figures):

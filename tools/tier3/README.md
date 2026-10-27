@@ -97,8 +97,11 @@ Goldens are `golden/<variant>/<screen>.png` in the pinned kmscon commit, full re
 |---|---|---|
 | `pass` | identical outside the masks | passes |
 | `near` | differs, within both limits of the case's sidecar | passes |
-| `fail` | differs beyond the tolerance, or the case could not run | fails |
+| `departure` | differs only inside the rectangles `departures.tsv` gives for a departure a crate's README lists | passes |
+| `fail` | differs beyond the tolerance, outside a departure's rectangles, listed as a departure and no longer different, or the case could not run | fails |
 | `missing` | no golden | fails |
+
+`departures.tsv` lists the cases whose difference from their golden a departure explains: a line names variants and screens (each pair a case), the README that lists the departure under `## Departures`, its bold title exactly as written there, and the rectangles, end-exclusive and covering whole cells, its difference must lie in. Today it holds one: the "no sixel" line of the ten image screens in the two minspec variants quotes the DA1 reply, where vtium sends `CSI ? 62 ; 22 c` and the C golden shows `?60;1;6;9;15c` (row 1, columns 25 to 60). A run refuses to start when a line names a case no variant draws, a check without a golden, or a title its README does not list. A rectangle covers whole cells, so a defect in a listed cell is not seen until the line goes or its rectangles shrink.
 
 The run exits 1 on any `fail` or `missing`, or a binary over the budget. Nothing here writes a golden: they are the C reference's, and moving the pin is a change to the judge, in a commit of its own with the report before and after. A screen of vtium's own, with no golden in the pinned commit, reports `missing` until vtium's goldens have a home.
 
@@ -109,7 +112,7 @@ The run exits 1 on any `fail` or `missing`, or a binary over the budget. Nothing
 - `run_id` is fresh for every run, so a comparison can tell two runs from one run saved twice.
 - `tools` names vtium's commit (`+dirty` with uncommitted changes), the guest image, its SHA-256 and the archive snapshot, which the Makefile passes, and under `goldens` the kmscon commit and repository from `pin.tsv`. A field the driver ran without is `null`.
 - `build` names the tree and its `tree_sha256`, `binary_bytes` and `installed_bytes` (the regular files it installs), `budget` (the binary's budget and whether it is met), and `consoles`, each `NAME REVISION` the variants' consoles logged.
-- Each case carries `status`, `description` (the header comment of its screen's script with its `# look-for:` lines, or its entry in `CHECKS`), `wrong` (its `# wrong-looks-like:` lines), `text` (the lines its script prints, colours removed, or `null`; see `guest/screens/README.md`), `golden`, `actual`, `diff` and their thumbnails as PNGs, `tolerance`, and `stats` (`pixels`, at most 16 `bbox` regions, `max_delta`).
+- Each case carries `status`, `departure` (the title, for a case `departures.tsv` lists), `description` (the header comment of its screen's script with its `# look-for:` lines, or its entry in `CHECKS`), `wrong` (its `# wrong-looks-like:` lines), `text` (the lines its script prints, colours removed, or `null`; see `guest/screens/README.md`), `golden`, `actual`, `diff` and their thumbnails as PNGs, `tolerance`, and `stats` (`pixels`, at most 16 `bbox` regions, `max_delta`).
 - Under `variants`, each variant records `installed` (the tree the guest reported), `displays` (the console's `Display` lines), its QEMU `device`, `config`, `cell`, `cpus` and `memory_mb`, `bench` (each benchmark screen's figures), `rss_kb` (the console's VmRSS after each screen, the largest across its processes), `resident` (after the first screen, and the peak with the screen it followed), `startup_ms` (from the Revision line to the first `Display` line), `console`, `timing` (seconds to the end of each phase) and any `error`.
 
 The run prints each case's status, then the tree, its binary against the budget and the consoles that ran, and each variant's resident memory.
@@ -135,6 +138,7 @@ The fork's harness judged the C reference's packages and could run a vtium build
 - **The paths:** `target/tier3/` for the work directories, the report, the lock, the tree, the extracted goldens and the VM directory, whose `images` links to `T3_IMAGES`.
 - **The size:** the binary against 2.30 MiB, failing the run past it, in place of the main package's size against 1.77 MiB, which was reported and not judged.
 - **The console:** a run fails unless the console logs itself as vtium.
+- **Departures:** `departures.tsv` turns a difference a listed departure explains into `departure`, as tier 1 and tier 2 do; the fork's harness had no such list.
 - **The image:** `make tier3-image` fetches and verifies the pristine image with `fetch-image.sh` when it is missing; the fork had no rule that ran it.
 - `tier3-gl` and `tier3-selftest` are folded into `make tier3 VARIANTS=gl-1280x800` and `make test-tools`.
 
