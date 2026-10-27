@@ -614,6 +614,41 @@ mod tests {
         assert_eq!((reverse.fg, reverse.bg), (DIM, FG));
     }
 
+    // The selection swaps the colours as inverse video does, and dim mixes
+    // what it left; over inverse text the two cancel and dim mixes the
+    // colours as set.
+    // covers: sgr.dim
+    #[test]
+    fn dim_follows_the_selection() {
+        let style = Style {
+            fg: Color::Rgb(FG),
+            bg: Color::Rgb(BG),
+            ..Style::DEFAULT
+        };
+        let selected = |style: Style| {
+            let line = styled(style);
+            let damage = Damage::new(4, 1);
+            let palette = palette();
+            let frame = Frame::new(
+                vec![&line],
+                &damage,
+                &palette,
+                Age::NEVER,
+                Cursor::default(),
+                false,
+            )
+            .with_selection(vec![Range { start: 0, end: 1 }]);
+            let cell = frame.cell(0, 0).unwrap();
+            assert!(cell.selected);
+            (cell.fg, cell.bg)
+        };
+        assert_eq!(selected(with(style, &[Attrs::DIM])), (DIM, FG));
+        assert_eq!(
+            selected(with(style, &[Attrs::DIM, Attrs::INVERSE])),
+            (DIM, BG)
+        );
+    }
+
     // Bold brightens first and dim mixes the bright colour: 9/2 + 21/2,
     // 9/2 + a0/2, 9/2 + c3/2.
     // covers: sgr.bold, sgr.dim
