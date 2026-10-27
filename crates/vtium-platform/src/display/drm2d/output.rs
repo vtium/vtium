@@ -27,8 +27,9 @@ pub(super) const PLANE_PRIMARY: u64 = 1;
 pub(super) const PLANE_CURSOR: u64 = 2;
 
 /// The longest side of the hardware cursor, `VIDEO_CURSOR_MAX_SIZE` in the
-/// C reference (video.h:172).
-pub(super) const CURSOR_MAX: u64 = 64;
+/// C reference (video.h:172). vtium-render's `POINTER_SIDE_MAX` bounds the
+/// arrow to the same side, which a test in vtium holds equal.
+pub const CURSOR_MAX: u64 = 64;
 
 pub(super) fn invalid(what: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, what.to_owned())

@@ -154,6 +154,17 @@ pub fn reference_screens() -> Vec<(String, Screen)> {
     out
 }
 
+/// The pointer's premultiplied pixel `src` over the display pixel `p`:
+/// each channel `src + p (255 - a) / 255`, rounded to the nearest.
+pub fn arrow_over(p: u32, src: u32) -> u32 {
+    let a = src >> 24;
+    let ch = |shift: u32| {
+        let (s, d) = ((src >> shift) & 0xff, (p >> shift) & 0xff);
+        (s + (d * (255 - a) * 2 + 255) / 510) << shift
+    };
+    ch(16) | ch(8) | ch(0)
+}
+
 /// FNV-1a 64 over the width and height as little-endian u32, then each
 /// pixel as a little-endian u32.
 pub fn digest(c: &Canvas) -> u64 {

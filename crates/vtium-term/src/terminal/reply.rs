@@ -11,7 +11,7 @@
 use vtium_parse::{Params, StringEnd};
 
 use super::State;
-use crate::bounds::{REPLIES_PENDING_MAX, VERSION_MAX};
+use crate::bounds::VERSION_MAX;
 use crate::style::{Attrs, Color, Rgb, UnderlineStyle};
 
 macro_rules! queries {
@@ -55,6 +55,14 @@ queries! {
     PaletteColor,
     /// OSC 10's and 11's queries of the default colours.
     DefaultColor,
+    /// OSC 12's query of the cursor colour.
+    CursorColor,
+    /// OSC 13's and 14's queries of the pointer's colours.
+    PointerColor,
+    /// OSC 17's and 19's queries of the selection's colours.
+    SelectionColor,
+    /// OSC 21's queries, kitty's colour protocol.
+    KittyColor,
     /// XTWINOPS 14, 15, 16, 18 and 19: sizes.
     WindowSize,
     /// XTWINOPS 21: the title.
@@ -90,7 +98,7 @@ pub(super) fn checked_version(text: &str) -> Result<&str, VersionError> {
 
 /// The OSC terminator a reply takes: BEL for a query ended by BEL, ST
 /// otherwise.
-fn osc_end(end: StringEnd) -> &'static str {
+pub(super) fn osc_end(end: StringEnd) -> &'static str {
     if end == StringEnd::Bel {
         "\x07"
     } else {
@@ -100,7 +108,7 @@ fn osc_end(end: StringEnd) -> &'static str {
 
 /// An X11 colour specification, `rgb:rrrr/gggg/bbbb`, each channel's byte
 /// written twice, as xterm answers.
-fn xcolor(rgb: Rgb) -> String {
+pub(super) fn xcolor(rgb: Rgb) -> String {
     format!(
         "rgb:{0:02x}{0:02x}/{1:02x}{1:02x}/{2:02x}{2:02x}",
         rgb.r, rgb.g, rgb.b
@@ -229,67 +237,6 @@ impl State {
         self.reply(Query::WindowSize, reply.as_bytes());
     }
 
-    /// The OSC strings vtium answers: OSC 4's queries of palette colours,
-    /// and OSC 10's and 11's of the default foreground and background.
-    pub(super) fn reply_osc(&mut self, data: &[u8], end: StringEnd) {
-        let (number, rest) = match data.iter().position(|&b| b == b';') {
-            Some(at) => (data.get(..at), data.get(at.saturating_add(1)..)),
-            None => return,
-        };
-        match (number, rest) {
-            (Some(b"4"), Some(rest)) => self.reply_palette(rest, end),
-            (Some(b"10"), Some(rest)) => self.reply_default_colors(10, rest, end),
-            (Some(b"11"), Some(rest)) => self.reply_default_colors(11, rest, end),
-            _ => {}
-        }
-    }
-
-    /// OSC 4: `index ; spec` pairs, each `?` spec answered with the
-    /// palette's colour. Setting a colour is vtium/vtium#38's; a pair that
-    /// is not a number and a field stops the list, as in the C reference.
-    /// The list also stops at the reply that brings the replies waiting for
-    /// the host to [`REPLIES_PENDING_MAX`], as the input stops at the byte
-    /// whose reply does: one string at vtium-parse's `OSC_MAX` holds a
-    /// quarter of a million queries.
-    fn reply_palette(&mut self, list: &[u8], end: StringEnd) {
-        let mut fields = list.split(|&b| b == b';');
-        while let (Some(index), Some(spec)) = (fields.next(), fields.next()) {
-            if self.out.len() >= REPLIES_PENDING_MAX {
-                return;
-            }
-            let Some(index) = decimal(index) else {
-                return;
-            };
-            if spec != b"?" {
-                continue;
-            }
-            if let Ok(i) = u8::try_from(index) {
-                let rgb = self.host.palette.color(i);
-                let reply = format!("\x1b]4;{index};{}{}", xcolor(rgb), osc_end(end));
-                self.reply(Query::PaletteColor, reply.as_bytes());
-            }
-        }
-    }
-
-    /// OSC 10 and 11: each field the next of 10 (the foreground) and 11
-    /// (the background), as xterm takes them, each `?` answered; 12 on is
-    /// vtium/vtium#38's.
-    fn reply_default_colors(&mut self, first: u8, list: &[u8], end: StringEnd) {
-        for (number, spec) in (first..=11).zip(list.split(|&b| b == b';')) {
-            if spec != b"?" {
-                continue;
-            }
-            let palette = &self.host.palette;
-            let rgb = if number == 10 {
-                palette.fg()
-            } else {
-                palette.bg()
-            };
-            let reply = format!("\x1b]{number};{}{}", xcolor(rgb), osc_end(end));
-            self.reply(Query::DefaultColor, reply.as_bytes());
-        }
-    }
-
     /// DECRQSS: the setting asked for, `DCS 1 $ r Pt ST`, for SGR, DECSTBM,
     /// DECSCUSR and DECSCL; anything else, and a request longer than any of
     /// these, the error form `DCS 0 $ r ST`, with no echo (ADR-1000).
@@ -353,7 +300,7 @@ impl State {
 }
 
 /// A decimal number of at most nine digits, with nothing else.
-fn decimal(text: &[u8]) -> Option<u32> {
+pub(super) fn decimal(text: &[u8]) -> Option<u32> {
     if text.is_empty() || text.len() > 9 || !text.iter().all(u8::is_ascii_digit) {
         return None;
     }
@@ -500,6 +447,37 @@ mod tests {
                 let request = cat(&[b"\x1b]10;?;", &tok, b"\x1b\\"]);
                 (request, vec![tok], vec![])
             }
+            // The number in the reply is the colour's, written again.
+            Query::CursorColor => {
+                let n = rng.padded(12);
+                let request = cat(&[b"\x1b]", &n, b";?;", &tok, b"\x07"]);
+                (request, vec![tok], vec![n])
+            }
+            Query::PointerColor => {
+                let n = rng.padded(13);
+                let request = cat(&[b"\x1b]", &n, b";", &tok, b";?\x07"]);
+                (request, vec![tok], vec![n])
+            }
+            Query::SelectionColor => {
+                let n = rng.padded(17);
+                let request = cat(&[b"\x1b]", &n, b";?;", &tok, b";?\x1b\\"]);
+                (request, vec![tok], vec![n])
+            }
+            // A padded index, a known key, an unknown key and a hostile
+            // value, each queried.
+            Query::KittyColor => {
+                let n = rng.padded(7);
+                let request = cat(&[
+                    b"\x1b]21;",
+                    &n,
+                    b"=?;cursor=?;",
+                    &tok,
+                    b"=?;foreground=",
+                    &tok,
+                    b";background=?\x07",
+                ]);
+                (request, vec![tok], vec![n])
+            }
             Query::WindowSize => {
                 let n = rng.padded(18);
                 (cat(&[b"\x1b[", &n, b"t"]), vec![], vec![n])
@@ -538,6 +516,7 @@ mod tests {
     // and a number only re-encoded.
     // covers: query.decrqm, query.da1, query.da2, query.da3, query.dsr, query.xtversion,
     // covers: query.xtgettcap, query.decrqss, colour.palette.query, colour.dynamic.query,
+    // covers: colour.dynamic.set, colour.pointer, colour.selection, colour.kitty-protocol,
     // covers: window.size-report, window.title-report, input.modify-other-keys
     #[test]
     fn no_reply_carries_the_requests_bytes() {
@@ -592,6 +571,16 @@ mod tests {
                 Query::Decrqss => (b"\x1bP$qm\x1b\\", b"\x1bP1$r0;1;31m\x1b\\"),
                 Query::PaletteColor => (b"\x1b]4;1;?\x07", b"\x1b]4;1;rgb:cdcd/0000/0000\x07"),
                 Query::DefaultColor => (b"\x1b]11;?\x1b\\", b"\x1b]11;rgb:0000/0000/0000\x1b\\"),
+                Query::CursorColor => (b"\x1b]12;?\x07", b"\x1b]12;rgb:e5e5/e5e5/e5e5\x07"),
+                Query::PointerColor => (b"\x1b]14;?\x07", b"\x1b]14;rgb:0000/0000/0000\x07"),
+                Query::SelectionColor => (
+                    b"\x1b]17;?;?;?\x07",
+                    b"\x1b]17;rgb:e5e5/e5e5/e5e5\x07\x1b]19;rgb:0000/0000/0000\x07",
+                ),
+                Query::KittyColor => (
+                    b"\x1b]21;1=?;cursor=?\x1b\\",
+                    b"\x1b]21;1=rgb:cdcd/0000/0000;cursor=\x1b\\",
+                ),
                 Query::WindowSize => (b"\x1b[14t", b"\x1b[4;80;80t"),
                 Query::Title => (b"\x1b[21t", b"\x1b]l\x1b\\"),
                 Query::ModifyOtherKeys => (b"\x1b[?4m", b"\x1b[>4;0m"),

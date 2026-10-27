@@ -26,8 +26,9 @@
 //!   The first display, the last going and the next after none count
 //!   too, as a display change, which wakes nothing while the VT is not
 //!   ours; another hotplug or a re-take never counts.
-//! - **The child.** It runs on the pty at the grid's size; when it exits
-//!   the respawn policy starts it again or ends vtium.
+//! - **The child.** It first starts once a display is set up, on the
+//!   grid's size ([`respawn::first_start_due`]); when it exits the respawn
+//!   policy starts it again or ends vtium.
 //! - **No display.** From the first acquire, vtium waits `display-wait`
 //!   for a frame on a display's screen, and with none by then it ends
 //!   ([`crate::wait`]). Once one has come, the last going leaves the
@@ -61,7 +62,7 @@ use crate::config::{Config, ModeSpec};
 use crate::font;
 use crate::grab::{self, Chord, Grab, Power, PowerKey};
 use crate::layout::{self, Zoom};
-use crate::respawn::{Next, Respawn};
+use crate::respawn::{self, Next, Respawn};
 use crate::sync::{Action, Sync};
 use crate::term::{Clock, Term, View};
 use crate::video::Video;
@@ -179,6 +180,8 @@ pub struct App {
     clock: Clock,
     epoch: Instant,
     respawn: Option<Respawn>,
+    /// [`App::start`] was called and the command has not started yet.
+    start_due: bool,
     /// The VT is ours and the devices awake.
     awake: bool,
     /// The VT was re-taken while blanked: every device is set up again
@@ -191,6 +194,8 @@ pub struct App {
     releasing: Option<BTreeSet<PathBuf>>,
     /// The start's wait for a display.
     wait: Wait,
+    /// `display-wait=forever`.
+    forever: bool,
     attached: Attached,
     /// A frame has been on screen since the start.
     presented: bool,
@@ -284,13 +289,12 @@ impl App {
         .map(|(k, key)| (k, config.chords(key).to_vec()))
         .filter(|(_, chords)| !chords.is_empty())
         .collect();
-        let wait = Wait::new(match config.text(&keys::DISPLAY_WAIT) {
-            // `forever`.
-            Some(_) => None,
-            None => Some(Duration::from_secs(
-                config.number(&keys::DISPLAY_WAIT).unwrap_or(10),
-            )),
-        });
+        // The key holds text only for `forever`.
+        let forever = config.text(&keys::DISPLAY_WAIT).is_some();
+        let wait = Wait::new(
+            (!forever)
+                .then(|| Duration::from_secs(config.number(&keys::DISPLAY_WAIT).unwrap_or(10))),
+        );
         App {
             oneshot: config.switch(&keys::ONESHOT),
             clipboard_write: config.switch(&keys::CLIPBOARD_WRITE),
@@ -319,11 +323,13 @@ impl App {
             clock,
             epoch: now,
             respawn: None,
+            start_due: false,
             awake: false,
             retake_owed: false,
             retaking: BTreeSet::new(),
             releasing: None,
             wait,
+            forever,
             attached: Attached::NotYet,
             presented: false,
             draw_now: false,
@@ -364,11 +370,25 @@ impl App {
         );
     }
 
-    /// Starts the session's command.
+    /// Starts the session's command at the end of the first turn
+    /// [`respawn::first_start_due`] allows.
     pub fn start(&mut self) {
-        let now = (self.clock)();
-        self.respawn = Some(Respawn::new(now.saturating_duration_since(self.epoch)));
-        self.spawn();
+        self.start_due = true;
+    }
+
+    /// Whether the session's command has started since [`App::start`].
+    pub fn started(&self) -> bool {
+        self.respawn.is_some()
+    }
+
+    /// The command's first start, when it is due.
+    fn first_start(&mut self, now: Instant) {
+        let display = !self.views.is_empty();
+        if self.start_due && respawn::first_start_due(self.awake, display, self.forever) {
+            self.start_due = false;
+            self.respawn = Some(Respawn::new(now.saturating_duration_since(self.epoch)));
+            self.spawn();
+        }
     }
 
     /// Asks vtium to end, as SIGTERM does.
@@ -1297,6 +1317,7 @@ impl App {
             }
         }
         self.attachment(now);
+        self.first_start(now);
         if let Some(r) = &self.releasing {
             if r.is_empty() {
                 self.releasing = None;
@@ -1329,7 +1350,11 @@ impl App {
         self.report(now);
         self.term.coalesce.turn_end();
         self.term.changed = false;
-        if let Some(wait) = self.wait.turn(now, self.presented) {
+        let flipping = self
+            .views
+            .iter()
+            .any(|((node, _), v)| self.videos.get(node).is_some_and(|d| d.is_flipping(v.id)));
+        if let Some(wait) = self.wait.turn(now, self.presented, flipping) {
             log::error!("no display appeared within {} s", wait.as_secs());
             self.request_exit(Exit::NoDisplay);
         }

@@ -11,13 +11,17 @@
 //! line, as in the C reference.
 //! A line selection's copy ends with a line end, as xterm's does with
 //! `cutNewline`, its default.
+//! A line that wrapped is one line to the selection, as in xterm: a word
+//! goes on across the wrap, a line selection takes each row of it, and the
+//! copy has no line end where it wrapped. The alternate screen's first row
+//! does not continue the scrollback, which holds the main screen's lines.
 //! Changing the selection marks everything, since its cells draw inverted.
 
 use core::ops::Range;
 
 use super::Screen;
 use crate::cell::Width;
-use crate::line::{Glyph, Line, LineId};
+use crate::line::{Glyph, Line, LineFlags, LineId};
 
 /// One end of the selection: a column of a line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,54 +108,105 @@ impl Screen {
     }
 
     /// Selects the word at column `x` of view row `y`: the run of cells
-    /// around it up to a space, or nothing on a space.
+    /// around it up to a space, or nothing on a space. Going right, an
+    /// empty cell ends it too, and a wide character is one cell of it. A
+    /// word that reaches the end of a wrapped row goes on at the start of
+    /// the next.
     pub fn select_word(&mut self, x: usize, y: usize) {
         let Some(anchor) = self.anchor(x, y) else {
             return;
         };
         self.damage.mark_all();
-        let view = self.view();
-        let Some(line) = view.get(y) else {
+        let at = self.view_place(y);
+        let Some(line) = self.line_at(at) else {
             return;
         };
-        let is_space = |col: usize| line.glyph(line.cell(col)) == Glyph::Char(' ');
-        if x >= line.len() || is_space(x) {
+        if x >= line.len() || is_space(line, x) {
             self.selection.reset();
             return;
         }
-        let start = (0..=x)
-            .rev()
-            .find(|&c| is_space(c))
-            .map_or(0, |c| c.saturating_add(1));
-        let end = (x..line.len())
-            .find(|&c| is_space(c) || line.glyph(line.cell(c)) == Glyph::Empty)
-            .map_or(line.len(), |c| c.saturating_sub(1));
+        let (first, start) = self.word_start(at, x);
+        let (last, end) = self.word_end(at, x);
         self.selection = Selection {
             active: true,
             begin: Some(anchor),
-            start: Some(Anchor {
-                line: anchor.line,
-                x: start,
-            }),
-            end: Some(Anchor {
-                line: anchor.line,
-                x: end,
-            }),
+            start: self.anchor_at(first, start),
+            end: self.anchor_at(last, end),
             line: false,
         };
     }
 
-    /// Selects the whole of view row `y`, `x` any column of it.
+    /// Where the word holding column `x` of the line at `at` starts: after
+    /// the space before it, on this row or a row it wrapped from. A wrapped
+    /// row's empty cells at its end are passed over, as `word_end` passes
+    /// them, and a wrapped row with no text ends the word, as it does
+    /// going forward.
+    fn word_start(&self, mut at: usize, x: usize) -> (usize, usize) {
+        let Some(line) = self.line_at(at) else {
+            return (at, x);
+        };
+        if let Some(c) = (0..=x).rev().find(|&c| is_space(line, c)) {
+            return (at, c.saturating_add(1));
+        }
+        while let Some(prev) = at.checked_sub(1).filter(|&p| self.continues(p)) {
+            let Some(line) = self.line_at(prev) else {
+                break;
+            };
+            let len = text_len(line).min(self.cols);
+            match (0..len).rev().find(|&c| is_space(line, c)) {
+                _ if len == 0 => break,
+                Some(c) if c.saturating_add(1) == len => break,
+                Some(c) => return (prev, c.saturating_add(1)),
+                None => at = prev,
+            }
+        }
+        (at, 0)
+    }
+
+    /// Where the word holding column `x` of the line at `at` ends: before
+    /// the space or empty cell after it, on this row or a row it wrapped
+    /// onto. A wrapped row's empty cells at its end, which a wide character
+    /// that wrapped whole leaves, do not end the word.
+    fn word_end(&self, mut at: usize, mut x: usize) -> (usize, usize) {
+        loop {
+            let Some(line) = self.line_at(at) else {
+                return (at, x);
+            };
+            let len = line.len().min(self.cols);
+            let stop = (x..len).find(|&c| ends_word(line, c));
+            let runs_on = self.continues(at)
+                && stop.is_none_or(|c| (c..len).all(|c| line.glyph(line.cell(c)) == Glyph::Empty))
+                && self
+                    .line_at(at.saturating_add(1))
+                    .is_some_and(|next| !ends_word(next, 0));
+            if !runs_on {
+                let end = stop.map_or(len, |c| c.max(x.saturating_add(1)));
+                return (at, end.saturating_sub(1));
+            }
+            at = at.saturating_add(1);
+            x = 0;
+        }
+    }
+
+    /// Selects the whole line at view row `y`, `x` any column of it: each
+    /// row of it, when it wrapped.
     pub fn select_line(&mut self, x: usize, y: usize) {
         let Some(anchor) = self.anchor(x, y) else {
             return;
         };
-        let at = |x: usize| Some(Anchor { x, ..anchor });
+        let mut first = self.view_place(y);
+        while let Some(prev) = first.checked_sub(1).filter(|&p| self.continues(p)) {
+            first = prev;
+        }
+        let mut last = self.view_place(y);
+        while self.continues(last) {
+            last = last.saturating_add(1);
+        }
         self.selection = Selection {
             active: true,
             begin: Some(anchor),
-            start: at(0),
-            end: at(self.cols.saturating_sub(1)),
+            start: self.anchor_at(first, 0),
+            end: self.anchor_at(last, self.cols.saturating_sub(1)),
             line: true,
         };
         self.damage.mark_all();
@@ -170,10 +225,10 @@ impl Screen {
         }
     }
 
-    /// The selected text, each line ended by a newline but the last of a
-    /// selection of characters, each cell's whole cluster, an empty cell a
-    /// space, and nothing for the tail of a wide character; `None` when
-    /// nothing is selected.
+    /// The selected text, each line ended by a newline but a row that
+    /// wrapped and the last of a selection of characters, each cell's whole
+    /// cluster, an empty cell a space, and nothing for the tail of a wide
+    /// character; `None` when nothing is selected.
     pub fn selection_text(&self) -> Option<String> {
         let (from, to) = self.selected_span()?;
         let mut out = String::new();
@@ -193,7 +248,9 @@ impl Screen {
                 continue;
             };
             out.push_str(&text);
-            out.push('\n');
+            if i == to.0 || !self.continues(i) {
+                out.push('\n');
+            }
         }
         if !self.selection.line {
             out.pop();
@@ -204,12 +261,7 @@ impl Screen {
     /// The text of `line` from column `start` to before `end`, up to its
     /// last cell that holds something; `None` when `start` is past that.
     fn line_text(&self, line: &Line, start: usize, end: usize) -> Option<String> {
-        let len = line
-            .cells()
-            .iter()
-            .rposition(|c| line.glyph(*c) != Glyph::Empty)
-            .map_or(0, |i| i.saturating_add(1))
-            .min(self.cols);
+        let len = text_len(line).min(self.cols);
         if start > len {
             return None;
         }
@@ -279,6 +331,43 @@ impl Screen {
         self.scrollback.lines().chain(self.lines())
     }
 
+    /// The line at `place` in reading order.
+    fn line_at(&self, place: usize) -> Option<&Line> {
+        match place.checked_sub(self.scrollback.len()) {
+            None => self.scrollback.get(place),
+            Some(row) => self.lines().get(row),
+        }
+    }
+
+    /// The place in reading order of view row `y`.
+    fn view_place(&self, y: usize) -> usize {
+        self.scrollback
+            .view_index()
+            .unwrap_or(self.scrollback.len())
+            .saturating_add(y)
+    }
+
+    /// Whether the line at `place` in reading order continues on the next:
+    /// it wrapped, its text ends inside the screen, and the next is not the
+    /// alternate screen's first row. Text past a narrower screen's margin
+    /// is hidden until reflow (vtium/vtium#41) rejoins it, so a copy that
+    /// went on to the next row would leave a hole in it.
+    fn continues(&self, place: usize) -> bool {
+        let next = place.saturating_add(1);
+        let wrapped = self
+            .line_at(place)
+            .is_some_and(|l| l.flags().contains(LineFlags::WRAPPED) && text_len(l) <= self.cols);
+        wrapped
+            && self.line_at(next).is_some()
+            && !(self.flags.alternate && next == self.scrollback.len())
+    }
+
+    /// Column `x` of the line at `place` in reading order.
+    fn anchor_at(&self, place: usize, x: usize) -> Option<Anchor> {
+        let line = self.line_at(place)?;
+        Some(Anchor { line: line.id(), x })
+    }
+
     /// The place of the line `id` in reading order.
     fn place(&self, id: LineId) -> Option<usize> {
         self.all_lines().position(|l| l.id() == id)
@@ -303,4 +392,24 @@ impl Screen {
         let line = *self.view().get(y)?;
         Some(Anchor { line: line.id(), x })
     }
+}
+
+/// The cells of `line` up to its last that holds something.
+fn text_len(line: &Line) -> usize {
+    line.cells()
+        .iter()
+        .rposition(|c| line.glyph(*c) != Glyph::Empty)
+        .map_or(0, |i| i.saturating_add(1))
+}
+
+/// Whether column `x` of `line` holds a space.
+fn is_space(line: &Line, x: usize) -> bool {
+    line.glyph(line.cell(x)) == Glyph::Char(' ')
+}
+
+/// Whether column `x` of `line` ends a word going right: a space, or an
+/// empty cell that is not a wide character's tail.
+fn ends_word(line: &Line, x: usize) -> bool {
+    let cell = line.cell(x);
+    is_space(line, x) || (line.glyph(cell) == Glyph::Empty && cell.width() != Width::WideTail)
 }
