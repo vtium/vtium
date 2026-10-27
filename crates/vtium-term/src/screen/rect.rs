@@ -90,6 +90,10 @@ impl Screen {
     }
 
     /// DECSACE's extent.
+    pub(crate) fn attribute_extent(&self) -> Extent {
+        self.extent
+    }
+
     pub(crate) fn set_attribute_extent(&mut self, extent: Extent) {
         self.extent = extent;
     }
