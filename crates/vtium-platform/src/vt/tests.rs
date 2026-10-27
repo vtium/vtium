@@ -444,6 +444,9 @@ fn a_switch_key_works_when_another_process_left_vt_auto() {
     vt.events().for_each(drop);
     // VT_AUTO in KD_GRAPHICS: the kernel drops any VT_ACTIVATE.
     assert!(console.set_switching(Switching::Auto).is_ok());
+    assert!(console.activate(2).is_ok());
+    assert_eq!(console.0.borrow().on_screen, 3);
+    assert_eq!(console.0.borrow().pending_switch, None);
     assert!(vt.key(&key(ctrl_alt(), keysyms::KEY_F2)));
     assert_eq!(console.0.borrow().switching, Switching::Process);
     assert_eq!(console.0.borrow().pending_switch, Some(2));
