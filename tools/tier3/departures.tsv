@@ -1,0 +1,9 @@
+# Cases whose difference from their golden a departure explains: vtium does
+# what the C reference did not, and a crate's README lists it under
+# "## Departures". Each line names VARIANTS and SCREENS (comma-separated;
+# every pair is a case), the README, the departure's bold title exactly as
+# the README gives it, and the rectangles x0,y0,x1,y1 (end-exclusive, ";"
+# between) the difference must lie in. A listed case that differs only
+# there is a "departure", which passes; one that differs elsewhere, or no
+# longer differs, fails.
+2d-potato-min,2d-potato-min-psf	sixel,sixel-ramps,sixel-article,sixel-evict,photos,photo-scroll,mpv-sixel,tmux-2x2,tmux-3x3,flood	crates/vtium-term/README.md	DA1 reports a VT220 with colour, `CSI ? 62 ; 22 c`.	203,16,491,32

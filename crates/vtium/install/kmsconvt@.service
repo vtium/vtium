@@ -1,0 +1,36 @@
+# vtium on a VT of seat0, in place of getty. The instance is the VT's name,
+# as getty@.service's is. Enabled, the unit's alias makes logind start it
+# for each VT it spawns:
+#   systemctl enable kmsconvt@.service
+# It conflicts with getty@ on the same VT, and when vtium cannot start, its
+# failure starts getty@ there instead. Without VTs it starts nothing.
+#
+# The name, the ordering and the TTY settings are getty's and the C
+# reference's, so tier 3's guest, whose autovt@.service links here, starts
+# vtium as it started the C reference. The unit sets no sandboxing
+# directive: the login session vtium starts would inherit it (ADR-1400, D3).
+
+[Unit]
+Description=vtium on %I
+After=systemd-user-sessions.service
+After=plymouth-quit-wait.service
+After=rc-local.service
+After=systemd-vconsole-setup.service
+Before=getty.target
+Conflicts=getty@%i.service
+OnFailure=getty@%i.service
+IgnoreOnIsolate=yes
+ConditionPathExists=/dev/tty0
+
+[Service]
+ExecStart=/usr/bin/vtium --vt=%I --no-switchvt
+UtmpIdentifier=%I
+TTYPath=/dev/%I
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+
+[Install]
+Alias=autovt@.service
+WantedBy=getty.target
+DefaultInstance=tty1

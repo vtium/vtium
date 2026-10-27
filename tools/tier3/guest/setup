@@ -1,0 +1,27 @@
+#!/bin/sh
+# Per-run guest setup, run as root at boot from the T3PKG disc mounted at $1:
+# unpacks vtium's install tree (tree.tar) over the root, and installs the
+# variant's config and the scenario screens.
+set -eu
+disc=$1
+tar -xpf "$disc"/tree.tar -C / --no-overwrite-dir --keep-directory-symlink
+tree=$(sha256sum "$disc"/tree.tar | cut -d' ' -f1)
+install -Dm644 "$disc"/kmscon.conf /etc/kmscon/kmscon.conf
+# The console's log also goes to the serial console, so the harness can read
+# which video backend and text renderer drew the screens.
+mkdir -p /etc/systemd/system/kmsconvt@.service.d
+printf '[Service]\nStandardOutput=journal+console\nStandardError=journal+console\n' \
+    > /etc/systemd/system/kmsconvt@.service.d/tier3.conf
+systemctl daemon-reload
+rm -rf /usr/local/share/tier3
+cp -r "$disc"/screens /usr/local/share/tier3
+install -m755 "$disc"/t3 /usr/local/bin/t3
+# ttyS1 is the harness's event port: the scenario reports a login and each
+# drawn screen there, and the driver waits for those lines.
+stty -F /dev/ttyS1 clocal
+chmod 0666 /dev/ttyS1
+echo 'echo "T3-LOGIN $(tty)" > /dev/ttyS1' > /etc/profile.d/tier3.sh
+# Any kmscon, libtsm or vtium package installed, which must be none, and the
+# tree unpacked, so the log shows which build drew the screens.
+echo "TIER3-INSTALL-OK packages: $(pacman -Q | grep -e kmscon -e libtsm -e vtium | tr '\n' ' ');" \
+    "tree: $tree" > /dev/ttyS0

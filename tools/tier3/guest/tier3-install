@@ -1,0 +1,17 @@
+#!/bin/sh
+# Boot hook baked into the base image. When the harness attaches the disc
+# labelled T3PKG, runs the disc's own setup script, which installs the package
+# under test; everything a run changes lives on the disc, so changing it never
+# means provisioning the base image again.
+set -eu
+udevadm settle
+dev=/dev/disk/by-label/T3PKG
+if [ ! -e "$dev" ]; then
+    echo TIER3-INSTALL-SKIP > /dev/ttyS0
+    exit 0
+fi
+mnt=/run/t3pkg
+mkdir -p "$mnt"
+mount -o ro "$dev" "$mnt"
+sh "$mnt"/setup "$mnt"
+umount "$mnt"

@@ -7,7 +7,7 @@ How to work on vtium, for coding agents and the people who run them. [CONTRIBUTI
 | Repository | Path beside this checkout | Role |
 |---|---|---|
 | vtium/vtium | `.` | vtium itself |
-| aaronsb/kmscon | `../kmscon` | the C reference's terminal, the capability probes, tier 2 and tier 3 (the VM) |
+| aaronsb/kmscon | `../kmscon` | the C reference's terminal, the capability probes, and the goldens tier 2 and tier 3 read at their pins |
 | aaronsb/libtsm | `../libtsm` | the C reference's screen and parser, tier 1's replay interface and goldens |
 
 The two forks are the frozen C reference: the floor for behaviour, never the ceiling, and no guide to how vtium is built. vtium is idiomatic Rust. Read the forks; change them only for the test infrastructure vtium is judged by. Their local checkouts are often behind, so fetch and read `origin/main` (`git -C ../kmscon show origin/main:<path>`). Every `gh` command for a fork takes `-R aaronsb/kmscon` or `-R aaronsb/libtsm`, since plain `gh` here targets vtium/vtium.
@@ -69,12 +69,12 @@ The lint's docstring states how feature ids are formed. An id never changes once
 | 1, conformance | screen state and replies after a byte stream, as text, against the C reference's goldens | the replay corpus in `../libtsm/test/conformance/`, through the language-neutral interface in its `INTERFACE.md` | `make conformance` (`tools/conformance/`, #14), at the commits in `tools/conformance/pin.tsv` |
 | Capability probes | each claimed capability, through a replay | `../kmscon/tests/capabilities/` (`probes.replay`, `run.py`) | `make test` in `../kmscon` |
 | 2, pixels | what the renderer draws in memory, pixel for pixel | `tools/tier2/`: the C reference's goldens at a pinned kmscon commit, and vtium's own goldens drawn by the C reference | `make tier2` (KMSCON=../kmscon) |
-| 3, the VM | screenshots of the installed build on a VT in a QEMU/KVM guest with a real KMS device, against goldens, with size and memory figures | `../kmscon/fork/tier3/` | `make tier3-minimal` in `../kmscon` (the minspec variants, 1 vCPU and 512 MB); #22 adds the option that boots a vtium build |
+| 3, the VM | screenshots of vtium's install tree on a VT in a QEMU/KVM guest with a real KMS device, against the C reference's goldens at a pinned kmscon commit, with size and memory figures | `tools/tier3/` | `make tier3-minimal` (the minspec variants, 1 vCPU and 512 MB), `make tier3` (every variant), KMSCON=../kmscon |
 | VT review | the maintainer's eyes on a real VT, guided step by step | this machine | `make vt-check GUIDE=start` ([docs/vt-review.md](docs/vt-review.md)); the binary arrives with #21 |
 
 Goldens live in the C repositories and are the judge. The author of a change never rewrites, widens or regenerates the golden that judges it; a golden changes only in its own commit, with each moved value listed. vtium's differences from a golden are its listed departures (each crate's README and #14's list); an unlisted difference fails.
 
-Tier 3 needs docker, `qemu-system-x86_64` with KVM, `qemu-img`, `xorriso`, `gpg` and `curl`, and runs as the invoking user. A new kmscon worktree links `fork/vm/images` from the main checkout, so every checkout shares the provisioned guest image ([`../kmscon/fork/tier3/README.md`](https://github.com/aaronsb/kmscon/blob/main/fork/tier3/README.md)).
+Tier 3 needs `qemu-system-x86_64` with KVM, `qemu-img`, `xorriso`, `gpg`, `curl` and `tic`, and runs as the invoking user. Its guest images live in a cache every vtium checkout shares, `$XDG_CACHE_HOME/vtium/tier3/images`; a base image the kmscon checkout already provisioned from the same inputs is reused from there read-only ([tools/tier3/README.md](tools/tier3/README.md)).
 
 ### The VT review
 
@@ -123,4 +123,4 @@ A delegated agent is released explicitly when its work has merged. Messages stil
 | A crate's departures and bounds | `crates/<crate>/README.md` |
 | The plan and its order | the tracker, vtium/vtium#47 |
 | The replay interface | `../libtsm/test/conformance/INTERFACE.md` |
-| Tier 3 | `../kmscon/fork/tier3/README.md` |
+| Tier 3 | [tools/tier3/README.md](tools/tier3/README.md) |
