@@ -758,6 +758,25 @@ fn replies_waiting_for_the_host_are_bounded() {
     assert!(rounds > 1, "the bound never paused the input");
 }
 
+// The same bound inside one string: an OSC 4 at the OSC bound holds about
+// 260,000 queries, whose replies would be 7 MiB, so the list stops at the
+// reply that reaches the bound, as a stream of queries does.
+#[test]
+fn an_osc_4_list_stops_at_the_replies_bound() {
+    let mut seq = b"\x1b]4".to_vec();
+    while seq.len() < vtium_parse::OSC_MAX - 8 {
+        seq.extend_from_slice(b";1;?");
+    }
+    seq.push(0x07);
+    let mut t = term(8, 2, b"");
+    t.input(&seq);
+    let replies = t.take_replies();
+    let one = b"\x1b]4;1;rgb:cdcd/0000/0000\x07";
+    assert!(replies.len() >= vtium_term::REPLIES_PENDING_MAX);
+    assert!(replies.len() < vtium_term::REPLIES_PENDING_MAX + one.len());
+    assert!(replies.chunks(one.len()).all(|r| r == one));
+}
+
 // The same bound, for a host that calls the input again without taking the
 // replies: at the bound the call takes nothing, so the replies stop at the
 // one that reached it.

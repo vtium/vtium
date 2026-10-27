@@ -51,7 +51,7 @@ Each capability the C reference's probes judge, the ADR-1000 rows its probe cove
 | `bracketed-paste` | works | `DEC-2004` | `crates/vtium-term/tests/modes.rs::bracketed_paste_brackets_a_paste` |  |
 | `focus-1004` | works | `DEC-1004` | `crates/vtium-term/tests/modes.rs::focus_events_are_reported_while_set` |  |
 | `osc-8-hyperlink` | missing | `osc.8` |  | missing, #40; no test for `osc.8` |
-| `osc-52-clipboard` | missing | `osc.52.write` |  | missing, #39; no test for `osc.52.write` |
+| `osc-52-clipboard` | missing | `osc.52.write` | `crates/vtium-term/tests/clipboard.rs::osc_52_at_the_cap_sets_and_one_byte_over_is_dropped`<br>`crates/vtium-term/tests/clipboard.rs::osc_52_sets_the_selection`<br>`crates/vtium-term/tests/clipboard.rs::osc_52_sets_the_selection_for_c_p_and_s`<br>`crates/vtium-term/tests/clipboard.rs::osc_52_split_at_every_offset`<br>`crates/vtium-term/tests/clipboard.rs::osc_52_with_invalid_base64_is_dropped` | missing, #39 |
 | `osc-133-marks` | missing | `osc.133` |  | missing, #40; no test for `osc.133` |
 | `sixel` | works | `image.sixel`<br>`query.xtsmgraphics` |  | needs the build feature images; no test for `image.sixel`, `query.xtsmgraphics` |
 | `kitty-graphics` | works | `image.kitty` |  | needs the build feature images; no test for `image.kitty` |

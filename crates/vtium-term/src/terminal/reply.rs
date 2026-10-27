@@ -11,7 +11,7 @@
 use vtium_parse::{Params, StringEnd};
 
 use super::State;
-use crate::bounds::VERSION_MAX;
+use crate::bounds::{REPLIES_PENDING_MAX, VERSION_MAX};
 use crate::style::{Attrs, Color, Rgb, UnderlineStyle};
 
 macro_rules! queries {
@@ -247,9 +247,16 @@ impl State {
     /// OSC 4: `index ; spec` pairs, each `?` spec answered with the
     /// palette's colour. Setting a colour is vtium/vtium#38's; a pair that
     /// is not a number and a field stops the list, as in the C reference.
+    /// The list also stops at the reply that brings the replies waiting for
+    /// the host to [`REPLIES_PENDING_MAX`], as the input stops at the byte
+    /// whose reply does: one string at vtium-parse's `OSC_MAX` holds a
+    /// quarter of a million queries.
     fn reply_palette(&mut self, list: &[u8], end: StringEnd) {
         let mut fields = list.split(|&b| b == b';');
         while let (Some(index), Some(spec)) = (fields.next(), fields.next()) {
+            if self.out.len() >= REPLIES_PENDING_MAX {
+                return;
+            }
             let Some(index) = decimal(index) else {
                 return;
             };
