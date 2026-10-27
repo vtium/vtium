@@ -169,20 +169,30 @@ def console_displays(serial):
                    if "Display " in line and "text renderer [" in line})
 
 
+def read_events(vm):
+    """The lines the guest has written to its event port so far."""
+    with open(vm.events, "rb") as f:
+        return [e.strip() for e in f.read().decode(errors="replace").splitlines()]
+
+
 def bench_figures(vm, caps, conf, images=True):
     """Each drawn benchmark screen's figures (t3_bench.measure), by name. In a
     variant without images, an image screen has no picture stream to measure
-    (not_offered)."""
+    (not_offered); in one with images, an image screen that found them not
+    offered measured none, which is an "error"."""
     with open(vm.serial, "rb") as f:
         serial = f.read().decode(errors="replace")
-    with open(vm.events, "rb") as f:
-        events = [e.strip() for e in f.read().decode(errors="replace").splitlines()]
+    events = read_events(vm)
     out = {}
     for name in BENCHMARKS:
         if name in caps:
             line = next((e for e in events if e.startswith("T3-BENCH %s " % name)), None)
+            refused = name in IMAGE_SCREENS and reported_not_offered(events, name)
             if not images and name in IMAGE_SCREENS:
                 out[name] = not_offered(events, name, line)
+            elif refused:
+                out[name] = {"error": "the screen found images not offered (%s), so no "
+                                      "picture stream was measured" % refused}
             else:
                 out[name] = t3_bench.measure(serial, line, conf)
     return out
@@ -194,29 +204,35 @@ def not_offered(events, name, window):
     sixel-common.inc and kitty-common.inc, after the screen before it ended)
     and sent no picture stream (no T3-BENCH window); either failing is an
     "error", which fails the case."""
-    seen = []
-    for e in events:
-        if e == "T3-DONE %s" % name:
-            break
-        if e.startswith("T3-DONE "):
-            seen = []
-        elif e in ("T3-NO-SIXEL", "T3-NO-KITTY"):
-            seen.append(e)
     if window is not None:
         return {"error": "a build without images measured a picture stream: %r" % window}
+    seen = reported_not_offered(events, name)
     if not seen:
         return {"error": "the screen did not report images as not offered"}
-    return {"not_offered": seen[-1]}
+    return {"not_offered": seen}
+
+
+def reported_not_offered(events, name):
+    """The refusal screen `name` reported on the event port, T3-NO-SIXEL or
+    T3-NO-KITTY (sixel-common.inc, kitty-common.inc), after the screen before
+    it ended and before it ended itself; None when it reported none."""
+    seen = None
+    for e in events:
+        if e == "T3-DONE %s" % name:
+            return seen
+        if e.startswith("T3-DONE "):
+            seen = None
+        elif e in ("T3-NO-SIXEL", "T3-NO-KITTY"):
+            seen = e
+    return None
 
 
 def resident_kb(vm):
     """The console's resident memory in kB after each screen, by screen: the
     largest VmRSS of the vtium or kmscon processes guest/t3 found (one, on
     tty2, until the VT switch)."""
-    with open(vm.events, "rb") as f:
-        events = f.read().decode(errors="replace").splitlines()
     out = {}
-    for e in events:
+    for e in read_events(vm):
         fields = e.split()
         if len(fields) >= 3 and fields[0] == "T3-RSS":
             values = [int(v) for v in fields[2:] if v.isdigit()]
@@ -344,9 +360,17 @@ def run_variant(variant, timing, impl, log):
             phase(name)
             # The keyed cases of this screen, each captured once the screen
             # has changed from the capture before it: a key that changes
-            # nothing fails its case.
+            # nothing fails its case. An image screen that found images not
+            # offered drew no picture for its keys to act on, so they are
+            # not pressed and its keyed cases fail with the refusal; the
+            # screens after it still run.
+            refused = name in IMAGE_SCREENS and reported_not_offered(read_events(vm), name)
             for screen, case, chords in KEYED:
                 if screen != name or case not in variant_cases(variant):
+                    continue
+                if refused:
+                    errors[case] = ("not pressed: %s found images not offered (%s), and the "
+                                    "keys act on pictures" % (name, refused))
                     continue
                 for chord in chords:
                     vm.keys(*chord)
@@ -354,7 +378,7 @@ def run_variant(variant, timing, impl, log):
                 last = wait_stable(vm, path, want=lambda img, prev=last: img.data != prev.data)
                 caps[case] = path
                 phase(case)
-            for chord in KEYS_AFTER.get(name, []) if v.get("images", True) else []:
+            for chord in KEYS_AFTER.get(name, []) if v.get("images", True) and not refused else []:
                 vm.keys(*chord)
         # VT switch away and back. vt-switch: logind starts a second console
         # on tty3, which must draw a screen (its login prompt). vt-restore:
