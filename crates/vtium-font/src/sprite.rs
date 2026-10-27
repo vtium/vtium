@@ -1,7 +1,8 @@
 //! Box Drawing (U+2500-U+257F), Block Elements (U+2580-U+259F), Braille
 //! Patterns (U+2800-U+28FF), the sextants (U+1FB00-U+1FB3B) and the octants
 //! (U+1CD00-U+1CDE5) drawn as sprites exactly the size of the cell, in place
-//! of a font's glyphs. A font draws these between its own ascent and
+//! of a font's glyphs; the rest of Symbols for Legacy Computing's block
+//! shapes are in `legacy`. A font draws these between its own ascent and
 //! descent, so where the cell is taller (line spacing), stacked blocks and
 //! vertical lines leave a gap between rows, and Braille dots and mosaic
 //! blocks miss the cell's grid.
@@ -61,15 +62,18 @@
 //! rounds the same way and Rust never fuses, so a sprite is the same bytes
 //! on every host.
 
+mod legacy;
+
 use crate::bounds::CELL_SIDE_MAX;
 use crate::glyph::Glyph;
 
 /// Whether `c` is drawn as a sprite rather than taken from a font.
 pub fn has(c: char) -> bool {
+    let cp = u32::from(c);
     matches!(
-        u32::from(c),
+        cp,
         0x2500..=0x259f | 0x2800..=0x28ff | 0x1fb00..=0x1fb3b | 0x1cd00..=0x1cde5
-    )
+    ) || legacy::has(cp)
 }
 
 /// `c` as a `width` by `height` sprite with light lines `thickness` pixels
@@ -83,6 +87,7 @@ pub fn draw(c: char, width: u32, height: u32, thickness: u32) -> Option<Glyph> {
     let mut buf = Glyph::mask(width, height)?;
     let t = thickness.max(1);
     match u32::from(c) {
+        cp if legacy::has(cp) => legacy::draw(&mut buf, cp, t),
         cp @ 0x1fb00.. => {
             // the 64 patterns of a 2x3 grid counted in binary, less empty,
             // full and the two halves (21 and 42)

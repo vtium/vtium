@@ -162,7 +162,19 @@ int main(void)
 #endif
 
 #if defined(REF_PSF) || defined(REF_UNIFONT)
-/* the 256 codepoints of @page drawn through kmscon_font_render */
+/*
+ * The characters vtium draws as sprites where the C reference drew the
+ * font's glyph (vtium/vtium#27). render_page leaves them out, and
+ * reference.rs leaves out the same; tests/legacy.rs holds them.
+ */
+static int beyond_reference(uint32_t cp)
+{
+	return (cp >= 0x1cea0 && cp <= 0x1ceaf) || (cp >= 0x1fb3c && cp <= 0x1fb92) ||
+	       (cp >= 0x1fb94 && cp <= 0x1fbaf) || (cp >= 0x1fbbd && cp <= 0x1fbbf) ||
+	       (cp >= 0x1fbce && cp <= 0x1fbef);
+}
+
+/* the codepoints of @page drawn through kmscon_font_render */
 static void render_page(const char *name, struct kmscon_font *font, unsigned int height,
 			uint32_t page, unsigned int cwidth, int bold)
 {
@@ -170,6 +182,9 @@ static void render_page(const char *name, struct kmscon_font *font, unsigned int
 	uint64_t d = FNV_OFFSET;
 
 	for (uint32_t cp = page << 8; cp < (page + 1) << 8; cp++) {
+		if (beyond_reference(cp))
+			continue;
+
 		struct kmscon_glyph *g = kmscon_font_render(font, &attr, &cp, 1, cwidth);
 
 		if (!g) {

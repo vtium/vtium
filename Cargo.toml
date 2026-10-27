@@ -24,6 +24,11 @@ unsafe_op_in_unsafe_fn = "deny"
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 
+# The sprite and font tests sample every cell size; optimised, they take
+# seconds instead of minutes.
+[profile.dev.package.vtium-font]
+opt-level = 2
+
 [profile.release]
 lto = true
 codegen-units = 1

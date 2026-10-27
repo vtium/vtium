@@ -1,6 +1,6 @@
 # vtium-font
 
-vtium's glyph sources: font files and built-in fonts in, glyph bitmaps out. It loads PC Screen Fonts (PSF1 and PSF2, gzipped ones with the `gzip` feature), carries GNU Unifont built in (the `unifont` feature), and draws box drawing, block elements, Braille, sextants and octants as sprites that fill their cell. A `Font` puts a face and the sprites together and draws any cluster exactly into its cells. It forbids unsafe code. Every glyph is a `Glyph`, a coverage mask or premultiplied RGBA, and its bytes are the same on every host. Outline fonts (vtium/vtium#23) come later as another `Face`.
+vtium's glyph sources: font files and built-in fonts in, glyph bitmaps out. It loads PC Screen Fonts (PSF1 and PSF2, gzipped ones with the `gzip` feature), carries GNU Unifont built in (the `unifont` feature), and draws box drawing, block elements, Braille, sextants, octants and the rest of Symbols for Legacy Computing's block shapes as sprites that fill their cell. A `Font` puts a face and the sprites together and draws any cluster exactly into its cells. It forbids unsafe code. Every glyph is a `Glyph`, a coverage mask or premultiplied RGBA, and its bytes are the same on every host. Outline fonts (vtium/vtium#23) come later as another `Face`.
 
 | Path | What it is |
 |---|---|
@@ -11,6 +11,7 @@ vtium's glyph sources: font files and built-in fonts in, glyph bitmaps out. It l
 | `src/gzip.rs` | gzip (RFC 1952) framing and checks around `miniz_oxide`'s inflate, for gzipped PSF fonts. |
 | `src/unifont.rs` | `Unifont`: the built-in font, inflated a 16 KiB chunk at a time as glyphs are drawn from it. |
 | `src/sprite.rs` | The sprites, ported from the C reference's `font_box.c` with its and Ghostty's notices. |
+| `src/sprite/legacy.rs` | The Symbols for Legacy Computing sprites the C reference left to the font, adapted from Ghostty's sprite font with its notice. |
 | `src/bounds.rs` | Every bound, with its value, what happens past it and its source: the one source for the constants and for the table below. |
 | `build.rs` | Packs `data/unifont.hex` into the chunks and index `src/unifont.rs` includes. |
 | `data/` | The unifont glyphs and their licence: see its README. |
@@ -40,6 +41,11 @@ A sprite's curves and diagonals are supersampled with IEEE 754 `f64` addition, s
 ## Beyond the C reference
 
 - **The built-in unifont is inflated as it is used.** The binary carries the 3.7 MB of glyphs deflated in 16 KiB chunks (1.3 MB), and each chunk is inflated the first time a glyph is drawn from it, so text in a few scripts holds a few chunks. The C reference inflated the whole font into memory when it loaded (font_unifont.c:203-245).
+- **The rest of Symbols for Legacy Computing's block shapes are sprites** (vtium/vtium#27, aaronsb/kmscon#92). The C reference drew them from the font, between its ascent and descent. vtium draws them to fill the cell, at every cell size, in the shapes the Unicode 18.0 code charts show:
+  - U+1CEA0-U+1CEAF, the one quarter blocks: the Symbols for Legacy Computing Supplement chart, <https://www.unicode.org/charts/PDF/U1CC00.pdf>;
+  - U+1FB3C-U+1FBAF, U+1FBBD-U+1FBBF and U+1FBCE-U+1FBEF, the smooth mosaics, triangles, eighth, third and quarter blocks (U+1FB82-U+1FB85 and U+1FBE4-U+1FBE7 among them), shades, fills, light diagonals and circles: the Symbols for Legacy Computing chart, <https://www.unicode.org/charts/PDF/U1FB00.pdf>.
+
+  The block's pictographs stay with the face: the pointer, check mark, running man, arrows, folders and squared dot (U+1FBB0-U+1FBBC), the saltire, pointing index, question mark, stick figures, chevrons, cross mark and bracket (U+1FBC0-U+1FBCD), and the segmented digits and alarm bell (U+1FBF0-U+1FBFA). No cell-grid geometry defines them, so they draw from the face, and unifont carries them. `tests/legacy.rs` holds every sprite to a model built from its Unicode name, at every cell size from 1x1 to 32x64 and in larger cells, and to literal masks. `tests/reference.rs` leaves these characters out of the C reference's page digests. A tier 2 screen of the ranges waits for the tier 2 goldens (vtium/vtium#17).
 - **A cell is bounded.** A font scales by whole factors only as far as keeps its cell inside `CELL_SIDE_MAX`, and a sprite or glyph past it is not drawn (`CELL_SIDE_MAX` below). The C reference scaled to any height it was asked for.
 
 ## Glyph storage

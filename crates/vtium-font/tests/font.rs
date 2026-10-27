@@ -42,7 +42,15 @@ fn a_sprite_character_fills_its_cells() {
     let font = Font::new(psf);
     let deco = font.decorations();
     assert_eq!(deco.underline_thickness, 2);
-    for c in ['│', '█', '⣿', '\u{1fb00}', '\u{1cd00}'] {
+    for c in [
+        '│',
+        '█',
+        '⣿',
+        '\u{1fb00}',
+        '\u{1cd00}',
+        '\u{1fbd8}',
+        '\u{1cea0}',
+    ] {
         assert!(font.has_glyph(c), "{c}");
         for (width, w) in [(Width::Narrow, 16), (Width::Wide, 32)] {
             let g = font.glyph(&[c], width, plain()).expect("a sprite");

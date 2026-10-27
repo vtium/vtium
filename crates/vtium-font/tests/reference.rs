@@ -68,9 +68,39 @@ fn check(what: &str, rows: &[Vec<String>], mut ours: impl FnMut(&[String]) -> Op
     );
 }
 
-/// The 256 characters of `page` drawn through the font, as refdigest.c's
-/// render_page() draws them; `None` for the surrogate pages, which a
-/// `char` cannot hold and the terminal never draws.
+/// The characters vtium draws as sprites where the C reference drew the
+/// font's glyph (vtium/vtium#27), as refdigest.c's beyond_reference() lists
+/// them; `tests/legacy.rs` holds them.
+fn beyond_reference(cp: u32) -> bool {
+    matches!(
+        cp,
+        0x1cea0..=0x1ceaf
+            | 0x1fb3c..=0x1fb92
+            | 0x1fb94..=0x1fbaf
+            | 0x1fbbd..=0x1fbbf
+            | 0x1fbce..=0x1fbef
+    )
+}
+
+// The skip never reaches past what vtium draws as a sprite, so a page
+// digest leaves out no character the face draws
+#[test]
+fn the_characters_left_out_are_all_sprites() {
+    let mut left_out = 0;
+    for cp in (0x1ce00..0x1cf00).chain(0x1fb00..0x1fc00) {
+        if beyond_reference(cp) {
+            left_out += 1;
+            let c = char::from_u32(cp).expect("a char");
+            assert!(sprite::has(c), "U+{cp:04X} is left out but is no sprite");
+        }
+    }
+    assert_eq!(left_out, 168);
+}
+
+/// The characters of `page` drawn through the font, less those beyond the
+/// C reference, as refdigest.c's render_page() draws them; `None` for the
+/// surrogate pages, which a `char` cannot hold and the terminal never
+/// draws.
 fn render_page<F: Face>(font: &Font<F>, page: u32, cells: u32, bold: bool) -> Option<u64> {
     let width = if cells == 2 {
         Width::Wide
@@ -82,7 +112,7 @@ fn render_page<F: Face>(font: &Font<F>, page: u32, cells: u32, bold: bool) -> Op
         italic: false,
     };
     let mut d = FNV_OFFSET;
-    for cp in page << 8..(page + 1) << 8 {
+    for cp in (page << 8..(page + 1) << 8).filter(|&cp| !beyond_reference(cp)) {
         let c = char::from_u32(cp)?;
         let g = font
             .glyph(&[c], width, style)

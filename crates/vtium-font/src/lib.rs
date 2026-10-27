@@ -17,9 +17,10 @@
 //!
 //! Loads fonts and draws glyph bitmaps for the renderer: PSF fonts and the
 //! built-in unifont for the minspec build, and the sprites that draw box
-//! drawing, block elements, Braille, sextants and octants to fill their
-//! cell. Outline fonts with shaping and fallback come later, behind a
-//! feature, as another [`Face`].
+//! drawing, block elements, Braille, sextants, octants and the rest of
+//! Symbols for Legacy Computing's block shapes to fill their cell.
+//! Outline fonts with shaping and fallback come later, behind a feature,
+//! as another [`Face`].
 //!
 //! ```
 //! use vtium_font::{Face, Font, Style, Width};

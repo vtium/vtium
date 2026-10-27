@@ -8,7 +8,7 @@ They were taken from aaronsb/kmscon at `b1f7a7c5df563f3378584db7298753848a7a9a13
 |---|---|
 | `refdigest.c` | The program that prints the digests, built once per backend against the C reference's sources. |
 | `box.tsv` | Tab-separated, `box <range> <w> <h> <thickness> <digest>`: `font_box.c`'s sprites, each range at every cell size from 1x1 to 20x40 with the thickness `kmscon_font_get_deco` gives, the box-drawing lines at 858 more sizes and thicknesses, and the other ranges at 1000x2000. |
-| `psf.tsv` | `psf-glyphs <font> <height> <bold> <digest>`: every glyph of a fixture through `font_psf.c`; `render <font> <height> <page> <cells> <bold> <digest>`: a page of 256 codepoints through `kmscon_font_render`. Each fixture at 16, 32 and 48. |
+| `psf.tsv` | `psf-glyphs <font> <height> <bold> <digest>`: every glyph of a fixture through `font_psf.c`; `render <font> <height> <page> <cells> <bold> <digest>`: a page of 256 codepoints through `kmscon_font_render`, less those `beyond_reference()` lists, which vtium draws as sprites where the C reference drew the font's glyph (vtium/vtium#27). Each fixture at 16, 32 and 48. |
 | `unifont.tsv` | `unifont-glyphs <height> <bold> <page> <digest>`: every glyph unifont holds in a page, at its own width, through `font_unifont.c`; `render unifont ...`: as in `psf.tsv`, every page of plane 0 at 16 and a sample at 32. The surrogate pages D8-DF are skipped by the test, since a `char` cannot hold them. |
 
 To take them again, from a checkout of the C reference at `$K` and this directory as `$R`, with zlib:
