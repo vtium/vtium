@@ -6,16 +6,27 @@
 //! of the scrollback frees everything its cells referred to. No table is
 //! shared between lines, so none needs a reference count or a hash.
 //!
-//! A table holds only what was written to the line. Once a table reaches
-//! twice the line's cells, the line compacts: it keeps the entries a cell
-//! still names and renumbers them. Each compaction follows at least as
-//! many writes as the line has cells, so writes stay amortised constant
-//! time, and a table never holds more than twice the line's cells.
+//! A table holds only what was written to the line. Once the style or link
+//! table reaches [`TABLE_GROWTH`] times the line's cells, or the cluster
+//! arena that many times the line's cluster budget, the line compacts: it
+//! keeps the entries a cell still names and renumbers them. Each compaction
+//! follows at least as many writes as the line has cells, so its cost is
+//! amortised over them. Looking a style or link up searches its table, so
+//! a write is linear in the line's width at worst.
+//!
+//! The cluster arena holds each cluster as a length byte and its codepoints
+//! in UTF-8, and the cell holds the cluster's byte offset. The clusters a
+//! line's cells name take at most [`CLUSTER_BYTES_PER_CELL`] bytes per
+//! cell; a cluster that would pass that keeps the longest run of its first
+//! codepoints that fits, and at least its first codepoint.
 
 use core::ops::Range;
+use std::collections::BTreeMap;
 
-use crate::bounds::{CLUSTER_MAX, COLUMNS_MAX};
-use crate::cell::{Cell, ClusterIndex, Content, LinkIndex, StyleIndex, Width};
+use crate::bounds::{
+    CLUSTER_BYTES_MAX, CLUSTER_BYTES_PER_CELL, CLUSTER_MAX, COLUMNS_MAX, TABLE_GROWTH,
+};
+use crate::cell::{Cell, ClusterOffset, Content, LinkIndex, StyleIndex, Width};
 use crate::style::Style;
 
 /// A line's identity: unique within its screen buffer for the buffer's
@@ -127,14 +138,7 @@ pub enum Glyph<'a> {
     Empty,
     Char(char),
     /// Two or more codepoints, at most [`CLUSTER_MAX`].
-    Cluster(&'a [char]),
-}
-
-/// Where a cluster's codepoints sit in the line's arena.
-#[derive(Clone, Copy, Debug)]
-struct Span {
-    start: u32,
-    len: u32,
+    Cluster(&'a str),
 }
 
 /// A line's tables, allocated on its first styled, linked or clustered
@@ -144,13 +148,33 @@ struct Span {
 struct Tables {
     styles: Vec<Style>,
     links: Vec<LinkId>,
-    clusters: Vec<Span>,
-    chars: Vec<char>,
+    /// Each cluster as a length byte and its codepoints in UTF-8.
+    clusters: Vec<u8>,
+    /// The bytes of `clusters` the line's cells name.
+    live: usize,
 }
 
 impl Tables {
     fn is_empty(&self) -> bool {
         self.styles.is_empty() && self.links.is_empty() && self.clusters.is_empty()
+    }
+
+    /// The cluster at byte `offset` of the arena.
+    fn cluster(&self, offset: u32) -> Option<&str> {
+        let at = usize::try_from(offset).ok()?;
+        let len = usize::from(*self.clusters.get(at)?);
+        let start = at.checked_add(1)?;
+        let bytes = self.clusters.get(start..start.checked_add(len)?)?;
+        core::str::from_utf8(bytes).ok()
+    }
+
+    /// The arena bytes the cluster at `offset` takes, its length byte
+    /// included.
+    fn cluster_size(&self, offset: u32) -> usize {
+        usize::try_from(offset)
+            .ok()
+            .and_then(|at| self.clusters.get(at))
+            .map_or(0, |&len| usize::from(len).saturating_add(1))
     }
 }
 
@@ -229,21 +253,22 @@ impl Line {
             .copied()
     }
 
-    /// What `cell` shows, its cluster read from this line's table.
+    /// What `cell` shows, its cluster read from this line's arena.
     pub fn glyph(&self, cell: Cell) -> Glyph<'_> {
         match cell.content() {
             Content::Empty => Glyph::Empty,
             Content::Char(c) => Glyph::Char(c),
-            Content::Cluster(ClusterIndex(i)) => self
+            Content::Cluster(ClusterOffset(o)) => self
                 .tables
                 .as_ref()
-                .and_then(|t| cluster_chars(t, i))
+                .and_then(|t| t.cluster(o))
                 .map_or(Glyph::Empty, Glyph::Cluster),
         }
     }
 
-    /// Writes one cell. A cluster of one codepoint is stored as that
-    /// codepoint, and one past [`CLUSTER_MAX`] keeps its first codepoints.
+    /// Writes one cell. A cluster keeps its first [`CLUSTER_MAX`]
+    /// codepoints, and fewer when the line's cluster budget is spent; a
+    /// cluster left with one codepoint is stored as that codepoint.
     /// Returns false, changing nothing, when `col` is past the line's end.
     pub fn write(
         &mut self,
@@ -253,16 +278,17 @@ impl Line {
         style: &Style,
         link: Option<LinkId>,
     ) -> bool {
-        if col >= self.cells.len() {
+        let Some(old) = self.cells.get(col).copied() else {
             return false;
-        }
+        };
         self.make_room();
         let style = self.intern_style(style);
         let link = self.intern_link(link);
+        self.release(old);
         let content = match glyph {
-            Glyph::Empty | Glyph::Cluster([]) => Content::Empty,
-            Glyph::Char(c) | Glyph::Cluster(&[c]) => Content::Char(c),
-            Glyph::Cluster(chars) => self.push_cluster(chars),
+            Glyph::Empty => Content::Empty,
+            Glyph::Char(c) => Content::Char(c),
+            Glyph::Cluster(s) => self.push_cluster(s),
         };
         if let Some(cell) = self.cells.get_mut(col) {
             *cell = Cell::new(content, width, style, link);
@@ -280,15 +306,29 @@ impl Line {
         self.make_room();
         let style = self.intern_style(style);
         let blank = Cell::new(Content::Empty, Width::Narrow, style, LinkIndex(0));
-        if let Some(cells) = self.cells.get_mut(cols.start..end) {
-            cells.fill(blank);
+        for col in cols.start..end {
+            if let Some(&old) = self.cells.get(col) {
+                self.release(old);
+            }
+            if let Some(cell) = self.cells.get_mut(col) {
+                *cell = blank;
+            }
         }
     }
 
     /// Makes the line `cols` cells long, at most [`COLUMNS_MAX`]: cells
-    /// past the new end are dropped, and new cells are blank.
+    /// past the new end are dropped, and new cells are blank. Shrinking
+    /// compacts the tables, so they hold no more than the shorter line can
+    /// name.
     pub fn resize(&mut self, cols: usize) {
-        self.cells.resize(cols.min(COLUMNS_MAX), Cell::BLANK);
+        let cols = cols.min(COLUMNS_MAX);
+        let shrinking = cols < self.cells.len();
+        self.cells.resize(cols, Cell::BLANK);
+        if shrinking {
+            self.cells.shrink_to_fit();
+            self.compact();
+            self.shrink_tables();
+        }
     }
 
     /// Readies the line for the scrollback: drops its trailing blank
@@ -302,12 +342,7 @@ impl Line {
         self.cells.truncate(keep);
         self.cells.shrink_to_fit();
         self.compact();
-        if let Some(t) = self.tables.as_mut() {
-            t.styles.shrink_to_fit();
-            t.links.shrink_to_fit();
-            t.clusters.shrink_to_fit();
-            t.chars.shrink_to_fit();
-        }
+        self.shrink_tables();
     }
 
     /// The bytes the line holds on the heap, by capacity.
@@ -318,8 +353,7 @@ impl Line {
                 size_of::<Tables>(),
                 t.styles.capacity().saturating_mul(size_of::<Style>()),
                 t.links.capacity().saturating_mul(size_of::<LinkId>()),
-                t.clusters.capacity().saturating_mul(size_of::<Span>()),
-                t.chars.capacity().saturating_mul(size_of::<char>()),
+                t.clusters.capacity(),
             ]
             .into_iter()
             .fold(0, usize::saturating_add)
@@ -327,23 +361,33 @@ impl Line {
         cells.saturating_add(tables)
     }
 
-    /// The most entries a table holds before the line compacts it.
-    fn table_limit(&self) -> usize {
-        self.cells.len().max(1).saturating_mul(2)
+    /// The cluster bytes the line's cells may name.
+    fn cluster_budget(&self) -> usize {
+        self.cells.len().saturating_mul(CLUSTER_BYTES_PER_CELL)
     }
 
     /// Compacts the tables when one more entry in any of them could pass
     /// its limit, so the indices `write` and `erase` intern stay valid.
     fn make_room(&mut self) {
-        let limit = self.table_limit();
+        let cells = self.cells.len().max(1);
+        let limit = cells.saturating_mul(TABLE_GROWTH);
+        let arena = limit.saturating_mul(CLUSTER_BYTES_PER_CELL);
         let full = self.tables.as_ref().is_some_and(|t| {
             t.styles.len() >= limit
                 || t.links.len() >= limit
-                || t.clusters.len() >= limit
-                || t.chars.len().saturating_add(CLUSTER_MAX) > limit.saturating_mul(CLUSTER_MAX)
+                || (!t.clusters.is_empty()
+                    && t.clusters.len().saturating_add(CLUSTER_BYTES_MAX) > arena)
         });
         if full {
             self.compact();
+        }
+    }
+
+    fn shrink_tables(&mut self) {
+        if let Some(t) = self.tables.as_mut() {
+            t.styles.shrink_to_fit();
+            t.links.shrink_to_fit();
+            t.clusters.shrink_to_fit();
         }
     }
 
@@ -356,14 +400,14 @@ impl Line {
         let mut new = Tables::default();
         let mut styles = vec![0u16; old.styles.len()];
         let mut links = vec![0u16; old.links.len()];
-        let mut clusters = vec![None::<u32>; old.clusters.len()];
+        let mut clusters = BTreeMap::new();
         for cell in &mut self.cells {
             let style = remap(&mut styles, cell.style().0, &old.styles, &mut new.styles);
             let link = remap(&mut links, cell.link().0, &old.links, &mut new.links);
             let content = match cell.content() {
-                Content::Cluster(ClusterIndex(i)) => {
-                    match remap_cluster(&mut clusters, i, &old, &mut new) {
-                        Some(j) => Content::Cluster(ClusterIndex(j)),
+                Content::Cluster(ClusterOffset(o)) => {
+                    match remap_cluster(&mut clusters, o, &old, &mut new) {
+                        Some(n) => Content::Cluster(ClusterOffset(n)),
                         None => Content::Empty,
                     }
                 }
@@ -371,8 +415,17 @@ impl Line {
             };
             *cell = Cell::new(content, cell.width(), StyleIndex(style), LinkIndex(link));
         }
+        new.live = new.clusters.len();
         if !new.is_empty() {
             self.tables = Some(Box::new(new));
+        }
+    }
+
+    /// Gives back the cluster bytes `old` named, as it is overwritten.
+    fn release(&mut self, old: Cell) {
+        if let (Content::Cluster(ClusterOffset(o)), Some(t)) = (old.content(), self.tables.as_mut())
+        {
+            t.live = t.live.saturating_sub(t.cluster_size(o));
         }
     }
 
@@ -392,25 +445,49 @@ impl Line {
         LinkIndex(intern(links, &link))
     }
 
-    fn push_cluster(&mut self, chars: &[char]) -> Content {
-        let chars = chars.get(..CLUSTER_MAX).unwrap_or(chars);
-        let t = self.tables.get_or_insert_default();
-        let (Ok(start), Ok(len), Ok(index)) = (
-            u32::try_from(t.chars.len()),
-            u32::try_from(chars.len()),
-            u32::try_from(t.clusters.len()),
-        ) else {
+    /// Stores the cluster `s`, as much of it as the budget allows.
+    fn push_cluster(&mut self, s: &str) -> Content {
+        let budget = self.cluster_budget();
+        let mut chars = s.chars();
+        let Some(first) = chars.next() else {
             return Content::Empty;
         };
-        t.chars.extend_from_slice(chars);
-        t.clusters.push(Span { start, len });
-        Content::Cluster(ClusterIndex(index))
+        let t = self.tables.get_or_insert_default();
+        let room = budget.saturating_sub(t.live);
+        // The longest run of whole codepoints, at most CLUSTER_MAX, that
+        // fits with its length byte.
+        let mut end = first.len_utf8();
+        let mut count = 1usize;
+        for c in chars.take(CLUSTER_MAX.saturating_sub(1)) {
+            let next = end.saturating_add(c.len_utf8());
+            if next.saturating_add(1) > room {
+                break;
+            }
+            end = next;
+            count = count.saturating_add(1);
+        }
+        let (Some(bytes), Ok(len), Ok(offset)) = (
+            s.as_bytes().get(..end),
+            u8::try_from(end),
+            u32::try_from(t.clusters.len()),
+        ) else {
+            return Content::Char(first);
+        };
+        if count < 2 {
+            return Content::Char(first);
+        }
+        t.clusters.push(len);
+        t.clusters.extend_from_slice(bytes);
+        t.live = t.live.saturating_add(end).saturating_add(1);
+        Content::Cluster(ClusterOffset(offset))
     }
 }
 
 /// The 1-based index of `value` in `table`, appended if absent. The table
-/// is short (`make_room` keeps it within twice the line's cells) and the
-/// newest entry is the likeliest match, so the search runs from the end.
+/// holds at most [`TABLE_GROWTH`] times the line's cells (`make_room`), and
+/// the newest entry is the likeliest match, so the search runs from the
+/// end; it is linear in the line's width at worst. The bounds' compile-time
+/// check keeps every index inside 16 bits.
 fn intern<T: PartialEq + Copy>(table: &mut Vec<T>, value: &T) -> u16 {
     let i = match table.iter().rposition(|v| v == value) {
         Some(i) => i,
@@ -419,7 +496,7 @@ fn intern<T: PartialEq + Copy>(table: &mut Vec<T>, value: &T) -> u16 {
             table.len().saturating_sub(1)
         }
     };
-    u16::try_from(i.saturating_add(1)).unwrap_or(0)
+    u16::try_from(i.saturating_add(1)).unwrap_or(u16::MAX)
 }
 
 /// The new 1-based index of old index `i`, copying its entry into `new`
@@ -434,39 +511,42 @@ fn remap<T: Copy>(map: &mut [u16], i: u16, old: &[T], new: &mut Vec<T>) -> u16 {
     };
     if *slot == 0 {
         new.push(*value);
-        *slot = u16::try_from(new.len()).unwrap_or(0);
+        *slot = u16::try_from(new.len()).unwrap_or(u16::MAX);
     }
     *slot
 }
 
-/// The new index of old cluster `i`, copying its codepoints into `new`
+/// The new offset of the cluster at old offset `o`, copying it into `new`
 /// the first time a cell names it.
-fn remap_cluster(map: &mut [Option<u32>], i: u32, old: &Tables, new: &mut Tables) -> Option<u32> {
-    let at = usize::try_from(i).ok()?;
-    let slot = map.get_mut(at)?;
-    if slot.is_none() {
-        let chars = cluster_chars(old, i)?;
-        let start = u32::try_from(new.chars.len()).ok()?;
-        let len = u32::try_from(chars.len()).ok()?;
-        let index = u32::try_from(new.clusters.len()).ok()?;
-        new.chars.extend_from_slice(chars);
-        new.clusters.push(Span { start, len });
-        *slot = Some(index);
+fn remap_cluster(
+    map: &mut BTreeMap<u32, u32>,
+    o: u32,
+    old: &Tables,
+    new: &mut Tables,
+) -> Option<u32> {
+    if let Some(&n) = map.get(&o) {
+        return Some(n);
     }
-    *slot
-}
-
-fn cluster_chars(t: &Tables, i: u32) -> Option<&[char]> {
-    let span = t.clusters.get(usize::try_from(i).ok()?)?;
-    let start = usize::try_from(span.start).ok()?;
-    let end = start.checked_add(usize::try_from(span.len).ok()?)?;
-    t.chars.get(start..end)
+    let s = old.cluster(o)?;
+    let len = u8::try_from(s.len()).ok()?;
+    let n = u32::try_from(new.clusters.len()).ok()?;
+    new.clusters.push(len);
+    new.clusters.extend_from_slice(s.as_bytes());
+    map.insert(o, n);
+    Some(n)
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    clippy::panic,
+    reason = "a test fails by panicking"
+)]
 mod tests {
     use super::*;
     use crate::style::{Attrs, Color, Rgb};
+
+    const FAMILY: &str = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
 
     fn red() -> Style {
         Style {
@@ -475,12 +555,23 @@ mod tests {
         }
     }
 
-    fn rgb(n: u16) -> Style {
-        let [hi, lo] = n.to_be_bytes();
+    fn rgb(n: u32) -> Style {
+        let [_, r, g, b] = n.to_be_bytes();
         Style {
-            fg: Color::Rgb(Rgb::new(hi, lo, 0)),
+            fg: Color::Rgb(Rgb::new(r, g, b)),
             ..Style::DEFAULT
         }
+    }
+
+    /// `e` and `marks` combining acute accents.
+    fn accented(marks: usize) -> String {
+        std::iter::once('e')
+            .chain(std::iter::repeat_n('\u{301}', marks))
+            .collect()
+    }
+
+    fn tables(line: &Line) -> &Tables {
+        line.tables.as_ref().unwrap()
     }
 
     #[test]
@@ -504,16 +595,9 @@ mod tests {
         assert_eq!(line.style(cell), style);
         assert_eq!(line.link(cell), Some(link));
 
-        let family = [
-            '\u{1F468}',
-            '\u{200D}',
-            '\u{1F469}',
-            '\u{200D}',
-            '\u{1F467}',
-        ];
-        assert!(line.write(4, Glyph::Cluster(&family), Width::Wide, &style, None));
+        assert!(line.write(4, Glyph::Cluster(FAMILY), Width::Wide, &style, None));
         let cell = line.cell(4);
-        assert_eq!(line.glyph(cell), Glyph::Cluster(&family));
+        assert_eq!(line.glyph(cell), Glyph::Cluster(FAMILY));
         assert_eq!(cell.width(), Width::Wide);
         assert_eq!(line.link(cell), None);
     }
@@ -521,26 +605,18 @@ mod tests {
     #[test]
     fn a_cluster_of_one_codepoint_is_that_codepoint() {
         let mut line = Line::new(LineId::new(1), 4);
-        line.write(
-            0,
-            Glyph::Cluster(&['e']),
-            Width::Narrow,
-            &Style::DEFAULT,
-            None,
-        );
+        line.write(0, Glyph::Cluster("e"), Width::Narrow, &Style::DEFAULT, None);
         assert_eq!(line.cell(0).content(), Content::Char('e'));
-        line.write(1, Glyph::Cluster(&[]), Width::Narrow, &Style::DEFAULT, None);
+        line.write(1, Glyph::Cluster(""), Width::Narrow, &Style::DEFAULT, None);
         assert!(line.cell(1).is_blank());
-        // Neither needed a table.
-        assert_eq!(line.heap_bytes(), 4 * 8);
+        assert_eq!(line.heap_bytes(), 4 * 8 + size_of::<Tables>());
     }
 
     // kmscon ADR 102, "Cells and clusters": extenders past 32 are dropped.
     #[test]
     fn a_cluster_keeps_its_first_cluster_max_codepoints() {
-        let mut line = Line::new(LineId::new(1), 4);
-        let mut long = vec!['e'];
-        long.extend(std::iter::repeat_n('\u{301}', 40));
+        let mut line = Line::new(LineId::new(1), 64);
+        let long = accented(40);
         line.write(
             0,
             Glyph::Cluster(&long),
@@ -550,8 +626,75 @@ mod tests {
         );
         assert_eq!(
             line.glyph(line.cell(0)),
-            Glyph::Cluster(long.get(..CLUSTER_MAX).unwrap_or_default())
+            Glyph::Cluster(&accented(CLUSTER_MAX - 1))
         );
+    }
+
+    // ADR-1001, "The line": a cluster past the line's budget keeps the
+    // longest run of its first codepoints that fits, at least its first.
+    #[test]
+    fn a_cluster_past_the_budget_keeps_what_fits() {
+        // Four cells: 24 bytes. The first cluster takes 1 + 1 + 2 * 11.
+        let mut line = Line::new(LineId::new(1), 4);
+        line.write(
+            0,
+            Glyph::Cluster(&accented(31)),
+            Width::Narrow,
+            &Style::DEFAULT,
+            None,
+        );
+        assert_eq!(line.glyph(line.cell(0)), Glyph::Cluster(&accented(11)));
+        line.write(
+            1,
+            Glyph::Cluster(&accented(31)),
+            Width::Narrow,
+            &Style::DEFAULT,
+            None,
+        );
+        assert_eq!(line.cell(1).content(), Content::Char('e'));
+        // Overwriting the first gives its bytes back.
+        line.write(0, Glyph::Char('a'), Width::Narrow, &Style::DEFAULT, None);
+        line.write(
+            1,
+            Glyph::Cluster(&accented(2)),
+            Width::Narrow,
+            &Style::DEFAULT,
+            None,
+        );
+        assert_eq!(line.glyph(line.cell(1)), Glyph::Cluster(&accented(2)));
+    }
+
+    #[test]
+    fn a_flood_of_maximal_clusters_stays_inside_the_budget() {
+        let cols = 170;
+        let mut line = Line::new(LineId::new(1), cols);
+        let max = accented(CLUSTER_MAX - 1);
+        for _ in 0..20 {
+            for col in 0..cols {
+                line.write(
+                    col,
+                    Glyph::Cluster(&max),
+                    Width::Narrow,
+                    &Style::DEFAULT,
+                    None,
+                );
+                let t = tables(&line);
+                assert!(t.live <= cols * CLUSTER_BYTES_PER_CELL);
+                assert!(
+                    t.clusters.len()
+                        <= cols * CLUSTER_BYTES_PER_CELL * TABLE_GROWTH + CLUSTER_BYTES_MAX
+                );
+            }
+            for col in 0..cols {
+                match line.glyph(line.cell(col)) {
+                    Glyph::Char('e') => {}
+                    Glyph::Cluster(s) => assert!(max.starts_with(s)),
+                    other => panic!("cell {col} holds {other:?}"),
+                }
+            }
+        }
+        line.trim();
+        assert!(tables(&line).clusters.len() <= cols * CLUSTER_BYTES_PER_CELL);
     }
 
     #[test]
@@ -593,21 +736,31 @@ mod tests {
     }
 
     #[test]
-    fn erase_clips_to_the_line() {
+    fn erase_clips_to_the_line_and_gives_back_clusters() {
         let mut line = Line::new(LineId::new(1), 4);
+        line.write(
+            3,
+            Glyph::Cluster(&accented(3)),
+            Width::Narrow,
+            &Style::DEFAULT,
+            None,
+        );
+        assert_eq!(tables(&line).live, 8);
         line.erase(2..100, &red());
         assert!(line.cell(1).is_blank());
         assert_eq!(line.style(line.cell(3)), red());
+        assert_eq!(line.glyph(line.cell(3)), Glyph::Empty);
+        assert_eq!(tables(&line).live, 0);
         assert_eq!(line.len(), 4);
     }
 
     #[test]
     fn rewriting_one_cell_in_new_styles_keeps_the_table_bounded() {
         let mut line = Line::new(LineId::new(1), 4);
-        for n in 0..10_000u16 {
+        for n in 0..10_000 {
             line.write(0, Glyph::Char('a'), Width::Narrow, &rgb(n), None);
-            let t = line.tables.as_ref().map_or(0, |t| t.styles.len());
-            assert!(t <= 8, "the style table grew to {t}");
+            let t = tables(&line).styles.len();
+            assert!(t <= 4 * TABLE_GROWTH, "the style table grew to {t}");
             assert_eq!(line.style(line.cell(0)), rgb(n));
         }
     }
@@ -616,30 +769,48 @@ mod tests {
     fn compaction_keeps_what_every_cell_names() {
         let cols = 16;
         let mut line = Line::new(LineId::new(1), cols);
-        let family = ['\u{1F468}', '\u{200D}', '\u{1F469}'];
+        let cluster = accented(1);
         // Fill every cell with its own style, link and cluster, then
         // overwrite them round after round so every table compacts.
-        for round in 0..20u16 {
-            for (col, c) in (0..cols).zip(0u16..) {
-                let n = round.wrapping_mul(100).wrapping_add(c);
-                let link = LinkId::new(u32::from(n));
+        for round in 0..20u32 {
+            for (col, c) in (0..cols).zip(0u32..) {
+                let n = round * 100 + c;
+                let link = LinkId::new(n);
                 line.write(
                     col,
-                    Glyph::Cluster(&family),
-                    Width::Wide,
+                    Glyph::Cluster(&cluster),
+                    Width::Narrow,
                     &rgb(n),
                     Some(link),
                 );
             }
-            for (col, c) in (0..cols).zip(0u16..) {
-                let n = round.wrapping_mul(100).wrapping_add(c);
+            for (col, c) in (0..cols).zip(0u32..) {
+                let n = round * 100 + c;
                 let cell = line.cell(col);
                 assert_eq!(line.style(cell), rgb(n));
-                assert_eq!(line.link(cell), Some(LinkId::new(u32::from(n))));
-                assert_eq!(line.glyph(cell), Glyph::Cluster(&family));
+                assert_eq!(line.link(cell), Some(LinkId::new(n)));
+                assert_eq!(line.glyph(cell), Glyph::Cluster(&cluster));
             }
-            let t = line.tables.as_ref().map_or(0, |t| t.styles.len());
-            assert!(t <= 2 * cols);
+            assert!(tables(&line).styles.len() <= TABLE_GROWTH * cols);
+        }
+    }
+
+    // A style index that passed 16 bits would collapse to another entry or
+    // the default. Distinct styles across the widest line, through several
+    // compactions, each read back as written.
+    #[test]
+    fn distinct_styles_across_the_widest_line_survive_compaction() {
+        let mut line = Line::new(LineId::new(1), COLUMNS_MAX);
+        let mut n = 0u32;
+        for _ in 0..3 {
+            for col in 0..COLUMNS_MAX {
+                n += 1;
+                line.write(col, Glyph::Char('a'), Width::Narrow, &rgb(n), None);
+            }
+            let first = n - u32::try_from(COLUMNS_MAX).unwrap() + 1;
+            for (col, m) in (0..COLUMNS_MAX).zip(first..) {
+                assert_eq!(line.style(line.cell(col)), rgb(m), "column {col}");
+            }
         }
     }
 
@@ -670,6 +841,28 @@ mod tests {
         line.resize(usize::MAX);
         assert_eq!(line.len(), COLUMNS_MAX);
         assert_eq!(Line::new(LineId::new(2), usize::MAX).len(), COLUMNS_MAX);
+    }
+
+    // Shrinking keeps no more tables than the shorter line can name.
+    #[test]
+    fn shrinking_compacts_the_tables() {
+        let mut line = Line::new(LineId::new(1), COLUMNS_MAX);
+        for (col, n) in (0..COLUMNS_MAX).zip(0u32..) {
+            let link = Some(LinkId::new(n));
+            line.write(
+                col,
+                Glyph::Cluster(&accented(2)),
+                Width::Narrow,
+                &rgb(n),
+                link,
+            );
+        }
+        line.resize(1);
+        let t = tables(&line);
+        assert_eq!((t.styles.len(), t.links.len(), t.clusters.len()), (1, 1, 6));
+        assert_eq!(line.heap_bytes(), 8 + size_of::<Tables>() + 14 + 4 + 6);
+        assert_eq!(line.style(line.cell(0)), rgb(0));
+        assert_eq!(line.glyph(line.cell(0)), Glyph::Cluster(&accented(2)));
     }
 
     #[test]

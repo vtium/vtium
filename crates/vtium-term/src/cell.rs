@@ -4,11 +4,11 @@
 //! A cell holds its content and width in 32 bits, the index of its style
 //! in its line's style table in 16, and the index of its hyperlink in its
 //! line's link table in 16. A grapheme cluster of more than one codepoint
-//! lives in the line's cluster table, and the cell holds its index. The
+//! lives in the line's cluster arena, and the cell holds its offset. The
 //! change age is not in the cell: damage is kept by screen position
 //! (`Damage`), so the scrollback carries none.
 
-/// The bits of `Cell::content`: bits 0-20 a codepoint or a cluster index,
+/// The bits of `Cell::content`: bits 0-20 a codepoint or a cluster offset,
 /// bit 21 set for a cluster, bits 22-23 the width, bits 24-31 zero.
 const VALUE_MASK: u32 = (1 << 21) - 1;
 const CLUSTER: u32 = 1 << 21;
@@ -55,9 +55,9 @@ pub struct StyleIndex(pub(crate) u16);
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LinkIndex(pub(crate) u16);
 
-/// The index of a cluster in a line's table, below 2^21.
+/// The byte offset of a cluster in its line's arena, below 2^21.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ClusterIndex(pub(crate) u32);
+pub struct ClusterOffset(pub(crate) u32);
 
 /// What a cell shows, as the cell stores it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,8 +66,8 @@ pub enum Content {
     Empty,
     /// One codepoint.
     Char(char),
-    /// A grapheme cluster of two or more codepoints, in the line's table.
-    Cluster(ClusterIndex),
+    /// A grapheme cluster of two or more codepoints, in the line's arena.
+    Cluster(ClusterOffset),
 }
 
 /// One cell of the grid.
@@ -95,7 +95,7 @@ impl Cell {
         let value = match content {
             Content::Empty => 0,
             Content::Char(c) => u32::from(c),
-            Content::Cluster(ClusterIndex(i)) => CLUSTER | (i & VALUE_MASK),
+            Content::Cluster(ClusterOffset(i)) => CLUSTER | (i & VALUE_MASK),
         };
         Self {
             content: value | (width.bits() << WIDTH_SHIFT),
@@ -107,7 +107,7 @@ impl Cell {
     pub fn content(self) -> Content {
         let value = self.content & VALUE_MASK;
         if self.content & CLUSTER != 0 {
-            Content::Cluster(ClusterIndex(value))
+            Content::Cluster(ClusterOffset(value))
         } else {
             // Bits 0-20 hold a codepoint written by `new`, or 0.
             char::from_u32(value)
@@ -159,8 +159,8 @@ mod tests {
             Content::Char('a'),
             Content::Char('\u{10FFFF}'),
             Content::Char('\u{1F600}'),
-            Content::Cluster(ClusterIndex(0)),
-            Content::Cluster(ClusterIndex(VALUE_MASK)),
+            Content::Cluster(ClusterOffset(0)),
+            Content::Cluster(ClusterOffset(VALUE_MASK)),
         ];
         for content in contents {
             for width in [Width::Narrow, Width::Wide, Width::WideTail] {

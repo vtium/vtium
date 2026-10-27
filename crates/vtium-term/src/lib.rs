@@ -27,7 +27,8 @@
 //!
 //! - A [`Cell`] is 8 bytes: its content and width, and the indices of its
 //!   [`Style`] and its hyperlink in its line's tables.
-//! - A [`Line`] owns those tables, its grapheme clusters, a [`LineId`]
+//! - A [`Line`] owns those tables, an arena of its grapheme clusters
+//!   bounded by its width, a [`LineId`]
 //!   that image placements and prompt marks anchor to, and its
 //!   [`LineFlags`]: the reflow flag, the shell-integration marks and the
 //!   line size.
@@ -40,7 +41,8 @@
 //! # Bounds
 //!
 //! Each bound is defined once in `src/bounds.rs` and tabulated in the
-//! crate's README: [`COLUMNS_MAX`], [`CLUSTER_MAX`] and the scrollback
+//! crate's README: [`COLUMNS_MAX`], [`ROWS_MAX`], [`CLUSTER_MAX`],
+//! [`CLUSTER_BYTES_PER_CELL`] and the scrollback
 //! caps [`SB_SIZE_CAP_SMALL`], [`SB_SIZE_CAP_MEDIUM`] and
 //! [`SB_SIZE_CAP_LARGE`], which [`sb_size`] applies by the machine's
 //! memory.
@@ -54,9 +56,10 @@ mod scrollback;
 mod style;
 
 pub use bounds::{
-    CLUSTER_MAX, COLUMNS_MAX, SB_SIZE_CAP_LARGE, SB_SIZE_CAP_MEDIUM, SB_SIZE_CAP_SMALL,
+    CLUSTER_BYTES_PER_CELL, CLUSTER_MAX, COLUMNS_MAX, ROWS_MAX, SB_SIZE_CAP_LARGE,
+    SB_SIZE_CAP_MEDIUM, SB_SIZE_CAP_SMALL,
 };
-pub use cell::{Cell, ClusterIndex, Content, LinkIndex, StyleIndex, Width};
+pub use cell::{Cell, ClusterOffset, Content, LinkIndex, StyleIndex, Width};
 pub use damage::{Age, Damage};
 pub use frame::{Cursor, CursorShape, Frame, FrameCell, Palette};
 pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId};

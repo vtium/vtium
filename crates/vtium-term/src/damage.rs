@@ -27,6 +27,8 @@
 
 use core::ops::Range;
 
+use crate::bounds::{COLUMNS_MAX, ROWS_MAX};
+
 /// A point in a screen's change history. [`Age::NEVER`] is older than
 /// every mark, so a display that has never drawn sees everything changed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -57,8 +59,10 @@ pub struct Damage {
 }
 
 impl Damage {
-    /// Damage for a `cols` by `rows` screen, everything changed.
+    /// Damage for a `cols` by `rows` screen, at most [`COLUMNS_MAX`] by
+    /// [`ROWS_MAX`], everything changed.
     pub fn new(cols: usize, rows: usize) -> Self {
+        let (cols, rows) = (cols.min(COLUMNS_MAX), rows.min(ROWS_MAX));
         Self {
             cols,
             rows,
@@ -132,8 +136,10 @@ impl Damage {
         self.all = self.now;
     }
 
-    /// Resizes to `cols` by `rows` and marks everything.
+    /// Resizes to `cols` by `rows`, at most [`COLUMNS_MAX`] by
+    /// [`ROWS_MAX`], and marks everything.
     pub fn resize(&mut self, cols: usize, rows: usize) {
+        let (cols, rows) = (cols.min(COLUMNS_MAX), rows.min(ROWS_MAX));
         self.cols = cols;
         self.rows = rows;
         self.row_ages = vec![RowAge::default(); rows];
@@ -250,6 +256,15 @@ mod tests {
             vec![(1, 3), (2, 0), (2, 1), (2, 2), (2, 3)]
         );
         assert!(!d.changed(9, 9, Age::NEVER));
+    }
+
+    #[test]
+    fn sizes_clamp_to_the_bounds() {
+        let mut d = Damage::new(usize::MAX, usize::MAX);
+        assert_eq!((d.cols(), d.rows()), (COLUMNS_MAX, ROWS_MAX));
+        d.resize(4, 3);
+        d.resize(COLUMNS_MAX + 1, usize::MAX);
+        assert_eq!((d.cols(), d.rows()), (COLUMNS_MAX, ROWS_MAX));
     }
 
     #[test]
