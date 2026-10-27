@@ -19,6 +19,7 @@ mod clipboard;
 mod color;
 mod input;
 mod modes;
+mod rect;
 mod reply;
 mod sgr;
 
@@ -518,6 +519,8 @@ impl State {
         self.reset_colors(true);
         self.screen.erase_screen(Erase::All);
         self.screen.clear_scrollback();
+        self.screen
+            .set_attribute_extent(crate::screen::Extent::Stream);
         modes::reset(self, true);
         self.screen.move_to(0, 0);
     }
@@ -717,9 +720,13 @@ impl Consumer for State {
     }
 
     fn csi_dispatch(&mut self, params: &Params, intermediates: Intermediates, final_byte: u8) {
-        // Only SGR reads sub-parameters; any other sequence carrying them
-        // does nothing, as in the C reference.
-        if final_byte != b'm' && params.has_subparams() {
+        // Only SGR and DECCARA read sub-parameters; any other sequence
+        // carrying them does nothing, as in the C reference.
+        let sgr = matches!(
+            (intermediates.as_bytes(), final_byte),
+            (_, b'm') | ([b'$'], b'r')
+        );
+        if !sgr && params.has_subparams() {
             return;
         }
         match (params.marker(), intermediates.as_bytes(), final_byte) {
@@ -731,6 +738,11 @@ impl Consumer for State {
             (Some(b'?'), [b'$'], b'p') => self.reply_mode(params, true),
             (None, [b'!'], b'p') => self.soft_reset(),
             (None, [b'"'], b'p') => self.set_conformance(params.get(0)),
+            (None, [b'"'], b'q') => self.set_protection(params),
+            (None, [b'$'], b'r' | b't' | b'v' | b'x' | b'z' | b'{') => {
+                self.rect_op(params, final_byte);
+            }
+            (None, [b'*'], b'x') => self.set_attribute_extent(params),
             (None, [b' '], b'q') => {
                 if let Some(style) = CursorStyle::from_param(params.get(0).unwrap_or(0)) {
                     self.set_cursor_style(style);
