@@ -1,0 +1,18 @@
+# vtium starts on a VT and a shell runs in it: the first guide, for the
+# minspec slice (#68). #21 adds the steps for what it wires in.
+#
+#   make vt-check GUIDE=start
+
+title: vtium starts and runs a shell
+
+step: The first screen
+do: read this screen from top to bottom.
+expect: every line drawn in full, in one font, with no stray characters and
+expect: nothing left from the console that ran on VT {vt} before.
+
+step: A shell prompt
+probe: shell
+do: press Enter. At the prompt "vtium-check$ " type: echo hello vtium
+do: then Enter, then type exit and Enter.
+expect: the prompt, each key shown as you type it, "hello vtium" on the
+expect: next line, a new prompt, and back here after exit.
