@@ -401,8 +401,9 @@ fn an_age_past_the_history_draws_the_buffer_whole() {
 }
 
 // The pointer drawn in software, on a display without a cursor plane,
-// damages its cells only when it appears, moves or hides, or a cell under
-// it changes: an idle frame with the pointer shown draws nothing.
+// damages the cells its arrow covers only when it appears, moves or hides;
+// a cell under it that changes damages itself alone. An idle frame with the
+// pointer shown draws nothing.
 // covers: platform.compositor
 #[test]
 fn the_pointer_damages_its_cells_only_when_it_changes() {
@@ -418,9 +419,9 @@ fn the_pointer_damages_its_cells_only_when_it_changes() {
             ..cell(col, r, w, h, 20, 4)
         })
     };
-    let (shown, moved) = (at(Some((60, 20))), at(Some((100, 40))));
-    // the pointer at 60,20 covers columns 7 and 8 of rows 0 and 1; at
-    // 100,40, columns 12 and 13 of rows 2 and 3
+    let (shown, moved) = (at(Some((60, 4))), at(Some((100, 36))));
+    // the arrow, 11 by 16 with its tip 1,1 in, at 60,4 covers columns 7
+    // and 8 of rows 0 and 1; at 100,36, columns 12 and 13 of rows 2 and 3
     for st in [&shown, &shown] {
         assert_eq!(d.draw(&mut s, st), whole(w, h));
     }
@@ -435,13 +436,49 @@ fn the_pointer_damages_its_cells_only_when_it_changes() {
     }
     assert!(d.draw(&mut s, &moved).is_empty(), "idle after the move");
     s.put(13, 3, 'k', false, style(rgb(FG), rgb(BG)));
-    assert_eq!(d.draw(&mut s, &moved), quad(12, 2), "a cell under it");
-    assert_eq!(d.draw(&mut s, &moved), quad(12, 2), "the other buffer");
+    // the arrow is blended over each cell as it is drawn: a cell under it
+    // changes alone
+    let under = [cell(13, 3, w, h, 20, 4)];
+    assert_eq!(d.draw(&mut s, &moved), under, "a cell under it");
+    assert_eq!(d.draw(&mut s, &moved), under, "the other buffer");
     assert!(d.draw(&mut s, &moved).is_empty());
     let hidden = at(None);
     assert_eq!(d.draw(&mut s, &hidden), quad(12, 2), "hidden");
     assert_eq!(d.draw(&mut s, &hidden), quad(12, 2), "the other buffer");
     assert!(d.draw(&mut s, &hidden).is_empty(), "idle, no pointer");
+}
+
+// The arrow past the grid's edge, as at a prompt in the bottom row,
+// redraws only the border it covered and covers, clipped to the display,
+// never the whole border: the arrow at 60,60 in the grid, its corner at
+// 62,61 on the display, reaches 7 pixels into the bottom border.
+#[test]
+fn a_move_in_the_bottom_row_damages_only_its_cells_and_the_arrow() {
+    let mut s = prompt();
+    let (w, h) = PROMPT;
+    let mut d = Display::new(2, w, h);
+    let base = state(&s);
+    let at = |p: Option<(u32, u32)>| DrawState { pointer: p, ..base };
+    let (shown, moved) = (at(Some((60, 60))), at(Some((100, 60))));
+    for st in [&shown, &shown] {
+        assert_eq!(d.draw(&mut s, st), whole(w, h));
+    }
+    assert!(d.draw(&mut s, &shown).is_empty(), "idle at the edge");
+    let pair = |col: u32| Rect {
+        width: 16,
+        ..cell(col, 3, w, h, 20, 4)
+    };
+    let arrow = |x: u32| Rect {
+        x,
+        y: 61,
+        width: 11,
+        height: 7,
+    };
+    let want = [pair(7), pair(12), arrow(62), arrow(102)];
+    for buffer in ["moved", "the other buffer"] {
+        assert_eq!(d.draw(&mut s, &moved), want, "{buffer}");
+    }
+    assert!(d.draw(&mut s, &moved).is_empty(), "idle after the move");
 }
 
 #[test]

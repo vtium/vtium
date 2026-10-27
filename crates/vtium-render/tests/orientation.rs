@@ -5,8 +5,8 @@
 
 mod common;
 
-use common::{Screen, rgb, style, unifont};
-use vtium_render::{Canvas, Config, DrawState, Orientation, Renderer};
+use common::{Screen, arrow_over, rgb, style, unifont};
+use vtium_render::{Arrow, Canvas, Config, DrawState, Orientation, Renderer};
 use vtium_term::{Age, Attrs, CursorShape, UnderlineStyle};
 
 /// 21 columns, one more than the displays below hold, with a wide
@@ -159,12 +159,12 @@ fn a_row_too_tall_for_the_scratch_is_composed_in_bands() {
     }
 }
 
-// The pointer on a display turned right: the font's I turned a quarter,
-// in the default colours, in a box 16 wide and 8 high. Six columns and two
-// rows on a display 36 by 54 put the grid at 2,3 to 34,51; the pointer at
-// 20,9 in the grid's pixels centres its box at 25,23, so it spans 17 to 33
-// across and 19 to 27 down, and the glyph's pixel gx,gy lands at
-// 17 + 15 - gy, 19 + gx.
+// The pointer on a display turned right: the arrow turned a quarter, so
+// that it points at the text's top left. Six columns and two rows on a
+// display 36 by 54 put the grid at 2,3 to 34,51; the grid's pixel 20,9
+// lands at 24,23, where the turned arrow's hotspot, 14,1, goes, so the
+// arrow, 16 wide and 11 high, spans 10 to 26 across and 22 to 33 down,
+// and the upright arrow's pixel ax,ay lands at 10 + 15 - ay, 22 + ax.
 // covers: platform.compositor
 #[test]
 fn the_pointer_turns_with_the_display() {
@@ -183,27 +183,26 @@ fn the_pointer_turns_with_the_display() {
         ..DrawState::default()
     };
     r.draw(&s.frame(Age::NEVER), &mut c, 0, &st);
-    let i = unifont()
-        .glyph(
-            &['I'],
-            vtium_font::Width::Narrow,
-            vtium_font::Style::default(),
-        )
-        .unwrap();
-    assert_eq!((i.width(), i.height()), (8, 16));
-    let (fg, bg) = (0xc0_c0_c0, 0x10_10_10);
+    assert_eq!(r.pointer_at((20, 9)), Some((24, 23)));
+    let turned = r.arrow();
+    assert_eq!(
+        (turned.width(), turned.height(), turned.hot()),
+        (16, 11, (14, 1))
+    );
+    let upright = Arrow::new(16, Orientation::Normal);
+    assert_eq!((upright.width(), upright.height()), (11, 16));
+    let bg = 0x10_10_10;
     let mut lit = 0;
     for y in 0..54 {
         for x in 0..36 {
-            let want = if (17..33).contains(&x) && (19..27).contains(&y) {
-                let (gx, gy) = (y - 19, 15 - (x - 17));
-                match i.pixel(gx, gy).unwrap() {
-                    [0] => bg,
-                    [255] => {
+            let want = if (10..26).contains(&x) && (22..33).contains(&y) {
+                let (ax, ay) = (y - 22, 15 - (x - 10));
+                match upright.pixels()[(ay * 11 + ax) as usize] {
+                    0 => bg,
+                    src => {
                         lit += 1;
-                        fg
+                        arrow_over(bg, src)
                     }
-                    other => panic!("a bitmap glyph's coverage: {other:?}"),
                 }
             } else {
                 bg
@@ -211,7 +210,7 @@ fn the_pointer_turns_with_the_display() {
             assert_eq!(c.pixel(x, y), Some(want), "{x},{y}");
         }
     }
-    assert!(lit > 10, "the I has pixels");
+    assert!(lit > 10, "the arrow has pixels");
 }
 
 // An odd remainder is split rounding down in the display's own
