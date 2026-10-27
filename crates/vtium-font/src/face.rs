@@ -2,7 +2,9 @@
 //! cluster into its cells from a face and the sprites.
 
 use crate::glyph::Glyph;
-use crate::sprite;
+use crate::hex;
+use crate::policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
+use crate::sprite::{self, Range};
 
 /// How a glyph is drawn. Bitmap faces draw bold by widening each row by a
 /// pixel and draw italic upright, as the C reference's did.
@@ -78,6 +80,19 @@ pub trait Face {
     /// Whether the face holds a glyph for `c`.
     fn has_glyph(&self, c: char) -> bool;
 
+    /// How many of `range`'s characters the face holds, from
+    /// [`Face::has_glyph`]. A face that reads a character map may count
+    /// it faster.
+    fn coverage(&self, range: Range) -> RangeCoverage {
+        RangeCoverage::count(range, |c| self.has_glyph(c))
+    }
+
+    /// The policy a [`Font`] of this face draws with until it is given
+    /// one: [`SpritePolicy::default_for`] the face's coverage.
+    fn sprite_policy(&self) -> SpritePolicy {
+        SpritePolicy::default_for(&Coverage::new(|range| self.coverage(range)))
+    }
+
     /// The glyph for `cluster` at the face's own width for it, marked with
     /// the cells that width spans, or `None`
     /// when the face lacks it. A face that cannot shape draws the first
@@ -123,6 +138,12 @@ impl<F: Face + ?Sized> Face for Box<F> {
     fn has_glyph(&self, c: char) -> bool {
         (**self).has_glyph(c)
     }
+    fn coverage(&self, range: Range) -> RangeCoverage {
+        (**self).coverage(range)
+    }
+    fn sprite_policy(&self) -> SpritePolicy {
+        (**self).sprite_policy()
+    }
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         (**self).draw(cluster, style)
     }
@@ -143,19 +164,50 @@ impl<F: Face + ?Sized> Face for Box<F> {
     }
 }
 
-/// What the renderer draws text with: a face, with the sprites drawn over
-/// it for the characters that must fill their cell.
+/// What the renderer draws text with: a face, and the sprites its
+/// [`SpritePolicy`] draws over it for the characters that fill their cell.
 #[derive(Clone, Debug)]
 pub struct Font<F> {
     face: F,
+    policy: SpritePolicy,
+    missing: Missing,
 }
 
-/// Drawn for a character the face lacks.
+/// Drawn for a character the face lacks under [`Missing::Replacement`].
 pub const REPLACEMENT: char = '\u{25a1}';
 
 impl<F: Face> Font<F> {
+    /// `face`, drawn with its own [`Face::sprite_policy`] and
+    /// [`Missing::Replacement`] for a character it lacks.
     pub fn new(face: F) -> Font<F> {
-        Font { face }
+        Font {
+            policy: face.sprite_policy(),
+            missing: Missing::default(),
+            face,
+        }
+    }
+
+    /// This font with each range drawn from the source `policy` gives it.
+    pub fn with_policy(self, policy: SpritePolicy) -> Font<F> {
+        Font { policy, ..self }
+    }
+
+    /// This font with a character the face lacks drawn as `missing`.
+    pub fn with_missing(self, missing: Missing) -> Font<F> {
+        Font { missing, ..self }
+    }
+
+    pub fn policy(&self) -> SpritePolicy {
+        self.policy
+    }
+
+    pub fn missing(&self) -> Missing {
+        self.missing
+    }
+
+    /// How much of each sprite range the face holds.
+    pub fn coverage(&self) -> Coverage {
+        Coverage::new(|range| self.face.coverage(range))
     }
 
     pub fn face(&self) -> &F {
@@ -176,21 +228,44 @@ impl<F: Face> Font<F> {
 
     /// Whether `c` draws as itself: a sprite always does.
     pub fn has_glyph(&self, c: char) -> bool {
-        sprite::has(c) || self.face.has_glyph(c)
+        self.draws_sprite(c) || self.face.has_glyph(c)
+    }
+
+    /// Whether `c` draws as a sprite under the policy.
+    fn draws_sprite(&self, c: char) -> bool {
+        Range::of(c).is_some_and(|range| match self.policy.source(range) {
+            Source::Sprites => true,
+            Source::Font => false,
+            Source::Auto => !self.face.has_glyph(c),
+        })
+    }
+
+    /// The character `cluster` draws as a sprite: a single character the
+    /// policy draws as one, or the first of a longer cluster when the
+    /// policy draws it as one and the face lacks it. The marks are
+    /// dropped, as the C reference's bitmap faces dropped them; it drew
+    /// U+25A1 for such a cluster (font.c:345-366).
+    fn sprite_base(&self, cluster: &[char]) -> Option<char> {
+        match *cluster {
+            [c] => self.draws_sprite(c).then_some(c),
+            [c, ..] => (self.draws_sprite(c) && !self.face.has_glyph(c)).then_some(c),
+            [] => None,
+        }
     }
 
     /// The glyph for `cluster`, exactly `width` cells wide and a cell high.
-    /// A single box drawing, block, Braille, sextant or octant character is
-    /// a sprite that fills the cell. A cluster whose first character the
-    /// face lacks draws as U+25A1, else `?`, else the face's last resort; a
-    /// glyph of another width is centred and cut to the cells. `None` only
-    /// for an empty cluster or a face that can draw nothing. The C
-    /// reference's `kmscon_font_render` (font.c:310-368).
+    /// A character the policy draws as a sprite fills the cell, alone or
+    /// as the base of a cluster the face lacks. A cluster whose first
+    /// character the face lacks otherwise draws as the font's [`Missing`]
+    /// glyph, whose last fallback is U+25A1, else `?`, else the face's last
+    /// resort; a glyph of another width is centred and cut to the cells.
+    /// `None` only for an empty cluster or a face that can draw nothing.
+    /// The C reference's `kmscon_font_render` (font.c:310-368).
     pub fn glyph(&self, cluster: &[char], width: Width, style: Style) -> Option<Glyph> {
         let &first = cluster.first()?;
         let cell = self.face.cell();
         let w = cell.width.saturating_mul(width.cells());
-        if let [c] = *cluster {
+        if let Some(c) = self.sprite_base(cluster) {
             let thick = self.face.decorations().underline_thickness;
             if let Some(s) = sprite::draw(c, w, cell.height, thick) {
                 return Some(s.with_cells(width));
@@ -201,10 +276,20 @@ impl<F: Face> Font<F> {
             .has_glyph(first)
             .then(|| self.face.draw(cluster, style))
             .flatten()
+            .or_else(|| self.missing_glyph(first, width))
             .or_else(|| self.face.draw(&[REPLACEMENT], style))
             .or_else(|| self.face.draw(&['?'], style))
             .or_else(|| self.face.last_resort(style))?;
         glyph.fit(w, width)
+    }
+
+    /// The glyph [`Missing`] draws for `c` across `width`, or `None` for
+    /// U+25A1's chain.
+    fn missing_glyph(&self, c: char, width: Width) -> Option<Glyph> {
+        match self.missing {
+            Missing::Replacement => None,
+            Missing::Hex => hex::draw(c, self.face.cell(), width),
+        }
     }
 
     /// [`Font::glyph`] for a renderer that stores bitmap glyphs small: the
@@ -222,7 +307,7 @@ impl<F: Face> Font<F> {
         let drawn = || self.glyph(cluster, width, style).map(|g| (g, 1));
         let scale = self.face.scale();
         let &first = cluster.first()?;
-        if scale <= 1 || matches!(*cluster, [c] if sprite::has(c)) {
+        if scale <= 1 || self.sprite_base(cluster).is_some() {
             return drawn();
         }
         let w = self
@@ -231,11 +316,15 @@ impl<F: Face> Font<F> {
             .width
             .checked_div(scale)?
             .saturating_mul(width.cells());
-        let glyph = self
+        let own = self
             .face
             .has_glyph(first)
             .then(|| self.face.draw_unscaled(cluster, style))
-            .flatten()
+            .flatten();
+        if own.is_none() && self.missing == Missing::Hex {
+            return drawn();
+        }
+        let glyph = own
             .or_else(|| self.face.draw_unscaled(&[REPLACEMENT], style))
             .or_else(|| self.face.draw_unscaled(&['?'], style))
             .or_else(|| self.face.last_resort_unscaled(style));

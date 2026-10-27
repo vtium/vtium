@@ -67,18 +67,6 @@
 use super::{Pt, SS, centre, frac_max, frac_min};
 use crate::glyph::Glyph;
 
-/// Whether `cp` is one of this module's characters.
-pub(super) fn has(cp: u32) -> bool {
-    matches!(
-        cp,
-        0x1cea0..=0x1ceaf
-            | 0x1fb3c..=0x1fb92
-            | 0x1fb94..=0x1fbaf
-            | 0x1fbbd..=0x1fbbf
-            | 0x1fbce..=0x1fbef
-    )
-}
-
 /// Draws `cp` into the empty `buf` with light lines `t` wide.
 pub(super) fn draw(buf: &mut Glyph, cp: u32, t: u32) {
     let (w, h) = (buf.width(), buf.height());
