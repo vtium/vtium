@@ -645,22 +645,25 @@ impl App {
             v.lost = true;
         }
         self.draw_now = true;
-        if grid == self.grid {
-            return;
-        }
-        self.grid = grid;
-        self.term.terminal.screen_mut().resize(grid.0, grid.1);
-        let size = self.pty_size();
-        if let Some(pty) = &mut self.pty {
-            if let Err(e) = pty.resize(size) {
-                log::warn!("cannot resize the pty: {e}");
+        if grid != self.grid {
+            self.grid = grid;
+            let size = self.pty_size();
+            if let Some(pty) = &mut self.pty {
+                if let Err(e) = pty.resize(size) {
+                    log::warn!("cannot resize the pty: {e}");
+                }
             }
         }
+        // Last, so mode 2048 reports the resize once it is complete, a new
+        // font on the same grid included; the report goes out at once.
+        self.term.terminal.resize(grid.0, grid.1);
+        self.send_user_bytes();
     }
 
     /// The terminal starts drawing and blinking.
     fn activate(&mut self, now: Instant) {
         self.awake = true;
+        self.set_visible(true);
         if let Some(arms) = self.term.blink.activate() {
             for (timer, arm) in arms {
                 match timer {
@@ -681,9 +684,18 @@ impl App {
     /// The terminal stops drawing and blinking.
     fn deactivate(&mut self) {
         self.awake = false;
+        self.set_visible(false);
         self.text_due = None;
         self.cursor_due = None;
         self.timer_due = None;
+    }
+
+    /// The console is potentially visible while it draws: not while the
+    /// VT is another's or the displays are blanked. Mode 2033's report
+    /// goes out at once, to a program that may be waiting in a read.
+    fn set_visible(&mut self, visible: bool) {
+        self.term.terminal.set_visible(visible);
+        self.send_user_bytes();
     }
 
     /// The blank's timer: every display powers down. With none, the

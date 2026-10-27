@@ -2,7 +2,8 @@
 //! memory, and a real child on a real pty. It drives the wiring's paths
 //! through the loop as `main` runs it: the child's output drawn, keys
 //! through the key order to the child, a VT release and acquire, the DPMS
-//! blank and its wake-up, and the exit with the switch back.
+//! blank and its wake-up, the in-band reports a release and a zoom send a
+//! program waiting in a read, and the exit with the switch back.
 
 use std::any::Any;
 use std::cell::Cell;
@@ -2381,4 +2382,72 @@ fn under_no_wait_a_frame_on_its_way_is_waited_for() {
     h.until(Duration::from_millis(500), |a| a.finished().is_some());
     assert_eq!(h.app.finished(), None, "the flip was waited for");
     assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+}
+
+// Mode 2033 (foot(7)): a program waiting in a read hears the VT switch
+// away at once, with no key pressed. The child prints each report with
+// its ESC as `E`.
+// covers: DEC-2033
+#[test]
+fn a_release_reports_the_visibility_to_a_program_waiting_in_a_read() {
+    let mut h = Harness::with_vt(
+        &[
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "stty -icanon -echo min 1 time 0; printf '\\033[?2033h'; \
+             head -c 9 | tr '\\033' E; printf '\\r\\n'; \
+             head -c 9 | tr '\\033' E; printf '\\r\\n'; read x",
+        ],
+        ScriptedVt::default(),
+    );
+    assert!(
+        h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "E[?999;1n")),
+        "visible as the mode is set: {:?}",
+        h.app.screen_text()
+    );
+    h.scripted().events.push(VtEvent::Release);
+    assert!(
+        h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "E[?999;2n")),
+        "not visible once released, with no key: {:?}",
+        h.app.screen_text()
+    );
+}
+
+// Mode 2048 (rockorager's in-band resize notifications): a program waiting
+// in a read hears a zoom's new grid at once. The child prints each report,
+// read up to its `t`, with its ESC as `E`.
+// covers: DEC-2048
+#[test]
+fn a_zoom_reports_the_text_area_to_a_program_waiting_in_a_read() {
+    let mut h = Harness::new(&[
+        "--font-size=16",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty -icanon -echo min 1 time 0; \
+         rd() { s=; while :; do c=$(head -c 1); s=\"$s$c\"; [ \"$c\" = t ] && break; done; \
+         printf '%s\\r\\n' \"$s\" | tr '\\033' E; }; \
+         printf '\\033[?2048h'; rd; rd; read x",
+    ]);
+    assert!(
+        h.until(SECOND, |a| a
+            .screen_text()
+            .iter()
+            .any(|l| l == "E[48;10;40;160;320t")),
+        "the text area as the mode is set: {:?}",
+        h.app.screen_text()
+    );
+    h.app.input_event(key(Mods::CTRL, 0x3d), now());
+    assert_eq!(h.app.grid(), (20, 5), "zoomed in to 16x32 cells");
+    assert!(
+        h.until(SECOND, |a| a
+            .screen_text()
+            .iter()
+            .any(|l| l == "E[48;5;20;160;320t")),
+        "the zoomed text area, with no other key: {:?}",
+        h.app.screen_text()
+    );
 }
