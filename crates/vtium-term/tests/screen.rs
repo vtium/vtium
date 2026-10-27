@@ -163,6 +163,21 @@ fn scrolling_moves_the_region_and_the_scrollback_takes_the_top() {
     assert_eq!(text(&t), ["1", "2", "", "4"]);
 }
 
+// The C reference's flow (tsm-screen.c:388-399): a line leaving the top of
+// the main screen's region enters the scrollback wherever the region
+// starts; on the alternate screen it goes.
+#[test]
+fn a_line_leaving_any_region_enters_the_scrollback() {
+    let mut t = Terminal::new(4, 4, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"1\r\n2\r\n3\r\n4\x1b[2;3r\x1b[3;1H\n");
+    assert_eq!(text(&t), ["1", "3", "", "4"]);
+    assert_eq!(scrollback(t.screen()), ["2"]);
+    t.screen_mut().set_alternate(true);
+    t.input(b"\x1b[2;3rx\x1b[3;1H\n");
+    assert_eq!(scrollback(t.screen()), ["2"]);
+}
+
 // xterm's ED 3: the scrollback goes, and the screen stays.
 // covers: ctl.ed3
 #[test]
@@ -202,20 +217,22 @@ fn tab_stops_are_set_cleared_and_followed() {
     assert!(t.screen().tab_stops().iter().all(|&s| !s));
 }
 
-// DECSTBM (xterm's ctlseqs): the region the line feed scrolls; an invalid
-// one is the whole screen. The cursor stays, as in the C reference.
+// DECSTBM (VT510 manual, DECSTBM; xterm's ctlseqs): the region the line
+// feed scrolls, an omitted bottom the screen's last row, and the cursor
+// at home; an inverted region, or one past the screen, is the whole screen.
 // covers: ctl.decstbm
 #[test]
 fn decstbm_sets_the_scroll_region() {
     let mut t = term(4, 5, b"1\r\n2\r\n3\r\n4\r\n5\x1b[2;4r");
     assert_eq!(t.screen().margins(), (1, 3));
-    assert_eq!(cursor(&t), (1, 4));
+    assert_eq!(cursor(&t), (0, 0));
     t.input(b"\x1b[4;1H\nx");
     assert_eq!(text(&t), ["1", "3", "4", "x", "5"]);
-    // At the screen's last row, below the region, a line feed scrolls the
-    // region, as in the C reference.
+    // At the screen's last row, below the region, a line feed stays.
     t.input(b"\x1b[5;1H\ny");
-    assert_eq!(text(&t), ["1", "4", "x", "", "y"]);
+    assert_eq!(text(&t), ["1", "3", "4", "x", "y"]);
+    t.input(b"\x1b[3r");
+    assert_eq!(t.screen().margins(), (2, 4));
     for invalid in [&b"\x1b[r"[..], b"\x1b[3;3r", b"\x1b[4;2r", b"\x1b[2;9r"] {
         t.input(b"\x1b[2;4r");
         t.input(invalid);
