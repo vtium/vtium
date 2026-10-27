@@ -8,7 +8,7 @@ Each top-level `.rs` file is its own test crate, run by `cargo test -p vtium-ren
 | `reference.rs` | Whole screens against digests of what the C reference's code drew (`reference/README.md`). |
 | `cache.rs` | ADR-1300's invariance: frames drawn at every cache size and storage give the same bytes, past a full cache included. |
 | `damage.rs` | What each frame redraws and reports, under the displays' ages: one, two and three buffers, swaps that fail and buffers lost, each frame against a whole draw in every orientation; age 0, an age past the history, a full redraw, a keystroke, the damage merge. |
-| `orientation.rs` | The four orientations against each other, the wide glyph cut at the margin, and the row scratch's bands. |
+| `orientation.rs` | The four orientations against each other, the wide glyph cut at the margin, the row scratch's bands, and an odd border's split in display coordinates. |
 | `cursor.rs` | The block, underline and bar cursors, OSC 12's colour, and the pointer. |
 | `blink.rs` | Text blink's hidden phase, and the cursor's cell, which shows its text. |
 | `dim.rs` | SGR 2 against literal colours: the text, its decorations, bold, reverse video and the cursor's shapes. |
