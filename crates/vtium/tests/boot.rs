@@ -879,3 +879,104 @@ fn a_long_write_draws_at_most_once_a_refresh() {
     let most = u32::try_from(elapsed.as_millis() / 40).unwrap_or(u32::MAX) + 4;
     assert!(frames <= most, "{frames} frames in {elapsed:?}");
 }
+
+/// A device whose `Asleep` waits until the test lets it through, as a
+/// flip in flight delays a DRM device's.
+struct LateSleep {
+    memory: Memory,
+    held: bool,
+}
+
+impl Video for LateSleep {
+    fn backend(&self) -> &'static str {
+        "memory"
+    }
+    fn events(&mut self) -> Vec<Event> {
+        let held = self.held;
+        let mut events = self.memory.events();
+        let late: Vec<Event> = events
+            .iter()
+            .filter(|e| held && matches!(e, Event::Asleep))
+            .cloned()
+            .collect();
+        events.retain(|e| !(held && matches!(e, Event::Asleep)));
+        self.memory.events.extend(late);
+        events
+    }
+    fn displays(&self) -> Vec<DisplayId> {
+        self.memory.displays()
+    }
+    fn name(&self, id: DisplayId) -> String {
+        self.memory.name(id)
+    }
+    fn size(&self, id: DisplayId) -> Option<(u32, u32)> {
+        self.memory.size(id)
+    }
+    fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
+        self.memory.refresh_mhz(id)
+    }
+    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
+        self.memory.canvas(id)
+    }
+    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        self.memory.swap(id, damage)
+    }
+    fn is_flipping(&self, id: DisplayId) -> bool {
+        self.memory.is_flipping(id)
+    }
+    fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
+        self.memory.set_dpms(id, dpms)
+    }
+    fn sleep(&mut self) {
+        self.memory.sleep();
+    }
+    fn wake_up(&mut self) -> io::Result<()> {
+        self.memory.wake_up()
+    }
+    fn unblank(&mut self) -> io::Result<()> {
+        self.memory.unblank()
+    }
+    fn input(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn hotplug(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+/// A release is acknowledged once every device reports asleep, however
+/// many turns the last takes.
+#[test]
+fn a_release_waits_for_every_device_to_sleep() {
+    let late = LateSleep {
+        memory: Memory::default(),
+        held: true,
+    };
+    let mut h = Harness::build(
+        &["--login", "--", "/bin/sh", "-c", "read x"],
+        ScriptedVt::default(),
+        Box::new(late),
+    );
+    h.app
+        .add_video(PathBuf::from("/dev/mem1"), Box::new(Memory::default()));
+    assert!(h.until(SECOND, |a| a.cells().len() == 2));
+    h.scripted().events.push(VtEvent::Release);
+    h.until(Duration::from_millis(200), |_| false);
+    assert!(
+        h.app.vt.is_active(),
+        "acknowledged before every device slept"
+    );
+    h.app
+        .videos
+        .get_mut(Path::new("/dev/mem0"))
+        .and_then(|v| v.as_any().downcast_mut::<LateSleep>())
+        .expect("the late device")
+        .held = false;
+    assert!(
+        h.until(SECOND, |a| !a.vt.is_active()),
+        "acknowledged once the last device slept"
+    );
+}
