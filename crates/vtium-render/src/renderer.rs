@@ -361,8 +361,8 @@ impl<F: Face> Renderer<F> {
         self.compose.cache.pixel_bytes()
     }
 
-    /// Bytes the row scratch holds once a row of several layers is drawn:
-    /// one row of cells across the display, at most `ROW_SCRATCH_MAX`.
+    /// Bytes the row scratch holds once a row is drawn: one row of cells
+    /// across the display, at most `ROW_SCRATCH_MAX`.
     pub fn row_scratch_bytes(&self) -> usize {
         let (line, lines) = self.layout.strip();
         line.saturating_mul(lines).saturating_mul(4)
@@ -579,14 +579,7 @@ impl<F: Face> Renderer<F> {
             );
         }
         self.widen_to_span(p, row);
-        let span = self.compose.layered_span().map(|(a, b)| {
-            (
-                (a, b),
-                self.layout.cells_area(g, a, row, b.saturating_sub(a)),
-            )
-        });
-        self.compose
-            .draw(&self.font, span, self.layout.strip(), target);
+        self.compose.draw(&self.font, self.layout.strip(), target);
         count
     }
 

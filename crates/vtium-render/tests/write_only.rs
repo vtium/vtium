@@ -67,3 +67,28 @@ fn writes_stay_inside_the_display() {
         assert!(t.writes > 0);
     }
 }
+
+// A run of changed cells reaches the display a pixel line at a time, not a
+// cell at a time (vtium/vtium#78): two runs in a row of 16-pixel cells
+// take 32 writes.
+#[test]
+fn a_run_of_cells_is_written_a_line_at_a_time() {
+    let (w, h) = (30 * 8, 4 * 16);
+    let mut s = Screen::new(30, 4, rgb("c0c0c0"), rgb("101010"));
+    let mut r = Renderer::new(unifont(), w, h, Config::default());
+    let ds = DrawState {
+        foreground: s.palette.fg(),
+        background: s.palette.bg(),
+        ..DrawState::default()
+    };
+    let mut t = WriteOnly::new(w, h);
+    r.draw(&s.frame(Age::NEVER), &mut t, 0, &ds);
+    let since = s.damage.checkpoint();
+    let st = style(rgb("ffffff"), rgb("000080"));
+    s.text(2, 1, "hello!", st);
+    s.text(20, 1, "abc", st);
+    let mut t = WriteOnly::new(w, h);
+    let drawn = r.draw(&s.frame(since), &mut t, 1, &ds);
+    assert_eq!(drawn.stats.cells, 9);
+    assert_eq!(t.writes, 2 * 16);
+}

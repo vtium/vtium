@@ -21,8 +21,8 @@
 //! cells a buffer lacks and returning them as damage. ADR-1300 records the
 //! design: the C reference's flow, with glyphs cached under their text in
 //! four pools, stored at 1 bit and at the font's own size, drawn uncached
-//! when the cache is full, and cells of several layers composed a row at a
-//! time.
+//! when the cache is full, and each run of a row's drawn cells composed in
+//! a row scratch and written a pixel line at a time.
 //!
 //! ```
 //! use vtium_font::{Font, Unifont};

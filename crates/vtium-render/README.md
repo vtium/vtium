@@ -7,7 +7,7 @@ vtium's renderer: frames from `vtium-term` in, display pixels out. This crate ho
 | `src/lib.rs` | The crate's documentation, its determinism lints and its public names. |
 | `src/renderer.rs` | `Renderer`: the grid's place on the display, the cell jobs, the cursor and the pointer. `Config`, `DrawState`, `Drawn` and `Stats`. |
 | `src/damage.rs` | What each buffer lacks, cell by cell, and the damage rectangles. |
-| `src/compose.rs` | The row's jobs composed into display lines, straight or through the row scratch. |
+| `src/compose.rs` | The row's jobs composed into display lines through the row scratch. |
 | `src/cache.rs` | The drawn-glyph cache: four pools by format and width, keyed by the glyph's text, an LRU on the drawn frame, and the `Profile` budgets. |
 | `src/stored.rs` | A glyph as the cache keeps it: turned once, at 1 bit when lossless, at the bitmap font's own size, and drawn a line at a time. |
 | `src/deco.rs` | The underline and strike sprites. |
@@ -41,7 +41,7 @@ The renderer draws the pointer only when `DrawState::pointer` is set, which the 
 
 - **The cursor takes OSC 12's colour.** A block cursor's background, and an underline or bar cursor's line, take the colour OSC 12 set, and the character under a block keeps the cell's background as its colour; with none set, the cell is drawn inverted as the C reference drew it, which did not parse OSC 12 (aaronsb/libtsm#22). Test: `a_coloured_block_takes_its_colour`.
 - **A wide half whose partner is missing draws as one cell.** The C reference's frame always paired them; vtium's frame does not promise it, so a leading half without its trailing half, or the reverse, draws in its own cell and no frame leaves a cell undrawn.
-- **The two profiles, 1-bit and scale-1 storage, and the row scratch** are ADR-1300's D2, D4 and D5: memory and composition, with no pixel changed.
+- **The two profiles, 1-bit and scale-1 storage, and the row scratch** are ADR-1300's D2, D4 and D5: memory and composition, with no pixel changed. Every run of a row's drawn cells is composed in the scratch and reaches the display a pixel line at a time, where D5 writes a cell of one layer straight, a call for each line of each cell: at 1366x768 a full frame's writes take 0.05 ms where the cell's took 0.48 ms (vtium/vtium#78).
 
 ## Not yet
 
@@ -58,6 +58,6 @@ The frame comes from a program, the font from a file and the cell size from the 
 | Bound | Value | What it bounds | Past it | Citation |
 |---|---|---|---|---|
 | `POOL_BYTES_PERFORMANCE` | 67108864 | Bytes of glyph pixels each of the four glyph pools holds in the performance profile; minspec's pools hold two screens of their format | Older glyphs are evicted; a glyph that would evict one the frame draws, or that alone passes it, is drawn uncached | gltex's per-pool budget, `GLTEX_CACHE_MAX_BYTES` (gltex.c:207-241); ADR-1300 D3 and D4 |
-| `ROW_SCRATCH_MAX` | 1048576 | Bytes of the row scratch, where a row's span of cells of several layers is composed | The span is composed in bands of pixel lines that fit | ADR-1300 D5: one 16-pixel row across 1366 pixels is 87,424 bytes |
+| `ROW_SCRATCH_MAX` | 1048576 | Bytes of the row scratch, where each run of a row's drawn cells is composed | The run is composed in bands of pixel lines that fit | ADR-1300 D5: one 16-pixel row across 1366 pixels is 87,424 bytes |
 | `RENDER_TIMER_SAMPLES` | 1024 | Frames whose time the render timer keeps in an interval, for the median and the 95th percentile | Later frames count in the mean and the maximum only | `RENDER_TIMER_SAMPLES`, render_timer.h |
 <!-- end of bounds table -->

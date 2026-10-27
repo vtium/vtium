@@ -1,6 +1,6 @@
-//! Composing a row's cells into display lines: a cell of one layer
-//! straight into the target, the span of cells of several layers through
-//! the row scratch, a band of lines at a time.
+//! Composing a row's cells into display lines: each run of cells that
+//! follow one another through the row scratch, a band of lines at a time,
+//! each line written to the target once.
 
 use vtium_font::{Face, Font, Style, Width as FontWidth};
 use vtium_term::Rgb;
@@ -8,7 +8,7 @@ use vtium_term::Rgb;
 use crate::blend::{argb_over, mask, over_bg, pixel, tint_over};
 use crate::cache::GlyphCache;
 use crate::deco::{Kind, Sprites};
-use crate::stored::Stored;
+use crate::stored::{Pens, Rows, Stored};
 use crate::target::Target;
 
 pub(crate) fn int(v: impl TryInto<i64>) -> i64 {
@@ -27,6 +27,21 @@ pub(crate) struct Area {
 impl Area {
     pub(crate) fn bottom(&self) -> i64 {
         self.y.saturating_add(self.h)
+    }
+
+    fn right(&self) -> i64 {
+        self.x.saturating_add(self.w)
+    }
+
+    /// The smallest area holding both.
+    fn union(&self, o: &Area) -> Area {
+        let (x, y) = (self.x.min(o.x), self.y.min(o.y));
+        Area {
+            x,
+            y,
+            w: self.right().max(o.right()).saturating_sub(x),
+            h: self.bottom().max(o.bottom()).saturating_sub(y),
+        }
     }
 }
 
@@ -73,6 +88,7 @@ pub(crate) struct Composer {
     pub(crate) jobs: Vec<Job>,
     pub(crate) text: Vec<char>,
     scratch: Vec<u32>,
+    pens: Pens,
 }
 
 impl Composer {
@@ -84,6 +100,7 @@ impl Composer {
             jobs: Vec::new(),
             text: Vec::new(),
             scratch: Vec::new(),
+            pens: Pens::new((0, 0)),
         }
     }
 
@@ -106,76 +123,39 @@ impl Composer {
         &self.lines.out
     }
 
-    /// Draws the row's jobs: those outside `span` straight into the
-    /// target, those inside it through the row scratch, whose lines are
-    /// `strip`'s length and count at most.
+    /// Draws the row's jobs: each run of jobs whose cells follow one
+    /// another is composed in the row scratch, whose lines are `strip`'s
+    /// length and count at most, and copied out a line at a time.
     pub(crate) fn draw<F: Face>(
         &mut self,
         font: &Font<F>,
-        span: Option<((usize, usize), Area)>,
         strip: (usize, usize),
         target: &mut impl Target,
     ) {
-        let in_span = |j: &Job| span.is_some_and(|((a, b), _)| j.posx >= a && j.posx < b);
-        let Composer {
-            cache,
-            sprites,
-            lines,
-            jobs,
-            text,
-            ..
-        } = self;
-        let mut out = core::mem::take(&mut lines.out);
-        for job in jobs.iter().filter(|j| !in_span(j)) {
-            let glyph = glyph(cache, font, text, job);
-            out.clear();
-            out.resize(usize::try_from(job.r.w).unwrap_or(0), 0);
-            let Ok(x) = u32::try_from(job.r.x) else {
-                continue;
-            };
-            match glyph {
-                // the common cell, a bitmap glyph on its background, a cell
-                // at a time
-                Some(g) if !job.layered() && g.is_bits() => {
-                    let (fg, bg) = (pixel(job.fg), pixel(job.bg));
-                    let gx = job.r.x.saturating_sub(job.g.x);
-                    let n = usize::try_from(job.r.h).unwrap_or(0);
-                    let mut y = job.r.y;
-                    g.bits_lines(
-                        gx,
-                        y.saturating_sub(job.g.y),
-                        n,
-                        (fg, bg),
-                        &mut out,
-                        |line| {
-                            if let Ok(y) = u32::try_from(y) {
-                                target.write(x, y, line);
-                            }
-                            y = y.saturating_add(1);
-                        },
-                    );
-                }
-                _ => {
-                    for y in job.r.y..job.r.bottom() {
-                        cell_line(job, glyph, sprites, lines, y, &mut out);
-                        if let Ok(y) = u32::try_from(y) {
-                            target.write(x, y, &out);
-                        }
-                    }
-                }
-            }
+        if !self.jobs.is_sorted_by_key(|j| j.posx) {
+            self.jobs.sort_by_key(|j| j.posx);
         }
-        lines.out = out;
-        if let Some((_, area)) = span {
-            self.draw_span(font, area, strip, target);
+        let mut start = 0;
+        while let Some(first) = self.jobs.get(start) {
+            let mut area = first.r;
+            let mut next = first.posx.saturating_add(first.ncells);
+            let mut end = start.saturating_add(1);
+            while let Some(j) = self.jobs.get(end).filter(|j| j.posx == next) {
+                area = area.union(&j.r);
+                next = j.posx.saturating_add(j.ncells);
+                end = end.saturating_add(1);
+            }
+            self.draw_run(font, (start, end), area, strip, target);
+            start = end;
         }
     }
 
-    /// Composes the jobs inside `area` in the row scratch, a band of lines
-    /// at a time, and copies each line out once.
-    fn draw_span<F: Face>(
+    /// Composes jobs `start` to `end`, which cover `area`, in the row
+    /// scratch, a band of lines at a time, and copies each line out once.
+    fn draw_run<F: Face>(
         &mut self,
         font: &Font<F>,
+        (start, end): (usize, usize),
         area: Area,
         (line_max, band_max): (usize, usize),
         target: &mut impl Target,
@@ -193,27 +173,49 @@ impl Composer {
             jobs,
             text,
             scratch,
+            pens,
         } = self;
+        let run = jobs.get(start..end).unwrap_or_default();
         let mut top = area.y;
         while top < area.bottom() {
             let lines_here = int(band).min(area.bottom().saturating_sub(top));
             let bottom = top.saturating_add(lines_here);
-            for job in jobs.iter() {
-                if job.r.x < area.x
-                    || job.r.x.saturating_add(job.r.w) > area.x.saturating_add(area.w)
-                {
-                    continue;
-                }
+            for job in run {
                 let glyph = glyph(cache, font, text, job);
                 let dx = usize::try_from(job.r.x.saturating_sub(area.x)).unwrap_or(0);
                 let jw = usize::try_from(job.r.w).unwrap_or(0);
-                for y in job.r.y.max(top)..job.r.bottom().min(bottom) {
-                    let at = usize::try_from(y.saturating_sub(top))
-                        .unwrap_or(0)
-                        .saturating_mul(w)
-                        .saturating_add(dx);
-                    if let Some(out) = scratch.get_mut(at..at.saturating_add(jw)) {
-                        cell_line(job, glyph, sprites, lines, y, out);
+                let y0 = job.r.y.max(top);
+                let at = usize::try_from(y0.saturating_sub(top))
+                    .unwrap_or(0)
+                    .saturating_mul(w)
+                    .saturating_add(dx);
+                // the job's lines in the band: the last ends at its width
+                let n = usize::try_from(job.r.bottom().min(bottom).saturating_sub(y0)).unwrap_or(0);
+                let len = n
+                    .checked_sub(1)
+                    .map_or(0, |n| w.saturating_mul(n).saturating_add(jw));
+                let Some(out) = scratch.get_mut(at..at.saturating_add(len)) else {
+                    continue;
+                };
+                match glyph {
+                    // the common cell, a bitmap glyph on its background
+                    Some(g) if !job.layered() && g.is_bits() => {
+                        let gx = job.r.x.saturating_sub(job.g.x);
+                        let rows = Rows {
+                            out,
+                            stride: w,
+                            width: jw,
+                        };
+                        pens.set((pixel(job.fg), pixel(job.bg)));
+                        g.bits_rows(gx, y0.saturating_sub(job.g.y), pens, rows);
+                    }
+                    _ => {
+                        let lines_out = out.chunks_mut(w.max(1));
+                        for (y, line) in (y0..).zip(lines_out) {
+                            if let Some(line) = line.get_mut(..jw) {
+                                cell_line(job, glyph, sprites, lines, y, line);
+                            }
+                        }
                     }
                 }
             }
@@ -318,7 +320,7 @@ fn cell_line(
         match glyph {
             None => out.fill(pixel(job.bg)),
             Some(g) if g.is_bits() => {
-                g.bits_lines(gx, gy, 1, (pixel(job.fg), pixel(job.bg)), out, |_| {});
+                g.bits_line(gx, gy, (pixel(job.fg), pixel(job.bg)), out);
             }
             Some(g) if g.is_rgba() => {
                 g.argb_line(gx, gy, src);
