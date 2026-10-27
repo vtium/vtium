@@ -218,6 +218,14 @@ impl Wait {
     pub fn due(&self) -> Option<Instant> {
         self.due
     }
+
+    /// The wait's time came, so the draw it held is asked for now, as the
+    /// C reference's timer ended its coalescing when it fired
+    /// (`coalesce_end`). A draw that cannot run yet waits on what holds
+    /// it, a flip or a hold, and not on this time.
+    pub fn end(&mut self) {
+        self.due = None;
+    }
 }
 
 impl Coalesce {

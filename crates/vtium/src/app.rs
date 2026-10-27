@@ -1027,6 +1027,9 @@ impl App {
                 continue;
             };
             let due = view.wait.due().is_some_and(|d| d <= now);
+            if due {
+                view.wait.end();
+            }
             let owed = view.owed && !holding;
             let wants = now_all
                 || view.lost

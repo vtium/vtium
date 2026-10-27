@@ -218,13 +218,18 @@ impl Harness {
 
 impl Harness {
     fn with_vt<V: Vt + 'static>(args: &[&str], vt: V) -> Harness {
+        Harness::build(args, vt, Box::new(Memory::default()))
+    }
+
+    /// The seat on `vt` with `video` as `/dev/mem0`.
+    fn build<V: Vt + 'static>(args: &[&str], vt: V, video: Box<dyn Video>) -> Harness {
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
         let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
         assert_eq!(loaded.reports, [], "the harness's command line");
         let lp: Loop<App> = Loop::new().expect("a loop");
         let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
         let mut app = App::new(loaded.config, Box::new(vt), lp.handle(), Rc::new(now), env);
-        app.add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
+        app.add_video(PathBuf::from("/dev/mem0"), video);
         app.insert_blank();
         app.vt.activate().expect("the fake VT");
         app.start();
@@ -566,4 +571,104 @@ fn zoom_and_rotate_change_the_grid() {
     assert_eq!(h.app.grid(), (40, 10));
     // The keys reach no program.
     assert!(h.until(SECOND, |a| a.screen_text().iter().all(|l| l.is_empty())));
+}
+
+/// A device whose flips take 100 ms and report no completion, as a lost
+/// flip event does until the platform's flip wait ends it.
+struct SlowFlip {
+    memory: Memory,
+    swapped: Option<Instant>,
+}
+
+impl Video for SlowFlip {
+    fn backend(&self) -> &'static str {
+        "memory"
+    }
+    fn events(&mut self) -> Vec<Event> {
+        let mut events = self.memory.events();
+        events.retain(|e| !matches!(e, Event::Flipped(_)));
+        events
+    }
+    fn displays(&self) -> Vec<DisplayId> {
+        self.memory.displays()
+    }
+    fn name(&self, id: DisplayId) -> String {
+        self.memory.name(id)
+    }
+    fn size(&self, id: DisplayId) -> Option<(u32, u32)> {
+        self.memory.size(id)
+    }
+    fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
+        self.memory.refresh_mhz(id)
+    }
+    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
+        self.memory.canvas(id)
+    }
+    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        self.swapped = Some(now());
+        self.memory.swap(id, damage)
+    }
+    fn is_flipping(&self, _: DisplayId) -> bool {
+        self.swapped
+            .is_some_and(|t| now() < t + Duration::from_millis(100))
+    }
+    fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
+        self.memory.set_dpms(id, dpms)
+    }
+    fn sleep(&mut self) {
+        self.memory.sleep();
+    }
+    fn wake_up(&mut self) -> io::Result<()> {
+        self.memory.wake_up()
+    }
+    fn unblank(&mut self) -> io::Result<()> {
+        self.memory.unblank()
+    }
+    fn input(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn hotplug(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+/// A coalesced draw that comes due while a flip is in flight ends its
+/// wait: the loop is never told to turn again at once for it.
+#[test]
+fn a_due_draw_held_by_a_flip_does_not_spin_the_loop() {
+    let slow = SlowFlip {
+        memory: Memory::default(),
+        swapped: None,
+    };
+    let mut h = Harness::build(
+        &[
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read x; i=0; while [ $i -lt 100 ]; do head -c 20000 /dev/zero | tr '\\0' x; sleep 0.03; i=$((i+1)); done; read y",
+        ],
+        FakeVt::new(),
+        Box::new(slow),
+    );
+    assert!(h.until(SECOND, |a| a.vt.is_active()));
+    h.until(Duration::from_millis(200), |_| false);
+    h.type_str("\r");
+    let end = now() + Duration::from_millis(1500);
+    let (mut turns, mut zero) = (0_u32, 0_u32);
+    while now() < end {
+        let wait = h.app.next_wake(now());
+        if wait == Some(Duration::ZERO) {
+            zero += 1;
+        }
+        let wait = wait.map(|w| w.min(Duration::from_millis(200)));
+        h.lp.dispatch(wait, &mut h.app).expect("dispatch");
+        h.app.turn(now());
+        turns += 1;
+    }
+    assert!(h.app.screen_text().iter().any(|l| l.contains("xxxx")));
+    assert_eq!(zero, 0, "told not to wait {zero} times of {turns} turns");
 }
