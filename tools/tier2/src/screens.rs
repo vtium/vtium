@@ -3,8 +3,9 @@
 //! The C reference's tier 2 (`tests/test_pixels.c` at the pinned kmscon
 //! commit) drew every screen with an outline font, DejaVu Sans Mono through
 //! FreeType, so its goldens judge vtium only where no outline glyph shows:
-//! the two block screens, which hold only sprites and spaces. ADR-304 §6
-//! re-baselines the others when the Rust font layer lands (vtium/vtium#23).
+//! the two block screens, which hold only sprites and spaces. The others
+//! are re-baselined when the Rust font layer lands (vtium/vtium#24), as
+//! kmscon's ADR-304 §6 decides (adr-cite-ignore: kmscon's record).
 //! The screens after them are vtium's, drawn in unifont, for the harness
 //! work the C reference had queued (aaronsb/kmscon#8, #10, #70, #118, #122).
 
