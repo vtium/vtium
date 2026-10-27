@@ -753,6 +753,69 @@ fn the_switch_keys_wait_while_the_vt_is_not_ours() {
 }
 
 #[test]
+fn a_switch_key_takes_a_vt_process_that_is_not_vtiums() {
+    // VT_PROCESS with another process's signals, or a mode the headers do
+    // not name: the switch would wait on that process, or be dropped.
+    let (console, mut vt) = shown();
+    vt.events().for_each(drop);
+    console.0.borrow_mut().signals_ours = false;
+    assert!(vt.key(&key(ctrl_alt(), keysyms::KEY_F2)));
+    assert!(console.0.borrow().signals_ours);
+    assert_eq!(console.0.borrow().switching, Switching::Process);
+    console.run_worker();
+    vt.release_signal();
+    assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Release]);
+    assert!(vt.acknowledge_release().is_ok());
+    assert_eq!(console.0.borrow().on_screen, 2);
+}
+
+#[test]
+fn a_switch_key_whose_switching_cannot_be_read_still_asks() {
+    let (console, mut vt) = shown();
+    console.fail(Some(Call::Switching));
+    console.clear();
+    assert!(vt.key(&key(ctrl_alt(), keysyms::KEY_F2)));
+    assert_eq!(
+        console.calls(),
+        [Call::Active, Call::Switching, Call::Activate(2)]
+    );
+}
+
+#[test]
+fn the_stand_in_switches_as_the_kernel_does() {
+    // Dropped at VT_ACTIVATE from VT_AUTO and graphics mode: a VT_SETMODE
+    // after it leaves the worker nothing to do.
+    let console = FakeConsole::new(3, 3, KbMode::Unicode);
+    console.0.borrow_mut().display = DisplayMode::Graphics;
+    assert!(console.activate(2).is_ok());
+    assert!(console.set_switching(Switching::Process).is_ok());
+    console.run_worker();
+    assert_eq!(console.0.borrow().on_screen, 3);
+    assert_eq!(console.0.borrow().pending_switch, None);
+    // Asked from text mode, then put in graphics mode before the worker
+    // runs: change_console drops it.
+    let console = FakeConsole::new(3, 3, KbMode::Unicode);
+    assert!(console.activate(2).is_ok());
+    assert!(console.set_display_mode(DisplayMode::Graphics).is_ok());
+    console.run_worker();
+    assert_eq!(console.0.borrow().on_screen, 3);
+    // From another VT in VT_PROCESS, the switch waits on that VT's owner,
+    // and nothing waits on the stand-in's VT.
+    let console = FakeConsole::new(3, 5, KbMode::Unicode);
+    assert!(console.set_switching(Switching::Process).is_ok());
+    console.0.borrow_mut().others = (Switching::Process, DisplayMode::Text);
+    assert!(console.activate(3).is_ok());
+    console.run_worker();
+    assert_eq!(console.0.borrow().on_screen, 5);
+    assert_eq!(console.0.borrow().pending_switch, None);
+    // From the stand-in's own VT in VT_PROCESS, its switch waits.
+    console.show(3);
+    assert!(console.activate(5).is_ok());
+    console.run_worker();
+    assert_eq!(console.0.borrow().pending_switch, Some(5));
+}
+
+#[test]
 fn a_switch_key_leaves_a_release_not_yet_read_to_its_answer() {
     let (console, mut vt) = shown();
     vt.events().for_each(drop);

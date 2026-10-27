@@ -244,14 +244,15 @@ impl<C: Console> KernelVt<C> {
         graphics.and(switching).and(keyboard).and(silent)
     }
 
-    /// `VT_PROCESS` on a VT found in `VT_AUTO`, before a switch key's
-    /// `VT_ACTIVATE` ([`Vt::key`]).
-    fn take_switching_from_auto(&mut self) {
+    /// vtium's `VT_PROCESS` on a VT found in any other mode, before a
+    /// switch key's `VT_ACTIVATE` ([`Vt::key`]). A mode that cannot be read
+    /// is left as it is.
+    fn take_switching_unless_ours(&mut self) {
         let num = self.num;
-        match self.console.switching() {
-            Ok(Switching::Process) => {}
-            Ok(Switching::Auto) => {
-                log::warn!(target: "vt", "VT {num} was in VT_AUTO, taking its switching");
+        match self.console.switching_is_ours() {
+            Ok(true) => {}
+            Ok(false) => {
+                log::warn!(target: "vt", "VT {num}'s switching was not vtium's, taking it");
                 match self.console.set_switching(Switching::Process) {
                     Ok(()) => self.set.process = true,
                     Err(e) => log::warn!(target: "vt", "cannot take VT {num}'s switching: {e}"),
@@ -501,13 +502,17 @@ impl<C: Console> Vt for KernelVt<C> {
 
     /// Ctrl+Alt+F1 to F12 and the XF86Switch_VT keys ask the kernel for
     /// that VT (vt_real.c:484-530); this VT's own key is taken and does
-    /// nothing. A VT found in `VT_AUTO` gets `VT_PROCESS` first: the
-    /// kernel drops a switch from a VT in `VT_AUTO` and `KD_GRAPHICS`, as
-    /// another process can leave it (vt.c:3153-3172), and in `VT_AUTO`
-    /// no switch waits that `VT_SETMODE` could cancel (vt_ioctl.c:559-560,
-    /// 780). A VT in `VT_PROCESS` is left as it is: a release not yet read
-    /// may be waiting, and the kernel's worker asks for the new switch only
-    /// later (vt.c:3118-3126).
+    /// nothing. Unless `VT_GETMODE` shows vtium's own `VT_PROCESS`, the
+    /// key sets it first: the kernel drops a switch from a VT in `VT_AUTO`
+    /// and `KD_GRAPHICS`, as another process can leave it (vt.c:3153-3172),
+    /// and sends another process's `VT_PROCESS` the release (vt_ioctl.c:
+    /// 1223-1240). No release of vtium's can be waiting then: the kernel
+    /// waits on one only in vtium's `VT_PROCESS` (559-566), and the
+    /// `VT_SETMODE` that ended it cleared the wait (780). vtium's own
+    /// `VT_PROCESS` is left as it is: a release not yet read may be
+    /// waiting, and the kernel's worker asks for the new switch only later
+    /// (vt.c:3118-3126). Another process using vtium's signals cannot be
+    /// told from vtium.
     fn key(&mut self, key: &KeyEvent) -> bool {
         let Some(target) = switch_target(key) else {
             return false;
@@ -517,7 +522,7 @@ impl<C: Console> Vt for KernelVt<C> {
         }
         if target != self.num {
             log::debug!(target: "vt", "leaving VT {} for VT {target} on a key", self.num);
-            self.take_switching_from_auto();
+            self.take_switching_unless_ours();
             if let Err(e) = self.console.activate(target) {
                 log::warn!(target: "vt", "cannot leave VT {} for VT {target}: {e}", self.num);
             }

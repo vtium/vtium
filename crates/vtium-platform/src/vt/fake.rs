@@ -54,6 +54,11 @@ pub(crate) struct Kernel {
     pub(crate) wanted: Option<u16>,
     pub(crate) display: DisplayMode,
     pub(crate) switching: Switching,
+    /// Whether `VT_GETMODE` shows vtium's own `VT_PROCESS`, with SIGUSR2
+    /// to release and SIGUSR1 to acquire. False stands for another
+    /// process's `VT_PROCESS`, or a mode the headers do not name; vtium's
+    /// `VT_SETMODE` makes it true.
+    pub(crate) signals_ours: bool,
     pub(crate) keyboard: KbMode,
     pub(crate) lines: Lines,
     pub(crate) calls: Vec<Call>,
@@ -87,6 +92,7 @@ impl FakeConsole {
             wanted: None,
             display: DisplayMode::Text,
             switching: Switching::Auto,
+            signals_ours: true,
             keyboard,
             lines: COOKED,
             calls: Vec::new(),
@@ -165,9 +171,10 @@ impl Console for FakeConsole {
         Ok(())
     }
 
-    fn switching(&self) -> io::Result<Switching> {
+    fn switching_is_ours(&self) -> io::Result<bool> {
         self.call(Call::Switching)?;
-        Ok(self.0.borrow().switching)
+        let k = self.0.borrow();
+        Ok(k.switching == Switching::Process && k.signals_ours)
     }
 
     fn set_switching(&self, mode: Switching) -> io::Result<()> {
@@ -177,6 +184,7 @@ impl Console for FakeConsole {
         self.call(Call::SetSwitching(mode))?;
         let mut k = self.0.borrow_mut();
         k.switching = mode;
+        k.signals_ours = true;
         k.pending_switch = None;
         Ok(())
     }
