@@ -5,7 +5,7 @@ Tier 1 for vtium. `vtium-replay` meets the C reference's replay interface, libts
 The crate is a workspace member, so `cargo test --workspace` builds both programs and runs the tests below, none of which needs a checkout of the C repositories. Reading the goldens and the probes does, so they stay out of the default test run, in two Makefile targets that CI's `conformance` job runs on every pull request:
 
 ```
-make conformance          # every case, both views, and the chunking check (LIBTSM=../libtsm)
+make conformance          # every case, both views, the chunking check and the palette copy (LIBTSM=../libtsm)
 make conformance-probes   # the capability probes (LIBTSM=../libtsm KMSCON=../kmscon)
 make conformance-issues   # every issue the lists name is open (gh)
 ```
@@ -19,8 +19,7 @@ make conformance-issues   # every issue the lists name is open (gh)
 | `src/replay.rs` | The replay: the reference host's settings, the feed between cuts, the test commands and the head of each block. |
 | `src/command.rs` | The test commands of interface 1, each value checked against its form and range. |
 | `src/view.rs` | The screen and frame views, from vtium-term's lines and frame. |
-| `src/palettes.rs` | The nine palettes of INTERFACE.md's `palettes` block. |
-| `src/runner.rs` | The corpus, the masking, and the verdict on each case. |
+| `src/runner.rs` | The corpus, the masking, the verdict on each case, and the check of vtium-term's copy of the palette tables. |
 | `src/runner/lists.rs` | Reading `pin.tsv` and `expected.tsv`, and their checks. |
 | `src/runner/source.rs` | Extracting the pinned commits' files. |
 | `src/runner/chunking.rs` | The chunking check: each case with extra cuts at random offsets. |

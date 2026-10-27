@@ -9,7 +9,8 @@
 //! eeaf2931), and `tests/palettes.rs` checks each against that source.
 //!
 //! A terminal holds the palette it was configured with: its colour queries
-//! answer from it, and OSC 104, 110 and 111 (vtium/vtium#38) reset to it.
+//! answer from it, and it is the palette OSC 104, 110 and 111 reset to
+//! (vtium/vtium#38).
 
 use crate::style::{Color, Rgb};
 

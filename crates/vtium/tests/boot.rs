@@ -494,6 +494,16 @@ fn the_fonts_policy_follows_the_keys() {
     assert_eq!(h.app.font_policy(), Some((want, Missing::Hex)));
 }
 
+// covers: colour.palette.named
+#[test]
+fn a_named_palette_reaches_the_terminal() {
+    let h = Harness::new(&["--palette=solarized-white"]);
+    assert_eq!(
+        Some(h.app.term.terminal.palette()),
+        vtium_term::Palette::named("solarized-white").as_ref()
+    );
+}
+
 #[test]
 fn a_custom_palette_reaches_the_terminal() {
     use vtium_term::Rgb;

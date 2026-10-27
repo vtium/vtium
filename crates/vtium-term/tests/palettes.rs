@@ -1,13 +1,9 @@
 //! The named palettes against the C reference's tables.
 //!
-//! `palettes.c.txt` is lines 254-451 of `src/tsm/tsm-vte.c` at aaronsb/libtsm
-//! eeaf2931, the commit `tools/conformance/pin.tsv` pins, copied verbatim
-//! under the MIT notice COPYING carries for libtsm. This prints nothing:
-//!
-//! ```sh
-//! git -C ../libtsm show eeaf2931985051585bf50979e0c3f588b4a51ef9:src/tsm/tsm-vte.c \
-//!   | sed -n 254,451p | diff - crates/vtium-term/tests/palettes.c.txt
-//! ```
+//! `palettes.c.txt` is lines 254-451 of `src/tsm/tsm-vte.c` at the libtsm
+//! commit `tools/conformance/pin.tsv` pins, copied verbatim under the MIT
+//! notice COPYING carries for libtsm. `make conformance` reads that commit
+//! and fails when the copy differs from it.
 
 use vtium_term::{PALETTE_NAMES, Palette, Rgb};
 
