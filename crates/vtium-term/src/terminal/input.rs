@@ -340,28 +340,34 @@ impl State {
             sym::F1..=sym::F20 => {
                 function_key(keysym.saturating_sub(sym::F1), mods.contains(Mods::SHIFT))
             }
-            _ => self.text_bytes(unicode?),
+            _ => {
+                let mut text = Vec::with_capacity(4);
+                self.push_char(unicode?, &mut text);
+                text
+            }
         };
         Some((bytes, true))
     }
 
-    /// The character a key typed, in the input's encoding: one byte in
-    /// 7-bit and 8-bit input, `?` for a character they cannot carry.
-    fn text_bytes(&self, c: char) -> Vec<u8> {
+    /// Appends a typed or pasted character in the input's encoding: one
+    /// byte in 7-bit and 8-bit input, `?` for a character they cannot
+    /// carry.
+    fn push_char(&self, c: char, out: &mut Vec<u8>) {
         let max = match self.input_mode {
             InputMode::Utf8 => {
                 let mut buf = [0; 4];
-                return c.encode_utf8(&mut buf).as_bytes().to_vec();
+                out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+                return;
             }
             InputMode::SevenBit => 0x7f,
             InputMode::EightBit => 0xff,
         };
-        vec![
+        out.push(
             u8::try_from(u32::from(c))
                 .ok()
                 .filter(|&b| u32::from(b) <= max)
                 .unwrap_or(b'?'),
-        ]
+        );
     }
 
     /// A pointer event's report, as the tracking and the encoding the
@@ -463,30 +469,25 @@ impl State {
 /// `allowPasteControls` false, each C0 control but HT, LF and CR, DEL, and
 /// each C1 control is one space; and LF is CR, as xterm sends it with
 /// `pasteLiteralNl` off (`button.c`, `_WriteSelectionData`).
-fn pasted(c: u32) -> u32 {
+fn pasted(c: char) -> char {
     match c {
-        0x0a => 0x0d,
-        0x00..=0x08 | 0x0b | 0x0c | 0x0e..=0x1f | 0x7f..=0x9f => 0x20,
+        '\n' => '\r',
+        '\0'..='\x08' | '\x0b' | '\x0c' | '\x0e'..='\x1f' | '\x7f'..='\u{9f}' => ' ',
         _ => c,
     }
 }
 
 impl State {
-    /// Pasted text, each character as [`pasted`] makes it. In UTF-8 a C1
-    /// control is a code point, and ill-formed bytes become U+FFFD; in
-    /// 7-bit and 8-bit input it is a byte.
+    /// Pasted text: read as UTF-8, ill-formed bytes as U+FFFD, each
+    /// character as [`pasted`] makes it, and sent in the input's encoding
+    /// as a typed character is, so in 8-bit input "é" is the byte 0xE9 and
+    /// "€" is `?`.
     fn paste_bytes(&self, data: &[u8]) -> Vec<u8> {
-        match self.input_mode {
-            InputMode::Utf8 => String::from_utf8_lossy(data)
-                .chars()
-                .map(|c| char::from_u32(pasted(u32::from(c))).unwrap_or(c))
-                .collect::<String>()
-                .into_bytes(),
-            InputMode::SevenBit | InputMode::EightBit => data
-                .iter()
-                .map(|&b| u8::try_from(pasted(u32::from(b))).unwrap_or(b))
-                .collect(),
+        let mut out = Vec::with_capacity(data.len());
+        for c in String::from_utf8_lossy(data).chars() {
+            self.push_char(pasted(c), &mut out);
         }
+        out
     }
 }
 
@@ -550,10 +551,11 @@ impl Terminal {
         true
     }
 
-    /// Pastes `data`, filtered as xterm filters a paste, each LF as CR,
-    /// and bracketed by `CSI 200 ~` and `CSI 201 ~` while the program asked
-    /// for it (mode 2004). The filtering turns ESC and the C1 controls into spaces, so a
-    /// bracketed paste never carries its own end marker (ADR-1000).
+    /// Pastes `data`, UTF-8 text, filtered as xterm filters a paste, each
+    /// LF as CR, in the input's encoding, and bracketed by `CSI 200 ~` and
+    /// `CSI 201 ~` while the program asked for it (mode 2004). The
+    /// filtering turns ESC and the C1 controls into spaces, so a bracketed
+    /// paste never carries its own end marker (ADR-1000).
     pub fn paste(&mut self, data: &[u8]) {
         let text = self.state.paste_bytes(data);
         if !self.state.modes.bracketed_paste() {

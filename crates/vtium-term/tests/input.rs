@@ -256,15 +256,32 @@ fn ill_formed_utf8_in_a_paste_becomes_the_replacement_character() {
     );
 }
 
-// In 8-bit input a C1 control is the byte 0x80 to 0x9F, and becomes a
-// space as xterm's paste filtering has it; the bytes past 0x9F are pasted.
+// A paste is UTF-8 text, filtered by code point, and sent in the input's
+// encoding as a typed key is: in 8-bit input each character to U+00FF is
+// its byte, in 7-bit input each one to U+007F, and any other character is
+// `?`. A C1 control is filtered whatever the input, so neither its two
+// UTF-8 bytes nor a byte 0x80 to 0x9F, which 8-bit input reads as a C1
+// control, reaches the program.
+// covers: input.paste-end-marker
 #[test]
-fn eight_bit_input_turns_the_c1_bytes_of_a_paste_into_spaces() {
-    let mut t = term(8, 2, b"\x1b[62\"p\x1b[?2004h");
-    assert_eq!(
-        paste(&mut t, b"\x9b201~\x85\xe9\xa0\xd0\x9b"),
-        bracketed(b" 201~ \xe9\xa0\xd0 ")
-    );
+fn a_paste_is_sent_in_the_inputs_encoding() {
+    let text = "\u{20ac} \u{e9}\u{a0}\u{9b}201~\u{85}\n".as_bytes();
+    let stray = b"\x9b201~\xe9";
+    for (decscl, sent, stray_sent) in [
+        (
+            &b""[..],
+            "\u{20ac} \u{e9}\u{a0} 201~ \r".as_bytes(),
+            "\u{fffd}201~\u{fffd}".as_bytes(),
+        ),
+        (b"\x1b[62\"p", b"? \xe9\xa0 201~ \r", b"?201~?"),
+        (b"\x1b[61\"p", b"? ?? 201~ \r", b"?201~?"),
+    ] {
+        let mut t = term(8, 2, decscl);
+        assert_eq!(paste(&mut t, text), sent, "{decscl:?}");
+        assert_eq!(paste(&mut t, stray), stray_sent, "{decscl:?}");
+        t.input(b"\x1b[?2004h");
+        assert_eq!(paste(&mut t, text), bracketed(sent), "{decscl:?}");
+    }
 }
 
 // An ordinary paste, tabs, line ends and text past ASCII, arrives as it
