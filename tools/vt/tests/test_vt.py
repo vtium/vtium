@@ -1,0 +1,788 @@
+#!/usr/bin/env python3
+"""Tests the VT review tools (tools/vt, docs/vt-review.md) without a VT, sudo
+or logind. Each case gets a temporary directory of stand-ins named by
+VTIUM_VT_STANDINS: systemctl, loginctl, setpriv and sudo record their calls,
+chvt and fgconsole record that they were reached (no tool may switch a VT),
+"active" stands for the VT on screen, and a stand-in vtium binary records its
+arguments and exits, crashes, waits for a signal or runs its session. The
+stand-ins also lead PATH, so a command the tools reach by name finds one.
+
+    python3 -I tools/vt/tests/test_vt.py [-v] [TestCase.test_name ...]
+"""
+
+import fcntl
+import os
+import pty
+import select
+import signal
+import stat
+import struct
+import subprocess
+import sys
+import tempfile
+import termios
+import time
+import unittest
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+VT = os.path.join(ROOT, "tools", "vt")
+RUN_VT = os.path.join(VT, "run-vt.sh")
+VT_SH = os.path.join(VT, "vt.sh")
+GUIDE_SH = os.path.join(VT, "checks", "guide.sh")
+DEMO_SH = os.path.join(VT, "demo.sh")
+FEEDBACK_SH = os.path.join(VT, "feedback.sh")
+
+# Each call, one line: the command's name and its arguments.
+RECORD = 'printf "%s\\n" "${0##*/} $*" >>"$CALLS"\n'
+
+SYSTEMCTL = "#!/bin/bash\n" + RECORD + """
+# is-active --quiet UNIT succeeds for the units in $ACTIVE_UNITS.
+if [ "$1" = is-active ]; then
+	case " ${ACTIVE_UNITS-} " in *" $3 "*) exit 0 ;; esac
+	exit 3
+fi
+exit "${SYSTEMCTL_STATUS:-0}"
+"""
+
+# list-sessions call k prints word k of $SEQ (the last word past the end): -
+# no session, F a failure, else sessions split at commas, each N (one on VT N,
+# active), N:STATE, or either with ! (show-session fails for it). Each id
+# carries its VT and state, which show-session reads back.
+LOGINCTL = "#!/bin/bash\n" + RECORD + """
+case $1 in
+list-sessions)
+	n=$(( $(cat "$COUNT" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$COUNT"
+	read -ra seq <<<"${SEQ:--}"; w=${seq[n - 1]:-${seq[-1]}}
+	case $w in
+	-) ;;
+	F) echo "Failed to list sessions" >&2; exit 1 ;;
+	*) IFS=, read -ra ss <<<"$w"
+		for s in "${ss[@]}"; do
+			bad=; [[ $s != *! ]] || bad=_x; s=${s%!}
+			vt=${s%%:*}; st=active; [[ $s != *:* ]] || st=${s#*:}
+			echo "c${vt}_${st}${bad} 1000 tester seat0"
+		done ;;
+	esac ;;
+show-session)
+	for id; do :; done; id=${id#c}
+	[[ $id != *_x ]] || { echo "Failed to get session" >&2; exit 1; }
+	case "$*" in
+	*--value*VTNr* | *VTNr*--value*) echo "${id%%_*}" ;;
+	*VTNr*) printf 'VTNr=%s\\nState=%s\\n' "${id%%_*}" "${id#*_}" ;;
+	*) printf 'tester\\ntty\\n' ;;
+	esac ;;
+esac
+"""
+
+# Drops nothing: runs what follows --, as setpriv would after dropping to the
+# user.
+SETPRIV = "#!/bin/bash\n" + RECORD + """
+while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done
+shift
+exec "$@"
+"""
+
+SUDO = "#!/bin/bash\n" + RECORD + """
+[ "$1" != -v ] || exit "${SUDO_STATUS:-0}"
+exec "$@"
+"""
+
+FORBIDDEN = "#!/bin/bash\n" + RECORD + "exit 1\n"
+
+# The stand-in vtium: records its arguments, prints $BIN_LOG, then as
+# $BIN_MODE says: exit (with $BIN_STATUS), wait (until a signal, recording
+# it), or session (runs the argv after --, with $BIN_STDIN as its input).
+BIN = """#!/bin/bash
+printf '%s\\n' "$@" >"$BIN_ARGS"
+printf '%b' "${BIN_LOG:-}"
+case ${BIN_MODE:-exit} in
+exit) exit "${BIN_STATUS:-0}" ;;
+wait)
+	trap 'echo TERM >>"$BIN_SIGNALS"; exit 0' TERM
+	while :; do sleep 0.05; done ;;
+session)
+	while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done
+	shift
+	exec "$@" <"$BIN_STDIN" ;;
+esac
+"""
+
+
+def write(path, text, mode=0o755):
+    with open(path, "w") as f:
+        f.write(text)
+    os.chmod(path, mode)
+
+
+def read(path):
+    try:
+        with open(path) as f:
+            return f.read()
+    except FileNotFoundError:
+        return ""
+
+
+class Stage:
+    """A temporary directory of stand-ins, and the environment that names it."""
+
+    def __init__(self, tmp):
+        self.tmp = tmp
+        self.standins = os.path.join(tmp, "standins")
+        os.mkdir(self.standins)
+        for name, text in (("systemctl", SYSTEMCTL), ("loginctl", LOGINCTL), ("setpriv", SETPRIV),
+                           ("sudo", SUDO), ("cargo", "#!/bin/bash\n" + RECORD),
+                           ("chvt", FORBIDDEN), ("fgconsole", FORBIDDEN)):
+            write(os.path.join(self.standins, name), text)
+        write(os.path.join(self.standins, "active"), "tty7\n", 0o644)
+        self.bin = os.path.join(tmp, "vtium")
+        write(self.bin, BIN)
+        self.dir = os.path.join(tmp, "vt")
+        self.calls = os.path.join(tmp, "calls")
+        self.bin_args = os.path.join(tmp, "bin-args")
+        self.signals = os.path.join(tmp, "signals")
+
+    def env(self, **extra):
+        env = dict(os.environ)
+        for k in list(env):
+            if k.startswith(("VTIUM_", "GUIDE", "DEMO_", "SUDO_")):
+                del env[k]
+        env.update(
+            PATH=self.standins + os.pathsep + env["PATH"],
+            VTIUM_VT_STANDINS=self.standins,
+            VTIUM_VT_DIR=self.dir,
+            CALLS=self.calls,
+            COUNT=os.path.join(self.tmp, "count"),
+            BIN_ARGS=self.bin_args,
+            BIN_SIGNALS=self.signals,
+            ACTIVE_UNITS="kmsconvt@tty8.service",
+        )
+        env.update(extra)
+        return env
+
+    def active(self, tty):
+        write(os.path.join(self.standins, "active"), tty + "\n", 0o644)
+
+    def calls_of(self, name):
+        return [l.split(" ", 1)[1] if " " in l else "" for l in read(self.calls).splitlines()
+                if l.split(" ", 1)[0] == name]
+
+    def changes(self):
+        """systemctl's calls that change anything: stop and start."""
+        return [c for c in self.calls_of("systemctl") if not c.startswith("is-active")]
+
+
+class Case(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.s = Stage(self._tmp.name)
+
+    def tearDown(self):
+        # No path of any tool switches a VT.
+        self.assertEqual(self.s.calls_of("chvt") + self.s.calls_of("fgconsole"), [])
+        self._tmp.cleanup()
+
+    def run_vt(self, *args, timeout=20, **env):
+        return subprocess.run(["bash", RUN_VT, f"--bin={self.s.bin}", *args], env=self.s.env(**env),
+                              capture_output=True, text=True, timeout=timeout, cwd=self.s.tmp,
+                              start_new_session=True)
+
+    def vt_sh(self, *args, timeout=20, **env):
+        return subprocess.run(["bash", VT_SH, *args], env=self.s.env(VTIUM_VT_BIN=self.s.bin, **env),
+                              capture_output=True, text=True, timeout=timeout, cwd=self.s.tmp,
+                              start_new_session=True)
+
+    def refused(self, p, why):
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(why, p.stderr)
+
+
+class RunVt(Case):
+    """run-vt.sh, the part that runs as root, in its test mode."""
+
+    def test_dry_run_prints_the_changes_and_makes_none(self):
+        p = self.run_vt("--dry-run", "8", "--", "--font-size=30")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("+ " + os.path.join(self.s.standins, "systemctl") + " stop kmsconvt@tty8.service", p.stdout)
+        self.assertIn(f"+ {self.s.bin} --vt=tty8 --no-switchvt --configdir {VT}/config --oneshot --font-size=30 --login --",
+                      p.stdout)
+        self.assertIn(" start kmsconvt@tty8.service", p.stdout)
+        self.assertEqual(self.s.changes(), [])
+        self.assertFalse(os.path.exists(self.s.bin_args), "the dry run ran vtium")
+
+    def test_a_vt_a_session_is_on_is_refused(self):
+        for seq in ("8", "8:online", "5,8:closing"):
+            with self.subTest(seq=seq):
+                os.unlink(self.s.calls) if os.path.exists(self.s.calls) else None
+                for path in (os.path.join(self.s.tmp, "count"),):
+                    if os.path.exists(path):
+                        os.unlink(path)
+                p = self.run_vt("8", SEQ=seq)
+                self.refused(p, "is on VT 8; pick another VT")
+                self.assertEqual(self.s.changes(), [])
+                self.assertFalse(os.path.exists(self.s.bin_args))
+
+    def test_the_vt_on_screen_is_refused(self):
+        self.s.active("tty8")
+        p = self.run_vt("8")
+        self.refused(p, "VT 8 is on screen now")
+        self.assertEqual(self.s.changes(), [])
+
+    def test_unknown_sessions_are_refused(self):
+        self.refused(self.run_vt("8", SEQ="F"), "loginctl could not list the sessions")
+        os.unlink(os.path.join(self.s.tmp, "count"))
+        # Unreadable, and still in the second list: its VT is unknown.
+        self.refused(self.run_vt("8", SEQ="5!"), "loginctl could not list the sessions")
+        self.assertEqual(self.s.changes(), [])
+
+    def test_a_session_gone_between_list_and_query_is_skipped(self):
+        p = self.run_vt("8", SEQ="5! -")
+        self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_a_session_on_another_vt_is_no_bar(self):
+        p = self.run_vt("8", SEQ="2,7")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.s.changes(), ["stop kmsconvt@tty8.service", "start kmsconvt@tty8.service"])
+
+    def test_the_unit_comes_back_after_a_normal_end(self):
+        p = self.run_vt("8", ACTIVE_UNITS="getty@tty8.service autovt@tty8.service")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.s.changes(), ["stop getty@tty8.service autovt@tty8.service",
+                                            "start getty@tty8.service autovt@tty8.service"])
+        self.assertIn("manual restore: sudo systemctl start getty@tty8.service autovt@tty8.service", p.stdout)
+
+    def test_the_unit_comes_back_after_a_crash(self):
+        p = self.run_vt("8", BIN_STATUS="134")
+        self.assertEqual(p.returncode, 134)
+        self.assertIn("vtium exited with status 134", p.stderr)
+        self.assertEqual(self.s.changes(), ["stop kmsconvt@tty8.service", "start kmsconvt@tty8.service"])
+
+    def interrupted(self, sig, status):
+        proc = subprocess.Popen(["bash", RUN_VT, f"--bin={self.s.bin}", "8"], env=self.s.env(BIN_MODE="wait"),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=self.s.tmp)
+        end = time.monotonic() + 10
+        while not os.path.exists(self.s.bin_args) and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertTrue(os.path.exists(self.s.bin_args), "vtium never started")
+        proc.send_signal(sig)
+        out, err = proc.communicate(timeout=15)
+        self.assertEqual(proc.returncode, status, out + err)
+        self.assertEqual(read(self.s.signals), "TERM\n", "vtium was not stopped with SIGTERM")
+        self.assertEqual(self.s.changes(), ["stop kmsconvt@tty8.service", "start kmsconvt@tty8.service"])
+
+    def test_the_unit_comes_back_after_ctrl_c(self):
+        self.interrupted(signal.SIGINT, 130)
+
+    def test_the_unit_comes_back_after_sigterm(self):
+        self.interrupted(signal.SIGTERM, 143)
+
+    def test_the_unit_comes_back_after_a_hangup(self):
+        self.interrupted(signal.SIGHUP, 129)
+
+    def test_no_active_unit_stops_and_starts_none(self):
+        p = self.run_vt("8", ACTIVE_UNITS="")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.s.changes(), [])
+        self.assertIn("no console unit was running on VT 8", p.stdout)
+
+    def test_a_failed_restart_names_the_manual_restore(self):
+        p = self.run_vt("8", SYSTEMCTL_STATUS="1")
+        self.assertIn("restore it with: sudo systemctl start kmsconvt@tty8.service", p.stderr)
+
+    def test_the_vt_number(self):
+        for vt in ("1", "13", "05", "3x"):
+            with self.subTest(vt=vt):
+                p = self.run_vt(vt)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertEqual(self.s.changes(), [])
+
+    def test_unsafe_vtium_options_are_refused(self):
+        for opts in (["--login"], ["--lo"], ["--vt=tty3"], ["--configdir=/tmp"], ["--oneshot"],
+                     ["--font-name", "x"], ["x"], ["--asciicast=/tmp/a"], ["--xkb-keymap=/etc/shadow"],
+                     ["--seats=all"], ["--no-switchvt"], ["--login=/bin/sh"]):
+            with self.subTest(opts=opts):
+                self.refused(self.run_vt("--dry-run", "8", "--", *opts), "is refused")
+        for size in ("5G", "4097M", "4194305K", "4294967297", "-1", "1T"):
+            with self.subTest(size=size):
+                self.refused(self.run_vt("--dry-run", "8", "--", f"--image-storage-limit={size}"),
+                             "takes auto or a size up to 4G")
+
+    def test_the_operators_options_are_taken(self):
+        opts = ["--font-name=Monoid Nerd Font Mono", "--font-size=30", "--mode=7680x2160",
+                "--no-use-original-mode", "--hwaccel", "--image-storage-limit=4G",
+                "--image-storage-limit=auto", "--sync-timeout=500", "--dpms-timeout=15"]
+        p = self.run_vt("--dry-run", "8", "--", *opts)
+        self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_the_binary_must_be_safe_to_run_as_root(self):
+        os.chmod(self.s.bin, 0o775)
+        self.refused(self.run_vt("8"), "writable by group or others")
+        os.chmod(self.s.bin, 0o757)
+        self.refused(self.run_vt("8"), "writable by group or others")
+        os.chmod(self.s.bin, 0o755)
+        p = subprocess.run(["bash", RUN_VT, "--bin=" + os.path.join(self.s.tmp, "none"), "8"],
+                           env=self.s.env(), capture_output=True, text=True, timeout=20)
+        self.refused(p, "no vtium binary at")
+        p = subprocess.run(["bash", RUN_VT, "8"], env=self.s.env(), capture_output=True, text=True, timeout=20)
+        self.refused(p, "--bin=PATH names the vtium binary")
+        self.assertEqual(self.s.changes(), [])
+
+    def test_the_label_takes_a_builds_characters_only(self):
+        self.refused(self.run_vt("--label=a$(id)", "8"), "--label takes")
+        self.refused(self.run_vt("--label=a\nb", "8"), "--label takes")
+
+    def test_the_demo_runs_as_the_user_with_its_label(self):
+        p = self.run_vt("--label=dev build abc", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        argv = read(self.s.bin_args).splitlines()
+        at = argv.index("--")
+        uid, gid = os.getuid(), os.getgid()
+        self.assertEqual(argv[at + 1:], [os.path.join(self.s.standins, "setpriv"), f"--reuid={uid}", f"--regid={gid}",
+                                         "--init-groups", "--reset-env", "--", "/usr/bin/env",
+                                         "DEMO_LABEL=vtium dev build abc", "/bin/bash", os.path.join(VT, "demo.sh")])
+
+    def test_a_guide_runs_as_the_user_with_its_vt_and_steps(self):
+        guide = os.path.join(VT, "checks", "start.guide")
+        p = self.run_vt(f"--guide={os.path.relpath(guide, self.s.tmp)}", "--steps=2,1", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        argv = read(self.s.bin_args).splitlines()
+        self.assertIn("--oneshot", argv)
+        self.assertEqual(argv[argv.index("/usr/bin/env"):],
+                         ["/usr/bin/env", "GUIDE_VT=8", "GUIDE_DESKTOP=7", "GUIDE_STEPS=2,1", "/bin/bash",
+                          os.path.join(VT, "checks", "guide.sh"), guide])
+        for opts, why in ((["--steps=1;2"], "--steps takes step numbers"),
+                          (["--steps=0"], "--steps takes step numbers"),
+                          (["--login"], "with no login")):
+            with self.subTest(opts=opts):
+                self.refused(self.run_vt(f"--guide={guide}", *opts, "8"), why)
+        self.refused(self.run_vt("--steps=1", "8"), "--steps goes with --guide")
+
+    def test_a_login_ends_at_the_first_logout(self):
+        p = self.run_vt("--login", "8", BIN_MODE="wait", SEQ="- - 8 8 8:closing", timeout=30)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("vt-login: session ended", p.stdout)
+        self.assertEqual(read(self.s.signals), "TERM\n")
+        self.assertEqual(self.s.changes(), ["stop kmsconvt@tty8.service", "start kmsconvt@tty8.service"])
+        argv = read(self.s.bin_args).splitlines()
+        self.assertNotIn("--oneshot", argv)
+        self.assertEqual(argv[argv.index("--"):], ["--", "/bin/login", "-p"])
+
+    def test_a_login_vtium_ending_on_its_own_is_a_failure(self):
+        p = self.run_vt("--login", "8", SEQ="-")
+        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertIn("vtium exited with status 0", p.stderr)
+        self.assertEqual(self.s.changes(), ["stop kmsconvt@tty8.service", "start kmsconvt@tty8.service"])
+
+
+class VtSh(Case):
+    """vt.sh, the desktop side behind the make targets."""
+
+    def picked(self, p):
+        line = next((l for l in p.stdout.splitlines() if l.startswith("+ ")), "")
+        words = line.split()
+        return words[words.index("--") - 1] if "--" in words else None
+
+    def test_the_first_free_vt_is_picked(self):
+        for active, seq, want in (("tty7", "-", "5"), ("tty5", "-", "6"), ("tty5", "6", "4"),
+                                  ("tty7", "5,6,4", "3"), ("tty3", "5,6,4", "2"), ("tty1", "2,7", "5")):
+            with self.subTest(active=active, seq=seq):
+                self.s.active(active)
+                if os.path.exists(os.path.join(self.s.tmp, "count")):
+                    os.unlink(os.path.join(self.s.tmp, "count"))
+                p = self.vt_sh(VTIUM_VT_DRY_RUN="1", SEQ=seq)
+                self.assertEqual(self.picked(p), want, p.stdout + p.stderr)
+
+    def test_every_vt_busy_names_each_and_why(self):
+        self.s.active("tty5")
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", SEQ="6,4,3,2")
+        self.refused(p, "no free VT")
+        for want in ["VT 5: it is on screen"] + [f"VT {v}: logind session c{v}_active" for v in (6, 4, 3, 2)]:
+            self.assertIn(want, p.stderr)
+
+    def test_vt_given_is_refused_when_busy(self):
+        self.refused(self.vt_sh("7"), "VT 7 refused: it is on screen")
+        self.refused(self.vt_sh(SEQ="4", VTIUM_VT_NR="4"), "VT 4 refused: logind session c4_active")
+        self.assertEqual(self.s.calls_of("sudo"), [])
+
+    def test_demo_args_are_split_and_never_run(self):
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", VTIUM_VT_NR="4",
+                       VTIUM_VT_ARGS="""--font-name="Monoid Nerd Font Mono" --x='a b' ; touch planted $HOME""")
+        line = next(l for l in p.stdout.splitlines() if l.startswith("+ "))
+        self.assertTrue(line.endswith("4 -- --font-name=Monoid\\ Nerd\\ Font\\ Mono --x=a\\ b \\; touch planted \\$HOME"),
+                        line)
+        self.assertFalse(os.path.exists(os.path.join(self.s.tmp, "planted")))
+        # run-vt.sh's dry run, which follows, refuses the stray words.
+        self.assertIn("is refused", p.stderr)
+        self.refused(self.vt_sh(VTIUM_VT_ARGS='--font-name="Monoid'), "cannot be split")
+
+    def test_a_dry_run_runs_no_sudo_and_changes_nothing(self):
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("Switch to VT 5 now: Ctrl-Alt-F5    (Ctrl-Alt-F7 returns to this desktop)", p.stdout)
+        self.assertEqual(self.s.calls_of("sudo"), [])
+        self.assertEqual(self.s.changes(), [])
+        self.assertFalse(os.path.exists(self.s.bin_args))
+
+    def test_a_guide_that_fails_its_check_stops_before_sudo(self):
+        bad = os.path.join(self.s.tmp, "bad.guide")
+        for text in ("title: t\nstep: s\ndo: press Logo+Enter\nexpect: x\n", "step: s\ndo: x\nexpect: y\n",
+                     "title: t\nstep: s\ndo: x\n"):
+            with self.subTest(text=text):
+                write(bad, text, 0o644)
+                self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE=bad), "is refused (above)")
+        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="start", VTIUM_VT_STEPS="3"),
+                     "is refused (above)")
+        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: start")
+        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide"), "GUIDE=NAME names the guide")
+        self.assertEqual(self.s.calls_of("sudo"), [])
+        self.assertEqual(self.s.changes(), [])
+
+    def test_a_guide_is_make_vt_checks(self):
+        self.refused(self.vt_sh(VTIUM_VT_GUIDE="start"), "go with make vt-check")
+
+    def test_the_log_directory_must_be_the_users_own(self):
+        os.symlink(self.s.tmp, self.s.dir)
+        self.refused(self.vt_sh(), "is a symlink, or not a directory of yours")
+        p = self.vt_sh(VTIUM_VT_DIR="/usr")
+        self.refused(p, "/usr is a symlink, or not a directory of yours")
+        self.assertEqual(self.s.calls_of("sudo"), [])
+
+    def test_a_crash_is_reported_and_the_unit_restored(self):
+        p = self.vt_sh(BIN_STATUS="101", BIN_LOG="thread 'main' panicked at src/main.rs:1:1\\n",
+                       ACTIVE_UNITS="kmsconvt@tty5.service")
+        self.assertEqual(p.returncode, 101, p.stdout + p.stderr)
+        self.assertIn("health: 1 'panicked at' lines in vtium's log: vtium panicked", p.stdout)
+        self.assertIn("run-vt.sh exited with status 101", p.stderr)
+        self.assertEqual(self.s.calls_of("sudo")[0], "-v")
+        self.assertEqual(self.s.changes(), ["stop kmsconvt@tty5.service", "start kmsconvt@tty5.service"])
+
+    def test_ctrl_c_restores_the_unit_and_still_prints_the_summary(self):
+        proc = subprocess.Popen(["bash", VT_SH], env=self.s.env(VTIUM_VT_BIN=self.s.bin, BIN_MODE="wait",
+                                                                ACTIVE_UNITS="kmsconvt@tty5.service"),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=self.s.tmp,
+                                start_new_session=True)
+        end = time.monotonic() + 10
+        while not os.path.exists(self.s.bin_args) and time.monotonic() < end:
+            time.sleep(0.02)
+        # Ctrl-C reaches the terminal's whole foreground process group.
+        os.killpg(proc.pid, signal.SIGINT)
+        out, err = proc.communicate(timeout=15)
+        self.assertEqual(proc.returncode, 130, out + err)
+        self.assertIn("vt: interrupted", err)
+        self.assertIn("vtium log: ", out)
+        self.assertEqual(self.s.changes(), ["stop kmsconvt@tty5.service", "start kmsconvt@tty5.service"])
+
+    def test_the_start_guide_runs_and_its_log_reaches_the_caller(self):
+        # Enter to begin; step 1: Enter, y, a note; step 2: Enter, the shell's
+        # two lines, n and no note; Enter to end.
+        answers = os.path.join(self.s.tmp, "answers")
+        write(answers, "\n\ny" "all drawn\n" "\necho hello vtium\nexit\n" "n\n" "\n", 0o644)
+        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-check", "GUIDE=start",
+                            f"VTIUM_BIN={self.s.bin}", "VT=6"],
+                           env=self.s.env(BIN_MODE="session", BIN_STDIN=answers, ACTIVE_UNITS="getty@tty6.service"),
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        log = read(os.path.join(self.s.dir, "vt-check.log"))
+        self.assertRegex(log, r"=== vtium starts and runs a shell, .*, guide " + os.path.join(VT, "checks", "start.guide"))
+        self.assertIn("-- step 1 of 2: The first screen\n  answer: yes  note: all drawn\n", log)
+        self.assertIn("-- step 2 of 2: A shell prompt\n  answer: no\n=== done", log)
+        # The caller prints what the run added, and where the log is.
+        self.assertIn("  answer: yes  note: all drawn", p.stdout)
+        self.assertIn("results: " + os.path.join(self.s.dir, "vt-check.log"), p.stdout)
+        self.assertEqual(self.s.changes(), ["stop getty@tty6.service", "start getty@tty6.service"])
+
+    def test_the_demo_runs_and_its_answers_reach_the_caller(self):
+        # demo.sh reads its keys from the terminal make runs in.
+        env = self.s.env(BIN_MODE="session", BIN_STDIN="/dev/null", TERM="linux", ACTIVE_UNITS="kmsconvt@tty5.service")
+        d = Pty(["/usr/bin/env", "make", "--no-print-directory", "-C", ROOT, "vt-demo", f"VTIUM_BIN={self.s.bin}"], env)
+        d.wait_for(b"Switch to VT 5 now")
+        d.wait_for(b"press a key for the first section", timeout=20)
+        d.send(b" ")
+        d.page()
+        d.wait_for(b"1 right  2 wrong")
+        d.send(b"1")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        d.wait_for(b"results: " + os.path.join(self.s.dir, "feedback.tsv").encode())
+        self.assertEqual(d.finish(), 0)
+        seen = d.seen.decode(errors="replace")
+        self.assertRegex(seen, r"label +vtium dev build ")
+        self.assertIn("10-sgr                    right", seen)
+        self.assertEqual(self.s.calls_of("sudo")[0], "-v")
+        self.assertEqual(self.s.changes(), ["stop kmsconvt@tty5.service", "start kmsconvt@tty5.service"])
+
+
+class Make(Case):
+    """The Makefile's guards, which act before anything is built."""
+
+    def make(self, *args, **env):
+        return subprocess.run(["make", "--no-print-directory", "-C", ROOT, *args], env=self.s.env(**env),
+                              capture_output=True, text=True, timeout=30, start_new_session=True)
+
+    def test_help_lists_the_targets(self):
+        p = self.make("help")
+        for target in ("minspec", "test-tools", "vt-demo", "vt-login", "vt-check"):
+            self.assertIn(target, p.stdout)
+
+    def test_the_binary_is_never_taken_from_the_environment(self):
+        p = self.make("vt-demo", "DRY_RUN=1", VTIUM_BIN=self.s.bin)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("VTIUM_BIN is set in the environment", p.stderr)
+        self.assertEqual(self.s.calls_of("sudo") + self.s.calls_of("loginctl"), [])
+
+    def test_the_default_binary_is_the_minspec_build(self):
+        # VTIUM_MINSPEC points the default at the stand-in, which the stand-in
+        # cargo "builds".
+        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.s.calls_of("cargo"), ["build --profile minspec -p vtium"])
+        self.assertIn(f"--bin={self.s.bin} ", p.stdout)
+
+    def test_another_binary_is_run_as_it_is(self):
+        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.s.calls_of("cargo"), [])
+
+    def test_vt_check_without_a_guide_fails_before_the_build(self):
+        p = self.make("vt-check")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: start", p.stderr)
+        self.assertNotIn("cargo", p.stdout)
+
+    def test_a_guide_reaches_only_vt_check(self):
+        # One exported in the shell does not turn vt-demo into a guided run.
+        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", GUIDE="start", GUIDE_STEPS="9")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertNotIn("--guide", p.stdout)
+        p = self.make("vt-check", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", "GUIDE=start", "GUIDE_STEPS=2")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f"--guide={os.path.join(VT, 'checks', 'start.guide')} --steps=2 5 --", p.stdout)
+        self.assertEqual(self.s.calls_of("sudo"), [])
+
+
+class Pty:
+    """A program on a pseudo-terminal, read up to each prompt before it is
+    answered."""
+
+    def __init__(self, argv, env):
+        self.pid, self.fd = pty.fork()
+        if self.pid == 0:
+            os.execve(argv[0], argv, env)
+        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+        # out is what is left after the last wait_for; seen is everything.
+        self.out = b""
+        self.seen = b""
+
+    def pump(self, timeout):
+        if select.select([self.fd], [], [], max(timeout, 0))[0]:
+            try:
+                data = os.read(self.fd, 4096)
+            except OSError:
+                data = b""
+            if not data:
+                return False
+            self.out += data
+            self.seen += data
+        return True
+
+    def wait_for(self, text, timeout=10):
+        end = time.monotonic() + timeout
+        while text not in self.out:
+            if time.monotonic() > end or not self.pump(end - time.monotonic()):
+                raise AssertionError(f"no {text!r} in:\n{self.out[-2000:].decode(errors='replace')}")
+        self.out = self.out[self.out.index(text) + len(text):]
+
+    def send(self, data):
+        os.write(self.fd, data)
+
+    def page(self):
+        """Waits for demo.sh's cursor position query and answers it with a
+        row the footer fits below."""
+        self.wait_for(b"\x1b[6n")
+        self.send(b"\x1b[14;1R")
+
+    def finish(self, timeout=10):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            pid, status = os.waitpid(self.pid, os.WNOHANG)
+            if pid:
+                while self.pump(0.05):
+                    pass
+                return os.waitstatus_to_exitcode(status)
+            self.pump(0.05)
+        os.kill(self.pid, signal.SIGKILL)
+        os.waitpid(self.pid, 0)
+        raise AssertionError("did not exit")
+
+
+class Guide(Case):
+    """guide.sh: the check of a guide, and a run on a pseudo-terminal."""
+
+    def check(self, text, steps=""):
+        path = os.path.join(self.s.tmp, "t.guide")
+        write(path, text, 0o644)
+        return subprocess.run(["bash", GUIDE_SH, "--check", path], env=self.s.env(GUIDE_STEPS=steps),
+                              capture_output=True, text=True, timeout=10)
+
+    def test_every_guide_in_the_tree_passes_its_check(self):
+        checks = os.path.join(VT, "checks")
+        guides = sorted(f for f in os.listdir(checks) if f.endswith(".guide"))
+        self.assertIn("start.guide", guides)
+        for g in guides:
+            with self.subTest(guide=g):
+                p = subprocess.run(["bash", GUIDE_SH, "--check", os.path.join(checks, g)],
+                                   capture_output=True, text=True, timeout=10)
+                self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_broken_guides_are_refused(self):
+        ok = "title: T\nstep: S\ndo: d\nexpect: e\n"
+        for text, why in ((ok.replace("do: d", "do: hold Logo"), "name the Super (Windows) key, not Logo"),
+                          (ok.replace("title: T\n", ""), "no title"),
+                          ("title: T\n", "no steps"),
+                          (ok.replace("expect: e\n", ""), "needs do: and expect: lines"),
+                          (ok + "probe: nonesuch\n", "probe mode 'nonesuch' is not one of: shell focus"),
+                          (ok + "probe: shell\nprobe: focus\n", "one probe per step"),
+                          (ok + "intro: late\n", "intro lines go before the first step"),
+                          (ok + "colour: red\n", "unknown key 'colour'"),
+                          (ok + "not a key line\n", "not a 'key: text' line")):
+            with self.subTest(why=why):
+                p = self.check(text)
+                self.refused(p, why)
+        self.refused(self.check(ok, steps="2"), "'2' is not a step of this guide (1 to 1)")
+        self.assertEqual(self.check(ok, steps="1").returncode, 0)
+
+    def guide_env(self, **extra):
+        env = {"PATH": os.environ["PATH"], "TERM": "linux", "VTIUM_VT_DIR": self.s.dir,
+               "GUIDE_VT": "6", "GUIDE_DESKTOP": "7"}
+        env.update(extra)
+        return env
+
+    def test_the_answers_log_refuses_a_directory_not_the_users_own(self):
+        guide = os.path.join(VT, "checks", "start.guide")
+        os.symlink(self.s.tmp, self.s.dir)
+        for env, why in ((self.guide_env(), b"is a symlink, or not a directory of yours"),
+                         (self.guide_env(VTIUM_VT_DIR="/usr"), b"/usr is a symlink, or not a directory of yours")):
+            with self.subTest(dir=env["VTIUM_VT_DIR"]):
+                g = Pty(["/bin/bash", GUIDE_SH, guide], env)
+                g.wait_for(why)
+                g.wait_for(b"Press Enter to end.")
+                g.send(b"\r")
+                self.assertEqual(g.finish(), 1)
+        self.assertEqual(sorted(os.listdir(self.s.tmp)), sorted(["standins", "vtium", "vt"]))
+
+    def test_a_run_on_a_terminal(self):
+        guide = os.path.join(self.s.tmp, "t.guide")
+        write(guide, "title: Test guide\nintro: VT {vt}, desktop {desktop}.\n"
+                     "step: Look\ndo: look\nexpect: it is there\n"
+                     "step: Skipped\nprobe: decarm\ndo: nothing\nexpect: nothing\n"
+                     "step: Shell\nprobe: shell\ndo: type\nexpect: the prompt\n"
+                     "step: Probe\nprobe: focus\ndo: switch to F{desktop}\nexpect: FOCUS OUT\n"
+                     "step: Not run\ndo: x\nexpect: y\n", 0o644)
+        g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
+        g.wait_for(b"VT 6, desktop 7.")
+        g.wait_for(b"Press Enter to begin.")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter when done")
+        g.send(b"\r")
+        g.wait_for(b"[y]es [n]o [s]kip: ")
+        g.send(b"x")
+        g.wait_for(b"[y]es [n]o [s]kip: ")
+        g.send(b"y")
+        g.wait_for(b"Note (Enter for none): ")
+        g.send(b"fine\r")
+        g.wait_for(b"Step 2 of 5: Skipped")
+        g.send(b"s\r")
+        g.wait_for(b"Press Enter to start the shell")
+        g.send(b"\r")
+        g.wait_for(b"vtium-check$ ")
+        g.send(b"echo hello $((6 * 7))\r")
+        g.wait_for(b"hello 42")
+        g.wait_for(b"vtium-check$ ")
+        g.send(b"exit\r")
+        g.wait_for(b"[y]es [n]o [s]kip: ")
+        g.send(b"n")
+        g.wait_for(b"Note (Enter for none): ")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter to start the probe")
+        g.send(b"\r")
+        g.wait_for(b"focus on; q quits")
+        g.send(b"\x1b[O")
+        g.wait_for(b"FOCUS OUT")
+        g.send(b"q")
+        g.wait_for(b"[y]es [n]o [s]kip: ")
+        g.send(b"y")
+        g.wait_for(b"Note (Enter for none): ")
+        g.send(b"\r")
+        g.wait_for(b"Step 5 of 5: Not run")
+        g.send(b"q\r")
+        self.assertEqual(g.finish(), 0)
+        log = read(os.path.join(self.s.dir, "vt-check.log")).splitlines()
+        self.assertRegex(log[0], r"^=== Test guide, \S+, guide " + guide + r", tty /dev/pts/\d+, steps all$")
+        self.assertEqual(log[1:7], ["-- step 1 of 5: Look", "  answer: yes  note: fine",
+                                    "-- step 2 of 5: Skipped", "  answer: skip  (before the probe)",
+                                    "-- step 3 of 5: Shell", "  answer: no"])
+        self.assertEqual(log[7], "-- step 4 of 5: Probe")
+        self.assertIn("  [focus] focus on; q quits", log)
+        self.assertTrue(any("FOCUS OUT" in l for l in log), log)
+        self.assertEqual(log[-3:-1], ["-- step 5 of 5: Not run", "  ended here"])
+        self.assertRegex(log[-1], r"^=== ended at step 5, ")
+        self.assertEqual(stat.S_IMODE(os.stat(self.s.dir).st_mode), 0o700)
+
+
+class Demo(Case):
+    """demo.sh and feedback.sh on a pseudo-terminal."""
+
+    def test_a_page_rated_reaches_feedback(self):
+        env = {"PATH": os.environ["PATH"], "TERM": "linux", "VTIUM_VT_DIR": self.s.dir,
+               "DEMO_LABEL": "vtium dev build test"}
+        d = Pty(["/bin/bash", DEMO_SH], env)
+        d.wait_for(b"press a key for the first section")
+        d.send(b" ")
+        d.page()
+        d.wait_for(b"1 right  2 wrong")
+        d.send(b"c")
+        d.wait_for(b"> ")
+        d.send(b"red is orange\r")
+        d.wait_for(b"> ")
+        d.send(b".\r")
+        d.wait_for(b"Enter no rating")
+        d.send(b"2")
+        d.wait_for(b"r review again from page 1  q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        tsv = read(os.path.join(self.s.dir, "feedback.tsv")).splitlines()
+        self.assertEqual(tsv[0], "time\trun\tlabel\tterm\tsize\tsection\trating\tnote")
+        fields = tsv[1].split("\t")
+        self.assertEqual(fields[2:], ["vtium dev build test", "linux", "24x80", "10-sgr", "wrong", "red is orange"])
+        p = subprocess.run(["bash", FEEDBACK_SH], env=self.s.env(), capture_output=True, text=True, timeout=10)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("10-sgr                    wrong\n    red is orange\n", p.stdout)
+
+    def test_the_demo_records_nothing_in_a_directory_not_the_users_own(self):
+        os.symlink(self.s.tmp, self.s.dir)
+        env = {"PATH": os.environ["PATH"], "TERM": "linux", "VTIUM_VT_DIR": self.s.dir}
+        d = Pty(["/bin/bash", DEMO_SH], env)
+        d.wait_for(b"is a symlink, or not a directory of yours")
+        d.wait_for(b"press a key for the first section")
+        d.send(b" ")
+        d.page()
+        d.wait_for(b"1 right  2 wrong")
+        d.send(b"q")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        self.assertFalse(os.path.exists(os.path.join(self.s.tmp, "feedback.tsv")))
+
+    def test_every_section_has_its_guidance_and_fits_80x25(self):
+        sections = os.path.join(VT, "sections")
+        for f in sorted(os.listdir(sections)):
+            with self.subTest(section=f):
+                text = read(os.path.join(sections, f))
+                self.assertIn("# look-for: ", text)
+                self.assertIn("# wrong-looks-like: ", text)
+                out = subprocess.run(["bash", os.path.join(sections, f)], capture_output=True, text=True,
+                                     timeout=10).stdout
+                self.assertLessEqual(len(out.splitlines()), 17)
+
+
+if __name__ == "__main__":
+    unittest.main()
