@@ -373,10 +373,12 @@ impl Kms for FakeCard {
         match kind {
             Object::Connector => {
                 let dpms = *s.dpms.get(&id).ok_or_else(|| err(Errno::NOENT))?;
-                let without = s.no_dpms.contains(&id);
+                let with = !s.no_dpms.contains(&id);
                 drop(s);
-                let names = [("CRTC_ID", 0), ("DPMS", dpms)];
-                Ok(self.props(&names[..if without { 1 } else { 2 }]))
+                let names: Vec<(&str, u64)> = std::iter::once(("CRTC_ID", 0))
+                    .chain(with.then_some(("DPMS", dpms)))
+                    .collect();
+                Ok(self.props(&names))
             }
             Object::Crtc => {
                 let active = u64::from(s.active.get(&id).copied().unwrap_or(false));
