@@ -228,15 +228,16 @@ impl State {
             InputMode::EightBit => FLAG_8BIT_MODE,
             InputMode::SevenBit => FLAG_7BIT_MODE,
         };
-        // SAFETY: the vte this side owns; C reads its flags only between
-        // bytes, and no reference to it is live.
+        // SAFETY: the vte this side owns, written through the raw pointer
+        // while no reference to it is live (`line` ends its `&Vte` first);
+        // C reads the flags only between bytes.
         unsafe { (*vte).flags = (*vte).flags & !(FLAG_7BIT_MODE | FLAG_8BIT_MODE) | flags };
     }
 }
 
 thread_local! {
     /// The state of the C side running on this thread, there only while
-    /// the C reference runs, so callbacks and hooks can reach it.
+    /// the C side runs, so callbacks and hooks can reach it.
     static RUNNING: RefCell<Option<State>> = const { RefCell::new(None) };
 }
 
@@ -246,11 +247,22 @@ fn with<R>(f: impl FnOnce(&mut State) -> R) -> R {
     RUNNING.with(|r| f(r.borrow_mut().as_mut().expect("the C side is running")))
 }
 
-/// Runs `f` on the running state and the vte, both read-only to C for the
-/// call.
+/// Runs `f` on the running state and a shared view of the vte, which
+/// ends when `f` returns.
 fn with_vte<R>(vte: *mut Vte, f: impl FnOnce(&mut State, &Vte) -> R) -> R {
-    // SAFETY: the vte the C side is running; C does not run during `f`.
+    // SAFETY: the vte the C side is running; neither C nor a write through
+    // `vte` runs during `f`, and the reference does not outlive it.
     with(|s| f(s, unsafe { &*vte }))
+}
+
+/// Writes a trace line from the running state and the vte, then ends it
+/// as `f` asks, after `f`'s view of the vte has ended, since ending a line
+/// writes the vte's mode flags.
+fn line(vte: *mut Vte, f: impl FnOnce(&mut State, &Vte) -> Option<Line>) {
+    let end = with_vte(vte, |s, v| f(s, v));
+    if let Some(end) = end {
+        with(|s| s.end(vte, end));
+    }
 }
 
 // The callbacks: one trace line per dispatch.
@@ -273,52 +285,52 @@ extern "C" fn oracle_execute(vte: *mut Vte, c: u32) {
 
 #[unsafe(no_mangle)]
 extern "C" fn oracle_esc(vte: *mut Vte, final_byte: u32) {
-    with_vte(vte, |s, v| {
+    line(vte, |s, v| {
         if s.null_operation() {
-            return;
+            return None;
         }
         out!(s.trace.out, "esc {final_byte:x}");
         s.write_intermediates(v);
-        s.end(vte, Line::Dispatch);
+        Some(Line::Dispatch)
     });
 }
 
 #[unsafe(no_mangle)]
 extern "C" fn oracle_csi(vte: *mut Vte, final_byte: u32) {
-    with_vte(vte, |s, v| {
+    line(vte, |s, v| {
         if s.null_operation() {
-            return;
+            return None;
         }
         out!(s.trace.out, "csi {final_byte:x}");
         s.write_intermediates(v);
         s.write_params(v);
-        s.end(vte, Line::Dispatch);
+        Some(Line::Dispatch)
     });
 }
 
 #[unsafe(no_mangle)]
 extern "C" fn oracle_osc_end(vte: *mut Vte, end: u32) {
-    with_vte(vte, |s, v| {
+    line(vte, |s, v| {
         s.trace.out.push_str("osc ");
         s.trace.string_end(end);
         s.trace
             .out
             .push_str(if s.osc_truncated { " t " } else { " " });
         s.trace.hex(&v.osc_arg[..v.osc_len as usize]);
-        s.end(vte, Line::Counted);
+        Some(Line::Counted)
     });
 }
 
 #[unsafe(no_mangle)]
 extern "C" fn oracle_xtgettcap(vte: *mut Vte) {
-    with_vte(vte, |s, v| {
+    line(vte, |s, v| {
         if v.tcap_over {
             s.trace.out.push_str("tcap none");
         } else {
             s.trace.out.push_str("tcap ");
             s.trace.hex(&v.tcap_buf[..v.tcap_len]);
         }
-        s.end(vte, Line::Counted);
+        Some(Line::Counted)
     });
 }
 
@@ -426,12 +438,12 @@ extern "C" fn oracle_hook_dcs_start(vte: *mut Vte, data: u32) {
     if unsafe { (*vte).dcs } == DCS_XTGETTCAP {
         return;
     }
-    with_vte(vte, |s, v| {
+    line(vte, |s, v| {
         s.hooked = true;
         out!(s.trace.out, "dcs_hook {data:x}");
         s.write_intermediates(v);
         s.write_params(v);
-        s.end(vte, Line::Counted);
+        Some(Line::Counted)
     });
 }
 
@@ -540,7 +552,7 @@ extern "C" fn oracle_hook_parse(vte: *mut Vte, mut raw: u32) {
         };
         if let Some(to) = to {
             // the character still ends an XTGETTCAP request's wait for `\`,
-            // as the C reference's parse_data does for every character
+            // as the C reference's parse_data did for every character
             // (tsm-vte.c:3282-3287)
             unsafe {
                 (*vte).dcs_esc = false;
