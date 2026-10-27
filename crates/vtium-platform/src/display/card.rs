@@ -437,9 +437,17 @@ mod tests {
     /// a dumb buffer, which the kernel keeps to primary nodes and refuses
     /// here with EACCES, and an empty event read. The buffer's path runs on a primary
     /// node in tier 3. A host with no render node says so and proves
-    /// nothing here.
+    /// nothing here. Under qemu-user (tools/arm), which answers DRM ioctls
+    /// with ENOTTY, it says so and is skipped.
     #[test]
     fn a_render_node_through_the_real_ioctls() {
+        if let Some(qemu) = std::env::var_os("VTIUM_QEMU_USER") {
+            eprintln!(
+                "under {}, which does not translate DRM ioctls: skipped",
+                qemu.display()
+            );
+            return;
+        }
         let Some(path) = (128..136)
             .map(|n| std::path::PathBuf::from(format!("/dev/dri/renderD{n}")))
             .find(|p| p.exists())

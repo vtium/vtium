@@ -47,6 +47,8 @@ case $name in
     ;;
 *-run)
     export QEMU_LD_PREFIX="$sysroot"
+    # Tests that qemu-user cannot judge read this and say they are skipped.
+    export VTIUM_QEMU_USER="$qemu"
     binfmt=/proc/sys/fs/binfmt_misc
     if [ -n "${VTIUM_ARM_IDS-}" ]; then
         # In the namespace, as its root: register qemu, then map back to the

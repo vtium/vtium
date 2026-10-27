@@ -61,8 +61,16 @@ fn help_says_it_only_checks() {
 
 /// With strace on the machine, the files it opens are only the
 /// configuration's and the loader's: no VT, DRM node, input device or tty.
+/// Under qemu-user (tools/arm), strace would trace qemu, so it is skipped.
 #[test]
 fn it_opens_nothing_but_the_configuration() {
+    if let Some(qemu) = std::env::var_os("VTIUM_QEMU_USER") {
+        eprintln!(
+            "under {}, where strace traces qemu: the open check is skipped",
+            qemu.display()
+        );
+        return;
+    }
     if Command::new("strace").arg("-V").output().is_err() {
         eprintln!("strace is not installed: the open check is skipped");
         return;
