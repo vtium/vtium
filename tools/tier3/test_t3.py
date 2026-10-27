@@ -943,6 +943,17 @@ class VariantTest(unittest.TestCase):
         finally:
             os.unlink(f.name)
 
+    def test_reported_not_offered(self):
+        # A screen found images not offered when it reported so after the
+        # screen before it ended and before it ended itself; a refusal of an
+        # earlier screen, or one after this screen ended, is not its own.
+        events = ["T3-NO-SIXEL", "T3-DONE sixel", "T3-DONE photos", "T3-NO-KITTY",
+                  "T3-RSS kitty 5000", "T3-DONE kitty", "T3-NO-SIXEL"]
+        self.assertEqual(t3_scenario.reported_not_offered(events, "sixel"), "T3-NO-SIXEL")
+        self.assertIsNone(t3_scenario.reported_not_offered(events, "photos"))
+        self.assertEqual(t3_scenario.reported_not_offered(events, "kitty"), "T3-NO-KITTY")
+        self.assertIsNone(t3_scenario.reported_not_offered(events, "flood"))
+
     def test_image_benchmarks_without_images(self):
         # A variant without images measures no picture stream: each image
         # benchmark screen must have found images not offered since the
@@ -964,8 +975,13 @@ class VariantTest(unittest.TestCase):
         got = figures("T3-NO-SIXEL\nT3-BENCH mpv-sixel 1.0 2.0\nT3-DONE mpv-sixel\n")
         self.assertIn("measured a picture stream", got["mpv-sixel"]["error"])
         # a variant with images measures, as before
-        got = figures("T3-NO-SIXEL\nT3-DONE mpv-sixel\n", images=True)
+        got = figures("T3-DONE mpv-sixel\n", images=True)
         self.assertIn("no benchmark window", got["mpv-sixel"]["error"])
+        # and an image screen in it that found images not offered fails
+        # with the refusal; a refusal of the screen before it is not its own
+        got = figures("T3-NO-SIXEL\nT3-DONE mpv-sixel\nT3-DONE tmux-2x2\n", images=True)
+        self.assertIn("found images not offered (T3-NO-SIXEL)", got["mpv-sixel"]["error"])
+        self.assertIn("no benchmark window", got["tmux-2x2"]["error"])
 
     def test_startup(self):
         # from the console's revision line to its display line, same process
