@@ -138,7 +138,7 @@ Damage tracks at most `COLUMNS_MAX` (8192) columns by `ROWS_MAX` (2048) rows, an
 
 A frame is the visible lines, the damage, the palette, the age the reading display last drew at, the cursor and DECSCNM. For each cell it gives the glyph (a codepoint or a cluster's codepoints), the width, the foreground and background resolved through the palette and inverse video, the underline colour SGR 58 set (resolved, and kept through inverse video) or none to follow the configured one, the attributes, whether the background is the default one and not inverted, the link id, and whether the cell changed for this display. The cursor carries its position, visibility, DECSCUSR shape and blink, and OSC 12's colour. Resolving at draw time is what lets a palette change recolour text already on the screen (ADR-1000's row "Colours resolved at draw time").
 
-Bold as bright and dim join the resolution with vtium/vtium#12, the selection with vtium/vtium#11, and the placement list with vtium/vtium#28. vtium-image anchors a placement by the `LineId` of the line holding its top row and marks its boxes through `Damage`; the line holds nothing for images.
+Bold as bright and dim join the resolution with vtium/vtium#83, the selection with vtium/vtium#11, and the placement list with vtium/vtium#28. vtium-image anchors a placement by the `LineId` of the line holding its top row and marks its boxes through `Damage`; the line holds nothing for images.
 
 ### Scrollback size
 
