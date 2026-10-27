@@ -62,7 +62,7 @@ The lint's docstring states how feature ids are formed. An id never changes once
 | Capability probes | each claimed capability, through a replay | `../kmscon/tests/capabilities/` (`probes.replay`, `run.py`) | `make test` in `../kmscon` |
 | 2, pixels | what the renderer draws in memory, pixel for pixel | ported from `../kmscon/tests/` (#17) | with vtium-render |
 | 3, the VM | screenshots of the installed build on a VT in a QEMU/KVM guest with a real KMS device, against goldens, with size and memory figures | `../kmscon/fork/tier3/` | `make tier3-minimal` in `../kmscon` (the minspec variants, 1 vCPU and 512 MB); #22 adds the option that boots a vtium build |
-| VT review | the maintainer's eyes on a real VT, guided step by step | this machine | `make vt-check`, which lands with #68 |
+| VT review | the maintainer's eyes on a real VT, guided step by step | this machine | `make vt-check GUIDE=start` ([docs/vt-review.md](docs/vt-review.md)); the binary arrives with #21 |
 
 Goldens live in the C repositories and are the judge. The author of a change never rewrites, widens or regenerates the golden that judges it; a golden changes only in its own commit, with each moved value listed. vtium's differences from a golden are its listed departures (each crate's README and #14's list); an unlisted difference fails.
 

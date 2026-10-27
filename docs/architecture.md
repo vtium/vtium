@@ -41,6 +41,7 @@ By vtium's harness, in tiers:
 - **Capability probes:** each capability vtium claims has a probe that fails when the capability is missing, judged against the capability list (below).
 - **Pixel tests (tier 2):** the renderer draws known screens, compared pixel for pixel with goldens.
 - **VM runs (tier 3):** a VM boots vtium on a VT, drives keys and compares screenshots pixel for pixel, including a minspec variant on the small-machine standard.
+- **VT review:** the maintainer judges a build by eye on a real VT, guided step by step, started only by the steering session ([vt-review.md](vt-review.md)).
 
 Work is built in bundles of items that don't collide, then evaluated once per bundle.
 
