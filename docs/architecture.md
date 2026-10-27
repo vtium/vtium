@@ -34,6 +34,8 @@ vtium reimplements in Rust what the [aaronsb/kmscon](https://github.com/aaronsb/
 | `vtium-platform` | kmscon's uterm (video, VT, monitor), seat, input, pty and event loop |
 | `vtium` | kmscon's `main.c`, config and terminal wiring |
 
+[c-reference.md](c-reference.md) maps how each of those components worked, as logic flows cited to the forks' code, with the vtium issue that takes each one and whether vtium's plan follows it.
+
 ## How it is judged
 
 By vtium's harness, in tiers:
