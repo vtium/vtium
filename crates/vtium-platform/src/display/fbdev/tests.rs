@@ -219,8 +219,10 @@ fn sleep_clears_and_unmaps_and_waking_asks_for_a_redraw() {
     assert_eq!(v.canvas(DISPLAY).unwrap().age, 0);
 }
 
+// A wake-up counts as user activity (the operator's decision on
+// vtium/vtium#18): a blanked display comes on.
 #[test]
-fn dpms_blanks_through_the_device_and_survives_a_sleep() {
+fn dpms_blanks_through_the_device_and_a_wake_up_unblanks() {
     let mut v = awake(FakeFb::new(32));
     v.set_dpms(DISPLAY, Dpms::Off).unwrap();
     v.set_dpms(DISPLAY, Dpms::Standby).unwrap();
@@ -230,12 +232,18 @@ fn dpms_blanks_through_the_device_and_survives_a_sleep() {
     );
     v.sleep();
     assert!(v.set_dpms(DISPLAY, Dpms::On).is_err());
+    v.events().for_each(drop);
     v.wake_up().unwrap();
     assert_eq!(
         *v.dev().blanks.borrow(),
-        [FB_BLANK_POWERDOWN, FB_BLANK_NORMAL, FB_BLANK_NORMAL]
+        [FB_BLANK_POWERDOWN, FB_BLANK_NORMAL, FB_BLANK_UNBLANK]
     );
-    assert_eq!(v.dpms(DISPLAY), Some(Dpms::Standby));
+    assert_eq!(v.dpms(DISPLAY), Some(Dpms::On));
+    assert_eq!(
+        v.events().collect::<Vec<_>>(),
+        [Event::Redraw(DISPLAY), Event::Awake]
+    );
+    assert_eq!(v.canvas(DISPLAY).unwrap().age, 0);
 }
 
 #[test]

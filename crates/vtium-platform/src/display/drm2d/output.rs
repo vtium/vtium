@@ -116,15 +116,6 @@ pub(super) fn dpms_value(dpms: Dpms) -> u64 {
     })
 }
 
-pub(super) fn dpms_of(value: u64) -> Dpms {
-    match u32::try_from(value) {
-        Ok(DRM_MODE_DPMS_ON) => Dpms::On,
-        Ok(DRM_MODE_DPMS_STANDBY) => Dpms::Standby,
-        Ok(DRM_MODE_DPMS_SUSPEND) => Dpms::Suspend,
-        _ => Dpms::Off,
-    }
-}
-
 /// An object's property ids, by name.
 #[derive(Debug, Default)]
 pub(super) struct Props(Vec<(String, u32)>);
@@ -216,9 +207,6 @@ pub(super) struct Output<M> {
     /// `None` where the connector has no DPMS property.
     pub(super) dpms: Option<(u32, Dpms)>,
     pub(super) online: bool,
-    /// Left out of a modeset while powered down: powering it on sets its
-    /// mode.
-    pub(super) unset: bool,
     /// Its buffers hold nothing known since a modeset or a wake-up, so the
     /// next announcement asks for a redraw.
     pub(super) redraw: bool,
@@ -255,10 +243,12 @@ impl<M: AsMut<[u8]>> Output<M> {
         self.dpms.is_none_or(|(_, d)| d == Dpms::On)
     }
 
-    /// Online and powered down: a modeset leaves it out, since its CRTC is
-    /// off and stays off, and the kernel refuses a flip event there.
-    pub(super) fn dark(&self) -> bool {
-        self.online && !self.dpms_on()
+    /// Powered on: what its buffers held counts as unknown, its next frame
+    /// goes whole, and the owner is told to redraw it.
+    pub(super) fn powered_on(&mut self) {
+        self.ages = Ages::default();
+        self.damage.set_whole();
+        self.redraw = true;
     }
 
     /// Clears the front buffer, which the display shows or flips to.

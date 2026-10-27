@@ -17,9 +17,10 @@ use rustix::io::Errno;
 
 use super::output::signed;
 use super::*;
-use crate::display::Wanted;
+use crate::display::blank::Due;
 use crate::display::fake::{Commit, FakeCard, logs};
 use crate::display::mode::mode;
+use crate::display::{Blank, DPMS_TIMEOUT, Wanted};
 
 const A: u32 = 41;
 const B: u32 = 42;
@@ -271,27 +272,60 @@ fn a_swap_while_powered_down_is_off() {
     frame(&mut v, &[DOT]).unwrap();
 }
 
-// Finding 3: a wake-up keeps a display powered down, though the monitor's
-// power cycle turned its connector on. The modeset leaves it out, since
-// its ACTIVE would turn it on; powering it on later sets its mode. Only
-// tier 3 proves the kernel ties DPMS to ACTIVE so.
+/// The blank as the owner wires it: it powers every display down when
+/// due, and a wake-up or a hotplug counts as input, restarting its timer.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test's instants start from the clock once"
+)]
+fn blanked(v: &mut Drm2d<FakeCard>) -> (Blank, std::time::Instant) {
+    let start = std::time::Instant::now();
+    let mut blank = Blank::new(Some(DPMS_TIMEOUT), start);
+    let at = start + DPMS_TIMEOUT;
+    assert_eq!(blank.due(at), Due::Now);
+    let ids: Vec<DisplayId> = v.displays().collect();
+    for id in ids {
+        v.set_dpms(id, Dpms::Off).unwrap();
+    }
+    (blank, at)
+}
+
+/// The owner's answer to a wake-up or a hotplug: input to the blank, which
+/// powers the displays up where they were blanked.
+fn activity(v: &mut Drm2d<FakeCard>, blank: &mut Blank, now: std::time::Instant) {
+    if blank.input(now) {
+        let ids: Vec<DisplayId> = v.displays().collect();
+        for id in ids {
+            v.set_dpms(id, Dpms::On).unwrap();
+        }
+    }
+    assert_eq!(blank.due(now + DPMS_TIMEOUT / 2), Due::In(DPMS_TIMEOUT / 2));
+}
+
+// Finding 3, the operator's decision: a wake-up counts as user activity.
+// Its modeset's ACTIVE=1 brings every display on, DPMS included, though
+// the display was blanked and the monitor's power cycle turned its
+// connector on; the recorded DPMS is On, and the blank restarts. Only tier
+// 3 proves the kernel ties DPMS to ACTIVE so.
 #[test]
-fn a_power_cycle_restores_dpms() {
+fn a_wake_up_while_blanked_brings_every_display_on() {
     let mut v = awake(one());
-    v.set_dpms(DisplayId(A), Dpms::Standby).unwrap();
+    let (mut blank, at) = blanked(&mut v);
+    assert_eq!(v.card().state().dpms[&A], 3);
     v.card().state().dpms.insert(A, 0);
     v.sleep();
     flip(&mut v);
+    v.events().for_each(drop);
     v.wake_up().unwrap();
-    assert_eq!(v.card().state().dpms[&A], 1);
-    assert!(v.canvas(DisplayId(A)).is_none());
-    events(&mut v);
-    v.set_dpms(DisplayId(A), Dpms::On).unwrap();
-    let c = v.card().last_commit().unwrap();
-    assert_ne!(c.flags & DRM_MODE_ATOMIC_ALLOW_MODESET, 0);
-    assert_eq!(c.get(100, "ACTIVE"), Some(1));
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A)), Event::Awake]);
+    assert_eq!(v.card().last_commit().unwrap().get(100, "ACTIVE"), Some(1));
     assert_eq!(v.card().state().dpms[&A], 0);
-    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A))]);
+    assert_eq!(v.dpms(DisplayId(A)), Some(Dpms::On));
+    let commits = v.card().state().commits.len();
+    activity(&mut v, &mut blank, at);
+    assert_eq!(v.card().state().commits.len(), commits, "already on");
+    flip(&mut v);
+    assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 0);
 }
 
 // The cursor commits (aaronsb/kmscon#119).
@@ -984,29 +1018,35 @@ fn a_powered_down_display_lends_no_canvas() {
     assert_eq!(clips(&c, primary(&v, A)), None, "the whole frame");
 }
 
-// Finding 3: a hotplug leaves a display powered down out of its modeset,
-// planes included: its ACTIVE stays 0, and a flip event on its CRTC,
-// off and staying off, would be refused.
+// Finding 3, the operator's decision: a hotplug counts as user activity.
+// Its modeset's ACTIVE=1 brings every display on, a blanked one included,
+// whose recorded DPMS becomes On; it is drawn whole, and the blank
+// restarts.
 #[test]
-fn a_hotplug_leaves_a_powered_down_display_dark() {
+fn a_hotplug_while_blanked_brings_every_display_on() {
     let mut v = a_then_b(ModePolicy::default());
     v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
     v.show_cursor(DisplayId(A), 1, 1).unwrap();
     v.swap(DisplayId(A), &[]).unwrap();
     flip(&mut v);
-    v.set_dpms(DisplayId(A), Dpms::Off).unwrap();
+    let (mut blank, at) = blanked(&mut v);
     v.events().for_each(drop);
     v.card().state().listed.push(B);
     v.poll().unwrap();
-    assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
-    assert_eq!(v.card().state().dpms[&A], 3);
+    assert_eq!(
+        events(&mut v),
+        [Event::Redraw(DisplayId(A)), Event::Added(DisplayId(B))]
+    );
     let c = v.card().last_commit().unwrap();
-    assert!(!c.mentions(100) && !c.mentions(cursor_plane(&v, A)));
-    flip(&mut v);
-    v.events().for_each(drop);
-    v.set_dpms(DisplayId(A), Dpms::On).unwrap();
+    assert_eq!(
+        (c.get(100, "ACTIVE"), c.get(101, "ACTIVE")),
+        (Some(1), Some(1))
+    );
     assert_eq!(v.card().state().dpms[&A], 0);
-    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A))]);
+    assert_eq!(v.dpms(DisplayId(A)), Some(Dpms::On));
+    activity(&mut v, &mut blank, at);
+    flip(&mut v);
+    assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 0);
 }
 
 // A display plugged in is set on, whatever DPMS its connector was left at.

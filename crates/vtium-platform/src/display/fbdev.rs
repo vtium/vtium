@@ -299,9 +299,12 @@ impl<F: Framebuffer> Fbdev<F> {
             self.awake = false;
             return Err(e);
         }
-        if let Some(dpms) = self.dpms {
-            if let Err(e) = self.set_dpms(DISPLAY, dpms) {
-                log::warn!("cannot set DPMS again: {e}");
+        // A wake-up counts as user activity (the operator's decision on
+        // vtium/vtium#18): a blanked display comes on.
+        if self.dpms.is_some_and(|d| d != Dpms::On) {
+            match self.dev.blank(FB_BLANK_UNBLANK) {
+                Ok(()) => self.dpms = Some(Dpms::On),
+                Err(e) => log::warn!("cannot unblank the framebuffer: {e}"),
             }
         }
         if self.announced {

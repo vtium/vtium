@@ -27,8 +27,7 @@ use super::mode::{self, Mode, ModePolicy};
 use super::{Ages, Canvas, Damage, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
 use output::{
     ARGB8888, Buffer, CURSOR_MAX, Cursor, Output, PLANE_CURSOR, PLANE_OVERLAY, PLANE_PRIMARY,
-    Planes, Props, XRGB8888, clip_bytes, connector_name, dpms_of, dpms_value, invalid, mode_bytes,
-    value,
+    Planes, Props, XRGB8888, clip_bytes, connector_name, dpms_value, invalid, mode_bytes, value,
 };
 use source::{Clock, Link, Timers};
 
@@ -308,25 +307,12 @@ impl<K: Kms> Drm2d<K> {
         }
         log::info!("setting DPMS of {} to {dpms:?}", o.name);
         let on = dpms == Dpms::On;
-        if on {
-            o.ages = Ages::default();
-            o.damage.set_whole();
-        }
-        if on && o.unset {
-            // Left out of a modeset while powered down: its CRTC may hold
-            // another program's state, so a modeset powers it on.
-            o.dpms = Some((prop, dpms));
-            o.redraw = true;
-            return self.request_modeset().inspect_err(|_| {
-                if let Some(o) = self.output_mut(id) {
-                    o.dpms = Some((prop, now));
-                }
-            });
-        }
         self.card
             .set_connector_property(o.id.0, prop, dpms_value(dpms))?;
         o.dpms = Some((prop, dpms));
         if on {
+            o.powered_on();
+            o.redraw = false;
             self.events.push(Event::Redraw(id));
         }
         Ok(())
@@ -483,7 +469,7 @@ impl<K: Kms> Drm2d<K> {
             o.ages = Ages::default();
             o.redraw = true;
         }
-        if let Err(e) = self.scan(true, true) {
+        if let Err(e) = self.scan(true) {
             self.release_master();
             self.awake = false;
             return Err(e);
@@ -534,7 +520,7 @@ impl<K: Kms> Drm2d<K> {
     fn finish_sleep(&mut self) {
         if self.master && !self.legacy {
             let mut req = Request::default();
-            self.clear_planes(&mut req, &[]);
+            self.clear_planes(&mut req);
             if !req.entries.is_empty() {
                 if let Err(e) = self.card.commit(&req, DRM_MODE_ATOMIC_NONBLOCK) {
                     log::warn!("cannot hide the cursor and overlay planes: {e}");
@@ -566,7 +552,7 @@ impl<K: Kms> Drm2d<K> {
             }
             return self.wake_up();
         }
-        let scanned = self.scan(false, false);
+        let scanned = self.scan(false);
         if scanned.is_err() && self.awake {
             self.retries.get_or_insert(0);
         }
@@ -672,7 +658,7 @@ impl<K: Kms> Drm2d<K> {
 
     /// The hotplug scan: binds a display to each connected connector with
     /// modes, lets go of those gone, and sets modes when anything is new.
-    fn scan(&mut self, read_dpms: bool, force: bool) -> io::Result<()> {
+    fn scan(&mut self, force: bool) -> io::Result<()> {
         if !self.awake {
             return Ok(());
         }
@@ -696,11 +682,7 @@ impl<K: Kms> Drm2d<K> {
             }
             if let Some(o) = self.outputs.iter_mut().find(|o| o.id.0 == id) {
                 o.available = true;
-                if !o.online {
-                    needs = true;
-                } else if read_dpms {
-                    self.restore_dpms(id);
-                }
+                needs |= !o.online;
                 continue;
             }
             if let Some(o) = self.bind(&res, &conn) {
@@ -734,27 +716,6 @@ impl<K: Kms> Drm2d<K> {
         } else {
             self.announce();
             Ok(())
-        }
-    }
-
-    /// Powers a display down again, where the connector was turned on
-    /// without vtium, as across a monitor's power cycle. A display that is
-    /// on gets its state from the modeset's `ACTIVE`.
-    fn restore_dpms(&mut self, id: u32) {
-        let Ok(props) = self.card.properties(id, Object::Connector) else {
-            return;
-        };
-        let Some(o) = self.outputs.iter_mut().find(|o| o.id.0 == id) else {
-            return;
-        };
-        let Some((prop, ours)) = o.dpms.filter(|&(_, d)| d != Dpms::On) else {
-            return;
-        };
-        if value(&props, "DPMS").map(dpms_of) != Some(ours) {
-            log::debug!("DPMS of {} changed; setting it again", o.name);
-            if let Err(e) = self.card.set_connector_property(id, prop, dpms_value(ours)) {
-                log::warn!("cannot set DPMS of {}: {e}", o.name);
-            }
         }
     }
 
@@ -821,7 +782,6 @@ impl<K: Kms> Drm2d<K> {
             cursor: None,
             dpms,
             online: false,
-            unset: false,
             redraw: false,
             flipping: false,
             flips: 0,
@@ -891,17 +851,12 @@ impl<K: Kms> Drm2d<K> {
     }
 
     /// Hides every cursor and overlay plane, which another program may
-    /// have left in the middle of the screen, except those on `dark`, the
-    /// CRTCs a modeset leaves out.
-    fn clear_planes(&self, req: &mut Request, dark: &[u32]) {
+    /// have left in the middle of the screen.
+    fn clear_planes(&self, req: &mut Request) {
         for plane in self.card.planes().unwrap_or_default() {
             let Ok(props) = self.card.properties(plane, Object::Plane) else {
                 continue;
             };
-            let on = value(&props, "CRTC_ID").and_then(|c| u32::try_from(c).ok());
-            if on.is_some_and(|c| dark.contains(&c)) {
-                continue;
-            }
             if matches!(value(&props, "type"), Some(PLANE_CURSOR | PLANE_OVERLAY)) {
                 let props = Props::new(&props);
                 let cleared = props
@@ -1110,21 +1065,18 @@ impl<K: Kms> Drm2d<K> {
     /// commit, then committed without blocking, with a flip event.
     fn atomic_modeset(&mut self) -> Result<(), Failure> {
         let mut req = Request::default();
-        let dark: Vec<u32> = self
-            .outputs
-            .iter()
-            .filter(|o| o.dark())
-            .map(|o| o.crtc)
-            .collect();
-        self.clear_planes(&mut req, &dark);
+        self.clear_planes(&mut req);
         let mut staged = Vec::with_capacity(self.outputs.len());
         let mut outputs = std::mem::take(&mut self.outputs);
+        // A wake-up or a hotplug counts as user activity (the operator's
+        // decision on vtium/vtium#18): the modeset's ACTIVE=1 brings every
+        // display on, so it is recorded on.
+        let was: Vec<Option<(u32, Dpms)>> = outputs.iter().map(|o| o.dpms).collect();
+        for o in &mut outputs {
+            o.dpms = o.dpms.map(|(prop, _)| (prop, Dpms::On));
+        }
         let mut prepared = Ok(());
         for o in &outputs {
-            if o.dark() {
-                staged.push(None);
-                continue;
-            }
             log::info!(
                 "preparing the modeset of {} at {}x{}",
                 o.name,
@@ -1135,7 +1087,7 @@ impl<K: Kms> Drm2d<K> {
                 let fb = Self::staged_fb(o, made.as_ref());
                 match self.card.create_blob(&mode_bytes(&o.mode.0)) {
                     Ok(blob) => {
-                        staged.push(Some((made, blob)));
+                        staged.push((made, blob));
                         o.prepare(&mut req, fb, blob, None, self.hotspot)
                     }
                     Err(e) => {
@@ -1148,12 +1100,7 @@ impl<K: Kms> Drm2d<K> {
                 break;
             }
         }
-        let none = staged.iter().all(Option::is_none);
         let outcome = prepared.map_err(Failure::Other).and_then(|()| {
-            if none {
-                // Every display is powered down: nothing to set.
-                return Ok(());
-            }
             self.card
                 .commit(
                     &req,
@@ -1182,11 +1129,7 @@ impl<K: Kms> Drm2d<K> {
         });
         // A display not set keeps what it had: an online one its buffers
         // and what it shows.
-        for (o, staged) in outputs.iter_mut().zip(staged) {
-            let Some((made, blob)) = staged else {
-                o.unset |= outcome.is_ok();
-                continue;
-            };
+        for (o, (made, blob)) in outputs.iter_mut().zip(staged) {
             if outcome.is_ok() {
                 if o.mode_blob != 0 {
                     let _ = self.card.destroy_blob(o.mode_blob);
@@ -1194,12 +1137,19 @@ impl<K: Kms> Drm2d<K> {
                 o.mode_blob = blob;
                 self.install(o, made);
                 o.online = true;
-                o.unset = false;
                 o.start_flip();
                 o.damage.set_whole();
             } else {
                 let _ = self.card.destroy_blob(blob);
                 self.release(made.unwrap_or_default());
+            }
+        }
+        for (o, was) in outputs.iter_mut().zip(was) {
+            if outcome.is_err() {
+                // Nothing changed on the card: the state recorded stays.
+                o.dpms = was;
+            } else if was.is_some_and(|(_, d)| d != Dpms::On) {
+                o.powered_on();
             }
         }
         self.outputs = outputs;
@@ -1210,10 +1160,6 @@ impl<K: Kms> Drm2d<K> {
     fn legacy_modeset(&mut self) {
         let mut outputs = std::mem::take(&mut self.outputs);
         for o in &mut outputs {
-            if o.dark() {
-                o.unset = true;
-                continue;
-            }
             log::info!(
                 "preparing the modeset of {} at {}x{}",
                 o.name,
@@ -1236,7 +1182,11 @@ impl<K: Kms> Drm2d<K> {
                 Ok(()) => {
                     self.install(o, made);
                     o.online = true;
-                    o.unset = false;
+                    // The CRTC is on, whatever DPMS it was at.
+                    if !o.dpms_on() {
+                        o.dpms = o.dpms.map(|(prop, _)| (prop, Dpms::On));
+                        o.powered_on();
+                    }
                 }
                 Err(e) => {
                     log::error!("cannot set the CRTC of {}: {e}", o.name);

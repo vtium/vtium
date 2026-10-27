@@ -4,7 +4,8 @@
 //! [`Blank`] keeps the time of the last input and says when the timeout
 //! has passed. The owner powers the displays down when its loop timer
 //! fires ([`Blank::insert`]) and up when [`Blank::input`] says they were
-//! blanked. The timeout is the configuration's `dpms-timeout`, 600 s by
+//! blanked. A wake-up ([`super::Event::Awake`]) and a hotplug count as
+//! input: their modeset brings every display on. The timeout is the configuration's `dpms-timeout`, 600 s by
 //! default as in the C reference (config.c:1388).
 
 use std::time::{Duration, Instant};
@@ -26,7 +27,7 @@ pub struct Blank {
 
 /// What the timer finds.
 #[derive(Debug, PartialEq, Eq)]
-enum Due {
+pub(super) enum Due {
     /// Not yet: look again after this long.
     In(Duration),
     /// Blank the displays now.
@@ -57,7 +58,7 @@ impl Blank {
         self.blanked
     }
 
-    fn due(&mut self, now: Instant) -> Due {
+    pub(super) fn due(&mut self, now: Instant) -> Due {
         let Some(timeout) = self.timeout else {
             return Due::Never;
         };
