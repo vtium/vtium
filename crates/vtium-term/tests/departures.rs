@@ -124,7 +124,7 @@ fn a_marker_or_an_intermediate_makes_another_function() {
 
 // The C reference left the cursor where it was after DECSTBM, and took an
 // omitted bottom margin as 0, which made the whole screen the region. VT510
-// manual, DECSTBM: "Default: Pb is the last line of the current page", and
+// manual, DECSTBM: "Default: Pb = current number of lines per screen", and
 // "DECSTBM moves the cursor to column 1, line 1 of the page"; xterm moves
 // it to the home position, the region's top in origin mode.
 #[test]
@@ -139,11 +139,13 @@ fn decstbm_homes_the_cursor_and_an_omitted_bottom_is_the_last_line() {
 
 // The C reference scrolled the region when IND, LF or a wrap reached the
 // screen's last row below the region, and when RI reached its first row
-// above it. VT510 manual, IND: "If the cursor is at the bottom margin, the
-// screen performs a scroll-up"; RI: "If the cursor is at the top margin,
-// the screen performs a scroll-down"; DECAWM: "The display scrolls up if
-// the cursor is at the end of the scrolling region." Outside the region
-// the cursor stops at the screen's edge, as xterm's does.
+// above it. VT510 manual, IND: "If the cursor is at the bottom margin, then
+// the screen performs a scroll-up"; DECAWM: "Any text on the page scrolls
+// up if the cursor is at the end of the scrolling region." VT220 manual,
+// chapter 4, RI: "If cursor is at top margin, screen performs a scroll
+// down." Outside the region the cursor stops at the screen's edge, as
+// xterm's does, and a row a wrap leaves there is not marked wrapped, since
+// its text does not continue on another row.
 #[test]
 fn index_outside_the_region_stops_at_the_screens_edge() {
     let fill = b"1\r\n2\r\n3\r\n4\r\n5";
@@ -158,9 +160,42 @@ fn index_outside_the_region_stops_at_the_screens_edge() {
     t.input(b"\x1b[5;1Habcdxy");
     assert_eq!(rows(t.screen()), ["1", "2", "3", "4", "xycd"]);
     assert_eq!(t.screen().cursor(), (2, 4));
+    let wrapped = |t: &Terminal, row| {
+        let line = t.screen().line(row).unwrap();
+        line.flags().contains(vtium_term::LineFlags::WRAPPED)
+    };
+    assert!(!wrapped(&t, 4));
     // A wide character there wraps whole to the same row.
     t.input("\x1b[5;4H\u{4E2D}".as_bytes());
     assert_eq!(rows(t.screen()), ["1", "2", "3", "4", "\u{4E2D}c"]);
+    assert!(!wrapped(&t, 4));
+    // So does a cluster a VS16 widens in the last column.
+    t.input("\x1b[5;4H\u{2764}\u{FE0F}".as_bytes());
+    assert_eq!(rows(t.screen()), ["1", "2", "3", "4", "\u{2764}\u{FE0F}c"]);
+    assert_eq!(t.screen().cursor(), (2, 4));
+    // Inside the region a wrap still marks its row.
+    t.input(b"\x1b[3;1Habcdx");
+    assert!(wrapped(&t, 2));
+}
+
+// The C reference made the whole screen the region for an inverted or
+// one-row DECSTBM, and for a bottom margin past the screen. The VT510
+// manual says only that "The value of the top margin (Pt) must be less than
+// the bottom margin (Pb)", so vtium does as xterm does (charproc.c,
+// CASE_DECSTBM): it ignores such a DECSTBM, leaving the region and the
+// cursor, and takes a bottom margin past the screen as its last row.
+#[test]
+fn an_invalid_decstbm_is_ignored_and_a_bottom_past_the_screen_clamps() {
+    let mut t = term(4, 5, b"\x1b[2;4r");
+    for invalid in [&b"\x1b[3;3r"[..], b"\x1b[4;2r", b"\x1b[9;9r"] {
+        t.input(b"\x1b[3;2H");
+        t.input(invalid);
+        assert_eq!(t.screen().margins(), (1, 3), "{invalid:?}");
+        assert_eq!(t.screen().cursor(), (1, 2), "{invalid:?}");
+    }
+    t.input(b"\x1b[3;2H\x1b[2;9r");
+    assert_eq!(t.screen().margins(), (1, 4));
+    assert_eq!(t.screen().cursor(), (0, 0));
 }
 
 // HPA and HPR (ECMA-48 8.3.57, 8.3.59), which the C reference did not

@@ -233,11 +233,8 @@ fn decstbm_sets_the_scroll_region() {
     assert_eq!(text(&t), ["1", "3", "4", "x", "y"]);
     t.input(b"\x1b[3r");
     assert_eq!(t.screen().margins(), (2, 4));
-    for invalid in [&b"\x1b[r"[..], b"\x1b[3;3r", b"\x1b[4;2r", b"\x1b[2;9r"] {
-        t.input(b"\x1b[2;4r");
-        t.input(invalid);
-        assert_eq!(t.screen().margins(), (0, 4), "{invalid:?}");
-    }
+    t.input(b"\x1b[r");
+    assert_eq!(t.screen().margins(), (0, 4));
     // A private marker is not DECSTBM.
     t.input(b"\x1b[?2;4r");
     assert_eq!(t.screen().margins(), (0, 4));
@@ -424,6 +421,27 @@ fn a_discarded_line_takes_the_selection_with_it() {
         Some("alt-a\nalt-b\nalt-c")
     );
     t.input(b"\r\n\r\n");
+    assert_eq!(t.screen().selection_text(), None);
+
+    // With no scrollback, a scroll drops the line leaving the top.
+    let mut t = term(8, 3, b"one\r\ntwo\r\nthree");
+    t.screen_mut().select_start(0, 0);
+    t.screen_mut().select_to(2, 1);
+    t.input(b"\n");
+    assert_eq!(t.screen().selection_text(), None);
+
+    // A taller screen discards the hidden rows it rotates to the top
+    // before it pulls lines back from the scrollback.
+    let mut t = Terminal::new(6, 4, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"a\r\nb\r\nc\r\nd");
+    t.screen_mut().select_start(0, 2);
+    t.screen_mut().select_to(0, 3);
+    t.input(b"\x1b[H");
+    t.screen_mut().resize(6, 2);
+    t.input(b"\x1b[2;1H\n");
+    t.screen_mut().resize(6, 4);
+    assert_eq!(text(&t), ["a", "b", "", "c"]);
     assert_eq!(t.screen().selection_text(), None);
 
     // A selection from the first row to the last loses its first line to

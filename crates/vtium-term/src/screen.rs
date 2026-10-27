@@ -495,9 +495,10 @@ impl Screen {
             if line.len() < cols {
                 line.resize(cols);
             }
+            // The line replaced is one `rotate_down` just made, which
+            // holds no selection.
             if let Some(slot) = self.main.get_mut(row) {
-                let gone = core::mem::replace(slot, line);
-                self.discard_lines(vec![gone]);
+                *slot = line;
             }
         }
     }
@@ -686,19 +687,21 @@ impl Screen {
 
     /// DECSTBM: the scroll region from row `top` to row `bottom`, counted
     /// from 1, 0 standing for an omitted parameter: the first row and the
-    /// last. A region of one row, an inverted one, or one past the screen's
-    /// end is the whole screen, as in the C reference. The cursor goes home,
-    /// the region's top in origin mode.
+    /// last. A bottom past the screen is its last row. A region of one row,
+    /// or an inverted one, is ignored, as xterm ignores it; otherwise the
+    /// cursor goes home, the region's top in origin mode.
     pub fn set_margins(&mut self, top: usize, bottom: usize) {
-        let top = top.max(1);
-        let bottom = if bottom == 0 { self.rows } else { bottom };
-        if bottom <= top || bottom > self.rows {
-            self.top = 0;
-            self.bottom = self.rows.saturating_sub(1);
+        let top = top.clamp(1, self.rows);
+        let bottom = if bottom == 0 {
+            self.rows
         } else {
-            self.top = top.saturating_sub(1);
-            self.bottom = bottom.saturating_sub(1);
+            bottom.min(self.rows)
+        };
+        if bottom <= top {
+            return;
         }
+        self.top = top.saturating_sub(1);
+        self.bottom = bottom.saturating_sub(1);
         self.move_to(0, 0);
     }
 

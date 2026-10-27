@@ -51,7 +51,7 @@ impl Screen {
 
         if self.cursor_x >= self.cols {
             if self.flags.auto_wrap {
-                self.mark_wrapped(self.cursor_y);
+                self.mark_wrapped(self.cursor_y, last);
                 self.move_cursor(0, self.cursor_y.saturating_add(1));
             } else {
                 self.move_cursor(self.cols.saturating_sub(1), self.cursor_y);
@@ -69,7 +69,7 @@ impl Screen {
                 self.split_wide(y, x);
                 self.split_wide(y, x.saturating_add(1));
                 self.erase_cells(y, x..x.saturating_add(1));
-                self.mark_wrapped(y);
+                self.mark_wrapped(y, last);
                 self.move_cursor(0, y.saturating_add(1));
             }
         }
@@ -107,8 +107,8 @@ impl Screen {
     /// The last row a print at row `y` may use: the bottom margin, where a
     /// wrap scrolls the region, or below the region the screen's last row,
     /// where a wrap returns to the first column and nothing scrolls (VT510
-    /// manual, DECAWM: "The display scrolls up if the cursor is at the end
-    /// of the scrolling region").
+    /// manual, DECAWM: "Any text on the page scrolls up if the cursor is at
+    /// the end of the scrolling region").
     pub(super) fn last_print_row(&self, y: usize) -> usize {
         if y <= self.bottom || y >= self.rows {
             self.bottom
@@ -117,8 +117,15 @@ impl Screen {
         }
     }
 
-    /// Marks row `y`'s text as continuing on the next row, for reflow.
-    fn mark_wrapped(&mut self, y: usize) {
+    /// Marks row `y`'s text as continuing on the next row, for reflow,
+    /// when a wrap from it reaches another row: below `last`, or at the
+    /// bottom margin, which scrolls. On the screen's last row below the
+    /// region the wrap returns to the same row, whose text does not
+    /// continue.
+    fn mark_wrapped(&mut self, y: usize, last: usize) {
+        if y >= last && last != self.bottom {
+            return;
+        }
         if let Some(line) = self.line_mut(y) {
             line.flags_mut().insert(crate::LineFlags::WRAPPED);
         }
