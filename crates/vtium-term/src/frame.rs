@@ -348,7 +348,7 @@ struct Colors {
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
-    use crate::line::LineId;
+    use crate::line::{LineId, LinkId};
     use crate::style::Style;
 
     const WHITE: Rgb = Rgb::new(0xff, 0xff, 0xff);
@@ -750,8 +750,9 @@ mod tests {
     }
 
     // The row accessor reads each cell as `cell` does: styles changing
-    // and repeating, a wide pair, a cluster, a link, the selection across
-    // a style's run, a changed cell and the blanks past a trimmed line.
+    // and repeating, dim and an underline colour, a wide pair, a cluster,
+    // a link, a selection starting and ending inside a style's run, a
+    // changed cell and the blanks past a trimmed line.
     #[test]
     fn a_rows_cells_read_as_each_cell_does() {
         let mut line = Line::new(LineId::new(1), 8);
@@ -759,9 +760,22 @@ mod tests {
             fg: Color::Indexed(1),
             ..Style::DEFAULT
         };
-        let bold = with(red, &[Attrs::BOLD, Attrs::INVERSE]);
+        let bold = with(
+            Style {
+                bg: Color::Rgb(BG),
+                underline_color: Color::Indexed(3),
+                ..red
+            },
+            &[Attrs::BOLD, Attrs::INVERSE, Attrs::DIM],
+        );
         line.write(0, Glyph::Char('a'), Width::Narrow, &red, None);
-        line.write(1, Glyph::Char('b'), Width::Narrow, &red, None);
+        line.write(
+            1,
+            Glyph::Char('b'),
+            Width::Narrow,
+            &red,
+            Some(LinkId::new(7)),
+        );
         line.write(2, Glyph::Char('c'), Width::Narrow, &bold, None);
         line.write(3, Glyph::Char('\u{4e00}'), Width::Wide, &bold, None);
         line.write(4, Glyph::Empty, Width::WideTail, &bold, None);
@@ -786,8 +800,13 @@ mod tests {
             let cells: Vec<_> = frame.cells(row).collect();
             assert_eq!(cells, each, "row {row}");
         }
-        assert!(frame.cells(0).nth(2).unwrap().changed);
-        assert!(frame.cells(0).nth(1).unwrap().selected);
+        let at = |col: usize| frame.cells(0).nth(col).unwrap();
+        assert!(at(2).changed);
+        assert!(at(1).selected);
+        assert_eq!(at(1).link, Some(LinkId::new(7)));
+        assert_eq!(at(3).underline_color, Some(Rgb::new(3, 3, 3)));
+        // bold's 9 dimmed toward BG, 9/2 + 21/2, 9/2 + a0/2, 9/2 + c3/2
+        assert_eq!(at(3).fg, Rgb::new(0x14, 0x54, 0x65), "dim");
         assert_eq!(frame.cells(2).count(), 0, "outside the frame");
     }
 
