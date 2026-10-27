@@ -81,9 +81,65 @@ const SB_MAX: Bound = Bound {
     cite: "vtium's own: the largest of the operator's caps, where the worst case a program can write is 531 MiB (ADR-1001, \"Memory\"); the operator asked for the cap to be configurable (2026-10-26)",
 };
 
+const REPLIES_PENDING: Bound = Bound {
+    name: "REPLIES_PENDING_MAX",
+    value: 65_536,
+    what: "Bytes of replies and input reports the terminal holds before the host takes them",
+    past: "The input call returns after the byte whose reply reached it, and takes nothing until the host has taken the replies, so a program that queries without reading cannot grow them",
+    cite: "vtium's own, at `PTY_REPLY_HIGH` (64 KiB), where the C reference stopped reading a child that queried without reading (pty.c:68)",
+};
+
+const VERSION: Bound = Bound {
+    name: "VERSION_MAX",
+    value: 64,
+    what: "Bytes of the text XTVERSION replies, which the host sets",
+    past: "`Terminal::set_version` refuses the text, and the reply keeps the one before",
+    cite: "`TSM_VTE_VERSION_MAX`, libtsm.h:1497",
+};
+
+const TERMCAP_ENTRIES: Bound = Bound {
+    name: "TERMCAP_ENTRIES_MAX",
+    value: 1024,
+    what: "Capabilities in the table XTGETTCAP answers from",
+    past: "`Termcap::new` refuses the table",
+    cite: "`TSM_VTE_TERMCAP_MAX`, libtsm.h:1537",
+};
+
+const TERMCAP_NAME: Bound = Bound {
+    name: "TERMCAP_NAME_MAX",
+    value: 32,
+    what: "Bytes of a capability's name, in the table and in a request",
+    past: "`Termcap::new` refuses the table; a requested name past it ends the reply's list",
+    cite: "`TSM_VTE_TERMCAP_NAME_MAX`, libtsm.h:1538",
+};
+
+const TERMCAP_VALUE: Bound = Bound {
+    name: "TERMCAP_VALUE_MAX",
+    value: 256,
+    what: "Bytes of a capability's value",
+    past: "`Termcap::new` refuses the table",
+    cite: "`TSM_VTE_TERMCAP_VALUE_MAX`, libtsm.h:1539",
+};
+
+const XTGETTCAP_NAMES_BOUND: Bound = Bound {
+    name: "XTGETTCAP_NAMES",
+    value: 16,
+    what: "Names one XTGETTCAP request is answered for",
+    past: "The reply's list ends after the sixteenth, with the `;` before the seventeenth",
+    cite: "`XTGETTCAP_NAMES`, tsm-vte-int.h:36; vtium-parse's `XTGETTCAP_MAX` holds sixteen names of `TERMCAP_NAME_MAX` bytes",
+};
+
+const XTGETTCAP_REPLY: Bound = Bound {
+    name: "XTGETTCAP_REPLY_MAX",
+    value: 4096,
+    what: "Bytes of one XTGETTCAP reply, its DCS and ST included",
+    past: "The list ends before the pair that would pass it; a reply of exactly this many bytes is sent",
+    cite: "`XTGETTCAP_REPLY_MAX`, tsm-vte.c:131; the C reference reserved a byte for a `;` the last pair does not take, so it refused a reply of exactly 4096 bytes",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 8] = [
+pub(crate) const BOUNDS: [Bound; 15] = [
     COLUMNS,
     ROWS,
     CLUSTER,
@@ -92,6 +148,13 @@ pub(crate) const BOUNDS: [Bound; 8] = [
     SB_MEDIUM,
     SB_LARGE,
     SB_MAX,
+    REPLIES_PENDING,
+    VERSION,
+    TERMCAP_ENTRIES,
+    TERMCAP_NAME,
+    TERMCAP_VALUE,
+    XTGETTCAP_NAMES_BOUND,
+    XTGETTCAP_REPLY,
 ];
 
 /// Cells a line holds, and columns a screen and its damage have. The
@@ -139,6 +202,27 @@ pub const SB_SIZE_CAP_LARGE: usize = SB_LARGE.value;
 
 /// The most scrollback lines any cap allows, a configured one included.
 pub const SB_SIZE_MAX: usize = SB_MAX.value;
+
+/// The most bytes of replies held before the host takes them.
+pub const REPLIES_PENDING_MAX: usize = REPLIES_PENDING.value;
+
+/// The most bytes of XTVERSION's text.
+pub const VERSION_MAX: usize = VERSION.value;
+
+/// The most capabilities in XTGETTCAP's table.
+pub const TERMCAP_ENTRIES_MAX: usize = TERMCAP_ENTRIES.value;
+
+/// The most bytes of a capability's name.
+pub const TERMCAP_NAME_MAX: usize = TERMCAP_NAME.value;
+
+/// The most bytes of a capability's value.
+pub const TERMCAP_VALUE_MAX: usize = TERMCAP_VALUE.value;
+
+/// The most names one XTGETTCAP request is answered for.
+pub const XTGETTCAP_NAMES: usize = XTGETTCAP_NAMES_BOUND.value;
+
+/// The most bytes of one XTGETTCAP reply.
+pub const XTGETTCAP_REPLY_MAX: usize = XTGETTCAP_REPLY.value;
 
 #[cfg(test)]
 #[expect(

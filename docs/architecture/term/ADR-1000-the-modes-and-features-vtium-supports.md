@@ -111,7 +111,7 @@ Every reply follows the reply rule (docs/architecture.md, "Determinism"): it is 
 - **A report answers only where vtium has the thing it reports, with its real value.** The text area in cells (XTWINOPS 18) and in pixels (14), the cell size (16), and the screen in cells (19) and pixels (15), the screen being the display the grid fills, get real numbers. Reports about a window or icon vtium does not have (11, 13, 14;2, 20) get no reply.
 - **Title reporting (XTWINOPS 21) answers a fixed empty title.** OSC 0, 1 and 2 are ignored, so no title is kept.
 - **OSC 52 write is on**, inside the OSC string bound (#39); the read is refused above.
-- **A paste never carries its own end marker:** vtium strips CSI 201 ~ from pasted text inside bracketed paste.
+- **A paste never carries its own end marker:** vtium filters every paste, bracketed or not, as xterm's paste filtering does with `allowPasteControls` false: each C0 control but HT, LF and CR, DEL, and each C1 control, a code point in UTF-8, becomes a space.
 - **ENQ answers an empty answerback.** The C reference answered ACK (0x06); vtium lists this as a departure.
 - **Focus (1004) and visibility (2033) reports are allowed:** a program opts in, and what they reveal is that the user switched VTs.
 - **setBackground and setForeground**, kmscon's private OSC strings (`kmscon/src/terminal.c:863` in the C reference), hand the display back and take it again. No DEC or ECMA specification defines them. vtium keeps them behind a configuration key, on by default, as the C reference behaved (#36).

@@ -523,6 +523,18 @@ impl Screen {
         self.move_cursor(x.min(self.cols.saturating_sub(1)), y.min(last));
     }
 
+    /// DECRC: to column `x`, row `y` of the screen, whatever the origin
+    /// mode, kept inside the screen. A column at the screen's width is the
+    /// pending wrap DECSC saved, kept while autowrap is on.
+    pub fn restore_cursor(&mut self, x: usize, y: usize) {
+        let last = if self.flags.auto_wrap {
+            self.cols
+        } else {
+            self.cols.saturating_sub(1)
+        };
+        self.move_cursor(x.min(last), y.min(self.rows.saturating_sub(1)));
+    }
+
     /// CHA and HPA: to column `x` of the cursor's row.
     pub fn move_to_column(&mut self, x: usize) {
         self.move_cursor(x.min(self.cols.saturating_sub(1)), self.cursor_y);

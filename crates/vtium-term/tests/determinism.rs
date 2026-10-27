@@ -81,3 +81,44 @@ fn a_cut_inside_a_cluster_keeps_it_whole() {
         );
     }
 }
+
+// docs/architecture.md, "Determinism": a synchronized update's end pauses
+// the input call, which changes when work is done, never what state
+// results. With the host presenting by mode 2026, each piece is fed until
+// the terminal has taken all of it.
+#[test]
+fn a_synchronized_updates_pause_changes_no_state() {
+    let fed_through = |stream: &[u8], cuts: &[usize]| {
+        let mut t = fresh();
+        t.set_sync_enabled(true);
+        let mut from = 0;
+        for &cut in cuts.iter().chain([&stream.len()]) {
+            let mut piece = &stream[from..cut];
+            while !piece.is_empty() {
+                piece = &piece[t.input(piece)..];
+            }
+            from = cut;
+        }
+        t
+    };
+    for seed in 0..common::seeds(300) {
+        let mut rng = Rng(seed);
+        let mut stream = Vec::new();
+        for _ in 0..1 + rng.below(6) {
+            stream.extend_from_slice(b"\x1b[?2026h");
+            let len = 1 + rng.below(80);
+            stream.extend(grammar_stream(&mut rng, len));
+            stream.extend_from_slice(b"\x1b[?2026l");
+        }
+        let whole = fed_through(&stream, &[]);
+        assert!(whole.sync_frames() > 0, "seed {seed}: no hold ended");
+        let bytewise: Vec<usize> = (1..stream.len()).collect();
+        let each = fed_through(&stream, &bytewise);
+        assert!(
+            whole.screen() == each.screen()
+                && whole.replies() == each.replies()
+                && whole.sync_frames() == each.sync_frames(),
+            "seed {seed}: fed a byte at a time the state differs from the stream fed whole"
+        );
+    }
+}

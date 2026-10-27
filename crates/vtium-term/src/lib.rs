@@ -55,7 +55,10 @@
 //! [`CLUSTER_BYTES_PER_CELL`] and the scrollback
 //! caps [`SB_SIZE_CAP_SMALL`], [`SB_SIZE_CAP_MEDIUM`] and
 //! [`SB_SIZE_CAP_LARGE`], which [`sb_size`] applies by the machine's
-//! memory unless the configuration sets a cap, at most [`SB_SIZE_MAX`].
+//! memory unless the configuration sets a cap, at most [`SB_SIZE_MAX`];
+//! and the replies' [`REPLIES_PENDING_MAX`], [`VERSION_MAX`], [`TERMCAP_ENTRIES_MAX`],
+//! [`TERMCAP_NAME_MAX`], [`TERMCAP_VALUE_MAX`], [`XTGETTCAP_NAMES`] and
+//! [`XTGETTCAP_REPLY_MAX`].
 
 mod bounds;
 mod cell;
@@ -65,12 +68,14 @@ mod line;
 mod screen;
 mod scrollback;
 mod style;
+mod termcap;
 mod terminal;
 mod unicode;
 
 pub use bounds::{
-    CLUSTER_BYTES_PER_CELL, CLUSTER_MAX, COLUMNS_MAX, ROWS_MAX, SB_SIZE_CAP_LARGE,
-    SB_SIZE_CAP_MEDIUM, SB_SIZE_CAP_SMALL, SB_SIZE_MAX,
+    CLUSTER_BYTES_PER_CELL, CLUSTER_MAX, COLUMNS_MAX, REPLIES_PENDING_MAX, ROWS_MAX,
+    SB_SIZE_CAP_LARGE, SB_SIZE_CAP_MEDIUM, SB_SIZE_CAP_SMALL, SB_SIZE_MAX, TERMCAP_ENTRIES_MAX,
+    TERMCAP_NAME_MAX, TERMCAP_VALUE_MAX, VERSION_MAX, XTGETTCAP_NAMES, XTGETTCAP_REPLY_MAX,
 };
 pub use cell::{Cell, ClusterOffset, Content, LinkIndex, StyleIndex, Width};
 pub use damage::{Age, Damage};
@@ -79,5 +84,8 @@ pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId};
 pub use screen::{Erase, Screen, WidthMethod};
 pub use scrollback::{SB_SIZE_DEFAULT, sb_size, sb_size_cap};
 pub use style::{Attrs, Color, Rgb, Script, Style, UnderlineStyle};
-pub use terminal::Terminal;
+pub use termcap::{Termcap, TermcapError};
+pub use terminal::{
+    CursorStyle, Mods, MouseButton, MouseEvent, MouseTracking, Terminal, VersionError,
+};
 pub use unicode::UNICODE_VERSION;

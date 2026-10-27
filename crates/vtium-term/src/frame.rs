@@ -21,6 +21,56 @@ pub struct Palette {
     bg: Rgb,
 }
 
+/// The C reference's `legacy` palette's sixteen colours, its default for
+/// the replay interface's reference host.
+const LEGACY: [(u8, u8, u8); 16] = [
+    (0x00, 0x00, 0x00),
+    (0xcd, 0x00, 0x00),
+    (0x00, 0xcd, 0x00),
+    (0xcd, 0xcd, 0x00),
+    (0x00, 0x00, 0xee),
+    (0xcd, 0x00, 0xcd),
+    (0x00, 0xcd, 0xcd),
+    (0xe5, 0xe5, 0xe5),
+    (0x7f, 0x7f, 0x7f),
+    (0xff, 0x00, 0x00),
+    (0x00, 0xff, 0x00),
+    (0xff, 0xff, 0x00),
+    (0x5c, 0x5c, 0xff),
+    (0xff, 0x00, 0xff),
+    (0x00, 0xff, 0xff),
+    (0xff, 0xff, 0xff),
+];
+
+impl Default for Palette {
+    /// The `legacy` sixteen, xterm's 6x6x6 cube (levels 0, 95, 135, 175,
+    /// 215, 255) and grey ramp (8 to 238 in steps of 10), on a light grey
+    /// foreground and a black background.
+    fn default() -> Self {
+        const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
+        let mut colors = [Rgb::default(); 256];
+        for (i, c) in colors.iter_mut().enumerate() {
+            *c = match i {
+                0..=15 => LEGACY
+                    .get(i)
+                    .map_or(Rgb::default(), |&(r, g, b)| Rgb::new(r, g, b)),
+                16..=231 => {
+                    let n = i.saturating_sub(16);
+                    let level = |k: usize| LEVELS.get(k % 6).copied().unwrap_or(0);
+                    Rgb::new(level(n / 36), level(n / 6), level(n))
+                }
+                _ => {
+                    let grey =
+                        u8::try_from(i.saturating_sub(232).saturating_mul(10).saturating_add(8))
+                            .unwrap_or(0);
+                    Rgb::new(grey, grey, grey)
+                }
+            };
+        }
+        Self::new(colors, Rgb::new(0xe5, 0xe5, 0xe5), Rgb::new(0, 0, 0))
+    }
+}
+
 impl Palette {
     pub fn new(colors: [Rgb; 256], fg: Rgb, bg: Rgb) -> Self {
         Self { colors, fg, bg }
