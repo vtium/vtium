@@ -1697,17 +1697,20 @@ fn an_encoder_that_cannot_be_read_is_named() {
         let mut s = card.state();
         let conn = s.connectors.get_mut(&40).unwrap();
         conn.encoder = 99;
-        conn.encoders = vec![98, 41];
+        conn.encoders = vec![98, 99, 41];
     }
     let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
     logs::capture();
     v.wake_up().unwrap();
     assert_eq!(primary(&v, 40), 35, "the readable encoder drives it");
-    let errors = logs::at_least(Level::Warn);
-    for id in [99, 98] {
-        let line = format!("cannot read encoder {id}: No such file or directory (os error 2)");
-        assert!(errors.contains(&line), "{errors:?}");
-    }
+    // Each unreadable encoder is read, and logged, once.
+    assert_eq!(
+        logs::at_least(Level::Warn),
+        [
+            "cannot read encoder 99: No such file or directory (os error 2)",
+            "cannot read encoder 98: No such file or directory (os error 2)",
+        ]
+    );
 }
 
 #[test]

@@ -861,19 +861,18 @@ impl<K: Kms> Drm2d<K> {
     /// CRTC or no primary plane.
     fn bind(&self, res: &Resources, conn: &Connector) -> Option<Output<K::Map>> {
         let name = connector_name(conn.kind, conn.kind_id);
-        let shown = (conn.encoder != 0)
+        let current = (conn.encoder != 0)
             .then(|| self.encoder(conn.encoder))
-            .flatten()
-            .filter(|e| e.crtc != 0)
-            .and_then(|e| {
-                self.card
-                    .crtc_mode(e.crtc)
-                    .inspect_err(|err| {
-                        log::warn!("cannot read the mode of CRTC {}: {err}", e.crtc);
-                    })
-                    .ok()
-                    .flatten()
-            });
+            .flatten();
+        let shown = current.filter(|e| e.crtc != 0).and_then(|e| {
+            self.card
+                .crtc_mode(e.crtc)
+                .inspect_err(|err| {
+                    log::warn!("cannot read the mode of CRTC {}: {err}", e.crtc);
+                })
+                .ok()
+                .flatten()
+        });
         let wanted = self.policy.wanted.as_ref().and_then(|f| f(&name));
         let choice = mode::choose(
             &conn.modes,
@@ -894,7 +893,7 @@ impl<K: Kms> Drm2d<K> {
             .iter()
             .find(|p| p.name == "DPMS")
             .map(|p| (p.id, Dpms::On));
-        let Some((crtc, crtc_index)) = self.find_crtc(res, conn) else {
+        let Some((crtc, crtc_index)) = self.find_crtc(res, conn, current) else {
             log::error!("no free CRTC for {name}");
             return None;
         };
@@ -949,20 +948,28 @@ impl<K: Kms> Drm2d<K> {
             .ok()
     }
 
-    /// The CRTC the connector's encoder drives, if no display has it, else
-    /// the first free one an encoder of the connector can drive.
-    fn find_crtc(&self, res: &Resources, conn: &Connector) -> Option<(u32, usize)> {
+    /// The CRTC the connector's encoder, `current` as `bind` read it,
+    /// drives, if no display has it, else the first free one an encoder of
+    /// the connector can drive.
+    fn find_crtc(
+        &self,
+        res: &Resources,
+        conn: &Connector,
+        current: Option<Encoder>,
+    ) -> Option<(u32, usize)> {
         let free = |crtc: u32| !self.outputs.iter().any(|o| o.crtc == crtc);
         let index = |crtc: u32| res.crtcs.iter().position(|&c| c == crtc);
-        if conn.encoder != 0 {
-            if let Some(enc) = self.encoder(conn.encoder) {
-                if enc.crtc != 0 && free(enc.crtc) {
-                    return index(enc.crtc).map(|i| (enc.crtc, i));
-                }
+        if let Some(enc) = current {
+            if enc.crtc != 0 && free(enc.crtc) {
+                return index(enc.crtc).map(|i| (enc.crtc, i));
             }
         }
         conn.encoders.iter().find_map(|&e| {
-            let enc = self.encoder(e)?;
+            let enc = if e == conn.encoder {
+                current?
+            } else {
+                self.encoder(e)?
+            };
             res.crtcs.iter().enumerate().find_map(|(i, &crtc)| {
                 let possible = u32::try_from(i)
                     .ok()

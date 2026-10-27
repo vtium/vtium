@@ -342,6 +342,8 @@ fn flip_events(mut events: &[u8], flipped: &mut Vec<u32>) {
     reason = "test arithmetic on bounded values; a test fails by panicking"
 )]
 mod tests {
+    use std::cell::Cell;
+
     use super::*;
 
     /// A stand-in for the kernel's GETRESOURCES: the card holds `crtcs`
@@ -351,11 +353,11 @@ mod tests {
     fn kernel<'a>(
         crtcs: &'a [u32],
         connectors: &'a [&'a [u32]],
+        calls: &'a Cell<usize>,
     ) -> impl FnMut(&mut [u32], &mut [u32]) -> io::Result<(usize, usize)> + 'a {
-        let mut calls = 0;
         move |c, n| {
-            let now = connectors[calls.min(connectors.len() - 1)];
-            calls += 1;
+            let now = connectors[calls.get().min(connectors.len() - 1)];
+            calls.set(calls.get() + 1);
             for (slot, id) in c.iter_mut().zip(crtcs) {
                 *slot = *id;
             }
@@ -368,7 +370,7 @@ mod tests {
 
     #[test]
     fn the_resources_are_read_whole() {
-        let res = read_resources(kernel(&[39, 49], &[&[40]])).unwrap();
+        let res = read_resources(kernel(&[39, 49], &[&[40]], &Cell::new(0))).unwrap();
         assert_eq!(res.crtcs, [39, 49]);
         assert_eq!(res.connectors, [40]);
     }
@@ -377,14 +379,14 @@ mod tests {
     // the call that fills them, as a DisplayPort MST hub's can be.
     #[test]
     fn a_connector_plugged_in_between_the_reads_is_listed() {
-        let res = read_resources(kernel(&[39], &[&[40], &[40, 41]])).unwrap();
+        let res = read_resources(kernel(&[39], &[&[40], &[40, 41]], &Cell::new(0))).unwrap();
         assert_eq!(res.crtcs, [39]);
         assert_eq!(res.connectors, [40, 41]);
     }
 
     #[test]
     fn a_connector_unplugged_between_the_reads_is_not_listed() {
-        let res = read_resources(kernel(&[39], &[&[40, 41], &[41]])).unwrap();
+        let res = read_resources(kernel(&[39], &[&[40, 41], &[41]], &Cell::new(0))).unwrap();
         assert_eq!(res.connectors, [41]);
     }
 
@@ -392,8 +394,10 @@ mod tests {
     fn counts_that_keep_growing_end_the_reads() {
         let lists: Vec<Vec<u32>> = (1..=40).map(|n| (40..40 + n).collect()).collect();
         let lists: Vec<&[u32]> = lists.iter().map(Vec::as_slice).collect();
-        let e = read_resources(kernel(&[39], &lists)).unwrap_err();
+        let calls = Cell::new(0);
+        let e = read_resources(kernel(&[39], &lists, &calls)).unwrap_err();
         assert_eq!(e.kind(), io::ErrorKind::Other, "{e}");
+        assert_eq!(calls.get(), RESOURCE_READS_MAX);
     }
 
     fn event(kind: u32, crtc: u32) -> Vec<u8> {
