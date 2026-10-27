@@ -28,7 +28,8 @@ use std::io::Read;
 use std::path::Path;
 
 use crate::bounds::{
-    CELL_SIDE_MAX, PSF_BYTES_MAX, PSF_ENTRIES_MAX, PSF_GLYPHS_MAX, PSF_HEIGHT_MAX, PSF_WIDTH_MAX,
+    CELL_SIDE_MAX, GZIP_BYTES_MAX, PSF_BYTES_MAX, PSF_ENTRIES_MAX, PSF_GLYPHS_MAX, PSF_HEIGHT_MAX,
+    PSF_WIDTH_MAX,
 };
 use crate::face::{Cell, Face, Style};
 use crate::glyph::Glyph;
@@ -59,7 +60,8 @@ pub enum PsfError {
     BadHeader(&'static str),
     /// The file ends before the header or the glyphs it describes.
     Truncated,
-    /// The file, or what it decompresses to, passes [`PSF_BYTES_MAX`].
+    /// The file, or what it decompresses to, passes [`PSF_BYTES_MAX`], or a
+    /// gzipped file passes [`GZIP_BYTES_MAX`].
     TooLarge,
     /// The unicode table maps more than [`PSF_ENTRIES_MAX`] codepoints.
     TableTooLarge,
@@ -76,7 +78,10 @@ impl fmt::Display for PsfError {
             PsfError::NotPsf => f.write_str("not a PSF font"),
             PsfError::BadHeader(why) => write!(f, "bad PSF header: {why}"),
             PsfError::Truncated => f.write_str("the font is shorter than its header says"),
-            PsfError::TooLarge => write!(f, "the font is larger than {PSF_BYTES_MAX} bytes"),
+            PsfError::TooLarge => write!(
+                f,
+                "the font is larger than {PSF_BYTES_MAX} bytes, or than {GZIP_BYTES_MAX} gzipped"
+            ),
             PsfError::TableTooLarge => write!(
                 f,
                 "the font's unicode table maps more than {PSF_ENTRIES_MAX} codepoints"
@@ -112,7 +117,7 @@ struct Entry {
 }
 
 /// A loaded PSF font, drawn at a whole multiple of its size.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Psf {
     count: u32,
     width: u32,
@@ -123,6 +128,18 @@ pub struct Psf {
     /// table and a codepoint is its own glyph index.
     table: Option<Box<[Entry]>>,
     scale: u32,
+}
+
+/// The font's shape, never its glyph bytes, which can run to megabytes.
+impl fmt::Debug for Psf {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Psf")
+            .field("glyphs", &self.count)
+            .field("size", &(self.width, self.height))
+            .field("scale", &self.scale)
+            .field("table", &self.table.as_ref().map(|t| t.len()))
+            .finish()
+    }
 }
 
 impl Psf {
@@ -143,6 +160,9 @@ impl Psf {
             return Err(PsfError::TooLarge);
         }
         if bytes.starts_with(&[0x1f, 0x8b]) {
+            if bytes.len() > usize::try_from(GZIP_BYTES_MAX).unwrap_or(usize::MAX) {
+                return Err(PsfError::TooLarge);
+            }
             return Psf::parse_gzip(bytes);
         }
         Psf::parse_plain(bytes)

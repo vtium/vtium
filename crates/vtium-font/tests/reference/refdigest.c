@@ -24,7 +24,7 @@
  */
 
 /*
- * Prints FNV-1a 64 digests of the glyphs the C reference draws, one line
+ * Prints FNV-1a 64 digests of the glyphs the C reference drew, one line
  * each, in the format tests/reference.rs reads. Built three times against
  * the C reference's sources, once per backend (see README.md):
  *

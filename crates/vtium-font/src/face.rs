@@ -5,7 +5,7 @@ use crate::glyph::Glyph;
 use crate::sprite;
 
 /// How a glyph is drawn. Bitmap faces draw bold by widening each row by a
-/// pixel and draw italic upright, as the C reference's do.
+/// pixel and draw italic upright, as the C reference's did.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Style {
     pub bold: bool,

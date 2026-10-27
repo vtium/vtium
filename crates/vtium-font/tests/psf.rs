@@ -394,6 +394,7 @@ fn bold_widens_each_row_by_a_pixel() {
 #[cfg(feature = "gzip")]
 mod gz {
     use super::*;
+    use vtium_font::GZIP_BYTES_MAX;
 
     fn font() -> Vec<u8> {
         with(psf2_with_table(), b'A', 0x10000)
@@ -457,6 +458,53 @@ mod gz {
         assert_eq!(Psf::parse(&gz).expect("loads").glyph_index('A'), Some(0));
     }
 
+    /// `n` gzip members of nothing, 20 bytes each.
+    fn empty_members(n: usize) -> Vec<u8> {
+        let member = gzip(&[]);
+        assert_eq!(member.len(), 20);
+        member.repeat(n)
+    }
+
+    // A file of many small members costs one decompressor, not one each:
+    // at the gzip bound, 52,428 empty members inflate to nothing, refused
+    // as no font, in bounded time. Before vtium reused the decompressor, a
+    // 16 MiB file of them took 1.32 s to refuse in a release build.
+    // covers: text.psf
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test bounds the time a refusal takes; no state depends on it"
+    )]
+    fn many_empty_members_are_refused_in_bounded_time() {
+        let at = empty_members(GZIP_BYTES_MAX as usize / 20);
+        let t = std::time::Instant::now();
+        assert!(matches!(Psf::parse(&at), Err(PsfError::Truncated)));
+        assert!(
+            t.elapsed().as_secs() < 10,
+            "{:?} in a debug build",
+            t.elapsed()
+        );
+    }
+
+    // The inflater builds a Huffman table for every deflate block, and a
+    // block can be 10 bits, so the compressed size bounds the work: a
+    // gzipped file past GZIP_BYTES_MAX is refused before it is inflated.
+    // covers: text.psf
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test bounds the time a refusal takes; no state depends on it"
+    )]
+    fn a_gzip_file_past_its_bound_is_refused_unread() {
+        let past = empty_members(PSF_BYTES_MAX as usize / 20);
+        let t = std::time::Instant::now();
+        assert!(matches!(Psf::parse(&past), Err(PsfError::TooLarge)));
+        assert!(t.elapsed().as_millis() < 100, "{:?}", t.elapsed());
+        let mut over = empty_members(GZIP_BYTES_MAX as usize / 20);
+        over.resize(GZIP_BYTES_MAX as usize + 1, 0);
+        assert!(matches!(Psf::parse(&over), Err(PsfError::TooLarge)));
+    }
+
     // covers: text.psf
     #[test]
     fn a_file_inflating_past_the_byte_bound_is_refused() {
@@ -495,7 +543,13 @@ fn the_fixture_loads() {
         let byte = (0..8).fold(0u8, |acc, x| acc << 1 | u8::from(row[x] != 0));
         assert_eq!(byte, b'A' + 3);
     };
-    check(Psf::load(fixture("psf-test.psf")).expect("loads"));
+    let psf = Psf::load(fixture("psf-test.psf")).expect("loads");
+    // Debug shows the font's shape, never its glyph bytes
+    assert_eq!(
+        format!("{psf:?}"),
+        "Psf { glyphs: 256, size: (8, 16), scale: 1, table: None }"
+    );
+    check(psf);
     let gz = Psf::load(fixture("psf-test.psf.gz"));
     if cfg!(feature = "gzip") {
         check(gz.expect("loads"));

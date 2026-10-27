@@ -52,7 +52,8 @@
 //! refused with a [`PsfError`] rather than a panic. Each bound is defined
 //! once in `src/bounds.rs` with its source and tabulated in the crate's
 //! README: [`PSF_GLYPHS_MAX`], [`PSF_WIDTH_MAX`], [`PSF_HEIGHT_MAX`],
-//! [`PSF_BYTES_MAX`], [`PSF_ENTRIES_MAX`] and [`CELL_SIDE_MAX`].
+//! [`PSF_BYTES_MAX`], [`PSF_ENTRIES_MAX`], [`GZIP_BYTES_MAX`] and
+//! [`CELL_SIDE_MAX`].
 
 mod bounds;
 mod face;
@@ -65,7 +66,8 @@ pub mod sprite;
 mod unifont;
 
 pub use bounds::{
-    CELL_SIDE_MAX, PSF_BYTES_MAX, PSF_ENTRIES_MAX, PSF_GLYPHS_MAX, PSF_HEIGHT_MAX, PSF_WIDTH_MAX,
+    CELL_SIDE_MAX, GZIP_BYTES_MAX, PSF_BYTES_MAX, PSF_ENTRIES_MAX, PSF_GLYPHS_MAX, PSF_HEIGHT_MAX,
+    PSF_WIDTH_MAX,
 };
 pub use face::{Cell, Decorations, Face, Font, REPLACEMENT, Style, Width};
 pub use glyph::{Format, Glyph};

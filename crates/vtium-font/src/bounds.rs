@@ -44,7 +44,7 @@ const HEIGHT: Bound = Bound {
 const BYTES: Bound = Bound {
     name: "PSF_BYTES_MAX",
     value: 16 << 20,
-    what: "Bytes a PSF file holds: the whole file, decompressed when gzipped, and a gzipped file's own bytes",
+    what: "Bytes a PSF file holds: the whole file, decompressed when gzipped",
     past: "The font is refused, whatever the bytes past the glyphs hold",
     cite: "`PSF_MAX_BYTES`, font_psf.c:68-69, 77, 207-208, 420-428; the C reference counted only the bytes it read, so it took a PSF1 font without a table whatever followed its glyphs",
 };
@@ -57,6 +57,14 @@ const ENTRIES: Bound = Bound {
     cite: "`PSF_MAX_ENTRIES`, font_psf.c:70-72, 78, 383-385: one entry for each Unicode codepoint",
 };
 
+const GZIP: Bound = Bound {
+    name: "GZIP_BYTES_MAX",
+    value: 1 << 20,
+    what: "Bytes a gzipped PSF file holds before it is decompressed. kbd's largest gzipped console font is 6 KiB",
+    past: "The font is refused before anything is decompressed",
+    cite: "vtium's own: the inflater builds a Huffman table for each deflate block, about a microsecond, and a block can be 10 bits, so a 15 MiB file of empty blocks took 14 s to refuse. At 1 MiB the worst file takes about 1 s on the test machine. The C reference read through zlib, whose fixed tables are prebuilt",
+};
+
 const CELL: Bound = Bound {
     name: "CELL_SIDE_MAX",
     value: 2048,
@@ -67,7 +75,7 @@ const CELL: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 6] = [GLYPHS, WIDTH, HEIGHT, BYTES, ENTRIES, CELL];
+pub(crate) const BOUNDS: [Bound; 7] = [GLYPHS, WIDTH, HEIGHT, BYTES, ENTRIES, GZIP, CELL];
 
 /// Glyphs a PSF font holds; a font with more is refused.
 pub const PSF_GLYPHS_MAX: u32 = GLYPHS.value;
@@ -78,12 +86,15 @@ pub const PSF_WIDTH_MAX: u32 = WIDTH.value;
 /// A PSF glyph's height in pixels; a taller font is refused.
 pub const PSF_HEIGHT_MAX: u32 = HEIGHT.value;
 
-/// Bytes a PSF file holds, decompressed, and a gzipped file's own bytes; a
-/// larger file is refused.
+/// Bytes a PSF file holds, decompressed; a larger file is refused.
 pub const PSF_BYTES_MAX: u32 = BYTES.value;
 
 /// Codepoints a PSF unicode table maps; a table listing more is refused.
 pub const PSF_ENTRIES_MAX: u32 = ENTRIES.value;
+
+/// Bytes a gzipped PSF file holds before it is decompressed; a larger one
+/// is refused.
+pub const GZIP_BYTES_MAX: u32 = GZIP.value;
 
 /// A cell's width or height in pixels. A font scales only as far as keeps
 /// its cell inside, and a glyph is at most two cells wide.

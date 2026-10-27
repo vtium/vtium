@@ -23,10 +23,15 @@ const RESERVED: u8 = 0xe0;
 /// Anything after the last member that is not a member is refused too.
 pub(crate) fn gunzip(mut input: &[u8], limit: usize) -> Result<Vec<u8>, GzipError> {
     let mut out = Vec::new();
+    // one decompressor and one buffer for every member, so a file of many
+    // small members costs no allocation per member
+    let mut state = InflateState::new_boxed(DataFormat::Raw);
+    let mut buf = vec![0u8; 32 * 1024];
     loop {
         input = skip_header(input)?;
         let start = out.len();
-        input = inflate_member(input, &mut out, limit)?;
+        state.reset(DataFormat::Raw);
+        input = inflate_member(&mut state, &mut buf, input, &mut out, limit)?;
         let [c0, c1, c2, c3, l0, l1, l2, l3, rest @ ..] = input else {
             return Err(GzipError::Corrupt("gzip trailer cut short"));
         };
@@ -85,17 +90,17 @@ fn skip_header(input: &[u8]) -> Result<&[u8], GzipError> {
     Ok(rest)
 }
 
-/// Inflates the deflate stream at the start of `input` onto `out`, and
-/// returns what follows it.
+/// Inflates the deflate stream at the start of `input` onto `out` through
+/// `state`, freshly reset, and `buf`, and returns what follows it.
 fn inflate_member<'a>(
+    state: &mut InflateState,
+    buf: &mut [u8],
     mut input: &'a [u8],
     out: &mut Vec<u8>,
     limit: usize,
 ) -> Result<&'a [u8], GzipError> {
-    let mut state = InflateState::new_boxed(DataFormat::Raw);
-    let mut buf = vec![0u8; 32 * 1024];
     loop {
-        let r = inflate(&mut state, input, &mut buf, MZFlush::None);
+        let r = inflate(state, input, buf, MZFlush::None);
         input = input.get(r.bytes_consumed..).unwrap_or_default();
         let written = buf.get(..r.bytes_written).unwrap_or_default();
         if out.len().saturating_add(written.len()) > limit {
