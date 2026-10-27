@@ -1,0 +1,4 @@
+# The kmscon commit whose tier 2 goldens judge vtium (tests/goldens/tier2).
+# Moving the pin is a change to the judge: it goes in a commit of its own,
+# with the run's report before and after.
+kmscon	b1f7a7c5df563f3378584db7298753848a7a9a13	https://github.com/aaronsb/kmscon.git

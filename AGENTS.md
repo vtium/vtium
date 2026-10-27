@@ -67,7 +67,7 @@ The lint's docstring states how feature ids are formed. An id never changes once
 | Unit | each crate's behaviour | here | `cargo test --workspace --all-features` |
 | 1, conformance | screen state and replies after a byte stream, as text, against the C reference's goldens | the replay corpus in `../libtsm/test/conformance/`, through the language-neutral interface in its `INTERFACE.md` | `make conformance` (`tools/conformance/`, #14), at the commits in `tools/conformance/pin.tsv` |
 | Capability probes | each claimed capability, through a replay | `../kmscon/tests/capabilities/` (`probes.replay`, `run.py`) | `make test` in `../kmscon` |
-| 2, pixels | what the renderer draws in memory, pixel for pixel | ported from `../kmscon/tests/` (#17) | with vtium-render |
+| 2, pixels | what the renderer draws in memory, pixel for pixel | `tools/tier2/`: the C reference's goldens at a pinned kmscon commit, and vtium's own goldens drawn by the C reference | `make tier2` (KMSCON=../kmscon) |
 | 3, the VM | screenshots of the installed build on a VT in a QEMU/KVM guest with a real KMS device, against goldens, with size and memory figures | `../kmscon/fork/tier3/` | `make tier3-minimal` in `../kmscon` (the minspec variants, 1 vCPU and 512 MB); #22 adds the option that boots a vtium build |
 | VT review | the maintainer's eyes on a real VT, guided step by step | this machine | `make vt-check GUIDE=start` ([docs/vt-review.md](docs/vt-review.md)); the binary arrives with #21 |
 
