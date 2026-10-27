@@ -47,11 +47,11 @@ The C reference's cluster table took a hash seed from the system's entropy, and 
 
 ## C behaviour kept
 
-These carry the C reference's flow where xterm or the VT510 manual differ, so tier 1's goldens judge them unchanged. Each is the operator's to take as a departure or keep.
+These follow the C reference where xterm or the DEC manuals differ, so tier 1's goldens judge them unchanged; each is a departure to take or leave by the operator's decision.
 
-- **DECSTBM leaves the cursor where it is, and an omitted bottom margin makes the whole screen the region** (`tsm-screen.c:924-950`; the dispatch passed an omitted parameter as 0, `tsm-vte.c:2725-2735`). The VT510 manual's DECSTBM moves the cursor to column 1, line 1, and takes an omitted bottom as the page's last line. Test: `decstbm_sets_the_scroll_region`.
-- **IND and a line feed at the screen's last row below the region, and RI at its first row above it, scroll the region** (`tsm-screen.c:1635-1687`), as does a wrap there (`tsm-screen.c:1319-1325`, `1549-1552`). The VT510 manual's IND and RI scroll only at a margin, and xterm does nothing outside the region. Test: `decstbm_sets_the_scroll_region`.
-- **A line leaving the top of the main screen's region enters the scrollback, wherever the region starts**; on the alternate screen it is cleared (`tsm-screen.c:388-399`). No specification covers a scrollback; xterm keeps only the lines leaving a region at the screen's top. Test: `a_line_leaving_any_region_enters_the_scrollback`.
+- **DECSTBM leaves the cursor where it is**, where DEC STD 070 and xterm move it to the home position. An omitted bottom margin with a top margin makes the whole screen the region, where the specification takes the omitted bottom as the screen's last line.
+- **A line feed at the screen's last row below the region scrolls the region**, where xterm does nothing.
+- **Lines leaving a region's top enter the scrollback wherever the region starts**, where xterm keeps only those leaving a region at the screen's top.
 
 ## Notes for the next issues
 
