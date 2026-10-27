@@ -36,6 +36,17 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "Vtium approach for 2 and 5 sound superior to me"
+    via: operator, in session 2026-10-26, after the explanation of how each differs from the C reference
+    covers: [small storage, row scratch]
+  - operator: aaronsb
+    said: "3. Agree 4. Agree"
+    via: operator, in session 2026-10-26, after the explanation of how each differs from the C reference
+  - operator: aaronsb
+    said: "Codepoint cache key as proposed sounds superior to the c implementation"
+    via: operator, in session 2026-10-26, after the explanation of how it differs from the C reference
 observable:
   - "Tier 2 draws each screen with a cache of 0 glyphs and with the performance budgets, on the CPU path and on the GPU path under llvmpipe, and the two agree byte for byte"
   - "`cargo test -p vtium-render --test memory -- --nocapture` prints each profile's figures and fails when they change"
