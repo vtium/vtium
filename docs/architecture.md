@@ -14,6 +14,8 @@ vtium (binary)
 
 Only `vtium-platform` may use `unsafe`, for ioctls and FFI. Every other crate carries `#![forbid(unsafe_code)]`.
 
+`vtium-platform` makes its syscalls through rustix, with no `libc` call and no `extern "C"` declaration for one (vtium/vtium#6). Its `unsafe` is of three kinds: an ioctl rustix does not wrap, defined once in the crate's ioctl module with a test that its request number equals the kernel header's; an mmap of a framebuffer; and the pty child's pre-exec hook, which makes it a session leader with the pty as its controlling terminal. The crate denies `unsafe_code`, so each site carries an `#[expect]` with its reason.
+
 ## The minspec build
 
 The default build is minspec: the smallest complete console, for the small-machine standard (1366x768, 1 vCPU, 512 MB). It covers drm2d or fbdev, the CPU renderer, bitmap fonts, the parser and screen, the pty and keyboard input. Images, outline fonts and the GPU path are features added on top. `cargo build --profile minspec` builds it size-optimised. Its size and memory are measured from the first working build.
