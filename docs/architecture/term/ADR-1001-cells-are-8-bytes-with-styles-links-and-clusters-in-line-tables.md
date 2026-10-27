@@ -30,7 +30,7 @@ considered:
 observable:
   - "`cargo test -p vtium-term --test memory -- --nocapture` prints the resident figures this record quotes, and fails when the model's size changes"
   - "Changing the cell or the line so it grows fails the build at the size assertions in `src/cell.rs` and `src/line.rs`"
-status: proposed
+status: accepted
 date: 2026-10-26
 deciders:
   - aaronsb
