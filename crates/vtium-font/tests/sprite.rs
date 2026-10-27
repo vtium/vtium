@@ -1,7 +1,8 @@
 //! The sprites against the C reference's box model (`tests/box_model.h`
 //! and `tests/test_font_box.c` in aaronsb/kmscon), at every cell size from
 //! 1x1 to 32x64 and in one large cell:
-//! - the sprite ranges are claimed and nothing either side of them;
+//! - the sprite ranges are claimed and nothing either side of them, those
+//!   of `tests/legacy.rs` among them;
 //! - each Braille, sextant and octant sprite is the cell's size and equals
 //!   the model's, pixel for pixel;
 //! - a mosaic and its complement cover the cell, so blocks of neighbouring
@@ -350,9 +351,22 @@ fn check_size(w: u32, h: u32, f: &mut Failures) {
     check_braille(w, h, f);
 }
 
+/// Every run of characters drawn as sprites, the C reference's and those of
+/// `tests/legacy.rs`.
+const CLAIMED: [(u32, u32); 8] = [
+    (0x2500, 0x259f),
+    (0x2800, 0x28ff),
+    (0x1cd00, 0x1cde5),
+    (0x1cea0, 0x1ceaf),
+    (0x1fb00, 0x1fb92),
+    (0x1fb94, 0x1fbaf),
+    (0x1fbbd, 0x1fbbf),
+    (0x1fbce, 0x1fbef),
+];
+
 #[test]
 fn claims_its_ranges_and_nothing_beside_them() {
-    for (first, last) in RANGES.into_iter().chain([(0x2500, 0x259f)]) {
+    for (first, last) in CLAIMED {
         let has = |cp| char::from_u32(cp).is_some_and(sprite::has);
         assert!(!has(first - 1), "U+{:04X}", first - 1);
         assert!(!has(last + 1), "U+{:04X}", last + 1);
