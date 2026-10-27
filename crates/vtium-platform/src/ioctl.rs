@@ -511,16 +511,17 @@ mod tests {
     }
 
     /// The value of an enumerator `NAME = EXPR,` in `text`, where `EXPR`
-    /// joins numbers and other enumerators with `+` or `|`.
+    /// joins numbers and other enumerators with `+` or `|`. A name with no
+    /// enumerator is read as a `#define`, as older headers give the VESA
+    /// levels.
     fn enumerator(text: &str, name: &str) -> u32 {
-        let expr = text
-            .lines()
-            .find_map(|line| {
-                let mut words = line.split_whitespace();
-                (words.next() == Some(name) && words.next() == Some("="))
-                    .then(|| words.collect::<Vec<_>>().join(" "))
-            })
-            .unwrap_or_else(|| panic!("{name} is not an enumerator"));
+        let Some(expr) = text.lines().find_map(|line| {
+            let mut words = line.split_whitespace();
+            (words.next() == Some(name) && words.next() == Some("="))
+                .then(|| words.collect::<Vec<_>>().join(" "))
+        }) else {
+            return define(text, name);
+        };
         let mut value = 0u32;
         let mut op = "|";
         for word in expr.trim_end_matches(',').split_whitespace() {
@@ -552,8 +553,13 @@ mod tests {
         ] {
             assert_eq!(define(&fb, name), ours, "{name}");
         }
-        // The blank levels are enumerators over the VESA levels.
-        let levels = fb + &header("linux/vesa.h");
+        // The blank levels are enumerators over the VESA levels, which
+        // newer headers move from fb.h into vesa.h.
+        let levels = if fb.contains("<linux/vesa.h>") {
+            fb + &header("linux/vesa.h")
+        } else {
+            fb
+        };
         for (name, ours) in [
             ("FB_BLANK_UNBLANK", FB_BLANK_UNBLANK),
             ("FB_BLANK_NORMAL", FB_BLANK_NORMAL),
