@@ -14,10 +14,14 @@ CI runs these gates on every pull request. Run them locally before you push:
 
 ```sh
 cargo fmt --all --check
-cargo clippy --workspace --all-features -- -D warnings
+cargo clippy --workspace --all-features --all-targets -- -D warnings
 cargo test --workspace --all-features
 cargo build --profile minspec
+docs/scripts/adr lint --check
+docs/scripts/coverage
 ```
+
+`docs/scripts/adr cite --check` also passes before a change is merged. [AGENTS.md](AGENTS.md) describes the working loop: the worktrees, the tiers and their commands, the VT review, and how work reaches main.
 
 ### Anything new extends the harness
 
