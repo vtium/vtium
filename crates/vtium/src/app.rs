@@ -25,8 +25,9 @@
 //!   The first display, the last going and the next after none count
 //!   too, as a display change, which wakes nothing while the VT is not
 //!   ours; another hotplug or a re-take never counts.
-//! - **The child.** It runs on the pty at the grid's size; when it exits
-//!   the respawn policy starts it again or ends vtium.
+//! - **The child.** It first starts once a display is set up, on the
+//!   grid's size ([`respawn::first_start_due`]); when it exits the respawn
+//!   policy starts it again or ends vtium.
 //! - **No display.** From the first acquire, vtium waits `display-wait`
 //!   for a frame on a display's screen, and with none by then it ends
 //!   ([`crate::wait`]). Once one has come, the last going leaves the
@@ -60,7 +61,7 @@ use crate::config::{Config, ModeSpec};
 use crate::font;
 use crate::grab::{self, Grab};
 use crate::layout::{self, Zoom};
-use crate::respawn::{Next, Respawn};
+use crate::respawn::{self, Next, Respawn};
 use crate::sync::{Action, Sync};
 use crate::term::{Clock, Term, View};
 use crate::video::Video;
@@ -178,6 +179,8 @@ pub struct App {
     clock: Clock,
     epoch: Instant,
     respawn: Option<Respawn>,
+    /// [`App::start`] was called and the command has not started yet.
+    start_due: bool,
     /// The VT is ours and the devices awake.
     awake: bool,
     /// The VT was re-taken while blanked: every device is set up again
@@ -304,6 +307,7 @@ impl App {
             clock,
             epoch: now,
             respawn: None,
+            start_due: false,
             awake: false,
             retake_owed: false,
             retaking: BTreeSet::new(),
@@ -343,11 +347,22 @@ impl App {
         );
     }
 
-    /// Starts the session's command.
+    /// Starts the session's command at the end of the first turn
+    /// [`respawn::first_start_due`] allows.
     pub fn start(&mut self) {
-        let now = (self.clock)();
-        self.respawn = Some(Respawn::new(now.saturating_duration_since(self.epoch)));
-        self.spawn();
+        self.start_due = true;
+    }
+
+    /// The command's first start, when it is due.
+    fn first_start(&mut self, now: Instant) {
+        // The key holds text only for `forever`.
+        let forever = self.config.text(&keys::DISPLAY_WAIT).is_some();
+        let display = !self.views.is_empty();
+        if self.start_due && respawn::first_start_due(self.awake, display, forever) {
+            self.start_due = false;
+            self.respawn = Some(Respawn::new(now.saturating_duration_since(self.epoch)));
+            self.spawn();
+        }
     }
 
     /// Asks vtium to end, as SIGTERM does.
@@ -1262,6 +1277,7 @@ impl App {
             }
         }
         self.attachment(now);
+        self.first_start(now);
         if let Some(r) = &self.releasing {
             if r.is_empty() {
                 self.releasing = None;

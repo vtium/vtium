@@ -2063,3 +2063,172 @@ fn the_last_display_going_while_released_wakes_nothing() {
         "nothing woke"
     );
 }
+
+/// The session's first look at its pty, as a child prints it: its size
+/// then, `rows cols`, and its pid.
+fn first(app: &App) -> Option<(String, String)> {
+    let line = app
+        .screen_text()
+        .into_iter()
+        .find(|l| l.starts_with("first:"))?;
+    let (size, pid) = line.strip_prefix("first:")?.rsplit_once(' ')?;
+    Some((size.to_owned(), pid.to_owned()))
+}
+
+/// A child that prints its first size, and on each line typed the line
+/// and the SIGWINCHes so far. dash's `read` fails at a trapped SIGWINCH as
+/// it does at the end of input, so a `read` that fails with the count
+/// moved is read again.
+const FIRST: &str = "n=0; trap 'n=$((n+1))' WINCH; echo \"first:$(stty size) $$\"; \
+    while :; do m=$n; \
+    if read x; then echo \"got:$x winch:$n $(stty size)\"; \
+    elif [ $n = $m ]; then exit; fi; done";
+
+/// The seat booted as [`Harness::boot`] boots it, with `videos`, but the
+/// loop is served for up to `hold` between the start and the first turn,
+/// so a child started then shows the size it started at before any turn
+/// can resize it.
+fn held(args: &[&str], videos: Vec<Box<dyn Video>>, hold: Duration) -> Harness {
+    let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+    let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
+    assert_eq!(loaded.reports, [], "the test's command line");
+    let mut lp: Loop<App> = Loop::new().expect("a loop");
+    let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
+    let ahead = Rc::new(Cell::new(Duration::ZERO));
+    let clock = Rc::new(now);
+    let mut app = App::new(
+        loaded.config,
+        Box::new(FakeVt::new()),
+        lp.handle(),
+        clock,
+        env,
+    );
+    for (n, video) in videos.into_iter().enumerate() {
+        app.add_video(PathBuf::from(format!("/dev/mem{n}")), video);
+    }
+    app.insert_blank();
+    app.vt.activate().expect("the fake VT");
+    app.start();
+    let end = now() + hold;
+    while now() < end && first(&app).is_none() {
+        lp.dispatch(Some(Duration::from_millis(20)), &mut app)
+            .expect("dispatch");
+    }
+    app.turn(now());
+    Harness { lp, app, ahead }
+}
+
+/// The child starts on the first display's grid: its first size is the
+/// display's, and no SIGWINCH follows, however long the first turn takes
+/// to come.
+#[test]
+fn the_child_starts_on_the_first_displays_grid() {
+    let mut h = held(
+        &["--login", "--", "/bin/sh", "-c", FIRST],
+        vec![Box::new(Memory::default())],
+        Duration::from_millis(500),
+    );
+    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+    assert_eq!(h.app.grid(), (40, 10));
+    assert_eq!(first(&h.app).map(|f| f.0), Some("10 40".to_owned()));
+    h.type_str("a\r");
+    assert!(h.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "a")));
+    assert_eq!(
+        got(&h.app),
+        Some(("a".into(), 0, "10 40".into())),
+        "no SIGWINCH"
+    );
+}
+
+/// With several displays at the start the child starts on the layout's
+/// grid for all of them.
+#[test]
+fn the_child_starts_on_the_grid_of_every_display_at_the_start() {
+    let mut h = held(
+        &["--login", "--", "/bin/sh", "-c", FIRST],
+        vec![
+            Box::new(Memory::default()),
+            Box::new(Memory::sized(240, 128)),
+        ],
+        Duration::from_millis(500),
+    );
+    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+    assert_eq!(h.app.cells().len(), 2, "both displays");
+    let (cols, rows) = h.app.grid();
+    assert_ne!((cols, rows), (80, 24));
+    assert_eq!(first(&h.app).map(|f| f.0), Some(format!("{rows} {cols}")));
+    h.type_str("a\r");
+    assert!(h.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "a")));
+    assert_eq!(got(&h.app).map(|g| g.1), Some(0), "no SIGWINCH");
+}
+
+/// Under `display-wait`, the child waits for the first display and starts
+/// on its grid.
+#[test]
+fn under_a_wait_the_child_starts_when_the_first_display_comes() {
+    let mut h = Harness::bare(&["--display-wait=5", "--login", "--", "/bin/sh", "-c", FIRST]);
+    h.until(Duration::from_millis(500), |_| false);
+    assert!(h.app.pty.is_none(), "no child before a display");
+    assert_eq!(first(&h.app), None);
+    h.app
+        .add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
+    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+    assert_eq!(first(&h.app).map(|f| f.0), Some("10 40".to_owned()));
+    h.type_str("a\r");
+    assert!(h.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "a")));
+    assert_eq!(got(&h.app).map(|g| g.1), Some(0), "no SIGWINCH");
+    assert_eq!(h.app.finished(), None);
+}
+
+/// Under `display-wait=forever` with no display, the child starts once
+/// the VT is shown, on 80x24; the first display resizes it once.
+#[test]
+fn under_forever_with_no_display_the_child_starts_on_80x24() {
+    let mut h = Harness::bare(&[
+        "--display-wait=forever",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        FIRST,
+    ]);
+    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+    assert_eq!(first(&h.app).map(|f| f.0), Some("24 80".to_owned()));
+    h.app
+        .add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
+    assert!(h.until(SECOND, |a| a.grid() == (40, 10)));
+    h.type_str("a\r");
+    assert!(h.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "a")));
+    assert_eq!(
+        got(&h.app),
+        Some(("a".into(), 1, "10 40".into())),
+        "one SIGWINCH"
+    );
+}
+
+/// A child started again starts on the grid the session runs on.
+#[test]
+fn a_child_started_again_starts_on_the_grid() {
+    let script = "echo \"first:$(stty size) $$\"; read x";
+    let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", script]);
+    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+    let (size, pid) = first(&h.app).expect("a first line");
+    assert_eq!(size, "10 40");
+    h.type_str("\r");
+    assert!(
+        h.until(SECOND, |a| first(a).is_some_and(|f| f.1 != pid)),
+        "started again"
+    );
+    assert_eq!(first(&h.app).map(|f| f.0), Some("10 40".to_owned()));
+}
+
+/// Under `display-wait=0` with no display, vtium exits at the first turn
+/// the VT is shown, and the child never starts.
+#[test]
+fn under_no_wait_with_no_display_no_child_starts() {
+    let mut h = Harness::bare(&["--display-wait=0", "--login", "--", "/bin/sh", "-c", FIRST]);
+    assert!(h.until(Duration::from_millis(500), |a| a.finished().is_some()));
+    assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
+    assert!(h.app.pty.is_none(), "no child");
+    assert_eq!(first(&h.app), None);
+}
