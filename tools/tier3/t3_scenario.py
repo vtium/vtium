@@ -513,3 +513,80 @@ def press_power_keys(vm, cases, work, caps, errors, log, phase):
             errors[case] = str(e)
             log("%s: %s" % (case, e))
         phase(case)
+
+
+def variant_errors(error, displays, renderer, caps, rss, console):
+    """Every reason a variant failed, the scenario's own `error` first, and
+    whether its captures must be dropped so every case fails: when a console
+    drew with another renderer than the variant tests, the captures show the
+    wrong path; when a drawn screen has no resident-memory reading (`rss`),
+    the run lacks a figure measured on every run; and when the console
+    (`console_revision`) is not vtium, the captures are another console's."""
+    out, drop = [error] if error else [], False
+    want = "text renderer [%s]" % renderer
+    if not displays or not all(want in d for d in displays):
+        out.append("the console did not draw with %s: %s" % (renderer, displays))
+        drop = True
+    unread = [s for s in SCREENS if s in caps and s not in rss]
+    if unread:
+        out.append("no resident memory reading (T3-RSS) after %s" % ", ".join(unread))
+        drop = True
+    if console is None:
+        out.append("the console logged no Revision line, so nothing shows vtium drew")
+        drop = True
+    elif console["name"] != "vtium":
+        out.append("the console that drew logged itself as %s %s, not vtium"
+                   % (console["name"], console["revision"]))
+        drop = True
+    return out, drop
+
+
+def console_revision(serial):
+    """The console that ran, by its own account: the "NAME Revision REV" line
+    its log opens with, the first on the console, as {"name", "revision"};
+    None when it logged none."""
+    with open(serial, "rb") as f:
+        m = re.search(rb"\] [\w.-]+\[\d+\]: log: (\S+) Revision (\S+)", f.read())
+    return {"name": m.group(1).decode(errors="replace"),
+            "revision": m.group(2).decode(errors="replace")} if m else None
+
+
+def consoles(metas):
+    """The distinct consoles the variants' guests logged, as "NAME REVISION"."""
+    return sorted({"%s %s" % (m["console"]["name"], m["console"]["revision"])
+                   for m in metas.values() if m.get("console")})
+
+
+def failure_meta(error):
+    """A variant's metadata when it produced no captures, in the same shape
+    as a variant that ran."""
+    return {"installed": None, "displays": [], "errors": {}, "error": error, "timing": {},
+            "resident": resident({}), "console": None}
+
+
+def failed_variant(variant, error, log):
+    log("%s: %s" % (variant, error))
+    meta = failure_meta(error)
+    return evaluate_variant(variant, {}, meta, log), meta
+
+
+def variant_job(variant, impl, log):
+    """Drive and evaluate one variant: (its case entries, its metadata).
+
+    `log` is the run's logger; the variant's lines carry its name. A variant
+    that cannot run is reported, not fatal: each of its cases fails with the
+    error.
+    """
+    log = log.labelled(variant)
+    timing = {}
+    try:
+        caps, meta = run_variant(variant, timing, impl, log)
+    except Exception as e:
+        log(str(e))
+        caps, meta = {}, failure_meta(str(e))
+    start = time.time()
+    cases = evaluate_variant(variant, caps, meta, log)
+    timing["evaluate"] = round(time.time() - start, 1)
+    log("phase evaluate took %.1f s" % timing["evaluate"])
+    meta["timing"] = timing
+    return cases, meta
