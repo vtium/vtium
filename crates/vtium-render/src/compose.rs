@@ -132,8 +132,9 @@ impl Composer {
         strip: (usize, usize),
         target: &mut impl Target,
     ) {
+        // no two jobs share a column
         if !self.jobs.is_sorted_by_key(|j| j.posx) {
-            self.jobs.sort_by_key(|j| j.posx);
+            self.jobs.sort_unstable_by_key(|j| j.posx);
         }
         let mut start = 0;
         while let Some(first) = self.jobs.get(start) {
