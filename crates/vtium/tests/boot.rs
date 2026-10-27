@@ -17,7 +17,7 @@ use vtium::video::Video;
 use vtium_platform::display::{Canvas, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
 use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{InputEvent, KeyEvent, Mods};
-use vtium_platform::vt::{FakeVt, Vt};
+use vtium_platform::vt::{FakeVt, Switch, Vt, VtEvent};
 
 const W: u32 = 320;
 const H: u32 = 160;
@@ -33,6 +33,9 @@ struct Memory {
     frames: u32,
     age: u32,
     unblanks: u32,
+    wake_ups: u32,
+    /// Each canvas lent's age, in order.
+    ages: Vec<u32>,
 }
 
 impl Video for Memory {
@@ -59,6 +62,7 @@ impl Video for Memory {
             return None;
         }
         let age = self.age;
+        self.ages.push(age);
         Some(Canvas {
             pixels: &mut self.pixels,
             width: W,
@@ -92,6 +96,7 @@ impl Video for Memory {
         self.events.push(Event::Asleep);
     }
     fn wake_up(&mut self) -> io::Result<()> {
+        self.wake_ups += 1;
         let first = self.pixels.is_empty();
         self.pixels = vec![0; (W * H * 4) as usize];
         self.awake = true;
@@ -120,11 +125,56 @@ impl Video for Memory {
     }
 }
 
-type Seat = App<FakeVt>;
+/// A VT the test drives: always shown, and it raises what the test
+/// queues, `Retaken` among them, which the fake VT never does.
+#[derive(Default)]
+struct ScriptedVt {
+    events: Vec<VtEvent>,
+    active: bool,
+}
 
-struct Harness {
-    lp: Loop<Seat>,
-    app: Seat,
+impl Vt for ScriptedVt {
+    fn events(&mut self) -> std::vec::Drain<'_, VtEvent> {
+        self.events.drain(..)
+    }
+    fn acknowledge_release(&mut self) -> io::Result<()> {
+        self.active = false;
+        Ok(())
+    }
+    fn refuse_release(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn activate(&mut self) -> io::Result<Switch> {
+        if !self.active {
+            self.active = true;
+            self.events.push(VtEvent::Acquired);
+        }
+        Ok(Switch::Pending)
+    }
+    fn leave(&mut self) -> io::Result<Switch> {
+        Ok(Switch::Done)
+    }
+    fn wait(&mut self) -> io::Result<Switch> {
+        Ok(Switch::Done)
+    }
+    fn is_active(&self) -> bool {
+        self.active
+    }
+    fn key(&mut self, _: &KeyEvent) -> bool {
+        false
+    }
+    fn restore(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn bell(&mut self) {}
+    fn number(&self) -> Option<u16> {
+        None
+    }
+}
+
+struct Harness<V: Vt + 'static = FakeVt> {
+    lp: Loop<App<V>>,
+    app: App<V>,
 }
 
 #[expect(
@@ -137,12 +187,18 @@ fn now() -> Instant {
 
 impl Harness {
     fn new(args: &[&str]) -> Harness {
+        Harness::with_vt(args, FakeVt::new())
+    }
+}
+
+impl<V: Vt + 'static> Harness<V> {
+    fn with_vt(args: &[&str], vt: V) -> Harness<V> {
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
         let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
         assert_eq!(loaded.reports, [], "the harness's command line");
-        let lp: Loop<Seat> = Loop::new().expect("a loop");
+        let lp: Loop<App<V>> = Loop::new().expect("a loop");
         let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
-        let mut app = App::new(loaded.config, FakeVt::new(), lp.handle(), Rc::new(now), env);
+        let mut app = App::new(loaded.config, vt, lp.handle(), Rc::new(now), env);
         app.add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
         app.insert_blank();
         app.vt.activate().expect("the fake VT");
@@ -152,7 +208,7 @@ impl Harness {
     }
 
     /// Turns the loop until `done` holds, at most `limit`.
-    fn until(&mut self, limit: Duration, mut done: impl FnMut(&Seat) -> bool) -> bool {
+    fn until(&mut self, limit: Duration, mut done: impl FnMut(&App<V>) -> bool) -> bool {
         let end = now() + limit;
         while now() < end {
             if done(&self.app) {
@@ -360,4 +416,26 @@ fn a_custom_palette_reaches_the_terminal() {
         h.app.term.terminal.palette(),
         &vtium_term::Palette::default()
     );
+}
+
+#[test]
+fn a_retaken_vt_sets_the_displays_up_again_and_draws_them_whole() {
+    let mut h = Harness::with_vt(
+        &["--login", "--", "/bin/sh", "-c", "printf 'held\\n'; read x"],
+        ScriptedVt::default(),
+    );
+    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "held")));
+    assert!(h.until_memory(SECOND, |m| m.frames > 0 && m.age == 1));
+    let (wake_ups, frames) = (h.memory().wake_ups, h.memory().frames);
+    let lent = h.memory().ages.len();
+    h.app.vt.events.push(VtEvent::Retaken);
+    assert!(
+        h.until_memory(SECOND, |m| m.wake_ups == wake_ups + 1 && m.frames > frames),
+        "the device is set up again and a frame drawn after it"
+    );
+    // The wake-up made the buffer's contents unknown: the frame after it
+    // was drawn whole, into a canvas of age 0.
+    assert_eq!(h.memory().ages.get(lent), Some(&0));
+    assert_eq!(h.memory().wake_ups, wake_ups + 1);
+    assert!(h.app.vt.is_active());
 }
