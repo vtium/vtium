@@ -362,9 +362,14 @@ impl<K: Kms> Drm2d<K> {
         let done = if std::mem::take(&mut self.owed) {
             self.scan(Scan::Retry)
         } else {
+            // Every display is tried, whichever refuses.
             let ids: Vec<DisplayId> = self.displays().collect();
-            ids.into_iter()
-                .fold(Ok(()), |done, id| done.and(self.set_dpms(id, Dpms::On)))
+            let mut done = Ok(());
+            for id in ids {
+                let on = self.set_dpms(id, Dpms::On);
+                done = done.and(on);
+            }
+            done
         };
         if let Err(e) = &done {
             log::warn!("cannot power the displays on: {e}; trying a modeset");
