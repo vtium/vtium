@@ -1,6 +1,3 @@
-// The screen prints through this module; until it does, only the tests
-// call it.
-#![cfg_attr(not(test), allow(dead_code))]
 //! Unicode properties: a codepoint's cell width, and the boundaries of
 //! extended grapheme clusters (UAX #29).
 //!

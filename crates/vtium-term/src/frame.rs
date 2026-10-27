@@ -2,8 +2,11 @@
 //!
 //! A [`Frame`] views the visible lines with their colours resolved through
 //! the palette at the time it is drawn, each cell marked changed or not
-//! for the display reading it, and the cursor. Resolving at draw time is
-//! what lets a palette change recolour text already on the screen.
+//! for the display reading it, the cursor, and the selection. Resolving at
+//! draw time is what lets a palette change recolour text already on the
+//! screen.
+
+use core::ops::Range;
 
 use crate::cell::Width;
 use crate::damage::{Age, Damage};
@@ -103,6 +106,8 @@ pub struct FrameCell<'a> {
     /// below cell backgrounds shows through (libtsm#35).
     pub default_bg: bool,
     pub link: Option<LinkId>,
+    /// Inside the selection, which draws inverted.
+    pub selected: bool,
     /// Changed since the age the reading display passed.
     pub changed: bool,
 }
@@ -116,6 +121,8 @@ pub struct Frame<'a> {
     since: Age,
     cursor: Cursor,
     reverse: bool,
+    /// The selected columns of each row; a row past the list has none.
+    selection: Vec<Range<usize>>,
 }
 
 impl<'a> Frame<'a> {
@@ -136,7 +143,15 @@ impl<'a> Frame<'a> {
             since,
             cursor,
             reverse,
+            selection: Vec::new(),
         }
+    }
+
+    /// The frame with the columns of each row, top to bottom, that the
+    /// selection covers.
+    pub fn with_selection(mut self, selection: Vec<Range<usize>>) -> Self {
+        self.selection = selection;
+        self
     }
 
     pub fn rows(&self) -> usize {
@@ -171,7 +186,8 @@ impl<'a> Frame<'a> {
         let style = line.style(cell);
         let mut fg = self.palette.resolve(style.fg, self.palette.fg);
         let mut bg = self.palette.resolve(style.bg, self.palette.bg);
-        let inverse = style.attrs.contains(Attrs::INVERSE) != self.reverse;
+        let selected = self.selection.get(row).is_some_and(|r| r.contains(&col));
+        let inverse = (style.attrs.contains(Attrs::INVERSE) != self.reverse) != selected;
         if inverse {
             core::mem::swap(&mut fg, &mut bg);
         }
@@ -188,6 +204,7 @@ impl<'a> Frame<'a> {
             attrs: style.attrs,
             default_bg: style.bg == Color::Default && !inverse,
             link: line.link(cell),
+            selected,
             changed: self.damage.changed(row, col, self.since),
         })
     }

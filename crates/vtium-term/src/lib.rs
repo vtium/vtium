@@ -38,6 +38,16 @@
 //!   resolved through the [`Palette`] at draw time, each cell marked
 //!   changed or not for the reading display, and the [`Cursor`].
 //!
+//! # The screen
+//!
+//! A [`Screen`] holds the main and alternate screens' lines, the cursor,
+//! the margins and tab stops, the scrollback and its view, and the
+//! selection, and carries printing, cursor movement, erasing, inserting,
+//! deleting and scrolling. Text is cut into grapheme clusters by UAX #29,
+//! with widths from the Unicode Character Database at
+//! [`UNICODE_VERSION`]. A [`Terminal`] feeds the bytes a program writes
+//! through `vtium-parse` and applies their actions to its screen.
+//!
 //! # Bounds
 //!
 //! Each bound is defined once in `src/bounds.rs` and tabulated in the
@@ -52,8 +62,10 @@ mod cell;
 mod damage;
 mod frame;
 mod line;
+mod screen;
 mod scrollback;
 mod style;
+mod terminal;
 mod unicode;
 
 pub use bounds::{
@@ -64,6 +76,8 @@ pub use cell::{Cell, ClusterOffset, Content, LinkIndex, StyleIndex, Width};
 pub use damage::{Age, Damage};
 pub use frame::{Cursor, CursorShape, Frame, FrameCell, Palette};
 pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId};
+pub use screen::{Erase, Screen, WidthMethod};
 pub use scrollback::{SB_SIZE_DEFAULT, sb_size, sb_size_cap};
 pub use style::{Attrs, Color, Rgb, Script, Style, UnderlineStyle};
+pub use terminal::Terminal;
 pub use unicode::UNICODE_VERSION;

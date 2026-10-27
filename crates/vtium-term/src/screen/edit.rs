@@ -1,0 +1,306 @@
+//! Erasing, inserting and deleting, and scrolling.
+//!
+//! Every cell these clear or push off a line gives back its cluster bytes
+//! through the line ([`Line::erase`], [`Line::insert_cells`],
+//! [`Line::delete_cells`]), and a line that scrolls off takes its tables
+//! with it, so the cluster arena's bound holds on every path. Cleared and
+//! inserted cells take the blank style: the pen's background only.
+//!
+//! A wide character an edit cuts goes whole, on either side of the cut.
+//!
+//! [`Line::erase`]: crate::Line::erase
+//! [`Line::insert_cells`]: crate::Line::insert_cells
+//! [`Line::delete_cells`]: crate::Line::delete_cells
+
+use core::mem;
+use core::ops::Range;
+
+use super::Screen;
+use crate::cell::Width;
+use crate::style::{Attrs, Style};
+
+/// Which cells of a region an erase clears.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Erase {
+    /// Every cell (ED, EL, ECH).
+    #[default]
+    All,
+    /// Every cell but those DECSCA protected (DECSED, DECSEL).
+    Unprotected,
+}
+
+impl Screen {
+    /// A wide character whose halves lie on both sides of the boundary
+    /// before cell `x` of row `y` goes whole: an edit on one side would
+    /// leave half a character. The boundary may be the margin: a line keeps
+    /// its cells past it after the screen narrows, and a character there
+    /// keeps both halves until one side is edited.
+    pub(super) fn split_wide(&mut self, y: usize, x: usize) {
+        let Some(line) = self.line(y) else {
+            return;
+        };
+        let Some(lead) = x.checked_sub(1) else {
+            return;
+        };
+        if x >= line.len()
+            || line.cell(x).width() != Width::WideTail
+            || line.cell(lead).width() != Width::Wide
+        {
+            return;
+        }
+        self.erase_cells(y, lead..x.saturating_add(1));
+    }
+
+    /// Clears the cells of `cols` in row `y` to the blank style.
+    pub(super) fn erase_cells(&mut self, y: usize, cols: Range<usize>) {
+        let blank = self.blank_style();
+        if let Some(line) = self.line_mut(y) {
+            line.erase(cols.clone(), &blank);
+        }
+        self.mark_cells(y, cols);
+    }
+
+    /// Clears from `from` to `to` inclusive, each a column and a row, in
+    /// reading order; `which` says whether protected cells stay.
+    fn erase_region(&mut self, from: (usize, usize), to: (usize, usize), which: Erase) {
+        self.segment = None;
+        let last_col = self.cols.saturating_sub(1);
+        let (mut x, first_row) = from;
+        let x_to = to.0.min(last_col);
+        let y_to = to.1.min(self.rows.saturating_sub(1));
+        for y in first_row..=y_to {
+            let Some(line) = self.line(y) else {
+                x = 0;
+                continue;
+            };
+            let mut end = if y == y_to { x_to } else { last_col };
+            // A wide character cut by the region goes whole.
+            if x > 0
+                && line.cell(x).width() == Width::WideTail
+                && line.cell(x.saturating_sub(1)).width() == Width::Wide
+            {
+                x = x.saturating_sub(1);
+            }
+            let after = end.saturating_add(1);
+            if after < line.len()
+                && line.cell(end).width() == Width::Wide
+                && line.cell(after).width() == Width::WideTail
+            {
+                end = after;
+            }
+            let mut runs = Vec::new();
+            let mut run = x;
+            for col in x..=end {
+                if which == Erase::Unprotected && protected(line.style(line.cell(col))) {
+                    runs.push(run..col);
+                    run = col.saturating_add(1);
+                }
+            }
+            runs.push(run..end.saturating_add(1));
+            for cols in runs {
+                self.erase_cells(y, cols);
+            }
+            x = 0;
+        }
+    }
+
+    /// The cursor's column for an erase: a pending wrap erases the last
+    /// column.
+    fn erase_column(&self) -> usize {
+        self.cursor_x.min(self.cols.saturating_sub(1))
+    }
+
+    /// ECH: `n` cells from the cursor.
+    pub fn erase_chars(&mut self, n: usize) {
+        if n == 0 {
+            return;
+        }
+        let x = self.erase_column();
+        let end = x.saturating_add(n).saturating_sub(1);
+        self.erase_region((x, self.cursor_y), (end, self.cursor_y), Erase::All);
+    }
+
+    /// EL 0: from the cursor to the end of its line.
+    pub fn erase_line_right(&mut self, which: Erase) {
+        let y = self.cursor_y;
+        let x = self.erase_column();
+        self.erase_region((x, y), (self.cols, y), which);
+    }
+
+    /// EL 1: from the start of the cursor's line to the cursor.
+    pub fn erase_line_left(&mut self, which: Erase) {
+        let y = self.cursor_y;
+        self.erase_region((0, y), (self.cursor_x, y), which);
+    }
+
+    /// EL 2: the cursor's line.
+    pub fn erase_line(&mut self, which: Erase) {
+        let y = self.cursor_y;
+        self.erase_region((0, y), (self.cols, y), which);
+    }
+
+    /// ED 1: from the top of the screen to the cursor.
+    pub fn erase_above(&mut self, which: Erase) {
+        self.erase_region((0, 0), (self.cursor_x, self.cursor_y), which);
+    }
+
+    /// ED 0: from the cursor to the end of the screen.
+    pub fn erase_below(&mut self, which: Erase) {
+        let x = self.erase_column();
+        self.erase_region((x, self.cursor_y), (self.cols, self.rows), which);
+    }
+
+    /// ED 2: the whole screen.
+    pub fn erase_screen(&mut self, which: Erase) {
+        self.erase_region((0, 0), (self.cols, self.rows), which);
+    }
+
+    /// ICH: `n` blank cells at the cursor, the rest of the line moving
+    /// right and the cells pushed past the margin going. A pending wrap
+    /// inserts at the last column and ends.
+    pub fn insert_chars(&mut self, n: usize) {
+        if n == 0 {
+            return;
+        }
+        self.segment = None;
+        self.cursor_x = self.erase_column();
+        let (x, y, cols) = (self.cursor_x, self.cursor_y, self.cols);
+        let n = n.min(cols.saturating_sub(x));
+        let kept = cols.saturating_sub(x).saturating_sub(n);
+        // A wide character at the insertion point, where the margin cuts
+        // the moved cells, or across the margin itself goes whole.
+        self.split_wide(y, x);
+        self.split_wide(y, x.saturating_add(kept));
+        self.split_wide(y, cols);
+        let blank = self.blank_style();
+        if let Some(line) = self.line_mut(y) {
+            line.insert_cells(x, n, cols, &blank);
+        }
+        self.mark_cells(y, x..cols);
+    }
+
+    /// DCH: deletes `n` cells at the cursor, the rest of the line moving
+    /// left and blank cells filling in at the margin.
+    pub fn delete_chars(&mut self, n: usize) {
+        if n == 0 {
+            return;
+        }
+        self.segment = None;
+        self.cursor_x = self.erase_column();
+        let (x, y, cols) = (self.cursor_x, self.cursor_y, self.cols);
+        let n = n.min(cols.saturating_sub(x));
+        // A wide character at either end of the deleted cells, or across
+        // the margin, goes whole.
+        self.split_wide(y, x);
+        self.split_wide(y, x.saturating_add(n));
+        self.split_wide(y, cols);
+        let blank = self.blank_style();
+        if let Some(line) = self.line_mut(y) {
+            line.delete_cells(x, n, cols, &blank);
+        }
+        self.mark_cells(y, x..cols);
+    }
+
+    /// IL: `n` blank lines at the cursor's row, the rows below it to the
+    /// bottom margin moving down and those pushed past it going. Nothing
+    /// happens outside the region. The cursor goes to the first column.
+    pub fn insert_lines(&mut self, n: usize) {
+        let y = self.cursor_y;
+        if n == 0 || y < self.top || y > self.bottom {
+            return;
+        }
+        self.segment = None;
+        let rows = y..self.bottom.saturating_add(1);
+        let n = n.min(rows.len());
+        self.replace_lines(rows.end.saturating_sub(n)..rows.end);
+        if let Some(region) = self.active_mut().get_mut(rows.clone()) {
+            region.rotate_right(n);
+        }
+        self.mark_rows(rows);
+        self.cursor_x = 0;
+    }
+
+    /// DL: deletes `n` lines at the cursor's row, the rows below it to the
+    /// bottom margin moving up and blank lines filling in at the margin.
+    /// Nothing happens outside the region. The cursor goes to the first
+    /// column.
+    pub fn delete_lines(&mut self, n: usize) {
+        let y = self.cursor_y;
+        if n == 0 || y < self.top || y > self.bottom {
+            return;
+        }
+        self.segment = None;
+        let rows = y..self.bottom.saturating_add(1);
+        let n = n.min(rows.len());
+        self.replace_lines(y..y.saturating_add(n));
+        if let Some(region) = self.active_mut().get_mut(rows.clone()) {
+            region.rotate_left(n);
+        }
+        self.mark_rows(rows);
+        self.cursor_x = 0;
+    }
+
+    /// SU, and a line feed at the bottom margin: the region moves up `n`
+    /// rows. On the main screen the lines leaving the region's top enter
+    /// the scrollback, wherever the region starts, as in the C reference;
+    /// blank lines come in at the bottom.
+    pub fn scroll_up(&mut self, n: usize) {
+        if n == 0 {
+            return;
+        }
+        self.segment = None;
+        let rows = self.top..self.bottom.saturating_add(1);
+        let n = n.min(rows.len());
+        let gone = self.replace_lines(rows.start..rows.start.saturating_add(n));
+        if !self.flags.alternate {
+            for line in gone {
+                self.scrollback.push(line);
+            }
+        }
+        if let Some(region) = self.active_mut().get_mut(rows.clone()) {
+            region.rotate_left(n);
+        }
+        self.mark_rows(rows);
+    }
+
+    /// SD: the region moves down `n` rows; the lines leaving the bottom go,
+    /// and blank lines come in at the top.
+    pub fn scroll_down(&mut self, n: usize) {
+        if n == 0 {
+            return;
+        }
+        self.rotate_down(n);
+    }
+
+    /// Moves the region down `n` rows, blank lines coming in at the top.
+    pub(super) fn rotate_down(&mut self, n: usize) {
+        self.segment = None;
+        let rows = self.top..self.bottom.saturating_add(1);
+        let n = n.min(rows.len());
+        self.replace_lines(rows.end.saturating_sub(n)..rows.end);
+        if let Some(region) = self.active_mut().get_mut(rows.clone()) {
+            region.rotate_right(n);
+        }
+        self.mark_rows(rows);
+    }
+
+    /// Replaces the lines of `rows` with new blank lines of the blank
+    /// style, and returns the lines replaced.
+    fn replace_lines(&mut self, rows: Range<usize>) -> Vec<crate::Line> {
+        let blank = self.blank_style();
+        let cols = self.cols;
+        let mut gone = Vec::with_capacity(rows.len());
+        for row in rows {
+            let line = self.new_line(cols, &blank);
+            if let Some(slot) = self.active_mut().get_mut(row) {
+                gone.push(mem::replace(slot, line));
+            }
+        }
+        gone
+    }
+}
+
+/// Whether DECSCA protected a cell of `style` from a selective erase.
+fn protected(style: Style) -> bool {
+    style.attrs.contains(Attrs::PROTECTED)
+}

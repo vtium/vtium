@@ -20,16 +20,16 @@ pub(crate) struct Bound {
 const COLUMNS: Bound = Bound {
     name: "COLUMNS_MAX",
     value: 8192,
-    what: "Cells a line holds, and columns a screen's damage tracks",
-    past: "A line is made or widened to at most this many cells, and damage to at most this many columns; the grid's width comes from the display and the font, never from the stream",
+    what: "Cells a line holds, and columns a screen and its damage have",
+    past: "A line is made or widened to at most this many cells, and a screen and its damage to at most this many columns; the grid's width comes from the display and the font, never from the stream",
     cite: "vtium's own: a line's style and link tables are indexed in 16 bits and compact at `TABLE_GROWTH` times the line's cells, which this keeps inside 65535; a 15360-pixel display in a 4-pixel font is 3840 columns",
 };
 
 const ROWS: Bound = Bound {
     name: "ROWS_MAX",
     value: 2048,
-    what: "Rows a screen's damage tracks",
-    past: "Damage is made or resized to at most this many rows",
+    what: "Rows a screen and its damage have",
+    past: "A screen and its damage are made or resized to at most this many rows",
     cite: "vtium's own: an 8640-pixel display in a 6-pixel font is 1440 rows; the bound keeps a resize from the stream (vtium/vtium#44) from allocating without limit",
 };
 
@@ -94,12 +94,12 @@ pub(crate) const BOUNDS: [Bound; 8] = [
     SB_MAX,
 ];
 
-/// Cells a line holds, and columns a screen's damage tracks. The grid's
-/// width comes from the display and the font, so no program reaches this
-/// bound.
+/// Cells a line holds, and columns a screen and its damage have. The
+/// grid's width comes from the display and the font, so no program reaches
+/// this bound.
 pub const COLUMNS_MAX: usize = COLUMNS.value;
 
-/// Rows a screen's damage tracks.
+/// Rows a screen and its damage have.
 pub const ROWS_MAX: usize = ROWS.value;
 
 /// Codepoints one grapheme cluster keeps; those past it are dropped.

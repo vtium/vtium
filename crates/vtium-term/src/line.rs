@@ -143,7 +143,7 @@ pub enum Glyph<'a> {
 /// A line's tables, allocated on its first styled, linked or clustered
 /// cell. Index `i` of a style or link names entry `i - 1`; index 0 is the
 /// default style or no link.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct Tables {
     styles: Vec<Style>,
     links: Vec<LinkId>,
@@ -182,7 +182,7 @@ impl Tables {
 /// A line may hold fewer cells than the grid is wide: a line trimmed for
 /// the scrollback keeps no trailing blank cells. Every cell past its end
 /// reads as [`Cell::BLANK`], in the default style, whatever the pen.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Line {
     cells: Vec<Cell>,
     tables: Option<Box<Tables>>,
@@ -317,6 +317,55 @@ impl Line {
         }
     }
 
+    /// Moves the cells of `at..end` right by `n`, inside the line: the
+    /// cells pushed past `end` go and give back their clusters, and the `n`
+    /// cells from `at` become empty, narrow cells of `style` with no link.
+    /// ICH, a write in insert mode and a cell a VS16 widens move cells
+    /// this way.
+    pub fn insert_cells(&mut self, at: usize, n: usize, end: usize, style: &Style) {
+        let end = end.min(self.cells.len());
+        let n = n.min(end.saturating_sub(at));
+        if n == 0 {
+            return;
+        }
+        self.make_room();
+        let style = self.intern_style(style);
+        let kept = end.saturating_sub(n);
+        self.release_range(kept..end);
+        self.cells.copy_within(at..kept, at.saturating_add(n));
+        let blank = Cell::new(Content::Empty, Width::Narrow, style, LinkIndex(0));
+        if let Some(cells) = self.cells.get_mut(at..at.saturating_add(n)) {
+            cells.fill(blank);
+        }
+    }
+
+    /// Removes the `n` cells from `at`, which give back their clusters: the
+    /// cells after them up to `end` move left by `n`, and the `n` cells
+    /// before `end` become empty, narrow cells of `style` with no link.
+    /// DCH moves cells this way.
+    pub fn delete_cells(&mut self, at: usize, n: usize, end: usize, style: &Style) {
+        let end = end.min(self.cells.len());
+        let n = n.min(end.saturating_sub(at));
+        if n == 0 {
+            return;
+        }
+        self.make_room();
+        let style = self.intern_style(style);
+        let from = at.saturating_add(n);
+        self.release_range(at..from);
+        self.cells.copy_within(from..end, at);
+        let blank = Cell::new(Content::Empty, Width::Narrow, style, LinkIndex(0));
+        if let Some(cells) = self.cells.get_mut(end.saturating_sub(n)..end) {
+            cells.fill(blank);
+        }
+    }
+
+    /// The bytes of the cluster arena the line's cells name, length bytes
+    /// included: at most [`CLUSTER_BYTES_PER_CELL`] for each cell.
+    pub fn cluster_bytes(&self) -> usize {
+        self.tables.as_ref().map_or(0, |t| t.live)
+    }
+
     /// Makes the line `cols` cells long, at most [`COLUMNS_MAX`]: cells
     /// past the new end are dropped, and new cells are blank. Shrinking
     /// compacts the tables, so they hold no more than the shorter line can
@@ -427,6 +476,18 @@ impl Line {
         if let (Content::Cluster(ClusterOffset(o)), Some(t)) = (old.content(), self.tables.as_mut())
         {
             t.live = t.live.saturating_sub(t.cluster_size(o));
+        }
+    }
+
+    /// Gives back the cluster bytes the cells of `range` name, as they go.
+    fn release_range(&mut self, range: Range<usize>) {
+        let Some(t) = self.tables.as_mut() else {
+            return;
+        };
+        for cell in self.cells.get(range).unwrap_or_default() {
+            if let Content::Cluster(ClusterOffset(o)) = cell.content() {
+                t.live = t.live.saturating_sub(t.cluster_size(o));
+            }
         }
     }
 
