@@ -454,6 +454,22 @@ mod tests {
         }
     }
 
+    // the table follows each change of colour: the background alone, the
+    // foreground alone, both, and back
+    #[test]
+    fn pens_follow_every_change_of_colour() {
+        let mut pens = Pens::new((1, 2));
+        for colors in [(1, 3), (4, 3), (5, 6), (5, 2), (1, 2)] {
+            pens.set(colors);
+            let (fg, bg) = colors;
+            assert_eq!(
+                pens.eight(0b1010_0110),
+                [fg, bg, fg, bg, bg, fg, fg, bg],
+                "{colors:?}"
+            );
+        }
+    }
+
     // lines drawn into a buffer of longer lines are each the coverage line
     // in two colours, and the pixels between them are left alone
     #[test]
