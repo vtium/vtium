@@ -1,0 +1,12 @@
+[Unit]
+Description=Install the kmscon package under test from the T3PKG disc
+After=local-fs.target systemd-udevd.service
+Before=systemd-user-sessions.service getty.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/tier3-install
+
+[Install]
+WantedBy=multi-user.target
