@@ -7,6 +7,7 @@ pub(super) const TABLE: &[(&str, Option<&[u8]>)] = &[
     ("BE", Some(b"\x1b[?2004h")),
     ("Co", Some(b"256")),
     ("E3", Some(b"\x1b[3J")),
+    ("Ms", Some(b"\x1b]52;%p1%s;%p2%s\x07")),
     ("PE", Some(b"\x1b[201~")),
     ("PS", Some(b"\x1b[200~")),
     ("Se", Some(b"\x1b[0 q")),

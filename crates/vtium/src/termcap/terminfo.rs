@@ -222,12 +222,17 @@ fn the_entry_reads() {
             b"``aaffggiijjkkllmmnnooppqqrrssttuuvvwwxxyyzz{{||}}~~".to_vec()
         ))
     );
-    // 136 capabilities, each once, as infocmp -x lists the compiled entry.
-    assert_eq!(caps.len(), 136);
+    // OSC 52, as xterm's entry and tmux name it.
+    assert_eq!(
+        get("Ms"),
+        Some(Cap::Str(b"\x1b]52;%p1%s;%p2%s\x07".to_vec()))
+    );
+    // 137 capabilities, each once, as infocmp -x lists the compiled entry.
+    assert_eq!(caps.len(), 137);
     let mut names: Vec<_> = caps.iter().map(|(n, _)| n.as_str()).collect();
     names.sort_unstable();
     names.dedup();
-    assert_eq!(names.len(), 136);
+    assert_eq!(names.len(), 137);
 }
 
 #[test]
@@ -241,7 +246,7 @@ fn the_table_adds_xterms_names_and_drops_the_size() {
     assert_eq!(get("Tc"), Some(None));
     assert_eq!(get("cols"), None);
     assert_eq!(get("lines"), None);
-    assert_eq!(t.len(), 136 - 2 + 3);
+    assert_eq!(t.len(), 137 - 2 + 3);
     assert!(t.windows(2).all(|w| w[0].0 < w[1].0), "sorted");
 }
 

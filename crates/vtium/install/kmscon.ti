@@ -3,7 +3,7 @@
 # crates/vtium/src/termcap/table.rs is generated from this file, and a test
 # fails when they differ: VTIUM_BLESS=1 cargo test -p vtium termcap rewrites
 # it. The capabilities are the C reference's (scripts/terminfo/kmscon.ti at
-# kmscon b1f7a7c5), whose probes judge them.
+# kmscon b1f7a7c5), whose probes judge them, and Ms, which it lacked.
 kmscon|KMS Console,
   am, bce, km, mir, msgr, npc, xenl,
   colors#256, pairs#32767,
@@ -79,6 +79,10 @@ kmscon|KMS Console,
 
 # Synchronized output (mode 2026, tmux(1)'s Sync)
   Sync=\E[?2026%?%p1%{1}%-%tl%eh%;,
+
+# Setting the selection with OSC 52, as xterm's entry and tmux(1) name it:
+# %p1 the selections, %p2 the data in base64. vtium answers no query.
+  Ms=\E]52;%p1%s;%p2%s\007,
 
 # Focus events (mode 1004, ncurses' xterm+focus)
   XF, fd=\E[?1004l, fe=\E[?1004h, kxIN=\E[I, kxOUT=\E[O,

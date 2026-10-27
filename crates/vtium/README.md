@@ -78,6 +78,6 @@ Each needs a real VT or display, which the boot tests stand in for:
 
 ## C behaviour kept
 
-- The XTGETTCAP table is the C reference's: the same 137 names and values as its ncurses-built `src/terminal_termcap.h`.
+- The XTGETTCAP table is the C reference's: the same 137 names and values as its ncurses-built `src/terminal_termcap.h`, and `Ms`, which the C reference's entry lacked, for OSC 52.
 - A `login` word that is `$NAME` becomes that variable of the session's environment, after the environment is reset.
 - A wheel event is one report while the program tracks the pointer, else a zoom with Ctrl, else three lines of scrollback, whatever its number of steps (`src/terminal.c:1492-1497, 1639-1650`).
