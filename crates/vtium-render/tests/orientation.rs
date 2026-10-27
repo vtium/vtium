@@ -117,3 +117,41 @@ fn a_wide_glyph_cut_at_the_margin_shows_its_left_half() {
         .count();
     assert!(lit > 10, "the half glyph is drawn");
 }
+
+// Cells 208 pixels high make an unturned row of 1400 pixels 1.1 MiB, past
+// the row scratch's 1 MiB, so its decorated span is composed in bands; a
+// display turned a quarter composes the same row in one strip 208 pixels
+// wide. Turned back, the two are the same.
+#[test]
+fn a_row_too_tall_for_the_scratch_is_composed_in_bands() {
+    let mut s = Screen::new(13, 2, rgb("c0c0c0"), rgb("101010"));
+    let mut ul = style(rgb("ffff00"), rgb("400000"));
+    ul.attrs.set_underline(UnderlineStyle::Curly);
+    ul.attrs.insert(Attrs::STRIKE);
+    s.text(0, 0, "Banded", ul);
+    s.put(7, 0, '中', true, ul);
+    s.text(0, 1, "plain", style(rgb("ffffff"), rgb("203040")));
+    let font = || vtium_font::Font::new(vtium_font::Unifont::new(208));
+    let (w, h) = (13 * 104 + 48, 2 * 208 + 6);
+    let ds = DrawState {
+        background: s.palette.bg(),
+        ..DrawState::default()
+    };
+    let mut normal = Renderer::new(font(), w, h, Config::default());
+    assert!(normal.row_scratch_bytes() <= vtium_render::ROW_SCRATCH_MAX);
+    assert!(w as usize * 208 * 4 > vtium_render::ROW_SCRATCH_MAX);
+    let mut a = Canvas::new(w, h, 0);
+    normal.draw(&s.frame(Age::NEVER), &mut a, &ds);
+    let config = Config {
+        orientation: Orientation::Right,
+        ..Config::default()
+    };
+    let mut right = Renderer::new(font(), h, w, config);
+    let mut b = Canvas::new(h, w, 0);
+    right.draw(&s.frame(Age::NEVER), &mut b, &ds);
+    for y in 0..h {
+        for x in 0..w {
+            assert_eq!(a.pixel(x, y), b.pixel(h - 1 - y, x), "{x},{y}");
+        }
+    }
+}

@@ -6,9 +6,7 @@
 use core::fmt;
 use std::time::Duration;
 
-/// Frames whose time an interval keeps for its median and 95th
-/// percentile. Frames past it still count in the mean and the maximum.
-pub const RENDER_TIMER_SAMPLES: usize = 1024;
+use crate::bounds::RENDER_TIMER_SAMPLES;
 
 /// One interval's figures.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
