@@ -125,20 +125,47 @@ impl Composer {
             text,
             ..
         } = self;
+        let mut out = core::mem::take(&mut lines.out);
         for job in jobs.iter().filter(|j| !in_span(j)) {
             let glyph = glyph(cache, font, text, job);
-            for y in job.r.y..job.r.bottom() {
-                let w = usize::try_from(job.r.w).unwrap_or(0);
-                let mut out = core::mem::take(&mut lines.out);
-                out.clear();
-                out.resize(w, 0);
-                cell_line(job, glyph, sprites, lines, y, &mut out);
-                if let (Ok(x), Ok(y)) = (u32::try_from(job.r.x), u32::try_from(y)) {
-                    target.write(x, y, &out);
+            out.clear();
+            out.resize(usize::try_from(job.r.w).unwrap_or(0), 0);
+            let Ok(x) = u32::try_from(job.r.x) else {
+                continue;
+            };
+            match glyph {
+                // the common cell, a bitmap glyph on its background, a cell
+                // at a time
+                Some(g) if !job.layered() && g.is_bits() => {
+                    let (fg, bg) = (pixel(job.fg), pixel(job.bg));
+                    let gx = job.r.x.saturating_sub(job.g.x);
+                    let n = usize::try_from(job.r.h).unwrap_or(0);
+                    let mut y = job.r.y;
+                    g.bits_lines(
+                        gx,
+                        y.saturating_sub(job.g.y),
+                        n,
+                        (fg, bg),
+                        &mut out,
+                        |line| {
+                            if let Ok(y) = u32::try_from(y) {
+                                target.write(x, y, line);
+                            }
+                            y = y.saturating_add(1);
+                        },
+                    );
                 }
-                lines.out = out;
+                _ => {
+                    for y in job.r.y..job.r.bottom() {
+                        cell_line(job, glyph, sprites, lines, y, &mut out);
+                        if let Ok(y) = u32::try_from(y) {
+                            target.write(x, y, &out);
+                        }
+                    }
+                }
             }
         }
+        lines.out = out;
         if let Some((_, area)) = span {
             self.draw_span(font, area, strip, target);
         }
@@ -290,6 +317,9 @@ fn cell_line(
     if !job.layered() {
         match glyph {
             None => out.fill(pixel(job.bg)),
+            Some(g) if g.is_bits() => {
+                g.bits_lines(gx, gy, 1, (pixel(job.fg), pixel(job.bg)), out, |_| {});
+            }
             Some(g) if g.is_rgba() => {
                 g.argb_line(gx, gy, src);
                 for (o, &s) in out.iter_mut().zip(src.iter()) {
