@@ -3,10 +3,12 @@
 //!
 //! The selection holds each end by its line's [`LineId`] and a column, so
 //! it moves with its text as the screen scrolls. A line the screen discards
-//! (IL, DL, SD, RI, a scroll on the alternate screen) takes the selection
-//! with it, so a copy never reaches into other text. Only an end whose line
-//! the scrollback dropped when full leaves the selection standing: copying
-//! then starts at the oldest line, as in the C reference.
+//! (IL, DL, SD, RI, a scroll on the alternate screen, a scroll with no
+//! room in the scrollback, the hidden rows a taller screen drops) takes the
+//! selection with it, so a copy never reaches into other text. Only an end
+//! whose line left the scrollback (dropped when it was full, or emptied by
+//! ED 3) leaves the selection standing: copying then starts at the oldest
+//! line, as in the C reference.
 //! Changing the selection marks everything, since its cells draw inverted.
 
 use core::ops::Range;
