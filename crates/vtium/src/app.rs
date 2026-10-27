@@ -233,9 +233,7 @@ impl App {
         );
         terminal.screen_mut().set_scrollback_max(lines);
         terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
-        if let Some(p) = palette(&config) {
-            terminal.set_palette(p);
-        }
+        terminal.set_palette(config.palette());
         if let Ok(table) = crate::termcap::termcap() {
             terminal.set_termcap(table);
         }
@@ -1359,50 +1357,6 @@ pub fn render_timer_line(
 ) -> String {
     format!("{report} display={}[{}]", node.display(), id.0)
 }
-
-/// The palette `palette` names: `None` for `legacy`, the terminal's own,
-/// and the `palette-*` keys for `custom`. vtium-term holds no other named
-/// palette yet, so another name keeps `legacy`.
-fn palette(config: &Config) -> Option<vtium_term::Palette> {
-    match config.text(&keys::PALETTE) {
-        None | Some("legacy") => None,
-        Some("custom") => {
-            let mut p = vtium_term::Palette::default();
-            let rgb = |k| {
-                let [r, g, b] = config.rgb(k).unwrap_or_default();
-                vtium_term::Rgb::new(r, g, b)
-            };
-            for (i, key) in PALETTE_KEYS.iter().enumerate() {
-                p.set_color(u8::try_from(i).unwrap_or(0), rgb(key));
-            }
-            p.set_fg(rgb(&keys::PALETTE_FOREGROUND));
-            p.set_bg(rgb(&keys::PALETTE_BACKGROUND));
-            Some(p)
-        }
-        // Reported at start, through `check::semantics`.
-        Some(_) => None,
-    }
-}
-
-/// The sixteen colours' keys, in order.
-const PALETTE_KEYS: [&crate::config::Key; 16] = [
-    &keys::PALETTE_BLACK,
-    &keys::PALETTE_RED,
-    &keys::PALETTE_GREEN,
-    &keys::PALETTE_YELLOW,
-    &keys::PALETTE_BLUE,
-    &keys::PALETTE_MAGENTA,
-    &keys::PALETTE_CYAN,
-    &keys::PALETTE_LIGHT_GREY,
-    &keys::PALETTE_DARK_GREY,
-    &keys::PALETTE_LIGHT_RED,
-    &keys::PALETTE_LIGHT_GREEN,
-    &keys::PALETTE_LIGHT_YELLOW,
-    &keys::PALETTE_LIGHT_BLUE,
-    &keys::PALETTE_LIGHT_MAGENTA,
-    &keys::PALETTE_LIGHT_CYAN,
-    &keys::PALETTE_WHITE,
-];
 
 /// The lines of scrollback a wheel event scrolls (`src/terminal.c:1648`).
 const WHEEL_LINES: usize = 3;
