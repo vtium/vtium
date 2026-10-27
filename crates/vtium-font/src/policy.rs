@@ -47,6 +47,16 @@ impl<T> PerRange<T> {
     }
 }
 
+/// What a character the face lacks draws as.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+#[non_exhaustive]
+pub enum Missing {
+    /// U+25A1, else `?`, else the face's last resort, as the C reference
+    /// drew.
+    #[default]
+    Replacement,
+}
+
 /// A [`Source`] for each [`Range`], set per font.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct SpritePolicy(PerRange<Source>);
@@ -54,6 +64,19 @@ pub struct SpritePolicy(PerRange<Source>);
 impl SpritePolicy {
     /// Sprites for every range, as the C reference drew.
     pub const SPRITES: SpritePolicy = SpritePolicy::all(Source::Sprites);
+
+    /// The default for a font the operator names (vtium/vtium#85): the
+    /// font's glyphs for a range it covers whole, and the sprites for a
+    /// range it misses any character of, so no range mixes the two.
+    pub fn default_for(coverage: &Coverage) -> SpritePolicy {
+        SpritePolicy(PerRange(Range::ALL.map(|range| {
+            if coverage.get(range).is_complete() {
+                Source::Font
+            } else {
+                Source::Sprites
+            }
+        })))
+    }
 
     /// `source` for every range.
     pub const fn all(source: Source) -> SpritePolicy {

@@ -2,7 +2,7 @@
 //! cluster into its cells from a face and the sprites.
 
 use crate::glyph::Glyph;
-use crate::policy::{Coverage, RangeCoverage, Source, SpritePolicy};
+use crate::policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
 use crate::sprite::{self, Range};
 
 /// How a glyph is drawn. Bitmap faces draw bold by widening each row by a
@@ -86,6 +86,12 @@ pub trait Face {
         RangeCoverage::count(range, |c| self.has_glyph(c))
     }
 
+    /// The policy a [`Font`] of this face draws with until it is given
+    /// one: [`SpritePolicy::default_for`] the face's coverage.
+    fn sprite_policy(&self) -> SpritePolicy {
+        SpritePolicy::default_for(&Coverage::new(|range| self.coverage(range)))
+    }
+
     /// The glyph for `cluster` at the face's own width for it, marked with
     /// the cells that width spans, or `None`
     /// when the face lacks it. A face that cannot shape draws the first
@@ -134,6 +140,9 @@ impl<F: Face + ?Sized> Face for Box<F> {
     fn coverage(&self, range: Range) -> RangeCoverage {
         (**self).coverage(range)
     }
+    fn sprite_policy(&self) -> SpritePolicy {
+        (**self).sprite_policy()
+    }
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         (**self).draw(cluster, style)
     }
@@ -160,25 +169,39 @@ impl<F: Face + ?Sized> Face for Box<F> {
 pub struct Font<F> {
     face: F,
     policy: SpritePolicy,
+    missing: Missing,
 }
 
 /// Drawn for a character the face lacks.
 pub const REPLACEMENT: char = '\u{25a1}';
 
 impl<F: Face> Font<F> {
-    /// `face` with the sprites drawn for every range, as the C reference
-    /// drew them.
+    /// `face`, drawn with its own [`Face::sprite_policy`] and U+25A1 for a
+    /// character it lacks.
     pub fn new(face: F) -> Font<F> {
-        Font::with_policy(face, SpritePolicy::SPRITES)
+        Font {
+            policy: face.sprite_policy(),
+            missing: Missing::default(),
+            face,
+        }
     }
 
-    /// `face`, each range drawn from the source `policy` gives it.
-    pub fn with_policy(face: F, policy: SpritePolicy) -> Font<F> {
-        Font { face, policy }
+    /// This font with each range drawn from the source `policy` gives it.
+    pub fn with_policy(self, policy: SpritePolicy) -> Font<F> {
+        Font { policy, ..self }
+    }
+
+    /// This font with a character the face lacks drawn as `missing`.
+    pub fn with_missing(self, missing: Missing) -> Font<F> {
+        Font { missing, ..self }
     }
 
     pub fn policy(&self) -> SpritePolicy {
         self.policy
+    }
+
+    pub fn missing(&self) -> Missing {
+        self.missing
     }
 
     /// How much of each sprite range the face holds.

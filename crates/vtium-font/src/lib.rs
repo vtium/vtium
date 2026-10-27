@@ -76,7 +76,7 @@ pub use bounds::{
 };
 pub use face::{Cell, Decorations, Face, Font, REPLACEMENT, Style, Width};
 pub use glyph::{Format, Glyph};
-pub use policy::{Coverage, RangeCoverage, Source, SpritePolicy};
+pub use policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
 pub use psf::{Psf, PsfError};
 #[cfg(feature = "unifont")]
 pub use unifont::Unifont;

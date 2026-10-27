@@ -4,7 +4,7 @@
 //! the sprites (font.c:345-357); `Source::Sprites` is that behaviour.
 
 use vtium_font::sprite::{self, Range};
-use vtium_font::{Cell, Coverage, Face, Font, Glyph, RangeCoverage, Source, SpritePolicy};
+use vtium_font::{Cell, Coverage, Face, Font, Glyph, Missing, RangeCoverage, Source, SpritePolicy};
 use vtium_font::{Style, Width};
 
 const CELL: Cell = Cell {
@@ -232,9 +232,8 @@ fn unifont_covers_every_range() {
 // whatever the font held
 #[test]
 fn sprites_draw_the_sprite_whatever_the_face_holds() {
-    assert_eq!(Font::new(Stub::new(none)).policy(), SpritePolicy::SPRITES);
     for holds in [full as fn(char) -> bool, partial, none] {
-        let font = Font::with_policy(Stub::new(holds), SpritePolicy::SPRITES);
+        let font = Font::new(Stub::new(holds)).with_policy(SpritePolicy::SPRITES);
         for range in Range::ALL {
             for c in range.chars() {
                 assert_eq!(draw(&font, c), sprite(c), "U+{:04X}", u32::from(c));
@@ -247,7 +246,7 @@ fn sprites_draw_the_sprite_whatever_the_face_holds() {
 #[test]
 fn font_draws_the_face_and_its_replacement() {
     for holds in [full as fn(char) -> bool, partial, none] {
-        let font = Font::with_policy(Stub::new(holds), SpritePolicy::all(Source::Font));
+        let font = Font::new(Stub::new(holds)).with_policy(SpritePolicy::all(Source::Font));
         for range in Range::ALL {
             for c in range.chars() {
                 let want = if holds(c) { FACE_INK } else { BOX_INK };
@@ -261,7 +260,7 @@ fn font_draws_the_face_and_its_replacement() {
 #[test]
 fn auto_draws_the_face_and_a_sprite_where_it_has_none() {
     for holds in [full as fn(char) -> bool, partial, none] {
-        let font = Font::with_policy(Stub::new(holds), SpritePolicy::all(Source::Auto));
+        let font = Font::new(Stub::new(holds)).with_policy(SpritePolicy::all(Source::Auto));
         for range in Range::ALL {
             for c in range.chars() {
                 let g = draw(&font, c);
@@ -283,7 +282,7 @@ fn each_range_takes_its_own_source() {
         .with(Range::LegacyComputing, Source::Auto);
     assert_eq!(policy.source(Range::BoxDrawing), Source::Font);
     assert_eq!(policy.source(Range::Braille), Source::Sprites);
-    let font = Font::with_policy(Stub::new(partial), policy);
+    let font = Font::new(Stub::new(partial)).with_policy(policy);
     // box drawing: the face's, else its U+25A1
     assert_eq!(ink(&draw(&font, '─')), Some(FACE_INK));
     assert_eq!(ink(&draw(&font, '━')), Some(BOX_INK));
@@ -296,7 +295,7 @@ fn each_range_takes_its_own_source() {
 
 #[test]
 fn a_wide_cell_fits_the_face_glyph_or_the_wide_sprite() {
-    let font = Font::with_policy(Stub::new(partial), SpritePolicy::all(Source::Auto));
+    let font = Font::new(Stub::new(partial)).with_policy(SpritePolicy::all(Source::Auto));
     let face = font.glyph(&['─'], Width::Wide, plain()).expect("drawn");
     assert_eq!((face.width(), face.cells()), (16, Width::Wide));
     let thick = font.decorations().underline_thickness;
@@ -310,7 +309,7 @@ fn a_wide_cell_fits_the_face_glyph_or_the_wide_sprite() {
 #[test]
 fn a_cluster_is_the_faces_under_every_policy() {
     for source in [Source::Font, Source::Sprites, Source::Auto] {
-        let font = Font::with_policy(Stub::new(none), SpritePolicy::all(source));
+        let font = Font::new(Stub::new(none)).with_policy(SpritePolicy::all(source));
         assert_eq!(ink(&draw_cluster(&font)), Some(BOX_INK), "{source:?}");
     }
 }
@@ -327,7 +326,7 @@ fn the_unscaled_glyph_follows_the_policy() {
         holds: partial,
         scale: 2,
     };
-    let font = Font::with_policy(stub(), SpritePolicy::all(Source::Auto));
+    let font = Font::new(stub()).with_policy(SpritePolicy::all(Source::Auto));
     let (g, scale) = font
         .glyph_unscaled(&['─'], Width::Narrow, plain())
         .expect("drawn");
@@ -339,12 +338,12 @@ fn the_unscaled_glyph_follows_the_policy() {
         .glyph_unscaled(&['━'], Width::Narrow, plain())
         .expect("drawn");
     assert_eq!((g, scale), (sprite('━'), 1));
-    let font = Font::with_policy(stub(), SpritePolicy::SPRITES);
+    let font = Font::new(stub()).with_policy(SpritePolicy::SPRITES);
     let (g, scale) = font
         .glyph_unscaled(&['─'], Width::Narrow, plain())
         .expect("drawn");
     assert_eq!((g, scale), (sprite('─'), 1));
-    let font = Font::with_policy(stub(), SpritePolicy::all(Source::Font));
+    let font = Font::new(stub()).with_policy(SpritePolicy::all(Source::Font));
     let (g, scale) = font
         .glyph_unscaled(&['━'], Width::Narrow, plain())
         .expect("drawn");
@@ -377,4 +376,73 @@ fn a_box_of_faces_forwards_its_coverage() {
     }
     let font: Font<Box<dyn Face>> = Font::new(Box::new(Counted));
     assert_eq!(font.coverage().get(Range::Braille).covered, 7);
+}
+
+/// The whole of box drawing, every other block element, and nothing else.
+fn whole_boxes_half_blocks(c: char) -> bool {
+    match Range::of(c) {
+        Some(Range::BoxDrawing) => true,
+        Some(Range::BlockElements) => u32::from(c) % 2 == 0,
+        _ => false,
+    }
+}
+
+// the operator's default (vtium/vtium#85): a range the font covers whole
+// is the font's, any other the sprites', and no range mixes the two
+#[test]
+fn a_named_font_draws_only_the_ranges_it_covers_whole() {
+    let font = Font::new(Stub::new(whole_boxes_half_blocks));
+    assert_eq!(
+        font.policy(),
+        SpritePolicy::SPRITES.with(Range::BoxDrawing, Source::Font)
+    );
+    assert_eq!(ink(&draw(&font, '─')), Some(FACE_INK));
+    // the face holds U+2588, but not the whole of its range
+    assert!(whole_boxes_half_blocks('█'));
+    assert_eq!(draw(&font, '█'), sprite('█'));
+    assert_eq!(draw(&font, '▉'), sprite('▉'));
+    let blocks: Vec<Range> = font.coverage().partial().map(|(r, _)| r).collect();
+    assert_eq!(blocks, [Range::BlockElements]);
+
+    assert_eq!(
+        Font::new(Stub::new(full)).policy(),
+        SpritePolicy::all(Source::Font)
+    );
+    assert_eq!(
+        Font::new(Stub::new(partial)).policy(),
+        SpritePolicy::SPRITES
+    );
+    assert_eq!(Font::new(Stub::new(none)).policy(), SpritePolicy::SPRITES);
+    for holds in [
+        full as fn(char) -> bool,
+        partial,
+        none,
+        whole_boxes_half_blocks,
+    ] {
+        let policy = Font::new(Stub::new(holds)).policy();
+        assert!(Range::ALL.iter().all(|&r| policy.source(r) != Source::Auto));
+    }
+}
+
+// the built-in unifont keeps the C reference's sprites, though it covers
+// every range
+#[cfg(feature = "unifont")]
+#[test]
+fn unifont_draws_the_sprites_by_default() {
+    let unifont = || vtium_font::Unifont::new(16);
+    assert_eq!(Font::new(unifont()).policy(), SpritePolicy::SPRITES);
+    let boxed: Font<Box<dyn Face>> = Font::new(Box::new(unifont()));
+    assert_eq!(boxed.policy(), SpritePolicy::SPRITES);
+    assert_eq!(draw(&Font::new(unifont()), '─'), sprite('─'));
+}
+
+#[test]
+fn a_missing_character_draws_u_25a1_by_default() {
+    assert_eq!(Missing::default(), Missing::Replacement);
+    let font = Font::new(Stub::new(none)).with_policy(SpritePolicy::all(Source::Font));
+    assert_eq!(font.missing(), Missing::Replacement);
+    assert_eq!(ink(&draw(&font, '─')), Some(BOX_INK));
+    assert_eq!(ink(&draw(&font, 'A')), Some(BOX_INK));
+    let font = font.with_missing(Missing::Replacement);
+    assert_eq!(ink(&draw(&font, 'A')), Some(BOX_INK));
 }

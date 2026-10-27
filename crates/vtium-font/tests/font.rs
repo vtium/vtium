@@ -4,7 +4,8 @@
 //! font_unifont.c.
 
 use vtium_font::{
-    CELL_SIDE_MAX, Cell, Decorations, Face, Font, Format, Glyph, Psf, Style, Width, sprite,
+    CELL_SIDE_MAX, Cell, Decorations, Face, Font, Format, Glyph, Psf, SpritePolicy, Style, Width,
+    sprite,
 };
 
 fn plain() -> Style {
@@ -203,7 +204,9 @@ fn a_colour_glyph_keeps_its_pixels_and_alpha() {
             );
         }
     }
-    // a sprite character from a colour face is still a mask sprite
+    // a sprite character from a colour face is still a mask sprite; the
+    // face holds every character, so its own default takes its glyphs
+    let font = font.with_policy(SpritePolicy::SPRITES);
     let block = font
         .glyph(&['█'], Width::Narrow, plain())
         .expect("a sprite");
