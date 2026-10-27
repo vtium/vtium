@@ -53,7 +53,7 @@
 ## A display's mode, `WxH[@RATE]`, for every display, `[CONNECTOR]WxH` for one connector, or `GPU[CONNECTOR]WxH` for one on one card, its udev `ID_PATH`. A key per line; the most specific match wins. Unset, the panel's preferred mode. It turns `use-original-mode` off.
 #mode=
 
-## The sixteen colours and the defaults: `custom` takes the `palette-*` keys. vtium-term holds `legacy` and `custom` so far; another name draws `legacy` and is reported.
+## The sixteen colours and the default foreground and background: a named palette, or `custom`, which takes the `palette-*` keys. Colours 16 to 255 are xterm's in every palette.
 #palette=legacy
 
 ## Colour 0 with `palette=custom`.
@@ -110,7 +110,7 @@
 ## The default background with `palette=custom`.
 #palette-background=0,0,0
 
-## Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken for a paste, which is not built yet.
+## Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and Shift+Insert paste it.
 #clipboard-write
 
 ## The keyboard model, as xkeyboard-config names it.

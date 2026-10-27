@@ -337,8 +337,8 @@ pub const PALETTE: Key = Key {
     default: Default::Text("legacy"),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "The sixteen colours and the defaults: `custom` takes the `palette-*` keys. vtium-term holds `legacy` and `custom` so far; another name draws `legacy` and is reported.",
-    cite: "src/config.c:1427; libtsm src/tsm/tsm-vte.c:452-480",
+    what: "The sixteen colours and the default foreground and background: a named palette, or `custom`, which takes the `palette-*` keys. Colours 16 to 255 are xterm's in every palette.",
+    cite: "src/config.c:1427; libtsm src/tsm/tsm-vte.c:254-478",
 };
 
 pub const PALETTE_BLACK: Key = Key {
@@ -546,7 +546,7 @@ pub const CLIPBOARD_WRITE: Key = Key {
     default: Default::Switch(true),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken for a paste, which is not built yet.",
+    what: "Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and Shift+Insert paste it.",
     cite: "ADR-1000 (`osc.52.write`); vtium/vtium#39",
 };
 

@@ -494,6 +494,16 @@ fn the_fonts_policy_follows_the_keys() {
     assert_eq!(h.app.font_policy(), Some((want, Missing::Hex)));
 }
 
+// covers: colour.palette.named
+#[test]
+fn a_named_palette_reaches_the_terminal() {
+    let h = Harness::new(&["--palette=solarized-white"]);
+    assert_eq!(
+        Some(h.app.term.terminal.palette()),
+        vtium_term::Palette::named("solarized-white").as_ref()
+    );
+}
+
 #[test]
 fn a_custom_palette_reaches_the_terminal() {
     use vtium_term::Rgb;
@@ -955,6 +965,358 @@ fn a_wheel_event_is_one_report_or_three_lines() {
     assert_eq!(h.app.term.terminal.screen().scrolled_back(), 3);
     h.app.input_event(pointer(PointerEvent::Wheel(-1)), now());
     assert_eq!(h.app.term.terminal.screen().scrolled_back(), 0);
+}
+
+/// The pointer in the middle of cell `col`, `row` (8 by 16 pixels), with
+/// `held` pressed.
+fn over(col: i32, row: i32, held: Option<Button>) -> PointerEvent {
+    PointerEvent::Moved {
+        x: col * 8 + 4,
+        y: row * 16 + 8,
+        held,
+    }
+}
+
+fn press(button: Button, double_click: bool) -> PointerEvent {
+    PointerEvent::Button {
+        button,
+        pressed: true,
+        double_click,
+    }
+}
+
+fn release(button: Button) -> PointerEvent {
+    PointerEvent::Button {
+        button,
+        pressed: false,
+        double_click: false,
+    }
+}
+
+impl Harness {
+    /// Pointer events, each with `mods` held.
+    fn point(&mut self, events: impl IntoIterator<Item = PointerEvent>, mods: Mods) {
+        for event in events {
+            self.app.pointer_event(event, mods, self.at());
+        }
+    }
+}
+
+/// Whether a row of the screen reads `text`.
+fn shows(app: &App, text: &str) -> bool {
+    app.screen_text().iter().any(|l| l == text)
+}
+
+/// A drag across two lines selects them, its release copies them, and the
+/// middle button pastes them back to the program.
+// covers: clipboard.selection, clipboard.paste
+#[test]
+fn a_drag_across_two_lines_copies_them_and_the_middle_button_pastes_them() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf 'first line\\nsecond one\\n'; read x; read y; echo \"got:$x|$y\"; read z",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "second one")));
+    h.point(
+        [
+            over(0, 0, None),
+            press(Button::Left, false),
+            over(4, 1, Some(Button::Left)),
+            over(9, 1, Some(Button::Left)),
+            release(Button::Left),
+        ],
+        Mods::empty(),
+    );
+    assert_eq!(h.app.selection(), Some(&b"first line\nsecond one"[..]));
+    h.point(
+        [press(Button::Middle, false), release(Button::Middle)],
+        Mods::empty(),
+    );
+    h.type_str("\r");
+    assert!(
+        h.until(SECOND, |a| shows(a, "got:first line|second one")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// A double click selects a word and a triple click a line, each copied
+/// as it is made; Shift+Insert pastes as the middle button does. A click
+/// with no drag copies nothing.
+// covers: clipboard.selection, clipboard.paste
+#[test]
+fn a_double_click_selects_a_word_and_a_triple_click_a_line() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf 'alpha beta gamma\\nsecond line here\\n'; read x; read y; echo \"got:$x|$y\"; read z",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "second line here")));
+    let none = Mods::empty();
+    h.point(
+        [
+            over(7, 0, None),
+            press(Button::Left, false),
+            release(Button::Left),
+            press(Button::Left, true),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"beta"[..]));
+    // A key clears the selection, and the buffer keeps it.
+    assert!(h.app.term.terminal.screen().has_selection());
+    h.app.input_event(key(Mods::SHIFT, 0xff63), now());
+    assert!(!h.app.term.terminal.screen().has_selection());
+    h.type_str("\r");
+    h.point(
+        [
+            over(3, 1, None),
+            press(Button::Left, false),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(
+        h.app.selection(),
+        Some(&b"beta"[..]),
+        "a click copies nothing"
+    );
+    h.point(
+        [
+            press(Button::Left, true),
+            release(Button::Left),
+            press(Button::Left, true),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"second line here\n"[..]));
+    h.point(
+        [press(Button::Middle, false), release(Button::Middle)],
+        none,
+    );
+    assert!(
+        h.until(SECOND, |a| shows(a, "got:beta|second line here")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// While a program tracks the pointer, a drag and the middle button with
+/// Shift held select and paste, as xterm's do, and reach the program only
+/// as the paste, bracketed; without Shift the buttons are reported.
+// covers: clipboard.selection, clipboard.paste, input.shift-override
+#[test]
+fn shift_selects_and_pastes_while_the_program_tracks_the_pointer() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty raw -echo; printf 'pick me\\r\\n\\033[?1000h\\033[?1006h\\033[?2004hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    h.point(
+        [
+            over(0, 0, None),
+            press(Button::Left, false),
+            over(6, 0, Some(Button::Left)),
+            release(Button::Left),
+            press(Button::Middle, false),
+            release(Button::Middle),
+        ],
+        Mods::SHIFT,
+    );
+    assert_eq!(h.app.selection(), Some(&b"pick me"[..]));
+    h.point(
+        [press(Button::Left, false), release(Button::Left)],
+        Mods::empty(),
+    );
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(
+            a,
+            "E[200~pick meE[201~E[<0;7;1ME[<0;7;1m"
+        )),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// A press in the strip past the grid's last cell selects from that cell,
+/// so a new selection never extends the one before it.
+// covers: clipboard.selection
+#[test]
+fn a_press_past_the_grid_selects_from_its_last_cell() {
+    let mut h = Harness::build(
+        &[
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "printf 'alpha beta gamma\\n'; read x",
+        ],
+        FakeVt::new(),
+        Box::new(Memory::sized(326, 168)),
+    );
+    assert_eq!(h.app.grid(), (40, 10));
+    assert!(h.until(SECOND, |a| shows(a, "alpha beta gamma")));
+    let none = Mods::empty();
+    h.point(
+        [
+            over(7, 0, None),
+            press(Button::Left, false),
+            release(Button::Left),
+            press(Button::Left, true),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"beta"[..]));
+    h.point(
+        [
+            PointerEvent::Moved {
+                x: 323,
+                y: 8,
+                held: None,
+            },
+            press(Button::Left, false),
+            over(0, 0, Some(Button::Left)),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"alpha beta gamma"[..]));
+}
+
+/// A drag ends when its button is no longer held, as when its release was
+/// lost, and when the VT is released.
+#[test]
+fn a_drag_ends_without_its_button_and_at_a_vt_release() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf 'first line\\nsecond one\\n'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "second one")));
+    let none = Mods::empty();
+    let selected = |h: &Harness| h.app.term.terminal.screen().selection_text();
+    h.point(
+        [
+            over(0, 0, None),
+            press(Button::Left, false),
+            over(4, 0, Some(Button::Left)),
+            over(5, 1, None),
+            over(9, 1, Some(Button::Left)),
+        ],
+        none,
+    );
+    assert_eq!(selected(&h).as_deref(), Some("first"));
+    h.point(
+        [
+            over(0, 1, None),
+            press(Button::Left, false),
+            over(2, 1, Some(Button::Left)),
+        ],
+        none,
+    );
+    assert_eq!(selected(&h).as_deref(), Some("sec"));
+    let switch = key(Mods::CTRL.union(Mods::LOGO), 0xffc9);
+    h.app.input_event(switch.clone(), now());
+    assert!(h.until_memory(SECOND, |m| !m.awake), "asleep");
+    assert!(h.until(SECOND, |a| !a.vt.is_active()), "released");
+    h.app.input_event(switch, now());
+    assert!(h.until(SECOND, |a| a.vt.is_active()), "acquired");
+    h.point([over(9, 1, Some(Button::Left))], none);
+    assert_eq!(selected(&h).as_deref(), Some("sec"));
+}
+
+/// A selection a program sets with OSC 52 is pasted as any paste is:
+/// filtered, so its end marker and C0 controls arrive as spaces, each LF
+/// as CR, and bracketed. Shift+Insert pastes once a press, however long
+/// it repeats; the middle button pastes at its release, as xterm's does.
+// covers: clipboard.paste, osc.52.write, input.paste-end-marker
+#[test]
+fn a_hostile_selection_is_pasted_filtered_once_a_press() {
+    let mut h = Harness::build(
+        &[
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "stty raw -echo; \
+             printf '\\033]52;c;%s\\a' \"$(printf 'a\\033[201~b\\003c\\nd' | base64)\"; \
+             printf '\\033[?2004hready'; \
+             awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");gsub(/\\r/,\"R\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x",
+        ],
+        FakeVt::new(),
+        Box::new(Memory::sized(640, 160)),
+    );
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    assert_eq!(h.app.selection(), Some(&b"a\x1b[201~b\x03c\nd"[..]));
+    let shift_insert = |repeat: bool| {
+        InputEvent::Key(KeyEvent {
+            keycode: 0,
+            ascii: 0,
+            mods: Mods::SHIFT,
+            keysyms: vec![0xff63],
+            codepoints: vec![None],
+            repeat,
+        })
+    };
+    h.app.input_event(shift_insert(false), now());
+    h.app.input_event(shift_insert(true), now());
+    h.app.input_event(shift_insert(true), now());
+    h.point([press(Button::Middle, false)], Mods::empty());
+    h.type_str("X");
+    h.point([release(Button::Middle)], Mods::empty());
+    h.type_str("q");
+    let paste = "E[200~a [201~b cRdE[201~";
+    assert!(
+        h.until(SECOND, |a| shows(a, &format!("{paste}X{paste}"))),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// The program changing its mouse tracking clears the selection.
+#[test]
+fn a_change_of_mouse_tracking_clears_the_selection() {
+    let go = std::env::temp_dir().join(format!("vtium-boot-tracking-{}", std::process::id()));
+    let _ = std::fs::remove_file(&go);
+    let script = format!(
+        "printf 'text\\n'; while [ ! -e '{}' ]; do sleep 0.02; done; \
+         printf '\\033[?1000hon\\n'; read x",
+        go.display()
+    );
+    let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", &script]);
+    assert!(h.until(SECOND, |a| shows(a, "text")));
+    h.point(
+        [
+            over(0, 0, None),
+            press(Button::Left, false),
+            over(3, 0, Some(Button::Left)),
+            release(Button::Left),
+        ],
+        Mods::empty(),
+    );
+    assert!(h.app.term.terminal.screen().has_selection());
+    std::fs::write(&go, b"").expect("the go file");
+    let cleared = h.until(SECOND, |a| {
+        shows(a, "on") && !a.term.terminal.screen().has_selection()
+    });
+    let _ = std::fs::remove_file(&go);
+    assert!(cleared, "{:?}", h.app.screen_text());
+    assert_eq!(h.app.selection(), Some(&b"text"[..]));
 }
 
 /// Every key a file may set is read by the seat as `main` starts it, or

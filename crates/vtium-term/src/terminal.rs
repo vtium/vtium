@@ -23,7 +23,8 @@ mod sgr;
 use vtium_parse::{Chunk, Consumer, InputMode, Intermediates, Params, Parser, StringEnd};
 
 use crate::bounds::REPLIES_PENDING_MAX;
-use crate::frame::{CursorShape, Palette};
+use crate::frame::CursorShape;
+use crate::palette::Palette;
 use crate::screen::{Erase, Screen, WidthMethod};
 use crate::style::Style;
 use crate::termcap::Termcap;
@@ -137,7 +138,8 @@ struct HostSettings {
     cell: Option<(u32, u32)>,
     /// The display the grid fills, in pixels, once the host knows it.
     display: Option<(u32, u32)>,
-    /// The palette the colour queries answer from.
+    /// The palette the host configured, which the colour queries answer
+    /// from.
     palette: Palette,
 }
 
@@ -363,8 +365,10 @@ impl Terminal {
         &self.state.host.palette
     }
 
-    /// A palette that differs from the one set recolours every cell, so
-    /// every cell is marked changed.
+    /// The palette the host configured: a named one or a custom one
+    /// ([`Palette::named`], [`Palette::custom`]). A palette that differs
+    /// from the one set recolours every cell, so every cell is marked
+    /// changed.
     pub fn set_palette(&mut self, palette: Palette) {
         if self.state.host.palette != palette {
             self.state.host.palette = palette;

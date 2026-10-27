@@ -211,6 +211,37 @@ pub fn snapshot(got: &Result<String, crate::Failure>) -> String {
     }
 }
 
+/// The C reference's palette tables, lines 254 to 451 of this libtsm file,
+/// which vtium-term's palette test reads from a verbatim copy.
+pub const PALETTE_SOURCE: (&str, usize, usize) = ("src/tsm/tsm-vte.c", 254, 451);
+
+/// The copy, from the root of this repository.
+pub const PALETTE_COPY: &str = "crates/vtium-term/tests/palettes.c.txt";
+
+/// Whether `copy` is lines `first` to `last` of `source`, byte for byte,
+/// each with its line end; the first line that differs otherwise.
+pub fn excerpt(source: &str, first: usize, last: usize, copy: &str) -> Result<(), String> {
+    let want: Vec<&str> = source
+        .split_inclusive('\n')
+        .skip(first.saturating_sub(1))
+        .take(last.saturating_sub(first).saturating_add(1))
+        .collect();
+    let got: Vec<&str> = copy.split_inclusive('\n').collect();
+    if want == got {
+        return Ok(());
+    }
+    let at = want
+        .iter()
+        .zip(&got)
+        .position(|(w, g)| w != g)
+        .unwrap_or(want.len().min(got.len()));
+    Err(format!(
+        "line {} of the copy is not line {} of the source",
+        at.saturating_add(1),
+        first.saturating_add(at)
+    ))
+}
+
 /// The first lines where `got` differs from `want`, with a line of context.
 pub fn diff(want: &str, got: &str) -> String {
     let (w, g): (Vec<&str>, Vec<&str>) = (want.lines().collect(), got.lines().collect());

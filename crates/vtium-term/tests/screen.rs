@@ -402,6 +402,27 @@ fn a_selection_copies_its_text() {
     assert_eq!(frame_selected(s), [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4)]);
 }
 
+// A line selection takes the whole row, and its copy ends with a line end,
+// as xterm's does with `cutNewline`.
+// covers: clipboard.selection
+#[test]
+fn a_line_selection_copies_the_row_and_its_end() {
+    let mut t = term(12, 3, b"one two\r\n  three");
+    let s = t.screen_mut();
+    assert!(!s.has_selection());
+    s.select_line(9, 1);
+    assert!(s.has_selection());
+    assert_eq!(s.selection_text().as_deref(), Some("  three\n"));
+    // A drag after it is a selection of characters again.
+    s.select_start(0, 0);
+    s.select_to(2, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("one"));
+    s.select_line(0, 0);
+    s.clear_selection();
+    assert!(!s.has_selection());
+    assert_eq!(s.selection_text(), None);
+}
+
 // A line the screen discards (IL, DL, SD, RI, a scroll on the alternate
 // screen, the screen's rows a taller screen replaces) takes the selection
 // with it: a copy must not reach into other text. Only a line the

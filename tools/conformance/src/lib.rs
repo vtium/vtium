@@ -11,7 +11,6 @@
 
 pub mod command;
 pub mod coverage;
-pub mod palettes;
 pub mod replay;
 pub mod runner;
 pub mod view;

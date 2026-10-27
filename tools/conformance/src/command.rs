@@ -3,7 +3,8 @@
 //! interface gives for the text and its values; a command that breaks one
 //! is a usage failure, exit 2.
 
-use crate::palettes::PALETTES;
+use vtium_term::PALETTE_NAMES;
+
 use crate::{Failure, usage};
 
 /// The test command's introducer.
@@ -351,7 +352,7 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
                 .ok_or_else(|| f.fail("hex", "not hex bytes, or holds 00"))?,
         ),
         "focus" => Command::Focus(f.flag("in", None)?),
-        "palette" => Command::Palette(f.name_of("name", &PALETTES.map(|p| (p.name, p.name)))?),
+        "palette" => Command::Palette(f.name_of("name", &PALETTE_NAMES.map(|n| (n, n)))?),
         "frame-since" => Command::FrameSince(to_u8(f.decimal("caller", 7, None)?)),
         _ => return Err(usage(format!("unknown test command {}", f.name))),
     })

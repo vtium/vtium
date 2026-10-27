@@ -12,7 +12,7 @@ checkpoint 64
 size 20x2
 cursor 0,0
 flags AUTO_WRAP
-reply 1b5b3230307e610a621b5b3230317e
+reply 1b5b3230307e610d621b5b3230317e
 palette legacy fg=#e5e5e5 bg=#000000
 changed 0
 frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000

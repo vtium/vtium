@@ -17,6 +17,7 @@ mod cmdline;
 mod doc;
 mod file;
 pub mod keys;
+mod palette;
 mod value;
 
 #[cfg(test)]
