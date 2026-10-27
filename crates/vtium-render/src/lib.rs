@@ -22,9 +22,11 @@ mod deco;
 mod renderer;
 mod stored;
 mod target;
+mod timer;
 mod trig;
 
 pub use bounds::{POOL_BYTES_PERFORMANCE, ROW_SCRATCH_MAX};
 pub use cache::{Budgets, CacheCounts, Profile, Storage};
 pub use renderer::{Config, DecoColor, DecorationColors, DrawState, Drawn, Renderer, Stats};
 pub use target::{Canvas, Mapped, Orientation, Rect, Target};
+pub use timer::{RENDER_TIMER_SAMPLES, RenderTimer, Report};

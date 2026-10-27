@@ -43,7 +43,7 @@ pub struct DecorationColors {
 }
 
 /// How a renderer draws, fixed for its life.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
     pub orientation: Orientation,
     /// The cache's profile, `glyph-cache`.
@@ -55,6 +55,21 @@ pub struct Config {
     /// into each of them once. 0 is taken as 1.
     pub buffers: u8,
     pub decorations: DecorationColors,
+}
+
+impl Default for Config {
+    /// Unturned, the default profile, both storage savings, and two
+    /// buffers, as a display that flips between two dumb buffers has.
+    fn default() -> Config {
+        Config {
+            orientation: Orientation::default(),
+            profile: Profile::default(),
+            budgets: None,
+            storage: Storage::default(),
+            buffers: 2,
+            decorations: DecorationColors::default(),
+        }
+    }
 }
 
 /// What a frame needs beyond the terminal's state.
