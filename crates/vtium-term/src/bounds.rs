@@ -20,16 +20,16 @@ pub(crate) struct Bound {
 const COLUMNS: Bound = Bound {
     name: "COLUMNS_MAX",
     value: 8192,
-    what: "Cells a line holds, and columns a screen's damage tracks",
-    past: "A line is made or widened to at most this many cells, and damage to at most this many columns; the grid's width comes from the display and the font, never from the stream",
+    what: "Cells a line holds, and columns a screen and its damage have",
+    past: "A line is made or widened to at most this many cells, and a screen and its damage to at most this many columns; the grid's width comes from the display and the font, never from the stream",
     cite: "vtium's own: a line's style and link tables are indexed in 16 bits and compact at `TABLE_GROWTH` times the line's cells, which this keeps inside 65535; a 15360-pixel display in a 4-pixel font is 3840 columns",
 };
 
 const ROWS: Bound = Bound {
     name: "ROWS_MAX",
     value: 2048,
-    what: "Rows a screen's damage tracks",
-    past: "Damage is made or resized to at most this many rows",
+    what: "Rows a screen and its damage have",
+    past: "A screen and its damage are made or resized to at most this many rows",
     cite: "vtium's own: an 8640-pixel display in a 6-pixel font is 1440 rows; the bound keeps a resize from the stream (vtium/vtium#44) from allocating without limit",
 };
 
@@ -44,7 +44,7 @@ const CLUSTER: Bound = Bound {
 const CLUSTER_BYTES: Bound = Bound {
     name: "CLUSTER_BYTES_PER_CELL",
     value: 6,
-    what: "Bytes of grapheme clusters a line keeps, per cell of the line: each cluster's codepoints in UTF-8 and a length byte, so a base and two combining marks a cell on average",
+    what: "Bytes of grapheme clusters a line keeps, per cell of the width it was written at (a line trimmed for the scrollback keeps what its cells name): each cluster's codepoints in UTF-8 and a length byte, so a base and two combining marks a cell on average",
     past: "A cluster that would pass it keeps the longest run of its first codepoints that fits, and at least its first codepoint",
     cite: "vtium's own: it holds the worst case of the default 1,000-line scrollback inside the minspec peak (ADR-1001, \"Memory\")",
 };
@@ -94,19 +94,19 @@ pub(crate) const BOUNDS: [Bound; 8] = [
     SB_MAX,
 ];
 
-/// Cells a line holds, and columns a screen's damage tracks. The grid's
-/// width comes from the display and the font, so no program reaches this
-/// bound.
+/// Cells a line holds, and columns a screen and its damage have. The
+/// grid's width comes from the display and the font, so no program reaches
+/// this bound.
 pub const COLUMNS_MAX: usize = COLUMNS.value;
 
-/// Rows a screen's damage tracks.
+/// Rows a screen and its damage have.
 pub const ROWS_MAX: usize = ROWS.value;
 
 /// Codepoints one grapheme cluster keeps; those past it are dropped.
 pub const CLUSTER_MAX: usize = CLUSTER.value;
 
-/// Bytes of grapheme clusters a line keeps per cell of the line, length
-/// bytes included.
+/// Bytes of grapheme clusters a line keeps per cell of the width it was
+/// written at, length bytes included.
 pub const CLUSTER_BYTES_PER_CELL: usize = CLUSTER_BYTES.value;
 
 /// The bytes one cluster takes in its line's arena at most: a length byte

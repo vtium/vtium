@@ -38,7 +38,7 @@ impl Age {
     pub const NEVER: Self = Self(0);
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct RowAge {
     /// The whole row changed: it moved, or was cleared whole.
     whole: u64,
@@ -47,7 +47,7 @@ struct RowAge {
 }
 
 /// The change ages of one screen's positions.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Damage {
     cols: usize,
     rows: usize,
