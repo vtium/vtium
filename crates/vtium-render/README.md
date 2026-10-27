@@ -26,6 +26,8 @@ The C reference is the floor: its `bbulk.c`, `deco.c`, `drm2d_render.c` and `ren
 
 `draw` follows the frame contract with the displays (vtium/vtium#18): it takes the buffer the display lends and the buffer's age, 1 when it holds the last frame drawn with damage, n when it holds the frame n back, 0 when its contents are unknown. Each cell carries the serial of the frame that last changed what it shows, its cursor (place, shape and colour), blink phase and wide pairing included, and a buffer at age n gets the cells that changed in the last n frames. At age 0, or at an age past the renderer's history, the buffer gets the whole picture and the border, and every other buffer's history stays as it was. Nothing assumes the buffers take turns or counts them, so a swap that failed, a third buffer and a buffer the display lost each get exactly what they lack. The frame is read since the checkpoint taken after the renderer's previous `draw`, whatever buffer that drew into.
 
+Dim text (SGR 2) draws its foreground halfway to its background, each channel the sum of the two halved, as the C reference drew it. Dim mixes the colours reverse video left, and the cursor draws over the result: a block swaps the mix with the background. An underline or strike in the foreground's colour takes the mix; SGR 58's underline colour is exact. Test: `tests/dim.rs`.
+
 The renderer draws the pointer only when `DrawState::pointer` is set, which the owner does on a display without a cursor plane; where the display drives a cursor plane, moving the pointer involves no draw. A drawn pointer changes the cells under it only when it appears, moves, hides or changes colour, and is drawn again over any of them the frame draws. A frame that changes nothing, pointer shown or not, writes nothing and returns no damage; the owner does not swap it, and it does not count as a frame. A change of grid size or of the default background changes every cell and the border.
 
 ## Departures
@@ -43,7 +45,7 @@ The renderer draws the pointer only when `DrawState::pointer` is set, which the 
 
 ## Not yet
 
-- **Conceal, overline and dim are not drawn.** A concealed cell shows its text, an overline draws nothing, and dim text draws at full intensity. Conceal and overline are vtium/vtium#37's: a concealed cell draws as its background, and an overline as a decoration beside the underline. Drawing dim, ADR-1000's `sgr.dim`, is vtium/vtium#77.
+- **Conceal and overline are not drawn.** A concealed cell shows its text, and an overline draws nothing. Both are vtium/vtium#37's: a concealed cell draws as its background, and an overline as a decoration beside the underline.
 - **Rapid blink (SGR 6) blinks at SGR 5's rate.** ADR-1000's `sgr.rapid-blink` asks for a faster phase, which is vtium/vtium#37's; `tests/blink.rs` pins the shared phase until then.
 - **`Frame::palette()` is owed.** The frame does not expose its palette, so the owner passes the default foreground and background in `DrawState`. The frame types the renderers read are vtium/vtium#10's.
 - **A full frame takes about 3 ms.** At 1366x768 a full redraw with a warm cache measures 2.8-3.0 ms in a release build (`tests/figures.rs`), against the 0.33 ms ADR-1300 measured for its draw kernel over the same screen in cached memory. The performance pass is vtium/vtium#78.
