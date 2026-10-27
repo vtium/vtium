@@ -51,7 +51,7 @@ qemu-user runs vtium's code on an emulated CPU over the host's kernel, so it jud
 - **Device ioctls qemu does not translate,** such as DRM's `GET_CAP`: qemu answers `ENOTTY`, so a test on the host's render node fails under qemu while it passes natively.
 - **Tracing.** The host's `strace` on a target binary traces qemu.
 
-CI's `arm-native` job runs the whole suite natively on an aarch64 runner. The runner has no render node, so the DRM test skips there; a real ARM machine judges it.
+`TRIPLE-run` exports `VTIUM_QEMU_USER`, naming the qemu it runs, and the tests that depend on these skip when it is set and print why: the render-node test in vtium-platform's `display::card` and check-config's open check. CI's `arm-native` job runs the whole suite natively on an aarch64 runner. The runner has no render node, so the DRM test skips there; a real ARM machine judges it.
 
 ## The musl targets
 
