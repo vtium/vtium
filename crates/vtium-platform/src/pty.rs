@@ -19,8 +19,9 @@ use calloop::generic::Generic;
 use calloop::{Interest, LoopHandle, Mode, PostAction, RegistrationToken};
 use rustix::fs::{OFlags, fcntl_getfl, fcntl_setfl};
 use rustix::process::{Pid, PidfdFlags, ioctl_tiocsctty, pidfd_open, setsid};
-// rustix's runtime module is published under this name while its API is
-// unstable.
+// rustix publishes its runtime module under a name that changes between
+// releases, as it keeps that API unstable; Cargo.toml pins rustix to the
+// release whose name this is.
 use rustix::pty::{OpenptFlags, grantpt, ioctl_tiocgptpeer, openpt, unlockpt};
 use rustix::runtime_448b8ad740e2a26f::{How, KernelSigSet, kernel_sigprocmask};
 use rustix::termios::{

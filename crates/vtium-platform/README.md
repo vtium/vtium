@@ -30,7 +30,7 @@ What the consumer is fed, and every reply it writes, depend only on the bytes th
 
 ## Dependencies
 
-- **rustix** for every syscall (vtium/vtium#6), with its `runtime` feature for the one call it keeps there: the empty signal mask the pty's child starts with.
+- **rustix** for every syscall (vtium/vtium#6), with its `runtime` feature for the one call it keeps there: the empty signal mask the pty's child starts with. It is pinned at `=1.1.5`: rustix keeps that module unstable and publishes it under a name that changes between releases, so any update is made by hand, renaming the import in `src/pty.rs`.
 - **calloop**, the event loop ADR-304 chose, pinned at 0.14.4: 0.14.5 needs Rust 1.86, and the workspace's `rust-version` is 1.85. Move to 0.14.5 or later when the workspace moves to 1.86.
 - **nix** arrives through calloop's `signals` feature, which gives the loop its signalfd. rustix has no signalfd wrapper, and the alternatives are a `libc` call or a raw syscall in `unsafe`, which vtium/vtium#6 excludes. vtium-platform calls nothing in nix. Revisit when rustix wraps signalfd.
 
