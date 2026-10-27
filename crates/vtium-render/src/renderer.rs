@@ -131,6 +131,8 @@ struct CellState {
     pending: u8,
     cursor: bool,
     hidden: bool,
+    /// The cells it drew over: 0 as a trailing half, 1 or 2.
+    span: u8,
     /// Drawn on this frame: in its damage.
     drawn: bool,
 }
@@ -198,6 +200,20 @@ pub struct Renderer<F> {
 
 fn int(v: impl TryInto<i64>) -> i64 {
     v.try_into().unwrap_or(i64::MAX)
+}
+
+/// How many cells the cell at `col` draws over: 0 for the trailing half of
+/// a wide character, which the leading half draws; 2 for a leading half
+/// with its trailing half on the screen; else 1. A half whose partner is
+/// missing draws as one cell, so no frame leaves a cell undrawn.
+fn span(frame: &Frame<'_>, row: usize, col: usize, cols: usize) -> usize {
+    let width = |c: usize| frame.cell(row, c).map(|f| f.width);
+    let next = col.saturating_add(1);
+    match width(col) {
+        Some(Width::WideTail) if col.checked_sub(1).and_then(width) == Some(Width::Wide) => 0,
+        Some(Width::Wide) if next < cols && width(next) == Some(Width::WideTail) => 2,
+        _ => 1,
+    }
 }
 
 impl<F: Face> Renderer<F> {
@@ -452,14 +468,9 @@ impl<F: Face> Renderer<F> {
 
     /// Where the cursor draws: the leading cell of a wide character whose
     /// trailing half it sits on.
-    fn cursor_cell(frame: &Frame<'_>, c: &Cursor) -> (usize, usize) {
-        let tail = |col| frame.cell(c.row, col).map(|f: FrameCell<'_>| f.width);
+    fn cursor_cell(frame: &Frame<'_>, c: &Cursor, cols: usize) -> (usize, usize) {
         match c.col.checked_sub(1) {
-            Some(prev)
-                if tail(c.col) == Some(Width::WideTail) && tail(prev) == Some(Width::Wide) =>
-            {
-                (prev, c.row)
-            }
+            Some(prev) if span(frame, c.row, c.col, cols) == 0 => (prev, c.row),
             _ => (c.col, c.row),
         }
     }
@@ -472,7 +483,8 @@ impl<F: Face> Renderer<F> {
         state: &DrawState,
     ) -> u32 {
         let cursor = frame.cursor();
-        let at = (cursor.visible && state.cursor_on).then(|| Self::cursor_cell(frame, &cursor));
+        let at =
+            (cursor.visible && state.cursor_on).then(|| Self::cursor_cell(frame, &cursor, g.cols));
         let blink_toggled = state.blink_hidden != self.blink_hidden;
         self.blink_hidden = state.blink_hidden;
         let last_cursor = core::mem::replace(&mut self.cursor_at, at);
@@ -522,23 +534,26 @@ impl<F: Face> Renderer<F> {
             };
             let here = col;
             col = col.saturating_add(1);
-            // a trailing half is drawn by the wide cell before it
-            if fc.width == Width::WideTail && here > 0 {
+            let ncells = span(frame, row, here, g.cols);
+            // a cell that joins or leaves a wide pair draws differently
+            let role = u8::try_from(ncells).unwrap_or(1);
+            let mut changed = fc.changed;
+            if let Some(s) = self.state(g, here, row) {
+                changed |= core::mem::replace(&mut s.span, role) != role;
+            }
+            if ncells == 0 {
                 continue;
             }
-            let ncells = if fc.width == Width::Wide && col < g.cols {
-                2
-            } else {
-                1
-            };
             let is_cursor = at == Some((here, row));
             let blinks = fc.attrs.contains(Attrs::BLINK) || fc.attrs.contains(Attrs::RAPID_BLINK);
             let hidden = !is_cursor && blinks && state.blink_hidden;
-            let mut changed = fc.changed;
             let mut tail_pending = 0;
             if ncells == 2 {
                 changed |= frame.cell(row, col).is_some_and(|t| t.changed);
-                tail_pending = self.state(g, col, row).map_or(0, |s| s.pending);
+                if let Some(t) = self.state(g, col, row) {
+                    tail_pending = t.pending;
+                    changed |= core::mem::replace(&mut t.span, 0) != 0;
+                }
             }
             let Some(s) = self.state(g, here, row) else {
                 continue;
@@ -740,7 +755,8 @@ impl<F: Face> Renderer<F> {
             };
             let here = col;
             col = col.saturating_add(1);
-            if fc.width == Width::WideTail && here > 0 {
+            let ncells = span(frame, row, here, g.cols);
+            if ncells == 0 {
                 continue;
             }
             let covered = self
@@ -748,16 +764,8 @@ impl<F: Face> Renderer<F> {
                 .iter()
                 .any(|j| here >= j.posx && here < j.posx.saturating_add(j.ncells));
             if covered {
-                if fc.width == Width::Wide {
-                    col = col.saturating_add(1);
-                }
                 continue;
             }
-            let ncells = if fc.width == Width::Wide && col < g.cols {
-                2
-            } else {
-                1
-            };
             let is_cursor = at == Some((here, row));
             let blinks = fc.attrs.contains(Attrs::BLINK) || fc.attrs.contains(Attrs::RAPID_BLINK);
             let hidden = !is_cursor && blinks && state.blink_hidden;
