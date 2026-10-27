@@ -19,7 +19,7 @@ use vtium::config::{self, KEYS, Kind, Scope, keys};
 use vtium::start::Start;
 use vtium::term::Clock;
 use vtium_platform::event_loop::{Loop, Signal};
-use vtium_platform::input::{Direct, Input, Keymap, locale};
+use vtium_platform::input::locale;
 use vtium_platform::udev::Udev;
 use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty};
 
@@ -138,9 +138,8 @@ fn run(config: config::Config, start: Start, open: Open) -> io::Result<i32> {
         std::env::vars_os().collect(),
     );
 
-    match Keymap::new(&start.keymap).or_else(Keymap::fallback) {
-        Some(keymap) => {
-            let mut input = Input::new(Direct, keymap, start.input);
+    match start.input() {
+        Some(mut input) => {
             input.insert(&lp.handle(), |app: &mut App| app.input.as_mut());
             app.input = Some(input);
         }

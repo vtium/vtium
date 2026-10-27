@@ -164,8 +164,8 @@ pub enum Problem {
     FileTooLong,
     /// The file exists and could not be read.
     Unreadable(io::ErrorKind),
-    /// The path names something other than a regular file, a FIFO or a
-    /// device, which is not read.
+    /// The path names something that is not a regular file, such as a
+    /// FIFO, a device or a directory; it is not read.
     NotAFile,
     /// A command-line argument that is no option.
     StrayArgument(String),

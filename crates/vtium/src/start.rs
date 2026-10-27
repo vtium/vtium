@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use vtium_platform::input::{InputConfig, KeymapConfig};
+use vtium_platform::input::{Direct, Input, InputConfig, Keymap, KeymapConfig};
 
 use crate::config::Config;
 use crate::config::keys::{
@@ -20,8 +20,10 @@ pub struct Start {
     pub vt: Option<PathBuf>,
     /// Switch to the VT at start.
     pub switch: bool,
-    pub keymap: KeymapConfig,
-    pub input: InputConfig,
+    /// The `xkb-*` keys, which [`Start::input`] alone reads.
+    keymap: KeymapConfig,
+    /// The repeat and `mouse`, which [`Start::input`] alone reads.
+    input: InputConfig,
 }
 
 impl Start {
@@ -52,6 +54,25 @@ impl Start {
                 config.switch(&MOUSE),
             ),
         }
+    }
+}
+
+impl Start {
+    /// The seat's input: the keymap the `xkb-*` keys name, or the
+    /// built-in one when it does not compile, with the key repeat and
+    /// pointers the keys set. `None` when no keymap compiles.
+    pub fn input(&self) -> Option<Input> {
+        self.build(|keymap, input| {
+            Keymap::new(keymap)
+                .or_else(Keymap::fallback)
+                .map(|k| Input::new(Direct, k, input))
+        })
+    }
+
+    /// Hands `make` the keymap's and the input's settings: the one place
+    /// they are read for the seat.
+    fn build<T>(&self, make: impl FnOnce(&KeymapConfig, InputConfig) -> T) -> T {
+        make(&self.keymap, self.input)
     }
 }
 
@@ -119,6 +140,17 @@ mod tests {
         assert_eq!(s.input.repeat_delay, Duration::from_millis(300));
         assert_eq!(s.input.repeat_rate, Duration::from_millis(40));
         assert!(!s.input.mouse);
+    }
+
+    /// The seat's input is made from the keys, through the one function
+    /// `main` calls.
+    #[test]
+    fn the_input_is_made_from_the_keys() {
+        let s = start(&["--xkb-layout=de", "--xkb-repeat-delay=300", "--no-mouse"]);
+        let (layout, input) = s.build(|keymap, input| (keymap.layout.clone(), input));
+        assert_eq!(layout, "de");
+        assert_eq!(input, InputConfig::new(300, 50, false));
+        assert!(s.input().is_some(), "a keymap, the built-in one at worst");
     }
 
     #[test]
