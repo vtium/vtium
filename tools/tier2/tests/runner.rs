@@ -263,3 +263,17 @@ fn a_malformed_golden_or_sidecar_is_an_error() {
         assert_eq!(c.status, Status::Error, "{name}: {:?}", c.note);
     }
 }
+
+#[test]
+fn a_sprites_only_screen_holding_text_is_refused() {
+    let sprites = |bytes: &'static [u8]| Screen {
+        font: draw::FontKind::Sprites {
+            width: 9,
+            height: 16,
+        },
+        ..Screen::new("s", "sprites", bytes, 4, 1)
+    };
+    assert!(draw::draw(&sprites("█ ┼".as_bytes())).is_ok());
+    let e = draw::draw(&sprites("█A┼".as_bytes())).unwrap_err();
+    assert!(e.contains("U+0041"), "{e}");
+}
