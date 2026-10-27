@@ -6,6 +6,7 @@ import re
 import subprocess
 
 import t3_bench
+import t3_power
 import t3img
 from t3_common import GOLDEN, GUEST, HERE, ROOT, RUNDIR, rel
 
@@ -103,7 +104,10 @@ CHECKS = {
                  "screen just left.",
     "vt-restore": "Back on tty2 after Ctrl+Alt+F2, the %s screen redrawn by the first "
                   "instance. Correct: identical to the %s golden." % (SCREENS[-1], SCREENS[-1]),
+    **t3_power.CHECKS,
 }
+# The checks without a golden: each passes when its capture was taken.
+NO_GOLDEN = {"vt-switch", *t3_power.CHECKS}
 
 DEPARTURES_FILE = os.path.join(HERE, "departures.tsv")
 
@@ -248,9 +252,9 @@ def screen_text(case, log):
 
 
 def golden_for(variant, case):
-    """(golden, tolerance sidecar) paths for a case, or (None, None) for
-    vt-switch, a check without a golden."""
-    if case == "vt-switch":
+    """(golden, tolerance sidecar) paths for a case, or (None, None) for a
+    check without a golden (NO_GOLDEN)."""
+    if case in NO_GOLDEN:
         return None, None
     base = SAME_AS.get(case, case)
     return (os.path.join(GOLDEN, variant, base + ".png"),
@@ -294,6 +298,8 @@ def evaluate(variant, case, ppm, meta, log):
     entry["thumb_actual"] = write_thumb(t3img.thumbnail(img), stem + ".thumb.png")
     if golden is None:  # a check, passed when the capture was taken
         entry["status"] = "pass"
+        if meta.get("notes", {}).get(case):
+            entry["note"] = meta["notes"][case]
         return entry
     if gimg is None:
         entry["status"] = "missing"

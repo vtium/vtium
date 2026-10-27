@@ -248,6 +248,7 @@ dependencies = [
  "vtium-platform",
  "vtium-render",
  "vtium-term",
+ "xkbcommon",
 ]
 
 [[package]]
@@ -281,6 +282,7 @@ version = "0.0.0"
 dependencies = [
  "calloop",
  "drm-ffi",
+ "libc",
  "log",
  "rustix",
  "udev",

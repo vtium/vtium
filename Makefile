@@ -43,6 +43,34 @@ install-tree: minspec ## Stage vtium's install tree under DESTDIR (default targe
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/kmscon.ti
 	install -Dm644 $(VTIUM_INSTALL)/kmscon.conf.example $(DESTDIR)/etc/kmscon/kmscon.conf.example
 
+# The ARM single-board computers minspec is judged against
+# (docs/architecture.md): each target links against a pinned Debian sysroot
+# and runs its tests under qemu-user, through tools/arm's wrappers
+# (tools/arm/README.md). The sysroots live in a cache every checkout shares.
+# The wrappers are named here, for these targets alone, so a native build on
+# an ARM machine uses its own toolchain.
+ARM_TARGETS      ?= aarch64-unknown-linux-gnu armv7-unknown-linux-gnueabihf
+ARM_TEST_TARGETS ?= aarch64-unknown-linux-gnu
+ARM_WRAP         := $(CURDIR)/tools/arm
+arm arm-test: export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = $(ARM_WRAP)/aarch64-unknown-linux-gnu-cc
+arm arm-test: export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER = $(ARM_WRAP)/aarch64-unknown-linux-gnu-run
+arm arm-test: export PKG_CONFIG_aarch64_unknown_linux_gnu = $(ARM_WRAP)/aarch64-unknown-linux-gnu-pkg-config
+arm arm-test: export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-cc
+arm arm-test: export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_RUNNER = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-run
+arm arm-test: export PKG_CONFIG_armv7_unknown_linux_gnueabihf = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-pkg-config
+
+.PHONY: arm-sysroot
+arm-sysroot: ## Fetch and verify the Debian sysroots the ARM targets link against (VTIUM_ARM_SYSROOTS=DIR)
+	tools/arm/sysroot fetch arm64 armhf
+
+.PHONY: arm
+arm: arm-sysroot ## Build the minspec profile for each ARM target, target/TRIPLE/minspec (ARM_TARGETS='...'; needs clang)
+	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo build --profile minspec $(addprefix --target ,$(ARM_TARGETS))
+
+.PHONY: arm-test
+arm-test: arm-sysroot ## Run the workspace's tests for each ARM target under qemu-user (ARM_TEST_TARGETS='...'; needs clang, qemu-user)
+	cargo test --workspace --all-features --no-fail-fast $(addprefix --target ,$(ARM_TEST_TARGETS))
+
 # Tier 1 against the C reference's goldens and probes, at the commits
 # tools/conformance/pin.tsv names, read from checkouts beside this one.
 LIBTSM ?= ../libtsm
@@ -74,7 +102,7 @@ test-tools: ## Test the VT review tools and the tier 3 harness without a VT, sud
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I -B tools/tier3/test_t3img.py
 	python3 -I -B tools/tier3/test_t3.py
-	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/tier3-install && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
+	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/tier3-install tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 # The review targets block until the run ends, then print its answers. Their
 # variables reach tools/vt/vt.sh through the environment, unexpanded, never as

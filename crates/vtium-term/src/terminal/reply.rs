@@ -70,6 +70,8 @@ queries! {
     Title,
     /// XTQMODKEYS, `CSI ? 4 m`.
     ModifyOtherKeys,
+    /// XTREPORTCOLORS, `CSI # R`.
+    ColorStack,
 }
 
 /// XTVERSION's text until the host sets one.
@@ -521,6 +523,14 @@ mod tests {
                 let request = cat(&[b"\x1b[>4;", &level, b"m\x1b[?", &n, b"m"]);
                 (request, vec![], vec![level, n])
             }
+            // Pushes and pops by padded numbers, then the report with a
+            // padded parameter, which it ignores.
+            Query::ColorStack => {
+                let entry = rng.padded(7);
+                let n = rng.padded(3);
+                let request = cat(&[b"\x1b[", &entry, b"#P\x1b[#Q\x1b[", &n, b"#R"]);
+                (request, vec![], vec![entry, n])
+            }
         };
         Probe {
             request,
@@ -536,7 +546,7 @@ mod tests {
     // covers: query.decrqm, query.da1, query.da2, query.da3, query.dsr, query.xtversion,
     // covers: query.xtgettcap, query.decrqss, colour.palette.query, colour.dynamic.query,
     // covers: colour.dynamic.set, colour.pointer, colour.selection, colour.kitty-protocol,
-    // covers: window.size-report, window.title-report, input.modify-other-keys
+    // covers: window.size-report, window.title-report, input.modify-other-keys, colour.stack
     #[test]
     fn no_reply_carries_the_requests_bytes() {
         for seed in 0..200 {
@@ -603,6 +613,7 @@ mod tests {
                 Query::WindowSize => (b"\x1b[14t", b"\x1b[4;80;80t"),
                 Query::Title => (b"\x1b[21t", b"\x1b]l\x1b\\"),
                 Query::ModifyOtherKeys => (b"\x1b[?4m", b"\x1b[>4;0m"),
+                Query::ColorStack => (b"\x1b[#P\x1b[3#P\x1b[#R", b"\x1b[?3;3#Q"),
             };
             let mut t = fixture();
             t.input(request);
