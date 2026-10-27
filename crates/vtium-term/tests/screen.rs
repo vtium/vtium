@@ -423,6 +423,76 @@ fn a_line_selection_copies_the_row_and_its_end() {
     assert_eq!(s.selection_text(), None);
 }
 
+// A wrapped line is one line to the selection, as in xterm: a word goes on
+// across the wrap, a line selection takes every row of it, and the copy
+// has no line end where it wrapped.
+// covers: clipboard.selection
+#[test]
+fn a_selection_follows_a_wrapped_line() {
+    let mut t = term(4, 4, b"ab cdefg h\r\nij k");
+    let s = t.screen_mut();
+    s.select_word(3, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("cdefg"));
+    s.select_word(1, 1);
+    assert_eq!(s.selection_text().as_deref(), Some("cdefg"));
+    s.select_word(1, 2);
+    assert_eq!(s.selection_text().as_deref(), Some("h"));
+    // A word at the end of a row that did not wrap stops there.
+    s.select_word(3, 3);
+    assert_eq!(s.selection_text().as_deref(), Some("k"));
+    for row in 0..3 {
+        s.select_line(2, row);
+        assert_eq!(s.selection_text().as_deref(), Some("ab cdefg h\n"));
+    }
+    s.select_line(0, 3);
+    assert_eq!(s.selection_text().as_deref(), Some("ij k\n"));
+    s.select_start(1, 0);
+    s.select_to(1, 3);
+    assert_eq!(s.selection_text().as_deref(), Some("b cdefg h\nij"));
+
+    // A wide character that wrapped whole leaves an empty cell, which is
+    // not text.
+    let mut t = term(4, 2, "abc\u{4E2D}".as_bytes());
+    let s = t.screen_mut();
+    s.select_word(0, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("abc\u{4E2D}"));
+    s.select_word(0, 1);
+    assert_eq!(s.selection_text().as_deref(), Some("abc\u{4E2D}"));
+    s.select_line(0, 1);
+    assert_eq!(s.selection_text().as_deref(), Some("abc\u{4E2D}\n"));
+    // A word after a space at a row's end starts on the next row, the empty
+    // cell left of it unselected.
+    let mut t = term(4, 2, "ab \u{4E2D}".as_bytes());
+    let s = t.screen_mut();
+    s.select_word(0, 1);
+    assert_eq!(s.selection_text().as_deref(), Some("\u{4E2D}"));
+    let palette = vtium_term::Palette::new([Rgb::default(); 256], Rgb::default(), Rgb::default());
+    let frame = s.frame(&palette, vtium_term::Age::NEVER);
+    let selected = |r, c| frame.cell(r, c).unwrap().selected;
+    assert!(!selected(0, 3));
+    assert!(selected(1, 0));
+
+    // A line that wrapped into the scrollback is still one line.
+    let mut t = Terminal::new(4, 2, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"abcdefgh\r\nxy");
+    let s = t.screen_mut();
+    s.select_line(0, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("abcdefgh\n"));
+    s.select_word(0, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("abcdefgh"));
+
+    // The alternate screen's first row does not continue the scrollback.
+    let mut t = Terminal::new(4, 2, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"abcdefgh\r\n\x1b[?1049h\x1b[Hxy");
+    let s = t.screen_mut();
+    s.select_line(0, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("xy\n"));
+    s.select_word(0, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("xy"));
+}
+
 // A line the screen discards (IL, DL, SD, RI, a scroll on the alternate
 // screen, the screen's rows a taller screen replaces) takes the selection
 // with it: a copy must not reach into other text. Only a line the
