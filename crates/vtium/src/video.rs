@@ -42,7 +42,8 @@ pub trait Video: Any {
     fn hotplug(&mut self) -> io::Result<()>;
     fn as_any(&mut self) -> &mut dyn Any;
     /// Puts the pointer's `arrow` on the display's cursor plane, hidden. A
-    /// device without one refuses it as unsupported.
+    /// device without one refuses it as unsupported, and a display not
+    /// online yet with `NotConnected` ([`Plane::set_up`]).
     fn setup_cursor(&mut self, _: DisplayId, _: &Arrow) -> io::Result<()> {
         Err(io::ErrorKind::Unsupported.into())
     }
@@ -53,6 +54,11 @@ pub trait Video: Any {
     }
     /// Hides the cursor plane's arrow from the next swap.
     fn hide_cursor(&mut self, _: DisplayId) {}
+    /// Whether the cursor plane holds the arrow set up: a device gives it
+    /// up when a commit with it fails and one without it takes.
+    fn hardware_cursor(&self, _: DisplayId) -> bool {
+        false
+    }
     /// Whether a swap with no damage has something to send, as a cursor
     /// shown, moved or hidden.
     fn need_commit(&self, _: DisplayId) -> bool {
@@ -70,6 +76,9 @@ impl Plane for dyn Video {
     }
     fn hide(&mut self, id: DisplayId) {
         self.hide_cursor(id);
+    }
+    fn holds(&self, id: DisplayId) -> bool {
+        self.hardware_cursor(id)
     }
 }
 
@@ -135,6 +144,9 @@ impl Video for Drm2d<Card> {
     }
     fn hide_cursor(&mut self, id: DisplayId) {
         Drm2d::hide_cursor(self, id);
+    }
+    fn hardware_cursor(&self, id: DisplayId) -> bool {
+        Drm2d::hardware_cursor(self, id)
     }
     fn need_commit(&self, id: DisplayId) -> bool {
         Drm2d::need_commit(self, id)

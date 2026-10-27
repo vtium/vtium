@@ -227,6 +227,8 @@ impl View {
                 }
             }
         };
+        // the display gave the plane up: the renderer draws the pointer
+        self.pending |= self.pointer.after_swap(video, self.id);
         if let Some(timer) = &mut self.timer {
             timer.frame(stats.cpu, queued, stats.damage_px, stats.misses);
         }
@@ -270,6 +272,9 @@ mod tests {
         sent: Option<(i32, i32)>,
         /// The number of damage rectangles each swap carried.
         swaps: Vec<usize>,
+        /// The next swap showing the cursor fails with it and takes
+        /// without it, so the plane is given up.
+        fails_with_cursor: bool,
     }
 
     impl Plane {
@@ -282,6 +287,7 @@ mod tests {
                 shown: None,
                 sent: None,
                 swaps: Vec::new(),
+                fails_with_cursor: false,
             }
         }
 
@@ -322,6 +328,10 @@ mod tests {
         }
         fn swap(&mut self, _: DisplayId, damage: &[DisplayRect]) -> Result<Swapped, SwapError> {
             self.swaps.push(damage.len());
+            if self.fails_with_cursor && self.shown.is_some() {
+                self.arrow = None;
+                self.shown = None;
+            }
             self.sent = self.shown;
             if damage.is_empty() {
                 return Ok(Swapped::Cursor);
@@ -365,6 +375,9 @@ mod tests {
         }
         fn hide_cursor(&mut self, _: DisplayId) {
             self.shown = None;
+        }
+        fn hardware_cursor(&self, _: DisplayId) -> bool {
+            self.arrow.is_some()
         }
         fn need_commit(&self, _: DisplayId) -> bool {
             self.shown != self.sent
@@ -445,6 +458,22 @@ mod tests {
         assert_eq!(video.arrow, Some(turned));
         // turned right, the grid's pixel 5,6 lands at 2 + 32 - 1 - 6, 1 + 5
         assert_eq!(video.sent, Some((27, 6)));
+    }
+
+    // A plane the display gave up after a failed commit: the view asks to
+    // draw again, and draws the arrow in software.
+    #[test]
+    fn a_plane_given_up_hands_the_arrow_to_the_renderer() {
+        let (mut term, mut view) = view();
+        let mut video = Plane::new(true);
+        video.fails_with_cursor = true;
+        draw(&mut term, &mut view, &mut video, Some((5, 6)));
+        assert_eq!(video.arrow, None, "the plane is given up");
+        assert!(!lit(&video));
+        assert!(view.pending, "a draw is owed");
+        draw(&mut term, &mut view, &mut video, Some((5, 6)));
+        assert!(lit(&video), "the arrow is drawn in software");
+        assert_eq!(video.pixel(7, 8) & 0xff_ff_ff, 0xff_ff_ff);
     }
 
     // A display without a cursor plane has the renderer draw the arrow.
