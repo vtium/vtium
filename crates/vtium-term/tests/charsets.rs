@@ -21,7 +21,7 @@ fn shows(bytes: &[u8]) -> String {
 const EIGHT_BIT: &[u8] = b"\x1b[62\"p";
 
 // VT220 table 2-4, DEC special graphics, from 5/15 to 7/14, each to the
-// character the C reference drew; 5/15 is a blank. Below 5/15 the set is
+// character xterm draws; 5/15 is a blank. Below 5/15 the set is
 // ASCII. ESC ( B designates ASCII again (the conformance case
 // dec-graphics).
 // covers: text.charsets
@@ -38,9 +38,9 @@ fn dec_special_graphics_draws_lines() {
     );
     assert_eq!(
         shows(b"\x1b(0AZ[^_`abcdefghijklmnopqrstuvwxyz{|}~"),
-        "AZ[^ \u{2666}\u{2592}\u{2409}\u{240C}\u{240D}\u{240A}\u{B0}\u{B1}\u{2424}\u{240B}\
+        "AZ[^ \u{25C6}\u{2592}\u{2409}\u{240C}\u{240D}\u{240A}\u{B0}\u{B1}\u{2424}\u{240B}\
          \u{2518}\u{2510}\u{250C}\u{2514}\u{253C}\u{23BA}\u{23BB}\u{2500}\u{23BC}\u{23BD}\
-         \u{251C}\u{2524}\u{2534}\u{252C}\u{2502}\u{2264}\u{2265}\u{3C0}\u{2260}\u{A3}\u{22C5}"
+         \u{251C}\u{2524}\u{2534}\u{252C}\u{2502}\u{2264}\u{2265}\u{3C0}\u{2260}\u{A3}\u{B7}"
     );
     assert_eq!(shows(b"a\x1b(0_\x1b(Bb"), "a b");
 }
@@ -138,11 +138,16 @@ fn seven_bit_input_reaches_only_gl() {
 }
 
 // DEC supplemental graphics designated into GL maps ASCII to the upper
-// half, as the C reference mapped it.
+// half in 8-bit input, where it is the VT220's; in UTF-8 and 7-bit input
+// `<` designates ASCII, as in xterm, Konsole, Ghostty and the Linux
+// console.
 // covers: text.charsets
 #[test]
-fn dec_supplemental_graphics_in_gl() {
-    assert_eq!(shows(b"\x1b(<q1($\x1b(Bq"), "\u{F1}\u{B1}\u{A4}q");
+fn dec_supplemental_graphics_only_in_eight_bit_input() {
+    let eight = [EIGHT_BIT, b"\x1b(<q1($\x1b(Bq"].concat();
+    assert_eq!(shows(&eight), "\u{F1}\u{B1}\u{A4}q");
+    assert_eq!(shows(b"\x1b(0\x1b(<q1($"), "q1($");
+    assert_eq!(shows(b"\x1b[61\"p\x1b(<q"), "q");
 }
 
 // ADR-1000 refuses DECNRCM (DEC-42), so a national replacement set's final

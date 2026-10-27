@@ -673,7 +673,8 @@ impl Consumer for State {
             // nothing: replies stay 7-bit, as the C reference sent them.
             _ => return,
         };
-        if let Some(set) = Charset::from_final(final_byte) {
+        let eight_bit = self.input_mode == InputMode::EightBit;
+        if let Some(set) = Charset::from_final(final_byte, eight_bit) {
             self.charsets.designate(slot, set);
         }
     }

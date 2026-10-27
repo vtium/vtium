@@ -18,14 +18,17 @@ pub(super) enum Charset {
 
 impl Charset {
     /// The set an SCS final designates, for a 94-character set (`ESC (`,
-    /// `)`, `*` or `+`). The national replacement sets designate ASCII:
-    /// ADR-1000 refuses DECNRCM, and xterm draws them as ASCII while it is
-    /// reset.
-    pub(super) fn from_final(final_byte: u8) -> Option<Self> {
+    /// `)`, `*` or `+`). DEC supplemental graphics is a set of 8-bit input,
+    /// the VT220's default for GR; elsewhere `<` designates ASCII, as in
+    /// xterm, Konsole, Ghostty and the Linux console. The national
+    /// replacement sets designate ASCII: ADR-1000 refuses DECNRCM, and
+    /// xterm draws them as ASCII while it is reset.
+    pub(super) fn from_final(final_byte: u8, eight_bit: bool) -> Option<Self> {
         match final_byte {
             b'B' => Some(Self::Ascii),
             b'0' => Some(Self::DecSpecial),
-            b'<' => Some(Self::DecSupplemental),
+            b'<' if eight_bit => Some(Self::DecSupplemental),
+            b'<' => Some(Self::Ascii),
             b'A' | b'4' | b'C' | b'5' | b'R' | b'Q' | b'K' | b'Y' | b'E' | b'6' | b'Z' | b'H'
             | b'7' | b'=' => Some(Self::Ascii),
             _ => None,
@@ -59,13 +62,13 @@ impl Charset {
     }
 }
 
-/// DEC special graphics from 6/0 to 7/14, as the C reference drew them
-/// (`tsm-vte-charsets.c`).
+/// DEC special graphics from 6/0 to 7/14, as xterm, Konsole, Ghostty and
+/// the Linux console draw them.
 const DEC_SPECIAL: [char; 31] = [
-    '\u{2666}', '\u{2592}', '\u{2409}', '\u{240C}', '\u{240D}', '\u{240A}', '\u{B0}', '\u{B1}',
+    '\u{25C6}', '\u{2592}', '\u{2409}', '\u{240C}', '\u{240D}', '\u{240A}', '\u{B0}', '\u{B1}',
     '\u{2424}', '\u{240B}', '\u{2518}', '\u{2510}', '\u{250C}', '\u{2514}', '\u{253C}', '\u{23BA}',
     '\u{23BB}', '\u{2500}', '\u{23BC}', '\u{23BD}', '\u{251C}', '\u{2524}', '\u{2534}', '\u{252C}',
-    '\u{2502}', '\u{2264}', '\u{2265}', '\u{3C0}', '\u{2260}', '\u{A3}', '\u{22C5}',
+    '\u{2502}', '\u{2264}', '\u{2265}', '\u{3C0}', '\u{2260}', '\u{A3}', '\u{B7}',
 ];
 
 /// G0 to G3, the slots GL and GR hold, and a pending single shift.
