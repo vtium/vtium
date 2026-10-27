@@ -66,7 +66,7 @@ deciders:
 related: []
 ---
 
-# ADR-1002: Reflow on a width change, and no cell past the margin
+# ADR-1003: Reflow on a width change, and no cell past the margin
 
 ## Summary
 
@@ -98,7 +98,7 @@ Ghostty, foot and WezTerm keep the cursor at its place in the text, and Ghostty 
 
 The figure shows the rules on one main screen: a line wrapped at 10 columns, a line the program ended with a newline, a line holding a wide character, and the prompt with the cursor.
 
-![The same main screen at 10, 5 and 14 columns. At 10 columns "abcdefghij" wraps to "klmnop", then "wxyz中" and "$ " with the cursor follow. Narrowed to 5, the wrapped line becomes four rows, "wxyz中" becomes "wxyz" with a pad cell and "中" on the next row, and the cursor stays after "$ ". Widened to 14, the first line becomes "abcdefghijklmn" and "op", "wxyz中" is one row again, and no row joins the one after it.](figures/ADR-1002-reflow.svg)
+![The same main screen at 10, 5 and 14 columns. At 10 columns "abcdefghij" wraps to "klmnop", then "wxyz中" and "$ " with the cursor follow. Narrowed to 5, the wrapped line becomes four rows, "wxyz中" becomes "wxyz" with a pad cell and "中" on the next row, and the cursor stays after "$ ". Widened to 14, the first line becomes "abcdefghijklmn" and "op", "wxyz中" is one row again, and no row joins the one after it.](figures/ADR-1003-reflow.svg)
 
 ## Decision
 
