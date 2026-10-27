@@ -2,7 +2,8 @@
 //! after a byte stream does not depend on how the stream was split. Each
 //! stream is fed whole, cut at random points, and a byte at a time, and the
 //! screens (the cells, the scrollback, the cursor, the modes the screen
-//! holds, the damage) and the reply bytes must be identical.
+//! holds, the damage), the palettes (the colours OSC 4, 10 to 19 and 21
+//! set) and the reply bytes must be identical.
 //!
 //! The streams come from a grammar of what programs write
 //! (`common::grammar_stream`) and from raw random bytes
@@ -36,6 +37,12 @@ fn fed(stream: &[u8], cuts: &[usize]) -> Terminal {
     t
 }
 
+/// The state chunking must not change: the screen, the palette and the
+/// replies.
+fn same(a: &Terminal, b: &Terminal) -> bool {
+    a.screen() == b.screen() && a.palette() == b.palette() && a.replies() == b.replies()
+}
+
 fn check(seed: u64, kind: &str, stream: &[u8], rng: &mut Rng) {
     let whole = fed(stream, &[]);
     let mut cuts: Vec<usize> = (0..1 + rng.below(8))
@@ -44,13 +51,13 @@ fn check(seed: u64, kind: &str, stream: &[u8], rng: &mut Rng) {
     cuts.sort_unstable();
     let cut = fed(stream, &cuts);
     assert!(
-        whole.screen() == cut.screen() && whole.replies() == cut.replies(),
+        same(&whole, &cut),
         "seed {seed}, {kind}: cut at {cuts:?} the state differs from the stream fed whole"
     );
     let bytewise: Vec<usize> = (1..stream.len()).collect();
     let each = fed(stream, &bytewise);
     assert!(
-        whole.screen() == each.screen() && whole.replies() == each.replies(),
+        same(&whole, &each),
         "seed {seed}, {kind}: fed a byte at a time the state differs from the stream fed whole"
     );
 }
@@ -115,9 +122,7 @@ fn a_synchronized_updates_pause_changes_no_state() {
         let bytewise: Vec<usize> = (1..stream.len()).collect();
         let each = fed_through(&stream, &bytewise);
         assert!(
-            whole.screen() == each.screen()
-                && whole.replies() == each.replies()
-                && whole.sync_frames() == each.sync_frames(),
+            same(&whole, &each) && whole.sync_frames() == each.sync_frames(),
             "seed {seed}: fed a byte at a time the state differs from the stream fed whole"
         );
     }

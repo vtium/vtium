@@ -32,7 +32,7 @@ mod mode;
 
 pub use blank::{Blank, DPMS_TIMEOUT};
 pub use card::Card;
-pub use drm2d::Drm2d;
+pub use drm2d::{CURSOR_MAX, Drm2d};
 pub use fbdev::{Fb, Fbdev};
 pub use mode::{Mode, ModeLookup, ModePolicy, Wanted};
 

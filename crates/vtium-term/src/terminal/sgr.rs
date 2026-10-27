@@ -10,9 +10,15 @@
 //! component above 255 rejects a colon form; a semicolon form keeps a
 //! component's low byte and draws an index past 255 black, as the C
 //! reference's goldens record.
+//!
+//! XTPUSHSGR and XTPOPSGR (`CSI Pm # {` and `CSI # }`, and their aliases
+//! `CSI Pm # p` and `CSI # q`) keep pens on a stack, as xterm's ctlseqs
+//! defines them; [`Stack`] holds it.
 
 use vtium_parse::{Params, SUBPARAMS_MAX};
 
+use super::State;
+use crate::bounds::SGR_STACK_MAX;
 use crate::screen::Screen;
 use crate::style::{Attrs, Color, Rgb, Style, UnderlineStyle};
 
@@ -173,5 +179,183 @@ fn color(params: &Params, i: usize) -> Option<(Color, usize)> {
             Some((Color::Rgb(Rgb::new(low(r), low(g), low(b))), 4))
         }
         _ => None,
+    }
+}
+
+/// XTPUSHSGR's stack: the pens pushed, each with the parts its pop
+/// restores, at most [`SGR_STACK_MAX`], and how many pushes past the bound
+/// wait for their pops, which restore nothing.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct Stack {
+    pens: Vec<(Style, Parts)>,
+    over: usize,
+}
+
+/// The parts of the pen a pop restores: every part SGR sets, or those
+/// XTPUSHSGR's parameters name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Parts {
+    All,
+    /// A bit for each SGR code `n` of xterm's list, at `n - 1`.
+    Named(u32),
+}
+
+/// The flags each code of XTPUSHSGR's list names: xterm's, and rapid
+/// blink with blink, which SGR 25 clears with it.
+const FLAG_PARTS: [(u32, &[Attrs]); 7] = [
+    (1, &[Attrs::BOLD]),
+    (2, &[Attrs::DIM]),
+    (3, &[Attrs::ITALIC]),
+    (5, &[Attrs::BLINK, Attrs::RAPID_BLINK]),
+    (7, &[Attrs::INVERSE]),
+    (8, &[Attrs::CONCEAL]),
+    (9, &[Attrs::STRIKE]),
+];
+
+impl Parts {
+    /// The parts XTPUSHSGR's parameters name: none or one omitted is every
+    /// part; else each code of xterm's list, 1 to 31, with 10 and 11, its
+    /// older codes, for 30 and 31; a code it does not list names nothing,
+    /// as in xterm.
+    fn from_params(params: &Params) -> Self {
+        if params.count() == 0 || (params.count() == 1 && params.get(0).is_none()) {
+            return Self::All;
+        }
+        let mut bits = 0_u32;
+        for i in 0..params.count() {
+            let code = match params.get(i).unwrap_or(0) {
+                10 => 30,
+                11 => 31,
+                code => code,
+            };
+            if let Some(bit) = code.checked_sub(1).filter(|&b| b < 31) {
+                bits |= 1 << bit;
+            }
+        }
+        Self::Named(bits)
+    }
+
+    fn names(self, code: u32) -> bool {
+        match self {
+            Self::All => true,
+            Self::Named(bits) => code
+                .checked_sub(1)
+                .and_then(|bit| bits.checked_shr(bit))
+                .is_some_and(|b| b & 1 == 1),
+        }
+    }
+
+    /// `pen` with the parts named taken from `saved`. Every part is SGR's
+    /// alone, and DECSCA's protection stays as `pen` has it. 4 and 21 both
+    /// name the underline, its style and its colour (SGR 58), which vtium
+    /// holds as one; the overline and the script, which xterm's list does
+    /// not name, return only with every part.
+    fn restore(self, pen: Style, saved: Style) -> Style {
+        let mut out = pen;
+        let mut take = |flag: Attrs| {
+            out.attrs.remove(flag);
+            if saved.attrs.contains(flag) {
+                out.attrs.insert(flag);
+            }
+        };
+        for (code, flags) in FLAG_PARTS {
+            if self.names(code) {
+                flags.iter().copied().for_each(&mut take);
+            }
+        }
+        if self == Self::All {
+            take(Attrs::OVERLINE);
+            out.attrs.set_script(saved.attrs.script());
+        }
+        if self.names(4) || self.names(21) {
+            out.attrs.set_underline(saved.attrs.underline());
+            out.underline_color = saved.underline_color;
+        }
+        if self.names(30) {
+            out.fg = saved.fg;
+        }
+        if self.names(31) {
+            out.bg = saved.bg;
+        }
+        out
+    }
+}
+
+impl Stack {
+    /// Pushes `pen`; past [`SGR_STACK_MAX`] the push is only counted.
+    fn push(&mut self, pen: Style, parts: Parts) {
+        if self.pens.len() < SGR_STACK_MAX {
+            self.pens.push((pen, parts));
+        } else {
+            self.over = self.over.saturating_add(1);
+        }
+    }
+
+    /// The pen the newest push restores over `pen`, or `pen` for a push
+    /// past the bound or an empty stack.
+    fn pop(&mut self, pen: Style) -> Style {
+        if self.over > 0 {
+            self.over = self.over.saturating_sub(1);
+            return pen;
+        }
+        match self.pens.pop() {
+            Some((saved, parts)) => parts.restore(pen, saved),
+            None => pen,
+        }
+    }
+}
+
+impl State {
+    /// XTPUSHSGR, `CSI Pm # {` or `CSI Pm # p`.
+    pub(super) fn push_sgr(&mut self, params: &Params) {
+        let pen = *self.screen.pen();
+        self.sgr_stack.push(pen, Parts::from_params(params));
+    }
+
+    /// XTPOPSGR, `CSI # }` or `CSI # q`.
+    pub(super) fn pop_sgr(&mut self) {
+        let pen = self.sgr_stack.pop(*self.screen.pen());
+        self.screen.set_pen(pen);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::style::Script;
+
+    fn styled() -> Style {
+        let mut pen = Style::DEFAULT;
+        pen.attrs.insert(Attrs::OVERLINE);
+        pen.attrs.insert(Attrs::RAPID_BLINK);
+        pen.attrs.set_script(Script::Super);
+        pen
+    }
+
+    // DECSCA's protection is not SGR's: a pop leaves it as the pen has it,
+    // as SGR 0 does.
+    #[test]
+    fn a_pop_leaves_the_protection() {
+        let mut stack = Stack::default();
+        stack.push(Style::DEFAULT, Parts::All);
+        let mut pen = Style::DEFAULT;
+        pen.attrs.insert(Attrs::PROTECTED);
+        assert!(stack.pop(pen).attrs.contains(Attrs::PROTECTED));
+        stack.push(pen, Parts::All);
+        assert!(!stack.pop(Style::DEFAULT).attrs.contains(Attrs::PROTECTED));
+    }
+
+    // The parts xterm's list does not name, the overline and the script,
+    // return with every part only; rapid blink returns with blink, 5.
+    #[test]
+    fn the_parts_xterm_does_not_list_return_with_every_part() {
+        let mut stack = Stack::default();
+        stack.push(styled(), Parts::Named(!0));
+        let pen = stack.pop(Style::DEFAULT);
+        assert!(!pen.attrs.contains(Attrs::OVERLINE));
+        assert_eq!(pen.attrs.script(), Script::Baseline);
+        assert!(pen.attrs.contains(Attrs::RAPID_BLINK));
+        stack.push(styled(), Parts::All);
+        assert_eq!(stack.pop(Style::DEFAULT), styled());
     }
 }

@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use vtium_conformance::runner::lists::{self, Expected, Pin};
-use vtium_conformance::runner::{self, Corpus, VIEWS, Verdict, chunking, source};
+use vtium_conformance::runner::{
+    self, Corpus, PALETTE_COPY, PALETTE_SOURCE, VIEWS, Verdict, chunking, source,
+};
 
 const TOOL: &str = env!("CARGO_MANIFEST_DIR");
 const CONFORMANCE: &str = "test/conformance";
@@ -88,10 +90,11 @@ fn pins() -> Result<Vec<Pin>, String> {
     lists::pins(&read(&Path::new(TOOL).join("pin.tsv"))?)
 }
 
-/// The corpus at the pinned libtsm commit.
+/// The corpus at the pinned libtsm commit, extracted with the file that
+/// holds the palette tables.
 fn corpus(o: &Options, pins: &[Pin]) -> Result<Corpus, String> {
     let pin = lists::pin(pins, "libtsm")?;
-    let dir = source::extract(&o.libtsm, pin, &[CONFORMANCE], &o.out)?;
+    let dir = source::extract(&o.libtsm, pin, &[CONFORMANCE, PALETTE_SOURCE.0], &o.out)?;
     Corpus::open(&dir.join(CONFORMANCE))
 }
 
@@ -172,6 +175,20 @@ fn run(o: &Options) -> Result<bool, String> {
         pin.commit
     );
     let mut ok = true;
+    let (file, first, last) = PALETTE_SOURCE;
+    let tree = corpus.root.ancestors().nth(2).unwrap_or(&corpus.root);
+    match runner::excerpt(
+        &read(&tree.join(file))?,
+        first,
+        last,
+        &read(&repo_root().join(PALETTE_COPY))?,
+    ) {
+        Ok(()) => println!("palettes: {PALETTE_COPY} is {file}:{first}-{last}"),
+        Err(why) => {
+            ok = false;
+            println!("FAIL palettes {PALETTE_COPY}: {why}");
+        }
+    }
     for (view, name, golden_dir) in VIEWS {
         let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
         for case in &corpus.cases {

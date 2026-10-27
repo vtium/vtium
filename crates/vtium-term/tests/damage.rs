@@ -260,6 +260,21 @@ fn after_a_checkpoint_nothing_is_changed() {
     assert!(draw(t.screen(), seen).iter().flatten().all(|&(_, c)| !c));
 }
 
+// Clearing the selection marks every cell, since its cells drew inverted;
+// with none to clear it marks nothing, as the host clears it at each key.
+#[test]
+fn clearing_no_selection_marks_nothing() {
+    let mut t = Terminal::new(8, 4, 10);
+    t.input(b"ab");
+    let seen = t.screen_mut().checkpoint();
+    t.screen_mut().clear_selection();
+    assert!(draw(t.screen(), seen).iter().flatten().all(|&(_, c)| !c));
+    t.screen_mut().select_start(0, 0);
+    let seen = t.screen_mut().checkpoint();
+    t.screen_mut().clear_selection();
+    assert!(draw(t.screen(), seen).iter().flatten().all(|&(_, c)| c));
+}
+
 // A palette the host sets while text is on screen recolours every cell, so
 // a display that drew before it sees every cell changed.
 #[test]

@@ -6,7 +6,8 @@
 //! The dispatch here carries the printing, the C0 and C1 controls, and the
 //! control functions. The modes go through the mode table (`modes.rs`),
 //! SGR through `sgr.rs`, the replies through `reply.rs`, the character
-//! sets through `charset.rs`, OSC 52 through `clipboard.rs`, and the keys,
+//! sets through `charset.rs`, OSC 52 through `clipboard.rs`, the colour
+//! OSC strings through `color.rs`, and the keys,
 //! the pointer, focus and pastes through `input.rs`.
 //!
 //! A control function is matched by its final byte, its private marker and
@@ -15,6 +16,7 @@
 
 mod charset;
 mod clipboard;
+mod color;
 mod input;
 mod modes;
 mod reply;
@@ -23,7 +25,8 @@ mod sgr;
 use vtium_parse::{Chunk, Consumer, InputMode, Intermediates, Params, Parser, StringEnd};
 
 use crate::bounds::REPLIES_PENDING_MAX;
-use crate::frame::{CursorShape, Palette};
+use crate::frame::CursorShape;
+use crate::palette::Palette;
 use crate::screen::{Erase, Screen, WidthMethod};
 use crate::style::Style;
 use crate::termcap::Termcap;
@@ -137,7 +140,8 @@ struct HostSettings {
     cell: Option<(u32, u32)>,
     /// The display the grid fills, in pixels, once the host knows it.
     display: Option<(u32, u32)>,
-    /// The palette the colour queries answer from.
+    /// The palette the host configured, which the colour resets return
+    /// to.
     palette: Palette,
 }
 
@@ -167,6 +171,9 @@ struct State {
     out: Vec<u8>,
     modes: Modes,
     host: HostSettings,
+    /// The configured palette with the colours the program set: what
+    /// frames draw through and the colour queries answer from.
+    colors: Palette,
     cursor_style: CursorStyle,
     /// DECSC's slots, the main screen's and the alternate screen's, as
     /// xterm keeps them.
@@ -191,6 +198,9 @@ struct State {
     cursor_blink_ms: Option<u32>,
     /// The selection OSC 52 set last, until the host takes it.
     clipboard: Option<clipboard::Selection>,
+    /// XTPUSHSGR's pens, and the palettes XTPUSHCOLORS and OSC 30001 keep.
+    sgr_stack: sgr::Stack,
+    color_stack: color::Stack,
     /// The queries answered, in order, for the reply rule's test.
     #[cfg(test)]
     answered: Vec<Query>,
@@ -215,6 +225,7 @@ impl Terminal {
                 display: None,
                 palette: Palette::default(),
             },
+            colors: Palette::default(),
             cursor_style: CursorStyle::Default,
             saved: [Saved::HOME; 2],
             input_mode: InputMode::Utf8,
@@ -228,6 +239,8 @@ impl Terminal {
             dcs: Dcs::Ignored,
             cursor_blink_ms: None,
             clipboard: None,
+            sgr_stack: sgr::Stack::default(),
+            color_stack: color::Stack::default(),
             #[cfg(test)]
             answered: Vec::new(),
         };
@@ -358,18 +371,25 @@ impl Terminal {
         self.state.host.display = Some((width, height));
     }
 
-    /// The palette the colour queries (OSC 4, 10, 11) answer from.
+    /// The palette frames draw through and the colour queries answer
+    /// from: the configured one with the colours the program set (OSC 4,
+    /// 10 to 19 and 21). The host draws the pointer in its
+    /// [`pointer`](Palette::pointer) colours.
     pub fn palette(&self) -> &Palette {
-        &self.state.host.palette
+        &self.state.colors
     }
 
-    /// A palette that differs from the one set recolours every cell, so
+    /// The palette the host configured: a named one or a custom one
+    /// ([`Palette::named`], [`Palette::custom`]). It replaces the colours
+    /// the program set, and is what the colour resets and RIS return to. A
+    /// palette that differs from the one drawn recolours every cell, so
     /// every cell is marked changed.
     pub fn set_palette(&mut self, palette: Palette) {
-        if self.state.host.palette != palette {
-            self.state.host.palette = palette;
+        if self.state.colors != palette {
+            self.state.colors = palette.clone();
             self.state.screen.recolour();
         }
+        self.state.host.palette = palette;
     }
 
     /// Whether BackSpace sends DEL (0x7F) in place of BS (0x08).
@@ -477,9 +497,9 @@ impl State {
     }
 
     /// DECSTR, and the first half of RIS: the modes, the pen, the cursor
-    /// style, the character sets, the saved cursors, the margins and the
-    /// tab stops return to their initial state; the text and the cursor
-    /// stay.
+    /// style, the character sets, the saved cursors, the margins, the tab
+    /// stops and the 256 palette colours return to their initial state;
+    /// the text, the cursor and the colours OSC 10 to 19 set stay.
     fn soft_reset(&mut self) {
         self.screen.reset();
         self.screen.set_pen(Style::DEFAULT);
@@ -492,12 +512,17 @@ impl State {
         self.dcs = Dcs::Ignored;
         modes::reset(self, false);
         self.saved = [Saved::HOME; 2];
+        self.reset_colors(false);
     }
 
-    /// RIS: DECSTR's reset, the modes only RIS resets, the screen and the
+    /// RIS: DECSTR's reset, the modes only RIS resets, every colour the
+    /// program set, the SGR and colour stacks emptied, the screen and the
     /// scrollback erased, and the cursor home.
     fn hard_reset(&mut self) {
         self.soft_reset();
+        self.reset_colors(true);
+        self.sgr_stack = sgr::Stack::default();
+        self.color_stack = color::Stack::default();
         self.screen.erase_screen(Erase::All);
         self.screen.clear_scrollback();
         modes::reset(self, true);
@@ -729,6 +754,11 @@ impl Consumer for State {
                 self.reply_modify_other_keys();
             }
             (Some(b'>'), [], b'n') if params.get(0) == Some(4) => self.modify_other_keys = 0,
+            (None, [b'#'], b'{' | b'p') => self.push_sgr(params),
+            (None, [b'#'], b'}' | b'q') => self.pop_sgr(),
+            (None, [b'#'], b'P') => self.push_colors_params(params),
+            (None, [b'#'], b'Q') => self.pop_colors_params(params),
+            (None, [b'#'], b'R') => self.reply_color_stack(),
             _ => {}
         }
     }
@@ -740,7 +770,9 @@ impl Consumer for State {
         }
         match data.strip_prefix(b"52;") {
             Some(args) => self.set_clipboard(args),
-            None => self.reply_osc(data, end),
+            None => {
+                self.osc_color(data, end);
+            }
         }
     }
 

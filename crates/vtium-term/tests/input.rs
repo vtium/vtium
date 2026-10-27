@@ -184,6 +184,23 @@ fn no_key_sends_fixterms_csi_u() {
     }
 }
 
+// A typed character is sent in the input's encoding: its byte in 8-bit
+// input to U+00FF and in 7-bit input to U+007F, and `?` past that.
+// covers: input.legacy
+#[test]
+fn a_typed_character_is_sent_in_the_inputs_encoding() {
+    for (decscl, e_acute, euro) in [
+        (&b""[..], "\u{e9}".as_bytes(), "\u{20ac}".as_bytes()),
+        (b"\x1b[62\"p", b"\xe9", b"?"),
+        (b"\x1b[61\"p", b"?", b"?"),
+    ] {
+        let mut t = term(8, 2, decscl);
+        let none = Mods::empty();
+        assert_eq!(char_key(&mut t, '\u{e9}', none), e_acute, "{decscl:?}");
+        assert_eq!(char_key(&mut t, '\u{20ac}', none), euro, "{decscl:?}");
+    }
+}
+
 // xterm's paste filtering, with allowPasteControls false, turns ESC and the
 // C1 controls in every paste into a space, so no form of the end marker
 // reaches the program inside a bracketed paste (ADR-1000).
@@ -204,12 +221,23 @@ fn a_bracketed_paste_never_carries_its_own_end() {
 }
 
 // xterm's paste filtering, for a bracketed paste or not: of the C0
-// controls only HT, LF and CR are pasted, and each other one, DEL and each
-// C1 control, a code point in UTF-8, becomes one space.
+// controls only HT, LF and CR are pasted, LF as CR, and each other one,
+// DEL and each C1 control, a code point in UTF-8, becomes one space.
+// xterm sends each LF of a paste as CR, as the Return key sends, unless
+// `pasteLiteralNl` is set (`button.c`, `_WriteSelectionData`); in 8-bit
+// input too.
+#[test]
+fn a_paste_sends_each_line_end_as_cr() {
+    let mut t = term(8, 2, b"");
+    assert_eq!(paste(&mut t, b"one\ntwo\r\n"), b"one\rtwo\r\r");
+    t.input(b"\x1b[62\"p");
+    assert_eq!(paste(&mut t, b"a\nb"), b"a\rb");
+}
+
 #[test]
 fn a_paste_keeps_only_the_formatting_controls() {
     let c0: Vec<u8> = (0..0x20).chain([0x7f]).collect();
-    let c0_sent = [&[b' '; 9][..], b"\t\n", &[b' '; 2], b"\r", &[b' '; 19]].concat();
+    let c0_sent = [&[b' '; 9][..], b"\t\r", &[b' '; 2], b"\r", &[b' '; 19]].concat();
     let c1: String = ('\u{80}'..='\u{a0}').collect();
     let c1_sent = [&[b' '; 32][..], "\u{a0}".as_bytes()].concat();
     let mut t = term(8, 2, b"");
@@ -245,26 +273,44 @@ fn ill_formed_utf8_in_a_paste_becomes_the_replacement_character() {
     );
 }
 
-// In 8-bit input a C1 control is the byte 0x80 to 0x9F, and becomes a
-// space as xterm's paste filtering has it; the bytes past 0x9F are pasted.
+// A paste is UTF-8 text, filtered by code point, and sent in the input's
+// encoding as a typed key is: in 8-bit input each character to U+00FF is
+// its byte, in 7-bit input each one to U+007F, and any other character is
+// `?`. A C1 control is filtered whatever the input, so neither its two
+// UTF-8 bytes nor a byte 0x80 to 0x9F, which 8-bit input reads as a C1
+// control, reaches the program.
+// covers: input.paste-end-marker
 #[test]
-fn eight_bit_input_turns_the_c1_bytes_of_a_paste_into_spaces() {
-    let mut t = term(8, 2, b"\x1b[62\"p\x1b[?2004h");
-    assert_eq!(
-        paste(&mut t, b"\x9b201~\x85\xe9\xa0\xd0\x9b"),
-        bracketed(b" 201~ \xe9\xa0\xd0 ")
-    );
+fn a_paste_is_sent_in_the_inputs_encoding() {
+    let text = "\u{20ac} \u{e9}\u{a0}\u{9b}201~\u{85}\n".as_bytes();
+    let stray = b"\x9b201~\xe9";
+    for (decscl, sent, stray_sent) in [
+        (
+            &b""[..],
+            "\u{20ac} \u{e9}\u{a0} 201~ \r".as_bytes(),
+            "\u{fffd}201~\u{fffd}".as_bytes(),
+        ),
+        (b"\x1b[62\"p", b"? \xe9\xa0 201~ \r", b"?201~?"),
+        (b"\x1b[61\"p", b"? ?? 201~ \r", b"?201~?"),
+    ] {
+        let mut t = term(8, 2, decscl);
+        assert_eq!(paste(&mut t, text), sent, "{decscl:?}");
+        assert_eq!(paste(&mut t, stray), stray_sent, "{decscl:?}");
+        t.input(b"\x1b[?2004h");
+        assert_eq!(paste(&mut t, text), bracketed(sent), "{decscl:?}");
+    }
 }
 
 // An ordinary paste, tabs, line ends and text past ASCII, arrives as it
-// was, bracketed or not.
+// was, bracketed or not, but each LF as CR.
 #[test]
 fn an_ordinary_paste_arrives_unchanged() {
     let text = "ls -l\t~/src\r\necho 'b\u{e5}r \u{65e5}\u{672c} \u{1f600}'\n".as_bytes();
+    let sent = "ls -l\t~/src\r\recho 'b\u{e5}r \u{65e5}\u{672c} \u{1f600}'\r".as_bytes();
     let mut t = term(8, 2, b"");
-    assert_eq!(paste(&mut t, text), text);
+    assert_eq!(paste(&mut t, text), sent);
     t.input(b"\x1b[?2004h");
-    assert_eq!(paste(&mut t, text), bracketed(text));
+    assert_eq!(paste(&mut t, text), bracketed(sent));
 }
 
 // ctlseqs, the X10 encoding: a cell counts from 1, plus 32, in one byte,

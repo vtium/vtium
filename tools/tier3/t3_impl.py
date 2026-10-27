@@ -13,12 +13,12 @@ import tarfile
 
 from t3_common import RUNDIR, rel
 
-# The operator's size budget for the minspec binary, 2.30 MiB, which leaves
-# headroom over what vtium shipped after #21's two savings (2,365,272 B). A
-# run whose binary is larger fails, and raising the budget is a decision
-# recorded on vtium/vtium#22.
+# The operator's size budget for the minspec binary, 2.50 MiB, raised from
+# 2.30 MiB when vtium reached 2,400,640 B with the pulse's colours, pointer
+# and selection (2026-10-27). A run whose binary is larger fails, and raising
+# the budget is a decision recorded on vtium/vtium#22.
 BINARY = "usr/bin/vtium"
-BINARY_BUDGET = 2411724
+BINARY_BUDGET = 2621440
 # What the guest needs of a tree (README, "What the harness needs of the
 # build"): the VT unit the base image's autovt@.service links to, and the
 # binary it starts.

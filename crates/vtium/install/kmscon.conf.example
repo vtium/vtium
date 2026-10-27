@@ -41,7 +41,7 @@
 ## Turn the displays off after this long with no key or pointer event; 0 never does.
 #dpms-timeout=600
 
-## At start, how long to wait for a display, counted from when the VT is first shown; with none by then vtium exits with status 1, so the unit's `OnFailure=` can start a getty. 0 does not wait. `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time. Once a display has come, vtium never exits for want of one.
+## At start, how long to wait for a display, counted from when the VT is first shown; with none by then vtium exits with status 1, so the unit's `OnFailure=` can start a getty. 0 waits for no display to come: a display set up when the VT is first shown counts once its first frame is on screen. `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time. Once a display has come, vtium never exits for want of one.
 #display-wait=10
 
 ## Draw through the GPU, in a build that has it.
@@ -53,7 +53,7 @@
 ## A display's mode, `WxH[@RATE]`, for every display, `[CONNECTOR]WxH` for one connector, or `GPU[CONNECTOR]WxH` for one on one card, its udev `ID_PATH`. A key per line; the most specific match wins. Unset, the panel's preferred mode. It turns `use-original-mode` off.
 #mode=
 
-## The sixteen colours and the defaults: `custom` takes the `palette-*` keys. vtium-term holds `legacy` and `custom` so far; another name draws `legacy` and is reported.
+## The sixteen colours and the default foreground and background: a named palette, or `custom`, which takes the `palette-*` keys. Colours 16 to 255 are xterm's in every palette.
 #palette=legacy
 
 ## Colour 0 with `palette=custom`.
@@ -110,7 +110,7 @@
 ## The default background with `palette=custom`.
 #palette-background=0,0,0
 
-## Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken for a paste, which is not built yet.
+## Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and Shift+Insert paste it.
 #clipboard-write
 
 ## The keyboard model, as xkeyboard-config names it.
@@ -139,6 +139,15 @@
 
 ## Take pointers: mice, touchpads and touchscreens.
 #mouse
+
+## Reboot the machine. With `/proc/sys/kernel/ctrl-alt-del` at 0, init is asked, as for Ctrl+Alt+Del, so the services stop first; otherwise the kernel restarts at once. Unset, no key reboots.
+#grab-reboot=
+
+## Power the machine off: init is asked with `SIGRTMIN+4`, which systemd takes as `poweroff.target`, so the services stop and the filesystems are unmounted first. Unset, no key powers off.
+#grab-power-off=
+
+## Suspend the machine to RAM: logind is asked with its `Suspend` method, so its inhibitors hold the sleep; where logind is not running, or vtium is built without `logind`, `mem` is written to `/sys/power/state`. Unset, no key suspends.
+#grab-suspend=
 
 ## The font source to use. Unset, each the build has, in this order.
 #font-engine=

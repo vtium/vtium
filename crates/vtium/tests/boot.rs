@@ -494,6 +494,16 @@ fn the_fonts_policy_follows_the_keys() {
     assert_eq!(h.app.font_policy(), Some((want, Missing::Hex)));
 }
 
+// covers: colour.palette.named
+#[test]
+fn a_named_palette_reaches_the_terminal() {
+    let h = Harness::new(&["--palette=solarized-white"]);
+    assert_eq!(
+        Some(h.app.term.terminal.palette()),
+        vtium_term::Palette::named("solarized-white").as_ref()
+    );
+}
+
 #[test]
 fn a_custom_palette_reaches_the_terminal() {
     use vtium_term::Rgb;
@@ -955,6 +965,358 @@ fn a_wheel_event_is_one_report_or_three_lines() {
     assert_eq!(h.app.term.terminal.screen().scrolled_back(), 3);
     h.app.input_event(pointer(PointerEvent::Wheel(-1)), now());
     assert_eq!(h.app.term.terminal.screen().scrolled_back(), 0);
+}
+
+/// The pointer in the middle of cell `col`, `row` (8 by 16 pixels), with
+/// `held` pressed.
+fn over(col: i32, row: i32, held: Option<Button>) -> PointerEvent {
+    PointerEvent::Moved {
+        x: col * 8 + 4,
+        y: row * 16 + 8,
+        held,
+    }
+}
+
+fn press(button: Button, double_click: bool) -> PointerEvent {
+    PointerEvent::Button {
+        button,
+        pressed: true,
+        double_click,
+    }
+}
+
+fn release(button: Button) -> PointerEvent {
+    PointerEvent::Button {
+        button,
+        pressed: false,
+        double_click: false,
+    }
+}
+
+impl Harness {
+    /// Pointer events, each with `mods` held.
+    fn point(&mut self, events: impl IntoIterator<Item = PointerEvent>, mods: Mods) {
+        for event in events {
+            self.app.pointer_event(event, mods, self.at());
+        }
+    }
+}
+
+/// Whether a row of the screen reads `text`.
+fn shows(app: &App, text: &str) -> bool {
+    app.screen_text().iter().any(|l| l == text)
+}
+
+/// A drag across two lines selects them, its release copies them, and the
+/// middle button pastes them back to the program.
+// covers: clipboard.selection, clipboard.paste
+#[test]
+fn a_drag_across_two_lines_copies_them_and_the_middle_button_pastes_them() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf 'first line\\nsecond one\\n'; read x; read y; echo \"got:$x|$y\"; read z",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "second one")));
+    h.point(
+        [
+            over(0, 0, None),
+            press(Button::Left, false),
+            over(4, 1, Some(Button::Left)),
+            over(9, 1, Some(Button::Left)),
+            release(Button::Left),
+        ],
+        Mods::empty(),
+    );
+    assert_eq!(h.app.selection(), Some(&b"first line\nsecond one"[..]));
+    h.point(
+        [press(Button::Middle, false), release(Button::Middle)],
+        Mods::empty(),
+    );
+    h.type_str("\r");
+    assert!(
+        h.until(SECOND, |a| shows(a, "got:first line|second one")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// A double click selects a word and a triple click a line, each copied
+/// as it is made; Shift+Insert pastes as the middle button does. A click
+/// with no drag copies nothing.
+// covers: clipboard.selection, clipboard.paste
+#[test]
+fn a_double_click_selects_a_word_and_a_triple_click_a_line() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf 'alpha beta gamma\\nsecond line here\\n'; read x; read y; echo \"got:$x|$y\"; read z",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "second line here")));
+    let none = Mods::empty();
+    h.point(
+        [
+            over(7, 0, None),
+            press(Button::Left, false),
+            release(Button::Left),
+            press(Button::Left, true),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"beta"[..]));
+    // A key clears the selection, and the buffer keeps it.
+    assert!(h.app.term.terminal.screen().has_selection());
+    h.app.input_event(key(Mods::SHIFT, 0xff63), now());
+    assert!(!h.app.term.terminal.screen().has_selection());
+    h.type_str("\r");
+    h.point(
+        [
+            over(3, 1, None),
+            press(Button::Left, false),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(
+        h.app.selection(),
+        Some(&b"beta"[..]),
+        "a click copies nothing"
+    );
+    h.point(
+        [
+            press(Button::Left, true),
+            release(Button::Left),
+            press(Button::Left, true),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"second line here\n"[..]));
+    h.point(
+        [press(Button::Middle, false), release(Button::Middle)],
+        none,
+    );
+    assert!(
+        h.until(SECOND, |a| shows(a, "got:beta|second line here")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// While a program tracks the pointer, a drag and the middle button with
+/// Shift held select and paste, as xterm's do, and reach the program only
+/// as the paste, bracketed; without Shift the buttons are reported.
+// covers: clipboard.selection, clipboard.paste, input.shift-override
+#[test]
+fn shift_selects_and_pastes_while_the_program_tracks_the_pointer() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty raw -echo; printf 'pick me\\r\\n\\033[?1000h\\033[?1006h\\033[?2004hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    h.point(
+        [
+            over(0, 0, None),
+            press(Button::Left, false),
+            over(6, 0, Some(Button::Left)),
+            release(Button::Left),
+            press(Button::Middle, false),
+            release(Button::Middle),
+        ],
+        Mods::SHIFT,
+    );
+    assert_eq!(h.app.selection(), Some(&b"pick me"[..]));
+    h.point(
+        [press(Button::Left, false), release(Button::Left)],
+        Mods::empty(),
+    );
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(
+            a,
+            "E[200~pick meE[201~E[<0;7;1ME[<0;7;1m"
+        )),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// A press in the strip past the grid's last cell selects from that cell,
+/// so a new selection never extends the one before it.
+// covers: clipboard.selection
+#[test]
+fn a_press_past_the_grid_selects_from_its_last_cell() {
+    let mut h = Harness::build(
+        &[
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "printf 'alpha beta gamma\\n'; read x",
+        ],
+        FakeVt::new(),
+        Box::new(Memory::sized(326, 168)),
+    );
+    assert_eq!(h.app.grid(), (40, 10));
+    assert!(h.until(SECOND, |a| shows(a, "alpha beta gamma")));
+    let none = Mods::empty();
+    h.point(
+        [
+            over(7, 0, None),
+            press(Button::Left, false),
+            release(Button::Left),
+            press(Button::Left, true),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"beta"[..]));
+    h.point(
+        [
+            PointerEvent::Moved {
+                x: 323,
+                y: 8,
+                held: None,
+            },
+            press(Button::Left, false),
+            over(0, 0, Some(Button::Left)),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"alpha beta gamma"[..]));
+}
+
+/// A drag ends when its button is no longer held, as when its release was
+/// lost, and when the VT is released.
+#[test]
+fn a_drag_ends_without_its_button_and_at_a_vt_release() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf 'first line\\nsecond one\\n'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "second one")));
+    let none = Mods::empty();
+    let selected = |h: &Harness| h.app.term.terminal.screen().selection_text();
+    h.point(
+        [
+            over(0, 0, None),
+            press(Button::Left, false),
+            over(4, 0, Some(Button::Left)),
+            over(5, 1, None),
+            over(9, 1, Some(Button::Left)),
+        ],
+        none,
+    );
+    assert_eq!(selected(&h).as_deref(), Some("first"));
+    h.point(
+        [
+            over(0, 1, None),
+            press(Button::Left, false),
+            over(2, 1, Some(Button::Left)),
+        ],
+        none,
+    );
+    assert_eq!(selected(&h).as_deref(), Some("sec"));
+    let switch = key(Mods::CTRL.union(Mods::LOGO), 0xffc9);
+    h.app.input_event(switch.clone(), now());
+    assert!(h.until_memory(SECOND, |m| !m.awake), "asleep");
+    assert!(h.until(SECOND, |a| !a.vt.is_active()), "released");
+    h.app.input_event(switch, now());
+    assert!(h.until(SECOND, |a| a.vt.is_active()), "acquired");
+    h.point([over(9, 1, Some(Button::Left))], none);
+    assert_eq!(selected(&h).as_deref(), Some("sec"));
+}
+
+/// A selection a program sets with OSC 52 is pasted as any paste is:
+/// filtered, so its end marker and C0 controls arrive as spaces, each LF
+/// as CR, and bracketed. Shift+Insert pastes once a press, however long
+/// it repeats; the middle button pastes at its release, as xterm's does.
+// covers: clipboard.paste, osc.52.write, input.paste-end-marker
+#[test]
+fn a_hostile_selection_is_pasted_filtered_once_a_press() {
+    let mut h = Harness::build(
+        &[
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "stty raw -echo; \
+             printf '\\033]52;c;%s\\a' \"$(printf 'a\\033[201~b\\003c\\nd' | base64)\"; \
+             printf '\\033[?2004hready'; \
+             awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");gsub(/\\r/,\"R\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x",
+        ],
+        FakeVt::new(),
+        Box::new(Memory::sized(640, 160)),
+    );
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    assert_eq!(h.app.selection(), Some(&b"a\x1b[201~b\x03c\nd"[..]));
+    let shift_insert = |repeat: bool| {
+        InputEvent::Key(KeyEvent {
+            keycode: 0,
+            ascii: 0,
+            mods: Mods::SHIFT,
+            keysyms: vec![0xff63],
+            codepoints: vec![None],
+            repeat,
+        })
+    };
+    h.app.input_event(shift_insert(false), now());
+    h.app.input_event(shift_insert(true), now());
+    h.app.input_event(shift_insert(true), now());
+    h.point([press(Button::Middle, false)], Mods::empty());
+    h.type_str("X");
+    h.point([release(Button::Middle)], Mods::empty());
+    h.type_str("q");
+    let paste = "E[200~a [201~b cRdE[201~";
+    assert!(
+        h.until(SECOND, |a| shows(a, &format!("{paste}X{paste}"))),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// The program changing its mouse tracking clears the selection.
+#[test]
+fn a_change_of_mouse_tracking_clears_the_selection() {
+    let go = std::env::temp_dir().join(format!("vtium-boot-tracking-{}", std::process::id()));
+    let _ = std::fs::remove_file(&go);
+    let script = format!(
+        "printf 'text\\n'; while [ ! -e '{}' ]; do sleep 0.02; done; \
+         printf '\\033[?1000hon\\n'; read x",
+        go.display()
+    );
+    let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", &script]);
+    assert!(h.until(SECOND, |a| shows(a, "text")));
+    h.point(
+        [
+            over(0, 0, None),
+            press(Button::Left, false),
+            over(3, 0, Some(Button::Left)),
+            release(Button::Left),
+        ],
+        Mods::empty(),
+    );
+    assert!(h.app.term.terminal.screen().has_selection());
+    std::fs::write(&go, b"").expect("the go file");
+    let cleared = h.until(SECOND, |a| {
+        shows(a, "on") && !a.term.terminal.screen().has_selection()
+    });
+    let _ = std::fs::remove_file(&go);
+    assert!(cleared, "{:?}", h.app.screen_text());
+    assert_eq!(h.app.selection(), Some(&b"text"[..]));
 }
 
 /// Every key a file may set is read by the seat as `main` starts it, or
@@ -1493,8 +1855,7 @@ fn got(app: &App) -> Option<(String, u32, String)> {
 fn with_the_last_display_gone_the_session_runs_on_and_the_next_is_drawn_whole() {
     // dash's `read` fails at a trapped SIGWINCH as it does at the end of
     // input, so a `read` that fails with the count moved is read again.
-    // The boot's resize from the default grid and the next display's
-    // each land in a `read`.
+    // The next display's resize lands in a `read`.
     let script = "n=0; trap 'n=$((n+1))' WINCH; \
         while :; do m=$n; \
         if read x; then echo \"got:$x winch:$n $(stty size)\"; \
@@ -1700,4 +2061,324 @@ fn the_last_display_going_while_released_wakes_nothing() {
         (wake_ups, unblanks, false),
         "nothing woke"
     );
+}
+
+/// A line that wraps is one line to the selection: a double click takes a
+/// word across the wrap, and a triple click every row of the line, copied
+/// with no line end where it wrapped (vtium/vtium#97). The session
+/// prints once the display has drawn, which resizes the grid from its
+/// default, so the line wraps at the screen's width.
+// covers: clipboard.selection
+#[test]
+fn a_selection_follows_a_wrapped_line() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "read go; w=$(stty size | cut -d' ' -f2); \
+         printf '%*s' $((w - 3)) '' | tr ' ' x; printf ' abcdef end\\n'; read x",
+    ]);
+    assert!(h.until_memory(SECOND, |m| m.frames > 0));
+    h.type_str("\r");
+    assert!(h.until(SECOND, |a| shows(a, "cdef end")));
+    let cols = h.app.term.terminal.screen().cols();
+    let last = i32::try_from(cols).unwrap() - 1;
+    let text = h.app.screen_text();
+    let row = text.iter().position(|l| l == "cdef end").unwrap();
+    let row = i32::try_from(row).unwrap();
+    let none = Mods::empty();
+    h.point(
+        [
+            over(last, row - 1, None),
+            press(Button::Left, false),
+            release(Button::Left),
+            press(Button::Left, true),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"abcdef"[..]));
+    h.point(
+        [
+            over(2, row, None),
+            press(Button::Left, false),
+            release(Button::Left),
+            press(Button::Left, true),
+            release(Button::Left),
+            press(Button::Left, true),
+            release(Button::Left),
+        ],
+        none,
+    );
+    let line = format!("{} abcdef end\n", "x".repeat(cols - 3));
+    assert_eq!(h.app.selection(), Some(line.as_bytes()));
+}
+
+/// The session's first look at its pty, as a child prints it: its size
+/// then, `rows cols`, and its pid.
+fn first(app: &App) -> Option<(String, String)> {
+    let line = app
+        .screen_text()
+        .into_iter()
+        .find(|l| l.starts_with("first:"))?;
+    let (size, pid) = line.strip_prefix("first:")?.rsplit_once(' ')?;
+    Some((size.to_owned(), pid.to_owned()))
+}
+
+/// A child that prints its first size, and on each line typed the line
+/// and the SIGWINCHes so far. dash's `read` fails at a trapped SIGWINCH as
+/// it does at the end of input, so a `read` that fails with the count
+/// moved is read again.
+const FIRST: &str = "n=0; trap 'n=$((n+1))' WINCH; echo \"first:$(stty size) $$\"; \
+    while :; do m=$n; \
+    if read x; then echo \"got:$x winch:$n $(stty size)\"; \
+    elif [ $n = $m ]; then exit; fi; done";
+
+/// The seat booted as [`Harness::boot`] boots it, with `videos`, but the
+/// loop is served for up to `hold` between the start and the first turn,
+/// so a child started then shows the size it started at before any turn
+/// can resize it.
+fn held(args: &[&str], videos: Vec<Box<dyn Video>>, hold: Duration) -> Harness {
+    let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+    let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
+    assert_eq!(loaded.reports, [], "the test's command line");
+    let mut lp: Loop<App> = Loop::new().expect("a loop");
+    let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
+    let ahead = Rc::new(Cell::new(Duration::ZERO));
+    let clock = Rc::new(now);
+    let mut app = App::new(
+        loaded.config,
+        Box::new(FakeVt::new()),
+        lp.handle(),
+        clock,
+        env,
+    );
+    for (n, video) in videos.into_iter().enumerate() {
+        app.add_video(PathBuf::from(format!("/dev/mem{n}")), video);
+    }
+    app.insert_blank();
+    app.vt.activate().expect("the fake VT");
+    app.start();
+    let end = now() + hold;
+    while now() < end && first(&app).is_none() {
+        lp.dispatch(Some(Duration::from_millis(20)), &mut app)
+            .expect("dispatch");
+    }
+    app.turn(now());
+    Harness { lp, app, ahead }
+}
+
+/// The child starts on the first display's grid: its first size is the
+/// display's, and no SIGWINCH follows, however long the first turn takes
+/// to come.
+#[test]
+fn the_child_starts_on_the_first_displays_grid() {
+    let mut h = held(
+        &["--login", "--", "/bin/sh", "-c", FIRST],
+        vec![Box::new(Memory::default())],
+        Duration::from_millis(500),
+    );
+    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+    assert_eq!(h.app.grid(), (40, 10));
+    assert_eq!(first(&h.app).map(|f| f.0), Some("10 40".to_owned()));
+    h.type_str("a\r");
+    assert!(h.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "a")));
+    assert_eq!(
+        got(&h.app),
+        Some(("a".into(), 0, "10 40".into())),
+        "no SIGWINCH"
+    );
+}
+
+/// With several displays at the start the child starts on the layout's
+/// grid for all of them.
+#[test]
+fn the_child_starts_on_the_grid_of_every_display_at_the_start() {
+    let mut h = held(
+        &["--login", "--", "/bin/sh", "-c", FIRST],
+        vec![
+            Box::new(Memory::default()),
+            Box::new(Memory::sized(240, 128)),
+        ],
+        Duration::from_millis(500),
+    );
+    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+    assert_eq!(h.app.cells().len(), 2, "both displays");
+    let (cols, rows) = h.app.grid();
+    assert_ne!((cols, rows), (80, 24));
+    assert_eq!(first(&h.app).map(|f| f.0), Some(format!("{rows} {cols}")));
+    h.type_str("a\r");
+    assert!(h.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "a")));
+    assert_eq!(got(&h.app).map(|g| g.1), Some(0), "no SIGWINCH");
+}
+
+/// Under `display-wait`, the child waits for the first display and starts
+/// on its grid.
+#[test]
+fn under_a_wait_the_child_starts_when_the_first_display_comes() {
+    let mut h = Harness::bare(&["--display-wait=5", "--login", "--", "/bin/sh", "-c", FIRST]);
+    h.until(Duration::from_millis(500), |_| false);
+    assert!(h.app.pty.is_none(), "no child before a display");
+    assert_eq!(first(&h.app), None);
+    h.app
+        .add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
+    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+    assert_eq!(first(&h.app).map(|f| f.0), Some("10 40".to_owned()));
+    h.type_str("a\r");
+    assert!(h.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "a")));
+    assert_eq!(got(&h.app).map(|g| g.1), Some(0), "no SIGWINCH");
+    assert_eq!(h.app.finished(), None);
+}
+
+/// Under `display-wait=forever` with no display, the child starts once
+/// the VT is shown, on 80x24; the first display resizes it once.
+#[test]
+fn under_forever_with_no_display_the_child_starts_on_80x24() {
+    let mut h = Harness::bare(&[
+        "--display-wait=forever",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        FIRST,
+    ]);
+    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+    assert_eq!(first(&h.app).map(|f| f.0), Some("24 80".to_owned()));
+    h.app
+        .add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
+    assert!(h.until(SECOND, |a| a.grid() == (40, 10)));
+    h.type_str("a\r");
+    assert!(h.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "a")));
+    assert_eq!(
+        got(&h.app),
+        Some(("a".into(), 1, "10 40".into())),
+        "one SIGWINCH"
+    );
+}
+
+/// A child started again starts on the grid the session runs on.
+#[test]
+fn a_child_started_again_starts_on_the_grid() {
+    let script = "echo \"first:$(stty size) $$\"; read x";
+    let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", script]);
+    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+    let (size, pid) = first(&h.app).expect("a first line");
+    assert_eq!(size, "10 40");
+    h.type_str("\r");
+    assert!(
+        h.until(SECOND, |a| first(a).is_some_and(|f| f.1 != pid)),
+        "started again"
+    );
+    assert_eq!(first(&h.app).map(|f| f.0), Some("10 40".to_owned()));
+}
+
+/// Under `display-wait=0` with no display, vtium exits at the first turn
+/// the VT is shown, and the child never starts.
+#[test]
+fn under_no_wait_with_no_display_no_child_starts() {
+    let mut h = Harness::bare(&["--display-wait=0", "--login", "--", "/bin/sh", "-c", FIRST]);
+    assert!(h.until(Duration::from_millis(500), |a| a.finished().is_some()));
+    assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
+    assert!(!h.app.started(), "no child");
+}
+
+/// Under `display-wait=0` a display set up at the start is drawn, its
+/// flip read, and vtium runs on.
+#[test]
+fn under_no_wait_a_display_at_the_start_runs() {
+    let mut h = Harness::new(&["--display-wait=0", "--login", "--", "/bin/sh", "-c", FIRST]);
+    h.until(Duration::from_millis(500), |a| a.finished().is_some());
+    assert_eq!(h.app.finished(), None, "a display was there");
+    assert!(h.memory().frames > 0, "drawn");
+    assert_eq!(first(&h.app).map(|f| f.0), Some("10 40".to_owned()));
+}
+
+/// A device whose flips land [`Slow::FLIP`] after the swap, as a DRM
+/// card's page flip lands at the next vblank: until then the frame is on
+/// its way and `Flipped` is not yet raised.
+struct Slow {
+    memory: Memory,
+    landed: Option<Instant>,
+}
+
+impl Slow {
+    const FLIP: Duration = Duration::from_millis(50);
+}
+
+impl Video for Slow {
+    fn backend(&self) -> &'static str {
+        self.memory.backend()
+    }
+    fn events(&mut self) -> Vec<Event> {
+        let mut events = self.memory.events();
+        if self.landed.is_some_and(|t| now() >= t) {
+            self.landed = None;
+            events.push(Event::Flipped(ID));
+        }
+        events
+    }
+    fn displays(&self) -> Vec<DisplayId> {
+        self.memory.displays()
+    }
+    fn name(&self, id: DisplayId) -> String {
+        self.memory.name(id)
+    }
+    fn size(&self, id: DisplayId) -> Option<(u32, u32)> {
+        self.memory.size(id)
+    }
+    fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
+        self.memory.refresh_mhz(id)
+    }
+    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
+        self.memory.canvas(id)
+    }
+    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        let swapped = self.memory.swap(id, damage)?;
+        self.memory.events.retain(|e| *e != Event::Flipped(id));
+        self.landed = Some(now() + Slow::FLIP);
+        Ok(swapped)
+    }
+    fn is_flipping(&self, _: DisplayId) -> bool {
+        self.landed.is_some()
+    }
+    fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
+        self.memory.set_dpms(id, dpms)
+    }
+    fn sleep(&mut self) {
+        self.memory.sleep();
+    }
+    fn wake_up(&mut self) -> io::Result<()> {
+        self.memory.wake_up()
+    }
+    fn unblank(&mut self) -> io::Result<()> {
+        self.memory.unblank()
+    }
+    fn input(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn hotplug(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+/// Under `display-wait=0` a display whose flip lands after the first turn
+/// is waited for: vtium runs on once the flip is read.
+#[test]
+fn under_no_wait_a_frame_on_its_way_is_waited_for() {
+    let slow = Slow {
+        memory: Memory::default(),
+        landed: None,
+    };
+    let mut h = Harness::build(
+        &["--display-wait=0", "--login", "--", "/bin/sh", "-c", FIRST],
+        FakeVt::new(),
+        Box::new(slow),
+    );
+    h.until(Duration::from_millis(500), |a| a.finished().is_some());
+    assert_eq!(h.app.finished(), None, "the flip was waited for");
+    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
 }

@@ -42,7 +42,7 @@ import t3_evaluate  # noqa: E402
 import t3_impl  # noqa: E402
 import t3_runner  # noqa: E402
 import t3_scenario  # noqa: E402
-from t3_common import (BASE, GUEST, IMAGES, KMSCON, REPORT, REUSE, ROOT, TREE, VM,  # noqa: E402
+from t3_common import (BASE, GUEST, IMAGES, KMSCON, OUT, REPORT, REUSE, ROOT, TREE, VM,  # noqa: E402
                        Logger, base_image, rel)
 from t3_qemu import Qemu, make_iso  # noqa: E402
 
@@ -187,6 +187,7 @@ def run(args, log):
         if args.tree_target:
             build_tree(args.tree_target, tree, log)
         impl = t3_impl.tree(tree)
+        impl["features"] = build_features(variants, log)
         log("tree: %s, binary %d B, %s installed"
             % (rel(impl["path"]), impl["binary_bytes"], t3_impl.mib(impl["installed_bytes"])))
         results, interrupted = t3_runner.run_variants(variants, args.jobs, impl,
@@ -212,6 +213,27 @@ def build_tree(target, tree, log):
     r = subprocess.run(["make", "--no-print-directory", target, "DESTDIR=" + tree], cwd=ROOT)
     if r.returncode:
         raise SystemExit("make %s failed with exit code %d" % (target, r.returncode))
+
+
+def build_features(variants, log):
+    """vtium built with each feature set a variant in `variants` names, as
+    {features: binary path}, each in a target directory of its own under
+    OUT, with the minspec profile and the revision the tree's build logs."""
+    out = {}
+    for features in sorted({t3_scenario.VARIANTS[v]["features"] for v in variants
+                            if "features" in t3_scenario.VARIANTS[v]}):
+        target = os.path.join(OUT, "features-" + features)
+        log("building vtium with %s in %s" % (features, rel(target)))
+        rev = subprocess.run(["git", "describe", "--always", "--dirty"], cwd=ROOT,
+                             capture_output=True, text=True).stdout.strip() or "unknown"
+        r = subprocess.run(["cargo", "build", "--profile", "minspec", "-p", "vtium",
+                            "--features", features, "--target-dir", target], cwd=ROOT,
+                           env=dict(os.environ, VTIUM_REVISION=rev))
+        if r.returncode:
+            raise SystemExit("building vtium with %s failed with exit code %d"
+                             % (features, r.returncode))
+        out[features] = os.path.join(target, "minspec", "vtium")
+    return out
 
 
 def summary(impl, metas):

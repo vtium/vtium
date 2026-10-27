@@ -40,9 +40,17 @@ const TIMER_SAMPLES: Bound = Bound {
     cite: "`RENDER_TIMER_SAMPLES`, render_timer.h",
 };
 
+const POINTER_SIDE: Bound = Bound {
+    name: "POINTER_SIDE_MAX",
+    value: 64,
+    what: "Pixels on the longest side of the pointer's arrow, which is a cell tall",
+    past: "The arrow stays this tall over taller cells",
+    cite: "`VIDEO_CURSOR_MAX_SIZE` (video.h:172), the C reference's largest hardware cursor and I-beam",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 3] = [POOL_BYTES, ROW_SCRATCH, TIMER_SAMPLES];
+pub(crate) const BOUNDS: [Bound; 4] = [POOL_BYTES, ROW_SCRATCH, TIMER_SAMPLES, POINTER_SIDE];
 
 /// Bytes each glyph pool may hold in the performance profile.
 pub const POOL_BYTES_PERFORMANCE: u64 = POOL_BYTES.value as u64;
@@ -52,6 +60,10 @@ pub const ROW_SCRATCH_MAX: usize = ROW_SCRATCH.value;
 
 /// Frames whose time an interval keeps for its percentiles.
 pub const RENDER_TIMER_SAMPLES: usize = TIMER_SAMPLES.value;
+
+/// The pointer's longest side in pixels.
+#[expect(clippy::cast_possible_truncation, reason = "the bound is 64")]
+pub const POINTER_SIDE_MAX: u32 = POINTER_SIDE.value as u32;
 
 #[cfg(test)]
 #[expect(

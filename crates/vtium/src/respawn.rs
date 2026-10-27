@@ -1,4 +1,5 @@
-//! Whether the session's command starts again when it exits.
+//! When the session's command first starts ([`first_start_due`]), and
+//! whether it starts again when it exits.
 //!
 //! It starts again unless `oneshot` is set, or it has exited within
 //! [`QUICK`] of its start more than [`QUICK_RESTARTS`] times running:
@@ -8,6 +9,23 @@
 //! exits, so the policy is a function of the exit times it is given.
 
 use std::time::Duration;
+
+/// Whether the command's first start is due at a turn's end, with the VT
+/// `shown` or not, a `display` set up or not, and `display-wait` set to
+/// `forever` or not. It is due once the VT is shown and a display is set
+/// up, so the child starts on the grid of every display set up by then
+/// and sees no SIGWINCH as it starts; a display set up a turn later, as
+/// one udev brings, resizes the session. The C reference opened the pty
+/// as its VT was activated, at the first display it activated, and
+/// resized it for each display after (`src/seat.c:179-212, 244-250,
+/// 438-447` and `src/terminal.c:1711-1737, 1764-1778` at kmscon
+/// b1f7a7c5). With no display it is due under `forever` once the VT is
+/// shown, on the grid before any display, which the first display
+/// resizes. Under a wait it waits for the first display, as vtium exits
+/// when the wait runs out with none.
+pub fn first_start_due(shown: bool, display: bool, forever: bool) -> bool {
+    shown && (display || forever)
+}
 
 /// An exit sooner than this after the start is quick.
 pub const QUICK: Duration = Duration::from_secs(2);
@@ -68,6 +86,27 @@ mod tests {
 
     const fn ms(n: u64) -> Duration {
         Duration::from_millis(n)
+    }
+
+    #[test]
+    fn the_first_start_waits_for_the_vt_and_a_display() {
+        // (shown, display, forever) and whether the start is due.
+        let table = [
+            ((false, false, false), false),
+            ((false, false, true), false),
+            ((false, true, false), false),
+            ((true, false, false), false),
+            ((true, true, false), true),
+            ((true, true, true), true),
+            ((true, false, true), true),
+        ];
+        for ((shown, display, forever), due) in table {
+            assert_eq!(
+                first_start_due(shown, display, forever),
+                due,
+                "shown {shown}, display {display}, forever {forever}"
+            );
+        }
     }
 
     #[test]

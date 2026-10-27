@@ -6,14 +6,16 @@ use core::fmt::Write;
 use std::path::{Path, PathBuf};
 
 use vtium_term::{
-    Age, Mods, MouseButton, MouseEvent, SB_SIZE_MAX, TERMCAP_ENTRIES_MAX, TERMCAP_NAME_MAX,
-    TERMCAP_VALUE_MAX, Termcap, Terminal,
+    Age, Mods, MouseButton, MouseEvent, Palette, SB_SIZE_MAX, TERMCAP_ENTRIES_MAX,
+    TERMCAP_NAME_MAX, TERMCAP_VALUE_MAX, Termcap, Terminal,
 };
 
 use crate::command::{self, Button, Command, END, Event, INTRO};
-use crate::palettes::{self, Named};
 use crate::view::{self, FrameState, View};
 use crate::{Failure, internal, usage};
+
+/// The palette the reference host starts with.
+const DEFAULT_PALETTE: &str = "legacy";
 
 /// The largest screen the command line takes.
 pub const COLS_MAX: usize = 2048;
@@ -123,7 +125,7 @@ impl<'a> Replay<'a> {
             out: String::new(),
             replies: Vec::new(),
             fixtures: &input.fixtures,
-            frame: FrameState::new(palettes::DEFAULT),
+            frame: FrameState::new(DEFAULT_PALETTE),
             callers: [None; 8],
         }
     }
@@ -242,9 +244,9 @@ impl<'a> Replay<'a> {
                 t.focus(on);
             }
             Command::Palette(name) => {
-                if let Some(p) = Named::find(name) {
-                    t.set_palette(p.palette());
-                    self.frame.palette = p.name;
+                if let Some(p) = Palette::named(name) {
+                    t.set_palette(p);
+                    self.frame.palette = name;
                 }
             }
             Command::FrameSince(caller) => {

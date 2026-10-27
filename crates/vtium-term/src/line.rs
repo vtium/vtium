@@ -191,7 +191,12 @@ pub struct Line {
     flags: LineFlags,
 }
 
+// The Vec and the Box are four pointer-sized words, so a Line is 48 bytes
+// on 64-bit targets and 32 on armv7.
+#[cfg(target_pointer_width = "64")]
 const _: () = assert!(size_of::<Line>() == 48);
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(size_of::<Line>() == 32);
 
 impl Line {
     /// A line of `cols` blank cells, at most [`COLUMNS_MAX`].

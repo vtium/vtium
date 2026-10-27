@@ -39,6 +39,7 @@ const TIER3_FONT32: &str = include_str!("../../../../tools/tier3/guest/kmscon-fo
 const TIER3_GL: &str = include_str!("../../../../tools/tier3/guest/kmscon-gl.conf");
 const TIER3_MIN_PSF: &str = include_str!("../../../../tools/tier3/guest/kmscon-minimal-psf.conf");
 const TIER3_MIN: &str = include_str!("../../../../tools/tier3/guest/kmscon-minimal.conf");
+const TIER3_POWER: &str = include_str!("../../../../tools/tier3/guest/kmscon-power.conf");
 
 // covers: platform.config
 #[test]
@@ -560,6 +561,114 @@ fn reports_read_as_lines() {
     );
 }
 
+// covers: colour.palette.named
+#[test]
+fn palette_names_a_palette_vtium_term_holds() {
+    let mut choices = match PALETTE.kind {
+        Kind::Choice(c) => c.to_vec(),
+        _ => Vec::new(),
+    };
+    choices.sort_unstable();
+    let mut names: Vec<&str> = vtium_term::PALETTE_NAMES.to_vec();
+    names.push("custom");
+    names.sort_unstable();
+    assert_eq!(choices, names);
+    for name in vtium_term::PALETTE_NAMES {
+        let l = main_file(&format!("palette={name}\n"));
+        assert_eq!(l.reports, [], "{name}");
+        assert_eq!(
+            Some(l.config.palette()),
+            vtium_term::Palette::named(name),
+            "{name}"
+        );
+    }
+    let l = load_with(&["--palette=base16-light"], None, &[]);
+    let p = l.config.palette();
+    assert_eq!(p.bg(), vtium_term::Rgb::new(0xd8, 0xd8, 0xd8));
+    assert_eq!(p.color(1), vtium_term::Rgb::new(0xab, 0x46, 0x42));
+}
+
+#[test]
+fn legacy_is_drawn_when_no_source_names_a_palette() {
+    let legacy = vtium_term::Palette::named("legacy");
+    assert_eq!(Some(Config::default().palette()), legacy);
+    assert_eq!(Some(main_file("").config.palette()), legacy);
+}
+
+#[test]
+fn a_palette_vtium_does_not_hold_is_reported_and_leaves_the_value_below() {
+    let l = main_file("palette=frob\n");
+    assert_eq!(
+        problems(&l),
+        [&Problem::NotAChoice {
+            key: "palette",
+            value: "frob".into()
+        }]
+    );
+    assert_eq!(
+        Some(l.config.palette()),
+        vtium_term::Palette::named("legacy")
+    );
+    let l = load_with(
+        &["--palette=Nord"],
+        None,
+        &[("/etc/kmscon/kmscon.conf", b"palette=vga\n")],
+    );
+    assert_eq!(l.reports.len(), 1);
+    assert_eq!(Some(l.config.palette()), vtium_term::Palette::named("vga"));
+}
+
+// covers: colour.palette.named
+#[test]
+fn custom_takes_the_palette_keys() {
+    // Unset, they hold the C reference's defaults, which are legacy's.
+    let l = main_file("palette=custom\n");
+    assert_eq!(
+        Some(l.config.palette()),
+        vtium_term::Palette::named("legacy")
+    );
+    let mut text = String::from("palette=custom\n");
+    let names = [
+        "black",
+        "red",
+        "green",
+        "yellow",
+        "blue",
+        "magenta",
+        "cyan",
+        "light-grey",
+        "dark-grey",
+        "light-red",
+        "light-green",
+        "light-yellow",
+        "light-blue",
+        "light-magenta",
+        "light-cyan",
+        "white",
+    ];
+    for (i, name) in names.iter().enumerate() {
+        text.push_str(&format!("palette-{name}={i},{},7\n", 100 + i));
+    }
+    text.push_str("palette-foreground=1,2,3\npalette-background=4,5,6\n");
+    let l = main_file(&text);
+    assert_eq!(l.reports, []);
+    let p = l.config.palette();
+    for i in 0..16u8 {
+        assert_eq!(
+            p.color(i),
+            vtium_term::Rgb::new(i, 100 + i, 7),
+            "colour {i}"
+        );
+    }
+    assert_eq!(p.fg(), vtium_term::Rgb::new(1, 2, 3));
+    assert_eq!(p.bg(), vtium_term::Rgb::new(4, 5, 6));
+    assert_eq!(p.color(16), vtium_term::Rgb::new(0, 0, 0));
+    assert_eq!(p.color(232), vtium_term::Rgb::new(8, 8, 8));
+    // The keys colour nothing under another palette.
+    let l = main_file("palette=nord\npalette-red=1,2,3\n");
+    assert_eq!(Some(l.config.palette()), vtium_term::Palette::named("nord"));
+}
+
 #[test]
 fn read_file_is_bounded() {
     let dir = std::env::temp_dir().join(format!("vtium-config-{}", std::process::id()));
@@ -712,6 +821,81 @@ fn keyboard_and_mouse() {
     assert_eq!(d.number(&XKB_REPEAT_DELAY), Some(250));
     assert_eq!(d.number(&XKB_REPEAT_RATE), Some(50));
     assert_eq!(d.text(&PALETTE), Some("legacy"));
+}
+
+#[test]
+fn the_power_keys_are_unbound_until_set() {
+    let d = Config::default();
+    for key in [&GRAB_REBOOT, &GRAB_POWER_OFF, &GRAB_SUSPEND] {
+        assert_eq!(d.chords(key), [], "{}", key.name);
+    }
+    let l = load_with(
+        &["--grab-suspend=<Logo>s"],
+        None,
+        &[(
+            "/etc/kmscon/kmscon.conf",
+            b"grab-reboot=<Ctrl><Alt>Delete\ngrab-power-off=<Ctrl><Alt>End,<Logo>p\ngrab-suspend=<Logo>z\n",
+        )],
+    );
+    assert_eq!(l.reports, []);
+    let chord = |mods, keysym| crate::grab::Chord {
+        mods,
+        keysyms: vec![keysym],
+    };
+    assert_eq!(l.config.chords(&GRAB_REBOOT), [chord(4 | 8, 0xffff)]);
+    assert_eq!(
+        l.config.chords(&GRAB_POWER_OFF),
+        [chord(4 | 8, 0xff57), chord(16, 0x70)]
+    );
+    // The command line wins over the file.
+    assert_eq!(l.config.chords(&GRAB_SUSPEND), [chord(16, 0x73)]);
+    // An empty value unbinds what a file before it bound.
+    let l = load_with(
+        &["--grab-reboot="],
+        None,
+        &[(
+            "/etc/kmscon/kmscon.conf",
+            b"grab-reboot=<Ctrl><Alt>Delete\n",
+        )],
+    );
+    assert_eq!(l.reports, []);
+    assert_eq!(l.config.chords(&GRAB_REBOOT), []);
+}
+
+#[test]
+fn tier3_power_configuration_binds_each_power_key() {
+    let l = main_file(TIER3_POWER);
+    assert_eq!(l.reports, []);
+    for key in [&GRAB_REBOOT, &GRAB_POWER_OFF, &GRAB_SUSPEND] {
+        assert_eq!(l.config.chords(key).len(), 1, "{}", key.name);
+    }
+}
+
+#[test]
+fn a_chord_that_does_not_read_is_reported_and_leaves_the_value_below() {
+    let l = load_with(
+        &["--grab-reboot=<Ctrl><Alt>delete"],
+        None,
+        &[(
+            "/etc/kmscon/kmscon.conf",
+            b"grab-reboot=<Ctrl><Alt>Delete\n",
+        )],
+    );
+    assert_eq!(
+        problems(&l),
+        [&Problem::BadValue {
+            key: "grab-reboot",
+            value: "<Ctrl><Alt>delete".into(),
+            why: "a key name in the wrong case; key names are case-sensitive",
+        }]
+    );
+    assert_eq!(
+        l.config.chords(&GRAB_REBOOT),
+        [crate::grab::Chord {
+            mods: 4 | 8,
+            keysyms: vec![0xffff]
+        }]
+    );
 }
 
 /// `read_file` on what is not a regular file: a FIFO with no writer, a

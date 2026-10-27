@@ -25,10 +25,11 @@ use core::ops::Range;
 use crate::Cell;
 use crate::bounds::{COLUMNS_MAX, ROWS_MAX};
 use crate::damage::{Age, Damage};
-use crate::frame::{Cursor, CursorShape, Frame, Palette};
+use crate::frame::{Cursor, CursorShape, Frame};
 use crate::line::{Line, LineId, LinkId};
+use crate::palette::Palette;
 use crate::scrollback::Scrollback;
-use crate::style::{Rgb, Style};
+use crate::style::Style;
 use crate::unicode::Segmenter;
 
 pub use edit::Erase;
@@ -110,7 +111,6 @@ pub struct Screen {
     selection: Selection,
     cursor_shape: CursorShape,
     cursor_blink: bool,
-    cursor_color: Option<Rgb>,
 }
 
 impl Screen {
@@ -144,7 +144,6 @@ impl Screen {
             selection: Selection::default(),
             cursor_shape: CursorShape::default(),
             cursor_blink: true,
-            cursor_color: None,
         };
         for _ in 0..rows {
             let line = screen.new_line(cols, &Style::DEFAULT);
@@ -283,12 +282,6 @@ impl Screen {
         self.cursor_blink = blink;
     }
 
-    /// OSC 12's cursor colour (vtium/vtium#38); `None` draws the cell under
-    /// the cursor inverted.
-    pub fn set_cursor_color(&mut self, color: Option<Rgb>) {
-        self.cursor_color = color;
-    }
-
     /// Whether the alternate screen is in use (modes 47, 1047, 1049).
     pub fn alternate(&self) -> bool {
         self.flags.alternate
@@ -354,7 +347,7 @@ impl Screen {
 
     /// The view, as the display that last drew at `since` reads it: the
     /// screen, or the scrollback and the screen while scrolled back, with
-    /// the cursor and the selection.
+    /// the cursor in the palette's cursor colour and the selection.
     pub fn frame<'a>(&'a self, palette: &'a Palette, since: Age) -> Frame<'a> {
         let lines = self.view();
         let offset = self.scrollback.offset();
@@ -365,7 +358,7 @@ impl Screen {
             visible: !self.flags.cursor_hidden && row < self.rows,
             shape: self.cursor_shape,
             blink: self.cursor_blink,
-            color: self.cursor_color,
+            color: palette.cursor(),
         };
         let selected = self.selected_columns(&lines);
         Frame::new(

@@ -8,116 +8,17 @@
 //!
 //! A cell's colours resolve in the C reference's order: bold brightens a
 //! foreground palette colour below 8 to its bright twin, the palette gives
-//! RGB, inverse video, DECSCNM and the selection swap the two, and dim
-//! draws the foreground halfway to the background.
+//! RGB, inverse video and DECSCNM swap the two, the selection swaps them
+//! again or takes the selection colours OSC 17 and 19 set, and dim draws
+//! the foreground halfway to the background.
 
 use core::ops::Range;
 
 use crate::cell::{Cell, StyleIndex, Width};
 use crate::damage::{Age, Damage};
 use crate::line::{Glyph, Line, LinkId};
+use crate::palette::{Palette, Special};
 use crate::style::{Attrs, Color, Rgb, Style};
-
-/// The 256-colour palette and the default colours.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Palette {
-    colors: [Rgb; 256],
-    fg: Rgb,
-    bg: Rgb,
-}
-
-/// The C reference's `legacy` palette's sixteen colours, its default for
-/// the replay interface's reference host.
-const LEGACY: [(u8, u8, u8); 16] = [
-    (0x00, 0x00, 0x00),
-    (0xcd, 0x00, 0x00),
-    (0x00, 0xcd, 0x00),
-    (0xcd, 0xcd, 0x00),
-    (0x00, 0x00, 0xee),
-    (0xcd, 0x00, 0xcd),
-    (0x00, 0xcd, 0xcd),
-    (0xe5, 0xe5, 0xe5),
-    (0x7f, 0x7f, 0x7f),
-    (0xff, 0x00, 0x00),
-    (0x00, 0xff, 0x00),
-    (0xff, 0xff, 0x00),
-    (0x5c, 0x5c, 0xff),
-    (0xff, 0x00, 0xff),
-    (0x00, 0xff, 0xff),
-    (0xff, 0xff, 0xff),
-];
-
-impl Default for Palette {
-    /// The `legacy` sixteen, xterm's 6x6x6 cube (levels 0, 95, 135, 175,
-    /// 215, 255) and grey ramp (8 to 238 in steps of 10), on a light grey
-    /// foreground and a black background.
-    fn default() -> Self {
-        const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
-        let mut colors = [Rgb::default(); 256];
-        for (i, c) in colors.iter_mut().enumerate() {
-            *c = match i {
-                0..=15 => LEGACY
-                    .get(i)
-                    .map_or(Rgb::default(), |&(r, g, b)| Rgb::new(r, g, b)),
-                16..=231 => {
-                    let n = i.saturating_sub(16);
-                    let level = |k: usize| LEVELS.get(k % 6).copied().unwrap_or(0);
-                    Rgb::new(level(n / 36), level(n / 6), level(n))
-                }
-                _ => {
-                    let grey =
-                        u8::try_from(i.saturating_sub(232).saturating_mul(10).saturating_add(8))
-                            .unwrap_or(0);
-                    Rgb::new(grey, grey, grey)
-                }
-            };
-        }
-        Self::new(colors, Rgb::new(0xe5, 0xe5, 0xe5), Rgb::new(0, 0, 0))
-    }
-}
-
-impl Palette {
-    pub fn new(colors: [Rgb; 256], fg: Rgb, bg: Rgb) -> Self {
-        Self { colors, fg, bg }
-    }
-
-    pub fn color(&self, index: u8) -> Rgb {
-        self.colors
-            .get(usize::from(index))
-            .copied()
-            .unwrap_or_default()
-    }
-
-    pub fn set_color(&mut self, index: u8, rgb: Rgb) {
-        if let Some(c) = self.colors.get_mut(usize::from(index)) {
-            *c = rgb;
-        }
-    }
-
-    pub fn fg(&self) -> Rgb {
-        self.fg
-    }
-
-    pub fn bg(&self) -> Rgb {
-        self.bg
-    }
-
-    pub fn set_fg(&mut self, rgb: Rgb) {
-        self.fg = rgb;
-    }
-
-    pub fn set_bg(&mut self, rgb: Rgb) {
-        self.bg = rgb;
-    }
-
-    fn resolve(&self, color: Color, default: Rgb) -> Rgb {
-        match color {
-            Color::Default => default,
-            Color::Indexed(i) => self.color(i),
-            Color::Rgb(rgb) => rgb,
-        }
-    }
-}
 
 /// SGR 2's foreground: halfway from `fg` to `bg`, each channel the sum of
 /// the two halved (the C reference's `color_dim`).
@@ -170,7 +71,8 @@ pub struct FrameCell<'a> {
     /// below cell backgrounds shows through (libtsm#35).
     pub default_bg: bool,
     pub link: Option<LinkId>,
-    /// Inside the selection, which draws inverted.
+    /// Inside the selection, which draws inverted or in the selection
+    /// colours.
     pub selected: bool,
     /// Changed since the age the reading display passed.
     pub changed: bool,
@@ -228,6 +130,12 @@ impl<'a> Frame<'a> {
 
     pub fn cursor(&self) -> Cursor {
         self.cursor
+    }
+
+    /// The palette the frame resolves through, for the colours a renderer
+    /// resolves itself at draw time.
+    pub fn palette(&self) -> &'a Palette {
+        self.palette
     }
 
     /// The line drawn at `row`, for its flags and identity.
@@ -309,11 +217,28 @@ impl<'a> Frame<'a> {
             }
             c => c,
         };
-        let mut fg = self.palette.resolve(fg_color, self.palette.fg);
-        let mut bg = self.palette.resolve(style.bg, self.palette.bg);
-        let inverse = (style.attrs.contains(Attrs::INVERSE) != self.reverse) != selected;
+        let mut fg = self.palette.resolve(fg_color, self.palette.fg());
+        let mut bg = self.palette.resolve(style.bg, self.palette.bg());
+        let mut inverse = style.attrs.contains(Attrs::INVERSE) != self.reverse;
         if inverse {
             core::mem::swap(&mut fg, &mut bg);
+        }
+        let mut default_bg = style.bg == Color::Default && !inverse;
+        if selected {
+            let sel_bg = self.palette.special(Special::SelectionBg);
+            let sel_fg = self.palette.special(Special::SelectionFg);
+            if sel_bg.is_none() {
+                core::mem::swap(&mut fg, &mut bg);
+                inverse = !inverse;
+                default_bg = style.bg == Color::Default && !inverse;
+            }
+            if let Some(c) = sel_bg {
+                bg = c;
+                default_bg = false;
+            }
+            if let Some(c) = sel_fg {
+                fg = c;
+            }
         }
         if style.attrs.contains(Attrs::DIM) {
             fg = dim(fg, bg);
@@ -327,7 +252,7 @@ impl<'a> Frame<'a> {
             bg,
             underline_color,
             attrs: style.attrs,
-            default_bg: style.bg == Color::Default && !inverse,
+            default_bg,
             selected,
         }
     }
@@ -459,6 +384,48 @@ mod tests {
         let cell = frame.cell(0, 0).unwrap();
         assert_eq!((cell.fg, cell.bg), (BLACK, WHITE));
         assert!(!cell.default_bg);
+    }
+
+    // ctlseqs, OSC 17 and 19: a selection background replaces the inversion,
+    // so an inverse cell selected keeps its swapped foreground over it, and
+    // the background drawn is no longer the default one; dim follows the
+    // colours drawn.
+    #[test]
+    fn selection_colours_replace_the_inversion() {
+        let red = Rgb::new(0xcd, 0, 0);
+        let mut style = Style::DEFAULT;
+        style.attrs.insert(Attrs::INVERSE);
+        let line = styled(style);
+        let damage = Damage::new(4, 1);
+        let mut palette = palette();
+        palette.set_special(Special::SelectionBg, Some(red));
+        let frame = Frame::new(
+            vec![&line],
+            &damage,
+            &palette,
+            Age::NEVER,
+            Cursor::default(),
+            false,
+        )
+        .with_selection(vec![Range { start: 0, end: 1 }]);
+        let cell = frame.cell(0, 0).unwrap();
+        assert_eq!((cell.fg, cell.bg), (BLACK, red));
+        assert!(cell.selected && !cell.default_bg);
+
+        style.attrs.insert(Attrs::DIM);
+        palette.set_special(Special::SelectionFg, Some(WHITE));
+        let dimmed = styled(style);
+        let frame = Frame::new(
+            vec![&dimmed],
+            &damage,
+            &palette,
+            Age::NEVER,
+            Cursor::default(),
+            false,
+        )
+        .with_selection(vec![Range { start: 0, end: 1 }]);
+        let cell = frame.cell(0, 0).unwrap();
+        assert_eq!((cell.fg, cell.bg), (Rgb::new(0xe5, 0x7f, 0x7f), red));
     }
 
     #[test]

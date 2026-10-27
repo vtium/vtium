@@ -32,7 +32,7 @@ fn a_clean_configuration_exits_zero_and_says_nothing() {
 
 #[test]
 fn each_warning_is_printed_and_it_exits_one() {
-    let d = dir("warn", "sb-size=200000\npalette=nord\n");
+    let d = dir("warn", "sb-size=200000\npalette=frob\n");
     let out = check(&d, &["--frob"]);
     assert_eq!(out.status.code(), Some(1));
     let err = String::from_utf8_lossy(&out.stderr);
@@ -46,7 +46,14 @@ fn each_warning_is_printed_and_it_exits_one() {
         lines[1].ends_with("kmscon.conf:1: sb-size=\"200000\" is out of bounds, 100000 used"),
         "{err}"
     );
-    assert_eq!(lines[2], "palette=nord is not built yet; legacy is used");
+    assert!(
+        lines[2].ends_with(
+            "kmscon.conf:2: palette=\"frob\" is none of legacy, custom, nord, \
+             solarized, solarized-black, solarized-white, soft-black, base16-dark, base16-light, \
+             vga, ignored"
+        ),
+        "{err}"
+    );
     std::fs::remove_dir_all(d).ok();
 }
 
@@ -61,6 +68,9 @@ fn help_says_it_only_checks() {
 
 /// With strace on the machine, the files it opens are only the
 /// configuration's and the loader's: no VT, DRM node, input device or tty.
+/// Under qemu-user (tools/arm), strace traces qemu, whose opens of the
+/// target's files carry the QEMU_LD_PREFIX it translates them to: such a
+/// trace says so and is skipped.
 #[test]
 fn it_opens_nothing_but_the_configuration() {
     if Command::new("strace").arg("-V").output().is_err() {
@@ -81,6 +91,20 @@ fn it_opens_nothing_but_the_configuration() {
         .filter(|l| l.contains("open") && !l.contains("ENOENT"))
         .filter_map(|l| l.split('"').nth(1))
         .collect();
+    if let (Some(qemu), Some(prefix)) = (
+        std::env::var_os("VTIUM_QEMU_USER"),
+        std::env::var("QEMU_LD_PREFIX")
+            .ok()
+            .filter(|p| !p.is_empty()),
+    ) && opened.iter().any(|p| p.starts_with(&prefix))
+    {
+        eprintln!(
+            "strace traced {}, which opens the target's files under {prefix}: the open check is skipped",
+            qemu.display()
+        );
+        std::fs::remove_dir_all(d).ok();
+        return;
+    }
     assert!(opened.iter().any(|p| p.ends_with("kmscon.conf")), "{trace}");
     for p in &opened {
         assert!(

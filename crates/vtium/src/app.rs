@@ -12,9 +12,13 @@
 //!   `Retaken` sets every device's displays up again, or while blanked
 //!   at the input that ends the blank, and keeps the blank and its timer;
 //!   `Hangup` exits.
-//! - **Keys**, in order: the VT's, then the seat's (none: one session),
-//!   then the terminal's grabs, then DECARM's drop of a repeat, then the
-//!   encoder. A key draws at once and holds the cursor's blink.
+//! - **Keys**, in order: the VT's, then the seat's (the power keys, which
+//!   act on a press and never on its repeat), then the terminal's grabs,
+//!   then DECARM's drop of a repeat, then the encoder. A key draws at once
+//!   and holds the cursor's blink.
+//! - **The pointer.** While the program tracks it, its events are
+//!   reported, but those made with Shift held, as xterm's are. The others
+//!   select, copy and paste ([`App::pointer_event`]).
 //! - **The blank.** Each key and pointer event goes to every device's
 //!   `input`, which retries a failed wake-up, and to [`Blank::input`]; a
 //!   device's `Awake` goes to [`Blank::input`] too, but a re-take's, and
@@ -22,8 +26,9 @@
 //!   The first display, the last going and the next after none count
 //!   too, as a display change, which wakes nothing while the VT is not
 //!   ours; another hotplug or a re-take never counts.
-//! - **The child.** It runs on the pty at the grid's size; when it exits
-//!   the respawn policy starts it again or ends vtium.
+//! - **The child.** It first starts once a display is set up, on the
+//!   grid's size ([`respawn::first_start_due`]); when it exits the respawn
+//!   policy starts it again or ends vtium.
 //! - **No display.** From the first acquire, vtium waits `display-wait`
 //!   for a frame on a display's screen, and with none by then it ends
 //!   ([`crate::wait`]). Once one has come, the last going leaves the
@@ -34,16 +39,18 @@
 //!   [`LEAVE_WAIT`] while the switch is pending.
 
 use std::any::Any;
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use vtium_font::{Face, Font, Psf, Unifont};
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::display::{Blank, DisplayId, Dpms, Event};
-use vtium_platform::input::{Button, InputEvent, KeyEvent, PointerEvent};
+use vtium_platform::input::{Button, InputEvent, KeyEvent, Mods as InputMods, PointerEvent};
 use vtium_platform::pty::{Erase, Pty, Size};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
 use vtium_platform::vt::{Switch, Vt, VtEvent};
@@ -55,9 +62,10 @@ use crate::child::{self, Display as SessionDisplay, Place};
 use crate::config::keys;
 use crate::config::{Config, ModeSpec};
 use crate::font;
-use crate::grab::{self, Grab};
+use crate::grab::{self, Chord, Grab};
 use crate::layout::{self, Zoom};
-use crate::respawn::{Next, Respawn};
+use crate::power::{self, Power, PowerKey};
+use crate::respawn::{self, Next, Respawn};
 use crate::sync::{Action, Sync};
 use crate::term::{Clock, Term, View};
 use crate::video::Video;
@@ -121,6 +129,23 @@ struct Pointer {
     y: u32,
     visible: bool,
     held: Option<Button>,
+    /// The held button selects or pastes, until its release, rather than
+    /// being reported: its press came while the program did not track the
+    /// pointer, or with Shift.
+    ours: bool,
+    /// The left button's drag extends the selection.
+    drag: Option<Drag>,
+    /// Left presses in a row, each soon after the last: one selects
+    /// characters, two a word, three a line, and a fourth starts again.
+    clicks: u8,
+}
+
+/// A drag that extends the selection from the cell it started in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Drag {
+    from: (usize, usize),
+    /// It left that cell.
+    moved: bool,
 }
 
 /// A seat's VT, which the app holds behind one type: compiled once, and
@@ -158,6 +183,8 @@ pub struct App {
     clock: Clock,
     epoch: Instant,
     respawn: Option<Respawn>,
+    /// [`App::start`] was called and the command has not started yet.
+    start_due: bool,
     /// The VT is ours and the devices awake.
     awake: bool,
     /// The VT was re-taken while blanked: every device is set up again
@@ -170,6 +197,8 @@ pub struct App {
     releasing: Option<BTreeSet<PathBuf>>,
     /// The start's wait for a display.
     wait: Wait,
+    /// `display-wait=forever`.
+    forever: bool,
     attached: Attached,
     /// A frame has been on screen since the start.
     presented: bool,
@@ -204,8 +233,18 @@ pub struct App {
     use_original: bool,
     /// `clipboard-write`: OSC 52's selection is taken.
     clipboard_write: bool,
-    /// The last selection OSC 52 set, held for a paste.
+    /// The selection buffer: what the user copied last, or OSC 52 set
+    /// last, held for a paste.
     selection: Option<Vec<u8>>,
+    /// The mouse tracking the program asked for, last seen: a change
+    /// clears the selection.
+    tracking: MouseTracking,
+    /// The power keys the configuration binds, and what they act through.
+    power_keys: Vec<(PowerKey, Vec<Chord>)>,
+    power: Box<dyn Power>,
+    /// The child writing `/sys/power/state` has not exited: the machine
+    /// sleeps, or is going to.
+    sleeping: Rc<Cell<bool>>,
 }
 
 impl App {
@@ -233,9 +272,7 @@ impl App {
         );
         terminal.screen_mut().set_scrollback_max(lines);
         terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
-        if let Some(p) = palette(&config) {
-            terminal.set_palette(p);
-        }
+        terminal.set_palette(config.palette());
         if let Ok(table) = crate::termcap::termcap() {
             terminal.set_termcap(table);
         }
@@ -249,17 +286,29 @@ impl App {
             .filter(|d| !d.is_zero());
         let modes = config.modes(&keys::MODE).to_vec();
         let use_original = config.switch(&keys::USE_ORIGINAL_MODE) && modes.is_empty();
-        let wait = Wait::new(match config.text(&keys::DISPLAY_WAIT) {
-            // `forever`.
-            Some(_) => None,
-            None => Some(Duration::from_secs(
-                config.number(&keys::DISPLAY_WAIT).unwrap_or(10),
-            )),
-        });
+        let power_keys = [
+            (PowerKey::Reboot, &keys::GRAB_REBOOT),
+            (PowerKey::PowerOff, &keys::GRAB_POWER_OFF),
+            (PowerKey::Suspend, &keys::GRAB_SUSPEND),
+        ]
+        .into_iter()
+        .map(|(k, key)| (k, config.chords(key).to_vec()))
+        .filter(|(_, chords)| !chords.is_empty())
+        .collect();
+        // The key holds text only for `forever`.
+        let forever = config.text(&keys::DISPLAY_WAIT).is_some();
+        let wait = Wait::new(
+            (!forever)
+                .then(|| Duration::from_secs(config.number(&keys::DISPLAY_WAIT).unwrap_or(10))),
+        );
         App {
             oneshot: config.switch(&keys::ONESHOT),
             clipboard_write: config.switch(&keys::CLIPBOARD_WRITE),
             selection: None,
+            tracking: MouseTracking::Off,
+            power_keys,
+            power: Box::new(power::System),
+            sleeping: Rc::default(),
             modes,
             use_original,
             vt,
@@ -281,11 +330,13 @@ impl App {
             clock,
             epoch: now,
             respawn: None,
+            start_due: false,
             awake: false,
             retake_owed: false,
             retaking: BTreeSet::new(),
             releasing: None,
             wait,
+            forever,
             attached: Attached::NotYet,
             presented: false,
             draw_now: false,
@@ -300,8 +351,14 @@ impl App {
         }
     }
 
-    /// The last selection a program set with OSC 52, while
-    /// `clipboard-write` is on.
+    /// Puts the power keys' actions through `power`, a test's stand-in
+    /// for PID 1, logind and the kernel.
+    pub fn set_power(&mut self, power: Box<dyn Power>) {
+        self.power = power;
+    }
+
+    /// The selection buffer: what the user copied last, or a program set
+    /// with OSC 52 while `clipboard-write` is on.
     pub fn selection(&self) -> Option<&[u8]> {
         self.selection.as_deref()
     }
@@ -320,11 +377,25 @@ impl App {
         );
     }
 
-    /// Starts the session's command.
+    /// Starts the session's command at the end of the first turn
+    /// [`respawn::first_start_due`] allows.
     pub fn start(&mut self) {
-        let now = (self.clock)();
-        self.respawn = Some(Respawn::new(now.saturating_duration_since(self.epoch)));
-        self.spawn();
+        self.start_due = true;
+    }
+
+    /// Whether the session's command has started since [`App::start`].
+    pub fn started(&self) -> bool {
+        self.respawn.is_some()
+    }
+
+    /// The command's first start, when it is due.
+    fn first_start(&mut self, now: Instant) {
+        let display = !self.views.is_empty();
+        if self.start_due && respawn::first_start_due(self.awake, display, self.forever) {
+            self.start_due = false;
+            self.respawn = Some(Respawn::new(now.saturating_duration_since(self.epoch)));
+            self.spawn();
+        }
     }
 
     /// Asks vtium to end, as SIGTERM does.
@@ -691,6 +762,8 @@ impl App {
                 // The acquire sets every device up: no re-take is owed
                 // to the VT that is not ours.
                 self.retake_owed = false;
+                // The drag's release reaches the VT that is ours next.
+                self.pointer.drag = None;
                 self.deactivate();
                 if let Some(input) = &mut self.input {
                     input.sleep();
@@ -845,25 +918,66 @@ impl App {
 
     /// A key or pointer event from the input devices.
     pub fn input_event(&mut self, event: InputEvent, now: Instant) {
+        match event {
+            InputEvent::Key(key) => {
+                self.activity(now);
+                self.key(&key, now);
+            }
+            InputEvent::Pointer(p) => {
+                let mods = self.input.as_ref().map_or(InputMods::empty(), |i| i.mods());
+                self.pointer_event(p, mods, now);
+            }
+        }
+    }
+
+    /// A pointer event, with the modifiers held on the keyboards as it
+    /// came.
+    pub fn pointer_event(&mut self, event: PointerEvent, mods: InputMods, now: Instant) {
+        self.activity(now);
+        self.pointer(event, Mods::from_bits(mods.bits()));
+    }
+
+    /// The user's input reaches every device, which retries a failed
+    /// wake-up, and the blank.
+    fn activity(&mut self, now: Instant) {
         for video in self.videos.values_mut() {
             if let Err(e) = video.input() {
                 log::warn!("cannot wake the displays: {e}");
             }
         }
         self.user_input(now);
-        match event {
-            InputEvent::Key(key) => self.key(&key, now),
-            InputEvent::Pointer(p) => self.pointer(p),
-        }
     }
 
-    /// The key order: the VT's keys, the seat's (none), the terminal's
-    /// grabs, DECARM, the encoder.
+    /// The key order: the VT's keys, the seat's, the terminal's grabs,
+    /// DECARM, the encoder. Each key that passes the seat's clears the
+    /// selection, as the C reference's did (`src/terminal.c:1370` at
+    /// kmscon b1f7a7c5).
     fn key(&mut self, key: &KeyEvent, now: Instant) {
         if self.vt.key(key) || !self.awake {
             return;
         }
+        let bits = key.mods.bits();
+        if let Some(&(power_key, _)) = self
+            .power_keys
+            .iter()
+            .find(|(_, chords)| grab::matches(chords, bits, &key.keysyms))
+        {
+            // One action a press: a held chord's repeats would ask again,
+            // and systemd takes seven Ctrl+Alt+Del in two seconds as an
+            // immediate reboot.
+            if key.repeat {
+                return;
+            }
+            if let Some(child) = power::press(power_key, self.power.as_mut(), self.sleeping.get()) {
+                let sleeping = Rc::clone(&self.sleeping);
+                if let Err(e) = vtium_platform::power::watch(&self.handle, child, sleeping) {
+                    log::error!("grab-suspend: cannot watch the write to /sys/power/state: {e}");
+                }
+            }
+            return;
+        }
         let screen = self.term.terminal.screen_mut();
+        screen.clear_selection();
         if let Some(g) = grab::grab(key.mods.bits(), &key.keysyms) {
             let page = self.grid.1.saturating_sub(1).max(1);
             match g {
@@ -883,6 +997,12 @@ impl App {
                     self.orientation = layout::rotate(self.orientation, g == Grab::RotateCw);
                     self.relayout();
                 }
+                // One paste a press, however long the key repeats.
+                Grab::Paste if !key.repeat => {
+                    self.paste();
+                    self.send_user_bytes();
+                }
+                Grab::Paste => {}
             }
             self.draw_now = true;
             return;
@@ -937,16 +1057,13 @@ impl App {
         }
     }
 
-    fn pointer(&mut self, event: PointerEvent) {
-        let cell = (self.cell.0.max(1), self.cell.1.max(1));
-        let at = |p: &Pointer| {
-            (
-                usize::try_from(p.x.checked_div(cell.0).unwrap_or(0)).unwrap_or(0),
-                usize::try_from(p.y.checked_div(cell.1).unwrap_or(0)).unwrap_or(0),
-            )
-        };
+    /// A pointer event: reported to a program that tracks the pointer,
+    /// unless Shift is held, as xterm's `ShiftOverride` lets it select and
+    /// paste (`button.c`); otherwise it selects, copies and pastes. A
+    /// button keeps to the side its press took until its release.
+    fn pointer(&mut self, event: PointerEvent, mods: Mods) {
         let tracking = self.term.terminal.mouse_tracking() != MouseTracking::Off;
-        let mods = Mods::from_bits(self.input.as_ref().map_or(0, |i| i.mods().bits()));
+        let shift = mods.contains(Mods::SHIFT);
         let moved = matches!(event, PointerEvent::Moved { .. });
         match event {
             PointerEvent::Moved { x, y, held } => {
@@ -954,56 +1071,44 @@ impl App {
                 self.pointer.y = u32::try_from(y).unwrap_or(0);
                 self.pointer.visible = true;
                 self.pointer.held = held;
-                if tracking {
-                    let (col, row) = at(&self.pointer);
+                // A drag whose release was lost ends with the left button
+                // no longer held.
+                if held != Some(Button::Left) {
+                    self.pointer.drag = None;
+                }
+                let (col, row) = self.pointer_cell();
+                if let Some(drag) = &mut self.pointer.drag {
+                    drag.moved |= (col, row) != drag.from;
+                    self.term.terminal.screen_mut().select_to(col, row);
+                } else if tracking && !shift && !(held.is_some() && self.pointer.ours) {
                     let button = held.map_or(MouseButton::None, mouse_button);
-                    self.term.terminal.mouse(
-                        col,
-                        row,
-                        self.pointer.x,
-                        self.pointer.y,
-                        button,
-                        MouseEvent::Move,
-                        mods,
-                    );
+                    self.report_pointer(button, MouseEvent::Move, mods);
                 }
             }
             PointerEvent::Button {
-                button, pressed, ..
+                button,
+                pressed,
+                double_click,
             } => {
-                if tracking {
-                    let (col, row) = at(&self.pointer);
+                if pressed {
+                    self.pointer.ours = !tracking || shift;
+                }
+                if self.pointer.ours {
+                    self.select_button(button, pressed, double_click);
+                } else {
+                    self.pointer.clicks = 0;
                     let event = if pressed {
                         MouseEvent::Press
                     } else {
                         MouseEvent::Release
                     };
-                    self.term.terminal.mouse(
-                        col,
-                        row,
-                        self.pointer.x,
-                        self.pointer.y,
-                        mouse_button(button),
-                        event,
-                        mods,
-                    );
+                    self.report_pointer(mouse_button(button), event, mods);
                 }
             }
             PointerEvent::Wheel(steps) => {
                 let ctrl = mods.contains(Mods::CTRL);
                 match wheel(steps, tracking, ctrl) {
-                    Wheel::Report(button) => {
-                        let (col, row) = at(&self.pointer);
-                        self.term.terminal.mouse(
-                            col,
-                            row,
-                            self.pointer.x,
-                            self.pointer.y,
-                            button,
-                            MouseEvent::Press,
-                            mods,
-                        );
-                    }
+                    Wheel::Report(button) => self.report_pointer(button, MouseEvent::Press, mods),
                     Wheel::Zoom(dir) => self.zoom(dir),
                     Wheel::Scroll { up: true } => {
                         self.term.terminal.screen_mut().scroll_view_up(WHEEL_LINES);
@@ -1017,10 +1122,15 @@ impl App {
                 }
             }
             PointerEvent::Sync => {}
-            PointerEvent::Hide => self.pointer.visible = false,
+            // The C reference cleared the selection as it hid the pointer
+            // (`src/terminal.c:1655-1659` at kmscon b1f7a7c5).
+            PointerEvent::Hide => {
+                self.pointer.visible = false;
+                self.term.terminal.screen_mut().clear_selection();
+            }
         }
         // Only motion may be coalesced while the child does not read; a
-        // press, a release or a wheel report is queued whole.
+        // press, a release, a wheel report or a paste is queued whole.
         let bytes = self.term.terminal.take_replies();
         if let Some(pty) = self.pty.as_mut().filter(|_| !bytes.is_empty()) {
             if moved {
@@ -1030,6 +1140,120 @@ impl App {
             }
         }
         self.draw_now = true;
+    }
+
+    /// A change of the mouse tracking the program asked for clears the
+    /// selection, as the C reference's did (`src/terminal.c:890-897` at
+    /// kmscon b1f7a7c5).
+    fn tracking_changed(&mut self) {
+        let tracking = self.term.terminal.mouse_tracking();
+        if tracking != self.tracking {
+            self.tracking = tracking;
+            self.pointer.drag = None;
+            self.term.terminal.screen_mut().clear_selection();
+        }
+    }
+
+    /// The cell under the pointer, or the grid's nearest when the pointer
+    /// is in the strip a display leaves past the grid, as the C reference
+    /// kept it (`src/terminal.c:173-190` at kmscon b1f7a7c5).
+    fn pointer_cell(&self) -> (usize, usize) {
+        let cell = |p: u32, size: u32, cells: usize| {
+            usize::try_from(p.checked_div(size).unwrap_or(0))
+                .unwrap_or(0)
+                .min(cells.saturating_sub(1))
+        };
+        (
+            cell(self.pointer.x, self.cell.0, self.grid.0),
+            cell(self.pointer.y, self.cell.1, self.grid.1),
+        )
+    }
+
+    /// Reports a pointer event at the pointer to the program.
+    fn report_pointer(&mut self, button: MouseButton, event: MouseEvent, mods: Mods) {
+        let (col, row) = self.pointer_cell();
+        let (x, y) = (self.pointer.x, self.pointer.y);
+        self.term
+            .terminal
+            .mouse(col, row, x, y, button, event, mods);
+    }
+
+    /// A button that selects or pastes, as the C reference's did
+    /// (`src/terminal.c:1509-1542` at kmscon b1f7a7c5): the left button
+    /// starts a selection that its drag extends and its release copies, a
+    /// double click selects and copies a word, and a triple click a line,
+    /// as xterm's does; the middle button pastes at its release, as
+    /// xterm's does, and the right clears the selection. A release that
+    /// ends no drag clears the selection and leaves the buffer as it was,
+    /// as xterm takes no empty selection.
+    fn select_button(&mut self, button: Button, pressed: bool, double_click: bool) {
+        let (col, row) = self.pointer_cell();
+        match (button, pressed) {
+            (Button::Left, true) => {
+                self.pointer.clicks = match self.pointer.clicks {
+                    1 if double_click => 2,
+                    2 if double_click => 3,
+                    _ => 1,
+                };
+                self.pointer.drag = None;
+                let screen = self.term.terminal.screen_mut();
+                match self.pointer.clicks {
+                    1 => {
+                        screen.select_start(col, row);
+                        self.pointer.drag = Some(Drag {
+                            from: (col, row),
+                            moved: false,
+                        });
+                    }
+                    2 => {
+                        screen.select_word(col, row);
+                        self.copy();
+                    }
+                    _ => {
+                        screen.select_line(col, row);
+                        self.copy();
+                    }
+                }
+            }
+            (Button::Left, false) => match self.pointer.drag.take() {
+                Some(Drag { moved: true, .. }) => self.copy(),
+                Some(Drag { moved: false, .. }) => {
+                    self.term.terminal.screen_mut().clear_selection();
+                }
+                None => {}
+            },
+            (Button::Middle, true) => {}
+            (Button::Middle, false) => {
+                self.paste();
+                self.term.terminal.screen_mut().clear_selection();
+            }
+            (Button::Right, _) => {
+                self.pointer.drag = None;
+                self.term.terminal.screen_mut().clear_selection();
+            }
+        }
+    }
+
+    /// Copies the selected text into the selection buffer; with nothing
+    /// selected the buffer keeps what it holds.
+    fn copy(&mut self) {
+        if let Some(text) = self
+            .term
+            .terminal
+            .screen()
+            .selection_text()
+            .filter(|t| !t.is_empty())
+        {
+            self.selection = Some(text.into_bytes());
+        }
+    }
+
+    /// Pastes the selection buffer to the program, filtered, and
+    /// bracketed while it asks (`Terminal::paste`).
+    fn paste(&mut self) {
+        if let Some(text) = &self.selection {
+            self.term.terminal.paste(text);
+        }
     }
 
     /// The child exited: start it again, or end vtium.
@@ -1106,6 +1330,7 @@ impl App {
             }
         }
         self.attachment(now);
+        self.first_start(now);
         if let Some(r) = &self.releasing {
             if r.is_empty() {
                 self.releasing = None;
@@ -1119,6 +1344,7 @@ impl App {
             .as_mut()
             .map(|i| i.events().collect())
             .unwrap_or_default();
+        self.tracking_changed();
         for e in inputs {
             self.input_event(e, now);
         }
@@ -1137,7 +1363,11 @@ impl App {
         self.report(now);
         self.term.coalesce.turn_end();
         self.term.changed = false;
-        if let Some(wait) = self.wait.turn(now, self.presented) {
+        let flipping = self
+            .views
+            .iter()
+            .any(|((node, _), v)| self.videos.get(node).is_some_and(|d| d.is_flipping(v.id)));
+        if let Some(wait) = self.wait.turn(now, self.presented, flipping) {
             log::error!("no display appeared within {} s", wait.as_secs());
             self.request_exit(Exit::NoDisplay);
         }
@@ -1359,50 +1589,6 @@ pub fn render_timer_line(
 ) -> String {
     format!("{report} display={}[{}]", node.display(), id.0)
 }
-
-/// The palette `palette` names: `None` for `legacy`, the terminal's own,
-/// and the `palette-*` keys for `custom`. vtium-term holds no other named
-/// palette yet, so another name keeps `legacy`.
-fn palette(config: &Config) -> Option<vtium_term::Palette> {
-    match config.text(&keys::PALETTE) {
-        None | Some("legacy") => None,
-        Some("custom") => {
-            let mut p = vtium_term::Palette::default();
-            let rgb = |k| {
-                let [r, g, b] = config.rgb(k).unwrap_or_default();
-                vtium_term::Rgb::new(r, g, b)
-            };
-            for (i, key) in PALETTE_KEYS.iter().enumerate() {
-                p.set_color(u8::try_from(i).unwrap_or(0), rgb(key));
-            }
-            p.set_fg(rgb(&keys::PALETTE_FOREGROUND));
-            p.set_bg(rgb(&keys::PALETTE_BACKGROUND));
-            Some(p)
-        }
-        // Reported at start, through `check::semantics`.
-        Some(_) => None,
-    }
-}
-
-/// The sixteen colours' keys, in order.
-const PALETTE_KEYS: [&crate::config::Key; 16] = [
-    &keys::PALETTE_BLACK,
-    &keys::PALETTE_RED,
-    &keys::PALETTE_GREEN,
-    &keys::PALETTE_YELLOW,
-    &keys::PALETTE_BLUE,
-    &keys::PALETTE_MAGENTA,
-    &keys::PALETTE_CYAN,
-    &keys::PALETTE_LIGHT_GREY,
-    &keys::PALETTE_DARK_GREY,
-    &keys::PALETTE_LIGHT_RED,
-    &keys::PALETTE_LIGHT_GREEN,
-    &keys::PALETTE_LIGHT_YELLOW,
-    &keys::PALETTE_LIGHT_BLUE,
-    &keys::PALETTE_LIGHT_MAGENTA,
-    &keys::PALETTE_LIGHT_CYAN,
-    &keys::PALETTE_WHITE,
-];
 
 /// The lines of scrollback a wheel event scrolls (`src/terminal.c:1648`).
 const WHEEL_LINES: usize = 3;

@@ -60,6 +60,8 @@ vtium designs its cell model fresh (kmscon ADR-304 §4) before the screen is bui
 
 The minspec machine (1366x768, 512 MB) sets the budget. In unifont's 8x16 cells the screen is 170 by 48. The C reference's measured peak, 15.7 MiB with unifont, held its default 1,000-line scrollback after 500,000 lines of text; its README measured only the totals. Derived from its layout, those 1,000 lines were 5.19 MiB of 32-byte cells, and its main and alternate screens 0.50 MiB. The operator's caps let a machine under 2 GiB keep ten times that many lines.
 
+> Added 2026-10-27, after minspec became a single-board computer (docs/architecture.md, vtium/vtium#75). Its display floor is a 320x240 panel, 40x30 in an 8x8 font, and 1366x768 stays tier 3's x86 variant; the budget below still measures the 170 by 48 screen, the largest minspec grid. The byte figures here are 64-bit layouts. On armv7 they are smaller (the screens 265,728 bytes against 267,264, a worst-case line 5,512 against 5,568), and `tests/memory.rs` pins each per pointer width.
+
 ## Decision
 
 ### The cell

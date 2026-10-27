@@ -402,6 +402,97 @@ fn a_selection_copies_its_text() {
     assert_eq!(frame_selected(s), [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4)]);
 }
 
+// A line selection takes the whole row, and its copy ends with a line end,
+// as xterm's does with `cutNewline`.
+// covers: clipboard.selection
+#[test]
+fn a_line_selection_copies_the_row_and_its_end() {
+    let mut t = term(12, 3, b"one two\r\n  three");
+    let s = t.screen_mut();
+    assert!(!s.has_selection());
+    s.select_line(9, 1);
+    assert!(s.has_selection());
+    assert_eq!(s.selection_text().as_deref(), Some("  three\n"));
+    // A drag after it is a selection of characters again.
+    s.select_start(0, 0);
+    s.select_to(2, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("one"));
+    s.select_line(0, 0);
+    s.clear_selection();
+    assert!(!s.has_selection());
+    assert_eq!(s.selection_text(), None);
+}
+
+// A wrapped line is one line to the selection, as in xterm: a word goes on
+// across the wrap, a line selection takes every row of it, and the copy
+// has no line end where it wrapped.
+// covers: clipboard.selection
+#[test]
+fn a_selection_follows_a_wrapped_line() {
+    let mut t = term(4, 4, b"ab cdefg h\r\nij k");
+    let s = t.screen_mut();
+    s.select_word(3, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("cdefg"));
+    s.select_word(1, 1);
+    assert_eq!(s.selection_text().as_deref(), Some("cdefg"));
+    s.select_word(1, 2);
+    assert_eq!(s.selection_text().as_deref(), Some("h"));
+    // A word at the end of a row that did not wrap stops there.
+    s.select_word(3, 3);
+    assert_eq!(s.selection_text().as_deref(), Some("k"));
+    for row in 0..3 {
+        s.select_line(2, row);
+        assert_eq!(s.selection_text().as_deref(), Some("ab cdefg h\n"));
+    }
+    s.select_line(0, 3);
+    assert_eq!(s.selection_text().as_deref(), Some("ij k\n"));
+    s.select_start(1, 0);
+    s.select_to(1, 3);
+    assert_eq!(s.selection_text().as_deref(), Some("b cdefg h\nij"));
+
+    // A wide character that wrapped whole leaves an empty cell, which is
+    // not text.
+    let mut t = term(4, 2, "abc\u{4E2D}".as_bytes());
+    let s = t.screen_mut();
+    s.select_word(0, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("abc\u{4E2D}"));
+    s.select_word(0, 1);
+    assert_eq!(s.selection_text().as_deref(), Some("abc\u{4E2D}"));
+    s.select_line(0, 1);
+    assert_eq!(s.selection_text().as_deref(), Some("abc\u{4E2D}\n"));
+    // A word after a space at a row's end starts on the next row, the empty
+    // cell left of it unselected.
+    let mut t = term(4, 2, "ab \u{4E2D}".as_bytes());
+    let s = t.screen_mut();
+    s.select_word(0, 1);
+    assert_eq!(s.selection_text().as_deref(), Some("\u{4E2D}"));
+    let palette = vtium_term::Palette::new([Rgb::default(); 256], Rgb::default(), Rgb::default());
+    let frame = s.frame(&palette, vtium_term::Age::NEVER);
+    let selected = |r, c| frame.cell(r, c).unwrap().selected;
+    assert!(!selected(0, 3));
+    assert!(selected(1, 0));
+
+    // A line that wrapped into the scrollback is still one line.
+    let mut t = Terminal::new(4, 2, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"abcdefgh\r\nxy");
+    let s = t.screen_mut();
+    s.select_line(0, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("abcdefgh\n"));
+    s.select_word(0, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("abcdefgh"));
+
+    // The alternate screen's first row does not continue the scrollback.
+    let mut t = Terminal::new(4, 2, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"abcdefgh\r\n\x1b[?1049h\x1b[Hxy");
+    let s = t.screen_mut();
+    s.select_line(0, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("xy\n"));
+    s.select_word(0, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("xy"));
+}
+
 // A line the screen discards (IL, DL, SD, RI, a scroll on the alternate
 // screen, the screen's rows a taller screen replaces) takes the selection
 // with it: a copy must not reach into other text. Only a line the
@@ -596,4 +687,152 @@ fn a_wrapped_line_is_flagged() {
     let flags = |row| t.screen().line(row).unwrap().flags();
     assert!(flags(0).contains(vtium_term::LineFlags::WRAPPED));
     assert!(!flags(1).contains(vtium_term::LineFlags::WRAPPED));
+}
+
+// A line whose next row is gone does not continue onto what replaced it:
+// an erase that clears the screen's first row whole, and IL, DL, SD and RI
+// there, end the wrap of the scrollback's newest line, and a line a region
+// below the first row scrolls into the scrollback enters it unwrapped.
+// xterm joins each.
+// DECSED ends the wrap of each row it clears whole, as xterm's does when
+// no cell is protected.
+// covers: clipboard.selection
+#[test]
+fn a_wrap_ends_where_its_next_row_is_gone() {
+    for erase in [
+        &b"\x1b[H\x1b[2J"[..],
+        b"\x1b[2;1H\x1b[1J\x1b[H",
+        b"\x1b[H\x1b[J",
+        b"\x1b[H\x1b[2K",
+        b"\x1b[H\x1b[K",
+        b"\x1b[H\x1b[L",
+        b"\x1b[H\x1b[M",
+        b"\x1b[T\x1b[H",
+        b"\x1b[H\x1bM",
+    ] {
+        let mut t = Terminal::new(4, 2, 10);
+        t.screen_mut().set_scrollback_max(10);
+        t.input(b"abcdefgh\r\n");
+        t.input(erase);
+        t.input(b"$ ls");
+        t.screen_mut().select_line(0, 0);
+        assert_eq!(
+            t.screen().selection_text().as_deref(),
+            Some("$ ls\n"),
+            "{erase:?}"
+        );
+    }
+    // Clearing the alternate screen leaves the main screen's join.
+    let mut t = Terminal::new(4, 2, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"abcdefgh\r\n\x1b[?1049h\x1b[2J\x1b[H\x1b[L\x1b[?1049l");
+    t.screen_mut().select_line(0, 0);
+    assert_eq!(t.screen().selection_text().as_deref(), Some("abcdefgh\n"));
+    // A row cleared in part keeps the join.
+    let mut t = Terminal::new(4, 2, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"abcdefgh\r\n\x1b[1;3H\x1b[K");
+    t.screen_mut().select_line(0, 0);
+    assert_eq!(t.screen().selection_text().as_deref(), Some("abcdef\n"));
+
+    let mut t = Terminal::new(4, 3, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"HEAD\x1b[2;3r\x1b[2;1Habcdefgh\r\n");
+    t.screen_mut().select_line(0, 0);
+    assert_eq!(t.screen().selection_text().as_deref(), Some("HEAD\n"));
+
+    let mut t = term(4, 2, b"abcdefgh\x1b[H\x1b[?2Jxy\x1b[2;1Hzw");
+    t.screen_mut().select_line(0, 0);
+    assert_eq!(t.screen().selection_text().as_deref(), Some("xy\n"));
+
+    // DL at a wrap's second row, or a region scrolling under the first.
+    for bytes in [
+        &b"abcdefghij\x1b[2;1H\x1b[M"[..],
+        b"abcdef\x1b[2;3r\x1b[3;1H\n\x1b[2;1Hij",
+    ] {
+        let mut t = term(4, 3, bytes);
+        t.screen_mut().select_line(0, 0);
+        assert_eq!(
+            t.screen().selection_text().as_deref(),
+            Some("abcd\n"),
+            "{bytes:?}"
+        );
+    }
+
+    // After a narrowing resize a row's text runs past the margin, hidden,
+    // and it no longer continues: the copy would leave a hole in it.
+    let mut t = term(8, 3, b"abcdefghijkl");
+    t.screen_mut().resize(4, 3);
+    let s = t.screen_mut();
+    s.select_line(0, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("abcd\n"));
+    s.select_word(3, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("abcd"));
+    s.select_line(0, 1);
+    assert_eq!(s.selection_text().as_deref(), Some("ijkl\n"));
+
+    // A word stops going back at a wrapped row with no text, as it stops
+    // going forward.
+    let mut t = term(4, 3, b"abcdefghij\x1b[2;4H\x1b[1K");
+    t.screen_mut().select_word(0, 2);
+    assert_eq!(t.screen().selection_text().as_deref(), Some("ij"));
+}
+
+// An edit that clears a row's last column ends its wrap, as xterm's
+// `ClearRight` (EL 0, ECH, the cursor's row under ED 0), `ScrnDeleteChar`
+// (DCH) and `ClearBufRows` (the other rows ED and DECSED clear whole) do,
+// and EL 2 as Ghostty's `eraseLine` does: xterm keeps the flag there, but
+// the erased row's text no longer continues. EL 1, ICH, the cursor's row
+// under ED 1, and a row where DECSED leaves a protected cell keep it. IL,
+// DL and SD end the wrap of each row they shift and of the row above, as
+// Ghostty's `insertLines` and `deleteLines` do; xterm moves the flags. A
+// line feed's scroll, and SU, move lines with their flags.
+#[test]
+fn an_edit_that_clears_the_last_column_ends_the_wrap() {
+    let wrapped = |t: &Terminal, row| {
+        let line = t.screen().line(row).unwrap();
+        line.flags().contains(vtium_term::LineFlags::WRAPPED)
+    };
+    let cases: [(&[u8], [bool; 3]); 17] = [
+        (b"", [true, true, false]),
+        (b"\x1b[1;3H\x1b[K", [false, true, false]),
+        (b"\x1b[1;3H\x1b[2K", [false, true, false]),
+        (b"\x1b[1;1H\x1b[X", [false, true, false]),
+        (b"\x1b[1;1H\x1b[P", [false, true, false]),
+        (b"\x1b[1;3H\x1b[J", [false, false, false]),
+        (b"\x1b[2;1H\x1b[1J", [false, true, false]),
+        (b"\x1b[2J", [false, false, false]),
+        (b"\x1b[1;3H\x1b[1K", [true, true, false]),
+        (b"\x1b[1;1H\x1b[@", [true, true, false]),
+        (b"\x1b[1;1H\x1b[1J", [true, true, false]),
+        (b"\x1b[3;1H\x1b[?1J", [false, false, false]),
+        (b"\x1b[1;1H\x1b[L", [false, false, false]),
+        (b"\x1b[1;1H\x1b[M", [false, false, false]),
+        (b"\x1b[2;1H\x1b[M", [false, false, false]),
+        (b"\x1b[T", [false, false, false]),
+        (b"\x1b[S", [true, false, false]),
+    ];
+    for (bytes, flags) in cases {
+        let mut t = term(4, 3, b"abcdefghij");
+        t.input(bytes);
+        let got = [wrapped(&t, 0), wrapped(&t, 1), wrapped(&t, 2)];
+        assert_eq!(got, flags, "{bytes:?}");
+    }
+    // A row where DECSED leaves a protected cell keeps its wrap.
+    let mut t = term(4, 3, b"abcdefghij\x1b[1;1H");
+    let protected = Style {
+        attrs: Attrs::PROTECTED,
+        ..Style::DEFAULT
+    };
+    t.screen_mut().set_pen(protected);
+    t.input(b"P");
+    t.screen_mut().set_pen(Style::DEFAULT);
+    t.input(b"\x1b[3;1H\x1b[?1J");
+    assert_eq!([wrapped(&t, 0), wrapped(&t, 1)], [true, false]);
+    // A scroll takes the flag into the scrollback.
+    let mut t = Terminal::new(4, 2, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"abcdefgh\r\n");
+    let line = t.screen().scrollback().next().unwrap();
+    assert!(line.flags().contains(vtium_term::LineFlags::WRAPPED));
 }
