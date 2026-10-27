@@ -46,6 +46,8 @@ Bug reports and capability requests have their own forms. A capability request i
 
 A change that needs a design decision first gets the `design` label. The decision is recorded before the code is written.
 
+Decisions are recorded as ADRs in `docs/architecture/`, created and checked with `docs/scripts/adr`. The docs conventions are in [docs/architecture.md](docs/architecture.md#tables-references-and-maps).
+
 ## Pull requests
 
 - One change per pull request.
