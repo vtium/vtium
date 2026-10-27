@@ -258,13 +258,28 @@ fn env_path(name: &str) -> PathBuf {
     PathBuf::from(std::env::var_os(name).expect(name))
 }
 
-/// A scratch directory for one case.
-fn scratch(case: &str) -> PathBuf {
-    let dir =
-        std::env::temp_dir().join(format!("vtium-platform-pty-{}-{case}", std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).expect("scratch dir");
-    dir
+/// A scratch directory for one case, removed when the case ends, whether
+/// it passes or fails.
+struct Scratch(PathBuf);
+
+impl Scratch {
+    fn new(case: &str) -> Self {
+        let dir =
+            std::env::temp_dir().join(format!("vtium-platform-pty-{}-{case}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("scratch dir");
+        Scratch(dir)
+    }
+
+    fn join(&self, name: &str) -> PathBuf {
+        self.0.join(name)
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
 }
 
 fn role(name: &str) -> Command {
@@ -316,9 +331,24 @@ impl Consumer for Term {
 #[derive(Default)]
 struct Host {
     pty: Option<Pty>,
+    /// A pidfd for each child the case started, killed if the case fails.
+    children: Vec<std::os::fd::OwnedFd>,
     term: Term,
     ticks: u64,
     usr1: u64,
+}
+
+impl Drop for Host {
+    /// A case that fails kills every child it started, so none outlives
+    /// the run, including one a hangup does not stop.
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            return;
+        }
+        for child in &self.children {
+            let _ = rustix::process::pidfd_send_signal(child, rustix::process::Signal::KILL);
+        }
+    }
 }
 
 fn parts(h: &mut Host) -> Option<(&mut Pty, &mut Term)> {
@@ -345,6 +375,14 @@ fn host_loop() -> Loop<Host> {
 
 fn open(lp: &Loop<Host>, h: &mut Host, command: Command) {
     let mut pty = Pty::spawn(command, SIZE, Erase::Delete).expect("spawn");
+    let pid = pty
+        .child_id()
+        .and_then(|p| i32::try_from(p).ok())
+        .and_then(rustix::process::Pid::from_raw)
+        .expect("child pid");
+    h.children.push(
+        rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty()).expect("pidfd"),
+    );
     pty.insert(&lp.handle(), parts).expect("insert");
     h.pty = Some(pty);
 }
@@ -439,7 +477,7 @@ fn replies_to_a_child_that_does_not_read_stay_bounded() {
     // The session ends; the next one starts with nothing queued and its
     // child reads only what is written to it.
     h.pty = None;
-    let dir = scratch("reopen");
+    let dir = Scratch::new("reopen");
     let mut echo = role("echo");
     echo.env("VTIUM_PTY_OUT", dir.join("out"));
     h.term = Term::default();
@@ -455,7 +493,6 @@ fn replies_to_a_child_that_does_not_read_stay_bounded() {
     turn_until(&mut lp, &mut h, 500, |h| h.term.exited.is_some());
     assert!(h.term.exited.expect("exit").success());
     assert_eq!(fs::read(dir.join("out")).expect("out"), b"hello Q");
-    let _ = fs::remove_dir_all(dir);
 }
 
 const LAST_RELEASE: &[u8] = b"\x1b[<0;999;999m";
@@ -464,7 +501,7 @@ const LAST_RELEASE: &[u8] = b"\x1b[<0;999;999m";
 // 1003) a child that does not read sees a bounded queue, every button
 // report in order, and the latest position.
 fn a_child_under_1003_sees_every_button_and_a_bounded_queue() {
-    let dir = scratch("1003");
+    let dir = Scratch::new("1003");
     let mut lp = host_loop();
     let mut h = Host::default();
     let mut late = role("late");
@@ -528,7 +565,6 @@ fn a_child_under_1003_sees_every_button_and_a_bounded_queue() {
         .find(|r| r.starts_with(b"\x1b[<35;"))
         .expect("a motion report");
     assert_eq!(*last_seen_motion, last_motion.as_slice());
-    let _ = fs::remove_dir_all(dir);
 }
 
 /// The SGR mouse reports in `bytes`, each `ESC [ <` up to `M` or `m`.
@@ -554,7 +590,7 @@ const STREAM_LEN: usize = 400_000;
 // parts.
 fn output_and_replies_do_not_depend_on_how_reads_split() {
     for seed in [1u64, 2, 3] {
-        let dir = scratch(&format!("stream-{seed}"));
+        let dir = Scratch::new(&format!("stream-{seed}"));
         let mut lp = host_loop();
         let mut h = Host::default();
         h.term.takes = Some(Rng(seed.wrapping_mul(77)));
@@ -578,7 +614,6 @@ fn output_and_replies_do_not_depend_on_how_reads_split() {
             got == replies_to(&s),
             "seed {seed}: the child read other replies"
         );
-        let _ = fs::remove_dir_all(dir);
     }
 }
 
