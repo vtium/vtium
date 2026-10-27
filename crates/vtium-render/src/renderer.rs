@@ -200,6 +200,43 @@ impl Layout {
         Area { x, y, w, h }
     }
 
+    /// The grid's pixels under the display area `a`: [`Layout::area`]
+    /// undone.
+    fn grid_area(&self, g: &Grid, a: Area) -> Area {
+        let (lx, ly, lw, lh) = match self.orientation {
+            Orientation::Normal => (
+                a.x.saturating_sub(g.off_x),
+                a.y.saturating_sub(g.off_y),
+                a.w,
+                a.h,
+            ),
+            Orientation::UpsideDown => (
+                g.max_x.saturating_sub(a.x.saturating_add(a.w)),
+                g.max_y.saturating_sub(a.bottom()),
+                a.w,
+                a.h,
+            ),
+            Orientation::Right => (
+                a.y.saturating_sub(g.off_y),
+                g.max_x.saturating_sub(a.x.saturating_add(a.w)),
+                a.h,
+                a.w,
+            ),
+            Orientation::Left => (
+                g.max_y.saturating_sub(a.bottom()),
+                a.x.saturating_sub(g.off_x),
+                a.h,
+                a.w,
+            ),
+        };
+        Area {
+            x: lx,
+            y: ly,
+            w: lw,
+            h: lh,
+        }
+    }
+
     /// The display area of `n` cells from `col` in `row`.
     fn cells_area(&self, g: &Grid, col: usize, row: usize, n: usize) -> Area {
         self.area(
@@ -251,13 +288,15 @@ struct Paint {
     text: Option<(usize, usize, FontWidth, Style)>,
 }
 
-/// Where the pointer draws, the top left of the two by two cells under it,
-/// and its colours.
+/// Where the pointer draws, the cells it changes and its colours.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Pointer {
     at: Area,
-    col: usize,
-    row: usize,
+    /// The first column and row of the cells it changes, and the column
+    /// and row past the last.
+    cells: (usize, usize, usize, usize),
+    /// It reaches past the grid into the border.
+    outside: bool,
     colors: (Rgb, Rgb),
 }
 
@@ -405,23 +444,24 @@ impl<F: Face> Renderer<F> {
             self.cursor_at = None;
             self.pointer = None;
         }
-        let full = self.cells.border_stale();
-        if full {
-            self.fill_border(&grid, target, state.background);
-        }
         let pointer = state
             .pointer
             .and_then(|p| self.place_pointer(&grid, state, p));
         if pointer != self.pointer {
             // it appeared, moved, hid or changed colour: the cells it left
-            // and the cells it covers change
+            // and the cells it covers change, and the border where it
+            // reaches past the grid
             for p in [self.pointer, pointer].into_iter().flatten() {
                 self.stamp_pointer(&p);
             }
             self.pointer = pointer;
         }
+        let full = self.cells.border_stale();
+        if full {
+            self.fill_border(&grid, target, state.background);
+        }
         let cells = self.draw_cells(&grid, frame, target, state);
-        if let Some(p) = pointer.filter(|p| self.pointer_cells_drawn(p)) {
+        if let Some(p) = pointer.filter(|p| full || self.pointer_cells_drawn(p)) {
             self.draw_pointer(&p, target);
         }
         let layout = self.layout;
@@ -794,35 +834,68 @@ impl<F: Face> Renderer<F> {
         } else {
             0
         };
+        let at = Area {
+            x: x.saturating_sub(half_w),
+            y: y.saturating_sub(half_h),
+            w,
+            h,
+        };
+        let col = usize::try_from(col)
+            .unwrap_or(0)
+            .min(g.cols.saturating_sub(1));
+        let row = usize::try_from(row)
+            .unwrap_or(0)
+            .min(g.rows.saturating_sub(1));
+        // the box rounds half a cell up each way from a centre kept half a
+        // cell rounded down inside the grid, so at an odd cell size it can
+        // reach a pixel past those cells, or past the grid
+        let b = l.grid_area(g, at);
+        let first = |v: i64, side: i64| {
+            usize::try_from(v.max(0).checked_div(side).unwrap_or(0)).unwrap_or(0)
+        };
+        let past = |v: i64, side: i64, n: usize| {
+            let end = v.saturating_add(side).saturating_sub(1);
+            usize::try_from(end.checked_div(side).unwrap_or(0))
+                .unwrap_or(0)
+                .min(n)
+        };
+        let cells = (
+            col.min(first(b.x, cw)),
+            row.min(first(b.y, ch)),
+            col.saturating_add(2)
+                .min(g.cols)
+                .max(past(b.x.saturating_add(b.w), cw, g.cols)),
+            row.saturating_add(2)
+                .min(g.rows)
+                .max(past(b.bottom(), ch, g.rows)),
+        );
+        let outside = b.x < 0 || b.y < 0 || b.x.saturating_add(b.w) > gw || b.bottom() > gh;
         Some(Pointer {
-            at: Area {
-                x: x.saturating_sub(half_w),
-                y: y.saturating_sub(half_h),
-                w,
-                h,
-            },
-            col: usize::try_from(col)
-                .unwrap_or(0)
-                .min(g.cols.saturating_sub(1)),
-            row: usize::try_from(row)
-                .unwrap_or(0)
-                .min(g.rows.saturating_sub(1)),
+            at,
+            cells,
+            outside,
             colors: (state.foreground, state.background),
         })
     }
 
-    /// The cells under `p` changed on this frame.
+    /// The cells under `p` changed on this frame, and the border when it
+    /// reaches into it.
     fn stamp_pointer(&mut self, p: &Pointer) {
-        for r in p.row..p.row.saturating_add(2) {
-            for c in p.col..p.col.saturating_add(2) {
+        let (c0, r0, c1, r1) = p.cells;
+        for r in r0..r1 {
+            for c in c0..c1 {
                 self.cells.stamp(c, r);
             }
+        }
+        if p.outside {
+            self.cells.stamp_border();
         }
     }
 
     /// Whether this frame drew a cell under `p`, and so drew over it.
     fn pointer_cells_drawn(&self, p: &Pointer) -> bool {
-        (p.row..p.row.saturating_add(2)).any(|r| self.cells.any_drawn(p.col, r, 2))
+        let (c0, r0, c1, r1) = p.cells;
+        (r0..r1).any(|r| self.cells.any_drawn(c0, r, c1.saturating_sub(c0)))
     }
 
     /// Draws the pointer over the cells under it, which join the damage.
@@ -836,8 +909,9 @@ impl<F: Face> Renderer<F> {
             (l.width, l.height),
             target,
         );
-        for r in p.row..p.row.saturating_add(2) {
-            self.cells.mark_drawn(p.col, r, 2);
+        let (c0, r0, c1, r1) = p.cells;
+        for r in r0..r1 {
+            self.cells.mark_drawn(c0, r, c1.saturating_sub(c0));
         }
     }
 }

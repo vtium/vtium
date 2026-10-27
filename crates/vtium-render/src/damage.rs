@@ -97,6 +97,11 @@ impl Cells {
         self.held.is_none_or(|held| stamp > held)
     }
 
+    /// The border changed on this frame.
+    pub(crate) fn stamp_border(&mut self) {
+        self.border = self.serial;
+    }
+
     /// Whether the buffer lacks the border.
     pub(crate) fn border_stale(&self) -> bool {
         self.stale(self.border)
