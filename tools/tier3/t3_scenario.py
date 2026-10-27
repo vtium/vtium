@@ -247,7 +247,7 @@ def console_startup_ms(serial):
     first = re.search(r"\[\s*([0-9.]+)\] (kmscon|vtium)\[(\d+)\]: log: \w+ Revision", text)
     if not first:
         return None
-    shown = re.search(r"\[\s*([0-9.]+)\] %s\[%s\]: terminal: Display .* with backend"
+    shown = re.search(r"\[\s*([0-9.]+)\] %s\[%s\]: (?:terminal: )?Display .* with backend"
                       % (first.group(2), first.group(3)), text)
     if not shown:
         return None

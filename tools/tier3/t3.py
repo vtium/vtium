@@ -14,8 +14,9 @@ Stdlib only. The work is split across the modules beside this one:
 Variants run one at a time, or with --jobs N up to N at once, each in its own
 worker process.
 
-    t3.py provision                       build the base image from the pinned image, or
-                                          reuse it, and link target/tier3/vm/base.qcow2 to it
+    t3.py provision                       put the pinned image in the image cache, build the
+                                          base image from it or reuse one, and link
+                                          target/tier3/vm/base.qcow2 to it
     t3.py run [--jobs N] [VARIANT ...]    install the tree, run the scenario, compare
                                           (default: every variant)
     t3.py run --tree-target TARGET        build the tree first, with make TARGET
@@ -28,6 +29,7 @@ Paths are relative to the repository root, which is two levels above this file.
 import argparse
 import base64
 import fcntl
+import hashlib
 import os
 import shutil
 import signal
@@ -40,25 +42,38 @@ import t3_evaluate  # noqa: E402
 import t3_impl  # noqa: E402
 import t3_runner  # noqa: E402
 import t3_scenario  # noqa: E402
-from t3_common import BASE, GUEST, KMSCON, REPORT, ROOT, TREE, VM, Logger, base_image, rel  # noqa: E402
+from t3_common import (BASE, GUEST, IMAGES, KMSCON, REPORT, REUSE, ROOT, TREE, VM,  # noqa: E402
+                       Logger, base_image, rel)
 from t3_qemu import Qemu, make_iso  # noqa: E402
 
 
 # --- provisioning -----------------------------------------------------------
 
 def provision(args, log):
-    """Builds the base image for these guest files, pristine image and
-    archive date unless a checkout sharing target/tier3/vm/images already
-    has, then points target/tier3/vm/base.qcow2 at it. A lock beside the image keeps two
+    """Links target/tier3/vm/images to the image cache, puts the pristine
+    image there, and builds the base image for these guest files, pristine
+    image and archive date unless the cache already holds it, then points
+    target/tier3/vm/base.qcow2 at it. A lock beside the image keeps two
     checkouts from building the same one at once; the second finds it built.
+
+    The pristine image and a built base image are linked from --reuse when
+    it holds them, and only read there: tier 3 writes nothing into another
+    checkout. Otherwise the pristine image is fetched and verified
+    (fetch-image.sh), and the base image provisioned.
     """
+    link_images(args.images, log)
+    pristine = os.path.join(VM, "images", args.image)
+    if not os.path.exists(pristine):
+        if not reuse(args.reuse, args.image, pristine, log, sha256=args.sha256):
+            subprocess.run(["sh", os.path.join(t3_common.HERE, "fetch-image.sh"),
+                            os.path.join(VM, "images"), args.url, args.image, args.sha256,
+                            args.key], check=True)
     base = base_image(args.image, args.archive)
-    os.makedirs(os.path.dirname(base), exist_ok=True)
     with open(base + ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if os.path.exists(base):
             log("base image already built: %s" % rel(base))
-        else:
+        elif not reuse(args.reuse, os.path.basename(base), base, log):
             with t3_runner.run_lock():
                 _provision(args, log, base)
     link = BASE + ".link"
@@ -68,6 +83,48 @@ def provision(args, log):
     os.replace(link, BASE)
     log("%s -> %s" % (rel(BASE), os.readlink(BASE)))
     return 0
+
+
+def link_images(images, log):
+    """Point target/tier3/vm/images at the cache `images`, made if missing.
+    A directory there, rather than a link, is refused: it holds images the
+    cache would not."""
+    images = os.path.abspath(images)
+    os.makedirs(images, exist_ok=True)
+    os.makedirs(VM, exist_ok=True)
+    here = os.path.join(VM, "images")
+    if os.path.lexists(here) and not os.path.islink(here):
+        raise SystemExit("%s is a directory; move its images to %s" % (rel(here), images))
+    if os.path.islink(here) and os.readlink(here) == images:
+        return
+    link = here + ".link"
+    if os.path.lexists(link):
+        os.unlink(link)
+    os.symlink(images, link)
+    os.replace(link, here)
+    log("%s -> %s" % (rel(here), images))
+
+
+def reuse(source, name, dest, log, sha256=None):
+    """Link `dest` to `name` in the directory `source` when it holds it, read
+    there and never written: the link names its real path. With `sha256`
+    the file must have that digest. Whether it was linked."""
+    if not source:
+        return False
+    path = os.path.realpath(os.path.join(source, name))
+    if not os.path.isfile(path):
+        return False
+    if sha256 is not None:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for block in iter(lambda: f.read(1 << 20), b""):
+                h.update(block)
+        if h.hexdigest() != sha256:
+            raise SystemExit("%s has SHA-256 %s, not the pinned %s"
+                             % (path, h.hexdigest(), sha256))
+    os.symlink(path, dest)
+    log("reused %s from %s" % (name, source))
+    return True
 
 
 def _provision(args, log, base):
@@ -183,8 +240,16 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("provision")
-    p.add_argument("--image", required=True, help="pristine image file in target/tier3/vm/images")
+    p.add_argument("--image", required=True, help="the pristine image's file name")
     p.add_argument("--archive", required=True, help="Arch Linux Archive date, YYYY/MM/DD")
+    p.add_argument("--url", required=True, help="where the pristine image is fetched from")
+    p.add_argument("--sha256", required=True, help="the pristine image's SHA-256")
+    p.add_argument("--key", required=True, help="the fingerprint of the key that signs it")
+    p.add_argument("--images", default=IMAGES, metavar="DIR",
+                   help="the image cache target/tier3/vm/images links to (default %s)" % IMAGES)
+    p.add_argument("--reuse", default=REUSE, metavar="DIR",
+                   help="a directory whose pristine and base images are linked and only read "
+                        "(default %s)" % os.path.relpath(REUSE, ROOT))
     r = sub.add_parser("run")
     r.add_argument("--jobs", type=int, default=1, metavar="N",
                    help="run up to N variants at once (default 1)")

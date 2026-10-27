@@ -16,7 +16,7 @@ make install-tree DESTDIR=D  # vtium's install tree alone
 make test-tools              # the harness's self-tests, with no guest
 ```
 
-`KMSCON=DIR` names the kmscon checkout the goldens are read from (default `../kmscon`), and `T3_IMAGES=DIR` the guest images directory (default `$(KMSCON)/fork/vm/images`). The report is `target/tier3/report.json`, and each variant's captures, serial log and event log are in `target/tier3/run/<variant>/`.
+`KMSCON=DIR` names the kmscon checkout the goldens are read from (default `../kmscon`), `T3_IMAGES=DIR` the guest image cache (default `$XDG_CACHE_HOME/vtium/tier3/images`), and `T3_REUSE=DIR` a directory whose images are reused read-only (default `$(KMSCON)/fork/vm/images`). `make install-tree` takes the binary from `CARGO_TARGET_DIR` when it is set. The report is `target/tier3/report.json`, and each variant's captures, serial log and event log are in `target/tier3/run/<variant>/`.
 
 Host needs: `qemu-system-x86_64` with `/dev/kvm`, `qemu-img`, `xorriso`, `gpg`, `curl`, `tic`, `git` and Python 3.12 or later, standard library only. Everything runs as the invoking user; nothing needs root. QEMU runs headless, one VM per variant with the vCPUs and memory the variant names, and the driver stops every VM it starts by the PID it started. The GL variant also needs the host's render node (`T3_RENDERNODE`, default `/dev/dri/renderD128`); no variant opens a card node.
 
@@ -32,7 +32,7 @@ Host needs: `qemu-system-x86_64` with `/dev/kvm`, `qemu-img`, `xorriso`, `gpg`, 
 
 The image pins live in the Makefile, and the guest's package list in `guest/user-data.in`. The guest installs the scenario's programs (`chafa`, `libsixel`, `mpv`, `tmux`), the fonts (`ttf-dejavu`, `wqy-microhei`, `noto-fonts-emoji`) and the C reference's runtime dependencies. vtium needs only libc, libudev, libxkbcommon and libgcc_s, which the base image has.
 
-Provisioning downloads the guest's packages (about 330 MiB) and keeps no cache, so it is done once per set of inputs. The base image is `target/tier3/vm/images/base-<digest>.qcow2`, named by a digest of the guest files it is built from (`BASE_INPUTS` in `t3_common.py`), the pristine image and the archive date, and `target/tier3/vm/base.qcow2` links to it. `target/tier3/vm/images` is a link to `T3_IMAGES`, so every checkout naming the same directory shares every base image built there. The base inputs are the fork's byte for byte, so this harness reuses the fork's `base-a801c98304d282ae.qcow2` (`BaseImageTest.test_shared_base` holds them to it); a change to any of them provisions a new image beside the old, about a 1,145 MiB file.
+Provisioning downloads the guest's packages (about 330 MiB) and keeps no cache, so it is done once per set of inputs. The base image is `target/tier3/vm/images/base-<digest>.qcow2`, named by a digest of the guest files it is built from (`BASE_INPUTS` in `t3_common.py`), the pristine image and the archive date, and `target/tier3/vm/base.qcow2` links to it. `target/tier3/vm/images` is a link to `T3_IMAGES`, a cache every vtium checkout shares, where the locks, the signature and its keyring, and every base image vtium provisions live. When `T3_REUSE` holds the pristine image (checked against its SHA-256) or a base image built from the same inputs, the cache links to it there and only reads it: tier 3 writes nothing into another checkout. The base inputs are the fork's byte for byte, so the cache links the fork's `base-a801c98304d282ae.qcow2` (`BaseImageTest.test_shared_base` holds them to it); a change to any of them provisions a new image in the cache, about a 1,145 MiB file.
 
 ## The install tree
 
@@ -135,11 +135,11 @@ The fork's harness judged the C reference's packages and could run a vtium build
 
 - **The build:** `make install-tree` in place of the C reference's `make pkg` and `pkg-minimal` in the docker dev image. The package path (`pacman -U`, `--pkg-dir`, `--pkg-name`), the libtsm commit checks, the image-helper probe in `setup`, `upstream.mk`'s comparison runs (`--compare-only`) and the stand-in tree are gone. A minspec variant needs no build of its own: the configuration selects the font.
 - **The goldens:** read from the pinned kmscon commit, not a directory in this tree, and never written: `tier3-bless` is gone.
-- **The paths:** `target/tier3/` for the work directories, the report, the lock, the tree, the extracted goldens and the VM directory, whose `images` links to `T3_IMAGES`.
+- **The paths:** `target/tier3/` for the work directories, the report, the lock, the tree, the extracted goldens and the VM directory, whose `images` links to vtium's image cache, `T3_IMAGES`. The fork's own images are reused from `T3_REUSE` read-only.
 - **The size:** the binary against 2.30 MiB, failing the run past it, in place of the main package's size against 1.77 MiB, which was reported and not judged.
 - **The console:** a run fails unless the console logs itself as vtium.
 - **Departures:** `departures.tsv` turns a difference a listed departure explains into `departure`, as tier 1 and tier 2 do; the fork's harness had no such list.
-- **The image:** `make tier3-image` fetches and verifies the pristine image with `fetch-image.sh` when it is missing; the fork had no rule that ran it.
+- **The image:** `make tier3-image` fetches and verifies the pristine image with `fetch-image.sh` when neither the cache nor `T3_REUSE` holds it; the fork had no rule that ran it.
 - `tier3-gl` and `tier3-selftest` are folded into `make tier3 VARIANTS=gl-1280x800` and `make test-tools`.
 
 The C reference's account of its own runs, the gate seen red against its code and the GL variant's black screen among them, stays in `fork/tier3/README.md` at the pinned commit.

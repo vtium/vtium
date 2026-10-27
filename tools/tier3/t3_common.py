@@ -27,6 +27,12 @@ TREE = os.path.join(OUT, "install")
 BASE = os.path.join(VM, "base.qcow2")
 # The kmscon checkout beside this one, whose pinned commit holds the goldens.
 KMSCON = os.path.join(os.path.dirname(ROOT), "kmscon")
+# The guest images: a cache every vtium checkout shares, which VM/images
+# links to. A base image the kmscon checkout's harness already built from the
+# same inputs is linked from REUSE and only read.
+IMAGES = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"),
+                      "vtium", "tier3", "images")
+REUSE = os.path.join(KMSCON, "fork", "vm", "images")
 # Where the goldens sit in a kmscon commit.
 GOLDEN_PATH = "fork/tier3/golden"
 # The files in GUEST that provisioning builds the base image from.
@@ -90,8 +96,8 @@ def extract_goldens(kmscon, pin=None, golden=None):
 
 def base_image(image, archive):
     """Where the base image built from the pristine `image`, the archive
-    date `archive` and the guest's BASE_INPUTS lives: in VM/images, which
-    checkouts share through a link, named by a digest of all of them.
+    date `archive` and the guest's BASE_INPUTS lives: in VM/images, the
+    cache checkouts share through a link, named by a digest of all of them.
     Checkouts with the same inputs share one build, and changed inputs get a
     new one beside it, so a base image a running VM backs on is never
     rewritten. BASE is a link to it."""
