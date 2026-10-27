@@ -141,6 +141,8 @@ pub struct Fbdev<F: Framebuffer> {
     interval: Duration,
     /// `None` until set: the device's state is not read back.
     dpms: Option<Dpms>,
+    /// The canvas was lent since the last swap.
+    lent: bool,
     /// A swap's stand-in flip event is pending.
     vblank: bool,
     events: Vec<Event>,
@@ -166,6 +168,7 @@ impl<F: Framebuffer> Fbdev<F> {
             rate_mhz: 0,
             interval: Duration::from_millis(15),
             dpms: None,
+            lent: false,
             vblank: false,
             events: Vec::new(),
             timer: None,
@@ -249,6 +252,7 @@ impl<F: Framebuffer> Fbdev<F> {
             return None;
         }
         let s = self.screen.as_mut()?;
+        self.lent = true;
         let age = u32::from(!s.fresh);
         let (pixels, stride) = match &mut s.shadow {
             Some(shadow) => (shadow.as_mut_slice(), s.width.saturating_mul(4)),
@@ -269,15 +273,17 @@ impl<F: Framebuffer> Fbdev<F> {
         })
     }
 
-    /// Presents the frame: converts its `damage` into the device's layout
-    /// where it is drawn into a copy, and starts the stand-in for the flip
-    /// event. With no damage it does nothing.
+    /// Presents the frame drawn into the canvas lent since the last swap:
+    /// converts its `damage` into the device's layout where it is drawn
+    /// into a copy, and starts the stand-in for the flip event. With no
+    /// damage, or without a canvas lent, it does nothing.
     pub fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        let lent = id == DISPLAY && std::mem::take(&mut self.lent);
         if id != DISPLAY || !self.awake || self.dpms.is_some_and(|d| d != Dpms::On) {
             return Err(SwapError::Off);
         }
         let s = self.screen.as_mut().ok_or(SwapError::Off)?;
-        if damage.is_empty() {
+        if !lent || damage.is_empty() {
             return Ok(Swapped::Nothing);
         }
         if s.shadow.is_some() {
@@ -332,6 +338,7 @@ impl<F: Framebuffer> Fbdev<F> {
             s.map.as_mut().fill(0);
         }
         self.awake = false;
+        self.lent = false;
         self.vblank = false;
         self.settle();
         self.events.push(Event::Asleep);

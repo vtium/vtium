@@ -272,6 +272,7 @@ fn the_loop_fires_the_stand_in_flip() {
     app.0.insert(&lp.handle(), |app: &mut App| Some(&mut app.0));
     app.0.wake_up().unwrap();
     app.0.events().for_each(drop);
+    app.0.canvas(DISPLAY).unwrap();
     app.0.swap(DISPLAY, &[WHOLE]).unwrap();
     for _ in 0..50 {
         lp.dispatch(Some(Duration::from_millis(100)), &mut app)
@@ -298,6 +299,22 @@ fn a_swap_with_no_damage_does_nothing() {
     assert!(!v.is_flipping(DISPLAY));
     assert!(map(&mut v).iter().all(|&b| b == 0), "nothing converted");
     assert!(!v.hardware_cursor(DISPLAY));
+}
+
+// Re-review finding 6 and the frame contract, rule 3: damage passed
+// without a canvas lent is ignored.
+#[test]
+fn damage_without_a_canvas_is_ignored() {
+    let mut fb = FakeFb::new(16);
+    fb.depths = vec![16];
+    let mut v = awake(fb);
+    v.events().for_each(drop);
+    assert_eq!(v.swap(DISPLAY, &[WHOLE]).unwrap(), Swapped::Nothing);
+    assert!(!v.is_flipping(DISPLAY));
+    assert!(map(&mut v).iter().all(|&b| b == 0), "nothing converted");
+    v.canvas(DISPLAY).unwrap().pixels.fill(0xff);
+    assert_eq!(v.swap(DISPLAY, &[WHOLE]).unwrap(), Swapped::Frame);
+    assert_eq!(v.swap(DISPLAY, &[WHOLE]).unwrap(), Swapped::Nothing);
 }
 
 // The frame contract, rule 6: no canvas while blanked; unblanked, the
