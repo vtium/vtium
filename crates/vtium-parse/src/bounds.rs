@@ -45,7 +45,7 @@ const OSC: Bound = Bound {
     name: "OSC_MAX",
     value: 128 - 1,
     what: "Bytes an OSC string keeps, as UTF-8: `OSC_MAX_LEN` (128) less the NUL that ends it",
-    past: "The character that would pass it and everything after it are dropped, so the kept bytes are a prefix, and the string still dispatches",
+    past: "The character that would pass it and everything after it are dropped, so the kept bytes are a prefix, and the string still dispatches, marked truncated",
     cite: "`OSC_MAX_LEN`, tsm-vte-int.h:31; tsm-vte.c:2912-2921, 3006",
 };
 
@@ -53,7 +53,7 @@ const XTGETTCAP: Bound = Bound {
     name: "XTGETTCAP_MAX",
     value: 16 * (2 * 32 + 1) - 1,
     what: "Bytes an XTGETTCAP payload keeps: 16 hex-encoded names of 32 bytes and the `;` between each two",
-    past: "The rest is dropped and the request is flagged `overflowed`, which the C reference answers `DCS 0 + r ST`",
+    past: "The rest is dropped and the request reaches `xtgettcap` with no payload, which the C reference answers `DCS 0 + r ST`",
     cite: "`XTGETTCAP_MAX_LEN`, tsm-vte-int.h:33-38; libtsm.h:1538; tsm-vte.c:3087-3091, 3149-3152",
 };
 
@@ -111,7 +111,7 @@ mod tests {
     /// The README table, generated from [`BOUNDS`].
     fn table() -> String {
         let mut t = String::from(
-            "| Bound | Value | What it bounds | Past it | C reference |\n|---|---|---|---|---|\n",
+            "| Bound | Value | What it bounds | Past it | Citation |\n|---|---|---|---|---|\n",
         );
         for b in &BOUNDS {
             t += &format!(

@@ -9,4 +9,4 @@ Each top-level `.rs` file is its own test crate, run by `cargo test -p vtium-par
 | `bounds.rs` | Every bound at its edge, and what happens past it. |
 | `xtgettcap.rs` | XTGETTCAP collection, from libtsm's `test_vte_xtgettcap_*` cases. |
 | `input.rs` | UTF-8, 8-bit and 7-bit input, mode changes mid-input, and pausing. |
-| `random.rs` | Seeded random and adversarial streams: no panic, every bound holds, and a stream cut anywhere, fed a byte at a time or paused gives the actions it gives whole. The crate's chunking-invariance gate (docs/architecture.md, "Determinism"). |
+| `random.rs` | Seeded random and adversarial streams: no panic, every bound holds, and a stream cut anywhere, fed a byte at a time or paused gives the actions and the end state it gives whole, with controls that the cuts fall inside UTF-8 characters, headers and STs. The crate's chunking-invariance gate (docs/architecture.md, "Determinism"). |
