@@ -50,6 +50,7 @@ fn swapped(st: Style) -> Style {
     }
 }
 
+// covers: cursor.style
 #[test]
 fn a_block_swaps_the_cells_colours() {
     let st = style(rgb(FG), rgb(BG));
@@ -66,6 +67,7 @@ fn a_block_swaps_the_cells_colours() {
 
 // On the trailing half of a wide character the cursor covers the whole
 // character, from its leading cell.
+// covers: cursor.style
 #[test]
 fn a_block_on_a_trailing_half_covers_the_wide_character() {
     let st = style(rgb(FG), rgb(BG));
@@ -86,6 +88,7 @@ fn a_coloured_block_takes_its_colour() {
     assert!(draw(&s, true, None) == draw(&want, false, None));
 }
 
+// covers: cursor.style
 #[test]
 fn an_underline_cursor_toggles_a_single_underline() {
     let st = style(rgb(FG), rgb(BG));
@@ -105,6 +108,7 @@ fn an_underline_cursor_toggles_a_single_underline() {
     assert!(draw(&s, true, None) == draw(&want, false, None));
 }
 
+// covers: cursor.style
 #[test]
 fn a_bar_replaces_the_character_with_a_left_eighth_block() {
     let st = style(rgb(FG), rgb(BG));
@@ -130,6 +134,7 @@ fn a_bar_replaces_the_character_with_a_left_eighth_block() {
 // bbulk_draw_pointer: the font's I in the default colours, in a cell's box
 // centred on the pointer, half a cell rounded up each way, and kept
 // inside the grid
+// covers: platform.compositor
 #[test]
 fn the_pointer_is_an_i_beam_in_the_default_colours() {
     let st = style(rgb(FG), rgb(BG));

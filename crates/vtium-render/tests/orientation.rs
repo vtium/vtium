@@ -75,6 +75,7 @@ fn unturn(c: &Canvas, o: Orientation) -> Canvas {
     out
 }
 
+// covers: platform.compositor
 #[test]
 fn every_orientation_draws_the_same_picture_turned() {
     let s = screen();
@@ -90,6 +91,7 @@ fn every_orientation_draws_the_same_picture_turned() {
 
 // The cut glyph's cell holds the glyph's left half: the same pixels as the
 // first cell of the glyph drawn whole on a display one column wider.
+// covers: platform.compositor
 #[test]
 fn a_wide_glyph_cut_at_the_margin_shows_its_left_half() {
     let s = screen();
@@ -122,6 +124,7 @@ fn a_wide_glyph_cut_at_the_margin_shows_its_left_half() {
 // the row scratch's 1 MiB, so its decorated span is composed in bands; a
 // display turned a quarter composes the same row in one strip 208 pixels
 // wide. Turned back, the two are the same.
+// covers: platform.compositor
 #[test]
 fn a_row_too_tall_for_the_scratch_is_composed_in_bands() {
     let mut s = Screen::new(13, 2, rgb("c0c0c0"), rgb("101010"));

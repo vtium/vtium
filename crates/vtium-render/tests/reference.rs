@@ -19,6 +19,7 @@ fn want(name: &str) -> u64 {
         .unwrap_or_else(|| panic!("no digest for {name}"))
 }
 
+// covers: platform.compositor
 #[test]
 fn screens_match_the_c_reference() {
     let screens = reference_screens();

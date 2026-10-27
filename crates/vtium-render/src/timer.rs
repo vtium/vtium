@@ -247,6 +247,7 @@ mod tests {
         Duration::from_millis(n)
     }
 
+    // covers: platform.compositor
     #[test]
     fn an_interval_reports_its_frames() {
         let mut t = RenderTimer::new();
@@ -282,6 +283,7 @@ mod tests {
 
     // render_timer_report: the first quiet interval after activity is
     // reported, later quiet ones are not, and skipped draws are quiet
+    // covers: platform.compositor
     #[test]
     fn quiet_intervals_report_once() {
         let mut t = RenderTimer::new();

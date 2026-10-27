@@ -241,6 +241,7 @@ fn whole(w: u32, h: u32) -> Vec<Rect> {
 // aaronsb/kmscon#156: typing one character at a prompt damages the cell it
 // wrote and the cell the cursor moved to, on this frame and the next
 // buffer's, and nothing after
+// covers: platform.compositor
 #[test]
 fn a_keystroke_damages_only_the_cells_it_changes() {
     let mut s = prompt();
@@ -268,6 +269,7 @@ fn a_keystroke_damages_only_the_cells_it_changes() {
 
 // aaronsb/kmscon#81: after a resize, the first two frames draw everything,
 // one into each buffer, and the third only what changed
+// covers: platform.compositor
 #[test]
 fn a_full_redraw_reaches_each_buffer_once() {
     let mut s = prompt();
@@ -293,6 +295,7 @@ fn a_full_redraw_reaches_each_buffer_once() {
 
 // Startup and a wake-up lend every buffer at age 0: each is drawn whole
 // once, and the frames after draw only what changed.
+// covers: platform.compositor
 #[test]
 fn buffers_at_age_0_are_each_drawn_whole_once() {
     let mut s = prompt();
@@ -314,6 +317,7 @@ fn buffers_at_age_0_are_each_drawn_whole_once() {
 // A failed swap leaves the frame in the back buffer, which is lent again at
 // age 1: the next frame draws only its own change there, and the other
 // buffer then gets both.
+// covers: platform.compositor
 #[test]
 fn a_buffer_lent_again_after_a_failed_swap_keeps_the_failed_frame() {
     let mut s = prompt();
@@ -342,6 +346,7 @@ fn a_buffer_lent_again_after_a_failed_swap_keeps_the_failed_frame() {
 
 // A buffer drawn whole at age 0 leaves the other buffer's history alone: it
 // still gets only what changed since it was drawn.
+// covers: platform.compositor
 #[test]
 fn a_buffer_drawn_whole_leaves_the_others_alone() {
     let mut s = prompt();
@@ -363,6 +368,7 @@ fn a_buffer_drawn_whole_leaves_the_others_alone() {
 
 // A buffer older than anything the renderer drew holds a picture it never
 // made: it is drawn whole.
+// covers: platform.compositor
 #[test]
 fn an_age_past_the_history_draws_the_buffer_whole() {
     let mut s = prompt();
@@ -397,6 +403,7 @@ fn an_age_past_the_history_draws_the_buffer_whole() {
 // The pointer drawn in software, on a display without a cursor plane,
 // damages its cells only when it appears, moves or hides, or a cell under
 // it changes: an idle frame with the pointer shown draws nothing.
+// covers: platform.compositor
 #[test]
 fn the_pointer_damages_its_cells_only_when_it_changes() {
     let mut s = prompt();
@@ -531,21 +538,25 @@ fn run(buffers: usize, turn: Orientation) {
     }
 }
 
+// covers: platform.compositor
 #[test]
 fn every_frame_matches_a_whole_draw_with_one_buffer() {
     run(1, Orientation::Normal);
 }
 
+// covers: platform.compositor
 #[test]
 fn every_frame_matches_a_whole_draw_with_two_buffers() {
     run(2, Orientation::Normal);
 }
 
+// covers: platform.compositor
 #[test]
 fn every_frame_matches_a_whole_draw_with_three_buffers() {
     run(3, Orientation::Normal);
 }
 
+// covers: platform.compositor
 #[test]
 fn every_frame_matches_a_whole_draw_turned() {
     for turn in [

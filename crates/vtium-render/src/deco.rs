@@ -231,6 +231,7 @@ mod tests {
     // reference's `kmscon_deco_render` (tests/reference/README.md); the
     // curly wave's sine is vtium's own, so this is also the check that it
     // draws the C reference's bytes.
+    // covers: platform.compositor
     #[test]
     fn sprites_match_the_c_reference() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/reference/cells.tsv");

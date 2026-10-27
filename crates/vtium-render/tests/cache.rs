@@ -167,6 +167,7 @@ fn check(height: u32, frames: &[Screen]) -> u32 {
     uncached_at_7
 }
 
+// covers: platform.compositor
 #[test]
 fn the_reference_screens_draw_the_same_at_every_cache_size() {
     for (name, s) in reference_screens() {
@@ -176,6 +177,7 @@ fn the_reference_screens_draw_the_same_at_every_cache_size() {
     }
 }
 
+// covers: platform.compositor
 #[test]
 fn a_busy_screen_draws_the_same_at_every_cache_size_and_scale() {
     for height in [16, 32, 48] {
@@ -186,6 +188,7 @@ fn a_busy_screen_draws_the_same_at_every_cache_size_and_scale() {
 
 // A flood of distinct glyphs, more than every budget below the profiles
 // holds, frame after frame as the text shifts
+// covers: platform.compositor
 #[test]
 fn a_flood_of_distinct_glyphs_draws_every_glyph() {
     let frames: Vec<Screen> = (0..4).map(|i| flood(i * 131)).collect();
