@@ -44,7 +44,7 @@ class Qemu:
     """One headless QEMU process and its QMP connection."""
 
     def __init__(self, workdir, disks, device, log, display="none", net=False,
-                 capture="screendump", cpus=CPUS, memory_mb=MEMORY_MB):
+                 capture="screendump", cpus=CPUS, memory_mb=MEMORY_MB, extra=()):
         os.makedirs(workdir, exist_ok=True)
         self.workdir = workdir
         self.log = log
@@ -75,6 +75,7 @@ class Qemu:
         args += ["-nic", "user,model=virtio-net-pci"] if net else ["-nic", "none"]
         if capture == "vnc":
             args += ["-vnc", "unix:%s" % self.vnc_path]
+        args += list(extra)
         log("starting: " + " ".join(args))
         self.qemu_log = open(os.path.join(workdir, "qemu.log"), "w")
         try:
@@ -88,6 +89,9 @@ class Qemu:
             on_qemu("start", self.proc.pid)
         self.sock = None
         self.buf = b""
+        # The QMP events QEMU has sent so far, in order, each {"event",
+        # "data"}: SHUTDOWN tells a guest's power-off from its reset.
+        self.qmp_events = []
         try:
             self._connect()
         except BaseException:  # a QEMU that cannot be driven is not left running
@@ -134,6 +138,7 @@ class Qemu:
                 reply = self._recv()
                 if "event" not in reply:
                     break
+                self.qmp_events.append(reply)
         except TimeoutError:
             raise RuntimeError("QMP %s: no reply within %d s; QEMU pid %d is wedged"
                                % (name, QMP_TIMEOUT, self.proc.pid)) from None
@@ -197,6 +202,44 @@ class Qemu:
     def wait_event(self, marker, timeout):
         """Wait for the guest to report `marker` on its event port."""
         return self.wait_serial(marker, timeout, log_path=self.events)
+
+    def status(self):
+        """The guest's run state, as QMP's query-status names it ("running",
+        "suspended", ...)."""
+        return self.cmd("query-status")["status"]
+
+    def wait_status(self, want, timeout):
+        """Wait until the guest's run state is `want`."""
+        deadline = time.time() + timeout
+        while True:
+            status = self.status()
+            if status == want:
+                return
+            if time.time() > deadline:
+                raise RuntimeError("the guest is %s, not %s, after %d s" % (status, want, timeout))
+            time.sleep(0.5)
+
+    def drain_events(self):
+        """Read the events QEMU sent before its QMP socket closed, as when
+        the guest ended it, and return every event so far."""
+        if self.sock is None:
+            return self.qmp_events
+        try:
+            while True:
+                event = self._recv()
+                if "event" in event:
+                    self.qmp_events.append(event)
+        except (OSError, RuntimeError, ValueError):  # the socket closed
+            pass
+        return self.qmp_events
+
+    def shutdown_reason(self):
+        """The reason of QEMU's SHUTDOWN event ("guest-shutdown" for an
+        ACPI power-off, "guest-reset" for a reset under -no-reboot,
+        "guest-panic" ...), or None when it sent none."""
+        reasons = [e.get("data", {}).get("reason") for e in self.drain_events()
+                   if e.get("event") == "SHUTDOWN"]
+        return reasons[-1] if reasons else None
 
     def wait_exit(self, timeout):
         try:

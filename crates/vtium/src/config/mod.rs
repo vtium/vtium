@@ -33,6 +33,8 @@ use std::path::{Path, PathBuf};
 
 pub use keys::{KEYS, Key, Kind, Scope, TEXT_MAX};
 
+use crate::grab::Chord;
+
 /// The most bytes of a configuration file read; the rest is ignored and
 /// reported.
 pub const FILE_MAX: usize = 64 * 1024;
@@ -55,6 +57,8 @@ pub enum Value {
     Command(Vec<OsString>),
     Rgb([u8; 3]),
     Modes(Vec<ModeSpec>),
+    /// A [`Kind::Grab`] value.
+    Chords(Vec<Chord>),
 }
 
 /// One `mode` line: the mode, and the card and connector it is for.
@@ -147,7 +151,7 @@ pub enum Problem {
         key: &'static str,
         why: &'static str,
     },
-    /// A colour or a mode that does not read.
+    /// A colour, a mode or a chord that does not read.
     BadValue {
         key: &'static str,
         value: String,
@@ -403,6 +407,14 @@ impl Config {
     pub fn modes(&self, key: &Key) -> &[ModeSpec] {
         match self.get(key) {
             Some(Value::Modes(m)) => m,
+            _ => &[],
+        }
+    }
+
+    /// The chords a grab key binds, none when unset.
+    pub fn chords(&self, key: &Key) -> &[Chord] {
+        match self.get(key) {
+            Some(Value::Chords(c)) => c,
             _ => &[],
         }
     }

@@ -39,6 +39,7 @@ const TIER3_FONT32: &str = include_str!("../../../../tools/tier3/guest/kmscon-fo
 const TIER3_GL: &str = include_str!("../../../../tools/tier3/guest/kmscon-gl.conf");
 const TIER3_MIN_PSF: &str = include_str!("../../../../tools/tier3/guest/kmscon-minimal-psf.conf");
 const TIER3_MIN: &str = include_str!("../../../../tools/tier3/guest/kmscon-minimal.conf");
+const TIER3_POWER: &str = include_str!("../../../../tools/tier3/guest/kmscon-power.conf");
 
 // covers: platform.config
 #[test]
@@ -820,6 +821,81 @@ fn keyboard_and_mouse() {
     assert_eq!(d.number(&XKB_REPEAT_DELAY), Some(250));
     assert_eq!(d.number(&XKB_REPEAT_RATE), Some(50));
     assert_eq!(d.text(&PALETTE), Some("legacy"));
+}
+
+#[test]
+fn the_power_keys_are_unbound_until_set() {
+    let d = Config::default();
+    for key in [&GRAB_REBOOT, &GRAB_POWER_OFF, &GRAB_SUSPEND] {
+        assert_eq!(d.chords(key), [], "{}", key.name);
+    }
+    let l = load_with(
+        &["--grab-suspend=<Logo>s"],
+        None,
+        &[(
+            "/etc/kmscon/kmscon.conf",
+            b"grab-reboot=<Ctrl><Alt>Delete\ngrab-power-off=<Ctrl><Alt>End,<Logo>p\ngrab-suspend=<Logo>z\n",
+        )],
+    );
+    assert_eq!(l.reports, []);
+    let chord = |mods, keysym| crate::grab::Chord {
+        mods,
+        keysyms: vec![keysym],
+    };
+    assert_eq!(l.config.chords(&GRAB_REBOOT), [chord(4 | 8, 0xffff)]);
+    assert_eq!(
+        l.config.chords(&GRAB_POWER_OFF),
+        [chord(4 | 8, 0xff57), chord(16, 0x70)]
+    );
+    // The command line wins over the file.
+    assert_eq!(l.config.chords(&GRAB_SUSPEND), [chord(16, 0x73)]);
+    // An empty value unbinds what a file before it bound.
+    let l = load_with(
+        &["--grab-reboot="],
+        None,
+        &[(
+            "/etc/kmscon/kmscon.conf",
+            b"grab-reboot=<Ctrl><Alt>Delete\n",
+        )],
+    );
+    assert_eq!(l.reports, []);
+    assert_eq!(l.config.chords(&GRAB_REBOOT), []);
+}
+
+#[test]
+fn tier3_power_configuration_binds_each_power_key() {
+    let l = main_file(TIER3_POWER);
+    assert_eq!(l.reports, []);
+    for key in [&GRAB_REBOOT, &GRAB_POWER_OFF, &GRAB_SUSPEND] {
+        assert_eq!(l.config.chords(key).len(), 1, "{}", key.name);
+    }
+}
+
+#[test]
+fn a_chord_that_does_not_read_is_reported_and_leaves_the_value_below() {
+    let l = load_with(
+        &["--grab-reboot=<Ctrl><Alt>delete"],
+        None,
+        &[(
+            "/etc/kmscon/kmscon.conf",
+            b"grab-reboot=<Ctrl><Alt>Delete\n",
+        )],
+    );
+    assert_eq!(
+        problems(&l),
+        [&Problem::BadValue {
+            key: "grab-reboot",
+            value: "<Ctrl><Alt>delete".into(),
+            why: "a key name in the wrong case; key names are case-sensitive",
+        }]
+    );
+    assert_eq!(
+        l.config.chords(&GRAB_REBOOT),
+        [crate::grab::Chord {
+            mods: 4 | 8,
+            keysyms: vec![0xffff]
+        }]
+    );
 }
 
 /// `read_file` on what is not a regular file: a FIFO with no writer, a

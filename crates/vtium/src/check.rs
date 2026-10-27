@@ -18,12 +18,25 @@ applies nothing, and reads nothing but the configuration files.\n";
 
 /// What a value means beyond its own key, which the start reports too.
 pub fn semantics(config: &Config) -> Vec<String> {
+    // systemd's own test that it is the running init (sd_booted(3)).
+    semantics_under(config, std::path::Path::new("/run/systemd/system").is_dir())
+}
+
+/// [`semantics`] where `systemd` tells whether systemd is PID 1.
+fn semantics_under(config: &Config, systemd: bool) -> Vec<String> {
     let mut out = Vec::new();
     if config.switch(&keys::HWACCEL) {
         out.push("hwaccel is not built yet; vtium draws in software".to_owned());
     }
     if config.switch(&keys::USE_ORIGINAL_MODE) && !config.modes(&keys::MODE).is_empty() {
         out.push("mode is set, so use-original-mode is off".to_owned());
+    }
+    if !systemd && !config.chords(&keys::GRAB_POWER_OFF).is_empty() {
+        out.push(
+            "grab-power-off is bound, and systemd is not PID 1 (no /run/systemd/system): \
+             its SIGRTMIN+4 powers nothing off"
+                .to_owned(),
+        );
     }
     out
 }
@@ -120,6 +133,26 @@ mod tests {
         assert_eq!(status, 1);
         assert_eq!(lines, ["hwaccel is not built yet; vtium draws in software"]);
         assert_eq!(run_with(&[], "no-hwaccel\n"), (Vec::new(), 0));
+    }
+
+    #[test]
+    fn grab_power_off_warns_without_systemd() {
+        let load = |conf: &str| {
+            let args = [OsString::from(SUBCOMMAND)];
+            let conf = conf.as_bytes().to_vec();
+            config::load(&args, None, &mut |_: &Path| Ok(Some(conf.clone())))
+        };
+        let bound = load("grab-power-off=<Ctrl><Alt>End\n");
+        assert_eq!(
+            semantics_under(&bound.config, false),
+            [
+                "grab-power-off is bound, and systemd is not PID 1 (no /run/systemd/system): \
+              its SIGRTMIN+4 powers nothing off"
+            ]
+        );
+        assert_eq!(semantics_under(&bound.config, true), [] as [&str; 0]);
+        let unbound = load("grab-reboot=<Ctrl><Alt>Delete\n");
+        assert_eq!(semantics_under(&unbound.config, false), [] as [&str; 0]);
     }
 
     #[test]

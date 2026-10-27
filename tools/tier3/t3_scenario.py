@@ -1,5 +1,6 @@
 """Tier 3's variants and the scenario each one runs: install the tree, log
-in, draw the screens, switch VTs, then evaluate every case."""
+in, draw the screens, switch VTs, then evaluate every case. A power variant
+presses the power keys on the console instead (t3_power)."""
 
 import os
 import re
@@ -8,6 +9,7 @@ import subprocess
 import time
 
 import t3_bench
+import t3_power
 from t3_common import BASE, GUEST, RUNDIR, rel
 from t3_evaluate import BENCHMARKS, CASES, IMAGE_SCREENS, KEYED, KEYS_AFTER, SCREENS, evaluate
 from t3_qemu import Qemu, make_iso, not_blank, wait_stable
@@ -93,6 +95,41 @@ VARIANTS = {
     },
 }
 
+# The power keys (vtium/vtium#21) on the minspec machine, with the
+# minimal configuration and the keys bound (guest/kmscon-power.conf). Each
+# variant's "power" lists its cases (t3_power), pressed in order on the
+# console's login prompt. A reboot or a power-off ends the VM, so each
+# has a variant of its own, and only a suspend comes before another case.
+# power-off-after-s3 shows a power-off after each suspend path, a known
+# failure of the guest's (t3_power.KNOWN). The hard reboot's guest sets
+# "sysctl" before vtium starts, and the suspending guests log the kernel at
+# info level, so its ACPI lines reach the console. QEMU offers S3,
+# so the guest suspends to RAM, which QMP reports. A variant naming
+# "features" runs vtium built with them (t3.build_features) in place of
+# the tree's minspec binary.
+S3 = ["-global", "ICH9-LPC.disable_s3=0"]
+VERBOSE = "kernel.printk = 7 4 1 7\n"
+POWER = {
+    "device": "virtio-vga,xres=1366,yres=768,edid=on",
+    "display": "none",
+    "conf": "kmscon-power.conf",
+    "renderer": "bbulk",
+    "cpus": 1,
+    "memory_mb": 512,
+    "images": False,
+}
+VARIANTS.update({
+    "power-reboot": dict(POWER, power=["reboot"]),
+    "power-reboot-hard": dict(POWER, power=["reboot-hard"], sysctl="kernel.ctrl-alt-del = 1\n"),
+    "power-off": dict(POWER, power=["power-off"]),
+    "power-suspend-off": dict(POWER, power=["suspend-sysfs", "power-off-after-s3"], qemu=S3,
+                              sysctl=VERBOSE),
+    "power-suspend-logind": dict(POWER, power=["suspend", "power-off-after-s3"], qemu=S3,
+                                 sysctl=VERBOSE, features="logind"),
+})
+POWER_VARIANTS = ["power-reboot", "power-reboot-hard", "power-off", "power-suspend-off",
+                  "power-suspend-logind"]
+
 # What `t3.py run` runs when no variant is named, in the order workers take
 # them: with JOBS=2 the longest, 2d-7680x2160, starts at once, the potato
 # and then 2d-7680x2160-font32 follow 2d-1280x800 as workers free, and
@@ -111,8 +148,11 @@ def uses_virgl(variant):
 
 
 def variant_cases(variant):
-    """The cases of `variant`'s report: every case, but for a variant without
-    images the keyed cases of the image screens, whose keys act on pictures."""
+    """The cases of `variant`'s report: a power variant's own; otherwise
+    every case, but for a variant without images the keyed cases of the
+    image screens, whose keys act on pictures."""
+    if "power" in VARIANTS[variant]:
+        return list(VARIANTS[variant]["power"])
     if VARIANTS[variant].get("images", True):
         return CASES
     skipped = {case for screen, case, _ in KEYED if screen in IMAGE_SCREENS}
@@ -144,7 +184,8 @@ def check_install(line, impl):
 
 def build_disc(variant, work, impl):
     """The T3PKG disc: the tree as tree.tar, the variant's config, the
-    screens and guest/setup."""
+    screens, guest/setup, the variant's sysctl settings if it has any, and
+    vtium built with its features if it names any."""
     disc = os.path.join(work, "disc")
     shutil.rmtree(disc, ignore_errors=True)
     os.makedirs(disc)
@@ -154,6 +195,11 @@ def build_disc(variant, work, impl):
     shutil.copytree(os.path.join(GUEST, "screens"), os.path.join(disc, "screens"))
     shutil.copy(os.path.join(GUEST, "t3"), disc)
     shutil.copy(os.path.join(GUEST, "setup"), disc)
+    if "sysctl" in VARIANTS[variant]:
+        with open(os.path.join(disc, "sysctl.conf"), "w") as f:
+            f.write(VARIANTS[variant]["sysctl"])
+    if "features" in VARIANTS[variant]:
+        shutil.copy(impl["features"][VARIANTS[variant]["features"]], os.path.join(disc, "vtium"))
     iso = os.path.join(work, "t3pkg.iso")
     make_iso(disc, "T3PKG", iso)
     return iso
@@ -311,8 +357,9 @@ def run_variant(variant, timing, impl, log):
     v = VARIANTS[variant]
     vm = Qemu(work, [(disk, "qcow2", False), (iso, "raw", True)],
               v["device"], log, display=v["display"],
-              capture=v.get("capture", "screendump"), cpus=v["cpus"], memory_mb=v["memory_mb"])
-    caps, errors, error, installed = {}, {}, None, None
+              capture=v.get("capture", "screendump"), cpus=v["cpus"], memory_mb=v["memory_mb"],
+              extra=v.get("qemu", ()))
+    caps, errors, notes, error, installed = {}, {}, {}, None, None
     try:
         line = vm.wait_serial("TIER3-INSTALL-OK", timeout=180)
         log(line)
@@ -332,78 +379,10 @@ def run_variant(variant, timing, impl, log):
         tmp = os.path.join(work, "wait.ppm")
         prompt = wait_stable(vm, tmp, settle=2.0, timeout=90, want=not_blank)
         phase("console")
-        vm.type("tester\n")
-        # The user name echoes; then login asks for the password.
-        wait_stable(vm, tmp, want=lambda img: img.data != prompt.data)
-        vm.type("tester\n")
-        try:
-            vm.wait_event("T3-LOGIN", timeout=20)
-        except RuntimeError:
-            # PAM discards typed-ahead input when it turns echo off for the
-            # password, so a password typed before the prompt is lost. Typing
-            # it again is harmless otherwise: the shell runs it as a command,
-            # and every screen clears before it draws.
-            log("no login yet; typing the password again")
-            vm.type("tester\n")
-            vm.wait_event("T3-LOGIN", timeout=60)
-        last = wait_stable(vm, tmp)
-        phase("login")
-        for name in SCREENS:
-            vm.type("t3 %s\n" % name)
-            vm.wait_event("T3-DONE %s" % name,
-                          timeout=BENCH_TIMEOUT if name in BENCHMARKS else SCREEN_TIMEOUT)
-            path = os.path.join(work, name + ".ppm")
-            # Each screen differs from the one before it, so a capture of the
-            # previous screen is never taken for this one.
-            last = wait_stable(vm, path, want=lambda img, prev=last: img.data != prev.data)
-            caps[name] = path
-            phase(name)
-            # The keyed cases of this screen, each captured once the screen
-            # has changed from the capture before it: a key that changes
-            # nothing fails its case. An image screen that found images not
-            # offered drew no picture for its keys to act on, so they are
-            # not pressed and its keyed cases fail with the refusal; the
-            # screens after it still run.
-            refused = name in IMAGE_SCREENS and reported_not_offered(read_events(vm), name)
-            for screen, case, chords in KEYED:
-                if screen != name or case not in variant_cases(variant):
-                    continue
-                if refused:
-                    errors[case] = ("not pressed: %s found images not offered (%s), and the "
-                                    "keys act on pictures" % (name, refused))
-                    continue
-                for chord in chords:
-                    vm.keys(*chord)
-                path = os.path.join(work, case + ".ppm")
-                last = wait_stable(vm, path, want=lambda img, prev=last: img.data != prev.data)
-                caps[case] = path
-                phase(case)
-            for chord in KEYS_AFTER.get(name, []) if v.get("images", True) and not refused else []:
-                vm.keys(*chord)
-        # VT switch away and back. vt-switch: logind starts a second console
-        # on tty3, which must draw a screen (its login prompt). vt-restore:
-        # back on tty2, the screen must be exactly as it was left. A switch
-        # that does not visibly happen fails vt-switch, so vt-restore cannot
-        # pass alone without testing anything.
-        vm.keys("ctrl", "alt", "f3")
-        path = os.path.join(work, "vt-switch.ppm")
-        try:
-            vm.wait_serial("vt: using tty /dev/tty3", timeout=60)
-            wait_stable(vm, path, settle=2.0, timeout=60,
-                        want=lambda img: not_blank(img) and img.data != last.data)
-            caps["vt-switch"] = path
-        except RuntimeError as e:
-            errors["vt-switch"] = "no new console screen on tty3: %s" % e
-        phase("vt-switch")
-        # The restored screen must differ from the one shown before the
-        # switch back, so tty3's screen, drawn or blank, is never taken for
-        # tty2's. A switch to tty3 that never happened fails vt-restore too.
-        away = vm.screendump(tmp)
-        vm.keys("ctrl", "alt", "f2")
-        path = os.path.join(work, "vt-restore.ppm")
-        wait_stable(vm, path, want=lambda img: img.data != away.data)
-        caps["vt-restore"] = path
-        phase("vt-restore")
+        if "power" in v:
+            press_power_keys(vm, v["power"], work, caps, errors, notes, log, phase)
+        else:
+            draw_screens(variant, vm, work, prompt, caps, errors, log, phase)
     except Exception as e:  # reported per case; the captures so far still count
         error = str(e)
         log(error)
@@ -416,7 +395,7 @@ def run_variant(variant, timing, impl, log):
         conf = [line.strip() for line in f if line.strip() and not line.startswith("#")]
     rss = resident_kb(vm)
     meta = {"installed": installed,
-            "displays": displays, "errors": errors, "device": v["device"], "config": conf,
+            "displays": displays, "errors": errors, "notes": notes, "device": v["device"], "config": conf,
             "cell": console_cell(vm.serial), "cpus": v["cpus"], "memory_mb": v["memory_mb"],
             "bench": bench_figures(vm, caps, conf, v.get("images", True)),
             "rss_kb": rss, "resident": resident(rss),
@@ -429,6 +408,131 @@ def run_variant(variant, timing, impl, log):
     if errors_all:
         meta["error"] = "; ".join(errors_all)
     return caps, meta
+
+
+def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
+    """Log in at the console's `prompt`, draw every screen and its keyed
+    cases, then switch VTs away and back, filling `caps` with each case's
+    capture and `errors` with each case's error."""
+    v = VARIANTS[variant]
+    tmp = os.path.join(work, "wait.ppm")
+    vm.type("tester\n")
+    # The user name echoes; then login asks for the password.
+    wait_stable(vm, tmp, want=lambda img: img.data != prompt.data)
+    vm.type("tester\n")
+    try:
+        vm.wait_event("T3-LOGIN", timeout=20)
+    except RuntimeError:
+        # PAM discards typed-ahead input when it turns echo off for the
+        # password, so a password typed before the prompt is lost. Typing
+        # it again is harmless otherwise: the shell runs it as a command,
+        # and every screen clears before it draws.
+        log("no login yet; typing the password again")
+        vm.type("tester\n")
+        vm.wait_event("T3-LOGIN", timeout=60)
+    last = wait_stable(vm, tmp)
+    phase("login")
+    for name in SCREENS:
+        vm.type("t3 %s\n" % name)
+        vm.wait_event("T3-DONE %s" % name,
+                      timeout=BENCH_TIMEOUT if name in BENCHMARKS else SCREEN_TIMEOUT)
+        path = os.path.join(work, name + ".ppm")
+        # Each screen differs from the one before it, so a capture of the
+        # previous screen is never taken for this one.
+        last = wait_stable(vm, path, want=lambda img, prev=last: img.data != prev.data)
+        caps[name] = path
+        phase(name)
+        # The keyed cases of this screen, each captured once the screen
+        # has changed from the capture before it: a key that changes
+        # nothing fails its case. An image screen that found images not
+        # offered drew no picture for its keys to act on, so they are
+        # not pressed and its keyed cases fail with the refusal; the
+        # screens after it still run.
+        refused = name in IMAGE_SCREENS and reported_not_offered(read_events(vm), name)
+        for screen, case, chords in KEYED:
+            if screen != name or case not in variant_cases(variant):
+                continue
+            if refused:
+                errors[case] = ("not pressed: %s found images not offered (%s), and the "
+                                "keys act on pictures" % (name, refused))
+                continue
+            for chord in chords:
+                vm.keys(*chord)
+            path = os.path.join(work, case + ".ppm")
+            last = wait_stable(vm, path, want=lambda img, prev=last: img.data != prev.data)
+            caps[case] = path
+            phase(case)
+        for chord in KEYS_AFTER.get(name, []) if v.get("images", True) and not refused else []:
+            vm.keys(*chord)
+    # VT switch away and back. vt-switch: logind starts a second console
+    # on tty3, which must draw a screen (its login prompt). vt-restore:
+    # back on tty2, the screen must be exactly as it was left. A switch
+    # that does not visibly happen fails vt-switch, so vt-restore cannot
+    # pass alone without testing anything.
+    vm.keys("ctrl", "alt", "f3")
+    path = os.path.join(work, "vt-switch.ppm")
+    try:
+        vm.wait_serial("vt: using tty /dev/tty3", timeout=60)
+        wait_stable(vm, path, settle=2.0, timeout=60,
+                    want=lambda img: not_blank(img) and img.data != last.data)
+        caps["vt-switch"] = path
+    except RuntimeError as e:
+        errors["vt-switch"] = "no new console screen on tty3: %s" % e
+    phase("vt-switch")
+    # The restored screen must differ from the one shown before the
+    # switch back, so tty3's screen, drawn or blank, is never taken for
+    # tty2's. A switch to tty3 that never happened fails vt-restore too.
+    away = vm.screendump(tmp)
+    vm.keys("ctrl", "alt", "f2")
+    path = os.path.join(work, "vt-restore.ppm")
+    wait_stable(vm, path, want=lambda img: img.data != away.data)
+    caps["vt-restore"] = path
+    phase("vt-restore")
+
+
+# Seconds a power case may take: the shutdown, the suspend, the wake-up.
+POWER_TIMEOUT = 180
+
+
+def press_power_keys(vm, cases, work, caps, errors, notes, log, phase):
+    """Press each power case's chord on the console (t3_power), in order.
+    A case's capture is the screen before its key, or after the wake-up for
+    suspend; it is kept when the console log after the key, and QEMU's
+    SHUTDOWN event for a case that ends the VM, pass t3_power.verdict, and
+    `errors` gets the reason otherwise; `notes` gets a known failure's
+    note. A case that ends the VM is last; a case that fails leaves the
+    next to run."""
+    for case in cases:
+        path = os.path.join(work, case + ".ppm")
+        try:
+            wait_stable(vm, path, want=not_blank)
+            with open(vm.serial, "rb") as f:
+                since = len(f.read())
+            vm.keys(*t3_power.CHORDS[case])
+            if case in t3_power.SUSPENDS:
+                vm.wait_status("suspended", timeout=POWER_TIMEOUT)
+                log("the guest is suspended; waking it")
+                vm.cmd("system_wakeup")
+                vm.wait_status("running", timeout=60)
+                if case == "suspend":
+                    vm.wait_serial("Finished System Suspend", timeout=POWER_TIMEOUT)
+                # Drawn again after the wake-up: a blank screen fails the case.
+                wait_stable(vm, path, settle=2.0, timeout=60, want=not_blank)
+            shutdown = None
+            if case not in t3_power.SUSPENDS:
+                exited = vm.wait_exit(POWER_TIMEOUT) is not None
+                shutdown = vm.shutdown_reason() if exited else "none: still running"
+            with open(vm.serial, "rb") as f:
+                why, note = t3_power.verdict(case, f.read(), since, shutdown)
+            if why:
+                raise RuntimeError(why)
+            caps[case] = path
+            if note:
+                notes[case] = note
+        except (RuntimeError, OSError) as e:  # QMP gone with the VM is an OSError
+            errors[case] = str(e)
+            log("%s: %s" % (case, e))
+        phase(case)
 
 
 def variant_errors(error, displays, renderer, caps, rss, console):

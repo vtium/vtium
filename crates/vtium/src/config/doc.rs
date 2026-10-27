@@ -18,6 +18,7 @@ fn kind(k: &Key) -> String {
         Kind::Command => "command".to_owned(),
         Kind::Rgb => "colour, `r,g,b`".to_owned(),
         Kind::Mode => "mode, a line each".to_owned(),
+        Kind::Grab => "chords, `<Mod>...key`, separated by commas".to_owned(),
     }
 }
 
@@ -35,6 +36,9 @@ fn bound(k: &Key) -> String {
         Kind::Command => format!("{TEXT_MAX} bytes in a file"),
         Kind::Rgb => "each 0 to 255".to_owned(),
         Kind::Mode => "names of 63 bytes, each side 1 to 65535".to_owned(),
+        Kind::Grab => format!(
+            "{TEXT_MAX} bytes; modifiers Shift, Lock, Control, Alt, Logo; keys as xkb names them"
+        ),
     }
 }
 

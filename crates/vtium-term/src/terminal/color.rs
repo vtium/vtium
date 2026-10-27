@@ -1,7 +1,9 @@
 //! The colour OSC strings: OSC 4 and 104 for the palette, OSC 10 to 19 and
 //! 110 to 119 for the defaults and the cursor, pointer and selection
 //! colours, as xterm's ctlseqs defines them, and OSC 21, kitty's colour
-//! protocol (`color-stack`).
+//! protocol (`color-stack`); and the colour stack, which XTPUSHCOLORS,
+//! XTPOPCOLORS and XTREPORTCOLORS (`CSI Pm # P`, `Q` and `R`, ctlseqs)
+//! and kitty's OSC 30001 and 30101 (`color-stack`) share.
 //!
 //! A set changes the terminal's palette, the copy of the configured one
 //! that frames draw through; a reset returns a colour to the configured
@@ -10,12 +12,12 @@
 //! (`reply.rs`): a colour vtium holds, a number parsed and written again,
 //! and a key from a fixed table.
 
-use vtium_parse::StringEnd;
+use vtium_parse::{Params, StringEnd};
 
 use super::State;
 use super::reply::{Query, decimal, osc_end, xcolor};
-use crate::bounds::REPLIES_PENDING_MAX;
-use crate::palette::Special;
+use crate::bounds::{COLOR_STACK_MAX, REPLIES_PENDING_MAX};
+use crate::palette::{Palette, Special};
 use crate::style::Rgb;
 
 /// A colour OSC 10 to 19 or a kitty key names, past the 256.
@@ -99,6 +101,38 @@ impl Key {
     }
 }
 
+/// The colour stack: [`COLOR_STACK_MAX`] entries, each empty or holding a
+/// palette, and the current entry, the number of the one the next push
+/// stores into less one.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct Stack {
+    entries: [Option<Box<Palette>>; COLOR_STACK_MAX],
+    current: usize,
+}
+
+impl Stack {
+    /// The entry a push or pop parameter names: 0 or omitted the next push
+    /// stores into or the next pop restores from, and 1 to
+    /// [`COLOR_STACK_MAX`] that entry; none past it, or for a pop of an
+    /// empty stack.
+    fn entry(&self, param: Option<u32>, pop: bool) -> Option<usize> {
+        match param.unwrap_or(0) {
+            0 if pop => self.current.checked_sub(1),
+            0 => Some(self.current),
+            n => usize::try_from(n).ok()?.checked_sub(1),
+        }
+        .filter(|&i| i < COLOR_STACK_MAX)
+    }
+
+    /// The entries stored: the number of the highest that holds a palette.
+    fn stored(&self) -> usize {
+        self.entries
+            .iter()
+            .rposition(Option::is_some)
+            .map_or(0, |i| i.saturating_add(1))
+    }
+}
+
 /// An X11 colour specification, as XParseColor reads the two forms vtium
 /// takes: `rgb:r/g/b` with one to four hex digits a channel, each scaled
 /// to the channel's range, and `#rgb` with one to four hex digits a
@@ -166,7 +200,7 @@ impl State {
         let Some(number) = number.and_then(decimal) else {
             return false;
         };
-        if !matches!(number, 4 | 10..=19 | 21 | 104 | 110..=119) {
+        if !matches!(number, 4 | 10..=19 | 21 | 104 | 110..=119 | 30001 | 30101) {
             return false;
         }
         let before = self.colors.clone();
@@ -180,6 +214,8 @@ impl State {
                     self.reset_dynamic(d);
                 }
             }
+            (30001, None) => self.push_colors(None),
+            (30101, None) => self.pop_colors(None),
             _ => {}
         }
         if self.colors != before {
@@ -234,6 +270,65 @@ impl State {
                 self.set_dynamic(d, Some(rgb));
             }
         }
+    }
+
+    /// XTPUSHCOLORS, `CSI Pm # P`: each parameter in turn, the palette
+    /// stored in the entry it names, which becomes the current one; 0 or
+    /// none pushes. A push with the stack full and a parameter past
+    /// [`COLOR_STACK_MAX`] do nothing, as in xterm.
+    pub(super) fn push_colors_params(&mut self, params: &Params) {
+        if params.count() == 0 {
+            return self.push_colors(None);
+        }
+        for i in 0..params.count() {
+            self.push_colors(params.get(i));
+        }
+    }
+
+    /// XTPOPCOLORS, `CSI Pm # Q`: each parameter in turn, the palette
+    /// restored from the entry it names, which the current one then
+    /// precedes; 0 or none pops. A pop of an empty stack, of an entry
+    /// never stored and past [`COLOR_STACK_MAX`] does nothing, as in xterm.
+    pub(super) fn pop_colors_params(&mut self, params: &Params) {
+        if params.count() == 0 {
+            return self.pop_colors(None);
+        }
+        for i in 0..params.count() {
+            self.pop_colors(params.get(i));
+        }
+    }
+
+    fn push_colors(&mut self, param: Option<u32>) {
+        let stack = &mut self.color_stack;
+        if let Some(i) = stack.entry(param, false)
+            && let Some(slot) = stack.entries.get_mut(i)
+        {
+            *slot = Some(Box::new(self.colors.clone()));
+            stack.current = i.saturating_add(1);
+        }
+    }
+
+    fn pop_colors(&mut self, param: Option<u32>) {
+        let stack = &mut self.color_stack;
+        let Some(i) = stack.entry(param, true) else {
+            return;
+        };
+        if let Some(Some(palette)) = stack.entries.get(i) {
+            let palette = Palette::clone(palette);
+            stack.current = i;
+            if self.colors != palette {
+                self.colors = palette;
+                self.screen.recolour();
+            }
+        }
+    }
+
+    /// XTREPORTCOLORS, `CSI # R`: `CSI ? Pc ; Ps # Q`, the current entry
+    /// and the entries stored.
+    pub(super) fn reply_color_stack(&mut self) {
+        let stack = &self.color_stack;
+        let reply = format!("\x1b[?{};{}#Q", stack.current, stack.stored());
+        self.reply(Query::ColorStack, reply.as_bytes());
     }
 
     /// The colour reset of DECSTR, the 256 returned to the configured

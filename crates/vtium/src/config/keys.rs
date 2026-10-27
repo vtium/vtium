@@ -38,6 +38,9 @@ pub enum Kind {
     /// words; on the command line, `--login -- ARGS...`, the words after
     /// `--`.
     Command,
+    /// Keys a grab takes: chords such as `<Ctrl><Alt>Delete`, separated by
+    /// commas ([`crate::grab::parse`]). Empty, it takes none.
+    Grab,
 }
 
 /// A key's value before any source sets it.
@@ -807,8 +810,41 @@ pub const RENDER_TIMER: Key = Key {
     cite: "src/config.c:972-1015, 1475",
 };
 
+pub const GRAB_REBOOT: Key = Key {
+    name: "grab-reboot",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Reboot the machine. With `/proc/sys/kernel/ctrl-alt-del` at 0, init is asked, as for Ctrl+Alt+Del, so the services stop first; otherwise the kernel restarts at once. Unset, no key reboots.",
+    cite: "src/config.c:1409; src/seat.c:479-513, 631-636",
+};
+
+pub const GRAB_POWER_OFF: Key = Key {
+    name: "grab-power-off",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Power the machine off: init is asked with `SIGRTMIN+4`, which systemd takes as `poweroff.target`, so the services stop and the filesystems are unmounted first. Unset, no key powers off.",
+    cite: "vtium/vtium#21",
+};
+
+pub const GRAB_SUSPEND: Key = Key {
+    name: "grab-suspend",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Suspend the machine to RAM: logind is asked with its `Suspend` method, so its inhibitors hold the sleep; where logind is not running, or vtium is built without `logind`, `mem` is written to `/sys/power/state`. Unset, no key suspends.",
+    cite: "vtium/vtium#21",
+};
+
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 61] = [
+pub const KEYS: [Key; 64] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -857,6 +893,9 @@ pub const KEYS: [Key; 61] = [
     XKB_REPEAT_DELAY,
     XKB_REPEAT_RATE,
     MOUSE,
+    GRAB_REBOOT,
+    GRAB_POWER_OFF,
+    GRAB_SUSPEND,
     FONT_ENGINE,
     FONT_NAME,
     FONT_SIZE,

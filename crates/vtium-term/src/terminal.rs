@@ -203,6 +203,9 @@ struct State {
     clipboard: Option<clipboard::Selection>,
     /// The text area and the visibility the in-band reports compare with.
     inband: Inband,
+    /// XTPUSHSGR's pens, and the palettes XTPUSHCOLORS and OSC 30001 keep.
+    sgr_stack: sgr::Stack,
+    color_stack: color::Stack,
     /// The queries answered, in order, for the reply rule's test.
     #[cfg(test)]
     answered: Vec<Query>,
@@ -242,6 +245,8 @@ impl Terminal {
             cursor_blink_ms: None,
             clipboard: None,
             inband: Inband::new(cols, rows),
+            sgr_stack: sgr::Stack::default(),
+            color_stack: color::Stack::default(),
             #[cfg(test)]
             answered: Vec::new(),
         };
@@ -520,11 +525,13 @@ impl State {
     }
 
     /// RIS: DECSTR's reset, the modes only RIS resets, every colour the
-    /// program set, the screen and the scrollback erased, and the cursor
-    /// home.
+    /// program set, the SGR and colour stacks emptied, the screen and the
+    /// scrollback erased, and the cursor home.
     fn hard_reset(&mut self) {
         self.soft_reset();
         self.reset_colors(true);
+        self.sgr_stack = sgr::Stack::default();
+        self.color_stack = color::Stack::default();
         self.screen.erase_screen(Erase::All);
         self.screen.clear_scrollback();
         modes::reset(self, true);
@@ -758,6 +765,11 @@ impl Consumer for State {
                 self.reply_modify_other_keys();
             }
             (Some(b'>'), [], b'n') if params.get(0) == Some(4) => self.modify_other_keys = 0,
+            (None, [b'#'], b'{' | b'p') => self.push_sgr(params),
+            (None, [b'#'], b'}' | b'q') => self.pop_sgr(),
+            (None, [b'#'], b'P') => self.push_colors_params(params),
+            (None, [b'#'], b'Q') => self.pop_colors_params(params),
+            (None, [b'#'], b'R') => self.reply_color_stack(),
             _ => {}
         }
     }
