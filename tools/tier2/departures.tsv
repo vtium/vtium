@@ -2,3 +2,5 @@
 # crates/vtium-render/README.md explains: CASE, the departure's bold title
 # exactly as the README gives it, and the rectangles x0,y0,x1,y1
 # (end-exclusive, ";" between) the difference must lie in.
+edges-left	A wide glyph cut at the margin shows its left half in every orientation.	1,2,33,10
+edges-upside-down	A wide glyph cut at the margin shows its left half in every orientation.	2,33,10,65
