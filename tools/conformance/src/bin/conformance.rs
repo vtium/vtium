@@ -273,10 +273,21 @@ fn expect(o: &Options) -> Result<bool, String> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
+        // what moved, for the commit that lands the rewrite to say
+        match std::fs::read_to_string(&path) {
+            Ok(old) if old == text => {
+                println!("unchanged {}", path.display());
+                continue;
+            }
+            Ok(old) => println!("wrote {}\n{}", path.display(), runner::diff(&old, &text)),
+            Err(_) => println!("wrote {}, which is new", path.display()),
+        }
         std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
-        println!("wrote {}", path.display());
     }
-    println!("read each against {}/golden*/", corpus.root.display());
+    println!(
+        "read each departure against {}/golden*/, and each snapshot by git diff",
+        corpus.root.display()
+    );
     Ok(true)
 }
 
