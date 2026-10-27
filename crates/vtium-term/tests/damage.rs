@@ -259,3 +259,20 @@ fn after_a_checkpoint_nothing_is_changed() {
     });
     assert!(draw(t.screen(), seen).iter().flatten().all(|&(_, c)| !c));
 }
+
+// A palette the host sets while text is on screen recolours every cell, so
+// a display that drew before it sees every cell changed.
+#[test]
+fn a_new_palette_marks_every_cell() {
+    let mut t = Terminal::new(8, 4, 10);
+    t.input(b"ab\x1b[31mcd");
+    let seen = t.screen_mut().checkpoint();
+    let mut changed = palette();
+    changed.set_color(1, Rgb::new(1, 2, 3));
+    t.set_palette(changed.clone());
+    assert!(draw(t.screen(), seen).iter().flatten().all(|&(_, c)| c));
+    // The same palette again changes nothing a display draws.
+    let seen = t.screen_mut().checkpoint();
+    t.set_palette(changed);
+    assert!(draw(t.screen(), seen).iter().flatten().all(|&(_, c)| !c));
+}
