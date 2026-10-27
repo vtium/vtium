@@ -163,6 +163,21 @@ fn scrolling_moves_the_region_and_the_scrollback_takes_the_top() {
     assert_eq!(text(&t), ["1", "2", "", "4"]);
 }
 
+// The C reference's flow (tsm-screen.c:388-399): a line leaving the top of
+// the main screen's region enters the scrollback wherever the region
+// starts; on the alternate screen it goes.
+#[test]
+fn a_line_leaving_any_region_enters_the_scrollback() {
+    let mut t = Terminal::new(4, 4, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"1\r\n2\r\n3\r\n4\x1b[2;3r\x1b[3;1H\n");
+    assert_eq!(text(&t), ["1", "3", "", "4"]);
+    assert_eq!(scrollback(t.screen()), ["2"]);
+    t.screen_mut().set_alternate(true);
+    t.input(b"\x1b[2;3rx\x1b[3;1H\n");
+    assert_eq!(scrollback(t.screen()), ["2"]);
+}
+
 // xterm's ED 3: the scrollback goes, and the screen stays.
 // covers: ctl.ed3
 #[test]
