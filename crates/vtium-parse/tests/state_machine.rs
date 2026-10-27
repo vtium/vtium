@@ -40,7 +40,6 @@ fn ground_prints_past_ascii() {
 }
 
 // tsm-vte.c:3291-3298, 3328-3330: C1 controls execute (8-bit input).
-// covers: text.c1
 #[test]
 fn c1_executes() {
     assert_eq!(
@@ -305,7 +304,6 @@ fn csi_subparams() {
 // nothing, so C2 9B is not CSI and C2 85 does not cancel a sequence. That
 // closes the way past filters that strip ESC. The C reference took them as
 // C1 controls (tsm-vte.c:3289-3319).
-// covers: text.c1
 #[test]
 fn c1_as_utf8_does_nothing() {
     assert_eq!(parse(b"a\xc2\x9b1mb"), prints("a1mb"));
@@ -314,7 +312,6 @@ fn c1_as_utf8_does_nothing() {
 }
 
 // libtsm's test_vte_8bit_c1: in 8-bit mode 0x9B introduces a CSI.
-// covers: text.c1
 #[test]
 fn csi_c1_in_8bit_mode() {
     assert_eq!(

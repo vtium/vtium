@@ -9,14 +9,12 @@ use vtium_parse::{Parser, XTGETTCAP_MAX};
 
 // test_vte_xtgettcap_found: ESC \ ends the request, which is answered at the
 // '\', before the ESC \ itself dispatches.
-// covers: query.xtgettcap
 #[test]
 fn ended_by_esc_backslash() {
     assert_eq!(parse(b"\x1bP+q544e\x1b\\"), [tcap(b"544e"), esc("", b'\\')]);
 }
 
 // test_vte_xtgettcap_end: ST as U+009C answers it.
-// covers: query.xtgettcap
 #[test]
 fn ended_by_c1_st() {
     assert_eq!(
@@ -26,7 +24,6 @@ fn ended_by_c1_st() {
 }
 
 // test_vte_xtgettcap_end: CAN and SUB drop it.
-// covers: query.xtgettcap
 #[test]
 fn dropped_by_can_and_sub() {
     assert_eq!(parse(b"\x1bP+q544e\x18"), [Act::Execute(0x18)]);
@@ -35,7 +32,6 @@ fn dropped_by_can_and_sub() {
 
 // test_vte_xtgettcap_end: an ESC not followed by '\' drops it, and the
 // sequence after the ESC runs.
-// covers: query.xtgettcap
 #[test]
 fn dropped_by_esc_without_backslash() {
     assert_eq!(parse(b"\x1bP+q544e\x1b[2C"), [csi(&[2], "", b'C')]);
@@ -43,14 +39,12 @@ fn dropped_by_esc_without_backslash() {
 
 // test_vte_xtgettcap_end: the ESC of a dropped request is not left waiting
 // for a '\'.
-// covers: query.xtgettcap
 #[test]
 fn esc_esc_backslash_drops() {
     assert_eq!(parse(b"\x1bP+q544e\x1b\x1b\\"), [esc("", b'\\')]);
 }
 
 // tsm-vte.c:3291-3298, 3164-3168: another C1 control drops it.
-// covers: query.xtgettcap
 #[test]
 fn dropped_by_other_c1() {
     assert_eq!(parse8(b"\x1bP+q544e\x85"), [Act::Execute(0x85)]);
@@ -58,7 +52,6 @@ fn dropped_by_other_c1() {
 
 // test_vte_xtgettcap_end: DCS + q with a parameter, a marker or another
 // intermediate is not XTGETTCAP, and goes to the consumer.
-// covers: query.xtgettcap
 #[test]
 fn not_xtgettcap_with_param_or_other_flags() {
     let q = u32::from(b'q');
@@ -80,7 +73,6 @@ fn not_xtgettcap_with_param_or_other_flags() {
 
 // test_vte_xtgettcap_invalid: the parser keeps the payload as sent, controls
 // included, and a character past ASCII as 0 (tsm-vte.c:3149-3150).
-// covers: query.xtgettcap
 #[test]
 fn payload_as_sent() {
     assert_eq!(parse(b"\x1bP+q\x1b\\")[0], tcap(b""));
@@ -89,7 +81,6 @@ fn payload_as_sent() {
 }
 
 // tsm-vte.c:3567-3568: DEL is dropped from the payload.
-// covers: query.xtgettcap
 #[test]
 fn payload_drops_del() {
     assert_eq!(parse(b"\x1bP+q54\x7f4e\x1b\\")[0], tcap(b"544e"));
@@ -103,7 +94,6 @@ fn request(payload_len: usize) -> Vec<u8> {
 }
 
 // test_vte_xtgettcap_bounds: a 1039-byte payload is kept whole.
-// covers: query.xtgettcap
 #[test]
 fn payload_of_1039_kept() {
     let seq = request(XTGETTCAP_MAX);
@@ -117,7 +107,6 @@ fn payload_of_1039_kept() {
 
 // test_vte_xtgettcap_bounds: one byte more passes the bound, so the request
 // has no payload (tsm-vte.c:3149-3152, 3087-3091).
-// covers: query.xtgettcap
 #[test]
 fn payload_past_1039_flagged() {
     let seq = request(XTGETTCAP_MAX + 1);
@@ -126,7 +115,6 @@ fn payload_past_1039_flagged() {
 }
 
 // A megabyte of payload takes no more than the bound.
-// covers: query.xtgettcap
 #[test]
 fn payload_flood_bounded() {
     let seq = request(1 << 20);
@@ -136,7 +124,6 @@ fn payload_flood_bounded() {
 
 // A request after a flagged one starts empty and unflagged
 // (tsm-vte.c:3137-3138).
-// covers: query.xtgettcap
 #[test]
 fn next_request_starts_clean() {
     let mut seq = request(XTGETTCAP_MAX + 1);
@@ -146,7 +133,6 @@ fn next_request_starts_clean() {
 }
 
 // test_vte_xtgettcap_split: a request split at every byte.
-// covers: query.xtgettcap
 #[test]
 fn split_at_every_byte() {
     let query = b"\x1bP+q544e;436f\x1b\\";
@@ -160,7 +146,6 @@ fn split_at_every_byte() {
 
 // test_vte_xtgettcap_esc_reset: a reset between the ESC and the '\' drops
 // the request.
-// covers: query.xtgettcap
 #[test]
 fn reset_between_esc_and_backslash_drops() {
     let mut parser = Parser::new();
@@ -177,7 +162,6 @@ fn reset_between_esc_and_backslash_drops() {
 // stray UTF-8 continuation byte is one: U+FFFD, under the decoder's
 // contract. It drops the request, and the ESC sequence it interrupts with
 // it, so the '\' prints.
-// covers: query.xtgettcap
 #[test]
 fn stray_byte_between_esc_and_backslash_drops() {
     assert_eq!(
