@@ -872,6 +872,9 @@ impl<K: Kms> Drm2d<K> {
         let connector_props = self
             .card
             .properties(conn.id, Object::Connector)
+            .inspect_err(|e| {
+                log::warn!("cannot read the properties of connector {name}: {e}");
+            })
             .unwrap_or_default();
         // Its modeset turns the display on, whatever DPMS the connector was
         // left at.
@@ -962,8 +965,12 @@ impl<K: Kms> Drm2d<K> {
             if self.card.plane_crtcs(plane).unwrap_or(0) & bit == 0 {
                 continue;
             }
-            let Ok(props) = self.card.properties(plane, Object::Plane) else {
-                continue;
+            let props = match self.card.properties(plane, Object::Plane) {
+                Ok(props) => props,
+                Err(e) => {
+                    log::warn!("cannot read the properties of plane {plane}: {e}");
+                    continue;
+                }
             };
             match value(&props, "type") {
                 Some(PLANE_PRIMARY) if primary.is_none() => {
@@ -981,7 +988,12 @@ impl<K: Kms> Drm2d<K> {
             }
         }
         planes.primary = primary?;
-        planes.crtc_props = Props::new(&self.card.properties(crtc, Object::Crtc).ok()?);
+        let crtc_props = self
+            .card
+            .properties(crtc, Object::Crtc)
+            .inspect_err(|e| log::warn!("cannot read the properties of CRTC {crtc}: {e}"))
+            .ok()?;
+        planes.crtc_props = Props::new(&crtc_props);
         Some(planes)
     }
 

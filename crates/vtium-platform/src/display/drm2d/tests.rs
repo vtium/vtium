@@ -18,7 +18,8 @@ use rustix::io::Errno;
 use super::output::signed;
 use super::*;
 use crate::display::blank::Due;
-use crate::display::fake::{Commit, FakeCard, logs};
+use crate::display::fake::{Commit, FakeCard, Plane, logs};
+use crate::display::kms::Encoder;
 use crate::display::mode::mode;
 use crate::display::{Blank, DPMS_TIMEOUT, Wanted};
 
@@ -1554,5 +1555,80 @@ fn an_unblank_during_a_sleep_starts_no_retry() {
         v.card().state().commits.len(),
         commits,
         "a commit after the release"
+    );
+}
+
+/// tier 3's guest: QEMU's virtio-gpu, one virtual connector (40) on its
+/// encoder (41) and CRTC (39, index 0), a primary plane (35) and a cursor
+/// plane (36) on that CRTC, and no overlay.
+fn virtio_gpu() -> FakeCard {
+    let card = FakeCard::default();
+    {
+        let mut s = card.state();
+        s.atomic = true;
+        s.universal = true;
+        s.hotspot = true;
+        s.crtcs.push(39);
+        s.encoders.insert(
+            41,
+            Encoder {
+                crtc: 0,
+                possible_crtcs: 1,
+            },
+        );
+        for (id, kind) in [(35, PLANE_PRIMARY), (36, PLANE_CURSOR)] {
+            s.planes.insert(
+                id,
+                Plane {
+                    crtcs: 1,
+                    kind,
+                    damage: false,
+                },
+            );
+        }
+        s.listed.push(40);
+        s.dpms.insert(40, 0);
+        s.connectors.insert(
+            40,
+            Connector {
+                id: 40,
+                kind: 15,
+                kind_id: 1,
+                connected: true,
+                modes: vec![mode(1366, 768, 60, true)],
+                encoder: 0,
+                encoders: vec![41],
+            },
+        );
+    }
+    card
+}
+
+#[test]
+fn the_tier3_guests_display_comes_up_on_its_primary_plane() {
+    let mut v = Drm2d::with(virtio_gpu(), ModePolicy::default()).unwrap();
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(40)), Event::Awake]);
+    assert_eq!(v.name(DisplayId(40)), Some("Virtual-1"));
+    assert_eq!(primary(&v, 40), 35);
+    assert_eq!(cursor_plane(&v, 40), 36);
+}
+
+// The plane's properties hold its type, so a display whose planes cannot
+// be read has no primary plane; the log names the read that failed.
+#[test]
+fn a_plane_whose_properties_cannot_be_read_is_named() {
+    let card = virtio_gpu();
+    card.state().unreadable.extend([35, 36]);
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    logs::capture();
+    v.wake_up().unwrap();
+    assert!(v.outputs.is_empty());
+    let errors = logs::at_least(Level::Warn);
+    assert!(
+        errors
+            .iter()
+            .any(|l| l == "cannot read the properties of plane 35: Bad address (os error 14)"),
+        "{errors:?}"
     );
 }
