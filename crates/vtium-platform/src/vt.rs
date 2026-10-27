@@ -211,6 +211,9 @@ pub(crate) trait Console: Sized {
     /// The number of the VT on screen, `VT_GETSTATE`.
     fn active(&self) -> io::Result<u16>;
     fn set_display_mode(&self, mode: DisplayMode) -> io::Result<()>;
+    /// Whether `VT_GETMODE` shows vtium's own `VT_PROCESS`: SIGUSR2 to
+    /// release and SIGUSR1 to acquire.
+    fn switching_is_ours(&self) -> io::Result<bool>;
     fn set_switching(&self, mode: Switching) -> io::Result<()>;
     fn keyboard_mode(&self) -> io::Result<KbMode>;
     fn set_keyboard_mode(&self, mode: KbMode) -> io::Result<()>;

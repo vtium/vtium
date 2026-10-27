@@ -244,6 +244,24 @@ impl<C: Console> KernelVt<C> {
         graphics.and(switching).and(keyboard).and(silent)
     }
 
+    /// vtium's `VT_PROCESS` on a VT found in any other mode, before a
+    /// switch key's `VT_ACTIVATE` ([`Vt::key`]). A mode that cannot be read
+    /// is left as it is.
+    fn take_switching_unless_ours(&mut self) {
+        let num = self.num;
+        match self.console.switching_is_ours() {
+            Ok(true) => {}
+            Ok(false) => {
+                log::warn!(target: "vt", "VT {num}'s switching was not vtium's, taking it");
+                match self.console.set_switching(Switching::Process) {
+                    Ok(()) => self.set.process = true,
+                    Err(e) => log::warn!(target: "vt", "cannot take VT {num}'s switching: {e}"),
+                }
+            }
+            Err(e) => log::warn!(target: "vt", "cannot read VT {num}'s switching: {e}"),
+        }
+    }
+
     /// Whether VT `num` is on screen; `None` when the kernel cannot say.
     fn on_screen(&self) -> Option<bool> {
         match self.console.active() {
@@ -410,8 +428,9 @@ impl<C: Console> Vt for KernelVt<C> {
     /// [`VtEvent::Retaken`]. A release the kernel no longer waits on is
     /// taken again: a VT still shown is reported as [`VtEvent::Retaken`],
     /// and one no longer shown as [`VtEvent::Release`], whose
-    /// acknowledgement then answers nothing. Fails only when the kernel can
-    /// say neither.
+    /// acknowledgement then decides as for any release gone, so a switch
+    /// back while the owner sleeps is acquired only then. Fails only when
+    /// the kernel can say neither.
     fn refuse_release(&mut self) -> io::Result<()> {
         if self.state != State::Releasing {
             return Ok(());
@@ -425,14 +444,15 @@ impl<C: Console> Vt for KernelVt<C> {
             }
             return Ok(());
         };
-        if self.release_gone(e)? {
+        let shown = self.release_gone(e)?;
+        // While Active, so VT_PROCESS is set too; retake logs each refusal.
+        let _ = self.retake();
+        if shown {
             self.events.push(VtEvent::Retaken);
         } else {
-            self.state = State::Inactive;
+            self.state = State::Releasing;
             self.events.push(VtEvent::Release);
         }
-        // retake logs each refusal.
-        let _ = self.retake();
         Ok(())
     }
 
@@ -482,7 +502,17 @@ impl<C: Console> Vt for KernelVt<C> {
 
     /// Ctrl+Alt+F1 to F12 and the XF86Switch_VT keys ask the kernel for
     /// that VT (vt_real.c:484-530); this VT's own key is taken and does
-    /// nothing.
+    /// nothing. Unless `VT_GETMODE` shows vtium's own `VT_PROCESS`, the
+    /// key sets it first: the kernel drops a switch from a VT in `VT_AUTO`
+    /// and `KD_GRAPHICS`, as another process can leave it (vt.c:3153-3172),
+    /// and sends another process's `VT_PROCESS` the release (vt_ioctl.c:
+    /// 1223-1240). No release of vtium's can be waiting then: the kernel
+    /// waits on one only in vtium's `VT_PROCESS` (559-566), and the
+    /// `VT_SETMODE` that ended it cleared the wait (780). vtium's own
+    /// `VT_PROCESS` is left as it is: a release not yet read may be
+    /// waiting, and the kernel's worker asks for the new switch only later
+    /// (vt.c:3118-3126). Another process using vtium's signals cannot be
+    /// told from vtium.
     fn key(&mut self, key: &KeyEvent) -> bool {
         let Some(target) = switch_target(key) else {
             return false;
@@ -492,6 +522,7 @@ impl<C: Console> Vt for KernelVt<C> {
         }
         if target != self.num {
             log::debug!(target: "vt", "leaving VT {} for VT {target} on a key", self.num);
+            self.take_switching_unless_ours();
             if let Err(e) = self.console.activate(target) {
                 log::warn!(target: "vt", "cannot leave VT {} for VT {target}: {e}", self.num);
             }
