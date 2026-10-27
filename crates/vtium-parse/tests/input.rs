@@ -91,6 +91,7 @@ fn malformed_utf8_inside_a_string_keeps_the_esc() {
 }
 
 // tsm-vte.c:3665-3666: in 8-bit mode a byte is the character of its value.
+// covers: text.c1
 #[test]
 fn eight_bit_mode() {
     assert_eq!(
@@ -105,6 +106,7 @@ fn eight_bit_mode() {
 }
 
 // tsm-vte.c:3660-3664: in 7-bit mode a byte loses its top bit.
+// covers: text.c1
 #[test]
 fn seven_bit_mode() {
     assert_eq!(
