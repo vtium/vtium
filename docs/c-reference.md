@@ -270,7 +270,7 @@ Activating the terminal (a VT switch back, a session switch, an unblank) started
 
 The change-tracking flow is the same: each display keeps the age it drew at, and a frame says what changed since then. The storage of ages and clusters is a Rust shape. Images anchor by a `LineId` the store holds, where the C reference listed placements on the line itself; the flow, a placement travelling with its line into the scrollback and back, is the same.
 
-**Check:** a line on the main screen entered the scrollback whenever it scrolled off the top of a scroll region, whatever the top margin (`libtsm/src/tsm/tsm-screen.c:388-399`); xterm saves only when the top margin is the first row. No vtium issue or departure list says which vtium follows.
+**Check:** a line on the main screen entered the scrollback whenever it scrolled off the top of a scroll region, whatever the top margin (`libtsm/src/tsm/tsm-screen.c:388-399`); xterm saves only when the top margin is the first row. No vtium issue or departure list says which vtium follows. Decided for #11: vtium keeps the C reference's rule, recorded under "C behaviour kept" in crates/vtium-term/README.md.
 
 ## 6. The pty
 
