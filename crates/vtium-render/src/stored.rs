@@ -58,6 +58,15 @@ fn turn(src: &[u8], width: u32, height: u32, bpp: usize, o: Orientation) -> (u32
     (size(tw), size(th), out)
 }
 
+/// Pixels to store: `width` by `height` of `format`, `bpp` bytes each.
+struct Pixels<'a> {
+    data: &'a [u8],
+    width: u32,
+    height: u32,
+    format: Format,
+    bpp: usize,
+}
+
 impl Stored {
     /// `glyph`, drawn `scale` times larger, stored for orientation `o`; at
     /// 1 bit a pixel when `bits` allows it and every pixel is 0 or 255.
@@ -66,16 +75,14 @@ impl Stored {
             FontFormat::Mask => (Format::Mask, 1),
             FontFormat::Rgba => (Format::Rgba, 4),
         };
-        Stored::from_pixels(
-            glyph.pixels(),
-            glyph.width(),
-            glyph.height(),
-            scale,
+        let src = Pixels {
+            data: glyph.pixels(),
+            width: glyph.width(),
+            height: glyph.height(),
             format,
             bpp,
-            o,
-            bits,
-        )
+        };
+        Stored::from_pixels(src, scale, o, bits)
     }
 
     /// A coverage mask `width` by `height` drawn at its size, as the
@@ -87,23 +94,25 @@ impl Stored {
         o: Orientation,
         bits: bool,
     ) -> Stored {
-        Stored::from_pixels(pixels, width, height, 1, Format::Mask, 1, o, bits)
+        let src = Pixels {
+            data: pixels,
+            width,
+            height,
+            format: Format::Mask,
+            bpp: 1,
+        };
+        Stored::from_pixels(src, 1, o, bits)
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the two constructors' shared body"
-    )]
-    fn from_pixels(
-        pixels: &[u8],
-        width: u32,
-        height: u32,
-        scale: u32,
-        format: Format,
-        bpp: usize,
-        o: Orientation,
-        bits: bool,
-    ) -> Stored {
+    /// The two constructors' shared body.
+    fn from_pixels(src: Pixels<'_>, scale: u32, o: Orientation, bits: bool) -> Stored {
+        let Pixels {
+            data: pixels,
+            width,
+            height,
+            format,
+            bpp,
+        } = src;
         let (width, height, data) = turn(pixels, width, height, bpp, o);
         let w = width as usize;
         let lossless = format == Format::Mask && data.iter().all(|&a| a == 0 || a == 255);
