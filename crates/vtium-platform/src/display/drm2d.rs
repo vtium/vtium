@@ -60,7 +60,9 @@ pub struct Drm2d<K: Kms> {
     waiting: Option<Waiting>,
     /// A flip's event was lost, and that was logged as a warning.
     lost_flip: bool,
-    /// The blank powered every display down, and no input has come since.
+    /// The blank powered every display down, and no input has come since:
+    /// every display online was set to a DPMS state other than on, with
+    /// its connector's DPMS property or without one.
     blanked: bool,
     /// A hotplug while blanked found a change that needs a modeset, which
     /// the input ending the blank runs.
@@ -295,9 +297,9 @@ impl<K: Kms> Drm2d<K> {
     }
 
     /// Sets a display's power state. A display whose connector has no
-    /// DPMS property keeps its state. While a display is not on it lends
-    /// no canvas; powered on, every buffer is age 0 and
-    /// [`Event::Redraw`] follows.
+    /// DPMS property keeps its state, and still counts as powered down for
+    /// the blank. While a display is not on it lends no canvas; powered
+    /// on, every buffer is age 0 and [`Event::Redraw`] follows.
     pub fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
         let awake = self.awake;
         let o = self
@@ -306,27 +308,20 @@ impl<K: Kms> Drm2d<K> {
             .find(|o| o.id == id && o.announced)
             .filter(|o| awake && o.online)
             .ok_or_else(|| invalid("the display is not online"))?;
-        let Some((prop, now)) = o.dpms else {
-            return Ok(());
-        };
-        if now == dpms {
-            return Ok(());
-        }
-        log::info!("setting DPMS of {} to {dpms:?}", o.name);
         let on = dpms == Dpms::On;
-        self.card
-            .set_connector_property(o.id.0, prop, dpms_value(dpms))?;
-        o.dpms = Some((prop, dpms));
-        if on {
-            o.powered_on();
-            o.redraw = false;
-            self.events.push(Event::Redraw(id));
+        if let Some((prop, _)) = o.dpms.filter(|&(_, now)| now != dpms) {
+            log::info!("setting DPMS of {} to {dpms:?}", o.name);
+            self.card
+                .set_connector_property(o.id.0, prop, dpms_value(dpms))?;
+            o.dpms = Some((prop, dpms));
+            if on {
+                o.powered_on();
+                o.redraw = false;
+                self.events.push(Event::Redraw(id));
+            }
         }
-        self.blanked = self
-            .outputs
-            .iter()
-            .filter(|o| o.online)
-            .all(|o| !o.dpms_on());
+        o.down = !on;
+        self.blanked = self.outputs.iter().filter(|o| o.online).all(|o| o.down);
         Ok(())
     }
 
@@ -814,6 +809,7 @@ impl<K: Kms> Drm2d<K> {
             cursor: None,
             cursor_set: None,
             dpms,
+            down: false,
             online: false,
             redraw: false,
             flipping: false,
@@ -943,8 +939,12 @@ impl<K: Kms> Drm2d<K> {
             }
         };
         if set.is_ok() {
+            // A modeset brings every display on.
             self.blanked = false;
             self.owed = false;
+            for o in &mut self.outputs {
+                o.down = false;
+            }
             self.announce();
         }
         set

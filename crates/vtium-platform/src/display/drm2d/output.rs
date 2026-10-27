@@ -225,6 +225,9 @@ pub(super) struct Output<M> {
     pub(super) cursor_set: Shown,
     /// `None` where the connector has no DPMS property.
     pub(super) dpms: Option<(u32, Dpms)>,
+    /// The owner powered it down through `set_dpms`, as the blank does,
+    /// whether or not its connector has a DPMS property.
+    pub(super) down: bool,
     pub(super) online: bool,
     /// Its buffers hold nothing known since a modeset or a wake-up, so the
     /// next announcement asks for a redraw.

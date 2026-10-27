@@ -1103,6 +1103,31 @@ fn a_hotplug_pulse_while_blanked_changes_nothing_visible() {
     assert_eq!(v.card().state().dpms[&A], 0);
 }
 
+// Re-review finding 5: the blank holds whether or not a display's connector
+// has a DPMS property, so a hotplug while blanked commits nothing.
+#[test]
+fn a_display_without_dpms_keeps_the_blank() {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(800, 600, 60, true)]),
+    ]);
+    card.state().listed.retain(|&c| c == A);
+    card.state().no_dpms.push(A);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(v.dpms(DisplayId(A)), None);
+    let (mut blank, at) = blanked(&mut v);
+    v.events().for_each(drop);
+    let commits = v.card().state().commits.len();
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    assert_eq!(v.card().state().commits.len(), commits, "nothing committed");
+    assert!(events(&mut v).is_empty());
+    activity(&mut v, &mut blank, at);
+    let c = v.card().last_commit().unwrap();
+    assert_ne!(c.flags & DRM_MODE_ATOMIC_ALLOW_MODESET, 0);
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
+}
+
 // Input while blanked with no modeset owed powers the displays on through
 // their DPMS, as before.
 #[test]

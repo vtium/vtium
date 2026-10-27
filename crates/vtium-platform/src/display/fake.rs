@@ -95,6 +95,8 @@ pub(crate) struct State {
     pub(crate) planes: BTreeMap<u32, Plane>,
     /// The DPMS value of each connector.
     pub(crate) dpms: BTreeMap<u32, u64>,
+    /// Connectors that have no DPMS property.
+    pub(crate) no_dpms: Vec<u32>,
     /// The CRTC each connector is on, each CRTC's `ACTIVE`, and the CRTC
     /// each plane is on, as the commits so far left them.
     pub(crate) bound: BTreeMap<u32, u32>,
@@ -371,8 +373,10 @@ impl Kms for FakeCard {
         match kind {
             Object::Connector => {
                 let dpms = *s.dpms.get(&id).ok_or_else(|| err(Errno::NOENT))?;
+                let without = s.no_dpms.contains(&id);
                 drop(s);
-                Ok(self.props(&[("DPMS", dpms), ("CRTC_ID", 0)]))
+                let names = [("CRTC_ID", 0), ("DPMS", dpms)];
+                Ok(self.props(&names[..if without { 1 } else { 2 }]))
             }
             Object::Crtc => {
                 let active = u64::from(s.active.get(&id).copied().unwrap_or(false));
