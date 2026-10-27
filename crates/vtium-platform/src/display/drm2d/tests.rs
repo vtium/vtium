@@ -371,10 +371,8 @@ fn a_modeset_waits_for_the_pending_flip() {
     let c = v.card().last_commit().unwrap();
     assert_ne!(c.flags & DRM_MODE_ATOMIC_ALLOW_MODESET, 0);
     assert!(c.mentions(A) && c.mentions(B));
-    assert_eq!(
-        events(&mut v),
-        [Event::Redraw(DisplayId(A)), Event::Added(DisplayId(B))]
-    );
+    // A keeps what it shows, so it needs no redraw.
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
 }
 
 #[test]
@@ -831,4 +829,75 @@ fn a_late_flip_event_after_the_bound_is_a_flip() {
         app.0.events().any(|e| e == Event::Flipped(DisplayId(A)))
     });
     assert_eq!(app.0.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+}
+
+/// A card with A online and B known to the card but not yet plugged in.
+fn a_then_b(policy: ModePolicy) -> Drm2d<FakeCard> {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true), mode(320, 240, 60, false)]),
+        (B, vec![mode(800, 600, 60, true)]),
+    ]);
+    card.state().listed.retain(|&c| c == A);
+    awake(Drm2d::with(card, policy).unwrap())
+}
+
+/// The framebuffers of a display's buffers, and their size.
+fn fbs(v: &Drm2d<FakeCard>, id: u32) -> (Vec<u32>, (u32, u32)) {
+    let o = v.outputs.iter().find(|o| o.id.0 == id).unwrap();
+    (o.buffers.iter().map(|b| b.fb).collect(), o.buffers[0].size)
+}
+
+// Finding 6: a hotplug's modeset keeps what a running display shows: its
+// front buffer stays on the primary plane, and its buffers keep their
+// frames and ages, so it needs no redraw.
+#[test]
+fn a_hotplug_keeps_what_the_running_display_shows() {
+    let mut v = a_then_b(ModePolicy::default());
+    for _ in 0..2 {
+        v.canvas(DisplayId(A)).unwrap().pixels.fill(0xee);
+        v.swap(DisplayId(A), &[rect(0, 0, 640, 480)]).unwrap();
+        flip(&mut v);
+    }
+    v.events().for_each(drop);
+    let o = &v.outputs[0];
+    let shown = o.buffers[o.front()].fb;
+    let held = fbs(&v, A);
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    let c = v.card().last_commit().unwrap();
+    assert_ne!(c.flags & DRM_MODE_ATOMIC_ALLOW_MODESET, 0);
+    assert_eq!(c.get(primary(&v, A), "FB_ID"), Some(u64::from(shown)));
+    assert_eq!(fbs(&v, A), held);
+    let o = &v.outputs[0];
+    assert!(o.buffers[o.front()].map.iter().all(|&b| b == 0xee));
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
+    flip(&mut v);
+    assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 2);
+}
+
+// Finding 6: a modeset whose default-mode retry would resize a running
+// display, and fails, leaves the display its buffers.
+#[test]
+fn a_failed_resize_keeps_the_running_displays_buffers() {
+    let policy = ModePolicy {
+        use_original: false,
+        wanted: Some(Box::new(|name: &str| {
+            (name == "HDMI-A-1").then_some(Wanted {
+                width: 320,
+                height: 240,
+                rate: None,
+            })
+        })),
+    };
+    let mut v = a_then_b(policy);
+    let held = fbs(&v, A);
+    assert_eq!(held.1, (320, 240));
+    v.card().state().listed.push(B);
+    v.card()
+        .state()
+        .commit_errors
+        .extend([Errno::INVAL, Errno::INVAL]);
+    let _ = v.poll();
+    assert_eq!(fbs(&v, A), held);
+    assert_eq!(v.size(DisplayId(A)), Some((320, 240)));
 }

@@ -451,6 +451,11 @@ impl<K: Kms> Drm2d<K> {
             self.master = true;
         }
         self.awake = true;
+        // Another program held the displays: what the buffers hold counts
+        // as unknown, and each display is drawn whole.
+        for o in &mut self.outputs {
+            o.ages = Ages::default();
+        }
         if let Err(e) = self.scan(true, true) {
             self.release_master();
             self.awake = false;
@@ -919,23 +924,49 @@ impl<K: Kms> Drm2d<K> {
         }
     }
 
-    /// Gives `o` two cleared buffers the size of its mode.
-    fn allocate(&self, o: &mut Output<K::Map>) -> io::Result<()> {
+    /// New buffers for `o` where its mode needs them: two, cleared, the
+    /// size of its mode. `None` where its buffers already fit, so a display
+    /// online keeps what it shows.
+    fn stage(&self, o: &Output<K::Map>) -> io::Result<Option<Vec<Buffer<K::Map>>>> {
+        if o.buffers.len() == 2 && self.buffer_size_matches(o) {
+            return Ok(None);
+        }
         let (w, h) = o.size();
-        let sized = o.buffers.len() == 2 && self.buffer_size_matches(o);
-        if !sized {
-            self.free_buffers(o);
-            for _ in 0..2 {
-                let buffer = self.buffer(w, h).inspect_err(|_| self.free_buffers(o))?;
-                o.buffers.push(buffer);
+        let mut made = Vec::with_capacity(2);
+        for _ in 0..2 {
+            match self.buffer(w, h) {
+                Ok(mut b) => {
+                    b.map.as_mut().fill(0);
+                    made.push(b);
+                }
+                Err(e) => {
+                    self.release(made);
+                    return Err(e);
+                }
             }
-            o.back = 0;
         }
-        for b in &mut o.buffers {
-            b.map.as_mut().fill(0);
+        Ok(Some(made))
+    }
+
+    /// The framebuffer a modeset puts on the primary plane: the first of
+    /// the display's new buffers, or else the front buffer it shows.
+    fn staged_fb(o: &Output<K::Map>, made: Option<&Vec<Buffer<K::Map>>>) -> u32 {
+        match made {
+            Some(made) => made.first().map_or(0, |b| b.fb),
+            None => o.buffers.get(o.front()).map_or(0, |b| b.fb),
         }
-        o.ages = Ages::default();
-        Ok(())
+    }
+
+    /// Gives `o` the new buffers of a modeset that took: the first is on
+    /// screen, and both hold nothing drawn.
+    fn install(&self, o: &mut Output<K::Map>, made: Option<Vec<Buffer<K::Map>>>) {
+        if let Some(made) = made {
+            let old = std::mem::replace(&mut o.buffers, made);
+            self.release(old);
+            o.back = 1;
+            o.ages = Ages::default();
+            o.fresh = false;
+        }
     }
 
     fn buffer_size_matches(&self, o: &Output<K::Map>) -> bool {
@@ -967,7 +998,11 @@ impl<K: Kms> Drm2d<K> {
     }
 
     fn free_buffers(&self, o: &mut Output<K::Map>) {
-        for b in o.buffers.drain(..) {
+        self.release(std::mem::take(&mut o.buffers));
+    }
+
+    fn release(&self, buffers: Vec<Buffer<K::Map>>) {
+        for b in buffers {
             drop(b.map);
             let _ = self.card.rm_fb(b.fb);
             if let Err(e) = self.card.destroy_dumb(b.dumb.handle) {
@@ -995,24 +1030,29 @@ impl<K: Kms> Drm2d<K> {
     fn atomic_modeset(&mut self) -> Result<(), Failure> {
         let mut req = Request::default();
         self.clear_planes(&mut req);
-        let mut blobs = Vec::with_capacity(self.outputs.len());
+        let mut staged = Vec::with_capacity(self.outputs.len());
         let mut outputs = std::mem::take(&mut self.outputs);
         let mut prepared = Ok(());
-        for o in &mut outputs {
+        for o in &outputs {
             log::info!(
                 "preparing the modeset of {} at {}x{}",
                 o.name,
                 o.size().0,
                 o.size().1
             );
-            prepared = self
-                .allocate(o)
-                .and_then(|()| self.card.create_blob(&mode_bytes(&o.mode.0)))
-                .and_then(|blob| {
-                    blobs.push(blob);
-                    // The committed buffer becomes the front one.
-                    o.prepare(&mut req, o.back_fb(), blob, None, self.hotspot)
-                });
+            prepared = self.stage(o).and_then(|made| {
+                let fb = Self::staged_fb(o, made.as_ref());
+                match self.card.create_blob(&mode_bytes(&o.mode.0)) {
+                    Ok(blob) => {
+                        staged.push((made, blob));
+                        o.prepare(&mut req, fb, blob, None, self.hotspot)
+                    }
+                    Err(e) => {
+                        self.release(made.unwrap_or_default());
+                        Err(e)
+                    }
+                }
+            });
             if prepared.is_err() {
                 break;
             }
@@ -1044,27 +1084,21 @@ impl<K: Kms> Drm2d<K> {
                     Failure::Other(e)
                 })
         });
-        let mut blobs = blobs.into_iter();
-        for o in &mut outputs {
-            let blob = blobs.next();
+        // A display not set keeps what it had: an online one its buffers
+        // and what it shows.
+        for (o, (made, blob)) in outputs.iter_mut().zip(staged) {
             if outcome.is_ok() {
                 if o.mode_blob != 0 {
                     let _ = self.card.destroy_blob(o.mode_blob);
                 }
-                o.mode_blob = blob.unwrap_or(0);
+                o.mode_blob = blob;
+                self.install(o, made);
                 o.online = true;
                 o.start_flip();
-                o.back = o.front();
                 o.damage.set_whole();
-                o.fresh = false;
-                o.ages = Ages::default();
             } else {
-                if let Some(blob) = blob {
-                    let _ = self.card.destroy_blob(blob);
-                }
-                if !o.online {
-                    self.free_buffers(o);
-                }
+                let _ = self.card.destroy_blob(blob);
+                self.release(made.unwrap_or_default());
             }
         }
         self.outputs = outputs;
@@ -1081,24 +1115,26 @@ impl<K: Kms> Drm2d<K> {
                 o.size().0,
                 o.size().1
             );
-            if let Err(e) = self.allocate(o) {
-                log::error!("cannot allocate buffers for {}: {e}", o.name);
-                continue;
-            }
+            let made = match self.stage(o) {
+                Ok(made) => made,
+                Err(e) => {
+                    log::error!("cannot allocate buffers for {}: {e}", o.name);
+                    continue;
+                }
+            };
             // Another program may have left its cursor on the CRTC.
             if let Err(e) = self.card.hide_cursor(o.crtc) {
                 log::warn!("cannot hide the hardware cursor: {e}");
             }
-            match self.card.set_crtc(o.crtc, o.back_fb(), o.id.0, &o.mode) {
+            let fb = Self::staged_fb(o, made.as_ref());
+            match self.card.set_crtc(o.crtc, fb, o.id.0, &o.mode) {
                 Ok(()) => {
+                    self.install(o, made);
                     o.online = true;
-                    o.back = o.front();
                 }
                 Err(e) => {
                     log::error!("cannot set the CRTC of {}: {e}", o.name);
-                    if !o.online {
-                        self.free_buffers(o);
-                    }
+                    self.release(made.unwrap_or_default());
                 }
             }
         }
