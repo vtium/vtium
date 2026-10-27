@@ -79,6 +79,7 @@ Each was the C reference's behaviour at kmscon `b1f7a7c5`.
 - **The font fallback is tried once,** then the error is returned; the C reference retried for as long as the lookup failed (aaronsb/kmscon#63).
 - **`KMS_START_SCRIPT` is not set.** The C reference set it to `kmscon-launch-gui` on a DRM display (`src/misc/pty.c:286-291`), a script vtium does not install; the operator's decision on vtium/vtium#21.
 - **With no display by `display-wait` after the start, vtium exits with status 1** (see "No display"); the C reference kept running with no display, as vtium does under `display-wait=forever`. During the wait the session's command waits for the first display, where the C reference started it on its default grid when the VT was shown (`src/seat.c:438-447`). Spec: the operator's decisions on vtium/vtium#21 and #99. Tests: `under_a_wait_the_child_starts_when_the_first_display_comes`, `under_no_wait_with_no_display_no_child_starts`.
+- **The session's command starts on the grid of every display set up when it starts.** The C reference activated its displays one at a time as its VT was activated, and the first one's activation opened the pty on that display's grid, so a second display resized the session at once (`src/seat.c:179-212, 244-250`). vtium starts the command at the end of the turn that sets the displays up, so it sees no SIGWINCH as it starts; a display set up a turn later, as one udev brings, still resizes the session. Spec: the operator's decision on vtium/vtium#99. Test: `the_child_starts_on_the_grid_of_every_display_at_the_start`.
 - **A failed renderer set leaves the pointer drawn in software,** and the next successful set gives it back to the hardware cursor; the C reference drew it nowhere (aaronsb/kmscon#211).
 
 - **A child's exit closes its pty after the output it left is read** (vtium-platform's departure), and the next child starts from a hard reset (RIS).
@@ -105,7 +106,7 @@ Each needs a real VT or display, which the boot tests stand in for:
 
 ## C behaviour kept
 
-- The session's command starts when vtium's VT is shown, after each display set up by then, so under `--no-switchvt` it waits until the VT is switched to; the C reference opened the pty when the session was activated, after adding the seat's displays (`src/seat.c:179-212, 438-447`, `src/terminal.c:1711-1737, 1764-1778`). A command started again starts on the grid the session runs on.
+- The session's command starts once vtium's VT is shown, so under `--no-switchvt` it waits until the VT is switched to; the C reference opened the pty when its VT was activated (`src/seat.c:438-447`, `src/terminal.c:1711-1737, 1764-1778`). A command started again starts on the grid the session runs on.
 
 - The XTGETTCAP table is the C reference's: the same 137 names and values as its ncurses-built `src/terminal_termcap.h`, and `Ms`, which the C reference's entry lacked, for OSC 52.
 - A `login` word that is `$NAME` becomes that variable of the session's environment, after the environment is reset.

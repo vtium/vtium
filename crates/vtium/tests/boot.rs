@@ -2228,8 +2228,7 @@ fn under_no_wait_with_no_display_no_child_starts() {
     let mut h = Harness::bare(&["--display-wait=0", "--login", "--", "/bin/sh", "-c", FIRST]);
     assert!(h.until(Duration::from_millis(500), |a| a.finished().is_some()));
     assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
-    assert!(h.app.pty.is_none(), "no child");
-    assert_eq!(first(&h.app), None);
+    assert!(!h.app.started(), "no child");
 }
 
 /// Under `display-wait=0` a display set up at the start is drawn, its

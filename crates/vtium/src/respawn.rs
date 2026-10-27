@@ -14,14 +14,15 @@ use std::time::Duration;
 /// `shown` or not, a `display` set up or not, and `display-wait` set to
 /// `forever` or not. It is due once the VT is shown and a display is set
 /// up, so the child starts on the grid of every display set up by then
-/// and sees no SIGWINCH as it starts: the C reference opened
-/// the pty when the session was activated, after the seat had added each
-/// display it held (`src/seat.c:179-212, 438-447` and
-/// `src/terminal.c:1711-1737, 1764-1778` at kmscon b1f7a7c5). With no
-/// display it is due under `forever` once the VT is shown, on the grid
-/// before any display, which the first display resizes. Under a wait it
-/// waits for the first display, as vtium exits when the wait runs out
-/// with none.
+/// and sees no SIGWINCH as it starts; a display set up a turn later, as
+/// one udev brings, resizes the session. The C reference opened the pty
+/// as its VT was activated, at the first display it activated, and
+/// resized it for each display after (`src/seat.c:179-212, 244-250,
+/// 438-447` and `src/terminal.c:1711-1737, 1764-1778` at kmscon
+/// b1f7a7c5). With no display it is due under `forever` once the VT is
+/// shown, on the grid before any display, which the first display
+/// resizes. Under a wait it waits for the first display, as vtium exits
+/// when the wait runs out with none.
 pub fn first_start_due(shown: bool, display: bool, forever: bool) -> bool {
     shown && (display || forever)
 }

@@ -193,6 +193,8 @@ pub struct App {
     releasing: Option<BTreeSet<PathBuf>>,
     /// The start's wait for a display.
     wait: Wait,
+    /// `display-wait=forever`.
+    forever: bool,
     attached: Attached,
     /// A frame has been on screen since the start.
     presented: bool,
@@ -274,13 +276,12 @@ impl App {
             .filter(|d| !d.is_zero());
         let modes = config.modes(&keys::MODE).to_vec();
         let use_original = config.switch(&keys::USE_ORIGINAL_MODE) && modes.is_empty();
-        let wait = Wait::new(match config.text(&keys::DISPLAY_WAIT) {
-            // `forever`.
-            Some(_) => None,
-            None => Some(Duration::from_secs(
-                config.number(&keys::DISPLAY_WAIT).unwrap_or(10),
-            )),
-        });
+        // The key holds text only for `forever`.
+        let forever = config.text(&keys::DISPLAY_WAIT).is_some();
+        let wait = Wait::new(
+            (!forever)
+                .then(|| Duration::from_secs(config.number(&keys::DISPLAY_WAIT).unwrap_or(10))),
+        );
         App {
             oneshot: config.switch(&keys::ONESHOT),
             clipboard_write: config.switch(&keys::CLIPBOARD_WRITE),
@@ -313,6 +314,7 @@ impl App {
             retaking: BTreeSet::new(),
             releasing: None,
             wait,
+            forever,
             attached: Attached::NotYet,
             presented: false,
             draw_now: false,
@@ -353,12 +355,15 @@ impl App {
         self.start_due = true;
     }
 
+    /// Whether the session's command has started since [`App::start`].
+    pub fn started(&self) -> bool {
+        self.respawn.is_some()
+    }
+
     /// The command's first start, when it is due.
     fn first_start(&mut self, now: Instant) {
-        // The key holds text only for `forever`.
-        let forever = self.config.text(&keys::DISPLAY_WAIT).is_some();
         let display = !self.views.is_empty();
-        if self.start_due && respawn::first_start_due(self.awake, display, forever) {
+        if self.start_due && respawn::first_start_due(self.awake, display, self.forever) {
             self.start_due = false;
             self.respawn = Some(Respawn::new(now.saturating_duration_since(self.epoch)));
             self.spawn();
