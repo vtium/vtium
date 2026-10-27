@@ -38,6 +38,7 @@ struct Memory {
     wake_ups: u32,
     /// Each canvas lent's age, in order.
     ages: Vec<u32>,
+    refresh_mhz: u32,
 }
 
 impl Default for Memory {
@@ -60,6 +61,7 @@ impl Memory {
             unblanks: 0,
             wake_ups: 0,
             ages: Vec::new(),
+            refresh_mhz: 60_000,
         }
     }
 }
@@ -81,7 +83,7 @@ impl Video for Memory {
         Some((self.w, self.h))
     }
     fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
-        Some(60_000)
+        Some(self.refresh_mhz)
     }
     fn canvas(&mut self, _: DisplayId) -> Option<Canvas<'_>> {
         if !self.awake || self.dpms != Some(Dpms::On) {
@@ -839,4 +841,41 @@ fn every_key_a_file_sets_is_read_or_listed_as_not_built() {
             key.name
         );
     }
+}
+
+/// Output of 16 KiB or more a turn draws at most once a refresh: the
+/// app asks coalescing before it draws for output.
+#[test]
+fn a_long_write_draws_at_most_once_a_refresh() {
+    // 20 Hz, the slowest refresh coalescing takes: 50 ms a frame.
+    let slow = Memory {
+        refresh_mhz: 20_000,
+        ..Memory::default()
+    };
+    let mut h = Harness::build(
+        &[
+            "--no-blink",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read x; i=0; while [ $i -lt 100 ]; do head -c 17000 /dev/zero | tr '\\0' x; sleep 0.01; i=$((i+1)); done; echo; echo done; read y",
+        ],
+        FakeVt::new(),
+        Box::new(slow),
+    );
+    assert!(h.until(SECOND, |a| a.vt.is_active()));
+    h.until(Duration::from_millis(200), |_| false);
+    let before = h.memory().frames;
+    let start = now();
+    h.type_str("\r");
+    assert!(h.until(Duration::from_secs(30), |a| {
+        a.screen_text().iter().any(|l| l == "done")
+    }));
+    let elapsed = now() - start;
+    let frames = h.memory().frames - before;
+    // A frame each 50 ms, less a fifth for the timing, and a few for the
+    // key and the end; drawn each turn, it is a frame each burst.
+    let most = u32::try_from(elapsed.as_millis() / 40).unwrap_or(u32::MAX) + 4;
+    assert!(frames <= most, "{frames} frames in {elapsed:?}");
 }
