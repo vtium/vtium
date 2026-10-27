@@ -744,6 +744,38 @@ fn a_wrap_ends_where_its_next_row_is_gone() {
     let mut t = term(4, 2, b"abcdefgh\x1b[H\x1b[?2Jxy\x1b[2;1Hzw");
     t.screen_mut().select_line(0, 0);
     assert_eq!(t.screen().selection_text().as_deref(), Some("xy\n"));
+
+    // DL at a wrap's second row, or a region scrolling under the first.
+    for bytes in [
+        &b"abcdefghij\x1b[2;1H\x1b[M"[..],
+        b"abcdef\x1b[2;3r\x1b[3;1H\n\x1b[2;1Hij",
+    ] {
+        let mut t = term(4, 3, bytes);
+        t.screen_mut().select_line(0, 0);
+        assert_eq!(
+            t.screen().selection_text().as_deref(),
+            Some("abcd\n"),
+            "{bytes:?}"
+        );
+    }
+
+    // After a narrowing resize a row's text runs past the margin, hidden,
+    // and it no longer continues: the copy would leave a hole in it.
+    let mut t = term(8, 3, b"abcdefghijkl");
+    t.screen_mut().resize(4, 3);
+    let s = t.screen_mut();
+    s.select_line(0, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("abcd\n"));
+    s.select_word(3, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("abcd"));
+    s.select_line(0, 1);
+    assert_eq!(s.selection_text().as_deref(), Some("ijkl\n"));
+
+    // A word stops going back at a wrapped row with no text, as it stops
+    // going forward.
+    let mut t = term(4, 3, b"abcdefghij\x1b[2;4H\x1b[1K");
+    t.screen_mut().select_word(0, 2);
+    assert_eq!(t.screen().selection_text().as_deref(), Some("ij"));
 }
 
 // An edit that clears a row's last column ends its wrap, as xterm's
@@ -752,14 +784,16 @@ fn a_wrap_ends_where_its_next_row_is_gone() {
 // and EL 2 as Ghostty's `eraseLine` does: xterm keeps the flag there, but
 // the erased row's text no longer continues. EL 1, ICH, the cursor's row
 // under ED 1, and a row where DECSED leaves a protected cell keep it. IL,
-// DL and a scroll move lines with their flags and bring in unflagged ones.
+// DL and SD end the wrap of each row they shift and of the row above, as
+// Ghostty's `insertLines` and `deleteLines` do; xterm moves the flags. A
+// line feed's scroll, and SU, move lines with their flags.
 #[test]
 fn an_edit_that_clears_the_last_column_ends_the_wrap() {
     let wrapped = |t: &Terminal, row| {
         let line = t.screen().line(row).unwrap();
         line.flags().contains(vtium_term::LineFlags::WRAPPED)
     };
-    let cases: [(&[u8], [bool; 3]); 15] = [
+    let cases: [(&[u8], [bool; 3]); 17] = [
         (b"", [true, true, false]),
         (b"\x1b[1;3H\x1b[K", [false, true, false]),
         (b"\x1b[1;3H\x1b[2K", [false, true, false]),
@@ -772,8 +806,10 @@ fn an_edit_that_clears_the_last_column_ends_the_wrap() {
         (b"\x1b[1;1H\x1b[@", [true, true, false]),
         (b"\x1b[1;1H\x1b[1J", [true, true, false]),
         (b"\x1b[3;1H\x1b[?1J", [false, false, false]),
-        (b"\x1b[1;1H\x1b[L", [false, true, true]),
-        (b"\x1b[1;1H\x1b[M", [true, false, false]),
+        (b"\x1b[1;1H\x1b[L", [false, false, false]),
+        (b"\x1b[1;1H\x1b[M", [false, false, false]),
+        (b"\x1b[2;1H\x1b[M", [false, false, false]),
+        (b"\x1b[T", [false, false, false]),
         (b"\x1b[S", [true, false, false]),
     ];
     for (bytes, flags) in cases {

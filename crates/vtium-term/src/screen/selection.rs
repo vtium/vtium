@@ -139,7 +139,8 @@ impl Screen {
     /// Where the word holding column `x` of the line at `at` starts: after
     /// the space before it, on this row or a row it wrapped from. A wrapped
     /// row's empty cells at its end are passed over, as `word_end` passes
-    /// them.
+    /// them, and a wrapped row with no text ends the word, as it does
+    /// going forward.
     fn word_start(&self, mut at: usize, x: usize) -> (usize, usize) {
         let Some(line) = self.line_at(at) else {
             return (at, x);
@@ -153,6 +154,7 @@ impl Screen {
             };
             let len = text_len(line).min(self.cols);
             match (0..len).rev().find(|&c| is_space(line, c)) {
+                _ if len == 0 => break,
                 Some(c) if c.saturating_add(1) == len => break,
                 Some(c) => return (prev, c.saturating_add(1)),
                 None => at = prev,
@@ -346,12 +348,15 @@ impl Screen {
     }
 
     /// Whether the line at `place` in reading order continues on the next:
-    /// it wrapped, and the next is not the alternate screen's first row.
+    /// it wrapped, its text ends inside the screen, and the next is not the
+    /// alternate screen's first row. Text past a narrower screen's margin
+    /// is hidden until reflow (vtium/vtium#41) rejoins it, so a copy that
+    /// went on to the next row would leave a hole in it.
     fn continues(&self, place: usize) -> bool {
         let next = place.saturating_add(1);
         let wrapped = self
             .line_at(place)
-            .is_some_and(|l| l.flags().contains(LineFlags::WRAPPED));
+            .is_some_and(|l| l.flags().contains(LineFlags::WRAPPED) && text_len(l) <= self.cols);
         wrapped
             && self.line_at(next).is_some()
             && !(self.flags.alternate && next == self.scrollback.len())

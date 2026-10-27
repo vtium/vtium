@@ -15,13 +15,17 @@
 //! DECSED leaves a protected cell keeping it. This is xterm's rule
 //! (`ClearRight`, `ScrnDeleteChar`, `ClearBufRows`), with EL 2 as Ghostty's
 //! `eraseLine` has it, since xterm keeps the wrap of a row EL 2 clears.
-//! An erase that clears the main screen's first row whole, and IL, DL and
-//! SD that replace it, also end the wrap of the scrollback's newest line,
-//! whose next row it was; xterm keeps that wrap, joining the line to
+//! IL, DL and SD end the wrap of each row they shift and of the row above
+//! them, whose next row changes, as Ghostty's `insertLines` and
+//! `deleteLines` do in a region as wide as the screen; xterm moves the
+//! flags, joining a row to an unrelated one. A line feed's scroll, and SU,
+//! move lines with their flags, since a wrapped line moves whole, and end
+//! the wrap of the row above the region. A line a region below the first
+//! row scrolls into the scrollback enters it unwrapped, since its next row
+//! stays on the screen. An erase that clears the main screen's first row
+//! whole, and IL, DL and SD there, end the wrap of the scrollback's newest
+//! line, whose next row it was; xterm keeps that wrap, joining the line to
 //! whatever is printed there next.
-//! IL, DL and scrolling move lines with their flags and bring in unflagged
-//! ones; a line a region below the first row scrolls into the scrollback
-//! enters it unwrapped, since its next row stays on the screen.
 //!
 //! [`Line::erase`]: crate::Line::erase
 //! [`Line::insert_cells`]: crate::Line::insert_cells
@@ -133,6 +137,17 @@ impl Screen {
             self.unwrap_scrollback();
         }
         whole
+    }
+
+    /// Ends the wrap of each row from `y` to the bottom margin, which an
+    /// edit shifted, and of the row above `y`, whose next row changed: the
+    /// scrollback's newest line above the first row.
+    fn unwrap_shifted(&mut self, y: usize) {
+        match y.checked_sub(1) {
+            Some(above) => self.unwrap_rows(above..y),
+            None => self.unwrap_scrollback(),
+        }
+        self.unwrap_rows(y..self.bottom.saturating_add(1));
     }
 
     /// Ends the wrap of the scrollback's newest line, when the main
@@ -278,9 +293,7 @@ impl Screen {
         if let Some(region) = self.active_mut().get_mut(rows.clone()) {
             region.rotate_right(n);
         }
-        if y == 0 {
-            self.unwrap_scrollback();
-        }
+        self.unwrap_shifted(y);
         self.mark_rows(rows);
         self.cursor_x = 0;
     }
@@ -302,9 +315,7 @@ impl Screen {
         if let Some(region) = self.active_mut().get_mut(rows.clone()) {
             region.rotate_left(n);
         }
-        if y == 0 {
-            self.unwrap_scrollback();
-        }
+        self.unwrap_shifted(y);
         self.mark_rows(rows);
         self.cursor_x = 0;
     }
@@ -339,6 +350,9 @@ impl Screen {
         if let Some(region) = self.active_mut().get_mut(rows.clone()) {
             region.rotate_left(n);
         }
+        if let Some(above) = rows.start.checked_sub(1) {
+            self.unwrap_rows(above..rows.start);
+        }
         self.mark_rows(rows);
     }
 
@@ -349,9 +363,7 @@ impl Screen {
             return;
         }
         self.rotate_down(n);
-        if self.top == 0 {
-            self.unwrap_scrollback();
-        }
+        self.unwrap_shifted(self.top);
     }
 
     /// Moves the region down `n` rows, blank lines coming in at the top.
