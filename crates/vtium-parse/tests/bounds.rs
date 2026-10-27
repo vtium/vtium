@@ -143,6 +143,18 @@ fn osc_keeps_a_prefix_once_a_character_does_not_fit() {
     assert_eq!(parse(&seq), [osc_truncated(&[b'a'; OSC_MAX - 2], Bel)]);
 }
 
+// An OSC string after a truncated one starts empty and unflagged.
+#[test]
+fn next_osc_starts_clean() {
+    let mut seq = b"\x1b]".to_vec();
+    seq.extend_from_slice(&[b'a'; 200]);
+    seq.push(0x07);
+    seq.extend_from_slice(b"\x1b]0;x\x07");
+    let acts = parse(&seq);
+    assert_eq!(acts.len(), 2);
+    assert_eq!(acts[1], osc(b"0;x", Bel));
+}
+
 // A megabyte of OSC takes no more than the bound.
 #[test]
 fn osc_flood_bounded() {
