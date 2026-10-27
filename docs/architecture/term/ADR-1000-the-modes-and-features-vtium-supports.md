@@ -32,6 +32,10 @@ considered:
     said: "agree to widen the rule"
     via: operator, in session 2026-10-27
     covers: [where the line falls]
+  - operator: aaronsb
+    said: "the union of our tables and the operator's (my) listings. we're not trying to build a 'super terminal' of all the different references."
+    via: operator, in session 2026-10-27, relayed by the team lead
+    covers: [where the line falls]
 status: proposed
 date: 2026-10-26
 deciders:
@@ -75,7 +79,7 @@ vtium supports everything the C reference supported, apart from the departures v
 
 ### The rule for a new mode or feature
 
-A mode or feature the C reference had keeps its status unless this record changes it. A new one is supported when xterm's control sequences and at least one of foot, Ghostty, WezTerm or kitty document it. One that falls short of that is supported when it is on the operator's list, the features the operator named as ones they use (vtium/vtium#12, the comment of 2026-10-26), or when the console has a use for it that its row names (mode 2028 for reflow, mode 2033 for VT switching, mode 2048 for a display hot-plugged or changing mode). Any other new mode gets no row, and any other new feature is ignored. A refusal carries a reason a reader can check.
+A mode or feature the C reference had keeps its status unless this record changes it. Beyond those, the target set is the union of two parts: the capabilities terminals generally support, which this rule admits, and the operator's list, the features the operator named as ones they use (vtium/vtium#12, the comment of 2026-10-26). The rule admits a new one when xterm's control sequences and at least one of foot, Ghostty, WezTerm or kitty document it, or when the console has a use for it that its row names (mode 2028 for reflow, mode 2033 for VT switching, mode 2048 for a display hot-plugged or changing mode). vtium is not a superset of every reference terminal, and obscure DEC-era modes are not the aim: a new mode neither part brings in gets no row, and a new feature neither part brings in is ignored. A refusal carries a reason a reader can check.
 
 The support columns count only published documentation: for xterm and foot, whose documents list everything they do, absence reads "no"; elsewhere silence reads "unverified". kitty is read from its specification pages, never its source.
 
