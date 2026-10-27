@@ -11,6 +11,11 @@ authors.workspace = true
 [lints]
 workspace = true
 
+[features]
+# logind through sd-bus from libsystemd (ADR-1400's L2 layer): the power
+# keys' suspend. Off in the minspec build, which links no libsystemd.
+logind = []
+
 [dependencies]
 calloop = { version = "0.14.4", features = ["signals"] }
 drm-ffi = "=0.9.1"

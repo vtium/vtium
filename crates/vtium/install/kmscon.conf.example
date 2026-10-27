@@ -146,7 +146,7 @@
 ## Power the machine off: init is asked with `SIGRTMIN+4`, which systemd takes as `poweroff.target`, so the services stop and the filesystems are unmounted first. Unset, no key powers off.
 #grab-power-off=
 
-## Suspend the machine: logind is asked with its `Suspend` method. Unset, no key suspends.
+## Suspend the machine to RAM: logind is asked with its `Suspend` method, so its inhibitors hold the sleep; where logind is not running, or vtium is built without `logind`, `mem` is written to `/sys/power/state`. Unset, no key suspends.
 #grab-suspend=
 
 ## The font source to use. Unset, each the build has, in this order.

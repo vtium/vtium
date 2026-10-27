@@ -297,7 +297,7 @@ impl App {
             selection: None,
             tracking: MouseTracking::Off,
             power_keys,
-            power: Box::new(grab::System),
+            power: Box::<grab::System>::default(),
             modes,
             use_original,
             vt,

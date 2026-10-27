@@ -47,8 +47,9 @@
 //!   start and followed as they come and go ([`udev::Udev`]).
 //! - [`input`]: every keyboard and pointer through evdev, keys through
 //!   libxkbcommon with compose and a repeat timer ([`input::Input`]).
-//! - [`power`]: the reboot and power-off requests the power keys make of
-//!   PID 1 and the kernel.
+//! - [`power`]: the reboot, power-off and suspend requests the power keys
+//!   make of PID 1, logind and the kernel; with the `logind` feature,
+//!   [`logind`] reaches logind through sd-bus.
 //!
 //! Each bound is defined once in `src/bounds.rs` and tabulated in the
 //! crate's README.
@@ -59,6 +60,8 @@ pub mod display;
 pub mod event_loop;
 pub mod input;
 mod ioctl;
+#[cfg(feature = "logind")]
+pub mod logind;
 mod mmap;
 pub mod power;
 pub mod pty;

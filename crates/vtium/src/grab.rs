@@ -10,6 +10,9 @@
 //! pastes, as xterm's `insert-selection` translation does.
 
 use std::io;
+use std::process::Child;
+
+use vtium_platform::power::Suspend;
 
 /// What a grab does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -167,12 +170,17 @@ pub trait Power {
     fn power_off_init(&mut self) -> io::Result<()>;
     /// `sync()`, then `reboot(RB_AUTOBOOT)`: the kernel restarts at once.
     fn restart_kernel(&mut self) -> io::Result<()>;
-    /// logind's `Suspend`.
+    /// Suspend to RAM: logind's `Suspend` when built in and running, else
+    /// `mem` written to `/sys/power/state`.
     fn suspend(&mut self) -> io::Result<()>;
 }
 
 /// The machine vtium runs on.
-pub struct System;
+#[derive(Default)]
+pub struct System {
+    /// The child writing `mem` to `/sys/power/state`, until it is reaped.
+    sleeper: Option<Child>,
+}
 
 impl Power for System {
     fn ctrl_alt_del(&mut self) -> io::Result<String> {
@@ -188,10 +196,24 @@ impl Power for System {
         vtium_platform::power::restart_kernel()
     }
     fn suspend(&mut self) -> io::Result<()> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "logind's Suspend is not built in",
-        ))
+        if let Some(sleeper) = &mut self.sleeper {
+            match sleeper.try_wait()? {
+                None => {
+                    log::warn!("grab-suspend: the last suspend has not woken yet");
+                    return Ok(());
+                }
+                Some(status) => log::info!("grab-suspend: the last suspend's write {status}"),
+            }
+            self.sleeper = None;
+        }
+        match vtium_platform::power::suspend()? {
+            Suspend::Logind => log::warn!("grab-suspend: logind took the request"),
+            Suspend::Sysfs(child) => {
+                log::warn!("grab-suspend: writing mem to /sys/power/state");
+                self.sleeper = Some(child);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -201,7 +223,8 @@ impl Power for System {
 /// chosen by `/proc/sys/kernel/ctrl-alt-del`, which the kernel reads for
 /// its own Ctrl+Alt+Del: at 0, or when it cannot be read, PID 1 is asked
 /// to reboot; at any other number the kernel restarts at once. Power-off
-/// asks PID 1 and suspend asks logind; neither calls `reboot(2)`.
+/// asks PID 1, and suspend asks logind, or the kernel where logind is not
+/// running or not built in; neither calls `reboot(2)`.
 pub fn press(key: PowerKey, power: &mut dyn Power) {
     let done = match key {
         PowerKey::Reboot => match ctrl_alt_del(power) {
@@ -219,7 +242,7 @@ pub fn press(key: PowerKey, power: &mut dyn Power) {
             power.power_off_init()
         }
         PowerKey::Suspend => {
-            log::warn!("grab-suspend: asking logind to suspend");
+            log::warn!("grab-suspend: suspending");
             power.suspend()
         }
     };

@@ -839,7 +839,7 @@ pub const GRAB_SUSPEND: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Suspend the machine: logind is asked with its `Suspend` method. Unset, no key suspends.",
+    what: "Suspend the machine to RAM: logind is asked with its `Suspend` method, so its inhibitors hold the sleep; where logind is not running, or vtium is built without `logind`, `mem` is written to `/sys/power/state`. Unset, no key suspends.",
     cite: "vtium/vtium#21",
 };
 
