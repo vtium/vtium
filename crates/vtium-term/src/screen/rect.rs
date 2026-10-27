@@ -34,8 +34,8 @@ pub(crate) struct Rect {
 pub(crate) enum Extent {
     /// The cells from the first corner to the second in reading order,
     /// each row after the first from the screen's first column and each
-    /// before the last to its last, that hold a character (DECSACE
-    /// 0 and 1).
+    /// before the last to its last, that hold a character (DECSACE 0 and
+    /// 1).
     #[default]
     Stream,
     /// Every cell of the rectangle (DECSACE 2).
