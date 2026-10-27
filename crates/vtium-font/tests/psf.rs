@@ -42,6 +42,7 @@ fn with(mut b: Vec<u8>, byte: u8, n: usize) -> Vec<u8> {
 }
 
 // test_font_psf.c test_header()
+// covers: text.psf
 #[test]
 fn header_bounds() {
     // 16 * 0x10000001 is 16 in 32 bits
@@ -120,6 +121,7 @@ fn header_bounds() {
 
 // test_font_psf.c test_header_size(): a 64-byte PSF2 header, glyph i all of
 // whose bytes are i starting at 64 + 16i
+// covers: text.psf
 #[test]
 fn glyphs_start_where_the_header_says() {
     let mut b = with(psf2_header(64, 0, 256, 16, 16, 8), 0x55, 32);
@@ -139,6 +141,7 @@ fn glyphs_start_where_the_header_says() {
 }
 
 // test_font_psf.c test_short()
+// covers: text.psf
 #[test]
 fn files_shorter_than_their_header_say() {
     expect(
@@ -168,6 +171,7 @@ fn files_shorter_than_their_header_say() {
 
 // test_font_psf.c test_small(): a missing character draws from glyph 0 in
 // a font too small to hold '?' (63)
+// covers: text.psf
 #[test]
 fn a_font_without_question_mark_draws_glyph_0() {
     let mut b = psf2(0, 1, 16, 16, 8);
@@ -181,6 +185,7 @@ fn a_font_without_question_mark_draws_glyph_0() {
 }
 
 // test_font_psf.c test_table()
+// covers: text.psf
 #[test]
 fn table_bounds() {
     let cap = PSF_ENTRIES_MAX as usize;
@@ -205,6 +210,7 @@ fn table_bounds() {
 
 // test_font_psf.c test_split(): the C reference read the table 1024 bytes
 // at a time; vtium reads it whole, and keeps the cases
+// covers: text.psf
 #[test]
 fn utf8_at_the_table_edges() {
     let mut b = with(with(psf2_with_table(), b'B', 1022), 0xff, 1);
@@ -221,6 +227,7 @@ fn utf8_at_the_table_edges() {
 // aaronsb/kmscon#231: a start-of-sequence mark opens the glyph's sequences,
 // which run to its terminator. The C reference took the mark for a
 // terminator, so every later glyph was mapped one off per sequence.
+// covers: text.psf
 #[test]
 fn a_sequence_does_not_shift_later_glyphs() {
     // glyph 0: 'A', then the sequence 'B' U+0301; glyph 1: 'D'; glyph 2: 'E'
@@ -251,6 +258,7 @@ fn a_sequence_does_not_shift_later_glyphs() {
 
 // Departure: a PSF2 terminator ends the glyph's entry even inside a UTF-8
 // sequence; the C reference read it as the sequence's continuation byte.
+// covers: text.psf
 #[test]
 fn a_terminator_ends_a_broken_utf8_sequence() {
     let mut b = psf2_with_table();
@@ -269,6 +277,7 @@ fn a_terminator_ends_a_broken_utf8_sequence() {
 // Departure: where the table lists a codepoint for several glyphs, the last
 // listed wins, as the Linux console loads it; the C reference's binary
 // search found any of them.
+// covers: text.psf
 #[test]
 fn a_codepoint_listed_twice_maps_to_the_last() {
     let mut b = psf2_with_table();
@@ -282,6 +291,7 @@ fn a_codepoint_listed_twice_maps_to_the_last() {
 // Departure: entries past the last glyph are ignored; the C reference's
 // 16-bit glyph counter wrapped after 65536 terminators and mapped later
 // entries onto the first glyphs.
+// covers: text.psf
 #[test]
 fn entries_past_the_last_glyph_map_nothing() {
     let mut b = with(psf2(1, 2, 16, 16, 8), 0xaa, 2 * 16);
@@ -299,6 +309,7 @@ fn entries_past_the_last_glyph_map_nothing() {
 
 // Departure: with a table, the fallback '?' is looked up as a character;
 // the C reference drew glyph 63 whatever the table said.
+// covers: text.psf
 #[test]
 fn the_fallback_question_mark_is_looked_up() {
     let mut b = psf2(1, 2, 16, 16, 8);
@@ -389,6 +400,7 @@ mod gz {
     }
 
     // test_font_psf.c test_gz_corrupt()
+    // covers: text.psf
     #[test]
     fn a_bad_checksum_is_refused() {
         let mut gz = gzip(&font());
@@ -405,6 +417,7 @@ mod gz {
         assert!(matches!(Psf::parse(&gz), Err(PsfError::Gzip(_))));
     }
 
+    // covers: text.psf
     #[test]
     fn malformed_framing_is_refused() {
         let gz = gzip(&font());
@@ -444,6 +457,7 @@ mod gz {
         assert_eq!(Psf::parse(&gz).expect("loads").glyph_index('A'), Some(0));
     }
 
+    // covers: text.psf
     #[test]
     fn a_file_inflating_past_the_byte_bound_is_refused() {
         let bomb = gzip(&vec![0u8; PSF_BYTES_MAX as usize + 1]);
@@ -470,6 +484,7 @@ fn fixture(name: &str) -> String {
 
 // test_font_psf.c test_fixture(): psf-test.psf, glyph G's row R holding
 // G + R
+// covers: text.psf
 #[test]
 fn the_fixture_loads() {
     let check = |psf: Psf| {
@@ -496,6 +511,7 @@ fn the_fixture_loads() {
 // The Terminus fixtures: PSF1 and PSF2 fonts with unicode tables, as kbd
 // ships them
 #[cfg(feature = "gzip")]
+// covers: text.psf
 #[test]
 fn the_terminus_fixtures_load() {
     for (name, size, count) in [
@@ -520,6 +536,7 @@ fn the_terminus_fixtures_load() {
 
 /// The positive control: every PSF font kbd ships loads, and loads again
 /// gunzipped when it ships gzipped; every other file there is refused.
+// covers: text.psf
 #[test]
 fn every_kbd_console_font_loads() {
     let dir = "/usr/share/kbd/consolefonts";

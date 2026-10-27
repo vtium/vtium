@@ -403,6 +403,7 @@ const BRAILLE_LAYOUTS: [Layout; 10] = [
     (1000, 2000, 250, [125, 625], [125, 625, 1125, 1625]),
 ];
 
+// covers: text.sprites
 #[test]
 fn braille_matches_the_hand_worked_layouts() {
     for (w, h, side, xs, ys) in BRAILLE_LAYOUTS {
@@ -425,6 +426,7 @@ fn braille_matches_the_hand_worked_layouts() {
     }
 }
 
+// covers: text.sprites
 #[test]
 fn every_cell_size_matches_the_model() {
     let mut f = Failures::default();
@@ -436,6 +438,7 @@ fn every_cell_size_matches_the_model() {
     f.assert_none();
 }
 
+// covers: text.sprites
 #[test]
 fn a_large_cell_matches_the_model() {
     let mut f = Failures::default();

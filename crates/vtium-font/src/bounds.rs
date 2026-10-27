@@ -60,8 +60,8 @@ const ENTRIES: Bound = Bound {
 const CELL: Bound = Bound {
     name: "CELL_SIDE_MAX",
     value: 2048,
-    what: "A cell's width or height in pixels. A glyph bitmap is at most two cells wide",
-    past: "A font scales by the largest whole factor that keeps its cell inside; a sprite or bitmap asked for past it is not drawn",
+    what: "A cell's width or height in pixels. A glyph is at most two cells wide",
+    past: "A font scales by the largest whole factor that keeps its cell inside; a sprite or glyph asked for past it is not drawn",
     cite: "vtium's own: the C reference scaled a bitmap font to any height it was asked for (font_psf.c:247-249, font_unifont.c:229-231). A cell of 2048 is taller than a 7680x2160 display's one row",
 };
 
@@ -86,7 +86,7 @@ pub const PSF_BYTES_MAX: u32 = BYTES.value;
 pub const PSF_ENTRIES_MAX: u32 = ENTRIES.value;
 
 /// A cell's width or height in pixels. A font scales only as far as keeps
-/// its cell inside, and a bitmap is at most two cells wide.
+/// its cell inside, and a glyph is at most two cells wide.
 pub const CELL_SIDE_MAX: u32 = CELL.value;
 
 #[cfg(test)]

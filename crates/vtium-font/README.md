@@ -1,12 +1,12 @@
 # vtium-font
 
-vtium's glyph sources: font files and built-in fonts in, glyph bitmaps out. It loads PC Screen Fonts (PSF1 and PSF2, gzipped ones with the `gzip` feature), carries GNU Unifont built in (the `unifont` feature), and draws box drawing, block elements, Braille, sextants and octants as sprites that fill their cell. A `Font` puts a face and the sprites together and draws any cluster exactly into its cells. It forbids unsafe code, and every glyph is an 8-bit coverage `Bitmap` whose bytes are the same on every host. Outline fonts (vtium/vtium#23) come later as another `Face`.
+vtium's glyph sources: font files and built-in fonts in, glyph bitmaps out. It loads PC Screen Fonts (PSF1 and PSF2, gzipped ones with the `gzip` feature), carries GNU Unifont built in (the `unifont` feature), and draws box drawing, block elements, Braille, sextants and octants as sprites that fill their cell. A `Font` puts a face and the sprites together and draws any cluster exactly into its cells. It forbids unsafe code. Every glyph is a `Glyph`, a coverage mask or premultiplied RGBA, and its bytes are the same on every host. Outline fonts (vtium/vtium#23) come later as another `Face`.
 
 | Path | What it is |
 |---|---|
 | `src/lib.rs` | The crate's documentation, lints and public names. |
 | `src/face.rs` | The `Face` trait a glyph source implements, and `Font`: sprites first, then the face, then U+25A1, `?` and the face's last resort, each glyph boxed to its cells. `Decorations`: where underline and strike go. |
-| `src/bitmap.rs` | `Bitmap`, the coverage mask every glyph and sprite is, bounded by `CELL_SIDE_MAX`. |
+| `src/glyph.rs` | `Glyph`, what every face and sprite draws: a coverage mask or premultiplied RGBA, with the cells it spans, bounded by `CELL_SIDE_MAX`. |
 | `src/psf.rs` | `Psf`: the PSF1 and PSF2 loader, its unicode table, and the glyph drawing, with the C reference's notice. |
 | `src/gzip.rs` | gzip (RFC 1952) framing and checks around `miniz_oxide`'s inflate, for gzipped PSF fonts. |
 | `src/unifont.rs` | `Unifont`: the built-in font, inflated a 16 KiB chunk at a time as glyphs are drawn from it. |
@@ -40,11 +40,34 @@ A sprite's curves and diagonals are supersampled with IEEE 754 `f64` addition, s
 ## Beyond the C reference
 
 - **The built-in unifont is inflated as it is used.** The binary carries the 3.7 MB of glyphs deflated in 16 KiB chunks (1.3 MB), and each chunk is inflated the first time a glyph is drawn from it, so text in a few scripts holds a few chunks. The C reference inflated the whole font into memory when it loaded (font_unifont.c:203-245).
-- **A cell is bounded.** A font scales by whole factors only as far as keeps its cell inside `CELL_SIDE_MAX`, and a sprite or bitmap past it is not drawn (`CELL_SIDE_MAX` below). The C reference scaled to any height it was asked for.
+- **A cell is bounded.** A font scales by whole factors only as far as keeps its cell inside `CELL_SIDE_MAX`, and a sprite or glyph past it is not drawn (`CELL_SIDE_MAX` below). The C reference scaled to any height it was asked for.
+
+## Glyph storage
+
+**What a draw returns.** Every draw allocates a new `Glyph`: its width, height, the cells it spans (1 or 2) and its pixels row by row, in one of two formats.
+
+| Format | Bytes a pixel | Holds | A narrow 8x16 cell | Two cells at `CELL_SIDE_MAX` (4096x2048) |
+|---|---|---|---|---|
+| `Format::Mask` | 1 | Coverage, 0 to 255; the renderer blends it in the cell's colours | 128 B | 8 MiB |
+| `Format::Rgba` | 4 | Red, green, blue and alpha, the colours premultiplied by alpha | 512 B | 32 MiB |
+
+PSF, unifont and the sprites draw only masks. RGBA is for colour faces (vtium/vtium#23, #24).
+
+**What each source keeps.**
+
+| Source | Kept in memory | Cost at minspec |
+|---|---|---|
+| `Psf` | The glyphs' 1-bit rows as one slice, count x height x ceil(width / 8) bytes, and, when the font has a unicode table, a codepoint table sorted for binary search, 8 bytes an entry. The file's other bytes are dropped after parsing. | kbd's `default8x16`: 4 KiB of glyphs and 282 entries (2.2 KiB). Terminus 16x32: 32 KiB and 627 entries (5 KiB). The largest font the bounds admit keeps up to 16 MiB of glyphs and 8.5 MiB of table, and parsing it holds the file's bytes as well, up to 16 MiB more. |
+| `Unifont` | Compiled into the binary, read-only: the 3.7 MB of glyphs deflated in 227 chunks of at most 16 KiB (1.28 MB), a block index of 3465 runs (54 KiB) and a chunk index (1.8 KiB). In memory: each chunk a glyph has been drawn from, inflated once on its first draw and kept for the life of the process, shared by every `Unifont`. A chunk is never dropped and never inflated twice. | ASCII and Latin-1 are chunk 0 and U+25A1, drawn for a missing character, is chunk 14, so plain text holds 16 to 32 KiB. Text with Latin Extended, Greek and Cyrillic adds chunk 1, and punctuation, arrows and maths chunks 12 and 13. The CJK ideographs U+4E00-U+9FFF span 42 chunks (about 670 KiB). All 227 is 3.7 MB, the C reference's cost from the moment it loaded unifont. |
+| Sprites | Nothing: each is computed at the size asked for. | |
+
+Scale does not change what a source keeps, only what a draw returns: a font scaled to a cell of 2048 still keeps its 1-bit rows, and each draw returns a glyph of up to 8 MiB as a mask.
+
+**The drawn-glyph cache is vtium-render's** (vtium/vtium#16) and is not decided here. A draw costs an allocation and a bit-to-byte expansion, and for unifont an inflate only the first time a chunk is used, so the cache saves the expansion and the allocation and never repeats an inflate.
 
 ## Notes for vtium-render
 
-- Ask `Font::glyph` for every cell's glyph: it draws the sprites, the face and the fallbacks, and boxes the result to exactly the cells asked for. It returns `None` only for an empty cluster or a face that can draw nothing at all.
+- Ask `Font::glyph` for every cell's glyph: it draws the sprites, the face and the fallbacks, and boxes the result to exactly the cells asked for, marked with that cell count. Check its `format()`: a mask is blended in the cell's colours, RGBA is composited as it is. It returns `None` only for an empty cluster or a face that can draw nothing at all.
 - A sprite's thickness is the face's underline thickness (`Font::decorations`), as in the C reference, so lines and underlines match.
 - Bold is drawn into the glyph; italic is not, as in the C reference's bitmap fonts. Overhang is vtium/vtium#26.
 - A glyph's bytes depend only on the font, the size, the style and the character, so a cache may key on those.
@@ -65,5 +88,5 @@ A font file is untrusted input: its sizes are bounded, and a malformed one is re
 | `PSF_HEIGHT_MAX` | 256 | A PSF glyph's height in pixels | The font is refused | `PSF_MAX_HEIGHT`, font_psf.c:66-67, 76, 200: PSF1 holds the height in a byte |
 | `PSF_BYTES_MAX` | 16777216 | Bytes a PSF file holds: the whole file, decompressed when gzipped, and a gzipped file's own bytes | The font is refused, whatever the bytes past the glyphs hold | `PSF_MAX_BYTES`, font_psf.c:68-69, 77, 207-208, 420-428; the C reference counted only the bytes it read, so it took a PSF1 font without a table whatever followed its glyphs |
 | `PSF_ENTRIES_MAX` | 1114112 | Codepoints a PSF unicode table maps, before duplicates are merged | The font is refused | `PSF_MAX_ENTRIES`, font_psf.c:70-72, 78, 383-385: one entry for each Unicode codepoint |
-| `CELL_SIDE_MAX` | 2048 | A cell's width or height in pixels. A glyph bitmap is at most two cells wide | A font scales by the largest whole factor that keeps its cell inside; a sprite or bitmap asked for past it is not drawn | vtium's own: the C reference scaled a bitmap font to any height it was asked for (font_psf.c:247-249, font_unifont.c:229-231). A cell of 2048 is taller than a 7680x2160 display's one row |
+| `CELL_SIDE_MAX` | 2048 | A cell's width or height in pixels. A glyph is at most two cells wide | A font scales by the largest whole factor that keeps its cell inside; a sprite or glyph asked for past it is not drawn | vtium's own: the C reference scaled a bitmap font to any height it was asked for (font_psf.c:247-249, font_unifont.c:229-231). A cell of 2048 is taller than a 7680x2160 display's one row |
 <!-- end of bounds table -->

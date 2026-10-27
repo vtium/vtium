@@ -34,6 +34,7 @@ fn an_empty_cluster_draws_nothing() {
 
 // font.c:345-357: a sprite fills the cells, its lines the underline's
 // thickness
+// covers: text.sprites
 #[test]
 fn a_sprite_character_fills_its_cells() {
     let mut psf = small_psf();
@@ -238,6 +239,7 @@ mod unifont {
         assert_eq!(huge.size_step(), 16);
     }
 
+    // covers: text.psf
     #[test]
     fn glyphs_carry_their_own_width() {
         let f = Unifont::new(16);
@@ -262,6 +264,7 @@ mod unifont {
     }
 
     // font.c:358-364: a character unifont lacks draws U+25A1
+    // covers: text.psf
     #[test]
     fn a_missing_character_draws_the_replacement() {
         let font = Font::new(Unifont::new(16));

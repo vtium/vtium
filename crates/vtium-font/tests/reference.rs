@@ -94,6 +94,7 @@ fn render_page<F: Face>(font: &Font<F>, page: u32, cells: u32, bold: bool) -> Op
 
 // font_box.c over 800 cell sizes and 858 line thicknesses, and in a
 // 1000x2000 cell
+// covers: text.sprites
 #[test]
 fn sprites_match_the_c_reference() {
     check("sprites", &lines("box.tsv"), |row| {
@@ -114,6 +115,7 @@ fn sprites_match_the_c_reference() {
 
 // font_psf.c's glyphs and font.c's kmscon_font_render over the fixtures,
 // at 1, 2 and 3 times their height
+// covers: text.psf
 #[test]
 fn psf_fonts_match_the_c_reference() {
     let rows = lines("psf.tsv");
@@ -152,6 +154,7 @@ fn psf_fonts_match_the_c_reference() {
 // kmscon_font_render over all of plane 0 and a sample beyond, at 1 and 2
 // times 16
 #[cfg(feature = "unifont")]
+// covers: text.psf
 #[test]
 fn unifont_matches_the_c_reference() {
     use vtium_font::Unifont;
