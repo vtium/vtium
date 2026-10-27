@@ -1,0 +1,63 @@
+# vtium's configuration, installed as /etc/kmscon/kmscon.conf.example.
+# Generated from crates/vtium/src/config/keys.rs; docs/config.md describes each key.
+#
+# One key a line: key=value, or a switch's key to turn it on and no-key to
+# turn it off. Each key is shown at its default, commented out. The command
+# line wins over this file.
+
+## The VT to run on: a number N for `/dev/ttyN`, a name under `/dev`, or a path. Unset, the VT vtium was started on, or the next free one.
+#vt=
+
+## Switch to vtium's VT at start; off, wait until something else switches to it.
+#switchvt
+
+## The session's command. Unset, `/bin/login -p` with `reset-env` on and `/bin/login` with it off. A word that is `$NAME` becomes that variable of the session's environment, and `$$` starts a word with `$`.
+#login=
+
+## Exit when the session's command exits, in place of starting it again.
+#no-oneshot
+
+## `TERM` in the session's environment.
+#term=kmscon
+
+## Start the session with an empty environment and the variables vtium sets; off, with vtium's own environment as well.
+#reset-env
+
+## The pty's erase character is DEL (0x7f); off, BS (0x08).
+#backspace-delete
+
+## Lines of scrollback, at most `sb-size-cap`.
+#sb-size=1000
+
+## The most lines `sb-size` may ask for. Unset, it follows the machine's memory: 10,000 lines below 2 GiB, 30,000 from 2 GiB and 100,000 from 4 GiB.
+#sb-size-cap=
+
+## Blink text with SGR 5 and a blinking cursor, every 500 ms; off, neither blinks.
+#blink
+
+## The longest a synchronized frame (mode 2026) is held before it is shown as drawn.
+#sync-timeout=200
+
+## Turn the displays off after this long with no key or pointer event; 0 never does.
+#dpms-timeout=600
+
+## Draw through the GPU, in a build that has it.
+#no-hwaccel
+
+## Keep the mode each display is in; off, its preferred mode.
+#no-use-original-mode
+
+## The font source to use. Unset, each the build has, in this order.
+#font-engine=
+
+## The font's name, or with `font-engine=psf` the path of a PSF font.
+#font-name=monospace
+
+## The font's height; 0 picks one from the display's size.
+#font-size=0
+
+## The glyph cache's budgets. Unset, `minspec`, or `performance` in a build with vtium-render's `performance-cache` feature.
+#glyph-cache=
+
+## Measure each display's frames once a second, and write the figures to the log, draw them on screen, or both.
+#render-timer=none
