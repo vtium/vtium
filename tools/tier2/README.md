@@ -50,7 +50,7 @@ Each screen sets its own size, display and orientation (aaronsb/kmscon#10). Each
 
 ## The judge
 
-A case is compared with its golden exactly, outside any mask its sidecar gives. The comparison, its verdicts and its regions are tier 3's (`fork/tier3/t3img.py` in the C reference), so the two tiers judge images one way (aaronsb/kmscon#18). A sidecar `<name>.tol` beside a golden holds `max_delta=`, `max_pixels=` and `mask=x0,y0,x1,y1` lines, masks end-exclusive; no sidecar means exact.
+A case is compared with its golden exactly, outside any mask its sidecar gives. The comparison, its verdicts and its regions are tier 3's (`tools/tier3/t3img.py`), so the two tiers judge images one way (aaronsb/kmscon#18). A sidecar `<name>.tol` beside a golden holds `max_delta=`, `max_pixels=` and `mask=x0,y0,x1,y1` lines, masks end-exclusive; no sidecar means exact.
 
 | Status | When |
 |---|---|
@@ -77,7 +77,7 @@ The C reference draws the goldens of vtium's screens, so their author is not the
 
 ## Not yet
 
-- **PNG.** Tier 3's goldens are PNG; reading them is the shared compare's next step, when tier 3 judges vtium (vtium/vtium#22).
+- **PNG.** Tier 3's goldens are PNG, which tier 3's own `t3img.py` reads; tier 2's compare reads PPM only, and reading PNG is its next step should it judge a tier 3 golden.
 - **fbdev.** vtium draws fbdev's XRGB8888 framebuffer with the same renderer and the same pixels as drm2d; other layouts are converted by `vtium-platform`, whose tests hold the conversion (vtium/vtium#18).
 - **The C reference's other text screens in unifont.** `emoji-mono` would draw as `emoji-unifont` does, since neither side has a colour font to turn off. `mosaic-spaced` and `emoji-spaced` set a cell taller than the font's line height, which vtium has no setting for. `osd` draws the render timer's figures over the screen, which `vtium-render` keeps (`RenderTimer::osd`) but does not draw.
 - **The picture screens** (`img-*`, `kitty-*`, `sixel-vte`) wait for pictures in the CPU compositor (vtium/vtium#30) and the sixel and kitty handlers (vtium/vtium#48, #49); `pixels.c` would place their pictures through libtsm's test calls, as `test_pixels.c` did.
