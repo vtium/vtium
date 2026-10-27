@@ -25,7 +25,8 @@
 //! serves them without ever blocking.
 //!
 //! Syscalls go through rustix, so descriptors are owned values and errors
-//! are `Result`s. The pty and the event loop are here:
+//! are `Result`s, and DRM's ioctls through `drm-ffi`. The pty, the event
+//! loop and the displays are here:
 //!
 //! - [`event_loop::Loop`]: calloop, with one signalfd for every signal the
 //!   console handles. The display, VT, udev and input sources go in
@@ -35,12 +36,16 @@
 //!   coalesces pointer motion. The child's output reaches a
 //!   [`pty::Consumer`] in parts it chooses, and what the consumer sees and
 //!   replies depends only on the bytes, never on how reads split them.
+//! - [`display`]: a DRM card drawn into dumb buffers ([`display::Drm2d`]),
+//!   lending its back buffer to the compositor and presenting it with the
+//!   frame's damage, paced by page flips.
 //!
 //! Each bound is defined once in `src/bounds.rs` and tabulated in the
 //! crate's README.
 
 mod bounds;
 mod channel;
+pub mod display;
 pub mod event_loop;
 mod ioctl;
 mod mmap;
@@ -48,6 +53,7 @@ pub mod pty;
 mod queue;
 
 pub use bounds::{
-    EXIT_FEED_MAX, MOTION_COALESCE_AT, READ_MAX, READS_PER_TURN, REPLY_HIGH, REPLY_LOW, REPLY_MAX,
+    DAMAGE_CLIPS_MAX, EXIT_FEED_MAX, FLIP_WAIT_MS, MOTION_COALESCE_AT, READ_MAX, READS_PER_TURN,
+    REPLY_HIGH, REPLY_LOW, REPLY_MAX, WAKE_RETRIES, WAKE_RETRY_MS,
 };
 pub use calloop;

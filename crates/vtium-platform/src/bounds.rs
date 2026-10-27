@@ -1,4 +1,4 @@
-//! The pty's bounds: one source for the constants the code uses and for
+//! The crate's bounds: one source for the constants the code uses and for
 //! the table in this crate's README.
 //!
 //! Each bound is a [`Bound`] row holding its value, what happens past it,
@@ -74,9 +74,53 @@ const EXIT_FEED: Bound = Bound {
     cite: "vtium/vtium#20; the C reference told the exit at the child's reaping and dropped what was unread (pty.c:737-768, 830-848)",
 };
 
+const FLIP_WAIT: Bound = Bound {
+    name: "FLIP_WAIT_MS",
+    value: 1000,
+    what: "Milliseconds a modeset or a sleep waits for a page flip in flight to complete",
+    past: "The operation goes ahead and the flip is no longer waited for. The loop runs on while it waits: the operation starts from the flip's completion event or from this timer",
+    cite: "drm_shared.c:834-859, where the C reference blocked its loop for the wait; the operator's decision on vtium/vtium#18",
+};
+
+const WAKE_RETRY: Bound = Bound {
+    name: "WAKE_RETRY_MS",
+    value: 50,
+    what: "Milliseconds between tries to wake a DRM card that failed to wake, as while another process holds DRM master",
+    past: "The next try",
+    cite: "drm_shared.c:1212-1224",
+};
+
+const RETRIES: Bound = Bound {
+    name: "WAKE_RETRIES",
+    value: 20,
+    what: "Tries to wake a DRM card after a wake-up or a hotplug scan failed",
+    past: "The tries stop with `Event::WakeFailed`, until the next wake-up or hotplug",
+    cite: "`MAX_VT_TIMEOUT_RETRIES`, drm_shared.c:51",
+};
+
+const DAMAGE_CLIPS: Bound = Bound {
+    name: "DAMAGE_CLIPS_MAX",
+    value: 128,
+    what: "Damage rectangles one swap sends, its frame's and those of earlier frames whose swaps failed",
+    past: "The rectangles become their bounding box. The C reference sent each frame's rectangles and freed them on a failed swap",
+    cite: "vtium/vtium#18",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 7] = [READ, READS, HIGH, LOW, CEILING, MOTION, EXIT_FEED];
+pub(crate) const BOUNDS: [Bound; 11] = [
+    READ,
+    READS,
+    HIGH,
+    LOW,
+    CEILING,
+    MOTION,
+    EXIT_FEED,
+    FLIP_WAIT,
+    WAKE_RETRY,
+    RETRIES,
+    DAMAGE_CLIPS,
+];
 
 // The stall ends below where it starts, and starts below the ceiling.
 const _: () = assert!(LOW.value < HIGH.value && HIGH.value < CEILING.value);
@@ -103,6 +147,19 @@ pub const MOTION_COALESCE_AT: usize = MOTION.value;
 
 /// Bytes fed after the child exits before the exit is told.
 pub const EXIT_FEED_MAX: usize = EXIT_FEED.value;
+
+/// Milliseconds a modeset or a sleep waits for a page flip in flight.
+pub const FLIP_WAIT_MS: usize = FLIP_WAIT.value;
+
+/// Milliseconds between tries to wake a DRM card.
+pub const WAKE_RETRY_MS: usize = WAKE_RETRY.value;
+
+/// Tries to wake a DRM card before giving up until the next wake-up.
+pub const WAKE_RETRIES: usize = RETRIES.value;
+
+/// Damage rectangles one swap sends before they become their bounding
+/// box.
+pub const DAMAGE_CLIPS_MAX: usize = DAMAGE_CLIPS.value;
 
 #[cfg(test)]
 #[expect(
@@ -154,7 +211,7 @@ mod tests {
         );
     }
 
-    // pty.c:50, 68-70
+    // pty.c:50, 68-70; drm_shared.c:51, 838, 1220
     #[test]
     fn values_are_the_c_references() {
         assert_eq!(READ_MAX, 16384);
@@ -162,5 +219,8 @@ mod tests {
         assert_eq!(REPLY_HIGH, 64 * 1024);
         assert_eq!(REPLY_LOW, 16 * 1024);
         assert_eq!(REPLY_MAX, 4 * REPLY_HIGH);
+        assert_eq!(FLIP_WAIT_MS, 1000);
+        assert_eq!(WAKE_RETRY_MS, 50);
+        assert_eq!(WAKE_RETRIES, 20);
     }
 }
