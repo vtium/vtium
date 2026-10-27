@@ -111,9 +111,7 @@ fn main() -> ExitCode {
 fn run_kernel(config: config::Config, path: &Path) -> io::Result<i32> {
     let (tty, num) = Tty::open(path)?;
     run(config, move |lp| {
-        let vt = KernelVt::new(lp, tty, num, |app: &mut App<KernelVt<Tty>>| {
-            Some(&mut app.vt)
-        })?;
+        let vt = KernelVt::new(lp, tty, num, |app: &mut App| app.vt.get::<KernelVt<Tty>>())?;
         // A panic aborts without running the guard: the hook puts the VT
         // back first.
         let restore = vt.restorer()?;
@@ -130,11 +128,11 @@ fn run_kernel(config: config::Config, path: &Path) -> io::Result<i32> {
 /// status.
 fn run<V: Vt + 'static>(
     config: config::Config,
-    open: impl FnOnce(&mut Loop<App<V>>) -> io::Result<V>,
+    open: impl FnOnce(&mut Loop<App>) -> io::Result<V>,
 ) -> io::Result<i32> {
-    let mut lp: Loop<App<V>> = Loop::new()?;
+    let mut lp: Loop<App> = Loop::new()?;
     for signal in [Signal::SIGTERM, Signal::SIGINT] {
-        lp.on_signal(signal, |app: &mut App<V>| app.request_exit(Exit::Signal))?;
+        lp.on_signal(signal, |app: &mut App| app.request_exit(Exit::Signal))?;
     }
     // A write to a child gone returns an error in place of ending vtium.
     lp.on_signal(Signal::SIGPIPE, |_| {})?;
@@ -144,7 +142,7 @@ fn run<V: Vt + 'static>(
     let clock = clock();
     let mut app = App::new(
         config,
-        vt,
+        Box::new(vt),
         lp.handle(),
         clock.clone(),
         std::env::vars_os().collect(),
@@ -158,7 +156,7 @@ fn run<V: Vt + 'static>(
     match keymap {
         Some(keymap) => {
             let mut input = Input::new(Direct, keymap, InputConfig::new(0, 0, mouse));
-            input.insert(&lp.handle(), |app: &mut App<V>| app.input.as_mut());
+            input.insert(&lp.handle(), |app: &mut App| app.input.as_mut());
             app.input = Some(input);
         }
         None => log::error!("no keymap: keys are not read"),
@@ -168,7 +166,7 @@ fn run<V: Vt + 'static>(
             if let Err(e) = udev.scan() {
                 log::warn!("cannot scan the seat's devices: {e}");
             }
-            udev.insert(&lp.handle(), |app: &mut App<V>| app.udev.as_mut())?;
+            udev.insert(&lp.handle(), |app: &mut App| app.udev.as_mut())?;
             app.udev = Some(udev);
         }
         Err(e) => log::warn!("cannot watch the seat's devices: {e}"),

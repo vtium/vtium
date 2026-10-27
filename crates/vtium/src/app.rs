@@ -25,6 +25,7 @@
 //!   back to the VT shown at the start and serves the loop for up to
 //!   [`LEAVE_WAIT`] while the switch is pending.
 
+use std::any::Any;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io;
@@ -101,9 +102,29 @@ struct Pointer {
     held: Option<Button>,
 }
 
+/// A seat's VT, which the app holds behind one type: compiled once, and
+/// given back as itself to the loop sources that need it, as the kernel
+/// VT's signals do.
+pub trait SeatVt: Vt + Any {
+    fn as_any(&mut self) -> &mut dyn Any;
+}
+
+impl<T: Vt + Any> SeatVt for T {
+    fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+impl dyn SeatVt {
+    /// The VT as a `T`, when it is one.
+    pub fn get<T: Vt + Any>(&mut self) -> Option<&mut T> {
+        self.as_any().downcast_mut::<T>()
+    }
+}
+
 /// The seat, its devices and its session.
-pub struct App<V: Vt + 'static> {
-    pub vt: V,
+pub struct App {
+    pub vt: Box<dyn SeatVt>,
     pub videos: BTreeMap<PathBuf, Box<dyn Video>>,
     pub input: Option<vtium_platform::input::Input>,
     pub udev: Option<vtium_platform::udev::Udev>,
@@ -112,7 +133,7 @@ pub struct App<V: Vt + 'static> {
     pub pty: Option<Pty>,
     views: BTreeMap<(PathBuf, DisplayId), View>,
     config: Config,
-    handle: LoopHandle<'static, App<V>>,
+    handle: LoopHandle<'static, App>,
     clock: Clock,
     epoch: Instant,
     respawn: Option<Respawn>,
@@ -148,16 +169,16 @@ pub struct App<V: Vt + 'static> {
     inherited: Vec<(OsString, OsString)>,
 }
 
-impl<V: Vt + 'static> App<V> {
+impl App {
     /// The seat for `config` on `vt`, with the session's terminal; the
     /// child starts at [`App::start`].
     pub fn new(
         config: Config,
-        vt: V,
-        handle: LoopHandle<'static, App<V>>,
+        vt: Box<dyn SeatVt>,
+        handle: LoopHandle<'static, App>,
         clock: Clock,
         inherited: Vec<(OsString, OsString)>,
-    ) -> App<V> {
+    ) -> App {
         let now = clock();
         let cap = vtium_term::sb_size_cap(
             physical_memory(),
@@ -226,8 +247,8 @@ impl<V: Vt + 'static> App<V> {
     pub fn insert_blank(&self) {
         self.blank.insert(
             &self.handle,
-            |app: &mut App<V>| Some(&mut app.blank),
-            |app: &mut App<V>| app.blank_now(),
+            |app: &mut App| Some(&mut app.blank),
+            |app: &mut App| app.blank_now(),
         );
     }
 
@@ -313,7 +334,7 @@ impl<V: Vt + 'static> App<V> {
                 return;
             }
         };
-        let inserted = pty.insert(&self.handle, |app: &mut App<V>| {
+        let inserted = pty.insert(&self.handle, |app: &mut App| {
             let App { pty, term, .. } = app;
             pty.as_mut().map(|p| (p, term))
         });
@@ -1253,8 +1274,8 @@ fn physical_memory() -> u64 {
 
 /// Opens a device and wraps it as a video device in the loop, for
 /// [`App::add_video`].
-pub fn open_video<V: Vt + 'static>(
-    app: &mut App<V>,
+pub fn open_video(
+    app: &mut App,
     node: &std::path::Path,
     kind: DeviceKind,
     id_path: Option<&str>,
@@ -1281,7 +1302,7 @@ pub fn open_video<V: Vt + 'static>(
             };
             let mut drm = Drm2d::new(Card::new(fd)?, policy)?;
             let k = key.clone();
-            drm.insert(&app.handle, move |app: &mut App<V>| {
+            drm.insert(&app.handle, move |app: &mut App| {
                 app.videos
                     .get_mut(&k)
                     .and_then(|v| v.as_any().downcast_mut::<Drm2d<Card>>())
@@ -1291,7 +1312,7 @@ pub fn open_video<V: Vt + 'static>(
         DeviceKind::Fbdev => {
             let mut fb = Fbdev::new(Fb::new(fd));
             let k = key.clone();
-            fb.insert(&app.handle, move |app: &mut App<V>| {
+            fb.insert(&app.handle, move |app: &mut App| {
                 app.videos
                     .get_mut(&k)
                     .and_then(|v| v.as_any().downcast_mut::<Fbdev<Fb>>())

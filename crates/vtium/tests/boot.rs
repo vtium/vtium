@@ -197,9 +197,9 @@ impl Vt for ScriptedVt {
     }
 }
 
-struct Harness<V: Vt + 'static = FakeVt> {
-    lp: Loop<App<V>>,
-    app: App<V>,
+struct Harness {
+    lp: Loop<App>,
+    app: App,
 }
 
 #[expect(
@@ -216,14 +216,14 @@ impl Harness {
     }
 }
 
-impl<V: Vt + 'static> Harness<V> {
-    fn with_vt(args: &[&str], vt: V) -> Harness<V> {
+impl Harness {
+    fn with_vt<V: Vt + 'static>(args: &[&str], vt: V) -> Harness {
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
         let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
         assert_eq!(loaded.reports, [], "the harness's command line");
-        let lp: Loop<App<V>> = Loop::new().expect("a loop");
+        let lp: Loop<App> = Loop::new().expect("a loop");
         let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
-        let mut app = App::new(loaded.config, vt, lp.handle(), Rc::new(now), env);
+        let mut app = App::new(loaded.config, Box::new(vt), lp.handle(), Rc::new(now), env);
         app.add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
         app.insert_blank();
         app.vt.activate().expect("the fake VT");
@@ -233,7 +233,7 @@ impl<V: Vt + 'static> Harness<V> {
     }
 
     /// Turns the loop until `done` holds, at most `limit`.
-    fn until(&mut self, limit: Duration, mut done: impl FnMut(&App<V>) -> bool) -> bool {
+    fn until(&mut self, limit: Duration, mut done: impl FnMut(&App) -> bool) -> bool {
         let end = now() + limit;
         while now() < end {
             if done(&self.app) {
@@ -258,6 +258,11 @@ impl<V: Vt + 'static> Harness<V> {
             .get_mut(Path::new("/dev/mem0"))
             .and_then(|v| v.as_any().downcast_mut::<Memory>())
             .expect("the memory device")
+    }
+
+    /// The scripted VT the harness was built with.
+    fn scripted(&mut self) -> &mut ScriptedVt {
+        self.app.vt.get::<ScriptedVt>().expect("a scripted VT")
     }
 
     /// Turns the loop until the device's state satisfies `done`.
@@ -453,7 +458,7 @@ fn a_retaken_vt_sets_the_displays_up_again_and_draws_them_whole() {
     assert!(h.until_memory(SECOND, |m| m.frames > 0 && m.age == 1));
     let (wake_ups, frames) = (h.memory().wake_ups, h.memory().frames);
     let lent = h.memory().ages.len();
-    h.app.vt.events.push(VtEvent::Retaken);
+    h.scripted().events.push(VtEvent::Retaken);
     assert!(
         h.until_memory(SECOND, |m| m.wake_ups == wake_ups + 1 && m.frames > frames),
         "the device is set up again and a frame drawn after it"
@@ -503,7 +508,7 @@ fn a_retake_while_blanked_waits_dark_for_input() {
         "blanked after dpms-timeout"
     );
     let wake_ups = h.memory().wake_ups;
-    h.app.vt.events.push(VtEvent::Retaken);
+    h.scripted().events.push(VtEvent::Retaken);
     h.until(Duration::from_millis(200), |_| false);
     // Set up again only when input ends the blank, as a hotplug while
     // blanked is: until then the displays stay dark.
