@@ -39,11 +39,11 @@ da3                           works   -     query.da3                      DA3 a
 xtversion                     works   -     query.xtversion                XTVERSION replies with the host's text
 xtgettcap                     works   -     query.xtgettcap                XTGETTCAP answers from the table; run.py skips it without the kmscon.termcap fixture
 osc-4-query                   works   -     colour.palette.query           OSC 4 queries a palette colour
-osc-4-set                     missing #38   colour.palette.set             OSC 4 sets a palette colour
+osc-4-set                     works   -     colour.palette.set             OSC 4 sets a palette colour
 osc-10-11-query               works   -     colour.dynamic.query           OSC 10 and 11 query the default colours
-osc-10-11-set                 missing #38   colour.dynamic.set             OSC 10 and 11 set the default colours
-osc-12-query                  missing #38   colour.dynamic.set             OSC 12 queries the cursor colour
-osc-104-110-111-reset         missing #38   colour.palette.set             OSC 104, 110 and 111 reset what OSC 4, 10 and 11 set
+osc-10-11-set                 works   -     colour.dynamic.set             OSC 10 and 11 set the default colours
+osc-12-query                  works   -     colour.dynamic.set             OSC 12 queries the cursor colour
+osc-104-110-111-reset         works   -     colour.palette.set             OSC 104, 110 and 111 reset what OSC 4, 10 and 11 set
 
 # input
 kitty-keyboard                missing #42   input.kitty-keyboard           the kitty keyboard protocol

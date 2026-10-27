@@ -233,58 +233,6 @@ impl Composer {
             top = bottom;
         }
     }
-
-    /// Draws `c` in `fg` on `bg` over `at`, clipped to a `width` by
-    /// `height` display.
-    pub(crate) fn draw_alone<F: Face>(
-        &mut self,
-        font: &Font<F>,
-        c: char,
-        (fg, bg): (Rgb, Rgb),
-        at: Area,
-        (width, height): (u32, u32),
-        target: &mut impl Target,
-    ) {
-        self.text.clear();
-        self.text.push(c);
-        let job = Job {
-            posx: 0,
-            ncells: 1,
-            r: at,
-            g: at,
-            tiles: [Area::default(); 2],
-            fg,
-            bg,
-            underline: None,
-            strike: None,
-            text: Some((0, 1, FontWidth::Narrow, Style::default())),
-        };
-        let (sw, sh) = (int(width), int(height));
-        let Composer {
-            cache,
-            sprites,
-            lines,
-            text,
-            ..
-        } = self;
-        let glyph = glyph(cache, font, text, &job);
-        let x0 = at.x.max(0);
-        let x1 = at.x.saturating_add(at.w).min(sw);
-        for y in at.y.max(0)..at.bottom().min(sh) {
-            let mut out = core::mem::take(&mut lines.out);
-            out.clear();
-            out.resize(usize::try_from(at.w).unwrap_or(0), 0);
-            cell_line(&job, glyph, sprites, lines, y, &mut out);
-            let from = usize::try_from(x0.saturating_sub(at.x)).unwrap_or(0);
-            let to = usize::try_from(x1.saturating_sub(at.x)).unwrap_or(0);
-            if let (Some(run), Ok(x), Ok(y)) =
-                (out.get(from..to), u32::try_from(x0), u32::try_from(y))
-            {
-                target.write(x, y, run);
-            }
-            lines.out = out;
-        }
-    }
 }
 
 /// The job's glyph from the cache, if it has one.

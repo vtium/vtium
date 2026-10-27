@@ -8,18 +8,57 @@
 //! tables are the C reference's (`src/tsm/tsm-vte.c:254-451` at libtsm
 //! eeaf2931), and `tests/palettes.rs` checks each against that source.
 //!
-//! A terminal holds the palette it was configured with: its colour queries
-//! answer from it, and it is the palette OSC 104, 110 and 111 reset to
-//! (vtium/vtium#38).
+//! A palette also holds the colours OSC 12 to 19 name: the cursor's, the
+//! pointer's and the selection's, each unset until a program or the host
+//! sets it, and drawn by its fallback while unset.
+//!
+//! A terminal holds the palette it was configured with and a copy the
+//! program changes with OSC 4, 10 to 19 and 21. Frames draw through the
+//! copy and the colour queries answer from it; OSC 104 to 119 return its
+//! colours to the configured palette's (vtium/vtium#38).
 
 use crate::style::{Color, Rgb};
 
-/// The 256-colour palette and the default colours.
+/// The 256-colour palette, the default colours, and the colours of the
+/// cursor, the pointer and the selection.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Palette {
     colors: [Rgb; 256],
     fg: Rgb,
     bg: Rgb,
+    special: [Option<Rgb>; Special::ALL.len()],
+}
+
+/// The colours past the defaults that xterm's OSC 12 to 19 name. Each is
+/// unset in every named palette, and an unset one draws as its fallback.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Special {
+    /// OSC 12. Unset, a block cursor draws the cell under it inverted.
+    Cursor,
+    /// OSC 13, the pointer's foreground. Unset, the default foreground.
+    PointerFg,
+    /// OSC 14, the pointer's background. Unset, the default background.
+    PointerBg,
+    /// OSC 17, the selection's background. Unset, the selection draws its
+    /// cells inverted.
+    SelectionBg,
+    /// OSC 19, the selection's foreground. Unset, the cell's foreground
+    /// over a set selection background, else inverted.
+    SelectionFg,
+}
+
+impl Special {
+    pub const ALL: [Special; 5] = [
+        Special::Cursor,
+        Special::PointerFg,
+        Special::PointerBg,
+        Special::SelectionBg,
+        Special::SelectionFg,
+    ];
+
+    fn slot(self) -> usize {
+        self as usize
+    }
 }
 
 /// A named palette: its sixteen colours and its two defaults.
@@ -264,8 +303,15 @@ impl Default for Palette {
 }
 
 impl Palette {
+    /// A palette of `colors` and the defaults, with every [`Special`]
+    /// colour unset.
     pub fn new(colors: [Rgb; 256], fg: Rgb, bg: Rgb) -> Self {
-        Self { colors, fg, bg }
+        Self {
+            colors,
+            fg,
+            bg,
+            special: [None; Special::ALL.len()],
+        }
     }
 
     /// The palette `name` names, one of [`PALETTE_NAMES`].
@@ -327,6 +373,31 @@ impl Palette {
 
     pub fn set_bg(&mut self, rgb: Rgb) {
         self.bg = rgb;
+    }
+
+    /// The colour `which` names, `None` while unset.
+    pub fn special(&self, which: Special) -> Option<Rgb> {
+        self.special.get(which.slot()).copied().flatten()
+    }
+
+    /// Sets the colour `which` names, or with `None` unsets it.
+    pub fn set_special(&mut self, which: Special, rgb: Option<Rgb>) {
+        if let Some(slot) = self.special.get_mut(which.slot()) {
+            *slot = rgb;
+        }
+    }
+
+    /// The colour OSC 12 sets, `None` while the cursor draws inverted.
+    pub fn cursor(&self) -> Option<Rgb> {
+        self.special(Special::Cursor)
+    }
+
+    /// The pointer's foreground and background, the defaults while unset.
+    pub fn pointer(&self) -> (Rgb, Rgb) {
+        (
+            self.special(Special::PointerFg).unwrap_or(self.fg),
+            self.special(Special::PointerBg).unwrap_or(self.bg),
+        )
     }
 
     /// `color` in RGB, `default` for the default colour.
