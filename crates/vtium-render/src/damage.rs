@@ -1,5 +1,14 @@
-//! What each buffer still lacks, cell by cell, and the damage rectangles a
-//! frame hands the display.
+//! The renderer's history, cell by cell, and the damage rectangles a frame
+//! hands the display.
+//!
+//! Each frame that draws something takes the next serial. Each cell keeps
+//! the serial of the frame that last changed what it shows, the renderer's
+//! own changes included: the cursor, the blink phase, a wide pairing, the
+//! pointer. A buffer lent at age n holds the frame n serials back, so it
+//! lacks exactly the cells whose stamp is newer; at age 0, or at an age
+//! older than the history, it lacks everything. Nothing assumes the buffers
+//! take turns, and drawing one buffer whole leaves the stamps, and so every
+//! other buffer's history, as they were.
 
 use crate::target::Rect;
 
@@ -11,77 +20,121 @@ const DAMAGE_MERGE: u8 = 3;
 /// know.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct CellState {
-    /// Buffers that still lack the cell's newest pixels.
-    pub(crate) pending: u8,
+    /// The serial of the frame that last changed what the cell shows.
+    stamp: u64,
     pub(crate) cursor: bool,
     pub(crate) hidden: bool,
     /// The cells it drew over: 0 as a trailing half, 1 or 2.
     pub(crate) span: u8,
     /// Drawn on this frame: in its damage.
-    pub(crate) drawn: bool,
+    drawn: bool,
 }
 
-/// The grid's cells, what each buffer lacks of them, and this frame's
-/// damage.
+/// The grid's cells, their history, and this frame's damage.
 #[derive(Debug, Default)]
 pub(crate) struct Cells {
     cols: usize,
     rows: usize,
     states: Vec<CellState>,
-    rows_pending: Vec<bool>,
-    /// Buffers whose border still lacks the background.
-    borders: u8,
+    /// Each row's newest stamp.
+    row_stamps: Vec<u64>,
+    /// The serial of the frame that last changed the border.
+    border: u64,
+    /// This frame's serial.
+    serial: u64,
+    /// The serial of the frame the buffer being drawn holds; `None` when it
+    /// is drawn whole.
+    held: Option<u64>,
     damage: Vec<Rect>,
 }
 
 impl Cells {
-    /// Every cell and the border pending in each of `buffers` buffers.
-    pub(crate) fn reset(&mut self, cols: usize, rows: usize, buffers: u8) {
+    /// Starts the next frame, into a buffer `age` frames old.
+    pub(crate) fn begin(&mut self, age: u32) {
+        self.serial = self.serial.saturating_add(1);
+        self.held = self
+            .serial
+            .checked_sub(u64::from(age))
+            .filter(|&held| age > 0 && held > 0);
+    }
+
+    /// A grid of `cols` by `rows` whose every cell, and the border, changed
+    /// on this frame.
+    pub(crate) fn reset(&mut self, cols: usize, rows: usize) {
         self.cols = cols;
         self.rows = rows;
         self.states.clear();
         self.states.resize(
             cols.saturating_mul(rows),
             CellState {
-                pending: buffers,
+                stamp: self.serial,
                 ..CellState::default()
             },
         );
-        self.rows_pending.clear();
-        self.rows_pending.resize(rows, true);
-        self.borders = buffers;
+        self.row_stamps.clear();
+        self.row_stamps.resize(rows, self.serial);
+        self.border = self.serial;
     }
 
-    pub(crate) fn get_mut(&mut self, col: usize, row: usize) -> Option<&mut CellState> {
+    fn index(&self, col: usize, row: usize) -> Option<usize> {
         if col >= self.cols {
             return None;
         }
-        self.states
-            .get_mut(row.checked_mul(self.cols)?.checked_add(col)?)
+        row.checked_mul(self.cols)?.checked_add(col)
     }
 
-    /// Whether some buffer lacks a cell of `row`.
-    pub(crate) fn row_pending(&self, row: usize) -> bool {
-        self.rows_pending.get(row).copied().unwrap_or(true)
+    pub(crate) fn get_mut(&mut self, col: usize, row: usize) -> Option<&mut CellState> {
+        let i = self.index(col, row)?;
+        self.states.get_mut(i)
     }
 
-    pub(crate) fn set_row_pending(&mut self, row: usize, pending: bool) {
-        if let Some(p) = self.rows_pending.get_mut(row) {
-            *p = pending;
+    /// Whether the buffer lacks something stamped `stamp`.
+    fn stale(&self, stamp: u64) -> bool {
+        self.held.is_none_or(|held| stamp > held)
+    }
+
+    /// Whether the buffer lacks the border.
+    pub(crate) fn border_stale(&self) -> bool {
+        self.stale(self.border)
+    }
+
+    /// Whether the buffer may lack a cell of `row`.
+    pub(crate) fn row_stale(&self, row: usize) -> bool {
+        self.stale(self.row_stamps.get(row).copied().unwrap_or(u64::MAX))
+    }
+
+    /// The cell at `col`, `row` changed on this frame.
+    pub(crate) fn stamp(&mut self, col: usize, row: usize) {
+        let serial = self.serial;
+        if let Some(s) = self.get_mut(col, row) {
+            s.stamp = serial;
+        }
+        if let Some(r) = self.row_stamps.get_mut(row) {
+            *r = serial;
         }
     }
 
-    /// Whether this buffer's border lacks the background; counts it drawn.
-    pub(crate) fn take_border(&mut self) -> bool {
-        let pending = self.borders > 0;
-        self.borders = self.borders.saturating_sub(1);
-        pending
+    /// Whether the buffer lacks any of `n` cells from `col` in `row`.
+    pub(crate) fn stale_cells(&self, col: usize, row: usize, n: usize) -> bool {
+        (col..col.saturating_add(n))
+            .filter_map(|c| self.index(c, row).and_then(|i| self.states.get(i)))
+            .any(|s| self.stale(s.stamp))
+    }
+
+    /// `n` cells from `col` in `row` are drawn on this frame.
+    pub(crate) fn mark_drawn(&mut self, col: usize, row: usize, n: usize) {
+        for c in col..col.saturating_add(n) {
+            if let Some(s) = self.get_mut(c, row) {
+                s.drawn = true;
+            }
+        }
     }
 
     /// Clears the drawn marks into this frame's damage: `whole` after a
     /// border fill, else each row's drawn cells, those at most
     /// `DAMAGE_MERGE` cells apart in one rectangle. `rect` gives a cell's
-    /// display rectangle.
+    /// display rectangle. A frame with no damage drew nothing and does not
+    /// count: the next frame takes its serial.
     pub(crate) fn collect(
         &mut self,
         whole: Option<Rect>,
@@ -113,6 +166,9 @@ impl Cells {
         if let Some(w) = whole {
             self.damage.clear();
             self.damage.push(w);
+        }
+        if self.damage.is_empty() {
+            self.serial = self.serial.saturating_sub(1);
         }
         &self.damage
     }

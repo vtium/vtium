@@ -17,26 +17,12 @@ fn what_is_drawn_does_not_depend_on_what_the_buffer_held() {
     let mut garbage = vec![0xa5u8; stride * h as usize];
     let mut zeros = Canvas::new(w, h, 0);
     let mut s = Screen::new(10, 3, rgb("c0c0c0"), rgb("101010"));
-    let mut a = Renderer::new(
-        unifont(),
-        w,
-        h,
-        Config {
-            buffers: 1,
-            ..Config::default()
-        },
-    );
-    let mut b = Renderer::new(
-        unifont(),
-        w,
-        h,
-        Config {
-            buffers: 1,
-            ..Config::default()
-        },
-    );
+    let mut a = Renderer::new(unifont(), w, h, Config::default());
+    let mut b = Renderer::new(unifont(), w, h, Config::default());
     let mut since = Age::NEVER;
     for step in 0..6 {
+        // one buffer: unknown at first, then holding the frame before
+        let age = u32::from(step > 0);
         let mut st = style(rgb("ffffff"), rgb("000080"));
         if step % 2 == 1 {
             st.attrs.set_underline(UnderlineStyle::Dotted);
@@ -50,9 +36,9 @@ fn what_is_drawn_does_not_depend_on_what_the_buffer_held() {
         };
         {
             let mut m = Mapped::new(&mut garbage, w, h, stride).unwrap();
-            a.draw(&s.frame(since), &mut m, &ds);
+            a.draw(&s.frame(since), &mut m, age, &ds);
         }
-        b.draw(&s.frame(since), &mut zeros, &ds);
+        b.draw(&s.frame(since), &mut zeros, age, &ds);
         since = s.damage.checkpoint();
         for y in 0..h {
             for x in 0..w {
@@ -77,7 +63,7 @@ fn writes_stay_inside_the_display() {
             pointer: Some((10_000, 10_000)),
             ..DrawState::default()
         };
-        r.draw(&s.frame(Age::NEVER), &mut t, &ds);
+        r.draw(&s.frame(Age::NEVER), &mut t, 0, &ds);
         assert!(t.writes > 0);
     }
 }

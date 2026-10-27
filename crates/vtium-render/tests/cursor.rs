@@ -25,7 +25,7 @@ fn draw(s: &Screen, cursor_on: bool, pointer: Option<(u32, u32)>) -> Canvas {
         pointer,
         ..DrawState::default()
     };
-    r.draw(&s.frame(Age::NEVER), &mut c, &st);
+    r.draw(&s.frame(Age::NEVER), &mut c, 0, &st);
     c
 }
 

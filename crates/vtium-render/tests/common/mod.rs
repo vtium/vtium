@@ -170,6 +170,10 @@ impl WriteOnly {
     pub fn into_canvas(self) -> Canvas {
         self.canvas
     }
+
+    pub fn canvas(&self) -> &Canvas {
+        &self.canvas
+    }
 }
 
 impl Target for WriteOnly {

@@ -1,12 +1,13 @@
-//! What each frame redraws and reports as damage (vtium/vtium#16's gates):
-//! a changed cell is drawn into every buffer once and then left alone, a
-//! full redraw reaches each buffer once, and a keystroke damages only the
-//! cells it changes.
+//! What each frame redraws and reports as damage (vtium/vtium#16's gates),
+//! under the frame contract with the displays: a buffer lent at age n gets
+//! the cells that changed in the last n frames, at age 0 or past the
+//! renderer's history the whole picture, and every buffer drawn equals a
+//! whole draw of the same state whatever order the buffers come in.
 
 mod common;
 
 use common::{Screen, WriteOnly, rgb, style, unifont};
-use vtium_render::{Canvas, Config, DrawState, Rect, Renderer, Target};
+use vtium_render::{Canvas, Config, DrawState, Orientation, Rect, Renderer, Target};
 use vtium_term::{Age, Attrs, CursorShape, Rgb};
 
 const FG: &str = "c0c0c0";
@@ -39,27 +40,81 @@ impl Target for Recorder {
     }
 }
 
+/// Whether every pixel of `w` lies in some rectangle of `damage`: a run
+/// may cross from one rectangle into the next, as the pointer's does on a
+/// turned display.
 fn inside(w: &Rect, damage: &[Rect]) -> bool {
-    damage.iter().any(|d| {
-        w.x >= d.x
-            && w.y >= d.y
-            && w.x + w.width <= d.x + d.width
-            && w.y + w.height <= d.y + d.height
+    (w.y..w.y + w.height).all(|y| {
+        (w.x..w.x + w.width).all(|x| {
+            damage
+                .iter()
+                .any(|d| x >= d.x && y >= d.y && x < d.x + d.width && y < d.y + d.height)
+        })
     })
 }
 
-/// A display drawing a screen frame by frame, keeping its age.
+/// `s` drawn whole by a fresh renderer.
+fn fresh(s: &Screen, st: &DrawState, width: u32, height: u32, turn: Orientation) -> Canvas {
+    let config = Config {
+        orientation: turn,
+        ..Config::default()
+    };
+    let mut r = Renderer::new(unifont(), width, height, config);
+    let mut c = Canvas::new(width, height, 0);
+    r.draw(&s.frame(Age::NEVER), &mut c, 0, st);
+    c
+}
+
+/// Panics with the first pixel where `got` differs from `want`.
+fn same_pixels(got: &Canvas, want: &Canvas, what: &str) {
+    if got == want {
+        return;
+    }
+    let w = want.width();
+    let i = got
+        .pixels()
+        .iter()
+        .zip(want.pixels())
+        .position(|(a, b)| a != b)
+        .unwrap();
+    panic!(
+        "{what}: differs from a whole draw at {},{}: {:06x} for {:06x}",
+        i as u32 % w,
+        i as u32 / w,
+        got.pixels()[i],
+        want.pixels()[i]
+    );
+}
+
+/// A display lending its buffers as the frame contract does. The back
+/// buffer's age is the frames since it was last drawn, 1 for the frame
+/// before and 0 when unknown. A frame with damage is swapped; a swap that
+/// fails keeps the back buffer, which then holds the failed frame. A frame
+/// with no damage is not swapped and does not count. Every frame drawn is
+/// checked: its writes lie inside its damage and the buffer equals a whole
+/// draw of the same state.
 struct Display {
     r: Renderer<vtium_font::Unifont>,
     since: Age,
     buffers: Vec<Recorder>,
-    frames: usize,
+    /// The frame each buffer holds, 0 when unknown.
+    held: Vec<u64>,
+    /// Frames swapped, or tried.
+    frames: u64,
+    back: usize,
+    width: u32,
+    height: u32,
+    turn: Orientation,
 }
 
 impl Display {
-    fn new(buffers: u8, width: u32, height: u32) -> Display {
+    fn new(buffers: usize, width: u32, height: u32) -> Display {
+        Display::turned(buffers, width, height, Orientation::Normal)
+    }
+
+    fn turned(buffers: usize, width: u32, height: u32, turn: Orientation) -> Display {
         let config = Config {
-            buffers,
+            orientation: turn,
             ..Config::default()
         };
         Display {
@@ -71,42 +126,79 @@ impl Display {
                     writes: Vec::new(),
                 })
                 .collect(),
+            held: vec![0; buffers],
             frames: 0,
+            back: 0,
+            width,
+            height,
+            turn,
         }
     }
 
-    /// Draws the next frame into the next buffer; returns its damage.
+    fn age(&self) -> u32 {
+        match self.held[self.back] {
+            0 => 0,
+            h => (self.frames - h + 1) as u32,
+        }
+    }
+
+    /// Draws the next frame into the back buffer and swaps it; returns its
+    /// damage.
     fn draw(&mut self, s: &mut Screen, st: &DrawState) -> Vec<Rect> {
-        let n = self.buffers.len();
-        let buf = &mut self.buffers[self.frames % n];
+        self.frame(s, st, true)
+    }
+
+    /// Draws the next frame into the back buffer, whose swap fails.
+    fn draw_failing(&mut self, s: &mut Screen, st: &DrawState) -> Vec<Rect> {
+        self.frame(s, st, false)
+    }
+
+    fn frame(&mut self, s: &mut Screen, st: &DrawState, presents: bool) -> Vec<Rect> {
+        let (back, age, frame) = (self.back, self.age(), self.frames + 1);
+        let buf = &mut self.buffers[back];
         buf.writes.clear();
-        let frame = s.frame(self.since);
-        let damage = self.r.draw(&frame, buf, st).damage.to_vec();
-        drop(frame);
+        let damage = self
+            .r
+            .draw(&s.frame(self.since), buf, age, st)
+            .damage
+            .to_vec();
         self.since = s.damage.checkpoint();
         for w in &buf.writes {
             assert!(
                 inside(w, &damage),
-                "frame {} wrote {w:?} outside its damage {damage:?}",
-                self.frames
+                "frame {frame} at age {age} wrote {w:?} outside its damage {damage:?}"
             );
         }
-        self.frames += 1;
+        let want = fresh(s, st, self.width, self.height, self.turn);
+        same_pixels(
+            buf.canvas.canvas(),
+            &want,
+            &format!("frame {frame}, buffer {back} at age {age}"),
+        );
+        if !damage.is_empty() {
+            self.frames += 1;
+            self.held[back] = self.frames;
+            if presents {
+                self.back = (back + 1) % self.buffers.len();
+            }
+        }
         damage
     }
 
-    fn last(&self) -> &Recorder {
-        let n = self.buffers.len();
-        &self.buffers[(self.frames + n - 1) % n]
+    /// The display lost its buffers' contents, as when it powers on.
+    fn lose_all(&mut self) {
+        self.held.fill(0);
     }
-}
 
-/// `s` drawn whole by a fresh renderer.
-fn fresh(s: &Screen, st: &DrawState, width: u32, height: u32) -> Canvas {
-    let mut r = Renderer::new(unifont(), width, height, Config::default());
-    let mut c = Canvas::new(width, height, 0);
-    r.draw(&s.frame(Age::NEVER), &mut c, st);
-    c
+    /// The display lost the back buffer's contents.
+    fn lose_back(&mut self) {
+        self.held[self.back] = 0;
+    }
+
+    /// The back buffer, which an idle frame drew into and did not swap.
+    fn back(&self) -> &Recorder {
+        &self.buffers[self.back]
+    }
 }
 
 fn area(damage: &[Rect]) -> u64 {
@@ -135,13 +227,24 @@ fn prompt() -> Screen {
     s
 }
 
+const PROMPT: (u32, u32) = (20 * 8 + 6, 4 * 16 + 4);
+
+fn whole(w: u32, h: u32) -> Vec<Rect> {
+    vec![Rect {
+        x: 0,
+        y: 0,
+        width: w,
+        height: h,
+    }]
+}
+
 // aaronsb/kmscon#156: typing one character at a prompt damages the cell it
 // wrote and the cell the cursor moved to, on this frame and the next
 // buffer's, and nothing after
 #[test]
 fn a_keystroke_damages_only_the_cells_it_changes() {
     let mut s = prompt();
-    let (w, h) = (20 * 8 + 6, 4 * 16 + 4);
+    let (w, h) = PROMPT;
     let mut d = Display::new(2, w, h);
     let st = state(&s);
     d.draw(&mut s, &st);
@@ -160,7 +263,7 @@ fn a_keystroke_damages_only_the_cells_it_changes() {
     assert_eq!(d.draw(&mut s, &st), want);
     assert_eq!(d.draw(&mut s, &st), want, "the other buffer");
     assert!(d.draw(&mut s, &st).is_empty());
-    assert!(d.last().writes.is_empty(), "an idle frame writes nothing");
+    assert!(d.back().writes.is_empty(), "an idle frame writes nothing");
 }
 
 // aaronsb/kmscon#81: after a resize, the first two frames draw everything,
@@ -179,19 +282,116 @@ fn a_full_redraw_reaches_each_buffer_once() {
     grown.text(0, 0, "$ ls", style(rgb("00ff00"), rgb(BG)));
     grown.cursor = s.cursor;
     let mut s = grown;
-    let whole = vec![Rect {
-        x: 0,
-        y: 0,
-        width: w,
-        height: h,
-    }];
-    assert_eq!(d.draw(&mut s, &st), whole);
-    assert_eq!(d.draw(&mut s, &st), whole);
+    assert_eq!(d.draw(&mut s, &st), whole(w, h));
+    assert_eq!(d.draw(&mut s, &st), whole(w, h));
     s.put(5, 4, 'z', false, style(rgb(FG), rgb(BG)));
     let third = d.draw(&mut s, &st);
     assert_eq!(third, vec![cell(5, 4, w, h, 20, 5)], "the third frame");
     assert_eq!(area(&d.draw(&mut s, &st)), 8 * 16);
     assert!(d.draw(&mut s, &st).is_empty());
+}
+
+// Startup and a wake-up lend every buffer at age 0: each is drawn whole
+// once, and the frames after draw only what changed.
+#[test]
+fn buffers_at_age_0_are_each_drawn_whole_once() {
+    let mut s = prompt();
+    let (w, h) = PROMPT;
+    let mut d = Display::new(2, w, h);
+    let st = state(&s);
+    for round in 0..2 {
+        assert_eq!(d.draw(&mut s, &st), whole(w, h), "round {round}, first");
+        assert_eq!(d.draw(&mut s, &st), whole(w, h), "round {round}, second");
+        assert!(d.draw(&mut s, &st).is_empty(), "round {round}, idle");
+        s.put(9, 1, 'q', false, style(rgb(FG), rgb(BG)));
+        assert_eq!(d.draw(&mut s, &st), vec![cell(9, 1, w, h, 20, 4)]);
+        assert_eq!(d.draw(&mut s, &st), vec![cell(9, 1, w, h, 20, 4)]);
+        assert!(d.draw(&mut s, &st).is_empty(), "round {round}, idle after");
+        d.lose_all();
+    }
+}
+
+// A failed swap leaves the frame in the back buffer, which is lent again at
+// age 1: the next frame draws only its own change there, and the other
+// buffer then gets both.
+#[test]
+fn a_buffer_lent_again_after_a_failed_swap_keeps_the_failed_frame() {
+    let mut s = prompt();
+    let (w, h) = PROMPT;
+    let mut d = Display::new(2, w, h);
+    let st = state(&s);
+    d.draw(&mut s, &st);
+    d.draw(&mut s, &st);
+    let st_cell = style(rgb(FG), rgb(BG));
+    s.put(5, 1, 'x', false, st_cell);
+    assert_eq!(d.draw_failing(&mut s, &st), vec![cell(5, 1, w, h, 20, 4)]);
+    s.put(6, 1, 'y', false, st_cell);
+    assert_eq!(d.age(), 1);
+    assert_eq!(d.draw_failing(&mut s, &st), vec![cell(6, 1, w, h, 20, 4)]);
+    s.put(7, 1, 'z', false, st_cell);
+    assert_eq!(d.age(), 1);
+    assert_eq!(d.draw(&mut s, &st), vec![cell(7, 1, w, h, 20, 4)]);
+    assert_eq!(d.age(), 4, "the other buffer holds the second frame");
+    let three = Rect {
+        width: 24,
+        ..cell(5, 1, w, h, 20, 4)
+    };
+    assert_eq!(d.draw(&mut s, &st), vec![three]);
+    assert!(d.draw(&mut s, &st).is_empty());
+}
+
+// A buffer drawn whole at age 0 leaves the other buffer's history alone: it
+// still gets only what changed since it was drawn.
+#[test]
+fn a_buffer_drawn_whole_leaves_the_others_alone() {
+    let mut s = prompt();
+    let (w, h) = PROMPT;
+    let mut d = Display::new(2, w, h);
+    let st = state(&s);
+    d.draw(&mut s, &st);
+    d.draw(&mut s, &st);
+    let st_cell = style(rgb(FG), rgb(BG));
+    s.put(5, 1, 'x', false, st_cell);
+    assert_eq!(d.draw(&mut s, &st), vec![cell(5, 1, w, h, 20, 4)]);
+    d.lose_back();
+    s.put(9, 0, 'y', false, st_cell);
+    assert_eq!(d.draw(&mut s, &st), whole(w, h), "the lost buffer");
+    assert_eq!(d.age(), 2);
+    assert_eq!(d.draw(&mut s, &st), vec![cell(9, 0, w, h, 20, 4)]);
+    assert!(d.draw(&mut s, &st).is_empty());
+}
+
+// A buffer older than anything the renderer drew holds a picture it never
+// made: it is drawn whole.
+#[test]
+fn an_age_past_the_history_draws_the_buffer_whole() {
+    let mut s = prompt();
+    let (w, h) = PROMPT;
+    let st = state(&s);
+    let mut r = Renderer::new(unifont(), w, h, Config::default());
+    let want = fresh(&s, &st, w, h, Orientation::Normal);
+    let mut bufs: Vec<WriteOnly> = (0..3).map(|_| WriteOnly::new(w, h)).collect();
+    let mut since = Age::NEVER;
+    // the first two frames at age 0; the third buffer at age 3 holds a
+    // frame from before the first; the first, at age 3, holds the first
+    // frame and lacks nothing; the second's age passes any history
+    for (b, age, drawn) in [
+        (0, 0, true),
+        (1, 0, true),
+        (2, 3, true),
+        (0, 3, false),
+        (1, u32::MAX, true),
+        (2, 2, false),
+    ] {
+        let damage = r
+            .draw(&s.frame(since), &mut bufs[b], age, &st)
+            .damage
+            .to_vec();
+        since = s.damage.checkpoint();
+        let want_damage = if drawn { whole(w, h) } else { Vec::new() };
+        assert_eq!(damage, want_damage, "buffer {b} at age {age}");
+        same_pixels(bufs[b].canvas(), &want, &format!("buffer {b} at age {age}"));
+    }
 }
 
 #[test]
@@ -218,33 +418,19 @@ fn damage_merges_cells_up_to_three_apart() {
     assert_eq!(d.draw(&mut s, &st), vec![r(0, 4), r(7, 1), r(11, 2)]);
 }
 
-/// Steps through edits, cursor moves, blink phases and the pointer, drawing
-/// each frame into the next of `buffers` buffers poisoned at the start, and
-/// checks each against a fresh full draw of the same state.
-fn run(buffers: u8, turn: vtium_render::Orientation) {
+/// Steps through edits, cursor moves, blink phases and the pointer on a
+/// display of `buffers` buffers poisoned at the start, with swaps that fail
+/// and buffers whose contents are lost; the display checks every frame
+/// against a whole draw of the same state.
+fn run(buffers: usize, turn: Orientation) {
     let (cols, rows) = (24usize, 6usize);
     let mut s = Screen::new(cols, rows, rgb(FG), rgb(BG));
-    let (w, h) = if turn == vtium_render::Orientation::Normal
-        || turn == vtium_render::Orientation::UpsideDown
-    {
-        (cols as u32 * 8 + 3, rows as u32 * 16 + 5)
-    } else {
+    let (w, h) = if matches!(turn, Orientation::Right | Orientation::Left) {
         (rows as u32 * 16 + 5, cols as u32 * 8 + 3)
+    } else {
+        (cols as u32 * 8 + 3, rows as u32 * 16 + 5)
     };
-    let mut r = Renderer::new(
-        unifont(),
-        w,
-        h,
-        Config {
-            buffers,
-            orientation: turn,
-            ..Config::default()
-        },
-    );
-    let mut bufs: Vec<Canvas> = (0..buffers)
-        .map(|_| Canvas::new(w, h, 0x00ab_cdef))
-        .collect();
-    let mut since = Age::NEVER;
+    let mut d = Display::turned(buffers, w, h, turn);
     s.cursor.visible = true;
     let mut seed = 0x1234_5678u32;
     let mut rand = move |n: u32| {
@@ -253,7 +439,7 @@ fn run(buffers: u8, turn: vtium_render::Orientation) {
         seed ^= seed << 5;
         seed % n
     };
-    for step in 0..120 {
+    for step in 0..160 {
         for _ in 0..rand(4) {
             let (col, row) = (rand(cols as u32) as usize, rand(rows as u32) as usize);
             let mut st = style(
@@ -289,59 +475,40 @@ fn run(buffers: u8, turn: vtium_render::Orientation) {
             pointer: (rand(3) == 0).then(|| (rand(cols as u32 * 8), rand(rows as u32 * 16))),
             ..state(&s)
         };
-        let buf = &mut bufs[step % usize::from(buffers)];
-        r.draw(&s.frame(since), buf, &st);
-        since = s.damage.checkpoint();
-        let mut whole = Renderer::new(
-            unifont(),
-            w,
-            h,
-            Config {
-                orientation: turn,
-                ..Config::default()
-            },
-        );
-        let mut want = Canvas::new(w, h, 0);
-        whole.draw(&s.frame(Age::NEVER), &mut want, &st);
-        if *buf != want {
-            let i = buf
-                .pixels()
-                .iter()
-                .zip(want.pixels())
-                .position(|(a, b)| a != b)
-                .unwrap();
-            let (x, y) = (i as u32 % w, i as u32 / w);
-            panic!(
-                "{turn:?}, {buffers} buffers: frame {step} differs from a full draw at {x},{y}: {:06x} for {:06x}; cursor {:?}, state {st:?}",
-                buf.pixels()[i],
-                want.pixels()[i],
-                s.cursor
-            );
+        match rand(20) {
+            0 => d.lose_back(),
+            1 => d.lose_all(),
+            _ => {}
+        }
+        if rand(6) == 0 {
+            d.draw_failing(&mut s, &st);
+        } else {
+            d.draw(&mut s, &st);
         }
     }
 }
 
 #[test]
-fn every_frame_matches_a_full_draw_with_one_buffer() {
-    run(1, vtium_render::Orientation::Normal);
+fn every_frame_matches_a_whole_draw_with_one_buffer() {
+    run(1, Orientation::Normal);
 }
 
 #[test]
-fn every_frame_matches_a_full_draw_with_two_buffers() {
-    run(2, vtium_render::Orientation::Normal);
+fn every_frame_matches_a_whole_draw_with_two_buffers() {
+    run(2, Orientation::Normal);
 }
 
 #[test]
-fn every_frame_matches_a_full_draw_with_three_buffers() {
-    run(3, vtium_render::Orientation::Normal);
+fn every_frame_matches_a_whole_draw_with_three_buffers() {
+    run(3, Orientation::Normal);
 }
 
 #[test]
-fn every_frame_matches_a_full_draw_turned() {
+fn every_frame_matches_a_whole_draw_turned() {
     for turn in [
-        vtium_render::Orientation::Right,
-        vtium_render::Orientation::UpsideDown,
-        vtium_render::Orientation::Left,
+        Orientation::Right,
+        Orientation::UpsideDown,
+        Orientation::Left,
     ] {
         run(2, turn);
     }
@@ -350,7 +517,7 @@ fn every_frame_matches_a_full_draw_turned() {
 #[test]
 fn a_palette_background_change_redraws_the_border() {
     let mut s = prompt();
-    let (w, h) = (20 * 8 + 6, 4 * 16 + 4);
+    let (w, h) = PROMPT;
     let mut d = Display::new(1, w, h);
     let st = state(&s);
     d.draw(&mut s, &st);
@@ -359,5 +526,4 @@ fn a_palette_background_change_redraws_the_border() {
     s.damage.mark_all();
     let st = state(&s);
     assert_eq!(area(&d.draw(&mut s, &st)), u64::from(w * h));
-    let _ = fresh(&s, &st, w, h);
 }

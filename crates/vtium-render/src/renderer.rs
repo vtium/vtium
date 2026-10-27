@@ -48,22 +48,17 @@ pub struct Config {
     /// Budgets that replace the profile's.
     pub budgets: Option<Budgets>,
     pub storage: Storage,
-    /// The display's buffers, drawn in turn: a cell that changed is drawn
-    /// into each of them once. 0 is taken as 1.
-    pub buffers: u8,
     pub decorations: DecorationColors,
 }
 
 impl Default for Config {
-    /// Unturned, the default profile, both storage savings, and two
-    /// buffers, as a display that flips between two dumb buffers has.
+    /// Unturned, the default profile and both storage savings.
     fn default() -> Config {
         Config {
             orientation: Orientation::default(),
             profile: Profile::default(),
             budgets: None,
             storage: Storage::default(),
-            buffers: 2,
             decorations: DecorationColors::default(),
         }
     }
@@ -102,7 +97,7 @@ pub struct Stats {
 
 /// What drawing a frame did: the rectangles it wrote, to hand the display
 /// as damage clips, and its figures. A frame with no damage changed
-/// nothing and needs no flip.
+/// nothing, and is not swapped.
 #[derive(Debug)]
 pub struct Drawn<'a> {
     pub damage: &'a [Rect],
@@ -252,6 +247,16 @@ struct Paint {
     text: Option<(usize, usize, FontWidth, Style)>,
 }
 
+/// Where the pointer draws, the top left of the two by two cells under it,
+/// and its colours.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Pointer {
+    at: Area,
+    col: usize,
+    row: usize,
+    colors: (Rgb, Rgb),
+}
+
 /// Draws terminal frames with a font into a display buffer.
 #[derive(Debug)]
 pub struct Renderer<F> {
@@ -263,6 +268,7 @@ pub struct Renderer<F> {
     background: Option<Rgb>,
     blink_hidden: bool,
     cursor_at: Option<(usize, usize)>,
+    pointer: Option<Pointer>,
     compose: Composer,
 }
 
@@ -317,10 +323,7 @@ impl<F: Face> Renderer<F> {
                 sprites,
             ),
             font,
-            config: Config {
-                buffers: config.buffers.max(1),
-                ..config
-            },
+            config,
             layout: Layout {
                 orientation: config.orientation,
                 width,
@@ -335,6 +338,7 @@ impl<F: Face> Renderer<F> {
             background: None,
             blink_hidden: false,
             cursor_at: None,
+            pointer: None,
         }
     }
 
@@ -359,15 +363,21 @@ impl<F: Face> Renderer<F> {
         line.saturating_mul(lines).saturating_mul(4)
     }
 
-    /// Redraw everything into every buffer, as after the display lost its
-    /// picture.
-    pub fn redraw(&mut self) {
-        self.grid = None;
-    }
-
-    /// Draws `frame` into `target`: the cells that changed since this
-    /// buffer last had them, the border when it needs the background, and
-    /// the pointer.
+    /// Draws `frame` into `target`, a buffer `age` frames old: 1 when it
+    /// holds the last frame this renderer drew damage for, n when it holds
+    /// the frame n back, 0 when its contents are unknown. The cells that
+    /// changed in the last `age` frames are drawn, or at age 0, or at an age
+    /// past this renderer's history, the whole picture with its border;
+    /// another buffer's history is never disturbed.
+    ///
+    /// `frame` is read since the checkpoint taken after this renderer's
+    /// previous `draw` (`Age::NEVER` before the first), whatever buffer that
+    /// drew into and whether or not it was swapped: the renderer keeps each
+    /// buffer's history itself. An older checkpoint draws more than needed;
+    /// a newer one loses changes.
+    ///
+    /// A frame whose damage is empty changed nothing: it is not swapped,
+    /// and does not count as a frame for the ages that follow.
     #[expect(
         clippy::disallowed_methods,
         reason = "the render timer's CPU time per frame"
@@ -376,25 +386,41 @@ impl<F: Face> Renderer<F> {
         &mut self,
         frame: &Frame<'_>,
         target: &mut impl Target,
+        age: u32,
         state: &DrawState,
     ) -> Drawn<'_> {
         let start = Instant::now();
         self.compose.cache.begin_frame();
+        self.cells.begin(age);
         let grid = self.layout.grid_for(frame);
         if self.grid != Some(grid) || self.background != Some(state.background) {
-            self.cells.reset(grid.cols, grid.rows, self.config.buffers);
+            self.cells.reset(grid.cols, grid.rows);
             self.grid = Some(grid);
             self.background = Some(state.background);
             self.cursor_at = None;
+            self.pointer = None;
         }
-        let full = self.cells.take_border();
+        let full = self.cells.border_stale();
         if full {
             self.fill_border(&grid, target, state.background);
         }
-        let cells = self.draw_cells(&grid, frame, target, state);
-        if let Some(p) = state.pointer {
-            self.draw_pointer(&grid, target, state, p);
+        let pointer = state
+            .pointer
+            .and_then(|p| self.place_pointer(&grid, state, p));
+        for p in self
+            .pointer
+            .iter()
+            .chain(pointer.iter())
+            .copied()
+            .collect::<Vec<_>>()
+        {
+            self.stamp_pointer(&p);
         }
+        let cells = self.draw_cells(&grid, frame, target, state);
+        if let Some(p) = &pointer {
+            self.draw_pointer(p, target);
+        }
+        self.pointer = pointer;
         let layout = self.layout;
         let whole = full.then_some(Rect {
             x: 0,
@@ -475,7 +501,7 @@ impl<F: Face> Renderer<F> {
         };
         let mut drawn = 0u32;
         for row in 0..g.rows {
-            let scan = self.cells.row_pending(row)
+            let scan = self.cells.row_stale(row)
                 || blink_toggled
                 || frame.row_changed(row)
                 || at.is_some_and(|(_, r)| r == row)
@@ -493,8 +519,6 @@ impl<F: Face> Renderer<F> {
         let g = &p.g;
         self.compose.jobs.clear();
         self.compose.text.clear();
-        let buffers = self.config.buffers;
-        let mut row_pending = false;
         let mut count = 0u32;
         let mut col = 0;
         while col < g.cols {
@@ -515,11 +539,9 @@ impl<F: Face> Renderer<F> {
             }
             let is_cursor = p.at == Some((here, row));
             let hidden = blink_hides(&fc, is_cursor, p.state);
-            let mut tail_pending = 0;
             if ncells == 2 {
                 changed |= p.frame.cell(row, col).is_some_and(|t| t.changed);
                 if let Some(t) = self.cells.get_mut(col, row) {
-                    tail_pending = t.pending;
                     changed |= core::mem::replace(&mut t.span, 0) != 0;
                 }
             }
@@ -529,24 +551,13 @@ impl<F: Face> Renderer<F> {
             changed |= s.cursor != is_cursor || s.hidden != hidden;
             s.cursor = is_cursor;
             s.hidden = hidden;
-            s.pending = if changed {
-                buffers
-            } else {
-                s.pending.max(tail_pending)
-            };
-            if s.pending == 0 {
+            if changed {
+                self.cells.stamp(here, row);
+            }
+            if !self.cells.stale_cells(here, row, ncells) {
                 continue;
             }
-            s.pending = s.pending.saturating_sub(1);
-            s.drawn = true;
-            let left = s.pending;
-            row_pending |= left > 0;
-            if ncells == 2 {
-                if let Some(t) = self.cells.get_mut(col, row) {
-                    t.pending = left;
-                    t.drawn = true;
-                }
-            }
+            self.cells.mark_drawn(here, row, ncells);
             count = count.saturating_add(1);
             self.push_jobs(
                 g,
@@ -560,7 +571,6 @@ impl<F: Face> Renderer<F> {
                 hidden,
             );
         }
-        self.cells.set_row_pending(row, row_pending);
         self.widen_to_span(p, row);
         let span = self.compose.layered_span().map(|(a, b)| {
             (
@@ -725,11 +735,7 @@ impl<F: Face> Renderer<F> {
             }
             let is_cursor = p.at == Some((here, row));
             let hidden = blink_hides(&fc, is_cursor, p.state);
-            for c in here..here.saturating_add(ncells) {
-                if let Some(s) = self.cells.get_mut(c, row) {
-                    s.drawn = true;
-                }
-            }
+            self.cells.mark_drawn(here, row, ncells);
             self.push_jobs(
                 g,
                 &fc,
@@ -745,18 +751,12 @@ impl<F: Face> Renderer<F> {
         self.compose.jobs.sort_by_key(|j| j.posx);
     }
 
-    /// The pointer: the font's `I` in the default colours, a cell's box
-    /// centred on it, clamped inside the grid; the cells under it are drawn
-    /// again on the next frames.
-    fn draw_pointer(
-        &mut self,
-        g: &Grid,
-        target: &mut impl Target,
-        state: &DrawState,
-        (px, py): (u32, u32),
-    ) {
+    /// Where the pointer centred at `px`, `py` in the grid's pixels draws:
+    /// the font's `I` in the default colours, a cell's box centred on it,
+    /// clamped inside the grid.
+    fn place_pointer(&self, g: &Grid, state: &DrawState, (px, py): (u32, u32)) -> Option<Pointer> {
         if g.cols == 0 || g.rows == 0 {
-            return;
+            return None;
         }
         let l = self.layout;
         let (cw, ch) = (l.cw, l.ch);
@@ -781,21 +781,7 @@ impl<F: Face> Renderer<F> {
         let x = x.clamp(half_w, g.max_x.saturating_sub(half_w).max(half_w));
         let y = y.clamp(half_h, g.max_y.saturating_sub(half_h).max(half_h));
         let (w, h) = if turned { (ch, cw) } else { (cw, ch) };
-        let at = Area {
-            x: x.saturating_sub(half_w),
-            y: y.saturating_sub(half_h),
-            w,
-            h,
-        };
-        self.compose.draw_alone(
-            &self.font,
-            POINTER,
-            (state.foreground, state.background),
-            at,
-            (l.width, l.height),
-            target,
-        );
-        // the cells under the pointer, as the C reference marked them
+        // the cells under it, as the C reference found them
         let (fw, fh) = ((cw.saturating_add(1)) / 2, (ch.saturating_add(1)) / 2);
         let col = if px > fw {
             px.saturating_sub(fw).checked_div(cw).unwrap_or(0)
@@ -807,27 +793,45 @@ impl<F: Face> Renderer<F> {
         } else {
             0
         };
-        let col = usize::try_from(col)
-            .unwrap_or(0)
-            .min(g.cols.saturating_sub(1));
-        let row = usize::try_from(row)
-            .unwrap_or(0)
-            .min(g.rows.saturating_sub(1));
-        let buffers = self.config.buffers;
-        for (c, r) in [
-            (col, row),
-            (col.saturating_add(1), row),
-            (col, row.saturating_add(1)),
-            (col.saturating_add(1), row.saturating_add(1)),
-        ] {
-            if c >= g.cols || r >= g.rows {
-                continue;
+        Some(Pointer {
+            at: Area {
+                x: x.saturating_sub(half_w),
+                y: y.saturating_sub(half_h),
+                w,
+                h,
+            },
+            col: usize::try_from(col)
+                .unwrap_or(0)
+                .min(g.cols.saturating_sub(1)),
+            row: usize::try_from(row)
+                .unwrap_or(0)
+                .min(g.rows.saturating_sub(1)),
+            colors: (state.foreground, state.background),
+        })
+    }
+
+    /// The cells under `p` changed on this frame.
+    fn stamp_pointer(&mut self, p: &Pointer) {
+        for r in p.row..p.row.saturating_add(2) {
+            for c in p.col..p.col.saturating_add(2) {
+                self.cells.stamp(c, r);
             }
-            if let Some(s) = self.cells.get_mut(c, r) {
-                s.pending = buffers;
-                s.drawn = true;
-            }
-            self.cells.set_row_pending(r, true);
+        }
+    }
+
+    /// Draws the pointer over the cells under it, which join the damage.
+    fn draw_pointer(&mut self, p: &Pointer, target: &mut impl Target) {
+        let l = self.layout;
+        self.compose.draw_alone(
+            &self.font,
+            POINTER,
+            p.colors,
+            p.at,
+            (l.width, l.height),
+            target,
+        );
+        for r in p.row..p.row.saturating_add(2) {
+            self.cells.mark_drawn(p.col, r, 2);
         }
     }
 }

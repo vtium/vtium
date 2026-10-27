@@ -32,7 +32,7 @@ fn screens_match_the_c_reference() {
             foreground: screen.palette.fg(),
             ..DrawState::default()
         };
-        r.draw(&screen.frame(Age::NEVER), &mut canvas, &state);
+        r.draw(&screen.frame(Age::NEVER), &mut canvas, 0, &state);
         assert_eq!(digest(&canvas), want(name), "screen {name}");
     }
 }

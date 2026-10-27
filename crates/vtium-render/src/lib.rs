@@ -37,10 +37,16 @@
 //!
 //! let mut r = Renderer::new(Font::new(Unifont::new(16)), 32, 16, Config::default());
 //! let mut canvas = Canvas::new(32, 16, 0);
-//! let drawn = r.draw(&frame, &mut canvas, &DrawState::default());
+//! // a new buffer's contents are unknown: age 0 draws it whole
+//! let drawn = r.draw(&frame, &mut canvas, 0, &DrawState::default());
 //! assert_eq!(drawn.damage.len(), 1);
 //! assert_eq!(drawn.stats.cells, 4);
 //! ```
+//!
+//! Each `draw` takes the buffer's age from the display, 1 when it holds the
+//! frame drawn last, and draws only what that buffer lacks, keeping the
+//! history itself: each cell carries the frame that last changed it. A
+//! frame with no damage changed nothing and is not swapped.
 //!
 //! The display buffer is a [`Target`], which only takes runs of pixels:
 //! device memory is never read. A [`Canvas`] keeps them in memory, for

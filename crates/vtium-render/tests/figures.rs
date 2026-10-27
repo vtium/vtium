@@ -45,18 +45,24 @@ fn figures_at_1366x768() {
         ..DrawState::default()
     };
     let mut since = Age::NEVER;
-    let mut n = 0usize;
+    // the frame each buffer holds, 0 for none, as a display counts them
+    let (mut held, mut frames, mut back) = ([0u64; 2], 0u64, 0usize);
     let screen_px = u64::from(W) * u64::from(H);
     let mut draw = |r: &mut Renderer<_>, s: &mut Screen, t: &mut RenderTimer| {
-        let buf = &mut buffers[n % 2];
-        n += 1;
-        let mut m = Mapped::new(buf, W, H, W as usize * 4).unwrap();
-        let d = r.draw(&s.frame(since), &mut m, &ds);
+        let age = match held[back] {
+            0 => 0,
+            h => (frames - h + 1) as u32,
+        };
+        let mut m = Mapped::new(&mut buffers[back], W, H, W as usize * 4).unwrap();
+        let d = r.draw(&s.frame(since), &mut m, age, &ds);
         let st = d.stats;
         let queued = !d.damage.is_empty();
         t.frame(st.cpu, queued, st.damage_px, st.misses);
         if queued {
             t.flip();
+            frames += 1;
+            held[back] = frames;
+            back = 1 - back;
         }
         since = s.damage.checkpoint();
     };

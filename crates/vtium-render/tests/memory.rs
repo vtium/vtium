@@ -32,7 +32,6 @@ fn fill(height: u32, profile: Profile, storage: Storage) -> Filled {
     let config = Config {
         profile,
         storage,
-        buffers: 1,
         ..Config::default()
     };
     let mut r = Renderer::new(Font::new(Unifont::new(height)), W, H, config);
@@ -58,7 +57,7 @@ fn fill(height: u32, profile: Profile, storage: Storage) -> Filled {
             }
         }
         let mut c = Canvas::new(W, H, 0);
-        r.draw(&s.frame(Age::NEVER), &mut c, &DrawState::default());
+        r.draw(&s.frame(Age::NEVER), &mut c, 0, &DrawState::default());
     };
     while next < narrow {
         frame(&mut r, false, &mut next);

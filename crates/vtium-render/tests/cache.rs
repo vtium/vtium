@@ -137,7 +137,6 @@ fn check(height: u32, frames: &[Screen]) -> u32 {
             budgets: run.budgets,
             profile: run.profile,
             storage: run.storage,
-            buffers: 1,
             ..Config::default()
         };
         let mut r = Renderer::new(Font::new(Unifont::new(height)), w, h, config);
@@ -149,7 +148,7 @@ fn check(height: u32, frames: &[Screen]) -> u32 {
                 background: s.palette.bg(),
                 ..DrawState::default()
             };
-            let drawn = r.draw(&s.frame(Age::NEVER), &mut c, &st);
+            let drawn = r.draw(&s.frame(Age::NEVER), &mut c, 0, &st);
             if run.name == "7 glyphs" {
                 uncached_at_7 += drawn.stats.uncached;
             }

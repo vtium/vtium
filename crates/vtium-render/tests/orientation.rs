@@ -51,7 +51,7 @@ fn draw(s: &Screen, o: Orientation) -> Canvas {
         background: s.palette.bg(),
         ..DrawState::default()
     };
-    r.draw(&s.frame(Age::NEVER), &mut c, &st);
+    r.draw(&s.frame(Age::NEVER), &mut c, 0, &st);
     c
 }
 
@@ -100,7 +100,7 @@ fn a_wide_glyph_cut_at_the_margin_shows_its_left_half() {
         background: s.palette.bg(),
         ..DrawState::default()
     };
-    r.draw(&s.frame(Age::NEVER), &mut whole, &st);
+    r.draw(&s.frame(Age::NEVER), &mut whole, 0, &st);
     // the grid starts 3 pixels in and 2 down on both displays
     for row in [0u32, 1] {
         for y in 0..16 {
@@ -141,14 +141,14 @@ fn a_row_too_tall_for_the_scratch_is_composed_in_bands() {
     assert!(normal.row_scratch_bytes() <= vtium_render::ROW_SCRATCH_MAX);
     assert!(w as usize * 208 * 4 > vtium_render::ROW_SCRATCH_MAX);
     let mut a = Canvas::new(w, h, 0);
-    normal.draw(&s.frame(Age::NEVER), &mut a, &ds);
+    normal.draw(&s.frame(Age::NEVER), &mut a, 0, &ds);
     let config = Config {
         orientation: Orientation::Right,
         ..Config::default()
     };
     let mut right = Renderer::new(font(), h, w, config);
     let mut b = Canvas::new(h, w, 0);
-    right.draw(&s.frame(Age::NEVER), &mut b, &ds);
+    right.draw(&s.frame(Age::NEVER), &mut b, 0, &ds);
     for y in 0..h {
         for x in 0..w {
             assert_eq!(a.pixel(x, y), b.pixel(h - 1 - y, x), "{x},{y}");
