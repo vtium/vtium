@@ -1,7 +1,7 @@
 //! A VT's tty, through the kernel's VT and keyboard ioctls.
 
 use std::io;
-use std::os::fd::{AsFd, OwnedFd};
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::path::{Path, PathBuf};
 
 use rustix::fs::{Mode, OFlags};
@@ -160,6 +160,14 @@ impl Console for Tty {
 
     fn watch(&self) -> Option<io::Result<OwnedFd>> {
         Some(self.fd.try_clone())
+    }
+
+    fn watch_shown(&self) -> Option<io::Result<OwnedFd>> {
+        Some(super::shown::open())
+    }
+
+    fn shown(&self, watched: BorrowedFd<'_>) -> io::Result<u16> {
+        super::shown::read(watched)
     }
 }
 
