@@ -7,6 +7,9 @@ use std::io;
 use vtium_platform::display::{
     Canvas, Card, DisplayId, Dpms, Drm2d, Event, Fb, Fbdev, Rect, SwapError, Swapped,
 };
+use vtium_render::Arrow;
+
+use crate::pointer::Plane;
 
 /// A video device: its displays, each lending a canvas for a frame and
 /// presenting it, and its sleep, wake-up and power.
@@ -38,6 +41,45 @@ pub trait Video: Any {
     /// The connectors changed.
     fn hotplug(&mut self) -> io::Result<()>;
     fn as_any(&mut self) -> &mut dyn Any;
+    /// Puts the pointer's `arrow` on the display's cursor plane, hidden. A
+    /// device without one refuses it as unsupported, and a display not
+    /// online yet with `NotConnected` ([`Plane::set_up`]).
+    fn setup_cursor(&mut self, _: DisplayId, _: &Arrow) -> io::Result<()> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+    /// Shows the cursor plane's arrow with its hotspot on the pixel `at`,
+    /// from the next swap.
+    fn show_cursor(&mut self, _: DisplayId, _: (i32, i32)) -> io::Result<()> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+    /// Hides the cursor plane's arrow from the next swap.
+    fn hide_cursor(&mut self, _: DisplayId) {}
+    /// Whether the cursor plane holds the arrow set up: a device gives it
+    /// up when a commit with it fails and one without it takes.
+    fn hardware_cursor(&self, _: DisplayId) -> bool {
+        false
+    }
+    /// Whether a swap with no damage has something to send, as a cursor
+    /// shown, moved or hidden.
+    fn need_commit(&self, _: DisplayId) -> bool {
+        false
+    }
+}
+
+/// A video device's cursor plane, as the pointer drives it.
+impl Plane for dyn Video {
+    fn set_up(&mut self, id: DisplayId, arrow: &Arrow) -> io::Result<()> {
+        self.setup_cursor(id, arrow)
+    }
+    fn show(&mut self, id: DisplayId, at: (i32, i32)) -> io::Result<()> {
+        self.show_cursor(id, at)
+    }
+    fn hide(&mut self, id: DisplayId) {
+        self.hide_cursor(id);
+    }
+    fn holds(&self, id: DisplayId) -> bool {
+        self.hardware_cursor(id)
+    }
 }
 
 impl Video for Drm2d<Card> {
@@ -88,6 +130,26 @@ impl Video for Drm2d<Card> {
     }
     fn as_any(&mut self) -> &mut dyn Any {
         self
+    }
+    fn setup_cursor(&mut self, id: DisplayId, arrow: &Arrow) -> io::Result<()> {
+        let (hx, hy) = arrow.hot();
+        let hot = (
+            i32::try_from(hx).unwrap_or(0),
+            i32::try_from(hy).unwrap_or(0),
+        );
+        Drm2d::setup_cursor(self, id, arrow.pixels(), arrow.width(), arrow.height(), hot)
+    }
+    fn show_cursor(&mut self, id: DisplayId, (x, y): (i32, i32)) -> io::Result<()> {
+        Drm2d::show_cursor(self, id, x, y)
+    }
+    fn hide_cursor(&mut self, id: DisplayId) {
+        Drm2d::hide_cursor(self, id);
+    }
+    fn hardware_cursor(&self, id: DisplayId) -> bool {
+        Drm2d::hardware_cursor(self, id)
+    }
+    fn need_commit(&self, id: DisplayId) -> bool {
+        Drm2d::need_commit(self, id)
     }
 }
 

@@ -19,6 +19,10 @@ use crate::target::Rect;
 /// rectangle.
 const DAMAGE_MERGE: u8 = 3;
 
+/// The border areas the history keeps; a buffer older than the newest one
+/// dropped redraws the whole border.
+const BORDER_AREAS: usize = 16;
+
 /// What the renderer last drew at a cell, for the changes the frame cannot
 /// know.
 #[derive(Clone, Copy, Debug, Default)]
@@ -42,8 +46,13 @@ pub(crate) struct Cells {
     states: Vec<CellState>,
     /// Each row's newest stamp.
     row_stamps: Vec<u64>,
-    /// The serial of the frame that last changed the border.
+    /// The serial of the frame that last changed the whole border.
     border: u64,
+    /// Areas of the border the pointer changed, with the serial of the
+    /// frame that changed each, the newest last.
+    border_areas: Vec<(u64, Rect)>,
+    /// The newest serial among the areas dropped past [`BORDER_AREAS`].
+    border_dropped: u64,
     /// This frame's serial.
     serial: u64,
     /// The serial of the frame the buffer being drawn holds; `None` when it
@@ -78,6 +87,7 @@ impl Cells {
         self.row_stamps.clear();
         self.row_stamps.resize(rows, self.serial);
         self.border = self.serial;
+        self.border_areas.clear();
     }
 
     fn index(&self, col: usize, row: usize) -> Option<usize> {
@@ -97,14 +107,27 @@ impl Cells {
         self.held.is_none_or(|held| stamp > held)
     }
 
-    /// The border changed on this frame.
-    pub(crate) fn stamp_border(&mut self) {
-        self.border = self.serial;
+    /// The border's display area `r` changed on this frame.
+    pub(crate) fn stamp_border_area(&mut self, r: Rect) {
+        self.border_areas.push((self.serial, r));
+        if self.border_areas.len() > BORDER_AREAS {
+            let (serial, _) = self.border_areas.remove(0);
+            self.border_dropped = self.border_dropped.max(serial);
+        }
     }
 
-    /// Whether the buffer lacks the border.
+    /// Whether the buffer lacks the whole border, or an area of it the
+    /// history no longer keeps.
     pub(crate) fn border_stale(&self) -> bool {
-        self.stale(self.border)
+        self.stale(self.border.max(self.border_dropped))
+    }
+
+    /// The areas of the border the buffer lacks, when it holds the rest.
+    pub(crate) fn stale_border_areas(&self) -> impl Iterator<Item = Rect> + '_ {
+        self.border_areas
+            .iter()
+            .filter(|&&(serial, _)| self.stale(serial))
+            .map(|&(_, r)| r)
     }
 
     /// Whether the buffer may lack a cell of `row`.
@@ -130,13 +153,6 @@ impl Cells {
             .any(|s| self.stale(s.stamp))
     }
 
-    /// Whether any of `n` cells from `col` in `row` is drawn on this frame.
-    pub(crate) fn any_drawn(&self, col: usize, row: usize, n: usize) -> bool {
-        (col..col.saturating_add(n))
-            .filter_map(|c| self.index(c, row).and_then(|i| self.states.get(i)))
-            .any(|s| s.drawn)
-    }
-
     /// `n` cells from `col` in `row` are drawn on this frame.
     pub(crate) fn mark_drawn(&mut self, col: usize, row: usize, n: usize) {
         for c in col..col.saturating_add(n) {
@@ -148,12 +164,14 @@ impl Cells {
 
     /// Clears the drawn marks into this frame's damage: `whole` after a
     /// border fill, else each row's drawn cells, those at most
-    /// `DAMAGE_MERGE` cells apart in one rectangle. `rect` gives a cell's
-    /// display rectangle. A frame with no damage drew nothing and does not
-    /// count: the next frame takes its serial.
+    /// `DAMAGE_MERGE` cells apart in one rectangle, and the `border` areas
+    /// drawn. `rect` gives a cell's display rectangle. A frame with no
+    /// damage drew nothing and does not count: the next frame takes its
+    /// serial.
     pub(crate) fn collect(
         &mut self,
         whole: Option<Rect>,
+        border: &[Rect],
         rect: impl Fn(usize, usize) -> Rect,
     ) -> &[Rect] {
         self.damage.clear();
@@ -182,6 +200,8 @@ impl Cells {
         if let Some(w) = whole {
             self.damage.clear();
             self.damage.push(w);
+        } else {
+            self.damage.extend_from_slice(border);
         }
         if self.damage.is_empty() {
             self.serial = self.serial.saturating_sub(1);

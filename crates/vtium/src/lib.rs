@@ -18,7 +18,7 @@
 //! and command line, the terminfo entry and the XTGETTCAP table generated
 //! from it, the login child's command and environment, the respawn policy,
 //! and the rules the terminal wiring follows (the blink timer, the font
-//! fallback and the pointer guard).
+//! fallback and the pointer's route to the cursor plane or the renderer).
 //!
 //! Each is a function of what it is given, time included, so a unit test
 //! drives it without a VT, a display or a pty. The crate's README lists

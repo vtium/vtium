@@ -14,6 +14,8 @@ The two forks are the frozen C reference: the floor for behaviour, never the cei
 
 A question about behaviour or structure is answered from the C reference first, through [docs/c-reference.md](docs/c-reference.md) and then the forks' code at `origin/main`, taking its logic flow and never its code structure, before anything new is designed.
 
+A problem found in vtium's implementation is diagnosed the same way: first how the C reference's flow handled the same case and what it decided, cited, as a logical reference and never as C code to port. This holds for every change, a bug fix, a review finding or a failing test alike.
+
 Upstream `kmscon/kmscon` and `kmscon/libtsm` are never written to: no issue, PR or comment, and no maintainer tagged. Upstream appears in vtium's text only in code spans, with no links. A defect found in the C reference, a security defect included, is fixed in vtium and listed as a departure; the fork is fixed only when the maintainer asks, and nothing is reported upstream.
 
 ## Writing

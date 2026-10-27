@@ -11,7 +11,7 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/child.rs` | The session's command and environment |
 | `src/respawn.rs` | Whether the session's command starts again |
 | `src/wait.rs` | The start's wait for a display |
-| `src/blink.rs`, `src/font.rs`, `src/pointer.rs` | The blink timers; the font's fallback, size, sprite policy and missing glyph; the pointer guard |
+| `src/blink.rs`, `src/font.rs`, `src/pointer.rs` | The blink timers; the font's fallback, size, sprite policy and missing glyph; who draws the pointer, the display's cursor plane or the renderer |
 | `src/sync.rs` | When the terminal presents: the mode 2026 hold and coalescing without it |
 | `src/grab.rs` | The terminal's grabs, third in the key order |
 | `src/layout.rs` | The grid and each display's font height with several displays, and the zoom and rotation steps |
@@ -77,7 +77,7 @@ Each was the C reference's behaviour at kmscon `b1f7a7c5`.
 - **The font fallback is tried once,** then the error is returned; the C reference retried for as long as the lookup failed (aaronsb/kmscon#63).
 - **`KMS_START_SCRIPT` is not set.** The C reference set it to `kmscon-launch-gui` on a DRM display (`src/misc/pty.c:286-291`), a script vtium does not install; the operator's decision on vtium/vtium#21.
 - **With no display by `display-wait` after the start, vtium exits with status 1** (see "No display"); the C reference kept running with no display, as vtium does under `display-wait=forever`.
-- **A failed renderer set leaves the pointer drawn in software,** and the next successful set gives it back to the hardware cursor; the C reference drew it nowhere (aaronsb/kmscon#211).
+- **A failed renderer set keeps the display's renderer, and the pointer on its cursor plane;** the C reference set the hardware cursor up from the failed set's text, which had no font, and drew the pointer nowhere (aaronsb/kmscon#211).
 
 - **A child's exit closes its pty after the output it left is read** (vtium-platform's departure), and the next child starts from a hard reset (RIS).
 - **A triple click selects a line, and a fourth click starts again.** The C reference had the double click's word only (`src/terminal.c:1509-1542`). Spec: xterm's `on3Clicks`, whose default is `line`; vtium-term's README lists how the line is copied. Test: `a_double_click_selects_a_word_and_a_triple_click_a_line`.
@@ -89,7 +89,7 @@ Each was the C reference's behaviour at kmscon `b1f7a7c5`.
 
 ## Not yet built
 
-Each is the C reference's and waits for its own change: drawing through the GPU, which `hwaccel` asks for and which warns at start (vtium draws in software), the `multi-monitor` key's `clone` and `largest` (vtium lays several displays out as `scaled`, the operator's choice on vtium/vtium#21), the hardware cursor (the pointer is drawn in software), the render timer's on-screen display, outline fonts (`font-engine=freetype` and `pango` draw with unifont), and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs, the decoration colours and the rest.
+Each is the C reference's and waits for its own change: drawing through the GPU, which `hwaccel` asks for and which warns at start (vtium draws in software), the `multi-monitor` key's `clone` and `largest` (vtium lays several displays out as `scaled`, the operator's choice on vtium/vtium#21), the render timer's on-screen display, outline fonts (`font-engine=freetype` and `pango` draw with unifont), and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs, the decoration colours and the rest.
 
 ## Left to tier 3
 
@@ -106,4 +106,5 @@ Each needs a real VT or display, which the boot tests stand in for:
 - The XTGETTCAP table is the C reference's: the same 137 names and values as its ncurses-built `src/terminal_termcap.h`, and `Ms`, which the C reference's entry lacked, for OSC 52.
 - A `login` word that is `$NAME` becomes that variable of the session's environment, after the environment is reset.
 - With no mouse tracking, or with Shift, the left button's drag selects and its release copies, a double click selects and copies a word, and the right button clears the selection, where xterm's extends it (`src/terminal.c:1509-1542`). A pointer in the strip past the grid is at the grid's nearest cell (`src/terminal.c:173-190`). A key, the pointer hiding and a change of mouse tracking clear the selection (`src/terminal.c:890-897, 1370, 1655-1659`).
+- The pointer hides after 20 seconds with no pointer event, on the C reference's idle timeout (`POINTER_HIDE_TIMEOUT`, `src/input/input_pointer.c:9-18`, `src/terminal.c:1655-1658`), and not when a key is typed.
 - A wheel event is one report while the program tracks the pointer, else a zoom with Ctrl, else three lines of scrollback, whatever its number of steps (`src/terminal.c:1492-1497, 1639-1650`).
