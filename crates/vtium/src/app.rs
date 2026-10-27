@@ -9,7 +9,8 @@
 //! - **The VT.** `Acquired` wakes the input and every device, which draw
 //!   whole; `Release` deactivates the terminal, puts the input and every
 //!   device to sleep, and acknowledges once each reported `Asleep`;
-//!   `Retaken` sets every device's displays up again; `Hangup` exits.
+//!   `Retaken` sets every device's displays up again, or while blanked
+//!   at the input that ends the blank; `Hangup` exits.
 //! - **Keys**, in order: the VT's, then the seat's (none: one session),
 //!   then the terminal's grabs, then DECARM's drop of a repeat, then the
 //!   encoder. A key draws at once and holds the cursor's blink.
@@ -116,6 +117,9 @@ pub struct App<V: Vt + 'static> {
     respawn: Option<Respawn>,
     /// The VT is ours and the devices awake.
     awake: bool,
+    /// The VT was re-taken while blanked: every device is set up again
+    /// at the input that ends the blank.
+    retake_owed: bool,
     /// Devices a release waits on.
     releasing: Option<BTreeSet<PathBuf>>,
     /// Every display draws at once at the end of the turn.
@@ -186,6 +190,7 @@ impl<V: Vt + 'static> App<V> {
             epoch: now,
             respawn: None,
             awake: false,
+            retake_owed: false,
             releasing: None,
             draw_now: false,
             text_due: None,
@@ -479,9 +484,15 @@ impl<V: Vt + 'static> App<V> {
     /// A key or pointer event, or a device's wake-up, counts as activity.
     fn activity(&mut self, now: Instant) {
         if self.blank.input(now) {
-            for video in self.videos.values_mut() {
+            let retake = std::mem::take(&mut self.retake_owed);
+            for (node, video) in &mut self.videos {
                 if let Err(e) = video.unblank() {
                     log::warn!("cannot unblank: {e}");
+                }
+                if retake {
+                    if let Err(e) = video.wake_up() {
+                        log::warn!("cannot set up {} again: {e}", node.display());
+                    }
                 }
             }
             if self.vt.is_active() {
@@ -493,6 +504,8 @@ impl<V: Vt + 'static> App<V> {
     fn vt_event(&mut self, event: VtEvent, now: Instant) {
         match event {
             VtEvent::Acquired => {
+                // The wake-up sets every device up, an owed re-take's too.
+                self.retake_owed = false;
                 if let Some(input) = &mut self.input {
                     input.wake_up();
                 }
@@ -512,6 +525,12 @@ impl<V: Vt + 'static> App<V> {
                 for video in self.videos.values_mut() {
                     video.sleep();
                 }
+            }
+            VtEvent::Retaken if self.blank.blanked() => {
+                // As a hotplug while blanked: the set-up waits for the
+                // input that ends the blank, and the displays stay dark
+                // (the operator's decision on vtium/vtium#21).
+                self.retake_owed = true;
             }
             VtEvent::Retaken => {
                 for (node, video) in &mut self.videos {

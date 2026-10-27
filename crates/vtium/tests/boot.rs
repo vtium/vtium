@@ -459,3 +459,36 @@ fn a_render_timer_line() {
         println!("[   12.345678] vtium[505]: terminal: {line}");
     }
 }
+
+#[test]
+fn a_retake_while_blanked_waits_dark_for_input() {
+    let mut h = Harness::with_vt(
+        &[
+            "--dpms-timeout=1",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read x",
+        ],
+        ScriptedVt::default(),
+    );
+    assert!(
+        h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::Off)),
+        "blanked after dpms-timeout"
+    );
+    let wake_ups = h.memory().wake_ups;
+    h.app.vt.events.push(VtEvent::Retaken);
+    h.until(Duration::from_millis(200), |_| false);
+    // Set up again only when input ends the blank, as a hotplug while
+    // blanked is: until then the displays stay dark.
+    assert_eq!(h.memory().wake_ups, wake_ups, "no set-up while blanked");
+    assert_eq!(h.memory().dpms, Some(Dpms::Off), "still dark");
+    h.type_str("a");
+    assert_eq!(h.memory().wake_ups, wake_ups + 1, "set up at the input");
+    assert_eq!(h.memory().dpms, Some(Dpms::On));
+    // Without a re-take, input only unblanks.
+    assert!(h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::Off)));
+    h.type_str("b");
+    assert_eq!(h.memory().wake_ups, wake_ups + 1);
+}
