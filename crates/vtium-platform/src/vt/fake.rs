@@ -29,6 +29,7 @@ pub(crate) const COOKED: Lines = Lines {
 pub(crate) enum Call {
     Active,
     SetDisplay(DisplayMode),
+    Switching,
     SetSwitching(Switching),
     KeyboardMode,
     SetKeyboard(KbMode),
@@ -42,10 +43,22 @@ pub(crate) enum Call {
 
 #[derive(Debug)]
 pub(crate) struct Kernel {
+    /// The stand-in's VT, whose modes it keeps.
+    pub(crate) num: u16,
     /// The VT on screen.
     pub(crate) on_screen: u16,
+    /// Every other VT's switching and display mode.
+    pub(crate) others: (Switching, DisplayMode),
+    /// The VT a `VT_ACTIVATE` asked for, which the kernel's worker
+    /// switches to later (`want_console`, vt.c:3171).
+    pub(crate) wanted: Option<u16>,
     pub(crate) display: DisplayMode,
     pub(crate) switching: Switching,
+    /// Whether `VT_GETMODE` shows vtium's own `VT_PROCESS`, with SIGUSR2
+    /// to release and SIGUSR1 to acquire. False stands for another
+    /// process's `VT_PROCESS`, or a mode the headers do not name; vtium's
+    /// `VT_SETMODE` makes it true.
+    pub(crate) signals_ours: bool,
     pub(crate) keyboard: KbMode,
     pub(crate) lines: Lines,
     pub(crate) calls: Vec<Call>,
@@ -68,13 +81,18 @@ pub(crate) struct Kernel {
 pub(crate) struct FakeConsole(pub(crate) Rc<RefCell<Kernel>>);
 
 impl FakeConsole {
-    /// A VT whose console is in text mode with `keyboard`, switched by the
-    /// kernel, while VT `on_screen` is shown.
-    pub(crate) fn new(on_screen: u16, keyboard: KbMode) -> FakeConsole {
+    /// VT `num`, its console in text mode with `keyboard` and switched by
+    /// the kernel, while VT `on_screen` is shown; every other VT is in
+    /// text mode and switched by the kernel.
+    pub(crate) fn new(num: u16, on_screen: u16, keyboard: KbMode) -> FakeConsole {
         FakeConsole(Rc::new(RefCell::new(Kernel {
+            num,
             on_screen,
+            others: (Switching::Auto, DisplayMode::Text),
+            wanted: None,
             display: DisplayMode::Text,
             switching: Switching::Auto,
+            signals_ours: true,
             keyboard,
             lines: COOKED,
             calls: Vec::new(),
@@ -107,6 +125,28 @@ impl FakeConsole {
         self.0.borrow_mut().on_screen = num;
     }
 
+    /// The kernel's worker switches to the VT a `VT_ACTIVATE` asked for, as
+    /// `change_console` does from the VT on screen: under `VT_PROCESS` it
+    /// waits for that VT's answer, under `VT_AUTO` it completes, except in
+    /// `KD_GRAPHICS` (vt.c:3118-3126; vt_ioctl.c:1223-1240, 1259-1263).
+    /// Only the stand-in's own VT keeps a switch waiting, and a switch to
+    /// it is left for the test to signal.
+    pub(crate) fn run_worker(&self) {
+        let mut k = self.0.borrow_mut();
+        let Some(want) = k.wanted.take() else {
+            return;
+        };
+        if want == k.on_screen {
+            return;
+        }
+        let own = k.on_screen == k.num;
+        match shown_modes(&k) {
+            (Switching::Process, _) if own => k.pending_switch = Some(want),
+            (Switching::Process, _) | (Switching::Auto, DisplayMode::Graphics) => {}
+            (Switching::Auto, DisplayMode::Text) => k.on_screen = want,
+        }
+    }
+
     fn call(&self, call: Call) -> io::Result<()> {
         let mut k = self.0.borrow_mut();
         k.calls.push(call);
@@ -131,6 +171,12 @@ impl Console for FakeConsole {
         Ok(())
     }
 
+    fn switching_is_ours(&self) -> io::Result<bool> {
+        self.call(Call::Switching)?;
+        let k = self.0.borrow();
+        Ok(k.switching == Switching::Process && k.signals_ours)
+    }
+
     fn set_switching(&self, mode: Switching) -> io::Result<()> {
         if mode == Switching::Process {
             self.0.borrow_mut().signals_blocked_at_process = Some(signals_blocked());
@@ -138,6 +184,7 @@ impl Console for FakeConsole {
         self.call(Call::SetSwitching(mode))?;
         let mut k = self.0.borrow_mut();
         k.switching = mode;
+        k.signals_ours = true;
         k.pending_switch = None;
         Ok(())
     }
@@ -168,8 +215,17 @@ impl Console for FakeConsole {
         Ok(())
     }
 
+    /// `set_console`: dropped while the VT on screen is in `VT_AUTO` and
+    /// `KD_GRAPHICS`, otherwise left for the kernel's worker
+    /// ([`FakeConsole::run_worker`]), with no answer either way
+    /// (vt.c:3153-3172).
     fn activate(&self, num: u16) -> io::Result<()> {
-        self.call(Call::Activate(num))
+        self.call(Call::Activate(num))?;
+        let mut k = self.0.borrow_mut();
+        if shown_modes(&k) != (Switching::Auto, DisplayMode::Graphics) {
+            k.wanted = Some(num);
+        }
+        Ok(())
     }
 
     fn flush_input(&self) -> io::Result<()> {
@@ -204,6 +260,15 @@ impl Console for FakeConsole {
 
     fn watch(&self) -> Option<io::Result<OwnedFd>> {
         None
+    }
+}
+
+/// The switching and display mode of the VT on screen.
+fn shown_modes(k: &Kernel) -> (Switching, DisplayMode) {
+    if k.on_screen == k.num {
+        (k.switching, k.display)
+    } else {
+        k.others
     }
 }
 

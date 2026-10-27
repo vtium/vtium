@@ -87,19 +87,17 @@ impl Console for Tty {
         ioctl::kd_set_mode(self.fd.as_fd(), mode)
     }
 
+    fn switching_is_ours(&self) -> io::Result<bool> {
+        is_ours(&ioctl::vt_get_mode(self.fd.as_fd())?)
+    }
+
     fn set_switching(&self, mode: Switching) -> io::Result<()> {
         let mode = match mode {
             Switching::Auto => ioctl::VtMode {
                 mode: ioctl::VT_AUTO,
                 ..ioctl::VtMode::default()
             },
-            Switching::Process => ioctl::VtMode {
-                mode: ioctl::VT_PROCESS,
-                waitv: 0,
-                relsig: signal_number(rustix::process::Signal::USR2)?,
-                acqsig: signal_number(rustix::process::Signal::USR1)?,
-                frsig: 0,
-            },
+            Switching::Process => process_mode()?,
         };
         ioctl::vt_set_mode(self.fd.as_fd(), mode)
     }
@@ -170,9 +168,45 @@ fn signal_number(signal: rustix::process::Signal) -> io::Result<i16> {
     i16::try_from(signal.as_raw()).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))
 }
 
+/// vtium's `VT_PROCESS`: SIGUSR2 to release, SIGUSR1 to acquire, as the
+/// C reference set them (vt_real.c:239-240).
+fn process_mode() -> io::Result<ioctl::VtMode> {
+    Ok(ioctl::VtMode {
+        mode: ioctl::VT_PROCESS,
+        waitv: 0,
+        relsig: signal_number(rustix::process::Signal::USR2)?,
+        acqsig: signal_number(rustix::process::Signal::USR1)?,
+        frsig: 0,
+    })
+}
+
+/// Whether `mode` is vtium's `VT_PROCESS`. The kernel keeps `waitv` and
+/// ignores `frsig`, so only the mode and the two signals count.
+fn is_ours(mode: &ioctl::VtMode) -> io::Result<bool> {
+    let ours = process_mode()?;
+    Ok(mode.mode == ours.mode && mode.relsig == ours.relsig && mode.acqsig == ours.acqsig)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_vtiums_vt_process_is_ours() -> io::Result<()> {
+        let ours = process_mode()?;
+        assert!(is_ours(&ours)?);
+        assert!(is_ours(&ioctl::VtMode { waitv: 1, ..ours })?);
+        // Another process's signals, VT_AUTO, and a mode the headers do not
+        // name are not.
+        assert!(!is_ours(&ioctl::VtMode { relsig: 10, ..ours })?);
+        assert!(!is_ours(&ioctl::VtMode { acqsig: 12, ..ours })?);
+        assert!(!is_ours(&ioctl::VtMode {
+            mode: ioctl::VT_AUTO,
+            ..ours
+        })?);
+        assert!(!is_ours(&ioctl::VtMode { mode: 2, ..ours })?);
+        Ok(())
+    }
 
     #[test]
     fn stderr_names_a_vt_only_on_the_tty_major() {

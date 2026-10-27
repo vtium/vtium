@@ -10,7 +10,9 @@ use xkbcommon::xkb::keysyms;
 
 use super::fake::{COOKED, Call, FakeConsole, Lines};
 use super::kernel::Retakes;
-use super::{DisplayMode, FakeVt, KbMode, KernelVt, Reldisp, Switch, Switching, Vt, VtEvent};
+use super::{
+    Console, DisplayMode, FakeVt, KbMode, KernelVt, Reldisp, Switch, Switching, Vt, VtEvent,
+};
 use crate::event_loop::Loop;
 use crate::input::{KeyEvent, Mods};
 
@@ -66,7 +68,7 @@ fn ctrl_alt() -> Mods {
 
 /// VT 3, shown, its keyboard in K_UNICODE.
 fn shown() -> (FakeConsole, KernelVt<FakeConsole>) {
-    let console = FakeConsole::new(3, KbMode::Unicode);
+    let console = FakeConsole::new(3, 3, KbMode::Unicode);
     let vt = KernelVt::open(console.clone(), 3).unwrap_or_else(|e| panic!("open: {e}"));
     console.clear();
     (console, vt)
@@ -74,7 +76,7 @@ fn shown() -> (FakeConsole, KernelVt<FakeConsole>) {
 
 #[test]
 fn opening_takes_the_vt_and_dropping_puts_it_back() {
-    let console = FakeConsole::new(3, KbMode::Unicode);
+    let console = FakeConsole::new(3, 3, KbMode::Unicode);
     let mut vt = KernelVt::open(console.clone(), 3).unwrap_or_else(|e| panic!("open: {e}"));
     assert_eq!(
         console.calls(),
@@ -123,11 +125,11 @@ fn seat_setup(console: FakeConsole, fail: bool) -> io::Result<KernelVt<FakeConso
 #[test]
 fn a_setup_failure_after_the_vt_opens_restores_it() {
     for keyboard in [KbMode::Unicode, KbMode::Xlate] {
-        let console = FakeConsole::new(1, keyboard);
+        let console = FakeConsole::new(3, 1, keyboard);
         assert!(seat_setup(console.clone(), true).is_err());
         assert_eq!(console.modes(), untouched(keyboard), "{keyboard:?}");
     }
-    let console = FakeConsole::new(1, KbMode::Unicode);
+    let console = FakeConsole::new(3, 1, KbMode::Unicode);
     let vt = seat_setup(console.clone(), false);
     assert_eq!(console.modes(), taken());
     drop(vt);
@@ -142,7 +144,7 @@ struct Seat {
 #[test]
 fn the_switch_signals_are_blocked_before_vt_process() {
     let mut lp = Loop::<Seat>::new().unwrap_or_else(|e| panic!("the loop: {e}"));
-    let console = FakeConsole::new(3, KbMode::Unicode);
+    let console = FakeConsole::new(3, 3, KbMode::Unicode);
     let vt = KernelVt::start(&mut lp, console.clone(), 3, |s: &mut Seat| s.vt.as_mut())
         .unwrap_or_else(|e| panic!("start: {e}"));
     // A switch the moment VT_PROCESS is set sends a signal the loop holds
@@ -180,7 +182,7 @@ fn an_open_that_fails_part_way_puts_back_what_it_set() {
         ),
     ];
     for (fail, undo) in cases {
-        let console = FakeConsole::new(3, KbMode::Unicode);
+        let console = FakeConsole::new(3, 3, KbMode::Unicode);
         console.fail(Some(fail));
         assert!(KernelVt::open(console.clone(), 3).is_err(), "{fail:?}");
         let calls = console.calls();
@@ -216,7 +218,7 @@ fn the_switch_signals_are_ignored_once_the_vt_is_put_back() {
 #[test]
 fn a_keyboard_left_off_or_raw_is_restored_as_unicode() {
     for left in [KbMode::Off, KbMode::Raw, KbMode::MediumRaw] {
-        let console = FakeConsole::new(2, left);
+        let console = FakeConsole::new(2, 2, left);
         drop(KernelVt::open(console.clone(), 2));
         assert_eq!(console.modes(), untouched(KbMode::Unicode), "{left:?}");
     }
@@ -297,16 +299,18 @@ fn a_retake_is_reported_only_while_the_vt_is_ours() {
     assert!(!vt.is_active());
 }
 
-/// Another process resets the VT while a release waits: `VT_AUTO`, which
-/// ends the kernel's wait (vt_ioctl.c:780), text mode, and the keyboard
-/// and line settings a console has.
+/// Another process resets the VT while a release waits, through the
+/// stand-in's calls: `VT_AUTO`, whose `VT_SETMODE` ends the kernel's wait
+/// (vt_ioctl.c:780), text mode, and the keyboard and line settings a
+/// console has.
 fn reset_while_released(console: &FakeConsole) {
-    let mut k = console.0.borrow_mut();
-    k.switching = Switching::Auto;
-    k.pending_switch = None;
-    k.display = DisplayMode::Text;
-    k.keyboard = KbMode::Unicode;
-    k.lines = COOKED;
+    let reset = [
+        console.set_switching(Switching::Auto),
+        console.set_display_mode(DisplayMode::Text),
+        console.set_keyboard_mode(KbMode::Unicode),
+        console.set_termios(&COOKED),
+    ];
+    assert!(reset.iter().all(Result::is_ok));
 }
 
 /// The kernel shows VT 3 again, and signals the acquire only in
@@ -393,12 +397,66 @@ fn a_refusal_after_the_switch_completed_releases_the_vt() {
     assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Release]);
     assert_eq!(console.modes(), taken());
     assert_eq!(lines(&console), SILENT);
-    // The owner sleeps and acknowledges, which answers nothing.
-    console.clear();
+    // The owner sleeps and acknowledges; the VT stays released.
     assert!(vt.acknowledge_release().is_ok());
-    assert!(console.calls().is_empty());
+    assert!(!vt.is_active());
+    assert_eq!(vt.events().count(), 0);
     switched_back(&console, &mut vt);
     assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Acquired]);
+}
+
+#[test]
+fn a_switch_back_during_the_sleep_a_refusal_asked_for_waits_for_its_acknowledgement() {
+    let (console, mut vt) = shown();
+    vt.events().for_each(drop);
+    asked_away(&console, &mut vt, 5);
+    reset_while_released(&console);
+    console.show(5);
+    assert!(vt.refuse_release().is_ok());
+    vt.events().for_each(drop);
+    // Switched back while the displays go to sleep: nothing is acquired
+    // before the owner acknowledges.
+    switched_back(&console, &mut vt);
+    assert_eq!(vt.events().count(), 0);
+    assert!(!vt.is_active());
+    assert!(vt.acknowledge_release().is_ok());
+    assert!(vt.is_active());
+    assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Acquired]);
+}
+
+#[test]
+fn an_acquired_release_reports_no_error() {
+    let (console, mut vt) = shown();
+    vt.events().for_each(drop);
+    asked_away(&console, &mut vt, 5);
+    reset_while_released(&console);
+    vt.events().for_each(drop);
+    console.fail(Some(Call::SetDisplay(DisplayMode::Graphics)));
+    assert!(vt.acknowledge_release().is_ok());
+    assert!(vt.is_active());
+    assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Acquired]);
+    assert_eq!(console.0.borrow().switching, Switching::Process);
+}
+
+#[test]
+fn a_switch_key_works_when_another_process_left_vt_auto() {
+    let (console, mut vt) = shown();
+    vt.events().for_each(drop);
+    // VT_AUTO in KD_GRAPHICS: the kernel drops any VT_ACTIVATE.
+    assert!(console.set_switching(Switching::Auto).is_ok());
+    assert!(console.activate(2).is_ok());
+    console.run_worker();
+    assert_eq!(console.0.borrow().on_screen, 3);
+    assert_eq!(console.0.borrow().pending_switch, None);
+    assert!(vt.key(&key(ctrl_alt(), keysyms::KEY_F2)));
+    assert_eq!(console.0.borrow().switching, Switching::Process);
+    console.run_worker();
+    assert_eq!(console.0.borrow().pending_switch, Some(2));
+    // The release it asks for is vtium's to answer.
+    vt.release_signal();
+    assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Release]);
+    assert!(vt.acknowledge_release().is_ok());
+    assert_eq!(console.0.borrow().on_screen, 2);
 }
 
 #[test]
@@ -468,7 +526,7 @@ fn input_while_a_release_waits_keeps_the_switch_away() {
 
 #[test]
 fn a_restore_after_a_retake_puts_back_what_the_open_found() {
-    let console = FakeConsole::new(3, KbMode::Xlate);
+    let console = FakeConsole::new(3, 3, KbMode::Xlate);
     let mut vt = KernelVt::open(console.clone(), 3).unwrap_or_else(|e| panic!("open: {e}"));
     let restore = vt.restorer().unwrap_or_else(|e| panic!("restorer: {e}"));
     console.0.borrow_mut().keyboard = KbMode::Unicode;
@@ -485,7 +543,7 @@ fn a_restore_after_a_retake_puts_back_what_the_open_found() {
 
 #[test]
 fn a_tty_that_cannot_be_silenced_still_opens() {
-    let console = FakeConsole::new(3, KbMode::Unicode);
+    let console = FakeConsole::new(3, 3, KbMode::Unicode);
     console.fail(Some(Call::SetTermios(SILENT)));
     let vt = KernelVt::open(console.clone(), 3);
     assert!(vt.is_ok());
@@ -521,7 +579,7 @@ fn a_tty_that_cannot_be_silenced_still_opens() {
 
 #[test]
 fn a_refused_k_off_leaves_k_raw_and_the_vt_opens() {
-    let console = FakeConsole::new(3, KbMode::Unicode);
+    let console = FakeConsole::new(3, 3, KbMode::Unicode);
     console.fail(Some(Call::SetKeyboard(KbMode::Off)));
     let vt = KernelVt::open(console.clone(), 3);
     assert!(vt.is_ok());
@@ -535,7 +593,7 @@ fn a_refused_k_off_leaves_k_raw_and_the_vt_opens() {
 
 #[test]
 fn a_vt_not_shown_waits_for_its_acquire() {
-    let console = FakeConsole::new(1, KbMode::Unicode);
+    let console = FakeConsole::new(3, 1, KbMode::Unicode);
     let mut vt = KernelVt::open(console.clone(), 3).unwrap_or_else(|e| panic!("open: {e}"));
     assert_eq!(vt.events().count(), 0);
     assert!(!vt.is_active());
@@ -580,7 +638,7 @@ fn a_switch_in_and_straight_out_waits_for_the_displays() {
     // Both signals pending in one turn: the switch to VT 3 done, and the
     // switch on to VT 5 waiting on vtium's answer. The signalfd gives
     // SIGUSR1 first.
-    let console = FakeConsole::new(1, KbMode::Unicode);
+    let console = FakeConsole::new(3, 1, KbMode::Unicode);
     let mut vt = KernelVt::open(console.clone(), 3).unwrap_or_else(|e| panic!("open: {e}"));
     console.show(3);
     console.0.borrow_mut().pending_switch = Some(5);
@@ -634,7 +692,7 @@ fn a_refused_release_keeps_the_vt() {
 
 #[test]
 fn a_release_while_not_ours_is_allowed_at_once() {
-    let console = FakeConsole::new(3, KbMode::Unicode);
+    let console = FakeConsole::new(4, 3, KbMode::Unicode);
     let mut vt = KernelVt::open(console.clone(), 4).unwrap_or_else(|e| panic!("open: {e}"));
     console.show(4);
     console.clear();
@@ -680,21 +738,105 @@ fn the_switch_keys_ask_for_their_vt() {
 fn the_switch_keys_wait_while_the_vt_is_not_ours() {
     let (console, mut vt) = shown();
     asked_away(&console, &mut vt, 5);
+    // While the release waits, a key reads and sets nothing, so the switch
+    // the kernel waits on stays.
+    console.clear();
     assert!(!vt.key(&key(ctrl_alt(), keysyms::KEY_F2)));
+    assert!(console.calls().is_empty());
+    assert_eq!(console.0.borrow().pending_switch, Some(5));
     assert!(vt.acknowledge_release().is_ok());
+    assert_eq!(console.0.borrow().on_screen, 5);
     console.show(2);
+    console.clear();
     assert!(!vt.key(&key(ctrl_alt(), keysyms::KEY_F2)));
-    assert!(
-        !console
-            .calls()
-            .iter()
-            .any(|c| matches!(c, Call::Activate(_)))
+    assert!(console.calls().is_empty());
+}
+
+#[test]
+fn a_switch_key_takes_a_vt_process_that_is_not_vtiums() {
+    // VT_PROCESS with another process's signals, or a mode the headers do
+    // not name: the switch would wait on that process, or be dropped.
+    let (console, mut vt) = shown();
+    vt.events().for_each(drop);
+    console.0.borrow_mut().signals_ours = false;
+    assert!(vt.key(&key(ctrl_alt(), keysyms::KEY_F2)));
+    assert!(console.0.borrow().signals_ours);
+    assert_eq!(console.0.borrow().switching, Switching::Process);
+    console.run_worker();
+    vt.release_signal();
+    assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Release]);
+    assert!(vt.acknowledge_release().is_ok());
+    assert_eq!(console.0.borrow().on_screen, 2);
+}
+
+#[test]
+fn a_switch_key_whose_switching_cannot_be_read_still_asks() {
+    let (console, mut vt) = shown();
+    console.fail(Some(Call::Switching));
+    console.clear();
+    assert!(vt.key(&key(ctrl_alt(), keysyms::KEY_F2)));
+    assert_eq!(
+        console.calls(),
+        [Call::Active, Call::Switching, Call::Activate(2)]
     );
 }
 
 #[test]
+fn the_stand_in_switches_as_the_kernel_does() {
+    // Dropped at VT_ACTIVATE from VT_AUTO and graphics mode: a VT_SETMODE
+    // after it leaves the worker nothing to do.
+    let console = FakeConsole::new(3, 3, KbMode::Unicode);
+    console.0.borrow_mut().display = DisplayMode::Graphics;
+    assert!(console.activate(2).is_ok());
+    assert!(console.set_switching(Switching::Process).is_ok());
+    console.run_worker();
+    assert_eq!(console.0.borrow().on_screen, 3);
+    assert_eq!(console.0.borrow().pending_switch, None);
+    // Asked from text mode, then put in graphics mode before the worker
+    // runs: change_console drops it.
+    let console = FakeConsole::new(3, 3, KbMode::Unicode);
+    assert!(console.activate(2).is_ok());
+    assert!(console.set_display_mode(DisplayMode::Graphics).is_ok());
+    console.run_worker();
+    assert_eq!(console.0.borrow().on_screen, 3);
+    // From another VT in VT_PROCESS, the switch waits on that VT's owner,
+    // and nothing waits on the stand-in's VT.
+    let console = FakeConsole::new(3, 5, KbMode::Unicode);
+    assert!(console.set_switching(Switching::Process).is_ok());
+    console.0.borrow_mut().others = (Switching::Process, DisplayMode::Text);
+    assert!(console.activate(3).is_ok());
+    console.run_worker();
+    assert_eq!(console.0.borrow().on_screen, 5);
+    assert_eq!(console.0.borrow().pending_switch, None);
+    // From the stand-in's own VT in VT_PROCESS, its switch waits.
+    console.show(3);
+    assert!(console.activate(5).is_ok());
+    console.run_worker();
+    assert_eq!(console.0.borrow().pending_switch, Some(5));
+}
+
+#[test]
+fn a_switch_key_leaves_a_release_not_yet_read_to_its_answer() {
+    let (console, mut vt) = shown();
+    vt.events().for_each(drop);
+    // The kernel asks for VT 5; its SIGUSR2 is not read yet.
+    console.0.borrow_mut().pending_switch = Some(5);
+    assert!(vt.key(&key(ctrl_alt(), keysyms::KEY_F2)));
+    // The kernel's worker has not run: the release is read and answered
+    // first, and switches to VT 5.
+    vt.release_signal();
+    assert!(vt.acknowledge_release().is_ok());
+    assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Release]);
+    assert_eq!(console.0.borrow().on_screen, 5);
+    assert!(!vt.is_active());
+    // Then the worker switches on to the key's VT.
+    console.run_worker();
+    assert_eq!(console.0.borrow().on_screen, 2);
+}
+
+#[test]
 fn leaving_goes_back_to_the_vt_shown_at_the_open() {
-    let console = FakeConsole::new(7, KbMode::Unicode);
+    let console = FakeConsole::new(3, 7, KbMode::Unicode);
     let mut vt = KernelVt::open(console.clone(), 3).unwrap_or_else(|e| panic!("open: {e}"));
     // Not shown: nothing to leave.
     assert_eq!(vt.leave().ok(), Some(Switch::Done));
@@ -706,6 +848,27 @@ fn leaving_goes_back_to_the_vt_shown_at_the_open() {
     // Started on the VT it came from, there is nowhere to go back to.
     let (_, mut own) = shown();
     assert_eq!(own.leave().ok(), Some(Switch::Done));
+}
+
+#[test]
+fn activating_switches_as_the_vt_shown_allows() {
+    // From a VT in VT_AUTO and text mode, the switch completes and the
+    // acquire is signalled.
+    let console = FakeConsole::new(3, 5, KbMode::Unicode);
+    let mut vt = KernelVt::open(console.clone(), 3).unwrap_or_else(|e| panic!("open: {e}"));
+    assert_eq!(vt.activate().ok(), Some(Switch::Pending));
+    console.run_worker();
+    assert_eq!(console.0.borrow().on_screen, 3);
+    assert_eq!(console.0.borrow().pending_switch, None);
+    vt.acquire_signal();
+    assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Acquired]);
+    // From one in VT_AUTO and graphics mode, the kernel drops it.
+    let console = FakeConsole::new(3, 5, KbMode::Unicode);
+    console.0.borrow_mut().others = (Switching::Auto, DisplayMode::Graphics);
+    let mut vt = KernelVt::open(console.clone(), 3).unwrap_or_else(|e| panic!("open: {e}"));
+    assert_eq!(vt.activate().ok(), Some(Switch::Pending));
+    console.run_worker();
+    assert_eq!(console.0.borrow().on_screen, 5);
 }
 
 #[test]

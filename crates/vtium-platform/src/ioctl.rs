@@ -146,6 +146,8 @@ pub(crate) fn fb_blank(fd: BorrowedFd<'_>, level: u32) -> io::Result<()> {
 
 /// `VT_OPENQRY`, `linux/vt.h`.
 const VT_OPENQRY: Opcode = 0x5600;
+/// `VT_GETMODE`, `linux/vt.h`.
+const VT_GETMODE: Opcode = 0x5601;
 /// `VT_SETMODE`, `linux/vt.h`.
 const VT_SETMODE: Opcode = 0x5602;
 /// `VT_GETSTATE`, `linux/vt.h`.
@@ -207,6 +209,15 @@ pub(crate) fn vt_active(fd: BorrowedFd<'_>) -> io::Result<u16> {
     // out field for field.
     let stat = unsafe { ioctl(fd, Getter::<VT_GETSTATE, VtStat>::new())? };
     Ok(stat.v_active)
+}
+
+/// `VT_GETMODE`: who switches the VT.
+pub(crate) fn vt_get_mode(fd: BorrowedFd<'_>) -> io::Result<VtMode> {
+    #[expect(unsafe_code, reason = "an ioctl rustix does not wrap")]
+    // SAFETY: VT_GETMODE writes one `struct vt_mode`, which `VtMode` lays
+    // out field for field.
+    let mode = unsafe { ioctl(fd, Getter::<VT_GETMODE, VtMode>::new())? };
+    Ok(mode)
 }
 
 pub(crate) fn vt_set_mode(fd: BorrowedFd<'_>, mode: VtMode) -> io::Result<()> {
@@ -557,6 +568,7 @@ mod tests {
         let vt = header("linux/vt.h");
         for (name, ours) in [
             ("VT_OPENQRY", VT_OPENQRY),
+            ("VT_GETMODE", VT_GETMODE),
             ("VT_SETMODE", VT_SETMODE),
             ("VT_GETSTATE", VT_GETSTATE),
             ("VT_RELDISP", VT_RELDISP),
