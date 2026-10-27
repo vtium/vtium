@@ -1,5 +1,5 @@
-// The noncharacter rule is ported from libtsm's src/tsm/tsm-unicode.c
-// (tsm_ucs4_to_utf8), which carries this notice:
+// The noncharacter rule is ported from libtsm's src/tsm/tsm-unicode.c,
+// which carries this notice:
 //
 // Copyright (c) 2011-2013 David Herrmann <dh.herrmann@gmail.com>
 //
@@ -25,8 +25,9 @@
 //! The UTF-8 decoder in front of the state machine, and the characters an
 //! OSC string drops.
 //!
-//! The decoder follows the Unicode Standard, which is vtium's contract for
-//! it, and the contract the C reference is being fixed to:
+//! The decoder follows the Unicode Standard. This is vtium's contract for
+//! it, and the C reference's decoder follows the same contract
+//! (aaronsb/libtsm#83):
 //!
 //! 1. Well-formed sequences (Table 3-7) decode to their scalar value.
 //! 2. Each maximal subpart of an ill-formed sequence becomes one U+FFFD
@@ -37,7 +38,11 @@
 //!    processed again from the start state.
 //! 4. Overlongs, surrogates and values above U+10FFFF are ill-formed, so
 //!    no ill-formed input yields ESC or any other control.
-//! 5. The result does not depend on the signedness of `char`.
+//! 5. The result does not depend on the signedness of C's `char`: the
+//!    decoder takes `u8`.
+//! 6. An incomplete sequence survives a cut in the input: the bytes on
+//!    either side of the cut decode as they do whole.
+//! 7. A reset drops an incomplete sequence with no U+FFFD.
 //!
 //! The noncharacter rule is the C reference's encoder's.
 
@@ -50,7 +55,7 @@ pub(crate) const REPLACEMENT: char = '\u{fffd}';
 pub(crate) type Decoded = [Option<char>; 2];
 
 /// A streaming UTF-8 decoder: the state between bytes, so input can be cut
-/// anywhere.
+/// anywhere (contract point 6).
 #[derive(Clone, Debug)]
 pub(crate) struct Decoder {
     /// Continuation bytes still to come; 0 between characters.
@@ -74,7 +79,8 @@ impl Decoder {
         }
     }
 
-    /// Between characters, with a sequence part way dropped.
+    /// Between characters, with a sequence part way dropped and no U+FFFD
+    /// for it (contract point 7).
     pub(crate) fn reset(&mut self) {
         self.need = 0;
         self.lower = 0x80;
@@ -131,8 +137,8 @@ impl Decoder {
 }
 
 /// Whether `c` is a noncharacter, U+FDD0 to U+FDEF or the last two of a
-/// plane, which `tsm_ucs4_to_utf8` writes nothing for (tsm-unicode.c:604-607),
-/// so an OSC string drops it.
+/// plane, which the C reference's encoder writes nothing for
+/// (tsm-unicode.c:604-607), so an OSC string drops it.
 pub(crate) fn is_noncharacter(c: char) -> bool {
     let c = u32::from(c);
     (0xfdd0..=0xfdef).contains(&c) || c & 0xfffe == 0xfffe

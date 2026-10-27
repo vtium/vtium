@@ -55,8 +55,9 @@
 //! line in `tsm-vte.c`, and where the C reference departs from a protocol
 //! specification, the parser follows the specification. The crate's README
 //! lists each departure with its reason and the specification it follows:
-//! among them, UTF-8 decoding to the Unicode Standard, strings that act only
-//! when ST or BEL completes them, and every empty parameter omitted.
+//! among them, strings that act only when ST or BEL completes them, ordered
+//! intermediates, and every empty parameter omitted. UTF-8 decoding follows
+//! the Unicode Standard, as the C reference's does.
 //!
 //! Charset mapping, screen effects and replies are the consumer's.
 //!

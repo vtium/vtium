@@ -1,12 +1,12 @@
 //! Input decoding: the UTF-8 decoder in front of the state machine, the
-//! 7-bit and 8-bit modes, and pausing (tsm-vte.c:3646-3680).
+//! 7-bit and 8-bit modes, and pausing (tsm-vte.c:3646-3687).
 
 mod common;
 
 use common::{Act, Recorder, St, csi, esc, parse, parse_in, prints};
 use vtium_parse::{InputMode, Parser};
 
-// tsm-vte.c:3668-3673: a character cut across inputs decodes whole.
+// tsm-vte.c:3667-3681: a character cut across inputs decodes whole.
 #[test]
 fn utf8_split_across_inputs() {
     let mut parser = Parser::new();
@@ -118,7 +118,7 @@ fn seven_bit_mode() {
     );
 }
 
-// tsm-vte.c:1784-1823 with 3660-3674: a mode the consumer sets in a dispatch
+// tsm-vte.c:1784-1823 with 3660-3681: a mode the consumer sets in a dispatch
 // applies from the next byte, inside the same input.
 #[test]
 fn mode_change_applies_from_the_next_byte() {
@@ -139,7 +139,7 @@ fn mode_change_applies_from_the_next_byte() {
     );
 }
 
-// tsm-vte-image.c:376-397, 413-432: the run fast path applies in every mode,
+// tsm-vte-image.c:376-398, 414-434: the run fast path applies in every mode,
 // and gives what the character path gives.
 #[test]
 fn string_runs_in_each_mode() {
@@ -160,7 +160,7 @@ fn string_runs_in_each_mode() {
     }
 }
 
-// tsm-vte.c:3675-3677: advance stops after the byte at which the consumer
+// tsm-vte.c:3682-3684: advance stops after the byte at which the consumer
 // pauses, and returns how many it took; the rest parses later, in order.
 #[test]
 fn pause_returns_early_and_resumes() {

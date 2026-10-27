@@ -1,5 +1,5 @@
-//! Each state's transitions, transcribed from `parse_data` in the C
-//! reference (tsm-vte.c:3280-3642) and from libtsm's test_vte*.c.
+//! Each state's transitions, transcribed from the C reference's state
+//! machine (tsm-vte.c:3280-3642) and from libtsm's VTE tests.
 
 mod common;
 
@@ -26,7 +26,8 @@ fn ground_prints_and_executes() {
     );
 }
 
-// tsm-vte.c:3333: DEL prints in ground, where vt100.net ignores it.
+// tsm-vte.c:3333: DEL prints in ground, as vt100.net has it; drawing it is
+// the consumer's choice.
 #[test]
 fn ground_prints_del() {
     assert_eq!(parse(b"\x7f"), [Act::Print(0x7f)]);
@@ -74,8 +75,8 @@ fn esc_dispatches() {
     );
 }
 
-// tsm-vte.c:3349-3350, 3386-3393, 1232-1275: intermediates are collected as
-// flags, and the final byte dispatches.
+// tsm-vte.c:3349-3350, 3386-3393: intermediates are collected in order, and
+// the final byte dispatches.
 #[test]
 fn esc_collects_intermediates() {
     assert_eq!(
@@ -343,13 +344,14 @@ fn osc_ended_by_c1_st() {
     );
 }
 
-// tsm-vte.c:3300-3301: ESC ends it, and ESC \ then dispatches as ST.
+// ESC \ ends it as ST, and the `\` then dispatches as the ESC sequence it
+// completes. The C reference ended the string at the ESC
+// (tsm-vte.c:3300-3301).
 #[test]
 fn osc_ended_by_esc_backslash() {
     assert_eq!(parse(b"\x1b]2;x\x1b\\"), [osc(b"2;x", St), esc("", b'\\')]);
 }
 
-// tsm-vte.c:3300-3301: an ESC ends the string whatever follows it, so the
 // Departure (vt100.net: ESC "will "cancel" the control string"; ECMA-48
 // 5.6: a control string ends with ST): an ESC not followed by '\\' cancels
 // the string, and the ESC sequence it starts runs. The C reference acted on
@@ -390,7 +392,7 @@ fn dcs_and_apc_cancelled_by_esc_alone() {
 // cancelled, then execute. The C reference acted on the string
 // (tsm-vte.c:3291-3298, 3004-3015).
 #[test]
-fn osc_dispatched_by_can_and_sub() {
+fn osc_cancelled_by_can_and_sub() {
     assert_eq!(
         parse(b"\x1b]2;x\x18"),
         [osc(b"2;x", Cancelled(0x18)), Act::Execute(0x18)]
@@ -409,8 +411,8 @@ fn osc_ignores_c0_and_collects_del() {
 }
 
 // tsm-vte.c:3606, 2912-2921: characters past ASCII are collected as UTF-8,
-// ill-formed input as U+FFFD, and the noncharacters tsm_ucs4_to_utf8 cannot
-// encode are dropped.
+// ill-formed input as U+FFFD, and the noncharacters the C reference's
+// encoder writes nothing for are dropped.
 #[test]
 fn osc_collects_utf8() {
     assert_eq!(
@@ -707,8 +709,9 @@ fn reset_drops_the_string_in_progress() {
     assert_eq!(rec.acts, [Act::Print(0x78), Act::Execute(0x07)]);
 }
 
-// Departure 6 inside an ignored CSI: in 8-bit mode the GR byte 0xED acts
-// as `m` and ends the ignored sequence, so the `x` after it prints.
+// GR acting as GL (a departure) inside an ignored CSI: in 8-bit mode the GR
+// byte 0xED acts as `m` and ends the ignored sequence, so the `x` after it
+// prints.
 #[test]
 fn gr_ends_an_ignored_csi_in_8bit_mode() {
     assert_eq!(parse8(b"\x9b1?\xedx"), [Act::Print(0x78)]);
@@ -737,8 +740,7 @@ fn reset_drops_a_partial_character() {
     assert_eq!(rec.acts, [Act::Print(0x78)]);
 }
 
-// aaronsb/libtsm#53, the one deliberate departure from the C reference: a
-// host reset between the ESC that ended an APC string and the `\` of its ST,
+// aaronsb/libtsm#53, a departure from the C reference: a host reset between the ESC that ended an APC string and the `\` of its ST,
 // as when the host cancels a kitty request it was handed at that ESC, drops
 // the `\`. The C reference printed it in ground state.
 #[test]

@@ -74,8 +74,7 @@ enum Action {
     OscCollect,
     ApcStart,
     ApcCollect,
-    /// The exit action of every string state: `ACTION_DCS_END`,
-    /// `ACTION_OSC_END` and `ACTION_APC_END`.
+    /// The exit action of every string state, DCS, OSC and APC.
     EndString,
 }
 
@@ -139,7 +138,7 @@ fn dcs_run_byte(b: u8) -> bool {
 }
 
 /// A byte an APC string collects as it stands, in every input mode
-/// (tsm-vte-image.c:400-403).
+/// (tsm-vte-image.c:401-404).
 fn apc_run_byte(b: u8) -> bool {
     (0x20..0x7f).contains(&b)
 }
@@ -294,16 +293,15 @@ fn transition(state: State, c: u32) -> (Option<State>, Action) {
 /// The escape-sequence parser: bytes in, [`Consumer`] calls out.
 ///
 /// It holds every buffer it uses inline (about 1.8 KiB) and allocates
-/// nothing. Its `Debug` shows the bytes its buffers hold, not their unused
-/// room.
+/// nothing. Its `Debug` shows only the bytes its buffers hold.
 #[derive(Clone)]
 pub struct Parser {
     state: State,
     utf8: Decoder,
     params: Params,
     intermediates: Intermediates,
-    /// More than [`INTERMEDIATES_MAX`](crate::INTERMEDIATES_MAX) arrived, so the sequence dispatches
-    /// nothing.
+    /// More than [`INTERMEDIATES_MAX`](crate::INTERMEDIATES_MAX) arrived,
+    /// so the sequence dispatches nothing.
     too_many_intermediates: bool,
     osc: [u8; OSC_MAX],
     osc_len: usize,
@@ -312,7 +310,7 @@ pub struct Parser {
     dcs: Dcs,
     tcap: [u8; XTGETTCAP_MAX],
     tcap_len: usize,
-    /// The payload passed [`XTGETTCAP_MAX`] (`tcap_over`).
+    /// The payload passed [`XTGETTCAP_MAX`].
     tcap_over: bool,
     /// The string state an ESC left, whose end waits for the next
     /// character: `\` makes the ESC an ST, anything else cancels the
@@ -401,7 +399,7 @@ impl Parser {
 
     /// Parses `bytes`, driving `consumer`, and returns how many it
     /// consumed: all of them unless [`Consumer::paused`] stopped it
-    /// (tsm-vte.c:3646-3680). Input may be cut anywhere,
+    /// (tsm-vte.c:3646-3687). Input may be cut anywhere,
     /// inside a UTF-8 character included: the actions are the same as for
     /// the input whole, but for where [`Chunk::Bytes`] runs are cut.
     pub fn advance<C: Consumer>(&mut self, consumer: &mut C, bytes: &[u8]) -> usize {
@@ -614,6 +612,8 @@ impl Parser {
             self.osc_full = true;
             return;
         };
+        // `room` is `c.len_utf8()` bytes, all that `encode_utf8` writes, so
+        // its panic on a short buffer cannot fire.
         c.encode_utf8(room);
         self.osc_len = end;
     }
@@ -659,7 +659,7 @@ impl Parser {
     }
 
     /// Collects a run of [`dcs_run_byte`]s at once, as the C reference's
-    /// sixel fast path takes them (tsm-vte-image.c:376-397).
+    /// sixel fast path takes them (tsm-vte-image.c:376-398).
     fn dcs_collect_run<C: Consumer>(&mut self, consumer: &mut C, run: &[u8]) {
         match self.dcs {
             Dcs::Hooked => consumer.dcs_put(Chunk::Bytes(run)),
