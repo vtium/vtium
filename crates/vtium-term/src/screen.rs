@@ -423,7 +423,9 @@ impl Screen {
     /// with nothing in the scrollback, or on the alternate screen, it
     /// scrolls only as far as the cursor needs. A taller main screen pulls
     /// lines back from the scrollback. Lines keep cells past a narrower
-    /// screen's edge, which come back when it widens.
+    /// screen's edge, which come back when it widens. A host resizes
+    /// through [`Terminal::resize`](crate::Terminal::resize), which also
+    /// reports the resize to a program that set mode 2048.
     pub fn resize(&mut self, cols: usize, rows: usize) {
         let cols = cols.clamp(1, COLUMNS_MAX);
         let rows = rows.clamp(1, ROWS_MAX);
