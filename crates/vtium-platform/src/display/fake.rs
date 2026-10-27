@@ -5,7 +5,8 @@
 //! modeset without DRM master is refused with EACCES, a commit while a
 //! flip is pending with EBUSY, and a commit asking for a flip event that
 //! names no CRTC (`prepare_signaling`) or a CRTC that is off and stays off
-//! (`drm_atomic_crtc_check`) with EINVAL.
+//! (`drm_atomic_crtc_check`) with EINVAL. A framebuffer removed while a
+//! plane shows it takes the plane off its CRTC (`atomic_remove_fb`).
 //! A connector's DPMS and its CRTC's `ACTIVE` are one state, as on an
 //! atomic driver: setting either sets the other.
 
@@ -102,6 +103,8 @@ pub(crate) struct State {
     pub(crate) bound: BTreeMap<u32, u32>,
     pub(crate) active: BTreeMap<u32, bool>,
     pub(crate) plane_crtc: BTreeMap<u32, u32>,
+    /// The framebuffer each plane shows.
+    pub(crate) plane_fb: BTreeMap<u32, u32>,
     pub(crate) master: bool,
     /// Another process holds master: taking it fails.
     pub(crate) master_elsewhere: bool,
@@ -441,12 +444,22 @@ impl Kms for FakeCard {
         Ok(fb)
     }
 
+    /// Removing a framebuffer a plane shows takes the plane off its CRTC,
+    /// as the kernel's `drm_mode_rmfb` does (`atomic_remove_fb`).
     fn rm_fb(&self, id: u32) -> io::Result<()> {
         let mut s = self.state.borrow_mut();
-        s.fbs
-            .remove(&id)
-            .map(|_| ())
-            .ok_or_else(|| err(Errno::NOENT))
+        s.fbs.remove(&id).ok_or_else(|| err(Errno::NOENT))?;
+        let shown: Vec<u32> = s
+            .plane_fb
+            .iter()
+            .filter(|&(_, &fb)| fb == id)
+            .map(|(&plane, _)| plane)
+            .collect();
+        for plane in shown {
+            s.plane_fb.remove(&plane);
+            s.plane_crtc.remove(&plane);
+        }
+        Ok(())
     }
 
     fn create_blob(&self, data: &[u8]) -> io::Result<u32> {
@@ -536,6 +549,9 @@ impl Kms for FakeCard {
                 "CRTC_ID" if s.planes.contains_key(o) => {
                     s.plane_crtc.insert(*o, v32);
                 }
+                "FB_ID" if s.planes.contains_key(o) => {
+                    s.plane_fb.insert(*o, v32);
+                }
                 "ACTIVE" => {
                     s.active.insert(*o, *v != 0);
                 }
@@ -543,6 +559,7 @@ impl Kms for FakeCard {
             }
         }
         s.plane_crtc.retain(|_, c| *c != 0);
+        s.plane_fb.retain(|_, fb| *fb != 0);
         let tied: Vec<(u32, u64)> = s
             .bound
             .iter()

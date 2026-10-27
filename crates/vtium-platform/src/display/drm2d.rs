@@ -439,7 +439,9 @@ impl<K: Kms> Drm2d<K> {
         Ok(())
     }
 
-    /// Takes the cursor plane's image away, hiding it with the next swap.
+    /// Takes the cursor plane's image away. Removing its framebuffer takes
+    /// the plane off its CRTC in the kernel (`atomic_remove_fb`), so the
+    /// plane is recorded hidden.
     pub fn destroy_cursor(&mut self, id: DisplayId) {
         let Some(o) = self.outputs.iter_mut().find(|o| o.id == id) else {
             return;
@@ -447,6 +449,7 @@ impl<K: Kms> Drm2d<K> {
         if let Some(c) = o.cursor.take() {
             let _ = self.card.rm_fb(c.fb);
             let _ = self.card.destroy_dumb(c.dumb.handle);
+            o.cursor_set = None;
         }
     }
 

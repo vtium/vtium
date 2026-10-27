@@ -379,6 +379,30 @@ fn a_failed_commit_keeps_the_cursor_waiting() {
     assert!(!v.need_commit(DisplayId(A)));
 }
 
+// Round 4, finding 3: removing the framebuffer the cursor plane shows
+// takes the plane off its CRTC in the kernel, so the plane is recorded
+// hidden. A cursor-only commit hiding it again would name no CRTC, which
+// the kernel refuses with a flip event.
+#[test]
+fn a_new_cursor_image_leaves_the_plane_recorded_hidden() {
+    let mut v = awake(one());
+    v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
+    v.show_cursor(DisplayId(A), 1, 1).unwrap();
+    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Cursor);
+    flip(&mut v);
+    let cp = cursor_plane(&v, A);
+    v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
+    assert!(!v.card().state().plane_crtc.contains_key(&cp));
+    assert!(!v.need_commit(DisplayId(A)));
+    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Nothing);
+    v.show_cursor(DisplayId(A), 2, 2).unwrap();
+    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Cursor);
+    let fb = v.outputs[0].cursor.as_ref().unwrap().fb;
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(c.get(cp, "FB_ID"), Some(u64::from(fb)));
+    assert_eq!(c.get(cp, "CRTC_ID"), Some(100));
+}
+
 // Re-review finding 4: a cursor change undone before the swap leaves the
 // plane as the last commit set it, so the swap sends nothing. With the
 // plane off, a commit would name no CRTC, which the kernel refuses with a
