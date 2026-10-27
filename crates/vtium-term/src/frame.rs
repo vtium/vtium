@@ -220,6 +220,7 @@ mod tests {
 
     // ADR-1000's feature row "Colours resolved at draw time, so a palette
     // change recolours text" (the C reference's probe palette-at-draw).
+    // covers: sgr.draw-time-colour
     #[test]
     fn a_palette_change_recolours_text_already_written() {
         let line = styled(Style {

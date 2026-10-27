@@ -19,7 +19,7 @@ sgr.script	SGR attributes	SGR 73, 74, 75: superscript, subscript, baseline	WezTe
 sgr.bold-faint-reset	SGR attributes	SGR 221 and 222: reset bold or faint alone	kitty misc-protocol	absent	no	no	unverified	unverified	yes	ignored	kitty alone documents it; #37 could take it	minspec	#12	
 sgr.ecma-other	SGR attributes	SGR 10-20, 26, 50-52, 54, 60-65: alternate fonts, Fraktur, spacing, frames, ideogram marks	ECMA-48 §8.3.117	absent	no	no	unverified	unverified	unverified	ignored		minspec	#12	
 sgr.stack	SGR attributes	XTPUSHSGR, XTPOPSGR (CSI # {, CSI # }, and CSI # p, CSI # q)	ctlseqs; contour save-and-restore-sgr-attributes	absent	yes	no	unverified	unverified	unverified	supported	it pairs with the colour stack, and xterm and contour both document it	top	#58	
-sgr.draw-time-colour	SGR attributes	Colours resolved at draw time, so a palette change recolours text	C reference ADR-102	works (probe palette-at-draw)	unverified	unverified	unverified	unverified	unverified	supported		minspec	#10, #12	
+sgr.draw-time-colour	SGR attributes	Colours resolved at draw time, so a palette change recolours text	C reference ADR-102	works (probe palette-at-draw)	unverified	unverified	unverified	unverified	unverified	supported		minspec	#10, #12	crates/vtium-term/src/frame.rs::a_palette_change_recolours_text_already_written
 colour.palette.query	Colours	OSC 4 query	ctlseqs	works (probe osc-4-query)	yes	yes	yes	yes	unverified	supported		minspec	#12	
 colour.palette.set	Colours	OSC 4 set, OSC 104 reset	ctlseqs	missing (probes osc-4-set, osc-104-110-111-reset, libtsm#22)	yes	yes	yes	yes	unverified	supported		top	#38	
 colour.dynamic.query	Colours	OSC 10 and 11 query	ctlseqs	works (probe osc-10-11-query)	yes	yes	yes	yes	unverified	supported		minspec	#12	
