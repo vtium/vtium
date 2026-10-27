@@ -437,7 +437,8 @@ mod tests {
     /// a dumb buffer, which the kernel keeps to primary nodes and refuses
     /// here with EACCES, and an empty event read. The buffer's path runs on a primary
     /// node in tier 3. A host with no render node says so and proves
-    /// nothing here.
+    /// nothing here. qemu-user (tools/arm) answers DRM ioctls with ENOTTY:
+    /// under it, that answer says so and skips the rest.
     #[test]
     fn a_render_node_through_the_real_ioctls() {
         let Some(path) = (128..136)
@@ -448,8 +449,21 @@ mod tests {
             return;
         };
         let card = Card::open(&path).expect("open the render node");
-        card.cap(drm_ffi::DRM_CAP_DUMB_BUFFER)
-            .expect("read a capability");
+        match (
+            card.cap(drm_ffi::DRM_CAP_DUMB_BUFFER),
+            std::env::var_os("VTIUM_QEMU_USER"),
+        ) {
+            (Err(e), Some(qemu)) if e.raw_os_error() == Some(Errno::NOTTY.raw_os_error()) => {
+                eprintln!(
+                    "{} does not translate DRM ioctls (ENOTTY): skipped",
+                    qemu.display()
+                );
+                return;
+            }
+            (cap, _) => {
+                cap.expect("read a capability");
+            }
+        }
         // GETRESOURCES reaches the kernel's DRM ioctl table, which keeps it
         // to primary nodes.
         let e = card.resources().expect_err("GETRESOURCES on a render node");

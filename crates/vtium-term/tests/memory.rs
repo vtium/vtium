@@ -1,4 +1,5 @@
-//! The resident size of the cell model on the minspec machine: a 1366x768
+//! The resident size of the cell model on tier 3's x86 variant of the
+//! minspec machine (docs/architecture.md, "The minspec build"): a 1366x768
 //! display in unifont's 8x16 cells is 170 columns by 48 rows (ADR-1001,
 //! "Memory"). Each figure is computed from the structures themselves, by
 //! capacity, and pinned, so a change to the model changes the record.
@@ -161,28 +162,60 @@ fn the_minspec_grid_and_scrollback() {
             figures.push(sb);
         }
     }
-    // Pinned: ADR-1001's "Memory" quotes these.
-    assert_eq!(screens, 267_264);
-    assert_eq!(
-        figures,
-        [
-            1_408_000,
-            14_080_000, // plain
-            1_516_000,
-            15_160_000, // shell, full width
-            636_000,
-            6_360_000, // shell, 60 cells
-            3_868_000,
-            38_680_000, // art
-            5_568_000,
-            55_680_000,
-            167_040_000,
-            556_800_000, // worst
-            42_240_000,
-            140_800_000, // plain, the larger caps
-        ]
-    );
+    // Pinned: ADR-1001's "Memory" quotes the 64-bit figures.
+    #[cfg(target_pointer_width = "64")]
+    {
+        assert_eq!(screens, SCREENS_64);
+        assert_eq!(figures, FIGURES_64);
+    }
+    // A 32-bit target's lines are smaller (armv7, vtium/vtium#75): pinned,
+    // and never above the 64-bit figures.
+    #[cfg(target_pointer_width = "32")]
+    {
+        assert_eq!(screens, 265_728);
+        assert_eq!(
+            figures,
+            [
+                1_392_000,
+                13_920_000, // plain
+                1_460_000,
+                14_600_000, // shell, full width
+                580_000,
+                5_800_000, // shell, 60 cells
+                3_812_000,
+                38_120_000, // art
+                5_512_000,
+                55_120_000,
+                165_360_000,
+                551_200_000, // worst
+                41_760_000,
+                139_200_000, // plain, the larger caps
+            ]
+        );
+        assert!(screens <= SCREENS_64);
+        assert!(figures.iter().zip(FIGURES_64).all(|(&f, pin)| f <= pin));
+    }
 }
+
+/// The figures on a 64-bit target, in `the_minspec_grid_and_scrollback`'s
+/// order: the two screens, then each case at each count.
+const SCREENS_64: usize = 267_264;
+const FIGURES_64: [usize; 14] = [
+    1_408_000,
+    14_080_000, // plain
+    1_516_000,
+    15_160_000, // shell, full width
+    636_000,
+    6_360_000, // shell, 60 cells
+    3_868_000,
+    38_680_000, // art
+    5_568_000,
+    55_680_000,
+    167_040_000,
+    556_800_000, // worst
+    42_240_000,
+    140_800_000, // plain, the larger caps
+];
 
 // The worst case at the default scrollback stays inside the C reference's
 // measured peak, taking the rest of vtium's process at what the rest of
