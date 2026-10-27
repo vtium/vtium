@@ -483,11 +483,23 @@ impl<F: Face> Renderer<F> {
             self.pointer = pointer;
         }
         let full = self.cells.border_stale();
+        let border: Vec<Rect> = if full {
+            Vec::new()
+        } else {
+            self.cells.stale_border_areas().collect()
+        };
         let arrow = core::mem::take(&mut self.arrow);
         let mut line = core::mem::take(&mut self.pointer_line);
         let mut out = Over::new(target, pointer.map(|p| (&arrow, p.at)), &mut line);
-        if full {
-            self.fill_border(&grid, &mut out, state.background);
+        let all = Rect {
+            x: 0,
+            y: 0,
+            width: self.layout.width,
+            height: self.layout.height,
+        };
+        let whole_border = [all];
+        for r in if full { &whole_border[..] } else { &border[..] } {
+            self.fill_border(&grid, &mut out, state.background, *r);
         }
         let cells = self.draw_cells(&grid, frame, &mut out, state);
         self.arrow = arrow;
@@ -502,7 +514,7 @@ impl<F: Face> Renderer<F> {
         let counts = self.compose.cache.take_counts();
         let damage = self
             .cells
-            .collect(whole, |col, row| layout.cell_rect(&grid, col, row));
+            .collect(whole, &border, |col, row| layout.cell_rect(&grid, col, row));
         let damage_px = damage.iter().fold(0u64, |n, r| n.saturating_add(r.area()));
         Drawn {
             damage,
@@ -516,27 +528,31 @@ impl<F: Face> Renderer<F> {
         }
     }
 
-    fn fill_border(&mut self, g: &Grid, target: &mut impl Target, bg: Rgb) {
-        let height = self.layout.height;
-        let width = usize::try_from(self.layout.width).unwrap_or(0);
-        let line = self.compose.solid(width, pixel(bg));
-        let (x0, x1) = (
-            u32::try_from(g.off_x).unwrap_or(0),
-            u32::try_from(g.max_x).unwrap_or(0),
+    /// Fills the border's pixels inside the display area `r` with `bg`.
+    fn fill_border(&mut self, g: &Grid, target: &mut impl Target, bg: Rgb, r: Rect) {
+        let width = self.layout.width;
+        let (x0, x1) = (r.x.min(width), r.x.saturating_add(r.width).min(width));
+        let y1 = r.y.saturating_add(r.height).min(self.layout.height);
+        let line = self.compose.solid(
+            usize::try_from(x1.saturating_sub(x0)).unwrap_or(0),
+            pixel(bg),
         );
-        let left = line.get(..usize::try_from(x0).unwrap_or(0)).unwrap_or(&[]);
-        let right = line.get(usize::try_from(x1).unwrap_or(0)..).unwrap_or(&[]);
-        for y in 0..height {
+        // the grid's columns, as a part of the run from x0
+        let at = |v: i64| usize::try_from(v.clamp(int(x0), int(x1)).saturating_sub(int(x0)));
+        let (gl, gr) = (at(g.off_x).unwrap_or(0), at(g.max_x).unwrap_or(0));
+        let empty = g.cols == 0 || g.rows == 0;
+        for y in r.y..y1 {
             let yi = int(y);
-            if yi < g.off_y || yi >= g.max_y || g.cols == 0 || g.rows == 0 {
-                target.write(0, y, line);
-            } else {
-                if !left.is_empty() {
-                    target.write(0, y, left);
-                }
-                if !right.is_empty() {
-                    target.write(x1, y, right);
-                }
+            if empty || yi < g.off_y || yi >= g.max_y {
+                target.write(x0, y, line);
+                continue;
+            }
+            if let Some(left) = line.get(..gl).filter(|l| !l.is_empty()) {
+                target.write(x0, y, left);
+            }
+            if let Some(right) = line.get(gr..).filter(|l| !l.is_empty()) {
+                let x = x0.saturating_add(u32::try_from(gr).unwrap_or(u32::MAX));
+                target.write(x, y, right);
             }
         }
     }
@@ -871,8 +887,8 @@ impl<F: Face> Renderer<F> {
         Some(Pointer { at, cells, outside })
     }
 
-    /// The cells under `p` changed on this frame, and the border when it
-    /// reaches into it.
+    /// The cells under `p` changed on this frame, and the border inside
+    /// its area, clipped to the display, when it reaches into it.
     fn stamp_pointer(&mut self, p: &Pointer) {
         let (c0, r0, c1, r1) = p.cells;
         for r in r0..r1 {
@@ -881,7 +897,16 @@ impl<F: Face> Renderer<F> {
             }
         }
         if p.outside {
-            self.cells.stamp_border();
+            let (w, h) = (int(self.layout.width), int(self.layout.height));
+            let (x0, y0) = (p.at.x.clamp(0, w), p.at.y.clamp(0, h));
+            let x1 = p.at.x.saturating_add(p.at.w).clamp(0, w);
+            let side = |v: i64| u32::try_from(v).unwrap_or(0);
+            self.cells.stamp_border_area(Rect {
+                x: side(x0),
+                y: side(y0),
+                width: side(x1.saturating_sub(x0)),
+                height: side(p.at.bottom().clamp(0, h).saturating_sub(y0)),
+            });
         }
     }
 }

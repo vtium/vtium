@@ -448,6 +448,39 @@ fn the_pointer_damages_its_cells_only_when_it_changes() {
     assert!(d.draw(&mut s, &hidden).is_empty(), "idle, no pointer");
 }
 
+// The arrow past the grid's edge, as at a prompt in the bottom row,
+// redraws only the border it covered and covers, clipped to the display,
+// never the whole border: the arrow at 60,60 in the grid, its corner at
+// 62,61 on the display, reaches 7 pixels into the bottom border.
+#[test]
+fn a_move_in_the_bottom_row_damages_only_its_cells_and_the_arrow() {
+    let mut s = prompt();
+    let (w, h) = PROMPT;
+    let mut d = Display::new(2, w, h);
+    let base = state(&s);
+    let at = |p: Option<(u32, u32)>| DrawState { pointer: p, ..base };
+    let (shown, moved) = (at(Some((60, 60))), at(Some((100, 60))));
+    for st in [&shown, &shown] {
+        assert_eq!(d.draw(&mut s, st), whole(w, h));
+    }
+    assert!(d.draw(&mut s, &shown).is_empty(), "idle at the edge");
+    let pair = |col: u32| Rect {
+        width: 16,
+        ..cell(col, 3, w, h, 20, 4)
+    };
+    let arrow = |x: u32| Rect {
+        x,
+        y: 61,
+        width: 11,
+        height: 7,
+    };
+    let want = [pair(7), pair(12), arrow(62), arrow(102)];
+    for buffer in ["moved", "the other buffer"] {
+        assert_eq!(d.draw(&mut s, &moved), want, "{buffer}");
+    }
+    assert!(d.draw(&mut s, &moved).is_empty(), "idle after the move");
+}
+
 #[test]
 fn damage_merges_cells_up_to_three_apart() {
     let mut s = Screen::new(20, 2, rgb(FG), rgb(BG));
