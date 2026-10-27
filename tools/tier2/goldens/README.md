@@ -4,7 +4,7 @@ The goldens of vtium's own tier 2 screens, which the C reference's tier 2 has no
 
 | Golden | What it shows |
 |---|---|
-| `edges.ppm` | 93x67 pixels: a grid of 12 by 4 cells, of which the display holds 11 columns and 4 rows, centred with 2 and 3 pixel columns of border at the left and right and 1 and 2 pixel rows at the top and bottom. `edges` with red `R` and green `G` cells; a blue row; `last456`, `last` black on yellow and `456` underlined and struck; a magenta run in the last row. In the last whole column, the left halves of an underlined `中` and a reversed `語`. |
+| `edges.ppm` | 93x67 pixels: a grid of 12 by 4 cells, of which the display holds 11 columns and 4 rows, centred with 2 and 3 pixel columns of border at the left and right and 1 and 2 pixel rows at the top and bottom. `edges` with red `R` and green `G` cells; a blue row; `last456`, `last` black on yellow and `456` underlined and struck; a magenta run in the last row. In the last whole column, the left halves of an underlined `中` in row 1 and a reversed `語` in row 3, with a default-background cell between them. |
 | `edges-right.ppm` | The same on a display turned right, 67x93: text reads top to bottom. |
 | `edges-upside-down.ppm` | The same turned half round. The two cut wide glyphs show their right halves: the C reference's aaronsb/kmscon#44, which vtium departs from. |
 | `edges-left.ppm` | The same turned left: text reads bottom to top. The cut wide glyphs show their right halves, as in `edges-upside-down`. |
