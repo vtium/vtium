@@ -26,6 +26,7 @@
 
 pub mod app;
 pub mod blink;
+pub mod check;
 pub mod child;
 pub mod config;
 pub mod font;

@@ -16,8 +16,10 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/video.rs` | A video device behind one trait: drm2d, fbdev, or a test's stand-in |
 | `src/app.rs` | The seat: the VT's events, the devices, the keys, the blank, the child, the exit |
 | `src/logger.rs` | The log on stderr |
+| `src/check.rs` | `vtium check-config`, and the warnings the start gives beyond the reports |
 | `src/warn.rs` | Where the operator's warnings go: the configuration's reports and a font's partial ranges |
 | `src/main.rs` | Start-up and the loop |
+| `tests/check_config.rs` | `vtium check-config` run as a binary: its warnings, exit status and help, and with strace on the machine, that it opens nothing but the configuration |
 | `tests/boot.rs` | The seat booted with no hardware: output drawn, keys, a VT switch, the blank, the respawn limit, DECARM, the font's policy, the exit |
 | `install/kmscon.conf.example` | The example configuration, generated from the key table |
 | `install/kmscon.ti` | The terminfo entry, installed compiled with `tic -x` |

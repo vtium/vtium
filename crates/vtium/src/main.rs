@@ -14,6 +14,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use vtium::app::{App, Exit};
+use vtium::check;
 use vtium::config::{self, KEYS, Kind, Scope, keys};
 use vtium::term::Clock;
 use vtium_platform::event_loop::{Loop, Signal};
@@ -22,7 +23,9 @@ use vtium_platform::udev::Udev;
 use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty, Vt};
 
 fn help() -> String {
-    let mut out = String::from("Usage: vtium [OPTION]... [--login -- COMMAND...]\n\n");
+    let mut out = String::from(
+        "Usage: vtium [OPTION]... [--login -- COMMAND...]\n       vtium check-config [OPTION]...   check the configuration, apply nothing\n\n",
+    );
     for k in &KEYS {
         let arg = match k.kind {
             Kind::Switch if k.scope == Scope::CommandLine => String::new(),
@@ -59,8 +62,17 @@ fn clock() -> Clock {
 fn main() -> ExitCode {
     vtium::logger::init(log::Level::Info);
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if args.first().is_some_and(|a| a == check::SUBCOMMAND) {
+        let (lines, status) = check::run(args.get(1..).unwrap_or_default(), &mut config::read_file);
+        for line in lines {
+            eprintln!("{line}");
+        }
+        return ExitCode::from(u8::try_from(status).unwrap_or(1));
+    }
     let loaded = config::load(&args, Some("seat0"), &mut config::read_file);
-    vtium::warn::reports(&loaded.reports);
+    for w in check::warnings(&loaded) {
+        vtium::warn::warn(w);
+    }
     let config = loaded.config;
     if config.switch(&keys::HELP) {
         print!("{}", help());

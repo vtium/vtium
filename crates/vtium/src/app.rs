@@ -1051,7 +1051,7 @@ pub fn render_timer_line(
 
 /// The palette `palette` names: `None` for `legacy`, the terminal's own,
 /// and the `palette-*` keys for `custom`. vtium-term holds no other named
-/// palette yet, so another name keeps `legacy` and is reported.
+/// palette yet, so another name keeps `legacy`.
 fn palette(config: &Config) -> Option<vtium_term::Palette> {
     match config.text(&keys::PALETTE) {
         None | Some("legacy") => None,
@@ -1068,12 +1068,8 @@ fn palette(config: &Config) -> Option<vtium_term::Palette> {
             p.set_bg(rgb(&keys::PALETTE_BACKGROUND));
             Some(p)
         }
-        Some(name) => {
-            crate::warn::warn(format_args!(
-                "palette={name} is not built yet; legacy is used"
-            ));
-            None
-        }
+        // Reported at start, through `check::semantics`.
+        Some(_) => None,
     }
 }
 
@@ -1146,9 +1142,6 @@ pub fn open_video<V: Vt + 'static>(
         DeviceKind::Drm => {
             let modes = app.config.modes(&keys::MODE).to_vec();
             let use_original = app.config.switch(&keys::USE_ORIGINAL_MODE);
-            if use_original && !modes.is_empty() {
-                crate::warn::warn("mode is set, so use-original-mode is off");
-            }
             let gpu = id_path.map(str::to_owned);
             let policy = ModePolicy {
                 use_original: use_original && modes.is_empty(),
