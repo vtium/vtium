@@ -1,0 +1,305 @@
+#!/usr/bin/env python3
+"""
+coverage - tie ADR-1000's tables to the tests that cover each row
+
+Usage:
+    docs/scripts/coverage [--update] [--layer LAYER] [--require]
+
+The tables are docs/architecture/term/ADR-1000-modes.tsv and
+ADR-1000-features.tsv (ADR-1000, "The tables as data"). Each row has a stable
+`id`, and its `tests` column lists the tests that cite it. This script is the
+only writer of `tests`.
+
+Ids:
+    A mode's id is its kind and number: ANSI-4, DEC-2026.
+
+    A feature's id is lowercase words joined by dots, the first naming the
+    family: sgr, colour, cursor, text, ctl, query, window, input, clipboard,
+    osc, dcs, image or platform. A word holds a-z, 0-9 and inner hyphens. A
+    row about one numbered OSC is osc.<number>, with a further word where
+    the row is part of it (osc.8, osc.52.write). Examples: sgr.dim,
+    ctl.decstbm, query.xtgettcap, platform.pty.
+
+    An id never changes once committed. A row that moves to another group or
+    is reworded keeps its id, and a removed row's id is not reused.
+
+Tags:
+    A Rust test names the rows it covers in a comment directly above its fn,
+    among its other comments and attributes:
+
+        // covers: DEC-1049, DEC-47
+        #[test]
+        fn alternate_screen_saves_the_cursor() { ... }
+
+    The test is named crates/<crate>/tests/<file>.rs::<fn>. A replay file
+    (*.replay) carries the same tag as a # comment. A tag directly above a
+    `probe NAME` line names that probe, path::NAME; anywhere else it names
+    the file. Ids in one tag are separated by commas or spaces, and a test
+    may carry several tag lines.
+
+The `tests` column lists each row's tests sorted by name, joined by ", ".
+
+Checks (exit 1 on any failure):
+    - every id is well formed, a mode's id matches its kind and number, and
+      no id appears twice across the two tables;
+    - every tag names a known id and sits above a fn, or in a replay file;
+    - each committed `tests` cell equals what the tags give.
+    With --require, every selected row other than `no row` has a test.
+
+Options:
+    --update         rewrite the `tests` columns from the tags
+    --layer LAYER    select the rows whose layer column names LAYER
+                     (minspec, text, images, gpu, seat or top)
+    --require        fail while a selected row other than `no row` has no test
+
+Exit 0 when every check passes, 1 when one fails, 2 when the scan found no
+Rust or replay files or a table cannot be read.
+"""
+
+import argparse
+import os
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+TABLES = [
+    ROOT / 'docs/architecture/term/ADR-1000-modes.tsv',
+    ROOT / 'docs/architecture/term/ADR-1000-features.tsv',
+]
+SKIP_DIRS = {'target', 'node_modules'}
+
+MODE_ID = re.compile(r'(ANSI|DEC)-(0|[1-9][0-9]*)')
+WORD = r'[a-z0-9]+(?:-[a-z0-9]+)*'
+FEATURE_ID = re.compile(rf'[a-z][a-z0-9]*(?:\.{WORD})+')
+
+RUST_TAG = re.compile(r'^\s*//[/!]?\s*covers:(.*)$')
+REPLAY_TAG = re.compile(r'^\s*#+\s*covers:(.*)$')
+RUST_FN = re.compile(
+    r'^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const\s+)?(?:async\s+)?(?:unsafe\s+)?'
+    r'(?:extern\s+"[^"]*"\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)')
+REPLAY_PROBE = re.compile(r'^probe\s+(\S+)')
+
+
+class Table:
+    """One TSV, kept as lines so only the tests cells change on a rewrite."""
+
+    def __init__(self, path):
+        self.path = path
+        self.name = path.name
+        text = path.read_text(encoding='utf-8')
+        if not text.endswith('\n'):
+            raise ValueError(f'{self.name}: the last line has no newline')
+        lines = text[:-1].split('\n')
+        self.header = lines[0].split('\t')
+        for column in ('id', 'status', 'layer', 'tests'):
+            if column not in self.header:
+                raise ValueError(f'{self.name}: no `{column}` column')
+        self.rows = []
+        for number, line in enumerate(lines[1:], start=2):
+            cells = line.split('\t')
+            if len(cells) != len(self.header):
+                raise ValueError(f'{self.name}:{number}: {len(cells)} cells, '
+                                 f'the header has {len(self.header)}')
+            self.rows.append((number, cells))
+        self.is_modes = 'kind' in self.header and 'number' in self.header
+
+    def cell(self, cells, column):
+        return cells[self.header.index(column)]
+
+    def render(self, tests_for):
+        tests = self.header.index('tests')
+        out = ['\t'.join(self.header)]
+        for _, cells in self.rows:
+            cells = list(cells)
+            cells[tests] = ', '.join(tests_for(self.cell(cells, 'id')))
+            out.append('\t'.join(cells))
+        return '\n'.join(out) + '\n'
+
+
+def check_ids(tables, errors):
+    """Every id well formed and unique; returns {id: (table, cells)}."""
+    rows = {}
+    for table in tables:
+        for number, cells in table.rows:
+            row_id = table.cell(cells, 'id')
+            where = f'{table.name}:{number}'
+            if table.is_modes:
+                expect = f"{table.cell(cells, 'kind')}-{table.cell(cells, 'number')}"
+                if not MODE_ID.fullmatch(row_id):
+                    errors.append(f'{where}: `{row_id}` is not a mode id (ANSI-<n> or DEC-<n>)')
+                elif row_id != expect:
+                    errors.append(f'{where}: id `{row_id}` does not match kind and number `{expect}`')
+            elif not FEATURE_ID.fullmatch(row_id):
+                errors.append(f'{where}: `{row_id}` is not a feature id (dotted lowercase words)')
+            if row_id in rows:
+                errors.append(f'{where}: duplicate id `{row_id}`, first in {rows[row_id][0].name}')
+                continue
+            rows[row_id] = (table, cells)
+    return rows
+
+
+def tag_ids(text):
+    return [part for part in re.split(r'[,\s]+', text.strip()) if part]
+
+
+def scan_rust(path, rel, found, errors):
+    lines = path.read_text(encoding='utf-8', errors='replace').split('\n')
+    pending = []
+    for number, line in enumerate(lines, start=1):
+        tag = RUST_TAG.match(line)
+        if tag:
+            ids = tag_ids(tag.group(1))
+            if not ids:
+                errors.append(f'{rel}:{number}: a covers tag with no id')
+            pending.extend((number, i) for i in ids)
+            continue
+        if not pending:
+            continue
+        stripped = line.strip()
+        if not stripped or stripped.startswith('//') or stripped.startswith('#['):
+            continue
+        fn = RUST_FN.match(line)
+        if fn:
+            for tag_line, row_id in pending:
+                found.append((row_id, f'{rel}::{fn.group(1)}', f'{rel}:{tag_line}'))
+        else:
+            errors.append(f'{rel}:{pending[0][0]}: a covers tag is not directly above a fn')
+        pending = []
+    if pending:
+        errors.append(f'{rel}:{pending[0][0]}: a covers tag is not directly above a fn')
+
+
+def scan_replay(path, rel, found, errors):
+    lines = path.read_text(encoding='utf-8', errors='replace').split('\n')
+    pending = []
+
+    def bind(test):
+        for tag_line, row_id in pending:
+            found.append((row_id, test, f'{rel}:{tag_line}'))
+
+    for number, line in enumerate(lines, start=1):
+        tag = REPLAY_TAG.match(line)
+        if tag:
+            ids = tag_ids(tag.group(1))
+            if not ids:
+                errors.append(f'{rel}:{number}: a covers tag with no id')
+            pending.extend((number, i) for i in ids)
+            continue
+        if not pending:
+            continue
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            continue
+        probe = REPLAY_PROBE.match(stripped)
+        bind(f'{rel}::{probe.group(1)}' if probe else rel)
+        pending = []
+    bind(rel)
+
+
+def scan(found, errors):
+    """Read every tag under the repository; returns (rust files, replay files)."""
+    counts = {'.rs': 0, '.replay': 0}
+    for directory, dirs, files in os.walk(ROOT):
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.startswith('.'))
+        for name in sorted(files):
+            suffix = os.path.splitext(name)[1]
+            if suffix not in counts:
+                continue
+            path = Path(directory, name)
+            rel = path.relative_to(ROOT).as_posix()
+            counts[suffix] += 1
+            if suffix == '.rs':
+                scan_rust(path, rel, found, errors)
+            else:
+                scan_replay(path, rel, found, errors)
+    return counts['.rs'], counts['.replay']
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog='coverage', description="Tie ADR-1000's tables to the tests that cover each row.")
+    parser.add_argument('--update', action='store_true', help='rewrite the tests columns from the tags')
+    parser.add_argument('--layer', help='select the rows whose layer column names LAYER')
+    parser.add_argument('--require', action='store_true',
+                        help="fail while a selected row other than `no row` has no test")
+    args = parser.parse_args()
+
+    try:
+        tables = [Table(path) for path in TABLES]
+    except (OSError, ValueError) as err:
+        print(f'coverage: {err}', file=sys.stderr)
+        return 2
+
+    errors = []
+    rows = check_ids(tables, errors)
+
+    found = []
+    rust, replay = scan(found, errors)
+    if rust + replay == 0:
+        print(f'coverage: no Rust or replay files found under {ROOT}', file=sys.stderr)
+        return 2
+
+    tests = {row_id: set() for row_id in rows}
+    for row_id, test, where in found:
+        if row_id in tests:
+            tests[row_id].add(test)
+        else:
+            errors.append(f'{where}: unknown id `{row_id}`')
+
+    def tests_for(row_id):
+        return sorted(tests.get(row_id, ()))
+
+    stale = []
+    for table in tables:
+        for number, cells in table.rows:
+            row_id = table.cell(cells, 'id')
+            want = ', '.join(tests_for(row_id))
+            if table.cell(cells, 'tests') != want:
+                stale.append((table, number, row_id, table.cell(cells, 'tests'), want))
+
+    if args.update:
+        if errors:
+            for error in errors:
+                print(error, file=sys.stderr)
+            print(f'coverage: {len(errors)} error(s); the tables were not rewritten', file=sys.stderr)
+            return 1
+        for table in tables:
+            text = table.render(tests_for)
+            if text != table.path.read_text(encoding='utf-8'):
+                table.path.write_text(text, encoding='utf-8')
+                print(f'coverage: rewrote {table.path.relative_to(ROOT)}')
+        stale = []
+    else:
+        for table, number, row_id, have, want in stale:
+            errors.append(f'{table.name}:{number}: `{row_id}` tests column is '
+                          f'"{have}", the tags give "{want}" (run docs/scripts/coverage --update)')
+
+    selected = [(t, c) for t, c in rows.values()]
+    if args.layer:
+        selected = [(t, c) for t, c in selected
+                    if args.layer in [part.strip() for part in t.cell(c, 'layer').split(',')]]
+        if not selected:
+            print(f'coverage: no row has layer `{args.layer}`', file=sys.stderr)
+            return 2
+    counted = [(t, c) for t, c in selected if t.cell(c, 'status') != 'no row']
+    covered = [(t, c) for t, c in counted if tests[t.cell(c, 'id')]]
+    if args.require:
+        for table, cells in counted:
+            if not tests[table.cell(cells, 'id')]:
+                errors.append(f"{table.name}: `{table.cell(cells, 'id')}` "
+                              f"({table.cell(cells, 'status')}) has no test")
+
+    scope = f'layer {args.layer}' if args.layer else 'all layers'
+    print(f'coverage: scanned {rust} Rust and {replay} replay files, {len(found)} tags; '
+          f'{scope}: {len(covered)} of {len(counted)} rows other than `no row` have a test')
+    for error in errors:
+        print(error, file=sys.stderr)
+    if errors:
+        print(f'coverage: {len(errors)} error(s)', file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
