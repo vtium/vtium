@@ -16,108 +16,8 @@ use core::ops::Range;
 use crate::cell::{Cell, StyleIndex, Width};
 use crate::damage::{Age, Damage};
 use crate::line::{Glyph, Line, LinkId};
+use crate::palette::Palette;
 use crate::style::{Attrs, Color, Rgb, Style};
-
-/// The 256-colour palette and the default colours.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Palette {
-    colors: [Rgb; 256],
-    fg: Rgb,
-    bg: Rgb,
-}
-
-/// The C reference's `legacy` palette's sixteen colours, its default for
-/// the replay interface's reference host.
-const LEGACY: [(u8, u8, u8); 16] = [
-    (0x00, 0x00, 0x00),
-    (0xcd, 0x00, 0x00),
-    (0x00, 0xcd, 0x00),
-    (0xcd, 0xcd, 0x00),
-    (0x00, 0x00, 0xee),
-    (0xcd, 0x00, 0xcd),
-    (0x00, 0xcd, 0xcd),
-    (0xe5, 0xe5, 0xe5),
-    (0x7f, 0x7f, 0x7f),
-    (0xff, 0x00, 0x00),
-    (0x00, 0xff, 0x00),
-    (0xff, 0xff, 0x00),
-    (0x5c, 0x5c, 0xff),
-    (0xff, 0x00, 0xff),
-    (0x00, 0xff, 0xff),
-    (0xff, 0xff, 0xff),
-];
-
-impl Default for Palette {
-    /// The `legacy` sixteen, xterm's 6x6x6 cube (levels 0, 95, 135, 175,
-    /// 215, 255) and grey ramp (8 to 238 in steps of 10), on a light grey
-    /// foreground and a black background.
-    fn default() -> Self {
-        const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
-        let mut colors = [Rgb::default(); 256];
-        for (i, c) in colors.iter_mut().enumerate() {
-            *c = match i {
-                0..=15 => LEGACY
-                    .get(i)
-                    .map_or(Rgb::default(), |&(r, g, b)| Rgb::new(r, g, b)),
-                16..=231 => {
-                    let n = i.saturating_sub(16);
-                    let level = |k: usize| LEVELS.get(k % 6).copied().unwrap_or(0);
-                    Rgb::new(level(n / 36), level(n / 6), level(n))
-                }
-                _ => {
-                    let grey =
-                        u8::try_from(i.saturating_sub(232).saturating_mul(10).saturating_add(8))
-                            .unwrap_or(0);
-                    Rgb::new(grey, grey, grey)
-                }
-            };
-        }
-        Self::new(colors, Rgb::new(0xe5, 0xe5, 0xe5), Rgb::new(0, 0, 0))
-    }
-}
-
-impl Palette {
-    pub fn new(colors: [Rgb; 256], fg: Rgb, bg: Rgb) -> Self {
-        Self { colors, fg, bg }
-    }
-
-    pub fn color(&self, index: u8) -> Rgb {
-        self.colors
-            .get(usize::from(index))
-            .copied()
-            .unwrap_or_default()
-    }
-
-    pub fn set_color(&mut self, index: u8, rgb: Rgb) {
-        if let Some(c) = self.colors.get_mut(usize::from(index)) {
-            *c = rgb;
-        }
-    }
-
-    pub fn fg(&self) -> Rgb {
-        self.fg
-    }
-
-    pub fn bg(&self) -> Rgb {
-        self.bg
-    }
-
-    pub fn set_fg(&mut self, rgb: Rgb) {
-        self.fg = rgb;
-    }
-
-    pub fn set_bg(&mut self, rgb: Rgb) {
-        self.bg = rgb;
-    }
-
-    fn resolve(&self, color: Color, default: Rgb) -> Rgb {
-        match color {
-            Color::Default => default,
-            Color::Indexed(i) => self.color(i),
-            Color::Rgb(rgb) => rgb,
-        }
-    }
-}
 
 /// SGR 2's foreground: halfway from `fg` to `bg`, each channel the sum of
 /// the two halved (the C reference's `color_dim`).
@@ -309,8 +209,8 @@ impl<'a> Frame<'a> {
             }
             c => c,
         };
-        let mut fg = self.palette.resolve(fg_color, self.palette.fg);
-        let mut bg = self.palette.resolve(style.bg, self.palette.bg);
+        let mut fg = self.palette.resolve(fg_color, self.palette.fg());
+        let mut bg = self.palette.resolve(style.bg, self.palette.bg());
         let inverse = (style.attrs.contains(Attrs::INVERSE) != self.reverse) != selected;
         if inverse {
             core::mem::swap(&mut fg, &mut bg);

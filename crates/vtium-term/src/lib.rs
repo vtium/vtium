@@ -65,6 +65,7 @@ mod cell;
 mod damage;
 mod frame;
 mod line;
+mod palette;
 mod screen;
 mod scrollback;
 mod style;
@@ -79,8 +80,9 @@ pub use bounds::{
 };
 pub use cell::{Cell, ClusterOffset, Content, LinkIndex, StyleIndex, Width};
 pub use damage::{Age, Damage};
-pub use frame::{Cursor, CursorShape, Frame, FrameCell, Palette};
+pub use frame::{Cursor, CursorShape, Frame, FrameCell};
 pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId};
+pub use palette::{PALETTE_NAMES, Palette};
 pub use screen::{Erase, Screen, WidthMethod};
 pub use scrollback::{SB_SIZE_DEFAULT, sb_size, sb_size_cap};
 pub use style::{Attrs, Color, Rgb, Script, Style, UnderlineStyle};
