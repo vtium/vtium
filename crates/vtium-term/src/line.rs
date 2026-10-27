@@ -9,10 +9,9 @@
 //! A table holds only what was written to the line. Once the style or link
 //! table reaches [`TABLE_GROWTH`] times the line's cells, or the cluster
 //! arena that many times the line's cluster budget, the line compacts: it
-//! keeps the entries a cell still names and renumbers them. Each compaction
-//! follows at least as many writes as the line has cells, so its cost is
-//! amortised over them. Looking a style or link up searches its table, so
-//! a write is linear in the line's width at worst.
+//! keeps the entries a cell still names and renumbers them. A compaction,
+//! like looking a style or link up in its table, costs time linear in the
+//! line's width, so a write is linear in the line's width at worst.
 //!
 //! The cluster arena holds each cluster as a length byte and its codepoints
 //! in UTF-8, and the cell holds the cluster's byte offset. The clusters a
@@ -278,10 +277,12 @@ impl Line {
         style: &Style,
         link: Option<LinkId>,
     ) -> bool {
-        let Some(old) = self.cells.get(col).copied() else {
+        if col >= self.cells.len() {
             return false;
-        };
+        }
+        // Compaction renumbers the cells, so the old cell is read after it.
         self.make_room();
+        let old = self.cell(col);
         let style = self.intern_style(style);
         let link = self.intern_link(link);
         self.release(old);
@@ -452,8 +453,8 @@ impl Line {
         let Some(first) = chars.next() else {
             return Content::Empty;
         };
-        let t = self.tables.get_or_insert_default();
-        let room = budget.saturating_sub(t.live);
+        let live = self.tables.as_ref().map_or(0, |t| t.live);
+        let room = budget.saturating_sub(live);
         // The longest run of whole codepoints, at most CLUSTER_MAX, that
         // fits with its length byte.
         let mut end = first.len_utf8();
@@ -466,6 +467,10 @@ impl Line {
             end = next;
             count = count.saturating_add(1);
         }
+        if count < 2 {
+            return Content::Char(first);
+        }
+        let t = self.tables.get_or_insert_default();
         let (Some(bytes), Ok(len), Ok(offset)) = (
             s.as_bytes().get(..end),
             u8::try_from(end),
@@ -473,9 +478,6 @@ impl Line {
         ) else {
             return Content::Char(first);
         };
-        if count < 2 {
-            return Content::Char(first);
-        }
         t.clusters.push(len);
         t.clusters.extend_from_slice(bytes);
         t.live = t.live.saturating_add(end).saturating_add(1);
@@ -609,7 +611,9 @@ mod tests {
         assert_eq!(line.cell(0).content(), Content::Char('e'));
         line.write(1, Glyph::Cluster(""), Width::Narrow, &Style::DEFAULT, None);
         assert!(line.cell(1).is_blank());
-        assert_eq!(line.heap_bytes(), 4 * 8 + size_of::<Tables>());
+        // Neither needed a table.
+        assert!(line.tables.is_none());
+        assert_eq!(line.heap_bytes(), 4 * 8);
     }
 
     // kmscon ADR 102, "Cells and clusters": extenders past 32 are dropped.
@@ -664,37 +668,56 @@ mod tests {
         assert_eq!(line.glyph(line.cell(1)), Glyph::Cluster(&accented(2)));
     }
 
+    /// The arena bytes the line's cells name, counted from the cells.
+    fn named_bytes(line: &Line) -> usize {
+        line.cells()
+            .iter()
+            .map(|&c| match line.glyph(c) {
+                Glyph::Cluster(s) => s.len().saturating_add(1),
+                _ => 0,
+            })
+            .sum()
+    }
+
+    // Clusters of mixed sizes, maximal ones among them, written at
+    // scattered columns through many compactions: the bytes the cells
+    // name stay inside the budget, and `live` agrees with them.
     #[test]
-    fn a_flood_of_maximal_clusters_stays_inside_the_budget() {
-        let cols = 170;
-        let mut line = Line::new(LineId::new(1), cols);
-        let max = accented(CLUSTER_MAX - 1);
-        for _ in 0..20 {
-            for col in 0..cols {
+    fn a_flood_of_mixed_clusters_stays_inside_the_budget() {
+        for cols in [4, 21, 170] {
+            let mut line = Line::new(LineId::new(1), cols);
+            let mut seed = 0x9e37_79b9_u32;
+            for _ in 0..20_000 {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let col = (seed >> 8) as usize % cols;
+                let marks = (seed >> 20) as usize % CLUSTER_MAX;
+                let cluster = accented(marks);
                 line.write(
                     col,
-                    Glyph::Cluster(&max),
+                    Glyph::Cluster(&cluster),
                     Width::Narrow,
                     &Style::DEFAULT,
                     None,
                 );
-                let t = tables(&line);
-                assert!(t.live <= cols * CLUSTER_BYTES_PER_CELL);
+                let named = named_bytes(&line);
                 assert!(
-                    t.clusters.len()
+                    named <= cols * CLUSTER_BYTES_PER_CELL,
+                    "{named} bytes at {cols} cells"
+                );
+                assert_eq!(line.tables.as_ref().map_or(0, |t| t.live), named);
+                assert!(
+                    line.tables.as_ref().map_or(0, |t| t.clusters.len())
                         <= cols * CLUSTER_BYTES_PER_CELL * TABLE_GROWTH + CLUSTER_BYTES_MAX
                 );
-            }
-            for col in 0..cols {
                 match line.glyph(line.cell(col)) {
                     Glyph::Char('e') => {}
-                    Glyph::Cluster(s) => assert!(max.starts_with(s)),
+                    Glyph::Cluster(s) => assert!(cluster.starts_with(s)),
                     other => panic!("cell {col} holds {other:?}"),
                 }
             }
+            line.trim();
+            assert!(named_bytes(&line) <= cols * CLUSTER_BYTES_PER_CELL);
         }
-        line.trim();
-        assert!(tables(&line).clusters.len() <= cols * CLUSTER_BYTES_PER_CELL);
     }
 
     #[test]
