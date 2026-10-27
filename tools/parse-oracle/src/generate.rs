@@ -45,6 +45,10 @@ impl Rng {
 
 const MODES: [InputMode; 3] = [InputMode::Utf8, InputMode::EightBit, InputMode::SevenBit];
 
+/// The parse README's OSC bound, 1 MiB, written here and not taken from
+/// vtium-parse so that a wrong `OSC_MAX` there moves no case.
+const OSC_BOUND: usize = 1 << 20;
+
 fn repeat(prefix: &[u8], b: &[u8], n: usize, suffix: &[u8]) -> Vec<u8> {
     [prefix, &b.repeat(n), suffix].concat()
 }
@@ -161,7 +165,8 @@ fn tokens() -> Vec<Vec<u8>> {
         repeat(b"", b"1:", 8, b""),
         repeat(b"", b"1:", 9, b""),
         repeat(b"", b":", 9, b""),
-        // OSC_MAX: a byte short, at and past it, and a character across it
+        // the C reference's OSC_MAX_LEN, which osc-bound passes: a byte
+        // short, at and past it, and a character across it
         repeat(b"\x1b]", b"x", 126, b"\x07"),
         repeat(b"\x1b]", b"x", 127, b"\x07"),
         repeat(b"\x1b]", b"x", 128, b"\x07"),
@@ -300,7 +305,9 @@ fn sequence(rng: &mut Rng, out: &mut Vec<u8>) {
         6 | 7 => {
             out.extend(*rng.pick(OSC));
             out.extend(b"0;");
-            out.extend(b"x".repeat(*rng.pick(&[0, 5, 40, 120, 125, 126, 127, 128, 140])));
+            out.extend(
+                b"x".repeat(*rng.pick(&[0, 5, 40, 120, 125, 126, 127, 128, 140, 300, 5000])),
+            );
             let n = rng.below(4);
             payload(rng, n, out);
             out.extend(*rng.pick(TERMINATORS));
@@ -491,6 +498,36 @@ pub fn cases() -> Vec<Stream> {
                     reset: true,
                 },
                 d(b"\x1b]0;t\x07\x1b[2m"),
+            ],
+        ),
+        // OSC_MAX, a megabyte, too long for the tokens: a byte short, at
+        // and past it, a character across it, and an ST waiting at its ESC
+        // across a call, then a string that starts clean
+        case(
+            "osc-at-the-bound",
+            vec![
+                Data(repeat(b"\x1b]", b"x", OSC_BOUND - 1, b"\x07")),
+                Data(repeat(b"\x1b]", b"x", OSC_BOUND, b"\x07")),
+                Data(repeat(b"\x1b]", b"x", OSC_BOUND + 1, b"\x07")),
+            ],
+        ),
+        case(
+            "osc-character-across-the-bound",
+            vec![
+                Data(repeat(b"\x1b]", b"x", OSC_BOUND - 1, b"\xc3\xa9y\x07")),
+                Data(repeat(
+                    b"\x1b]",
+                    b"x",
+                    OSC_BOUND - 2,
+                    b"\xe2\x82\xacy\x1b\\",
+                )),
+            ],
+        ),
+        case(
+            "osc-st-across-a-call-at-the-bound",
+            vec![
+                Data(repeat(b"\x1b]", b"x", OSC_BOUND, b"\x1b")),
+                d(b"\\\x1b]0;z\x07"),
             ],
         ),
     ]

@@ -37,10 +37,11 @@ cargo fmt --all --check \
   && docs/scripts/coverage \
   && make test-tools \
   && make conformance \
-  && make conformance-probes
+  && make conformance-probes \
+  && make parse-oracle
 ```
 
-`make conformance` and `make conformance-probes` read the pinned goldens and probes from `../libtsm` and `../kmscon`, and refuse to run without them.
+`make conformance` and `make conformance-probes` read the pinned goldens and probes from `../libtsm` and `../kmscon`, and refuse to run without them. `make parse-oracle` compiles the C reference's parser from `../libtsm` at the commit in `tools/parse-oracle/pin.tsv`, with gcc, and compares vtium-parse with it (`tools/parse-oracle/README.md`).
 
 vtium's code, tests and tools are written in Rust. Where vtium must talk to a C library, such as libseat (#34) or the C reference's parser that the parse oracle (`tools/parse-oracle/`, #52) compares against, C stays at that boundary: a binding or the thinnest shim, with everything around it in Rust. A tool that needs the C reference stays out of the default build, so `cargo test --workspace` needs no C toolchain or fork checkout. The C repositories keep their own harness, which judges vtium through language-neutral interfaces.
 

@@ -39,6 +39,12 @@ pub const PLANTS: &[Plant] = &[
         to: "pub const OSC_MAX: usize = OSC.value - 1;",
     },
     Plant {
+        name: "osc-collect-keeps-one-short",
+        file: "src/parser.rs",
+        from: "        if len > OSC_MAX {\n            self.osc_full = true;",
+        to: "        if len >= OSC_MAX {\n            self.osc_full = true;",
+    },
+    Plant {
         name: "xtgettcap-max-off-by-one",
         file: "src/bounds.rs",
         from: "pub const XTGETTCAP_MAX: usize = XTGETTCAP.value;",

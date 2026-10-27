@@ -137,9 +137,17 @@ const XTGETTCAP_REPLY: Bound = Bound {
     cite: "`XTGETTCAP_REPLY_MAX`, tsm-vte.c:131; the C reference reserved a byte for a `;` the last pair does not take, so it refused a reply of exactly 4096 bytes",
 };
 
+const CLIPBOARD: Bound = Bound {
+    name: "CLIPBOARD_MAX",
+    value: 512 * 1024,
+    what: "Bytes of selection one OSC 52 sets, decoded, which the terminal holds until the host takes them; a later set replaces one the host has not taken",
+    past: "The set is dropped whole, and the selection keeps what it held",
+    cite: "vtium's own: the largest power of two whose base64, 699,052 bytes, fits vtium-parse's `OSC_MAX` with its `52;` and targets, so one byte over still reaches the check; tmux drops a sequence past 1 MiB, its `input-buffer-size` (`tmux.h:3509` at `df302c5`), and Ghostty an OSC 52 past 8 MiB (`src/terminal/osc.zig:365` at `a732580`)",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 15] = [
+pub(crate) const BOUNDS: [Bound; 16] = [
     COLUMNS,
     ROWS,
     CLUSTER,
@@ -155,6 +163,7 @@ pub(crate) const BOUNDS: [Bound; 15] = [
     TERMCAP_VALUE,
     XTGETTCAP_NAMES_BOUND,
     XTGETTCAP_REPLY,
+    CLIPBOARD,
 ];
 
 /// Cells a line holds, and columns a screen and its damage have. The
@@ -223,6 +232,9 @@ pub const XTGETTCAP_NAMES: usize = XTGETTCAP_NAMES_BOUND.value;
 
 /// The most bytes of one XTGETTCAP reply.
 pub const XTGETTCAP_REPLY_MAX: usize = XTGETTCAP_REPLY.value;
+
+/// The most bytes of selection one OSC 52 sets, decoded: 512 KiB.
+pub const CLIPBOARD_MAX: usize = CLIPBOARD.value;
 
 #[cfg(test)]
 #[expect(
