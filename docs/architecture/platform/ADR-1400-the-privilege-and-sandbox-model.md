@@ -52,6 +52,10 @@ considered:
   - operator: advisor
     said: "Sound carry-forward; fix the opt-in logind default and two never-silent sentences before acceptance. D1-D3 serve the operator's intent. Drift: logind opt-in left packaged image builds on logind hosts with the weaker pty-owner identity, against the C reference's sd_login=auto. Overstated: file media before login were logged at debug only; the gid-0 rule held only when not root. Unverified: the root table's kernel conditions."
     via: skeptic subagent (claude-opus-5-5), the operator's requested second opinion, 2026-10-26; read the C reference's working tree and systemd.exec(5); kernel source unreachable
+  - operator: aaronsb
+    said: "1 yes 2 yes"
+    via: operator, in session 2026-10-26, after reading the record and the second opinion
+    covers: [as the C reference, root's images]
 observable:
   - "The login child's `/proc/<pid>/fd` holds 0, 1 and 2 only, after exec"
   - "The helper's `/proc/<pid>/status` shows the session's uid and `NoNewPrivs: 1`, and at a root login prompt with no logind no helper runs as root"
