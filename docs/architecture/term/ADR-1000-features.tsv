@@ -28,11 +28,11 @@ Colours	OSC 13, 14, 113, 114: pointer colours	ctlseqs	absent	yes	no	yes	unverifi
 Colours	OSC 17, 19, 117, 119: selection colours	ctlseqs	absent	yes	yes	yes	unverified	unverified	supported		top	#38
 Colours	OSC 15, 16, 18 and their resets: Tektronix colours	ctlseqs	absent	yes	no	yes	unverified	unverified	ignored	no Tektronix mode	minspec	#39
 Colours	OSC 5, 6, 105, 106: special colours (bold, underline, blink, reverse)	ctlseqs	absent	yes	no	yes (5, 105)	no (OSC 5 ignored)	unverified	ignored	#38 could take it	minspec	#39
-Colours	OSC 21: kitty colour protocol	kitty color-stack; Ghostty ext	absent	no (xterm's OSC 21 is DECSWT, a title)	no	yes	unverified	yes	supported	kitty's meaning	top	#38
+Colours	OSC 21: kitty colour protocol	kitty color-stack; Ghostty ext	absent	no (xterm's OSC 21 is DECSWT, a title)	no	yes	unverified	yes	supported	kitty's meaning; a key vtium does not know is left out of the reply, where kitty answers `unknown=` with its name in base64 (a departure from kitty, by the reply rule)	top	#38
 Colours	Colour stacks: XTPUSHCOLORS, XTPOPCOLORS, XTREPORTCOLORS (CSI # P, Q, R); kitty's OSC 30001 and 30101	ctlseqs; foot(7); kitty color-stack	absent	yes	yes	unverified	unverified	yes	supported		top	#58
 Colours	Wide-gamut colour specs (oklch, lab) in colour strings	kitty wide-gamut-colors	absent	no	no	unverified	unverified	yes	ignored	#38 could take it	minspec	#39
-Colours	Colour scheme query, CSI ? 996 n, with mode 2031	contour color-palette-update-notifications; foot(7)	absent	no	yes	yes (by name)	unverified	unverified	supported		top	#57
-Cursor	DECSCUSR cursor styles, values outside 0-6 taken as xterm takes them	ctlseqs; VT510	works (probe terminfo-cursor-shape); DECSC does not save the style (libtsm#78)	yes	yes	yes (Ghostty decscusr page)	unverified	unverified	supported		minspec	#12, #16
+Colours	Colour scheme query, CSI ? 996 n, with mode 2031	contour color-palette-update-notifications; foot(7)	absent	no	yes	yes (by name)	unverified	unverified	supported	a program asks whether the console's palette is dark or light before it picks its colours	top	#57
+Cursor	DECSCUSR cursor styles, values outside 0-6 taken as xterm takes them	ctlseqs; VT510	works (probe terminfo-cursor-shape); DECSC did not save the style (libtsm#78)	yes	yes	yes (Ghostty decscusr page)	unverified	unverified	supported		minspec	#12, #16
 Cursor	Cursor colour (OSC 12)	ctlseqs	missing	yes	yes	yes	yes	unverified	supported		top	#38
 Cursor	kitty multiple cursors (CSI > Ps ; ... SP q)	kitty multiple-cursors-protocol	absent	no	no	unverified	unverified	yes	ignored	kitty alone documents it	minspec	#12
 Text, Unicode and fonts	Grapheme clusters, one cell each	contour unicode-core	works (probe cluster)	unverified	unverified	yes (Ghostty feat)	unverified	unverified	supported		minspec	#11
@@ -42,8 +42,8 @@ Text, Unicode and fonts	Charsets: SCS for G0-G3, DEC special graphics, LS2, LS3,
 Text, Unicode and fonts	8-bit C1 controls, S7C1T and S8C1T	ctlseqs	works	yes	unverified	unverified	unverified	unverified	supported		minspec	#9, #12
 Text, Unicode and fonts	Bidirectional text	ECMA TR/53 (unverified: not fetched)	missing (probe bidi, kmscon#103)	no	no	no ("only left-to-right text is supported", Ghostty feat)	unverified	unverified	supported		top	#43
 Text, Unicode and fonts	Reflow on resize	contour line-reflow-mode	missing (probe reflow, libtsm#28)	unverified	unverified	unverified	unverified	unverified	supported		top	#41
-Text, Unicode and fonts	kitty text sizing (OSC 66)	kitty text-sizing-protocol	absent	no	partial (width only, foot(7))	unverified	unverified	yes	supported		top	#60
-Text, Unicode and fonts	Double-width and double-height lines (DECDWL, DECDHL, DECSWL: ESC # 3-6)	ctlseqs; VT510	absent	yes	no	unverified	unverified	unverified	supported		top	#61
+Text, Unicode and fonts	kitty text sizing (OSC 66)	kitty text-sizing-protocol	absent	no	partial (width only, foot(7))	unverified	unverified	yes	supported	large text, such as a heading or a banner at the login prompt, on a grid whose font size serves every program	top	#60
+Text, Unicode and fonts	Double-width and double-height lines (DECDWL, DECDHL, DECSWL: ESC # 3-6)	ctlseqs; VT510	absent	yes	no	unverified	unverified	unverified	supported	double-size banner lines, as DEC consoles drew them, and the vttest screens that check them	top	#61
 Text, Unicode and fonts	Box drawing, block elements, Braille, sextants, octants as cell-exact sprites	Unicode; C reference kmscon#59, #91	works	unverified	unverified	unverified	unverified	unverified	supported		minspec	#15, #27
 Text, Unicode and fonts	PSF fonts and unifont, bounded against crafted fonts	C reference	works	unverified	unverified	unverified	unverified	unverified	supported		minspec	#15
 Text, Unicode and fonts	Outline fonts: bold and italic faces, synthetic bold, fallback	C reference (freetype and pango)	partial (probes font-freetype-italic, font-freetype-synthetic-bold, kmscon#100)	yes	yes	yes (Ghostty cfg `font-synthetic-style`)	yes (WezTerm feat, fallback)	unverified	supported		text	#23, #24
@@ -52,7 +52,7 @@ Text, Unicode and fonts	Glyph overhang	C reference	absent	unverified	unverified	
 Text, Unicode and fonts	Programming ligatures	Ghostty feat; WezTerm feat	absent	no	unverified	yes	yes	unverified	supported	as an option	text	#23
 Text, Unicode and fonts	Font merging: symbol ranges (Nerd Fonts, Powerline) drawn from a second font beside the main one	operator's sample on #12	absent	unverified	unverified	unverified	unverified	unverified	supported		text	#64
 Text, Unicode and fonts	Runtime font change and zoom: OSC 50, CSI 8 t	ctlseqs	absent	yes (OSC 50)	no	unverified	unverified	unverified	supported	late	top	#44
-Text, Unicode and fonts	contour font settings (OSC 60)	contour font-settings	absent	no	no	unverified	unverified	unverified	ignored	#44 could take it	minspec	#39
+Text, Unicode and fonts	contour font settings (OSC 60)	contour font-settings	absent	no	no	unverified	unverified	unverified	ignored	OSC 60 is also xterm's XTQALLOWED, the meaning vtium takes, as contour alone documents this one	minspec	#39
 Text, Unicode and fonts	Glyphs baked into vtium as read-only atlases (vitrify)	vtium/vtium#3	absent	n/a	n/a	n/a	n/a	n/a	weighed	in #23	text	#3
 Control functions	Cursor movement and editing: CUU, CUD, CUF, CUB, CNL, CPL, CHA, HPA, HPR, VPA, VPR, CUP, HVP, ED, EL, ECH, ICH, DCH, IL, DL, SU, SD, IND, RI, NEL	ECMA-48; ctlseqs	works (tier 1)	yes	yes	yes	unverified	unverified	supported		minspec	#11
 Control functions	Erase leaves only the pen's colours (BCE)	C reference libtsm#13	works (probe erase-colours-only)	unverified	unverified	unverified	unverified	unverified	supported		minspec	#11
@@ -60,28 +60,28 @@ Control functions	ED 3 empties the scrollback	ctlseqs	works (probe terminfo-e3)	
 Control functions	Tabs: HTS, TBC, CHT, CBT	ECMA-48; ctlseqs	works	yes	yes (TBC, CHT, CBT)	yes (TBC, CHT, CBT)	unverified	unverified	supported		minspec	#11
 Control functions	DECST8C, a tab stop every 8 columns	ctlseqs	absent	yes	no	unverified	unverified	unverified	ignored		minspec	#12
 Control functions	DECSTBM	ctlseqs	works	yes	unverified	yes	yes	unverified	supported		minspec	#11
-Control functions	DECSLRM and SCOSC/SCORC (CSI s and CSI u share the final)	ctlseqs	absent	yes	yes (SCOSC, SCORC)	yes (DECSLRM)	yes (DECSLRM via DECRQSS)	unverified	supported		top	#55
+Control functions	DECSLRM, SCOSC and SCORC (DECSLRM and SCOSC share CSI s)	ctlseqs	absent	yes	yes (SCOSC, SCORC)	yes (DECSLRM)	yes (DECSLRM via DECRQSS)	unverified	supported		top	#55
 Control functions	DECIC, DECDC, DECBI, DECFI: column insert and delete, back and forward index	ctlseqs	absent	yes	no	unverified	unverified	unverified	supported	with left and right margins	top	#55
 Control functions	DECSC, DECRC	ctlseqs	works	yes	yes	yes	yes	unverified	supported		minspec	#12
 Control functions	DECSTR and RIS; DECSTR resets the mouse modes (libtsm#76)	ctlseqs	works	yes	yes	yes (RIS)	yes (RIS)	unverified	supported		minspec	#12
 Control functions	DECKPAM, DECKPNM	ctlseqs	works	yes	unverified	yes	yes	unverified	supported		minspec	#12
 Control functions	DECSCL	ctlseqs; VT510	works	yes	unverified	unverified	yes (DECRQSS)	unverified	supported		minspec	#12
 Control functions	VT52 mode and its escape sequences	VT510 (DECANM); ctlseqs (VT52 mode)	absent: DECANM refused	yes	no	unverified	unverified	unverified	ignored	until its issue lands	top	#65
-Control functions	DECALN, the screen alignment test (ESC # 8)	ctlseqs; VT510	absent (ESC # 8 is dropped)	yes	unverified	yes	yes	unverified	supported		top	#54
+Control functions	DECALN, the screen alignment test (ESC # 8)	ctlseqs; VT510	absent (ESC # 8 was dropped)	yes	unverified	yes	yes	unverified	supported		top	#54
 Control functions	Rectangular areas: DECCRA, DECFRA, DECERA, DECSERA, DECCARA, DECRARA, DECSACE	ctlseqs; foot(7); kitty deccara (DECCARA for every SGR attribute)	absent	yes	yes (DECCARA, DECRARA, DECCRA, DECFRA, DECERA)	unverified	unverified	yes (DECCARA)	supported		top	#56
-Control functions	Protection: DECSCA, DECSED, DECSEL	ctlseqs	partial: DECSED and DECSEL honour a protect flag that nothing sets	yes	no	unverified	unverified	unverified	supported		top	#56
+Control functions	Protection: DECSCA, DECSED, DECSEL	ctlseqs	partial: DECSED and DECSEL honoured a protect flag that nothing set	yes	no	unverified	unverified	unverified	supported		top	#56
 Control functions	kitty: move the screen into the scrollback (CSI 22 J)	kitty misc-protocol	absent	no	no	unverified	unverified	yes	ignored	kitty alone documents it	minspec	#12
 Control functions	kitty: unscroll (CSI Ps + T)	kitty unscroll	absent	no	no	unverified	unverified	yes	ignored	kitty alone documents it	minspec	#12
 Control functions	XTSAVE and XTRESTORE (CSI ? Pm s, r), with kitty's empty list meaning every mode	ctlseqs; foot(7); kitty misc-protocol	absent	yes	yes	unverified	unverified	yes	supported		top	#54
 Control functions	Status line: DECSSDT, DECSASD	ctlseqs	absent	yes	no	unverified	unverified	unverified	ignored		minspec	#12
 Control functions	Page size: DECSCPP, DECSLPP, DECSNLS	ctlseqs	absent	yes	no	unverified	unverified	unverified	ignored	as DECCOLM is refused	minspec	#12
-Control functions	DECLL, load LEDs	ctlseqs	parsed; the LEDs are left alone	yes	no	unverified	unverified	unverified	ignored		minspec	#12
+Control functions	DECLL, load LEDs	ctlseqs	parsed; the LEDs were left alone	yes	no	unverified	unverified	unverified	ignored		minspec	#12
 Control functions	DECSWBV, DECSMBV: bell volumes	ctlseqs	absent	yes	no	unverified	unverified	unverified	ignored		minspec	#12
-Control functions	BEL	ECMA-48	works: forwarded to the VT bell when `--bell` is on	yes	yes (mode 1042)	yes (Ghostty cfg `bell-features`)	unverified	unverified	supported		minspec	#19, #21
+Control functions	BEL	ECMA-48	works: forwarded to the VT bell when `--bell` was on	yes	yes (mode 1042)	yes (Ghostty cfg `bell-features`)	unverified	unverified	supported		minspec	#19, #21
 Control functions	DCS = 1 s and = 2 s: begin and end a synchronized update	foot(7); contour synchronized-output	absent	no	yes	unverified	unverified	unverified	supported	the same hold as mode 2026	minspec	#12
-Queries and replies	DA1 (CSI c)	ctlseqs; VT510	works, but reports level 60 (probe da1-level, libtsm#31)	yes	yes	unverified	unverified	unverified	supported	one of xterm's defined levels, 22 for colour, and 4 only when sixel is built (a departure)	minspec	#12
+Queries and replies	DA1 (CSI c)	ctlseqs; VT510	works (probe da1), with level 60 (probe da1-level missing, libtsm#31), and 4 only while sixel was on	yes	yes	unverified	unverified	unverified	supported	one of xterm's defined levels in place of 60 (a departure), 22 for colour, and 4 only when sixel is built	minspec	#12
 Queries and replies	DA2 (CSI > c)	ctlseqs	works (probe da2)	yes	yes	unverified	unverified	unverified	supported		minspec	#12
-Queries and replies	DA3 (CSI = c), DECRPTUI	ctlseqs; VT510	missing: answered as DA1 (probe da3)	yes	yes	unverified	unverified	unverified	supported	or recorded unanswered (#12 decides)	minspec	#12
+Queries and replies	DA3 (CSI = c), DECRPTUI	ctlseqs; VT510	missing: CSI = c was answered as DA1 (probe da3)	yes	yes	unverified	unverified	unverified	supported	or recorded unanswered (#12 decides)	minspec	#12
 Queries and replies	DECID (ESC Z)	ctlseqs	works, as DA1	yes	unverified	unverified	unverified	unverified	supported		minspec	#12
 Queries and replies	DSR 5, DSR 6 (CPR), DECXCPR (CSI ? 6 n)	ctlseqs	works	yes	yes (5, 6)	yes (Ghostty dsr page)	unverified	unverified	supported		minspec	#12
 Queries and replies	DSR ? 15, 25, 26, 53, 55, 56, 62, 63, 75, 85: printer, UDK, keyboard, locator, macro, checksum, session reports	ctlseqs	absent	yes	no	no (other values do nothing, Ghostty dsr page)	unverified	unverified	ignored		minspec	#12
@@ -90,15 +90,15 @@ Queries and replies	DECRQSS (DCS $ q); an unknown request gets the error form wi
 Queries and replies	XTVERSION (CSI > q)	ctlseqs	works (probe xtversion)	yes	yes	unverified	unverified	unverified	supported		minspec	#12
 Queries and replies	XTGETTCAP (DCS + q), names printed in uppercase hex from the table	ctlseqs	works (probe xtgettcap); echoed the request's spelling (a departure)	yes	yes	unverified	unverified	unverified	supported		minspec	#12
 Queries and replies	XTSETTCAP (DCS + p), XTGETXRES (DCS + Q)	ctlseqs	absent	yes	no	unverified	unverified	unverified	ignored		minspec	#12
-Queries and replies	XTQALLOWED, XTQDISALLOWED, XTQALLOWABLE (OSC 60-62)	ctlseqs	absent	yes	no	unverified	unverified	unverified	ignored		minspec	#39
-Queries and replies	XTSMGRAPHICS (CSI ? Pi ; Pa ; Pv S)	ctlseqs	works, reads the register count (probe sixel)	yes	yes	unverified	unverified	unverified	supported		images	#48
+Queries and replies	XTQALLOWED, XTQDISALLOWED, XTQALLOWABLE (OSC 60-62)	ctlseqs	absent	yes	no	unverified	unverified	unverified	ignored	OSC 60 is also contour's font settings, which contour alone documents; vtium takes xterm's meaning	minspec	#39
+Queries and replies	XTSMGRAPHICS (CSI ? Pi ; Pa ; Pv S)	ctlseqs	works, read the register count (probe sixel)	yes	yes	unverified	unverified	unverified	supported		images	#48
 Queries and replies	XTREPORTSGR, XTCHECKSUM, DECRQCRA	ctlseqs	absent	yes	no	unverified	unverified	unverified	ignored		minspec	#12
 Queries and replies	DECRQPSR (DECCIR, DECTABSR) and DECRSPS	ctlseqs	absent	yes	no	unverified	unverified	unverified	ignored		minspec	#12
 Queries and replies	DECREQTPARM, DECRQDE, DECRQUPSS, DECRQTSR	ctlseqs	absent	yes	no	unverified	unverified	unverified	ignored		minspec	#12
 Queries and replies	DEC locator: DECELR, DECSLE, DECEFR, DECRQLP	ctlseqs	absent	yes	no	unverified	unverified	unverified	ignored		minspec	#12
-Queries and replies	ENQ answerback	ctlseqs	works: replies ACK (0x06)	yes (answerbackString)	unverified	yes (`enquiry-response`, empty by default)	unverified	unverified	supported	an empty answerback, a listed departure from the C reference's ACK	minspec	#12
-Window, title and pointer	XTWINOPS 1-10 and 24+: move, resize, raise, lower, iconify, maximize, full screen, lines per screen	ctlseqs	absent (dropped)	yes	no	unverified	unverified	unverified	refused	one console with no window; a program's resize is the CSI 8 t row	minspec	#12
-Window, title and pointer	XTWINOPS 8: resize the text area in characters	ctlseqs	absent	yes	no	unverified	unverified	unverified	supported	late	top	#44
+Queries and replies	ENQ answerback	ctlseqs	works: replied ACK (0x06)	yes (answerbackString)	unverified	yes (`enquiry-response`, empty by default)	unverified	unverified	supported	an empty answerback, a listed departure from the C reference's ACK	minspec	#12
+Window, title and pointer	XTWINOPS 1-7, 9, 10 and 24 and above: move, resize, raise, lower, iconify, maximize, full screen, lines per screen	ctlseqs	absent (dropped)	yes	no	unverified	unverified	unverified	refused	one console with no window; a program's resize is the CSI 8 t row	minspec	#12
+Window, title and pointer	XTWINOPS 8: resize the text area in characters	ctlseqs	absent	yes	no	unverified	unverified	unverified	supported	a program sets the grid's size, which vtium meets by changing the font size, as #44's zoom does	top	#44
 Window, title and pointer	XTWINOPS 14, 16, 18, 19: text area pixels, cell pixels, text area and screen characters	ctlseqs	works (14, 16, 18, 19)	yes	yes	unverified	unverified	unverified	supported		minspec	#12
 Window, title and pointer	XTWINOPS 15: screen size in pixels	ctlseqs	absent	yes	yes	unverified	unverified	unverified	supported	the real size of the display the grid fills	minspec	#12
 Window, title and pointer	XTWINOPS 11, 13, 14;2: iconified state, window position, window pixels	ctlseqs	absent	yes	yes (fixed answers: not iconified, 0;0)	unverified	unverified	unverified	ignored	no reply, as vtium has no window	minspec	#12
@@ -106,7 +106,7 @@ Window, title and pointer	XTWINOPS 21: title report	ctlseqs	absent	yes	unverifie
 Window, title and pointer	XTWINOPS 20: icon label report	ctlseqs	absent	yes	yes	unverified	unverified	unverified	ignored	no reply, as vtium has no icon	minspec	#12
 Window, title and pointer	XTWINOPS 22, 23: title stack	ctlseqs; foot(7)	absent	yes	yes	unverified	unverified	unverified	ignored	titles are not kept	minspec	#12
 Window, title and pointer	XTSMTITLE, XTRMTITLE (CSI > t, CSI > T), XTTITLEPOS (CSI # S)	ctlseqs	absent	yes	no	unverified	unverified	unverified	ignored		minspec	#12
-Window, title and pointer	OSC 0, 1, 2: icon name and title	ctlseqs	absent (passed to kmscon and dropped)	yes	yes	yes	yes	unverified	ignored	a console has no title bar	minspec	#39
+Window, title and pointer	OSC 0, 1, 2: icon name and title	ctlseqs	absent (handed to kmscon, which dropped it)	yes	yes	yes	yes	unverified	ignored	a console has no title bar	minspec	#39
 Window, title and pointer	OSC 3, and Sun's OSC I, l, L	ctlseqs	absent	yes	no	unverified	yes (ignored, or as OSC 1 and 2)	unverified	ignored		minspec	#39
 Window, title and pointer	OSC 22: pointer shape	ctlseqs; kitty pointer-shapes	absent	yes	yes	yes	unverified	yes	supported	vtium draws the pointer	top	#59
 Window, title and pointer	XTSMPOINTER (CSI > Ps p): hide the pointer while typing	ctlseqs	absent	yes	no	unverified (Ghostty cfg has `mouse-hide-while-typing`)	unverified	unverified	ignored		minspec	#12
@@ -138,7 +138,7 @@ Clipboard, shell integration and other OSC	kitty file transfer (OSC 5113)	kitty 
 Clipboard, shell integration and other OSC	kitty drag and drop (OSC 72)	kitty dnd-protocol	absent	no	no	unverified	unverified	yes	ignored	a VT has no drag source	minspec	#39
 Clipboard, shell integration and other OSC	kitty remote control (DCS @kitty-cmd)	kitty misc-protocol	absent	no	no	unverified	unverified	yes	refused	program output would drive the terminal	minspec	#12
 Clipboard, shell integration and other OSC	tmux control mode (DCS 1000 p)	WezTerm es	absent	no	no	unverified	yes (incomplete)	unverified	ignored		minspec	#12
-Clipboard, shell integration and other OSC	kmscon's OSC setBackground and setForeground	C reference `kmscon/src/terminal.c`	works	no	no	no	no	no	supported	behind a configuration key, on by default; kmscon's private OSC strings (kmscon/src/terminal.c:863), in no DEC or ECMA specification	seat	#36
+Clipboard, shell integration and other OSC	kmscon's OSC setBackground and setForeground	C reference `kmscon/src/terminal.c`	works	no	no	no	no	no	supported	behind a configuration key, on by default; kmscon's private OSC strings (`kmscon/src/terminal.c:863`), in no DEC or ECMA specification	seat	#36
 Images	One image pipeline: store, placement policy, decode, handler trait	C reference ADR-103	works	n/a	n/a	n/a	n/a	n/a	supported		images	#28
 Images	Sixel (DCS q)	ctlseqs; VT330/VT340 graphics manual	works in a build with images (probe sixel)	yes	yes	unverified	yes (WezTerm feat)	unverified	supported		images	#48
 Images	kitty graphics (APC G)	kitty graphics-protocol	works in a build with images (probe kitty-graphics)	no	no	yes (Ghostty feat)	yes (WezTerm feat)	yes	supported		images	#49
@@ -159,5 +159,5 @@ Display, platform and configuration	Configuration and command line (`kmscon.conf
 Display, platform and configuration	The terminfo entry advertises what vtium implements, and the XTGETTCAP table is generated from it	C reference kmscon#94, #200	works (probes terminfo-*)	n/a	n/a	n/a	n/a	n/a	supported		minspec	#21, #12
 Display, platform and configuration	The GPU path	C reference (gltex)	works	n/a	n/a	n/a	n/a	n/a	supported		gpu	#33
 Display, platform and configuration	libseat seats, running unprivileged	C reference	works, blocking (kmscon#121)	n/a	n/a	n/a	n/a	n/a	supported		seat	#34
-Display, platform and configuration	Multi-monitor: one grid across displays at different resolutions	C reference	partial: per-display frame age (probe frame-age-per-caller)	n/a	n/a	n/a	n/a	n/a	supported		seat	#35
+Display, platform and configuration	Multi-monitor: one grid across displays at different resolutions	C reference	works (probe frame-age-per-caller), with no two-display harness case (kmscon#249)	n/a	n/a	n/a	n/a	n/a	supported		seat	#35
 Display, platform and configuration	Display hand-back: setBackground, focus and the wake-up retry	C reference	works	n/a	n/a	n/a	n/a	n/a	supported		seat	#36
