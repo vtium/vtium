@@ -1,0 +1,120 @@
+# The cases where vtium's output is expected to differ from the C reference's
+# golden, one row for each reason (tools/conformance/README.md, "The lists").
+#
+# VIEW	CASE	KIND	SOURCE	ENTRY
+*	replies-da1	departure	crates/vtium-term/README.md	DA1 reports a VT220 with colour, `CSI ? 62 ; 22 c`.
+*	prog-tmux	departure	crates/vtium-term/README.md	DA1 reports a VT220 with colour, `CSI ? 62 ; 22 c`.
+*	input-paste	departure	crates/vtium-term/README.md	A paste is filtered as xterm filters one.
+*	insert-wide-one-column	departure	crates/vtium-term/README.md	A line keeps 6 bytes of clusters a cell (ADR-1001's cluster budget),
+*	utf8-ill-formed	departure	crates/vtium-parse/README.md	C1 controls do nothing in UTF-8 mode.
+*	host-palette	departure	INTERFACE.md	The C reference erased the screen and reset the current attributes when a palette was chosen; `host-palette` records it, and an implementation may list it as a departure.
+*	host-identify	pending	#48	the sixel test command; the case also differs by DA1 and by XTGETTCAP's uppercase names, crates/vtium-term/README.md
+frame	sgr-basic	pending	#83	bold as bright and dim in the frame's colours (ADR-1001, "The frame")
+frame	sgr-strike	pending	#83	bold as bright and dim in the frame's colours (ADR-1001, "The frame")
+frame	sgr-color-semicolon-subparams	pending	#83	bold as bright and dim in the frame's colours (ADR-1001, "The frame")
+frame	colour-resolve	pending	#83	bold as bright and dim in the frame's colours (ADR-1001, "The frame")
+frame	prog-shell	pending	#83	bold as bright and dim in the frame's colours (ADR-1001, "The frame")
+*	apc-kitty-graphics	pending	#49	kitty graphics
+*	img-alt-1049	pending	#28	images
+*	img-alt-47	pending	#28	images
+*	img-dch	pending	#28	images
+*	img-decsed	pending	#28	images
+*	img-decsel	pending	#28	images
+*	img-decstr	pending	#28	images
+*	img-discard-alt	pending	#28	images
+*	img-discard-sb	pending	#28	images
+*	img-dl	pending	#28	images
+*	img-ech	pending	#28	images
+*	img-ed0	pending	#28	images
+*	img-ed1	pending	#28	images
+*	img-ed2	pending	#28	images
+*	img-ed3	pending	#28	images
+*	img-el0	pending	#28	images
+*	img-el1	pending	#28	images
+*	img-el2	pending	#28	images
+*	img-ich	pending	#28	images
+*	img-il	pending	#28	images
+*	img-print	pending	#28	images
+*	img-region	pending	#28	images
+*	img-resize	pending	#28	images
+*	img-resize-shrink	pending	#28	images
+*	img-ris	pending	#28	images
+*	img-scroll-down	pending	#28	images
+*	img-scroll-down-sb	pending	#28	images
+*	img-scroll-up	pending	#28	images
+*	img-sixel-over	pending	#28	images
+*	kit-bands	pending	#49	kitty graphics
+*	kit-cancel	pending	#49	kitty graphics
+*	kit-chunk-abort	pending	#49	kitty graphics
+*	kit-chunked	pending	#49	kitty graphics
+*	kit-chunk-large	pending	#49	kitty graphics
+*	kit-cursor	pending	#49	kitty graphics
+*	kit-delete-a	pending	#49	kitty graphics
+*	kit-delete-c	pending	#49	kitty graphics
+*	kit-delete-f	pending	#49	kitty graphics
+*	kit-delete-i	pending	#49	kitty graphics
+*	kit-delete-n	pending	#49	kitty graphics
+*	kit-delete-p	pending	#49	kitty graphics
+*	kit-delete-q	pending	#49	kitty graphics
+*	kit-delete-r	pending	#49	kitty graphics
+*	kit-delete-sb	pending	#49	kitty graphics
+*	kit-delete-x	pending	#49	kitty graphics
+*	kit-delete-y	pending	#49	kitty graphics
+*	kit-delete-z	pending	#49	kitty graphics
+*	kit-ed2	pending	#49	kitty graphics
+*	kit-evict	pending	#49	kitty graphics
+*	kit-evict-stamp	pending	#49	kitty graphics
+*	kit-host-errors	pending	#49	kitty graphics
+*	kit-host-errors-nohook	pending	#49	kitty graphics
+*	kit-host-icat	pending	#49	kitty graphics
+*	kit-host-icat-gif	pending	#49	kitty graphics
+*	kit-host-icat-gif-nohook	pending	#49	kitty graphics
+*	kit-host-icat-nohook	pending	#49	kitty graphics
+*	kit-host-lengths	pending	#49	kitty graphics
+*	kit-host-lengths-nohook	pending	#49	kitty graphics
+*	kit-host-media	pending	#49	kitty graphics
+*	kit-host-media-nohook	pending	#49	kitty graphics
+*	kit-host-mpv	pending	#49	kitty graphics
+*	kit-host-names	pending	#49	kitty graphics
+*	kit-host-names-nohook	pending	#49	kitty graphics
+*	kit-host-outcomes	pending	#49	kitty graphics
+*	kit-host-outcomes-nohook	pending	#49	kitty graphics
+*	kit-host-pause	pending	#49	kitty graphics
+*	kit-host-pause-nohook	pending	#49	kitty graphics
+*	kit-host-requests	pending	#49	kitty graphics
+*	kit-host-requests-nohook	pending	#49	kitty graphics
+*	kit-ids	pending	#49	kitty graphics
+*	kit-place-size	pending	#49	kitty graphics
+*	kit-query	pending	#49	kitty graphics
+*	kit-query-number	pending	#49	kitty graphics
+*	kit-refused	pending	#49	kitty graphics
+*	kit-replace	pending	#49	kitty graphics
+*	kit-replace-refused	pending	#49	kitty graphics
+*	kit-replies	pending	#49	kitty graphics
+*	kit-transmit	pending	#49	kitty graphics
+*	six-cancel	pending	#48	sixel
+*	six-colours	pending	#48	sixel
+*	six-cursor	pending	#48	sixel
+*	six-cursor-8452	pending	#48	sixel
+*	six-cursor-xterm	pending	#48	sixel
+*	six-decsdm	pending	#48	sixel
+*	six-img2sixel-gradient	pending	#48	sixel
+*	six-img2sixel-highcolor	pending	#48	sixel
+*	six-img2sixel-palette16	pending	#48	sixel
+*	six-max-size	pending	#48	sixel
+*	six-raster	pending	#48	sixel
+*	six-registers	pending	#48	sixel
+*	six-registers-ris	pending	#48	sixel
+*	six-replies	pending	#48	sixel
+*	six-scrollback	pending	#48	sixel
+*	six-scroll-bottom	pending	#48	sixel
+*	six-scroll-region	pending	#48	sixel
+*	six-text	pending	#48	sixel
+frame	prog-tmux	pending	#83	bold as bright and dim in the frame's colours (ADR-1001, "The frame")
+*	img-scroll-up-bottom	pending	#28	images
+*	img-alt-1047	pending	#28	images
+*	img-alt-shown	pending	#28	images
+*	six-clear	pending	#48	sixel
+*	six-off	pending	#48	sixel
+*	kit-host-mpv-nohook	pending	#49	kitty graphics
+frame	query-frames	departure	crates/vtium-term/README.md	`query-frames`: columns a widening resize adds are blank in the default style.

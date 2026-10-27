@@ -1,0 +1,1 @@
+exit 2: test command host needs feature image-host, which vtium lacks
