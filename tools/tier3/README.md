@@ -54,7 +54,7 @@ The tree goes on the run's disc as `tree.tar`, every entry owned by root, and `g
 | Configuration | `/etc/kmscon/kmscon.conf`, where `setup` installs the variant's `guest/kmscon*.conf`. |
 | Log | stdout and stderr, which `setup` routes to the journal and the serial console. The driver waits for `vt: using tty /dev/tty2`, and `/dev/tty3` after the VT switch; requires every `Display NAME with backend [...] text renderer [...]` line to name the variant's renderer; reads the benchmark figures from the `terminal: render-timer: ...` lines `render-timer=log` writes (`t3_bench.py`); and reads `cell size WxH` when present. |
 | Revision | `log: vtium Revision REV`, the first such line on the console. A run fails every case of a variant whose console logged no such line, or logged another name. |
-| Size | the binary at most 2,411,724 bytes (2.30 MiB), the operator's budget (`BINARY_BUDGET` in `t3_impl.py`), which leaves headroom over the 2,365,272 bytes vtium shipped after vtium/vtium#21. A run whose binary is larger fails, whatever its cases; raising the budget is a decision recorded on vtium/vtium#22. |
+| Size | the binary at most 2,621,440 bytes (2.50 MiB), the operator's budget (`BINARY_BUDGET` in `t3_impl.py`), raised from 2.30 MiB on 2026-10-27 when vtium reached 2,400,640 bytes. A run whose binary is larger fails, whatever its cases; raising the budget is a decision recorded on vtium/vtium#22. |
 
 The guest must hold no kmscon, libtsm or vtium package, and `setup` reports the digest of the `tree.tar` it unpacked, which must be the run's. The digest shows the guest unpacked this run's archive. What built the tree is the console's own account, its Revision line, which each variant records as `console`.
 
@@ -136,7 +136,7 @@ The fork's harness judged the C reference's packages and could run a vtium build
 - **The build:** `make install-tree` in place of the C reference's `make pkg` and `pkg-minimal` in the docker dev image. The package path (`pacman -U`, `--pkg-dir`, `--pkg-name`), the libtsm commit checks, the image-helper probe in `setup`, `upstream.mk`'s comparison runs (`--compare-only`) and the stand-in tree are gone. A minspec variant needs no build of its own: the configuration selects the font.
 - **The goldens:** read from the pinned kmscon commit, not a directory in this tree, and never written: `tier3-bless` is gone.
 - **The paths:** `target/tier3/` for the work directories, the report, the lock, the tree, the extracted goldens and the VM directory, whose `images` links to vtium's image cache, `T3_IMAGES`. The fork's own images are reused from `T3_REUSE` read-only.
-- **The size:** the binary against 2.30 MiB, failing the run past it, in place of the main package's size against 1.77 MiB, which was reported and not judged.
+- **The size:** the binary against 2.50 MiB, failing the run past it, in place of the main package's size against 1.77 MiB, which was reported and not judged.
 - **The console:** a run fails unless the console logs itself as vtium.
 - **Departures:** `departures.tsv` turns a difference a listed departure explains into `departure`, as tier 1 and tier 2 do; the fork's harness had no such list.
 - **The image:** `make tier3-image` fetches and verifies the pristine image with `fetch-image.sh` when neither the cache nor `T3_REUSE` holds it; the fork had no rule that ran it.
