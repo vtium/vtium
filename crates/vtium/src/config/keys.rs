@@ -337,8 +337,8 @@ pub const PALETTE: Key = Key {
     default: Default::Text("legacy"),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "The sixteen colours and the defaults: `custom` takes the `palette-*` keys. vtium-term holds `legacy` and `custom` so far; another name draws `legacy` and is reported.",
-    cite: "src/config.c:1427; libtsm src/tsm/tsm-vte.c:452-480",
+    what: "The sixteen colours and the default foreground and background: a named palette, or `custom`, which takes the `palette-*` keys. Colours 16 to 255 are xterm's in every palette.",
+    cite: "src/config.c:1427; libtsm src/tsm/tsm-vte.c:254-478",
 };
 
 pub const PALETTE_BLACK: Key = Key {
