@@ -22,8 +22,9 @@
 # the demo, as the user, with no login; --steps="4 8 9" (or 4,8,9) runs only
 # those steps. The answers go to /tmp/vtium-vt/vt-check.log.
 # --shell runs the user's login shell, the one the password database names and
-# /etc/shells lists, as the user, with no login, in the user's home directory.
-# Exiting it ends the run. --transcript=FILE records the session into FILE
+# /etc/shells lists, as the user, with no login, in the user's home directory,
+# with the system's locale and, when they are the user's, the user's runtime
+# directory and bus. Exiting it ends the run. --transcript=FILE records the session into FILE
 # with script(1), which runs as the user; the user must be able to write FILE's
 # directory, and FILE must not be a symlink.
 # --dry-run asks what it would ask (the VT on screen, the sessions, the active
@@ -32,7 +33,8 @@
 #
 # For the tests, VTIUM_VT_STANDINS names a directory holding stand-ins for
 # systemctl, loginctl, setpriv and getent, a file "active" in place of
-# /sys/class/tty/tty0/active, and a file "shells" in place of /etc/shells.
+# /sys/class/tty/tty0/active, "shells" and "locale.conf" in place of
+# /etc/shells and /etc/locale.conf, and "run-user" in place of /run/user.
 # Each is run from there by its full path, so no system command is reached,
 # and the run goes through without root. As root the variable is refused.
 set -euo pipefail
@@ -93,6 +95,8 @@ if [ -n "$standins" ]; then
 	getent=$standins/getent
 	active_file=$standins/active
 	shells_file=$standins/shells
+	locale_file=$standins/locale.conf
+	run_user=$standins/run-user
 else
 	systemctl=systemctl
 	loginctl=loginctl
@@ -101,6 +105,8 @@ else
 	getent=getent
 	active_file=/sys/class/tty/tty0/active
 	shells_file=/etc/shells
+	locale_file=/etc/locale.conf
+	run_user=/run/user
 fi
 # The units that may hold the VT: the stock kmscon, a getty, and autovt@,
 # which logind starts on a switch to the VT and which is one of the other two.
@@ -201,6 +207,28 @@ if [ -n "$shell" ]; then
 	[ -f "$login_shell" ] && [ -x "$login_shell" ] ||
 		die "$user's login shell $login_shell is not an executable file"
 	[[ $home == /* ]] || die "$user's home directory '$home' is not an absolute path"
+	# The shell would start nowhere, and the run would end as if it had exited.
+	[ -d "$home" ] && [ "$(stat -L -c %u -- "$home")" = "$uid" ] ||
+		die "$user's home directory $home is missing, not a directory, or not theirs"
+	# setpriv --reset-env drops the locale, so the shell gets the system's:
+	# LANG and LC_* from locale.conf, each a value of locale-name characters.
+	locale=()
+	if [ -f "$locale_file" ]; then
+		assignment='^(LANG|LC_[A-Z]+)="?([[:alnum:]_.@-]+)"?$'
+		while IFS= read -r line || [ -n "$line" ]; do
+			[[ ! $line =~ $assignment ]] || locale+=("${BASH_REMATCH[1]}=${BASH_REMATCH[2]}")
+		done <"$locale_file"
+	fi
+	# The user's runtime directory and bus, which the desktop session already
+	# gives the user: pipewire, systemctl --user and the user's agents. Only
+	# a directory of the user's alone, never a symlink; /run/user is root's,
+	# so the user cannot swap it afterwards.
+	runtime=()
+	rt=$run_user/$uid
+	if [ -d "$rt" ] && [ ! -L "$rt" ] && [ "$(stat -c '%u %a' -- "$rt")" = "$uid 700" ]; then
+		runtime=(XDG_RUNTIME_DIR="$rt")
+		[ ! -S "$rt/bus" ] || [ -L "$rt/bus" ] || runtime+=(DBUS_SESSION_BUS_ADDRESS="unix:path=$rt/bus")
+	fi
 	if [ -n "$transcript" ]; then
 		# Absolute, and not resolved: a symlink is refused below.
 		[[ $transcript == /* ]] || transcript=$PWD/$transcript
@@ -219,7 +247,9 @@ read -r owner mode < <(stat -c '%u %a' -- "$bin")
 (( (8#$mode & 8#022) == 0 )) ||
 	die "$bin is writable by group or others (mode $mode); it would run as root"
 
-drop=("$setpriv" --reuid="$uid" --regid="$gid" --init-groups --reset-env)
+# --inh-caps=-all empties the one capability set the uid change leaves. The
+# bounding set and no-new-privs are left alone: sudo works in the shell.
+drop=("$setpriv" --reuid="$uid" --regid="$gid" --init-groups --inh-caps=-all --reset-env)
 if [ -n "$guide" ] && [ -z "$dry" ]; then
 	"${drop[@]}" -- /usr/bin/test -f "$guide" -a -r "$guide" ||
 		die "$user cannot read the guide $guide"
@@ -368,7 +398,9 @@ EOF
 # environment cleared by setpriv; env then sets what the session reads, each
 # value one word of its own, never through a shell. The user's shell starts
 # in the home directory as a login shell (-l), as login(1) would start it;
-# script(1) runs the command line it is given through the user's $SHELL. With
+# script(1) runs the command line it is given through the user's $SHELL.
+# vtium runs in the background, so it starts with SIGINT and SIGQUIT ignored;
+# env gives the session their defaults back, or Ctrl-C would stop nothing. With
 # --login, /bin/login runs as root and PAM decides who logs in, as under the
 # stock unit; it runs without --oneshot, so login's own timeout at the prompt
 # brings a new prompt rather than the end, and this script ends the run at the
@@ -376,14 +408,16 @@ EOF
 # ignores Ctrl-C (bash does that for background jobs in a script) and this
 # script decides how it stops: SIGTERM from restore(). --configdir keeps the
 # system's config out of the run; config/ holds the review's own.
-session=(/usr/bin/env DEMO_LABEL="vtium $label" /bin/bash "$here/demo.sh")
+signals=(/usr/bin/env "--default-signal=INT,QUIT")
+session=("${signals[@]}" DEMO_LABEL="vtium $label" /bin/bash "$here/demo.sh")
 if [ -n "$guide" ]; then
-	session=(/usr/bin/env GUIDE_VT="$vt" GUIDE_DESKTOP="$fg" ${steps:+GUIDE_STEPS="$steps"}
+	session=("${signals[@]}" GUIDE_VT="$vt" GUIDE_DESKTOP="$fg" ${steps:+GUIDE_STEPS="$steps"}
 		/bin/bash "$here/checks/guide.sh" "$guide")
 elif [ -n "$shell" ]; then
-	session=(/usr/bin/env -C "$home" "$login_shell" -l)
+	session=("${signals[@]}" -C "$home" "${locale[@]}" "${runtime[@]}" "$login_shell" -l)
 	[ -z "$transcript" ] ||
-		session=(/usr/bin/env -C "$home" "$script" -q -f -c "exec $login_shell -l" "$transcript")
+		session=("${signals[@]}" -C "$home" "${locale[@]}" "${runtime[@]}"
+			"$script" -q -f -c "exec $login_shell -l" "$transcript")
 fi
 once=(--oneshot)
 login_argv=("${drop[@]}" -- "${session[@]}")

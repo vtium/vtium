@@ -15,6 +15,7 @@ import os
 import pty
 import select
 import signal
+import socket
 import stat
 import struct
 import subprocess
@@ -100,9 +101,13 @@ printf '%s:x:%s:%s::%s:%s\\n' "$2" "$(id -u)" "$(id -g)" "$LOGIN_HOME" "$LOGIN_S
 """
 
 # The operator's login shell: prints how it was started, as whom and where,
-# then the line it reads, so a transcript shows each.
+# the signals a command it runs starts ignoring (bash's own mask differs), the environment the run gave it, then
+# the line it reads, so a transcript shows each.
 LOGIN_SHELL = """#!/bin/bash
 printf 'login shell: %s as %s in %s\\n' "$*" "$(id -un)" "$PWD"
+sed -n 's/^SigIgn:[[:space:]]*/ignored: /p' /proc/self/status
+printf 'env: %s\\n' "LANG=${LANG-}" "LC_TIME=${LC_TIME-}" "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR-}" \\
+	"DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS-}"
 read -r line || true
 printf 'read: %s\\n' "$line"
 """
@@ -181,7 +186,7 @@ class Stage:
     def env(self, **extra):
         env = dict(os.environ)
         for k in list(env):
-            if k.startswith(("VTIUM_", "GUIDE", "DEMO_", "SUDO_")):
+            if k.startswith(("VTIUM_", "GUIDE", "DEMO_", "SUDO_", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")):
                 del env[k]
         env.update(
             PATH=self.standins + os.pathsep + env["PATH"],
@@ -199,6 +204,20 @@ class Stage:
         )
         env.update(extra)
         return env
+
+    def runtime_dir(self, mode=0o700, bus=True):
+        """The stand-in /run/user/UID, with a socket for the user's bus."""
+        run = os.path.join(self.standins, "run-user", str(os.getuid()))
+        os.makedirs(run)
+        os.chmod(run, mode)
+        if bus:
+            sock = socket.socket(socket.AF_UNIX)
+            sock.bind(os.path.join(run, "bus"))
+            sock.close()
+        return run
+
+    def locale(self, text):
+        write(os.path.join(self.standins, "locale.conf"), text, 0o644)
 
     def active(self, tty):
         write(os.path.join(self.standins, "active"), tty + "\n", 0o644)
@@ -455,8 +474,9 @@ class RunVt(Case):
         at = argv.index("--")
         uid, gid = os.getuid(), os.getgid()
         self.assertEqual(argv[at + 1:], [os.path.join(self.s.standins, "setpriv"), f"--reuid={uid}", f"--regid={gid}",
-                                         "--init-groups", "--reset-env", "--", "/usr/bin/env",
-                                         "DEMO_LABEL=vtium dev build abc", "/bin/bash", os.path.join(VT, "demo.sh")])
+                                         "--init-groups", "--inh-caps=-all", "--reset-env", "--", "/usr/bin/env",
+                                         "--default-signal=INT,QUIT", "DEMO_LABEL=vtium dev build abc", "/bin/bash",
+                                         os.path.join(VT, "demo.sh")])
 
     def test_a_guide_runs_as_the_user_with_its_vt_and_steps(self):
         guide = os.path.join(VT, "checks", "start.guide")
@@ -465,7 +485,8 @@ class RunVt(Case):
         argv = read(self.s.bin_args).splitlines()
         self.assertIn("--oneshot", argv)
         self.assertEqual(argv[argv.index("/usr/bin/env"):],
-                         ["/usr/bin/env", "GUIDE_VT=8", "GUIDE_DESKTOP=7", "GUIDE_STEPS=2,1", "/bin/bash",
+                         ["/usr/bin/env", "--default-signal=INT,QUIT", "GUIDE_VT=8", "GUIDE_DESKTOP=7", "GUIDE_STEPS=2,1",
+                          "/bin/bash",
                           os.path.join(VT, "checks", "guide.sh"), guide])
         for opts, why in ((["--steps=1;2"], "--steps takes step numbers"),
                           (["--steps=0"], "--steps takes step numbers"),
@@ -500,15 +521,52 @@ class RunVt(Case):
         uid, gid = os.getuid(), os.getgid()
         self.assertEqual(argv[argv.index("--") + 1:],
                          [os.path.join(self.s.standins, "setpriv"), f"--reuid={uid}", f"--regid={gid}", "--init-groups",
-                          "--reset-env", "--", "/usr/bin/env", "-C", self.s.home, SCRIPT, "-q", "-f", "-c",
-                          f"exec {self.s.login_shell} -l", t])
+                          "--inh-caps=-all", "--reset-env", "--", "/usr/bin/env", "--default-signal=INT,QUIT",
+                          "-C", self.s.home, SCRIPT, "-q", "-f", "-c", f"exec {self.s.login_shell} -l", t])
         self.assertIn(f"with {USER}'s shell", p.stdout)
         self.assertEqual(self.s.calls_of("getent"), [f"passwd {USER}"])
         # Without a transcript, the shell is the session itself.
         p = self.run_vt("--shell", "8")
         self.assertEqual(p.returncode, 0, p.stderr)
         argv = read(self.s.bin_args).splitlines()
-        self.assertEqual(argv[argv.index("/usr/bin/env"):], ["/usr/bin/env", "-C", self.s.home, "/bin/bash", "-l"])
+        self.assertEqual(argv[argv.index("/usr/bin/env"):],
+                         ["/usr/bin/env", "--default-signal=INT,QUIT", "-C", self.s.home, "/bin/bash", "-l"])
+
+    def shell_env(self, **env):
+        """The words between the shell's env and the shell itself."""
+        p = self.run_vt("--shell", "8", **env)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        argv = read(self.s.bin_args).splitlines()
+        return argv[argv.index(self.s.home) + 1:-2]
+
+    def test_a_shell_gets_the_locale_and_the_users_runtime_directory(self):
+        self.assertEqual(self.shell_env(), [])
+        self.s.locale('# The system locale.\nLANG=de_DE.UTF-8\nLC_TIME="en_GB.UTF-8"\nLC_PAPER=a b\n'
+                      'LANGUAGE=de\nLC_MONETARY=$(id)\n')
+        run = self.s.runtime_dir()
+        self.assertEqual(self.shell_env(), ["LANG=de_DE.UTF-8", "LC_TIME=en_GB.UTF-8", f"XDG_RUNTIME_DIR={run}",
+                                            f"DBUS_SESSION_BUS_ADDRESS=unix:path={run}/bus"])
+        # No bus socket: the runtime directory alone.
+        os.unlink(os.path.join(run, "bus"))
+        write(os.path.join(run, "bus"), "", 0o600)
+        self.assertEqual(self.shell_env()[2:], [f"XDG_RUNTIME_DIR={run}"])
+        # A runtime directory open to others, or a symlink to one: neither.
+        os.chmod(run, 0o755)
+        self.assertEqual(self.shell_env()[2:], [])
+        os.chmod(run, 0o700)
+        os.rename(run, run + ".real")
+        os.symlink(run + ".real", run)
+        self.assertEqual(self.shell_env()[2:], [])
+
+    def test_a_home_directory_not_the_users_is_refused(self):
+        a_file = os.path.join(self.s.tmp, "a-file")
+        write(a_file, "", 0o644)
+        for home in (os.path.join(self.s.tmp, "none"), a_file, "/", "home"):
+            with self.subTest(home=home):
+                self.refused(self.run_vt("--shell", "8", LOGIN_HOME=home), "home directory")
+                self.refused(self.run_vt("--shell", "--dry-run", "8", LOGIN_HOME=home), "home directory")
+        self.assertEqual(self.s.changes(), [])
+        self.assertFalse(os.path.exists(self.s.bin_args))
 
     def test_a_shell_not_in_etc_shells_is_refused(self):
         listed_missing = "/usr/bin/no-such-shell"
@@ -733,6 +791,8 @@ class VtSh(Case):
     def test_the_shell_runs_and_its_paths_reach_the_caller(self):
         typed = os.path.join(self.s.tmp, "typed")
         write(typed, "ls -l\n", 0o644)
+        self.s.locale("LANG=de_DE.UTF-8\n")
+        self.s.runtime_dir_path = self.s.runtime_dir()
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-shell", f"VTIUM_BIN={self.s.bin}", "VT=6"],
                            env=self.s.env(BIN_MODE="session", BIN_STDIN=typed, LOGIN_SHELL=self.s.login_shell,
                                           ACTIVE_UNITS="getty@tty6.service"),
@@ -746,6 +806,12 @@ class VtSh(Case):
         text = read(transcript).replace("\r", "")
         self.assertIn(f"login shell: -l as {USER} in {self.s.home}\n", text)
         self.assertIn("read: ls -l\n", text)
+        # vtium was started in the background, which ignores SIGINT and
+        # SIGQUIT; the shell gets them back, so Ctrl-C stops what it runs.
+        ignored = int(text.split("ignored: ")[1].split("\n")[0], 16)
+        self.assertEqual(ignored & (1 << (signal.SIGINT - 1) | 1 << (signal.SIGQUIT - 1)), 0, hex(ignored))
+        self.assertIn("env: LANG=de_DE.UTF-8\n", text)
+        self.assertIn(f"env: XDG_RUNTIME_DIR={self.s.runtime_dir_path}\n", text)
         self.assertEqual(self.s.calls_of("sudo")[0], "-v")
         self.assertEqual(self.s.changes(), ["stop getty@tty6.service", "start getty@tty6.service"])
 
