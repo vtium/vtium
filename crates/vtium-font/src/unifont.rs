@@ -22,6 +22,7 @@ use std::sync::OnceLock;
 use crate::bounds::CELL_SIDE_MAX;
 use crate::face::{Cell, Face, Style, Width};
 use crate::glyph::Glyph;
+use crate::policy::SpritePolicy;
 
 /// A run of codepoints of one width whose glyphs lie together.
 struct Block {
@@ -175,6 +176,12 @@ impl Face for Unifont {
 
     fn has_glyph(&self, c: char) -> bool {
         block(u32::from(c)).is_some()
+    }
+
+    /// The sprites, though unifont covers every range: the C reference
+    /// drew them over its unifont, and the goldens hold that look.
+    fn sprite_policy(&self) -> SpritePolicy {
+        SpritePolicy::SPRITES
     }
 
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {

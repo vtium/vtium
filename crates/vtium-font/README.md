@@ -1,16 +1,18 @@
 # vtium-font
 
-vtium's glyph sources: font files and built-in fonts in, glyph bitmaps out. It loads PC Screen Fonts (PSF1 and PSF2, gzipped ones with the `gzip` feature), carries GNU Unifont built in (the `unifont` feature), and draws box drawing, block elements, Braille, sextants, octants and the rest of Symbols for Legacy Computing's block shapes as sprites that fill their cell. A `Font` puts a face and the sprites together and draws any cluster exactly into its cells. It forbids unsafe code. Every glyph is a `Glyph`, a coverage mask or premultiplied RGBA, and its bytes are the same on every host. Outline fonts (vtium/vtium#23) come later as another `Face`.
+vtium's glyph sources: font files and built-in fonts in, glyph bitmaps out. It loads PC Screen Fonts (PSF1 and PSF2, gzipped ones with the `gzip` feature), carries GNU Unifont built in (the `unifont` feature), and draws box drawing, block elements, Braille, sextants, octants and the rest of Symbols for Legacy Computing's block shapes as sprites that fill their cell. A `Font` puts a face and the sprites together, choosing between them for each sprite range by its `SpritePolicy`, and draws any cluster exactly into its cells. It forbids unsafe code. Every glyph is a `Glyph`, a coverage mask or premultiplied RGBA, and its bytes are the same on every host. Outline fonts (vtium/vtium#23) come later as another `Face`.
 
 | Path | What it is |
 |---|---|
 | `src/lib.rs` | The crate's documentation, lints and public names. |
-| `src/face.rs` | The `Face` trait a glyph source implements, and `Font`: sprites first, then the face, then U+25A1, `?` and the face's last resort, each glyph boxed to its cells. `Decorations`: where underline and strike go. |
+| `src/face.rs` | The `Face` trait a glyph source implements, with its coverage of each sprite range, and `Font`: the sprites its policy chooses, then the face, then U+25A1, `?` and the face's last resort, each glyph boxed to its cells. `Decorations`: where underline and strike go. |
+| `src/policy.rs` | `SpritePolicy`, a `Source` for each sprite range, with the default for a font the operator names; `Coverage`, how much of each range a face holds; `Missing`, what a character the face lacks draws as. |
 | `src/glyph.rs` | `Glyph`, what every face and sprite draws: a coverage mask or premultiplied RGBA, with the cells it spans, bounded by `CELL_SIDE_MAX`. |
 | `src/psf.rs` | `Psf`: the PSF1 and PSF2 loader, its unicode table, and the glyph drawing, with the C reference's notice. |
 | `src/gzip.rs` | gzip (RFC 1952) framing and checks around `miniz_oxide`'s inflate, for gzipped PSF fonts. |
 | `src/unifont.rs` | `Unifont`: the built-in font, inflated a 16 KiB chunk at a time as glyphs are drawn from it. |
-| `src/sprite.rs` | The sprites, ported from the C reference's `font_box.c` with its and Ghostty's notices. |
+| `src/hex.rs` | The missing glyph `Missing::Hex` draws: the codepoint in 3x5 and 3x4 hex digits. |
+| `src/sprite.rs` | The sprites, ported from the C reference's `font_box.c` with its and Ghostty's notices, and `Range`, the six ranges they fall in. |
 | `src/sprite/legacy.rs` | The Symbols for Legacy Computing sprites the C reference left to the font, adapted from Ghostty's sprite font with its notice. |
 | `src/bounds.rs` | Every bound, with its value, what happens past it and its source: the one source for the constants and for the table below. |
 | `build.rs` | Packs `data/unifont.hex` into the chunks and index `src/unifont.rs` includes. |
@@ -37,6 +39,8 @@ A sprite's curves and diagonals are supersampled with IEEE 754 `f64` addition, s
 - **The fallback `?` is looked up as a character.** A character the font lacks draws U+25A1, else `?`, else glyph 0. The C reference drew glyph 63 for `?` whatever the font's table mapped (font_psf.c:360-362); in a font without a table, glyph 63 is still `?`.
 - **A PSF file past 16 MiB is refused whatever follows its glyphs.** The C reference counted only the bytes it read, so it took a PSF1 font without a table however long the file (`PSF_BYTES_MAX` below).
 - **A gzip file with bytes after its last member is refused.** zlib's `gzread`, which the C reference used, ignored them. Spec: RFC 1952 §2.2, "A gzip file consists of a series of members".
+- **A font the operator names draws its own glyphs for each sprite range it covers whole.** `SpritePolicy::default_for` gives a range `Font` when the face holds every character of it and `Sprites` when it misses any, so no range mixes the two; a partly covered range draws sprites and warns. The built-in unifont keeps `Sprites` for every range, though it covers all six, so it looks as the C reference's did and the goldens hold. The C reference always drew the sprites. Source: the operator's decision on vtium/vtium#85.
+- **A cluster on a sprite character the face lacks draws the sprite.** When the policy draws a cluster's first character as a sprite and the face lacks that character, the cluster draws the character's sprite and drops its marks, as the C reference's bitmap faces dropped them. The C reference took every cluster of more than one codepoint to the font, which drew U+25A1 for a character it lacked (font.c:345-366). So a PSF font without box drawing drew U+2500 + U+0301 as U+25A1, and vtium draws the line. A face that holds the character draws the cluster, as before. Source: the operator's decision on vtium/vtium#85, which draws the sprites for a range the font lacks.
 
 ## Beyond the C reference
 
@@ -46,6 +50,17 @@ A sprite's curves and diagonals are supersampled with IEEE 754 `f64` addition, s
   - U+1FB3C-U+1FBAF, U+1FBBD-U+1FBBF and U+1FBCE-U+1FBEF, the smooth mosaics, triangles, eighth, third and quarter blocks (U+1FB82-U+1FB85 and U+1FBE4-U+1FBE7 among them), shades, fills, light diagonals and circles: the Symbols for Legacy Computing chart, <https://www.unicode.org/charts/PDF/U1FB00.pdf>.
 
   The block's pictographs stay with the face: the pointer, check mark, running man, arrows, folders and squared dot (U+1FBB0-U+1FBBC), the saltire, pointing index, question mark, stick figures, chevrons, cross mark and bracket (U+1FBC0-U+1FBCD), and the segmented digits and alarm bell (U+1FBF0-U+1FBFA). No cell-grid geometry defines them, so they draw from the face, and unifont carries them. `tests/legacy.rs` holds every sprite to a model built from its Unicode name, at every cell size from 1x1 to 32x64 and in larger cells, and to literal masks. `tests/reference.rs` leaves these characters out of the C reference's page digests. A tier 2 screen of the ranges waits for the tier 2 goldens (vtium/vtium#17).
+- **Each sprite range can be drawn from the font instead** (vtium/vtium#85). The C reference always drew its sprites. A `SpritePolicy` gives each `Range` (box drawing, block elements, Braille, sextants, octants and Legacy Computing) a `Source`:
+  - `Sprites`: the sprite, whatever the face holds, as the C reference drew.
+  - `Font`: the face's glyph, and the font's `Missing` glyph for a character the face lacks.
+  - `Auto`: the face's glyph, and the sprite for a character the face lacks.
+
+  `Font::coverage` counts the characters of each range the face holds, 874 in all, through `Face::coverage`, which asks `Face::has_glyph` of each; a face that reads a character map can override it. `Coverage::partial` names the ranges a face covers only partly, for the operator's warning. `Font::new` takes the face's own `Face::sprite_policy`, and `Font::with_policy` sets another; the default is listed under Departures. `tests/policy.rs` holds each source to stand-in faces that cover a range fully, partly and not at all.
+- **A character the face lacks can draw its codepoint** (vtium/vtium#85). `Missing::Replacement`, the configuration's `missing = box` and the default, draws U+25A1, `?` or the face's last resort, as the C reference did. `Missing::Hex`, `missing = hex`, draws the codepoint in hex digits, in the layout the operator approved on vtium/vtium#85; the digit shapes, redrawn since, wait for the operator's approval:
+  - a narrow cell is the text colour with the digits cut out, two rows of two 3x5 digits up to U+FFFF and three rows of two 3x4 digits past it, b, c and d in lower case;
+  - a wide cell is a box outline with 3x5 digits inside, two rows of two or of three.
+
+  The design is 8x16 narrow and 16x16 wide, scaled by the largest whole factor the cell holds and centred, a narrow cell's margin in the text colour; a cell smaller than the design draws U+25A1. `Font::glyph_unscaled` hands it over at its drawn size, as a sprite. `tests/missing.rs` holds it to literal masks.
 - **A cell is bounded.** A font scales by whole factors only as far as keeps its cell inside `CELL_SIDE_MAX`, and a sprite or glyph past it is not drawn (`CELL_SIDE_MAX` below). The C reference scaled to any height it was asked for.
 
 ## Glyph storage
@@ -76,7 +91,8 @@ Scale does not change what a source keeps, only what a draw returns: a font scal
 - Ask `Font::glyph` for every cell's glyph: it draws the sprites, the face and the fallbacks, and boxes the result to exactly the cells asked for, marked with that cell count. Check its `format()`: a mask is blended in the cell's colours, RGBA is composited as it is. It returns `None` only for an empty cluster or a face that can draw nothing at all.
 - A sprite's thickness is the face's underline thickness (`Font::decorations`), as in the C reference, so lines and underlines match.
 - Bold is drawn into the glyph; italic is not, as in the C reference's bitmap fonts. Overhang is vtium/vtium#26.
-- A glyph's bytes depend only on the font, the size, the style and the character, so a cache may key on those.
+- A glyph's bytes depend only on the font, the size, the style and the character, so a cache may key on those. A `Font`'s policy is fixed when it is built, so a new policy is a new `Font`.
+- The configuration (vtium/vtium#21) builds a font's policy from its keys: the one value for all six ranges as `SpritePolicy::all`, else the face's default, then each range's own key with `SpritePolicy::with`. It warns for each range `Font::coverage().partial()` names.
 - `Font::glyph_unscaled` hands a bitmap face's glyph over at scale 1 with its scale, for a cache that stores it small and scales it while drawing (ADR-1300 D2). Drawn with each pixel a square `scale` across, it is `Font::glyph`'s glyph exactly. A sprite comes at its drawn size, as does a glyph whose box to its cells centres it in an odd number of spare pixels, which does not scale.
 
 ## Licences

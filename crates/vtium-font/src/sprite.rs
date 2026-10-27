@@ -64,16 +64,97 @@
 
 mod legacy;
 
+use core::fmt;
+
 use crate::bounds::CELL_SIDE_MAX;
 use crate::glyph::Glyph;
 
-/// Whether `c` is drawn as a sprite rather than taken from a font.
+/// A range of characters vtium draws as sprites, each of which a font may
+/// draw instead (vtium/vtium#85).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Range {
+    /// U+2500-U+257F.
+    BoxDrawing,
+    /// U+2580-U+259F.
+    BlockElements,
+    /// U+2800-U+28FF.
+    Braille,
+    /// U+1FB00-U+1FB3B.
+    Sextants,
+    /// U+1CD00-U+1CDE5.
+    Octants,
+    /// The rest of Symbols for Legacy Computing's block shapes and its
+    /// supplement's one quarter blocks: U+1CEA0-U+1CEAF, U+1FB3C-U+1FB92,
+    /// U+1FB94-U+1FBAF, U+1FBBD-U+1FBBF and U+1FBCE-U+1FBEF.
+    LegacyComputing,
+}
+
+impl Range {
+    pub const ALL: [Range; 6] = [
+        Range::BoxDrawing,
+        Range::BlockElements,
+        Range::Braille,
+        Range::Sextants,
+        Range::Octants,
+        Range::LegacyComputing,
+    ];
+
+    /// The range `c` belongs to, or `None` for a character vtium does not
+    /// draw as a sprite.
+    pub fn of(c: char) -> Option<Range> {
+        let cp = u32::from(c);
+        Range::ALL.into_iter().find(|r| {
+            r.spans()
+                .iter()
+                .any(|&(first, last)| (first..=last).contains(&cp))
+        })
+    }
+
+    /// Every character of the range, in order.
+    pub fn chars(self) -> impl Iterator<Item = char> {
+        self.spans()
+            .iter()
+            .flat_map(|&(first, last)| first..=last)
+            .filter_map(char::from_u32)
+    }
+
+    /// The first and last codepoints of each run of the range.
+    fn spans(self) -> &'static [(u32, u32)] {
+        match self {
+            Range::BoxDrawing => &[(0x2500, 0x257f)],
+            Range::BlockElements => &[(0x2580, 0x259f)],
+            Range::Braille => &[(0x2800, 0x28ff)],
+            Range::Sextants => &[(0x1fb00, 0x1fb3b)],
+            Range::Octants => &[(0x1cd00, 0x1cde5)],
+            Range::LegacyComputing => &[
+                (0x1cea0, 0x1ceaf),
+                (0x1fb3c, 0x1fb92),
+                (0x1fb94, 0x1fbaf),
+                (0x1fbbd, 0x1fbbf),
+                (0x1fbce, 0x1fbef),
+            ],
+        }
+    }
+}
+
+/// The range's name, as a warning about it reads.
+impl fmt::Display for Range {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Range::BoxDrawing => "box drawing",
+            Range::BlockElements => "block elements",
+            Range::Braille => "Braille",
+            Range::Sextants => "sextants",
+            Range::Octants => "octants",
+            Range::LegacyComputing => "Legacy Computing",
+        })
+    }
+}
+
+/// Whether vtium can draw `c` as a sprite; a [`Font`](crate::Font)'s
+/// policy decides whether it does.
 pub fn has(c: char) -> bool {
-    let cp = u32::from(c);
-    matches!(
-        cp,
-        0x2500..=0x259f | 0x2800..=0x28ff | 0x1fb00..=0x1fb3b | 0x1cd00..=0x1cde5
-    ) || legacy::has(cp)
+    Range::of(c).is_some()
 }
 
 /// `c` as a `width` by `height` sprite with light lines `thickness` pixels
@@ -81,26 +162,28 @@ pub fn has(c: char) -> bool {
 /// does not draw, a side of 0, a size past [`Glyph::mask`]'s bound, or a
 /// thickness past [`CELL_SIDE_MAX`].
 pub fn draw(c: char, width: u32, height: u32, thickness: u32) -> Option<Glyph> {
-    if !has(c) || thickness > CELL_SIDE_MAX {
+    let range = Range::of(c)?;
+    if thickness > CELL_SIDE_MAX {
         return None;
     }
     let mut buf = Glyph::mask(width, height)?;
     let t = thickness.max(1);
-    match u32::from(c) {
-        cp if legacy::has(cp) => legacy::draw(&mut buf, cp, t),
-        cp @ 0x1fb00.. => {
+    let cp = u32::from(c);
+    match range {
+        Range::LegacyComputing => legacy::draw(&mut buf, cp, t),
+        Range::Sextants => {
             // the 64 patterns of a 2x3 grid counted in binary, less empty,
             // full and the two halves (21 and 42)
             let n = cp.saturating_sub(0x1fb00);
             mosaic(&mut buf, n.saturating_add(n / 20).saturating_add(1), 3);
         }
-        cp @ 0x1cd00.. => {
+        Range::Octants => {
             let i = usize::try_from(cp.saturating_sub(0x1cd00)).ok()?;
             mosaic(&mut buf, u32::from(*OCTANTS.get(i)?), 4);
         }
-        cp @ 0x2800.. => braille(&mut buf, cp),
-        cp @ 0x2580.. => block_element(&mut buf, cp),
-        cp => box_drawing(&mut buf, cp, t),
+        Range::Braille => braille(&mut buf, cp),
+        Range::BlockElements => block_element(&mut buf, cp),
+        Range::BoxDrawing => box_drawing(&mut buf, cp, t),
     }
     Some(buf)
 }
