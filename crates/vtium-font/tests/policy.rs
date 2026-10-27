@@ -123,19 +123,38 @@ fn the_ranges_are_exactly_the_sprites() {
         );
         counted += size;
     }
-    let sprites = (0..=0x10ffff)
-        .filter_map(char::from_u32)
-        .filter(|&c| {
-            assert_eq!(
-                sprite::has(c),
-                Range::of(c).is_some(),
-                "U+{:04X}",
-                u32::from(c)
-            );
-            sprite::has(c)
-        })
-        .count();
-    assert_eq!(u32::try_from(sprites).expect("small"), counted);
+    // the bounds as #15 and #27 set them, written apart from src/sprite.rs
+    let bounds: [(Range, &[(u32, u32)]); 6] = [
+        (Range::BoxDrawing, &[(0x2500, 0x257f)]),
+        (Range::BlockElements, &[(0x2580, 0x259f)]),
+        (Range::Braille, &[(0x2800, 0x28ff)]),
+        (Range::Sextants, &[(0x1fb00, 0x1fb3b)]),
+        (Range::Octants, &[(0x1cd00, 0x1cde5)]),
+        (
+            Range::LegacyComputing,
+            &[
+                (0x1cea0, 0x1ceaf),
+                (0x1fb3c, 0x1fb92),
+                (0x1fb94, 0x1fbaf),
+                (0x1fbbd, 0x1fbbf),
+                (0x1fbce, 0x1fbef),
+            ],
+        ),
+    ];
+    let listed = |cp: u32| {
+        bounds
+            .iter()
+            .find(|(_, spans)| spans.iter().any(|&(a, b)| (a..=b).contains(&cp)))
+            .map(|&(r, _)| r)
+    };
+    let mut sprites = 0u32;
+    for c in (0..=0x10ffff).filter_map(char::from_u32) {
+        let want = listed(u32::from(c));
+        assert_eq!(Range::of(c), want, "U+{:04X}", u32::from(c));
+        assert_eq!(sprite::has(c), want.is_some(), "U+{:04X}", u32::from(c));
+        sprites += u32::from(want.is_some());
+    }
+    assert_eq!(sprites, counted);
     assert_eq!(
         Range::ALL.map(|r| r.to_string()),
         [
@@ -307,10 +326,10 @@ fn a_wide_cell_fits_the_face_glyph_or_the_wide_sprite() {
 }
 
 #[test]
-fn a_cluster_is_the_faces_under_every_policy() {
+fn a_cluster_is_the_faces_where_the_face_holds_its_base() {
     for source in [Source::Font, Source::Sprites, Source::Auto] {
-        let font = Font::new(Stub::new(none)).with_policy(SpritePolicy::all(source));
-        assert_eq!(ink(&draw_cluster(&font)), Some(BOX_INK), "{source:?}");
+        let font = Font::new(Stub::new(full)).with_policy(SpritePolicy::all(source));
+        assert_eq!(ink(&draw_cluster(&font)), Some(FACE_INK), "{source:?}");
     }
 }
 
@@ -445,4 +464,78 @@ fn a_missing_character_draws_u_25a1_by_default() {
     assert_eq!(ink(&draw(&font, 'A')), Some(BOX_INK));
     let font = font.with_missing(Missing::Replacement);
     assert_eq!(ink(&draw(&font, 'A')), Some(BOX_INK));
+}
+
+/// All of block elements but U+259F, and nothing else.
+fn blocks_but_the_last(c: char) -> bool {
+    Range::of(c) == Some(Range::BlockElements) && c != '\u{259f}'
+}
+
+/// All of block elements but U+2580, and the whole of box drawing.
+fn boxes_and_blocks_but_the_first(c: char) -> bool {
+    match Range::of(c) {
+        Some(Range::BoxDrawing) => true,
+        Some(Range::BlockElements) => c != '\u{2580}',
+        _ => false,
+    }
+}
+
+// decision 1 on vtium/vtium#85: one missing codepoint is enough to lack
+// the range
+#[test]
+fn a_range_one_codepoint_short_draws_the_sprites_and_warns() {
+    for holds in [
+        blocks_but_the_last as fn(char) -> bool,
+        boxes_and_blocks_but_the_first,
+    ] {
+        let font = Font::new(Stub::new(holds));
+        assert_eq!(font.policy().source(Range::BlockElements), Source::Sprites);
+        assert_eq!(
+            font.coverage().partial().collect::<Vec<_>>(),
+            [(
+                Range::BlockElements,
+                RangeCoverage {
+                    covered: 31,
+                    total: 32
+                }
+            )]
+        );
+        // the face holds U+2588, but its range draws the sprites
+        assert_eq!(draw(&font, '█'), sprite('█'));
+    }
+    let font = Font::new(Stub::new(boxes_and_blocks_but_the_first));
+    assert_eq!(font.policy().source(Range::BoxDrawing), Source::Font);
+    assert_eq!(ink(&draw(&font, '─')), Some(FACE_INK));
+}
+
+// a cluster on a sprite character: the C reference took any cluster of
+// more than one codepoint to the font, which drew its first codepoint and
+// dropped the marks, or U+25A1 when the font lacked it (font.c:345-366).
+// vtium draws the base's sprite where the face lacks it and the policy
+// draws it as one, the marks dropped as the C reference dropped them
+#[test]
+fn a_cluster_on_a_sprite_the_face_lacks_draws_the_sprite() {
+    let cluster = ['─', '\u{301}'];
+    for source in [Source::Sprites, Source::Auto] {
+        let font = Font::new(Stub::new(none)).with_policy(SpritePolicy::all(source));
+        let g = font.glyph(&cluster, Width::Narrow, plain()).expect("drawn");
+        assert_eq!(g, sprite('─'), "{source:?}");
+        assert!(font.has_glyph('─'));
+    }
+    // under `font` the face's missing glyph
+    let font = Font::new(Stub::new(none)).with_policy(SpritePolicy::all(Source::Font));
+    assert_eq!(ink(&draw_cluster(&font)), Some(BOX_INK));
+    // a face that holds the base draws the cluster, as the C reference did
+    let font = Font::new(Stub::new(full)).with_policy(SpritePolicy::SPRITES);
+    assert_eq!(ink(&draw_cluster(&font)), Some(FACE_INK));
+    // handed over at its drawn size, as a sprite
+    let font = Font::new(Stub {
+        holds: none,
+        scale: 2,
+    })
+    .with_policy(SpritePolicy::SPRITES);
+    let (g, scale) = font
+        .glyph_unscaled(&cluster, Width::Narrow, plain())
+        .expect("drawn");
+    assert_eq!((g, scale), (sprite('─'), 1));
 }

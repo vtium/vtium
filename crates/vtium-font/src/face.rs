@@ -173,12 +173,12 @@ pub struct Font<F> {
     missing: Missing,
 }
 
-/// Drawn for a character the face lacks.
+/// Drawn for a character the face lacks under [`Missing::Replacement`].
 pub const REPLACEMENT: char = '\u{25a1}';
 
 impl<F: Face> Font<F> {
-    /// `face`, drawn with its own [`Face::sprite_policy`] and U+25A1 for a
-    /// character it lacks.
+    /// `face`, drawn with its own [`Face::sprite_policy`] and
+    /// [`Missing::Replacement`] for a character it lacks.
     pub fn new(face: F) -> Font<F> {
         Font {
             policy: face.sprite_policy(),
@@ -240,20 +240,32 @@ impl<F: Face> Font<F> {
         })
     }
 
+    /// The character `cluster` draws as a sprite: a single character the
+    /// policy draws as one, or the first of a longer cluster when the
+    /// policy draws it as one and the face lacks it. The marks are
+    /// dropped, as the C reference's bitmap faces dropped them; it drew
+    /// U+25A1 for such a cluster (font.c:345-366).
+    fn sprite_base(&self, cluster: &[char]) -> Option<char> {
+        match *cluster {
+            [c] => self.draws_sprite(c).then_some(c),
+            [c, ..] => (self.draws_sprite(c) && !self.face.has_glyph(c)).then_some(c),
+            [] => None,
+        }
+    }
+
     /// The glyph for `cluster`, exactly `width` cells wide and a cell high.
-    /// A single character the policy draws as a sprite fills the cell. A
-    /// cluster whose first character the face lacks draws as U+25A1, else
-    /// `?`, else the face's last resort; a glyph of another width is
-    /// centred and cut to the cells. `None` only for an empty cluster or a
+    /// A character the policy draws as a sprite fills the cell, alone or
+    /// as the base of a cluster the face lacks. A cluster whose first
+    /// character the face lacks otherwise draws as the font's [`Missing`]
+    /// glyph, whose last fallback is U+25A1, else `?`, else the face's last
+    /// resort; a glyph of another width is centred and cut to the cells. `None` only for an empty cluster or a
     /// face that can draw nothing. The C reference's `kmscon_font_render`
     /// (font.c:310-368).
     pub fn glyph(&self, cluster: &[char], width: Width, style: Style) -> Option<Glyph> {
         let &first = cluster.first()?;
         let cell = self.face.cell();
         let w = cell.width.saturating_mul(width.cells());
-        if let [c] = *cluster
-            && self.draws_sprite(c)
-        {
+        if let Some(c) = self.sprite_base(cluster) {
             let thick = self.face.decorations().underline_thickness;
             if let Some(s) = sprite::draw(c, w, cell.height, thick) {
                 return Some(s.with_cells(width));
@@ -295,7 +307,7 @@ impl<F: Face> Font<F> {
         let drawn = || self.glyph(cluster, width, style).map(|g| (g, 1));
         let scale = self.face.scale();
         let &first = cluster.first()?;
-        if scale <= 1 || matches!(*cluster, [c] if self.draws_sprite(c)) {
+        if scale <= 1 || self.sprite_base(cluster).is_some() {
             return drawn();
         }
         let w = self

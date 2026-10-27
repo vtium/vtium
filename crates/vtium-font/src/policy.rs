@@ -8,7 +8,7 @@ use crate::sprite::Range;
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Source {
     /// The face's glyph; a character the face lacks draws as any missing
-    /// character does, U+25A1.
+    /// character does, the font's [`Missing`] glyph.
     Font,
     /// The sprite, whatever the face holds: the C reference's behaviour,
     /// and the sprites line up exactly at every cell size.
@@ -22,6 +22,18 @@ pub enum Source {
 struct PerRange<T>([T; 6]);
 
 impl<T> PerRange<T> {
+    /// `f` of each range, in the order [`PerRange::get`] reads them.
+    fn from_fn(mut f: impl FnMut(Range) -> T) -> PerRange<T> {
+        PerRange([
+            f(Range::BoxDrawing),
+            f(Range::BlockElements),
+            f(Range::Braille),
+            f(Range::Sextants),
+            f(Range::Octants),
+            f(Range::LegacyComputing),
+        ])
+    }
+
     fn get(&self, range: Range) -> &T {
         let [boxes, blocks, braille, sextants, octants, legacy] = &self.0;
         match range {
@@ -73,13 +85,13 @@ impl SpritePolicy {
     /// font's glyphs for a range it covers whole, and the sprites for a
     /// range it misses any character of, so no range mixes the two.
     pub fn default_for(coverage: &Coverage) -> SpritePolicy {
-        SpritePolicy(PerRange(Range::ALL.map(|range| {
+        SpritePolicy(PerRange::from_fn(|range| {
             if coverage.get(range).is_complete() {
                 Source::Font
             } else {
                 Source::Sprites
             }
-        })))
+        }))
     }
 
     /// `source` for every range.
@@ -143,8 +155,8 @@ pub struct Coverage(PerRange<RangeCoverage>);
 
 impl Coverage {
     /// Each range's coverage, from `count`.
-    pub fn new(mut count: impl FnMut(Range) -> RangeCoverage) -> Coverage {
-        Coverage(PerRange(Range::ALL.map(&mut count)))
+    pub fn new(count: impl FnMut(Range) -> RangeCoverage) -> Coverage {
+        Coverage(PerRange::from_fn(count))
     }
 
     pub fn get(&self, range: Range) -> RangeCoverage {

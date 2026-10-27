@@ -59,9 +59,10 @@ fn a_sprite_character_fills_its_cells() {
             assert_eq!(Some(g), want, "{c}");
         }
     }
-    // a cluster of more than one character is the face's
+    // a cluster on a sprite character the face lacks draws the sprite,
+    // its mark dropped, where the C reference drew U+25A1 (vtium/vtium#85)
     let g = font.glyph(&['│', '\u{301}'], Width::Narrow, plain());
-    assert_ne!(g, sprite::draw('│', 16, 32, 2));
+    assert_eq!(g, sprite::draw('│', 16, 32, 2));
 }
 
 // font.c:267-308: a glyph narrower than its cells is centred, a wider one

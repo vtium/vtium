@@ -6,7 +6,7 @@
 //! the largest whole factor the cell holds and centred in it.
 //! - Narrow: the cell in the text colour with the digits cut out, two rows
 //!   of two 3x5 digits for a codepoint up to U+FFFF, three rows of two 3x4
-//!   digits, with lower-case b and d, past it.
+//!   digits, with lower-case b, c and d, past it.
 //! - Wide: a box outline with the digits inside in the text colour, 3x5,
 //!   two rows of two up to U+FFFF and two rows of three past it.
 
@@ -14,7 +14,8 @@ use crate::face::{Cell, Width};
 use crate::glyph::Glyph;
 
 /// The hex digits 3 pixels wide and 5 high, each row three bits, the left
-/// pixel highest, the top row first.
+/// pixel highest, the top row first. Every two differ by at least two
+/// pixels, as do every two of [`DIGITS_3X4`].
 const DIGITS_3X5: [[u8; 5]; 16] = [
     [0b111, 0b101, 0b101, 0b101, 0b111], // 0
     [0b010, 0b110, 0b010, 0b010, 0b111], // 1
@@ -22,11 +23,11 @@ const DIGITS_3X5: [[u8; 5]; 16] = [
     [0b111, 0b001, 0b111, 0b001, 0b111], // 3
     [0b101, 0b101, 0b111, 0b001, 0b001], // 4
     [0b111, 0b100, 0b111, 0b001, 0b111], // 5
-    [0b111, 0b100, 0b111, 0b101, 0b111], // 6
+    [0b100, 0b100, 0b111, 0b101, 0b111], // 6
     [0b111, 0b001, 0b001, 0b001, 0b001], // 7
-    [0b111, 0b101, 0b111, 0b101, 0b111], // 8
-    [0b111, 0b101, 0b111, 0b001, 0b111], // 9
-    [0b111, 0b101, 0b111, 0b101, 0b101], // A
+    [0b010, 0b101, 0b010, 0b101, 0b010], // 8
+    [0b111, 0b101, 0b111, 0b001, 0b110], // 9
+    [0b010, 0b101, 0b111, 0b101, 0b101], // A
     [0b110, 0b101, 0b110, 0b101, 0b110], // B
     [0b111, 0b100, 0b100, 0b100, 0b111], // C
     [0b110, 0b101, 0b101, 0b101, 0b110], // D
@@ -34,22 +35,22 @@ const DIGITS_3X5: [[u8; 5]; 16] = [
     [0b111, 0b100, 0b111, 0b100, 0b100], // F
 ];
 
-/// The hex digits 3 pixels wide and 4 high, b and d in lower case so they
-/// differ from 8 and 0.
+/// The hex digits 3 pixels wide and 4 high, b, c and d in lower case so
+/// they differ from 8, e and 0.
 const DIGITS_3X4: [[u8; 4]; 16] = [
     [0b111, 0b101, 0b101, 0b111], // 0
     [0b010, 0b110, 0b010, 0b111], // 1
     [0b110, 0b001, 0b010, 0b111], // 2
-    [0b111, 0b011, 0b001, 0b111], // 3
-    [0b101, 0b111, 0b001, 0b001], // 4
+    [0b110, 0b011, 0b001, 0b110], // 3
+    [0b101, 0b101, 0b111, 0b001], // 4
     [0b111, 0b110, 0b001, 0b110], // 5
-    [0b111, 0b100, 0b111, 0b111], // 6
+    [0b011, 0b110, 0b101, 0b111], // 6
     [0b111, 0b001, 0b010, 0b010], // 7
-    [0b111, 0b111, 0b101, 0b111], // 8
-    [0b111, 0b101, 0b111, 0b001], // 9
+    [0b111, 0b010, 0b101, 0b111], // 8
+    [0b111, 0b101, 0b111, 0b110], // 9
     [0b010, 0b101, 0b111, 0b101], // a
     [0b100, 0b111, 0b101, 0b111], // b
-    [0b111, 0b100, 0b100, 0b111], // c
+    [0b000, 0b111, 0b100, 0b111], // c
     [0b001, 0b111, 0b101, 0b111], // d
     [0b111, 0b110, 0b100, 0b111], // e
     [0b111, 0b100, 0b110, 0b100], // f
@@ -152,13 +153,24 @@ fn put(g: &mut Glyph, rows: &[u8], x: u32, y: u32, alpha: u8) {
 mod tests {
     use super::{DIGITS_3X4, DIGITS_3X5};
 
+    /// How many pixels two digits differ by.
+    fn apart(a: &[u8], b: &[u8]) -> u32 {
+        a.iter().zip(b).map(|(x, y)| (x ^ y).count_ones()).sum()
+    }
+
+    // every pair of digits differs by at least two pixels, so no one stray
+    // pixel turns one into another
     #[test]
-    fn every_digit_differs_from_the_others() {
+    fn every_digit_is_two_pixels_from_the_others() {
         for (i, a) in DIGITS_3X5.iter().enumerate() {
-            assert!(DIGITS_3X5.iter().skip(i).skip(1).all(|b| b != a), "{i:X}");
+            for (j, b) in DIGITS_3X5.iter().enumerate().skip(i).skip(1) {
+                assert!(apart(a, b) >= 2, "3x5 {i:X} and {j:X}");
+            }
         }
         for (i, a) in DIGITS_3X4.iter().enumerate() {
-            assert!(DIGITS_3X4.iter().skip(i).skip(1).all(|b| b != a), "{i:x}");
+            for (j, b) in DIGITS_3X4.iter().enumerate().skip(i).skip(1) {
+                assert!(apart(a, b) >= 2, "3x4 {i:x} and {j:x}");
+            }
         }
     }
 }

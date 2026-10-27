@@ -75,23 +75,23 @@ fn u_2603_in_a_narrow_cell_is_the_approved_mock_up() {
     assert_eq!(
         picture(&g),
         [
-            "########", "########", "#...#...", "###.#.##", "#...#...", "#.###.#.", "#...#...",
+            "########", "########", "#...#.##", "###.#.##", "#...#...", "#.###.#.", "#...#...",
             "########", "########", "#...#...", "#.#.###.", "#.#.#...", "#.#.###.", "#...#...",
             "########", "########",
         ]
     );
 }
 
-// above U+FFFF: six digits, three rows of two in a 3x4 font, lower-case b
-// and d apart from 8 and 0
+// above U+FFFF: six digits, three rows of two in a 3x4 font, lower-case b,
+// c and d apart from 8, e and 0
 #[test]
 fn a_codepoint_past_the_bmp_takes_six_smaller_digits() {
     let font = Font::new(Stub::new(8, 16)).with_missing(Missing::Hex);
     assert_eq!(
         picture(&hex(&font, '\u{1f600}', Width::Narrow)),
         [
-            "########", "#...##.#", "#.#.#..#", "#.#.##.#", "#...#...", "########", "#...#...",
-            "#.###.##", "#..##...", "#.###...", "########", "#...#...", "#.#.#.#.", "#.#.#.#.",
+            "########", "#...##.#", "#.#.#..#", "#.#.##.#", "#...#...", "########", "#...##..",
+            "#.###..#", "#..##.#.", "#.###...", "########", "#...#...", "#.#.#.#.", "#.#.#.#.",
             "#...#...", "########",
         ]
     );
@@ -123,7 +123,7 @@ fn a_wide_cell_draws_the_digits_in_a_box() {
         [
             "################",
             "#..............#",
-            "#...###..###...#",
+            "#...###..#.....#",
             "#.....#..#.....#",
             "#...###..###...#",
             "#...#....#.#...#",
@@ -151,7 +151,7 @@ fn a_wide_cell_draws_the_digits_in_a_box() {
             "#..###.###.#...#",
             "#..............#",
             "#..............#",
-            "#..###.###.###.#",
+            "#..#...###.###.#",
             "#..#...#.#.#.#.#",
             "#..###.#.#.#.#.#",
             "#..#.#.#.#.#.#.#",
@@ -290,4 +290,42 @@ fn only_a_missing_character_draws_its_codepoint() {
             .iter()
             .all(|&p| p == 0x80)
     );
+}
+
+// a cell whose height, not its width, bounds the factor: the design keeps
+// its bottom rows
+#[test]
+fn the_cell_height_bounds_the_factor() {
+    let exact = Font::new(Stub::new(8, 16)).with_missing(Missing::Hex);
+    // an 18x30 outline cell: a wide glyph is 36 wide, twice the design,
+    // but only 30 high
+    let tall = Font::new(Stub::new(18, 30)).with_missing(Missing::Hex);
+    let want = hex(&exact, '\u{2603}', Width::Wide);
+    let got = hex(&tall, '\u{2603}', Width::Wide);
+    assert_eq!((got.width(), got.height()), (36, 30));
+    for y in 0..30 {
+        for x in 0..36 {
+            let inside = (10..26).contains(&x) && (7..23).contains(&y);
+            let px = if inside {
+                want.pixel(x - 10, y - 7).expect("inside")[0]
+            } else {
+                0
+            };
+            assert_eq!(got.pixel(x, y), Some(&[px][..]), "{x},{y}");
+        }
+    }
+    // a square narrow cell, 16x16: twice the width, once the height
+    let square = Font::new(Stub::new(16, 16)).with_missing(Missing::Hex);
+    let want = hex(&exact, '\u{2603}', Width::Narrow);
+    let got = hex(&square, '\u{2603}', Width::Narrow);
+    for y in 0..16 {
+        for x in 0..16 {
+            let px = if (4..12).contains(&x) {
+                want.pixel(x - 4, y).expect("inside")[0]
+            } else {
+                0xff
+            };
+            assert_eq!(got.pixel(x, y), Some(&[px][..]), "{x},{y}");
+        }
+    }
 }

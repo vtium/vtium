@@ -54,9 +54,11 @@ A sprite's curves and diagonals are supersampled with IEEE 754 `f64` addition, s
   - `Font`: the face's glyph, and the font's `Missing` glyph for a character the face lacks.
   - `Auto`: the face's glyph, and the sprite for a character the face lacks.
 
+  A cluster on a character the policy draws as a sprite is the face's when the face holds that character. When the face lacks it, the cluster draws the character's sprite and drops its marks, as the C reference's bitmap faces dropped them; the C reference drew U+25A1 for it.
+
   `Font::coverage` counts the characters of each range the face holds, 874 in all, through `Face::coverage`, which asks `Face::has_glyph` of each; a face that reads a character map can override it. `Coverage::partial` names the ranges a face covers only partly, for the operator's warning. `Font::new` takes the face's own `Face::sprite_policy`, and `Font::with_policy` sets another; the default is listed under Departures. `tests/policy.rs` holds each source to stand-in faces that cover a range fully, partly and not at all.
 - **A character the face lacks can draw its codepoint** (vtium/vtium#85). `Missing::Replacement`, the configuration's `missing = box` and the default, draws U+25A1, `?` or the face's last resort, as the C reference did. `Missing::Hex`, `missing = hex`, draws the codepoint in hex digits, in the operator's design:
-  - a narrow cell is the text colour with the digits cut out, two rows of two 3x5 digits up to U+FFFF and three rows of two 3x4 digits past it, b and d in lower case;
+  - a narrow cell is the text colour with the digits cut out, two rows of two 3x5 digits up to U+FFFF and three rows of two 3x4 digits past it, b, c and d in lower case;
   - a wide cell is a box outline with 3x5 digits inside, two rows of two or of three.
 
   The design is 8x16 narrow and 16x16 wide, scaled by the largest whole factor the cell holds and centred, a narrow cell's margin in the text colour; a cell smaller than the design draws U+25A1. `Font::glyph_unscaled` hands it over at its drawn size, as a sprite. `tests/missing.rs` holds it to literal masks.
