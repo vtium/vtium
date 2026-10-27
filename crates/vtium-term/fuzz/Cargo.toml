@@ -1,0 +1,25 @@
+# The screen's fuzz target, run with cargo-fuzz on nightly:
+#   cargo +nightly fuzz run screen
+# Its own workspace, so the main workspace and CI do not build it.
+[package]
+name = "vtium-term-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+vtium-term = { path = ".." }
+
+[[bin]]
+name = "screen"
+path = "fuzz_targets/screen.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

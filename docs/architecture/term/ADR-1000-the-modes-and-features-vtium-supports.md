@@ -111,7 +111,7 @@ Every reply follows the reply rule (docs/architecture.md, "Determinism"): it is 
 - **A report answers only where vtium has the thing it reports, with its real value.** The text area in cells (XTWINOPS 18) and in pixels (14), the cell size (16), and the screen in cells (19) and pixels (15), the screen being the display the grid fills, get real numbers. Reports about a window or icon vtium does not have (11, 13, 14;2, 20) get no reply.
 - **Title reporting (XTWINOPS 21) answers a fixed empty title.** OSC 0, 1 and 2 are ignored, so no title is kept.
 - **OSC 52 write is on**, inside the OSC string bound (#39); the read is refused above.
-- **A paste never carries its own end marker:** vtium strips CSI 201 ~ from pasted text inside bracketed paste.
+- **A paste never carries its own end marker:** vtium filters every paste, bracketed or not, as xterm's paste filtering does with `allowPasteControls` false: each C0 control but HT, LF and CR, DEL, and each C1 control, a code point in UTF-8, becomes a space.
 - **ENQ answers an empty answerback.** The C reference answered ACK (0x06); vtium lists this as a departure.
 - **Focus (1004) and visibility (2033) reports are allowed:** a program opts in, and what they reveal is that the user switched VTs.
 - **setBackground and setForeground**, kmscon's private OSC strings (`kmscon/src/terminal.c:863` in the C reference), hand the display back and take it again. No DEC or ECMA specification defines them. vtium keeps them behind a configuration key, on by default, as the C reference behaved (#36).
@@ -123,7 +123,7 @@ Every reply follows the reply rule (docs/architecture.md, "Determinism"): it is 
 
 The TSVs are the source for the target set until vtium-term's mode table (#12) and the capability list (#14) exist. From then those become the source: the TSVs are generated from them, and a test fails when the committed TSVs differ, as docs/architecture.md's "Tables, references and maps" requires of every fact stated twice. A row's status changes in its source, in the same change as the work that changes it.
 
-The mode table's columns: kind, number, name, spec, c_reference, xterm, foot, ghostty, wezterm, kitty, status, note, layer, issue. The feature table's: group, feature, spec, c_reference, the five terminals, status, note, layer, issue. A `c_reference` cell opens with a tsm-modes.def status in capitals; works, missing or partial, naming the probes behind the verdict where there are any; parsed, for a sequence the C reference read and did nothing with; audited without a probe; unverified; or absent. What follows says what the C reference did.
+The mode table's columns: id, kind, number, name, spec, c_reference, xterm, foot, ghostty, wezterm, kitty, status, note, layer, issue, tests. The feature table's: id, group, feature, spec, c_reference, the five terminals, status, note, layer, issue, tests. On 2026-10-26 vtium/vtium#67 added the `id` and `tests` columns; `docs/scripts/coverage` states how a feature's id is formed and is the only writer of `tests`. A `c_reference` cell opens with a tsm-modes.def status in capitals; works, missing or partial, naming the probes behind the verdict where there are any; parsed, for a sequence the C reference read and did nothing with; audited without a probe; unverified; or absent. What follows says what the C reference did.
 
 Each row proves its coverage by the contract of vtium/vtium#67, whose columns and lint land with that issue:
 

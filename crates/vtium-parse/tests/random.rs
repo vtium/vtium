@@ -131,6 +131,19 @@ fn random_bytes(rng: &mut Rng, n: usize) -> Vec<u8> {
     (0..n).map(|_| rng.next() as u8).collect()
 }
 
+/// An OSC string ending within a few characters of [`OSC_MAX`], either
+/// side of it, of characters one to four bytes long.
+fn osc_near_the_bound(rng: &mut Rng) -> Vec<u8> {
+    let pieces: [&[u8]; 4] = [b"a", "é".as_bytes(), "€".as_bytes(), "😀".as_bytes()];
+    let mut v = b"\x1b]".to_vec();
+    v.extend(std::iter::repeat_n(b'a', OSC_MAX - 16));
+    for _ in 0..rng.below(16) {
+        v.extend_from_slice(rng.pick(&pieces));
+    }
+    v.extend_from_slice(rng.pick(&[&b"\x07"[..], b"\x1b\\", b"\xc2\x9c", b"\x18"]));
+    v
+}
+
 /// A sequence at or past one of the parser's bounds.
 fn bound_stress(rng: &mut Rng) -> Vec<u8> {
     let mut v = Vec::new();
@@ -413,6 +426,14 @@ fn bound_stress_split_anywhere() {
     for _ in 0..1000 {
         let mut stream = tokens(&mut rng, 4);
         stream.extend(bound_stress(&mut rng));
+        stream.extend(tokens(&mut rng, 4));
+        check_stream(&mut rng, &stream, &mut cov);
+    }
+    // An OSC string around its bound, a megabyte, is too long to draw often:
+    // a few, of every piece, cross it.
+    for _ in 0..4 {
+        let mut stream = tokens(&mut rng, 4);
+        stream.extend(osc_near_the_bound(&mut rng));
         stream.extend(tokens(&mut rng, 4));
         check_stream(&mut rng, &stream, &mut cov);
     }

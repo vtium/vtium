@@ -1,0 +1,177 @@
+# vtium's configuration, installed as /etc/kmscon/kmscon.conf.example.
+# Generated from crates/vtium/src/config/keys.rs; docs/config.md describes each key.
+#
+# One key a line: key=value, or a switch's key to turn it on and no-key to
+# turn it off. Each key is shown at its default, commented out. The command
+# line wins over this file.
+
+## The VT to run on: a number N for `/dev/ttyN`, a name under `/dev`, or a path. Unset, the VT vtium was started on, or the next free one.
+#vt=
+
+## Switch to vtium's VT at start; off, wait until something else switches to it.
+#switchvt
+
+## The session's command. Unset, `/bin/login -p` with `reset-env` on and `/bin/login` with it off. A word that is `$NAME` becomes that variable of the session's environment, and `$$` starts a word with `$`.
+#login=
+
+## Exit when the session's command exits, in place of starting it again.
+#no-oneshot
+
+## `TERM` in the session's environment.
+#term=kmscon
+
+## Start the session with an empty environment and the variables vtium sets; off, with vtium's own environment as well.
+#reset-env
+
+## The pty's erase character is DEL (0x7f); off, BS (0x08).
+#backspace-delete
+
+## Lines of scrollback, at most `sb-size-cap`.
+#sb-size=1000
+
+## The most lines `sb-size` may ask for. Unset, it follows the machine's memory: 10,000 lines below 2 GiB, 30,000 from 2 GiB and 100,000 from 4 GiB.
+#sb-size-cap=
+
+## Blink text with SGR 5 and a blinking cursor, every 500 ms; off, neither blinks.
+#blink
+
+## The longest a synchronized frame (mode 2026) is held before it is shown as drawn; 0 offers no mode 2026.
+#sync-timeout=200
+
+## Turn the displays off after this long with no key or pointer event; 0 never does.
+#dpms-timeout=600
+
+## Draw through the GPU, in a build that has it.
+#no-hwaccel
+
+## Keep the mode each display is in; off, its preferred mode.
+#no-use-original-mode
+
+## A display's mode, `WxH[@RATE]`, for every display, `[CONNECTOR]WxH` for one connector, or `GPU[CONNECTOR]WxH` for one on one card, its udev `ID_PATH`. A key per line; the most specific match wins. Unset, the panel's preferred mode. It turns `use-original-mode` off.
+#mode=
+
+## The sixteen colours and the defaults: `custom` takes the `palette-*` keys. vtium-term holds `legacy` and `custom` so far; another name draws `legacy` and is reported.
+#palette=legacy
+
+## Colour 0 with `palette=custom`.
+#palette-black=0,0,0
+
+## Colour 1 with `palette=custom`.
+#palette-red=205,0,0
+
+## Colour 2 with `palette=custom`.
+#palette-green=0,205,0
+
+## Colour 3 with `palette=custom`.
+#palette-yellow=205,205,0
+
+## Colour 4 with `palette=custom`.
+#palette-blue=0,0,238
+
+## Colour 5 with `palette=custom`.
+#palette-magenta=205,0,205
+
+## Colour 6 with `palette=custom`.
+#palette-cyan=0,205,205
+
+## Colour 7 with `palette=custom`.
+#palette-light-grey=229,229,229
+
+## Colour 8 with `palette=custom`.
+#palette-dark-grey=127,127,127
+
+## Colour 9 with `palette=custom`.
+#palette-light-red=255,0,0
+
+## Colour 10 with `palette=custom`.
+#palette-light-green=0,255,0
+
+## Colour 11 with `palette=custom`.
+#palette-light-yellow=255,255,0
+
+## Colour 12 with `palette=custom`.
+#palette-light-blue=92,92,255
+
+## Colour 13 with `palette=custom`.
+#palette-light-magenta=255,0,255
+
+## Colour 14 with `palette=custom`.
+#palette-light-cyan=0,255,255
+
+## Colour 15 with `palette=custom`.
+#palette-white=255,255,255
+
+## The default foreground with `palette=custom`.
+#palette-foreground=229,229,229
+
+## The default background with `palette=custom`.
+#palette-background=0,0,0
+
+## Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken for a paste, which is not built yet.
+#clipboard-write
+
+## The keyboard model, as xkeyboard-config names it.
+#xkb-model=
+
+## The keyboard layout, such as `us` or `de`.
+#xkb-layout=
+
+## The layout's variant.
+#xkb-variant=
+
+## xkb options, comma-separated.
+#xkb-options=
+
+## A keymap file, taken before the names above.
+#xkb-keymap=
+
+## A compose table, taken before the locale's.
+#xkb-compose-file=
+
+## How long a held key waits before it repeats; 0 takes 250.
+#xkb-repeat-delay=250
+
+## The time between a held key's repeats; 0 takes 50.
+#xkb-repeat-rate=50
+
+## Take pointers: mice, touchpads and touchscreens.
+#mouse
+
+## The font source to use. Unset, each the build has, in this order.
+#font-engine=
+
+## The font's name, or with `font-engine=psf` the path of a PSF font.
+#font-name=monospace
+
+## The font's height; 0 picks one from the display's size.
+#font-size=0
+
+## Where the six sprite ranges draw from: `font`, the font's glyphs; `sprites`, vtium's; `auto`, the font's where it has one. Unset, a named font's glyphs for each range it covers whole and the sprites for the rest; the built-in unifont draws the sprites.
+#glyph-source=
+
+## `glyph-source` for box drawing, U+2500-U+257F, over it.
+#glyph-source-box=
+
+## `glyph-source` for block elements, U+2580-U+259F, over it.
+#glyph-source-block=
+
+## `glyph-source` for Braille, U+2800-U+28FF, over it.
+#glyph-source-braille=
+
+## `glyph-source` for sextants, U+1FB00-U+1FB3B, over it.
+#glyph-source-sextants=
+
+## `glyph-source` for octants, U+1CD00-U+1CDE5, over it.
+#glyph-source-octants=
+
+## `glyph-source` for the rest of Symbols for Legacy Computing's block shapes, over it.
+#glyph-source-legacy=
+
+## What a character the font lacks draws as: `box`, U+25A1; `hex`, its codepoint in hex digits.
+#missing=box
+
+## The glyph cache's budgets. Unset, `minspec`, or `performance` in a build with vtium-render's `performance-cache` feature.
+#glyph-cache=
+
+## Measure each display's frames once a second, and write the figures to the log, draw them on screen, or both.
+#render-timer=none

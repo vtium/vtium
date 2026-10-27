@@ -1,129 +1,129 @@
-kind	number	name	spec	c_reference	xterm	foot	ghostty	wezterm	kitty	status	note	layer	issue
-ANSI	1	GATM	ECMA-48 §7.2.7; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-ANSI	2	KAM	ECMA-48 §7.2.11; ctlseqs	REFUSED: a program could lock the keyboard of the only terminal on the console (libtsm#57)	yes	no	yes, off unless `vt-kam-allowed` (Ghostty cfg)	unverified	unverified	refused	the C reference's reason	minspec	#12
-ANSI	3	CRM	ECMA-48 §7.2.2; VT510 (set only from Set-Up)	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-ANSI	4	IRM	ECMA-48 §7.2.10; ctlseqs	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12
-ANSI	5	SRTM	ECMA-48 §7.2.16; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-ANSI	6	ERM	ECMA-48 §7.2.4	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-ANSI	7	VEM	ECMA-48 §7.2.19; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-ANSI	8	BDSM	ECMA-48 §7.2.1	absent	no	no	unverified	unverified	unverified	no row	until #43 decides	top	#43
-ANSI	9	DCSM	ECMA-48 §7.2.3	absent	no	no	unverified	unverified	unverified	no row	until #43 decides	top	#43
-ANSI	10	HEM	ECMA-48 §7.2.9; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-ANSI	11	PUM	ECMA-48 §7.2.13, deprecated (annex F.4.1); VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-ANSI	12	SRM	ECMA-48 §7.2.15; ctlseqs	SUPPORTED	yes	no	unverified	unverified	unverified	supported		minspec	#12
-ANSI	13	FEAM	ECMA-48 §7.2.5; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-ANSI	14	FETM	ECMA-48 §7.2.6; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-ANSI	15	MATM	ECMA-48 §7.2.12; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-ANSI	16	TTM	ECMA-48 §7.2.18; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-ANSI	17	SATM	ECMA-48 §7.2.14; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-ANSI	18	TSM	ECMA-48 §7.2.17; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-ANSI	19	EBM	VT510; ECMA-48 SM says "shall not be used" (annex F.5.1)	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-ANSI	20	LNM	ctlseqs; VT510; ECMA-48 SM says "shall not be used" (annex F.5.2)	SUPPORTED	yes	no	unverified	unverified	unverified	supported		minspec	#12
-ANSI	21	GRCM	ECMA-48 §7.2.8	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-ANSI	22	ZDM	ECMA-48 §7.2.20, deprecated (annex F.4.2)	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1	DECCKM	ctlseqs; VT510	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12
-DEC	2	DECANM	ctlseqs; VT510	REFUSED: VT52 was not emulated	yes	no	unverified	unverified	unverified	ignored	VT52 is declined for now, and DECRQM reports ANSI mode (DECANM set) as permanent	minspec	#12, #65
-DEC	3	DECCOLM	ctlseqs; VT510	REFUSED: the console's size comes from the display and the font; xterm allows it only behind an option (libtsm#57)	yes	no	unverified	unverified	unverified	refused	the C reference's reason	minspec	#12
-DEC	4	DECSCLM	ctlseqs; VT510	IGNORED: a console has no smooth scroll	yes	no	unverified	unverified	unverified	ignored		minspec	#12
-DEC	5	DECSCNM	ctlseqs; VT510	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12
-DEC	6	DECOM	ctlseqs; VT510	SUPPORTED	yes	yes	yes (Ghostty dsr page)	unverified	unverified	supported		minspec	#12
-DEC	7	DECAWM	ctlseqs; VT510	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12
-DEC	8	DECARM	ctlseqs; VT510	SUPPORTED, the host stopped repeats	yes	no	unverified	unverified	unverified	supported		minspec	#12, #19
-DEC	9	X10 mouse	ctlseqs	SUPPORTED	yes	no	unverified	unverified	unverified	supported		minspec	#12
-DEC	10	rxvt toolbar	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	12	cursor blink (AT&T 610)	ctlseqs	SUPPORTED, held in a DECSCUSR style	yes	yes	yes (Ghostty cfg `cursor-style-blink`)	unverified	unverified	supported		minspec	#12
-DEC	13	cursor blink, set from a resource only	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	14	XOR of blinking cursor	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	18	DECPFF	ctlseqs; VT510	IGNORED: a console has no printer	yes	no	unverified	unverified	unverified	ignored		minspec	#12
-DEC	19	DECPEX	ctlseqs; VT510	IGNORED: a console has no printer	yes	no	unverified	unverified	unverified	ignored		minspec	#12
-DEC	25	DECTCEM	ctlseqs; VT510	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12
-DEC	30	rxvt scrollbar	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	34	DECRLM, cursor direction right to left	VT510	absent	no	no	unverified	unverified	unverified	no row	until #43 decides	top	#43
-DEC	35	rxvt font-shifting (ctlseqs); DECHEBM (VT510)	ctlseqs; VT510	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	36	DECHEM, Hebrew encoding	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	38	DECTEK, Tektronix mode	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	40	allow 80 to 132 columns	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	41	more(1) fix	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	42	DECNRCM	ctlseqs; VT510	REFUSED: national replacement sets are obsolete next to UTF-8 (libtsm#57)	yes	no	unverified	unverified	unverified	refused	the C reference's reason	minspec	#12
-DEC	43	DECGEPM, graphic expanded print	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	44	margin bell (xterm); DECGPCM (VT340)	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	45	XTREVWRAP, reverse wraparound (xterm); DECGPCS (VT340)	ctlseqs; foot(7)	absent	yes	yes	unverified	unverified	unverified	supported		top	#54
-DEC	46	XTLOGGING (xterm); graphic print background (VT340)	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row	never built: it writes a log file on the host	minspec	#12
-DEC	47	alternate screen	ctlseqs	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12
-DEC	57	DECNAKB, Greek keyboard	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	60	DECHCCM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	61	DECVCCM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	64	DECPCCM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	66	DECNKM	ctlseqs; VT510; foot(7)	absent (DECKPAM and DECKPNM supported)	yes	yes	unverified	unverified	unverified	supported		top	#54
-DEC	67	DECBKM	ctlseqs; VT510	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	68	DECKBUM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	69	DECLRMM (DECVSSM)	ctlseqs; VT510	absent	yes	no	yes (Ghostty decslrm page)	yes (DECRQSS for DECSLRM, WezTerm es)	unverified	supported		top	#55
-DEC	73	DECXRLM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	80	DECSDM	ctlseqs	SUPPORTED, offered while sixel was on	yes	no	unverified	unverified	unverified	supported		images	#48
-DEC	81	DECKPM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	95	DECNCSM	ctlseqs; VT510	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	96	DECRLCM, cursor right to left	VT510	absent	no	no	unverified	unverified	unverified	no row	until #43 decides	top	#43
-DEC	97	DECCRTSM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	98	DECARSM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	99	DECMCM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	100	DECAAM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	101	DECCANSM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	102	DECNULM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	103	DECHDPXM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	104	DECESKM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	106	DECOSCNM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1000	normal mouse tracking	ctlseqs	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12
-DEC	1001	hilite mouse tracking	ctlseqs	absent	yes	yes	unverified	unverified	unverified	refused	the terminal waits on the program's XTHIMOUSE answer before it can show a selection	minspec	#12
-DEC	1002	button-event tracking	ctlseqs	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12
-DEC	1003	any-event tracking	ctlseqs	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12
-DEC	1004	focus events	ctlseqs	SUPPORTED; DECSTR reset it, a listed departure from xterm	yes	yes	unverified	unverified	unverified	supported		minspec	#12, #19
-DEC	1005	UTF-8 mouse	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1006	SGR mouse	ctlseqs	SUPPORTED, independent of mode order	yes	yes	unverified	yes (WezTerm feat)	unverified	supported		minspec	#12
-DEC	1007	alternate scroll	ctlseqs; foot(7)	absent	yes	yes	unverified	unverified	unverified	supported		top	#54
-DEC	1010	scroll to bottom on output (rxvt)	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1011	scroll to bottom on key press (rxvt)	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1014	fastScroll	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1015	urxvt mouse	ctlseqs; foot(7)	absent	yes	yes	unverified	unverified	unverified	supported		top	#54
-DEC	1016	SGR-Pixels mouse	ctlseqs	SUPPORTED, counted from 1 (libtsm#67)	yes	yes	unverified	unverified	yes (kitty misc-protocol extends it)	supported		minspec	#12
-DEC	1020	utf8 resource, read-only	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1021	cjkWidth resource, read-only	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1022	emojiWidth resource, read-only	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1023	privateWidth resource, read-only	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1034	8-bit meta	ctlseqs; foot(7)	absent	yes	yes	unverified	unverified	unverified	supported		top	#54
-DEC	1035	special modifiers for Alt and NumLock	ctlseqs; foot(7)	absent	yes	yes	unverified	unverified	unverified	supported		top	#54
-DEC	1036	metaSendsEscape	ctlseqs; foot(7)	absent	yes	yes	unverified	unverified	unverified	supported		top	#54
-DEC	1037	DEL from the keypad Delete	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1039	altSendsEscape	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1040	keepSelection	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1041	use the CLIPBOARD selection	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1042	act on BEL (xterm: urgency hint)	ctlseqs; foot(7)	absent	yes	yes	unverified	unverified	unverified	supported	set lets BEL reach the VT bell setting	top	#54
-DEC	1043	raise the window on BEL	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1044	reuse the last clipboard data	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1045	XTREVWRAP2, extended reverse wraparound	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1046	allow the alternate screen (titeInhibit)	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1047	alternate screen	ctlseqs	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12
-DEC	1048	save cursor as DECSC	ctlseqs	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12
-DEC	1049	save cursor and alternate screen	ctlseqs	SUPPORTED; leaving erased with the main screen's attribute (libtsm#20)	yes	yes	unverified	unverified	unverified	supported		minspec	#12
-DEC	1050	terminfo/termcap function keys	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1051	Sun function keys	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1052	HP function keys	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1053	SCO function keys	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1060	legacy X11R6 keyboard	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1061	VT220 keyboard	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	1070	private sixel colour registers	ctlseqs	SUPPORTED, offered while sixel was on	yes	yes	unverified	unverified	unverified	supported		images	#48
-DEC	2001	readline mouse button 1	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	2002	readline mouse button 2	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	2003	readline mouse button 3	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	2004	bracketed paste	ctlseqs	SUPPORTED	yes	yes	yes (Ghostty cfg `clipboard-paste-bracketed-safe`)	yes (WezTerm feat)	unverified	supported		minspec	#12
-DEC	2005	readline character quoting	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	2006	readline newline pasting	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12
-DEC	2026	synchronized output	contour synchronized-output	SUPPORTED, offered while the host presented by it	no	yes	yes (Ghostty feat)	yes (WezTerm es)	unverified	supported		minspec	#12, #16
-DEC	2027	grapheme cluster width	contour unicode-core	SUPPORTED (ADR-102)	no	yes	yes (Ghostty cfg `grapheme-width-method`)	unverified	unverified	supported		minspec	#11, #12
-DEC	2028	line reflow	contour line-reflow-mode	absent	no	no	unverified	unverified	unverified	supported	the switch for #41's reflow	top	#41
-DEC	2031	colour palette update notifications	contour color-palette-update-notifications	absent	no	yes	yes (Ghostty feat names light/dark notifications)	unverified	unverified	supported	a program redraws when the console's palette changes under it (OSC 4, 10, 11)	top	#57
-DEC	2033	visibility reports	foot(7) (rockorager's spec)	absent	no	yes	unverified	unverified	unverified	supported	a VT switch is the console's visibility change	top	#57
-DEC	2034	semantic block query	contour semantic-block-query	absent	no	no	unverified	unverified	unverified	no row	revisit with #40	minspec	#12
-DEC	2048	in-band resize notifications	foot(7)	absent	no	yes	unverified	unverified	unverified	supported	reports a resize when a display is hot-plugged or changes mode	top	#57
-DEC	5522	paste events	kitty clipboard	absent	no	no	unverified	unverified	yes	no row		minspec	#12
-DEC	8452	sixel cursor to the right	ctlseqs	SUPPORTED, offered while sixel was on	yes	yes	unverified	unverified	unverified	supported		images	#48
-DEC	737769	input method mode	foot(7)	absent	no	yes	unverified	unverified	unverified	no row	revisit with #45	minspec	#12
+id	kind	number	name	spec	c_reference	xterm	foot	ghostty	wezterm	kitty	status	note	layer	issue	tests
+ANSI-1	ANSI	1	GATM	ECMA-48 §7.2.7; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+ANSI-2	ANSI	2	KAM	ECMA-48 §7.2.11; ctlseqs	REFUSED: a program could lock the keyboard of the only terminal on the console (libtsm#57)	yes	no	yes, off unless `vt-kam-allowed` (Ghostty cfg)	unverified	unverified	refused	the C reference's reason	minspec	#12	crates/vtium-term/tests/modes.rs::ignored_and_refused_modes_answer_their_fixed_state_and_change_nothing
+ANSI-3	ANSI	3	CRM	ECMA-48 §7.2.2; VT510 (set only from Set-Up)	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+ANSI-4	ANSI	4	IRM	ECMA-48 §7.2.10; ctlseqs	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::irm_inserts_printed_text
+ANSI-5	ANSI	5	SRTM	ECMA-48 §7.2.16; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+ANSI-6	ANSI	6	ERM	ECMA-48 §7.2.4	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+ANSI-7	ANSI	7	VEM	ECMA-48 §7.2.19; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+ANSI-8	ANSI	8	BDSM	ECMA-48 §7.2.1	absent	no	no	unverified	unverified	unverified	no row	until #43 decides	top	#43	
+ANSI-9	ANSI	9	DCSM	ECMA-48 §7.2.3	absent	no	no	unverified	unverified	unverified	no row	until #43 decides	top	#43	
+ANSI-10	ANSI	10	HEM	ECMA-48 §7.2.9; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+ANSI-11	ANSI	11	PUM	ECMA-48 §7.2.13, deprecated (annex F.4.1); VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+ANSI-12	ANSI	12	SRM	ECMA-48 §7.2.15; ctlseqs	SUPPORTED	yes	no	unverified	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::srm_reset_echoes_what_the_terminal_sends
+ANSI-13	ANSI	13	FEAM	ECMA-48 §7.2.5; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+ANSI-14	ANSI	14	FETM	ECMA-48 §7.2.6; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+ANSI-15	ANSI	15	MATM	ECMA-48 §7.2.12; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+ANSI-16	ANSI	16	TTM	ECMA-48 §7.2.18; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+ANSI-17	ANSI	17	SATM	ECMA-48 §7.2.14; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+ANSI-18	ANSI	18	TSM	ECMA-48 §7.2.17; VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+ANSI-19	ANSI	19	EBM	VT510; ECMA-48 SM says "shall not be used" (annex F.5.1)	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+ANSI-20	ANSI	20	LNM	ctlseqs; VT510; ECMA-48 SM says "shall not be used" (annex F.5.2)	SUPPORTED	yes	no	unverified	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::lnm_makes_a_line_feed_a_new_line
+ANSI-21	ANSI	21	GRCM	ECMA-48 §7.2.8	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+ANSI-22	ANSI	22	ZDM	ECMA-48 §7.2.20, deprecated (annex F.4.2)	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1	DEC	1	DECCKM	ctlseqs; VT510	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::decckm_switches_the_cursor_keys
+DEC-2	DEC	2	DECANM	ctlseqs; VT510	REFUSED: VT52 was not emulated	yes	no	unverified	unverified	unverified	ignored	VT52 is declined for now, and DECRQM reports ANSI mode (DECANM set) as permanent	minspec	#12, #65	crates/vtium-term/tests/modes.rs::ignored_and_refused_modes_answer_their_fixed_state_and_change_nothing
+DEC-3	DEC	3	DECCOLM	ctlseqs; VT510	REFUSED: the console's size comes from the display and the font; xterm allows it only behind an option (libtsm#57)	yes	no	unverified	unverified	unverified	refused	the C reference's reason	minspec	#12	crates/vtium-term/tests/modes.rs::ignored_and_refused_modes_answer_their_fixed_state_and_change_nothing
+DEC-4	DEC	4	DECSCLM	ctlseqs; VT510	IGNORED: a console has no smooth scroll	yes	no	unverified	unverified	unverified	ignored		minspec	#12	crates/vtium-term/tests/modes.rs::ignored_and_refused_modes_answer_their_fixed_state_and_change_nothing
+DEC-5	DEC	5	DECSCNM	ctlseqs; VT510	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::decscnm_reverses_the_screen
+DEC-6	DEC	6	DECOM	ctlseqs; VT510	SUPPORTED	yes	yes	yes (Ghostty dsr page)	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::decom_addresses_from_the_region
+DEC-7	DEC	7	DECAWM	ctlseqs; VT510	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::decawm_wraps_at_the_last_column
+DEC-8	DEC	8	DECARM	ctlseqs; VT510	SUPPORTED, the host stopped repeats	yes	no	unverified	unverified	unverified	supported		minspec	#12, #19	crates/vtium-term/tests/modes.rs::decarm_tells_the_host_to_repeat_keys
+DEC-9	DEC	9	X10 mouse	ctlseqs	SUPPORTED	yes	no	unverified	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::mouse_tracking_reports_by_its_mode
+DEC-10	DEC	10	rxvt toolbar	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-12	DEC	12	cursor blink (AT&T 610)	ctlseqs	SUPPORTED, held in a DECSCUSR style	yes	yes	yes (Ghostty cfg `cursor-style-blink`)	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::mode_12_blinks_a_chosen_cursor_style
+DEC-13	DEC	13	cursor blink, set from a resource only	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-14	DEC	14	XOR of blinking cursor	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-18	DEC	18	DECPFF	ctlseqs; VT510	IGNORED: a console has no printer	yes	no	unverified	unverified	unverified	ignored		minspec	#12	crates/vtium-term/tests/modes.rs::ignored_and_refused_modes_answer_their_fixed_state_and_change_nothing
+DEC-19	DEC	19	DECPEX	ctlseqs; VT510	IGNORED: a console has no printer	yes	no	unverified	unverified	unverified	ignored		minspec	#12	crates/vtium-term/tests/modes.rs::ignored_and_refused_modes_answer_their_fixed_state_and_change_nothing
+DEC-25	DEC	25	DECTCEM	ctlseqs; VT510	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::dectcem_shows_and_hides_the_cursor
+DEC-30	DEC	30	rxvt scrollbar	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-34	DEC	34	DECRLM, cursor direction right to left	VT510	absent	no	no	unverified	unverified	unverified	no row	until #43 decides	top	#43	
+DEC-35	DEC	35	rxvt font-shifting (ctlseqs); DECHEBM (VT510)	ctlseqs; VT510	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-36	DEC	36	DECHEM, Hebrew encoding	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-38	DEC	38	DECTEK, Tektronix mode	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-40	DEC	40	allow 80 to 132 columns	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-41	DEC	41	more(1) fix	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-42	DEC	42	DECNRCM	ctlseqs; VT510	REFUSED: national replacement sets are obsolete next to UTF-8 (libtsm#57)	yes	no	unverified	unverified	unverified	refused	the C reference's reason	minspec	#12	crates/vtium-term/tests/modes.rs::ignored_and_refused_modes_answer_their_fixed_state_and_change_nothing
+DEC-43	DEC	43	DECGEPM, graphic expanded print	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-44	DEC	44	margin bell (xterm); DECGPCM (VT340)	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-45	DEC	45	XTREVWRAP, reverse wraparound (xterm); DECGPCS (VT340)	ctlseqs; foot(7)	absent	yes	yes	unverified	unverified	unverified	supported		top	#54	
+DEC-46	DEC	46	XTLOGGING (xterm); graphic print background (VT340)	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row	never built: it writes a log file on the host	minspec	#12	
+DEC-47	DEC	47	alternate screen	ctlseqs	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::mode_47_switches_screens_only
+DEC-57	DEC	57	DECNAKB, Greek keyboard	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-60	DEC	60	DECHCCM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-61	DEC	61	DECVCCM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-64	DEC	64	DECPCCM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-66	DEC	66	DECNKM	ctlseqs; VT510; foot(7)	absent (DECKPAM and DECKPNM supported)	yes	yes	unverified	unverified	unverified	supported		top	#54	
+DEC-67	DEC	67	DECBKM	ctlseqs; VT510	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-68	DEC	68	DECKBUM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-69	DEC	69	DECLRMM (DECVSSM)	ctlseqs; VT510	absent	yes	no	yes (Ghostty decslrm page)	yes (DECRQSS for DECSLRM, WezTerm es)	unverified	supported		top	#55	
+DEC-73	DEC	73	DECXRLM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-80	DEC	80	DECSDM	ctlseqs	SUPPORTED, offered while sixel was on	yes	no	unverified	unverified	unverified	supported		images	#48	
+DEC-81	DEC	81	DECKPM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-95	DEC	95	DECNCSM	ctlseqs; VT510	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-96	DEC	96	DECRLCM, cursor right to left	VT510	absent	no	no	unverified	unverified	unverified	no row	until #43 decides	top	#43	
+DEC-97	DEC	97	DECCRTSM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-98	DEC	98	DECARSM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-99	DEC	99	DECMCM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-100	DEC	100	DECAAM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-101	DEC	101	DECCANSM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-102	DEC	102	DECNULM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-103	DEC	103	DECHDPXM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-104	DEC	104	DECESKM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-106	DEC	106	DECOSCNM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1000	DEC	1000	normal mouse tracking	ctlseqs	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::mouse_tracking_reports_by_its_mode
+DEC-1001	DEC	1001	hilite mouse tracking	ctlseqs	absent	yes	yes	unverified	unverified	unverified	refused	the terminal waits on the program's XTHIMOUSE answer before it can show a selection	minspec	#12	crates/vtium-term/tests/modes.rs::ignored_and_refused_modes_answer_their_fixed_state_and_change_nothing
+DEC-1002	DEC	1002	button-event tracking	ctlseqs	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::mouse_tracking_reports_by_its_mode
+DEC-1003	DEC	1003	any-event tracking	ctlseqs	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::mouse_tracking_reports_by_its_mode
+DEC-1004	DEC	1004	focus events	ctlseqs	SUPPORTED; DECSTR reset it, a listed departure from xterm	yes	yes	unverified	unverified	unverified	supported		minspec	#12, #19	crates/vtium-term/tests/modes.rs::focus_events_are_reported_while_set
+DEC-1005	DEC	1005	UTF-8 mouse	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1006	DEC	1006	SGR mouse	ctlseqs	SUPPORTED, independent of mode order	yes	yes	unverified	yes (WezTerm feat)	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::sgr_mouse_encodings_report_cells_or_pixels
+DEC-1007	DEC	1007	alternate scroll	ctlseqs; foot(7)	absent	yes	yes	unverified	unverified	unverified	supported		top	#54	
+DEC-1010	DEC	1010	scroll to bottom on output (rxvt)	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1011	DEC	1011	scroll to bottom on key press (rxvt)	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1014	DEC	1014	fastScroll	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1015	DEC	1015	urxvt mouse	ctlseqs; foot(7)	absent	yes	yes	unverified	unverified	unverified	supported		top	#54	
+DEC-1016	DEC	1016	SGR-Pixels mouse	ctlseqs	SUPPORTED, counted from 1 (libtsm#67)	yes	yes	unverified	unverified	yes (kitty misc-protocol extends it)	supported		minspec	#12	crates/vtium-term/tests/modes.rs::sgr_mouse_encodings_report_cells_or_pixels
+DEC-1020	DEC	1020	utf8 resource, read-only	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1021	DEC	1021	cjkWidth resource, read-only	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1022	DEC	1022	emojiWidth resource, read-only	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1023	DEC	1023	privateWidth resource, read-only	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1034	DEC	1034	8-bit meta	ctlseqs; foot(7)	absent	yes	yes	unverified	unverified	unverified	supported		top	#54	
+DEC-1035	DEC	1035	special modifiers for Alt and NumLock	ctlseqs; foot(7)	absent	yes	yes	unverified	unverified	unverified	supported		top	#54	
+DEC-1036	DEC	1036	metaSendsEscape	ctlseqs; foot(7)	absent	yes	yes	unverified	unverified	unverified	supported		top	#54	
+DEC-1037	DEC	1037	DEL from the keypad Delete	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1039	DEC	1039	altSendsEscape	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1040	DEC	1040	keepSelection	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1041	DEC	1041	use the CLIPBOARD selection	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1042	DEC	1042	act on BEL (xterm: urgency hint)	ctlseqs; foot(7)	absent	yes	yes	unverified	unverified	unverified	supported	set lets BEL reach the VT bell setting	top	#54	
+DEC-1043	DEC	1043	raise the window on BEL	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1044	DEC	1044	reuse the last clipboard data	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1045	DEC	1045	XTREVWRAP2, extended reverse wraparound	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1046	DEC	1046	allow the alternate screen (titeInhibit)	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1047	DEC	1047	alternate screen	ctlseqs	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::mode_1047_clears_the_alternate_screen_as_it_leaves
+DEC-1048	DEC	1048	save cursor as DECSC	ctlseqs	SUPPORTED	yes	yes	unverified	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::mode_1048_saves_and_restores_the_cursor_as_decsc_does
+DEC-1049	DEC	1049	save cursor and alternate screen	ctlseqs	SUPPORTED; leaving erased with the main screen's attribute (libtsm#20)	yes	yes	unverified	unverified	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::mode_1049_saves_the_cursor_and_the_pen_around_the_alternate_screen
+DEC-1050	DEC	1050	terminfo/termcap function keys	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1051	DEC	1051	Sun function keys	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1052	DEC	1052	HP function keys	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1053	DEC	1053	SCO function keys	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1060	DEC	1060	legacy X11R6 keyboard	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1061	DEC	1061	VT220 keyboard	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-1070	DEC	1070	private sixel colour registers	ctlseqs	SUPPORTED, offered while sixel was on	yes	yes	unverified	unverified	unverified	supported		images	#48	
+DEC-2001	DEC	2001	readline mouse button 1	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-2002	DEC	2002	readline mouse button 2	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-2003	DEC	2003	readline mouse button 3	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-2004	DEC	2004	bracketed paste	ctlseqs	SUPPORTED	yes	yes	yes (Ghostty cfg `clipboard-paste-bracketed-safe`)	yes (WezTerm feat)	unverified	supported		minspec	#12	crates/vtium-term/tests/modes.rs::bracketed_paste_brackets_a_paste
+DEC-2005	DEC	2005	readline character quoting	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-2006	DEC	2006	readline newline pasting	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
+DEC-2026	DEC	2026	synchronized output	contour synchronized-output	SUPPORTED, offered while the host presented by it	no	yes	yes (Ghostty feat)	yes (WezTerm es)	unverified	supported		minspec	#12, #16	crates/vtium-term/tests/modes.rs::mode_2026_holds_frames_while_the_host_offers_it
+DEC-2027	DEC	2027	grapheme cluster width	contour unicode-core	SUPPORTED (ADR-102)	no	yes	yes (Ghostty cfg `grapheme-width-method`)	unverified	unverified	supported		minspec	#11, #12	crates/vtium-term/tests/modes.rs::mode_2027_reports_and_resets_to_the_configured_method, crates/vtium-term/tests/screen.rs::the_width_method_cuts_text_into_cells
+DEC-2028	DEC	2028	line reflow	contour line-reflow-mode	absent	no	no	unverified	unverified	unverified	supported	the switch for #41's reflow	top	#41	
+DEC-2031	DEC	2031	colour palette update notifications	contour color-palette-update-notifications	absent	no	yes	yes (Ghostty feat names light/dark notifications)	unverified	unverified	supported	a program redraws when the console's palette changes under it (OSC 4, 10, 11)	top	#57	
+DEC-2033	DEC	2033	visibility reports	foot(7) (rockorager's spec)	absent	no	yes	unverified	unverified	unverified	supported	a VT switch is the console's visibility change	top	#57	
+DEC-2034	DEC	2034	semantic block query	contour semantic-block-query	absent	no	no	unverified	unverified	unverified	no row	revisit with #40	minspec	#12	
+DEC-2048	DEC	2048	in-band resize notifications	foot(7)	absent	no	yes	unverified	unverified	unverified	supported	reports a resize when a display is hot-plugged or changes mode	top	#57	
+DEC-5522	DEC	5522	paste events	kitty clipboard	absent	no	no	unverified	unverified	yes	no row		minspec	#12	
+DEC-8452	DEC	8452	sixel cursor to the right	ctlseqs	SUPPORTED, offered while sixel was on	yes	yes	unverified	unverified	unverified	supported		images	#48	
+DEC-737769	DEC	737769	input method mode	foot(7)	absent	no	yes	unverified	unverified	unverified	no row	revisit with #45	minspec	#12	
