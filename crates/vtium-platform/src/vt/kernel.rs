@@ -3,6 +3,7 @@
 //! them back.
 
 use std::io;
+use std::os::fd::AsFd;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
@@ -68,7 +69,9 @@ impl KernelVt<Tty> {
     /// and store the VT where `access` finds it before the loop dispatches
     /// again: a signal that comes in between waits in the signalfd. The
     /// tty is watched: input on it takes the VT again ([`VtEvent::Retaken`])
-    /// and a hangup is reported.
+    /// and a hangup is reported. So is tty0's `active`, the VT the kernel
+    /// shows ([`KernelVt::shown_changed`]); without it, vtium runs on with a
+    /// warning.
     pub fn new<D, A>(lp: &mut Loop<D>, tty: Tty, num: u16, access: A) -> io::Result<KernelVt<Tty>>
     where
         D: 'static,
@@ -99,6 +102,31 @@ impl<C: Console + 'static> KernelVt<C> {
             }
         })?;
         let vt = KernelVt::open(console, num)?;
+        match vt.console.watch_shown() {
+            None => {}
+            Some(Err(e)) => warn_unwatched(&e),
+            Some(Ok(fd)) => {
+                let shown = access.clone();
+                // Edge-triggered: sysfs reports the attribute readable at
+                // every poll, and wakes its pollers on each notification.
+                let inserted = lp.handle().insert_source(
+                    Generic::new(fd, Interest::READ, Mode::Edge),
+                    move |_, fd, data: &mut D| {
+                        let Some(vt) = shown(data) else {
+                            return Ok(PostAction::Remove);
+                        };
+                        match vt.console.shown(fd.as_fd()) {
+                            Ok(n) => vt.shown_changed(n),
+                            Err(e) => log::warn!(target: "vt", "cannot read the VT shown: {e}"),
+                        }
+                        Ok(PostAction::Continue)
+                    },
+                );
+                if let Err(e) = inserted {
+                    warn_unwatched(&io::Error::from(e.error));
+                }
+            }
+        }
         if let Some(fd) = vt.console.watch() {
             lp.handle()
                 .insert_source(
@@ -218,9 +246,8 @@ impl<C: Console> KernelVt<C> {
     }
 
     /// Every mode vtium set, each tried on its own so one refusal leaves
-    /// the rest set; returns the first refusal. While a release waits,
-    /// `VT_PROCESS` is left as it is: setting it would cancel the switch
-    /// the kernel waits to finish.
+    /// the rest set; returns the first refusal. `VT_PROCESS` is set only
+    /// where it is not vtium's own ([`KernelVt::take_switching`]).
     fn retake(&mut self) -> io::Result<()> {
         let num = self.num;
         let logged = |what: &str, r: io::Result<()>| {
@@ -231,35 +258,26 @@ impl<C: Console> KernelVt<C> {
             self.console.set_display_mode(DisplayMode::Graphics),
         );
         self.set.graphics |= graphics.is_ok();
-        let switching = if self.state == State::Releasing {
-            Ok(())
-        } else {
-            let r = logged("switching", self.console.set_switching(Switching::Process));
-            self.set.process |= r.is_ok();
-            r
-        };
+        let switching = logged("switching", self.take_switching());
         // keyboard_off logs its own failures.
         let keyboard = self.keyboard_off();
         let silent = logged("silent tty", self.silence_again());
         graphics.and(switching).and(keyboard).and(silent)
     }
 
-    /// vtium's `VT_PROCESS` on a VT found in any other mode, before a
-    /// switch key's `VT_ACTIVATE` ([`Vt::key`]). A mode that cannot be read
-    /// is left as it is.
-    fn take_switching_unless_ours(&mut self) {
-        let num = self.num;
-        match self.console.switching_is_ours() {
-            Ok(true) => {}
-            Ok(false) => {
-                log::warn!(target: "vt", "VT {num}'s switching was not vtium's, taking it");
-                match self.console.set_switching(Switching::Process) {
-                    Ok(()) => self.set.process = true,
-                    Err(e) => log::warn!(target: "vt", "cannot take VT {num}'s switching: {e}"),
-                }
-            }
-            Err(e) => log::warn!(target: "vt", "cannot read VT {num}'s switching: {e}"),
+    /// vtium's `VT_PROCESS` on a VT found in any other mode; a mode that
+    /// cannot be read is left as it is. vtium's own `VT_PROCESS` is left
+    /// as it is: `VT_SETMODE` would cancel a switch the kernel waits on
+    /// (vt_ioctl.c:780), and the kernel waits on vtium only there
+    /// (559-566).
+    fn take_switching(&mut self) -> io::Result<()> {
+        if self.console.switching_is_ours()? {
+            return Ok(());
         }
+        log::warn!(target: "vt", "VT {}'s switching was not vtium's, taking it", self.num);
+        self.console.set_switching(Switching::Process)?;
+        self.set.process = true;
+        Ok(())
     }
 
     /// Whether VT `num` is on screen; `None` when the kernel cannot say.
@@ -287,7 +305,7 @@ impl<C: Console> KernelVt<C> {
         }
         log::debug!(target: "vt", "entering VT {} on its signal", self.num);
         if self.state == State::Active {
-            log::warn!(target: "vt", "entering VT {} though it is ours", self.num);
+            log::debug!(target: "vt", "VT {} is ours already", self.num);
         } else {
             self.state = State::Active;
             self.events.push(VtEvent::Acquired);
@@ -375,6 +393,39 @@ impl<C: Console> KernelVt<C> {
         self.hup = true;
         self.events.push(VtEvent::Hangup);
         false
+    }
+
+    /// tty0's `active` named VT `shown` after a switch. The kernel
+    /// notifies before it signals the acquire (vt_ioctl.c:1140, 1170) and
+    /// the loop reads the two in either order; whichever comes second
+    /// changes nothing. This VT shown while not ours, as when another
+    /// process set `VT_AUTO` while it was not ours, is taken again and
+    /// reported as [`VtEvent::Acquired`]. Another VT shown while this one
+    /// is ours, a switch the kernel made with no release, is reported as
+    /// [`VtEvent::Release`]; its acknowledgement then decides as for any
+    /// release the kernel no longer waits on. While a release waits, the
+    /// answer decides.
+    pub(crate) fn shown_changed(&mut self, shown: u16) {
+        if self.hup {
+            return;
+        }
+        let num = self.num;
+        match self.state {
+            State::Inactive if shown == num => {
+                log::debug!(target: "vt", "VT {num} shown, entering it");
+                self.state = State::Active;
+                self.events.push(VtEvent::Acquired);
+                // retake logs each refusal.
+                let _ = self.retake();
+            }
+            State::Active if shown != num => {
+                log::warn!(target: "vt", "VT {shown} shown with no release of VT {num}, leaving it");
+                self.state = State::Releasing;
+                self.retaken = false;
+                self.events.push(VtEvent::Release);
+            }
+            State::Inactive | State::Active | State::Releasing => {}
+        }
     }
 
     /// A [`Restore`] for a panic hook, holding its own handle on the VT.
@@ -522,7 +573,9 @@ impl<C: Console> Vt for KernelVt<C> {
         }
         if target != self.num {
             log::debug!(target: "vt", "leaving VT {} for VT {target} on a key", self.num);
-            self.take_switching_unless_ours();
+            if let Err(e) = self.take_switching() {
+                log::warn!(target: "vt", "cannot take VT {}'s switching: {e}", self.num);
+            }
             if let Err(e) = self.console.activate(target) {
                 log::warn!(target: "vt", "cannot leave VT {} for VT {target}: {e}", self.num);
             }
@@ -532,7 +585,7 @@ impl<C: Console> Vt for KernelVt<C> {
 
     /// Graphics mode, `VT_PROCESS`, the keyboard off and the tty silent
     /// again (vt_real.c:227-259), as a re-take sets them: each tried on its
-    /// own, and `VT_PROCESS` left as it is while a release waits.
+    /// own, and `VT_PROCESS` left as it is where it is vtium's own.
     fn restore(&mut self) -> io::Result<()> {
         self.retake()
     }
@@ -568,6 +621,12 @@ impl<C: Console> Drop for KernelVt<C> {
             }
         }
     }
+}
+
+/// Without tty0's `active`, a switch the kernel makes with no signal goes
+/// unseen until the next signal, key or tty input.
+fn warn_unwatched(e: &io::Error) {
+    log::warn!(target: "vt", "cannot watch the VT shown, running without it: {e}");
 }
 
 /// Sets `signal` to be ignored, which also discards one pending.

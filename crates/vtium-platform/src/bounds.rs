@@ -92,10 +92,10 @@ const WAKE_RETRY: Bound = Bound {
 
 const RETRIES: Bound = Bound {
     name: "WAKE_RETRIES",
-    value: 20,
+    value: 2 * FLIP_WAIT.value / WAKE_RETRY.value,
     what: "Tries to wake a DRM card after a wake-up, a hotplug scan or an unblank's modeset failed, and to unblank a framebuffer after `FBIOBLANK` failed",
     past: "The tries stop with `Event::WakeFailed`, until the next wake-up, hotplug or key or pointer event; a framebuffer's, until the next wake-up, unblank or key or pointer event",
-    cite: "`MAX_VT_TIMEOUT_RETRIES`, drm_shared.c:51",
+    cite: "Twice `FLIP_WAIT_MS` at `WAKE_RETRY_MS`, so the tries outlast the sleep of a process that held DRM master before, which a flip in flight delays by up to `FLIP_WAIT_MS`; the C reference tried 20 times (`MAX_VT_TIMEOUT_RETRIES`, drm_shared.c:51). vtium/vtium#19",
 };
 
 const DAMAGE_CLIPS: Bound = Bound {
@@ -142,6 +142,11 @@ pub(crate) const BOUNDS: [Bound; 13] = [
 
 // The stall ends below where it starts, and starts below the ceiling.
 const _: () = assert!(LOW.value < HIGH.value && HIGH.value < CEILING.value);
+
+// A VT switched with no handshake leaves the previous holder of DRM master
+// up to a flip wait to sleep and drop it; the wake-up tries outlast that
+// twice over.
+const _: () = assert!(RETRIES.value * WAKE_RETRY.value >= 2 * FLIP_WAIT.value);
 
 /// Bytes one read takes from the pty.
 pub const READ_MAX: usize = READ.value;
@@ -237,7 +242,7 @@ mod tests {
         );
     }
 
-    // pty.c:50, 68-70; drm_shared.c:51, 838, 1220
+    // pty.c:50, 68-70; drm_shared.c:838, 1220
     #[test]
     fn values_are_the_c_references() {
         assert_eq!(READ_MAX, 16384);
@@ -247,6 +252,5 @@ mod tests {
         assert_eq!(REPLY_MAX, 4 * REPLY_HIGH);
         assert_eq!(FLIP_WAIT_MS, 1000);
         assert_eq!(WAKE_RETRY_MS, 50);
-        assert_eq!(WAKE_RETRIES, 20);
     }
 }
