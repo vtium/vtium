@@ -122,9 +122,17 @@ const RETAKE_QUIET: Bound = Bound {
     cite: "vtium/vtium#19; the C reference flushed the tty's input and logged nothing (vt_real.c:184-186)",
 };
 
+const RESOURCE_READS: Bound = Bound {
+    name: "RESOURCE_READS",
+    value: 8,
+    what: "Reads of a DRM card's CRTC and connector lists, read again while a count is larger than the list read, as a connector plugged in between two reads makes it",
+    past: "The read fails, as a failed hotplug scan or wake-up does, and the next one reads again",
+    cite: "vtium/vtium#89; drm-ffi's `get_resources` read twice and set each list's length to the count read, past its buffer",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 13] = [
+pub(crate) const BOUNDS: [Bound; 14] = [
     READ,
     READS,
     HIGH,
@@ -138,6 +146,7 @@ pub(crate) const BOUNDS: [Bound; 13] = [
     DAMAGE_CLIPS,
     INPUT_READS,
     RETAKE_QUIET,
+    RESOURCE_READS,
 ];
 
 // The stall ends below where it starts, and starts below the ceiling.
@@ -191,6 +200,9 @@ pub const INPUT_READS_PER_TURN: usize = INPUT_READS.value;
 /// Milliseconds with no re-take of the VT after which the next is logged
 /// as a warning again.
 pub const RETAKE_QUIET_MS: usize = RETAKE_QUIET.value;
+
+/// Reads of a DRM card's CRTC and connector lists before one fails.
+pub const RESOURCE_READS_MAX: usize = RESOURCE_READS.value;
 
 #[cfg(test)]
 #[expect(

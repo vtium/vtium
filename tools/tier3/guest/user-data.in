@@ -1,0 +1,69 @@
+#cloud-config
+# Provisions the tier 3 base image on its first and only cloud-init boot.
+# t3.py substitutes @ARCHIVE@ (the Arch Linux Archive snapshot) and
+# @INSTALL_SCRIPT@ / @INSTALL_UNIT@ (files beside this one) before writing the
+# seed disc.
+users:
+  - name: tester
+    plain_text_passwd: tester
+    lock_passwd: false
+    shell: /bin/bash
+write_files:
+  - path: /usr/local/sbin/tier3-provision
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -eux
+      # The image's keyring is initialised by pacman-init on first boot.
+      systemctl start pacman-init.service || true
+      echo 'Server = https://archive.archlinux.org/repos/@ARCHIVE@/$repo/os/$arch' \
+        > /etc/pacman.d/mirrorlist
+      # The archive is slow and stalls at times; retry rather than fail.
+      pac() {
+        for try in 1 2 3 4 5; do
+          pacman --noconfirm --disable-download-timeout "$@" && return 0
+          sleep 10
+        done
+        return 1
+      }
+      pac -Syyuu
+      # Runtime dependencies of kmscon-aaronsb and its modules, and the fonts
+      # the scenario draws with: DejaVu Sans Mono for Latin and box drawing,
+      # WenQuanYi Micro Hei as pango's fallback for CJK, Noto Color Emoji
+      # for colour emoji.
+      pac -S --needed \
+        bash dbus glib2 libdrm libxkbcommon systemd-libs zlib \
+        pango freetype2 fontconfig harfbuzz libglvnd mesa \
+        ttf-dejavu wqy-microhei noto-fonts-emoji
+      # ADR-103's sixel acceptance programs (A1, A2, A4): chafa, the
+      # operator's everyday sixel tool, and img2sixel from libsixel for A1's
+      # pictures, mpv (which brings ffmpeg) for A1 and A2, and tmux, built
+      # with sixel, for A4. A1's photograph travels with the screens on the
+      # run's disc; the run downloads nothing.
+      pac -S --needed chafa libsixel mpv tmux
+      echo LANG=C.UTF-8 > /etc/locale.conf
+      # VTs that logind spawns on switch (tty2 and up) run kmscon.
+      ln -sfn /usr/lib/systemd/system/kmsconvt@.service /etc/systemd/system/autovt@.service
+      systemctl enable tier3-install.service
+      # Runs have no network; nothing may wait for it.
+      systemctl mask systemd-networkd-wait-online.service
+      touch /etc/cloud/cloud-init.disabled
+      pacman -Scc --noconfirm
+      touch /home/tester/.hushlogin
+      echo "PS1='\$ '" > /home/tester/.bashrc
+      chown tester:tester /home/tester/.hushlogin /home/tester/.bashrc
+      sync
+      echo TIER3-PROVISION-OK > /dev/ttyS0
+  - path: /usr/local/sbin/tier3-install
+    permissions: "0755"
+    encoding: b64
+    content: @INSTALL_SCRIPT@
+  - path: /etc/systemd/system/tier3-install.service
+    permissions: "0644"
+    encoding: b64
+    content: @INSTALL_UNIT@
+runcmd:
+  - [/usr/local/sbin/tier3-provision]
+power_state:
+  mode: poweroff
+  condition: true

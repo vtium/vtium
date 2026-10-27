@@ -75,6 +75,7 @@ fn main() -> ExitCode {
         println!("vtium {}", env!("CARGO_PKG_VERSION"));
         return ExitCode::SUCCESS;
     }
+    log::info!(target: "log", "{}", vtium::logger::revision());
     let start = Start::new(&config, locale());
     let path = match start.vt.clone() {
         Some(vt) => Some(vt),

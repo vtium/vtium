@@ -22,7 +22,7 @@ use drm_ffi::{
 };
 use rustix::io::Errno;
 
-use super::kms::{Connector, Kms, Object, Request, Resources};
+use super::kms::{Connector, Encoder, Kms, Object, Request, Resources};
 use super::mode::{self, Mode, ModePolicy};
 use super::{Ages, Canvas, Damage, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
 use output::{
@@ -108,7 +108,11 @@ impl<K: Kms> Drm2d<K> {
         let hotspot = card
             .set_client_cap(DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT, true)
             .is_ok();
-        if card.cap(DRM_CAP_DUMB_BUFFER).unwrap_or(0) == 0 {
+        let dumb = card
+            .cap(DRM_CAP_DUMB_BUFFER)
+            .inspect_err(|e| log::warn!("cannot read the card's dumb buffer capability: {e}"))
+            .unwrap_or(0);
+        if dumb == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "the driver has no dumb buffers",
@@ -857,11 +861,18 @@ impl<K: Kms> Drm2d<K> {
     /// CRTC or no primary plane.
     fn bind(&self, res: &Resources, conn: &Connector) -> Option<Output<K::Map>> {
         let name = connector_name(conn.kind, conn.kind_id);
-        let shown = (conn.encoder != 0)
-            .then(|| self.card.encoder(conn.encoder).ok())
-            .flatten()
-            .filter(|e| e.crtc != 0)
-            .and_then(|e| self.card.crtc_mode(e.crtc).ok().flatten());
+        let current = (conn.encoder != 0)
+            .then(|| self.encoder(conn.encoder))
+            .flatten();
+        let shown = current.filter(|e| e.crtc != 0).and_then(|e| {
+            self.card
+                .crtc_mode(e.crtc)
+                .inspect_err(|err| {
+                    log::warn!("cannot read the mode of CRTC {}: {err}", e.crtc);
+                })
+                .ok()
+                .flatten()
+        });
         let wanted = self.policy.wanted.as_ref().and_then(|f| f(&name));
         let choice = mode::choose(
             &conn.modes,
@@ -872,6 +883,9 @@ impl<K: Kms> Drm2d<K> {
         let connector_props = self
             .card
             .properties(conn.id, Object::Connector)
+            .inspect_err(|e| {
+                log::warn!("cannot read the properties of connector {name}: {e}");
+            })
             .unwrap_or_default();
         // Its modeset turns the display on, whatever DPMS the connector was
         // left at.
@@ -879,7 +893,7 @@ impl<K: Kms> Drm2d<K> {
             .iter()
             .find(|p| p.name == "DPMS")
             .map(|p| (p.id, Dpms::On));
-        let Some((crtc, crtc_index)) = self.find_crtc(res, conn) else {
+        let Some((crtc, crtc_index)) = self.find_crtc(res, conn, current) else {
             log::error!("no free CRTC for {name}");
             return None;
         };
@@ -926,20 +940,36 @@ impl<K: Kms> Drm2d<K> {
         })
     }
 
-    /// The CRTC the connector's encoder drives, if no display has it, else
-    /// the first free one an encoder of the connector can drive.
-    fn find_crtc(&self, res: &Resources, conn: &Connector) -> Option<(u32, usize)> {
+    /// An encoder, or `None`, logged, when it cannot be read.
+    fn encoder(&self, id: u32) -> Option<Encoder> {
+        self.card
+            .encoder(id)
+            .inspect_err(|e| log::warn!("cannot read encoder {id}: {e}"))
+            .ok()
+    }
+
+    /// The CRTC the connector's encoder, `current` as `bind` read it,
+    /// drives, if no display has it, else the first free one an encoder of
+    /// the connector can drive.
+    fn find_crtc(
+        &self,
+        res: &Resources,
+        conn: &Connector,
+        current: Option<Encoder>,
+    ) -> Option<(u32, usize)> {
         let free = |crtc: u32| !self.outputs.iter().any(|o| o.crtc == crtc);
         let index = |crtc: u32| res.crtcs.iter().position(|&c| c == crtc);
-        if conn.encoder != 0 {
-            if let Ok(enc) = self.card.encoder(conn.encoder) {
-                if enc.crtc != 0 && free(enc.crtc) {
-                    return index(enc.crtc).map(|i| (enc.crtc, i));
-                }
+        if let Some(enc) = current {
+            if enc.crtc != 0 && free(enc.crtc) {
+                return index(enc.crtc).map(|i| (enc.crtc, i));
             }
         }
         conn.encoders.iter().find_map(|&e| {
-            let enc = self.card.encoder(e).ok()?;
+            let enc = if e == conn.encoder {
+                current?
+            } else {
+                self.encoder(e)?
+            };
             res.crtcs.iter().enumerate().find_map(|(i, &crtc)| {
                 let possible = u32::try_from(i)
                     .ok()
@@ -958,12 +988,26 @@ impl<K: Kms> Drm2d<K> {
             .and_then(|i| 1u32.checked_shl(i))?;
         let mut planes = Planes::default();
         let mut primary = None;
-        for plane in self.card.planes().ok()? {
-            if self.card.plane_crtcs(plane).unwrap_or(0) & bit == 0 {
-                continue;
+        let all = self
+            .card
+            .planes()
+            .inspect_err(|e| log::warn!("cannot list the card's planes: {e}"))
+            .ok()?;
+        for plane in all {
+            match self.card.plane_crtcs(plane) {
+                Ok(crtcs) if crtcs & bit != 0 => {}
+                Ok(_) => continue,
+                Err(e) => {
+                    log::warn!("cannot read the CRTCs of plane {plane}: {e}");
+                    continue;
+                }
             }
-            let Ok(props) = self.card.properties(plane, Object::Plane) else {
-                continue;
+            let props = match self.card.properties(plane, Object::Plane) {
+                Ok(props) => props,
+                Err(e) => {
+                    log::warn!("cannot read the properties of plane {plane}: {e}");
+                    continue;
+                }
             };
             match value(&props, "type") {
                 Some(PLANE_PRIMARY) if primary.is_none() => {
@@ -981,16 +1025,29 @@ impl<K: Kms> Drm2d<K> {
             }
         }
         planes.primary = primary?;
-        planes.crtc_props = Props::new(&self.card.properties(crtc, Object::Crtc).ok()?);
+        let crtc_props = self
+            .card
+            .properties(crtc, Object::Crtc)
+            .inspect_err(|e| log::warn!("cannot read the properties of CRTC {crtc}: {e}"))
+            .ok()?;
+        planes.crtc_props = Props::new(&crtc_props);
         Some(planes)
     }
 
     /// Hides every cursor and overlay plane, which another program may
     /// have left in the middle of the screen.
     fn clear_planes(&self, req: &mut Request) {
-        for plane in self.card.planes().unwrap_or_default() {
-            let Ok(props) = self.card.properties(plane, Object::Plane) else {
-                continue;
+        let all = self.card.planes().unwrap_or_else(|e| {
+            log::warn!("cannot list the card's planes: {e}");
+            Vec::new()
+        });
+        for plane in all {
+            let props = match self.card.properties(plane, Object::Plane) {
+                Ok(props) => props,
+                Err(e) => {
+                    log::warn!("cannot read the properties of plane {plane}: {e}");
+                    continue;
+                }
             };
             if matches!(value(&props, "type"), Some(PLANE_CURSOR | PLANE_OVERLAY)) {
                 let props = Props::new(&props);

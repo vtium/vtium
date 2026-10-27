@@ -98,6 +98,14 @@ pub(crate) struct State {
     pub(crate) dpms: BTreeMap<u32, u64>,
     /// Connectors that have no DPMS property.
     pub(crate) no_dpms: Vec<u32>,
+    /// Objects whose properties cannot be read: the read fails with
+    /// EFAULT.
+    pub(crate) unreadable: Vec<u32>,
+    /// Planes whose possible CRTCs cannot be read, and the reads that
+    /// fail for every object: `planes`, `crtc_mode` and `cap`. Each fails
+    /// with EIO.
+    pub(crate) crtcs_unreadable: Vec<u32>,
+    pub(crate) failing: Vec<&'static str>,
     /// The CRTC each connector is on, each CRTC's `ACTIVE`, and the CRTC
     /// each plane is on, as the commits so far left them.
     pub(crate) bound: BTreeMap<u32, u32>,
@@ -310,6 +318,9 @@ impl Kms for FakeCard {
     }
 
     fn cap(&self, cap: u32) -> io::Result<u64> {
+        if self.state.borrow().failing.contains(&"cap") {
+            return Err(err(Errno::IO));
+        }
         match cap {
             DRM_CAP_DUMB_BUFFER => Ok(1),
             DRM_CAP_CURSOR_WIDTH | DRM_CAP_CURSOR_HEIGHT => Ok(256),
@@ -356,15 +367,25 @@ impl Kms for FakeCard {
     }
 
     fn crtc_mode(&self, id: u32) -> io::Result<Option<Mode>> {
+        if self.state.borrow().failing.contains(&"crtc_mode") {
+            return Err(err(Errno::IO));
+        }
         Ok(self.state.borrow().crtc_modes.get(&id).copied())
     }
 
     fn planes(&self) -> io::Result<Vec<u32>> {
-        Ok(self.state.borrow().planes.keys().copied().collect())
+        let s = self.state.borrow();
+        if s.failing.contains(&"planes") {
+            return Err(err(Errno::IO));
+        }
+        Ok(s.planes.keys().copied().collect())
     }
 
     fn plane_crtcs(&self, id: u32) -> io::Result<u32> {
         let s = self.state.borrow();
+        if s.crtcs_unreadable.contains(&id) {
+            return Err(err(Errno::IO));
+        }
         s.planes
             .get(&id)
             .map(|p| p.crtcs)
@@ -373,6 +394,9 @@ impl Kms for FakeCard {
 
     fn properties(&self, id: u32, kind: Object) -> io::Result<Vec<Property>> {
         let s = self.state.borrow();
+        if s.unreadable.contains(&id) {
+            return Err(err(Errno::FAULT));
+        }
         match kind {
             Object::Connector => {
                 let dpms = *s.dpms.get(&id).ok_or_else(|| err(Errno::NOENT))?;

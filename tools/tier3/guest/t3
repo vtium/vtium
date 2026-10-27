@@ -1,0 +1,16 @@
+#!/bin/sh
+# Draws one scenario screen: clears the screen and the scrollback, then runs
+# the named screen script, so the captured screen holds the script's output
+# and the next prompt only, and scrollback holds only what the script
+# scrolled. clear sends ED 3 under kmscon's terminfo, which has E3 (#94); the
+# explicit ED 3 keeps the scrollback empty whatever the guest's ncurses and
+# TERM. Then tells the driver, over the event port (see setup), that
+# the script finished. A measured screen reports its figures on the same
+# port, named in T3_EVENTS.
+clear
+printf '\033[3J'
+T3_EVENTS=/dev/ttyS1 bash /usr/local/share/tier3/"$1".sh
+# The console's resident memory, VmRSS in kB of each kmscon or vtium process
+echo "T3-RSS $1 $(for p in $(pidof kmscon vtium); do
+    awk '/^VmRSS:/ { printf "%s ", $2 }' /proc/$p/status; done)" > /dev/ttyS1
+echo "T3-DONE $1" > /dev/ttyS1

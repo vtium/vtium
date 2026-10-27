@@ -124,6 +124,6 @@ DEC-2031	DEC	2031	colour palette update notifications	contour color-palette-upda
 DEC-2033	DEC	2033	visibility reports	foot(7) (rockorager's spec)	absent	no	yes	unverified	unverified	unverified	supported	a VT switch is the console's visibility change	top	#57	
 DEC-2034	DEC	2034	semantic block query	contour semantic-block-query	absent	no	no	unverified	unverified	unverified	no row	revisit with #40	minspec	#12	
 DEC-2048	DEC	2048	in-band resize notifications	foot(7)	absent	no	yes	unverified	unverified	unverified	supported	reports a resize when a display is hot-plugged or changes mode	top	#57	
-DEC-5522	DEC	5522	paste events	kitty clipboard	absent	no	no	unverified	unverified	yes	no row		minspec	#12	
+DEC-5522	DEC	5522	paste events	kitty clipboard	absent	no	no	yes (Ghostty 1.4.0 release notes)	unverified	yes	no row		minspec	#12	
 DEC-8452	DEC	8452	sixel cursor to the right	ctlseqs	SUPPORTED, offered while sixel was on	yes	yes	unverified	unverified	unverified	supported		images	#48	
 DEC-737769	DEC	737769	input method mode	foot(7)	absent	no	yes	unverified	unverified	unverified	no row	revisit with #45	minspec	#12	

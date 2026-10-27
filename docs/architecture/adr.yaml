@@ -107,3 +107,11 @@ defaults:
 # Viewer command for `adr view` (use {file} as placeholder)
 # Options: cat {file}, glow {file}, bat {file}
 viewer: cat {file}
+
+# Paths whose ADR-N citations are not vtium's. tier 3's guest screens cite
+# the C reference's records (kmscon ADR-103); they are kept byte-identical
+# with the kmscon fork's, so their captions match the goldens' and the fork's
+# base image is reused.
+cite:
+  exclude:
+    - tools/tier3/guest/screens/

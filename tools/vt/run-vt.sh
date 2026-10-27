@@ -1,11 +1,12 @@
 #!/bin/bash
 # Runs vtium on one VT in place of the VT's console unit (kmsconvt@, getty@ or
-# autovt@ttyN), with the demo, a login prompt or a guide as its only session.
+# autovt@ttyN), with the demo, a login prompt, a guide or the user's shell as
+# its only session.
 # When the session ends, this script is interrupted or vtium fails, the units
 # that were running are started again. See docs/vt-review.md.
 #
-#   sudo tools/vt/run-vt.sh --bin=PATH [--dry-run] [--label=TEXT]
-#        [--login | --guide=FILE [--steps=LIST]] [N] [-- vtium-option...]
+#   sudo tools/vt/run-vt.sh --bin=PATH [--dry-run] [--label=TEXT] [--login |
+#        --guide=FILE [--steps=LIST] | --shell [--transcript=FILE]] [N] [-- vtium-option...]
 #
 # --bin names the vtium binary, which runs as root: a regular file owned by
 # root or the invoking user, writable by nobody else. N is the VT, 2-12,
@@ -20,22 +21,29 @@
 # --guide=FILE runs the guided checks of FILE (checks/guide.sh) in place of
 # the demo, as the user, with no login; --steps="4 8 9" (or 4,8,9) runs only
 # those steps. The answers go to /tmp/vtium-vt/vt-check.log.
+# --shell runs the user's login shell, the one the password database names and
+# /etc/shells lists, as the user, with no login, in the user's home directory,
+# with the system's locale and, when they are the user's, the user's runtime
+# directory and bus. Exiting it ends the run. --transcript=FILE records the session into FILE
+# with script(1), which runs as the user; the user must be able to write FILE's
+# directory, and FILE must not be a symlink.
 # --dry-run asks what it would ask (the VT on screen, the sessions, the active
 # units) and prints every command that would change anything without running
 # it; it needs no root.
 #
 # For the tests, VTIUM_VT_STANDINS names a directory holding stand-ins for
-# systemctl, loginctl and setpriv, and a file "active" in place of
-# /sys/class/tty/tty0/active. Each is run from there by its full path, so no
-# system command is reached, and the run goes through without root. As root
-# the variable is refused.
+# systemctl, loginctl, setpriv and getent, a file "active" in place of
+# /sys/class/tty/tty0/active, "shells" and "locale.conf" in place of
+# /etc/shells and /etc/locale.conf, and "run-user" in place of /run/user.
+# Each is run from there by its full path, so no system command is reached,
+# and the run goes through without root. As root the variable is refused.
 set -euo pipefail
 # sudo's own PATH, whatever the caller's, before any command runs: what runs
 # as root is the system's. The tests' stand-ins are named by full path.
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
 usage() {
-	sed -n '7,8s/^# \{0,1\}//p' "$0" >&2
+	sed -n '8,9s/^# \{0,1\}//p' "$0" >&2
 	exit 2
 }
 
@@ -52,6 +60,8 @@ extra=()
 login=
 guide=
 steps=
+shell=
+transcript=
 while [ $# -gt 0 ]; do
 	case $1 in
 	--dry-run) dry=1 ;;
@@ -60,6 +70,8 @@ while [ $# -gt 0 ]; do
 	--login) login=1 ;;
 	--guide=*) guide=${1#*=}; [ -n "$guide" ] || die "--guide needs the guide's path: --guide=tools/vt/checks/NAME.guide" ;;
 	--steps=*) steps=${1#*=} ;;
+	--shell) shell=1 ;;
+	--transcript=*) transcript=${1#*=}; [ -n "$transcript" ] || die "--transcript needs the file's path" ;;
 	-h | --help) usage ;;
 	--) shift; extra=("$@"); break ;;
 	[0-9]*) [ -z "$vt" ] || usage; vt=$1 ;;
@@ -74,19 +86,27 @@ checkout=$(readlink -m "$here/../..")
 standins=${VTIUM_VT_STANDINS:-}
 if [ -n "$standins" ]; then
 	[ "$(id -u)" -ne 0 ] || die "VTIUM_VT_STANDINS is for the tests, which run without root; unset it"
-	for c in systemctl loginctl setpriv; do
+	for c in systemctl loginctl setpriv getent; do
 		[ -x "$standins/$c" ] || die "VTIUM_VT_STANDINS has no stand-in $c"
 	done
 	systemctl=$standins/systemctl
 	loginctl=$standins/loginctl
 	setpriv=$standins/setpriv
+	getent=$standins/getent
 	active_file=$standins/active
+	shells_file=$standins/shells
+	locale_file=$standins/locale.conf
+	run_user=$standins/run-user
 else
 	systemctl=systemctl
 	loginctl=loginctl
 	# vtium starts its session with execve, without a PATH search.
 	setpriv=$(command -v setpriv) || die "setpriv (util-linux) is missing; it runs the session as you"
+	getent=getent
 	active_file=/sys/class/tty/tty0/active
+	shells_file=/etc/shells
+	locale_file=/etc/locale.conf
+	run_user=/run/user
 fi
 # The units that may hold the VT: the stock kmscon, a getty, and autovt@,
 # which logind starts on a switch to the VT and which is one of the other two.
@@ -154,6 +174,8 @@ done
 [[ $label =~ ^[[:alnum:]\ ._+:/@-]{0,80}$ ]] ||
 	die "--label takes up to 80 letters, digits, spaces and ._+:/@-, not '$label'"
 [ -z "$login" ] || [ -z "$guide" ] || die "--guide runs the guided checks, with no login"
+[ -z "$shell" ] || [ -z "$login$guide" ] || die "--shell runs your shell, with no login and no guide"
+[ -z "$transcript" ] || [ -n "$shell" ] || die "--transcript goes with --shell"
 if [ -n "$guide" ]; then
 	# The guide is read by the session, as the user, from this absolute path.
 	guide=$(readlink -m -- "$guide")
@@ -168,8 +190,52 @@ user=${SUDO_USER:-}
 [ -z "$dry$standins" ] || user=${user:-$(id -un)}
 [ -n "$user" ] && [ "$user" != root ] ||
 	die "run through sudo from your own account; the session runs as that user, never as root"
-uid=$(id -u "$user") || die "no such user: $user"
-gid=$(id -g "$user")
+# The user's entry in the password database: the uid, gid, home and login
+# shell, from one lookup.
+entry=$("$getent" passwd "$user") || die "no such user: $user"
+IFS=: read -r _ _ uid gid _ home login_shell <<<"$entry"
+[[ $uid =~ ^[0-9]+$ && $gid =~ ^[0-9]+$ ]] || die "$user's entry in the password database is unreadable"
+[ "$uid" -ne 0 ] || die "$user has uid 0; the session runs as your own user, never as root"
+if [ -n "$shell" ]; then
+	# The shell reaches script(1) inside a command line, so its path takes no
+	# character a shell would read.
+	[ -n "$login_shell" ] || die "$user has no login shell in the password database"
+	[[ $login_shell =~ ^/[[:alnum:]/._+-]+$ ]] ||
+		die "$user's login shell '$login_shell' is not an absolute path of letters, digits and /._+-"
+	grep -Fqx -- "$login_shell" "$shells_file" ||
+		die "$user's login shell $login_shell is not in $shells_file"
+	[ -f "$login_shell" ] && [ -x "$login_shell" ] ||
+		die "$user's login shell $login_shell is not an executable file"
+	[[ $home == /* ]] || die "$user's home directory '$home' is not an absolute path"
+	# The shell would start nowhere, and the run would end as if it had exited.
+	[ -d "$home" ] && [ "$(stat -L -c %u -- "$home")" = "$uid" ] ||
+		die "$user's home directory $home is missing, not a directory, or not theirs"
+	# setpriv --reset-env drops the locale, so the shell gets the system's:
+	# LANG and LC_* from locale.conf, each a value of locale-name characters.
+	locale=()
+	if [ -f "$locale_file" ]; then
+		assignment='^(LANG|LC_[A-Z]+)="?([[:alnum:]_.@-]+)"?$'
+		while IFS= read -r line || [ -n "$line" ]; do
+			[[ ! $line =~ $assignment ]] || locale+=("${BASH_REMATCH[1]}=${BASH_REMATCH[2]}")
+		done <"$locale_file"
+	fi
+	# The user's runtime directory and bus, which the desktop session already
+	# gives the user: pipewire, systemctl --user and the user's agents. Only
+	# a directory of the user's alone, never a symlink; /run/user is root's,
+	# so the user cannot swap it afterwards.
+	runtime=()
+	rt=$run_user/$uid
+	if [ -d "$rt" ] && [ ! -L "$rt" ] && [ "$(stat -c '%u %a' -- "$rt")" = "$uid 700" ]; then
+		runtime=(XDG_RUNTIME_DIR="$rt")
+		[ ! -S "$rt/bus" ] || [ -L "$rt/bus" ] || runtime+=(DBUS_SESSION_BUS_ADDRESS="unix:path=$rt/bus")
+	fi
+	if [ -n "$transcript" ]; then
+		# Absolute, and not resolved: a symlink is refused below.
+		[[ $transcript == /* ]] || transcript=$PWD/$transcript
+		# vtium starts its session with execve, without a PATH search.
+		script=$(command -v script) || die "script (util-linux) is missing; it records the transcript"
+	fi
+fi
 
 # The binary runs as root, so only its owner or root may have written it.
 [ -n "$bin" ] || die "--bin=PATH names the vtium binary (make vt-demo builds target/minspec/vtium)"
@@ -181,10 +247,16 @@ read -r owner mode < <(stat -c '%u %a' -- "$bin")
 (( (8#$mode & 8#022) == 0 )) ||
 	die "$bin is writable by group or others (mode $mode); it would run as root"
 
-drop=("$setpriv" --reuid="$uid" --regid="$gid" --init-groups --reset-env)
+# --inh-caps=-all empties the one capability set the uid change leaves. The
+# bounding set and no-new-privs are left alone: sudo works in the shell.
+drop=("$setpriv" --reuid="$uid" --regid="$gid" --init-groups --inh-caps=-all --reset-env)
 if [ -n "$guide" ] && [ -z "$dry" ]; then
 	"${drop[@]}" -- /usr/bin/test -f "$guide" -a -r "$guide" ||
 		die "$user cannot read the guide $guide"
+fi
+if [ -n "$transcript" ] && [ -z "$dry" ]; then
+	"${drop[@]}" -- /usr/bin/test -d "${transcript%/*}/" -a -w "${transcript%/*}/" -a ! -h "$transcript" ||
+		die "$user cannot write the transcript $transcript"
 fi
 
 # One run at a time, whoever starts it: one build on a VT. The lock is held
@@ -285,6 +357,7 @@ label=${label:-unlabelled}
 ends="the demo ends" last=3
 [ -z "$login" ] || ends="it ends" last=4
 [ -z "$guide" ] || ends="the checks end"
+[ -z "$shell" ] || ends="the shell exits"
 if [ ${#active[@]} -gt 0 ]; then
 	after="when $ends, ${active[*]} is started again on VT $vt"
 	manual="manual restore: sudo systemctl start ${active[*]}"
@@ -301,13 +374,18 @@ if [ -n "$login" ]; then
 elif [ -n "$guide" ]; then
 	what="follow each step of $guide${steps:+ (steps $steps)}
      and answer y, n or s; the run ends after the last step"
+elif [ -n "$shell" ]; then
+	what="use $login_shell, which runs as $user in $home;
+     exit it to end the run${transcript:+; the session is recorded in
+     $transcript}"
 else
 	what="rate each page with 1, 2 or 3 (c adds a comment, b goes back);
      press q in the demo to finish"
 fi
+users_shell="$user's shell"
 cat <<EOF
 
-vtium $label on VT $vt${login:+, with a login prompt}${guide:+, with guided checks}
+vtium $label on VT $vt${login:+, with a login prompt}${guide:+, with guided checks}${shell:+, with $users_shell}
   1. switch with Ctrl-Alt-F$vt
   2. $what
   $last. $after;
@@ -316,20 +394,30 @@ $manual
 
 EOF
 
-# The demo and the guide run as $user, never as root, with the environment
-# cleared by setpriv; env then sets what the session reads, each value one
-# word of its own, never through a shell. With --login, /bin/login runs as
-# root and PAM decides who logs in, as under the stock unit; it runs without
-# --oneshot, so login's own timeout at the prompt brings a new prompt rather
-# than the end, and this script ends the run at the first logout instead,
-# below. vtium is started in the background so that it ignores Ctrl-C (bash
-# does that for background jobs in a script) and this script decides how it
-# stops: SIGTERM from restore(). --configdir keeps the system's config out of
-# the run; config/ holds the review's own.
-session=(/usr/bin/env DEMO_LABEL="vtium $label" /bin/bash "$here/demo.sh")
+# The demo, the guide and the shell run as $user, never as root, with the
+# environment cleared by setpriv; env then sets what the session reads, each
+# value one word of its own, never through a shell. The user's shell starts
+# in the home directory as a login shell (-l), as login(1) would start it;
+# script(1) runs the command line it is given through the user's $SHELL.
+# vtium runs in the background, so it starts with SIGINT and SIGQUIT ignored;
+# env gives the session their defaults back, or Ctrl-C would stop nothing. With
+# --login, /bin/login runs as root and PAM decides who logs in, as under the
+# stock unit; it runs without --oneshot, so login's own timeout at the prompt
+# brings a new prompt rather than the end, and this script ends the run at the
+# first logout instead, below. vtium is started in the background so that it
+# ignores Ctrl-C (bash does that for background jobs in a script) and this
+# script decides how it stops: SIGTERM from restore(). --configdir keeps the
+# system's config out of the run; config/ holds the review's own.
+signals=(/usr/bin/env "--default-signal=INT,QUIT")
+session=("${signals[@]}" DEMO_LABEL="vtium $label" /bin/bash "$here/demo.sh")
 if [ -n "$guide" ]; then
-	session=(/usr/bin/env GUIDE_VT="$vt" GUIDE_DESKTOP="$fg" ${steps:+GUIDE_STEPS="$steps"}
+	session=("${signals[@]}" GUIDE_VT="$vt" GUIDE_DESKTOP="$fg" ${steps:+GUIDE_STEPS="$steps"}
 		/bin/bash "$here/checks/guide.sh" "$guide")
+elif [ -n "$shell" ]; then
+	session=("${signals[@]}" -C "$home" "${locale[@]}" "${runtime[@]}" "$login_shell" -l)
+	[ -z "$transcript" ] ||
+		session=("${signals[@]}" -C "$home" "${locale[@]}" "${runtime[@]}"
+			"$script" -q -f -c "exec $login_shell -l" "$transcript")
 fi
 once=(--oneshot)
 login_argv=("${drop[@]}" -- "${session[@]}")

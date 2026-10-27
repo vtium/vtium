@@ -8,8 +8,9 @@
 //! where it fails, since no later input reaches it. Every key or pointer
 //! event also goes to each device's `input`, which tries again once those
 //! retries have run out. A wake-up
-//! ([`super::Event::Awake`]) counts as input: its modeset brings every
-//! display on. A hotplug does not: while blanked it commits nothing, and
+//! ([`super::Event::Awake`]) after the user's VT switch counts as input:
+//! its modeset brings every display on. A wake-up after a VT re-take does
+//! not; the host keeps the blank and its countdown. A hotplug does not: while blanked it commits nothing, and
 //! `unblank` runs the modeset it left owed. The timeout is the
 //! configuration's `dpms-timeout`, 600 s by default as in the C reference
 //! (config.c:1388).

@@ -32,46 +32,13 @@ fn line(n: usize) -> Origin {
     }
 }
 
-// The five guest configurations of tier 3 (kmscon `fork/tier3/guest/`,
-// on `fork/tier3-vtium` at bde2fd92): their keys as tier 3 installs them,
-// and the first line of each header comment.
-const TIER3_2D: &str = "\
-# kmscon config for tier 3 runs on the 2D path (drm2d with bbulk).
-font-engine=pango
-font-name=DejaVu Sans Mono
-font-size=16
-no-blink
-render-timer=log
-";
-const TIER3_FONT32: &str = "\
-# kmscon config for the tier 3 variant with large cells: the 2D path (drm2d
-font-engine=pango
-font-name=DejaVu Sans Mono
-font-size=32
-no-blink
-render-timer=log
-";
-const TIER3_GL: &str = "\
-# kmscon config for tier 3 runs on the GL path (drm3d with gltex).
-font-engine=pango
-font-name=DejaVu Sans Mono
-font-size=16
-no-blink
-hwaccel
-render-timer=log
-";
-const TIER3_MIN_PSF: &str = "\
-# kmscon config for tier 3's 2d-potato-min-psf variant: the minimal build
-font-engine=psf
-font-name=/usr/share/kbd/consolefonts/default8x16.psfu.gz
-no-blink
-render-timer=log
-";
-const TIER3_MIN: &str = "\
-# kmscon config for tier 3's 2d-potato-min variant: the minimal build
-no-blink
-render-timer=log
-";
+// The five guest configurations of tier 3, read from tools/tier3/guest/,
+// which installs each as /etc/kmscon/kmscon.conf.
+const TIER3_2D: &str = include_str!("../../../../tools/tier3/guest/kmscon.conf");
+const TIER3_FONT32: &str = include_str!("../../../../tools/tier3/guest/kmscon-font32.conf");
+const TIER3_GL: &str = include_str!("../../../../tools/tier3/guest/kmscon-gl.conf");
+const TIER3_MIN_PSF: &str = include_str!("../../../../tools/tier3/guest/kmscon-minimal-psf.conf");
+const TIER3_MIN: &str = include_str!("../../../../tools/tier3/guest/kmscon-minimal.conf");
 
 // covers: platform.config
 #[test]
@@ -323,6 +290,43 @@ fn a_number_out_of_bounds_is_clamped_and_reported() {
     let l = load_with(&["--sync-timeout=10001"], None, &[]);
     assert_eq!(l.config.number(&SYNC_TIMEOUT), Some(10_000));
     assert_eq!(l.reports.len(), 1);
+}
+
+/// `display-wait`: 10 s unset, 0 to not wait, at most 600 s, or
+/// `forever`, and no other word.
+#[test]
+fn the_wait_for_a_display_is_read_and_bounded() {
+    assert_eq!(Config::default().number(&DISPLAY_WAIT), Some(10));
+    let l = main_file("display-wait=0\n");
+    assert_eq!(l.config.number(&DISPLAY_WAIT), Some(0));
+    assert_eq!(l.reports, []);
+    let l = main_file("display-wait=forever\n");
+    assert_eq!(l.config.text(&DISPLAY_WAIT), Some("forever"));
+    assert_eq!(l.config.number(&DISPLAY_WAIT), None);
+    assert_eq!(l.reports, []);
+    let l = main_file("display-wait=never\n");
+    assert_eq!(l.config.number(&DISPLAY_WAIT), Some(10), "the default kept");
+    assert_eq!(
+        problems(&l),
+        [&Problem::NotANumber {
+            key: "display-wait",
+            value: "never".into()
+        }]
+    );
+    assert_eq!(
+        problems(&l).first().map(ToString::to_string).as_deref(),
+        Some("display-wait=\"never\" is not a whole number or forever, ignored")
+    );
+    let l = load_with(&["--display-wait=601"], None, &[]);
+    assert_eq!(l.config.number(&DISPLAY_WAIT), Some(600));
+    assert_eq!(
+        problems(&l),
+        [&Problem::Clamped {
+            key: "display-wait",
+            value: "601".into(),
+            used: 600
+        }]
+    );
 }
 
 #[test]
@@ -840,8 +844,13 @@ fn the_key_table_keeps_its_rules() {
         if let Some(c) = k.short {
             assert!(shorts.insert(c), "-{c} twice");
         }
-        if let Kind::Number { min, max, .. } = k.kind {
+        if let Kind::Number { min, max, word, .. } = k.kind {
             assert!(min <= max, "{}: {min} > {max}", k.name);
+            assert!(
+                word.is_none_or(|w| w.parse::<u64>().is_err()),
+                "{}: a word that reads as a number",
+                k.name
+            );
         }
         // A default reads back as itself, inside its bound, with no
         // report.
