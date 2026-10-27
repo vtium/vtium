@@ -299,7 +299,7 @@ impl Harness {
         done(&self.app)
     }
 
-    /// The memory device, or the one a late device holds.
+    /// The memory device, or the one a late or gated device holds.
     fn memory(&mut self) -> &mut Memory {
         let any = self
             .app
@@ -309,6 +309,9 @@ impl Harness {
             .as_any();
         if any.is::<Late>() {
             return &mut any.downcast_mut::<Late>().expect("a late device").memory;
+        }
+        if any.is::<Gate>() {
+            return &mut any.downcast_mut::<Gate>().expect("a gated device").memory;
         }
         any.downcast_mut::<Memory>().expect("the memory device")
     }
@@ -423,12 +426,14 @@ fn the_seat_boots_draws_takes_keys_and_exits() {
     );
 
     // After a second with no input the display blanks; a key wakes it.
+    // A slow run can blank before the first key too, which that key woke.
+    let unblanks = h.memory().unblanks;
     assert!(
         h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::Off)),
         "blanked after dpms-timeout"
     );
     h.type_str("x");
-    assert_eq!(h.memory().unblanks, 1);
+    assert_eq!(h.memory().unblanks, unblanks + 1);
     assert_eq!(h.memory().dpms, Some(Dpms::On));
 
     // The child ends; under oneshot vtium ends, switching back first.
@@ -670,7 +675,10 @@ fn a_retakes_wake_up_landing_after_the_blank_leaves_it_dark() {
     // Its modeset lights the display, and its `Awake` arrives.
     h.memory().dpms = Some(Dpms::On);
     h.late().held = None;
-    h.until(Duration::from_millis(200), |_| false);
+    assert!(
+        h.until_memory(SECOND, |m| m.events.is_empty()),
+        "the `Awake` taken"
+    );
     assert_eq!(h.memory().dpms, Some(Dpms::Off), "dark again");
     // Still blanked: the next key unblanks.
     h.type_str("a");
@@ -1250,9 +1258,8 @@ fn a_flip_draws_only_its_own_display() {
     let g = gated(&mut h);
     g.flipping = false;
     g.memory.events.push(Event::Flipped(ID));
-    h.until(Duration::from_millis(100), |_| false);
     assert!(
-        gated(&mut h).memory.frames > frames,
+        h.until_memory(SECOND, |m| m.frames > frames),
         "the waiting frame drawn"
     );
     assert_eq!(
@@ -1683,8 +1690,10 @@ fn the_last_display_going_while_released_wakes_nothing() {
     assert!(h.until(SECOND, |a| !a.vt.is_active()), "released");
     let (wake_ups, unblanks) = (h.memory().wake_ups, h.memory().unblanks);
     h.memory().events.push(Event::Removed(ID));
-    h.until(Duration::from_millis(200), |_| false);
-    assert!(h.app.cells().is_empty(), "the display went");
+    assert!(
+        h.until(SECOND, |a| a.cells().is_empty()),
+        "the display went"
+    );
     let m = h.memory();
     assert_eq!(
         (m.wake_ups, m.unblanks, m.awake),
