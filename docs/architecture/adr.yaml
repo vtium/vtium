@@ -105,17 +105,6 @@ defaults:
   deciders: [aaronsb]
   status: Draft
 
-# Legacy ADR range (pre-domain numbering)
-legacy:
-  range: [1, 99]
-  label: "Legacy"
-  # retired: true   # Uncomment ONLY if the legacy range is VACATED (its ADRs
-  #                 # were renumbered into domains). doclint then fails on any
-  #                 # reference into the range. Leave off if the project still
-  #                 # uses its legacy numbers (the common case).
-  # defining_adr: ADR-NNN   # With retired: true, exempt the ADR that vacated the
-  #                         # range — it names retired numbers legitimately.
-
 # Viewer command for `adr view` (use {file} as placeholder)
 # Options: cat {file}, glow {file}, bat {file}
 viewer: cat {file}
