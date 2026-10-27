@@ -55,6 +55,8 @@
 mod blend;
 mod bounds;
 mod cache;
+mod compose;
+mod damage;
 mod deco;
 mod renderer;
 mod stored;

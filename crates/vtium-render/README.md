@@ -5,7 +5,9 @@ vtium's renderer: frames from `vtium-term` in, display pixels out. This crate ho
 | Path | What it is |
 |---|---|
 | `src/lib.rs` | The crate's documentation, its determinism lints and its public names. |
-| `src/renderer.rs` | `Renderer`: what each frame redraws, the cell jobs, the row scratch, the cursor, the pointer and the damage rectangles. `Config`, `DrawState`, `Drawn` and `Stats`. |
+| `src/renderer.rs` | `Renderer`: the grid's place on the display, the cell jobs, the cursor and the pointer. `Config`, `DrawState`, `Drawn` and `Stats`. |
+| `src/damage.rs` | What each buffer lacks, cell by cell, and the damage rectangles. |
+| `src/compose.rs` | The row's jobs composed into display lines, straight or through the row scratch. |
 | `src/cache.rs` | The drawn-glyph cache: four pools by format and width, keyed by the glyph's text, an LRU on the drawn frame, and the `Profile` budgets. |
 | `src/stored.rs` | A glyph as the cache keeps it: turned once, at 1 bit when lossless, at the bitmap font's own size, and drawn a line at a time. |
 | `src/deco.rs` | The underline and strike sprites. |
