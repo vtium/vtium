@@ -18,7 +18,18 @@ Only `vtium-platform` may use `unsafe`. Every other crate carries `#![forbid(uns
 
 ## The minspec build
 
-The default build is minspec: the smallest complete console, for the small-machine standard (1366x768, 1 vCPU, 512 MB). It covers drm2d or fbdev, the CPU renderer, bitmap fonts, the parser and screen, the pty and keyboard input. Images, outline fonts and the GPU path are features added on top. `cargo build --profile minspec` builds it size-optimised. Its size and memory are measured from the first working build.
+The default build is minspec: the smallest complete console. It covers drm2d or fbdev, the CPU renderer, bitmap fonts, the parser and screen, the pty and keyboard input. Images, outline fonts and the GPU path are features added on top. `cargo build --profile minspec` builds it size-optimised. Its size and memory are measured from the first working build.
+
+The machine minspec is judged against is a single-board computer that presents a DRM buffer (vtium/vtium#75):
+
+- ARM cores, Cortex-A53 class or older, aarch64 and armv7;
+- 512 MB of memory or less;
+- a DRM dumb buffer to draw into, with no GPU vtium uses;
+- displays that may be small, down to SPI panels at 320x240 through tinydrm.
+
+Tier 3's x86 variant keeps the small-machine standard: 1366x768, 1 vCPU, 512 MB.
+
+`make arm` builds the minspec profile for `aarch64-unknown-linux-gnu` and `armv7-unknown-linux-gnueabihf`, and `make arm-test` runs the workspace's tests on aarch64 under qemu-user, with no cross toolchain and no root ([tools/arm/README.md](../tools/arm/README.md)).
 
 ## Where each part comes from
 
