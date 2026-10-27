@@ -67,7 +67,17 @@ Each was the C reference's behaviour at kmscon `b1f7a7c5`.
 
 Each is the C reference's and waits for its own change: drawing through the GPU, which `hwaccel` asks for and which warns at start (vtium draws in software), the `multi-monitor` key's `clone` and `largest` (vtium lays several displays out as `scaled`, the operator's choice on vtium/vtium#21), the hardware cursor (the pointer is drawn in software), selection and copy with the pointer, the render timer's on-screen display, outline fonts (`font-engine=freetype` and `pango` draw with unifont), the named palettes but `legacy` and `custom` (vtium-term holds no other yet), and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs, the decoration colours and the rest.
 
+## Left to tier 3
+
+Each needs a real VT or display, which the boot tests stand in for:
+
+- The panic hook under `panic=abort` on a real VT: the VT back in text mode with its keyboard before the message prints.
+- The 100 ms the loop is served at exit for SIGUSR2 on a real switch back.
+- A release a real flip in flight delays, acknowledged once the device reports asleep.
+- Whether fbdev stays lit when a re-take while blanked defers its set-up to the input that ends the blank; on drm2d the displays stay dark.
+
 ## C behaviour kept
 
 - The XTGETTCAP table is the C reference's: the same 137 names and values as its ncurses-built `src/terminal_termcap.h`.
 - A `login` word that is `$NAME` becomes that variable of the session's environment, after the environment is reset.
+- A wheel event is one report while the program tracks the pointer, else a zoom with Ctrl, else three lines of scrollback, whatever its number of steps (`src/terminal.c:1492-1497, 1639-1650`).
