@@ -123,6 +123,7 @@ A delegated agent is released explicitly when its work has merged. Messages stil
 | What a contribution must show, the code rules, the kitty source rule | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | The target set and its coverage | `docs/architecture/term/ADR-1000-*` |
 | A crate's departures and bounds | `crates/<crate>/README.md` |
+| Where vtium touches systemd, logind or PID 1, and what it does without them | [docs/systemd.md](docs/systemd.md) |
 | The plan and its order | the tracker, vtium/vtium#47 |
 | The replay interface | `../libtsm/test/conformance/INTERFACE.md` |
 | Tier 3 | [tools/tier3/README.md](tools/tier3/README.md) |

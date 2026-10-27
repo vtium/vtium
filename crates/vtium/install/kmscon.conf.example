@@ -140,6 +140,15 @@
 ## Take pointers: mice, touchpads and touchscreens.
 #mouse
 
+## Reboot the machine. With `/proc/sys/kernel/ctrl-alt-del` at 0, init is asked, as for Ctrl+Alt+Del, so the services stop first; otherwise the kernel restarts at once. Unset, no key reboots.
+#grab-reboot=
+
+## Power the machine off: init is asked with `SIGRTMIN+4`, which systemd takes as `poweroff.target`, so the services stop and the filesystems are unmounted first. Unset, no key powers off.
+#grab-power-off=
+
+## Suspend the machine to RAM: logind is asked with its `Suspend` method, so its inhibitors hold the sleep; where logind is not running, or vtium is built without `logind`, `mem` is written to `/sys/power/state`. Unset, no key suspends.
+#grab-suspend=
+
 ## The font source to use. Unset, each the build has, in this order.
 #font-engine=
 
