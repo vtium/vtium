@@ -86,6 +86,9 @@ pub struct Drm2d<K: Kms> {
     retries: Option<usize>,
     /// The retries are a wake-up's; else a failed hotplug's or unblank's.
     waking: bool,
+    /// The retries ran out with [`Event::WakeFailed`], and nothing has set
+    /// the displays since: the next input tries again.
+    wake_failed: bool,
     events: Vec<Event>,
     timers: Timers,
     link: Option<Box<dyn Link>>,
@@ -126,6 +129,7 @@ impl<K: Kms> Drm2d<K> {
             owed: false,
             retries: None,
             waking: false,
+            wake_failed: false,
             events: Vec::new(),
             timers: Timers::default(),
             link: None,
@@ -372,6 +376,27 @@ impl<K: Kms> Drm2d<K> {
         done
     }
 
+    /// A key or pointer event came. After [`Event::WakeFailed`], it tries
+    /// again, at most [`crate::WAKE_RETRIES`] times more: the wake-up,
+    /// with every display on, where the card is asleep in the foreground,
+    /// or else a modeset of every display, owed to [`Drm2d::unblank`]
+    /// while blanked. Otherwise, and while the retries run, it does
+    /// nothing.
+    pub fn input(&mut self) -> io::Result<()> {
+        if self.retries.is_some() || !std::mem::take(&mut self.wake_failed) {
+            return Ok(());
+        }
+        if !self.awake {
+            return self.poll();
+        }
+        let set = self.scan(Scan::Retry);
+        if set.is_err() {
+            self.retry(false);
+        }
+        self.settle();
+        set
+    }
+
     /// Puts `pixels`, ARGB8888 rows of `width`, on the display's cursor
     /// plane, with its hotspot at `hot`. The image is cut to the plane's
     /// size, at most [`CURSOR_MAX`] a side, and stays hidden until
@@ -540,6 +565,7 @@ impl<K: Kms> Drm2d<K> {
             return Err(e);
         }
         if scan == Scan::WakeUp {
+            self.wake_failed = false;
             self.events.push(Event::Awake);
         }
         Ok(())
@@ -566,6 +592,7 @@ impl<K: Kms> Drm2d<K> {
         } else if tried.saturating_add(1) >= crate::WAKE_RETRIES {
             log::error!("cannot wake the display after {tried} retries");
             self.retries = None;
+            self.wake_failed = true;
             self.events.push(Event::WakeFailed);
         } else {
             self.retries = Some(tried.saturating_add(1));
@@ -581,6 +608,7 @@ impl<K: Kms> Drm2d<K> {
         self.foreground = false;
         self.owed = false;
         self.retries = None;
+        self.wake_failed = false;
         if !self.awake {
             self.events.push(Event::Asleep);
             self.settle();
@@ -1009,6 +1037,7 @@ impl<K: Kms> Drm2d<K> {
             // A modeset brings every display on.
             self.blanked = false;
             self.owed = false;
+            self.wake_failed = false;
             for o in &mut self.outputs {
                 o.down = false;
             }

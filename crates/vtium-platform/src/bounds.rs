@@ -94,7 +94,7 @@ const RETRIES: Bound = Bound {
     name: "WAKE_RETRIES",
     value: 20,
     what: "Tries to wake a DRM card after a wake-up, a hotplug scan or an unblank's modeset failed, and to unblank a framebuffer after `FBIOBLANK` failed",
-    past: "The tries stop with `Event::WakeFailed`, until the next wake-up or hotplug; a framebuffer's stop with an error logged, until the next wake-up or unblank",
+    past: "The tries stop with `Event::WakeFailed`, until the next wake-up, hotplug or key or pointer event; a framebuffer's, until the next wake-up, unblank or key or pointer event",
     cite: "`MAX_VT_TIMEOUT_RETRIES`, drm_shared.c:51",
 };
 
@@ -154,7 +154,8 @@ pub const FLIP_WAIT_MS: usize = FLIP_WAIT.value;
 /// Milliseconds between tries to wake a DRM card.
 pub const WAKE_RETRY_MS: usize = WAKE_RETRY.value;
 
-/// Tries to wake a DRM card before giving up until the next wake-up.
+/// Tries to wake a DRM card or unblank a framebuffer before giving up
+/// until the next wake-up, hotplug or input.
 pub const WAKE_RETRIES: usize = RETRIES.value;
 
 /// Damage rectangles one swap sends before they become their bounding

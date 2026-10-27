@@ -1044,6 +1044,88 @@ fn a_hotplug_after_the_retries_ran_out_wakes_the_card() {
     assert!(v.card().state().master);
 }
 
+// Round 4, finding 2: once the wake-up retries run out, the next input
+// tries the wake-up again, which brings every display on, blanked ones
+// included. Input while the retries run, or with nothing failed, does
+// nothing.
+#[test]
+fn input_after_the_retries_ran_out_wakes_the_card() {
+    let mut v = a_then_b(ModePolicy::default());
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    flip(&mut v);
+    let (mut blank, at) = blanked(&mut v);
+    v.sleep();
+    flip(&mut v);
+    v.events().for_each(drop);
+    v.card().state().master_elsewhere = true;
+    assert!(v.wake_up().is_err());
+    v.input().unwrap();
+    v.retry_wake();
+    assert_eq!(v.retries, Some(1), "input leaves the retries be");
+    while v.waits().1 {
+        v.retry_wake();
+    }
+    assert_eq!(events(&mut v), [Event::WakeFailed]);
+    assert!(!v.card().state().master);
+    v.card().state().master_elsewhere = false;
+    assert!(blank.input(at));
+    v.input().unwrap();
+    v.unblank().unwrap();
+    assert!(v.card().state().master);
+    assert_eq!(
+        events(&mut v),
+        [
+            Event::Redraw(DisplayId(A)),
+            Event::Redraw(DisplayId(B)),
+            Event::Awake
+        ]
+    );
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(
+        (c.get(100, "ACTIVE"), c.get(101, "ACTIVE")),
+        (Some(1), Some(1))
+    );
+    assert_eq!(v.dpms(DisplayId(A)), Some(Dpms::On));
+    assert_eq!(v.dpms(DisplayId(B)), Some(Dpms::On));
+    flip(&mut v);
+    let commits = v.card().state().commits.len();
+    v.input().unwrap();
+    assert_eq!(v.card().state().commits.len(), commits, "nothing failed");
+}
+
+// Round 4, finding 2: once a failed hotplug's retries run out, master is
+// kept, and the next input tries the modeset again. Blanked, it is owed to
+// the `unblank` of the same input, so nothing is committed while blanked.
+#[test]
+fn input_after_a_hotplugs_retries_ran_out_sets_the_modes() {
+    let mut v = a_then_b(ModePolicy::default());
+    v.card().state().listed.push(B);
+    v.card().state().commit_errors.extend([Errno::INVAL; 200]);
+    assert!(v.poll().is_err());
+    while v.waits().1 {
+        v.retry_wake();
+    }
+    assert_eq!(events(&mut v), [Event::WakeFailed]);
+    assert!(v.card().state().master);
+    v.card().state().commit_errors.clear();
+    let (mut blank, at) = blanked(&mut v);
+    let commits = v.card().state().commits.len();
+    assert!(blank.input(at));
+    v.input().unwrap();
+    assert_eq!(v.card().state().commits.len(), commits, "blanked");
+    v.unblank().unwrap();
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(
+        (c.get(100, "ACTIVE"), c.get(101, "ACTIVE")),
+        (Some(1), Some(1))
+    );
+    assert_eq!(
+        events(&mut v),
+        [Event::Redraw(DisplayId(A)), Event::Added(DisplayId(B))]
+    );
+}
+
 // Finding 2 and the frame contract, rule 6: a display powered down lends
 // no canvas, so no frame is drawn and lost; powered on, every buffer is
 // age 0, its next frame goes whole, and the owner is told to redraw.

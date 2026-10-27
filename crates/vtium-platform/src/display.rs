@@ -125,7 +125,8 @@ pub enum Event {
     /// The device has let its displays go, and the VT release may be
     /// acknowledged.
     Asleep,
-    /// Waking up failed, and the retries ran out.
+    /// Waking up, a modeset or an unblank failed, and the retries ran out.
+    /// The device's `input`, on the next key or pointer event, tries again.
     WakeFailed,
 }
 

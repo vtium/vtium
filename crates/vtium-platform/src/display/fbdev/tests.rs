@@ -329,6 +329,33 @@ fn a_failed_unblank_is_tried_again() {
     }
 }
 
+// Round 4, finding 2: once an unblank's retries run out, the device
+// reports `WakeFailed`, and the next input tries the unblank again.
+#[test]
+fn input_after_the_unblank_retries_ran_out_unblanks() {
+    let mut v = awake(FakeFb::new(32));
+    v.set_dpms(DISPLAY, Dpms::Off).unwrap();
+    v.events().for_each(drop);
+    v.dev().refuse_blanks.set(u32::MAX);
+    assert!(v.unblank().is_err());
+    v.input().unwrap();
+    v.retry_unblank();
+    assert_eq!(v.retries, Some(1), "input leaves the retries be");
+    while v.retries.is_some() {
+        v.retry_unblank();
+    }
+    assert_eq!(v.events().collect::<Vec<_>>(), [Event::WakeFailed]);
+    v.dev().refuse_blanks.set(0);
+    v.input().unwrap();
+    assert_eq!(v.dpms(DISPLAY), Some(Dpms::On));
+    assert_eq!(v.events().collect::<Vec<_>>(), [Event::Redraw(DISPLAY)]);
+    let blanks = v.dev().blanks.borrow().len();
+    v.set_dpms(DISPLAY, Dpms::Off).unwrap();
+    v.input().unwrap();
+    assert_eq!(v.dpms(DISPLAY), Some(Dpms::Off), "nothing failed");
+    assert_eq!(v.dev().blanks.borrow().len(), blanks + 1);
+}
+
 // The frame contract, rules 3 and 4: no damage, no swap; no cursor plane.
 #[test]
 fn a_swap_with_no_damage_does_nothing() {

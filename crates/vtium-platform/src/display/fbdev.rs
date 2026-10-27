@@ -147,6 +147,9 @@ pub struct Fbdev<F: Framebuffer> {
     vblank: bool,
     /// Unblanks tried again so far, while retrying.
     retries: Option<usize>,
+    /// The retries ran out with [`Event::WakeFailed`], and the display has
+    /// not come on since: the next input tries again.
+    wake_failed: bool,
     events: Vec<Event>,
     timer: Option<RegistrationToken>,
     link: Option<Box<dyn Link>>,
@@ -173,6 +176,7 @@ impl<F: Framebuffer> Fbdev<F> {
             lent: false,
             vblank: false,
             retries: None,
+            wake_failed: false,
             events: Vec::new(),
             timer: None,
             link: None,
@@ -233,11 +237,14 @@ impl<F: Framebuffer> Fbdev<F> {
             Dpms::Off => FB_BLANK_POWERDOWN,
         })?;
         let was = self.dpms.replace(dpms);
-        if dpms == Dpms::On && was.is_some_and(|d| d != Dpms::On) {
-            if let Some(s) = self.screen.as_mut() {
-                s.fresh = true;
+        if dpms == Dpms::On {
+            self.wake_failed = false;
+            if was.is_some_and(|d| d != Dpms::On) {
+                if let Some(s) = self.screen.as_mut() {
+                    s.fresh = true;
+                }
+                self.events.push(Event::Redraw(DISPLAY));
             }
-            self.events.push(Event::Redraw(DISPLAY));
         }
         Ok(())
     }
@@ -257,7 +264,18 @@ impl<F: Framebuffer> Fbdev<F> {
         Ok(())
     }
 
-    /// An unblank retry's timer fired.
+    /// A key or pointer event came. After [`Event::WakeFailed`], it tries
+    /// the unblank again, at most [`crate::WAKE_RETRIES`] times more.
+    /// Otherwise, and while the retries run, it does nothing.
+    pub fn input(&mut self) -> io::Result<()> {
+        if self.retries.is_some() || !std::mem::take(&mut self.wake_failed) {
+            return Ok(());
+        }
+        self.unblank()
+    }
+
+    /// An unblank retry's timer fired. Once the retries run out, the
+    /// device reports [`Event::WakeFailed`].
     fn retry_unblank(&mut self) {
         let Some(tried) = self.retries else {
             return;
@@ -266,6 +284,8 @@ impl<F: Framebuffer> Fbdev<F> {
             if tried.saturating_add(1) >= crate::WAKE_RETRIES {
                 log::error!("cannot unblank the framebuffer after {tried} retries: {e}");
                 self.retries = None;
+                self.wake_failed = true;
+                self.events.push(Event::WakeFailed);
             } else {
                 self.retries = Some(tried.saturating_add(1));
             }
@@ -359,6 +379,7 @@ impl<F: Framebuffer> Fbdev<F> {
             self.announced = true;
             self.events.push(Event::Added(DISPLAY));
         }
+        self.wake_failed = false;
         self.events.push(Event::Awake);
         Ok(())
     }
@@ -373,6 +394,7 @@ impl<F: Framebuffer> Fbdev<F> {
         self.lent = false;
         self.vblank = false;
         self.retries = None;
+        self.wake_failed = false;
         self.settle();
         self.events.push(Event::Asleep);
     }
