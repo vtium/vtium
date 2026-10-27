@@ -13,6 +13,17 @@
 use super::State;
 use crate::bounds::CLIPBOARD_MAX;
 
+/// A selection OSC 52 set, waiting for the host. Its `Debug` shows its
+/// length alone, so a terminal's `{:?}` never prints what was copied.
+#[derive(Clone, PartialEq, Eq)]
+pub(super) struct Selection(pub(super) Vec<u8>);
+
+impl core::fmt::Debug for Selection {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Selection({} bytes)", self.0.len())
+    }
+}
+
 impl State {
     /// OSC 52 from its `Pc ; Pd`, the string past `52;`.
     pub(super) fn set_clipboard(&mut self, args: &[u8]) {
@@ -26,7 +37,7 @@ impl State {
             return;
         }
         if let Some(bytes) = decode(data, CLIPBOARD_MAX) {
-            self.clipboard = Some(bytes);
+            self.clipboard = Some(Selection(bytes));
         }
     }
 }

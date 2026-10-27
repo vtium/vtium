@@ -758,6 +758,21 @@ fn replies_waiting_for_the_host_are_bounded() {
     assert!(rounds > 1, "the bound never paused the input");
 }
 
+// vtium-parse's README, "Notes for vtium-term": an OSC 4 the parser
+// truncated is refused whole, though each query it kept is complete, so a
+// list past the OSC bound gets no reply.
+#[test]
+fn a_truncated_osc_4_list_gets_no_reply() {
+    let mut seq = b"\x1b]4".to_vec();
+    while seq.len() <= vtium_parse::OSC_MAX + 8 {
+        seq.extend_from_slice(b";1;?");
+    }
+    seq.push(0x07);
+    let mut t = term(8, 2, b"");
+    t.input(&seq);
+    assert_eq!(t.take_replies(), b"");
+}
+
 // The same bound inside one string: an OSC 4 at the OSC bound holds about
 // 260,000 queries, whose replies would be 7 MiB, so the list stops at the
 // reply that reaches the bound, as a stream of queries does.

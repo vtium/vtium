@@ -190,7 +190,7 @@ struct State {
     /// The cursor's blink interval, `CSI 16 ; Pn ]` (the Linux console's).
     cursor_blink_ms: Option<u32>,
     /// The selection OSC 52 set last, until the host takes it.
-    clipboard: Option<Vec<u8>>,
+    clipboard: Option<clipboard::Selection>,
     /// The queries answered, in order, for the reply rule's test.
     #[cfg(test)]
     answered: Vec<Query>,
@@ -275,7 +275,7 @@ impl Terminal {
     /// replaced an earlier one. The host puts it in its selection buffer, or
     /// drops it when its configuration turns copy-out off.
     pub fn take_clipboard_write(&mut self) -> Option<Vec<u8>> {
-        self.state.clipboard.take()
+        self.state.clipboard.take().map(|s| s.0)
     }
 
     /// DECSCUSR's style.

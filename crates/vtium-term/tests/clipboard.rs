@@ -186,14 +186,28 @@ fn osc_52_at_the_cap_sets_and_one_byte_over_is_dropped() {
 
 // vtium-parse's README, "Notes for vtium-term": a string past the OSC bound
 // is truncated, and a truncated OSC 52 sets nothing, never a part of the
-// selection. The parser's own test of a truncated string with a valid
-// prefix is `a_truncated_osc_52_sets_nothing` in src/terminal/clipboard.rs.
+// selection. The data is base64 throughout. Its kept prefix also decodes
+// past CLIPBOARD_MAX, as any prefix at the bound does, so the cap refuses it
+// too; `a_truncated_osc_52_sets_nothing` in src/terminal/clipboard.rs shows
+// the truncation rule alone, and `a_truncated_osc_4_list_gets_no_reply`
+// shows it through the parser.
 #[test]
 fn osc_52_past_the_osc_bound_is_dropped() {
-    let mut data = base64(b"hi");
-    data.resize(OSC_MAX + 4, b'A');
+    let data = b"QUFB".repeat(OSC_MAX / 4 + 1);
     let mut t = term(8, 2, b"");
     assert_eq!(set(&mut t, &osc52("c", &data)), None);
+}
+
+// The selection waits for the host in the terminal's state, and `{:?}` of
+// the terminal shows its length, never its bytes.
+#[test]
+fn debug_output_shows_no_selection() {
+    let mut t = term(8, 2, b"");
+    t.input(&osc52("c", &base64(b"secret")));
+    let shown = format!("{t:?}");
+    assert!(!shown.contains("[115, 101, 99, 114, 101, 116]"), "{shown}");
+    assert!(!shown.contains("c2VjcmV0"), "{shown}");
+    assert!(shown.contains("6 bytes"), "{shown}");
 }
 
 // vtium-parse's README, "A string acts only when its terminator completes
