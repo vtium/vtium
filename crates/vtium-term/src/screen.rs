@@ -255,6 +255,11 @@ impl Screen {
         self.flags.reverse
     }
 
+    /// Marks everything: a new palette recolours every cell.
+    pub(crate) fn recolour(&mut self) {
+        self.damage.mark_all();
+    }
+
     /// Marks everything when it changes: every cell draws differently.
     pub fn set_reverse_video(&mut self, on: bool) {
         if self.flags.reverse != on {

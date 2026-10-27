@@ -339,8 +339,13 @@ impl Terminal {
         &self.state.host.palette
     }
 
+    /// A palette that differs from the one set recolours every cell, so
+    /// every cell is marked changed.
     pub fn set_palette(&mut self, palette: Palette) {
-        self.state.host.palette = palette;
+        if self.state.host.palette != palette {
+            self.state.host.palette = palette;
+            self.state.screen.recolour();
+        }
     }
 
     /// Whether BackSpace sends DEL (0x7F) in place of BS (0x08).
