@@ -124,7 +124,7 @@ fn run(opts: &[(String, String)]) -> ExitCode {
         Err(e) => return refuse(e),
     };
     for c in &cases {
-        let mut line = format!("{:<9} {}", c.status.name(), c.name);
+        let mut line = format!("{:<11} {}", c.status.name(), c.name);
         if c.pixels > 0 {
             line.push_str(&format!(
                 ": {} pixel(s) differ, max channel delta {}",
@@ -141,10 +141,11 @@ fn run(opts: &[(String, String)]) -> ExitCode {
         return refuse(e);
     }
     let bad = cases.iter().filter(|c| !c.status.passes()).count();
-    let judged = cases.iter().filter(|c| c.status != Status::Pending).count();
+    let count = |st: Status| cases.iter().filter(|c| c.status == st).count();
+    let (pending, provisional) = (count(Status::Pending), count(Status::Provisional));
     println!(
-        "tier2: {judged} case(s) judged, {} pending, {bad} not passing; report {}",
-        cases.len() - judged,
+        "tier2: {} case(s) judged, {provisional} provisional, {pending} pending, {bad} not passing; report {}",
+        cases.len() - pending - provisional,
         report.display()
     );
     if bad > 0 {
