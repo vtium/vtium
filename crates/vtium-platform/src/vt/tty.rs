@@ -198,11 +198,8 @@ mod tests {
         assert!(is_ours(&ioctl::VtMode { waitv: 1, ..ours })?);
         // Another process's signals, VT_AUTO, and a mode the headers do not
         // name are not.
-        assert!(!is_ours(&ioctl::VtMode {
-            relsig: 10,
-            acqsig: 12,
-            ..ours
-        })?);
+        assert!(!is_ours(&ioctl::VtMode { relsig: 10, ..ours })?);
+        assert!(!is_ours(&ioctl::VtMode { acqsig: 12, ..ours })?);
         assert!(!is_ours(&ioctl::VtMode {
             mode: ioctl::VT_AUTO,
             ..ours
