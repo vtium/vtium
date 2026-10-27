@@ -45,7 +45,7 @@
 //! [`CLUSTER_BYTES_PER_CELL`] and the scrollback
 //! caps [`SB_SIZE_CAP_SMALL`], [`SB_SIZE_CAP_MEDIUM`] and
 //! [`SB_SIZE_CAP_LARGE`], which [`sb_size`] applies by the machine's
-//! memory.
+//! memory unless the configuration sets a cap, at most [`SB_SIZE_MAX`].
 
 mod bounds;
 mod cell;
@@ -57,7 +57,7 @@ mod style;
 
 pub use bounds::{
     CLUSTER_BYTES_PER_CELL, CLUSTER_MAX, COLUMNS_MAX, ROWS_MAX, SB_SIZE_CAP_LARGE,
-    SB_SIZE_CAP_MEDIUM, SB_SIZE_CAP_SMALL,
+    SB_SIZE_CAP_MEDIUM, SB_SIZE_CAP_SMALL, SB_SIZE_MAX,
 };
 pub use cell::{Cell, ClusterOffset, Content, LinkIndex, StyleIndex, Width};
 pub use damage::{Age, Damage};

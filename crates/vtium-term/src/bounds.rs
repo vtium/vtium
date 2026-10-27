@@ -73,9 +73,17 @@ const SB_LARGE: Bound = Bound {
     cite: "The operator's caps, vtium/vtium#10 (2026-10-26)",
 };
 
+const SB_MAX: Bound = Bound {
+    name: "SB_SIZE_MAX",
+    value: 100_000,
+    what: "Scrollback lines any cap may allow, the configured override included",
+    past: "A configured cap is clamped to it",
+    cite: "vtium's own: the largest of the operator's caps, where the worst case a program can write is 531 MiB (ADR-1001, \"Memory\"); the operator asked for the cap to be configurable (2026-10-26)",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 7] = [
+pub(crate) const BOUNDS: [Bound; 8] = [
     COLUMNS,
     ROWS,
     CLUSTER,
@@ -83,6 +91,7 @@ pub(crate) const BOUNDS: [Bound; 7] = [
     SB_SMALL,
     SB_MEDIUM,
     SB_LARGE,
+    SB_MAX,
 ];
 
 /// Cells a line holds, and columns a screen's damage tracks. The grid's
@@ -127,6 +136,9 @@ pub const SB_SIZE_CAP_MEDIUM: usize = SB_MEDIUM.value;
 
 /// The most scrollback lines from 4 GiB.
 pub const SB_SIZE_CAP_LARGE: usize = SB_LARGE.value;
+
+/// The most scrollback lines any cap allows, a configured one included.
+pub const SB_SIZE_MAX: usize = SB_MAX.value;
 
 #[cfg(test)]
 #[expect(

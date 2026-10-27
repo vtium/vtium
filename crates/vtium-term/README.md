@@ -10,7 +10,7 @@ vtium's terminal state: the screen, its cells and lines, the scrollback, the mod
 | `src/line.rs` | `Line`: its cells, the style and link tables and the cluster arena they index, its `LineId` and its `LineFlags` (the reflow flag, the OSC 133 marks, the line size). |
 | `src/damage.rs` | `Damage`: change ages by screen position, and the rule for what each screen event marks. |
 | `src/frame.rs` | `Frame`, `FrameCell`, `Cursor` and `Palette`: what a renderer reads, with colours resolved at draw time. |
-| `src/scrollback.rs` | `sb-size`'s default and its cap by the machine's memory. |
+| `src/scrollback.rs` | `sb-size`'s default, and its cap: by default from the machine's memory, or as the configuration sets it. |
 | `src/bounds.rs` | Every bound, with its value, what happens past it and its citation: the one source for the constants and for the table below. |
 | `tests/` | The integration tests: see its README. |
 
@@ -28,7 +28,7 @@ The C reference is the floor: vtium does everything it does, and where it depart
 
 ## Bounds
 
-The byte stream comes from an untrusted program, so nothing it sends grows memory without a bound. A line's style and link tables hold at most twice its cells before they compact, so a program that writes a new style or link into every cell, over and over, never grows them past that. A grapheme cluster keeps at most `CLUSTER_MAX` codepoints, and the clusters a line's cells name take at most `CLUSTER_BYTES_PER_CELL` bytes a cell, with the arena compacting at twice that. Damage tracks at most `COLUMNS_MAX` by `ROWS_MAX` positions, and the scrollback keeps at most `sb-size` lines, capped by the machine's memory.
+The byte stream comes from an untrusted program, so nothing it sends grows memory without a bound. A line's style and link tables hold at most twice its cells before they compact, so a program that writes a new style or link into every cell, over and over, never grows them past that. A grapheme cluster keeps at most `CLUSTER_MAX` codepoints, and the clusters a line's cells name take at most `CLUSTER_BYTES_PER_CELL` bytes a cell, with the arena compacting at twice that. Damage tracks at most `COLUMNS_MAX` by `ROWS_MAX` positions, and the scrollback keeps at most `sb-size` lines, capped by default by the machine's memory or by a configured cap, at most `SB_SIZE_MAX`.
 
 <!-- bounds table: generated from src/bounds.rs -->
 | Bound | Value | What it bounds | Past it | Citation |
@@ -40,4 +40,5 @@ The byte stream comes from an untrusted program, so nothing it sends grows memor
 | `SB_SIZE_CAP_SMALL` | 10000 | Scrollback lines `sb-size` may ask for on a machine with less than 2 GiB of memory | `sb-size` is clamped to the cap | The operator's caps, vtium/vtium#10 (2026-10-26) |
 | `SB_SIZE_CAP_MEDIUM` | 30000 | Scrollback lines `sb-size` may ask for with 2 GiB of memory to less than 4 GiB | `sb-size` is clamped to the cap | The operator's caps, vtium/vtium#10 (2026-10-26) |
 | `SB_SIZE_CAP_LARGE` | 100000 | Scrollback lines `sb-size` may ask for with 4 GiB of memory or more | `sb-size` is clamped to the cap | The operator's caps, vtium/vtium#10 (2026-10-26) |
+| `SB_SIZE_MAX` | 100000 | Scrollback lines any cap may allow, the configured override included | A configured cap is clamped to it | vtium's own: the largest of the operator's caps, where the worst case a program can write is 531 MiB (ADR-1001, "Memory"); the operator asked for the cap to be configurable (2026-10-26) |
 <!-- end of bounds table -->
