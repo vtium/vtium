@@ -1382,6 +1382,54 @@ fn input_with_no_modeset_owed_powers_on_through_dpms() {
     assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 0);
 }
 
+// Round 4, finding 1: input with no modeset owed powers every display on
+// through its DPMS, though one refuses; the one refused is left owed a
+// modeset, which the retries run with every display on.
+#[test]
+fn a_refused_dpms_unblank_is_tried_again_as_a_modeset() {
+    let mut v = a_then_b(ModePolicy::default());
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    flip(&mut v);
+    let (mut blank, at) = blanked(&mut v);
+    v.events().for_each(drop);
+    // The stand-in refuses every connector property but DPMS.
+    for o in v.outputs.iter_mut().filter(|o| o.id.0 == A) {
+        o.dpms = o.dpms.map(|(p, d)| (p + 5000, d));
+    }
+    assert!(blank.input(at));
+    assert!(v.unblank().is_err());
+    assert_eq!(v.card().state().dpms[&B], 0, "B powered on");
+    assert_eq!(v.card().state().dpms[&A], 3);
+    assert_eq!(v.waits(), (false, true), "the retries");
+    v.retry_wake();
+    let c = v.card().last_commit().unwrap();
+    assert_ne!(c.flags & DRM_MODE_ATOMIC_ALLOW_MODESET, 0);
+    assert_eq!(
+        (c.get(100, "ACTIVE"), c.get(101, "ACTIVE")),
+        (Some(1), Some(1))
+    );
+    assert_eq!(v.card().state().dpms[&A], 0);
+    assert_eq!(v.dpms(DisplayId(A)), Some(Dpms::On));
+    assert_eq!(v.waits(), (false, false));
+    assert!(!blank.blanked());
+}
+
+// Input that ends the blank while asleep does nothing and starts no
+// retries: the wake-up brings every display on.
+#[test]
+fn an_unblank_while_asleep_does_nothing() {
+    let mut v = awake(one());
+    let (mut blank, at) = blanked(&mut v);
+    v.sleep();
+    flip(&mut v);
+    let commits = v.card().state().commits.len();
+    assert!(blank.input(at));
+    v.unblank().unwrap();
+    assert_eq!(v.waits(), (false, false));
+    assert_eq!(v.card().state().commits.len(), commits);
+}
+
 // A display plugged in is set on, whatever DPMS its connector was left at.
 #[test]
 fn a_new_display_is_set_on() {

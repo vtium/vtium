@@ -345,24 +345,29 @@ impl<K: Kms> Drm2d<K> {
 
     /// Powers every display on after the blank, on the input that ends
     /// it: through the modeset a hotplug while blanked left owed, with
-    /// every display on, or else through each display's DPMS. A modeset
-    /// owed that fails is tried again as a failed hotplug is: the blank
-    /// stays ended, since no later input comes to `unblank`.
+    /// every display on, or else through each display's DPMS. Where the
+    /// modeset or any display's DPMS fails, a modeset is owed and tried
+    /// again as a failed hotplug is, setting every display on: the blank
+    /// stays ended, since no later input comes to `unblank`. Asleep, it
+    /// does nothing, as the wake-up brings every display on.
     pub fn unblank(&mut self) -> io::Result<()> {
         self.blanked = false;
-        let done = if std::mem::take(&mut self.owed) && self.awake {
-            let set = self.scan(Scan::Retry);
-            if set.is_err() {
-                self.owed = true;
-                self.retry(false);
-            }
-            set
+        if !self.awake {
+            return Ok(());
+        }
+        let done = if std::mem::take(&mut self.owed) {
+            self.scan(Scan::Retry)
         } else {
             let ids: Vec<DisplayId> = self.displays().collect();
             ids.into_iter()
-                .try_for_each(|id| self.set_dpms(id, Dpms::On))
+                .fold(Ok(()), |done, id| done.and(self.set_dpms(id, Dpms::On)))
         };
-        // The modeset's flip is bounded.
+        if let Err(e) = &done {
+            log::warn!("cannot power the displays on: {e}; trying a modeset");
+            self.owed = true;
+            self.retry(false);
+        }
+        // The modeset's flip and the retries are bounded.
         self.settle();
         done
     }
