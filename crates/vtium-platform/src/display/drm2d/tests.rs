@@ -1208,6 +1208,35 @@ fn a_hotplug_retry_waits_for_input_once_blanked() {
     );
 }
 
+// Round 4, finding 4: a retry of a failed hotplug that fails again keeps
+// DRM master and the displays online, so a blank in the retries' window
+// powers them down and the next retry commits nothing; the input ending
+// the blank runs the modeset with every display on.
+#[test]
+fn a_failed_retry_keeps_master_through_the_blank() {
+    let mut v = a_then_b(ModePolicy::default());
+    v.card().state().listed.push(B);
+    v.card().state().commit_errors.extend([Errno::INVAL; 8]);
+    assert!(v.poll().is_err());
+    v.retry_wake();
+    assert_eq!(v.waits(), (false, true), "the retries");
+    assert!(v.card().state().master);
+    let (mut blank, at) = blanked(&mut v);
+    assert_eq!(v.card().state().dpms[&A], 3);
+    v.events().for_each(drop);
+    let commits = v.card().state().commits.len();
+    v.retry_wake();
+    assert_eq!(v.card().state().commits.len(), commits, "nothing committed");
+    assert_eq!(v.card().state().dpms[&A], 3);
+    activity(&mut v, &mut blank, at);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(
+        (c.get(100, "ACTIVE"), c.get(101, "ACTIVE")),
+        (Some(1), Some(1))
+    );
+    assert_eq!(v.dpms(DisplayId(A)), Some(Dpms::On));
+}
+
 // A wake-up runs the modeset a hotplug while blanked left owed, with every
 // display on, and leaves nothing owed to the input after it.
 #[test]

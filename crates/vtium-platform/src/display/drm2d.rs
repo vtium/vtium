@@ -509,7 +509,10 @@ impl<K: Kms> Drm2d<K> {
     }
 
     /// Takes DRM master and sets every display up again: as a wake-up,
-    /// which reports [`Event::Awake`], or as a retry, which does not.
+    /// which reports [`Event::Awake`], or as a retry, which does not. A
+    /// failed wake-up lets master go, as another process may hold the
+    /// displays; a failed retry keeps master and the displays online, as
+    /// the atomic modeset left them, so the blank still powers them down.
     fn try_wake(&mut self, scan: Scan) -> io::Result<()> {
         if !self.master {
             self.card.set_master().inspect_err(|e| {
@@ -525,8 +528,10 @@ impl<K: Kms> Drm2d<K> {
             o.redraw = true;
         }
         if let Err(e) = self.scan(scan) {
-            self.release_master();
-            self.awake = false;
+            if scan == Scan::WakeUp {
+                self.release_master();
+                self.awake = false;
+            }
             return Err(e);
         }
         if scan == Scan::WakeUp {
