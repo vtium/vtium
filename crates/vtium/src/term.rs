@@ -107,6 +107,9 @@ pub struct View {
     pub timer: Option<RenderTimer>,
     pub size: (u32, u32),
     pub refresh: Option<std::time::Duration>,
+    /// The height the display's font was asked for.
+    pub height: u32,
+    pub orientation: vtium_render::Orientation,
 }
 
 impl View {
@@ -120,6 +123,8 @@ impl View {
     ) -> View {
         View {
             id,
+            height: 0,
+            orientation: config.orientation,
             renderer: Renderer::new(font, size.0, size.1, config),
             since: Age::NEVER,
             wait: Wait::default(),
@@ -133,6 +138,16 @@ impl View {
                 .and_then(|m| 1_000_000_000_000_u64.checked_div(u64::from(m)))
                 .map(std::time::Duration::from_nanos),
         }
+    }
+
+    /// Draws with `font`, asked for at `height`, turned as `config` says,
+    /// from here on: a new renderer, which draws the next frame whole.
+    pub fn rebuild(&mut self, font: Font<Box<dyn Face>>, height: u32, config: RenderConfig) {
+        self.renderer = Renderer::new(font, self.size.0, self.size.1, config);
+        self.height = height;
+        self.orientation = config.orientation;
+        self.since = Age::NEVER;
+        self.lost = true;
     }
 
     /// Draws `term` into `video`'s canvas and presents it, unless a hold

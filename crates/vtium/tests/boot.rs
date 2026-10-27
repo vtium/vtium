@@ -24,8 +24,9 @@ const H: u32 = 160;
 const ID: DisplayId = DisplayId(7);
 
 /// A device with one display, its frame buffer in memory.
-#[derive(Default)]
 struct Memory {
+    w: u32,
+    h: u32,
     pixels: Vec<u8>,
     events: Vec<Event>,
     awake: bool,
@@ -36,6 +37,30 @@ struct Memory {
     wake_ups: u32,
     /// Each canvas lent's age, in order.
     ages: Vec<u32>,
+}
+
+impl Default for Memory {
+    fn default() -> Memory {
+        Memory::sized(W, H)
+    }
+}
+
+impl Memory {
+    fn sized(w: u32, h: u32) -> Memory {
+        Memory {
+            w,
+            h,
+            pixels: Vec::new(),
+            events: Vec::new(),
+            awake: false,
+            dpms: None,
+            frames: 0,
+            age: 0,
+            unblanks: 0,
+            wake_ups: 0,
+            ages: Vec::new(),
+        }
+    }
 }
 
 impl Video for Memory {
@@ -52,7 +77,7 @@ impl Video for Memory {
         "MEM-1".into()
     }
     fn size(&self, _: DisplayId) -> Option<(u32, u32)> {
-        Some((W, H))
+        Some((self.w, self.h))
     }
     fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
         Some(60_000)
@@ -65,9 +90,9 @@ impl Video for Memory {
         self.ages.push(age);
         Some(Canvas {
             pixels: &mut self.pixels,
-            width: W,
-            height: H,
-            stride: W * 4,
+            width: self.w,
+            height: self.h,
+            stride: self.w * 4,
             age,
         })
     }
@@ -98,7 +123,7 @@ impl Video for Memory {
     fn wake_up(&mut self) -> io::Result<()> {
         self.wake_ups += 1;
         let first = self.pixels.is_empty();
-        self.pixels = vec![0; (W * H * 4) as usize];
+        self.pixels = vec![0; (self.w * self.h * 4) as usize];
         self.awake = true;
         self.dpms = Some(Dpms::On);
         self.age = 0;
@@ -491,4 +516,49 @@ fn a_retake_while_blanked_waits_dark_for_input() {
     assert!(h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::Off)));
     h.type_str("b");
     assert_eq!(h.memory().wake_ups, wake_ups + 1);
+}
+
+fn key(mods: Mods, keysym: u32) -> InputEvent {
+    InputEvent::Key(KeyEvent {
+        keycode: 0,
+        ascii: 0,
+        mods,
+        keysyms: vec![keysym],
+        codepoints: vec![None],
+        repeat: false,
+    })
+}
+
+#[test]
+fn a_larger_display_draws_a_larger_font_on_the_same_grid() {
+    let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", "read x"]);
+    h.app.add_video(
+        PathBuf::from("/dev/mem1"),
+        Box::new(Memory::sized(640, 320)),
+    );
+    h.app.vt.activate().ok();
+    assert!(h.until(SECOND, |a| a.cells().len() == 2));
+    // 320x160 holds 40x10 cells of 8x16; 640x320 holds 40x10 of 16x32.
+    assert_eq!(h.app.grid(), (40, 10));
+    assert_eq!(h.app.cells(), [(8, 16), (16, 32)]);
+}
+
+#[test]
+fn zoom_and_rotate_change_the_grid() {
+    let mut h = Harness::new(&["--font-size=16", "--login", "--", "/bin/sh", "-c", "read x"]);
+    assert_eq!(h.app.grid(), (40, 10));
+    let equal = 0x3d;
+    let minus = 0x2d;
+    h.app.input_event(key(Mods::CTRL, equal), now());
+    assert_eq!(h.app.grid(), (20, 5), "zoomed in to 16x32 cells");
+    assert_eq!(h.app.cells(), [(16, 32)]);
+    h.app.input_event(key(Mods::CTRL, minus), now());
+    assert_eq!(h.app.grid(), (40, 10), "and back");
+    // Logo+= turns the display a quarter: 160 across, 320 down.
+    h.app.input_event(key(Mods::LOGO, equal), now());
+    assert_eq!(h.app.grid(), (20, 20));
+    h.app.input_event(key(Mods::LOGO, minus), now());
+    assert_eq!(h.app.grid(), (40, 10));
+    // The keys reach no program.
+    assert!(h.until(SECOND, |a| a.screen_text().iter().all(|l| l.is_empty())));
 }

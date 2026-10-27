@@ -38,7 +38,7 @@ use vtium_platform::input::{Button, InputEvent, KeyEvent, PointerEvent};
 use vtium_platform::pty::{Erase, Pty, Size};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
 use vtium_platform::vt::{Switch, Vt, VtEvent};
-use vtium_render::{Config as RenderConfig, DrawState, Profile};
+use vtium_render::{Config as RenderConfig, DrawState, Orientation, Profile};
 use vtium_term::{Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal};
 
 use crate::blink::{Blink, Timer};
@@ -47,6 +47,7 @@ use crate::config::keys;
 use crate::config::{Config, ModeSpec};
 use crate::font;
 use crate::grab::{self, Grab};
+use crate::layout::{self, Zoom};
 use crate::respawn::{Next, Respawn};
 use crate::sync::{Action, Sync};
 use crate::term::{Clock, Term, View};
@@ -128,7 +129,19 @@ pub struct App<V: Vt + 'static> {
     cursor_due: Option<(Instant, Duration)>,
     timer_due: Option<Instant>,
     pointer: Pointer,
+    /// The base font's height; each display may draw larger
+    /// ([`layout::layout`]).
     font_size: u32,
+    /// `font-size=0`: the base height follows the smallest display, until
+    /// a zoom.
+    auto_size: bool,
+    /// The base font was found once: a later failure keeps it.
+    has_font: bool,
+    /// The base font's size step, which a zoom takes.
+    step: u32,
+    /// The base font's cell, the grid's and the pty's.
+    cell: (u32, u32),
+    orientation: Orientation,
     grid: (usize, usize),
     exit: Option<Exit>,
     leaving: Option<Leaving>,
@@ -184,6 +197,11 @@ impl<V: Vt + 'static> App<V> {
             pty: None,
             views: BTreeMap::new(),
             font_size: config.number(&keys::FONT_SIZE).map_or(0, to_u32),
+            auto_size: config.number(&keys::FONT_SIZE).unwrap_or(0) == 0,
+            has_font: false,
+            step: 16,
+            cell: (8, 16),
+            orientation: Orientation::Normal,
             config,
             handle,
             clock,
@@ -249,7 +267,7 @@ impl<V: Vt + 'static> App<V> {
         if let Some(r) = &mut self.releasing {
             r.remove(node);
         }
-        self.resize();
+        self.relayout();
     }
 
     fn place(&self) -> Place<'_> {
@@ -266,12 +284,7 @@ impl<V: Vt + 'static> App<V> {
     }
 
     fn pty_size(&self) -> Size {
-        let cell = self
-            .views
-            .values()
-            .next()
-            .map(|v| v.renderer.font().cell())
-            .map_or((8, 16), |c| (c.width, c.height));
+        let cell = self.cell;
         Size {
             cols: u16::try_from(self.grid.0).unwrap_or(u16::MAX),
             rows: u16::try_from(self.grid.1).unwrap_or(u16::MAX),
@@ -325,38 +338,13 @@ impl<V: Vt + 'static> App<V> {
         }
     }
 
-    /// The font for a new display of `size`.
-    fn font_for(&mut self, size: (u32, u32)) -> Option<Font<Box<dyn Face>>> {
-        let configured = self.config.number(&keys::FONT_SIZE).map_or(0, to_u32);
-        let wanted = if configured == 0 {
-            font::auto_size(size.0, size.1)
-        } else {
-            configured
-        };
-        let in_use = !self.views.is_empty();
-        match font::select(wanted, in_use, |h| self.face(h)) {
-            Ok((face, h)) => {
-                self.font_size = h;
-                let font = Font::new(face);
-                if !in_use {
-                    for (range, n) in font.coverage().partial() {
-                        crate::warn::warn(format_args!(
-                            "the font covers {} of {} characters of {range:?}; that range draws the sprites unless glyph-source says otherwise",
-                            n.covered, n.total
-                        ));
-                    }
-                }
-                let policy = font::policy(&self.config, font.policy());
-                Some(
-                    font.with_policy(policy)
-                        .with_missing(font::missing(&self.config)),
-                )
-            }
-            Err(e) => {
-                log::error!("cannot load the font: {e}");
-                None
-            }
-        }
+    /// The font at `height`, with the configuration's sprite policy and
+    /// missing glyph.
+    fn font_at(&self, face: Box<dyn Face>) -> Font<Box<dyn Face>> {
+        let font = Font::new(face);
+        let policy = font::policy(&self.config, font.policy());
+        font.with_policy(policy)
+            .with_missing(font::missing(&self.config))
     }
 
     fn render_config(&self) -> RenderConfig {
@@ -367,6 +355,7 @@ impl<V: Vt + 'static> App<V> {
         };
         RenderConfig {
             profile,
+            orientation: self.orientation,
             ..RenderConfig::default()
         }
     }
@@ -384,9 +373,11 @@ impl<V: Vt + 'static> App<V> {
         };
         let refresh = video.refresh_mhz(id);
         let (backend, name) = (video.backend(), video.name(id));
-        let Some(font) = self.font_for(size) else {
+        let Ok(face) = self.face(self.font_size.max(1)) else {
+            log::error!("cannot load the font for display {name}");
             return;
         };
+        let font = self.font_at(face);
         let view = View::new(
             id,
             font,
@@ -395,35 +386,104 @@ impl<V: Vt + 'static> App<V> {
             self.render_config(),
             self.measure(),
         );
-        log::info!(
-            "Display {name} with backend [{backend}] text renderer [bbulk], cell size {}x{}",
-            view.renderer.font().cell().width,
-            view.renderer.font().cell().height
-        );
         self.views.insert((node.clone(), id), view);
-        self.resize();
-        self.draw_now = true;
+        if !self.relayout() {
+            self.views.remove(&(node.clone(), id));
+            return;
+        }
+        if let Some(v) = self.views.get(&(node.clone(), id)) {
+            let cell = v.renderer.font().cell();
+            log::info!(
+                "Display {name} with backend [{backend}] text renderer [bbulk], cell size {}x{}",
+                cell.width,
+                cell.height
+            );
+        }
     }
 
-    /// The grid every display holds, and the terminal and the pty at it.
-    fn resize(&mut self) {
-        let grid = self
-            .views
-            .values()
-            .map(|v| v.renderer.grid_size())
-            .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1)))
-            .unwrap_or(self.grid);
-        let grid = (grid.0.max(1), grid.1.max(1));
-        if let Some(input) = &mut self.input {
-            if let Some(v) = self.views.values().next() {
-                input.set_pointer_max(v.size.0, v.size.1);
+    /// Sets every display's font and the grid from the base height, as
+    /// [`layout::layout`] decides, and the terminal and the pty at the
+    /// grid. Returns false, changing nothing, when the base font cannot be
+    /// found.
+    fn relayout(&mut self) -> bool {
+        let sizes: Vec<(u32, u32)> = self.views.values().map(|v| v.size).collect();
+        if sizes.is_empty() {
+            return true;
+        }
+        if self.auto_size {
+            let w = sizes.iter().map(|s| s.0).min().unwrap_or(0);
+            let h = sizes.iter().map(|s| s.1).min().unwrap_or(0);
+            self.font_size = font::auto_size(w, h);
+        }
+        let base = match font::select(self.font_size, self.has_font, |h| self.face(h)) {
+            Ok((face, h)) => {
+                if !self.has_font {
+                    for (range, n) in vtium_font::Coverage::new(|r| face.coverage(r)).partial() {
+                        crate::warn::warn(format_args!(
+                            "the font covers {} of {} characters of {range:?}; that range draws the sprites unless glyph-source says otherwise",
+                            n.covered, n.total
+                        ));
+                    }
+                }
+                self.has_font = true;
+                self.step = face.size_step();
+                h
+            }
+            Err(e) => {
+                log::error!("cannot load the font: {e}");
+                return false;
+            }
+        };
+        self.font_size = base;
+        let cell = |h: u32| {
+            self.face(h).ok().map(|f| {
+                let c = f.cell();
+                (c.width, c.height)
+            })
+        };
+        let turned = matches!(self.orientation, Orientation::Right | Orientation::Left);
+        let Some(l) = layout::layout(&sizes, turned, base, self.step, cell) else {
+            return true;
+        };
+        self.cell = cell(base).unwrap_or(self.cell);
+        let config = self.render_config();
+        let heights: Vec<u32> = l.heights.clone();
+        let keys: Vec<(PathBuf, DisplayId)> = self.views.keys().cloned().collect();
+        for (key, height) in keys.into_iter().zip(heights) {
+            let stale = self
+                .views
+                .get(&key)
+                .is_some_and(|v| v.height != height || v.orientation != self.orientation);
+            if !stale {
+                continue;
+            }
+            let Ok(face) = self.face(height) else {
+                continue;
+            };
+            let font = self.font_at(face);
+            if let Some(v) = self.views.get_mut(&key) {
+                v.rebuild(font, height, config);
             }
         }
-        if let Some(v) = self.views.values().next() {
-            let cell = v.renderer.font().cell();
-            self.term.terminal.set_cell_size(cell.width, cell.height);
-            self.term.terminal.set_display_size(v.size.0, v.size.1);
+        self.resize(l.grid);
+        true
+    }
+
+    /// The terminal and the pty at `grid`, the pointer within it.
+    fn resize(&mut self, grid: (usize, usize)) {
+        let (cw, ch) = self.cell;
+        let px = |n: usize, c: u32| u32::try_from(n).unwrap_or(u32::MAX).saturating_mul(c);
+        if let Some(input) = &mut self.input {
+            input.set_pointer_max(px(grid.0, cw), px(grid.1, ch));
         }
+        self.term.terminal.set_cell_size(cw, ch);
+        self.term
+            .terminal
+            .set_display_size(px(grid.0, cw), px(grid.1, ch));
+        for v in self.views.values_mut() {
+            v.lost = true;
+        }
+        self.draw_now = true;
         if grid == self.grid {
             return;
         }
@@ -435,10 +495,6 @@ impl<V: Vt + 'static> App<V> {
                 log::warn!("cannot resize the pty: {e}");
             }
         }
-        for v in self.views.values_mut() {
-            v.lost = true;
-        }
-        self.draw_now = true;
     }
 
     /// The terminal starts drawing and blinking.
@@ -552,7 +608,7 @@ impl<V: Vt + 'static> App<V> {
             Event::Added(id) => self.add_display(node, id),
             Event::Removed(id) => {
                 self.views.remove(&(node.clone(), id));
-                self.resize();
+                self.relayout();
             }
             Event::Redraw(id) => {
                 if let Some(v) = self.views.get_mut(&(node.clone(), id)) {
@@ -652,8 +708,17 @@ impl<V: Vt + 'static> App<V> {
                 Grab::ScrollDown => screen.scroll_view_down(1),
                 Grab::PageUp => screen.scroll_view_up(page),
                 Grab::PageDown => screen.scroll_view_down(page),
-                Grab::ZoomIn | Grab::ZoomOut | Grab::RotateCw | Grab::RotateCcw => {
-                    log::debug!("{g:?} is not built yet");
+                Grab::ZoomIn | Grab::ZoomOut => {
+                    let dir = if g == Grab::ZoomIn {
+                        Zoom::In
+                    } else {
+                        Zoom::Out
+                    };
+                    self.zoom(dir);
+                }
+                Grab::RotateCw | Grab::RotateCcw => {
+                    self.orientation = layout::rotate(self.orientation, g == Grab::RotateCw);
+                    self.relayout();
                 }
             }
             self.draw_now = true;
@@ -684,6 +749,22 @@ impl<V: Vt + 'static> App<V> {
         self.draw_now = true;
     }
 
+    /// A zoom: the base height a size step larger or smaller, which ends
+    /// `font-size=0`'s following of the display. A height with no font
+    /// keeps the one in use.
+    fn zoom(&mut self, dir: Zoom) {
+        let Some(size) = layout::zoom(self.font_size, self.step, dir) else {
+            return;
+        };
+        let (old, auto) = (self.font_size, self.auto_size);
+        self.auto_size = false;
+        self.font_size = size;
+        if !self.relayout() {
+            self.font_size = old;
+            self.auto_size = auto;
+        }
+    }
+
     fn send_user_bytes(&mut self) {
         let bytes = self.term.terminal.take_replies();
         if let Some(pty) = &mut self.pty {
@@ -694,12 +775,7 @@ impl<V: Vt + 'static> App<V> {
     }
 
     fn pointer(&mut self, event: PointerEvent) {
-        let cell = self
-            .views
-            .values()
-            .next()
-            .map(|v| v.renderer.font().cell())
-            .map_or((8, 16), |c| (c.width.max(1), c.height.max(1)));
+        let cell = (self.cell.0.max(1), self.cell.1.max(1));
         let at = |p: &Pointer| {
             (
                 usize::try_from(p.x.checked_div(cell.0).unwrap_or(0)).unwrap_or(0),
@@ -917,6 +993,7 @@ impl<V: Vt + 'static> App<V> {
         let now_all = std::mem::take(&mut self.draw_now) || present;
         let changed = self.term.changed;
         let holding = self.term.sync.holding(&self.term.terminal);
+        let base = self.cell;
         let App {
             views,
             videos,
@@ -956,6 +1033,15 @@ impl<V: Vt + 'static> App<V> {
                 view.owed = true;
                 continue;
             }
+            // The pointer is kept in the base cell's pixels; a display
+            // drawing larger cells draws it where its own cells put it.
+            let c = view.renderer.font().cell();
+            let state = DrawState {
+                pointer: state
+                    .pointer
+                    .map(|(x, y)| (scale(x, c.width, base.0), scale(y, c.height, base.1))),
+                ..state
+            };
             view.draw(term, video.as_mut(), &state, &**clock);
         }
     }
@@ -1028,6 +1114,17 @@ impl<V: Vt + 'static> App<V> {
     pub fn font_policy(&self) -> Option<(vtium_font::SpritePolicy, vtium_font::Missing)> {
         let font = self.views.values().next()?.renderer.font();
         Some((font.policy(), font.missing()))
+    }
+
+    /// Each display's font cell, in the order of the displays.
+    pub fn cells(&self) -> Vec<(u32, u32)> {
+        self.views
+            .values()
+            .map(|v| {
+                let c = v.renderer.font().cell();
+                (c.width, c.height)
+            })
+            .collect()
     }
 
     /// The terminal's grid.
@@ -1118,6 +1215,14 @@ fn mouse_button(b: Button) -> MouseButton {
         Button::Middle => MouseButton::Middle,
         Button::Right => MouseButton::Right,
     }
+}
+
+/// `v`, a position in cells of `from` pixels, in cells of `to` pixels.
+fn scale(v: u32, to: u32, from: u32) -> u32 {
+    u64::from(v)
+        .saturating_mul(u64::from(to))
+        .checked_div(u64::from(from))
+        .map_or(v, |s| u32::try_from(s).unwrap_or(u32::MAX))
 }
 
 /// `t` plus `d`, or `t` where the clock cannot hold it.

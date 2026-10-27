@@ -12,6 +12,7 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/blink.rs`, `src/font.rs`, `src/pointer.rs` | The blink timers; the font's fallback, size, sprite policy and missing glyph; the pointer guard |
 | `src/sync.rs` | When the terminal presents: the mode 2026 hold and coalescing without it |
 | `src/grab.rs` | The terminal's grabs, third in the key order |
+| `src/layout.rs` | The grid and each display's font height with several displays, and the zoom and rotation steps |
 | `src/term.rs` | The session's terminal as the pty's consumer, and a view per display that draws it |
 | `src/video.rs` | A video device behind one trait: drm2d, fbdev, or a test's stand-in |
 | `src/app.rs` | The seat: the VT's events, the devices, the keys, the blank, the child, the exit |
@@ -60,7 +61,7 @@ Each was the C reference's behaviour at kmscon `b1f7a7c5`.
 
 ## Not yet built
 
-Each is the C reference's and waits for its own change: zoom and rotation (their grab keys are taken and do nothing), several displays at different sizes (`multi-monitor`; vtium uses the smallest grid every display holds), the hardware cursor (the pointer is drawn in software), selection and copy with the pointer, the render timer's on-screen display, outline fonts (`font-engine=freetype` and `pango` draw with unifont), the named palettes but `legacy` and `custom` (vtium-term holds no other yet), and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs, the decoration colours and the rest.
+Each is the C reference's and waits for its own change: the `multi-monitor` key's `clone` and `largest` (vtium lays several displays out as `scaled`, the operator's choice on vtium/vtium#21), the hardware cursor (the pointer is drawn in software), selection and copy with the pointer, the render timer's on-screen display, outline fonts (`font-engine=freetype` and `pango` draw with unifont), the named palettes but `legacy` and `custom` (vtium-term holds no other yet), and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs, the decoration colours and the rest.
 
 ## C behaviour kept
 

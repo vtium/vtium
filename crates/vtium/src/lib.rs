@@ -31,6 +31,7 @@ pub mod child;
 pub mod config;
 pub mod font;
 pub mod grab;
+pub mod layout;
 pub mod logger;
 pub mod pointer;
 pub mod respawn;
