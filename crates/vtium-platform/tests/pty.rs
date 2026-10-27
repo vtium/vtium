@@ -31,7 +31,11 @@ const SIZE: Size = Size {
 
 fn main() {
     if let Ok(role) = std::env::var("VTIUM_PTY_CHILD") {
-        child(&role);
+        if role == "sigparent" {
+            sigparent();
+        } else {
+            child(&role);
+        }
         return;
     }
     let filter: Vec<String> = std::env::args()
@@ -61,8 +65,8 @@ fn main() {
             the_window_size_reaches_the_child,
         ),
         (
-            "the_child_starts_with_no_signal_blocked",
-            the_child_starts_with_no_signal_blocked,
+            "the_child_starts_with_default_signals_and_none_blocked",
+            the_child_starts_with_default_signals_and_none_blocked,
         ),
         (
             "a_writing_grandchild_does_not_hold_back_the_exit",
@@ -200,17 +204,6 @@ fn child(role: &str) {
             fs::write(env_path("VTIUM_PTY_OUT"), got).expect("record");
         }
         // Reports its window size, then waits for a SIGWINCH's new size.
-        // Reports the signals blocked in it, from /proc.
-        "sigmask" => {
-            let status = fs::read_to_string("/proc/self/status").expect("status");
-            let line = status
-                .lines()
-                .find(|l| l.starts_with("SigBlk:"))
-                .expect("SigBlk");
-            out.write_all(format!("{line}!").as_bytes()).expect("write");
-            out.flush().expect("flush");
-            read_until(|got| got.ends_with(b"Q"));
-        }
         "winsize" => {
             let first = rustix::termios::tcgetwinsize(stdin.as_fd()).expect("size");
             let line = format!(
@@ -236,6 +229,38 @@ fn child(role: &str) {
         }
         _ => panic!("no child role {role}"),
     }
+}
+
+/// Runs under `env --ignore-signal=INT,SYS,RTMAX --block-signal=TERM`, starts
+/// `cat /proc/self/status` on a pty from its loop, and prints its own
+/// signal state and the child's. cat changes no signal's disposition, as
+/// a Rust child, whose runtime ignores SIGPIPE, would.
+fn sigparent() {
+    let mut lp = host_loop();
+    let mut h = Host::default();
+    let mut cat = Command::new("cat");
+    cat.arg("/proc/self/status");
+    open(&lp, &mut h, cat);
+    turn_until(&mut lp, &mut h, 500, |h| h.term.exited.is_some());
+    let (ignored, blocked) =
+        signal_state(&fs::read_to_string("/proc/self/status").expect("status"));
+    println!("parent {ignored:x} {blocked:x}");
+    let (ignored, blocked) = signal_state(&String::from_utf8_lossy(&h.term.taken));
+    println!("child {ignored:x} {blocked:x}");
+}
+
+/// The signals ignored and blocked in a `/proc/<pid>/status`: bit n-1 is
+/// signal n.
+fn signal_state(status: &str) -> (u64, u64) {
+    let field = |name: &str| {
+        let hex = status
+            .lines()
+            .find_map(|l| l.strip_prefix(name))
+            .expect(name)
+            .trim();
+        u64::from_str_radix(hex, 16).expect(name)
+    };
+    (field("SigIgn:"), field("SigBlk:"))
 }
 
 fn read_until(done: impl Fn(&[u8]) -> bool) -> Vec<u8> {
@@ -651,19 +676,48 @@ fn the_window_size_reaches_the_child() {
     turn_until(&mut lp, &mut h, 500, |h| h.term.exited.is_some());
 }
 
-// The loop blocks the signals it handles; login, the shell and everything
-// they start must not inherit that.
-fn the_child_starts_with_no_signal_blocked() {
-    let mut lp = host_loop();
-    let mut h = Host::default();
-    open(&lp, &mut h, role("sigmask"));
-    turn_until(&mut lp, &mut h, 500, |h| h.term.taken.ends_with(b"!"));
-    assert_eq!(
-        String::from_utf8_lossy(&h.term.taken),
-        "SigBlk:\t0000000000000000!"
+// pty.c:313-320. A vtium started in the background ignores SIGINT and
+// SIGQUIT, and its loop blocks the signals it reads: login, the shell and
+// everything they start must inherit neither. SIGSYS and SIGRTMAX lie past
+// the C reference's reset, which stopped below SIGSYS. env's
+// --ignore-signal and --block-signal need coreutils 8.31 or later.
+fn the_child_starts_with_default_signals_and_none_blocked() {
+    let out = Command::new("env")
+        .args(["--ignore-signal=INT,SYS,RTMAX", "--block-signal=TERM"])
+        .arg(std::env::current_exe().expect("current exe"))
+        .env("VTIUM_PTY_CHILD", "sigparent")
+        .output()
+        .expect("sigparent");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "sigparent: {}: {text}{}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
     );
-    h.pty.as_mut().expect("pty").write(b"Q");
-    turn_until(&mut lp, &mut h, 500, |h| h.term.exited.is_some());
+    let state = |who: &str| {
+        let line = text
+            .lines()
+            .find_map(|l| l.strip_prefix(who))
+            .unwrap_or_else(|| panic!("no {who}line in {text:?}"));
+        let (ignored, blocked) = line.split_once(' ').expect("two fields");
+        (
+            u64::from_str_radix(ignored, 16).expect("ignored"),
+            u64::from_str_radix(blocked, 16).expect("blocked"),
+        )
+    };
+    let (ignored, blocked) = state("parent ");
+    let int = 1 << (rustix::process::Signal::INT.as_raw() - 1);
+    let sys = 1 << (rustix::process::Signal::SYS.as_raw() - 1);
+    let rtmax = 1 << 63;
+    let term = 1 << (rustix::process::Signal::TERM.as_raw() - 1);
+    assert_eq!(
+        ignored & (int | sys | rtmax),
+        int | sys | rtmax,
+        "the parent ignores SIGINT, SIGSYS and SIGRTMAX"
+    );
+    assert_ne!(blocked & term, 0, "the parent blocks SIGTERM");
+    assert_eq!(state("child "), (0, 0), "the child's ignored and blocked");
 }
 
 // The child exits while a grandchild that ignores the hangup goes on
