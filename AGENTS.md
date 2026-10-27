@@ -34,8 +34,13 @@ cargo fmt --all --check \
   && cargo build --profile minspec \
   && docs/scripts/adr lint --check \
   && docs/scripts/adr cite --check \
-  && docs/scripts/coverage
+  && docs/scripts/coverage \
+  && make test-tools \
+  && make conformance \
+  && make conformance-probes
 ```
+
+`make conformance` and `make conformance-probes` read the pinned goldens and probes from `../libtsm` and `../kmscon`, and refuse to run without them.
 
 vtium's code, tests and tools are written in Rust. Where vtium must talk to a C library, such as libseat (#34) or the C reference's parser that the parse oracle (`tools/parse-oracle/`, #52) compares against, C stays at that boundary: a binding or the thinnest shim, with everything around it in Rust. A tool that needs the C reference stays out of the default build, so `cargo test --workspace` needs no C toolchain or fork checkout. The C repositories keep their own harness, which judges vtium through language-neutral interfaces.
 
@@ -60,7 +65,7 @@ The lint's docstring states how feature ids are formed. An id never changes once
 | Tier | What it compares | Where it runs | Command |
 |---|---|---|---|
 | Unit | each crate's behaviour | here | `cargo test --workspace --all-features` |
-| 1, conformance | screen state and replies after a byte stream, as text, against the C reference's goldens | the replay corpus in `../libtsm/test/conformance/`, through the language-neutral interface in its `INTERFACE.md` | vtium's runner (#14); until it lands, `make test` in `../libtsm` runs the C reference against its own goldens |
+| 1, conformance | screen state and replies after a byte stream, as text, against the C reference's goldens | the replay corpus in `../libtsm/test/conformance/`, through the language-neutral interface in its `INTERFACE.md` | `make conformance` (`tools/conformance/`, #14), at the commits in `tools/conformance/pin.tsv` |
 | Capability probes | each claimed capability, through a replay | `../kmscon/tests/capabilities/` (`probes.replay`, `run.py`) | `make test` in `../kmscon` |
 | 2, pixels | what the renderer draws in memory, pixel for pixel | ported from `../kmscon/tests/` (#17) | with vtium-render |
 | 3, the VM | screenshots of the installed build on a VT in a QEMU/KVM guest with a real KMS device, against goldens, with size and memory figures | `../kmscon/fork/tier3/` | `make tier3-minimal` in `../kmscon` (the minspec variants, 1 vCPU and 512 MB); #22 adds the option that boots a vtium build |
@@ -78,7 +83,7 @@ The VT review runs one build at a time, from one place, so no stray builds float
 - The maintainer switches to that VT (Ctrl-Alt-F<n>), follows each step of the guide and answers y, n or skip, with a note. Sudo asks for its password in the terminal the run started from.
 - When the run ends, the console comes back on that VT and the steering session reads the answers from the log.
 
-A delegated agent proves its branch through the gates and tiers 1 to 3 in its worktree, and stops there. On this machine, which is the maintainer's live desktop, an agent takes no DRM master, sets no mode, switches no VT, opens no `/dev/tty<N>` console and runs no sudo. Creating GL contexts on a render node and allocating and mapping dumb buffers without a modeset are fine, as are its own ptys and the tier 3 VM.
+A delegated agent proves its branch through the gates and tiers 1 to 3 in its worktree, and stops there. On this machine, which is the maintainer's live desktop, an agent takes no DRM master, sets no mode, switches no VT, opens no `/dev/tty<N>` console and runs no sudo. Creating GL contexts on a render node is fine, as are its own ptys and the tier 3 VM. A render node refuses dumb buffers (`EACCES`), so the dumb-buffer path is proven only in tier 3.
 
 ## The working loop
 
