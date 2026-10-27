@@ -126,13 +126,14 @@ static void draw_frame(struct kmscon_text *txt, struct tsm_screen *con, struct t
 	fake_d2d.rb[1].map = fb;
 }
 
-/* @hex's bytes, written to @out; their count, or -1 */
-static long unhex(const char *hex, char *out)
+/* @hex's bytes, written to @out of @size bytes; their count, or -1 when
+ * @hex is not hex or does not fit */
+static long unhex(const char *hex, char *out, size_t size)
 {
 	size_t n = strlen(hex);
 	unsigned int v;
 
-	if (n % 2)
+	if (n % 2 || n / 2 > size)
 		return -1;
 	for (size_t i = 0; i < n / 2; i++) {
 		if (sscanf(hex + 2 * i, "%2x", &v) != 1)
@@ -150,7 +151,8 @@ static int draw(struct kmscon_font *font, char **f, const char *out_dir)
 				       : !strcmp(f[5], "left")	      ? OR_LEFT
 								      : OR_NORMAL;
 	static char bytes[1 << 16], next[1 << 16];
-	long nbytes = unhex(f[7], bytes), nnext = strcmp(f[8], "-") ? unhex(f[8], next) : -1;
+	long nbytes = unhex(f[7], bytes, sizeof(bytes));
+	long nnext = strcmp(f[8], "-") ? unhex(f[8], next, sizeof(next)) : -1;
 	struct tsm_screen *con;
 	struct tsm_vte *vte;
 	struct kmscon_text *txt;
@@ -159,7 +161,7 @@ static int draw(struct kmscon_font *font, char **f, const char *out_dir)
 	int ret = 0;
 
 	if (nbytes < 0 || (strcmp(f[8], "-") && nnext < 0)) {
-		fprintf(stderr, "pixels: %s: bad hex\n", f[0]);
+		fprintf(stderr, "pixels: %s: bad hex, or past %zu bytes\n", f[0], sizeof(bytes));
 		return -EINVAL;
 	}
 	fb_w = w ? w : cols * font->width;
@@ -247,6 +249,10 @@ int main(int argc, char **argv)
 	}
 	_binary_font_unifont_data_size = fread(blob, 1, sizeof(blob), f);
 	_binary_font_unifont_data_start = (const char *)blob;
+	if (_binary_font_unifont_data_size == sizeof(blob) && fgetc(f) != EOF) {
+		fprintf(stderr, "pixels: %s is past %zu bytes\n", argv[1], sizeof(blob));
+		return 2;
+	}
 	fclose(f);
 
 	assert(kmscon_text_register(&kmscon_text_bbulk_ops) == 0);

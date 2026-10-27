@@ -62,13 +62,15 @@ A case is compared with its golden exactly, outside any mask its sidecar gives. 
 | `missing` | no golden, or a golden no screen draws |
 | `error` | the screen did not draw, or its golden or sidecar was refused |
 
-## vtium's goldens
-
-The C reference draws the goldens of vtium's screens, so their author is not their judge. `reference/draw.sh OUT` reads the kmscon commit `pin.tsv` names and the libtsm commit that commit's `subprojects/libtsm.wrap` pins through `git archive`, builds them in a temporary directory, and compiles `reference/pixels.c` against them: libtsm parses each screen's bytes, `kmscon_text_draw` reads the screen, bbulk draws it with the unifont backend and drm2d's blend writes the buffer, as `tests/test_pixels.c` drew with FreeType. The screens come from `tier2 screens`, so both sides draw the same bytes. A new golden lands in a commit of its own and stays in `provisional.tsv` until the operator has reviewed it.
+A departure's rectangles cover whole cells, the cells where its difference shows, so any difference inside them passes as the departure: a defect in a listed cell, such as an underline lost from the cut `中` in `edges-left`, is not seen until that cell's departure row goes or its rectangles shrink.
 
 Each list is checked before any case runs: a pending golden the pin lacks or a screen draws, a departure whose case no screen draws or whose title the README does not list, a provisional golden no vtium screen draws, a vtium screen named as a C golden, and two screens of one name are each refused.
 
 Refused rather than judged (aaronsb/kmscon#10): a PPM that is not P6 with a maxval of 255, with a side of 0 or past 16384, or with a raster shorter or longer than its header says; a sidecar line that is not `key=value`, an unknown or repeated key, a value that is not a decimal number, a `max_delta` past 255, one limit at 0 with the other not, and a mask that is empty, inverted or reaches past the golden. A mask that hides no difference is noted in the report.
+
+## vtium's goldens
+
+The C reference draws the goldens of vtium's screens, so their author is not their judge. `reference/draw.sh OUT` reads the kmscon commit `pin.tsv` names and the libtsm commit that commit's `subprojects/libtsm.wrap` pins through `git archive`, builds them in a temporary directory, and compiles `reference/pixels.c` against them: libtsm parses each screen's bytes, `kmscon_text_draw` reads the screen, bbulk draws it with the unifont backend and drm2d's blend writes the buffer, as `tests/test_pixels.c` drew with FreeType. The screens come from `tier2 screens`, so both sides draw the same bytes. A new golden lands in a commit of its own and stays in `provisional.tsv` until the operator has reviewed it.
 
 ## Not yet
 

@@ -277,3 +277,18 @@ fn a_sprites_only_screen_holding_text_is_refused() {
     let e = draw::draw(&sprites("█A┼".as_bytes())).unwrap_err();
     assert!(e.contains("U+0041"), "{e}");
 }
+
+#[test]
+fn a_sprites_only_screen_holding_a_combining_mark_is_refused() {
+    let sprites = |bytes: &'static [u8]| Screen {
+        font: draw::FontKind::Sprites {
+            width: 9,
+            height: 16,
+        },
+        ..Screen::new("s", "sprites", bytes, 4, 1)
+    };
+    for bytes in [" \u{301}┼", "█\u{301}┼"] {
+        let e = draw::draw(&sprites(bytes.as_bytes())).unwrap_err();
+        assert!(e.contains("U+0301"), "{bytes:?}: {e}");
+    }
+}

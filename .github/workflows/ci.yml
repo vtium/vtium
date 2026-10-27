@@ -43,11 +43,12 @@ jobs:
           path: vtium
       - name: pinned commit
         id: pin
-        run: awk '!/^#/ && NF { print $1 "=" $2 }' vtium/tools/tier2/pin.tsv >> "$GITHUB_OUTPUT"
+        run: |
+          awk '!/^#/ && $1 == "kmscon" { print "commit=" $2; sub(/^https:\/\/github.com\//, "", $3); sub(/\.git$/, "", $3); print "repository=" $3 }' vtium/tools/tier2/pin.tsv >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
-          repository: aaronsb/kmscon
-          ref: ${{ steps.pin.outputs.kmscon }}
+          repository: ${{ steps.pin.outputs.repository }}
+          ref: ${{ steps.pin.outputs.commit }}
           path: kmscon
       - uses: dtolnay/rust-toolchain@stable
       - run: make tier2

@@ -233,18 +233,19 @@ fn feed(term: &mut Terminal, mut bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Refuses a sprites-only screen holding a character that is not a sprite
-/// or a space: the C reference drew it from an outline font, which vtium
-/// does not have.
+/// or a space, a combining mark on either included: the C reference drew
+/// it from an outline font, which vtium does not have.
 fn check_sprites<F: Face>(font: &Font<F>, term: &Terminal) -> Result<(), String> {
     let frame = term.screen().frame(term.palette(), Age::NEVER);
     for row in 0..frame.rows() {
         for col in 0..frame.cols() {
-            let c = match frame.cell(row, col).map(|c| c.glyph) {
-                Some(Text::Char(c)) => c,
-                Some(Text::Cluster(s)) => s.chars().next().unwrap_or(' '),
+            let mut buf = [0u8; 4];
+            let text = match frame.cell(row, col).map(|c| c.glyph) {
+                Some(Text::Char(c)) => &*c.encode_utf8(&mut buf),
+                Some(Text::Cluster(s)) => s,
                 _ => continue,
             };
-            if !font.has_glyph(c) {
+            if let Some(c) = text.chars().find(|&c| !font.has_glyph(c)) {
                 return Err(format!(
                     "cell {col},{row} holds U+{:04X}, which only an outline font draws",
                     u32::from(c)
