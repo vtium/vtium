@@ -311,7 +311,10 @@ fn a_blanked_display_lends_no_canvas() {
     v.set_dpms(DISPLAY, Dpms::Off).unwrap();
     assert!(v.canvas(DISPLAY).is_none());
     assert!(matches!(v.swap(DISPLAY, &[WHOLE]), Err(SwapError::Off)));
-    v.set_dpms(DISPLAY, Dpms::On).unwrap();
+    v.unblank().unwrap();
+    assert_eq!(v.dev().blanks.borrow().last(), Some(&FB_BLANK_UNBLANK));
     assert_eq!(v.events().collect::<Vec<_>>(), [Event::Redraw(DISPLAY)]);
     assert_eq!(v.canvas(DISPLAY).unwrap().age, 0);
+    v.unblank().unwrap();
+    assert!(v.events().next().is_none(), "on already");
 }

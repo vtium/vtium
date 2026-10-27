@@ -234,6 +234,14 @@ impl<F: Framebuffer> Fbdev<F> {
         Ok(())
     }
 
+    /// Powers the display on after the blank, on the input that ends it.
+    pub fn unblank(&mut self) -> io::Result<()> {
+        if self.online && self.awake && self.dpms.is_some_and(|d| d != Dpms::On) {
+            self.set_dpms(DISPLAY, Dpms::On)?;
+        }
+        Ok(())
+    }
+
     /// Lends the buffer for the next frame. It is the framebuffer itself,
     /// or its copy, and holds the frame before this one.
     pub fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {

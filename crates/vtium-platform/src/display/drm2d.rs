@@ -60,6 +60,11 @@ pub struct Drm2d<K: Kms> {
     waiting: Option<Waiting>,
     /// A flip's event was lost, and that was logged as a warning.
     lost_flip: bool,
+    /// The blank powered every display down, and no input has come since.
+    blanked: bool,
+    /// A hotplug while blanked found a change that needs a modeset, which
+    /// the input ending the blank runs.
+    owed: bool,
     /// Wake-ups tried again so far, while retrying.
     retries: Option<usize>,
     events: Vec<Event>,
@@ -98,6 +103,8 @@ impl<K: Kms> Drm2d<K> {
             outputs: Vec::new(),
             waiting: None,
             lost_flip: false,
+            blanked: false,
+            owed: false,
             retries: None,
             events: Vec::new(),
             timers: Timers::default(),
@@ -315,6 +322,32 @@ impl<K: Kms> Drm2d<K> {
             o.redraw = false;
             self.events.push(Event::Redraw(id));
         }
+        self.blanked = self
+            .outputs
+            .iter()
+            .filter(|o| o.online)
+            .all(|o| !o.dpms_on());
+        Ok(())
+    }
+
+    /// Powers every display on after the blank, on the input that ends
+    /// it: through the modeset a hotplug while blanked left owed, with
+    /// every display on, or else through each display's DPMS.
+    pub fn unblank(&mut self) -> io::Result<()> {
+        self.blanked = false;
+        if std::mem::take(&mut self.owed) && self.awake {
+            let set = self.request_modeset();
+            if set.is_err() {
+                // Nothing changed on the card: still dark, still owed.
+                self.blanked = true;
+                self.owed = true;
+            }
+            return set;
+        }
+        let ids: Vec<DisplayId> = self.displays().collect();
+        for id in ids {
+            self.set_dpms(id, Dpms::On)?;
+        }
         Ok(())
     }
 
@@ -501,6 +534,7 @@ impl<K: Kms> Drm2d<K> {
     /// done.
     pub fn sleep(&mut self) {
         self.foreground = false;
+        self.owed = false;
         self.retries = None;
         if !self.awake {
             self.events.push(Event::Asleep);
@@ -711,7 +745,14 @@ impl<K: Kms> Drm2d<K> {
             self.card.set_master()?;
             self.master = true;
         }
-        if needs {
+        if needs && self.blanked && !force {
+            // Blanked, a hotplug commits nothing: the modeset waits for the
+            // input that ends the blank, and a display plugged in stays
+            // dark until then (the operator's decision on vtium/vtium#18).
+            log::debug!("blanked: the hotplug's modeset waits for input");
+            self.owed = true;
+            Ok(())
+        } else if needs {
             self.request_modeset()
         } else {
             self.announce();
@@ -910,6 +951,8 @@ impl<K: Kms> Drm2d<K> {
             }
         };
         if set.is_ok() {
+            self.blanked = false;
+            self.owed = false;
             self.announce();
         }
         set

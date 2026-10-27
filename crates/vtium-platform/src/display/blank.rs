@@ -4,8 +4,10 @@
 //! [`Blank`] keeps the time of the last input and says when the timeout
 //! has passed. The owner powers the displays down when its loop timer
 //! fires ([`Blank::insert`]) and up when [`Blank::input`] says they were
-//! blanked. A wake-up ([`super::Event::Awake`]) and a hotplug count as
-//! input: their modeset brings every display on. The timeout is the configuration's `dpms-timeout`, 600 s by
+//! blanked, through each device's `unblank`. A wake-up
+//! ([`super::Event::Awake`]) counts as input: its modeset brings every
+//! display on. A hotplug does not: while blanked it commits nothing, and
+//! `unblank` runs the modeset it left owed. The timeout is the configuration's `dpms-timeout`, 600 s by
 //! default as in the C reference (config.c:1388).
 
 use std::time::{Duration, Instant};

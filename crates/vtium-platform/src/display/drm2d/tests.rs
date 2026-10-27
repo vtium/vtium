@@ -290,19 +290,17 @@ fn blanked(v: &mut Drm2d<FakeCard>) -> (Blank, std::time::Instant) {
     (blank, at)
 }
 
-/// The owner's answer to a wake-up or a hotplug: input to the blank, which
-/// powers the displays up where they were blanked.
+/// The owner's answer to input or a wake-up: input to the blank, which
+/// unblanks the displays where they were blanked, and restarts its timer.
 fn activity(v: &mut Drm2d<FakeCard>, blank: &mut Blank, now: std::time::Instant) {
     if blank.input(now) {
-        let ids: Vec<DisplayId> = v.displays().collect();
-        for id in ids {
-            v.set_dpms(id, Dpms::On).unwrap();
-        }
+        v.unblank().unwrap();
     }
     assert_eq!(blank.due(now + DPMS_TIMEOUT / 2), Due::In(DPMS_TIMEOUT / 2));
 }
 
-// Finding 3, the operator's decision: a wake-up counts as user activity.
+// Finding 3, the operator's decision: a wake-up, the VT acquired, counts as
+// user activity.
 // Its modeset's ACTIVE=1 brings every display on, DPMS included, though
 // the display was blanked and the monitor's power cycle turned its
 // connector on; the recorded DPMS is On, and the blank restarts. Only tier
@@ -1018,12 +1016,11 @@ fn a_powered_down_display_lends_no_canvas() {
     assert_eq!(clips(&c, primary(&v, A)), None, "the whole frame");
 }
 
-// Finding 3, the operator's decision: a hotplug counts as user activity.
-// Its modeset's ACTIVE=1 brings every display on, a blanked one included,
-// whose recorded DPMS becomes On; it is drawn whole, and the blank
-// restarts.
+// Finding 3, the operator's decision: a hotplug while blanked records the
+// change and commits nothing; the display plugged in stays dark, and the
+// next input runs the modeset owed, with every display on.
 #[test]
-fn a_hotplug_while_blanked_brings_every_display_on() {
+fn a_hotplug_while_blanked_commits_nothing_until_input() {
     let mut v = a_then_b(ModePolicy::default());
     v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
     v.show_cursor(DisplayId(A), 1, 1).unwrap();
@@ -1031,21 +1028,67 @@ fn a_hotplug_while_blanked_brings_every_display_on() {
     flip(&mut v);
     let (mut blank, at) = blanked(&mut v);
     v.events().for_each(drop);
+    let commits = v.card().state().commits.len();
     v.card().state().listed.push(B);
     v.poll().unwrap();
-    assert_eq!(
-        events(&mut v),
-        [Event::Redraw(DisplayId(A)), Event::Added(DisplayId(B))]
-    );
+    assert!(events(&mut v).is_empty(), "no Redraw, nothing added yet");
+    assert_eq!(v.card().state().commits.len(), commits, "nothing committed");
+    assert_eq!(v.card().state().dpms[&A], 3);
+    assert_eq!(v.dpms(DisplayId(A)), Some(Dpms::Off));
+    assert!(blank.blanked(), "a hotplug is no input");
+    activity(&mut v, &mut blank, at);
     let c = v.card().last_commit().unwrap();
+    assert_ne!(c.flags & DRM_MODE_ATOMIC_ALLOW_MODESET, 0);
     assert_eq!(
         (c.get(100, "ACTIVE"), c.get(101, "ACTIVE")),
         (Some(1), Some(1))
     );
+    assert_eq!(
+        events(&mut v),
+        [Event::Redraw(DisplayId(A)), Event::Added(DisplayId(B))]
+    );
     assert_eq!(v.card().state().dpms[&A], 0);
     assert_eq!(v.dpms(DisplayId(A)), Some(Dpms::On));
-    activity(&mut v, &mut blank, at);
     flip(&mut v);
+    assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 0);
+}
+
+// A monitor asleep can leave and come back as a hotplug pulse. While
+// blanked that changes nothing on screen: nothing is committed, and the
+// blank's timer runs on.
+#[test]
+fn a_hotplug_pulse_while_blanked_changes_nothing_visible() {
+    let mut v = awake(one());
+    let (mut blank, at) = blanked(&mut v);
+    v.events().for_each(drop);
+    let commits = v.card().state().commits.len();
+    let conn = v.card().state().connectors.remove(&A).unwrap();
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Removed(DisplayId(A))]);
+    v.card().state().connectors.insert(A, conn);
+    v.poll().unwrap();
+    assert!(events(&mut v).is_empty());
+    assert_eq!(v.card().state().commits.len(), commits, "nothing committed");
+    assert_eq!(v.card().state().dpms[&A], 3);
+    assert!(blank.blanked());
+    assert_eq!(blank.due(at + DPMS_TIMEOUT / 2), Due::In(DPMS_TIMEOUT));
+    activity(&mut v, &mut blank, at);
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A))]);
+    assert_eq!(v.card().state().dpms[&A], 0);
+}
+
+// Input while blanked with no modeset owed powers the displays on through
+// their DPMS, as before.
+#[test]
+fn input_with_no_modeset_owed_powers_on_through_dpms() {
+    let mut v = awake(one());
+    let (mut blank, at) = blanked(&mut v);
+    v.events().for_each(drop);
+    let commits = v.card().state().commits.len();
+    activity(&mut v, &mut blank, at);
+    assert_eq!(v.card().state().commits.len(), commits, "no modeset");
+    assert_eq!(v.card().state().dpms[&A], 0);
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A))]);
     assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 0);
 }
 
