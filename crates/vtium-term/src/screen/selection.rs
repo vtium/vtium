@@ -9,6 +9,8 @@
 //! whose line left the scrollback (dropped when it was full, or emptied by
 //! ED 3) leaves the selection standing: copying then starts at the oldest
 //! line, as in the C reference.
+//! A line selection's copy ends with a line end, as xterm's does with
+//! `cutNewline`, its default.
 //! Changing the selection marks everything, since its cells draw inverted.
 
 use core::ops::Range;
@@ -32,6 +34,8 @@ pub(super) struct Selection {
     /// The first and last cells, in reading order.
     start: Option<Anchor>,
     end: Option<Anchor>,
+    /// A whole line, whose copy ends with a line end.
+    line: bool,
 }
 
 impl Selection {
@@ -74,6 +78,7 @@ impl Screen {
             begin: Some(anchor),
             start: Some(anchor),
             end: Some(anchor),
+            line: false,
         };
         self.damage.mark_all();
     }
@@ -132,18 +137,43 @@ impl Screen {
                 line: anchor.line,
                 x: end,
             }),
+            line: false,
         };
     }
 
-    /// Clears the selection.
-    pub fn clear_selection(&mut self) {
-        self.selection.reset();
+    /// Selects the whole of view row `y`, `x` any column of it.
+    pub fn select_line(&mut self, x: usize, y: usize) {
+        let Some(anchor) = self.anchor(x, y) else {
+            return;
+        };
+        let at = |x: usize| Some(Anchor { x, ..anchor });
+        self.selection = Selection {
+            active: true,
+            begin: Some(anchor),
+            start: at(0),
+            end: at(self.cols.saturating_sub(1)),
+            line: true,
+        };
         self.damage.mark_all();
     }
 
-    /// The selected text, each line ended by a newline but the last, each
-    /// cell's whole cluster, an empty cell a space, and nothing for the
-    /// tail of a wide character; `None` when nothing is selected.
+    /// Whether anything is selected.
+    pub fn has_selection(&self) -> bool {
+        self.selection.active
+    }
+
+    /// Clears the selection; with none, nothing changes.
+    pub fn clear_selection(&mut self) {
+        if self.selection.active {
+            self.selection.reset();
+            self.damage.mark_all();
+        }
+    }
+
+    /// The selected text, each line ended by a newline but the last of a
+    /// selection of characters, each cell's whole cluster, an empty cell a
+    /// space, and nothing for the tail of a wide character; `None` when
+    /// nothing is selected.
     pub fn selection_text(&self) -> Option<String> {
         let (from, to) = self.selected_span()?;
         let mut out = String::new();
@@ -165,7 +195,9 @@ impl Screen {
             out.push_str(&text);
             out.push('\n');
         }
-        out.pop();
+        if !self.selection.line {
+            out.pop();
+        }
         Some(out)
     }
 
