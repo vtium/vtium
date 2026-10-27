@@ -159,7 +159,17 @@ impl Kms for Card {
         ids.into_iter()
             .zip(values)
             .map(|(id, value)| {
-                let info = drm_ffi::mode::get_property(self.raw(), id, None, None)?;
+                // Only the name is wanted, but the buffers are given: for a
+                // property with values or enumerators, drm-ffi 0.9 asks
+                // again with their counts and null buffers, which the
+                // kernel refuses with EFAULT.
+                let (mut values, mut enums) = (Vec::new(), Vec::new());
+                let info = drm_ffi::mode::get_property(
+                    self.raw(),
+                    id,
+                    Some(&mut values),
+                    Some(&mut enums),
+                )?;
                 Ok(Property {
                     id,
                     name: name(&info.name),

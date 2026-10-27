@@ -9,7 +9,7 @@
 # stale export in the shell. The default is the minspec build, which the vt
 # targets build first; another binary is run as it is.
 VTIUM_MINSPEC := target/minspec/vtium
-VT_GOALS := vt-demo vt-login vt-check
+VT_GOALS := vt-demo vt-login vt-check vt-shell
 ifneq ($(filter $(VT_GOALS),$(MAKECMDGOALS)),)
 ifneq ($(filter environment%,$(origin VTIUM_BIN)),)
 $(error VTIUM_BIN is set in the environment; the vt targets run it as root, so name it on make's command line: make $(firstword $(MAKECMDGOALS)) VTIUM_BIN=PATH)
@@ -27,7 +27,7 @@ help: ## Show this help
 
 .PHONY: minspec
 minspec: ## Build the minspec binary, target/minspec/vtium
-	cargo build --profile minspec -p vtium
+	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo build --profile minspec -p vtium
 
 # vtium as a system installs it, staged under DESTDIR: the minspec binary,
 # the VT unit, the compiled terminfo entry and the example configuration.
@@ -98,6 +98,11 @@ vt-demo: $(vt_build) ## Run vtium with the demo on a free VT, then print the ans
 .PHONY: vt-login
 vt-login: export VTIUM_VT_SESSION = login
 vt-login: $(vt_build) ## Run vtium with a login prompt on a free VT, until the first logout (VT=N, DEMO_ARGS='...')
+	tools/vt/vt.sh
+
+.PHONY: vt-shell
+vt-shell: export VTIUM_VT_SESSION = shell
+vt-shell: $(vt_build) ## Run your login shell, as you, in vtium on a free VT; exit it to end the run (VT=N, DEMO_ARGS='...')
 	tools/vt/vt.sh
 
 # Without GUIDE it fails before the build, naming the guides.

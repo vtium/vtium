@@ -1,6 +1,6 @@
 # The VT review
 
-The operator judges vtium by eye on a spare VT of a real machine (#68). `make vt-demo`, `make vt-login` and `make vt-check` stop the console unit on a free VT, run vtium there with a demo, a login prompt or a guide as its only session, and start the console unit again when the session ends. The answers come back as a log. Nothing is installed and no system file changes. The review adds to the harness tiers ([architecture.md](architecture.md#how-it-is-judged)) and replaces none of them.
+The operator judges vtium by eye on a spare VT of a real machine (#68). `make vt-demo`, `make vt-login`, `make vt-check` and `make vt-shell` stop the console unit on a free VT, run vtium there with a demo, a login prompt, a guide or the operator's own shell as its only session, and start the console unit again when the session ends. The answers come back as a log. Nothing is installed and no system file changes. The review adds to the harness tiers ([architecture.md](architecture.md#how-it-is-judged)) and replaces none of them.
 
 It is written for a host whose VTs run `kmsconvt@ttyN`, `getty@ttyN` or `autovt@ttyN`, under systemd and logind. The tools are in `tools/vt/` and carry over the C reference's `make vt-demo`, `vt-login` and `vt-check` and the lessons of their first runs.
 
@@ -16,6 +16,7 @@ make vt-check GUIDE=start GUIDE_STEPS=2 # only that step
 make vt-demo                            # the demo's pages, each rated
 make vt-demo VT=4 DEMO_ARGS='--font-size=30 --mode=1366x768'
 make vt-login                           # a login prompt, for the demo or anything else by hand
+make vt-shell                           # your login shell, as you, with no login; exit it to end the run
 make vt-demo DRY_RUN=1                  # pick the VT and print every command; run none
 make help                               # the targets
 ```
@@ -28,7 +29,7 @@ Each target builds the minspec binary (`make minspec`, `target/minspec/vtium`), 
 ================================================================
 ```
 
-When it ends, it prints a health check of vtium's log (its `panicked at` lines), the log's path, the answers the run added and the path of the answers file. It exits non-zero when vtium failed, the run was cut short, or nothing was recorded.
+When it ends, it prints a health check of vtium's log (its `panicked at` lines), the log's path (with `make vt-shell`, the transcript's too), the answers the run added and the path of the answers file. It exits non-zero when vtium failed, the run was cut short, or nothing was recorded.
 
 | Variable | What it does |
 |---|---|
@@ -40,17 +41,33 @@ When it ends, it prints a health check of vtium's log (its `panicked at` lines),
 
 The variables reach `tools/vt/vt.sh` through the environment, never as recipe text. The allowlist is written for the command line #21 gives vtium, the C reference's; vtium parses no arguments yet. `DEMO_ARGS` takes the options the C reference's review took: display, font, palette, text and input options, `--render-timer`, `--image-storage-limit` (`auto` or up to 4G) and `--sync-timeout`, each named in full in lower-case letters and dashes. `run-vt.sh` refuses the rest: the VT, seat and session options, `--login`, `--configdir`, `--oneshot`, the grabs, the options that name files, and any value in a word of its own, which vtium would take as the option's value or move into the login command that runs as root.
 
-By hand: `sudo tools/vt/run-vt.sh --bin=target/minspec/vtium [--login | --guide=FILE [--steps=LIST]] [N] [-- vtium-option...]`, and `tools/vt/run-vt.sh --bin=... --dry-run 5` without root.
+By hand: `sudo tools/vt/run-vt.sh --bin=target/minspec/vtium [--login | --guide=FILE [--steps=LIST] | --shell [--transcript=FILE]] [N] [-- vtium-option...]`, and `tools/vt/run-vt.sh --bin=... --dry-run 5` without root.
 
 ## What a run does
 
 1. `vt.sh` picks the VT and refuses one on screen (`/sys/class/tty/tty0/active`) or with a logind session on it (`loginctl`), checks a guide with `guide.sh --check`, creates `/tmp/vtium-vt` (mode 0700) for its log, refusing it when it is a symlink, another user's or open to anyone else, and runs `sudo -v`.
 2. `sudo tools/vt/run-vt.sh` takes the lock `/run/vtium-vt.lock` for the whole run, so a second run is refused while one is going: one build on a VT at a time. It checks the VT again: it refuses the VT on screen and any VT a logind session is on, the desktop's included, and refuses when `loginctl` cannot list the sessions or read one still listed.
 3. It records which of `kmsconvt@ttyN`, `getty@ttyN` and `autovt@ttyN` are active and stops them. A trap on exit, Ctrl-C, SIGTERM and SIGHUP stops vtium with SIGTERM (SIGKILL after 5 seconds) and starts those units again, so the console comes back after a normal end, an interrupt or a crash. While it restores it ignores a second signal and a closed terminal, and no failed write cuts it short. A failed restart exits 1 and names the command that restores the unit.
-4. It runs vtium with `--vt=ttyN --no-switchvt --configdir tools/vt/config --oneshot`, the options from `DEMO_ARGS`, and the session after `--login --`. The demo and the guide run as the invoking user through `setpriv`, with a cleared environment, never as root. `tools/vt/config` keeps the system's config out of the run.
+4. It runs vtium with `--vt=ttyN --no-switchvt --configdir tools/vt/config --oneshot`, the options from `DEMO_ARGS`, and the session after `--login --`. The demo, the guide and the shell run as the invoking user through `setpriv`, with a cleared environment, never as root: a user whose password entry has uid 0 is refused, whatever its name. `tools/vt/config` keeps the system's config out of the run.
 5. With `--login` the session is `/bin/login -p`, and vtium runs without `--oneshot`. The first logout ends the run: once a session on the VT has been open, none open there means its user logged out. Ctrl-C also ends it, the login with it. vtium ending on its own is a failure. A poll whose `loginctl` fails changes nothing; ten in a row get a warning.
 
 No tool switches a VT: the operator does, with Ctrl-Alt-FN. If the console does not come back, the run prints the command that restores it: `sudo systemctl start kmsconvt@ttyN.service` (or the getty the VT ran).
+
+## Your shell
+
+`make vt-shell` runs the operator's login shell as vtium's session, for anything by hand: the session is the operator's own, with no demo, guide or login prompt. Exiting the shell ends vtium, the console unit comes back and `make` returns. Ctrl-C in the terminal `make` runs in ends it too, as a normal end.
+
+- The user is the one who ran `make` (sudo's `SUDO_USER`). Their entry in the password database (`getent passwd`) names the uid, gid, home directory and shell. The shell must be listed in `/etc/shells`, be an executable file, and have a path of letters, digits and `/._+-`. The home directory must exist, be a directory and be the user's.
+- It runs through `setpriv` as that user, with no inheritable capabilities, as a login shell (`-l`) in the home directory. Its environment is the one `setpriv --reset-env` gives (`HOME`, `SHELL`, `USER`, `LOGNAME`, `PATH` and `TERM`), plus `LANG` and `LC_*` from `/etc/locale.conf`. When `/run/user/UID` is a directory of the user's alone (mode 0700, not a symlink), it also gets `XDG_RUNTIME_DIR`, and `DBUS_SESSION_BUS_ADDRESS` when `bus` there is a socket: the rights the desktop session already gives the user, such as pipewire and `systemctl --user`. `DISPLAY` and `WAYLAND_DISPLAY` are not passed. There is no PAM and no logind session of its own.
+- Ctrl-C and Ctrl-\ reach what the shell runs: vtium starts in the background, with SIGINT and SIGQUIT ignored, and `env --default-signal` gives the session their defaults back. The demo and the guide get the same.
+- A job left running in the background when the shell exits keeps running after the run: no logind scope reaps it.
+- `script -q -f` (util-linux) records the session into a transcript: what the screen was sent, so a password typed without echo is not in it. vtium has no option that copies its pty's output to a file, and `script` runs as the user, so the transcript is written with the user's rights. `-f` writes each chunk at once, so a crash keeps what came before it.
+- vtium's log and the transcript go to `/tmp/vtium-vt` (mode 0700), each under a new name, the transcript with mode 0600, and the end of the run prints both paths:
+
+```
+vtium log: /tmp/vtium-vt/vt-20261027T151200-tty5-a1B2c3.log
+transcript: /tmp/vtium-vt/vt-20261027T151200-tty5-a1B2c3.transcript
+```
 
 ## Guides
 
@@ -85,7 +102,7 @@ A section is one file, `tools/vt/sections/NN-name.sh`: deterministic output, at 
 
 ## Testing the tools
 
-`make test-tools`, part of CI, runs `tools/vt/tests/test_vt.py` and shellcheck. The tests run every path without a VT, sudo or logind: `VTIUM_VT_STANDINS` names a directory of stand-ins for `systemctl`, `loginctl`, `setpriv`, `sudo` and the VT on screen, run from there by full path, and a stand-in vtium that exits, crashes, waits for a signal or runs its session. They check that a VT a session is on is refused, that the console unit is restored after a crash, Ctrl-C, SIGTERM and SIGHUP, that a guide failing `--check` stops before sudo, that the answers log refuses a symlinked or foreign directory, that no tool reaches `chvt` or `fgconsole`, and they run `start.guide` and the demo end to end through `make`. As root, `run-vt.sh` refuses `VTIUM_VT_STANDINS`, and `vt.sh` honours it and `VTIUM_VT_DIR` only together, so a stale export cannot choose what runs as root or where the answers are read.
+`make test-tools`, part of CI, runs `tools/vt/tests/test_vt.py` and shellcheck. The tests run every path without a VT, sudo or logind: `VTIUM_VT_STANDINS` names a directory of stand-ins for `systemctl`, `loginctl`, `setpriv`, `getent`, `sudo`, `/etc/shells`, `/etc/locale.conf`, `/run/user` and the VT on screen, run from there by full path, and a stand-in vtium that exits, crashes, waits for a signal or runs its session. They check that a VT a session is on is refused, that the shell is the one the password database names and `/etc/shells` lists, that a home directory not the user's and a session as uid 0 are refused, that the shell gets the locale and the user's runtime directory and bus only when they are the user's, and that it starts with SIGINT and SIGQUIT at their defaults, that the console unit is restored after a crash, Ctrl-C, SIGTERM and SIGHUP, that a guide failing `--check` stops before sudo, that the answers log refuses a symlinked or foreign directory, that no tool reaches `chvt` or `fgconsole`, and they run `start.guide`, the demo and a stand-in shell end to end through `make`. As root, `run-vt.sh` refuses `VTIUM_VT_STANDINS`, and `vt.sh` honours it and `VTIUM_VT_DIR` only together, so a stale export cannot choose what runs as root or where the answers are read.
 
 ## Departures from the C reference's review
 
