@@ -54,6 +54,7 @@ mod frame;
 mod line;
 mod scrollback;
 mod style;
+mod unicode;
 
 pub use bounds::{
     CLUSTER_BYTES_PER_CELL, CLUSTER_MAX, COLUMNS_MAX, ROWS_MAX, SB_SIZE_CAP_LARGE,
@@ -65,3 +66,4 @@ pub use frame::{Cursor, CursorShape, Frame, FrameCell, Palette};
 pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId};
 pub use scrollback::{SB_SIZE_DEFAULT, sb_size, sb_size_cap};
 pub use style::{Attrs, Color, Rgb, Script, Style, UnderlineStyle};
+pub use unicode::UNICODE_VERSION;
