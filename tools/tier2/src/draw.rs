@@ -18,7 +18,7 @@ use vtium_render::{
     Budgets, Canvas, Config, DecoColor, DecorationColors, DrawState, Orientation, Profile,
     Renderer, Storage,
 };
-use vtium_term::{Age, Glyph as Text, Palette, Rgb, Terminal, WidthMethod};
+use vtium_term::{Age, Glyph as Text, Rgb, Terminal, WidthMethod};
 
 use crate::ppm::Image;
 
@@ -76,11 +76,12 @@ pub struct Decorations {
 }
 
 impl Decorations {
-    /// The colours resolved through `palette`, as the renderer takes them.
-    fn resolve(&self, palette: &Palette) -> DecorationColors {
+    /// The colours as the renderer takes them: an index resolved through
+    /// each frame's palette, as pixels.c resolves it on every frame.
+    fn colors(&self) -> DecorationColors {
         let colour = |spec: Option<DecoSpec>| match spec {
             None => DecoColor::Foreground,
-            Some(DecoSpec::Index(i)) => DecoColor::Rgb(palette.color(i)),
+            Some(DecoSpec::Index(i)) => DecoColor::Indexed(i),
             Some(DecoSpec::Rgb(r, g, b)) => DecoColor::Rgb(Rgb::new(r, g, b)),
         };
         DecorationColors {
@@ -300,25 +301,6 @@ fn check_sprites<F: Face>(font: &Font<F>, term: &Terminal) -> Result<(), String>
     Ok(())
 }
 
-/// Resolves the screen's decoration colours for this frame, as pixels.c
-/// does on every frame, and refuses a frame where they differ from those
-/// the renderer holds: `vtium-render` takes them once, in its `Config`.
-fn check_decorations(
-    screen: &Screen,
-    term: &Terminal,
-    held: DecorationColors,
-) -> Result<(), String> {
-    if screen.decorations.resolve(term.palette()) == held {
-        Ok(())
-    } else {
-        Err(
-            "the decoration colours changed with the palette mid-screen, which the renderer \
-             cannot follow: it takes them once (owed: a per-frame setter in vtium-render)"
-                .to_owned(),
-        )
-    }
-}
-
 fn draw_config<F: Face>(
     screen: &Screen,
     make_font: &impl Fn() -> Font<F>,
@@ -327,7 +309,7 @@ fn draw_config<F: Face>(
     let font = make_font();
     let mut term = Terminal::new(screen.cols, screen.rows, 0);
     let config = Config {
-        decorations: screen.decorations.resolve(term.palette()),
+        decorations: screen.decorations.colors(),
         ..config
     };
     // as a host sets it at start: the screen's method, and what RIS
@@ -352,15 +334,11 @@ fn draw_config<F: Face>(
     let mut display = Display::new(w, h);
     let mut r = Renderer::new(font, w, h, config);
     let mut since = Age::NEVER;
-    check_decorations(screen, &term, config.decorations)?;
     display.frame(&mut r, &mut term, &mut since);
     if let Some(next) = screen.next {
-        check_decorations(screen, &term, config.decorations)?;
         display.frame(&mut r, &mut term, &mut since);
         feed(&mut term, next)?;
-        check_decorations(screen, &term, config.decorations)?;
         display.frame(&mut r, &mut term, &mut since);
-        check_decorations(screen, &term, config.decorations)?;
         display.frame(&mut r, &mut term, &mut since);
         if display.buffers[0].pixels() != display.buffers[1].pixels() {
             return Err("the two buffers differ after the last frame".to_owned());
@@ -382,25 +360,31 @@ fn draw_config<F: Face>(
 mod tests {
     use super::*;
 
+    // A decoration colour that names an index follows the palette, as
+    // pixels.c resolved it on every frame: a second part that changes the
+    // index with OSC 4 draws, where the renderer that took the colour once
+    // had the screen refused.
     #[test]
-    fn decoration_colours_resolve_on_every_frame() {
+    fn decoration_colours_follow_a_palette_change() {
         let screen = Screen {
             decorations: Decorations {
                 underline: Some(DecoSpec::Index(196)),
-                ..Decorations::default()
+                strike: Some(DecoSpec::Rgb(0, 0xc0, 0xff)),
+                force: true,
             },
-            ..Screen::new("d", "decorations", b"", 4, 1)
+            next: Some(b"\x1b]4;196;rgb:00/ff/00\x1b\\"),
+            ..Screen::new("d", "decorations", b"\x1b[4mx", 4, 1)
         };
-        let mut term = Terminal::new(4, 1, 0);
-        let held = screen.decorations.resolve(term.palette());
-        assert!(check_decorations(&screen, &term, held).is_ok());
-        // index 196 changes between frames, as OSC 4 would change it
-        let p = term.palette();
-        let mut colors: [Rgb; 256] = core::array::from_fn(|i| p.color(i as u8));
-        colors[196] = Rgb::new(0, 255, 0);
-        let (fg, bg) = (p.fg(), p.bg());
-        term.set_palette(Palette::new(colors, fg, bg));
-        let e = check_decorations(&screen, &term, held).unwrap_err();
-        assert!(e.contains("decoration colours"), "{e}");
+        assert_eq!(
+            screen.decorations.colors(),
+            DecorationColors {
+                underline: DecoColor::Indexed(196),
+                strike: DecoColor::Rgb(Rgb::new(0, 0xc0, 0xff)),
+                force: true,
+            }
+        );
+        let image = draw(&screen).unwrap();
+        let green = image.rgb().chunks(3).any(|p| p == [0, 0xff, 0]);
+        assert!(green, "the underline did not take index 196's new colour");
     }
 }
