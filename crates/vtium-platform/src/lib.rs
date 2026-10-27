@@ -47,6 +47,8 @@
 //!   start and followed as they come and go ([`udev::Udev`]).
 //! - [`input`]: every keyboard and pointer through evdev, keys through
 //!   libxkbcommon with compose and a repeat timer ([`input::Input`]).
+//! - [`power`]: the reboot and power-off requests the power keys make of
+//!   PID 1 and the kernel.
 //!
 //! Each bound is defined once in `src/bounds.rs` and tabulated in the
 //! crate's README.
@@ -58,6 +60,7 @@ pub mod event_loop;
 pub mod input;
 mod ioctl;
 mod mmap;
+pub mod power;
 pub mod pty;
 mod queue;
 pub mod udev;
