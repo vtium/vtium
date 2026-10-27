@@ -68,9 +68,24 @@ fn check(what: &str, rows: &[Vec<String>], mut ours: impl FnMut(&[String]) -> Op
     );
 }
 
-/// The 256 characters of `page` drawn through the font, as refdigest.c's
-/// render_page() draws them; `None` for the surrogate pages, which a
-/// `char` cannot hold and the terminal never draws.
+/// The characters vtium draws as sprites where the C reference drew the
+/// font's glyph (vtium/vtium#27), as refdigest.c's beyond_reference() lists
+/// them; `tests/legacy.rs` holds them.
+fn beyond_reference(cp: u32) -> bool {
+    matches!(
+        cp,
+        0x1cea0..=0x1ceaf
+            | 0x1fb3c..=0x1fb92
+            | 0x1fb94..=0x1fbaf
+            | 0x1fbbd..=0x1fbbf
+            | 0x1fbce..=0x1fbef
+    )
+}
+
+/// The characters of `page` drawn through the font, less those beyond the
+/// C reference, as refdigest.c's render_page() draws them; `None` for the
+/// surrogate pages, which a `char` cannot hold and the terminal never
+/// draws.
 fn render_page<F: Face>(font: &Font<F>, page: u32, cells: u32, bold: bool) -> Option<u64> {
     let width = if cells == 2 {
         Width::Wide
@@ -82,7 +97,7 @@ fn render_page<F: Face>(font: &Font<F>, page: u32, cells: u32, bold: bool) -> Op
         italic: false,
     };
     let mut d = FNV_OFFSET;
-    for cp in page << 8..(page + 1) << 8 {
+    for cp in (page << 8..(page + 1) << 8).filter(|&cp| !beyond_reference(cp)) {
         let c = char::from_u32(cp)?;
         let g = font
             .glyph(&[c], width, style)

@@ -2000,8 +2000,8 @@ render	unifont	16	1cd	1	0	cc08f4cce170109e
 render	unifont	16	1cd	2	0	e8eb78e5a0582a2e
 render	unifont	16	1f6	1	0	e2b2a4bc0641d078
 render	unifont	16	1f6	2	0	f2b483902e08d342
-render	unifont	16	1fb	1	0	681544894e422894
-render	unifont	16	1fb	2	0	d8870685831f98d1
+render	unifont	16	1fb	1	0	009600ddb77c2deb
+render	unifont	16	1fb	2	0	113b71baf601e792
 render	unifont	16	200	1	0	4aad141fb98e8333
 render	unifont	16	200	2	0	71d8f2e75be2babf
 render	unifont	16	10ff	1	0	7e579fd7ea840325
@@ -2014,7 +2014,7 @@ render	unifont	16	20	1	1	3ff10045225b7cd6
 render	unifont	16	25	1	1	db62069b74a2caa9
 render	unifont	16	28	1	1	4b9b1b6687dc9be5
 render	unifont	16	4e	1	1	1a96e21ee6565dd7
-render	unifont	16	1fb	1	1	0e853185b3c14914
+render	unifont	16	1fb	1	1	f9f20bb6bdc5f218
 unifont-glyphs	32	0	0	96960d0ce0098035
 unifont-glyphs	32	0	1	47e766341bcc40fd
 unifont-glyphs	32	0	2	e806587376c75db9
@@ -2780,8 +2780,8 @@ render	unifont	32	ff	1	0	d046c442772b4379
 render	unifont	32	ff	2	0	6ee962744020f4b9
 render	unifont	32	1cd	1	0	b230eb12b6727cf9
 render	unifont	32	1cd	2	0	b3b64a09d940eb39
-render	unifont	32	1fb	1	0	953a7f9126b998e1
-render	unifont	32	1fb	2	0	cf5766b641096885
+render	unifont	32	1fb	1	0	7ce37869be37dc0d
+render	unifont	32	1fb	2	0	d960bc32c1e5b7b1
 render	unifont	32	0	1	1	8726ecb14ed45a19
 render	unifont	32	1	1	1	31dbbba6e4718099
 render	unifont	32	3	1	1	07b256ed12b45fa1
@@ -2790,4 +2790,4 @@ render	unifont	32	20	1	1	142ab4f95442c7c1
 render	unifont	32	25	1	1	a6548c985e6b80f9
 render	unifont	32	28	1	1	74eb811bd739cd25
 render	unifont	32	4e	1	1	58b57cafe37a805d
-render	unifont	32	1fb	1	1	8b136e010de1a5d1
+render	unifont	32	1fb	1	1	b6ddfd5d10caf719
