@@ -219,3 +219,91 @@ Keyboard LEDs followed the xkb state, and a program could set them through DECLL
 **Verdict: follows.** No issue records a different input flow. #19 adds one investigation: keys reaching the kernel console after a compositor exits.
 
 **Not planned:** the key order (VT keys, then seat keys, then the terminal's grabs, then DECARM, then the encoder) is stated in no issue; #19 and #21 together need it. The session keys and `grab-reboot` follow the missing session control (part 2). The `localectl` layout through D-Bus is out of minspec, as in the C minimal build (`kmscon/README.md:114`), and in no later issue.
+
+## 5. The terminal
+
+The terminal was split across two places: libtsm held the terminal's state and its parser with no I/O, and kmscon's terminal layer connected it to a pty, the displays, input and timers (`kmscon/src/terminal.c:96-160`).
+
+Each session's terminal owned one libtsm screen, one parser bound to that screen, one pty and one font, and a list of per-display screens, each with its own renderer (`kmscon/src/terminal.c:1884-1960`, `kmscon/src/terminal.c:66-83`).
+
+Bytes reached the parser in bounded calls: each call decoded UTF-8 (or 7-bit or 8-bit input), fed one codepoint at a time to the state machine, and stopped early when its image work (2^24 pixels) was spent, when an image decode paused input, or right after the reset that ends a synchronized frame; the caller learned how many bytes were taken (`libtsm/src/tsm/tsm-vte.c:3660-3687`, `libtsm/src/tsm/tsm-vte.c:3689-3744`).
+
+While a kitty image request was out to the host, a bounded call took nothing (`libtsm/src/tsm/tsm-vte.c:3736-3744`).
+
+The state machine was Paul Williams' vt100.net DEC parser, written from scratch: CAN, SUB and the C1 controls acted from any state; every transition ran the old state's exit action, the transition's action and the new state's entry action, so a string's end handler ran on leaving the string state (`libtsm/src/tsm/tsm-vte.c:36-47`, `libtsm/src/tsm/tsm-vte.c:3238-3273`, `libtsm/src/tsm/tsm-vte.c:3280-3298`).
+
+An action either printed a character through the charset mapping into the screen, executed a control, collected a parameter or intermediate, or dispatched a complete ESC, CSI, DCS, OSC or APC sequence (`libtsm/src/tsm/tsm-vte.c:3173-3236`).
+
+Collection was bounded: 16 CSI parameters with colon sub-parameters, an OSC string of 127 bytes (`OSC_MAX_LEN`, 128 with the NUL), and XTGETTCAP at 16 names with a reply of at most 4096 bytes (`libtsm/src/tsm/tsm-vte-int.h:25-37`, `libtsm/src/tsm/tsm-vte.c:131`).
+
+Every mode was one row of a registry, from which set, reset, DECRQM replies, resets and a generated reference page all expanded (`libtsm/src/tsm/tsm-modes.def`; `kmscon/docs/architecture/terminal/ADR-201-one-mode-registry-in-libtsm-and-synchronized-output-mode-2026.md:83`). <!-- adr-cite-ignore: kmscon's records -->
+
+Replies went out through one write callback, which kmscon pointed at the pty's queue (`libtsm/src/tsm/tsm-vte.c:918-944`, `kmscon/src/terminal.c:1877-1882`); a reply generated while parsing was marked as a reply by the pty, so the reply bound applied (part 6).
+
+The parser called the host back for an OSC it did not handle (kmscon took only `setBackground` and `setForeground`), for BEL (a bell on the VT, only with `bell` on), for DECLL (the keyboard LEDs), and for a change of mouse mode (which cleared the selection) (`kmscon/src/terminal.c:859-897`, `kmscon/src/config.c:1372`).
+
+The screen held a main and an alternate line array, margins, tab stops at every eighth column, and a scrollback list of `sb-size` lines, 1,000 by default (`libtsm/src/tsm/tsm-screen.c:1170-1191`, `kmscon/src/terminal.c:1915`, `kmscon/src/config.c:1371`).
+
+A line scrolled off the top of the main screen's scroll region went into the scrollback, the oldest line leaving when full; on the alternate screen it was cleared and reused (`libtsm/src/tsm/tsm-screen.c:358-405`, `libtsm/src/tsm/tsm-screen.c:274-315`).
+
+A line leaving the scrollback for good dropped its image placements' top row, and placements taller than one row moved to the next line (`libtsm/src/tsm/tsm-screen.c:303-307`).
+
+Change tracking was by age: a counter advanced on each change, each cell and each line kept the age it last changed at, and the screen kept one age that marked everything when set; any scroll, a region scroll included, set the screen's age (`libtsm/src/tsm/libtsm-int.h:173-190`, `libtsm/src/tsm/tsm-screen.c:363-373`, `libtsm/src/tsm/tsm-screen.c:274-280`).
+
+A renderer asked for a frame since the age it last drew; the frame gave every visible cell with its colours resolved, its cluster key and whether it changed, and the cursor as a cell of its own; the frame was valid only until the next call (`libtsm/src/tsm/libtsm.h:380-440`, `libtsm/src/tsm/libtsm.h:520-545`).
+
+A turn of output with no visible change drew nothing, because the terminal first asked whether anything changed since that display's age (`kmscon/src/terminal.c:571-591`, `libtsm/src/tsm/libtsm.h:533-545`).
+
+The terminal layer drew at the end of each loop turn in which output was parsed, for each display whose frame changed, unless synchronized output held the frame or the write was still arriving (part 7) (`kmscon/src/terminal.c:571-591`).
+
+A new size, from a display added or removed, a font change or a zoom, picked the grid by `multi-monitor` (`scaled` by default: the smallest grid that fits every display), resized each renderer, gave libtsm the cell size and the new grid, set the pty's window size, and redrew (`kmscon/src/terminal.c:1107-1170`, `kmscon/src/config.c:1418`).
+
+Opening the terminal hard-reset the parser, opened the pty at the grid's size, wrote `/etc/issue` if configured, and redrew (`kmscon/src/terminal.c:1711-1737`).
+
+Activating the terminal (a VT switch back, a session switch, an unblank) started the blink timers, opened the terminal if it was closed, resumed image playback, and redrew every display; deactivating gave back the renderers' scaled pictures and stopped the timers (`kmscon/src/terminal.c:1764-1795`).
+
+**In vtium:** the parser is `vtium-parse`, vtium/vtium#9; the cells, lines and frames are `vtium-term`, vtium/vtium#10 and ADR-1001; the screen, scrollback and Unicode are vtium/vtium#11; modes, SGR, replies, and key and mouse encoding are vtium/vtium#12; the wiring of terminal, pty, displays and timers is `vtium`, vtium/vtium#21.
+
+**Verdict: follows, with listed departures.** `crates/vtium-parse/README.md` lists the parser's departures (a string acts only when its terminator completes it, intermediates kept in order, empty parameters omitted, C1 controls inert in UTF-8, and others), each with its specification. ADR-1001 and `crates/vtium-term/README.md` list the model's: 8-byte cells with per-line style, link and cluster tables in place of 32-byte cells and a screen-wide cluster table; change ages per screen position, row and screen in place of per cell and per line; a region scroll that marks only its rows (aaronsb/libtsm#34); the default background marked in the frame (aaronsb/libtsm#35); padding in the default style (aaronsb/libtsm#47). #12 lists its own (DA1, DECSTR's mouse reset kept, DECSC and the cursor style, the 1049 erase).
+
+The change-tracking flow is the same: each display keeps the age it drew at, and a frame says what changed since then. The storage of ages and clusters is a Rust shape. Images anchor by a `LineId` the store holds, where the C reference listed placements on the line itself; the flow, a placement travelling with its line into the scrollback and back, is the same.
+
+**Check:** a line on the main screen entered the scrollback whenever it scrolled off the top of a scroll region, whatever the top margin (`libtsm/src/tsm/tsm-screen.c:388-399`); xterm saves only when the top margin is the first row. No vtium issue or departure list says which vtium follows.
+
+## 6. The pty
+
+The pty was opened non-blocking and close-on-exec, its descriptor made an edge-triggered loop source, a child callback registered, and the child forked (`kmscon/src/misc/pty.c:785-828`).
+
+The child cleared its signal mask and reset every handler, became a session leader, opened the pty's other end as its controlling terminal, set `VERASE` to DEL or backspace by `backspace-delete`, set the window size, and made the pty its standard input, output and error (`kmscon/src/misc/pty.c:304-397`).
+
+It then reset the environment when `reset-env` was on (the default), set `TERM` (`term`, by default the build's `term` option, `kmscon`; `vt220` when unset), `COLORTERM=truecolor`, `XDG_SEAT`, `XDG_VTNR` and `TERM_SESSION_TYPE`, and ran the configured `login` command, `/bin/login -p` by default (`kmscon/src/misc/pty.c:252-302`, `kmscon/src/terminal.c:1940-1942`, `kmscon/src/config.c:1365-1370`, `kmscon/meson.options:51-52`).
+
+Reading took up to 16 KiB at a time, at most 50 reads per readiness event, then re-armed the edge so the next turn read on (`kmscon/src/misc/pty.c:50`, `kmscon/src/misc/pty.c:620-654`).
+
+Each read went to the terminal's input callback, which might take only part of it; the rest was held, nothing more was read, and an idle callback handed the rest over on later turns, so input, drawing and VT switches ran between the parts (`kmscon/src/misc/pty.c:589-618`, `kmscon/src/misc/pty.c:656-667`).
+
+A pause, used while an image decode was out, stopped reading and feeding until resumed (`kmscon/src/misc/pty.c:669-705`, `kmscon/src/terminal_image.c:88-122`).
+
+Writes went straight to the pty when nothing was queued; what the child did not take was queued, and the descriptor watched for writability until the queue drained (`kmscon/src/misc/pty.c:862-890`, `kmscon/src/misc/pty.c:521-550`).
+
+The queue kept the user's bytes (keys, pastes, pointer reports) apart from replies, in runs in order; user bytes were queued whole and never stopped reading (`kmscon/src/misc/pty.c:55-77`, `kmscon/src/misc/pty.c:474-517`).
+
+Replies stopped reading at 64 KiB queued and resumed below 16 KiB, so a child that queried without reading stalled itself; a reply that would pass 256 KiB, reachable only within one callback call, was dropped with the rest of that call's replies (`kmscon/src/misc/pty.c:55-70`, `kmscon/src/misc/pty.c:479-484`, `kmscon/src/misc/pty.c:542-548`).
+
+The window size was set with `TIOCSWINSZ` when the grid or the cell size changed, with the text area in pixels (`kmscon/src/misc/pty.c:941-964`).
+
+A hang-up on the pty was ignored, since `login` hangs up its tty before it runs; the child was tracked by its pid alone (`kmscon/src/misc/pty.c:707-735`).
+
+When the child exited, the terminal closed: the image request was cancelled, the pty closed, its queue flushed so nothing reached the next child, and the parser hard-reset on the next open (`kmscon/src/misc/pty.c:737-768`, `kmscon/src/terminal.c:1740-1748`, `kmscon/src/misc/pty.c:830-848`, `kmscon/src/terminal.c:1719`).
+
+Then the terminal opened again with a new child, unless `oneshot` was set or the child had died within 2 s of its last start five times running; in those cases kmscon exited (`kmscon/src/misc/pty.c:52-53`, `kmscon/src/misc/pty.c:747-767`, `kmscon/src/terminal.c:1856-1868`).
+
+Output still unread when the child exited was lost with the closed pty (`kmscon/src/misc/pty.c:830-848`).
+
+**In vtium:** the pty is vtium/vtium#20 in `vtium-platform`, built on the branch `feat/platform-pty`; the command, environment and respawn policy are vtium/vtium#21.
+
+**Verdict: follows, with listed departures.** The branch's README keeps the read size, the reads per turn, the reply bounds, the held remainder fed on later turns, the pause, the queue's runs, and the flushed queue on reopen, each cited to `pty.c`. It lists three departures: the consumer stops at the reply that fills the queue, so no reply is dropped and the result does not depend on how reads split the stream; pointer motion is coalesced for a child that does not read (aaronsb/kmscon#247); and the exit is reported only after the child's last output is read.
+
+**Check:** with `reset-env` the C reference ran `/bin/login -p`, without it `/bin/login` (`kmscon/src/misc/pty.c:261-272`). The branch's README names `/bin/login` as the default. Which argv vtium uses for each setting belongs in #21.
+
+**Not planned:** the exit of the whole process after five quick restarts or under `oneshot` (`kmscon/src/terminal.c:1856-1868`) is assigned to #21 by the branch's README, and #21's body does not yet list it.
