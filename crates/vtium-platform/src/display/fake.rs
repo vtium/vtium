@@ -97,6 +97,9 @@ pub(crate) struct State {
     pub(crate) commits: Vec<Commit>,
     /// Errors the next commits return, one each.
     pub(crate) commit_errors: VecDeque<Errno>,
+    /// CRTCs no commit may drive, as past a bandwidth limit: a commit
+    /// that names one is refused with EINVAL.
+    pub(crate) refused: Vec<u32>,
     pub(crate) page_flips: Vec<(u32, u32)>,
     pub(crate) set_crtcs: Vec<(u32, u32, u32, Mode)>,
     /// CRTCs with a flip pending, and those whose flip completed.
@@ -463,6 +466,9 @@ impl Kms for FakeCard {
         s.commits.push(commit.clone());
         if let Some(e) = s.commit_errors.pop_front() {
             return Err(err(e));
+        }
+        if s.refused.iter().any(|&c| commit.mentions(c)) {
+            return Err(err(Errno::INVAL));
         }
         if !s.master {
             return Err(err(Errno::ACCESS));

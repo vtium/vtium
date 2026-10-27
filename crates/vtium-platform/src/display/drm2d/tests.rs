@@ -901,3 +901,51 @@ fn a_failed_resize_keeps_the_running_displays_buffers() {
     assert_eq!(fbs(&v, A), held);
     assert_eq!(v.size(DisplayId(A)), Some((320, 240)));
 }
+
+// Finding 1: a display plugged in whose modeset keeps failing beside the
+// displays online is left off until the next hotplug; the displays online
+// keep DRM master and what they show, and no retries start.
+// covers: platform.drm2d-fbdev
+#[test]
+fn a_new_display_that_cannot_be_set_is_left_off() {
+    let mut v = a_then_b(ModePolicy::default());
+    frame(&mut v, &[DOT]).unwrap();
+    flip(&mut v);
+    v.events().for_each(drop);
+    v.card().state().listed.push(B);
+    v.card().state().refused.push(101);
+    logs::capture();
+    v.poll().unwrap();
+    assert_eq!(v.waits(), (false, false), "no retries");
+    assert!(v.card().state().master);
+    assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(A)]);
+    assert!(events(&mut v).is_empty());
+    let warned = logs::at_least(Level::Warn);
+    assert!(warned.iter().any(|w| w.contains("HDMI-A-2")), "{warned:?}");
+    let c = v.card().last_commit().unwrap();
+    assert!(c.mentions(A) && !c.mentions(B));
+    flip(&mut v);
+    assert_eq!(events(&mut v), [Event::Flipped(DisplayId(A))]);
+    assert!(v.canvas(DisplayId(A)).is_some());
+    // B is tried again at the next hotplug.
+    v.card().state().refused.clear();
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
+}
+
+// Finding 1: once the wake-up retries run out, the next hotplug tries the
+// wake-up again.
+#[test]
+fn a_hotplug_after_the_retries_ran_out_wakes_the_card() {
+    let mut v = one();
+    v.card().state().master_elsewhere = true;
+    assert!(v.wake_up().is_err());
+    while v.waits().1 {
+        v.retry_wake();
+    }
+    assert_eq!(events(&mut v), [Event::WakeFailed]);
+    v.card().state().master_elsewhere = false;
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
+    assert!(v.card().state().master);
+}

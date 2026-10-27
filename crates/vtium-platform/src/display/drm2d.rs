@@ -52,6 +52,9 @@ pub struct Drm2d<K: Kms> {
     legacy: bool,
     hotspot: bool,
     master: bool,
+    /// The seat gave the card its displays: woken and not put to sleep
+    /// since, though waking may have failed.
+    foreground: bool,
     awake: bool,
     policy: ModePolicy,
     outputs: Vec<Output<K::Map>>,
@@ -90,6 +93,7 @@ impl<K: Kms> Drm2d<K> {
             legacy,
             hotspot,
             master: false,
+            foreground: false,
             awake: false,
             policy,
             outputs: Vec::new(),
@@ -437,6 +441,7 @@ impl<K: Kms> Drm2d<K> {
     /// again every [`crate::WAKE_RETRY_MS`], at most
     /// [`crate::WAKE_RETRIES`] times.
     pub fn wake_up(&mut self) -> io::Result<()> {
+        self.foreground = true;
         let woken = self.try_wake();
         self.retries = woken.is_err().then_some(0);
         self.settle();
@@ -487,6 +492,7 @@ impl<K: Kms> Drm2d<K> {
     /// planes and drops DRM master. [`Event::Asleep`] tells when it is
     /// done.
     pub fn sleep(&mut self) {
+        self.foreground = false;
         self.retries = None;
         if !self.awake {
             self.events.push(Event::Asleep);
@@ -529,8 +535,15 @@ impl<K: Kms> Drm2d<K> {
     }
 
     /// Looks for connectors plugged in or out, as on a udev hotplug event,
-    /// and sets up what changed. A failure is retried as a wake-up is.
+    /// and sets up what changed. A failure is retried as a wake-up is. A
+    /// wake-up that failed and ran out of retries is tried again.
     pub fn poll(&mut self) -> io::Result<()> {
+        if !self.awake {
+            if !self.foreground || self.retries.is_some() {
+                return Ok(());
+            }
+            return self.wake_up();
+        }
         let scanned = self.scan(false, false);
         if scanned.is_err() && self.awake {
             self.retries.get_or_insert(0);
@@ -881,32 +894,65 @@ impl<K: Kms> Drm2d<K> {
         self.modeset()
     }
 
-    /// Sets every display's mode, then announces each display set.
+    /// Sets every display's mode, then announces each display set. Where
+    /// the displays online and the new ones cannot be set together, the
+    /// new ones are left off until the next hotplug and the rest are set
+    /// alone.
     fn modeset(&mut self) -> io::Result<()> {
         let set = if self.legacy {
             self.legacy_modeset();
             Ok(())
         } else {
-            match self.atomic_modeset() {
-                Err(Failure::Test(e)) if errno(&e) != Some(Errno::ACCESS) => {
-                    log::warn!("retrying the modeset with each display's default mode");
-                    let modes: Vec<Mode> = self.outputs.iter().map(|o| o.mode).collect();
-                    for o in &mut self.outputs {
-                        o.mode = o.choice.default;
+            let set = self.atomic_modeset_or_default();
+            match set {
+                Err(e) if errno(&e) != Some(Errno::ACCESS) && self.mixed() => {
+                    let (online, new) = std::mem::take(&mut self.outputs)
+                        .into_iter()
+                        .partition(|o| o.online);
+                    self.outputs = online;
+                    for o in new {
+                        log::warn!(
+                            "cannot set {} beside the displays online: {e}; it stays off until the next hotplug",
+                            o.name
+                        );
+                        self.free(o);
                     }
-                    let retried = self.atomic_modeset();
-                    if retried.is_err() {
-                        for (o, mode) in self.outputs.iter_mut().zip(modes) {
-                            o.mode = mode;
-                        }
-                    }
-                    retried.map_err(Failure::into_inner)
+                    self.atomic_modeset_or_default()
                 }
-                set => set.map_err(Failure::into_inner),
+                set => set,
             }
         };
-        self.announce();
+        if set.is_ok() {
+            self.announce();
+        }
         set
+    }
+
+    /// Whether some displays are online and some are new.
+    fn mixed(&self) -> bool {
+        self.outputs.iter().any(|o| o.online) && self.outputs.iter().any(|o| !o.online)
+    }
+
+    /// An atomic modeset of every display, tried again with each display's
+    /// default mode where the test commit fails.
+    fn atomic_modeset_or_default(&mut self) -> io::Result<()> {
+        match self.atomic_modeset() {
+            Err(Failure::Test(e)) if errno(&e) != Some(Errno::ACCESS) => {
+                log::warn!("retrying the modeset with each display's default mode");
+                let modes: Vec<Mode> = self.outputs.iter().map(|o| o.mode).collect();
+                for o in &mut self.outputs {
+                    o.mode = o.choice.default;
+                }
+                let retried = self.atomic_modeset();
+                if retried.is_err() {
+                    for (o, mode) in self.outputs.iter_mut().zip(modes) {
+                        o.mode = mode;
+                    }
+                }
+                retried.map_err(Failure::into_inner)
+            }
+            set => set.map_err(Failure::into_inner),
+        }
     }
 
     /// Announces each display online: new ones as added, the rest to be
