@@ -366,7 +366,8 @@ fn chunking_case(seed: u64) -> bool {
     d.stalled
 }
 
-// covers the Determinism rule "Chunking invariance" for the pty
+// docs/architecture.md, "Determinism": chunking invariance for the pty
+// covers: platform.pty
 #[test]
 fn what_the_consumer_sees_and_replies_does_not_depend_on_reads() {
     let mut stalls = 0;
@@ -424,6 +425,7 @@ impl Consumer for Whole {
 }
 
 // aaronsb/kmscon#245: a child that queries without reading stalls itself.
+// covers: platform.pty
 #[test]
 fn replies_to_a_child_that_does_not_read_stop_the_reading() {
     let mut d = flood(1_000_000);
@@ -443,6 +445,7 @@ fn replies_to_a_child_that_does_not_read_stop_the_reading() {
     assert_eq!(term.0.taken.len(), taken);
 }
 
+// covers: platform.pty
 #[test]
 fn reading_resumes_once_the_child_reads_its_replies() {
     let mut d = flood(1_000_000);
