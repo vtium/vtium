@@ -5,13 +5,17 @@
 //! `request_numbers_match_the_headers` reads the headers and fails when one
 //! differs. The fbdev, VT and keyboard numbers predate size encoding, so
 //! nothing else would catch a wrong one. DRM's ioctls come wrapped from
-//! `drm-ffi`.
+//! `drm-ffi`, all but GETRESOURCES, which it wraps unsoundly.
 
 use std::ffi::{c_int, c_short};
 use std::io;
 use std::os::fd::BorrowedFd;
 
+use drm_ffi::drm_mode_card_res;
 use rustix::ioctl::{Getter, IntegerSetter, Opcode, Setter, Updater, ioctl, opcode};
+
+/// `DRM_IOCTL_MODE_GETRESOURCES`, `drm/drm.h`.
+const DRM_IOCTL_MODE_GETRESOURCES: Opcode = opcode::read_write::<drm_mode_card_res>(b'd', 0xA0);
 
 /// `FBIOGET_VSCREENINFO`, `linux/fb.h`.
 const FBIOGET_VSCREENINFO: Opcode = 0x4600;
@@ -122,6 +126,51 @@ pub(crate) fn fb_put_var(fd: BorrowedFd<'_>, var: &mut FbVarScreeninfo) -> io::R
         )?;
     }
     Ok(())
+}
+
+/// One `DRM_IOCTL_MODE_GETRESOURCES`: the card's CRTC and connector ids
+/// into `crtcs` and `connectors`, at most each one's length of them, and
+/// the counts the card has, which can be larger. drm-ffi's
+/// `get_resources` sets its lists' lengths to those counts, past their
+/// buffers when a connector is plugged in between its two calls
+/// (vtium/vtium#89).
+pub(crate) fn drm_get_resources(
+    fd: BorrowedFd<'_>,
+    crtcs: &mut [u32],
+    connectors: &mut [u32],
+) -> io::Result<(usize, usize)> {
+    let mut res = card_res(crtcs, connectors)?;
+    #[expect(unsafe_code, reason = "an ioctl drm-ffi wraps unsoundly")]
+    // SAFETY: GETRESOURCES reads and writes one `struct drm_mode_card_res`,
+    // which drm-sys lays out from the header. The kernel writes at most
+    // `count_crtcs` ids at `crtc_id_ptr` and `count_connectors` at
+    // `connector_id_ptr`, which `card_res` sets to the length and start of
+    // the slice each points into, and nothing at the framebuffer and
+    // encoder pointers, whose counts are 0.
+    unsafe {
+        ioctl(
+            fd,
+            Updater::<DRM_IOCTL_MODE_GETRESOURCES, drm_mode_card_res>::new(&mut res),
+        )?;
+    }
+    let len = |n: u32| usize::try_from(n).map_err(|_| io::Error::from(io::ErrorKind::InvalidData));
+    Ok((len(res.count_crtcs)?, len(res.count_connectors)?))
+}
+
+/// GETRESOURCES' argument for `crtcs` and `connectors`: each list's
+/// pointer at its slice and its count the slice's length, and no room for
+/// framebuffers or encoders.
+fn card_res(crtcs: &mut [u32], connectors: &mut [u32]) -> io::Result<drm_mode_card_res> {
+    let count = |ids: &[u32]| {
+        u32::try_from(ids.len()).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))
+    };
+    Ok(drm_mode_card_res {
+        crtc_id_ptr: crtcs.as_mut_ptr().expose_provenance() as u64,
+        connector_id_ptr: connectors.as_mut_ptr().expose_provenance() as u64,
+        count_crtcs: count(crtcs)?,
+        count_connectors: count(connectors)?,
+        ..drm_mode_card_res::default()
+    })
 }
 
 pub(crate) fn fb_get_fix(fd: BorrowedFd<'_>) -> io::Result<FbFixScreeninfo> {
@@ -469,6 +518,7 @@ pub(crate) fn evdev_abs_xy(fd: BorrowedFd<'_>) -> io::Result<(InputAbsinfo, Inpu
 
 #[cfg(test)]
 #[expect(
+    clippy::expect_used,
     clippy::panic,
     clippy::indexing_slicing,
     reason = "a test fails by panicking"
@@ -537,6 +587,42 @@ mod tests {
             };
         }
         value
+    }
+
+    #[test]
+    fn each_resource_count_is_its_buffers_length() {
+        let (mut crtcs, mut connectors) = ([0u32; 2], [0u32; 5]);
+        let res = card_res(&mut crtcs, &mut connectors).expect("small slices");
+        assert_eq!(res.count_crtcs, 2);
+        assert_eq!(res.count_connectors, 5);
+        assert_eq!(res.crtc_id_ptr, crtcs.as_ptr().addr() as u64);
+        assert_eq!(res.connector_id_ptr, connectors.as_ptr().addr() as u64);
+        // The framebuffer and encoder lists are asked for with no room.
+        assert_eq!((res.count_fbs, res.fb_id_ptr), (0, 0));
+        assert_eq!((res.count_encoders, res.encoder_id_ptr), (0, 0));
+        let (mut none, mut also_none) = ([0u32; 0], [0u32; 0]);
+        let res = card_res(&mut none, &mut also_none).expect("empty slices");
+        assert_eq!((res.count_crtcs, res.count_connectors), (0, 0));
+    }
+
+    #[test]
+    fn the_drm_request_number_matches_the_header() {
+        // DRM_IOWR(0xA0, struct drm_mode_card_res): read-write, 'd', the
+        // structure's 64 bytes.
+        assert!(
+            header("drm/drm.h")
+                .lines()
+                .any(|l| l.split_whitespace().collect::<Vec<_>>()
+                    == [
+                        "#define",
+                        "DRM_IOCTL_MODE_GETRESOURCES",
+                        "DRM_IOWR(0xA0,",
+                        "struct",
+                        "drm_mode_card_res)"
+                    ])
+        );
+        assert_eq!(size_of::<drm_mode_card_res>(), 64);
+        assert_eq!(DRM_IOCTL_MODE_GETRESOURCES, 0xC040_64A0);
     }
 
     #[test]

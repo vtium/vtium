@@ -15,6 +15,7 @@ use rustix::io::Errno;
 
 use super::Mode;
 use super::kms::{Connector, Dumb, Encoder, Kms, Object, Property, Request, Resources};
+use crate::bounds::RESOURCE_READS_MAX;
 use crate::mmap::Mapping;
 
 /// `DRM_MODE_CONNECTED`, `drm/drm_mode.h`.
@@ -47,6 +48,31 @@ impl Card {
     fn raw(&self) -> BorrowedFd<'_> {
         self.fd.as_fd()
     }
+}
+
+/// The card's CRTCs and connectors through `read`, one
+/// `DRM_IOCTL_MODE_GETRESOURCES`: it fills at most each buffer's length of
+/// ids and returns the counts the card has. The lists are read again,
+/// into buffers of the new counts, while a count is larger than its list,
+/// as a connector plugged in between two reads makes it, up to
+/// `RESOURCE_READS_MAX` reads.
+fn read_resources(
+    mut read: impl FnMut(&mut [u32], &mut [u32]) -> io::Result<(usize, usize)>,
+) -> io::Result<Resources> {
+    let (mut crtcs, mut connectors) = (Vec::new(), Vec::new());
+    for _ in 0..RESOURCE_READS_MAX {
+        let (c, n) = read(&mut crtcs, &mut connectors)?;
+        if c <= crtcs.len() && n <= connectors.len() {
+            crtcs.truncate(c);
+            connectors.truncate(n);
+            return Ok(Resources { crtcs, connectors });
+        }
+        crtcs.resize(c, 0);
+        connectors.resize(n, 0);
+    }
+    Err(io::Error::other(
+        "the card's CRTC and connector counts changed at every read",
+    ))
 }
 
 /// A NUL-terminated name from a kernel structure.
@@ -88,15 +114,9 @@ impl Kms for Card {
     }
 
     fn resources(&self) -> io::Result<Resources> {
-        let mut res = Resources::default();
-        drm_ffi::mode::get_resources(
-            self.raw(),
-            None,
-            Some(&mut res.crtcs),
-            Some(&mut res.connectors),
-            None,
-        )?;
-        Ok(res)
+        read_resources(|crtcs, connectors| {
+            crate::ioctl::drm_get_resources(self.raw(), crtcs, connectors)
+        })
     }
 
     fn connector(&self, id: u32) -> io::Result<Connector> {
@@ -315,12 +335,70 @@ fn flip_events(mut events: &[u8], flipped: &mut Vec<u32>) {
 
 #[cfg(test)]
 #[expect(
+    clippy::arithmetic_side_effects,
     clippy::expect_used,
     clippy::indexing_slicing,
-    reason = "a test fails by panicking"
+    clippy::unwrap_used,
+    reason = "test arithmetic on bounded values; a test fails by panicking"
 )]
 mod tests {
+    use std::cell::Cell;
+
     use super::*;
+
+    /// A stand-in for the kernel's GETRESOURCES: the card holds `crtcs`
+    /// and, at each call, the next list of `connectors` (the last one
+    /// stays). Each call writes at most each buffer's length of ids and
+    /// returns the counts the card has, as the kernel does.
+    fn kernel<'a>(
+        crtcs: &'a [u32],
+        connectors: &'a [&'a [u32]],
+        calls: &'a Cell<usize>,
+    ) -> impl FnMut(&mut [u32], &mut [u32]) -> io::Result<(usize, usize)> + 'a {
+        move |c, n| {
+            let now = connectors[calls.get().min(connectors.len() - 1)];
+            calls.set(calls.get() + 1);
+            for (slot, id) in c.iter_mut().zip(crtcs) {
+                *slot = *id;
+            }
+            for (slot, id) in n.iter_mut().zip(now) {
+                *slot = *id;
+            }
+            Ok((crtcs.len(), now.len()))
+        }
+    }
+
+    #[test]
+    fn the_resources_are_read_whole() {
+        let res = read_resources(kernel(&[39, 49], &[&[40]], &Cell::new(0))).unwrap();
+        assert_eq!(res.crtcs, [39, 49]);
+        assert_eq!(res.connectors, [40]);
+    }
+
+    // A connector plugged in between the call that sizes the buffers and
+    // the call that fills them, as a DisplayPort MST hub's can be.
+    #[test]
+    fn a_connector_plugged_in_between_the_reads_is_listed() {
+        let res = read_resources(kernel(&[39], &[&[40], &[40, 41]], &Cell::new(0))).unwrap();
+        assert_eq!(res.crtcs, [39]);
+        assert_eq!(res.connectors, [40, 41]);
+    }
+
+    #[test]
+    fn a_connector_unplugged_between_the_reads_is_not_listed() {
+        let res = read_resources(kernel(&[39], &[&[40, 41], &[41]], &Cell::new(0))).unwrap();
+        assert_eq!(res.connectors, [41]);
+    }
+
+    #[test]
+    fn counts_that_keep_growing_end_the_reads() {
+        let lists: Vec<Vec<u32>> = (1..=40).map(|n| (40..40 + n).collect()).collect();
+        let lists: Vec<&[u32]> = lists.iter().map(Vec::as_slice).collect();
+        let calls = Cell::new(0);
+        let e = read_resources(kernel(&[39], &lists, &calls)).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::Other, "{e}");
+        assert_eq!(calls.get(), RESOURCE_READS_MAX);
+    }
 
     fn event(kind: u32, crtc: u32) -> Vec<u8> {
         let mut e = Vec::new();
@@ -355,9 +433,9 @@ mod tests {
     }
 
     /// The real ioctls on a render node, which needs no DRM master and
-    /// changes nothing on the screen: a capability read, an empty event
-    /// read, and a dumb buffer, which the kernel keeps to primary nodes
-    /// and refuses here with EACCES. The buffer's path runs on a primary
+    /// changes nothing on the screen: a capability read, the resources and
+    /// a dumb buffer, which the kernel keeps to primary nodes and refuses
+    /// here with EACCES, and an empty event read. The buffer's path runs on a primary
     /// node in tier 3. A host with no render node says so and proves
     /// nothing here.
     #[test]
@@ -372,6 +450,10 @@ mod tests {
         let card = Card::open(&path).expect("open the render node");
         card.cap(drm_ffi::DRM_CAP_DUMB_BUFFER)
             .expect("read a capability");
+        // GETRESOURCES reaches the kernel's DRM ioctl table, which keeps it
+        // to primary nodes.
+        let e = card.resources().expect_err("GETRESOURCES on a render node");
+        assert_eq!(e.raw_os_error(), Some(Errno::ACCESS.raw_os_error()));
         let mut flipped = Vec::new();
         card.read_events(&mut flipped).expect("read no events");
         assert!(flipped.is_empty());

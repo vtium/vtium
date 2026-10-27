@@ -19,7 +19,6 @@ use super::output::signed;
 use super::*;
 use crate::display::blank::Due;
 use crate::display::fake::{Commit, FakeCard, Plane, logs};
-use crate::display::kms::Encoder;
 use crate::display::mode::mode;
 use crate::display::{Blank, DPMS_TIMEOUT, Wanted};
 
@@ -1636,7 +1635,7 @@ fn a_plane_whose_properties_cannot_be_read_is_named() {
 #[test]
 fn a_plane_list_that_cannot_be_read_is_named() {
     let card = virtio_gpu();
-    card.state().planes_unreadable = true;
+    card.state().failing.push("planes");
     let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
     logs::capture();
     v.wake_up().unwrap();
@@ -1688,5 +1687,59 @@ fn a_plane_that_cannot_be_hidden_for_its_unread_type_is_named() {
     assert_eq!(
         errors,
         ["cannot read the properties of plane 37: Bad address (os error 14)"]
+    );
+}
+
+#[test]
+fn an_encoder_that_cannot_be_read_is_named() {
+    let card = virtio_gpu();
+    {
+        let mut s = card.state();
+        let conn = s.connectors.get_mut(&40).unwrap();
+        conn.encoder = 99;
+        conn.encoders = vec![98, 99, 41];
+    }
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    logs::capture();
+    v.wake_up().unwrap();
+    assert_eq!(primary(&v, 40), 35, "the readable encoder drives it");
+    // Each unreadable encoder is read, and logged, once.
+    assert_eq!(
+        logs::at_least(Level::Warn),
+        [
+            "cannot read encoder 99: No such file or directory (os error 2)",
+            "cannot read encoder 98: No such file or directory (os error 2)",
+        ]
+    );
+}
+
+#[test]
+fn a_crtc_mode_that_cannot_be_read_is_named() {
+    let card = virtio_gpu();
+    {
+        let mut s = card.state();
+        s.connectors.get_mut(&40).unwrap().encoder = 41;
+        s.encoders.get_mut(&41).unwrap().crtc = 39;
+        s.failing.push("crtc_mode");
+    }
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    logs::capture();
+    v.wake_up().unwrap();
+    assert_eq!(primary(&v, 40), 35);
+    assert_eq!(
+        logs::at_least(Level::Warn),
+        ["cannot read the mode of CRTC 39: Input/output error (os error 5)"]
+    );
+}
+
+#[test]
+fn a_dumb_buffer_capability_that_cannot_be_read_is_named() {
+    let card = virtio_gpu();
+    card.state().failing.push("cap");
+    logs::capture();
+    assert!(Drm2d::with(card, ModePolicy::default()).is_err());
+    assert_eq!(
+        logs::at_least(Level::Warn),
+        ["cannot read the card's dumb buffer capability: Input/output error (os error 5)"]
     );
 }
