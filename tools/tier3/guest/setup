@@ -6,6 +6,11 @@ set -eu
 disc=$1
 tar -xpf "$disc"/tree.tar -C / --no-overwrite-dir --keep-directory-symlink
 tree=$(sha256sum "$disc"/tree.tar | cut -d' ' -f1)
+# A variant naming features runs vtium built with them in place of the
+# tree's binary.
+if [ -f "$disc"/vtium ]; then
+    install -m755 "$disc"/vtium /usr/bin/vtium
+fi
 install -Dm644 "$disc"/kmscon.conf /etc/kmscon/kmscon.conf
 # A power variant's kernel settings, such as kernel.ctrl-alt-del for the
 # hard reboot, set before the console starts.

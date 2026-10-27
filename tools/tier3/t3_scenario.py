@@ -100,8 +100,11 @@ VARIANTS = {
 # variant's "power" lists its cases (t3_power), pressed in order on the
 # console's login prompt. A reboot or a power-off ends the VM, so each
 # reboot has a variant of its own and power-off follows suspend. The
-# hard reboot's guest sets "sysctl" before vtium starts, and QEMU offers
-# S3 so that logind suspends to RAM, which QMP reports.
+# hard reboot's guest sets "sysctl" before vtium starts. QEMU offers S3,
+# so the guest suspends to RAM, which QMP reports. A variant naming
+# "features" runs vtium built with them (t3.build_features) in place of
+# the tree's minspec binary.
+S3 = ["-global", "ICH9-LPC.disable_s3=0"]
 POWER = {
     "device": "virtio-vga,xres=1366,yres=768,edid=on",
     "display": "none",
@@ -114,10 +117,11 @@ POWER = {
 VARIANTS.update({
     "power-reboot": dict(POWER, power=["reboot"]),
     "power-reboot-hard": dict(POWER, power=["reboot-hard"], sysctl="kernel.ctrl-alt-del = 1\n"),
-    "power-suspend-off": dict(POWER, power=["suspend", "power-off"],
-                              qemu=["-global", "ICH9-LPC.disable_s3=0"]),
+    "power-suspend-off": dict(POWER, power=["suspend-sysfs", "power-off"], qemu=S3),
+    "power-suspend-logind": dict(POWER, power=["suspend"], qemu=S3, features="logind"),
 })
-POWER_VARIANTS = ["power-reboot", "power-reboot-hard", "power-suspend-off"]
+POWER_VARIANTS = ["power-reboot", "power-reboot-hard", "power-suspend-off",
+                  "power-suspend-logind"]
 
 # What `t3.py run` runs when no variant is named, in the order workers take
 # them: with JOBS=2 the longest, 2d-7680x2160, starts at once, the potato
@@ -173,8 +177,8 @@ def check_install(line, impl):
 
 def build_disc(variant, work, impl):
     """The T3PKG disc: the tree as tree.tar, the variant's config, the
-    screens, guest/setup, and the variant's sysctl settings if it has
-    any."""
+    screens, guest/setup, the variant's sysctl settings if it has any, and
+    vtium built with its features if it names any."""
     disc = os.path.join(work, "disc")
     shutil.rmtree(disc, ignore_errors=True)
     os.makedirs(disc)
@@ -187,6 +191,8 @@ def build_disc(variant, work, impl):
     if "sysctl" in VARIANTS[variant]:
         with open(os.path.join(disc, "sysctl.conf"), "w") as f:
             f.write(VARIANTS[variant]["sysctl"])
+    if "features" in VARIANTS[variant]:
+        shutil.copy(impl["features"][VARIANTS[variant]["features"]], os.path.join(disc, "vtium"))
     iso = os.path.join(work, "t3pkg.iso")
     make_iso(disc, "T3PKG", iso)
     return iso
@@ -494,12 +500,13 @@ def press_power_keys(vm, cases, work, caps, errors, log, phase):
             with open(vm.serial, "rb") as f:
                 since = len(f.read())
             vm.keys(*t3_power.CHORDS[case])
-            if case == "suspend":
+            if case in t3_power.SUSPENDS:
                 vm.wait_status("suspended", timeout=POWER_TIMEOUT)
                 log("the guest is suspended; waking it")
                 vm.cmd("system_wakeup")
                 vm.wait_status("running", timeout=60)
-                vm.wait_serial("Finished System Suspend", timeout=POWER_TIMEOUT)
+                if case == "suspend":
+                    vm.wait_serial("Finished System Suspend", timeout=POWER_TIMEOUT)
                 # Drawn again after the wake-up: a blank screen fails the case.
                 wait_stable(vm, path, settle=2.0, timeout=60, want=not_blank)
             elif vm.wait_exit(POWER_TIMEOUT) is None:

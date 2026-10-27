@@ -16,7 +16,10 @@ CHORDS = {
     "reboot-hard": ("ctrl", "alt", "delete"),
     "power-off": ("ctrl", "alt", "end"),
     "suspend": ("ctrl", "alt", "home"),
+    "suspend-sysfs": ("ctrl", "alt", "home"),
 }
+# The cases that suspend: QMP sees the guest suspended and wakes it.
+SUSPENDS = ("suspend", "suspend-sysfs")
 
 # What each case shows and what correct looks like, for the report.
 CHECKS = {
@@ -29,11 +32,17 @@ CHECKS = {
     "power-off": "grab-power-off (Ctrl+Alt+End). Correct: vtium asks init with SIGRTMIN+4, "
                  "systemd reaches its power-off target, stopping the services and unmounting "
                  "the filesystems, and the kernel powers down.",
-    "suspend": "grab-suspend (Ctrl+Alt+Home), then QEMU's wake-up. Correct: vtium asks logind, "
-               "the guest suspends to RAM, and after the wake-up vtium draws its screen again.",
+    "suspend": "grab-suspend (Ctrl+Alt+Home) in vtium built with logind, then QEMU's wake-up. "
+               "Correct: logind takes the request and systemd suspends the guest to RAM through "
+               "its sleep target; after the wake-up vtium draws its screen again.",
+    "suspend-sysfs": "grab-suspend (Ctrl+Alt+Home) in the minspec build, without logind, then "
+                     "QEMU's wake-up. Correct: vtium writes mem to /sys/power/state, the guest "
+                     "suspends to RAM with no sleep target of systemd's, and after the wake-up "
+                     "vtium draws its screen again.",
 }
 
-# Lines each case requires on the console, in order, and lines it forbids.
+# Lines each case requires on the console, in order, lines it requires in
+# any order, and lines it forbids.
 # vtium's own line shows the key reached it; systemd's targets show the
 # services stopped and the filesystems unmounted; the kernel's last line
 # shows how the machine ended.
@@ -59,10 +68,18 @@ EXPECT = {
         "forbid": ["reboot: Restarting system"],
     },
     "suspend": {
-        "require": ["grab-suspend: asking logind to suspend",
+        "require": ["grab-suspend: suspending",
                     "Reached target Sleep",
                     "Finished System Suspend"],
-        "forbid": ["reboot: "],
+        # logind answers while systemd starts its sleep target, so the
+        # console takes the two lines in either order.
+        "anywhere": ["grab-suspend: logind took the request"],
+        "forbid": ["reboot: ", "writing mem to /sys/power/state"],
+    },
+    "suspend-sysfs": {
+        "require": ["grab-suspend: suspending",
+                    "grab-suspend: writing mem to /sys/power/state"],
+        "forbid": ["reboot: ", "Reached target Sleep"],
     },
 }
 
@@ -73,8 +90,8 @@ _ESCAPES = re.compile(r"\x1b\[[0-9;?!]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1
 def judge(case, serial, since=0):
     """Why `case` failed, from the console log `serial` (bytes) after offset
     `since`, where the key was pressed; None when it passed. Each required
-    line must appear after the one before it, and no forbidden line may
-    appear."""
+    line must appear after the one before it, each "anywhere" line
+    somewhere, and no forbidden line may appear."""
     text = _ESCAPES.sub("", serial[since:].decode(errors="replace"))
     lines = text.splitlines()
     want = EXPECT[case]
@@ -85,6 +102,9 @@ def judge(case, serial, since=0):
             return "no %r on the console after the key%s" % (
                 marker, "" if at == 0 else ", after %r" % lines[at - 1].strip())
         at = found + 1
+    for marker in want.get("anywhere", []):
+        if not any(marker in line for line in lines):
+            return "no %r on the console after the key" % marker
     for marker in want["forbid"]:
         if any(marker in line for line in lines):
             return "%r on the console after the key" % marker

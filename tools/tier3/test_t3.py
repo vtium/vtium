@@ -437,8 +437,14 @@ class ImplementationTest(unittest.TestCase):
         # guest/setup applies; the other power variants' carry none.
         impl = t3_impl.tree(self.tree, self.tar)
         disc = os.path.join(self.dir.name, "disc")
-        for variant, sysctl in (("power-reboot-hard", "kernel.ctrl-alt-del = 1\n"),
-                                ("power-reboot", None), ("power-suspend-off", None)):
+        built = os.path.join(self.dir.name, "vtium-logind")
+        with open(built, "w") as f:
+            f.write("logind build")
+        impl["features"] = {"logind": built}
+        for variant, sysctl, binary in (
+                ("power-reboot-hard", "kernel.ctrl-alt-del = 1\n", None),
+                ("power-reboot", None, None), ("power-suspend-off", None, None),
+                ("power-suspend-logind", None, "logind build")):
             with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
                 t3_scenario.build_disc(variant, self.dir.name, impl)
                 path = os.path.join(disc, "sysctl.conf")
@@ -447,10 +453,18 @@ class ImplementationTest(unittest.TestCase):
                 else:
                     with open(path) as f:
                         self.assertEqual(f.read(), sysctl)
+                path = os.path.join(disc, "vtium")
+                if binary is None:
+                    self.assertFalse(os.path.exists(path))
+                else:
+                    with open(path) as f:
+                        self.assertEqual(f.read(), binary)
                 with open(os.path.join(disc, "kmscon.conf")) as f:
                     self.assertIn("grab-reboot=", f.read())
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
-            self.assertIn('sysctl -q -p "$disc"/sysctl.conf', f.read())
+            text = f.read()
+        self.assertIn('sysctl -q -p "$disc"/sysctl.conf', text)
+        self.assertIn('install -m755 "$disc"/vtium /usr/bin/vtium', text)
 
     def test_setup_keeps_directory_links(self):
         # Arch links /bin, /lib and /sbin to directories under /usr; a tree
@@ -1116,10 +1130,13 @@ class PowerTest(unittest.TestCase):
                       OK + "Reached target Unmount All Filesystems.",
                       OK + "Reached target System Power Off.",
                       "[ 12.0] reboot: Power down"],
-        "suspend": ["[ 9.1] vtium[404]: grab-suspend: asking logind to suspend",
+        "suspend": ["[ 9.1] vtium[404]: grab-suspend: suspending",
                     OK + "Reached target Sleep.",
+                    "[ 9.1] vtium[404]: grab-suspend: logind took the request",
                     "         Starting System Suspend...",
                     OK + "Finished System Suspend."],
+        "suspend-sysfs": ["[ 9.1] vtium[404]: grab-suspend: suspending",
+                          "[ 9.1] vtium[404]: grab-suspend: writing mem to /sys/power/state"],
     }
 
     def log(self, case, before=(), drop=None, extra=()):
@@ -1145,17 +1162,24 @@ class PowerTest(unittest.TestCase):
                     self.assertEqual(t3_evaluate.golden_for(name, case), (None, None))
                     self.assertEqual(t3_evaluate.describe(case),
                                      (t3_power.CHECKS[case], None))
-                # A case that ends the VM is the variant's last.
-                self.assertNotIn("suspend", cases[1:])
+                # Only the last case may end the VM.
+                for case in cases[:-1]:
+                    self.assertIn(case, t3_power.SUSPENDS)
+                if set(cases) & set(t3_power.SUSPENDS):
+                    self.assertIn("ICH9-LPC.disable_s3=0", v["qemu"])
                 seen += cases
         self.assertEqual(sorted(seen), sorted(t3_power.CHECKS))
-        self.assertIn("ICH9-LPC.disable_s3=0", t3_scenario.VARIANTS["power-suspend-off"]["qemu"])
+        # Suspend through logind runs vtium built with it; the minspec
+        # build suspends through sysfs.
+        self.assertEqual(t3_scenario.VARIANTS["power-suspend-logind"]["features"], "logind")
+        self.assertNotIn("features", t3_scenario.VARIANTS["power-suspend-off"])
 
     def test_chords_match_the_configuration(self):
         # Each qcode chord the driver presses is the chord kmscon-power.conf
         # binds for its key.
         keys = {"reboot": "grab-reboot", "reboot-hard": "grab-reboot",
-                "power-off": "grab-power-off", "suspend": "grab-suspend"}
+                "power-off": "grab-power-off", "suspend": "grab-suspend",
+                "suspend-sysfs": "grab-suspend"}
         with open(os.path.join(t3_common.GUEST, "kmscon-power.conf")) as f:
             conf = dict(line.strip().split("=", 1) for line in f if line.startswith("grab-"))
         for case, chord in t3_power.CHORDS.items():
@@ -1171,7 +1195,7 @@ class PowerTest(unittest.TestCase):
 
     def test_each_required_line(self):
         for case, want in t3_power.EXPECT.items():
-            for marker in want["require"]:
+            for marker in want["require"] + want.get("anywhere", []):
                 with self.subTest(case=case, missing=marker):
                     why = t3_power.judge(case, self.log(case, drop=marker))
                     self.assertIn(repr(marker), why or "")
@@ -1187,7 +1211,9 @@ class PowerTest(unittest.TestCase):
         for case, extra in (("reboot-hard", OK_TARGET_REBOOT),
                             ("reboot", "[ 12.1] reboot: Power down"),
                             ("power-off", "[ 12.1] reboot: Restarting system"),
-                            ("suspend", "[ 12.1] reboot: Restarting system")):
+                            ("suspend", "[ 12.1] reboot: Restarting system"),
+                            ("suspend", "[ 9.1] grab-suspend: writing mem to /sys/power/state"),
+                            ("suspend-sysfs", PowerTest.OK + "Reached target Sleep.")):
             with self.subTest(case):
                 why = t3_power.judge(case, self.log(case, extra=[extra]))
                 self.assertIn("on the console after the key", why or "")
@@ -1205,7 +1231,7 @@ class PowerTest(unittest.TestCase):
         meta = t3_scenario.failure_meta("no boot")
         cases = t3_scenario.evaluate_variant("power-suspend-off", {}, meta, LOG)
         self.assertEqual([c["name"] for c in cases],
-                         ["power-suspend-off/suspend", "power-suspend-off/power-off"])
+                         ["power-suspend-off/suspend-sysfs", "power-suspend-off/power-off"])
         self.assertEqual({c["status"] for c in cases}, {"fail"})
 
 
