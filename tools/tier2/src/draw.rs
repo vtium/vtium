@@ -14,8 +14,11 @@
 //! and at their drawn size. Every one must draw the same bytes.
 
 use vtium_font::{Cell, Face, Font, Glyph, Style as FontStyle, Unifont};
-use vtium_render::{Budgets, Canvas, Config, DrawState, Orientation, Profile, Renderer, Storage};
-use vtium_term::{Age, Glyph as Text, Terminal, WidthMethod};
+use vtium_render::{
+    Budgets, Canvas, Config, DecoColor, DecorationColors, DrawState, Orientation, Profile,
+    Renderer, Storage,
+};
+use vtium_term::{Age, Glyph as Text, Palette, Rgb, Terminal, WidthMethod};
 
 use crate::ppm::Image;
 
@@ -53,6 +56,41 @@ impl Face for SpritesOnly {
     }
 }
 
+/// A configured decoration colour: `underline-color` or `strike-color`
+/// as an index into the palette or as a colour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DecoSpec {
+    Index(u8),
+    Rgb(u8, u8, u8),
+}
+
+/// The decoration colours a screen configures; an absent one follows the
+/// cell's foreground.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Decorations {
+    pub underline: Option<DecoSpec>,
+    pub strike: Option<DecoSpec>,
+    /// `force-decoration-colors`: the configured underline colour wins over
+    /// SGR 58's.
+    pub force: bool,
+}
+
+impl Decorations {
+    /// The colours resolved through `palette`, as the renderer takes them.
+    fn resolve(&self, palette: &Palette) -> DecorationColors {
+        let colour = |spec: Option<DecoSpec>| match spec {
+            None => DecoColor::Foreground,
+            Some(DecoSpec::Index(i)) => DecoColor::Rgb(palette.color(i)),
+            Some(DecoSpec::Rgb(r, g, b)) => DecoColor::Rgb(Rgb::new(r, g, b)),
+        };
+        DecorationColors {
+            underline: colour(self.underline),
+            strike: colour(self.strike),
+            force: self.force,
+        }
+    }
+}
+
 /// One screen of tier 2.
 #[derive(Clone, Copy, Debug)]
 pub struct Screen {
@@ -71,6 +109,7 @@ pub struct Screen {
     pub orientation: Orientation,
     pub font: FontKind,
     pub width_method: WidthMethod,
+    pub decorations: Decorations,
 }
 
 impl Screen {
@@ -94,6 +133,11 @@ impl Screen {
             orientation: Orientation::Normal,
             font: FontKind::Unifont,
             width_method: WidthMethod::Unicode,
+            decorations: Decorations {
+                underline: None,
+                strike: None,
+                force: false,
+            },
         }
     }
 }
@@ -263,6 +307,10 @@ fn draw_config<F: Face>(
 ) -> Result<Image, String> {
     let font = make_font();
     let mut term = Terminal::new(screen.cols, screen.rows, 0);
+    let config = Config {
+        decorations: screen.decorations.resolve(term.palette()),
+        ..config
+    };
     // as a host sets it at start: the screen's method, and what RIS
     // returns to
     term.set_default_width_method(screen.width_method);

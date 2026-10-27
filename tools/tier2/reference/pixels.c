@@ -34,7 +34,9 @@
  *
  * UNIFONT_BLOB is what genunifont writes from font_unifont_data.hex. A
  * screen with a second part is drawn as four frames into two buffers, as
- * test_pixels.c drew one, and fails unless both buffers end equal.
+ * test_pixels.c drew one, and fails unless both buffers end equal. A
+ * screen's decoration colours resolve through kmscon_conf_resolve_deco()
+ * on every frame, as kmscon's terminal resolved them.
  */
 
 #undef NDEBUG
@@ -62,6 +64,7 @@ size_t _binary_font_unifont_data_size;
 #include "src/render/deco.c"
 #undef LOG_SUBSYSTEM
 #include "src/video/drm2d_render.c"
+#include "src/config.h"
 
 void shl_module_ref(struct shl_module *module) {}
 void shl_module_unref(struct shl_module *module) {}
@@ -111,11 +114,17 @@ int display_blend(struct display *disp, const struct video_blend_req *req)
 
 static void vte_write(struct tsm_vte *vte, const char *u8, size_t len, void *data) {}
 
-static void draw_frame(struct kmscon_text *txt, struct tsm_screen *con, struct tsm_vte *vte)
+static void draw_frame(struct kmscon_text *txt, struct tsm_screen *con, struct tsm_vte *vte,
+		       const struct kmscon_conf_t *conf)
 {
 	struct tsm_screen_attr attr;
+	struct kmscon_text_deco deco;
 	uint32_t *tmp;
 
+	if (conf) {
+		kmscon_conf_resolve_deco(conf, vte, &deco);
+		kmscon_text_set_decorations(txt, &deco);
+	}
 	tsm_vte_get_def_attr(vte, &attr);
 	assert(kmscon_text_prepare(txt, &attr, false) == 0);
 	assert(kmscon_text_draw(txt, con, false) == 0);
@@ -143,6 +152,46 @@ static long unhex(const char *hex, char *out, size_t size)
 	return (long)(n / 2);
 }
 
+/* a colour of the screens' decoration field, iN or xRRGGBB; 0 if it reads */
+static int deco_colour(const char *s, struct kmscon_conf_color *out)
+{
+	unsigned int v;
+	char end;
+
+	if (s[0] == 'i' && sscanf(s + 1, "%u%c", &v, &end) == 1 && v < 256) {
+		out->kind = KMSCON_COLOR_INDEX;
+		out->index = v;
+		return 0;
+	}
+	if (s[0] == 'x' && strlen(s) == 7 && sscanf(s + 1, "%6x%c", &v, &end) == 1) {
+		out->kind = KMSCON_COLOR_RGB;
+		out->rgb[0] = v >> 16;
+		out->rgb[1] = v >> 8;
+		out->rgb[2] = v;
+		return 0;
+	}
+	return -EINVAL;
+}
+
+/* the decoration field, - or ul=, st= and force between commas; 0 if it reads */
+static int deco_field(char *s, struct kmscon_conf_t *conf)
+{
+	char *save = NULL;
+
+	for (char *t = strtok_r(s, ",", &save); t; t = strtok_r(NULL, ",", &save)) {
+		if (!strncmp(t, "ul=", 3) && !deco_colour(t + 3, &conf->underline_color))
+			continue;
+		if (!strncmp(t, "st=", 3) && !deco_colour(t + 3, &conf->strike_color))
+			continue;
+		if (!strcmp(t, "force")) {
+			conf->force_decoration_colors = true;
+			continue;
+		}
+		return -EINVAL;
+	}
+	return 0;
+}
+
 static int draw(struct kmscon_font *font, char **f, const char *out_dir)
 {
 	unsigned int cols = atoi(f[1]), rows = atoi(f[2]), w = atoi(f[3]), h = atoi(f[4]);
@@ -153,6 +202,8 @@ static int draw(struct kmscon_font *font, char **f, const char *out_dir)
 	static char bytes[1 << 16], next[1 << 16];
 	long nbytes = unhex(f[7], bytes, sizeof(bytes));
 	long nnext = strcmp(f[8], "-") ? unhex(f[8], next, sizeof(next)) : -1;
+	static struct kmscon_conf_t conf;
+	const struct kmscon_conf_t *deco = NULL;
 	struct tsm_screen *con;
 	struct tsm_vte *vte;
 	struct kmscon_text *txt;
@@ -163,6 +214,14 @@ static int draw(struct kmscon_font *font, char **f, const char *out_dir)
 	if (nbytes < 0 || (strcmp(f[8], "-") && nnext < 0)) {
 		fprintf(stderr, "pixels: %s: bad hex, or past %zu bytes\n", f[0], sizeof(bytes));
 		return -EINVAL;
+	}
+	if (strcmp(f[9], "-")) {
+		memset(&conf, 0, sizeof(conf));
+		if (deco_field(f[9], &conf)) {
+			fprintf(stderr, "pixels: %s: bad decoration field\n", f[0]);
+			return -EINVAL;
+		}
+		deco = &conf;
 	}
 	fb_w = w ? w : cols * font->width;
 	fb_h = h ? h : rows * font->height;
@@ -195,12 +254,12 @@ static int draw(struct kmscon_font *font, char **f, const char *out_dir)
 
 	assert(kmscon_text_new(&txt, "bbulk", orientation, &fake_disp) == 0);
 	assert(kmscon_text_set(txt, font) == 0);
-	draw_frame(txt, con, vte);
+	draw_frame(txt, con, vte, deco);
 	if (nnext >= 0) {
-		draw_frame(txt, con, vte);
+		draw_frame(txt, con, vte, deco);
 		tsm_vte_input(vte, next, nnext);
-		draw_frame(txt, con, vte);
-		draw_frame(txt, con, vte);
+		draw_frame(txt, con, vte, deco);
+		draw_frame(txt, con, vte, deco);
 		if (memcmp(fb, fb_back, (size_t)fb_w * fb_h * sizeof(*fb))) {
 			fprintf(stderr, "pixels: %s: the two buffers differ after the last frame\n",
 				f[0]);
@@ -270,14 +329,14 @@ int main(int argc, char **argv)
 		return 2;
 	}
 	while (fgets(line, sizeof(line), f)) {
-		char *fields[9], *save = NULL;
+		char *fields[10], *save = NULL;
 		int n = 0;
 
 		line[strcspn(line, "\n")] = 0;
-		for (char *t = strtok_r(line, "\t", &save); t && n < 9; t = strtok_r(NULL, "\t", &save))
+		for (char *t = strtok_r(line, "\t", &save); t && n < 10; t = strtok_r(NULL, "\t", &save))
 			fields[n++] = t;
-		if (n != 9) {
-			fprintf(stderr, "pixels: a line of %d fields, want 9\n", n);
+		if (n != 10) {
+			fprintf(stderr, "pixels: a line of %d fields, want 10\n", n);
 			return 2;
 		}
 		failed |= !!draw(font, fields, argv[3]);

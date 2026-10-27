@@ -11,7 +11,9 @@
 //! `screens` prints vtium's unifont screens for the C reference's drawing
 //! program in `reference/`, one a line: the name, columns, rows, the
 //! display's width and height (0 for the grid's), the orientation, the
-//! width method, and the bytes and the second part in hex (`-` for none).
+//! width method, the bytes and the second part in hex (`-` for none), and
+//! the decoration colours: `-`, or `ul=`, `st=` and `force` between commas,
+//! a colour `iN` for palette index N or `xRRGGBB`.
 //!
 //! `run` exits 0 when every case passes, 1 when one does not and 2 when it
 //! refuses to run; `compare` exits 0 on pass or near, 1 on fail and 2 on
@@ -24,7 +26,7 @@ use vtium_render::Orientation;
 use vtium_term::WidthMethod;
 use vtium_tier2::compare;
 use vtium_tier2::draw;
-use vtium_tier2::draw::FontKind;
+use vtium_tier2::draw::{DecoSpec, FontKind};
 use vtium_tier2::ppm;
 use vtium_tier2::report::Status;
 use vtium_tier2::runner::{self, Run};
@@ -248,13 +250,31 @@ fn screens() -> ExitCode {
             WidthMethod::Unicode => "unicode",
             WidthMethod::Wcwidth => "wcwidth",
         };
+        let spec = |d: DecoSpec| match d {
+            DecoSpec::Index(i) => format!("i{i}"),
+            DecoSpec::Rgb(r, g, b) => format!("x{r:02x}{g:02x}{b:02x}"),
+        };
+        let d = &s.decorations;
+        let deco: Vec<String> = [
+            d.underline.map(|u| format!("ul={}", spec(u))),
+            d.strike.map(|u| format!("st={}", spec(u))),
+            d.force.then(|| "force".to_owned()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         println!(
-            "{}\t{}\t{}\t{w}\t{h}\t{orientation}\t{width}\t{}\t{}",
+            "{}\t{}\t{}\t{w}\t{h}\t{orientation}\t{width}\t{}\t{}\t{}",
             s.name,
             s.cols,
             s.rows,
             hex(s.bytes),
-            s.next.map_or_else(|| "-".to_owned(), hex)
+            s.next.map_or_else(|| "-".to_owned(), hex),
+            if deco.is_empty() {
+                "-".to_owned()
+            } else {
+                deco.join(",")
+            }
         );
     }
     ExitCode::SUCCESS
