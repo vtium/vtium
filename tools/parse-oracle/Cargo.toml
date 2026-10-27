@@ -1,0 +1,14 @@
+# The Rust side of the parse oracle: vtium-parse driven by an event script,
+# writing the trace harness/oracle.c writes for the C reference. Its own
+# workspace, so the main workspace and CI do not build it.
+[package]
+name = "parse-oracle"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+vtium-parse = { path = "../../crates/vtium-parse" }
+
+[workspace]
+members = ["."]
