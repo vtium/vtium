@@ -2066,7 +2066,9 @@ fn the_last_display_going_while_released_wakes_nothing() {
 
 /// A line that wraps is one line to the selection: a double click takes a
 /// word across the wrap, and a triple click every row of the line, copied
-/// with no line end where it wrapped (vtium/vtium#97).
+/// with no line end where it wrapped (vtium/vtium#97). The session
+/// prints once the display has drawn, which resizes the grid from its
+/// default, so the line wraps at the screen's width.
 // covers: clipboard.selection
 #[test]
 fn a_selection_follows_a_wrapped_line() {
@@ -2075,16 +2077,21 @@ fn a_selection_follows_a_wrapped_line() {
         "--",
         "/bin/sh",
         "-c",
-        "w=$(stty size | cut -d' ' -f2); printf '%*s' $((w - 3)) '' | tr ' ' x; \
-         printf ' abcdef end\\n'; read x",
+        "read go; w=$(stty size | cut -d' ' -f2); \
+         printf '%*s' $((w - 3)) '' | tr ' ' x; printf ' abcdef end\\n'; read x",
     ]);
+    assert!(h.until_memory(SECOND, |m| m.frames > 0));
+    h.type_str("\r");
     assert!(h.until(SECOND, |a| shows(a, "cdef end")));
     let cols = h.app.term.terminal.screen().cols();
     let last = i32::try_from(cols).unwrap() - 1;
+    let text = h.app.screen_text();
+    let row = text.iter().position(|l| l == "cdef end").unwrap();
+    let row = i32::try_from(row).unwrap();
     let none = Mods::empty();
     h.point(
         [
-            over(last, 0, None),
+            over(last, row - 1, None),
             press(Button::Left, false),
             release(Button::Left),
             press(Button::Left, true),
@@ -2095,7 +2102,7 @@ fn a_selection_follows_a_wrapped_line() {
     assert_eq!(h.app.selection(), Some(&b"abcdef"[..]));
     h.point(
         [
-            over(2, 1, None),
+            over(2, row, None),
             press(Button::Left, false),
             release(Button::Left),
             press(Button::Left, true),
