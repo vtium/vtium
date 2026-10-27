@@ -1,8 +1,8 @@
 # The C reference's parser, by line range at the commit pin.tsv names.
-# Each range is written to <out>/extract/<name>.inc and included by
-# harness/oracle.c. The extraction refuses a range whose first or last line
-# differs from the text given here (whitespace collapsed), or whose braces
-# do not balance.
+# build.rs writes each range to OUT_DIR/extract/<name>.inc, which
+# harness/shim.c includes. The extraction refuses a range whose first or last
+# line differs from the text given here (whitespace collapsed), or whose
+# braces do not balance.
 #
 # name	path	first	last	first line	last line
 ucs4-replacement	src/tsm/libtsm.h	116	116	#define TSM_UCS4_REPLACEMENT (0xfffdUL)	#define TSM_UCS4_REPLACEMENT (0xfffdUL)

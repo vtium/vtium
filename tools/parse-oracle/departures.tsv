@@ -1,7 +1,7 @@
 # The differences the oracle expects between vtium-parse and the C reference:
 # one row for each departure crates/vtium-parse/README.md lists, matched by
 # its bold lead. A README departure with no row, or a row with no README
-# departure, stops the run. Each id names a switch in harness/oracle.c that
+# departure, stops the run. Each id names a switch in src/c_side.rs that
 # applies the departure to the C side; a difference no switch accounts for
 # fails the run.
 #
