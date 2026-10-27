@@ -26,4 +26,4 @@ _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [ADR-1400](./platform/ADR-1400-the-privilege-and-sandbox-model.md) | The privilege and sandbox model | proposed |
+| [ADR-1400](./platform/ADR-1400-the-privilege-and-sandbox-model.md) | The privilege and sandbox model | accepted |

@@ -57,7 +57,7 @@ observable:
   - "The helper's `/proc/<pid>/status` shows the session's uid and `NoNewPrivs: 1`, and at a root login prompt with no logind no helper runs as root"
   - "`ldd` on the minspec build lists no libsystemd, libelogind or libseat"
   - "On tier 3, a user logged in through vtium's unit runs sudo"
-status: proposed
+status: accepted
 date: 2026-10-26
 deciders:
   - aaronsb
