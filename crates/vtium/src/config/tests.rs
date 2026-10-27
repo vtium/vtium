@@ -325,6 +325,25 @@ fn a_number_out_of_bounds_is_clamped_and_reported() {
     assert_eq!(l.reports.len(), 1);
 }
 
+/// `display-wait`: 10 s unset, 0 to not wait, and at most 600 s.
+#[test]
+fn the_wait_for_a_display_is_read_and_bounded() {
+    assert_eq!(Config::default().number(&DISPLAY_WAIT), Some(10));
+    let l = main_file("display-wait=0\n");
+    assert_eq!(l.config.number(&DISPLAY_WAIT), Some(0));
+    assert_eq!(l.reports, []);
+    let l = load_with(&["--display-wait=601"], None, &[]);
+    assert_eq!(l.config.number(&DISPLAY_WAIT), Some(600));
+    assert_eq!(
+        problems(&l),
+        [&Problem::Clamped {
+            key: "display-wait",
+            value: "601".into(),
+            used: 600
+        }]
+    );
+}
+
 #[test]
 fn a_value_that_cannot_be_read_keeps_the_one_before() {
     let l = load_with(

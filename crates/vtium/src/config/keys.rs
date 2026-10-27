@@ -264,6 +264,21 @@ pub const DPMS_TIMEOUT: Key = Key {
     cite: "src/config.c:1388",
 };
 
+pub const DISPLAY_WAIT: Key = Key {
+    name: "display-wait",
+    short: None,
+    kind: Kind::Number {
+        min: 0,
+        max: 600,
+        unit: "s",
+    },
+    default: Default::Number(10),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "At start, how long to wait for a display, counted from when the VT is first shown; with none by then vtium exits with status 1, so the unit's `OnFailure=` can start a getty. 0 does not wait. Once a display has come, displays coming and going are hotplug.",
+    cite: "the operator on vtium/vtium#21",
+};
+
 pub const HWACCEL: Key = Key {
     name: "hwaccel",
     short: None,
@@ -783,7 +798,7 @@ pub const RENDER_TIMER: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 60] = [
+pub const KEYS: [Key; 61] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -799,6 +814,7 @@ pub const KEYS: [Key; 60] = [
     BLINK,
     SYNC_TIMEOUT,
     DPMS_TIMEOUT,
+    DISPLAY_WAIT,
     HWACCEL,
     USE_ORIGINAL_MODE,
     MODE,

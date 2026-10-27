@@ -226,6 +226,15 @@ impl Harness {
 
     /// The seat on `vt` with `video` as `/dev/mem0`.
     fn build<V: Vt + 'static>(args: &[&str], vt: V, video: Box<dyn Video>) -> Harness {
+        Harness::boot(args, vt, Some(video))
+    }
+
+    /// The seat on the fake VT with no video device.
+    fn bare(args: &[&str]) -> Harness {
+        Harness::boot(args, FakeVt::new(), None)
+    }
+
+    fn boot<V: Vt + 'static>(args: &[&str], vt: V, video: Option<Box<dyn Video>>) -> Harness {
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
         let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
         assert_eq!(loaded.reports, [], "the harness's command line");
@@ -235,7 +244,9 @@ impl Harness {
         let lp: Loop<App> = Loop::new().expect("a loop");
         let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
         let mut app = App::new(loaded.config, Box::new(vt), lp.handle(), Rc::new(now), env);
-        app.add_video(PathBuf::from("/dev/mem0"), video);
+        if let Some(video) = video {
+            app.add_video(PathBuf::from("/dev/mem0"), video);
+        }
         app.insert_blank();
         app.vt.activate().expect("the fake VT");
         app.start();
@@ -1249,4 +1260,142 @@ fn osc_52_is_held_or_dropped_as_clipboard_write_says() {
         None,
         "taken and dropped"
     );
+}
+
+/// The command line of the waits for a display: a second's wait.
+const WAITING: [&str; 6] = [
+    "--display-wait=1",
+    "--login",
+    "--",
+    "/bin/sh",
+    "-c",
+    "read x",
+];
+
+/// No display comes within `display-wait`: vtium exits with status 1,
+/// once the wait has run, so the unit's `OnFailure=` can start a getty.
+#[test]
+fn with_no_display_by_the_wait_vtium_exits_1() {
+    let started = now();
+    let mut h = Harness::bare(&WAITING);
+    assert!(h.until(Duration::from_secs(3), |a| a.finished().is_some()));
+    assert!(
+        now() - started >= Duration::from_secs(1),
+        "the wait was run"
+    );
+    assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
+    assert_eq!(h.app.finished().map(Exit::status), Some(1));
+    assert!(!h.app.vt.is_active(), "the VT was given back");
+}
+
+/// `display-wait=0` does not wait.
+#[test]
+fn with_no_wait_and_no_display_vtium_exits_at_once() {
+    let mut h = Harness::bare(&[
+        "--display-wait=0",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "read x",
+    ]);
+    assert!(h.until(Duration::from_millis(500), |a| a.finished().is_some()));
+    assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
+}
+
+/// A display that comes during the wait ends it: vtium runs past the
+/// wait and draws on it.
+#[test]
+fn a_display_coming_during_the_wait_ends_it() {
+    let mut h = Harness::bare(&WAITING);
+    h.until(Duration::from_millis(300), |_| false);
+    assert_eq!(h.app.finished(), None);
+    h.app
+        .add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
+    assert!(h.until_memory(SECOND, |m| m.frames > 0), "drawn");
+    h.until(Duration::from_millis(1500), |a| a.finished().is_some());
+    assert_eq!(h.app.finished(), None, "still running past the wait");
+}
+
+/// A device that can't be used, its displays never set up, counts as
+/// none.
+#[test]
+fn a_device_whose_displays_never_come_on_counts_as_none() {
+    let mut h = Harness::bare(&WAITING);
+    h.app
+        .add_video(PathBuf::from("/dev/mem0"), Box::new(Unusable));
+    assert!(h.until(Duration::from_secs(3), |a| a.finished().is_some()));
+    assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
+}
+
+/// Once running, a display that goes is hotplug: vtium keeps running
+/// with none, past the wait, and draws on the next that comes.
+#[test]
+fn a_display_gone_after_the_start_is_hotplug() {
+    let mut h = Harness::new(&WAITING);
+    assert!(h.until_memory(SECOND, |m| m.frames > 0));
+    h.app.remove_video(Path::new("/dev/mem0"));
+    assert!(h.app.cells().is_empty(), "no display");
+    h.until(Duration::from_millis(1500), |a| a.finished().is_some());
+    assert_eq!(h.app.finished(), None, "still running with none");
+    h.app
+        .add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
+    assert!(
+        h.until_memory(SECOND, |m| m.frames > 0),
+        "the new display drawn"
+    );
+    assert_eq!(h.app.finished(), None);
+}
+
+/// A device whose wake-up fails, as a card whose modeset is refused:
+/// it reports no display.
+struct Unusable;
+
+impl Video for Unusable {
+    fn backend(&self) -> &'static str {
+        "memory"
+    }
+    fn events(&mut self) -> Vec<Event> {
+        Vec::new()
+    }
+    fn displays(&self) -> Vec<DisplayId> {
+        Vec::new()
+    }
+    fn name(&self, _: DisplayId) -> String {
+        "MEM-1".into()
+    }
+    fn size(&self, _: DisplayId) -> Option<(u32, u32)> {
+        None
+    }
+    fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
+        None
+    }
+    fn canvas(&mut self, _: DisplayId) -> Option<Canvas<'_>> {
+        None
+    }
+    fn swap(&mut self, _: DisplayId, _: &[Rect]) -> Result<Swapped, SwapError> {
+        Err(SwapError::Off)
+    }
+    fn is_flipping(&self, _: DisplayId) -> bool {
+        false
+    }
+    fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
+        Ok(())
+    }
+    fn sleep(&mut self) {}
+    fn wake_up(&mut self) -> io::Result<()> {
+        Err(io::Error::from_raw_os_error(22))
+    }
+    fn unblank(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn input(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn hotplug(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
 }

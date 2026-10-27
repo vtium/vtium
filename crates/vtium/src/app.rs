@@ -22,6 +22,9 @@
 //!   hotplug or a re-take never counts.
 //! - **The child.** It runs on the pty at the grid's size; when it exits
 //!   the respawn policy starts it again or ends vtium.
+//! - **No display.** From the first acquire, vtium waits `display-wait`
+//!   for a display it draws on, and with none by then it ends
+//!   ([`crate::wait`]); once one has come, it runs with none.
 //! - **Exit.** A request (SIGTERM, SIGINT, a hangup, the policy) switches
 //!   back to the VT shown at the start and serves the loop for up to
 //!   [`LEAVE_WAIT`] while the switch is pending.
@@ -54,6 +57,7 @@ use crate::respawn::{Next, Respawn};
 use crate::sync::{Action, Sync};
 use crate::term::{Clock, Term, View};
 use crate::video::Video;
+use crate::wait::Wait;
 
 /// How long the loop is served at exit while the switch back is pending
 /// (`src/main.c:203-209` at kmscon b1f7a7c5).
@@ -75,13 +79,15 @@ pub enum Exit {
     Hangup,
     /// The session's command could not be started.
     Spawn,
+    /// No display came within `display-wait` of the start.
+    NoDisplay,
 }
 
 impl Exit {
     pub fn status(self) -> i32 {
         match self {
             Exit::Signal | Exit::Oneshot => 0,
-            Exit::TooQuick | Exit::Hangup | Exit::Spawn => 1,
+            Exit::TooQuick | Exit::Hangup | Exit::Spawn | Exit::NoDisplay => 1,
         }
     }
 }
@@ -148,6 +154,8 @@ pub struct App {
     retaking: BTreeSet<PathBuf>,
     /// Devices a release waits on.
     releasing: Option<BTreeSet<PathBuf>>,
+    /// The start's wait for a display.
+    wait: Wait,
     /// Every display draws at once at the end of the turn.
     draw_now: bool,
     text_due: Option<Instant>,
@@ -224,6 +232,9 @@ impl App {
             .filter(|d| !d.is_zero());
         let modes = config.modes(&keys::MODE).to_vec();
         let use_original = config.switch(&keys::USE_ORIGINAL_MODE) && modes.is_empty();
+        let wait = Wait::new(Duration::from_secs(
+            config.number(&keys::DISPLAY_WAIT).unwrap_or(10),
+        ));
         App {
             oneshot: config.switch(&keys::ONESHOT),
             clipboard_write: config.switch(&keys::CLIPBOARD_WRITE),
@@ -253,6 +264,7 @@ impl App {
             retake_owed: false,
             retaking: BTreeSet::new(),
             releasing: None,
+            wait,
             draw_now: false,
             text_due: None,
             cursor_due: None,
@@ -624,6 +636,7 @@ impl App {
                         log::warn!("cannot wake {}: {e}", node.display());
                     }
                 }
+                self.wait.shown(now);
                 self.activate(now);
             }
             VtEvent::Release => {
@@ -1040,6 +1053,10 @@ impl App {
         self.report(now);
         self.term.coalesce.turn_end();
         self.term.changed = false;
+        if let Some(wait) = self.wait.turn(now, !self.views.is_empty()) {
+            log::error!("no display appeared within {} s", wait.as_secs());
+            self.request_exit(Exit::NoDisplay);
+        }
         self.exiting(now);
     }
 
@@ -1181,6 +1198,7 @@ impl App {
         due.extend(self.text_due);
         due.extend(self.cursor_due.map(|(d, _)| d));
         due.extend(self.timer_due);
+        due.extend(self.wait.due());
         due.extend(self.term.sync.deadline());
         due.extend(self.views.values().filter_map(|v| v.wait.due()));
         if let Some(Leaving::Until(d)) = self.leaving {
