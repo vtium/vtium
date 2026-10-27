@@ -4,9 +4,10 @@ the caption and screen text a case's report carries (t3_evaluate.py), the
 colours and cells of the sixel goldens (when the kmscon checkout holds the
 pinned commit), the tree a run installs and the guest's account of it
 (t3_impl.py, t3_scenario.py), the machine each variant boots, the console
-lines the driver waits for and the QEMU command line (t3_qemu.py), a
-benchmark screen's figures (t3_bench.py), and the goldens' pin and the
-logger a worker process receives (t3_common.py).
+lines the driver waits for and the QEMU command line (t3_qemu.py), the
+power cases' verdicts (t3_power.py), a benchmark screen's figures
+(t3_bench.py), and the goldens' pin and the logger a worker process
+receives (t3_common.py).
 
     python3 -I -B tools/tier3/test_t3.py
 """
@@ -31,6 +32,7 @@ import t3  # noqa: E402
 import t3_bench  # noqa: E402
 import t3_evaluate  # noqa: E402
 import t3_impl  # noqa: E402
+import t3_power  # noqa: E402
 import t3_qemu  # noqa: E402
 import t3_runner  # noqa: E402
 import t3_scenario  # noqa: E402
@@ -429,6 +431,26 @@ class ImplementationTest(unittest.TestCase):
                          ["kmscon.conf", "screens", "setup", "t3", "tree.tar"])
         with open(os.path.join(disc, "kmscon.conf")) as f:
             self.assertIn("render-timer=log", f.read())
+
+    def test_power_disc(self):
+        # The hard reboot's disc carries its sysctl settings, which
+        # guest/setup applies; the other power variants' carry none.
+        impl = t3_impl.tree(self.tree, self.tar)
+        disc = os.path.join(self.dir.name, "disc")
+        for variant, sysctl in (("power-reboot-hard", "kernel.ctrl-alt-del = 1\n"),
+                                ("power-reboot", None), ("power-suspend-off", None)):
+            with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
+                t3_scenario.build_disc(variant, self.dir.name, impl)
+                path = os.path.join(disc, "sysctl.conf")
+                if sysctl is None:
+                    self.assertFalse(os.path.exists(path))
+                else:
+                    with open(path) as f:
+                        self.assertEqual(f.read(), sysctl)
+                with open(os.path.join(disc, "kmscon.conf")) as f:
+                    self.assertIn("grab-reboot=", f.read())
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            self.assertIn('sysctl -q -p "$disc"/sysctl.conf', f.read())
 
     def test_setup_keeps_directory_links(self):
         # Arch links /bin, /lib and /sbin to directories under /usr; a tree
@@ -1073,6 +1095,121 @@ class VariantTest(unittest.TestCase):
                 self.assertEqual(args[args.index("-m") + 1], "4096")
         finally:
             t3_qemu.subprocess.Popen = saved
+
+
+class PowerTest(unittest.TestCase):
+    """The power variants (t3_power.py): their machine, their cases and the
+    verdict each case takes from the console log."""
+
+    # A console log as each action leaves it, systemd's status lines
+    # coloured as on the guest's serial console.
+    OK = "[\x1b[0;32m  OK  \x1b[0m] "
+    LOGS = {
+        "reboot": ["[ 9.1] vtium[404]: grab-reboot: asking init to reboot",
+                   OK + "Stopped target Graphical Interface.",
+                   OK + "Reached target Unmount All Filesystems.",
+                   OK + "Reached target System Reboot.",
+                   "[ 12.0] reboot: Restarting system"],
+        "reboot-hard": ["[ 9.1] vtium[404]: grab-reboot: restarting the kernel at once",
+                        "[ 9.2] reboot: Restarting system"],
+        "power-off": ["[ 9.1] vtium[404]: grab-power-off: asking init to power off",
+                      OK + "Reached target Unmount All Filesystems.",
+                      OK + "Reached target System Power Off.",
+                      "[ 12.0] reboot: Power down"],
+        "suspend": ["[ 9.1] vtium[404]: grab-suspend: asking logind to suspend",
+                    OK + "Reached target Sleep.",
+                    "         Starting System Suspend...",
+                    OK + "Finished System Suspend."],
+    }
+
+    def log(self, case, before=(), drop=None, extra=()):
+        lines = list(before) + [l for l in self.LOGS[case] if drop is None or drop not in l]
+        return ("\r\n".join(lines + list(extra)) + "\r\n").encode()
+
+    def test_variants(self):
+        # The minspec machine, out of the default run, each with its own
+        # cases, all checks without a golden.
+        potato = t3_scenario.VARIANTS["2d-potato-min"]
+        seen = []
+        for name in t3_scenario.POWER_VARIANTS:
+            with self.subTest(name):
+                v = t3_scenario.VARIANTS[name]
+                for key in ("device", "cpus", "memory_mb", "renderer"):
+                    self.assertEqual(v[key], potato[key])
+                self.assertEqual(v["conf"], "kmscon-power.conf")
+                self.assertNotIn(name, t3_scenario.DEFAULT_VARIANTS)
+                cases = t3_scenario.variant_cases(name)
+                self.assertEqual(cases, v["power"])
+                for case in cases:
+                    self.assertIn(case, t3_power.CHORDS)
+                    self.assertEqual(t3_evaluate.golden_for(name, case), (None, None))
+                    self.assertEqual(t3_evaluate.describe(case),
+                                     (t3_power.CHECKS[case], None))
+                # A case that ends the VM is the variant's last.
+                self.assertNotIn("suspend", cases[1:])
+                seen += cases
+        self.assertEqual(sorted(seen), sorted(t3_power.CHECKS))
+        self.assertIn("ICH9-LPC.disable_s3=0", t3_scenario.VARIANTS["power-suspend-off"]["qemu"])
+
+    def test_chords_match_the_configuration(self):
+        # Each qcode chord the driver presses is the chord kmscon-power.conf
+        # binds for its key.
+        keys = {"reboot": "grab-reboot", "reboot-hard": "grab-reboot",
+                "power-off": "grab-power-off", "suspend": "grab-suspend"}
+        with open(os.path.join(t3_common.GUEST, "kmscon-power.conf")) as f:
+            conf = dict(line.strip().split("=", 1) for line in f if line.startswith("grab-"))
+        for case, chord in t3_power.CHORDS.items():
+            with self.subTest(case):
+                mods = re.findall(r"<(\w+)>", conf[keys[case]])
+                key = conf[keys[case]].rsplit(">", 1)[1]
+                self.assertEqual(chord, tuple(m.lower() for m in mods) + (key.lower(),))
+
+    def test_passes(self):
+        for case in t3_power.CHECKS:
+            with self.subTest(case):
+                self.assertIsNone(t3_power.judge(case, self.log(case)))
+
+    def test_each_required_line(self):
+        for case, want in t3_power.EXPECT.items():
+            for marker in want["require"]:
+                with self.subTest(case=case, missing=marker):
+                    why = t3_power.judge(case, self.log(case, drop=marker))
+                    self.assertIn(repr(marker), why or "")
+
+    def test_order(self):
+        # The kernel restarting before systemd reached its target is not a
+        # clean reboot.
+        lines = self.LOGS["reboot"]
+        serial = ("\n".join(lines[:1] + lines[-1:] + lines[1:-1]) + "\n").encode()
+        self.assertIn("'reboot: Restarting system'", t3_power.judge("reboot", serial) or "")
+
+    def test_forbidden_lines(self):
+        for case, extra in (("reboot-hard", OK_TARGET_REBOOT),
+                            ("reboot", "[ 12.1] reboot: Power down"),
+                            ("power-off", "[ 12.1] reboot: Restarting system"),
+                            ("suspend", "[ 12.1] reboot: Restarting system")):
+            with self.subTest(case):
+                why = t3_power.judge(case, self.log(case, extra=[extra]))
+                self.assertIn("on the console after the key", why or "")
+
+    def test_only_after_the_key(self):
+        # Lines from before the key do not count: a boot's own lines never
+        # pass a case, and an earlier line never fails one.
+        serial = self.log("reboot")
+        self.assertIsNotNone(t3_power.judge("reboot", serial, since=len(serial)))
+        earlier = (OK_TARGET_REBOOT + "\r\n").encode()
+        self.assertIsNone(t3_power.judge("reboot-hard", earlier + self.log("reboot-hard"),
+                                         since=len(earlier)))
+
+    def test_failed_variant_fails_every_case(self):
+        meta = t3_scenario.failure_meta("no boot")
+        cases = t3_scenario.evaluate_variant("power-suspend-off", {}, meta, LOG)
+        self.assertEqual([c["name"] for c in cases],
+                         ["power-suspend-off/suspend", "power-suspend-off/power-off"])
+        self.assertEqual({c["status"] for c in cases}, {"fail"})
+
+
+OK_TARGET_REBOOT = PowerTest.OK + "Reached target System Reboot."
 
 
 def timer_line(t, flips, frames, interval_ms=1000.0, cpu=(1.0, 1.0, 2.0, 3.0), damage=(500, 1.5),

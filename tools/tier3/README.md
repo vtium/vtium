@@ -84,8 +84,20 @@ Each step waits for state the driver can observe: a line on the serial log or th
 | `gl-1280x800` | 4 vCPUs, 4096 MB | `virtio-vga-gl`, `-display egl-headless` | gltex | `kmscon-gl.conf` |
 | `2d-potato-min` | 1 vCPU, 512 MB | `virtio-vga`, EDID 1366x768 | bbulk | `kmscon-minimal.conf`: unifont |
 | `2d-potato-min-psf` | 1 vCPU, 512 MB | `virtio-vga`, EDID 1366x768 | bbulk | `kmscon-minimal-psf.conf`: kbd's 8x16 PSF font |
+| `power-reboot`, `power-reboot-hard`, `power-suspend-off` | 1 vCPU, 512 MB | `virtio-vga`, EDID 1366x768; S3 offered for suspend | bbulk | `kmscon-power.conf`: the power keys bound |
 
 `make tier3` runs the first five (`DEFAULT_VARIANTS`), whose goldens the C reference drew with DejaVu Sans Mono through FreeType and pango, and the GL one through its GPU renderer; vtium draws in software with unifont or PSF until its outline fonts land (vtium/vtium#23), so those variants judge how far vtium is from them. Until then every case of the four 2D variants fails but `vt-switch`: the text screens on the font, and the image screens and their keyed cases also on the pictures vtium does not yet draw (vtium/vtium#48, vtium/vtium#49). Every case of `gl-1280x800` fails on its renderer: the variant requires gltex, and vtium draws in software until its GPU path lands (vtium/vtium#33). `make tier3-minimal` runs the two minspec variants, whose goldens are the C reference's minimal build with the same font backends vtium has. Their image screens draw no picture (`"images": False`): each must report images not offered, and the keys that act on pictures are not sent.
+
+The power variants run only when named, as `make tier3 VARIANTS="power-reboot power-reboot-hard power-suspend-off"`. Each presses the power keys (vtium/vtium#21) on the console's login prompt, in the order of its cases, and its cases are checks without a golden (`t3_power.py`). A case's capture is the screen before its key, and it passes when the console log after the key shows vtium's line for the key and then the action carried out:
+
+| Case | Key | Passes when the console shows |
+|---|---|---|
+| `reboot` | `grab-reboot`, `kernel.ctrl-alt-del` at 0 | systemd's `Unmount All Filesystems` and `System Reboot` targets reached, then the kernel's `reboot: Restarting system` |
+| `reboot-hard` | `grab-reboot`, `kernel.ctrl-alt-del` at 1, which the variant's disc sets | the kernel's `reboot: Restarting system` with neither target |
+| `suspend` | `grab-suspend` | systemd's `Sleep` target and `System Suspend`; QMP sees the guest suspended, wakes it, and vtium draws its screen again |
+| `power-off` | `grab-power-off` | systemd's `Unmount All Filesystems` and `System Power Off` targets reached, then the kernel's `reboot: Power down` |
+
+QEMU runs with `-no-reboot`, so a reboot ends the VM as a power-off does, and each reboot has a variant of its own.
 
 Three findings from the C reference's runs shaped this table. At 7680x2160 each XRGB buffer is 63 MiB, and with QEMU's default `max_hostmem` (256 MiB) the second instance on tty3 fails to create its buffers; 1 GiB clears it. Once virgl owns the scanout, QMP `screendump` fails with "no surface", so the GL variant captures over VNC on a unix socket (raw RFB, `t3_qemu.py`). QEMU 11.1's `screendump` pads each PPM row to a multiple of 4 bytes while the header gives the width, so `t3img.read_ppm` drops the padding and refuses a body of any other size.
 
