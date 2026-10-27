@@ -39,7 +39,9 @@ fn errno(e: &io::Error) -> Option<Errno> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Waiting {
     /// A modeset, a wake-up's when `wake`.
-    Modeset { wake: bool },
+    Modeset {
+        wake: bool,
+    },
     Sleep,
 }
 
@@ -357,7 +359,8 @@ impl<K: Kms> Drm2d<K> {
             set
         } else {
             let ids: Vec<DisplayId> = self.displays().collect();
-            ids.into_iter().try_for_each(|id| self.set_dpms(id, Dpms::On))
+            ids.into_iter()
+                .try_for_each(|id| self.set_dpms(id, Dpms::On))
         };
         // The modeset's flip is bounded.
         self.settle();
