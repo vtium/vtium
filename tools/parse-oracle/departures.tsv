@@ -13,4 +13,5 @@ empty-params	Every empty parameter is omitted.	An empty parameter before `;` sta
 c1-utf8	C1 controls do nothing in UTF-8 mode.	U+0080 to U+009F from the UTF-8 decoder are dropped before the state machine.
 gr-as-gl	GR acts as GL inside sequences in 8-bit mode.	In 8-bit mode, a byte from A0 to FF in an ESC, CSI or DCS header is read as the byte 80 below it.
 past-ascii	A character past ASCII ends a sequence header in UTF-8 mode.	In UTF-8 mode, a character from U+00A0 up drops an ESC sequence and ignores a DCS string, where the C reference collected it or took it as the final.
+osc-bound	An OSC string keeps 1 MiB.	The OSC string is collected on the Rust side, up to 1 MiB, in place of the C reference's 128-byte `osc_arg`; a clear empties it as it empties `osc_arg`.
 osc-prefix	A truncated OSC string is a prefix.	Once a character fails to fit the OSC buffer, the string takes nothing more.

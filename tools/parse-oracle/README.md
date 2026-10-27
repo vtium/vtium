@@ -57,6 +57,8 @@ Two plants show that each switch carries weight:
 - `run --without <departure>` takes a departure out of the expectations and leaves the list check in place. The run must find a difference.
 - Deleting the row instead makes the list check refuse the run.
 
+`osc-bound` is the one switch that replaces part of the C side: the C reference's `osc_arg` holds 128 bytes, so the switch collects the OSC string on the Rust side, by the C reference's rule at the 1 MiB bound, and a clear empties it where it empties `osc_arg`. The bound is written in `src/c_side.rs` and `src/generate.rs`, not taken from vtium-parse, so a wrong `OSC_MAX` there shows as a difference; the written cases cross it.
+
 Each switch is a few lines of Rust written from the README's text, which `departures.tsv` restates. A departure misread the same way in vtium-parse and in its switch still goes unseen. The README text is the check on both.
 
 With `intermediates` taken out, the C side prints the C reference's intermediate flag set (`f<hex>`) where the trace shows the bytes, since the flag set was all the C reference kept.

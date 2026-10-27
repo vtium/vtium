@@ -17,11 +17,12 @@ pub enum Departure {
     C1Utf8,
     GrAsGl,
     PastAscii,
+    OscBound,
     OscPrefix,
 }
 
 impl Departure {
-    pub const ALL: [Departure; 8] = [
+    pub const ALL: [Departure; 9] = [
         Departure::StringEnd,
         Departure::Intermediates,
         Departure::ResetApcSt,
@@ -29,6 +30,7 @@ impl Departure {
         Departure::C1Utf8,
         Departure::GrAsGl,
         Departure::PastAscii,
+        Departure::OscBound,
         Departure::OscPrefix,
     ];
 
@@ -41,6 +43,7 @@ impl Departure {
             Departure::C1Utf8 => "c1-utf8",
             Departure::GrAsGl => "gr-as-gl",
             Departure::PastAscii => "past-ascii",
+            Departure::OscBound => "osc-bound",
             Departure::OscPrefix => "osc-prefix",
         }
     }
@@ -55,15 +58,15 @@ impl Departure {
 
 /// The departures applied to the C side.
 #[derive(Clone, Copy, Default)]
-pub struct Departs(u8);
+pub struct Departs(u16);
 
 impl Departs {
     pub fn has(self, d: Departure) -> bool {
-        self.0 & 1 << d as u8 != 0
+        self.0 & 1 << d as u16 != 0
     }
 
     pub fn with(self, d: Departure) -> Self {
-        Departs(self.0 | 1 << d as u8)
+        Departs(self.0 | 1 << d as u16)
     }
 
     pub fn ids(self) -> Vec<&'static str> {
