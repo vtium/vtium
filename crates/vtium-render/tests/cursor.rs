@@ -7,8 +7,8 @@
 
 mod common;
 
-use common::{Screen, rgb, style, unifont};
-use vtium_render::{Canvas, Config, DrawState, Renderer};
+use common::{Screen, arrow_over, rgb, style, unifont};
+use vtium_render::{Arrow, Canvas, Config, DrawState, Orientation, Renderer};
 use vtium_term::{Age, CursorShape, Rgb, Style, UnderlineStyle};
 
 const FG: &str = "e0e0e0";
@@ -132,31 +132,44 @@ fn a_bar_replaces_the_character_with_a_left_eighth_block() {
     assert!(draw(&s, true, None) == draw(&want, false, None));
 }
 
-// bbulk_draw_pointer: the font's I in the default colours, in a cell's box
-// centred on the pointer, half a cell rounded up each way, and kept
-// inside the grid
+// The pointer drawn in software: the arrow a cell tall, its tip on the
+// pointer's pixel kept inside the grid, blended over the cells it covers,
+// which show through around it.
 // covers: platform.compositor
 #[test]
-fn the_pointer_is_an_i_beam_in_the_default_colours() {
+fn the_pointer_is_an_arrow_over_the_cells() {
     let st = style(rgb(FG), rgb(BG));
     let s = screen(st, 0, CursorShape::Block, None);
     let without = draw(&s, false, None);
-    let mut beam = Screen::new(6, 1, rgb("c0c0c0"), rgb("101010"));
-    beam.put(0, 0, 'I', false, style(rgb("c0c0c0"), rgb("101010")));
-    let beam = draw(&beam, false, None);
-    // (20, 9) on a grid one row high: y is kept at half a cell, so the box
-    // is at (16, 0); far past the grid it is kept in the last cell
-    for (pointer, bx) in [((20, 9), 16), ((10_000, 10_000), 40)] {
+    let arrow = Arrow::new(16, Orientation::Normal);
+    assert_eq!(
+        (arrow.width(), arrow.height(), arrow.hot()),
+        (11, 16, (1, 1))
+    );
+    let at = |x: u32, y: u32| arrow.pixels()[(y * 11 + x) as usize];
+    // at 20,9 the arrow's corner is at 19,8; far past the grid the tip is
+    // kept on the grid's last pixel, 47,15, and the arrow runs off the
+    // display
+    for (pointer, (ax, ay)) in [((20, 9), (19, 8)), ((10_000, 10_000), (46, 14))] {
         let with = draw(&s, false, Some(pointer));
+        let mut lit = 0;
         for y in 0..16 {
             for x in 0..48 {
-                let want = if (bx..bx + 8).contains(&x) {
-                    beam.pixel(x - bx, y).unwrap()
-                } else {
-                    without.pixel(x, y).unwrap()
+                let under = without.pixel(x, y).unwrap();
+                let inside = (ax..ax + 11).contains(&x) && (ay..ay + 16).contains(&y);
+                let want = match inside.then(|| at(x - ax, y - ay)) {
+                    Some(src) if src != 0 => {
+                        lit += 1;
+                        arrow_over(under, src)
+                    }
+                    _ => under,
                 };
                 assert_eq!(with.pixel(x, y).unwrap(), want, "{pointer:?} at {x},{y}");
             }
         }
+        assert!(lit > 1, "{pointer:?}: the arrow shows");
     }
+    // the tip's fill is white, whatever is under it
+    let with = draw(&s, false, Some((20, 9)));
+    assert_eq!(with.pixel(20, 10), Some(0xff_ff_ff));
 }

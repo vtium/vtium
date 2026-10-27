@@ -58,6 +58,7 @@
 //! crate's README: [`POOL_BYTES_PERFORMANCE`], [`ROW_SCRATCH_MAX`] and
 //! [`RENDER_TIMER_SAMPLES`].
 
+mod arrow;
 mod blend;
 mod bounds;
 mod cache;
@@ -70,7 +71,8 @@ mod target;
 mod timer;
 mod trig;
 
-pub use bounds::{POOL_BYTES_PERFORMANCE, RENDER_TIMER_SAMPLES, ROW_SCRATCH_MAX};
+pub use arrow::Arrow;
+pub use bounds::{POINTER_SIDE_MAX, POOL_BYTES_PERFORMANCE, RENDER_TIMER_SAMPLES, ROW_SCRATCH_MAX};
 pub use cache::{Budgets, CacheCounts, Profile, Storage};
 pub use renderer::{Config, DecoColor, DecorationColors, DrawState, Drawn, Renderer, Stats};
 pub use target::{Canvas, Mapped, Orientation, Rect, Target};

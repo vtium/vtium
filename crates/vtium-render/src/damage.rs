@@ -130,13 +130,6 @@ impl Cells {
             .any(|s| self.stale(s.stamp))
     }
 
-    /// Whether any of `n` cells from `col` in `row` is drawn on this frame.
-    pub(crate) fn any_drawn(&self, col: usize, row: usize, n: usize) -> bool {
-        (col..col.saturating_add(n))
-            .filter_map(|c| self.index(c, row).and_then(|i| self.states.get(i)))
-            .any(|s| s.drawn)
-    }
-
     /// `n` cells from `col` in `row` are drawn on this frame.
     pub(crate) fn mark_drawn(&mut self, col: usize, row: usize, n: usize) {
         for c in col..col.saturating_add(n) {

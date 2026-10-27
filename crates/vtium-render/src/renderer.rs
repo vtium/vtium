@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use vtium_font::{Face, Font, Style, Width as FontWidth};
 use vtium_term::{Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, Rgb, Width};
 
+use crate::arrow::{Arrow, Over};
 use crate::blend::pixel;
 use crate::bounds::ROW_SCRATCH_MAX;
 use crate::cache::{Budgets, GlyphCache, Profile, Storage};
@@ -16,9 +17,6 @@ use crate::target::{Orientation, Rect, Target};
 
 /// The bar cursor: U+258F, LEFT ONE EIGHTH BLOCK, a sprite.
 const BAR: char = '\u{258f}';
-
-/// The pointer's glyph.
-const POINTER: char = 'I';
 
 /// The colour a decoration draws in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -71,14 +69,13 @@ pub struct DrawState {
     pub cursor_on: bool,
     /// The text blink phase hides blinking text.
     pub blink_hidden: bool,
-    /// The palette's default foreground, which the pointer draws in.
+    /// The palette's default foreground.
     pub foreground: Rgb,
-    /// The palette's default background, around the grid and behind the
-    /// pointer.
+    /// The palette's default background, around the grid.
     pub background: Rgb,
-    /// The pointer's centre in the grid's pixels, unturned, for the
-    /// renderer to draw: set only on a display without a cursor plane
-    /// (fbdev, legacy drm2d, a plane that refused the cursor), which the
+    /// The pointer's tip in the grid's pixels, unturned, for the renderer
+    /// to draw the arrow at: set only on a display without a cursor plane
+    /// (fbdev, legacy drm2d, a plane that refused the arrow), which the
     /// display tells its owner. `None` when the pointer is hidden or the
     /// display's cursor plane shows it.
     pub pointer: Option<(u32, u32)>,
@@ -288,7 +285,7 @@ struct Paint {
     text: Option<(usize, usize, FontWidth, Style)>,
 }
 
-/// Where the pointer draws, the cells it changes and its colours.
+/// Where the pointer's arrow draws and the cells it changes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Pointer {
     at: Area,
@@ -297,7 +294,6 @@ struct Pointer {
     cells: (usize, usize, usize, usize),
     /// It reaches past the grid into the border.
     outside: bool,
-    colors: (Rgb, Rgb),
 }
 
 /// Draws terminal frames with a font into a display buffer.
@@ -311,7 +307,10 @@ pub struct Renderer<F> {
     background: Option<Rgb>,
     blink_hidden: bool,
     cursor_at: Option<(usize, usize)>,
+    arrow: Arrow,
     pointer: Option<Pointer>,
+    /// The line a run under the pointer is blended in.
+    pointer_line: Vec<u32>,
     compose: Composer,
 }
 
@@ -389,12 +388,34 @@ impl<F: Face> Renderer<F> {
             background: None,
             blink_hidden: false,
             cursor_at: None,
+            arrow: Arrow::new(ch, config.orientation),
             pointer: None,
+            pointer_line: Vec::new(),
         }
     }
 
     pub fn font(&self) -> &Font<F> {
         &self.font
+    }
+
+    /// The pointer's arrow at this renderer's cell size and orientation,
+    /// for a display's cursor plane.
+    pub fn arrow(&self) -> &Arrow {
+        &self.arrow
+    }
+
+    /// Where on the display the arrow's hotspot goes for the pointer's tip
+    /// at `x`, `y` in the grid's pixels: the grid's pixel kept inside the
+    /// grid, turned and placed as the last frame placed the grid. `None`
+    /// before the first frame, or with no grid.
+    pub fn pointer_at(&self, (x, y): (u32, u32)) -> Option<(i32, i32)> {
+        let g = self.grid?;
+        let (px, py) = self.pointer_pixel(&g, (x, y))?;
+        let a = self.layout.area(&g, px, py, 1, 1);
+        Some((
+            i32::try_from(a.x).unwrap_or(i32::MAX),
+            i32::try_from(a.y).unwrap_or(i32::MAX),
+        ))
     }
 
     /// The columns and rows the display holds.
@@ -451,11 +472,9 @@ impl<F: Face> Renderer<F> {
             self.cursor_at = None;
             self.pointer = None;
         }
-        let pointer = state
-            .pointer
-            .and_then(|p| self.place_pointer(&grid, state, p));
+        let pointer = state.pointer.and_then(|p| self.place_pointer(&grid, p));
         if pointer != self.pointer {
-            // it appeared, moved, hid or changed colour: the cells it left
+            // it appeared, moved or hid: the cells it left
             // and the cells it covers change, and the border where it
             // reaches past the grid
             for p in [self.pointer, pointer].into_iter().flatten() {
@@ -464,13 +483,15 @@ impl<F: Face> Renderer<F> {
             self.pointer = pointer;
         }
         let full = self.cells.border_stale();
+        let arrow = core::mem::take(&mut self.arrow);
+        let mut line = core::mem::take(&mut self.pointer_line);
+        let mut out = Over::new(target, pointer.map(|p| (&arrow, p.at)), &mut line);
         if full {
-            self.fill_border(&grid, target, state.background);
+            self.fill_border(&grid, &mut out, state.background);
         }
-        let cells = self.draw_cells(&grid, frame, target, state);
-        if let Some(p) = pointer.filter(|p| full || self.pointer_cells_drawn(p)) {
-            self.draw_pointer(&p, target);
-        }
+        let cells = self.draw_cells(&grid, frame, &mut out, state);
+        self.arrow = arrow;
+        self.pointer_line = line;
         let layout = self.layout;
         let whole = full.then_some(Rect {
             x: 0,
@@ -795,90 +816,59 @@ impl<F: Face> Renderer<F> {
         self.compose.jobs.sort_by_key(|j| j.posx);
     }
 
-    /// Where the pointer centred at `px`, `py` in the grid's pixels draws:
-    /// the font's `I` in the default colours, a cell's box centred on it,
-    /// clamped inside the grid.
-    fn place_pointer(&self, g: &Grid, state: &DrawState, (px, py): (u32, u32)) -> Option<Pointer> {
+    /// The grid's pixel the pointer's tip at `x`, `y` names, kept inside
+    /// the grid.
+    fn pointer_pixel(&self, g: &Grid, (x, y): (u32, u32)) -> Option<(i64, i64)> {
         if g.cols == 0 || g.rows == 0 {
             return None;
         }
         let l = self.layout;
-        let (cw, ch) = (l.cw, l.ch);
-        let (gw, gh) = (
-            int(g.cols).saturating_mul(cw),
-            int(g.rows).saturating_mul(ch),
-        );
-        let px = int(px).clamp(cw / 2, gw.saturating_sub(cw / 2).max(cw / 2));
-        let py = int(py).clamp(ch / 2, gh.saturating_sub(ch / 2).max(ch / 2));
-        let turned = l.orientation.turned();
-        let (half_w, half_h) = if turned {
-            ((ch.saturating_add(1)) / 2, (cw.saturating_add(1)) / 2)
-        } else {
-            ((cw.saturating_add(1)) / 2, (ch.saturating_add(1)) / 2)
-        };
-        let (x, y) = match l.orientation {
-            Orientation::Normal => (px.saturating_add(g.off_x), py.saturating_add(g.off_y)),
-            Orientation::UpsideDown => (g.max_x.saturating_sub(px), g.max_y.saturating_sub(py)),
-            Orientation::Right => (g.max_x.saturating_sub(py), px.saturating_add(g.off_y)),
-            Orientation::Left => (py.saturating_add(g.off_x), g.max_y.saturating_sub(px)),
-        };
-        let x = x.clamp(half_w, g.max_x.saturating_sub(half_w).max(half_w));
-        let y = y.clamp(half_h, g.max_y.saturating_sub(half_h).max(half_h));
-        let (w, h) = if turned { (ch, cw) } else { (cw, ch) };
-        // the cells under it, as the C reference found them
-        let (fw, fh) = ((cw.saturating_add(1)) / 2, (ch.saturating_add(1)) / 2);
-        let col = if px > fw {
-            px.saturating_sub(fw).checked_div(cw).unwrap_or(0)
-        } else {
-            0
-        };
-        let row = if py > fh {
-            py.saturating_sub(fh).checked_div(ch).unwrap_or(0)
-        } else {
-            0
-        };
+        let last = |n: usize, side: i64| int(n).saturating_mul(side).saturating_sub(1).max(0);
+        Some((
+            int(x).min(last(g.cols, l.cw)),
+            int(y).min(last(g.rows, l.ch)),
+        ))
+    }
+
+    /// Where the arrow draws for the pointer's tip at `x`, `y` in the
+    /// grid's pixels, and the cells it covers. Its hotspot lands on the
+    /// grid's pixel, kept inside the grid; the rest may reach into the
+    /// border and past the display, where nothing is drawn.
+    fn place_pointer(&self, g: &Grid, at: (u32, u32)) -> Option<Pointer> {
+        let (px, py) = self.pointer_pixel(g, at)?;
+        let l = self.layout;
+        let tip = l.area(g, px, py, 1, 1);
+        let (hx, hy) = self.arrow.hot();
         let at = Area {
-            x: x.saturating_sub(half_w),
-            y: y.saturating_sub(half_h),
-            w,
-            h,
+            x: tip.x.saturating_sub(int(hx)),
+            y: tip.y.saturating_sub(int(hy)),
+            w: int(self.arrow.width()),
+            h: int(self.arrow.height()),
         };
-        let col = usize::try_from(col)
-            .unwrap_or(0)
-            .min(g.cols.saturating_sub(1));
-        let row = usize::try_from(row)
-            .unwrap_or(0)
-            .min(g.rows.saturating_sub(1));
-        // the box rounds half a cell up each way from a centre kept half a
-        // cell rounded down inside the grid, so at an odd cell size it can
-        // reach a pixel past those cells, or past the grid
+        let (gw, gh) = (
+            int(g.cols).saturating_mul(l.cw),
+            int(g.rows).saturating_mul(l.ch),
+        );
         let b = l.grid_area(g, at);
-        let first = |v: i64, side: i64| {
-            usize::try_from(v.max(0).checked_div(side).unwrap_or(0)).unwrap_or(0)
+        let first = |v: i64, side: i64, n: usize| {
+            usize::try_from(v.max(0).checked_div(side).unwrap_or(0))
+                .unwrap_or(0)
+                .min(n)
         };
         let past = |v: i64, side: i64, n: usize| {
-            let end = v.saturating_add(side).saturating_sub(1);
+            let end = v.saturating_add(side).saturating_sub(1).max(0);
             usize::try_from(end.checked_div(side).unwrap_or(0))
                 .unwrap_or(0)
                 .min(n)
         };
         let cells = (
-            col.min(first(b.x, cw)),
-            row.min(first(b.y, ch)),
-            col.saturating_add(2)
-                .min(g.cols)
-                .max(past(b.x.saturating_add(b.w), cw, g.cols)),
-            row.saturating_add(2)
-                .min(g.rows)
-                .max(past(b.bottom(), ch, g.rows)),
+            first(b.x, l.cw, g.cols),
+            first(b.y, l.ch, g.rows),
+            past(b.x.saturating_add(b.w), l.cw, g.cols),
+            past(b.bottom(), l.ch, g.rows),
         );
         let outside = b.x < 0 || b.y < 0 || b.x.saturating_add(b.w) > gw || b.bottom() > gh;
-        Some(Pointer {
-            at,
-            cells,
-            outside,
-            colors: (state.foreground, state.background),
-        })
+        Some(Pointer { at, cells, outside })
     }
 
     /// The cells under `p` changed on this frame, and the border when it
@@ -892,29 +882,6 @@ impl<F: Face> Renderer<F> {
         }
         if p.outside {
             self.cells.stamp_border();
-        }
-    }
-
-    /// Whether this frame drew a cell under `p`, and so drew over it.
-    fn pointer_cells_drawn(&self, p: &Pointer) -> bool {
-        let (c0, r0, c1, r1) = p.cells;
-        (r0..r1).any(|r| self.cells.any_drawn(c0, r, c1.saturating_sub(c0)))
-    }
-
-    /// Draws the pointer over the cells under it, which join the damage.
-    fn draw_pointer(&mut self, p: &Pointer, target: &mut impl Target) {
-        let l = self.layout;
-        self.compose.draw_alone(
-            &self.font,
-            POINTER,
-            p.colors,
-            p.at,
-            (l.width, l.height),
-            target,
-        );
-        let (c0, r0, c1, r1) = p.cells;
-        for r in r0..r1 {
-            self.cells.mark_drawn(c0, r, c1.saturating_sub(c0));
         }
     }
 }
