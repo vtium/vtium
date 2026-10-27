@@ -61,16 +61,11 @@ fn help_says_it_only_checks() {
 
 /// With strace on the machine, the files it opens are only the
 /// configuration's and the loader's: no VT, DRM node, input device or tty.
-/// Under qemu-user (tools/arm), strace would trace qemu, so it is skipped.
+/// Under qemu-user (tools/arm), strace traces qemu, whose opens of the
+/// target's files carry the QEMU_LD_PREFIX it translates them to: such a
+/// trace says so and is skipped.
 #[test]
 fn it_opens_nothing_but_the_configuration() {
-    if let Some(qemu) = std::env::var_os("VTIUM_QEMU_USER") {
-        eprintln!(
-            "under {}, where strace traces qemu: the open check is skipped",
-            qemu.display()
-        );
-        return;
-    }
     if Command::new("strace").arg("-V").output().is_err() {
         eprintln!("strace is not installed: the open check is skipped");
         return;
@@ -89,6 +84,20 @@ fn it_opens_nothing_but_the_configuration() {
         .filter(|l| l.contains("open") && !l.contains("ENOENT"))
         .filter_map(|l| l.split('"').nth(1))
         .collect();
+    if let (Some(qemu), Some(prefix)) = (
+        std::env::var_os("VTIUM_QEMU_USER"),
+        std::env::var("QEMU_LD_PREFIX")
+            .ok()
+            .filter(|p| !p.is_empty()),
+    ) && opened.iter().any(|p| p.starts_with(&prefix))
+    {
+        eprintln!(
+            "strace traced {}, which opens the target's files under {prefix}: the open check is skipped",
+            qemu.display()
+        );
+        std::fs::remove_dir_all(d).ok();
+        return;
+    }
     assert!(opened.iter().any(|p| p.ends_with("kmscon.conf")), "{trace}");
     for p in &opened {
         assert!(
