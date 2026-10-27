@@ -38,6 +38,8 @@ The post-turn hook was where drawing happened: the terminal registered one, so a
 
 An idle callback ran on every turn while it stayed registered, mixed in among the descriptor callbacks rather than before or after them (`kmscon/src/shl/eloop.c:469-475`, `kmscon/src/shl/eloop.c:516-545`); the pty used one to keep feeding output it held back, the VT used one to deliver an activation found at start-up, and the DRM backend used one to finish page flips (`kmscon/src/misc/pty.c:602`, `kmscon/src/uterm/vt_real.c:330`, `kmscon/src/video/drm_shared.c:1640`).
 
+Each terminal's pty ran an event loop of its own, nested in the main one: the main loop watched the nested loop's epoll descriptor and, when it was readable, dispatched it once; the pty's reads, its idle callback, its child callback and the image helper's timer and child callback all ran in that nested loop (`kmscon/src/misc/pty.c:141`, `kmscon/src/misc/pty.c:226-240`, `kmscon/src/terminal.c:1870-1875`, `kmscon/src/terminal.c:1951-1952`, `kmscon/src/terminal_image.c:137`).
+
 Each handled signal got its own signalfd, and the signal was blocked in the calling thread when it was added and never unblocked (`kmscon/src/shl/eloop.c:375-420`, `kmscon/src/shl/eloop.c:444-448`).
 
 Children were reaped centrally: the first child callback registered SIGCHLD, and on each SIGCHLD the loop called `waitpid(-1, WNOHANG)` until none was left and told every child callback each pid, because two callbacks each calling `waitpid` would steal each other's children (`kmscon/src/shl/eloop.c:2217-2250`, `kmscon/src/shl/eloop.c:316-344`).
@@ -471,3 +473,71 @@ Optional backends were modules loaded at start: drm3d, gltex, FreeType, Pango, P
 **Verdict: follows.** Cargo features replace meson options and loadable modules, a Rust shape for the same choice. #21 carries the drift test for the terminfo entry. #5 changes the default of `use-original-mode` (see part 3 for what the C default was).
 
 **Not planned:** the seat's own `<seat>.seat.conf`, the command line's precedence over the file, and the systemd units and PAM file are named in no issue; tier 3 boots the installed build, so #22 needs the units.
+
+## 11. Data flow end to end
+
+### One byte from the pty to a pixel
+
+1. The child writes to the pty; the master becomes readable, and the main loop finds the pty's nested loop readable and dispatches it (`kmscon/src/terminal.c:1870-1875`, `kmscon/src/misc/pty.c:234-240`).
+2. `pty_input` sees the edge and `read_buf` reads up to 16 KiB, unless a pause, a reply backlog or held output stops it (`kmscon/src/misc/pty.c:707-735`, `kmscon/src/misc/pty.c:620-654`).
+3. `feed` hands the read to the terminal's callback with the pty counting what is written meanwhile as replies (`kmscon/src/misc/pty.c:579-618`).
+4. The terminal's `pty_input` notes that a draw is owed and calls `tsm_vte_input_bounded` (`kmscon/src/terminal.c:1839-1854`, `libtsm/src/tsm/tsm-vte.c:3736-3744`).
+5. The parser decodes UTF-8 and, for each codepoint, `parse_data` picks a transition and `do_trans` runs its actions; a printable character reaches `write_console` and `tsm_screen_write`, which stores the cell and stamps its age (`libtsm/src/tsm/tsm-vte.c:3660-3687`, `libtsm/src/tsm/tsm-vte.c:3258-3280`, `libtsm/src/tsm/tsm-vte.c:3184-3187`, `libtsm/src/tsm/tsm-vte.c:950`, `libtsm/src/tsm/tsm-screen.c:1563`).
+6. A query's answer goes out at once through the write callback to `kmscon_pty_write`, written directly or queued as a reply (`libtsm/src/tsm/tsm-vte.c:918-944`, `kmscon/src/terminal.c:1877-1882`, `kmscon/src/misc/pty.c:862-890`).
+7. Back in the terminal, the coalescing counts are updated and synchronized output is checked; the end of a held frame arms or ends the hold (`kmscon/src/terminal.c:1850-1852`, `kmscon/src/terminal.c:746-781`).
+8. The bytes the call left are held, and the pty's idle callback hands them over on later turns (`kmscon/src/misc/pty.c:656-667`).
+9. At the end of the main loop's turn, `terminal_turn_end` asks each display whether its frame changed, decides whether to wait for the write to end, and asks for a draw (`kmscon/src/terminal.c:571-591`, `kmscon/src/terminal.c:501-545`).
+10. `redraw_screen` draws now, or after the flip in flight, or owes the draw under a hold (`kmscon/src/terminal.c:461-480`).
+11. `do_redraw_screen` prepares the renderer and `kmscon_text_draw` pulls the frame since this display's age; `bbulk_draw` walks the cells, `find_glyph` looks the glyph up and on a miss `kmscon_font_render` draws it (`kmscon/src/terminal.c:402-455`, `kmscon/src/render/text.c:741-768`, `kmscon/src/render/bbulk.c:1488-1578`, `kmscon/src/render/bbulk.c:529-573`, `kmscon/src/font/font.c:331-368`).
+12. `display_blend` writes the cell into the mapped back buffer (`kmscon/src/render/bbulk.c:1472`, `kmscon/src/video/video.c:334-342`, `kmscon/src/video/drm2d_render.c:89-125`).
+13. `kmscon_text_present` gives the damage rectangles to the display and `display_swap` queues a non-blocking atomic flip with a flip event (`kmscon/src/render/text.c:854-866`, `kmscon/src/video/drm2d_video.c:212-225`, `kmscon/src/video/drm_shared.c:1028-1087`).
+14. At the next vertical blank the display scans out the new buffer; the flip event arrives on the DRM descriptor, the display is marked flipped, and the terminal draws any frame it owed meanwhile (`kmscon/src/video/drm_shared.c:1105-1124`, `kmscon/src/video/drm_shared.c:1159-1186`, `kmscon/src/terminal.c:669-690`).
+
+### One key press from evdev to the pty
+
+1. The keyboard's evdev descriptor becomes readable; `input_data_dev` reads up to 16 events and `notify_event` passes the key to `uxkb_dev_process` (`kmscon/src/input/input.c:78-113`, `kmscon/src/input/input.c:56-74`).
+2. xkbcommon gives the keysyms, compose may consume the key, the xkb state and LEDs update, and repeat is armed; a press is dispatched to the key callbacks in order (`kmscon/src/input/input_uxkb.c:431-545`).
+3. The VT's callback takes a VT switch key (`kmscon/src/uterm/vt_real.c:484-530`).
+4. The seat's callback resets the blank timer and takes a session key (`kmscon/src/seat.c:584-637`).
+5. The terminal's `input_event` clears the selection, takes a scrollback, zoom or rotate key, drops a repeat under DECARM reset, and gives the rest to `tsm_vte_handle_keyboard` (`kmscon/src/terminal.c:1357-1438`, `libtsm/src/tsm/tsm-vte.c:4012`).
+6. The encoder writes the key's bytes through the write callback to `kmscon_pty_write`; outside the parser's call they are user bytes, written directly or queued whole (`kmscon/src/terminal.c:1877-1882`, `kmscon/src/misc/pty.c:862-890`, `kmscon/src/misc/pty.c:474-517`).
+7. The terminal resets the scrollback view and redraws at once, so the cursor moves before the child echoes (`kmscon/src/terminal.c:1433-1438`, `kmscon/src/terminal.c:495-498`).
+8. The child's echo comes back as output and takes the first path.
+
+**In vtium:** both paths cross `vtium-platform` (#18, #19, #20), `vtium-parse` (#9), `vtium-term` (#10 to #12), `vtium-font` (#15), `vtium-render` (#16) and the binary's wiring (#21).
+
+**Verdict: follows.** No vtium issue reorders either path. The departures in parts 1 to 9 apply along them: the pty's reply stall at the reply that fills the queue (part 6), and the row-scratch composition, if adopted (part 7).
+
+## 12. Threading and ownership
+
+The C reference had one thread; the only other processes were the pty's child and the image helper (`kmscon/src/render/image_budget.h:32-33`, `kmscon/src/shl/eloop.c:79-88`).
+
+The app owned the main loop, the configuration, D-Bus and the one seat (`kmscon/src/main.c:46-56`).
+
+The seat owned its input object, its VT, its udev monitor, its seat configuration, its videos and displays, its sessions and its blank timer, and freed them on exit (`kmscon/src/seat.c:83-108`, `kmscon/src/seat.c:866-909`).
+
+A video owned its displays; a display was reference-counted, and a queued flip held a reference until its event arrived, so a display unplugged mid-flip outlived the flip (`kmscon/src/video/drm_shared.c:1080-1083`, `kmscon/src/video/drm_shared.c:1119`).
+
+The seat's own display record held a reference to each display for as long as the seat used it (`kmscon/src/seat.c:362-410`).
+
+A session owned exactly one terminal, created with it and destroyed after it left the session list (`kmscon/src/seat.c:1165-1239`).
+
+The terminal owned its libtsm screen, parser, pty, font, image helper, timers and per-display screens; each per-display screen owned its renderer and render timer, and each renderer held its own references to the font and the display (`kmscon/src/terminal.c:1803-1828`, `kmscon/src/terminal.c:1226-1301`, `kmscon/src/render/text.c:190-191`, `kmscon/src/render/text.c:244-253`).
+
+libtsm's screen owned its image stores; the image budget held a reference to each screen in it until the terminal left (`libtsm/src/tsm/tsm-image.c:689-704`, `kmscon/src/render/image_budget.c:460-498`).
+
+The image budget was process-wide static state, valid because kmscon was one thread (`kmscon/src/render/image_budget.h:26-37`).
+
+The pty object outlived its child: closing it flushed the queue and the held output, and opening it again started clean (`kmscon/src/misc/pty.c:830-848`).
+
+A renderer's state lived between `set` and `unset`, which rotation and font changes ran in turn; going to the background released its scaled pictures (`kmscon/src/render/bbulk.c:398-485`, `kmscon/src/terminal.c:1780-1786`).
+
+The order of teardown at exit was: switch the seat to no session, put it to sleep, destroy every session, remove every video, switch back to the previous VT, run the loop briefly, free the seat, then the app (`kmscon/src/seat.c:866-895`, `kmscon/src/main.c:201-222`).
+
+Each pty's nested loop registered SIGCHLD for itself, and a signal could not be shared between nested loops, so with several sessions only one pty's loop was told of a child's exit (`kmscon/src/shl/eloop.c:134-140`, `kmscon/src/shl/eloop.c:2217-2250`, `kmscon/src/misc/pty.c:808`); with `session-control` off, the default, there was one.
+
+**In vtium:** the platform's ownership is `vtium-platform` (#18, #19, #20, #34); the binary's is `vtium` (#21); the terminal's is `vtium-term` (ADR-1001, #11).
+
+**Verdict: follows, with listed departures.** The branch `feat/platform-pty` keeps one thread with one loop and no nested loops; each child is watched through its own pidfd, which removes the shared SIGCHLD above. The pty's queue belongs to the `Pty`, dropped on close, as the C reference's flush did (`crates/vtium-platform/README.md`, "Behaviour"). Owned values and `Drop` stand in for reference counts and teardown order, a Rust shape.
+
+Who owns the process-wide image budget in vtium is part 9's check.
