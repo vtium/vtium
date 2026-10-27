@@ -21,6 +21,13 @@ _Escape protocols and the screen model - parser, modes, cells, scrollback_
 | [ADR-1000](./term/ADR-1000-the-modes-and-features-vtium-supports.md) | The modes and features vtium supports | accepted |
 | [ADR-1001](./term/ADR-1001-cells-are-8-bytes-with-styles-links-and-clusters-in-line-tables.md) | Cells are 8 bytes, with styles, links and clusters in line tables | accepted |
 
+## Render
+_Cells and images to pixels - the renderer and its display interface_
+
+| ADR | Title | Status |
+|-----|-------|--------|
+| [ADR-1300](./render/ADR-1300-the-drawn-glyph-cache-and-frame-composition.md) | The drawn-glyph cache and frame composition | accepted |
+
 ## Platform
 _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_
 
