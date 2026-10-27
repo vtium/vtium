@@ -45,7 +45,7 @@ pub use kernel::{KernelVt, Restore};
 pub use tty::Tty;
 
 use std::io;
-use std::os::fd::OwnedFd;
+use std::os::fd::{BorrowedFd, OwnedFd};
 use std::path::Path;
 
 use rustix::fs::{Mode, OFlags};
@@ -235,4 +235,7 @@ pub(crate) trait Console: Sized {
     /// tty0's `active`, which names the VT shown and notifies on every
     /// switch; `None` for a console without it.
     fn watch_shown(&self) -> Option<io::Result<OwnedFd>>;
+    /// The VT `watched`, the descriptor [`Console::watch_shown`] gave,
+    /// names.
+    fn shown(&self, watched: BorrowedFd<'_>) -> io::Result<u16>;
 }

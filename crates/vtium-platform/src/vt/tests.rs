@@ -159,6 +159,36 @@ fn the_switch_signals_are_blocked_before_vt_process() {
 }
 
 #[test]
+fn the_loop_reads_the_vt_shown_once_per_switch() {
+    let mut lp = Loop::<Seat>::new().unwrap_or_else(|e| panic!("the loop: {e}"));
+    let console = FakeConsole::new(3, 3, KbMode::Unicode);
+    console.0.borrow_mut().shown_watch = ShownWatch::Notifying;
+    let vt = KernelVt::start(&mut lp, console.clone(), 3, |s: &mut Seat| s.vt.as_mut())
+        .unwrap_or_else(|e| panic!("start: {e}"));
+    let mut seat = Seat { vt: Some(vt) };
+    let mut turns = |seat: &mut Seat| {
+        for _ in 0..3 {
+            assert!(lp.dispatch(Some(std::time::Duration::ZERO), seat).is_ok());
+        }
+    };
+    // Read once at the start, then once for each switch, however many
+    // turns the loop takes.
+    turns(&mut seat);
+    assert_eq!(console.0.borrow().shown_reads, 1);
+    console.show(6);
+    turns(&mut seat);
+    assert_eq!(console.0.borrow().shown_reads, 2);
+    console.show(3);
+    turns(&mut seat);
+    assert_eq!(console.0.borrow().shown_reads, 3);
+    let vt = seat.vt.as_mut().unwrap_or_else(|| panic!("the VT"));
+    assert_eq!(
+        vt.events().collect::<Vec<_>>(),
+        [VtEvent::Acquired, VtEvent::Release]
+    );
+}
+
+#[test]
 fn a_vt_shown_that_cannot_be_watched_still_opens() {
     for watch in [ShownWatch::Missing, ShownWatch::Unpollable] {
         let mut lp = Loop::<Seat>::new().unwrap_or_else(|e| panic!("the loop: {e}"));
@@ -399,6 +429,50 @@ fn a_switch_made_without_a_release_releases_the_vt() {
         );
         assert!(vt.is_active(), "{first}");
     }
+}
+
+#[test]
+fn a_switch_back_while_the_owner_sleeps_is_acquired_at_its_acknowledgement() {
+    // VT_AUTO, and the kernel switches to VT 6 with no release.
+    let (console, mut vt) = shown();
+    vt.events().for_each(drop);
+    assert!(console.set_switching(Switching::Auto).is_ok());
+    assert!(console.set_display_mode(DisplayMode::Text).is_ok());
+    console.show(6);
+    notified(&console, &mut vt);
+    assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Release]);
+    // Switched back before the owner's displays are asleep: nothing yet.
+    console.show(3);
+    notified(&console, &mut vt);
+    assert_eq!(vt.events().count(), 0);
+    assert!(!vt.is_active());
+    assert!(vt.acknowledge_release().is_ok());
+    assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Acquired]);
+    assert!(vt.is_active());
+    assert_eq!(console.modes(), taken());
+}
+
+#[test]
+fn a_release_completed_with_no_answer_ends_at_the_acknowledgement() {
+    // A release waits when another process sets VT_AUTO, and the kernel
+    // completes a switch to VT 6 with no answer.
+    let (console, mut vt) = shown();
+    vt.events().for_each(drop);
+    asked_away(&console, &mut vt, 5);
+    vt.events().for_each(drop);
+    assert!(console.set_switching(Switching::Auto).is_ok());
+    assert!(console.set_display_mode(DisplayMode::Text).is_ok());
+    console.show(6);
+    notified(&console, &mut vt);
+    assert_eq!(vt.events().count(), 0);
+    assert!(!vt.is_active());
+    assert!(vt.acknowledge_release().is_ok());
+    assert_eq!(vt.events().count(), 0);
+    assert!(!vt.is_active());
+    // Taken again in the background: the switch back signals the acquire.
+    assert_eq!(console.0.borrow().switching, Switching::Process);
+    switched_back(&console, &mut vt);
+    assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Acquired]);
 }
 
 #[test]

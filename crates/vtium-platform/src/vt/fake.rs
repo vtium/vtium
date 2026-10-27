@@ -3,7 +3,9 @@
 
 use std::cell::RefCell;
 use std::io;
-use std::os::fd::OwnedFd;
+use std::io::Write;
+use std::os::fd::{BorrowedFd, OwnedFd};
+use std::os::unix::net::UnixStream;
 use std::rc::Rc;
 
 use rustix::process::Signal;
@@ -49,6 +51,11 @@ pub(crate) struct Kernel {
     pub(crate) on_screen: u16,
     /// What opening tty0's `active` gives the loop.
     pub(crate) shown_watch: ShownWatch,
+    /// The end the stand-in writes to on each switch, while the loop
+    /// watches the other ([`ShownWatch::Notifying`]).
+    notifier: Option<UnixStream>,
+    /// Reads of the VT shown through the watched descriptor.
+    pub(crate) shown_reads: usize,
     /// A switch changed the VT on screen since the last notification
     /// taken, as `sysfs_notify` on tty0's `active` tells (vt.c:945-946).
     pub(crate) notified: bool,
@@ -95,6 +102,8 @@ impl FakeConsole {
             on_screen,
             notified: false,
             shown_watch: ShownWatch::Absent,
+            notifier: None,
+            shown_reads: 0,
             others: (Switching::Auto, DisplayMode::Text),
             wanted: None,
             display: DisplayMode::Text,
@@ -130,6 +139,15 @@ impl FakeConsole {
 
     /// The kernel switches to VT `num`: it is shown, and tty0's `active`
     /// notifies.
+    /// The descriptor the loop watches for [`ShownWatch::Notifying`],
+    /// readable from the start, as sysfs's attribute is.
+    fn notifying(&self) -> io::Result<OwnedFd> {
+        let (mut notifier, watched) = UnixStream::pair()?;
+        notifier.write_all(&[1])?;
+        self.0.borrow_mut().notifier = Some(notifier);
+        Ok(watched.into())
+    }
+
     pub(crate) fn show(&self, num: u16) {
         switch_screen(&mut self.0.borrow_mut(), num);
     }
@@ -279,14 +297,22 @@ impl Console for FakeConsole {
     }
 
     fn watch_shown(&self) -> Option<io::Result<OwnedFd>> {
-        match self.0.borrow().shown_watch {
+        let watch = self.0.borrow().shown_watch;
+        match watch {
             ShownWatch::Absent => None,
             ShownWatch::Missing => Some(Err(io::Error::from(rustix::io::Errno::NOENT))),
             ShownWatch::Unpollable => Some(
                 rustix::fs::memfd_create("active", rustix::fs::MemfdFlags::CLOEXEC)
                     .map_err(io::Error::from),
             ),
+            ShownWatch::Notifying => Some(self.notifying()),
         }
+    }
+
+    fn shown(&self, _: BorrowedFd<'_>) -> io::Result<u16> {
+        let mut k = self.0.borrow_mut();
+        k.shown_reads = k.shown_reads.saturating_add(1);
+        Ok(k.on_screen)
     }
 }
 
@@ -297,6 +323,9 @@ pub(crate) enum ShownWatch {
     Absent,
     /// An attribute that cannot be opened.
     Missing,
+    /// A socket that is never drained, so it is readable at every poll and
+    /// wakes its pollers on each switch, as sysfs does.
+    Notifying,
     /// A file the loop cannot poll, as epoll refuses a regular file.
     Unpollable,
 }
@@ -306,6 +335,10 @@ fn switch_screen(k: &mut Kernel, num: u16) {
     if k.on_screen != num {
         k.on_screen = num;
         k.notified = true;
+        if let Some(notifier) = &mut k.notifier {
+            // A failed write shows as a missed read in the test.
+            let _ = notifier.write_all(&[1]);
+        }
     }
 }
 

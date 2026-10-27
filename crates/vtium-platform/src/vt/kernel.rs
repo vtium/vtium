@@ -115,7 +115,7 @@ impl<C: Console + 'static> KernelVt<C> {
                         let Some(vt) = shown(data) else {
                             return Ok(PostAction::Remove);
                         };
-                        match super::shown::read(fd.as_fd()) {
+                        match vt.console.shown(fd.as_fd()) {
                             Ok(n) => vt.shown_changed(n),
                             Err(e) => log::warn!(target: "vt", "cannot read the VT shown: {e}"),
                         }
