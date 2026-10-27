@@ -5,6 +5,7 @@
 *	replies-da1	departure	crates/vtium-term/README.md	DA1 reports a VT220 with colour, `CSI ? 62 ; 22 c`.
 *	prog-tmux	departure	crates/vtium-term/README.md	DA1 reports a VT220 with colour, `CSI ? 62 ; 22 c`.
 *	input-paste	departure	crates/vtium-term/README.md	A paste is filtered as xterm filters one.
+*	input-paste	departure	crates/vtium-term/README.md	A paste sends each LF as CR.
 *	insert-wide-one-column	departure	crates/vtium-term/README.md	A line keeps 6 bytes of clusters a cell (ADR-1001's cluster budget),
 *	utf8-ill-formed	departure	crates/vtium-parse/README.md	C1 controls do nothing in UTF-8 mode.
 *	host-palette	departure	INTERFACE.md	The C reference erased the screen and reset the current attributes when a palette was chosen; `host-palette` records it, and an implementation may list it as a departure.

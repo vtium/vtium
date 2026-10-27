@@ -459,28 +459,32 @@ impl State {
     }
 }
 
-/// Whether xterm's paste filtering, with `allowPasteControls` false, turns
-/// a character into a space: the C0 controls but HT, LF and CR, DEL, and
-/// the C1 controls.
-fn filtered(c: u32) -> bool {
-    matches!(c, 0x00..=0x08 | 0x0b | 0x0c | 0x0e..=0x1f | 0x7f..=0x9f)
+/// What a pasted character becomes: with xterm's paste filtering, its
+/// `allowPasteControls` false, each C0 control but HT, LF and CR, DEL, and
+/// each C1 control is one space; and LF is CR, as xterm sends it with
+/// `pasteLiteralNl` off (`button.c`, `_WriteSelectionData`).
+fn pasted(c: u32) -> u32 {
+    match c {
+        0x0a => 0x0d,
+        0x00..=0x08 | 0x0b | 0x0c | 0x0e..=0x1f | 0x7f..=0x9f => 0x20,
+        _ => c,
+    }
 }
 
 impl State {
-    /// Pasted text with each control xterm's paste filtering takes out
-    /// turned into one space. In UTF-8 a C1 control is a code point, and
-    /// ill-formed bytes become U+FFFD; in 7-bit and 8-bit input it is a
-    /// byte.
+    /// Pasted text, each character as [`pasted`] makes it. In UTF-8 a C1
+    /// control is a code point, and ill-formed bytes become U+FFFD; in
+    /// 7-bit and 8-bit input it is a byte.
     fn paste_bytes(&self, data: &[u8]) -> Vec<u8> {
         match self.input_mode {
             InputMode::Utf8 => String::from_utf8_lossy(data)
                 .chars()
-                .map(|c| if filtered(u32::from(c)) { ' ' } else { c })
+                .map(|c| char::from_u32(pasted(u32::from(c))).unwrap_or(c))
                 .collect::<String>()
                 .into_bytes(),
             InputMode::SevenBit | InputMode::EightBit => data
                 .iter()
-                .map(|&b| if filtered(u32::from(b)) { b' ' } else { b })
+                .map(|&b| u8::try_from(pasted(u32::from(b))).unwrap_or(b))
                 .collect(),
         }
     }
@@ -546,9 +550,9 @@ impl Terminal {
         true
     }
 
-    /// Pastes `data`, filtered as xterm filters a paste, and bracketed by
-    /// `CSI 200 ~` and `CSI 201 ~` while the program asked for it (mode
-    /// 2004). The filtering turns ESC and the C1 controls into spaces, so a
+    /// Pastes `data`, filtered as xterm filters a paste, each LF as CR,
+    /// and bracketed by `CSI 200 ~` and `CSI 201 ~` while the program asked
+    /// for it (mode 2004). The filtering turns ESC and the C1 controls into spaces, so a
     /// bracketed paste never carries its own end marker (ADR-1000).
     pub fn paste(&mut self, data: &[u8]) {
         let text = self.state.paste_bytes(data);

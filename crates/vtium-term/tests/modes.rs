@@ -424,8 +424,8 @@ fn bracketed_paste_brackets_a_paste() {
     t.paste(b"x");
     assert_eq!(sent(&mut t), b"x");
     t.input(b"\x1b[?2004h");
-    t.paste(b"a\nb");
-    assert_eq!(sent(&mut t), b"\x1b[200~a\nb\x1b[201~");
+    t.paste(b"a\rb");
+    assert_eq!(sent(&mut t), b"\x1b[200~a\rb\x1b[201~");
     toggles(&mut t, true, 2004);
     t.paste(b"y");
     assert_eq!(sent(&mut t), b"y");

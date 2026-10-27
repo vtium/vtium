@@ -204,12 +204,23 @@ fn a_bracketed_paste_never_carries_its_own_end() {
 }
 
 // xterm's paste filtering, for a bracketed paste or not: of the C0
-// controls only HT, LF and CR are pasted, and each other one, DEL and each
-// C1 control, a code point in UTF-8, becomes one space.
+// controls only HT, LF and CR are pasted, LF as CR, and each other one,
+// DEL and each C1 control, a code point in UTF-8, becomes one space.
+// xterm sends each LF of a paste as CR, as the Return key sends, unless
+// `pasteLiteralNl` is set (`button.c`, `_WriteSelectionData`); in 8-bit
+// input too.
+#[test]
+fn a_paste_sends_each_line_end_as_cr() {
+    let mut t = term(8, 2, b"");
+    assert_eq!(paste(&mut t, b"one\ntwo\r\n"), b"one\rtwo\r\r");
+    t.input(b"\x1b[62\"p");
+    assert_eq!(paste(&mut t, b"a\nb"), b"a\rb");
+}
+
 #[test]
 fn a_paste_keeps_only_the_formatting_controls() {
     let c0: Vec<u8> = (0..0x20).chain([0x7f]).collect();
-    let c0_sent = [&[b' '; 9][..], b"\t\n", &[b' '; 2], b"\r", &[b' '; 19]].concat();
+    let c0_sent = [&[b' '; 9][..], b"\t\r", &[b' '; 2], b"\r", &[b' '; 19]].concat();
     let c1: String = ('\u{80}'..='\u{a0}').collect();
     let c1_sent = [&[b' '; 32][..], "\u{a0}".as_bytes()].concat();
     let mut t = term(8, 2, b"");
@@ -257,14 +268,15 @@ fn eight_bit_input_turns_the_c1_bytes_of_a_paste_into_spaces() {
 }
 
 // An ordinary paste, tabs, line ends and text past ASCII, arrives as it
-// was, bracketed or not.
+// was, bracketed or not, but each LF as CR.
 #[test]
 fn an_ordinary_paste_arrives_unchanged() {
     let text = "ls -l\t~/src\r\necho 'b\u{e5}r \u{65e5}\u{672c} \u{1f600}'\n".as_bytes();
+    let sent = "ls -l\t~/src\r\recho 'b\u{e5}r \u{65e5}\u{672c} \u{1f600}'\r".as_bytes();
     let mut t = term(8, 2, b"");
-    assert_eq!(paste(&mut t, text), text);
+    assert_eq!(paste(&mut t, text), sent);
     t.input(b"\x1b[?2004h");
-    assert_eq!(paste(&mut t, text), bracketed(text));
+    assert_eq!(paste(&mut t, text), bracketed(sent));
 }
 
 // ctlseqs, the X10 encoding: a cell counts from 1, plus 32, in one byte,
