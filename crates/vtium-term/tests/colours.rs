@@ -352,17 +352,57 @@ fn a_set_marks_the_screen_changed() {
     }
 }
 
-// ctlseqs, RIS: the terminal returns to its initial state, its colours
-// the configured palette's; DECSTR keeps the colours a program set.
+// xterm's ReallyReset (charproc.c, xterm 412) resets the OSC 4 palette on
+// DECSTR and RIS alike, and neither resets the colours OSC 10 to 19 set:
+// vtium's DECSTR follows it. vtium's RIS returns every colour to the
+// configured palette, a departure the crate's README lists: the C
+// reference's RIS also ended on the configured colours, and RIS returns
+// the terminal to its initial state.
 #[test]
-fn ris_returns_the_colours_to_the_configured_palette() {
+fn decstr_resets_the_palette_and_ris_every_colour() {
+    let nord = Palette::named("nord").unwrap();
     let mut t = term(4, 1, b"");
+    t.set_palette(nord.clone());
     t.input(b"\x1b]4;1;#010101\x07\x1b]10;#020202;#030303;#040404\x07\x1b]17;#050505\x07");
     t.input(b"\x1b[!p");
-    assert_eq!(t.palette().color(1), Rgb::new(1, 1, 1));
+    assert_eq!(t.palette().color(1), nord.color(1));
+    assert_eq!(t.palette().fg(), Rgb::new(2, 2, 2));
+    assert_eq!(t.palette().bg(), Rgb::new(3, 3, 3));
     assert_eq!(t.palette().cursor(), Some(Rgb::new(4, 4, 4)));
-    t.input(b"\x1bc");
-    assert_eq!(t.palette(), &Palette::default());
+    assert_eq!(
+        t.palette().special(Special::SelectionBg),
+        Some(Rgb::new(5, 5, 5))
+    );
+    t.input(b"\x1b]4;1;#010101\x07\x1bc");
+    assert_eq!(t.palette(), &nord);
+}
+
+// docs/architecture.md, "Determinism": what a stream sets does not depend
+// on when the host took the replies. A list whose queries reach the
+// replies' bound skips the queries past it and still applies its sets, so
+// a terminal whose replies wait at the bound ends with the palette of one
+// whose replies were taken.
+#[test]
+fn a_list_at_the_replies_bound_still_sets() {
+    let query = b"\x1b]4;1;?\x07";
+    let one = reply(&mut term(4, 1, b""), query).len();
+    let k = (vtium_term::REPLIES_PENDING_MAX - 1) / one;
+    let lists: [&[u8]; 2] = [
+        b"\x1b]4;1;?;2;?;3;#ff0000\x07",
+        b"\x1b]21;1=?;2=?;3=#ff0000;foreground=#00ff00;4\x07",
+    ];
+    for list in lists {
+        let mut waiting = term(4, 1, b"\x1b]4;4;#010101\x07");
+        waiting.input(&query.repeat(k));
+        assert!(waiting.replies().len() + one >= vtium_term::REPLIES_PENDING_MAX);
+        assert_eq!(waiting.input(list), list.len());
+        let mut taken = term(4, 1, b"\x1b]4;4;#010101\x07");
+        taken.input(&query.repeat(k));
+        taken.take_replies();
+        assert_eq!(taken.input(list), list.len());
+        assert_eq!(taken.palette().color(3), Rgb::new(0xff, 0, 0));
+        assert_eq!(waiting.palette(), taken.palette(), "{list:?}");
+    }
 }
 
 // The host's palette replaces the one a program changed.
@@ -377,8 +417,8 @@ fn the_hosts_palette_replaces_the_programs_changes() {
 }
 
 // docs/architecture.md, "Determinism", bounds: an OSC 21 at the OSC bound
-// holds about 200,000 queries, so its one reply stops at the field that
-// brings the replies waiting for the host to the bound.
+// holds about 200,000 queries, so its one reply skips the queries past the
+// field that brings the replies waiting for the host to the bound.
 #[test]
 fn an_osc_21_reply_stops_at_the_replies_bound() {
     let mut seq = b"\x1b]21".to_vec();

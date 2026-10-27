@@ -191,17 +191,15 @@ impl State {
     /// OSC 4: `index ; spec` pairs, each `?` answered with the palette's
     /// colour and each spec vtium reads set; an index past 255 and a spec
     /// it does not read are skipped. A pair that is not a number and a
-    /// field stops the list, as in the C reference. The list also stops at
-    /// the reply that brings the replies waiting for the host to
-    /// [`REPLIES_PENDING_MAX`], as the input stops at the byte whose reply
-    /// does: one string at vtium-parse's `OSC_MAX` holds a quarter of a
-    /// million queries.
+    /// field stops the list, as in the C reference. Once the replies
+    /// waiting for the host reach [`REPLIES_PENDING_MAX`], the list's
+    /// further queries are skipped, as the input stops at the byte whose
+    /// reply reaches it: one string at vtium-parse's `OSC_MAX` holds a
+    /// quarter of a million queries. Its sets still apply, so what a string
+    /// sets does not depend on when the host took the replies.
     fn osc_palette(&mut self, list: &[u8], end: StringEnd) {
         let mut fields = list.split(|&b| b == b';');
         while let (Some(index), Some(spec)) = (fields.next(), fields.next()) {
-            if self.out.len() >= REPLIES_PENDING_MAX {
-                return;
-            }
             let Some(index) = decimal(index) else {
                 return;
             };
@@ -209,6 +207,9 @@ impl State {
                 continue;
             };
             if spec == b"?" {
+                if self.out.len() >= REPLIES_PENDING_MAX {
+                    continue;
+                }
                 let rgb = self.colors.color(i);
                 let reply = format!("\x1b]4;{i};{}{}", xcolor(rgb), osc_end(end));
                 self.reply(Query::PaletteColor, reply.as_bytes());
@@ -232,6 +233,21 @@ impl State {
             } else if let Some(rgb) = parse_color(spec) {
                 self.set_dynamic(d, Some(rgb));
             }
+        }
+    }
+
+    /// The colour reset of DECSTR, the 256 returned to the configured
+    /// palette's as xterm's soft reset returns them, and with `every`, for
+    /// RIS, every colour.
+    pub(super) fn reset_colors(&mut self, every: bool) {
+        let before = self.colors.clone();
+        if every {
+            self.colors = self.host.palette.clone();
+        } else {
+            self.reset_palette(None);
+        }
+        if self.colors != before {
+            self.screen.recolour();
         }
     }
 
@@ -260,14 +276,13 @@ impl State {
     /// dynamic, which unsets a special colour and is refused for the
     /// defaults and the 256, and a bare key resets. The queries are
     /// answered in one reply, in order; a key vtium does not know is
-    /// skipped. The reply stops at the field that brings the replies
-    /// waiting for the host to [`REPLIES_PENDING_MAX`].
+    /// skipped. Once the reply and the replies waiting for the host reach
+    /// [`REPLIES_PENDING_MAX`], further queries are skipped and the sets
+    /// still apply.
     fn osc_kitty(&mut self, list: &[u8], end: StringEnd) {
         let mut reply = String::new();
         for field in list.split(|&b| b == b';') {
-            if self.out.len().saturating_add(reply.len()) >= REPLIES_PENDING_MAX {
-                break;
-            }
+            let full = self.out.len().saturating_add(reply.len()) >= REPLIES_PENDING_MAX;
             let (key, value) = match field.iter().position(|&b| b == b'=') {
                 Some(at) => (
                     field.get(..at).unwrap_or_default(),
@@ -284,6 +299,7 @@ impl State {
                     self.colors.set_color(i, rgb);
                 }
                 (Key::Dynamic(d), None) => self.reset_dynamic(d),
+                (_, Some(b"?")) if full => {}
                 (_, Some(b"?")) => {
                     reply.push(';');
                     key.write(&mut reply);

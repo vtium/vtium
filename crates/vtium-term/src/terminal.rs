@@ -492,9 +492,9 @@ impl State {
     }
 
     /// DECSTR, and the first half of RIS: the modes, the pen, the cursor
-    /// style, the character sets, the saved cursors, the margins and the
-    /// tab stops return to their initial state; the text and the cursor
-    /// stay.
+    /// style, the character sets, the saved cursors, the margins, the tab
+    /// stops and the 256 palette colours return to their initial state;
+    /// the text, the cursor and the colours OSC 10 to 19 set stay.
     fn soft_reset(&mut self) {
         self.screen.reset();
         self.screen.set_pen(Style::DEFAULT);
@@ -507,17 +507,15 @@ impl State {
         self.dcs = Dcs::Ignored;
         modes::reset(self, false);
         self.saved = [Saved::HOME; 2];
+        self.reset_colors(false);
     }
 
-    /// RIS: DECSTR's reset, the modes only RIS resets, the colours the
+    /// RIS: DECSTR's reset, the modes only RIS resets, every colour the
     /// program set, the screen and the scrollback erased, and the cursor
     /// home.
     fn hard_reset(&mut self) {
         self.soft_reset();
-        if self.colors != self.host.palette {
-            self.colors = self.host.palette.clone();
-            self.screen.recolour();
-        }
+        self.reset_colors(true);
         self.screen.erase_screen(Erase::All);
         self.screen.clear_scrollback();
         modes::reset(self, true);
