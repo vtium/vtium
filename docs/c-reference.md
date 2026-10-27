@@ -58,7 +58,7 @@ The binary's start-up and exit order is vtium/vtium#21.
 
 ## 2. Seats, sessions and VTs
 
-The process ran one seat (`kmscon/src/main.c:58-71`, `kmscon/src/seat.c:792`); several seats meant several processes, each started for its own seat.
+The process ran one seat (`kmscon/src/main.c:58-71`, `kmscon/src/seat.c:792`).
 
 A seat held the input devices, the video devices and their displays, the VT, and a list of sessions; each session held exactly one terminal (`kmscon/src/seat.c:53-108`).
 
