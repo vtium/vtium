@@ -1,7 +1,7 @@
 //! A key's value from its text, checked against the key's bound.
 
 use super::keys::{self, Key, Kind, TEXT_MAX};
-use super::{Origin, Problem, Reports, Value};
+use super::{ModeSpec, Origin, Problem, Reports, Value};
 
 /// The key's default as a value; `None` when it has none.
 pub(super) fn default(key: &Key) -> Option<Value> {
@@ -12,6 +12,7 @@ pub(super) fn default(key: &Key) -> Option<Value> {
         keys::Default::Command(c) => {
             Some(Value::Command(c.iter().map(|w| (*w).to_owned()).collect()))
         }
+        keys::Default::Rgb(c) => Some(Value::Rgb(c)),
         keys::Default::Unset => None,
     }
 }
@@ -103,11 +104,111 @@ pub(super) fn parse(
                 }
             }
         }
+        Kind::Rgb => match parse_rgb(text) {
+            Ok(c) => Some(Value::Rgb(c)),
+            Err(why) => {
+                let value = text.to_owned();
+                reports.push(
+                    origin.clone(),
+                    Problem::BadValue {
+                        key: key.name,
+                        value,
+                        why,
+                    },
+                );
+                None
+            }
+        },
+        Kind::Mode => match parse_mode(text) {
+            Ok(m) => Some(Value::Modes(vec![m])),
+            Err(why) => {
+                let value = text.to_owned();
+                reports.push(
+                    origin.clone(),
+                    Problem::BadValue {
+                        key: key.name,
+                        value,
+                        why,
+                    },
+                );
+                None
+            }
+        },
         Kind::Switch => {
             reports.push(origin.clone(), Problem::TakesNoValue(key.name));
             None
         }
     }
+}
+
+/// A colour, `r,g,b`, each a whole number from 0 to 255
+/// (`src/config.c:806-855`).
+pub(super) fn parse_rgb(text: &str) -> Result<[u8; 3], &'static str> {
+    let mut out = [0_u8; 3];
+    let mut parts = text.split(',');
+    for slot in &mut out {
+        let part = parts.next().ok_or("three values are needed, r,g,b")?.trim();
+        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
+            return Err("each value is a whole number");
+        }
+        *slot = part.parse().map_err(|_| "each value is at most 255")?;
+    }
+    if parts.next().is_some() {
+        return Err("three values are needed, r,g,b");
+    }
+    Ok(out)
+}
+
+/// The most bytes of a card's or a connector's name in a mode line, the
+/// C reference's buffers less their NUL.
+const MODE_NAME_MAX: usize = 63;
+
+/// A mode line, `[GPU][CONNECTOR]WxH[@RATE]` (`src/config.c:564-617`).
+pub(super) fn parse_mode(text: &str) -> Result<ModeSpec, &'static str> {
+    let name = |s: &str| -> Result<Option<String>, &'static str> {
+        if s.is_empty() {
+            Err("an empty name in brackets")
+        } else if s.len() > MODE_NAME_MAX {
+            Err("a name longer than 63 bytes")
+        } else {
+            Ok(Some(s.to_owned()))
+        }
+    };
+    let (gpu, connector, dims) = match text.split_once('[') {
+        Some((gpu, rest)) => {
+            let (connector, dims) = rest.split_once(']').ok_or("a '[' with no ']'")?;
+            let gpu = if gpu.is_empty() { None } else { name(gpu)? };
+            (gpu, name(connector)?, dims)
+        }
+        None => (None, None, text),
+    };
+    let side = |s: &str| -> Result<u32, &'static str> {
+        match s.parse::<u32>() {
+            Ok(n) if (1..=65_535).contains(&n) && s.bytes().all(|b| b.is_ascii_digit()) => Ok(n),
+            _ => Err("a size is WxH, each from 1 to 65535"),
+        }
+    };
+    let (size, rate) = match dims.split_once('@') {
+        Some((size, rate)) => {
+            let rate = rate
+                .parse::<u32>()
+                .ok()
+                .filter(|_| rate.bytes().all(|b| b.is_ascii_digit()))
+                .ok_or("a rate is a whole number of Hz")?;
+            (size, (rate > 0).then_some(rate))
+        }
+        None => (dims, None),
+    };
+    let (w, h) = size
+        .split_once('x')
+        .ok_or("a size is WxH, each from 1 to 65535")?;
+    Ok(ModeSpec {
+        gpu,
+        connector,
+        width: side(w)?,
+        height: side(h)?,
+        rate,
+    })
 }
 
 /// A command line split into words as the C reference's `login` key was:

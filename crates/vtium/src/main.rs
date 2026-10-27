@@ -14,20 +14,12 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use vtium::app::{App, Exit};
-use vtium::config::{self, KEYS, Kind, Report, Scope, keys};
+use vtium::config::{self, KEYS, Kind, Scope, keys};
 use vtium::term::Clock;
 use vtium_platform::event_loop::{Loop, Signal};
 use vtium_platform::input::{Direct, Input, InputConfig, Keymap, KeymapConfig, locale};
 use vtium_platform::udev::Udev;
 use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty, Vt};
-
-/// Where configuration warnings go: the log, on stderr. The operator's
-/// decision on vtium/vtium#21 may add a place; this function is where.
-fn report(reports: &[Report]) {
-    for r in reports {
-        log::warn!(target: "config", "{r}");
-    }
-}
 
 fn help() -> String {
     let mut out = String::from("Usage: vtium [OPTION]... [--login -- COMMAND...]\n\n");
@@ -68,7 +60,7 @@ fn main() -> ExitCode {
     vtium::logger::init(log::Level::Info);
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let loaded = config::load(&args, Some("seat0"), &mut config::read_file);
-    report(&loaded.reports);
+    vtium::warn::reports(&loaded.reports);
     let config = loaded.config;
     if config.switch(&keys::HELP) {
         print!("{}", help());

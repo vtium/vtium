@@ -42,8 +42,8 @@ use vtium_term::{Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal
 
 use crate::blink::{Blink, Timer};
 use crate::child::{self, Display as SessionDisplay, Place};
-use crate::config::Config;
 use crate::config::keys;
+use crate::config::{Config, ModeSpec};
 use crate::font;
 use crate::grab::{self, Grab};
 use crate::respawn::{Next, Respawn};
@@ -156,6 +156,9 @@ impl<V: Vt + 'static> App<V> {
         );
         terminal.screen_mut().set_scrollback_max(lines);
         terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
+        if let Some(p) = palette(&config) {
+            terminal.set_palette(p);
+        }
         if let Ok(table) = crate::termcap::termcap() {
             terminal.set_termcap(table);
         }
@@ -332,12 +335,10 @@ impl<V: Vt + 'static> App<V> {
                 let font = Font::new(face);
                 if !in_use {
                     for (range, n) in font.coverage().partial() {
-                        log::warn!(
-                            target: "font",
-                            "the font covers {} of {} characters of {range:?}",
-                            n.covered,
-                            n.total
-                        );
+                        crate::warn::warn(format_args!(
+                            "the font covers {} of {} characters of {range:?}; that range draws the sprites unless glyph-source says otherwise",
+                            n.covered, n.total
+                        ));
                     }
                 }
                 let policy = font::policy(&self.config, font.policy());
@@ -579,7 +580,7 @@ impl<V: Vt + 'static> App<V> {
                     log::debug!("{}: backed by a DRM card, skipped", dev.node.display());
                 }
                 kind => {
-                    if let Err(e) = open_video(self, &dev.node, kind) {
+                    if let Err(e) = open_video(self, &dev.node, kind, dev.id_path.as_deref()) {
                         log::warn!("cannot open {}: {e}", dev.node.display());
                     }
                 }
@@ -1037,6 +1038,54 @@ impl<V: Vt + 'static> App<V> {
     }
 }
 
+/// The palette `palette` names: `None` for `legacy`, the terminal's own,
+/// and the `palette-*` keys for `custom`. vtium-term holds no other named
+/// palette yet, so another name keeps `legacy` and is reported.
+fn palette(config: &Config) -> Option<vtium_term::Palette> {
+    match config.text(&keys::PALETTE) {
+        None | Some("legacy") => None,
+        Some("custom") => {
+            let mut p = vtium_term::Palette::default();
+            let rgb = |k| {
+                let [r, g, b] = config.rgb(k).unwrap_or_default();
+                vtium_term::Rgb::new(r, g, b)
+            };
+            for (i, key) in PALETTE_KEYS.iter().enumerate() {
+                p.set_color(u8::try_from(i).unwrap_or(0), rgb(key));
+            }
+            p.set_fg(rgb(&keys::PALETTE_FOREGROUND));
+            p.set_bg(rgb(&keys::PALETTE_BACKGROUND));
+            Some(p)
+        }
+        Some(name) => {
+            crate::warn::warn(format_args!(
+                "palette={name} is not built yet; legacy is used"
+            ));
+            None
+        }
+    }
+}
+
+/// The sixteen colours' keys, in order.
+const PALETTE_KEYS: [&crate::config::Key; 16] = [
+    &keys::PALETTE_BLACK,
+    &keys::PALETTE_RED,
+    &keys::PALETTE_GREEN,
+    &keys::PALETTE_YELLOW,
+    &keys::PALETTE_BLUE,
+    &keys::PALETTE_MAGENTA,
+    &keys::PALETTE_CYAN,
+    &keys::PALETTE_LIGHT_GREY,
+    &keys::PALETTE_DARK_GREY,
+    &keys::PALETTE_LIGHT_RED,
+    &keys::PALETTE_LIGHT_GREEN,
+    &keys::PALETTE_LIGHT_YELLOW,
+    &keys::PALETTE_LIGHT_BLUE,
+    &keys::PALETTE_LIGHT_MAGENTA,
+    &keys::PALETTE_LIGHT_CYAN,
+    &keys::PALETTE_WHITE,
+];
+
 fn mouse_button(b: Button) -> MouseButton {
     match b {
         Button::Left => MouseButton::Left,
@@ -1077,15 +1126,30 @@ pub fn open_video<V: Vt + 'static>(
     app: &mut App<V>,
     node: &std::path::Path,
     kind: DeviceKind,
+    id_path: Option<&str>,
 ) -> io::Result<()> {
-    use vtium_platform::display::{Card, Drm2d, Fb, Fbdev, ModePolicy};
+    use vtium_platform::display::{Card, Drm2d, Fb, Fbdev, ModeLookup, ModePolicy, Wanted};
     let fd = app.vt.open_device(node)?;
     let key = node.to_owned();
     let video: Box<dyn Video> = match kind {
         DeviceKind::Drm => {
+            let modes = app.config.modes(&keys::MODE).to_vec();
+            let use_original = app.config.switch(&keys::USE_ORIGINAL_MODE);
+            if use_original && !modes.is_empty() {
+                crate::warn::warn("mode is set, so use-original-mode is off");
+            }
+            let gpu = id_path.map(str::to_owned);
             let policy = ModePolicy {
-                use_original: app.config.switch(&keys::USE_ORIGINAL_MODE),
-                wanted: None,
+                use_original: use_original && modes.is_empty(),
+                wanted: (!modes.is_empty()).then(|| {
+                    Box::new(move |connector: &str| {
+                        ModeSpec::find(&modes, gpu.as_deref(), connector).map(|m| Wanted {
+                            width: m.width,
+                            height: m.height,
+                            rate: m.rate,
+                        })
+                    }) as Box<ModeLookup>
+                }),
             };
             let mut drm = Drm2d::new(Card::new(fd)?, policy)?;
             let k = key.clone();

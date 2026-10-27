@@ -341,3 +341,23 @@ fn the_fonts_policy_follows_the_keys() {
     let want = SpritePolicy::all(Source::Font).with(Range::Braille, Source::Auto);
     assert_eq!(h.app.font_policy(), Some((want, Missing::Hex)));
 }
+
+#[test]
+fn a_custom_palette_reaches_the_terminal() {
+    use vtium_term::Rgb;
+    let h = Harness::new(&[
+        "--palette=custom",
+        "--palette-red=1,2,3",
+        "--palette-background=4,5,6",
+    ]);
+    let p = h.app.term.terminal.palette();
+    assert_eq!(p.color(1), Rgb::new(1, 2, 3));
+    assert_eq!(p.bg(), Rgb::new(4, 5, 6));
+    // Unset keys keep the C reference's custom defaults.
+    assert_eq!(p.color(4), Rgb::new(0, 0, 238));
+    let h = Harness::new(&[]);
+    assert_eq!(
+        h.app.term.terminal.palette(),
+        &vtium_term::Palette::default()
+    );
+}

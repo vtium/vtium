@@ -16,6 +16,8 @@ fn kind(k: &Key) -> String {
         Kind::Text => "text".to_owned(),
         Kind::Choice(c) => format!("one of `{}`", c.join("`, `")),
         Kind::Command => "command".to_owned(),
+        Kind::Rgb => "colour, `r,g,b`".to_owned(),
+        Kind::Mode => "mode, a line each".to_owned(),
     }
 }
 
@@ -26,6 +28,8 @@ fn bound(k: &Key) -> String {
         Kind::Text => format!("{TEXT_MAX} bytes, no control character"),
         Kind::Choice(_) => "the choices".to_owned(),
         Kind::Command => format!("{TEXT_MAX} bytes in a file"),
+        Kind::Rgb => "each 0 to 255".to_owned(),
+        Kind::Mode => "names of 63 bytes, each side 1 to 65535".to_owned(),
     }
 }
 
@@ -36,6 +40,7 @@ fn default(k: &Key) -> String {
         Default::Number(n) => n.to_string(),
         Default::Text(t) => format!("`{t}`"),
         Default::Command(c) => format!("`{}`", c.join(" ")),
+        Default::Rgb([r, g, b]) => format!("`{r},{g},{b}`"),
         Default::Unset => "unset".to_owned(),
     }
 }
@@ -109,6 +114,7 @@ pub(super) fn example() -> String {
             (_, Default::Number(n)) => format!("{}={n}", k.name),
             (_, Default::Text(t)) => format!("{}={t}", k.name),
             (_, Default::Command(c)) => format!("{}={}", k.name, c.join(" ")),
+            (_, Default::Rgb([r, g, b])) => format!("{}={r},{g},{b}", k.name),
             _ => format!("{}=", k.name),
         };
         let _ = write!(out, "\n## {}\n#{line}\n", k.what);

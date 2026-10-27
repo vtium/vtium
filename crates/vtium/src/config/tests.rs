@@ -550,3 +550,145 @@ fn read_file_is_bounded() {
     assert_eq!(read_file(&dir.join("absent.conf")).ok(), Some(None));
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn colours() {
+    let l = main_file("palette=custom\npalette-red=10, 20,30\npalette-background=1,2,3\n");
+    assert_eq!(l.reports, []);
+    assert_eq!(l.config.text(&PALETTE), Some("custom"));
+    assert_eq!(l.config.rgb(&PALETTE_RED), Some([10, 20, 30]));
+    assert_eq!(l.config.rgb(&PALETTE_BACKGROUND), Some([1, 2, 3]));
+    // The C reference's default colours.
+    assert_eq!(l.config.rgb(&PALETTE_BLUE), Some([0, 0, 238]));
+    assert_eq!(l.config.rgb(&PALETTE_FOREGROUND), Some([229, 229, 229]));
+    let l =
+        main_file("palette-red=300,0,0\npalette-red=1,2\npalette-red=a,b,c\npalette-red=1,2,3,4\n");
+    assert_eq!(l.config.rgb(&PALETTE_RED), Some([205, 0, 0]));
+    let whys: Vec<&str> = l
+        .reports
+        .iter()
+        .filter_map(|r| match &r.problem {
+            Problem::BadValue { why, .. } => Some(*why),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        whys,
+        [
+            "each value is at most 255",
+            "three values are needed, r,g,b",
+            "each value is a whole number",
+            "three values are needed, r,g,b"
+        ]
+    );
+}
+
+fn mode(gpu: Option<&str>, connector: Option<&str>, w: u32, h: u32, rate: Option<u32>) -> ModeSpec {
+    ModeSpec {
+        gpu: gpu.map(Into::into),
+        connector: connector.map(Into::into),
+        width: w,
+        height: h,
+        rate,
+    }
+}
+
+#[test]
+fn mode_lines_add_up_and_the_command_line_replaces_them() {
+    let l = load_with(
+        &[],
+        Some("seat0"),
+        &[
+            (
+                "/etc/kmscon/kmscon.conf",
+                b"mode=1920x1080\nmode=[HDMI-A-1]3840x2160@60\n",
+            ),
+            (
+                "/etc/kmscon/seat0.seat.conf",
+                b"mode=pci-0000:00:02.0[eDP-1]1366x768\n",
+            ),
+        ],
+    );
+    assert_eq!(l.reports, []);
+    assert_eq!(
+        l.config.modes(&MODE),
+        [
+            mode(None, None, 1920, 1080, None),
+            mode(None, Some("HDMI-A-1"), 3840, 2160, Some(60)),
+            mode(Some("pci-0000:00:02.0"), Some("eDP-1"), 1366, 768, None),
+        ]
+    );
+    let l = load_with(
+        &["--mode=800x600", "--mode", "[DP-1]1024x768@75"],
+        None,
+        &[("/etc/kmscon/kmscon.conf", b"mode=1920x1080\n")],
+    );
+    assert_eq!(
+        l.config.modes(&MODE),
+        [
+            mode(None, None, 800, 600, None),
+            mode(None, Some("DP-1"), 1024, 768, Some(75)),
+        ]
+    );
+}
+
+#[test]
+fn a_mode_that_does_not_read_is_reported() {
+    for (text, why) in [
+        ("mode=0x768\n", "a size is WxH, each from 1 to 65535"),
+        ("mode=1366\n", "a size is WxH, each from 1 to 65535"),
+        ("mode=[HDMI-A-1 1366x768\n", "a '[' with no ']'"),
+        ("mode=[]1366x768\n", "an empty name in brackets"),
+        ("mode=1366x768@x\n", "a rate is a whole number of Hz"),
+        ("mode=70000x768\n", "a size is WxH, each from 1 to 65535"),
+    ] {
+        let l = main_file(text);
+        assert_eq!(l.config.modes(&MODE), [], "{text}");
+        assert!(
+            matches!(&l.reports[..], [Report { problem: Problem::BadValue { why: w, .. }, .. }] if *w == why),
+            "{text}: {:?}",
+            l.reports
+        );
+    }
+}
+
+#[test]
+fn the_most_specific_mode_wins() {
+    let modes = [
+        mode(None, None, 800, 600, None),
+        mode(None, Some("HDMI-A-1"), 1024, 768, None),
+        mode(Some("pci-1"), Some("HDMI-A-1"), 1280, 800, None),
+    ];
+    let w = |gpu, c| ModeSpec::find(&modes, gpu, c).map(|m| m.width);
+    assert_eq!(w(Some("pci-1"), "HDMI-A-1"), Some(1280));
+    assert_eq!(w(Some("pci-2"), "HDMI-A-1"), Some(1024));
+    assert_eq!(w(None, "HDMI-A-1"), Some(1024));
+    assert_eq!(w(Some("pci-1"), "DP-1"), Some(800));
+    assert_eq!(ModeSpec::find(&modes[1..], None, "DP-1"), None);
+}
+
+#[test]
+fn keyboard_and_mouse() {
+    let l = main_file(
+        "xkb-layout=de\nxkb-variant=nodeadkeys\nxkb-options=ctrl:nocaps\nxkb-repeat-delay=1500\nxkb-repeat-rate=30\nno-mouse\n",
+    );
+    assert_eq!(l.config.text(&XKB_LAYOUT), Some("de"));
+    assert_eq!(l.config.text(&XKB_VARIANT), Some("nodeadkeys"));
+    assert_eq!(l.config.text(&XKB_OPTIONS), Some("ctrl:nocaps"));
+    assert_eq!(l.config.number(&XKB_REPEAT_DELAY), Some(999));
+    assert_eq!(l.config.number(&XKB_REPEAT_RATE), Some(30));
+    assert!(!l.config.switch(&MOUSE));
+    assert_eq!(
+        problems(&l),
+        [&Problem::Clamped {
+            key: "xkb-repeat-delay",
+            value: "1500".into(),
+            used: 999
+        }]
+    );
+    let d = Config::default();
+    assert!(d.switch(&MOUSE));
+    assert_eq!(d.number(&XKB_REPEAT_DELAY), Some(250));
+    assert_eq!(d.number(&XKB_REPEAT_RATE), Some(50));
+    assert_eq!(d.text(&PALETTE), Some("legacy"));
+}

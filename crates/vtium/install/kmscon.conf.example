@@ -47,6 +47,93 @@
 ## Keep the mode each display is in; off, its preferred mode.
 #no-use-original-mode
 
+## A display's mode, `WxH[@RATE]`, for every display, `[CONNECTOR]WxH` for one connector, or `GPU[CONNECTOR]WxH` for one on one card, its udev `ID_PATH`. A key per line; the most specific match wins. Unset, the panel's preferred mode. It turns `use-original-mode` off.
+#mode=
+
+## The sixteen colours and the defaults: `custom` takes the `palette-*` keys. vtium-term holds `legacy` and `custom` so far; another name draws `legacy` and is reported.
+#palette=legacy
+
+## Colour 0 with `palette=custom`.
+#palette-black=0,0,0
+
+## Colour 1 with `palette=custom`.
+#palette-red=205,0,0
+
+## Colour 2 with `palette=custom`.
+#palette-green=0,205,0
+
+## Colour 3 with `palette=custom`.
+#palette-yellow=205,205,0
+
+## Colour 4 with `palette=custom`.
+#palette-blue=0,0,238
+
+## Colour 5 with `palette=custom`.
+#palette-magenta=205,0,205
+
+## Colour 6 with `palette=custom`.
+#palette-cyan=0,205,205
+
+## Colour 7 with `palette=custom`.
+#palette-light-grey=229,229,229
+
+## Colour 8 with `palette=custom`.
+#palette-dark-grey=127,127,127
+
+## Colour 9 with `palette=custom`.
+#palette-light-red=255,0,0
+
+## Colour 10 with `palette=custom`.
+#palette-light-green=0,255,0
+
+## Colour 11 with `palette=custom`.
+#palette-light-yellow=255,255,0
+
+## Colour 12 with `palette=custom`.
+#palette-light-blue=92,92,255
+
+## Colour 13 with `palette=custom`.
+#palette-light-magenta=255,0,255
+
+## Colour 14 with `palette=custom`.
+#palette-light-cyan=0,255,255
+
+## Colour 15 with `palette=custom`.
+#palette-white=255,255,255
+
+## The default foreground with `palette=custom`.
+#palette-foreground=229,229,229
+
+## The default background with `palette=custom`.
+#palette-background=0,0,0
+
+## The keyboard model, as xkeyboard-config names it.
+#xkb-model=
+
+## The keyboard layout, such as `us` or `de`.
+#xkb-layout=
+
+## The layout's variant.
+#xkb-variant=
+
+## xkb options, comma-separated.
+#xkb-options=
+
+## A keymap file, taken before the names above.
+#xkb-keymap=
+
+## A compose table, taken before the locale's.
+#xkb-compose-file=
+
+## How long a held key waits before it repeats; 0 takes 250.
+#xkb-repeat-delay=250
+
+## The time between a held key's repeats; 0 takes 50.
+#xkb-repeat-rate=50
+
+## Take pointers: mice, touchpads and touchscreens.
+#mouse
+
 ## The font source to use. Unset, each the build has, in this order.
 #font-engine=
 

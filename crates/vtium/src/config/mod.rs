@@ -50,6 +50,44 @@ pub enum Value {
     /// A [`Kind::Text`] or [`Kind::Choice`] value.
     Text(String),
     Command(Vec<String>),
+    Rgb([u8; 3]),
+    Modes(Vec<ModeSpec>),
+}
+
+/// One `mode` line: the mode, and the card and connector it is for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModeSpec {
+    /// The card's udev `ID_PATH`, or any card.
+    pub gpu: Option<String>,
+    /// The connector's name (`HDMI-A-1`), or any connector.
+    pub connector: Option<String>,
+    pub width: u32,
+    pub height: u32,
+    /// The refresh rate in Hz, or any.
+    pub rate: Option<u32>,
+}
+
+impl ModeSpec {
+    /// The mode configured for `connector` on the card at `gpu` among
+    /// `modes`: one naming both first, then one naming the connector,
+    /// then one naming neither (`src/config.c:663-698`).
+    pub fn find<'a>(
+        modes: &'a [ModeSpec],
+        gpu: Option<&str>,
+        connector: &str,
+    ) -> Option<&'a ModeSpec> {
+        let both = |m: &&ModeSpec| {
+            m.gpu.is_some() && m.gpu.as_deref() == gpu && m.connector.as_deref() == Some(connector)
+        };
+        let connector_only =
+            |m: &&ModeSpec| m.gpu.is_none() && m.connector.as_deref() == Some(connector);
+        let any = |m: &&ModeSpec| m.gpu.is_none() && m.connector.is_none();
+        modes
+            .iter()
+            .find(both)
+            .or_else(|| modes.iter().find(connector_only))
+            .or_else(|| modes.iter().find(any))
+    }
 }
 
 /// Where a value or a report came from.
@@ -104,6 +142,12 @@ pub enum Problem {
     /// word.
     BadCommand {
         key: &'static str,
+        why: &'static str,
+    },
+    /// A colour or a mode that does not read.
+    BadValue {
+        key: &'static str,
+        value: String,
         why: &'static str,
     },
     /// A line with no key before its `=`.
@@ -168,6 +212,9 @@ impl fmt::Display for Problem {
                 write!(f, "{k} holds a control character, ignored")
             }
             Problem::BadCommand { key, why } => write!(f, "{key}: {why}, ignored"),
+            Problem::BadValue { key, value, why } => {
+                write!(f, "{key}={}: {why}, ignored", quote(value))
+            }
             Problem::NoKey => write!(f, "a line with no key, ignored"),
             Problem::Nul => write!(f, "a line holding a NUL byte, ignored"),
             Problem::NotUtf8 => write!(f, "not UTF-8, ignored"),
@@ -260,7 +307,19 @@ impl std::default::Default for Config {
 }
 
 impl Config {
+    /// Sets a key. A mode line adds to the modes its own kind of source
+    /// set: a file's to the files', the command line's to the command
+    /// line's, which replace the files'.
     fn set(&mut self, a: Assignment) {
+        if let Value::Modes(new) = &a.value {
+            if let Some((Some(Value::Modes(old)), origin)) = self.values.get_mut(a.key.name) {
+                let cmdline = |o: &Origin| matches!(o, Origin::CommandLine { .. });
+                if cmdline(origin) == cmdline(&a.origin) {
+                    old.extend(new.iter().cloned());
+                    return;
+                }
+            }
+        }
         self.values.insert(a.key.name, (Some(a.value), a.origin));
     }
 
@@ -294,6 +353,22 @@ impl Config {
         match self.get(key) {
             Some(Value::Command(c)) => Some(c),
             _ => None,
+        }
+    }
+
+    /// A colour key's value, if set.
+    pub fn rgb(&self, key: &Key) -> Option<[u8; 3]> {
+        match self.get(key) {
+            Some(Value::Rgb(c)) => Some(*c),
+            _ => None,
+        }
+    }
+
+    /// The `mode` lines, none when unset.
+    pub fn modes(&self, key: &Key) -> &[ModeSpec] {
+        match self.get(key) {
+            Some(Value::Modes(m)) => m,
+            _ => &[],
         }
     }
 

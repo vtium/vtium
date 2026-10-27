@@ -16,6 +16,7 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/video.rs` | A video device behind one trait: drm2d, fbdev, or a test's stand-in |
 | `src/app.rs` | The seat: the VT's events, the devices, the keys, the blank, the child, the exit |
 | `src/logger.rs` | The log on stderr |
+| `src/warn.rs` | Where the operator's warnings go: the configuration's reports and a font's partial ranges |
 | `src/main.rs` | Start-up and the loop |
 | `tests/boot.rs` | The seat booted with no hardware: output drawn, keys, a VT switch, the blank, the respawn limit, DECARM, the font's policy, the exit |
 | `install/kmscon.conf.example` | The example configuration, generated from the key table |
@@ -44,6 +45,7 @@ Each was the C reference's behaviour at kmscon `b1f7a7c5`.
 - **A seat's file that cannot be read is reported and skipped;** the C reference failed the seat (`src/seat.c:786-790`).
 - **Each option name is matched whole.** The C reference's `getopt_long` took any unique prefix (`--lo` for `--login`).
 - **A command-line word that is no option is reported and dropped.** The C reference's `getopt_long` moved it to the end of the arguments, into the `--login` command.
+- **A mode line is read whole:** a size is digits, each side 1 to 65535, and a name at most 63 bytes; anything else is reported. The C reference read it with `sscanf`, which took a leading number and ignored the rest (`src/config.c:564-617`).
 - **`no-` turns off a switch only.** The C reference read `no-font-size=12` as `font-size=12` (`src/misc/conf.c:318-341`).
 - **`configdir` is set on the command line only.** The C reference let `kmscon.conf` set the directory the seat's file was read from.
 - **A seat's name is checked before it names a file;** the C reference formatted any name into the path (`src/config.c:1571`).
@@ -55,7 +57,7 @@ Each was the C reference's behaviour at kmscon `b1f7a7c5`.
 
 ## Not yet built
 
-Each is the C reference's and waits for its own change: zoom and rotation (their grab keys are taken and do nothing), several displays at different sizes (`multi-monitor`; vtium uses the smallest grid every display holds), the hardware cursor (the pointer is drawn in software), selection and copy with the pointer, the render timer's on-screen display, outline fonts (`font-engine=freetype` and `pango` draw with unifont), and the keys the table lacks, `mode`, the palette, the `xkb-*` keys and `mouse` among them.
+Each is the C reference's and waits for its own change: zoom and rotation (their grab keys are taken and do nothing), several displays at different sizes (`multi-monitor`; vtium uses the smallest grid every display holds), the hardware cursor (the pointer is drawn in software), selection and copy with the pointer, the render timer's on-screen display, outline fonts (`font-engine=freetype` and `pango` draw with unifont), the named palettes but `legacy` and `custom` (vtium-term holds no other yet), and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs, the decoration colours and the rest.
 
 ## C behaviour kept
 

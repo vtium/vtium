@@ -26,6 +26,12 @@ pub enum Kind {
     Text,
     /// One of a fixed set of words.
     Choice(&'static [&'static str]),
+    /// A colour, `r,g,b`, each 0 to 255.
+    Rgb,
+    /// A display mode, `[GPU][CONNECTOR]WxH[@RATE]`. Each line adds one:
+    /// the seat's file adds to the main file's, and the command line's
+    /// replace both.
+    Mode,
     /// A command and its arguments. In a file, one line split like shell
     /// words; on the command line, `--login -- ARGS...`, the words after
     /// `--`.
@@ -39,6 +45,7 @@ pub enum Default {
     Number(u64),
     Text(&'static str),
     Command(&'static [&'static str]),
+    Rgb([u8; 3]),
     /// No value: the reader decides, as `what` says.
     Unset,
 }
@@ -279,6 +286,344 @@ pub const USE_ORIGINAL_MODE: Key = Key {
     cite: "src/config.c:1416; vtium/vtium#5",
 };
 
+pub const MODE: Key = Key {
+    name: "mode",
+    short: None,
+    kind: Kind::Mode,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-platform",
+    what: "A display's mode, `WxH[@RATE]`, for every display, `[CONNECTOR]WxH` for one connector, or `GPU[CONNECTOR]WxH` for one on one card, its udev `ID_PATH`. A key per line; the most specific match wins. Unset, the panel's preferred mode. It turns `use-original-mode` off.",
+    cite: "src/config.c:546-660, 1417, 1541-1548",
+};
+
+pub const PALETTE: Key = Key {
+    name: "palette",
+    short: None,
+    kind: Kind::Choice(&[
+        "legacy",
+        "custom",
+        "nord",
+        "solarized",
+        "solarized-black",
+        "solarized-white",
+        "soft-black",
+        "base16-dark",
+        "base16-light",
+        "vga",
+    ]),
+    default: Default::Text("legacy"),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "The sixteen colours and the defaults: `custom` takes the `palette-*` keys. vtium-term holds `legacy` and `custom` so far; another name draws `legacy` and is reported.",
+    cite: "src/config.c:1427; libtsm src/tsm/tsm-vte.c:452-480",
+};
+
+pub const PALETTE_BLACK: Key = Key {
+    name: "palette-black",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([0, 0, 0]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Colour 0 with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_RED: Key = Key {
+    name: "palette-red",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([205, 0, 0]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Colour 1 with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_GREEN: Key = Key {
+    name: "palette-green",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([0, 205, 0]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Colour 2 with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_YELLOW: Key = Key {
+    name: "palette-yellow",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([205, 205, 0]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Colour 3 with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_BLUE: Key = Key {
+    name: "palette-blue",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([0, 0, 238]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Colour 4 with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_MAGENTA: Key = Key {
+    name: "palette-magenta",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([205, 0, 205]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Colour 5 with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_CYAN: Key = Key {
+    name: "palette-cyan",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([0, 205, 205]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Colour 6 with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_LIGHT_GREY: Key = Key {
+    name: "palette-light-grey",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([229, 229, 229]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Colour 7 with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_DARK_GREY: Key = Key {
+    name: "palette-dark-grey",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([127, 127, 127]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Colour 8 with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_LIGHT_RED: Key = Key {
+    name: "palette-light-red",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([255, 0, 0]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Colour 9 with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_LIGHT_GREEN: Key = Key {
+    name: "palette-light-green",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([0, 255, 0]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Colour 10 with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_LIGHT_YELLOW: Key = Key {
+    name: "palette-light-yellow",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([255, 255, 0]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Colour 11 with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_LIGHT_BLUE: Key = Key {
+    name: "palette-light-blue",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([92, 92, 255]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Colour 12 with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_LIGHT_MAGENTA: Key = Key {
+    name: "palette-light-magenta",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([255, 0, 255]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Colour 13 with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_LIGHT_CYAN: Key = Key {
+    name: "palette-light-cyan",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([0, 255, 255]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Colour 14 with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_WHITE: Key = Key {
+    name: "palette-white",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([255, 255, 255]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Colour 15 with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_FOREGROUND: Key = Key {
+    name: "palette-foreground",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([229, 229, 229]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "The default foreground with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const PALETTE_BACKGROUND: Key = Key {
+    name: "palette-background",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([0, 0, 0]),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "The default background with `palette=custom`.",
+    cite: "src/config.c:1305-1324, 1428-1448",
+};
+
+pub const XKB_MODEL: Key = Key {
+    name: "xkb-model",
+    short: None,
+    kind: Kind::Text,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-platform",
+    what: "The keyboard model, as xkeyboard-config names it.",
+    cite: "src/config.c:1377-1382",
+};
+
+pub const XKB_LAYOUT: Key = Key {
+    name: "xkb-layout",
+    short: None,
+    kind: Kind::Text,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-platform",
+    what: "The keyboard layout, such as `us` or `de`.",
+    cite: "src/config.c:1377-1382",
+};
+
+pub const XKB_VARIANT: Key = Key {
+    name: "xkb-variant",
+    short: None,
+    kind: Kind::Text,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-platform",
+    what: "The layout's variant.",
+    cite: "src/config.c:1377-1382",
+};
+
+pub const XKB_OPTIONS: Key = Key {
+    name: "xkb-options",
+    short: None,
+    kind: Kind::Text,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-platform",
+    what: "xkb options, comma-separated.",
+    cite: "src/config.c:1377-1382",
+};
+
+pub const XKB_KEYMAP: Key = Key {
+    name: "xkb-keymap",
+    short: None,
+    kind: Kind::Text,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-platform",
+    what: "A keymap file, taken before the names above.",
+    cite: "src/config.c:1377-1382",
+};
+
+pub const XKB_COMPOSE_FILE: Key = Key {
+    name: "xkb-compose-file",
+    short: None,
+    kind: Kind::Text,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-platform",
+    what: "A compose table, taken before the locale's.",
+    cite: "src/config.c:1377-1382",
+};
+
+pub const XKB_REPEAT_DELAY: Key = Key {
+    name: "xkb-repeat-delay",
+    short: None,
+    kind: Kind::Number {
+        min: 0,
+        max: 999,
+        unit: "ms",
+    },
+    default: Default::Number(250),
+    scope: Scope::Anywhere,
+    reader: "vtium-platform",
+    what: "How long a held key waits before it repeats; 0 takes 250.",
+    cite: "src/config.c:1383; src/input/input.c:570-585",
+};
+
+pub const XKB_REPEAT_RATE: Key = Key {
+    name: "xkb-repeat-rate",
+    short: None,
+    kind: Kind::Number {
+        min: 0,
+        max: 999,
+        unit: "ms",
+    },
+    default: Default::Number(50),
+    scope: Scope::Anywhere,
+    reader: "vtium-platform",
+    what: "The time between a held key's repeats; 0 takes 50.",
+    cite: "src/config.c:1384; src/input/input.c:570-585",
+};
+
+pub const MOUSE: Key = Key {
+    name: "mouse",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(true),
+    scope: Scope::Anywhere,
+    reader: "vtium-platform",
+    what: "Take pointers: mice, touchpads and touchscreens.",
+    cite: "src/config.c:1385",
+};
+
 pub const FONT_ENGINE: Key = Key {
     name: "font-engine",
     short: None,
@@ -427,7 +772,7 @@ pub const RENDER_TIMER: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 30] = [
+pub const KEYS: [Key; 59] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -445,6 +790,35 @@ pub const KEYS: [Key; 30] = [
     DPMS_TIMEOUT,
     HWACCEL,
     USE_ORIGINAL_MODE,
+    MODE,
+    PALETTE,
+    PALETTE_BLACK,
+    PALETTE_RED,
+    PALETTE_GREEN,
+    PALETTE_YELLOW,
+    PALETTE_BLUE,
+    PALETTE_MAGENTA,
+    PALETTE_CYAN,
+    PALETTE_LIGHT_GREY,
+    PALETTE_DARK_GREY,
+    PALETTE_LIGHT_RED,
+    PALETTE_LIGHT_GREEN,
+    PALETTE_LIGHT_YELLOW,
+    PALETTE_LIGHT_BLUE,
+    PALETTE_LIGHT_MAGENTA,
+    PALETTE_LIGHT_CYAN,
+    PALETTE_WHITE,
+    PALETTE_FOREGROUND,
+    PALETTE_BACKGROUND,
+    XKB_MODEL,
+    XKB_LAYOUT,
+    XKB_VARIANT,
+    XKB_OPTIONS,
+    XKB_KEYMAP,
+    XKB_COMPOSE_FILE,
+    XKB_REPEAT_DELAY,
+    XKB_REPEAT_RATE,
+    MOUSE,
     FONT_ENGINE,
     FONT_NAME,
     FONT_SIZE,
