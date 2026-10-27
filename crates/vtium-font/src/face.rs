@@ -93,6 +93,24 @@ pub trait Face {
     fn decorations(&self) -> Decorations {
         Decorations::for_height(self.cell().height)
     }
+
+    /// The whole factor a bitmap face scales its glyphs by, each pixel a
+    /// square; 1 for a face that draws at its own size.
+    fn scale(&self) -> u32 {
+        1
+    }
+
+    /// [`Face::draw`] at scale 1, for a renderer that stores a bitmap
+    /// glyph small and scales it while drawing (ADR-1300 D2). `None` from
+    /// a face that cannot.
+    fn draw_unscaled(&self, _cluster: &[char], _style: Style) -> Option<Glyph> {
+        None
+    }
+
+    /// [`Face::last_resort`] at scale 1.
+    fn last_resort_unscaled(&self, _style: Style) -> Option<Glyph> {
+        None
+    }
 }
 
 impl<F: Face + ?Sized> Face for Box<F> {
@@ -113,6 +131,15 @@ impl<F: Face + ?Sized> Face for Box<F> {
     }
     fn decorations(&self) -> Decorations {
         (**self).decorations()
+    }
+    fn scale(&self) -> u32 {
+        (**self).scale()
+    }
+    fn draw_unscaled(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+        (**self).draw_unscaled(cluster, style)
+    }
+    fn last_resort_unscaled(&self, style: Style) -> Option<Glyph> {
+        (**self).last_resort_unscaled(style)
     }
 }
 
@@ -178,5 +205,43 @@ impl<F: Face> Font<F> {
             .or_else(|| self.face.draw(&['?'], style))
             .or_else(|| self.face.last_resort(style))?;
         glyph.fit(w, width)
+    }
+
+    /// [`Font::glyph`] for a renderer that stores bitmap glyphs small: the
+    /// glyph at the face's scale 1 with that scale, which drawn with each
+    /// pixel a square `scale` across is exactly [`Font::glyph`]'s. A
+    /// sprite, a face that draws at its own size, and a glyph whose box
+    /// to its cells does not scale (centred in an odd number of spare
+    /// pixels) come at their drawn size, with scale 1.
+    pub fn glyph_unscaled(
+        &self,
+        cluster: &[char],
+        width: Width,
+        style: Style,
+    ) -> Option<(Glyph, u32)> {
+        let drawn = || self.glyph(cluster, width, style).map(|g| (g, 1));
+        let scale = self.face.scale();
+        let &first = cluster.first()?;
+        if scale <= 1 || matches!(*cluster, [c] if sprite::has(c)) {
+            return drawn();
+        }
+        let w = self
+            .face
+            .cell()
+            .width
+            .checked_div(scale)?
+            .saturating_mul(width.cells());
+        let glyph = self
+            .face
+            .has_glyph(first)
+            .then(|| self.face.draw_unscaled(cluster, style))
+            .flatten()
+            .or_else(|| self.face.draw_unscaled(&[REPLACEMENT], style))
+            .or_else(|| self.face.draw_unscaled(&['?'], style))
+            .or_else(|| self.face.last_resort_unscaled(style));
+        match glyph {
+            Some(g) if w.abs_diff(g.width()) % 2 == 0 => Some((g.fit(w, width)?, scale)),
+            _ => drawn(),
+        }
     }
 }

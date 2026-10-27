@@ -298,3 +298,98 @@ mod unifont {
         );
     }
 }
+
+/// `g` drawn `scale` times larger, each pixel a square.
+fn scaled_up(g: &Glyph, scale: u32) -> Vec<u8> {
+    let bpp = g.format().bytes_per_pixel();
+    let mut out = Vec::new();
+    for row in g.rows() {
+        let mut line = Vec::new();
+        for px in row.chunks_exact(bpp as usize) {
+            for _ in 0..scale {
+                line.extend_from_slice(px);
+            }
+        }
+        for _ in 0..scale {
+            out.extend_from_slice(&line);
+        }
+    }
+    out
+}
+
+/// Every character of `chars` at both widths, bold and regular: the glyph
+/// a renderer stores at scale 1, drawn at its scale, is the glyph drawn at
+/// the font's size (ADR-1300 D2).
+fn check_unscaled<F: Face>(font: &Font<F>, chars: impl Iterator<Item = char>) -> u32 {
+    let mut stored_small = 0;
+    for c in chars {
+        for width in [Width::Narrow, Width::Wide] {
+            for bold in [false, true] {
+                let style = Style {
+                    bold,
+                    italic: false,
+                };
+                let drawn = font.glyph(&[c], width, style);
+                let small = font.glyph_unscaled(&[c], width, style);
+                let (Some(drawn), Some((small, scale))) = (drawn, small) else {
+                    panic!("{c:?} {width:?} bold {bold}: one draw failed");
+                };
+                assert_eq!(
+                    (small.width() * scale, small.height() * scale),
+                    (drawn.width(), drawn.height()),
+                    "{c:?} {width:?} bold {bold}"
+                );
+                assert_eq!((small.format(), small.cells()), (drawn.format(), width));
+                assert!(
+                    scaled_up(&small, scale) == drawn.pixels(),
+                    "{c:?} {width:?} bold {bold} at scale {scale}"
+                );
+                if scale > 1 {
+                    stored_small += 1;
+                }
+            }
+        }
+    }
+    stored_small
+}
+
+#[test]
+fn a_bitmap_glyph_is_handed_over_at_scale_1() {
+    for name in ["psf-test.psf", "ter-v16n.psf.gz", "ter-v22b.psf.gz"] {
+        let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+        let mut psf = Psf::load(&path).expect("loads");
+        let (_, h) = psf.glyph_size();
+        for scale in [1, 2, 3] {
+            psf.set_height(h * scale);
+            let font = Font::new(psf.clone());
+            let chars = (0x20..0x250)
+                .chain(0x2500..0x2600)
+                .filter_map(char::from_u32);
+            let small = check_unscaled(&font, chars.chain(['\u{25a1}', '\u{4e2d}']));
+            // ter-v22b is 11 pixels wide: a wide cell's box is an odd
+            // number of pixels wider than its glyph, which does not scale,
+            // so its narrow glyphs are the only ones stored small
+            assert_eq!(small > 0, scale > 1, "{name} at scale {scale}");
+        }
+    }
+}
+
+#[cfg(feature = "unifont")]
+#[test]
+fn a_unifont_glyph_is_handed_over_at_scale_1() {
+    for scale in [1, 2, 4] {
+        let font = Font::new(vtium_font::Unifont::new(16 * scale));
+        let chars = (0x20..0x3000)
+            .chain(0x4e00..0x4f00)
+            .chain(0x1f600..0x1f650)
+            .filter_map(char::from_u32);
+        let small = check_unscaled(&font, chars);
+        assert_eq!(small > 0, scale > 1, "at scale {scale}");
+    }
+    // a face that draws at its own size hands over its glyphs as drawn
+    let font = Font::new(small_psf());
+    let (g, scale) = font
+        .glyph_unscaled(&['\u{1}'], Width::Narrow, plain())
+        .expect("drawn");
+    assert_eq!((g.width(), scale), (8, 1));
+}

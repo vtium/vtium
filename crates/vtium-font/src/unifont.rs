@@ -124,6 +124,11 @@ impl Unifont {
     /// The glyph for `c` at its own width, 1 cell or 2, bold widening each
     /// byte of a row by a pixel to the right; `None` if unifont lacks it.
     pub fn render(&self, c: char, style: Style) -> Option<Glyph> {
+        self.render_at(c, style, self.scale)
+    }
+
+    /// The glyph for `c` drawn at `scale`.
+    fn render_at(&self, c: char, style: Style, scale: u32) -> Option<Glyph> {
         let code = u32::from(c);
         let b = block(code)?;
         let cells: u32 = if b.wide { 2 } else { 1 };
@@ -133,7 +138,7 @@ impl Unifont {
             .checked_mul(size)?
             .checked_add(b.offset)?;
         let data = glyph_bytes(offset, size)?;
-        let scale = self.scale.max(1);
+        let scale = scale.max(1);
         let cell_w = scale.saturating_mul(8);
         let mut out = Glyph::mask(cell_w.saturating_mul(cells), scale.saturating_mul(16))?;
         let cell_w = usize::try_from(cell_w).ok()?;
@@ -174,5 +179,13 @@ impl Face for Unifont {
 
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         self.render(*cluster.first()?, style)
+    }
+
+    fn scale(&self) -> u32 {
+        self.scale
+    }
+
+    fn draw_unscaled(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+        self.render_at(*cluster.first()?, style, 1)
     }
 }

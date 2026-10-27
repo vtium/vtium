@@ -311,15 +311,22 @@ impl Psf {
     /// Glyph `index` drawn at the font's scale: each source pixel a square
     /// `scale` across, bold widening each row by a pixel to the right.
     pub fn render(&self, index: u32, style: Style) -> Option<Glyph> {
+        self.render_at(index, style, self.scale)
+    }
+
+    /// Glyph `index` drawn at `scale`.
+    fn render_at(&self, index: u32, style: Style, scale: u32) -> Option<Glyph> {
         let glyph_bytes = self.height.checked_mul(self.row_bytes)?;
         let start = usize::try_from(index.checked_mul(glyph_bytes)?).ok()?;
         let glyph = self
             .glyphs
             .get(start..start.checked_add(usize::try_from(glyph_bytes).ok()?)?)?;
         let row_bytes = usize::try_from(self.row_bytes).ok()?;
-        let scale = self.scale.max(1);
-        let cell = self.cell();
-        let mut out = Glyph::mask(cell.width, cell.height)?;
+        let scale = scale.max(1);
+        let mut out = Glyph::mask(
+            self.width.saturating_mul(scale),
+            self.height.saturating_mul(scale),
+        )?;
         for (i, row) in (0u32..).zip(out.rows_mut()) {
             let k = usize::try_from(i.checked_div(scale)?).ok()?;
             let src = glyph.get(k.checked_mul(row_bytes)?..)?.get(..row_bytes)?;
@@ -453,5 +460,18 @@ impl Face for Psf {
     /// Glyph 0, for a font that holds neither U+25A1 nor `?`.
     fn last_resort(&self, style: Style) -> Option<Glyph> {
         self.render(0, style)
+    }
+
+    fn scale(&self) -> u32 {
+        self.scale
+    }
+
+    fn draw_unscaled(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+        let index = self.glyph_index(*cluster.first()?)?;
+        self.render_at(index, style, 1)
+    }
+
+    fn last_resort_unscaled(&self, style: Style) -> Option<Glyph> {
+        self.render_at(0, style, 1)
     }
 }
