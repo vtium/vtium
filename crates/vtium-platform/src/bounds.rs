@@ -66,9 +66,17 @@ const MOTION: Bound = Bound {
     cite: "vtium/vtium#20",
 };
 
+const EXIT_FEED: Bound = Bound {
+    name: "EXIT_FEED_MAX",
+    value: 64 * 1024,
+    what: "Bytes fed after the child exits before the exit is told, unless a read finds nothing more first",
+    past: "The exit is told and the host closes the pty, dropping what a process the child started writes on. A pty holds at most about 20 KiB for its master (4 KiB in the line discipline and 16 KiB of flip buffers, measured on Linux 7.2), all of it ahead of anything written after the exit, so the child's own output is fed first",
+    cite: "vtium/vtium#20; the C reference told the exit at the child's reaping and dropped what was unread (pty.c:737-768, 830-848)",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 6] = [READ, READS, HIGH, LOW, CEILING, MOTION];
+pub(crate) const BOUNDS: [Bound; 7] = [READ, READS, HIGH, LOW, CEILING, MOTION, EXIT_FEED];
 
 // The stall ends below where it starts, and starts below the ceiling.
 const _: () = assert!(LOW.value < HIGH.value && HIGH.value < CEILING.value);
@@ -92,6 +100,9 @@ pub const REPLY_MAX: usize = CEILING.value;
 /// Bytes queued for the child from which pointer motion reports are
 /// coalesced.
 pub const MOTION_COALESCE_AT: usize = MOTION.value;
+
+/// Bytes fed after the child exits before the exit is told.
+pub const EXIT_FEED_MAX: usize = EXIT_FEED.value;
 
 #[cfg(test)]
 #[expect(

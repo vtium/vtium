@@ -73,6 +73,11 @@ struct Child {
     /// It exited: the pty reads what it left, then EIO, and it reads no
     /// more input.
     exited: bool,
+    /// Bytes the pty holds for the master: the child's writes block past
+    /// this many unread.
+    holds: usize,
+    /// A process it started writes `g` after it exits, without end.
+    grandchild: bool,
     rng: Rng,
 }
 
@@ -88,6 +93,8 @@ impl Child {
             max_read,
             whole_reads: false,
             exited: false,
+            holds: usize::MAX,
+            grandchild: false,
             rng: Rng(seed),
         }
     }
@@ -95,7 +102,13 @@ impl Child {
     /// Writes up to `n` more bytes of its stream; true when it wrote any.
     fn write(&mut self, n: usize) -> bool {
         let before = self.written;
-        self.written = (self.written + n).min(self.stream.len());
+        let room = self.read.saturating_add(self.holds);
+        self.written = self
+            .written
+            .saturating_add(n)
+            .min(self.stream.len())
+            .min(room)
+            .max(before);
         self.written > before
     }
 
@@ -117,6 +130,12 @@ impl Endpoint for Script {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let mut c = self.0.borrow_mut();
         let ready = c.written - c.read;
+        if ready == 0 && c.exited && c.grandchild {
+            let cap = buf.len().min(c.max_read);
+            let n = 1 + c.rng.below(cap);
+            buf[..n].fill(b'g');
+            return Ok(n);
+        }
         if ready == 0 && c.exited {
             return Err(io::Error::from_raw_os_error(5));
         }
@@ -238,7 +257,7 @@ impl Driver {
         }
         if next.rearm {
             let c = self.child.borrow();
-            self.readable |= c.written > c.read;
+            self.readable |= c.written > c.read || (c.exited && c.grandchild);
             self.writable |= c.input.len() < c.room;
         }
     }
@@ -254,10 +273,16 @@ impl Driver {
             self.told = true;
             let c = self.child.borrow();
             assert!(
-                term.taken.len() == c.stream.len(),
+                term.taken.len() >= c.stream.len() && term.taken[..c.stream.len()] == c.stream,
                 "seed {seed}: the exit came with {} of {} bytes taken",
                 term.taken.len(),
                 c.stream.len()
+            );
+            assert!(
+                term.taken[c.stream.len()..].iter().all(|&b| b == b'g')
+                    && term.taken.len() - c.stream.len() <= EXIT_FEED_MAX,
+                "seed {seed}: after the child's output came {} other bytes",
+                term.taken.len() - c.stream.len()
             );
         }
     }
@@ -297,9 +322,15 @@ impl Driver {
     }
 
     /// The child writes the rest of its stream and exits.
+    /// The child writes what fits in the pty and exits; what it wrote is
+    /// its whole stream.
     fn exit(&mut self, term: &mut Term, seed: u64) {
         self.child_writes(usize::MAX / 2);
-        self.child.borrow_mut().exited = true;
+        let mut c = self.child.borrow_mut();
+        let written = c.written;
+        c.stream.truncate(written);
+        c.exited = true;
+        drop(c);
         let next = self.ch.orphan();
         self.settle(next, term, seed);
     }
@@ -401,6 +432,8 @@ fn chunking_case(seed: u64) -> bool {
     };
     let room = 1 + rng.below(8192);
     let mut d = Driver::new(Child::new(s.clone(), max_read, room, rng.next()));
+    // The pty holds 20 KiB for the master, as Linux 7.2's does.
+    d.child.borrow_mut().holds = 20 * 1024;
     let mut term = Term::new(rng.next());
     // A third of the consumers take all they can, so reads run to EAGAIN.
     term.eager = rng.chance(3);
@@ -409,18 +442,27 @@ fn chunking_case(seed: u64) -> bool {
     // reads to fill the replies.
     let sleepiness = [20, 300, 3000][rng.below(3)];
     // Half the children exit partway, once they have written this much,
-    // with the rest of the stream as their last write.
+    // with what fits in the pty as their last write; a third of those
+    // leave a process writing on.
     let exit_at = rng.chance(2).then(|| rng.below(len));
+    d.child.borrow_mut().grandchild = rng.chance(3);
+    // Half of them exit while the replies stall the reading, and the user
+    // types after the exit, with the dead child's replies still queued.
+    let exit_stalled = rng.chance(2);
     let (mut keys, mut outside, mut motion) = (0usize, 0usize, 0usize);
 
     // The child writes, reads, sleeps and wakes at random; the host types,
     // moves the pointer, replies outside the consumer and pauses at random.
     for _ in 0..200_000 {
         let c = d.child.borrow();
-        let exit = exit_at.is_some_and(|at| c.written >= at) && !c.exited;
+        let exit = exit_at.is_some_and(|at| c.written >= at)
+            && !c.exited
+            && (!exit_stalled || d.ch.writer.backlog);
         drop(c);
         if exit {
             d.exit(&mut term, seed);
+            d.ch.send(Kind::User, b"k");
+            keys += 1;
         }
         match rng.below(16) {
             0..=5 => {
@@ -466,9 +508,14 @@ fn chunking_case(seed: u64) -> bool {
         let next = d.ch.resume();
         d.apply(next, seed);
     }
-    d.child_writes(usize::MAX / 2);
+    if exit_at.is_some() && !d.child.borrow().exited {
+        d.exit(&mut term, seed);
+        d.ch.send(Kind::User, b"k");
+        keys += 1;
+    }
     let mut turns = 0;
     while !d.done(&term) {
+        d.child_writes(usize::MAX / 2);
         d.turn(&mut term, seed);
         d.child_reads(usize::MAX);
         turns += 1;
@@ -496,7 +543,15 @@ fn chunking_case(seed: u64) -> bool {
         );
     }
 
-    assert!(term.taken == s, "seed {seed}: the consumer saw other bytes");
+    // What the child wrote: its whole stream, or as much as it wrote by its
+    // exit, then any grandchild's `g`s.
+    let s = d.child.borrow().stream.clone();
+    assert!(
+        term.taken.len() >= s.len()
+            && term.taken[..s.len()] == s
+            && term.taken[s.len()..].iter().all(|&b| b == b'g'),
+        "seed {seed}: the consumer saw other bytes"
+    );
     let exited = d.child.borrow().exited;
     let input = parse_input(&d.child.borrow().got, exited, seed);
     let queries = s.iter().filter(|&&b| b == b'?').count();
@@ -812,9 +867,11 @@ fn an_exit_while_paused_waits_for_the_output_after_the_resume() {
 // the bound, does not stall the reading again.
 #[test]
 fn a_key_after_the_exit_does_not_stall_the_reading() {
-    let mut d = flood(400_000);
+    let mut d = Driver::new(Child::new(vec![b'?'; 400_000], READ_MAX, 4096, 7));
+    d.child.borrow_mut().holds = 20 * 1024;
     let mut term = eager();
-    for _ in 0..100 {
+    for _ in 0..1000 {
+        d.child_writes(usize::MAX / 2);
         d.turn(&mut term, 9);
         d.readable = true;
     }
@@ -828,5 +885,27 @@ fn a_key_after_the_exit_does_not_stall_the_reading() {
         turns += 1;
         assert!(turns < 10_000, "the reading stalled after the exit");
     }
-    assert_eq!(term.taken.len(), 400_000);
+    let stream = d.child.borrow().stream.len();
+    assert_eq!(term.taken.len(), stream);
+}
+
+// A process the child started, writing on after the exit, cannot hold the
+// exit back: it comes after the child's output and at most EXIT_FEED_MAX
+// more bytes.
+#[test]
+fn a_writing_grandchild_does_not_hold_back_the_exit() {
+    let mut d = Driver::new(Child::new(vec![b'c'; 50_000], READ_MAX, 4096, 10));
+    d.child.borrow_mut().holds = 20 * 1024;
+    d.child.borrow_mut().grandchild = true;
+    let mut term = eager();
+    d.child_writes(30_000);
+    d.turn(&mut term, 10);
+    d.exit(&mut term, 10);
+    let mut turns = 0;
+    while !d.told {
+        d.readable = true;
+        d.turn(&mut term, 10);
+        turns += 1;
+        assert!(turns < 10_000, "the exit was held back");
+    }
 }

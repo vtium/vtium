@@ -11,7 +11,7 @@
 
 use std::io;
 
-use crate::bounds::{READ_MAX, READS_PER_TURN, REPLY_HIGH, REPLY_LOW, REPLY_MAX};
+use crate::bounds::{EXIT_FEED_MAX, READ_MAX, READS_PER_TURN, REPLY_HIGH, REPLY_LOW, REPLY_MAX};
 use crate::queue::{Kind, WriteQueue};
 
 /// What reads the child's output: the terminal.
@@ -190,6 +190,9 @@ pub(crate) struct Channel<E> {
     drained: bool,
     /// The consumer was told the child exited.
     exit_told: bool,
+    /// From the exit, the bytes the consumer may still take before the
+    /// exit is told.
+    exit_left: Option<usize>,
 }
 
 impl<E: Endpoint> Channel<E> {
@@ -209,6 +212,7 @@ impl<E: Endpoint> Channel<E> {
             feed_owed: false,
             drained: false,
             exit_told: false,
+            exit_left: None,
         }
     }
 
@@ -246,12 +250,19 @@ impl<E: Endpoint> Channel<E> {
         self.drained && !self.held()
     }
 
-    /// The child exited. What it wrote is still read and fed; replies to it
-    /// are dropped, so a backlog of them no longer holds the reading. A read
-    /// before the exit says nothing of what the child wrote after it, so
-    /// the exit waits for a fresh one.
+    /// The child exited. What it left, held here and waiting in the pty,
+    /// is still fed. The exit is told once a fresh read finds nothing more,
+    /// or after the held bytes and [`EXIT_FEED_MAX`] more, which is more
+    /// than the pty holds, so a process the child started that writes on
+    /// cannot hold the exit back. Replies to the child are dropped, so a
+    /// backlog of them no longer holds the reading.
     pub(crate) fn orphan(&mut self) -> Next {
         let stalled = self.writer.backlog || self.writer.dropping;
+        self.exit_left = Some(
+            self.end
+                .saturating_sub(self.start)
+                .saturating_add(EXIT_FEED_MAX),
+        );
         self.drained = false;
         self.writer.orphaned = true;
         self.writer.backlog = false;
@@ -278,7 +289,7 @@ impl<E: Endpoint> Channel<E> {
             // No edge may come for output already there: read it now.
             next = next.or(self.ready(true, false, consumer));
         }
-        self.exit_told = self.drained();
+        self.exit_told = self.drained() || self.exit_left == Some(0);
         (next, self.exit_told)
     }
 
@@ -320,11 +331,18 @@ impl<E: Endpoint> Channel<E> {
             end,
             ..
         } = self;
-        let held = buf.get(*start..*end).unwrap_or_default();
+        let mut held = buf.get(*start..*end).unwrap_or_default();
+        if let Some(left) = self.exit_left {
+            // after the exit, no more than the bound is fed
+            held = held.get(..left.min(held.len())).unwrap_or_default();
+        }
         let mut replies = Replies(writer);
         let n = consumer.output(held, &mut replies).min(held.len());
         *start = start.saturating_add(n);
-        !self.held()
+        if let Some(left) = &mut self.exit_left {
+            *left = left.saturating_sub(n);
+        }
+        !self.held() || self.exit_left == Some(0)
     }
 
     /// The pty reported readiness.
@@ -347,7 +365,7 @@ impl<E: Endpoint> Channel<E> {
     /// Reads and feeds until the pty has no more, the consumer holds some
     /// back, or [`READS_PER_TURN`] reads are done.
     fn read<C: Consumer + ?Sized>(&mut self, consumer: &mut C) -> Next {
-        if self.held() || self.stalled() {
+        if self.held() || self.stalled() || self.exit_left == Some(0) {
             return Next::default();
         }
         for _ in 0..READS_PER_TURN {
@@ -361,7 +379,7 @@ impl<E: Endpoint> Channel<E> {
                     self.start = 0;
                     self.end = n.min(self.buf.len());
                     let all = self.feed_once(consumer);
-                    if self.stalled() {
+                    if self.stalled() || self.exit_left == Some(0) {
                         return Next::default();
                     }
                     if !all {
@@ -387,7 +405,7 @@ impl<E: Endpoint> Channel<E> {
     /// bytes, so other sources are served between calls.
     pub(crate) fn feed_held<C: Consumer + ?Sized>(&mut self, consumer: &mut C) -> Next {
         self.feed_owed = false;
-        if !self.held() || self.stalled() {
+        if !self.held() || self.stalled() || self.exit_left == Some(0) {
             return Next::default();
         }
         let all = self.feed_once(consumer);

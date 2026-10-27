@@ -45,5 +45,7 @@ pub mod event_loop;
 pub mod pty;
 mod queue;
 
-pub use bounds::{MOTION_COALESCE_AT, READ_MAX, READS_PER_TURN, REPLY_HIGH, REPLY_LOW, REPLY_MAX};
+pub use bounds::{
+    EXIT_FEED_MAX, MOTION_COALESCE_AT, READ_MAX, READS_PER_TURN, REPLY_HIGH, REPLY_LOW, REPLY_MAX,
+};
 pub use calloop;

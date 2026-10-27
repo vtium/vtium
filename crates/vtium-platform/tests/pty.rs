@@ -38,7 +38,7 @@ fn main() {
         .skip(1)
         .filter(|a| !a.starts_with('-'))
         .collect();
-    let cases: [(&str, fn()); 6] = [
+    let cases: [(&str, fn()); 7] = [
         // first: no thread has started yet
         (
             "sigterm_is_served_while_the_loop_waits",
@@ -63,6 +63,10 @@ fn main() {
         (
             "the_child_starts_with_no_signal_blocked",
             the_child_starts_with_no_signal_blocked,
+        ),
+        (
+            "a_writing_grandchild_does_not_hold_back_the_exit",
+            a_writing_grandchild_does_not_hold_back_the_exit,
         ),
     ];
     let mut ran = 0;
@@ -299,6 +303,9 @@ struct Term {
     queries: usize,
     reply_len_max: usize,
     takes: Option<Rng>,
+    /// Counts NUL bytes instead of keeping them.
+    count_nul: bool,
+    nul: u64,
     exited: Option<ExitStatus>,
 }
 
@@ -309,6 +316,10 @@ impl Consumer for Term {
             None => output.len(),
         };
         for (i, &b) in output[..limit].iter().enumerate() {
+            if self.count_nul && b == 0 {
+                self.nul += 1;
+                continue;
+            }
             self.taken.push(b);
             if b == b'?' {
                 self.queries += 1;
@@ -653,4 +664,22 @@ fn the_child_starts_with_no_signal_blocked() {
     );
     h.pty.as_mut().expect("pty").write(b"Q");
     turn_until(&mut lp, &mut h, 500, |h| h.term.exited.is_some());
+}
+
+// The child exits while a grandchild that ignores the hangup goes on
+// writing: the exit is told in bounded time, after the output the child
+// wrote before it.
+fn a_writing_grandchild_does_not_hold_back_the_exit() {
+    let mut lp = host_loop();
+    let mut h = Host::default();
+    h.term.count_nul = true;
+    let mut sh = Command::new("sh");
+    sh.arg("-c")
+        .arg("printf START; trap '' HUP; head -c 2G /dev/zero & sleep 0.3; printf END; exit 0");
+    open(&lp, &mut h, sh);
+    turn_until(&mut lp, &mut h, 2000, |h| h.term.exited.is_some());
+    assert!(h.term.exited.expect("exit").success());
+    assert_eq!(h.term.taken, b"STARTEND");
+    // Closing the pty ends the grandchild's writes.
+    h.pty = None;
 }
