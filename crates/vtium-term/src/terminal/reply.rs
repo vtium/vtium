@@ -298,7 +298,8 @@ impl State {
                 ))
             }
             Some(b" q") => Some(format!("{} q", self.cursor_style.param())),
-            Some(b"\"p") => Some("62;1\"p".into()),
+            // Pc 1: the replies stay 7-bit whatever DECSCL asked.
+            Some(b"\"p") => Some(format!("{};1\"p", self.conformance)),
             _ => None,
         };
         let reply = match setting {

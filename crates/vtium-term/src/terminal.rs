@@ -172,6 +172,8 @@ struct State {
     saved: [Saved; 2],
     /// How bytes are decoded: UTF-8 unless DECSCL chose 7-bit or 8-bit.
     input_mode: InputMode,
+    /// The level DECSCL set, 61 to 64; 62, DA1's, until one is set.
+    conformance: u8,
     charsets: Charsets,
     /// DECKPAM: the keypad sends application sequences.
     keypad_application: bool,
@@ -213,6 +215,7 @@ impl Terminal {
             cursor_style: CursorStyle::Default,
             saved: [Saved::HOME; 2],
             input_mode: InputMode::Utf8,
+            conformance: 62,
             charsets: Charsets::initial(false),
             keypad_application: false,
             modify_other_keys: 0,
@@ -470,6 +473,7 @@ impl State {
         self.screen.set_pen(Style::DEFAULT);
         self.set_cursor_style(CursorStyle::Default);
         self.input_mode = InputMode::Utf8;
+        self.conformance = 62;
         self.charsets = self.default_charsets();
         self.keypad_application = false;
         self.modify_other_keys = 0;
@@ -498,6 +502,9 @@ impl State {
             Some(62..=64) => InputMode::EightBit,
             _ => InputMode::Utf8,
         };
+        if let Some(level @ 61..=64) = level {
+            self.conformance = u8::try_from(level).unwrap_or(62);
+        }
         self.charsets = self.default_charsets();
     }
 
