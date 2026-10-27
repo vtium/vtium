@@ -167,6 +167,28 @@ pub const SEQUENCES: &[&str] = &[
     "\x1bP$qm\x1b\\",
     "\x1bP+q544e\x1b\\",
     "\x1b[18t",
+    "\x1b(0",
+    "\x1b)0",
+    "\x1b*0",
+    "\x1b+0",
+    "\x1b(B",
+    "\x1b)<",
+    "\x1b(K",
+    "\x0e",
+    "\x0f",
+    "\x1bN",
+    "\x1bO",
+    "\x1bn",
+    "\x1bo",
+    "\x1b~",
+    "\x1b}",
+    "\x1b|",
+    // SS2 and SS3 as C1 bytes in 8-bit input, after the C2 lead UTF-8 gives them.
+    "\u{8E}",
+    "\u{8F}",
+    "\x1b[61\"p",
+    "\x1b[62\"p",
+    "\x1b[64\"p",
 ];
 
 /// A byte stream from the grammar: text and sequences in random order.

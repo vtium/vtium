@@ -95,6 +95,15 @@ fn single_shifts_take_the_next_character_only() {
     assert_eq!(shows(&eight), "\u{2500}q\u{2500}q");
 }
 
+// ECMA-48 8.3.103: REP repeats the preceding graphic character, which is
+// the one a single shift mapped. xterm 411 repeats the unmapped character
+// and prints ─qq.
+// covers: text.charsets
+#[test]
+fn rep_repeats_the_character_a_single_shift_mapped() {
+    assert_eq!(shows(b"\x1b*0\x1bNq\x1b[2b"), "\u{2500}\u{2500}\u{2500}");
+}
+
 // VT220 4.4.3: LS2 and LS3 invoke G2 or G3 into GL until another locking
 // shift.
 // covers: text.charsets
@@ -139,8 +148,7 @@ fn seven_bit_input_reaches_only_gl() {
 
 // DEC supplemental graphics designated into GL maps ASCII to the upper
 // half in 8-bit input, where it is the VT220's; in UTF-8 and 7-bit input
-// `<` designates ASCII, as in xterm, Konsole, Ghostty and the Linux
-// console.
+// `<` designates ASCII, as xterm 411 does: `ESC ( 0 ESC ( < q` prints q.
 // covers: text.charsets
 #[test]
 fn dec_supplemental_graphics_only_in_eight_bit_input() {

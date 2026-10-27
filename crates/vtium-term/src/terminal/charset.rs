@@ -19,8 +19,8 @@ pub(super) enum Charset {
 impl Charset {
     /// The set an SCS final designates, for a 94-character set (`ESC (`,
     /// `)`, `*` or `+`). DEC supplemental graphics is a set of 8-bit input,
-    /// the VT220's default for GR; elsewhere `<` designates ASCII, as in
-    /// xterm, Konsole, Ghostty and the Linux console. The national
+    /// the VT220's default for GR; elsewhere `<` designates ASCII, as xterm
+    /// does. The national
     /// replacement sets designate ASCII: ADR-1000 refuses DECNRCM, and
     /// xterm draws them as ASCII while it is reset.
     pub(super) fn from_final(final_byte: u8, eight_bit: bool) -> Option<Self> {
