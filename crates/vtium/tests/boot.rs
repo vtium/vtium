@@ -1009,3 +1009,118 @@ fn a_restart_draws_the_reset_screen() {
     assert!(!h.app.term.unparsed);
     std::fs::remove_file(&flag).ok();
 }
+
+/// A device whose flip lasts until the test ends it, with a `Flipped`.
+struct Gate {
+    memory: Memory,
+    flipping: bool,
+}
+
+impl Video for Gate {
+    fn backend(&self) -> &'static str {
+        "memory"
+    }
+    fn events(&mut self) -> Vec<Event> {
+        self.memory.events()
+    }
+    fn displays(&self) -> Vec<DisplayId> {
+        self.memory.displays()
+    }
+    fn name(&self, id: DisplayId) -> String {
+        self.memory.name(id)
+    }
+    fn size(&self, id: DisplayId) -> Option<(u32, u32)> {
+        self.memory.size(id)
+    }
+    fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
+        self.memory.refresh_mhz(id)
+    }
+    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
+        self.memory.canvas(id)
+    }
+    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        self.memory.swap(id, damage)
+    }
+    fn is_flipping(&self, _: DisplayId) -> bool {
+        self.flipping
+    }
+    fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
+        self.memory.set_dpms(id, dpms)
+    }
+    fn sleep(&mut self) {
+        self.memory.sleep();
+    }
+    fn wake_up(&mut self) -> io::Result<()> {
+        self.memory.wake_up()
+    }
+    fn unblank(&mut self) -> io::Result<()> {
+        self.memory.unblank()
+    }
+    fn input(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn hotplug(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+/// A display's flip ending draws that display's waiting frame, and no
+/// other display.
+#[test]
+fn a_flip_draws_only_its_own_display() {
+    let gate = Gate {
+        memory: Memory::default(),
+        flipping: false,
+    };
+    let mut h = Harness::build(
+        &[
+            "--no-blink",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read x; echo got; read y",
+        ],
+        FakeVt::new(),
+        Box::new(gate),
+    );
+    h.app
+        .add_video(PathBuf::from("/dev/mem1"), Box::new(Memory::default()));
+    assert!(h.until(SECOND, |a| a.cells().len() == 2));
+    h.until(Duration::from_millis(200), |_| false);
+    fn gated(h: &mut Harness) -> &mut Gate {
+        h.app
+            .videos
+            .get_mut(Path::new("/dev/mem0"))
+            .and_then(|v| v.as_any().downcast_mut::<Gate>())
+            .expect("the gated device")
+    }
+    fn other(h: &mut Harness) -> &mut Memory {
+        h.app
+            .videos
+            .get_mut(Path::new("/dev/mem1"))
+            .and_then(|v| v.as_any().downcast_mut::<Memory>())
+            .expect("the other device")
+    }
+    gated(&mut h).flipping = true;
+    h.type_str("\r");
+    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "got")));
+    h.until(Duration::from_millis(200), |_| false);
+    let (frames, lent) = (gated(&mut h).memory.frames, other(&mut h).ages.len());
+    let g = gated(&mut h);
+    g.flipping = false;
+    g.memory.events.push(Event::Flipped(ID));
+    h.until(Duration::from_millis(100), |_| false);
+    assert!(
+        gated(&mut h).memory.frames > frames,
+        "the waiting frame drawn"
+    );
+    assert_eq!(
+        other(&mut h).ages.len(),
+        lent,
+        "the other display left alone"
+    );
+}

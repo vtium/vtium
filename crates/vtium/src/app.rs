@@ -653,14 +653,16 @@ impl App {
                 }
                 self.draw_now = true;
             }
+            // A frame waiting on this flip is drawn at the turn's end,
+            // as a pending view is; the other displays keep their own
+            // coalescing.
             Event::Flipped(id) => {
-                if let Some(v) = self.views.get_mut(&(node.clone(), id)) {
-                    if let Some(t) = &mut v.timer {
-                        t.flip();
-                    }
-                    if v.pending {
-                        self.draw_now = true;
-                    }
+                if let Some(t) = self
+                    .views
+                    .get_mut(&(node.clone(), id))
+                    .and_then(|v| v.timer.as_mut())
+                {
+                    t.flip();
                 }
             }
             Event::Awake => self.activity(now),
