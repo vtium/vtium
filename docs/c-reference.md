@@ -165,10 +165,10 @@ drm3d drew through GBM and EGL into GL; it is the GPU path and is out of the min
 
 **Verdict: follows, with listed departures.** #18 lists four: damage clips only with atomic commits, a failed swap that is not counted and whose `-EBUSY` disables the screen (aaronsb/kmscon#93), a power cycle that skips the gone connector (aaronsb/kmscon#237), and tests against a stand-in DRM device.
 
-**Check:**
+**Decided:**
 
-- vtium/vtium#5 says the C reference defaulted to `use-original-mode=true`. At the commit read here it defaulted to false and opened the preferred mode (`kmscon/src/config.c:1416`, `kmscon/src/video/drm_shared.c:1357-1381`; kmscon commit `55cbdf1e`, 2026-09-29, "video: Fix use_original, and disable it by default"). With no preferred mode, the C reference took the connector's first mode, where #5 takes the largest. #5's departure is smaller than it states; its fallback is new.
-- The blocking wait of up to 1 s for a pending flip, before a modeset and before giving up the display on a VT switch, has no planned counterpart. `vtium-platform` states that its loop never blocks (`crates/vtium-platform/src/lib.rs` on `feat/platform-pty`), so the switch away needs its own flow: acknowledge the release only once the flip completes or a timer expires.
+- With no preferred mode, the C reference took the connector's first listed mode, and it defaulted to `use-original-mode=false` (`kmscon/src/config.c:1416`, `kmscon/src/video/drm_shared.c:1357-1381`; kmscon commit `55cbdf1e`). vtium takes the first listed mode too: the operator's decision on vtium/vtium#18.
+- The C reference blocked its loop for up to 1 s waiting on a pending flip, before a modeset and before giving up the display on a VT switch. vtium waits without blocking the loop, at most `FLIP_WAIT_MS`, and acknowledges the VT release on `Event::Asleep`: the operator's decision on vtium/vtium#18, in `crates/vtium-platform/README.md`.
 
 ## 4. Input
 
@@ -308,7 +308,7 @@ Output still unread when the child exited was lost with the closed pty (`kmscon/
 
 **Check:** with `reset-env` the C reference ran `/bin/login -p`, without it `/bin/login` (`kmscon/src/misc/pty.c:261-272`). The branch's README names `/bin/login` as the default. Which argv vtium uses for each setting belongs in #21.
 
-**Not planned:** the exit of the whole process after five quick restarts or under `oneshot` (`kmscon/src/terminal.c:1856-1868`) is assigned to #21 by the branch's README, and #21's body does not yet list it.
+**Planned:** the exit of the whole process after five quick restarts or under `oneshot` (`kmscon/src/terminal.c:1856-1868`) is #21's, recorded in a comment on vtium/vtium#21.
 
 ## 7. Rendering
 
