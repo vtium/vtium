@@ -232,6 +232,19 @@ fn a_copied_wide_character_brings_no_space() {
     assert_eq!(s.selection_text().as_deref(), Some("\u{4E2D}x"));
 }
 
+// The C reference ended a word at the second column of a wide character,
+// which held no codepoint, so a double click on the "a" of "a中b" took
+// "a中". A wide character is one character of the word.
+#[test]
+fn a_word_selection_takes_a_wide_character_whole() {
+    let mut t = term(6, 1, "a\u{4E2D}b c".as_bytes());
+    let s = t.screen_mut();
+    s.select_word(0, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("a\u{4E2D}b"));
+    s.select_word(3, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("a\u{4E2D}b"));
+}
+
 // ADR-1001's cluster budget: a line keeps 6 bytes of clusters a cell. On a
 // screen one column wide, a heart and VS16 (7 bytes with its length byte)
 // keeps the heart; the C reference kept both (the conformance case
