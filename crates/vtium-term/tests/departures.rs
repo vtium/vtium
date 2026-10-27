@@ -213,8 +213,7 @@ fn hpa_and_hpr_move_the_cursor() {
 // The C reference wrote a printed DEL (0x7F) to the screen, where it joined
 // the cell before as a character of no width. vt100.net: "terminals only
 // claiming VT220 compatibility can always ignore 7F"; only a 96-character
-// set in GL draws it (vtium-parse's README), and those come with
-// vtium/vtium#13.
+// set in GL draws it (vtium-parse's README), and vtium designates none.
 #[test]
 fn a_printed_del_does_nothing() {
     let t = term(4, 1, b"a\x7fb");

@@ -5,14 +5,15 @@
 //!
 //! The dispatch here carries the printing, the C0 and C1 controls, and the
 //! control functions. The modes go through the mode table (`modes.rs`),
-//! SGR through `sgr.rs`, the replies through `reply.rs`, and the keys, the
-//! pointer, focus and pastes through `input.rs`. The character sets come
-//! with vtium/vtium#13, through [`State::map_charset`].
+//! SGR through `sgr.rs`, the replies through `reply.rs`, the character
+//! sets through `charset.rs`, and the keys, the pointer, focus and pastes
+//! through `input.rs`.
 //!
 //! A control function is matched by its final byte, its private marker and
 //! its intermediates exactly, as `vtium-parse`'s README asks: `CSI ? 5 A`
 //! is not CUU.
 
+mod charset;
 mod input;
 mod modes;
 mod reply;
@@ -30,6 +31,7 @@ pub use input::{Mods, MouseButton, MouseEvent};
 pub use modes::MouseTracking;
 pub use reply::VersionError;
 
+use charset::{Charset, Charsets};
 use modes::Modes;
 use reply::Query;
 
@@ -86,8 +88,8 @@ pub struct Terminal {
 }
 
 /// What DECSC saves and DECRC restores (VT510, DECSC): the cursor, the
-/// wrap pending at it, the pen, and the autowrap and origin modes. The
-/// character sets join it with vtium/vtium#13.
+/// wrap pending at it, the pen, the autowrap and origin modes, and the
+/// character sets.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Saved {
     /// The column is the screen's width while a wrap is pending.
@@ -96,17 +98,22 @@ struct Saved {
     pen: Style,
     auto_wrap: bool,
     origin: bool,
+    /// `None` until DECSC; DECRC then returns the sets to the default
+    /// mapping, as xterm does.
+    charsets: Option<Charsets>,
 }
 
 impl Saved {
     /// What DECRC restores when nothing was saved, or after a reset: home,
-    /// the default pen, autowrap on and origin mode off.
+    /// the default pen, autowrap on, origin mode off and the default
+    /// mapping.
     const HOME: Self = Self {
         x: 0,
         y: 0,
         pen: Style::DEFAULT,
         auto_wrap: true,
         origin: false,
+        charsets: None,
     };
 }
 
@@ -165,6 +172,7 @@ struct State {
     saved: [Saved; 2],
     /// How bytes are decoded: UTF-8 unless DECSCL chose 7-bit or 8-bit.
     input_mode: InputMode,
+    charsets: Charsets,
     /// DECKPAM: the keypad sends application sequences.
     keypad_application: bool,
     /// xterm's modifyOtherKeys level, 0 to 2.
@@ -205,6 +213,7 @@ impl Terminal {
             cursor_style: CursorStyle::Default,
             saved: [Saved::HOME; 2],
             input_mode: InputMode::Utf8,
+            charsets: Charsets::initial(false),
             keypad_application: false,
             modify_other_keys: 0,
             mouse_last: None,
@@ -384,12 +393,10 @@ impl core::fmt::Debug for Terminal {
 }
 
 impl State {
-    /// The character-set hook (vtium/vtium#13): maps a printed character
-    /// through the set in GL or GR. Until the sets land every character
-    /// prints as itself, but DEL (U+007F), which only a 96-character set in
-    /// GL draws, prints nothing.
-    fn map_charset(&mut self, c: char) -> Option<char> {
-        (c != '\u{7F}').then_some(c)
+    /// The default mapping for the input: DEC supplemental graphics in GR
+    /// only in 8-bit input, where GR is reachable.
+    fn default_charsets(&self) -> Charsets {
+        Charsets::initial(self.input_mode == InputMode::EightBit)
     }
 
     /// A control function's count: an omitted parameter or 0 is 1.
@@ -436,6 +443,7 @@ impl State {
                 pen: *self.screen.pen(),
                 auto_wrap: self.screen.auto_wrap(),
                 origin: self.screen.origin_mode(),
+                charsets: Some(self.charsets),
             };
         }
     }
@@ -446,6 +454,7 @@ impl State {
     fn restore_cursor(&mut self) {
         let slot = usize::from(self.screen.alternate());
         let saved = self.saved.get(slot).copied().unwrap_or(Saved::HOME);
+        self.charsets = saved.charsets.unwrap_or_else(|| self.default_charsets());
         self.screen.set_pen(saved.pen);
         modes::set(self, true, 7, saved.auto_wrap);
         modes::set(self, true, 6, saved.origin);
@@ -453,13 +462,15 @@ impl State {
     }
 
     /// DECSTR, and the first half of RIS: the modes, the pen, the cursor
-    /// style, the saved cursors, the margins and the tab stops return to
-    /// their initial state; the text and the cursor stay.
+    /// style, the character sets, the saved cursors, the margins and the
+    /// tab stops return to their initial state; the text and the cursor
+    /// stay.
     fn soft_reset(&mut self) {
         self.screen.reset();
         self.screen.set_pen(Style::DEFAULT);
         self.set_cursor_style(CursorStyle::Default);
         self.input_mode = InputMode::Utf8;
+        self.charsets = self.default_charsets();
         self.keypad_application = false;
         self.modify_other_keys = 0;
         self.dcs = Dcs::Ignored;
@@ -479,7 +490,7 @@ impl State {
 
     /// DECSCL, `CSI Pl ; Pc " p`: a soft reset, then 7-bit input for a
     /// VT100 level (61) and 8-bit input for VT200 to VT400 (62 to 64), as
-    /// the C reference took it.
+    /// the C reference took it, with the input's default mapping.
     fn set_conformance(&mut self, level: Option<u32>) {
         self.soft_reset();
         self.input_mode = match level {
@@ -487,6 +498,7 @@ impl State {
             Some(62..=64) => InputMode::EightBit,
             _ => InputMode::Utf8,
         };
+        self.charsets = self.default_charsets();
     }
 
     /// SM or RM of each parameter, in order.
@@ -557,6 +569,31 @@ impl State {
         }
     }
 
+    /// The ESC sequences with no intermediates.
+    fn esc_plain(&mut self, final_byte: u8) {
+        let s = &mut self.screen;
+        match final_byte {
+            b'D' => s.move_down(1, true),
+            b'E' => s.newline(),
+            b'H' => s.set_tab_stop(),
+            b'M' => s.move_up(1, true),
+            b'N' => self.charsets.single_shift(2),
+            b'O' => self.charsets.single_shift(3),
+            b'n' => self.charsets.lock_left(2),
+            b'o' => self.charsets.lock_left(3),
+            b'~' => self.charsets.lock_right(1),
+            b'}' => self.charsets.lock_right(2),
+            b'|' => self.charsets.lock_right(3),
+            b'7' => self.save_cursor(),
+            b'8' => self.restore_cursor(),
+            b'=' => self.keypad_application = true,
+            b'>' => self.keypad_application = false,
+            b'Z' => self.reply_da1(),
+            b'c' => self.hard_reset(),
+            _ => {}
+        }
+    }
+
     /// ED and EL, and with `Erase::Unprotected` DECSED and DECSEL.
     fn erase(&mut self, params: &Params, final_byte: u8, which: Erase) {
         let s = &mut self.screen;
@@ -589,7 +626,8 @@ impl State {
 
 impl Consumer for State {
     fn print(&mut self, c: char) {
-        if let Some(c) = self.map_charset(c) {
+        let eight_bit = self.input_mode == InputMode::EightBit;
+        if let Some(c) = self.charsets.map(c, eight_bit) {
             self.screen.print(c);
         }
     }
@@ -608,36 +646,35 @@ impl Consumer for State {
             0x0a..=0x0c if self.modes.newline() => s.newline(),
             0x0a..=0x0c => s.move_down(1, true),
             0x0d => s.move_line_home(),
+            0x0e => self.charsets.lock_left(1),
+            0x0f => self.charsets.lock_left(0),
             // SUB cancels a sequence and shows its error character.
             0x1a => s.print('\u{BF}'),
             0x84 => s.move_down(1, true),
             0x85 => s.newline(),
             0x88 => s.set_tab_stop(),
             0x8d => s.move_up(1, true),
+            0x8e => self.charsets.single_shift(2),
+            0x8f => self.charsets.single_shift(3),
             0x9a => self.reply_da1(),
             _ => {}
         }
     }
 
     fn esc_dispatch(&mut self, intermediates: Intermediates, final_byte: u8) {
-        if !intermediates.is_empty() {
+        // SCS for a 94-character set: ESC (, ), * or + designates G0 to G3.
+        let slot = match intermediates.as_bytes() {
+            [] => return self.esc_plain(final_byte),
+            [b'('] => 0,
+            [b')'] => 1,
+            [b'*'] => 2,
+            [b'+'] => 3,
             // S7C1T and S8C1T (ESC SP F, ESC SP G) are taken and change
             // nothing: replies stay 7-bit, as the C reference sent them.
-            return;
-        }
-        let s = &mut self.screen;
-        match final_byte {
-            b'D' => s.move_down(1, true),
-            b'E' => s.newline(),
-            b'H' => s.set_tab_stop(),
-            b'M' => s.move_up(1, true),
-            b'7' => self.save_cursor(),
-            b'8' => self.restore_cursor(),
-            b'=' => self.keypad_application = true,
-            b'>' => self.keypad_application = false,
-            b'Z' => self.reply_da1(),
-            b'c' => self.hard_reset(),
-            _ => {}
+            _ => return,
+        };
+        if let Some(set) = Charset::from_final(final_byte) {
+            self.charsets.designate(slot, set);
         }
     }
 
