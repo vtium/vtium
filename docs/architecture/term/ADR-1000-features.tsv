@@ -51,7 +51,7 @@ Text, Unicode and fonts	Colour emoji and COLR glyphs	C reference kmscon#72	works
 Text, Unicode and fonts	Glyph overhang	C reference	absent	unverified	unverified	unverified	unverified	unverified	supported		text	#26
 Text, Unicode and fonts	Programming ligatures	Ghostty feat; WezTerm feat	absent	no	unverified	yes	yes	unverified	supported	as an option	text	#23
 Text, Unicode and fonts	Font merging: symbol ranges (Nerd Fonts, Powerline) drawn from a second font beside the main one	operator's sample on #12	absent	unverified	unverified	unverified	unverified	unverified	supported		text	#64
-Text, Unicode and fonts	Runtime font change and zoom: OSC 50, CSI 8 t	ctlseqs	absent	yes (OSC 50)	no	unverified	unverified	unverified	supported	late	top	#44
+Text, Unicode and fonts	Runtime font change and zoom: OSC 50	ctlseqs	absent	yes (OSC 50)	no	unverified	unverified	unverified	supported	late; a program setting the grid's size is the XTWINOPS 8 row	top	#44
 Text, Unicode and fonts	contour font settings (OSC 60)	contour font-settings	absent	no	no	unverified	unverified	unverified	ignored	OSC 60 is also xterm's XTQALLOWED, the meaning vtium takes, as contour alone documents this one	minspec	#39
 Text, Unicode and fonts	Glyphs baked into vtium as read-only atlases (vitrify)	vtium/vtium#3	absent	n/a	n/a	n/a	n/a	n/a	weighed	in #23	text	#3
 Control functions	Cursor movement and editing: CUU, CUD, CUF, CUB, CNL, CPL, CHA, HPA, HPR, VPA, VPR, CUP, HVP, ED, EL, ECH, ICH, DCH, IL, DL, SU, SD, IND, RI, NEL	ECMA-48; ctlseqs	works (tier 1)	yes	yes	yes	unverified	unverified	supported		minspec	#11
@@ -97,7 +97,7 @@ Queries and replies	DECRQPSR (DECCIR, DECTABSR) and DECRSPS	ctlseqs	absent	yes	n
 Queries and replies	DECREQTPARM, DECRQDE, DECRQUPSS, DECRQTSR	ctlseqs	absent	yes	no	unverified	unverified	unverified	ignored		minspec	#12
 Queries and replies	DEC locator: DECELR, DECSLE, DECEFR, DECRQLP	ctlseqs	absent	yes	no	unverified	unverified	unverified	ignored		minspec	#12
 Queries and replies	ENQ answerback	ctlseqs	works: replied ACK (0x06)	yes (answerbackString)	unverified	yes (`enquiry-response`, empty by default)	unverified	unverified	supported	an empty answerback, a listed departure from the C reference's ACK	minspec	#12
-Window, title and pointer	XTWINOPS 1-7, 9, 10 and 24 and above: move, resize, raise, lower, iconify, maximize, full screen, lines per screen	ctlseqs	absent (dropped)	yes	no	unverified	unverified	unverified	refused	one console with no window; a program's resize is the CSI 8 t row	minspec	#12
+Window, title and pointer	XTWINOPS 1-7, 9, 10 and 24 and above: move, resize, raise, lower, iconify, maximize, full screen, lines per screen	ctlseqs	absent (dropped)	yes	no	unverified	unverified	unverified	refused	one console with no window; a program's resize is the XTWINOPS 8 row	minspec	#12
 Window, title and pointer	XTWINOPS 8: resize the text area in characters	ctlseqs	absent	yes	no	unverified	unverified	unverified	supported	a program sets the grid's size, which vtium meets by changing the font size, as #44's zoom does	top	#44
 Window, title and pointer	XTWINOPS 14, 16, 18, 19: text area pixels, cell pixels, text area and screen characters	ctlseqs	works (14, 16, 18, 19)	yes	yes	unverified	unverified	unverified	supported		minspec	#12
 Window, title and pointer	XTWINOPS 15: screen size in pixels	ctlseqs	absent	yes	yes	unverified	unverified	unverified	supported	the real size of the display the grid fills	minspec	#12

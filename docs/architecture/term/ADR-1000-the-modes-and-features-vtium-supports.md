@@ -36,6 +36,10 @@ considered:
     said: "the union of our tables and the operator's (my) listings. we're not trying to build a 'super terminal' of all the different references."
     via: operator, in session 2026-10-27, relayed by the team lead
     covers: [where the line falls]
+  - operator: aaronsb
+    said: "all the generally supported capabilities, not esoteric 1970s terminal modes"
+    via: operator, in session 2026-10-27, relayed by the team lead
+    covers: [where the line falls]
 status: proposed
 date: 2026-10-26
 deciders:
@@ -47,7 +51,7 @@ related: []
 
 ## Summary
 
-- **Decided:** vtium's target set is two tables beside this record: every ANSI and DEC private mode, and every capability beyond modes, that the C reference, xterm, ECMA-48, the DEC references, foot, Ghostty, WezTerm, contour or kitty's specifications define. Each row gives what the C reference did, which terminals document it, vtium's status, its layer and the issue that carries it. A new mode or feature is supported when xterm and one of foot, Ghostty, WezTerm or kitty document it, when it is on the operator's list, or when the console has a named use for it. The record also fixes the refusals and the reply policy.
+- **Decided:** vtium's target set is the capabilities terminals generally support, combined with the operator's list. Two tables beside this record list the candidates considered, every ANSI and DEC private mode and every capability beyond modes that the C reference, xterm, ECMA-48, the DEC references, foot, Ghostty, WezTerm, contour or kitty's specifications define, each with its status, so a "no row" entry is the decision not to support that mode. Each row gives what the C reference did, which terminals document it, vtium's status, its layer and the issue that carries it. A new mode or feature is supported when xterm and one of foot, Ghostty, WezTerm or kitty document it, when it is on the operator's list, or when the console has a named use for it. The record also fixes the refusals and the reply policy.
 - **Trades away:** A mode that falls short of xterm and one other terminal gets no row unless it is on the operator's list or its row names a console use, so DECRQM replies 0 for it, as the C reference did. Features that put clipboard data, host files or terminal control in the stream's reach are refused even where another terminal offers them behind a setting.
 - **One-way?** No. Each row changes in one edit; a row that turns supported changes what DECRQM and the capability probes report, which is the intent.
 - **Probes:** *Confident (honest replies):* a program that asks vtium what it supports gets an answer that matches what vtium does, and never a reply carrying text from the stream. *Not confident (where the line falls):* that "xterm plus one other terminal" draws the line where the operator wants it for keyboard modes such as 1034 and 1035, which come in under it.
