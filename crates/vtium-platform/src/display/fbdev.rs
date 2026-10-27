@@ -145,6 +145,8 @@ pub struct Fbdev<F: Framebuffer> {
     lent: bool,
     /// A swap's stand-in flip event is pending.
     vblank: bool,
+    /// Unblanks tried again so far, while retrying.
+    retries: Option<usize>,
     events: Vec<Event>,
     timer: Option<RegistrationToken>,
     link: Option<Box<dyn Link>>,
@@ -170,6 +172,7 @@ impl<F: Framebuffer> Fbdev<F> {
             dpms: None,
             lent: false,
             vblank: false,
+            retries: None,
             events: Vec::new(),
             timer: None,
             link: None,
@@ -212,9 +215,10 @@ impl<F: Framebuffer> Fbdev<F> {
         (id == DISPLAY).then_some(self.dpms).flatten()
     }
 
-    /// Sets the display's power state through `FBIOBLANK`. While it is not
-    /// on the display lends no canvas; unblanked, its buffer is age 0 and
-    /// [`Event::Redraw`] follows.
+    /// Sets the display's power state through `FBIOBLANK`, ending any
+    /// retries of an unblank. While it is not on the display lends no
+    /// canvas; unblanked, its buffer is age 0 and [`Event::Redraw`]
+    /// follows.
     pub fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
         if id != DISPLAY || !self.online || !self.awake {
             return Err(io::Error::new(
@@ -222,6 +226,7 @@ impl<F: Framebuffer> Fbdev<F> {
                 "the display is not online",
             ));
         }
+        self.retries = None;
         self.dev.blank(match dpms {
             Dpms::On => FB_BLANK_UNBLANK,
             Dpms::Standby | Dpms::Suspend => FB_BLANK_NORMAL,
@@ -238,11 +243,34 @@ impl<F: Framebuffer> Fbdev<F> {
     }
 
     /// Powers the display on after the blank, on the input that ends it.
+    /// Where `FBIOBLANK` fails, the unblank is tried again every
+    /// [`crate::WAKE_RETRY_MS`], at most [`crate::WAKE_RETRIES`] times,
+    /// since no later input comes to `unblank`.
     pub fn unblank(&mut self) -> io::Result<()> {
         if self.online && self.awake && self.dpms.is_some_and(|d| d != Dpms::On) {
-            self.set_dpms(DISPLAY, Dpms::On)?;
+            if let Err(e) = self.set_dpms(DISPLAY, Dpms::On) {
+                self.retries = Some(0);
+                self.settle();
+                return Err(e);
+            }
         }
         Ok(())
+    }
+
+    /// An unblank retry's timer fired.
+    fn retry_unblank(&mut self) {
+        let Some(tried) = self.retries else {
+            return;
+        };
+        if let Err(e) = self.unblank() {
+            if tried.saturating_add(1) >= crate::WAKE_RETRIES {
+                log::error!("cannot unblank the framebuffer after {tried} retries: {e}");
+                self.retries = None;
+            } else {
+                self.retries = Some(tried.saturating_add(1));
+            }
+        }
+        self.settle();
     }
 
     /// Lends the buffer for the next frame. It is the framebuffer itself,
@@ -318,7 +346,11 @@ impl<F: Framebuffer> Fbdev<F> {
         if self.dpms.is_some_and(|d| d != Dpms::On) {
             match self.dev.blank(FB_BLANK_UNBLANK) {
                 Ok(()) => self.dpms = Some(Dpms::On),
-                Err(e) => log::warn!("cannot unblank the framebuffer: {e}"),
+                Err(e) => {
+                    log::warn!("cannot unblank the framebuffer: {e}");
+                    self.retries = Some(0);
+                    self.settle();
+                }
             }
         }
         if self.announced {
@@ -340,8 +372,19 @@ impl<F: Framebuffer> Fbdev<F> {
         self.awake = false;
         self.lent = false;
         self.vblank = false;
+        self.retries = None;
         self.settle();
         self.events.push(Event::Asleep);
+    }
+
+    /// The device's timer fired: the stand-in for a flip event, or the
+    /// next try of an unblank that failed.
+    fn fired(&mut self) {
+        if self.vblank {
+            self.vblank();
+        } else {
+            self.retry_unblank();
+        }
     }
 
     /// The stand-in for a flip event fired.
@@ -352,13 +395,21 @@ impl<F: Framebuffer> Fbdev<F> {
         self.settle();
     }
 
+    /// Arms and disarms the timer to match what waits: the stand-in flip
+    /// event, else an unblank's retry.
     fn settle(&mut self) {
         let Some(link) = &self.link else {
             return;
         };
-        match (self.vblank, self.timer.take()) {
-            (true, None) => self.timer = link.arm(self.interval),
-            (false, Some(t)) => link.disarm(t),
+        let retry = u64::try_from(crate::WAKE_RETRY_MS).unwrap_or(u64::MAX);
+        let after = if self.vblank {
+            Some(self.interval)
+        } else {
+            self.retries.map(|_| Duration::from_millis(retry))
+        };
+        match (after, self.timer.take()) {
+            (Some(after), None) => self.timer = link.arm(after),
+            (None, Some(t)) => link.disarm(t),
             (_, t) => self.timer = t,
         }
     }
@@ -568,7 +619,7 @@ where
             .insert_source(Timer::from_duration(after), move |_, _, data| {
                 if let Some(video) = access(data) {
                     video.timer = None;
-                    video.vblank();
+                    video.fired();
                 }
                 TimeoutAction::Drop
             })

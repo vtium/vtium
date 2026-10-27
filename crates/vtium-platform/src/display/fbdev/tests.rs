@@ -8,7 +8,7 @@
     reason = "test arithmetic on bounded values; a test fails by panicking"
 )]
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use super::*;
 use crate::ioctl::FbBitfield;
@@ -20,6 +20,8 @@ struct FakeFb {
     visual: u32,
     depths: Vec<u32>,
     blanks: RefCell<Vec<u32>>,
+    /// `FBIOBLANK` calls to refuse, from the next.
+    refuse_blanks: Cell<u32>,
 }
 
 fn field(offset: u32, length: u32) -> FbBitfield {
@@ -49,6 +51,7 @@ impl FakeFb {
             visual: FB_VISUAL_TRUECOLOR,
             depths: vec![32, 24, 16],
             blanks: RefCell::new(Vec::new()),
+            refuse_blanks: Cell::new(0),
         }
     }
 }
@@ -84,6 +87,10 @@ impl Framebuffer for FakeFb {
     }
 
     fn blank(&self, level: u32) -> io::Result<()> {
+        if let Some(left) = self.refuse_blanks.get().checked_sub(1) {
+            self.refuse_blanks.set(left);
+            return Err(io::ErrorKind::Other.into());
+        }
         self.blanks.borrow_mut().push(level);
         Ok(())
     }
@@ -285,6 +292,41 @@ fn the_loop_fires_the_stand_in_flip() {
         app.0.events().collect::<Vec<_>>(),
         [Event::Flipped(DISPLAY)]
     );
+}
+
+// Re-review finding 1: an unblank that fails is tried again, since the
+// blank took the input that ended it and no later input comes to
+// `unblank`; so is a wake-up's.
+#[test]
+fn a_failed_unblank_is_tried_again() {
+    struct App(Fbdev<FakeFb>);
+    let mut lp: crate::event_loop::Loop<App> = crate::event_loop::Loop::new().unwrap();
+    let mut app = App(Fbdev::with(FakeFb::new(32)));
+    app.0.insert(&lp.handle(), |app: &mut App| Some(&mut app.0));
+    app.0.wake_up().unwrap();
+    for wake in [false, true] {
+        app.0.set_dpms(DISPLAY, Dpms::Off).unwrap();
+        app.0.events().for_each(drop);
+        app.0.dev().refuse_blanks.set(2);
+        if wake {
+            app.0.sleep();
+            app.0.wake_up().unwrap();
+        } else {
+            assert!(app.0.unblank().is_err());
+        }
+        assert_eq!(app.0.dpms(DISPLAY), Some(Dpms::Off));
+        for _ in 0..50 {
+            if app.0.dpms(DISPLAY) == Some(Dpms::On) {
+                break;
+            }
+            lp.dispatch(Some(Duration::from_millis(100)), &mut app)
+                .unwrap();
+        }
+        assert_eq!(app.0.dpms(DISPLAY), Some(Dpms::On), "woken: {wake}");
+        assert_eq!(app.0.dev().blanks.borrow().last(), Some(&FB_BLANK_UNBLANK));
+        assert!(app.0.events().any(|e| e == Event::Redraw(DISPLAY)));
+        assert_eq!(app.0.canvas(DISPLAY).unwrap().age, 0);
+    }
 }
 
 // The frame contract, rules 3 and 4: no damage, no swap; no cursor plane.

@@ -85,7 +85,7 @@ const FLIP_WAIT: Bound = Bound {
 const WAKE_RETRY: Bound = Bound {
     name: "WAKE_RETRY_MS",
     value: 50,
-    what: "Milliseconds between tries to wake a DRM card that failed to wake, as while another process holds DRM master",
+    what: "Milliseconds between tries to wake a DRM card that failed to wake, as while another process holds DRM master, and between tries to unblank a framebuffer",
     past: "The next try",
     cite: "drm_shared.c:1212-1224",
 };
@@ -93,8 +93,8 @@ const WAKE_RETRY: Bound = Bound {
 const RETRIES: Bound = Bound {
     name: "WAKE_RETRIES",
     value: 20,
-    what: "Tries to wake a DRM card after a wake-up, a hotplug scan or an unblank's modeset failed",
-    past: "The tries stop with `Event::WakeFailed`, until the next wake-up or hotplug",
+    what: "Tries to wake a DRM card after a wake-up, a hotplug scan or an unblank's modeset failed, and to unblank a framebuffer after `FBIOBLANK` failed",
+    past: "The tries stop with `Event::WakeFailed`, until the next wake-up or hotplug; a framebuffer's stop with an error logged, until the next wake-up or unblank",
     cite: "`MAX_VT_TIMEOUT_RETRIES`, drm_shared.c:51",
 };
 
