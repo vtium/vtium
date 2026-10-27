@@ -23,7 +23,10 @@ use rustix::process::{Pid, PidfdFlags, ioctl_tiocsctty, pidfd_open, setsid};
 // releases, as it keeps that API unstable; Cargo.toml pins rustix to the
 // release whose name this is.
 use rustix::pty::{OpenptFlags, grantpt, ioctl_tiocgptpeer, openpt, unlockpt};
-use rustix::runtime_448b8ad740e2a26f::{How, KernelSigSet, kernel_sigprocmask};
+use rustix::runtime_448b8ad740e2a26f::{
+    How, KERNEL_SIG_DFL, KERNEL_SIGRTMAX, KernelSigSet, KernelSigaction, Signal, kernel_sigaction,
+    kernel_sigprocmask,
+};
 use rustix::termios::{
     OptionalActions, SpecialCodeIndex, Winsize, tcgetattr, tcsetattr, tcsetwinsize,
 };
@@ -104,9 +107,13 @@ impl Pty {
     /// Opens a pty of `size` and runs `command` on it.
     ///
     /// The child leads a new session with the pty's slave as its
-    /// controlling terminal and its stdin, stdout and stderr, and with no
-    /// signal blocked: the loop blocks the signals it reads from its
-    /// signalfd, and std's `Command` leaves the mask as it finds it.
+    /// controlling terminal and its stdin, stdout and stderr, with every
+    /// signal at its default disposition and none blocked, as the C
+    /// reference's child started (pty.c:313-320). A vtium started in the
+    /// background ignores SIGINT and SIGQUIT, the Rust runtime ignores
+    /// SIGPIPE, and the loop blocks the signals it reads from its
+    /// signalfd; an exec keeps ignored signals and the mask, so the
+    /// session would inherit all three.
     pub fn spawn(mut command: Command, size: Size, erase: Erase) -> io::Result<Pty> {
         let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)?;
         grantpt(&master)?;
@@ -132,17 +139,32 @@ impl Pty {
             .stderr(Stdio::from(slave));
         #[expect(
             unsafe_code,
-            reason = "the signal mask, a new session and its controlling terminal can only be set between fork and exec"
+            reason = "the signal dispositions and mask, a new session and its controlling terminal can only be set between fork and exec"
         )]
-        // SAFETY: the hook runs in the forked child before exec. It makes
-        // three raw syscalls through rustix, rt_sigprocmask, setsid and the
-        // TIOCSCTTY ioctl, which allocate nothing and take no lock, so they
-        // are safe after a fork. rt_sigprocmask sets the empty mask: it
-        // blocks no signal libc reserves, and nothing in the child depends
-        // on a signal staying blocked between here and exec, which keeps
-        // the mask it sets.
+        // SAFETY: the hook runs in the forked child before exec, so it
+        // makes only async-signal-safe calls: raw syscalls through rustix,
+        // rt_sigaction, rt_sigprocmask, setsid and the TIOCSCTTY ioctl,
+        // which allocate nothing and take no lock. The child has one
+        // thread, and nothing in it needs a handler or a blocked signal
+        // between here and exec, so rt_sigaction may set SIG_DFL on every
+        // signal, those libc reserves for its threads included, and
+        // rt_sigprocmask may set the empty mask. Each number passed to
+        // rt_sigaction is a signal from 1 to the kernel's last; SIGKILL
+        // and SIGSTOP, whose dispositions cannot change, are skipped.
+        // The dispositions go first, so a signal that arrives once the
+        // mask is empty takes its default action, as it would after exec.
         unsafe {
             command.pre_exec(move || {
+                let default = KernelSigaction {
+                    sa_handler_kernel: KERNEL_SIG_DFL,
+                    ..KernelSigaction::default()
+                };
+                for raw in 1..=KERNEL_SIGRTMAX {
+                    if raw == Signal::KILL.as_raw() || raw == Signal::STOP.as_raw() {
+                        continue;
+                    }
+                    kernel_sigaction(Signal::from_raw_unchecked(raw), Some(default.clone()))?;
+                }
                 kernel_sigprocmask(How::SETMASK, Some(&KernelSigSet::empty()))?;
                 setsid()?;
                 ioctl_tiocsctty(&ctty)?;
