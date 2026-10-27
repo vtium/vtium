@@ -158,3 +158,58 @@ fn a_row_too_tall_for_the_scratch_is_composed_in_bands() {
         }
     }
 }
+
+// The pointer on a display turned right: the font's I turned a quarter,
+// in the default colours, in a box 16 wide and 8 high. Six columns and two
+// rows on a display 36 by 54 put the grid at 2,3 to 34,51; the pointer at
+// 20,9 in the grid's pixels centres its box at 25,23, so it spans 17 to 33
+// across and 19 to 27 down, and the glyph's pixel gx,gy lands at
+// 17 + 15 - gy, 19 + gx.
+// covers: platform.compositor
+#[test]
+fn the_pointer_turns_with_the_display() {
+    let s = Screen::new(6, 2, rgb("c0c0c0"), rgb("101010"));
+    let config = Config {
+        orientation: Orientation::Right,
+        ..Config::default()
+    };
+    let mut r = Renderer::new(unifont(), 36, 54, config);
+    assert_eq!(r.grid_size(), (6, 2));
+    let mut c = Canvas::new(36, 54, 0);
+    let st = DrawState {
+        foreground: s.palette.fg(),
+        background: s.palette.bg(),
+        pointer: Some((20, 9)),
+        ..DrawState::default()
+    };
+    r.draw(&s.frame(Age::NEVER), &mut c, 0, &st);
+    let i = unifont()
+        .glyph(
+            &['I'],
+            vtium_font::Width::Narrow,
+            vtium_font::Style::default(),
+        )
+        .unwrap();
+    assert_eq!((i.width(), i.height()), (8, 16));
+    let (fg, bg) = (0xc0_c0_c0, 0x10_10_10);
+    let mut lit = 0;
+    for y in 0..54 {
+        for x in 0..36 {
+            let want = if (17..33).contains(&x) && (19..27).contains(&y) {
+                let (gx, gy) = (y - 19, 15 - (x - 17));
+                match i.pixel(gx, gy).unwrap() {
+                    [0] => bg,
+                    [255] => {
+                        lit += 1;
+                        fg
+                    }
+                    other => panic!("a bitmap glyph's coverage: {other:?}"),
+                }
+            } else {
+                bg
+            };
+            assert_eq!(c.pixel(x, y), Some(want), "{x},{y}");
+        }
+    }
+    assert!(lit > 10, "the I has pixels");
+}
