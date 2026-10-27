@@ -733,7 +733,8 @@ impl Region {
 }
 
 /// The hatching line nearest `u` along x: the multiple of `space` nearest
-/// it. Rounding down is exact in IEEE 754, as the rest of the arithmetic is.
+/// it. Rounding down is deterministic in IEEE 754, as the rest of the
+/// arithmetic is.
 fn nearest_line(u: f64, space: f64) -> f64 {
     (u / space + 0.5).floor() * space
 }

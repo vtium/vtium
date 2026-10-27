@@ -258,6 +258,9 @@ fn seg_dist2(p: Pt, a: Pt, b: Pt) -> f64 {
     dist2(p, pt(a.x + u * dx, a.y + u * dy))
 }
 
+/// Samples a pixel side, as `src/sprite.rs` takes them.
+const SS: u32 = 8;
+
 /// Past half a pixel's diagonal: a pixel whose centre is this much farther
 /// than a shape's reach lies wholly outside it.
 const HALF_DIAGONAL: f64 = 0.7072;
@@ -272,6 +275,38 @@ enum Shape {
     Ring(Pt, f64, f64),
 }
 
+/// The part of `poly` on `inside`'s side of the line a-b (Sutherland and
+/// Hodgman).
+fn clip(poly: &[Pt], a: Pt, b: Pt, inside: Pt) -> Vec<Pt> {
+    let s = side(a, b, inside);
+    let keep = |p: Pt| side(a, b, p) * s >= 0.0;
+    let mut out = Vec::new();
+    for (i, &p) in poly.iter().enumerate() {
+        let q = poly[(i + 1) % poly.len()];
+        if keep(p) {
+            out.push(p);
+        }
+        if keep(p) != keep(q) {
+            let (fp, fq) = (side(a, b, p), side(a, b, q));
+            let u = fp / (fp - fq);
+            out.push(pt(p.x + u * (q.x - p.x), p.y + u * (q.y - p.y)));
+        }
+    }
+    out
+}
+
+fn area(poly: &[Pt]) -> f64 {
+    let n = poly.len();
+    (0..n)
+        .map(|i| {
+            let (p, q) = (poly[i], poly[(i + 1) % n]);
+            p.x * q.y - q.x * p.y
+        })
+        .sum::<f64>()
+        .abs()
+        / 2.0
+}
+
 fn corners(x: u32, y: u32) -> [Pt; 4] {
     let (x, y) = (f64::from(x), f64::from(y));
     [
@@ -283,6 +318,24 @@ fn corners(x: u32, y: u32) -> [Pt; 4] {
 }
 
 impl Shape {
+    /// The exact share of the pixel at `x`, `y` a straight-edged shape
+    /// covers; `None` for a curved one.
+    fn share(&self, x: u32, y: u32) -> Option<f64> {
+        let [p0, p1, p2, p3] = corners(x, y);
+        let square = vec![p0, p1, p3, p2];
+        match *self {
+            Shape::Half(a, b, inside) => Some(area(&clip(&square, a, b, inside))),
+            Shape::Tri(v) => {
+                let mut poly = square;
+                for i in 0..3 {
+                    poly = clip(&poly, v[i], v[(i + 1) % 3], v[(i + 2) % 3]);
+                }
+                Some(area(&poly))
+            }
+            Shape::Seg(..) | Shape::Ring(..) => None,
+        }
+    }
+
     /// Whether the shape covers the pixel at `x`, `y` whole.
     fn covers(&self, x: u32, y: u32) -> bool {
         let c = corners(x, y);
@@ -803,6 +856,18 @@ fn check(cp: u32, name: &str, c: Cell, f: &mut Failures) {
             for y in 0..c.h {
                 for x in 0..c.w {
                     let v = px[(y * c.w + x) as usize];
+                    // straight-edged shapes, which never overlap but along an
+                    // edge: within a sample a sample row, and a step of the
+                    // rounding down, of the exact area
+                    let share: Option<f64> = shapes.iter().map(|s| s.share(x, y)).sum();
+                    if let Some(share) = share {
+                        let exact = share * f64::from(on);
+                        let slack = f64::from(on) / f64::from(SS) + 1.0;
+                        if (f64::from(v) - exact).abs() > slack {
+                            f.fail(cp, c, format!("{v:#04x} at {x},{y}, area {exact:.1}"));
+                            return;
+                        }
+                    }
                     let want = if shapes.iter().any(|s| s.covers(x, y)) {
                         Some(on)
                     } else if shapes.iter().all(|s| s.misses(x, y)) {

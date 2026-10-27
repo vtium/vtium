@@ -82,6 +82,21 @@ fn beyond_reference(cp: u32) -> bool {
     )
 }
 
+// The skip never reaches past what vtium draws as a sprite, so a page
+// digest leaves out no character the face draws
+#[test]
+fn the_characters_left_out_are_all_sprites() {
+    let mut left_out = 0;
+    for cp in (0x1ce00..0x1cf00).chain(0x1fb00..0x1fc00) {
+        if beyond_reference(cp) {
+            left_out += 1;
+            let c = char::from_u32(cp).expect("a char");
+            assert!(sprite::has(c), "U+{cp:04X} is left out but is no sprite");
+        }
+    }
+    assert_eq!(left_out, 168);
+}
+
 /// The characters of `page` drawn through the font, less those beyond the
 /// C reference, as refdigest.c's render_page() draws them; `None` for the
 /// surrogate pages, which a `char` cannot hold and the terminal never
