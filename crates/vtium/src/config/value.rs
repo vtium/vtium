@@ -48,6 +48,7 @@ pub(super) fn parse(
     reports: &mut Reports,
 ) -> Option<Value> {
     match key.kind {
+        Kind::Number { word, .. } if word == Some(text) => Some(Value::Text(text.to_owned())),
         Kind::Number { min, max, .. } => {
             if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
                 let value = text.to_owned();

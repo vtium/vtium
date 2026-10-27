@@ -16,11 +16,13 @@ pub const TEXT_MAX: usize = 4095;
 pub enum Kind {
     /// On or off: `name` turns it on and `no-name` off.
     Switch,
-    /// A whole number from `min` to `max`, in `unit`.
+    /// A whole number from `min` to `max`, in `unit`, or `word` in its
+    /// place where the key takes one.
     Number {
         min: u64,
         max: u64,
         unit: &'static str,
+        word: Option<&'static str>,
     },
     /// Text of at most [`TEXT_MAX`] bytes with no control character.
     Text,
@@ -200,6 +202,7 @@ pub const SB_SIZE: Key = Key {
         min: 0,
         max: SB_SIZE_MAX as u64,
         unit: "lines",
+        word: None,
     },
     default: Default::Number(SB_SIZE_DEFAULT as u64),
     scope: Scope::Anywhere,
@@ -215,6 +218,7 @@ pub const SB_SIZE_CAP: Key = Key {
         min: 0,
         max: SB_SIZE_MAX as u64,
         unit: "lines",
+        word: None,
     },
     default: Default::Unset,
     scope: Scope::Anywhere,
@@ -241,6 +245,7 @@ pub const SYNC_TIMEOUT: Key = Key {
         min: 0,
         max: 10_000,
         unit: "ms",
+        word: None,
     },
     default: Default::Number(200),
     scope: Scope::Anywhere,
@@ -256,12 +261,29 @@ pub const DPMS_TIMEOUT: Key = Key {
         min: 0,
         max: UINT_MAX,
         unit: "s",
+        word: None,
     },
     default: Default::Number(600),
     scope: Scope::Anywhere,
     reader: "vtium-platform",
     what: "Turn the displays off after this long with no key or pointer event; 0 never does.",
     cite: "src/config.c:1388",
+};
+
+pub const DISPLAY_WAIT: Key = Key {
+    name: "display-wait",
+    short: None,
+    kind: Kind::Number {
+        min: 0,
+        max: 600,
+        unit: "s",
+        word: Some("forever"),
+    },
+    default: Default::Number(10),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "At start, how long to wait for a display, counted from when the VT is first shown; with none by then vtium exits with status 1, so the unit's `OnFailure=` can start a getty. 0 does not wait. `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time. Once a display has come, vtium never exits for want of one.",
+    cite: "the operator on vtium/vtium#21",
 };
 
 pub const HWACCEL: Key = Key {
@@ -601,6 +623,7 @@ pub const XKB_REPEAT_DELAY: Key = Key {
         min: 0,
         max: 999,
         unit: "ms",
+        word: None,
     },
     default: Default::Number(250),
     scope: Scope::Anywhere,
@@ -616,6 +639,7 @@ pub const XKB_REPEAT_RATE: Key = Key {
         min: 0,
         max: 999,
         unit: "ms",
+        word: None,
     },
     default: Default::Number(50),
     scope: Scope::Anywhere,
@@ -664,6 +688,7 @@ pub const FONT_SIZE: Key = Key {
         min: 0,
         max: CELL_SIDE_MAX as u64,
         unit: "px",
+        word: None,
     },
     default: Default::Number(0),
     scope: Scope::Anywhere,
@@ -783,7 +808,7 @@ pub const RENDER_TIMER: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 60] = [
+pub const KEYS: [Key; 61] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -799,6 +824,7 @@ pub const KEYS: [Key; 60] = [
     BLINK,
     SYNC_TIMEOUT,
     DPMS_TIMEOUT,
+    DISPLAY_WAIT,
     HWACCEL,
     USE_ORIGINAL_MODE,
     MODE,

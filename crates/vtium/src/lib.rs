@@ -41,4 +41,5 @@ pub mod sync;
 pub mod term;
 pub mod termcap;
 pub mod video;
+pub mod wait;
 pub mod warn;

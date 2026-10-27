@@ -12,7 +12,7 @@ const BLESS: &str = "VTIUM_BLESS=1 cargo test -p vtium generated_files";
 fn kind(k: &Key) -> String {
     match k.kind {
         Kind::Switch => "switch".to_owned(),
-        Kind::Number { unit, .. } => format!("number ({unit})"),
+        Kind::Number { unit, word, .. } => format!("number ({unit}){}", or(word)),
         Kind::Text => "text".to_owned(),
         Kind::Choice(c) => format!("one of `{}`", c.join("`, `")),
         Kind::Command => "command".to_owned(),
@@ -21,10 +21,15 @@ fn kind(k: &Key) -> String {
     }
 }
 
+/// A number key's word, as the tables give it after the number.
+fn or(word: Option<&str>) -> String {
+    word.map(|w| format!(", or `{w}`")).unwrap_or_default()
+}
+
 fn bound(k: &Key) -> String {
     match k.kind {
         Kind::Switch => "on or off".to_owned(),
-        Kind::Number { min, max, .. } => format!("{min} to {max}, clamped"),
+        Kind::Number { min, max, word, .. } => format!("{min} to {max}, clamped{}", or(word)),
         Kind::Text => format!("{TEXT_MAX} bytes, no control character"),
         Kind::Choice(_) => "the choices".to_owned(),
         Kind::Command => format!("{TEXT_MAX} bytes in a file"),
