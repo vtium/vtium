@@ -10,7 +10,10 @@
 #
 # ARCH is a Debian architecture, arm64 or armhf. The sysroots live in
 # VTIUM_ARM_SYSROOTS (default $XDG_CACHE_HOME/vtium/arm), shared by every
-# checkout; a sysroot whose pins differ from pin.tsv's is extracted again.
+# checkout: ARCH-ID, where ID is a digest of ARCH's pin rows and of this
+# script, so checkouts with different pins each have their own, and a change
+# to either extracts a new one. The packages are cached in debs/ and checked
+# against their pins on every extraction.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 pins=$here/pin.tsv
@@ -19,18 +22,54 @@ root=${VTIUM_ARM_SYSROOTS:-${XDG_CACHE_HOME:-$HOME/.cache}/vtium/arm}
 die() { echo "sysroot: $*" >&2; exit 1; }
 field() { awk -F'\t' -v k="$1" '$1 == k { print $2; exit }' "$pins"; }
 debs() { awk -F'\t' -v a="$1" '$1 == "deb" && $2 == a' "$pins"; }
+dir() {
+    id=$({ debs "$1"; cat "$here/sysroot"; } | sha256sum | cut -c1-16)
+    echo "$root/$1-$id"
+}
+
+# Copies the package at pool path $2 into $3 and checks the copy against
+# SHA-256 $1; a cached package that fails is fetched again, and a download
+# enters the cache only once it matches.
+deb() {
+    cached=$root/debs/${2##*/}
+    if [ -f "$cached" ]; then
+        cp "$cached" "$3"
+        echo "$1  $3" | sha256sum -c --quiet - 2>/dev/null && return
+        rm -f "$cached"
+    fi
+    part=$(mktemp "$root/debs/.${2##*/}.XXXXXX")
+    curl -fsSL --retry 3 -o "$part" "$(field snapshot)/$2" || { rm -f "$part"; die "${2##*/}: download failed"; }
+    echo "$1  $part" | sha256sum -c --quiet - || { rm -f "$part"; die "${2##*/}: SHA-256 differs from pin.tsv"; }
+    mv "$part" "$cached"
+    cp "$cached" "$3"
+    echo "$1  $3" | sha256sum -c --quiet - || die "${2##*/}: SHA-256 of the copy differs from pin.tsv"
+}
+
+# Keeps the tree at $1 inside itself: rewrites each absolute symlink as a
+# relative one, and refuses a link that resolves outside the tree.
+contain() {
+    find "$1" -type l | while IFS= read -r link; do
+        target=$(readlink "$link")
+        case $target in
+        /*)
+            ln -sfn "$(realpath -m -s --relative-to="$(dirname "$link")" "$1$target")" "$link"
+            ;;
+        esac
+        case $(realpath -m "$link") in
+        "$1" | "$1"/*) ;;
+        *) die "${link#"$1"/} -> $target leaves the sysroot" ;;
+        esac
+    done
+}
 
 fetch() {
     arch=$1
     rows=$(debs "$arch")
     [ -n "$rows" ] || die "pin.tsv pins no packages for $arch"
-    dir=$root/$arch
-    if [ -f "$dir/.pins" ] && [ "$(cat "$dir/.pins")" = "$rows" ]; then
-        return
-    fi
-    snapshot=$(field snapshot)
+    dir=$(dir "$arch")
+    [ ! -d "$dir" ] || return 0
     mkdir -p "$root/debs"
-    tmp=$(mktemp -d "$root/.$arch.XXXXXX")
+    tmp=$(realpath "$(mktemp -d "$root/.$arch.XXXXXX")")
     trap 'rm -rf "$tmp"' EXIT
     # The sysroot is /usr-merged, so the dynamic loader finds every library
     # in /usr/lib/TRIPLE. qemu-user resolves open() in the sysroot but not
@@ -44,22 +83,27 @@ fetch() {
     # directories and never reads the host's cache, whose 32-bit entries
     # name the host's libraries.
     : > "$tmp/etc/ld.so.cache"
+    work=$(mktemp -d "$root/.$arch-work.XXXXXX")
+    trap 'rm -rf "$tmp" "$work"' EXIT
     echo "$rows" | while IFS="$(printf '\t')" read -r _ _ pkg _ sha path; do
-        deb=$root/debs/${path##*/}
-        if [ ! -f "$deb" ]; then
-            curl -fsSL --retry 3 -o "$deb.part" "$snapshot/$path"
-            mv "$deb.part" "$deb"
-        fi
-        echo "$sha  $deb" | sha256sum -c --quiet - || { rm -f "$deb"; die "$pkg: SHA-256 differs from pin.tsv"; }
-        data=$(ar t "$deb" | grep '^data\.tar')
-        (cd "$tmp" && ar x "$deb" "$data" && tar --keep-directory-symlink -xf "$data" && rm "$data")
+        deb "$sha" "$path" "$work/pkg.deb"
+        data=$(ar t "$work/pkg.deb" | grep '^data\.tar')
+        (cd "$work" && ar x pkg.deb "$data")
+        ! tar -tf "$work/$data" | grep -Eq '^/|(^|/)\.\.(/|$)' ||
+            die "$pkg: a member's path leaves the sysroot"
+        # A directory link an earlier package left is followed, and
+        # contain has kept every such link inside the sysroot. GNU tar
+        # makes an archive's own absolute or .. links last.
+        tar -C "$tmp" --keep-directory-symlink -xf "$work/$data"
+        rm -f "$work/pkg.deb" "$work/$data"
+        contain "$tmp"
     done
-    echo "$rows" > "$tmp/.pins"
-    rm -rf "$dir.old"
-    [ ! -e "$dir" ] || mv "$dir" "$dir.old"
-    mv "$tmp" "$dir"
+    rm -rf "$work"
+    # A second fetch that finished first leaves its sysroot, which is the
+    # same one.
+    mv -T "$tmp" "$dir" 2>/dev/null || [ -d "$dir" ] || die "cannot move the $arch sysroot to $dir"
     trap - EXIT
-    rm -rf "$dir.old"
+    rm -rf "$tmp"
     echo "sysroot: $arch in $dir"
 }
 
@@ -84,6 +128,12 @@ pin() {
         --decrypt "$work/InRelease" 2>/dev/null || true
     grep -q "^\[GNUPG:\] VALIDSIG .* $key\$" "$work/status" ||
         die "InRelease is not signed by $key"
+    # An older signed InRelease, replayed, names another codename or an
+    # earlier date than the snapshot's; a later one cannot be in it.
+    grep -qx "Codename: $suite" "$work/Release" || die "InRelease is not $suite's"
+    released=$(date -d "$(sed -n 's/^Date: //p' "$work/Release")" +%s)
+    taken=$(date -d "$(echo "${snapshot##*/}" | sed 's/^\(....\)\(..\)\(..\)T\(..\)\(..\)\(..\)Z$/\1-\2-\3T\4:\5:\6Z/')" +%s)
+    [ "$released" -le "$taken" ] || die "InRelease is dated after the snapshot"
     {
         grep -v '^deb	' "$pins"
         for arch in $(awk -F'\t' '$1 == "deb" { print $2 }' "$pins" | uniq); do
@@ -115,7 +165,7 @@ fetch)
     [ $# -gt 0 ] || die "fetch needs an ARCH"
     for arch; do fetch "$arch"; done
     ;;
-dir) echo "$root/${2:?sysroot dir needs an ARCH}" ;;
+dir) dir "${2:?sysroot dir needs an ARCH}" ;;
 pin) pin ;;
 *) die "usage: sysroot fetch ARCH... | dir ARCH | pin" ;;
 esac
