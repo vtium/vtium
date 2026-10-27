@@ -368,15 +368,15 @@ fn the_cursor_goes_with_the_next_commit() {
 }
 
 // The pointer's image on the cursor plane (vtium/vtium#92): the plane's
-// framebuffer holds the image row by row at the buffer's pitch, cut to the
-// plane's 64 by 64 and clear around it, and the commit that shows it names
+// framebuffer holds the image row by row at the buffer's pitch, clear
+// around it on the plane's 64 by 64, and the commit that shows it names
 // that framebuffer, with the hotspot on the pointer.
 #[test]
 fn the_cursor_plane_shows_the_image_set_up() {
     let mut v = awake(one());
     let cp = cursor_plane(&v, A);
-    let image: Vec<u32> = (0..70 * 2).map(|i| 0xff00_0000 | i).collect();
-    v.setup_cursor(DisplayId(A), &image, 70, 2, (3, 1)).unwrap();
+    let image: Vec<u32> = (0..60 * 2).map(|i| 0xff00_0000 | i).collect();
+    v.setup_cursor(DisplayId(A), &image, 60, 2, (3, 1)).unwrap();
     v.show_cursor(DisplayId(A), 40, 30).unwrap();
     assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Cursor);
     let c = v.card().last_commit().unwrap();
@@ -390,18 +390,113 @@ fn the_cursor_plane_shows_the_image_set_up() {
     assert_eq!(bytes.len(), 64 * 64 * 4);
     for (px, i) in bytes.chunks_exact(4).zip(0u32..) {
         let (x, y) = (i % 64, i / 64);
-        let want = if y < 2 { 0xff00_0000 | (y * 70 + x) } else { 0 };
+        let want = if y < 2 && x < 60 {
+            0xff00_0000 | (y * 60 + x)
+        } else {
+            0
+        };
         let got = u32::from_ne_bytes(px.try_into().unwrap());
         assert_eq!(got, want, "{x},{y}");
     }
 }
 
+// An image larger than the card's cursor plane is refused, so the
+// pointer is drawn in software whole rather than cut.
 #[test]
-fn a_failed_commit_keeps_the_cursor_waiting() {
+fn an_image_larger_than_the_plane_is_refused() {
+    let mut v = awake(one());
+    v.card().state().cursor_side = 32;
+    let e = v
+        .setup_cursor(DisplayId(A), &[0; 33 * 2], 33, 2, (0, 0))
+        .unwrap_err();
+    assert_eq!(e.kind(), io::ErrorKind::Unsupported);
+    assert!(!v.hardware_cursor(DisplayId(A)));
+    let e = v
+        .setup_cursor(DisplayId(A), &[0; 2 * 33], 2, 33, (0, 0))
+        .unwrap_err();
+    assert_eq!(e.kind(), io::ErrorKind::Unsupported);
+    v.setup_cursor(DisplayId(A), &[0; 32 * 32], 32, 32, (0, 0))
+        .unwrap();
+}
+
+// A display not online refuses the image with a signal of its own, which
+// no error from the card decodes to: the owner offers it again later.
+#[test]
+fn a_display_not_online_says_so() {
+    let mut v = one();
+    let e = v
+        .setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0))
+        .unwrap_err();
+    assert_eq!(e.kind(), io::ErrorKind::NotConnected);
+    assert_eq!(e.raw_os_error(), None);
+    let mut v = awake(one());
+    v.card().state().dumb_errors.push_back(Errno::INVAL);
+    let e = v
+        .setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0))
+        .unwrap_err();
+    assert_ne!(e.kind(), io::ErrorKind::NotConnected);
+}
+
+// A commit the cursor plane makes fail (vtium/vtium#92): the same commit
+// without it is tried, and when that takes, the plane is given up, so the
+// owner draws the pointer in software and the display does not freeze.
+#[test]
+fn a_commit_the_cursor_plane_fails_is_sent_without_it() {
+    let mut v = awake(one());
+    let cp = cursor_plane(&v, A);
+    v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
+    v.show_cursor(DisplayId(A), 1, 1).unwrap();
+    v.card().state().commit_errors.push_back(Errno::INVAL);
+    assert_eq!(frame(&mut v, &[DOT]).unwrap(), Swapped::Frame);
+    assert!(!v.hardware_cursor(DisplayId(A)));
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(c.get(cp, "FB_ID"), Some(0));
+    assert_eq!(c.get(cp, "CRTC_ID"), Some(0));
+    flip(&mut v);
+    assert!(!v.need_commit(DisplayId(A)));
+}
+
+// A cursor-only commit that fails while the plane is off has nothing to
+// send without it: the plane is given up and nothing is sent.
+#[test]
+fn a_cursor_only_commit_that_fails_gives_the_plane_up() {
     let mut v = awake(one());
     v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
     v.show_cursor(DisplayId(A), 1, 1).unwrap();
     v.card().state().commit_errors.push_back(Errno::INVAL);
+    let commits = v.card().state().commits.len();
+    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Nothing);
+    assert!(!v.hardware_cursor(DisplayId(A)));
+    assert!(!v.need_commit(DisplayId(A)));
+    assert!(v.card().state().commits.len() <= commits + 1);
+}
+
+// When the commit fails without the cursor too, the cursor was not the
+// cause: it is kept, and the error reaches the caller.
+#[test]
+fn a_commit_that_fails_either_way_keeps_the_cursor() {
+    let mut v = awake(one());
+    v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
+    v.show_cursor(DisplayId(A), 1, 1).unwrap();
+    v.card()
+        .state()
+        .commit_errors
+        .extend([Errno::INVAL, Errno::INVAL]);
+    assert!(frame(&mut v, &[DOT]).is_err());
+    assert!(v.hardware_cursor(DisplayId(A)));
+    assert!(v.need_commit(DisplayId(A)));
+    v.swap(DisplayId(A), &[]).unwrap();
+    assert!(v.hardware_cursor(DisplayId(A)));
+}
+
+// A commit refused as busy is no fault of the cursor's: it waits for the
+// next swap.
+#[test]
+fn a_busy_commit_keeps_the_cursor_waiting() {
+    let mut v = awake(one());
+    v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
+    v.show_cursor(DisplayId(A), 1, 1).unwrap();
+    v.card().state().commit_errors.push_back(Errno::BUSY);
     assert!(v.swap(DisplayId(A), &[]).is_err());
     assert!(v.need_commit(DisplayId(A)));
     v.swap(DisplayId(A), &[]).unwrap();
@@ -458,14 +553,20 @@ fn a_cursor_change_undone_before_the_swap_sends_nothing() {
     assert_eq!(v.card().state().commits.len(), commits);
 }
 
+// The plane is at most 64 a side, whatever larger size the card reports.
 #[test]
-fn the_cursor_image_is_cut_to_the_plane() {
+fn the_cursor_plane_is_at_most_64_a_side() {
     let mut v = awake(one());
-    let image = vec![0xff00_ff00u32; 100 * 100];
-    v.setup_cursor(DisplayId(A), &image, 100, 100, (0, 0))
+    let image = vec![0xff00_ff00u32; 64 * 64];
+    v.setup_cursor(DisplayId(A), &image, 64, 64, (0, 0))
         .unwrap();
     let c = v.outputs[0].cursor.as_ref().unwrap();
     assert_eq!((c.width, c.height), (64, 64));
+    let image = vec![0xff00_ff00u32; 65];
+    let e = v
+        .setup_cursor(DisplayId(A), &image, 65, 1, (0, 0))
+        .unwrap_err();
+    assert_eq!(e.kind(), io::ErrorKind::Unsupported);
 }
 
 // The operator's decision on vtium/vtium#18: a modeset waits on the

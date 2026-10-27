@@ -287,21 +287,59 @@ impl<K: Kms> Drm2d<K> {
                 }
                 _ => None,
             };
-            let mut req = Request::default();
-            // A cursor-only commit leaves the primary plane as it is, so
-            // the kernel sees no damage to it.
-            let prepared = match swapped {
-                Swapped::Frame => o.prepare(&mut req, o.back_fb(), o.mode_blob, clips, hotspot),
-                _ => o.prepare_cursor(&mut req, hotspot),
+            let card = &self.card;
+            let commit = |o: &Output<K::Map>| {
+                let mut req = Request::default();
+                // A cursor-only commit leaves the primary plane as it is,
+                // so the kernel sees no damage to it.
+                match swapped {
+                    Swapped::Frame => {
+                        o.prepare(&mut req, o.back_fb(), o.mode_blob, clips, hotspot)?;
+                    }
+                    _ => o.prepare_cursor(&mut req, hotspot)?,
+                }
+                card.commit(&req, DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK)
             };
-            let sent = prepared.and_then(|()| {
-                self.card
-                    .commit(&req, DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK)
-            });
+            let mut sent = commit(o);
+            // A commit showing the cursor that failed is tried without it.
+            // When that takes, the cursor plane is what failed: it is given
+            // up, and the owner draws the pointer itself.
+            let mut nothing = false;
+            if let Err(e) = &sent {
+                if errno(e) != Some(Errno::BUSY) && o.cursor_shown().is_some() {
+                    if let Some(c) = o.cursor.as_mut() {
+                        c.visible = false;
+                    }
+                    // with the plane off already, a cursor-only commit has
+                    // nothing left to send
+                    nothing = swapped == Swapped::Cursor && o.cursor_set.is_none();
+                    let again = if nothing { Ok(()) } else { commit(o) };
+                    if again.is_ok() {
+                        log::warn!(
+                            "the cursor plane of {} failed a commit, so the pointer is drawn in software: {e}",
+                            o.name
+                        );
+                        if let Some(c) = o.cursor.take() {
+                            let _ = card.rm_fb(c.fb);
+                            let _ = card.destroy_dumb(c.dumb.handle);
+                        }
+                        o.cursor_set = None;
+                        sent = Ok(());
+                    } else {
+                        nothing = false;
+                        if let Some(c) = o.cursor.as_mut() {
+                            c.visible = true;
+                        }
+                    }
+                }
+            }
             if let Some(blob) = clips {
-                if let Err(e) = self.card.destroy_blob(blob) {
+                if let Err(e) = card.destroy_blob(blob) {
                     log::warn!("cannot destroy the damage blob: {e}");
                 }
+            }
+            if nothing {
+                return Ok(Swapped::Nothing);
             }
             sent
         };
@@ -409,9 +447,12 @@ impl<K: Kms> Drm2d<K> {
     }
 
     /// Puts `pixels`, ARGB8888 rows of `width`, on the display's cursor
-    /// plane, with its hotspot at `hot`. The image is cut to the plane's
-    /// size, at most [`CURSOR_MAX`] a side, and stays hidden until
-    /// [`Drm2d::show_cursor`].
+    /// plane, with its hotspot at `hot`; it stays hidden until
+    /// [`Drm2d::show_cursor`]. A display that is not online refuses it
+    /// with `NotConnected`, which no error from the card decodes to; one
+    /// without a cursor plane, or whose plane, at most [`CURSOR_MAX`] a
+    /// side, is smaller than the image, with `Unsupported`, so the owner
+    /// draws the image whole rather than cut.
     pub fn setup_cursor(
         &mut self,
         id: DisplayId,
@@ -427,7 +468,9 @@ impl<K: Kms> Drm2d<K> {
             .iter()
             .find(|o| o.id == id && o.announced)
             .filter(|o| awake && o.online)
-            .ok_or_else(|| invalid("the display is not online"))?;
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotConnected, "the display is not online")
+            })?;
         if o.planes.as_ref().is_none_or(|p| p.cursor.is_none()) {
             return Err(unsupported());
         }
@@ -440,6 +483,12 @@ impl<K: Kms> Drm2d<K> {
                 .ok_or_else(unsupported)
         };
         let (cw, ch) = (side(DRM_CAP_CURSOR_WIDTH)?, side(DRM_CAP_CURSOR_HEIGHT)?);
+        if width > cw || height > ch {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("a {width}x{height} image on a {cw}x{ch} cursor plane"),
+            ));
+        }
         self.destroy_cursor(id);
         let dumb = self.card.create_dumb(cw, ch)?;
         let made = self.card.add_fb(&dumb, cw, ch, ARGB8888).and_then(|fb| {

@@ -120,6 +120,10 @@ pub(crate) struct State {
     pub(crate) commits: Vec<Commit>,
     /// Errors the next commits return, one each.
     pub(crate) commit_errors: VecDeque<Errno>,
+    /// Errors the next dumb buffers' creations return, one each.
+    pub(crate) dumb_errors: VecDeque<Errno>,
+    /// The cursor plane's side the card reports; 0 reports 256.
+    pub(crate) cursor_side: u64,
     /// CRTCs no commit may drive, as past a bandwidth limit: a commit
     /// that names one is refused with EINVAL.
     pub(crate) refused: Vec<u32>,
@@ -366,7 +370,12 @@ impl Kms for FakeCard {
         }
         match cap {
             DRM_CAP_DUMB_BUFFER => Ok(1),
-            DRM_CAP_CURSOR_WIDTH | DRM_CAP_CURSOR_HEIGHT => Ok(256),
+            DRM_CAP_CURSOR_WIDTH | DRM_CAP_CURSOR_HEIGHT => {
+                Ok(match self.state.borrow().cursor_side {
+                    0 => 256,
+                    side => side,
+                })
+            }
             _ => Err(err(Errno::INVAL)),
         }
     }
@@ -480,6 +489,9 @@ impl Kms for FakeCard {
     }
 
     fn create_dumb(&self, width: u32, height: u32) -> io::Result<Dumb> {
+        if let Some(e) = self.state.borrow_mut().dumb_errors.pop_front() {
+            return Err(err(e));
+        }
         let handle = self.id();
         self.state
             .borrow_mut()
