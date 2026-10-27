@@ -405,9 +405,9 @@ impl Parser {
     pub fn reset(&mut self) {
         self.utf8.reset();
         self.dcs = Dcs::None;
+        self.release_osc();
         self.drop_backslash = self.pending_end == Some(State::ApcString);
         self.pending_end = None;
-        self.release_osc();
         self.state = State::Ground;
     }
 
