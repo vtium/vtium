@@ -35,7 +35,7 @@
 ## Blink text with SGR 5 and a blinking cursor, every 500 ms; off, neither blinks.
 #blink
 
-## The longest a synchronized frame (mode 2026) is held before it is shown as drawn.
+## The longest a synchronized frame (mode 2026) is held before it is shown as drawn; 0 offers no mode 2026.
 #sync-timeout=200
 
 ## Turn the displays off after this long with no key or pointer event; 0 never does.

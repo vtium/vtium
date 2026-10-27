@@ -229,14 +229,14 @@ pub const SYNC_TIMEOUT: Key = Key {
     short: None,
     kind: Kind::Number {
         min: 0,
-        max: UINT_MAX,
+        max: 10_000,
         unit: "ms",
     },
     default: Default::Number(200),
     scope: Scope::Anywhere,
-    reader: "vtium-platform",
-    what: "The longest a synchronized frame (mode 2026) is held before it is shown as drawn.",
-    cite: "src/config.c:1374",
+    reader: "vtium",
+    what: "The longest a synchronized frame (mode 2026) is held before it is shown as drawn; 0 offers no mode 2026.",
+    cite: "src/config.c:1374; src/terminal_sync.h:62-66, `TERMINAL_SYNC_MAX_MS`",
 };
 
 pub const DPMS_TIMEOUT: Key = Key {

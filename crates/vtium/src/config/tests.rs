@@ -306,8 +306,8 @@ fn a_number_out_of_bounds_is_clamped_and_reported() {
             },
         ]
     );
-    let l = load_with(&["--sync-timeout=4294967296"], None, &[]);
-    assert_eq!(l.config.number(&SYNC_TIMEOUT), Some(u64::from(u32::MAX)));
+    let l = load_with(&["--sync-timeout=10001"], None, &[]);
+    assert_eq!(l.config.number(&SYNC_TIMEOUT), Some(10_000));
     assert_eq!(l.reports.len(), 1);
 }
 

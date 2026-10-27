@@ -30,4 +30,5 @@ pub mod config;
 pub mod font;
 pub mod pointer;
 pub mod respawn;
+pub mod sync;
 pub mod termcap;
