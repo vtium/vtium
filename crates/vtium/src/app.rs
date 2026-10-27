@@ -173,6 +173,10 @@ pub struct App {
     modes: Vec<ModeSpec>,
     /// `use-original-mode`, off when a mode is set.
     use_original: bool,
+    /// `clipboard-write`: OSC 52's selection is taken.
+    clipboard_write: bool,
+    /// The last selection OSC 52 set, held for a paste.
+    selection: Option<Vec<u8>>,
 }
 
 impl App {
@@ -218,6 +222,8 @@ impl App {
         let use_original = config.switch(&keys::USE_ORIGINAL_MODE) && modes.is_empty();
         App {
             oneshot: config.switch(&keys::ONESHOT),
+            clipboard_write: config.switch(&keys::CLIPBOARD_WRITE),
+            selection: None,
             modes,
             use_original,
             vt,
@@ -252,6 +258,12 @@ impl App {
             leaving: None,
             inherited,
         }
+    }
+
+    /// The last selection a program set with OSC 52, while
+    /// `clipboard-write` is on.
+    pub fn selection(&self) -> Option<&[u8]> {
+        self.selection.as_deref()
     }
 
     /// The configuration the seat runs with.
@@ -996,6 +1008,13 @@ impl App {
             .unwrap_or_default();
         for e in inputs {
             self.input_event(e, now);
+        }
+        // The console has no system clipboard: a selection OSC 52 set is
+        // held for a paste, or dropped under `no-clipboard-write`.
+        if let Some(selection) = self.term.terminal.take_clipboard_write() {
+            if self.clipboard_write {
+                self.selection = Some(selection);
+            }
         }
         self.child_exited(now);
         self.timers(now);

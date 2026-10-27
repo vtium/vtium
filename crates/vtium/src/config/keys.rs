@@ -517,6 +517,17 @@ pub const PALETTE_BACKGROUND: Key = Key {
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
+pub const CLIPBOARD_WRITE: Key = Key {
+    name: "clipboard-write",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(true),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken for a paste, which is not built yet.",
+    cite: "ADR-1000 (`osc.52.write`); vtium/vtium#39",
+};
+
 pub const XKB_MODEL: Key = Key {
     name: "xkb-model",
     short: None,
@@ -772,7 +783,7 @@ pub const RENDER_TIMER: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 59] = [
+pub const KEYS: [Key; 60] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -810,6 +821,7 @@ pub const KEYS: [Key; 59] = [
     PALETTE_WHITE,
     PALETTE_FOREGROUND,
     PALETTE_BACKGROUND,
+    CLIPBOARD_WRITE,
     XKB_MODEL,
     XKB_LAYOUT,
     XKB_VARIANT,

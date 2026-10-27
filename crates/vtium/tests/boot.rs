@@ -1124,3 +1124,28 @@ fn a_flip_draws_only_its_own_display() {
         "the other display left alone"
     );
 }
+
+/// A selection a program sets with OSC 52 is taken and held; with
+/// `no-clipboard-write` it is dropped.
+#[test]
+fn osc_52_is_held_or_dropped_as_clipboard_write_says() {
+    let set = "printf '\\033]52;c;aGVsbG8=\\007set\\n'; read x";
+    let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", set]);
+    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "set")));
+    assert_eq!(h.app.selection(), Some(&b"hello"[..]));
+    let mut h = Harness::new(&[
+        "--no-clipboard-write",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        set,
+    ]);
+    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "set")));
+    assert_eq!(h.app.selection(), None);
+    assert_eq!(
+        h.app.term.terminal.take_clipboard_write(),
+        None,
+        "taken and dropped"
+    );
+}

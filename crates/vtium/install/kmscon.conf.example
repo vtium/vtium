@@ -107,6 +107,9 @@
 ## The default background with `palette=custom`.
 #palette-background=0,0,0
 
+## Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken for a paste, which is not built yet.
+#clipboard-write
+
 ## The keyboard model, as xkeyboard-config names it.
 #xkb-model=
 
