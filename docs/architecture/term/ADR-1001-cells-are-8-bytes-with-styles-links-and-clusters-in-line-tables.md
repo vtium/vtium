@@ -1,0 +1,172 @@
+---
+contract: adr/v1
+kind: decision
+verb: add
+capability: screen
+basis:
+  - operator: aaronsb
+    level: directed
+    said: "It bounds scrollback by the machine's memory with the operator's caps (2026-10-26): `sb-size` is accepted up to 10,000 lines below 2 GiB, 30,000 from 2 GiB, and 100,000 from 4 GiB."
+    via: vtium/vtium#10, the issue body
+  - upstream: "kmscon ADR-304 §4 and §5 (aaronsb/kmscon): the cell model is designed fresh, budgeted for reflow's wrapped-line flag, hyperlink ids, overline and conceal, and measured against the minspec targets: resident after the first screen at most 10.3 MiB with unifont, at peak with the scrollback full at most 15.7 MiB"
+  - upstream: "kmscon ADR-102 (aaronsb/kmscon): cells carry clusters and unresolved colour; the C reference's cell was 32 bytes, held there by a static assert, with an 8-byte change age; clusters keep at most 32 codepoints"
+  - upstream: "kmscon ADR-103 (aaronsb/kmscon): an image placement is anchored to the line holding its top row and travels with it; kmscon's README, \"Minimal build\": the 15.7 MiB peak held a full 1,000-line scrollback"
+  - upstream: "aaronsb/libtsm#34 (a region scroll flagged every cell), #35 (no mark for the default background), #47 (padding drawn with the pen), #22 (the cursor colour), #28 (no continuation flag for reflow)"
+  - standard: "kitty graphics protocol, z-index: images below -1,073,741,824 are drawn under cells with non-default background colors"
+  - standard: "ECMA-48 §8.3.117 (SGR); xterm control sequences (DECSCUSR, DECSCA, OSC 12); mintty's SGR 73-75; FinalTerm's OSC 133"
+  - precedent: ADR-1000
+agent:
+  name: Claude
+  model: claude-opus-5-5
+observable:
+  - "`cargo test -p vtium-term --test memory -- --nocapture` prints the resident figures this record quotes, and fails when the model's size changes"
+  - "Changing the cell or the line so it grows fails the build at the size assertions in `src/cell.rs` and `src/line.rs`"
+status: proposed
+date: 2026-10-26
+deciders:
+  - aaronsb
+related: []
+---
+
+# ADR-1001: Cells are 8 bytes, with styles, links and clusters in line tables
+
+## Summary
+
+- **Decided:** A cell is 8 bytes: what it shows and its width, and two 16-bit indices, one into its line's style table and one into its line's link table. A grapheme cluster of several codepoints lives in its line's cluster table. Each line owns its tables, a permanent id that images and prompt marks anchor to, and 16 bits of flags: the wrapped flag reflow reads, the three shell-integration marks and the line size, with ten spare for bidirectional text. Change ages are kept per screen position, so neither cells nor the scrollback carry them. A frame resolves colours through the palette when it is drawn. `sb-size` defaults to 1,000 lines and is capped at 10,000, 30,000 or 100,000 lines by the machine's memory.
+- **Trades away:** A cell no longer holds its style itself, so reading one goes through its line, and moving cells between lines (reflow, rectangle copies) renumbers their indices. A line of truecolour art, every cell its own colours, costs about 23 bytes a cell where plain text costs 8. At the 10,000-line cap the scrollback costs more than the C reference's measured peak allowed, which held 1,000 lines.
+- **One-way?** No. Reversible now; expensive once vtium/vtium#11 builds the screen and vtium/vtium#41 builds reflow on these types.
+- **Probes:**
+  - *Confident (default memory):* a console left at the default 1,000 lines of scrollback spends about 1.5 MiB on it, against the C reference's 5.2 MiB, so the minspec build keeps about 4 MiB of headroom under its 15.7 MiB peak.
+  - *Not confident (the cap):* that on a machine under 2 GiB, setting `sb-size` to the 10,000-line cap may cost about 15 MiB of full shell lines, and up to 37 MiB if the scrollback fills with pictures printed as coloured text. Squeezing it to about a byte a character for plain text is possible, at the cost of more code and of unpacking lines as they are scrolled back to.
+- **Inversion:** Between "a fat cell that holds everything inline" (the C reference's 32 bytes) and "a tiny cell indexing tables the whole screen shares" (style ids with reference counts). The answer is the tiny cell with its tables owned by its line: no shared table to count references in, hash, or fill, and a line that leaves the scrollback takes everything it used with it.
+
+## Context
+
+vtium designs its cell model fresh (kmscon ADR-304 §4) before the screen is built on it (vtium/vtium#11). The C reference's cell was 32 bytes, held there by a static assert: the codepoint, a 4-byte width holding 0 to 2, a 12-byte attribute struct, and an 8-byte change age. Its tracker queued claimants the cell had no room for: overline, superscript and subscript, conceal, a hyperlink id, a mark for the default background; per line, a continuation flag for reflow, prompt marks, bidirectional state and image anchors; per frame, the cursor's shape and colour.
+
+The minspec machine (1366x768, 512 MB) sets the budget. In unifont's 8x16 cells the screen is 170 by 48. The C reference's measured peak, 15.7 MiB with unifont, held its default 1,000-line scrollback, 5.19 MiB of 32-byte cells. The operator's caps let a machine under 2 GiB keep ten times that many lines.
+
+## Decision
+
+### The cell
+
+A cell is 8 bytes:
+
+| Bits | Holds |
+|---|---|
+| content, bits 0-20 | A codepoint, or the index of a cluster in the line's cluster table; 0 is empty |
+| content, bit 21 | Set for a cluster |
+| content, bits 22-23 | The width: narrow, wide, or the second column of a wide cell |
+| content, bits 24-31 | Zero, spare |
+| style, 16 bits | The index of its style in the line's style table; 0 is the default style |
+| link, 16 bits | The index of its hyperlink in the line's link table; 0 is no link |
+
+The all-zero cell is the blank cell: empty, narrow, default style, no link. A cell erased in a colour (BCE) is empty in that style, and is not blank.
+
+### Styles
+
+A style is the two colours, the underline colour and 16 bits of attributes, 14 bytes, held in the line's table. A colour is the default, a palette index or RGB, kept as the program set it until a frame resolves it. The attributes are bold, dim, italic, blink, rapid blink, inverse, conceal, strike, overline and protected (DECSCA), each a bit; the underline style in three bits (none, single, double, curly, dotted, dashed); and the script in two (baseline, superscript, subscript). One bit is spare.
+
+### The line
+
+A line owns its cells and three tables: styles, hyperlinks (each entry a link id into the link store vtium/vtium#40 builds) and clusters (codepoint runs in one arena per line, at most `CLUSTER_MAX`, 32, codepoints each). A line with only default, unlinked, single-codepoint cells allocates no tables.
+
+A write looks its style and link up in the line's table, newest entry first, and appends them if absent. Once a table reaches twice the line's cells, the line compacts: it keeps the entries a cell still names and renumbers the cells. Each compaction follows at least as many writes as the line has cells, so writes stay amortised constant time and no table holds more than twice its line's cells, whatever a program writes. `COLUMNS_MAX` (8192) keeps twice the widest line inside a 16-bit index. Nothing is shared between lines, so no table needs a reference count or a hash.
+
+A line has a `LineId`, unique within its screen buffer for the buffer's life and never reused, and 16 bits of flags:
+
+- **Wrapped:** the line's text continues on the next line, because printing wrapped at the right margin. A line the program ended with a newline, or left by moving the cursor, does not carry it. Reflow (vtium/vtium#41) rejoins only wrapped lines.
+- **Prompt, input, output:** OSC 133's A, B and C marks start on this line (vtium/vtium#40).
+- **Line size:** single, double width, or the top or bottom of double height, in two bits (vtium/vtium#61).
+- Ten bits are spare for bidirectional state (vtium/vtium#43).
+
+A line may hold fewer cells than the screen is wide. A line entering the scrollback is trimmed: it drops its trailing blank cells, compacts, and gives back spare capacity. Every cell past a line's end reads as the blank cell in the default style, never the pen (aaronsb/libtsm#47).
+
+### Where each claimant lives
+
+| Claimant | Where | Issue that uses it |
+|---|---|---|
+| The glyph or grapheme cluster | Cell content; the line's cluster table | vtium/vtium#11 |
+| The width | Cell content, bits 22-23 | vtium/vtium#11 |
+| Overline, conceal, rapid blink | Style attributes | vtium/vtium#37 |
+| Superscript and subscript | Style attributes, the script | vtium/vtium#37 |
+| A hyperlink id | Cell link index; the line's link table | vtium/vtium#40 |
+| The default background mark | The style's background is `Color::Default`; the frame cell's `default_bg` | aaronsb/libtsm#35 |
+| The change age | `Damage`, by screen position | vtium/vtium#11 |
+| The continuation flag | Line flags, wrapped | vtium/vtium#41 |
+| Prompt marks | Line flags, prompt, input and output | vtium/vtium#40 |
+| Bidirectional state | Line flags, ten spare bits | vtium/vtium#43 |
+| Double width and height | Line flags, line size | vtium/vtium#61 |
+| Image anchors | The `LineId` | vtium/vtium#28 |
+| The cursor's shape and colour | The frame's `Cursor` | vtium/vtium#12, #38 |
+| Change tracking renderers read | The frame cell's `changed`, the frame's `row_changed` | vtium/vtium#16 |
+
+### Change tracking
+
+`Damage` holds a change age for every screen position and every row, and one for the whole screen. Each mark stamps the current age. A display takes an age when it draws, and a position has changed for it when its stamp is newer, so each of several displays keeps its own. What marks what:
+
+- writing or erasing cells marks those cells;
+- scrolling marks the rows that moved: inside margins, the region's rows only (aaronsb/libtsm#34), and for the whole screen, every row;
+- a resize, a palette change, reverse video (DECSCNM), switching between the main and alternate screens, and moving the view through the scrollback mark everything;
+- an image placement that is added, moved, clipped or removed, or whose image changes, marks the cells under its old and its new box;
+- moving the cursor marks nothing, since the frame carries the cursor and a renderer redraws the cells it left and covers;
+- a pen change alone (SGR) marks nothing.
+
+### The frame
+
+A frame is the visible lines, the damage, the palette, the age the reading display last drew at, the cursor and DECSCNM. For each cell it gives the glyph (a codepoint or a cluster's codepoints), the width, the foreground and background resolved through the palette and inverse video, the underline colour SGR 58 set (resolved, and kept through inverse video) or none to follow the configured one, the attributes, whether the background is the default one and not inverted, the link id, and whether the cell changed for this display. The cursor carries its position, visibility, DECSCUSR shape and blink, and OSC 12's colour. Resolving at draw time is what lets a palette change recolour text already on the screen (ADR-1000's row "Colours resolved at draw time").
+
+Bold as bright and dim join the resolution with vtium/vtium#12, the selection with vtium/vtium#11, and the placement list with vtium/vtium#28. vtium-image anchors a placement by the `LineId` of the line holding its top row and marks its boxes through `Damage`; the line holds nothing for images.
+
+### Scrollback size
+
+`sb-size` defaults to 1,000 lines, the C reference's default. It is accepted up to 10,000 lines below 2 GiB of memory, 30,000 from 2 GiB and 100,000 from 4 GiB, and a larger value is clamped to the cap. The caps are rows of vtium-term's bounds table.
+
+### Memory
+
+Computed from the structures by capacity in `crates/vtium-term/tests/memory.rs`, which pins each figure. A line costs its 48-byte struct and its heap. The screen, 170 by 48 lines with their damage, is 133,632 bytes (0.13 MiB).
+
+| Scrollback content | Bytes a line | 1,000 lines, with the screen | 10,000 lines, with the screen |
+|---|---|---|---|
+| Plain text, full width | 1,408 | 1.47 MiB | 13.56 MiB |
+| A shell's lines (three styles), full width | 1,532 | 1.59 MiB | 14.74 MiB |
+| A shell's lines, 60 cells | 652 | 0.75 MiB | 6.35 MiB |
+| Truecolour art, every cell its own colours, full width | 3,884 | 3.83 MiB | 37.17 MiB |
+
+Set against the minspec targets, taking the rest of the process at what the C reference's cost (its screen of 32-byte cells was 0.25 MiB of its 10.3 MiB):
+
+- **After the first screen**, about 10.2 MiB with unifont, against the target of 10.3 MiB.
+- **At the default 1,000 lines**, full of full-width shell lines, about 11.6 MiB, against the 15.7 MiB peak target: 4.1 MiB under.
+- **At the 10,000-line cap**, about 24.8 MiB full of full-width shell lines, 16.4 MiB full of 60-cell lines, and 47.2 MiB full of truecolour art. The 15.7 MiB target was measured with 1,000 lines, so the cap passes it; meeting it at 10,000 lines would take about 3.4 bytes a cell, which only packing the text reaches (Alternatives). On a 512 MB machine the worst of these is 9% of memory.
+
+Tier 3 measures the real figures from the first working build (kmscon ADR-304 §5).
+
+## Consequences
+
+### Positive
+
+- The default scrollback costs about a quarter of the C reference's, and the screen half.
+- Every claimant on the C reference's tracker has a place, with bits to spare in the content word, the attributes and the line flags.
+- A program cannot grow a line's tables past twice its cells, and nothing it writes into one line holds memory in another.
+- Reflow (vtium/vtium#41) has the wrapped flag, and image placements (vtium/vtium#28) and prompt marks (vtium/vtium#40) have a stable line identity, without either costing a cell anything.
+- A region scroll leaves the rest of the screen unchanged for the renderer.
+
+### Negative
+
+- Moving cells between lines, as reflow and rectangle copies do, renumbers their style, link and cluster indices into the destination line's tables.
+- A write searches its line's style table, at most twice the line's cells long. A program that styles every cell differently pays that search on every write.
+- Truecolour art costs about 23 bytes a cell, more than a 16-byte inline cell would.
+- The 10,000-line cap, used in full, passes the C reference's measured peak.
+
+### Neutral
+
+- The cluster table is per line, so vtium/vtium#11 has no shared cluster table, and the C reference's hash seed fallback (aaronsb/libtsm#41) has no counterpart.
+- vtium/vtium#11 applies the change-tracking rule in the screen and holds it with its property test of the frame's changed set.
+- The three departures this model carries (aaronsb/libtsm#34, #35 and #47) are listed in vtium-term's README.
+
+## Alternatives Considered
+
+- **An inline cell of 16 to 20 bytes**, both colours and the attributes in the cell, the underline colour and the link beside them. Rejected: it doubles or more the cost of the plain and shell lines that fill most scrollbacks, and wins only on truecolour art.
+- **Style ids into one table the screen shares, with reference counts.** Rejected: 1.7 million cells of truecolour art in a 10,000-line scrollback overflow a 16-bit id, so the table needs a policy for when it is full; every write updates two counts; and lookup needs an ordered map, since `HashMap` is denied (docs/architecture.md, "Determinism"). Ghostty answers the overflow with a style set per memory page; vtium's line is the same idea at the size of a line, with no counts.
+- **A change age in each cell**, as the C reference had. Rejected: it doubles the cell, and the scrollback never reads it.
+- **Packed scrollback lines**, about a byte a character for plain text with runs of styles. Not now: it reaches the 15.7 MiB peak at 10,000 lines, at the cost of a second line form and unpacking as the view scrolls back. It is the step to take if the operator wants the 10,000-line cap inside that peak, or if tier 3 measures the default over its target.
