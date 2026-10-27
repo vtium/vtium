@@ -540,8 +540,7 @@ impl Screen {
 
     /// CUU, and RI with `scroll`: `n` rows up, stopping at the top margin
     /// when the cursor is inside the region, and scrolling the region down
-    /// by what is left when `scroll` is set. Above the region the cursor
-    /// stops at the screen's first row and nothing scrolls.
+    /// by what is left when `scroll` is set.
     pub fn move_up(&mut self, n: usize, scroll: bool) {
         if n == 0 {
             return;
@@ -553,7 +552,7 @@ impl Screen {
         };
         let room = self.cursor_y.saturating_sub(stop);
         if n > room {
-            if scroll && self.cursor_y >= self.top {
+            if scroll {
                 self.scroll_down(n.saturating_sub(room));
             }
             self.move_cursor(self.cursor_x, stop);
@@ -564,8 +563,7 @@ impl Screen {
 
     /// CUD, and IND and LF with `scroll`: `n` rows down, stopping at the
     /// bottom margin when the cursor is inside the region, and scrolling the
-    /// region up by what is left when `scroll` is set. Below the region the
-    /// cursor stops at the screen's last row and nothing scrolls.
+    /// region up by what is left when `scroll` is set.
     pub fn move_down(&mut self, n: usize, scroll: bool) {
         if n == 0 {
             return;
@@ -577,7 +575,7 @@ impl Screen {
         };
         let room = end.saturating_sub(self.cursor_y).saturating_sub(1);
         if n > room {
-            if scroll && self.cursor_y <= self.bottom {
+            if scroll {
                 self.scroll_up(n.saturating_sub(room));
             }
             self.move_cursor(self.cursor_x, end.saturating_sub(1));
@@ -684,13 +682,11 @@ impl Screen {
     }
 
     /// DECSTBM: the scroll region from row `top` to row `bottom`, counted
-    /// from 1, 0 standing for an omitted parameter: the first row and the
-    /// last. A region of one row, an inverted one, or one past the screen's
-    /// end is the whole screen, as in the C reference. The cursor goes home,
-    /// the region's top in origin mode.
+    /// from 1, 0 standing for an omitted parameter. A region of one row,
+    /// an inverted one, or one past the screen's end is the whole screen.
+    /// The cursor stays where it is, as in the C reference.
     pub fn set_margins(&mut self, top: usize, bottom: usize) {
         let top = top.max(1);
-        let bottom = if bottom == 0 { self.rows } else { bottom };
         if bottom <= top || bottom > self.rows {
             self.top = 0;
             self.bottom = self.rows.saturating_sub(1);
@@ -698,7 +694,6 @@ impl Screen {
             self.top = top.saturating_sub(1);
             self.bottom = bottom.saturating_sub(1);
         }
-        self.move_to(0, 0);
     }
 
     // Lines and damage.

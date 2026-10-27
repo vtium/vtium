@@ -76,9 +76,7 @@ impl Screen {
 
         if self.cursor_y > last {
             self.move_cursor(self.cursor_x, last);
-            if last == self.bottom {
-                self.scroll_up(1);
-            }
+            self.scroll_up(1);
         }
 
         let (x, y) = (self.cursor_x, self.cursor_y);
@@ -104,11 +102,8 @@ impl Screen {
         }
     }
 
-    /// The last row a print at row `y` may use: the bottom margin, where a
-    /// wrap scrolls the region, or below the region the screen's last row,
-    /// where a wrap returns to the first column and nothing scrolls (VT510
-    /// manual, DECAWM: "The display scrolls up if the cursor is at the end
-    /// of the scrolling region").
+    /// The last row a print at row `y` may use before the screen scrolls:
+    /// the bottom margin, or the screen's last row below the region.
     pub(super) fn last_print_row(&self, y: usize) -> usize {
         if y <= self.bottom || y >= self.rows {
             self.bottom
@@ -246,11 +241,8 @@ impl Screen {
         }
         self.erase_cells(y, x..next);
         let mut y = y;
-        let last = self.last_print_row(y);
-        if y.saturating_add(1) > last {
-            if last == self.bottom {
-                self.scroll_up(1);
-            }
+        if y.saturating_add(1) > self.last_print_row(y) {
+            self.scroll_up(1);
         } else {
             y = y.saturating_add(1);
         }

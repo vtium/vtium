@@ -122,47 +122,6 @@ fn a_marker_or_an_intermediate_makes_another_function() {
     }
 }
 
-// The C reference left the cursor where it was after DECSTBM, and took an
-// omitted bottom margin as 0, which made the whole screen the region. VT510
-// manual, DECSTBM: "Default: Pb is the last line of the current page", and
-// "DECSTBM moves the cursor to column 1, line 1 of the page"; xterm moves
-// it to the home position, the region's top in origin mode.
-#[test]
-fn decstbm_homes_the_cursor_and_an_omitted_bottom_is_the_last_line() {
-    let mut t = term(4, 6, b"\x1b[4;3H\x1b[3r");
-    assert_eq!(t.screen().margins(), (2, 5));
-    assert_eq!(t.screen().cursor(), (0, 0));
-    t.screen_mut().set_origin_mode(true);
-    t.input(b"\x1b[4;3H\x1b[2;4r");
-    assert_eq!(t.screen().cursor(), (0, 1));
-}
-
-// The C reference scrolled the region when IND, LF or a wrap reached the
-// screen's last row below the region, and when RI reached its first row
-// above it. VT510 manual, IND: "If the cursor is at the bottom margin, the
-// screen performs a scroll-up"; RI: "If the cursor is at the top margin,
-// the screen performs a scroll-down"; DECAWM: "The display scrolls up if
-// the cursor is at the end of the scrolling region." Outside the region
-// the cursor stops at the screen's edge, as xterm's does.
-#[test]
-fn index_outside_the_region_stops_at_the_screens_edge() {
-    let fill = b"1\r\n2\r\n3\r\n4\r\n5";
-    let mut t = term(4, 5, fill);
-    t.input(b"\x1b[3;4r\x1b[5;1H\n\x1bD");
-    assert_eq!(rows(t.screen()), ["1", "2", "3", "4", "5"]);
-    assert_eq!(t.screen().cursor(), (0, 4));
-    t.input(b"\x1b[1;1H\x1bM");
-    assert_eq!(rows(t.screen()), ["1", "2", "3", "4", "5"]);
-    assert_eq!(t.screen().cursor(), (0, 0));
-    // A wrap on the last row below the region returns to its first column.
-    t.input(b"\x1b[5;1Habcdxy");
-    assert_eq!(rows(t.screen()), ["1", "2", "3", "4", "xycd"]);
-    assert_eq!(t.screen().cursor(), (2, 4));
-    // A wide character there wraps whole to the same row.
-    t.input("\x1b[5;4H\u{4E2D}".as_bytes());
-    assert_eq!(rows(t.screen()), ["1", "2", "3", "4", "\u{4E2D}c"]);
-}
-
 // HPA and HPR (ECMA-48 8.3.57, 8.3.59), which the C reference did not
 // carry out.
 #[test]
