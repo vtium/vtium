@@ -16,7 +16,8 @@
     clippy::arithmetic_side_effects,
     clippy::indexing_slicing,
     clippy::cast_possible_truncation,
-    reason = "test arithmetic on bounded values"
+    clippy::panic,
+    reason = "test arithmetic on bounded values; a test fails by panicking"
 )]
 
 use std::cell::RefCell;
@@ -155,6 +156,8 @@ struct Term {
     taken: Vec<u8>,
     queries: usize,
     takes: Rng,
+    /// Takes all it is offered, unless the replies fill.
+    eager: bool,
     /// Ignores [`Replies::full`], as a consumer must not.
     reckless: bool,
 }
@@ -165,6 +168,7 @@ impl Term {
             taken: Vec::new(),
             queries: 0,
             takes: Rng(seed),
+            eager: false,
             reckless: false,
         }
     }
@@ -172,7 +176,15 @@ impl Term {
 
 impl Consumer for Term {
     fn output(&mut self, output: &[u8], replies: &mut Replies<'_>) -> usize {
-        let limit = self.takes.below(output.len() + 1);
+        assert!(
+            self.reckless || !replies.full(),
+            "fed while the child's replies are full"
+        );
+        let limit = if self.eager {
+            output.len()
+        } else {
+            self.takes.below(output.len() + 1)
+        };
         for (i, &b) in output[..limit].iter().enumerate() {
             self.taken.push(b);
             if b == b'?' {
@@ -189,19 +201,6 @@ impl Consumer for Term {
     fn exited(&mut self, _: ExitStatus) {}
 }
 
-/// The replies a whole feed gives to `stream`.
-fn replies_to(stream: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut n = 0;
-    for &b in stream {
-        if b == b'?' {
-            n += 1;
-            out.extend_from_slice(format!("R{n};").as_bytes());
-        }
-    }
-    out
-}
-
 /// The longest reply a test stream can draw: `R` and `;` around a count.
 const REPLY_LEN_MAX: usize = 10;
 
@@ -214,6 +213,8 @@ struct Driver {
     feed: bool,
     /// The queued replies reached [`REPLY_HIGH`] at some point.
     stalled: bool,
+    /// The channel said to tell the consumer the child exited.
+    told: bool,
 }
 
 impl Driver {
@@ -226,6 +227,7 @@ impl Driver {
             writable: false,
             feed: false,
             stalled: false,
+            told: false,
         }
     }
 
@@ -241,6 +243,25 @@ impl Driver {
         }
     }
 
+    /// Does what `next` asks and settles the exit, as the pty does after
+    /// each call. The consumer hears of the exit once, with all the child
+    /// wrote taken.
+    fn settle(&mut self, next: Next, term: &mut Term, seed: u64) {
+        let (next, told) = self.ch.settle(next, term);
+        self.apply(next, seed);
+        if told {
+            assert!(!self.told, "seed {seed}: the exit was told twice");
+            self.told = true;
+            let c = self.child.borrow();
+            assert!(
+                term.taken.len() == c.stream.len(),
+                "seed {seed}: the exit came with {} of {} bytes taken",
+                term.taken.len(),
+                c.stream.len()
+            );
+        }
+    }
+
     /// One turn of the loop: the pending edges, then the owed feed.
     fn turn(&mut self, term: &mut Term, seed: u64) {
         if self.readable || self.writable {
@@ -248,12 +269,12 @@ impl Driver {
             self.readable = false;
             self.writable = false;
             let next = self.ch.ready(r, w, term);
-            self.apply(next, seed);
+            self.settle(next, term, seed);
         }
         if self.feed {
             self.feed = false;
             let next = self.ch.feed_held(term);
-            self.apply(next, seed);
+            self.settle(next, term, seed);
         }
         let queued = self.ch.queued_replies();
         self.stalled |= queued >= REPLY_HIGH;
@@ -275,8 +296,19 @@ impl Driver {
         }
     }
 
+    /// The child writes the rest of its stream and exits.
+    fn exit(&mut self, term: &mut Term, seed: u64) {
+        self.child_writes(usize::MAX / 2);
+        self.child.borrow_mut().exited = true;
+        let next = self.ch.orphan();
+        self.settle(next, term, seed);
+    }
+
     fn done(&self, term: &Term) -> bool {
         let c = self.child.borrow();
+        if c.exited {
+            return self.told;
+        }
         term.taken.len() == c.stream.len() && self.ch.queued() == 0 && c.input.is_empty()
     }
 }
@@ -301,6 +333,62 @@ fn stream(rng: &mut Rng, len: usize) -> Vec<u8> {
     s
 }
 
+/// What the child read, parsed: every byte belongs to a whole key, reply,
+/// outside reply or motion report. A child that exited may have stopped
+/// reading partway through its last one, which `cut` allows.
+#[derive(Default)]
+struct Input {
+    keys: usize,
+    replies: Vec<usize>,
+    outside: Vec<usize>,
+    motion: Vec<usize>,
+}
+
+fn parse_input(got: &[u8], cut: bool, seed: u64) -> Input {
+    let mut input = Input::default();
+    let mut at = 0;
+    let number = |at: &mut usize, end: u8| {
+        let start = *at;
+        while got.get(*at).is_some_and(u8::is_ascii_digit) {
+            *at += 1;
+        }
+        let n: Option<usize> = std::str::from_utf8(&got[start..*at])
+            .ok()
+            .and_then(|d| d.parse().ok());
+        match (n, got.get(*at)) {
+            (Some(n), Some(&b)) if b == end => {
+                *at += 1;
+                Some(n)
+            }
+            (_, None) if cut => None,
+            _ => panic!(
+                "seed {seed}: the child read a broken report at byte {start}: {:?}",
+                String::from_utf8_lossy(
+                    &got[start.saturating_sub(40)..(start + 40).min(got.len())]
+                )
+            ),
+        }
+    };
+    while let Some(&b) = got.get(at) {
+        at += 1;
+        match b {
+            b'k' => input.keys += 1,
+            b'R' => input.replies.extend(number(&mut at, b';')),
+            b'X' => input.outside.extend(number(&mut at, b';')),
+            b'<' if cut && at == got.len() => {}
+            b'<' if got.get(at) == Some(&b'm') => {
+                at += 1;
+                input.motion.extend(number(&mut at, b'M'));
+            }
+            _ => panic!(
+                "seed {seed}: the child read a stray byte {b:#x} at {}",
+                at - 1
+            ),
+        }
+    }
+    input
+}
+
 /// Runs one seeded case. Returns whether the replies stalled the reading.
 fn chunking_case(seed: u64) -> bool {
     let mut rng = Rng(seed);
@@ -314,12 +402,26 @@ fn chunking_case(seed: u64) -> bool {
     let room = 1 + rng.below(8192);
     let mut d = Driver::new(Child::new(s.clone(), max_read, room, rng.next()));
     let mut term = Term::new(rng.next());
+    // A third of the consumers take all they can, so reads run to EAGAIN.
+    term.eager = rng.chance(3);
     let mut asleep = false;
-    let mut keys = 0usize;
+    // How long the child sleeps: some sleeps are long enough for one-byte
+    // reads to fill the replies.
+    let sleepiness = [20, 300, 3000][rng.below(3)];
+    // Half the children exit partway, once they have written this much,
+    // with the rest of the stream as their last write.
+    let exit_at = rng.chance(2).then(|| rng.below(len));
+    let (mut keys, mut outside, mut motion) = (0usize, 0usize, 0usize);
 
-    // The child writes, reads, sleeps and wakes at random; the host types
-    // and pauses at random.
+    // The child writes, reads, sleeps and wakes at random; the host types,
+    // moves the pointer, replies outside the consumer and pauses at random.
     for _ in 0..200_000 {
+        let c = d.child.borrow();
+        let exit = exit_at.is_some_and(|at| c.written >= at) && !c.exited;
+        drop(c);
+        if exit {
+            d.exit(&mut term, seed);
+        }
         match rng.below(16) {
             0..=5 => {
                 let n = 1 + rng.below(8192);
@@ -329,7 +431,7 @@ fn chunking_case(seed: u64) -> bool {
                 let n = 1 + rng.below(4096);
                 d.child_reads(n);
             }
-            9 if rng.chance(20) => asleep = !asleep,
+            9 if rng.chance(sleepiness) => asleep = !asleep,
             10 if rng.chance(10) => {
                 d.ch.send(Kind::User, b"k");
                 keys += 1;
@@ -342,12 +444,24 @@ fn chunking_case(seed: u64) -> bool {
                     d.ch.pause();
                 }
             }
+            12 if rng.chance(40) => {
+                for _ in 0..1 + rng.below(900) {
+                    motion += 1;
+                    d.ch.send(Kind::Motion, format!("<m{motion}M").as_bytes());
+                }
+            }
+            // An outside reply, such as the image host's, comes only while
+            // the replies are not full, so the bound below holds.
+            13 if rng.chance(20) && !d.ch.stalled() => {
+                outside += 1;
+                d.ch.send(Kind::Reply, format!("X{outside};").as_bytes());
+            }
             _ => d.turn(&mut term, seed),
         }
     }
 
-    // Then it writes the rest and reads everything, and nothing pauses:
-    // every byte reaches the consumer, and every reply the child.
+    // Then it writes the rest, nothing pauses, and it reads everything it
+    // can: every byte reaches the consumer before any exit is told.
     if d.ch.paused {
         let next = d.ch.resume();
         d.apply(next, seed);
@@ -360,22 +474,66 @@ fn chunking_case(seed: u64) -> bool {
         turns += 1;
         assert!(
             turns < 10_000_000,
-            "seed {seed}: stuck with {} of {} bytes taken, {} queued",
+            "seed {seed}: stuck with {} of {} bytes taken, {} queued; paused {} held {}..{} owed {} backlog {} dropping {} orphaned {} told {} drained {}; driver r {} w {} f {}; child written {} read {} exited {}",
             term.taken.len(),
             s.len(),
-            d.ch.queued()
+            d.ch.queued(),
+            d.ch.paused,
+            d.ch.start,
+            d.ch.end,
+            d.ch.feed_owed,
+            d.ch.writer.backlog,
+            d.ch.writer.dropping,
+            d.ch.writer.orphaned,
+            d.ch.exit_told,
+            d.ch.drained,
+            d.readable,
+            d.writable,
+            d.feed,
+            d.child.borrow().written,
+            d.child.borrow().read,
+            d.child.borrow().exited
         );
     }
 
     assert!(term.taken == s, "seed {seed}: the consumer saw other bytes");
-    let got = d.child.borrow().got.clone();
-    let typed = got.iter().filter(|&&b| b == b'k').count();
-    let replies: Vec<u8> = got.into_iter().filter(|&b| b != b'k').collect();
-    assert_eq!(typed, keys, "seed {seed}: keys lost");
+    let exited = d.child.borrow().exited;
+    let input = parse_input(&d.child.borrow().got, exited, seed);
+    let queries = s.iter().filter(|&&b| b == b'?').count();
+    let counted = |n: usize| (1..=n).collect::<Vec<_>>();
     assert!(
-        replies == replies_to(&s),
-        "seed {seed}: the child read other replies"
+        input.motion.windows(2).all(|w| w[0] < w[1]) && input.motion.iter().all(|&m| m <= motion),
+        "seed {seed}: motion reports out of order"
     );
+    if exited {
+        // The child read a prefix of what was sent before it exited.
+        assert!(
+            input.replies == counted(input.replies.len()),
+            "seed {seed}: replies"
+        );
+        assert!(
+            input.outside == counted(input.outside.len()),
+            "seed {seed}: outside replies"
+        );
+        assert!(input.keys <= keys, "seed {seed}: keys");
+    } else {
+        assert!(
+            input.replies == counted(queries),
+            "seed {seed}: the child read other replies"
+        );
+        assert!(
+            input.outside == counted(outside),
+            "seed {seed}: outside replies lost"
+        );
+        assert_eq!(input.keys, keys, "seed {seed}: keys lost");
+        if motion > 0 {
+            assert_eq!(
+                input.motion.last(),
+                Some(&motion),
+                "seed {seed}: the latest position lost"
+            );
+        }
+    }
     d.stalled
 }
 
@@ -384,13 +542,13 @@ fn chunking_case(seed: u64) -> bool {
 #[test]
 fn what_the_consumer_sees_and_replies_does_not_depend_on_reads() {
     let mut stalls = 0;
-    for seed in 0..48 {
+    for seed in 0..160 {
         if chunking_case(seed) {
             stalls += 1;
         }
     }
     // The cases reach the stall, so it is part of what they compare.
-    assert!(stalls >= 4, "only {stalls} cases stalled on replies");
+    assert!(stalls >= 12, "only {stalls} cases stalled on replies");
 }
 
 /// A child that never reads, flooding queries.
@@ -403,7 +561,7 @@ fn flood(n: usize) -> Driver {
 /// A consumer that takes all it is offered unless the replies fill.
 fn eager() -> Term {
     let mut t = Term::new(0);
-    t.takes = Rng(u64::MAX);
+    t.eager = true;
     t
 }
 
@@ -642,9 +800,33 @@ fn an_exit_while_paused_waits_for_the_output_after_the_resume() {
     let (next, told) = d.ch.settle(next, &mut out);
     assert!(!told, "the exit came before the output it left");
     assert_eq!(next, Next::default());
-    let next = d.ch.resume().or(d.ch.feed_later());
-    assert!(next.rearm);
-    let (_, told) = d.ch.settle(Next::default(), &mut out);
+    let next = d.ch.resume();
+    assert!(next.rearm && next.feed);
+    let next = d.ch.feed_held(&mut out);
+    let (_, told) = d.ch.settle(next, &mut out);
     assert!(told);
     assert_eq!(out, b"headTAIL");
+}
+
+// A key typed after the exit, with the dead child's replies still past
+// the bound, does not stall the reading again.
+#[test]
+fn a_key_after_the_exit_does_not_stall_the_reading() {
+    let mut d = flood(400_000);
+    let mut term = eager();
+    for _ in 0..100 {
+        d.turn(&mut term, 9);
+        d.readable = true;
+    }
+    assert!(d.ch.queued_replies() >= REPLY_HIGH);
+    d.exit(&mut term, 9);
+    d.ch.send(Kind::User, b"k");
+    let mut turns = 0;
+    while !d.told {
+        d.readable = true;
+        d.turn(&mut term, 9);
+        turns += 1;
+        assert!(turns < 10_000, "the reading stalled after the exit");
+    }
+    assert_eq!(term.taken.len(), 400_000);
 }

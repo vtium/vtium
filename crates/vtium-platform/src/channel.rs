@@ -124,7 +124,7 @@ impl<E: Endpoint> Writer<E> {
             }
         }
         self.queue.push(kind, rest);
-        if self.queue.replies() >= REPLY_HIGH {
+        if kind == Kind::Reply && self.queue.replies() >= REPLY_HIGH {
             self.backlog = true;
         }
     }
@@ -228,7 +228,7 @@ impl<E: Endpoint> Channel<E> {
     }
 
     /// Nothing is read or fed: a pause or a backlog of replies.
-    fn stalled(&self) -> bool {
+    pub(crate) fn stalled(&self) -> bool {
         self.paused || self.writer.backlog || self.writer.dropping
     }
 
@@ -283,7 +283,7 @@ impl<E: Endpoint> Channel<E> {
     }
 
     /// A feed on a later turn, unless one is owed already.
-    pub(crate) fn feed_later(&mut self) -> Next {
+    fn feed_later(&mut self) -> Next {
         if self.feed_owed {
             return Next::default();
         }
@@ -414,7 +414,12 @@ impl<E: Endpoint> Channel<E> {
             return Next::default();
         }
         self.paused = false;
-        self.restart()
+        let next = self.restart();
+        if self.writer.orphaned && !self.exit_told {
+            // the exit waits for a read on a later turn
+            return next.or(self.feed_later());
+        }
+        next
     }
 }
 

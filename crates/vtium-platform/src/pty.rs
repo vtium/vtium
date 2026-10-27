@@ -281,11 +281,7 @@ impl Pty {
     }
 
     pub fn resume(&mut self) {
-        let mut next = self.channel.resume();
-        if self.exit.is_some() {
-            // the exit waits for a read on a later turn
-            next = next.or(self.channel.feed_later());
-        }
+        let next = self.channel.resume();
         self.kick(next);
     }
 
