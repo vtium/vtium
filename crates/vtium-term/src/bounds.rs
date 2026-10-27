@@ -44,7 +44,7 @@ const CLUSTER: Bound = Bound {
 const CLUSTER_BYTES: Bound = Bound {
     name: "CLUSTER_BYTES_PER_CELL",
     value: 6,
-    what: "Bytes of grapheme clusters a line keeps, per cell of the line: each cluster's codepoints in UTF-8 and a length byte, so a base and two combining marks a cell on average",
+    what: "Bytes of grapheme clusters a line keeps, per cell of the width it was written at (a line trimmed for the scrollback keeps what its cells name): each cluster's codepoints in UTF-8 and a length byte, so a base and two combining marks a cell on average",
     past: "A cluster that would pass it keeps the longest run of its first codepoints that fits, and at least its first codepoint",
     cite: "vtium's own: it holds the worst case of the default 1,000-line scrollback inside the minspec peak (ADR-1001, \"Memory\")",
 };
@@ -105,8 +105,8 @@ pub const ROWS_MAX: usize = ROWS.value;
 /// Codepoints one grapheme cluster keeps; those past it are dropped.
 pub const CLUSTER_MAX: usize = CLUSTER.value;
 
-/// Bytes of grapheme clusters a line keeps per cell of the line, length
-/// bytes included.
+/// Bytes of grapheme clusters a line keeps per cell of the width it was
+/// written at, length bytes included.
 pub const CLUSTER_BYTES_PER_CELL: usize = CLUSTER_BYTES.value;
 
 /// The bytes one cluster takes in its line's arena at most: a length byte

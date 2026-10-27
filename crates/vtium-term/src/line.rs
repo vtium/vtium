@@ -16,8 +16,9 @@
 //! The cluster arena holds each cluster as a length byte and its codepoints
 //! in UTF-8, and the cell holds the cluster's byte offset. The clusters a
 //! line's cells name take at most [`CLUSTER_BYTES_PER_CELL`] bytes per
-//! cell; a cluster that would pass that keeps the longest run of its first
-//! codepoints that fits, and at least its first codepoint.
+//! cell of the width the line is written at; a cluster that would pass that
+//! keeps the longest run of its first codepoints that fits, and at least
+//! its first codepoint.
 
 use core::ops::Range;
 use std::collections::BTreeMap;
@@ -361,7 +362,9 @@ impl Line {
     }
 
     /// The bytes of the cluster arena the line's cells name, length bytes
-    /// included: at most [`CLUSTER_BYTES_PER_CELL`] for each cell.
+    /// included: at most [`CLUSTER_BYTES_PER_CELL`] for each cell of the
+    /// width the line was written at. A trimmed line keeps what its cells
+    /// name, which may pass the budget of its fewer cells.
     pub fn cluster_bytes(&self) -> usize {
         self.tables.as_ref().map_or(0, |t| t.live)
     }
