@@ -5,8 +5,7 @@
 //! `/bin/login` with it off. With `reset-env` on the environment starts
 //! empty, and off it starts as vtium's own. Over it vtium sets `TERM`,
 //! `COLORTERM=truecolor`, `XDG_SEAT` and `XDG_VTNR` when it knows them,
-//! and `TERM_SESSION_TYPE`: `kms` on a DRM display, with
-//! `KMS_START_SCRIPT=kmscon-launch-gui`, or `fb` on fbdev. Then each word
+//! and `TERM_SESSION_TYPE`: `kms` on a DRM display, or `fb` on fbdev. Then each word
 //! of the command that is `$NAME` becomes that variable of the
 //! environment, empty when it is unset, and a word starting `$$` loses one
 //! `$` (`src/misc/pty.c:252-302` and `src/shl/misc.h:395-449` at kmscon
@@ -65,15 +64,11 @@ pub fn child(
     if let Some(vtnr) = place.vtnr {
         set("XDG_VTNR", &vtnr.to_string());
     }
-    match place.display {
-        Display::Kms => {
-            set("KMS_START_SCRIPT", "kmscon-launch-gui");
-            set("TERM_SESSION_TYPE", "kms");
-        }
-        Display::Fbdev => {
-            set("TERM_SESSION_TYPE", "fb");
-        }
-    }
+    let session_type = match place.display {
+        Display::Kms => "kms",
+        Display::Fbdev => "fb",
+    };
+    set("TERM_SESSION_TYPE", session_type);
 
     let words: Vec<String> = match config.command(&LOGIN) {
         Some(words) => words.to_vec(),
@@ -146,7 +141,6 @@ mod tests {
             c.env,
             os(&[
                 ("COLORTERM", "truecolor"),
-                ("KMS_START_SCRIPT", "kmscon-launch-gui"),
                 ("TERM", "kmscon"),
                 ("TERM_SESSION_TYPE", "kms"),
                 ("XDG_SEAT", "seat0"),
@@ -168,7 +162,6 @@ mod tests {
             os(&[
                 ("COLORTERM", "truecolor"),
                 ("HOME", "/root"),
-                ("KMS_START_SCRIPT", "kmscon-launch-gui"),
                 ("PATH", "/usr/bin"),
                 ("TERM", "xterm"),
                 ("TERM_SESSION_TYPE", "kms"),
@@ -232,7 +225,7 @@ mod tests {
             .get_envs()
             .map(|(k, v)| (k.to_owned(), v.map(OsStr::to_owned)))
             .collect();
-        assert_eq!(env.len(), 6);
+        assert_eq!(env.len(), 5);
         assert_eq!(
             env.get(OsStr::new("TERM")),
             Some(&Some(OsString::from("kmscon")))

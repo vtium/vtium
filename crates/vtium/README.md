@@ -51,6 +51,7 @@ Each was the C reference's behaviour at kmscon `b1f7a7c5`.
 - **A seat's name is checked before it names a file;** the C reference formatted any name into the path (`src/config.c:1571`).
 - **The respawn limit times each start from that start, on the monotonic clock.** The C reference recorded a start only when the exit before it was quick, in whole seconds of the wall clock (`src/misc/pty.c:747-767`), so after one slow restart a command that failed at once restarted without end. A slow exit after quick restarts now starts the command again with the count reset, where the C reference exited at the next exit whatever its timing.
 - **The font fallback is tried once,** then the error is returned; the C reference retried for as long as the lookup failed (aaronsb/kmscon#63).
+- **`KMS_START_SCRIPT` is not set.** The C reference set it to `kmscon-launch-gui` on a DRM display (`src/misc/pty.c:286-291`), a script vtium does not install; the operator's decision on vtium/vtium#21.
 - **A failed renderer set leaves the pointer drawn in software,** and the next successful set gives it back to the hardware cursor; the C reference drew it nowhere (aaronsb/kmscon#211).
 
 - **A child's exit closes its pty after the output it left is read** (vtium-platform's departure), and the next child starts from a hard reset (RIS).
@@ -62,5 +63,4 @@ Each is the C reference's and waits for its own change: zoom and rotation (their
 ## C behaviour kept
 
 - The XTGETTCAP table is the C reference's: the same 137 names and values as its ncurses-built `src/terminal_termcap.h`.
-- `KMS_START_SCRIPT=kmscon-launch-gui` is set on a DRM display, though vtium installs no such script.
 - A `login` word that is `$NAME` becomes that variable of the session's environment, after the environment is reset.
