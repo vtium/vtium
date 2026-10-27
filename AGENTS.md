@@ -35,7 +35,7 @@ cargo fmt --all --check \
   && docs/scripts/coverage
 ```
 
-vtium's tests and tools are written in Rust. C appears only as the thinnest shim a tool needs to call the C reference, as the parse oracle (`tools/parse-oracle/`, #52) does to compare the two parsers, and such a tool stays out of the default build so `cargo test --workspace` needs no C toolchain or fork checkout. The C repositories keep their own harness, which judges vtium through language-neutral interfaces.
+vtium's code, tests and tools are written in Rust. Where vtium must talk to a C library, such as libseat (#34) or the C reference's parser that the parse oracle (`tools/parse-oracle/`, #52) compares against, C stays at that boundary: a binding or the thinnest shim, with everything around it in Rust. A tool that needs the C reference stays out of the default build, so `cargo test --workspace` needs no C toolchain or fork checkout. The C repositories keep their own harness, which judges vtium through language-neutral interfaces.
 
 A gate reports executed, with its command and result, or names why it did not run. A test is seen failing before the change and passing after it. A new check is seen red on a planted defect, then green. Plant on a copy (`cp f f.bak`, plant, test, `mv f.bak f`, `touch f`), never with `git checkout` or `git stash`, which discard work.
 
