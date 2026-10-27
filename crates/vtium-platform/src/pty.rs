@@ -108,12 +108,13 @@ impl Pty {
     ///
     /// The child leads a new session with the pty's slave as its
     /// controlling terminal and its stdin, stdout and stderr, with every
-    /// signal at its default disposition and none blocked, as the C
-    /// reference's child started (pty.c:313-320). A vtium started in the
-    /// background ignores SIGINT and SIGQUIT, the Rust runtime ignores
-    /// SIGPIPE, and the loop blocks the signals it reads from its
+    /// signal at its default disposition and none blocked. A vtium started
+    /// in the background ignores SIGINT and SIGQUIT, the Rust runtime
+    /// ignores SIGPIPE, and the loop blocks the signals it reads from its
     /// signalfd; an exec keeps ignored signals and the mask, so the
-    /// session would inherit all three.
+    /// session would inherit all three. The C reference emptied the mask
+    /// and reset the signals below SIGSYS (pty.c:313-320); vtium resets
+    /// every signal (see the crate README's Departures).
     pub fn spawn(mut command: Command, size: Size, erase: Erase) -> io::Result<Pty> {
         let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)?;
         grantpt(&master)?;

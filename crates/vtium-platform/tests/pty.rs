@@ -679,7 +679,8 @@ fn the_window_size_reaches_the_child() {
 // pty.c:313-320. A vtium started in the background ignores SIGINT and
 // SIGQUIT, and its loop blocks the signals it reads: login, the shell and
 // everything they start must inherit neither. SIGSYS and SIGRTMAX lie past
-// the C reference's reset, which stopped below SIGSYS.
+// the C reference's reset, which stopped below SIGSYS. env's
+// --ignore-signal and --block-signal need coreutils 8.31 or later.
 fn the_child_starts_with_default_signals_and_none_blocked() {
     let out = Command::new("env")
         .args(["--ignore-signal=INT,SYS,RTMAX", "--block-signal=TERM"])
@@ -688,7 +689,12 @@ fn the_child_starts_with_default_signals_and_none_blocked() {
         .output()
         .expect("sigparent");
     let text = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "sigparent: {text}");
+    assert!(
+        out.status.success(),
+        "sigparent: {}: {text}{}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
     let state = |who: &str| {
         let line = text
             .lines()
