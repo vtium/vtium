@@ -1,0 +1,22 @@
+# Tier 2 for vtium: the renderer draws known screens into memory, and each
+# is compared pixel for pixel with its golden. A workspace member, so cargo
+# test builds and checks the harness; judging the C reference's goldens
+# needs a kmscon checkout, which only `make tier2` and CI's tier2 job use.
+[package]
+name = "vtium-tier2"
+description = "Tier 2: the renderer's screens against the C reference's pixel goldens"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+vtium-term.workspace = true
+vtium-font.workspace = true
+vtium-render.workspace = true

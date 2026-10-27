@@ -246,6 +246,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "vtium-tier2"
+version = "0.0.0"
+dependencies = [
+ "vtium-font",
+ "vtium-render",
+ "vtium-term",
+]
+
+[[package]]
 name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
