@@ -180,7 +180,10 @@ impl Target for Mapped<'_> {
             return;
         };
         for (d, p) in dst.chunks_exact_mut(4).zip(pixels) {
-            d.copy_from_slice(&p.to_le_bytes());
+            // a store of four bytes, not a copy of a slice
+            if let Ok(d) = <&mut [u8; 4]>::try_from(d) {
+                *d = p.to_le_bytes();
+            }
         }
     }
 }

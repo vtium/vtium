@@ -33,6 +33,14 @@ fn lerp(f: u8, b: u8, a: u32, na: u32) -> u32 {
     )
 }
 
+/// SGR 2's foreground: halfway from `fg` to `bg`, each channel the sum of
+/// the two halved (libtsm's `color_dim`).
+#[inline]
+pub(crate) fn dim(fg: Rgb, bg: Rgb) -> Rgb {
+    let ch = |f: u8, b: u8| (f / 2).wrapping_add(b / 2);
+    Rgb::new(ch(fg.r, bg.r), ch(fg.g, bg.g), ch(fg.b, bg.b))
+}
+
 /// `fg` painted over `bg` through coverage `a`: a cell drawn from its
 /// background and one mask.
 #[inline]
@@ -115,6 +123,17 @@ mod tests {
         // div255(200 * 128) = 100, div255(100 * 128 + 50 * 127) = 75,
         // div255(255 * 127) = 127
         assert_eq!(mask(fg, bg, 128), 100 << 16 | 75 << 8 | 127);
+    }
+
+    // each half rounds down before the sum: 0xff and 0x21 give 0x8f
+    #[test]
+    fn dim_sums_the_halves() {
+        let fg = Rgb::new(0xff, 0x80, 0x40);
+        let bg = Rgb::new(0x21, 0xa0, 0xc3);
+        assert_eq!(dim(fg, bg), Rgb::new(0x8f, 0x90, 0x81));
+        assert_eq!(dim(bg, fg), dim(fg, bg));
+        let white = Rgb::new(255, 255, 255);
+        assert_eq!(dim(white, white), Rgb::new(254, 254, 254));
     }
 
     #[test]

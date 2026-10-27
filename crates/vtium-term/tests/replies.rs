@@ -581,6 +581,27 @@ fn decscl_resets_and_sets_the_input() {
     assert_eq!(rows(t.screen())[0], "\u{e9}");
 }
 
+// DECRQSS for DECSCL reports the level DECSCL set, 62 until one is set and
+// after DECSTR, and Pc 1: the replies stay 7-bit whatever DECSCL asked.
+// covers: query.decrqss
+#[test]
+fn decrqss_reports_the_conformance_level() {
+    let mut t = term(8, 2, b"");
+    let ask = b"\x1bP$q\"p\x1b\\";
+    assert_eq!(reply(&mut t, ask), b"\x1bP1$r62;1\"p\x1b\\");
+    for (set, level) in [
+        (&b"\x1b[61\"p"[..], &b"61"[..]),
+        (b"\x1b[63;0\"p", b"63"),
+        (b"\x1b[64;2\"p", b"64"),
+        (b"\x1b[62;1\"p", b"62"),
+        (b"\x1b[64\"p\x1b[!p", b"62"),
+    ] {
+        t.input(set);
+        let want = [&b"\x1bP1$r"[..], level, b";1\"p\x1b\\"].concat();
+        assert_eq!(reply(&mut t, ask), want, "{set:?}");
+    }
+}
+
 // ctlseqs, S7C1T and S8C1T: taken, and the replies stay 7-bit, as the C
 // reference sent them; an 8-bit C1 control acts in 8-bit input.
 // covers: text.c1

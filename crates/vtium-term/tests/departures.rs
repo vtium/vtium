@@ -213,8 +213,7 @@ fn hpa_and_hpr_move_the_cursor() {
 // The C reference wrote a printed DEL (0x7F) to the screen, where it joined
 // the cell before as a character of no width. vt100.net: "terminals only
 // claiming VT220 compatibility can always ignore 7F"; only a 96-character
-// set in GL draws it (vtium-parse's README), and those come with
-// vtium/vtium#13.
+// set in GL draws it (vtium-parse's README), and vtium designates none.
 #[test]
 fn a_printed_del_does_nothing() {
     let t = term(4, 1, b"a\x7fb");
@@ -243,4 +242,24 @@ fn the_cluster_budget_cuts_a_cluster_on_a_one_column_line() {
     assert_eq!(rows(t.screen()), ["\u{2764}", ""]);
     let t = term(2, 1, "\u{2764}\u{FE0F}".as_bytes());
     assert_eq!(rows(t.screen()), ["\u{2764}\u{FE0F}"]);
+}
+
+// The C reference's frame showed the columns a widening resize adds with a
+// white foreground and underline colour (the conformance case
+// query-frames). They are blank cells in the default style, whatever the
+// pen and the erased cells around them.
+#[test]
+fn columns_a_widening_resize_adds_are_blank_in_the_default_style() {
+    let mut t = term(4, 2, b"\x1b[31;44m\x1b[2Jab");
+    t.screen_mut().resize(6, 2);
+    for line in t.screen().lines() {
+        let added = &line.cells()[4..];
+        assert_eq!(added.len(), 2);
+        for &cell in added {
+            assert!(cell.is_blank());
+            assert_eq!(line.style(cell), Style::DEFAULT);
+        }
+        // The erased cells keep the background the pen gave them.
+        assert_ne!(line.style(line.cells()[3]), Style::DEFAULT);
+    }
 }

@@ -223,6 +223,71 @@ impl Stored {
         }
     }
 
+    /// Whether it is held at 1 bit a pixel: [`Stored::bits_lines`] draws it.
+    pub(crate) fn is_bits(&self) -> bool {
+        self.format == Format::Bits
+    }
+
+    /// Drawn lines `y0` to `y0 + n` of a 1-bit glyph from drawn column
+    /// `x0`, `fg` where it is set and `bg` elsewhere, one display pixel for
+    /// each of `out`, each line handed to `each` in turn: what
+    /// [`Stored::mask_line`] and `blend::mask` give, without the coverage
+    /// in between.
+    pub(crate) fn bits_lines(
+        &self,
+        x0: i64,
+        y0: i64,
+        n: usize,
+        (fg, bg): (u32, u32),
+        out: &mut [u32],
+        mut each: impl FnMut(&[u32]),
+    ) {
+        let bits = self.format == Format::Bits;
+        let flip = fg ^ bg;
+        // each bit picks a colour without a branch
+        let paint = |byte: u8, out: &mut [u32]| {
+            for (i, o) in out.iter_mut().enumerate() {
+                let set = u32::from(byte) >> 7usize.wrapping_sub(i) & 1;
+                *o = bg ^ flip & set.wrapping_neg();
+            }
+        };
+        if bits && self.scale == 1 && x0 == 0 && out.len() == 8 {
+            // minspec's cell, 8 pixels wide at the font's size: a byte a
+            // line, found without slicing the row
+            let height = i64::from(self.height);
+            for y in (y0..).take(n) {
+                let r = usize::try_from(y).ok().filter(|_| y < height);
+                let byte = r.and_then(|r| self.data.get(r.wrapping_mul(self.stride)));
+                paint(byte.copied().unwrap_or(0), out);
+                each(out);
+            }
+            return;
+        }
+        for y in (y0..).take(n) {
+            let row = self.row(y).filter(|_| bits);
+            match row {
+                // at the font's size from the glyph's left edge, a byte at a
+                // time; the padding past the width is clear
+                Some((row, _)) if self.scale == 1 && x0 == 0 => {
+                    let bytes = row.iter().copied().chain(core::iter::repeat(0));
+                    for (chunk, byte) in out.chunks_mut(8).zip(bytes) {
+                        paint(byte, chunk);
+                    }
+                }
+                Some((row, drawn_w)) => {
+                    out.fill(bg);
+                    self.columns(x0, drawn_w, out, |c, o| {
+                        if row.get(c / 8).is_some_and(|b| b << (c % 8) & 0x80 != 0) {
+                            *o = fg;
+                        }
+                    });
+                }
+                None => out.fill(bg),
+            }
+            each(out);
+        }
+    }
+
     /// The premultiplied `0xAARRGGBB` pixels along drawn line `y` from drawn
     /// column `x0`, 0 outside the glyph. A mask is white at its coverage.
     pub(crate) fn argb_line(&self, x0: i64, y: i64, out: &mut [u32]) {
@@ -278,6 +343,30 @@ mod tests {
             Stored::new(&grey, 1, Orientation::Normal, true).format(),
             Format::Mask
         );
+    }
+
+    // the 1-bit line is the coverage line in two colours, at every offset
+    // and scale, cut at either edge
+    #[test]
+    fn a_bits_line_is_its_mask_line_in_two_colours() {
+        let g = glyph(11, 3, |x, y| if (x * 7 + y) % 3 == 0 { 255 } else { 0 });
+        for scale in 1..=3 {
+            let s = Stored::new(&g, scale, Orientation::Normal, true);
+            assert!(s.is_bits());
+            for y in -1..10 {
+                for x0 in -9..40 {
+                    for w in [1, 8, 13, 40] {
+                        let mut cov = vec![0u8; w];
+                        s.mask_line(x0, y, &mut cov);
+                        let want: Vec<u32> =
+                            cov.iter().map(|&a| if a == 255 { 1 } else { 2 }).collect();
+                        let mut got = vec![0u32; w];
+                        s.bits_lines(x0, y, 1, (1, 2), &mut got, |_| {});
+                        assert_eq!(got, want, "scale {scale}, line {y}, from {x0}, {w} wide");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

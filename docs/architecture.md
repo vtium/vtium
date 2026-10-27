@@ -55,6 +55,8 @@ vtium covers everything the C reference does, apart from the listed departures b
 
 Where the C reference departs from a protocol specification, vtium follows the specification. Each departure is listed in the departures list beside vtium's conformance runner (vtium/vtium#14), with its reason and the specification it follows, and the runner expects vtium's own output for exactly the listed cases. A defect found in the C reference, a security defect included, is a departure like any other: vtium fixes it and lists it. The C reference changes only for the test infrastructure vtium is judged by, and for the one security fix the operator asked for (aaronsb/libtsm#83).
 
+A character decoded from UTF-8 prints as itself whatever G1 to G3 hold, as in xterm's UTF-8 mode; the C reference ran U+00A1 to U+00FE through GR (vtium/vtium#13).
+
 A bound vtium takes from the C reference is a starting value. vtium may set its own, with the reason in the row that defines it.
 
 ## Determinism
