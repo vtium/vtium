@@ -24,7 +24,7 @@ use rustix::io::Errno;
 
 use super::kms::{Connector, Kms, Object, Request, Resources};
 use super::mode::{self, Mode, ModePolicy};
-use super::{Ages, Canvas, Damage, DisplayId, Dpms, Event, Rect, SwapError};
+use super::{Ages, Canvas, Damage, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
 use output::{
     ARGB8888, Buffer, CURSOR_MAX, Cursor, Output, PLANE_CURSOR, PLANE_OVERLAY, PLANE_PRIMARY,
     Planes, Props, XRGB8888, clip_bytes, connector_name, dpms_of, dpms_value, invalid, mode_bytes,
@@ -147,10 +147,21 @@ impl<K: Kms> Drm2d<K> {
         self.output(id).is_some_and(|o| o.flipping)
     }
 
-    /// Whether the next swap has state to send besides the frame, such as
-    /// a moved cursor, so a frame that drew nothing is still swapped.
+    /// Whether a swap with no new damage has something to send: a moved
+    /// cursor, or a frame whose swap failed.
     pub fn need_commit(&self, id: DisplayId) -> bool {
-        self.awake && self.output(id).is_some_and(|o| o.online && o.need_commit)
+        self.awake
+            && self
+                .output(id)
+                .is_some_and(|o| o.online && (o.fresh || (o.need_commit && !self.legacy)))
+    }
+
+    /// Whether the pointer is on the display's cursor plane, set up by
+    /// [`Drm2d::setup_cursor`], so the compositor draws none. False on a
+    /// display without a cursor plane, as with the legacy calls, or whose
+    /// plane refused the image.
+    pub fn hardware_cursor(&self, id: DisplayId) -> bool {
+        self.output(id).is_some_and(|o| o.cursor.is_some())
     }
 
     /// The display's power state, `None` where its connector has none.
@@ -168,6 +179,7 @@ impl<K: Kms> Drm2d<K> {
         if !o.online || o.flipping {
             return None;
         }
+        o.lent = true;
         let (width, height) = o.size();
         let age = o.ages.age(o.back);
         let buffer = o.buffers.get_mut(o.back)?;
@@ -183,36 +195,47 @@ impl<K: Kms> Drm2d<K> {
         })
     }
 
-    /// Presents the back buffer, with the frame's `damage` (empty: the
-    /// whole frame). A failed swap does not count as presented: its error
-    /// reaches the caller, the buffers stay as they were, and the damage
-    /// and cursor state go with the next swap (aaronsb/kmscon#93).
-    pub fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<(), SwapError> {
-        if !self.awake {
-            return Err(SwapError::Off);
-        }
-        if self.waiting.is_some() {
-            return Err(SwapError::Busy);
-        }
+    /// Presents what changed: the frame drawn into the canvas lent since
+    /// the last swap, with its `damage`, or else the cursor plane's state
+    /// alone, keeping the front buffer on screen, or else nothing. A
+    /// rectangle covering the screen is the whole screen. Without a canvas
+    /// lent, `damage` is ignored. A failed swap does not count as
+    /// presented: its error reaches the caller, and the frame, its damage
+    /// and the cursor's state go with the next swap (aaronsb/kmscon#93).
+    pub fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        let (awake, waiting) = (self.awake, self.waiting.is_some());
         let (legacy, hotspot) = (self.legacy, self.hotspot);
         let Some(o) = self.outputs.iter_mut().find(|o| o.id == id && o.announced) else {
             return Err(SwapError::Off);
         };
-        if !o.online || !o.dpms_on() {
+        // The frame drawn into the canvas is kept whatever the swap's
+        // outcome: the back buffer holds it, so it counts as a frame.
+        if std::mem::take(&mut o.lent) && !damage.is_empty() {
+            let (w, h) = o.size();
+            o.damage.add(damage, w, h);
+            o.ages.drawn(o.back);
+            o.fresh = true;
+        }
+        if !awake || !o.online || !o.dpms_on() {
             return Err(SwapError::Off);
         }
-        if o.flipping {
+        if waiting || o.flipping {
             return Err(SwapError::Busy);
         }
-        let (w, h) = o.size();
-        o.damage.add(damage, w, h);
-        o.ages.drawn(o.back);
-        let fb = o.back_fb();
+        let swapped = if o.fresh {
+            Swapped::Frame
+        } else if o.need_commit && !legacy {
+            Swapped::Cursor
+        } else {
+            return Ok(Swapped::Nothing);
+        };
         let sent = if legacy {
-            self.card.page_flip(o.crtc, fb)
+            self.card.page_flip(o.crtc, o.back_fb())
         } else {
             let clips = match o.damage.clips() {
-                Some(rects) if o.planes.as_ref().is_some_and(|p| p.damage) => {
+                Some(rects)
+                    if swapped == Swapped::Frame && o.planes.as_ref().is_some_and(|p| p.damage) =>
+                {
                     match self.card.create_blob(&clip_bytes(rects)) {
                         Ok(blob) => Some(blob),
                         Err(e) => {
@@ -224,12 +247,16 @@ impl<K: Kms> Drm2d<K> {
                 _ => None,
             };
             let mut req = Request::default();
-            let sent = o
-                .prepare(&mut req, fb, o.mode_blob, clips, hotspot)
-                .and_then(|()| {
-                    self.card
-                        .commit(&req, DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK)
-                });
+            // A cursor-only commit leaves the primary plane as it is, so
+            // the kernel sees no damage to it.
+            let prepared = match swapped {
+                Swapped::Frame => o.prepare(&mut req, o.back_fb(), o.mode_blob, clips, hotspot),
+                _ => o.prepare_cursor(&mut req, hotspot),
+            };
+            let sent = prepared.and_then(|()| {
+                self.card
+                    .commit(&req, DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK)
+            });
             if let Some(blob) = clips {
                 if let Err(e) = self.card.destroy_blob(blob) {
                     log::warn!("cannot destroy the damage blob: {e}");
@@ -244,10 +271,13 @@ impl<K: Kms> Drm2d<K> {
             return Err(e.into());
         }
         o.flipping = true;
-        o.back = o.front();
-        o.damage.clear();
+        if swapped == Swapped::Frame {
+            o.back = o.front();
+            o.damage.clear();
+            o.fresh = false;
+        }
         o.need_commit = false;
-        Ok(())
+        Ok(swapped)
     }
 
     /// Sets a display's power state. A display whose connector has no
@@ -722,6 +752,8 @@ impl<K: Kms> Drm2d<K> {
             back: 0,
             ages: Ages::default(),
             damage: Damage::default(),
+            lent: false,
+            fresh: false,
             need_commit: false,
             cursor: None,
             dpms,
@@ -998,7 +1030,8 @@ impl<K: Kms> Drm2d<K> {
                 o.online = true;
                 o.flipping = true;
                 o.back = o.front();
-                o.damage.add(&[], 0, 0);
+                o.damage.set_whole();
+                o.fresh = false;
                 o.ages = Ages::default();
             } else {
                 if let Some(blob) = blob {

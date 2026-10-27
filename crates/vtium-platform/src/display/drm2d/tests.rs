@@ -88,8 +88,16 @@ fn clips(c: &Commit, plane: u32) -> Option<Vec<Rect>> {
     )
 }
 
+/// A frame's damage, small enough to send as a clip.
+const DOT: Rect = Rect {
+    x: 0,
+    y: 0,
+    width: 8,
+    height: 8,
+};
+
 /// Draws a frame and swaps it.
-fn frame(v: &mut Drm2d<FakeCard>, damage: &[Rect]) -> Result<(), SwapError> {
+fn frame(v: &mut Drm2d<FakeCard>, damage: &[Rect]) -> Result<Swapped, SwapError> {
     let canvas = v.canvas(DisplayId(A)).expect("a canvas");
     canvas.pixels[0] = 1;
     v.swap(DisplayId(A), damage)
@@ -159,7 +167,7 @@ fn the_first_frame_is_whole_and_drawn_into_cleared_buffers() {
 #[test]
 fn each_frame_sends_its_damage_as_clips() {
     let mut v = awake(one());
-    frame(&mut v, &[]).unwrap();
+    frame(&mut v, &[DOT]).unwrap();
     flip(&mut v);
     let plane = primary(&v, A);
     for damage in [
@@ -176,10 +184,8 @@ fn each_frame_sends_its_damage_as_clips() {
         flip(&mut v);
         assert_eq!(events(&mut v).last(), Some(&Event::Flipped(DisplayId(A))));
     }
-    // An empty list is the whole frame: no clips.
-    frame(&mut v, &[]).unwrap();
-    let c = v.card().last_commit().unwrap();
-    assert_eq!(clips(&c, plane), None);
+    // A frame with no damage sends nothing.
+    assert!(matches!(frame(&mut v, &[]), Ok(Swapped::Nothing)));
     // Every damage blob was destroyed after its commit; the mode blob stays.
     assert_eq!(v.card().state().blobs.len(), 1);
 }
@@ -187,10 +193,10 @@ fn each_frame_sends_its_damage_as_clips() {
 #[test]
 fn buffer_ages_follow_the_flips() {
     let mut v = awake(one());
-    frame(&mut v, &[]).unwrap();
+    frame(&mut v, &[DOT]).unwrap();
     flip(&mut v);
     assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 0);
-    frame(&mut v, &[]).unwrap();
+    frame(&mut v, &[DOT]).unwrap();
     flip(&mut v);
     assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 2);
 }
@@ -218,7 +224,7 @@ fn damage_clips_go_only_with_atomic_commits() {
 #[test]
 fn a_failed_swap_keeps_its_damage() {
     let mut v = awake(one());
-    frame(&mut v, &[]).unwrap();
+    frame(&mut v, &[DOT]).unwrap();
     flip(&mut v);
     v.events().for_each(drop);
     let plane = primary(&v, A);
@@ -247,9 +253,9 @@ fn ebusy_is_busy() {
     let mut v = awake(one());
     v.card().state().commit_errors.push_back(Errno::BUSY);
     logs::capture();
-    assert!(matches!(frame(&mut v, &[]), Err(SwapError::Busy)));
+    assert!(matches!(frame(&mut v, &[DOT]), Err(SwapError::Busy)));
     assert!(logs::at_least(Level::Warn).is_empty());
-    frame(&mut v, &[]).unwrap();
+    frame(&mut v, &[DOT]).unwrap();
     assert!(v.canvas(DisplayId(A)).is_none(), "the flip is pending");
     assert!(matches!(v.swap(DisplayId(A), &[]), Err(SwapError::Busy)));
 }
@@ -262,7 +268,7 @@ fn a_swap_while_powered_down_is_off() {
     assert_eq!(v.dpms(DisplayId(A)), Some(Dpms::Off));
     assert!(matches!(v.swap(DisplayId(A), &[]), Err(SwapError::Off)));
     v.set_dpms(DisplayId(A), Dpms::On).unwrap();
-    frame(&mut v, &[]).unwrap();
+    frame(&mut v, &[DOT]).unwrap();
 }
 
 #[test]
@@ -280,7 +286,7 @@ fn a_power_cycle_restores_dpms() {
 #[test]
 fn the_cursor_goes_with_the_next_commit() {
     let mut v = awake(one());
-    frame(&mut v, &[]).unwrap();
+    frame(&mut v, &[DOT]).unwrap();
     flip(&mut v);
     let cp = cursor_plane(&v, A);
     let image: Vec<u32> = (0..4).collect();
@@ -289,7 +295,7 @@ fn the_cursor_goes_with_the_next_commit() {
     v.set_cursor_offset(DisplayId(A), 5, 5);
     v.show_cursor(DisplayId(A), 10, 20).unwrap();
     assert!(v.need_commit(DisplayId(A)));
-    v.swap(DisplayId(A), &[rect(0, 0, 1, 1)]).unwrap();
+    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Cursor);
     assert!(!v.need_commit(DisplayId(A)));
     let c = v.card().last_commit().unwrap();
     let fb = v.outputs[0].cursor.as_ref().unwrap().fb;
@@ -305,13 +311,13 @@ fn the_cursor_goes_with_the_next_commit() {
     v.show_cursor(DisplayId(A), 10, 20).unwrap();
     assert!(!v.need_commit(DisplayId(A)));
     v.show_cursor(DisplayId(A), -3, 0).unwrap();
-    v.swap(DisplayId(A), &[rect(0, 0, 1, 1)]).unwrap();
+    v.swap(DisplayId(A), &[]).unwrap();
     let c = v.card().last_commit().unwrap();
     assert_eq!(c.get(cp, "CRTC_X"), Some(signed(5 - 3 - 1)));
     flip(&mut v);
     v.hide_cursor(DisplayId(A));
     assert!(v.need_commit(DisplayId(A)));
-    v.swap(DisplayId(A), &[rect(0, 0, 1, 1)]).unwrap();
+    v.swap(DisplayId(A), &[]).unwrap();
     let c = v.card().last_commit().unwrap();
     assert_eq!(c.get(cp, "FB_ID"), Some(0));
     assert_eq!(c.get(cp, "CRTC_ID"), Some(0));
@@ -349,7 +355,7 @@ fn a_modeset_waits_for_the_pending_flip() {
     ]);
     card.state().listed.retain(|&c| c == A);
     let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
-    frame(&mut v, &[]).unwrap();
+    frame(&mut v, &[DOT]).unwrap();
     let before = v.card().state().commits.len();
     v.card().state().listed.push(B);
     v.poll().unwrap();
@@ -379,7 +385,7 @@ fn a_modeset_goes_ahead_when_the_flip_never_completes() {
     ]);
     card.state().listed.retain(|&c| c == A);
     let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
-    frame(&mut v, &[]).unwrap();
+    frame(&mut v, &[DOT]).unwrap();
     v.card().state().listed.push(B);
     v.poll().unwrap();
     // The flip's event is lost: the card forgets it.
@@ -393,7 +399,7 @@ fn a_modeset_goes_ahead_when_the_flip_never_completes() {
 #[test]
 fn a_sleep_waits_for_the_pending_flip() {
     let mut v = awake(one());
-    frame(&mut v, &[]).unwrap();
+    frame(&mut v, &[DOT]).unwrap();
     v.sleep();
     assert!(
         events(&mut v).is_empty(),
@@ -414,7 +420,7 @@ fn a_sleep_waits_for_the_pending_flip() {
 #[test]
 fn a_sleep_goes_ahead_when_the_flip_never_completes() {
     let mut v = awake(one());
-    frame(&mut v, &[]).unwrap();
+    frame(&mut v, &[DOT]).unwrap();
     v.sleep();
     v.flip_wait_expired();
     assert_eq!(events(&mut v), [Event::Asleep]);
@@ -429,7 +435,7 @@ fn a_sleep_blanks_the_shown_buffer() {
     let mut v = awake(one());
     let canvas = v.canvas(DisplayId(A)).unwrap();
     canvas.pixels.fill(0xee);
-    v.swap(DisplayId(A), &[]).unwrap();
+    v.swap(DisplayId(A), &[rect(0, 0, 640, 480)]).unwrap();
     flip(&mut v);
     v.sleep();
     let o = &mut v.outputs[0];
@@ -691,7 +697,7 @@ fn the_loop_delivers_flips_and_bounds_the_wait() {
         seen.extend(app.0.events());
         seen.contains(&Event::Flipped(DisplayId(A)))
     });
-    frame(&mut app.0, &[]).unwrap();
+    frame(&mut app.0, &[DOT]).unwrap();
     app.0.sleep();
     let took = turn_until(&mut lp, &mut app, |app| {
         app.0.events().any(|e| e == Event::Asleep)
@@ -712,4 +718,79 @@ fn the_loop_retries_the_wake_up() {
         app.0.events().any(|e| e == Event::Awake)
     });
     assert_eq!(app.0.waits(), (false, false));
+}
+
+// The frame contract, rule 3: a swap with nothing to send commits nothing.
+#[test]
+fn a_swap_with_nothing_to_send_commits_nothing() {
+    let mut v = awake(one());
+    let before = v.card().state().commits.len();
+    assert_eq!(frame(&mut v, &[]).unwrap(), Swapped::Nothing);
+    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Nothing);
+    assert!(!v.need_commit(DisplayId(A)));
+    assert_eq!(v.card().state().commits.len(), before);
+    assert!(!v.is_flipping(DisplayId(A)));
+}
+
+// Rule 3: the whole screen is a rectangle covering it, sent as no clips.
+#[test]
+fn a_rectangle_covering_the_screen_is_the_whole_screen() {
+    let mut v = awake(one());
+    frame(&mut v, &[rect(0, 0, 8, 8)]).unwrap();
+    flip(&mut v);
+    frame(&mut v, &[rect(0, 0, 640, 480)]).unwrap();
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(clips(&c, primary(&v, A)), None);
+}
+
+// Rule 4: moving the pointer on the cursor plane keeps the front
+// framebuffer on the primary plane, and the back buffer stays the back.
+#[test]
+fn a_cursor_move_commits_only_the_cursor_plane() {
+    let mut v = awake(one());
+    frame(&mut v, &[rect(0, 0, 8, 8)]).unwrap();
+    flip(&mut v);
+    let age = v.canvas(DisplayId(A)).unwrap().age;
+    v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
+    assert!(v.hardware_cursor(DisplayId(A)));
+    v.show_cursor(DisplayId(A), 3, 4).unwrap();
+    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Cursor);
+    let c = v.card().last_commit().unwrap();
+    let plane = primary(&v, A);
+    assert_eq!(c.get(cursor_plane(&v, A), "CRTC_X"), Some(3));
+    assert!(!c.mentions(plane), "the primary plane is left as it is");
+    assert_eq!(c.get(100, "MODE_ID"), None);
+    flip(&mut v);
+    assert_eq!(v.canvas(DisplayId(A)).unwrap().age, age);
+}
+
+// Rule 5: a swap after a failed one, with nothing new drawn, presents the
+// frame that failed with its damage.
+#[test]
+fn a_swap_after_a_failed_one_sends_the_kept_frame() {
+    let mut v = awake(one());
+    frame(&mut v, &[rect(0, 0, 8, 8)]).unwrap();
+    flip(&mut v);
+    v.card().state().commit_errors.push_back(Errno::INVAL);
+    assert!(frame(&mut v, &[rect(0, 0, 8, 16)]).is_err());
+    assert!(v.need_commit(DisplayId(A)));
+    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(clips(&c, primary(&v, A)), Some(vec![rect(0, 0, 8, 16)]));
+}
+
+// Rule 4: the display says whether a cursor plane carries the pointer.
+#[test]
+fn the_display_says_whether_a_plane_carries_the_pointer() {
+    let mut v = awake(one());
+    assert!(!v.hardware_cursor(DisplayId(A)));
+    v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
+    assert!(v.hardware_cursor(DisplayId(A)));
+    v.destroy_cursor(DisplayId(A));
+    assert!(!v.hardware_cursor(DisplayId(A)));
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.state().atomic = false;
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert!(v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).is_err());
+    assert!(!v.hardware_cursor(DisplayId(A)));
 }

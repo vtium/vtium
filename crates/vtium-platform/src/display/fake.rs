@@ -461,14 +461,23 @@ impl Kms for FakeCard {
         if !s.master {
             return Err(err(Errno::ACCESS));
         }
-        let crtcs: Vec<u32> = commit
+        // The CRTCs in the commit's state: each set directly, and each a
+        // plane is put on. The kernel sends a flip event for every one.
+        let mut crtcs: Vec<u32> = commit
             .props
             .iter()
-            .filter(|(o, n, v)| {
-                n == "CRTC_ID" && *v != 0 && s.planes.get(o).is_some_and(|p| p.kind == PRIMARY)
+            .filter_map(|(o, n, v)| {
+                if s.crtcs.contains(o) {
+                    Some(*o)
+                } else if n == "CRTC_ID" && *v != 0 && s.planes.contains_key(o) {
+                    u32::try_from(*v).ok()
+                } else {
+                    None
+                }
             })
-            .filter_map(|p| u32::try_from(p.2).ok())
             .collect();
+        crtcs.sort_unstable();
+        crtcs.dedup();
         if crtcs.iter().any(|c| s.pending.contains(c)) {
             return Err(err(Errno::BUSY));
         }

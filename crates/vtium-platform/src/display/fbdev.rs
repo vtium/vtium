@@ -17,7 +17,7 @@ use calloop::timer::{TimeoutAction, Timer};
 use calloop::{LoopHandle, RegistrationToken};
 use rustix::fs::{Mode as FileMode, OFlags, open};
 
-use super::{Canvas, DisplayId, Dpms, Event, Rect, SwapError};
+use super::{Canvas, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
 use crate::ioctl::{
     FB_ACTIVATE_FORCE, FB_ACTIVATE_NOW, FB_BLANK_NORMAL, FB_BLANK_POWERDOWN, FB_BLANK_UNBLANK,
     FB_VISUAL_TRUECOLOR, FbFixScreeninfo, FbVarScreeninfo, fb_blank, fb_get_fix, fb_get_var,
@@ -195,6 +195,11 @@ impl<F: Framebuffer> Fbdev<F> {
         false
     }
 
+    /// fbdev has no cursor plane: the compositor draws the pointer.
+    pub fn hardware_cursor(&self, _: DisplayId) -> bool {
+        false
+    }
+
     /// Whether the last swap's stand-in flip event is pending.
     pub fn is_flipping(&self, id: DisplayId) -> bool {
         id == DISPLAY && self.vblank
@@ -248,14 +253,17 @@ impl<F: Framebuffer> Fbdev<F> {
         })
     }
 
-    /// Presents the frame: converts its `damage` (empty: the whole frame)
-    /// into the device's layout where it is drawn into a copy, and starts
-    /// the stand-in for the flip event.
-    pub fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<(), SwapError> {
+    /// Presents the frame: converts its `damage` into the device's layout
+    /// where it is drawn into a copy, and starts the stand-in for the flip
+    /// event. With no damage it does nothing.
+    pub fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
         if id != DISPLAY || !self.awake {
             return Err(SwapError::Off);
         }
         let s = self.screen.as_mut().ok_or(SwapError::Off)?;
+        if damage.is_empty() {
+            return Ok(Swapped::Nothing);
+        }
         if s.shadow.is_some() {
             let whole = [Rect {
                 x: 0,
@@ -263,11 +271,7 @@ impl<F: Framebuffer> Fbdev<F> {
                 width: s.width,
                 height: s.height,
             }];
-            let rects = if damage.is_empty() || s.fresh {
-                &whole[..]
-            } else {
-                damage
-            };
+            let rects = if s.fresh { &whole[..] } else { damage };
             let (width, height) = (s.width, s.height);
             let clipped: Vec<Rect> = rects.iter().filter_map(|r| r.clip(width, height)).collect();
             for r in clipped {
@@ -277,7 +281,7 @@ impl<F: Framebuffer> Fbdev<F> {
         s.fresh = false;
         self.vblank = true;
         self.settle();
-        Ok(())
+        Ok(Swapped::Frame)
     }
 
     /// Maps the framebuffer and sets the display up, then reports it.

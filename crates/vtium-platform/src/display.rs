@@ -8,7 +8,9 @@
 //!   with its age, so the compositor redraws only what the buffer lacks;
 //! - [`Drm2d::swap`] presents it with the frame's damage, and a
 //!   [`Event::Flipped`] tells when the frame is on screen and the next may
-//!   be drawn, so frames are paced by the display;
+//!   be drawn, so frames are paced by the display. Damage is rectangles,
+//!   the whole screen one rectangle covering it; a swap with nothing to
+//!   send commits nothing and says so ([`Swapped::Nothing`]);
 //! - [`Drm2d::sleep`] and [`Drm2d::wake_up`] give the display up and take
 //!   it back across a VT switch, and [`Event::Asleep`] tells when the
 //!   release may be acknowledged.
@@ -127,8 +129,23 @@ pub enum Event {
     WakeFailed,
 }
 
+/// What a swap sent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Swapped {
+    /// The frame drawn into the canvas, with its damage and the cursor's
+    /// state. [`Event::Flipped`] follows.
+    Frame,
+    /// The cursor plane's state alone; the front buffer stays on screen.
+    /// [`Event::Flipped`] follows.
+    Cursor,
+    /// Nothing: no frame drawn with damage, none kept from a failed swap,
+    /// and the cursor unchanged. No [`Event::Flipped`] follows.
+    Nothing,
+}
+
 /// Why a swap did not present the frame. The frame's damage is kept, so
-/// the next swap that succeeds carries it.
+/// the next swap that succeeds carries it, and the buffer it was drawn
+/// into holds it: lent again, its age is 1.
 #[derive(Debug)]
 pub enum SwapError {
     /// A flip is in flight, or a modeset or a sleep waits for one.
@@ -159,10 +176,16 @@ struct Damage {
 }
 
 impl Damage {
-    /// Adds a frame's damage on a `width` by `height` screen. An empty list
-    /// is the whole screen.
+    /// Adds a frame's damage on a `width` by `height` screen. A rectangle
+    /// covering the screen is the whole screen.
     fn add(&mut self, damage: &[Rect], width: u32, height: u32) {
-        if damage.is_empty() {
+        let screen = Rect {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        };
+        if damage.iter().any(|r| r.clip(width, height) == Some(screen)) {
             self.whole = true;
         }
         if self.whole {
@@ -176,6 +199,12 @@ impl Damage {
             self.rects.clear();
             self.rects.extend(joined);
         }
+    }
+
+    /// The whole screen, as after a modeset, whose damage no clip names.
+    fn set_whole(&mut self) {
+        self.rects.clear();
+        self.whole = true;
     }
 
     /// The rectangles to send, or `None` for the whole screen.
@@ -249,9 +278,9 @@ mod tests {
     }
 
     #[test]
-    fn empty_damage_is_the_whole_screen_until_cleared() {
+    fn the_whole_screen_stays_whole_until_cleared() {
         let mut d = Damage::default();
-        d.add(&[], 100, 100);
+        d.add(&[rect(0, 0, 200, 100)], 100, 100);
         d.add(&[rect(0, 0, 1, 1)], 100, 100);
         assert_eq!(d.clips(), None);
         d.clear();

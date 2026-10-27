@@ -205,8 +205,11 @@ pub(super) struct Output<M> {
     pub(super) back: usize,
     pub(super) ages: Ages,
     pub(super) damage: Damage,
-    /// A swap's commit has state outside the primary plane to send, such
-    /// as a moved cursor.
+    /// The canvas was lent since the last swap.
+    pub(super) lent: bool,
+    /// The back buffer holds a frame drawn with damage and not presented.
+    pub(super) fresh: bool,
+    /// The cursor plane's state changed since the last commit.
     pub(super) need_commit: bool,
     pub(super) cursor: Option<Cursor>,
     /// `None` where the connector has no DPMS property.
@@ -281,6 +284,16 @@ impl<M: AsMut<[u8]>> Output<M> {
         if let Some(clips) = clips {
             pp.set(req, plane, "FB_DAMAGE_CLIPS", u64::from(clips))?;
         }
+        self.prepare_cursor(req, hotspot)
+    }
+
+    /// Adds the cursor plane's state to `req`, where the display has one.
+    pub(super) fn prepare_cursor(&self, req: &mut Request, hotspot: bool) -> io::Result<()> {
+        let p = self
+            .planes
+            .as_ref()
+            .ok_or_else(|| invalid("no atomic planes"))?;
+        let crtc = u64::from(self.crtc);
         if let Some((cp, cprops)) = &p.cursor {
             match &self.cursor {
                 Some(c) if c.visible => {

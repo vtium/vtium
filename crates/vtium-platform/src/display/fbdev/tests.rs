@@ -94,6 +94,14 @@ impl Framebuffer for FakeFb {
     }
 }
 
+/// The whole 4x3 screen.
+const WHOLE: Rect = Rect {
+    x: 0,
+    y: 0,
+    width: 4,
+    height: 3,
+};
+
 fn awake(fb: FakeFb) -> Fbdev<FakeFb> {
     let mut v = Fbdev::with(fb);
     v.wake_up().unwrap();
@@ -122,7 +130,7 @@ fn the_display_keeps_its_mode_in_one_buffer() {
     assert_eq!(canvas.age, 0);
     assert!(canvas.pixels.iter().all(|&b| b == 0), "cleared");
     canvas.pixels[0] = 0x12;
-    v.swap(DISPLAY, &[]).unwrap();
+    v.swap(DISPLAY, &[WHOLE]).unwrap();
     assert_eq!(map(&mut v)[0], 0x12, "drawn straight into the framebuffer");
     assert!(v.is_flipping(DISPLAY));
     assert_eq!(v.canvas(DISPLAY).unwrap().age, 1);
@@ -139,7 +147,7 @@ fn rgb565_is_converted_where_damaged() {
     let canvas = v.canvas(DISPLAY).unwrap();
     assert_eq!(canvas.stride, 16, "an XRGB8888 copy");
     canvas.pixels.fill(0xff);
-    v.swap(DISPLAY, &[]).unwrap();
+    v.swap(DISPLAY, &[WHOLE]).unwrap();
     // Each line holds 4 pixels of 2 bytes, then 8 bytes of padding.
     assert_eq!(&map(&mut v)[0..8], &[0xff; 8]);
     assert_eq!(&map(&mut v)[8..16], &[0; 8]);
@@ -169,7 +177,7 @@ fn rgb888_is_packed_in_three_bytes() {
     let mut v = awake(fb);
     let canvas = v.canvas(DISPLAY).unwrap();
     canvas.pixels[0..4].copy_from_slice(&0x0012_3456u32.to_ne_bytes());
-    v.swap(DISPLAY, &[]).unwrap();
+    v.swap(DISPLAY, &[WHOLE]).unwrap();
     assert_eq!(&map(&mut v)[0..4], &[0x56, 0x34, 0x12, 0]);
 }
 
@@ -196,7 +204,7 @@ fn sleep_clears_and_unmaps_and_waking_asks_for_a_redraw() {
     let mut v = awake(FakeFb::new(32));
     v.events().for_each(drop);
     v.canvas(DISPLAY).unwrap().pixels.fill(1);
-    v.swap(DISPLAY, &[]).unwrap();
+    v.swap(DISPLAY, &[WHOLE]).unwrap();
     v.sleep();
     assert_eq!(v.events().collect::<Vec<_>>(), [Event::Asleep]);
     assert!(v.canvas(DISPLAY).is_none());
@@ -256,7 +264,7 @@ fn the_loop_fires_the_stand_in_flip() {
     app.0.insert(&lp.handle(), |app: &mut App| Some(&mut app.0));
     app.0.wake_up().unwrap();
     app.0.events().for_each(drop);
-    app.0.swap(DISPLAY, &[]).unwrap();
+    app.0.swap(DISPLAY, &[WHOLE]).unwrap();
     for _ in 0..50 {
         lp.dispatch(Some(Duration::from_millis(100)), &mut app)
             .unwrap();
@@ -268,4 +276,18 @@ fn the_loop_fires_the_stand_in_flip() {
         app.0.events().collect::<Vec<_>>(),
         [Event::Flipped(DISPLAY)]
     );
+}
+
+// The frame contract, rules 3 and 4: no damage, no swap; no cursor plane.
+#[test]
+fn a_swap_with_no_damage_does_nothing() {
+    let mut fb = FakeFb::new(16);
+    fb.depths = vec![16];
+    let mut v = awake(fb);
+    v.events().for_each(drop);
+    v.canvas(DISPLAY).unwrap().pixels.fill(0xff);
+    assert_eq!(v.swap(DISPLAY, &[]).unwrap(), Swapped::Nothing);
+    assert!(!v.is_flipping(DISPLAY));
+    assert!(map(&mut v).iter().all(|&b| b == 0), "nothing converted");
+    assert!(!v.hardware_cursor(DISPLAY));
 }
