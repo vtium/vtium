@@ -18,12 +18,14 @@
 //! - **The blank.** Each key and pointer event goes to every device's
 //!   `input`, which retries a failed wake-up, and to [`Blank::input`]; a
 //!   device's `Awake` goes to [`Blank::input`] too, but a re-take's, and
-//!   whenever it says the displays were blanked every device unblanks. A
-//!   hotplug or a re-take never counts.
+//!   whenever it says the displays were blanked every device unblanks.
+//!   The first display, the last going and the next after none count
+//!   too, as a display change, which wakes nothing while the VT is not
+//!   ours; another hotplug or a re-take never counts.
 //! - **The child.** It runs on the pty at the grid's size; when it exits
 //!   the respawn policy starts it again or ends vtium.
 //! - **No display.** From the first acquire, vtium waits `display-wait`
-//!   for a display it draws on, and with none by then it ends
+//!   for a frame on a display's screen, and with none by then it ends
 //!   ([`crate::wait`]). Once one has come, the last going leaves the
 //!   session running on the grid it had, with the keys reaching it and
 //!   no blank, until the next comes and is drawn whole.
@@ -169,6 +171,8 @@ pub struct App {
     /// The start's wait for a display.
     wait: Wait,
     attached: Attached,
+    /// A frame has been on screen since the start.
+    presented: bool,
     /// Every display draws at once at the end of the turn.
     draw_now: bool,
     text_due: Option<Instant>,
@@ -283,6 +287,7 @@ impl App {
             releasing: None,
             wait,
             attached: Attached::NotYet,
+            presented: false,
             draw_now: false,
             text_due: None,
             cursor_due: None,
@@ -623,9 +628,29 @@ impl App {
         self.deactivate();
     }
 
-    /// A key or pointer event, or a device's wake-up but a re-take's,
-    /// counts as activity.
-    fn activity(&mut self, now: Instant) {
+    /// The user's input: a key or pointer event, or a device's wake-up
+    /// but a re-take's, which follows the user's VT switch. It restarts
+    /// the blank's countdown, as a display change does for now; the idle
+    /// lock (vtium/vtium#87) will count the user's input alone.
+    fn user_input(&mut self, now: Instant) {
+        self.restart_blank(now);
+    }
+
+    /// A display came after none, or the last went. It restarts the
+    /// blank's countdown and ends a blank in force, as the user's input
+    /// does for now (vtium/vtium#87 tells the two apart). While the VT is
+    /// not ours nothing is woken: the acquire sets every device up.
+    fn display_change(&mut self, now: Instant) {
+        if self.vt.is_active() {
+            self.restart_blank(now);
+        } else {
+            self.blank.input(now);
+        }
+    }
+
+    /// The blank's countdown starts again, and a blank in force ends:
+    /// every device unblanks, and one a re-take owes is set up again.
+    fn restart_blank(&mut self, now: Instant) {
         if self.blank.input(now) {
             let retake = std::mem::take(&mut self.retake_owed);
             for (node, video) in &mut self.videos {
@@ -663,6 +688,9 @@ impl App {
                 self.activate(now);
             }
             VtEvent::Release => {
+                // The acquire sets every device up: no re-take is owed
+                // to the VT that is not ours.
+                self.retake_owed = false;
                 self.deactivate();
                 if let Some(input) = &mut self.input {
                     input.sleep();
@@ -710,13 +738,13 @@ impl App {
             // A frame waiting on this flip is drawn at the turn's end,
             // as a pending view is; the other displays keep their own
             // coalescing.
+            // A frame on screen ends the start's wait.
             Event::Flipped(id) => {
-                if let Some(t) = self
-                    .views
-                    .get_mut(&(node.clone(), id))
-                    .and_then(|v| v.timer.as_mut())
-                {
-                    t.flip();
+                if let Some(v) = self.views.get_mut(&(node.clone(), id)) {
+                    self.presented = true;
+                    if let Some(t) = v.timer.as_mut() {
+                        t.flip();
+                    }
                 }
             }
             // A re-take's set-up keeps the blank and its timer: a retry
@@ -728,7 +756,7 @@ impl App {
                     }
                 }
             }
-            Event::Awake => self.activity(now),
+            Event::Awake => self.user_input(now),
             Event::Asleep => {
                 if let Some(r) = &mut self.releasing {
                     r.remove(node);
@@ -744,11 +772,11 @@ impl App {
         }
     }
 
-    /// The last display went, or the next came. With none the session
-    /// runs on at the grid it had, which no display resizes, and the
-    /// blank does not run: the blank in force ends, and the countdown
-    /// starts when the next display comes. The next is drawn whole, and
-    /// resizes the grid when its own differs.
+    /// The first display came, the last went, or the next came. With none
+    /// the session runs on at the grid it had, which no display resizes,
+    /// and the blank does not run: the blank in force ends, and the
+    /// countdown starts afresh when a display comes. The next is drawn
+    /// whole, and resizes the grid when its own differs.
     fn attachment(&mut self, now: Instant) {
         let attached = if self.views.is_empty() {
             match self.attached {
@@ -764,12 +792,13 @@ impl App {
                 log::warn!(
                     "the last display is gone: the session runs on at {cols}x{rows} until the next comes"
                 );
-                self.activity(now);
+                self.display_change(now);
             }
             (Attached::Gone, Attached::Yes) => {
                 log::info!("a display came: the session is drawn again at {cols}x{rows}");
-                self.blank.input(now);
+                self.display_change(now);
             }
+            (Attached::NotYet, Attached::Yes) => self.display_change(now),
             _ => {}
         }
         self.attached = attached;
@@ -821,7 +850,7 @@ impl App {
                 log::warn!("cannot wake the displays: {e}");
             }
         }
-        self.activity(now);
+        self.user_input(now);
         match event {
             InputEvent::Key(key) => self.key(&key, now),
             InputEvent::Pointer(p) => self.pointer(p),
@@ -1108,7 +1137,7 @@ impl App {
         self.report(now);
         self.term.coalesce.turn_end();
         self.term.changed = false;
-        if let Some(wait) = self.wait.turn(now, !self.views.is_empty()) {
+        if let Some(wait) = self.wait.turn(now, self.presented) {
             log::error!("no display appeared within {} s", wait.as_secs());
             self.request_exit(Exit::NoDisplay);
         }

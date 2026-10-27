@@ -40,6 +40,8 @@ struct Memory {
     /// Each canvas lent's age, in order.
     ages: Vec<u32>,
     refresh_mhz: u32,
+    /// Every swap fails, as on a display announced and never shown.
+    refuses: bool,
 }
 
 impl Default for Memory {
@@ -63,6 +65,7 @@ impl Memory {
             wake_ups: 0,
             ages: Vec::new(),
             refresh_mhz: 60_000,
+            refuses: false,
         }
     }
 }
@@ -103,6 +106,9 @@ impl Video for Memory {
     fn swap(&mut self, id: DisplayId, _: &[Rect]) -> Result<Swapped, SwapError> {
         if self.dpms != Some(Dpms::On) {
             return Err(SwapError::Off);
+        }
+        if self.refuses {
+            return Err(SwapError::Failed(io::Error::other("refused")));
         }
         self.frames += 1;
         self.age = 1;
@@ -1352,7 +1358,8 @@ fn a_device_whose_displays_never_come_on_counts_as_none() {
 #[test]
 fn a_display_gone_after_the_start_is_hotplug() {
     let mut h = Harness::new(&WAITING);
-    assert!(h.until_memory(SECOND, |m| m.frames > 0));
+    // A frame on screen: its flip read, which ends the start's wait.
+    assert!(h.until_memory(SECOND, |m| m.frames > 0 && m.events.is_empty()));
     h.app.remove_video(Path::new("/dev/mem0"));
     assert!(h.app.cells().is_empty(), "no display");
     h.until(Duration::from_millis(1500), |a| a.finished().is_some());
@@ -1563,4 +1570,119 @@ fn a_display_coming_after_the_blanked_last_one_went_is_drawn() {
     h.app
         .add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
     assert!(h.until_memory(SECOND, |m| m.frames > 0), "drawn");
+}
+
+/// The wait runs out on a display that is announced and never shows a
+/// frame: the wait ends on the first frame on screen.
+#[test]
+fn a_display_whose_every_swap_fails_counts_as_none() {
+    let mut h = Harness::bare(&WAITING);
+    let refusing = Memory {
+        refuses: true,
+        ..Memory::default()
+    };
+    h.app
+        .add_video(PathBuf::from("/dev/mem0"), Box::new(refusing));
+    assert!(h.until(SECOND, |a| a.cells().len() == 1), "announced");
+    assert!(h.until(Duration::from_secs(3), |a| a.finished().is_some()));
+    assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
+    assert_eq!(h.memory().frames, 0);
+}
+
+/// The loop wakes for the wait's end with nothing else to wake it: no
+/// blink, no blank, no output.
+#[test]
+fn the_loop_wakes_for_the_waits_end() {
+    let mut h = Harness::bare(&[
+        "--display-wait=1",
+        "--no-blink",
+        "--dpms-timeout=0",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "read x",
+    ]);
+    let started = now();
+    while h.app.finished().is_none() && now() - started < Duration::from_secs(5) {
+        // As `main` runs it, but a missing wake-up costs 3 s, not ever.
+        let wait = h.app.next_wake(h.at()).unwrap_or(Duration::from_secs(3));
+        h.lp.dispatch(Some(wait), &mut h.app).expect("dispatch");
+        h.app.turn(h.at());
+    }
+    assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
+    let took = now() - started;
+    assert!(
+        took < Duration::from_millis(2_500),
+        "woken at the wait's end: {took:?}"
+    );
+}
+
+/// A display coming after none, here a connector on a card awake since
+/// the start, starts the blank's countdown afresh.
+#[test]
+fn a_display_coming_later_starts_the_blanks_countdown_afresh() {
+    let late = Late {
+        memory: Memory::default(),
+        held: Some(Event::Added(ID)),
+    };
+    let mut h = Harness::build(
+        &[
+            "--display-wait=forever",
+            "--dpms-timeout=3",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read x",
+        ],
+        FakeVt::new(),
+        Box::new(late),
+    );
+    h.until(Duration::from_secs(2), |_| false);
+    assert!(h.app.cells().is_empty(), "no display yet");
+    h.late().held = None;
+    assert!(h.until(SECOND, |a| a.cells().len() == 1));
+    // 4 s from the start, 2 s from the display.
+    h.until(Duration::from_secs(2), |_| false);
+    assert_ne!(h.memory().dpms, Some(Dpms::Off), "not 3 s from the start");
+    assert!(
+        h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::Off)),
+        "3 s from the display"
+    );
+}
+
+/// The last display going while the VT is not ours, blanked with a
+/// re-take owed, wakes nothing: the acquire sets every device up.
+#[test]
+fn the_last_display_going_while_released_wakes_nothing() {
+    let mut h = Harness::with_vt(
+        &[
+            "--dpms-timeout=1",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read x",
+        ],
+        ScriptedVt::default(),
+    );
+    assert!(
+        h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::Off)),
+        "blanked"
+    );
+    h.scripted().events.push(VtEvent::Retaken);
+    h.until(Duration::from_millis(50), |_| false);
+    h.scripted().events.push(VtEvent::Release);
+    assert!(h.until(SECOND, |a| !a.vt.is_active()), "released");
+    let (wake_ups, unblanks) = (h.memory().wake_ups, h.memory().unblanks);
+    h.memory().events.push(Event::Removed(ID));
+    h.until(Duration::from_millis(200), |_| false);
+    assert!(h.app.cells().is_empty(), "the display went");
+    let m = h.memory();
+    assert_eq!(
+        (m.wake_ups, m.unblanks, m.awake),
+        (wake_ups, unblanks, false),
+        "nothing woke"
+    );
 }

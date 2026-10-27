@@ -1,7 +1,7 @@
 //! The start's wait for a display (the operator's decision on
 //! vtium/vtium#21): from the first time the VT is shown, vtium waits
-//! `display-wait` for a display it draws on, and with none by then it
-//! ends. Once one has come the wait is over for good, and displays coming
+//! `display-wait` for a frame on a display's screen, and with none by
+//! then it ends. Once one has shown the wait is over for good, and displays coming
 //! and going are hotplug. Under `forever` no wait runs, and vtium never
 //! ends for want of a display.
 
@@ -34,13 +34,13 @@ impl Wait {
         }
     }
 
-    /// A turn's end, with or without a display to draw on: the wait it
-    /// ran when it ran out with none.
-    pub fn turn(&mut self, now: Instant, display: bool) -> Option<Duration> {
+    /// A turn's end, with or without a frame shown on a display so far:
+    /// the wait it ran when it ran out with none.
+    pub fn turn(&mut self, now: Instant, shown: bool) -> Option<Duration> {
         let Wait::Until { due, wait } = *self else {
             return None;
         };
-        if display {
+        if shown {
             *self = Wait::Over;
             None
         } else if now >= due {
