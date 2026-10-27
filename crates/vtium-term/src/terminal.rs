@@ -6,7 +6,8 @@
 //! The dispatch here carries the printing, the C0 and C1 controls, and the
 //! control functions. The modes go through the mode table (`modes.rs`),
 //! SGR through `sgr.rs`, the replies through `reply.rs`, the character
-//! sets through `charset.rs`, OSC 52 through `clipboard.rs`, and the keys,
+//! sets through `charset.rs`, OSC 52 through `clipboard.rs`, the colour
+//! OSC strings through `color.rs`, and the keys,
 //! the pointer, focus and pastes through `input.rs`.
 //!
 //! A control function is matched by its final byte, its private marker and
@@ -15,6 +16,7 @@
 
 mod charset;
 mod clipboard;
+mod color;
 mod input;
 mod modes;
 mod reply;
@@ -138,8 +140,8 @@ struct HostSettings {
     cell: Option<(u32, u32)>,
     /// The display the grid fills, in pixels, once the host knows it.
     display: Option<(u32, u32)>,
-    /// The palette the host configured, which the colour queries answer
-    /// from.
+    /// The palette the host configured, which the colour resets return
+    /// to.
     palette: Palette,
 }
 
@@ -169,6 +171,9 @@ struct State {
     out: Vec<u8>,
     modes: Modes,
     host: HostSettings,
+    /// The configured palette with the colours the program set: what
+    /// frames draw through and the colour queries answer from.
+    colors: Palette,
     cursor_style: CursorStyle,
     /// DECSC's slots, the main screen's and the alternate screen's, as
     /// xterm keeps them.
@@ -217,6 +222,7 @@ impl Terminal {
                 display: None,
                 palette: Palette::default(),
             },
+            colors: Palette::default(),
             cursor_style: CursorStyle::Default,
             saved: [Saved::HOME; 2],
             input_mode: InputMode::Utf8,
@@ -360,20 +366,25 @@ impl Terminal {
         self.state.host.display = Some((width, height));
     }
 
-    /// The palette the colour queries (OSC 4, 10, 11) answer from.
+    /// The palette frames draw through and the colour queries answer
+    /// from: the configured one with the colours the program set (OSC 4,
+    /// 10 to 19 and 21). The host draws the pointer in its
+    /// [`pointer`](Palette::pointer) colours.
     pub fn palette(&self) -> &Palette {
-        &self.state.host.palette
+        &self.state.colors
     }
 
     /// The palette the host configured: a named one or a custom one
-    /// ([`Palette::named`], [`Palette::custom`]). A palette that differs
-    /// from the one set recolours every cell, so every cell is marked
-    /// changed.
+    /// ([`Palette::named`], [`Palette::custom`]). It replaces the colours
+    /// the program set, and is what the colour resets and RIS return to. A
+    /// palette that differs from the one drawn recolours every cell, so
+    /// every cell is marked changed.
     pub fn set_palette(&mut self, palette: Palette) {
-        if self.state.host.palette != palette {
-            self.state.host.palette = palette;
+        if self.state.colors != palette {
+            self.state.colors = palette.clone();
             self.state.screen.recolour();
         }
+        self.state.host.palette = palette;
     }
 
     /// Whether BackSpace sends DEL (0x7F) in place of BS (0x08).
@@ -498,10 +509,15 @@ impl State {
         self.saved = [Saved::HOME; 2];
     }
 
-    /// RIS: DECSTR's reset, the modes only RIS resets, the screen and the
-    /// scrollback erased, and the cursor home.
+    /// RIS: DECSTR's reset, the modes only RIS resets, the colours the
+    /// program set, the screen and the scrollback erased, and the cursor
+    /// home.
     fn hard_reset(&mut self) {
         self.soft_reset();
+        if self.colors != self.host.palette {
+            self.colors = self.host.palette.clone();
+            self.screen.recolour();
+        }
         self.screen.erase_screen(Erase::All);
         self.screen.clear_scrollback();
         modes::reset(self, true);
@@ -744,7 +760,9 @@ impl Consumer for State {
         }
         match data.strip_prefix(b"52;") {
             Some(args) => self.set_clipboard(args),
-            None => self.reply_osc(data, end),
+            None => {
+                self.osc_color(data, end);
+            }
         }
     }
 
