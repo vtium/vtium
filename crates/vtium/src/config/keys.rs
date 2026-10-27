@@ -546,7 +546,7 @@ pub const CLIPBOARD_WRITE: Key = Key {
     default: Default::Switch(true),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken for a paste, which is not built yet.",
+    what: "Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and Shift+Insert paste it.",
     cite: "ADR-1000 (`osc.52.write`); vtium/vtium#39",
 };
 

@@ -17,7 +17,7 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/layout.rs` | The grid and each display's font height with several displays, and the zoom and rotation steps |
 | `src/term.rs` | The session's terminal as the pty's consumer, and a view per display that draws it |
 | `src/video.rs` | A video device behind one trait: drm2d, fbdev, or a test's stand-in |
-| `src/app.rs` | The seat: the VT's events, the devices, the keys, the blank, the child, the exit |
+| `src/app.rs` | The seat: the VT's events, the devices, the keys, the pointer's selection, copy and paste, the blank, the child, the exit |
 | `src/logger.rs` | The log on stderr |
 | `src/check.rs` | `vtium check-config`, and the warnings the start gives beyond the reports |
 | `src/warn.rs` | Where the operator's warnings go: the configuration's reports and a font's partial ranges |
@@ -25,7 +25,7 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/main.rs` | Start-up and the loop |
 | `tests/check_config.rs` | `vtium check-config` run as a binary: its warnings, exit status and help, and with strace on the machine, that it opens nothing but the configuration |
 | `tests/panic_hook.rs` | The panic hook's order, in a process of its own |
-| `tests/boot.rs` | The seat booted with no hardware: output drawn, keys, a VT switch, the blank and what counts as activity, the respawn limit, DECARM, the font's policy, the wait for a display and the session with none, the exit |
+| `tests/boot.rs` | The seat booted with no hardware: output drawn, keys, a VT switch, the blank and what counts as activity, the respawn limit, DECARM, selection, copy and paste with the pointer, the font's policy, the wait for a display and the session with none, the exit |
 | `install/kmscon.conf.example` | The example configuration, generated from the key table |
 | `install/kmscon.ti` | The terminfo entry, installed compiled with `tic -x` |
 | `install/kmsconvt@.service` | The VT unit: vtium in place of getty on a VT, which `make install-tree` installs and tier 3's guest starts |
@@ -41,6 +41,10 @@ After `dpms-timeout` with no activity every display powers down, and the next ac
 At start vtium waits `display-wait` (10 s by default) for a frame on a display's screen, counted from the first time its VT is shown, and with none by then it exits with status 1, so the unit's `OnFailure=getty@%i` takes the VT. A device whose displays are never set up, as when the modeset fails, counts as none, as does a display announced whose every frame fails to show. `display-wait=0` exits at once without one; `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time after boot. The session's command starts during the wait, and is closed if vtium exits.
 
 Once a display has come, vtium never exits for want of one. When the last goes, it logs it and the session runs on: the grid keeps the last display's size, so the program sees no SIGWINCH; keys still reach it; and the blank does not run (see "The blank"). When the next comes, it is logged and drawn whole, and the grid takes its size where that differs, one SIGWINCH (the operator's decisions on vtium/vtium#21).
+
+## Selection, copy and paste
+
+The pointer drives vtium-term's selection, and the seat keeps one selection buffer: what the user copied last, or what a program set last with OSC 52 while `clipboard-write` is on. The console has no system clipboard. The middle button and Shift+Insert paste the buffer through vtium-term's `Terminal::paste`, filtered, and bracketed while the program asks with mode 2004. The buffer holds at most the text of the scrollback and the screen, or vtium-term's `CLIPBOARD_MAX` bytes from one OSC 52.
 
 ## Bounds
 
@@ -76,10 +80,16 @@ Each was the C reference's behaviour at kmscon `b1f7a7c5`.
 - **A failed renderer set leaves the pointer drawn in software,** and the next successful set gives it back to the hardware cursor; the C reference drew it nowhere (aaronsb/kmscon#211).
 
 - **A child's exit closes its pty after the output it left is read** (vtium-platform's departure), and the next child starts from a hard reset (RIS).
+- **A triple click selects a line, and a fourth click starts again.** The C reference had the double click's word only (`src/terminal.c:1509-1542`). Spec: xterm's `on3Clicks`, whose default is `line`; vtium-term's README lists how the line is copied. Test: `a_double_click_selects_a_word_and_a_triple_click_a_line`.
+- **Shift selects and pastes while the program tracks the pointer.** The C reference reported every pointer event while the program tracked it, so text could not be selected there (`src/terminal.c:1623-1627`). Spec: xterm's `ShiftOverride` in `button.c`, with `shiftEscape` false, its default: a button or motion with Shift held is not reported. vtium decides at a press, and the button selects or pastes until its release whatever Shift does meanwhile; xterm decides each event by the Shift held then. Test: `shift_selects_and_pastes_while_the_program_tracks_the_pointer`.
+- **The middle button pastes at its release.** The C reference pasted at the press (`src/terminal.c:1531-1536`). Spec: xterm's translation `~Ctrl ~Meta <Btn2Up>: insert-selection(SELECT, CUT_BUFFER0)`. Test: `a_hostile_selection_is_pasted_filtered_once_a_press`.
+- **A drag ends when the left button is no longer held, and at the VT's release.** The C reference kept a drag until the left button's release came, so after a release it missed, as across a VT switch, plain motion went on extending the selection. Spec: none covers it; the reason: motion with no button held is not a drag. Test: `a_drag_ends_without_its_button_and_at_a_vt_release`.
+- **Shift+Insert pastes, once a press.** The C reference had no key to paste. Spec: xterm's translation `Shift <KeyPress> Insert: insert-selection(SELECT, CUT_BUFFER0)`; a repeat of the held key pastes nothing more. Tests: `shift_insert_pastes_as_in_xterm`, `a_hostile_selection_is_pasted_filtered_once_a_press`, and the triple click's above.
+- **A click with no drag, or a double click on a space, leaves the selection buffer as it was.** The C reference copied the one cell a click selected, or emptied its buffer for the space, so the next paste sent that character or nothing. Spec: xterm's `SelectSet`, which takes a selection only when it is not empty. Test: the triple click's above.
 
 ## Not yet built
 
-Each is the C reference's and waits for its own change: drawing through the GPU, which `hwaccel` asks for and which warns at start (vtium draws in software), the `multi-monitor` key's `clone` and `largest` (vtium lays several displays out as `scaled`, the operator's choice on vtium/vtium#21), the hardware cursor (the pointer is drawn in software), selection and copy with the pointer, pasting a selection (OSC 52's is taken and the last one held, at most vtium-term's `CLIPBOARD_MAX`, for that paste; `no-clipboard-write` drops it, and the console has no system clipboard to hand it to), the render timer's on-screen display, outline fonts (`font-engine=freetype` and `pango` draw with unifont), and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs, the decoration colours and the rest.
+Each is the C reference's and waits for its own change: drawing through the GPU, which `hwaccel` asks for and which warns at start (vtium draws in software), the `multi-monitor` key's `clone` and `largest` (vtium lays several displays out as `scaled`, the operator's choice on vtium/vtium#21), the hardware cursor (the pointer is drawn in software), the render timer's on-screen display, outline fonts (`font-engine=freetype` and `pango` draw with unifont), and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs, the decoration colours and the rest.
 
 ## Left to tier 3
 
@@ -95,4 +105,5 @@ Each needs a real VT or display, which the boot tests stand in for:
 
 - The XTGETTCAP table is the C reference's: the same 137 names and values as its ncurses-built `src/terminal_termcap.h`, and `Ms`, which the C reference's entry lacked, for OSC 52.
 - A `login` word that is `$NAME` becomes that variable of the session's environment, after the environment is reset.
+- With no mouse tracking, or with Shift, the left button's drag selects and its release copies, a double click selects and copies a word, and the right button clears the selection, where xterm's extends it (`src/terminal.c:1509-1542`). A pointer in the strip past the grid is at the grid's nearest cell (`src/terminal.c:173-190`). A key, the pointer hiding and a change of mouse tracking clear the selection (`src/terminal.c:890-897, 1370, 1655-1659`).
 - A wheel event is one report while the program tracks the pointer, else a zoom with Ctrl, else three lines of scrollback, whatever its number of steps (`src/terminal.c:1492-1497, 1639-1650`).
