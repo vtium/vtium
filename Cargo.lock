@@ -177,6 +177,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vtium-conformance"
+version = "0.0.0"
+dependencies = [
+ "vtium-term",
+]
+
+[[package]]
 name = "vtium-font"
 version = "0.0.0"
 dependencies = [

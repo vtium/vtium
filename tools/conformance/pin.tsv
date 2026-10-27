@@ -1,0 +1,6 @@
+# The commits the runner judges vtium against: the C reference's conformance
+# corpus and replay interface (libtsm), and its capability probes (kmscon).
+# Moving a pin is a change to the judge: it goes in a commit of its own, with
+# the runner's report before and after.
+libtsm	eeaf2931985051585bf50979e0c3f588b4a51ef9	https://github.com/aaronsb/libtsm.git
+kmscon	b1f7a7c5df563f3378584db7298753848a7a9a13	https://github.com/aaronsb/kmscon.git
