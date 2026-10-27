@@ -125,6 +125,32 @@ fn mode_2031_reports_a_change_of_scheme() {
     assert_eq!(sent(&mut t), "");
 }
 
+// A pop of the colour stack, XTPOPCOLORS or kitty's OSC 30101, that
+// restores a background of the other scheme is a change of scheme: one
+// report a sequence, however many entries it pops.
+// covers: DEC-2031
+#[test]
+fn a_colour_stack_pop_reports_a_change_of_scheme() {
+    let mut t = term(10, 5, b"\x1b[?2031h\x1b]11;#ffffff\x07");
+    assert_eq!(sent(&mut t), "\x1b[?997;2n");
+    t.input(b"\x1b[#P\x1b]11;#000000\x07");
+    assert_eq!(sent(&mut t), "\x1b[?997;1n");
+    t.input(b"\x1b[#Q");
+    assert_eq!(sent(&mut t), "\x1b[?997;2n", "XTPOPCOLORS");
+    t.input(b"\x1b[#P\x1b]11;#eeeeee\x07\x1b[#Q");
+    assert_eq!(sent(&mut t), "", "a pop within the scheme");
+    t.input(b"\x1b]30001\x1b\\\x1b]11;#000000\x07");
+    assert_eq!(sent(&mut t), "\x1b[?997;1n");
+    t.input(b"\x1b]30101\x1b\\");
+    assert_eq!(sent(&mut t), "\x1b[?997;2n", "OSC 30101");
+    t.input(b"\x1b]11;#000000\x07\x1b[1#P\x1b]11;#ffffff\x07\x1b[2#P");
+    assert_eq!(sent(&mut t), "\x1b[?997;1n\x1b[?997;2n");
+    t.input(b"\x1b[1;2#Q");
+    assert_eq!(sent(&mut t), "", "dark, then light again: no change at the end");
+    t.input(b"\x1b[2;1#Q");
+    assert_eq!(sent(&mut t), "\x1b[?997;1n", "one report for two pops");
+}
+
 // contour, `CSI ? 996 n`: `CSI ? 997 ; 1 n` while the default background
 // is dark and `2` while it is light, whatever mode 2031 holds. Dark is a
 // luma below half, Y = 0.299 R + 0.587 G + 0.114 B on the stored channels

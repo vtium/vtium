@@ -768,7 +768,11 @@ impl Consumer for State {
             (None, [b'#'], b'{' | b'p') => self.push_sgr(params),
             (None, [b'#'], b'}' | b'q') => self.pop_sgr(),
             (None, [b'#'], b'P') => self.push_colors_params(params),
-            (None, [b'#'], b'Q') => self.pop_colors_params(params),
+            (None, [b'#'], b'Q') => {
+                let scheme = self.scheme();
+                self.pop_colors_params(params);
+                self.report_scheme_change(scheme);
+            }
             (None, [b'#'], b'R') => self.reply_color_stack(),
             _ => {}
         }
