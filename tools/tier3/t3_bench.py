@@ -1,4 +1,4 @@
-"""Tier 3's benchmark scenarios (ADR-103's S1 to S6 and the acceptance
+"""Tier 3's benchmark scenarios (S1 to S6 and the acceptance
 scenarios that play video): kmscon's render-timer lines on the guest's
 console, and the figures of one scenario's window.
 
@@ -136,7 +136,7 @@ CLIP_FRAME_MS = 1000 / 30
 
 
 def bottleneck(figures):
-    """Why kmscon held a program's video back, as ADR-103 judges A2: its
+    """Why the console held a program's video back, as A2 is judged: its
     CPU time per frame the program sent (parsing included) above the clip's
     frame interval, or fewer frames presented than the program sent; or
     that the program showed nothing. An empty list when it kept up or the
@@ -197,7 +197,7 @@ def measure(serial_text, event_line, config):
             out["error"] = ("tmux sent kmscon no sixel picture: it drew placeholders, or "
                             "nothing played")
         elif out.get("kmscon_cpu_ms") is not None:
-            # Reported, not judged: A4 is compatibility (ADR-103), and
+            # Reported, not judged: A4 is compatibility, and
             # kmscon's streaming is judged apart from tmux (#161).
             out["kmscon_cpu_ms_per_tmux_sixel"] = round(
                 out["kmscon_cpu_ms"] / counts["tmux_sixels"], 3)

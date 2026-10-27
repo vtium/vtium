@@ -2,7 +2,7 @@
 processes, under the run lock, and their results assembled into the report.
 
 GL variants share the host's render node and never run together. A lock on
-fork/build/tier3.lock refuses a second concurrent run.
+target/tier3/lock refuses a second concurrent run.
 """
 
 import contextlib
@@ -16,6 +16,7 @@ import sys
 import time
 import uuid
 
+import t3_common
 import t3_impl
 import t3_qemu
 import t3_scenario
@@ -151,11 +152,11 @@ def run_concurrently(variants, jobs, impl, deadline, results, log):
                 elif overdue:
                     results[job.variant] = t3_scenario.failed_variant(
                         job.variant, "no result within the %d s deadline; worker stopped"
-                        % deadline, impl, log)
+                        % deadline, log)
                 else:
                     results[job.variant] = t3_scenario.failed_variant(
                         job.variant, "worker exited with code %s before reporting"
-                        % job.proc.exitcode, impl, log)
+                        % job.proc.exitcode, log)
     finally:
         if running:  # interrupted: a second SIGTERM must not cut the cleanup short
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -189,16 +190,16 @@ def run_variants(variants, jobs, impl, deadline, log):
     for v in variants:
         if v not in results:
             results[v] = t3_scenario.failed_variant(
-                v, "run interrupted: %s" % (interrupted or "no result"), impl, log)
+                v, "run interrupted: %s" % (interrupted or "no result"), log)
     log("%d variant(s) done, %d at a time" % (len(variants), jobs))
     return results, interrupted
 
 
 @contextlib.contextmanager
 def run_lock():
-    """Hold fork/build/tier3.lock, or exit if another run holds it: two runs
-    would share the package, the work directory, the report and the render
-    node."""
+    """Hold target/tier3/lock, or exit if another run holds it: two runs
+    would share the install tree, the work directory, the report and the
+    render node."""
     os.makedirs(os.path.dirname(LOCK), exist_ok=True)
     with open(LOCK, "a+") as f:
         try:
@@ -213,20 +214,18 @@ def run_lock():
         yield
 
 
-# What a run was built from and ran on, passed by fork/tier3.mk.
-TOOL_ENV = {"kmscon": "T3_KMSCON_REV", "libtsm": "T3_LIBTSM_REV",
-            "kmscon_repo": "T3_KMSCON_REPO", "libtsm_repo": "T3_LIBTSM_REPO", "image_base": "DEV_IMAGE_BASE",
-            "archive_date": "DEV_ARCHIVE_DATE", "guest_image": "T3_IMAGE",
+# What a run was built from and ran on, passed by the Makefile.
+TOOL_ENV = {"vtium": "T3_VTIUM_REV", "guest_image": "T3_IMAGE",
             "guest_image_sha256": "T3_IMAGE_SHA256", "guest_archive": "T3_ARCHIVE"}
 
 
-def run_tools(impl):
-    """The commits and pins behind a run; null where the caller gave none.
-    A vtium run has no libtsm, so its libtsm fields are null, and kmscon's
-    name the checkout whose harness and goldens judged it."""
+def run_tools():
+    """The commits and pins behind a run: vtium's checkout and the guest's
+    pins as the Makefile gave them, null where it gave none, and the kmscon
+    commit whose goldens judged the run (pin.tsv)."""
     tools = {k: os.environ.get(v) or None for k, v in TOOL_ENV.items()}
-    if impl["name"] != t3_impl.C:
-        tools["libtsm"] = tools["libtsm_repo"] = None
+    pin = t3_common.read_pin()
+    tools["goldens"] = {"kmscon": pin["commit"], "kmscon_repo": pin["url"]}
     return tools
 
 
@@ -238,9 +237,8 @@ def write_report(variants, results, impl):
     meta = {v: results[v][1] for v in variants}
     # A fresh id per run lets a comparison tell two runs from one run
     # saved twice.
-    report = {"tier": 3, "run_id": uuid.uuid4().hex, "tools": run_tools(impl),
-              "implementation": dict(t3_impl.describe(impl),
-                                     consoles=t3_scenario.consoles(meta)),
+    report = {"tier": 3, "run_id": uuid.uuid4().hex, "tools": run_tools(),
+              "build": dict(t3_impl.describe(impl), consoles=t3_scenario.consoles(meta)),
               "cases": cases, "variants": meta}
     os.makedirs(os.path.dirname(REPORT), exist_ok=True)
     with open(REPORT, "w") as f:

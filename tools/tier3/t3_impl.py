@@ -1,13 +1,10 @@
-"""The implementation under test: the C reference's packages, or a vtium
-build given as an install tree or as package files.
+"""The build under test: vtium's install tree (make install-tree), a
+directory laid out as the guest's root.
 
-Every variant of a run installs the same implementation from its disc
-(guest/setup): packages through pacman, a tree as tree.tar unpacked over the
-guest's root. Its size on disk is measured here, on the host, the same way for
-both: the bytes of the regular files it installs, which for a package is
-the size its .PKGINFO records. ADR-304 §5's size target is the C reference's
-main package alone, so the main size, without the terminfo entry, is what
-is compared with it.
+Every variant of a run installs the same tree from its disc (guest/setup), as
+tree.tar unpacked over the guest's root. Its size on disk is measured here, on
+the host: the bytes of the regular files it installs, and the binary's alone,
+which tier 3 holds to a fixed budget.
 """
 
 import hashlib
@@ -16,83 +13,44 @@ import tarfile
 
 from t3_common import RUNDIR, rel
 
-C, VTIUM = "c", "vtium"
-# ADR-304 §5: the minspec build installs at most the C reference's minimal
-# package's .PKGINFO size at 92abd024, in MiB to two places.
-MINSPEC_MAIN_MIB = 1.77
-# Where a tree installs the terminfo entry, which the C reference ships in a
-# package of its own.
-TERMINFO = "usr/share/terminfo/"
-# What the guest needs of a vtium install (README, "vtium through the same
-# harness"): the VT unit the base image's autovt@.service links to.
+# The operator's size budget for the minspec binary (vtium/vtium#22): what
+# vtium shipped after #21's two savings. A run whose binary is larger fails.
+BINARY = "usr/bin/vtium"
+BINARY_BUDGET = 2365272
+# What the guest needs of a tree (README, "What the harness needs of the
+# build"): the VT unit the base image's autovt@.service links to, and the
+# binary it starts.
 VT_UNIT = "usr/lib/systemd/system/kmsconvt@.service"
-# The package metadata at the root of a package archive, which pacman reads
-# and does not install.
-PKG_META = {".PKGINFO", ".BUILDINFO", ".MTREE", ".INSTALL", ".CHANGELOG"}
+REQUIRED = (BINARY, VT_UNIT)
 
 
-def c_reference(pkgs):
-    """The C reference's packages, as `t3_scenario.newest_packages` found them."""
-    return _impl(C, "packages", pkgs)
+def tree(path, tar_path=None):
+    """vtium's install tree at `path`, measured and packed into `tar_path`
+    (default RUNDIR/vtium-tree.tar) for the disc, owned by root."""
+    path = os.path.abspath(path)
+    if not os.path.isdir(path):
+        raise SystemExit("no install tree at %s; make install-tree builds one" % rel(path))
+    files = contents(path)
+    missing = [f for f in REQUIRED if f not in files]
+    if missing:
+        raise SystemExit("the install tree at %s holds no %s, which the guest starts on each VT"
+                         % (rel(path), ", ".join("/" + f for f in missing)))
+    impl = {"path": path, "binary_bytes": files[BINARY],
+            "installed_bytes": sum(files.values())}
+    impl.update(pack_tree(path, tar_path or os.path.join(RUNDIR, "vtium-tree.tar")))
+    return impl
 
 
-def vtium(paths, tar_path=None, standin=False):
-    """A vtium build: one install tree (a directory laid out as the guest's
-    root), or one or more package files. A tree is packed into `tar_path`
-    (default fork/build/tier3/vtium-tree.tar) for the disc, owned by root.
-    `standin` names a build that stands in for vtium's, whose console may
-    be another (t3_scenario.variant_errors)."""
-    paths = [os.path.abspath(p) for p in paths]
-    if len(paths) == 1 and os.path.isdir(paths[0]):
-        impl = _impl(VTIUM, "tree", paths, standin)
-        impl.update(pack_tree(paths[0], tar_path or os.path.join(RUNDIR, "vtium-tree.tar")))
-        return impl
-    for p in paths:
-        if os.path.isdir(p) or not p.endswith(".pkg.tar.zst"):
-            raise SystemExit("--vtium takes one install tree or package files (.pkg.tar.zst); "
-                             "%s is neither" % p)
-        if not os.path.isfile(p):
-            raise SystemExit("no vtium package at %s" % p)
-    return _impl(VTIUM, "packages", sorted(paths), standin)
-
-
-def _impl(name, kind, paths, standin=False):
-    files = [contents(kind, p) for p in paths]
-    if name == VTIUM and not any(VT_UNIT in f for f in files):
-        raise SystemExit("the vtium build at %s installs no /%s, which the guest starts on "
-                         "each VT" % (", ".join(map(rel, paths)), VT_UNIT))
-    sizes = [sum(f.values()) for f in files]
-    if kind == "tree":
-        main = sum(b for n, b in files[0].items() if not n.startswith(TERMINFO))
-    else:
-        main = sum(b for p, b in zip(paths, sizes) if not _is_terminfo(p))
-    return {"name": name, "kind": kind, "paths": paths, "standin": standin,
-            "bytes": sizes, "main_bytes": main, "installed_bytes": sum(sizes)}
-
-
-def _is_terminfo(pkg):
-    """Whether a package file, NAME-VERSION-REL-ARCH.pkg.tar.zst, is a
-    terminfo package (NAME-terminfo)."""
-    return os.path.basename(pkg).rsplit("-", 3)[0].endswith("-terminfo")
-
-
-def contents(kind, path):
-    """{installed path: bytes} of every regular file a package or tree
-    installs, paths relative to the root, without a leading "./"."""
+def contents(path):
+    """{installed path: bytes} of every regular file a tree installs, paths
+    relative to its root."""
     out = {}
-    if kind == "tree":
-        for d, dirs, names in os.walk(path):
-            dirs.sort()
-            for n in names:
-                full = os.path.join(d, n)
-                if os.path.isfile(full) and not os.path.islink(full):
-                    out[os.path.relpath(full, path)] = os.lstat(full).st_size
-        return out
-    with tarfile.open(path, "r:zst") as t:
-        for m in t:
-            name = m.name.removeprefix("./")
-            if m.isfile() and name not in PKG_META:
-                out[name] = m.size
+    for d, dirs, names in os.walk(path):
+        dirs.sort()
+        for n in names:
+            full = os.path.join(d, n)
+            if os.path.isfile(full) and not os.path.islink(full):
+                out[os.path.relpath(full, path)] = os.lstat(full).st_size
     return out
 
 
@@ -118,23 +76,16 @@ def pack_tree(tree, tar_path):
     return {"tar": tar_path, "tree_sha256": h.hexdigest()}
 
 
-def packages(impl):
-    """The package files the guest installs with pacman; none for a tree."""
-    return impl["paths"] if impl["kind"] == "packages" else []
+def within_budget(impl):
+    return impl["binary_bytes"] <= BINARY_BUDGET
 
 
 def describe(impl):
-    """The report's account of the implementation: which was installed, from
-    where, and its size on disk in bytes: by path, without the terminfo entry
-    (compared with ADR-304's minspec target), and in all."""
-    out = {"name": impl["name"], "kind": impl["kind"], "standin": impl["standin"],
-           "paths": [{"path": rel(p), "bytes": b} for p, b in zip(impl["paths"], impl["bytes"])],
-           "main_bytes": impl["main_bytes"], "installed_bytes": impl["installed_bytes"],
-           "minspec_target": {"main_mib": MINSPEC_MAIN_MIB,
-                              "met": round(impl["main_bytes"] / (1 << 20), 2) <= MINSPEC_MAIN_MIB}}
-    if impl["kind"] == "tree":
-        out["tree_sha256"] = impl["tree_sha256"]
-    return out
+    """The report's account of the tree: where it was, its digest, the
+    binary's bytes against the budget, and the bytes it installs in all."""
+    return {"tree": rel(impl["path"]), "tree_sha256": impl["tree_sha256"],
+            "binary_bytes": impl["binary_bytes"], "installed_bytes": impl["installed_bytes"],
+            "budget": {"binary_bytes": BINARY_BUDGET, "met": within_budget(impl)}}
 
 
 def mib(nbytes):

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Self-test for t3img: image I/O and masked exact comparison.
 
-    python3 -I fork/tier3/test_t3img.py
+    python3 -I -B tools/tier3/test_t3img.py
 """
 
 import os

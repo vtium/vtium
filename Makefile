@@ -70,9 +70,11 @@ conformance-issues: ## Check that every issue the conformance lists say owes a c
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools without a VT, sudo or logind (shellcheck when installed)
+test-tools: ## Test the VT review tools and the tier 3 harness without a VT, sudo, logind or a VM (shellcheck when installed)
 	python3 -I tools/vt/tests/test_vt.py
-	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
+	python3 -I -B tools/tier3/test_t3img.py
+	python3 -I -B tools/tier3/test_t3.py
+	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/tier3-install && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 # The review targets block until the run ends, then print its answers. Their
 # variables reach tools/vt/vt.sh through the environment, unexpanded, never as
@@ -121,3 +123,62 @@ tier2: ## Draw tier 2's screens and judge them against their goldens (KMSCON=DIR
 	cargo build --release -p vtium-tier2 --bins
 	target/release/tier2 run --kmscon $(KMSCON)
 
+# Tier 3: vtium's install tree in a QEMU/KVM guest with a real kernel VT and
+# KMS device, its screens captured and compared with the C reference's
+# goldens at the commit tools/tier3/pin.tsv names, read from KMSCON
+# (tools/tier3/README.md). QEMU runs headless as the invoking user. Each
+# variant boots the machine tools/tier3/t3_scenario.py names; JOBS=N runs up to
+# N variants at once, and with JOBS above 1, T3_DEADLINE=S stops a variant
+# still running after S seconds. GL variants never run together.
+T3_DIR      := tools/tier3
+T3_VM       := target/tier3/vm
+T3_PY       := python3 -I -B
+JOBS        ?= 1
+T3_DEADLINE ?= 1800
+# The guest images, shared through a link with every checkout that names the
+# same directory: by default the kmscon checkout's, so a base image either
+# harness provisioned from the same inputs is reused.
+T3_IMAGES   ?= $(KMSCON)/fork/vm/images
+
+# The pinned guest: the official Arch Linux cloud image, verified against the
+# arch-boxes signing key, and the Arch Linux Archive snapshot its packages
+# come from, so a rerun installs the same package versions.
+T3_IMAGE_VER    := 20261015.611680
+T3_IMAGE        := Arch-Linux-x86_64-cloudimg-$(T3_IMAGE_VER).qcow2
+T3_IMAGE_URL    := https://geo.mirror.pkgbuild.com/images/v$(T3_IMAGE_VER)
+T3_IMAGE_SHA256 := 08754e28d91b1680086c6211ef4df13559e766fff7cdb4006489b14b5d281f08
+T3_IMAGE_KEY    := 1B9A16984A4E8CB448712D2AE0B78BF4326C6F8F
+T3_ARCHIVE      := 2026/10/20
+
+# What a report records it measured and ran on: this checkout's commit, with
+# +dirty for uncommitted changes, and the guest's pins.
+T3_REV = $(shell git rev-parse --short HEAD 2>/dev/null)$(if $(shell git status --porcelain --untracked-files=no 2>/dev/null),+dirty)
+T3_RUN = T3_VTIUM_REV=$(T3_REV) T3_IMAGE=$(T3_IMAGE) T3_IMAGE_SHA256=$(T3_IMAGE_SHA256) \
+	T3_ARCHIVE=$(T3_ARCHIVE) $(T3_PY) $(T3_DIR)/t3.py run --jobs $(JOBS) \
+	--deadline $(T3_DEADLINE) --kmscon $(KMSCON)
+
+$(T3_VM)/images:
+	mkdir -p $(T3_VM)
+	if [ -d $(T3_IMAGES) ]; then ln -sfn $(abspath $(T3_IMAGES)) $@; else mkdir -p $@; fi
+
+$(T3_VM)/images/$(T3_IMAGE): | $(T3_VM)/images
+	sh $(T3_DIR)/fetch-image.sh $(T3_VM)/images $(T3_IMAGE_URL) $(T3_IMAGE) $(T3_IMAGE_SHA256) $(T3_IMAGE_KEY)
+
+.PHONY: tier3-image
+tier3-image: $(T3_VM)/images/$(T3_IMAGE) ## Fetch, verify and provision tier 3's guest image, or reuse one built from the same inputs (T3_IMAGES=DIR)
+	$(T3_PY) $(T3_DIR)/t3.py provision --image $(T3_IMAGE) --archive $(T3_ARCHIVE)
+
+# tier3 and tier3-minimal name the tree's target for t3.py, which builds it
+# under the run lock, so a second run cannot rebuild the tree under a running
+# one. The recipes hold no $(MAKE), so `make -n` runs nothing.
+.PHONY: tier3
+tier3: tier3-image ## Tier 3: build the install tree, then run every variant, or VARIANTS="..." (JOBS=N, KMSCON=DIR)
+	$(T3_RUN) --tree-target install-tree $(VARIANTS)
+
+.PHONY: tier3-minimal
+tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB, with unifont and a PSF font (KMSCON=DIR)
+	$(T3_RUN) --tree-target install-tree $(or $(VARIANTS),2d-potato-min 2d-potato-min-psf)
+
+.PHONY: tier3-run
+tier3-run: ## Tier 3 on a tree built already: the last run's, or TREE=DIR (VARIANTS=, JOBS= as for tier3)
+	$(T3_RUN) $(if $(TREE),--tree $(TREE)) $(VARIANTS)

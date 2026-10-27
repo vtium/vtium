@@ -9,9 +9,9 @@ import t3_bench
 import t3img
 from t3_common import GOLDEN, GUEST, RUNDIR, rel
 
-# Screens drawn by `t3 NAME` in the guest (fork/tier3/guest/screens/NAME.sh),
-# in the local VT demo's order (fork/demo/sections), then sixel-bound and
-# ADR-103's benchmark scenarios, which have no demo page, except that cjk
+# Screens drawn by `t3 NAME` in the guest (guest/screens/NAME.sh), in the
+# order of the C reference's VT demo (fork/demo/sections), then sixel-bound and
+# the benchmark scenarios, which have no demo page, except that cjk
 # stays last: vt-restore is compared with the last screen's golden, and its
 # golden is the cjk one (test_t3.py holds the two together).
 SCREENS = ["sgr", "colour-forms", "underline-styles", "underline-colour", "strike",
@@ -25,7 +25,7 @@ SCREENS = ["sgr", "colour-forms", "underline-styles", "underline-colour", "strik
 # rotate grab is Logo with plus or equal, zoom Ctrl with the same, and both
 # match equal unshifted. photo-scroll's photograph has scrolled into
 # kmscon's scrollback, which Shift+PageUp shows and Shift+PageDown leaves
-# (ADR-103's A1).
+# (A1).
 KEYED = [
     ("sixel-evict", "sixel-evict-rotated", [("meta_l", "equal")]),
     ("sixel-evict", "sixel-evict-history", [("meta_l", "minus")] + [("shift", "pgup")] * 30),
@@ -34,10 +34,10 @@ KEYED = [
     ("photo-scroll", "photo-scrollforward", [("shift", "pgdn")]),
 ]
 KEYS_AFTER = {"sixel-evict": [("ctrl", "minus")]}
-# The screens that are also ADR-103 benchmark scenarios: each reports its
+# The screens that are also benchmark scenarios: each reports its
 # window on the event port, and the report carries its figures (t3_bench.py).
 BENCHMARKS = ["mpv-sixel", "tmux-2x2", "tmux-3x3", "s1-scroll", "flood"]
-# The benchmark screens judged by ADR-103's criterion for A2, that kmscon is
+# The benchmark screens judged by A2's criterion, that the console is
 # not the bottleneck (t3_bench.bottleneck); the tmux grids report their
 # figures only, since tmux redraws every pane's pictures itself.
 RATE_CHECKED = ["mpv-sixel"]
@@ -52,7 +52,7 @@ KNOWN_BOTTLENECKS = {}
 SAME_AS = {"photo-scrollforward": "photo-scroll", "vt-restore": SCREENS[-1]}
 # The screens that draw sixel or kitty pictures. Every variant with images
 # draws them: both renderers draw image placements, bbulk on the 2D variants
-# and gltex on the GL one (ADR-103 steps 3f and 4e, ADR-108). A variant
+# and gltex on the GL one, in the C reference. A variant
 # without images ("images": False, the minimal build) shows each screen's
 # "not offered" page instead (t3_scenario.not_offered).
 IMAGE_SCREENS = ["sixel", "sixel-ramps", "sixel-article", "sixel-bound", "sixel-evict",
@@ -88,7 +88,7 @@ CHECKS = {
                            "the lines.",
     "sixel-evict-rotated": "The sixel-evict screen turned with Logo+=: a scaled copy of the last "
                            "picture, which on bbulk fits the full image budget only once picture "
-                           "1 is evicted from scrollback (ADR-103's Q1 note); gltex's copy is a "
+                           "1 is evicted from scrollback (the Q1 note); gltex's copy is a "
                            "texture in a budget of its own and evicts nothing. Correct: the last "
                            "picture drawn, turned, under its caption.",
     "sixel-evict-history": "Turned back with Logo+-, then Shift+PageUp to the top of the "

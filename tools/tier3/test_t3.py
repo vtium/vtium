@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Self-test for the parts of tier 3 that run on the host without a guest:
 the caption and screen text a case's report carries (t3_evaluate.py), the
-colours and cells of the sixel goldens, the packages a run installs and the
-guest's account of them, and the machine each variant boots
-(t3_scenario.py), the console lines the driver waits for and the QEMU
-command line (t3_qemu.py), a benchmark screen's figures (t3_bench.py), and
-the logger a worker process receives (t3_common.py).
+colours and cells of the sixel goldens (when the kmscon checkout holds the
+pinned commit), the tree a run installs and the guest's account of it
+(t3_impl.py, t3_scenario.py), the machine each variant boots, the console
+lines the driver waits for and the QEMU command line (t3_qemu.py), a
+benchmark screen's figures (t3_bench.py), and the goldens' pin and the
+logger a worker process receives (t3_common.py).
 
-    python3 -I fork/tier3/test_t3.py
+    python3 -I -B tools/tier3/test_t3.py
 """
 
 import contextlib
@@ -167,7 +168,7 @@ class DescribeTest(unittest.TestCase):
         self.assertEqual(self.describe("# A screen.\n# screen-text: none, it scrolls.\n"),
                          ("A screen.", None))
         caption, _ = t3_evaluate.describe("s1-scroll")
-        self.assertTrue(caption.startswith("S1 (ADR-103): text scrolling"))
+        self.assertTrue(caption.startswith("S1 (ADR-103): text scrolling"))  # adr-cite-ignore: kmscon's record
         self.assertNotIn("screen-text", caption)
         self.assertIn("Correct: Numbered lines", caption)
 
@@ -183,7 +184,7 @@ class DescribeTest(unittest.TestCase):
 
 
 class AcceptanceTest(unittest.TestCase):
-    """ADR-103's sixel acceptance scenarios as tier 3 cases: A1 (photos,
+    """The sixel acceptance scenarios as tier 3 cases: A1 (photos,
     photo-scroll and its two key steps), A2 (mpv-sixel) and A4 (the tmux
     grids)."""
 
@@ -214,9 +215,16 @@ class AcceptanceTest(unittest.TestCase):
         self.assertEqual(t3_evaluate.screen_text("photo-scrollforward", LOG), None)
 
 
-LIBTSM = "ef2365d0f9f1a370d721a82470d69c3646fe97f0"
+def kmscon_holds_pin():
+    """Whether the kmscon checkout beside this one holds the pinned commit,
+    which the golden tests read. CI's test-tools job has no checkout."""
+    commit = t3_common.read_pin()["commit"]
+    return subprocess.run(["git", "-C", t3_common.KMSCON, "cat-file", "-e", commit + "^{commit}"],
+                          capture_output=True).returncode == 0
 
 
+@unittest.skipUnless(kmscon_holds_pin(), "no kmscon checkout with the pinned commit beside "
+                                         "this one: the goldens cannot be read")
 class SixelGoldenTest(unittest.TestCase):
     # The sixel page's colours (sixel.sh), as kmscon draws them: the bars,
     # the seven discs and swatches, each beside its text twin, the ring
@@ -227,6 +235,19 @@ class SixelGoldenTest(unittest.TestCase):
              "cyan": (0, 255, 255), "magenta": (255, 0, 255), "yellow": (255, 255, 0),
              "orange": (255, 128, 0)}
     GREY = (128, 128, 128)
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.TemporaryDirectory()
+        golden = os.path.join(cls.dir.name, "golden")
+        t3_common.extract_goldens(t3_common.KMSCON, golden=golden)
+        cls.patch = mock.patch.object(t3_evaluate, "GOLDEN", golden)
+        cls.patch.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.patch.stop()
+        cls.dir.cleanup()
 
     @classmethod
     def grid(cls, variant):
@@ -299,75 +320,6 @@ class SixelGoldenTest(unittest.TestCase):
                     self.assertEqual(at(5 + 7 * k, 20), at(5 + 7 * k, 22), "swatch %d" % k)
 
 
-class PackagesTest(unittest.TestCase):
-    UP = ["kmscon-upstream-10.0.4.r68.g7d33779-1-x86_64.pkg.tar.zst",
-          "kmscon-upstream-terminfo-10.0.4.r68.g7d33779-1-x86_64.pkg.tar.zst"]
-    LINE = ("[  12.3] TIER3-INSTALL-OK packages: kmscon-upstream 10.0.4.r68.g7d33779-1 "
-            "kmscon-upstream-terminfo 10.0.4.r68.g7d33779-1 ; libtsm: " + LIBTSM)
-
-    def setUp(self):
-        self.env = os.environ.pop("T3_LIBTSM_REV", None)
-
-    def tearDown(self):
-        os.environ.pop("T3_LIBTSM_REV", None)
-        if self.env is not None:
-            os.environ["T3_LIBTSM_REV"] = self.env
-
-    def impl(self, name=t3_impl.C, kind="packages", paths=None, **more):
-        """An implementation as t3_impl makes one, without reading files."""
-        return dict({"name": name, "kind": kind, "paths": self.UP if paths is None else paths,
-                     "bytes": [], "installed_bytes": 0}, **more)
-
-    def test_newest_of_one_name(self):
-        # Each build's packages are told apart by name, so the fork's never
-        # stand in for upstream's; the newest build of each is taken.
-        with tempfile.TemporaryDirectory() as d:
-            names = ["kmscon-aaronsb-10.0.4.r1.gabc-1-x86_64.pkg.tar.zst",
-                     "kmscon-aaronsb-terminfo-10.0.4.r1.gabc-1-x86_64.pkg.tar.zst",
-                     "kmscon-upstream-terminfo-9-1-x86_64.pkg.tar.zst",
-                     "kmscon-upstream-9-1-x86_64.pkg.tar.zst"] + self.UP
-            for i, name in enumerate(names):
-                open(os.path.join(d, name), "w").close()
-                os.utime(os.path.join(d, name), (i, i))
-            got = t3_scenario.newest_packages(d, "kmscon-upstream")
-            self.assertEqual([os.path.basename(p) for p in got], self.UP)
-            self.assertEqual([t3_scenario.package_name(p) for p in got],
-                             ["kmscon-upstream", "kmscon-upstream-terminfo"])
-            with self.assertRaises(SystemExit):
-                t3_scenario.newest_packages(d, "kmscon-other")
-
-    def test_install_checked(self):
-        os.environ["T3_LIBTSM_REV"] = "ef2365d"
-        got = t3_scenario.check_install(self.LINE, self.impl())
-        self.assertEqual(got, {"packages": ["kmscon-upstream 10.0.4.r68.g7d33779-1",
-                                            "kmscon-upstream-terminfo 10.0.4.r68.g7d33779-1"],
-                               "libtsm": LIBTSM})
-        # A dirty libtsm passes only when the run declares it.
-        os.environ["T3_LIBTSM_REV"] = "ef2365d+dirty"
-        t3_scenario.check_install(self.LINE.replace(LIBTSM, LIBTSM + "+dirty"), self.impl())
-
-    def test_install_refused(self):
-        # Another build's package in the guest, a package built from another
-        # libtsm than the run names, from an unknown or undeclared dirty one,
-        # a run naming no libtsm, or no account at all fails the variant.
-        os.environ["T3_LIBTSM_REV"] = "ef2365d"
-        line = self.LINE.replace("; libtsm", "kmscon-aaronsb 10.0.4-1 ; libtsm")
-        with self.assertRaisesRegex(RuntimeError, "kmscon-aaronsb installed"):
-            t3_scenario.check_install(line, self.impl())
-        for libtsm in (LIBTSM + "+dirty", "unknown", "none"):
-            with self.assertRaisesRegex(RuntimeError, "built with libtsm %s," % re.escape(libtsm)):
-                t3_scenario.check_install(self.LINE.replace(LIBTSM, libtsm), self.impl())
-        with self.assertRaisesRegex(RuntimeError, "cannot read"):
-            t3_scenario.check_install("TIER3-INSTALL-OK", self.impl())
-        for want in ("06331b1", "ef2365d+dirty"):
-            os.environ["T3_LIBTSM_REV"] = want
-            with self.assertRaisesRegex(RuntimeError, "built with libtsm ef2365d0"):
-                t3_scenario.check_install(self.LINE, self.impl())
-        os.environ.pop("T3_LIBTSM_REV")
-        with self.assertRaisesRegex(RuntimeError, "names no libtsm commit"):
-            t3_scenario.check_install(self.LINE, self.impl())
-
-
 def write_tree(root, files):
     """Write {relative path: text} under `root`."""
     for name, text in files.items():
@@ -376,25 +328,14 @@ def write_tree(root, files):
             f.write(text)
 
 
-def write_package(path, files):
-    """A package archive holding {relative path: text} and pacman's
-    metadata files, as makepkg writes one."""
-    with tarfile.open(path, "w:zst") as t:
-        for name, text in dict({".PKGINFO": "size = 7\n", ".MTREE": "x"}, **files).items():
-            data = text.encode()
-            info = tarfile.TarInfo(name)
-            info.size = len(data)
-            t.addfile(info, io.BytesIO(data))
-
-
 class ImplementationTest(unittest.TestCase):
-    """The implementation under test (t3_impl.py, `t3.py run --vtium`): the C
-    reference's packages, or vtium as an install tree or package files, with
-    its size on disk measured the same way for each."""
+    """The tree under test (t3_impl.py, `t3.py run`): vtium's install tree,
+    its size on disk and its binary's against the budget, and the guest's
+    account of what it installed."""
 
     UNIT = t3_impl.VT_UNIT
     TREE = {"usr/bin/vtium": "12345678", UNIT: "[Service]\n", "usr/share/doc/x": "abc"}
-    LINE = "[  12.3] TIER3-INSTALL-OK packages: ; libtsm: none; tree: %s"
+    LINE = "[  12.3] TIER3-INSTALL-OK packages: ; tree: %s"
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -406,10 +347,8 @@ class ImplementationTest(unittest.TestCase):
     def test_tree(self):
         # The bytes of the regular files a tree installs; a link counts nothing.
         os.symlink("vtium", os.path.join(self.tree, "usr/bin/kmscon"))
-        impl = t3_impl.vtium([self.tree], self.tar)
-        self.assertEqual((impl["name"], impl["kind"]), ("vtium", "tree"))
-        self.assertEqual(impl["installed_bytes"], 8 + 10 + 3)
-        self.assertEqual(t3_impl.packages(impl), [])
+        impl = t3_impl.tree(self.tree, self.tar)
+        self.assertEqual((impl["binary_bytes"], impl["installed_bytes"]), (8, 8 + 10 + 3))
         # packed for the disc owned by root, without the tree's own directory
         with tarfile.open(impl["tar"]) as t:
             members = t.getmembers()
@@ -420,99 +359,74 @@ class ImplementationTest(unittest.TestCase):
         self.assertEqual({(m.uid, m.gid, m.uname, m.gname) for m in members},
                          {(0, 0, "root", "root")})
         # the same tree gives the same archive, so the digest names the tree
-        again = t3_impl.vtium([self.tree], self.tar + "2")
+        again = t3_impl.tree(self.tree, self.tar + "2")
         self.assertEqual(again["tree_sha256"], impl["tree_sha256"])
         self.assertRegex(impl["tree_sha256"], r"^[0-9a-f]{64}$")
-        d = t3_impl.describe(impl)
-        self.assertEqual(d["installed_bytes"], 21)
-        self.assertEqual(d["paths"], [{"path": t3_common.rel(self.tree), "bytes": 21}])
-        self.assertEqual(d["tree_sha256"], impl["tree_sha256"])
+        self.assertEqual(t3_impl.describe(impl), {
+            "tree": t3_common.rel(self.tree), "tree_sha256": impl["tree_sha256"],
+            "binary_bytes": 8, "installed_bytes": 21,
+            "budget": {"binary_bytes": 2365272, "met": True}})
 
-    def test_packages(self):
-        # A package's bytes are its installed files', which is the size its
-        # .PKGINFO records; pacman's metadata is not installed.
-        main = os.path.join(self.dir.name, "vtium-1-1-x86_64.pkg.tar.zst")
-        terminfo = os.path.join(self.dir.name, "vtium-terminfo-1-1-x86_64.pkg.tar.zst")
-        write_package(main, {"usr/bin/vtium": "12345678", self.UNIT: "u"})
-        write_package(terminfo, {"usr/share/terminfo/k/kmscon": "ti"})
-        self.assertEqual(t3_impl.contents("packages", main), {"usr/bin/vtium": 8, self.UNIT: 1})
-        impl = t3_impl.vtium([terminfo, main])
-        self.assertEqual((impl["kind"], impl["paths"]), ("packages", [main, terminfo]))
-        self.assertEqual((impl["bytes"], impl["installed_bytes"]), ([9, 2], 11))
-        # ADR-304's size target is the main package's .PKGINFO size alone
-        self.assertEqual(impl["main_bytes"], 9)
-        self.assertEqual(t3_impl.packages(impl), [main, terminfo])
-        self.assertEqual(t3_impl.c_reference([main])["name"], "c")
-
-    def test_main_size(self):
-        # A tree has no package split: its main size leaves out the terminfo
-        # entries, which the C reference ships in a package of its own. The
-        # main size is compared with ADR-304's minspec target, 1.77 MiB.
-        write_tree(self.tree, {"usr/share/terminfo/k/kmscon": "ti"})
-        impl = t3_impl.vtium([self.tree], self.tar)
-        self.assertEqual((impl["main_bytes"], impl["installed_bytes"]), (21, 23))
-        d = t3_impl.describe(impl)
-        self.assertEqual((d["main_bytes"], d["installed_bytes"]), (21, 23))
-        self.assertEqual(d["minspec_target"], {"main_mib": 1.77, "met": True})
-        impl["main_bytes"] = 1870998  # the C reference's minimal package at b1f7a7c5
-        self.assertEqual(t3_impl.describe(impl)["minspec_target"], {"main_mib": 1.77, "met": False})
-        impl["main_bytes"] = int(1.77 * (1 << 20))
-        self.assertTrue(t3_impl.describe(impl)["minspec_target"]["met"])
+    def test_budget(self):
+        # The operator's budget is the binary's bytes, 2,365,272 (#22): at it
+        # the run passes, one byte past it fails. The rest of the tree does
+        # not count.
+        impl = t3_impl.tree(self.tree, self.tar)
+        for size, met in ((2365272, True), (2365273, False)):
+            impl["binary_bytes"] = size
+            self.assertEqual(t3_impl.within_budget(impl), met, size)
+            self.assertEqual(t3_impl.describe(impl)["budget"],
+                             {"binary_bytes": 2365272, "met": met})
 
     def test_refused(self):
-        # A tree beside packages, a file that is no package, a missing package,
-        # or a build without the VT unit the guest starts.
-        pkg = os.path.join(self.dir.name, "vtium-1-1-x86_64.pkg.tar.zst")
-        write_package(pkg, {"usr/bin/vtium": "x"})
-        for paths, why in (([self.tree, pkg], "is neither"),
-                           ([os.path.join(self.tree, "usr/bin/vtium")], "is neither"),
-                           ([pkg + ".missing.pkg.tar.zst"], "no vtium package"),
-                           ([pkg], "installs no /usr/lib/systemd/system/kmsconvt@")):
+        # No tree, a file in its place, or a tree without the binary or the
+        # VT unit the guest starts.
+        binary = os.path.join(self.tree, "usr/bin/vtium")
+        for path, why in ((os.path.join(self.dir.name, "missing"), "no install tree at"),
+                          (binary, "no install tree at")):
             with self.subTest(why):
                 with self.assertRaisesRegex(SystemExit, why):
-                    t3_impl.vtium(paths, self.tar)
-        os.unlink(os.path.join(self.tree, self.UNIT))
-        with self.assertRaisesRegex(SystemExit, "installs no"):
-            t3_impl.vtium([self.tree], self.tar)
+                    t3_impl.tree(path, self.tar)
+        for name in (self.UNIT, "usr/bin/vtium"):
+            with self.subTest(name):
+                write_tree(self.tree, self.TREE)
+                os.unlink(os.path.join(self.tree, name))
+                with self.assertRaisesRegex(SystemExit, "holds no /%s" % re.escape(name)):
+                    t3_impl.tree(self.tree, self.tar)
 
     def test_install_checked(self):
-        # vtium's tree: no kmscon, libtsm or vtium package in the guest, and
-        # the tree the run packed; vtium has no libtsm to check.
-        os.environ.pop("T3_LIBTSM_REV", None)
-        impl = t3_impl.vtium([self.tree], self.tar)
+        # No kmscon, libtsm or vtium package in the guest, and the tree the
+        # run packed; anything else, or no account, fails the variant.
+        impl = t3_impl.tree(self.tree, self.tar)
         sha = impl["tree_sha256"]
-        self.assertEqual(t3_scenario.check_install(self.LINE % sha, impl),
-                         {"packages": [], "libtsm": "none", "tree": sha})
+        self.assertEqual(t3_scenario.check_install(self.LINE % sha, impl), {"tree": sha})
         with self.assertRaisesRegex(RuntimeError, "the guest installed tree 0+, the run's is"):
             t3_scenario.check_install(self.LINE % ("0" * 64), impl)
-        with self.assertRaisesRegex(RuntimeError, "kmscon-aaronsb installed, not only the "
-                                                  r"run's packages \(none"):
+        with self.assertRaisesRegex(RuntimeError, "packages installed that are not the run's "
+                                                  "tree: kmscon-aaronsb 10-1"):
             t3_scenario.check_install((self.LINE % sha).replace(
                 "packages: ;", "packages: kmscon-aaronsb 10-1 ;"), impl)
-        # vtium's packages: those on the disc and no other
-        pkg = os.path.join(self.dir.name, "vtium-1-1-x86_64.pkg.tar.zst")
-        write_package(pkg, {self.UNIT: "u"})
-        impl = t3_impl.vtium([pkg])
-        line = "TIER3-INSTALL-OK packages: vtium 1-1 ; libtsm: none; tree: none"
-        self.assertEqual(t3_scenario.check_install(line, impl),
-                         {"packages": ["vtium 1-1"], "libtsm": "none"})
+        with self.assertRaisesRegex(RuntimeError, "cannot read"):
+            t3_scenario.check_install("TIER3-INSTALL-OK", impl)
+
+    def test_setup_reports_install(self):
+        # guest/setup's report line is the one check_install reads.
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            text = f.read()
+        self.assertIn('"TIER3-INSTALL-OK packages: ', text)
+        self.assertIn('"tree: $tree"', text)
+        self.assertNotIn("pacman -U", text)
 
     def test_disc(self):
-        # A tree goes on the disc as tree.tar, packages in pkg/.
-        impl = t3_impl.vtium([self.tree], self.tar)
+        # The tree goes on the disc as tree.tar, with the variant's config.
+        impl = t3_impl.tree(self.tree, self.tar)
         with mock.patch.object(t3_scenario, "make_iso"):
-            t3_scenario.build_pkg_disc("2d-potato-min", self.dir.name, impl)
+            t3_scenario.build_disc("2d-potato-min", self.dir.name, impl)
         disc = os.path.join(self.dir.name, "disc")
-        self.assertIn("tree.tar", os.listdir(disc))
-        self.assertNotIn("pkg", os.listdir(disc))
+        self.assertEqual(sorted(os.listdir(disc)),
+                         ["kmscon.conf", "screens", "setup", "t3", "tree.tar"])
         with open(os.path.join(disc, "kmscon.conf")) as f:
             self.assertIn("render-timer=log", f.read())
-        pkg = os.path.join(self.dir.name, "kmscon-aaronsb-1-1-x86_64.pkg.tar.zst")
-        write_package(pkg, {"usr/bin/kmscon": "x"})
-        with mock.patch.object(t3_scenario, "make_iso"):
-            t3_scenario.build_pkg_disc("2d-potato-min", self.dir.name, t3_impl.c_reference([pkg]))
-        self.assertEqual(os.listdir(os.path.join(disc, "pkg")), [os.path.basename(pkg)])
-        self.assertNotIn("tree.tar", os.listdir(disc))
 
     def test_setup_keeps_directory_links(self):
         # Arch links /bin, /lib and /sbin to directories under /usr; a tree
@@ -532,93 +446,83 @@ class ImplementationTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(root, "usr/bin/vtium-helper")))
 
     def test_resident(self):
-        # ADR-304's minspec figures: after the first screen, and the peak
-        # with the screen it followed.
+        # The minspec figures: after the first screen, and the peak with the
+        # screen it followed.
         got = t3_scenario.resident({"sgr": 10547, "s1-scroll": 16077, "cjk": 15900})
         self.assertEqual(got, {"first_screen": "sgr", "first_kib": 10547,
                                "peak_kib": 16077, "peak_screen": "s1-scroll"})
         self.assertEqual(t3_scenario.resident({}), {"first_screen": "sgr", "first_kib": None,
                                                     "peak_kib": None, "peak_screen": None})
-        self.assertEqual(t3_scenario.failure_meta("x", {"kind": "tree", "paths": []})["resident"],
-                         t3_scenario.resident({}))
+        self.assertEqual(t3_scenario.failure_meta("x")["resident"], t3_scenario.resident({}))
 
     def test_variant_errors(self):
         # The scenario's own error comes first and the renderer's after it, so
         # a console that never started reports why. A drawn screen without a
-        # resident-memory reading fails the variant: ADR-304 §5 measures it
-        # on every run. A failure drops the captures, so every case fails.
+        # resident-memory reading fails the variant, as does a console that
+        # does not log itself as vtium. A failure drops the captures, so
+        # every case fails.
         bbulk = ["Display x with backend [drm2d] text renderer [bbulk]"]
         caps = {"sgr": "a", "cjk": "b", "vt-switch": "c"}
         waited = "no 'vt: using tty /dev/tty2' within 60 s"
-        c = {"name": t3_impl.C}
+        vtium = {"name": "vtium", "revision": "0.1"}
+        kmscon = {"name": "kmscon", "revision": "v10"}
+        none = "the console logged no Revision line, so nothing shows vtium drew"
 
-        def errors(error, displays, caps, rss, console=None, impl=c):
-            return t3_scenario.variant_errors(error, displays, "bbulk", caps, rss, console, impl)
+        def errors(error, displays, caps, rss, console=vtium):
+            return t3_scenario.variant_errors(error, displays, "bbulk", caps, rss, console)
 
-        self.assertEqual(errors(waited, [], {}, {}),
-                         ([waited, "the console did not draw with bbulk: []"], True))
+        self.assertEqual(errors(waited, [], {}, {}, None),
+                         ([waited, "the console did not draw with bbulk: []", none], True))
         self.assertEqual(errors(None, bbulk, caps, {"sgr": 1}),
                          (["no resident memory reading (T3-RSS) after cjk"], True))
-        self.assertEqual(errors(None, bbulk, caps, {"sgr": 1, "cjk": 2}), ([], False))
+        rss = {"sgr": 1, "cjk": 2}
+        self.assertEqual(errors(None, bbulk, caps, rss), ([], False))
         # a scenario that stopped part way keeps the captures it took
         self.assertEqual(errors(waited, bbulk, {"sgr": "a"}, {"sgr": 1}), ([waited], False))
-        # A vtium run must show vtium drew, by the console's Revision line;
-        # only a run named a stand-in may draw with another console.
-        rss = {"sgr": 1, "cjk": 2}
-        kmscon = {"name": "kmscon", "revision": "v10"}
-        vtium = {"name": "vtium", "revision": "0.1"}
-        run = {"name": t3_impl.VTIUM, "standin": False}
-        standin = {"name": t3_impl.VTIUM, "standin": True}
-        self.assertEqual(errors(None, bbulk, caps, rss, vtium, run), ([], False))
-        self.assertEqual(errors(None, bbulk, caps, rss, kmscon, run),
-                         (["the console that drew logged itself as kmscon v10, not vtium; "
-                           "a stand-in's run takes --standin"], True))
-        self.assertEqual(errors(None, bbulk, caps, rss, None, run),
-                         (["the console logged no Revision line, so nothing shows vtium drew"],
+        self.assertEqual(errors(None, bbulk, caps, rss, kmscon),
+                         (["the console that drew logged itself as kmscon v10, not vtium"],
                           True))
-        self.assertEqual(errors(None, bbulk, caps, rss, kmscon, standin), ([], False))
-        self.assertEqual(errors(None, bbulk, caps, rss, None, c), ([], False))
+        self.assertEqual(errors(None, bbulk, caps, rss, None), ([none], True))
 
     def test_console_revision(self):
         # The guest's own account of the console that ran: its log's
         # "NAME Revision" line, the first one on the console.
         with tempfile.NamedTemporaryFile("w", delete=False) as f:
-            f.write("[    6.663227] kmscon[459]: log: kmscon Revision v10.1.0-890-gb1f7a7c5 "
-                    "Oct 27 2026 03:12:01\n"
-                    "[    9.1] vtium[502]: log: vtium Revision 0.1.0\n")
+            f.write("[    9.1] vtium[502]: log: vtium Revision 0.1.0\n"
+                    "[    9.6] kmscon[459]: log: kmscon Revision v10.1.0-890-gb1f7a7c5\n")
         try:
             self.assertEqual(t3_scenario.console_revision(f.name),
-                             {"name": "kmscon", "revision": "v10.1.0-890-gb1f7a7c5"})
+                             {"name": "vtium", "revision": "0.1.0"})
             with open(f.name, "w") as g:
-                g.write("[    9.1] vtium[502]: vtium stand-in: no console here\n")
+                g.write("[    9.1] vtium[502]: vt: using tty /dev/tty2\n")
             self.assertIsNone(t3_scenario.console_revision(f.name))
         finally:
             os.unlink(f.name)
-        # the report's implementation names every console its variants logged
-        metas = {"a": {"console": {"name": "kmscon", "revision": "v10"}},
-                 "b": {"console": {"name": "kmscon", "revision": "v10"}}, "c": {"console": None}}
-        self.assertEqual(t3_scenario.consoles(metas), ["kmscon v10"])
-        impl = t3_impl.vtium([self.tree], self.tar, standin=True)
-        self.assertTrue(t3_impl.describe(impl)["standin"])
-        self.assertFalse(t3_impl.describe(t3_impl.vtium([self.tree], self.tar))["standin"])
+        # the report names every console its variants logged
+        metas = {"a": {"console": {"name": "vtium", "revision": "0.1"}},
+                 "b": {"console": {"name": "vtium", "revision": "0.1"}}, "c": {"console": None}}
+        self.assertEqual(t3_scenario.consoles(metas), ["vtium 0.1"])
 
     def test_summary(self):
-        impl = t3_impl.vtium([self.tree], self.tar, standin=True)
-        impl["main_bytes"], impl["installed_bytes"] = 1870998, 1879995
+        impl = t3_impl.tree(self.tree, self.tar)
+        impl["binary_bytes"], impl["installed_bytes"] = 2368120, 2377122
         metas = {"2d-potato-min": {"resident": t3_scenario.resident({"sgr": 10547,
                                                                      "s1-scroll": 16077}),
-                                   "console": {"name": "kmscon", "revision": "v10"}},
+                                   "console": {"name": "vtium", "revision": "0.1"}},
                  "2d-potato-min-psf": {"resident": t3_scenario.resident({}), "console": None}}
         self.assertEqual(t3.summary(impl, metas).splitlines(), [
-            "implementation: a stand-in for vtium, tree %s: 1.78 MiB without terminfo, over "
-            "ADR-304's minspec target of 1.77 MiB; 1.79 MiB installed; the console logged "
-            "kmscon v10" % t3_common.rel(self.tree),
+            "tree %s: binary 2368120 B, over the budget of 2365272 B by 2848 B; 2.27 MiB "
+            "installed; the console logged vtium 0.1" % t3_common.rel(self.tree),
             "2d-potato-min: resident 10.30 MiB after sgr, peak 15.70 MiB after s1-scroll",
             "2d-potato-min-psf: resident none after sgr, peak none after none"])
+        impl["binary_bytes"] = 2365272
+        self.assertTrue(t3.summary(impl, {}).startswith(
+            "tree %s: binary 2365272 B, within the budget of 2365272 B; "
+            % t3_common.rel(self.tree)))
 
     def test_vtium_process(self):
         # vtium's process logs as vtium[pid]; its render-timer and startup
-        # lines are read as the C reference's are.
+        # lines are read as the C reference's were.
         line = timer_line(100.5, 60, 60).replace("kmscon[505]", "vtium[505]")
         self.assertEqual(t3_bench.timer_lines(line)[0]["pid"], 505)
         with tempfile.NamedTemporaryFile("w", delete=False) as f:
@@ -627,34 +531,38 @@ class ImplementationTest(unittest.TestCase):
                     "[    6.739898] vtium[459]: terminal: Display b with backend [drm2d] "
                     "text renderer [bbulk]\n")
         try:
-            self.assertEqual(t3_scenario.kmscon_startup_ms(f.name), 76.7)
+            self.assertEqual(t3_scenario.console_startup_ms(f.name), 76.7)
         finally:
             os.unlink(f.name)
         with open(os.path.join(t3_common.GUEST, "t3")) as f:
             self.assertIn("pidof kmscon vtium", f.read())
 
     def test_tools(self):
-        # A vtium run names no libtsm; the C reference's names the run's.
-        env = {"T3_LIBTSM_REV": "3ec40dc", "T3_LIBTSM_REPO": "r", "T3_KMSCON_REV": "b1f7a7c5"}
-        with mock.patch.dict(os.environ, env):
-            c = t3_runner.run_tools({"name": t3_impl.C})
-            v = t3_runner.run_tools({"name": t3_impl.VTIUM})
-        self.assertEqual((c["libtsm"], c["libtsm_repo"], c["kmscon"]), ("3ec40dc", "r", "b1f7a7c5"))
-        self.assertEqual((v["libtsm"], v["libtsm_repo"], v["kmscon"]), (None, None, "b1f7a7c5"))
+        # The report names vtium's commit, the guest's pins and the kmscon
+        # commit whose goldens judged the run.
+        env = {"T3_VTIUM_REV": "84eec92+dirty", "T3_ARCHIVE": "2026/10/20"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            tools = t3_runner.run_tools()
+        pin = t3_common.read_pin()
+        self.assertEqual(tools, {"vtium": "84eec92+dirty", "guest_image": None,
+                                 "guest_image_sha256": None, "guest_archive": "2026/10/20",
+                                 "goldens": {"kmscon": pin["commit"],
+                                             "kmscon_repo": pin["url"]}})
 
     def test_option(self):
-        # --vtium installs vtium, so it takes no package target; it may be
-        # given once per path, before the variants.
+        # --tree names a tree built already; --tree-target builds the default
+        # one, so the two are refused together, before run is called.
         with mock.patch.object(t3, "run", side_effect=lambda args, log: args) as run:
-            args = t3.main(["run", "--vtium", "a", "--vtium", "b", "2d-potato-min"])
-        self.assertEqual((args.vtium, args.variants), (["a", "b"], ["2d-potato-min"]))
+            args = t3.main(["run", "--tree", "a", "2d-potato-min"])
+        self.assertEqual((args.tree, args.tree_target, args.variants),
+                         ("a", None, ["2d-potato-min"]))
+        self.assertEqual(args.kmscon, t3_common.KMSCON)
         self.assertTrue(run.called)
-        # Refused before run is called, with the reason on stderr.
-        for argv, why in ((["--vtium", "a", "--pkg-target", "pkg-minimal"],
-                           "--vtium installs vtium, not a package target's build"),
-                          (["--vtium", "a", "--compare-only"],
-                           "--vtium installs vtium, not a package target's build"),
-                          (["--standin"], "--standin names a build given with --vtium")):
+        for argv, why in ((["--tree", "a", "--tree-target", "install-tree"],
+                           "--tree names a tree built already"),
+                          (["2d-potato-min", "2d-potato-min"], "a variant is named twice"),
+                          (["no-such-variant"], "unknown variant(s): no-such-variant"),
+                          (["--jobs", "0"], "--jobs must be at least 1")):
             with self.subTest(argv), mock.patch.object(t3, "run") as run:
                 err = io.StringIO()
                 with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
@@ -662,22 +570,92 @@ class ImplementationTest(unittest.TestCase):
                 self.assertIn(why, err.getvalue())
                 self.assertFalse(run.called)
 
-    def test_standin(self):
-        # The C reference's newest packages unpacked as an install tree,
-        # without pacman's metadata: it then runs as a vtium tree.
-        pkgdir = os.path.join(self.dir.name, "pkg")
-        os.makedirs(pkgdir)
-        write_package(os.path.join(pkgdir, "kmscon-aaronsb-1-1-x86_64.pkg.tar.zst"),
-                      {"usr/bin/kmscon": "x", self.UNIT: "u"})
-        write_package(os.path.join(pkgdir, "kmscon-aaronsb-terminfo-1-1-x86_64.pkg.tar.zst"),
-                      {"usr/share/terminfo/k/kmscon": "ti"})
-        out = os.path.join(self.dir.name, "standin")
-        write_tree(out, {"stale": "from an earlier run"})
-        with contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(t3.main(["standin", "--pkg-dir", pkgdir, out]), 0)
-        self.assertEqual(t3_impl.contents("tree", out),
-                         {"usr/bin/kmscon": 1, self.UNIT: 1, "usr/share/terminfo/k/kmscon": 2})
-        self.assertEqual(t3_impl.vtium([out], self.tar)["installed_bytes"], 4)
+    def test_build_tree(self):
+        # The tree is staged afresh: what an earlier build left is gone
+        # before make runs, and make is given the tree as DESTDIR.
+        tree = os.path.join(self.dir.name, "install")
+        write_tree(tree, {"stale": "from an earlier build"})
+        seen = []
+
+        def make(args, cwd):
+            seen.append((args, cwd, os.path.exists(tree)))
+            return subprocess.CompletedProcess(args, 0)
+
+        with mock.patch.object(t3.subprocess, "run", side_effect=make):
+            t3.build_tree("install-tree", tree, lambda msg: None)
+        self.assertEqual(seen, [(["make", "--no-print-directory", "install-tree",
+                                  "DESTDIR=" + tree], t3_common.ROOT, False)])
+        with mock.patch.object(t3.subprocess, "run",
+                               return_value=subprocess.CompletedProcess([], 2)):
+            with self.assertRaisesRegex(SystemExit, "make install-tree failed with exit code 2"):
+                t3.build_tree("install-tree", tree, lambda msg: None)
+
+
+class PinTest(unittest.TestCase):
+    """The goldens' pin (pin.tsv) and the goldens read from it, as tier 2's
+    are: the pinned commit's, through git archive, never the checkout's
+    working tree."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+
+    def pin_file(self, text):
+        path = os.path.join(self.dir.name, "pin.tsv")
+        with open(path, "w") as f:
+            f.write(text)
+        return path
+
+    def test_read(self):
+        commit = "b1f7a7c5df563f3378584db7298753848a7a9a13"
+        path = self.pin_file("# a comment\nkmscon\t%s\thttps://example/k.git\n" % commit)
+        self.assertEqual(t3_common.read_pin(path), {"commit": commit,
+                                                    "url": "https://example/k.git"})
+        self.assertEqual(t3_common.read_pin()["commit"], commit)
+
+    def test_refused(self):
+        good = "kmscon\t%s\turl\n" % ("a" * 40)
+        for text in ("kmscon\tabc\turl\n", "libtsm\t%s\turl\n" % ("a" * 40),
+                     "kmscon %s url\n" % ("a" * 40), "kmscon\t%s\turl\n" % ("A" * 40),
+                     good + good):
+            with self.subTest(text):
+                with self.assertRaisesRegex(SystemExit, "want one line"):
+                    t3_common.read_pin(self.pin_file(text))
+        with self.assertRaisesRegex(SystemExit, "names no kmscon commit"):
+            t3_common.read_pin(self.pin_file("# nothing\n"))
+
+    def git(self, repo, *args):
+        return subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t",
+                               "-c", "commit.gpgsign=false"] + list(args),
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def test_extract(self):
+        # The pinned commit's goldens, whatever the checkout's working tree
+        # holds, into a directory emptied first.
+        repo = os.path.join(self.dir.name, "kmscon")
+        os.makedirs(repo)
+        self.git(repo, "init", "-q")
+        write_tree(repo, {"fork/tier3/golden/v/sgr.png": "pinned", "other": "x"})
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "goldens")
+        commit = self.git(repo, "rev-parse", "HEAD")
+        write_tree(repo, {"fork/tier3/golden/v/sgr.png": "working tree"})
+        golden = os.path.join(self.dir.name, "out", "golden")
+        write_tree(golden, {"stale.png": "from an earlier run"})
+        pin = {"commit": commit, "url": "u"}
+        self.assertEqual(t3_common.extract_goldens(repo, pin, golden), golden)
+        self.assertEqual(t3_impl.contents(golden), {"v/sgr.png": 6})
+        with open(os.path.join(golden, "v/sgr.png")) as f:
+            self.assertEqual(f.read(), "pinned")
+        # a checkout without the commit, or a commit without goldens
+        with self.assertRaisesRegex(SystemExit, "has no commit %s: clone u there" % ("0" * 40)):
+            t3_common.extract_goldens(repo, {"commit": "0" * 40, "url": "u"}, golden)
+        os.unlink(os.path.join(repo, "fork/tier3/golden/v/sgr.png"))
+        self.git(repo, "rm", "-q", "--cached", "fork/tier3/golden/v/sgr.png")
+        self.git(repo, "commit", "-q", "-m", "no goldens")
+        with self.assertRaisesRegex(SystemExit, "git archive"):
+            t3_common.extract_goldens(repo, {"commit": self.git(repo, "rev-parse", "HEAD"),
+                                             "url": "u"}, golden)
 
 
 class BaseImageTest(unittest.TestCase):
@@ -711,6 +689,17 @@ class BaseImageTest(unittest.TestCase):
                 self.assertNotEqual(self.key(guest), first, name)
         self.assertIn("user-data.in", t3_common.BASE_INPUTS)
 
+    def test_shared_base(self):
+        # The guest files are the kmscon fork's byte for byte, so the pinned
+        # image and archive name the base image its harness provisioned,
+        # which the shared images directory already holds. A change to them
+        # provisions a new one: about 330 MiB downloaded.
+        with open(os.path.join(t3_common.ROOT, "Makefile")) as f:
+            make = dict(re.findall(r"^(T3_IMAGE_VER|T3_ARCHIVE)\s*:=\s*(\S+)", f.read(), re.M))
+        image = "Arch-Linux-x86_64-cloudimg-%s.qcow2" % make["T3_IMAGE_VER"]
+        self.assertEqual(os.path.basename(t3_common.base_image(image, make["T3_ARCHIVE"])),
+                         "base-a801c98304d282ae.qcow2")
+
 
 class VariantTest(unittest.TestCase):
     def test_every_variant_sizes_its_machine(self):
@@ -720,7 +709,7 @@ class VariantTest(unittest.TestCase):
                 self.assertIsInstance(v["memory_mb"], int)
 
     def test_potato(self):
-        # ADR-103's small machine, in the default run.
+        # The minspec machine, in the default run.
         v = t3_scenario.VARIANTS["2d-1366x768-potato"]
         self.assertEqual((v["cpus"], v["memory_mb"], v["renderer"]), (1, 512, "bbulk"))
         self.assertIn("xres=1366,yres=768", v["device"])
@@ -728,9 +717,8 @@ class VariantTest(unittest.TestCase):
         self.assertIn("2d-1366x768-potato", t3_scenario.DEFAULT_VARIANTS)
 
     def test_potato_minimal(self):
-        # The potato machine with the minimal build (ADR-103), unifont and a
-        # PSF font: the minimal package, so out of the default run, whose
-        # variants install the default package.
+        # The potato machine with the minimal configuration, unifont and a
+        # PSF font, which make tier3-minimal runs, out of the default run.
         for name, conf in (("2d-potato-min", "kmscon-minimal.conf"),
                            ("2d-potato-min-psf", "kmscon-minimal-psf.conf")):
             with self.subTest(name):
@@ -739,7 +727,6 @@ class VariantTest(unittest.TestCase):
                 for key in ("device", "cpus", "memory_mb", "renderer"):
                     self.assertEqual(v[key], potato[key])
                 self.assertEqual(v["conf"], conf)
-                self.assertEqual(t3_scenario.package_target(name), "pkg-minimal")
                 self.assertNotIn(name, t3_scenario.DEFAULT_VARIANTS)
                 # no picture to key: the image screens' keyed cases are left out
                 cases = t3_scenario.variant_cases(name)
@@ -749,7 +736,6 @@ class VariantTest(unittest.TestCase):
                 self.assertIn("vt-restore", cases)
         for name in t3_scenario.DEFAULT_VARIANTS:
             self.assertEqual(t3_scenario.variant_cases(name), t3_evaluate.CASES)
-            self.assertEqual(t3_scenario.package_target(name), "pkg")
         with open(os.path.join(t3_common.GUEST, "kmscon-minimal-psf.conf")) as f:
             self.assertIn("font-engine=psf\n", f.read())
 
@@ -790,25 +776,25 @@ class VariantTest(unittest.TestCase):
         self.assertIn("no benchmark window", got["mpv-sixel"]["error"])
 
     def test_startup(self):
-        # from kmscon's revision line to its display line, same process
+        # from the console's revision line to its display line, same process
         with tempfile.NamedTemporaryFile("w", delete=False) as f:
             f.write("[    6.663227] kmscon[459]: log: kmscon Revision v10\n"
                     "[    6.700000] kmscon[460]: terminal: Display a with backend [x]\n"
                     "[    6.739898] kmscon[459]: terminal: Display pci-0000:00:01.0[Virtual-1] "
                     "with backend [drm2d] text renderer [bbulk]\n")
         try:
-            self.assertEqual(t3_scenario.kmscon_startup_ms(f.name), 76.7)
+            self.assertEqual(t3_scenario.console_startup_ms(f.name), 76.7)
         finally:
             os.unlink(f.name)
         with tempfile.NamedTemporaryFile("w", delete=False) as f:
             f.write("[    6.663227] kmscon[459]: log: kmscon Revision v10\n")
         try:
-            self.assertIsNone(t3_scenario.kmscon_startup_ms(f.name))
+            self.assertIsNone(t3_scenario.console_startup_ms(f.name))
         finally:
             os.unlink(f.name)
 
     def test_gl_draws_images(self):
-        # gltex draws image placements (ADR-103 steps 3f and 4e), so the GL
+        # gltex draws image placements, so the GL
         # variant runs every case, the image screens and their keyed cases
         # included, as the 2D variants do; the no-images check it ran while
         # gltex drew none is gone with its flag. Its goldens are blessed, so
@@ -823,7 +809,7 @@ class VariantTest(unittest.TestCase):
 
     def test_failed_variant_fails_every_case(self):
         # A variant that could not run fails every case, the image ones too.
-        meta = t3_scenario.failure_meta("no boot", {"kind": "tree", "paths": []})
+        meta = t3_scenario.failure_meta("no boot")
         for variant in ("gl-1280x800", "2d-1280x800"):
             cases = {c["name"].split("/", 1)[1]: c
                      for c in t3_scenario.evaluate_variant(variant, {}, meta, LOG)}
@@ -1016,7 +1002,7 @@ class BenchTest(unittest.TestCase):
         self.assertIn("placeholder", got["error"])
 
     def test_measure_tmux_reported(self):
-        # A4 is compatibility through tmux (ADR-103): kmscon's CPU time per
+        # A4 is compatibility through tmux: the console's CPU time per
         # picture tmux sent is reported, and no figure of it fails the grid.
         serial = timer_line(101.0, 20, 20)
         line = ("T3-BENCH tmux-3x3 start=100.00 end=102.00 mpv_frames=300 mpv_dropped=900 "
@@ -1071,7 +1057,7 @@ class BenchTest(unittest.TestCase):
 
 
 class BottleneckTest(unittest.TestCase):
-    """ADR-103's criterion for A2: kmscon is not the bottleneck. Its CPU
+    """A2's criterion: the console is not the bottleneck. Its CPU
     time per frame mpv sent stays under the clip's frame interval, and it
     presents at least as many frames as mpv sends."""
     FINE = {"mpv_frames": 150, "mpv_per_s": 29.1, "presented_per_s": 59.0,
@@ -1144,8 +1130,8 @@ class BottleneckTest(unittest.TestCase):
 class SerialTest(unittest.TestCase):
     """The guest writes its console a few bytes at a time, so the driver can
     read a line before its end has arrived (#61)."""
-    LINE = (b"TIER3-INSTALL-OK packages: kmscon-aaronsb 10.0.4.r208.gb5e9e66-1 "
-            b"kmscon-aaronsb-terminfo 10.0.4.r208.gb5e9e66-1 ; libtsm: " + LIBTSM.encode())
+    LINE = (b"TIER3-INSTALL-OK packages: ; tree: "
+            b"2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae")
 
     class Clock:
         """Stands in for t3_qemu's time: each sleep advances the clock and
@@ -1180,7 +1166,7 @@ class SerialTest(unittest.TestCase):
                 t3_qemu.time = saved
 
     def test_two_chunks(self):
-        cut = self.LINE.index(b" kmscon-aaronsb-terminfo")
+        cut = self.LINE.index(b" tree: ")
         self.assertEqual(self.wait([self.LINE[:cut], self.LINE[cut:] + b"\r\r\n"]),
                          self.LINE.decode())
 

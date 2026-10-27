@@ -1,6 +1,6 @@
 #!/bin/sh
 # Fetches the pinned Arch Linux cloud image into DIR and verifies it: the
-# SHA-256 pinned in fork/tier3.mk, and the detached signature against the
+# SHA-256 pinned in the Makefile, and the detached signature against the
 # arch-boxes key, identified by the pinned fingerprint. The key is fetched into
 # a keyring under DIR, never the user's.
 #
@@ -16,7 +16,7 @@ fi
 curl -fsSL --retry 3 -o "$image.sig" "$url/$image.sig"
 echo "$sha  $image" | sha256sum -c -
 export GNUPGHOME="$PWD/gnupg"
-mkdir -p -m 700 "$GNUPGHOME"
+[ -d "$GNUPGHOME" ] || mkdir -m 700 "$GNUPGHOME"
 gpg --batch --list-keys "$key" >/dev/null 2>&1 ||
     gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "$key"
 gpg --batch --status-fd 1 --verify "$image.sig" "$image" 2>/dev/null |

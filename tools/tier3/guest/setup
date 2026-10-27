@@ -1,22 +1,14 @@
 #!/bin/sh
 # Per-run guest setup, run as root at boot from the T3PKG disc mounted at $1:
-# installs the implementation under test, the variant's kmscon config and
-# the scenario screens. The implementation is packages in pkg/ (the C
-# reference's, or vtium's), or vtium's install tree as tree.tar, unpacked over
-# the root.
+# unpacks vtium's install tree (tree.tar) over the root, and installs the
+# variant's config and the scenario screens.
 set -eu
 disc=$1
-if [ -d "$disc"/pkg ]; then
-    pacman -U --noconfirm "$disc"/pkg/*.pkg.tar.zst
-fi
-tree=none
-if [ -e "$disc"/tree.tar ]; then
-    tar -xpf "$disc"/tree.tar -C / --no-overwrite-dir --keep-directory-symlink
-    tree=$(sha256sum "$disc"/tree.tar | cut -d' ' -f1)
-fi
+tar -xpf "$disc"/tree.tar -C / --no-overwrite-dir --keep-directory-symlink
+tree=$(sha256sum "$disc"/tree.tar | cut -d' ' -f1)
 install -Dm644 "$disc"/kmscon.conf /etc/kmscon/kmscon.conf
-# kmscon's log also goes to the console (the serial port), so the harness can
-# record which video backend and text renderer drew the screens.
+# The console's log also goes to the serial console, so the harness can read
+# which video backend and text renderer drew the screens.
 mkdir -p /etc/systemd/system/kmsconvt@.service.d
 printf '[Service]\nStandardOutput=journal+console\nStandardError=journal+console\n' \
     > /etc/systemd/system/kmsconvt@.service.d/tier3.conf
@@ -29,14 +21,7 @@ install -m755 "$disc"/t3 /usr/local/bin/t3
 stty -F /dev/ttyS1 clocal
 chmod 0666 /dev/ttyS1
 echo 'echo "T3-LOGIN $(tty)" > /dev/ttyS1' > /etc/profile.d/tier3.sh
-# The kitty graphics helper and its pre-login user, which the package's
-# sysusers.d file has systemd-sysusers create (ADR-103, The image helper).
-echo "TIER3-IMAGE-HELPER $(stat -c '%n %U:%G %a' /usr/lib/kmscon/kmscon-image-helper 2>&1);" \
-    "sysusers: $(ls /usr/lib/sysusers.d/kmscon-image.conf 2>&1);" \
-    "user: $(getent passwd kmscon-image || echo 'kmscon-image absent')" > /dev/ttyS0
-# Every kmscon, libtsm or vtium package now installed, the libtsm commit the
-# package was built with and the tree unpacked, so the log shows which build
-# drew the screens.
+# Any kmscon, libtsm or vtium package installed, which must be none, and the
+# tree unpacked, so the log shows which build drew the screens.
 echo "TIER3-INSTALL-OK packages: $(pacman -Q | grep -e kmscon -e libtsm -e vtium | tr '\n' ' ');" \
-    "libtsm: $(cat /usr/share/doc/kmscon*/libtsm-commit 2>/dev/null || echo none);" \
     "tree: $tree" > /dev/ttyS0
