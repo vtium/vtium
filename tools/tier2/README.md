@@ -8,6 +8,7 @@ The crate is a workspace member, so `cargo test --workspace` builds the tool and
 make tier2                       # every screen against its golden (KMSCON=../kmscon)
 target/release/tier2 render      # draw every screen into out/render, judging nothing
 target/release/tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]
+target/release/tier2 screens     # vtium's unifont screens, for reference/draw.sh
 ```
 
 `run` takes `--kmscon DIR` (default `../kmscon` beside this repository) and `--out DIR` (default `out/` here, which git ignores). It reads the pinned commit's goldens through `git archive` only, into `out/kmscon-<commit>/`, afresh on every run, so the checkout's branch and working tree never reach the judge; a checkout that lacks the commit is refused with the command that fetches it. It writes each drawn screen to `out/actual/`, each difference to `out/diff/`, and the report to `out/report.json`, deleting any earlier report first. It exits 0 when every case passes, 1 when one does not, and 2 when it refuses to run. `compare` exits 0 on pass or near, 1 on fail and 2 on an input it refuses. Nothing here writes a golden.
@@ -26,7 +27,8 @@ target/release/tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]
 | `pending.tsv` | Each golden of the C reference's that no screen draws yet, with the issue that owes it. |
 | `departures.tsv` | Each case whose difference from its golden a departure in the render crate's README explains, with where the difference may lie. |
 | `provisional.tsv` | vtium's goldens the operator has not reviewed. |
-| `goldens/` | vtium's goldens, for screens the C reference had no golden for. |
+| `goldens/` | The goldens of vtium's screens, drawn by the C reference: see its README. |
+| `reference/` | `draw.sh` and `pixels.c`, which draw vtium's unifont screens through the C reference's own pipeline. |
 | `tests/` | The self-tests: each malformed input refused, and each verdict of the run. |
 
 ## The screens
@@ -55,12 +57,16 @@ A case is compared with its golden exactly, outside any mask its sidecar gives. 
 | `near` | different within both of the sidecar's limits |
 | `departure` | different only inside the rectangles `departures.tsv` gives for a departure the render crate's README lists |
 | `pending` | a C golden `pending.tsv` lists |
-| `provisional` | a golden of vtium's not yet reviewed: compared, its difference noted, never failing |
+| `provisional` | a golden in `provisional.tsv`, not yet reviewed: compared, and the status it would get noted, never failing |
 | `fail` | different past the tolerance, outside a departure's rectangles, or listed as a departure and no longer different |
 | `missing` | no golden, or a golden no screen draws |
 | `error` | the screen did not draw, or its golden or sidecar was refused |
 
-Each list is checked before any case runs: a pending golden the pin lacks or a screen draws, a departure whose case no screen draws or whose title the README does not list, a provisional golden no vtium screen draws, and two screens of one name are each refused.
+## vtium's goldens
+
+The C reference draws the goldens of vtium's screens, so their author is not their judge. `reference/draw.sh OUT` reads the kmscon commit `pin.tsv` names and the libtsm commit that commit's `subprojects/libtsm.wrap` pins through `git archive`, builds them in a temporary directory, and compiles `reference/pixels.c` against them: libtsm parses each screen's bytes, `kmscon_text_draw` reads the screen, bbulk draws it with the unifont backend and drm2d's blend writes the buffer, as `tests/test_pixels.c` drew with FreeType. The screens come from `tier2 screens`, so both sides draw the same bytes. A new golden lands in a commit of its own and stays in `provisional.tsv` until the operator has reviewed it.
+
+Each list is checked before any case runs: a pending golden the pin lacks or a screen draws, a departure whose case no screen draws or whose title the README does not list, a provisional golden no vtium screen draws, a vtium screen named as a C golden, and two screens of one name are each refused.
 
 Refused rather than judged (aaronsb/kmscon#10): a PPM that is not P6 with a maxval of 255, with a side of 0 or past 16384, or with a raster shorter or longer than its header says; a sidecar line that is not `key=value`, an unknown or repeated key, a value that is not a decimal number, a `max_delta` past 255, one limit at 0 with the other not, and a mask that is empty, inverted or reaches past the golden. A mask that hides no difference is noted in the report.
 

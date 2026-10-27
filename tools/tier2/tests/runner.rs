@@ -167,6 +167,28 @@ fn each_case_gets_its_status() {
 }
 
 #[test]
+fn a_provisional_case_reports_the_verdict_it_would_get() {
+    let mut s = Setup::new("provisional");
+    s.provisional = vec!["v-diff".to_owned(), "v-dep".to_owned()];
+    let cases = s.run().cases().unwrap();
+    let note = |name: &str| {
+        let c = cases.iter().find(|c| c.name == name).unwrap();
+        assert_eq!(c.status, Status::Provisional);
+        c.note.clone().unwrap()
+    };
+    assert!(
+        note("v-diff").ends_with("it would be fail"),
+        "{}",
+        note("v-diff")
+    );
+    assert!(
+        note("v-dep").ends_with("it would be departure"),
+        "{}",
+        note("v-dep")
+    );
+}
+
+#[test]
 fn a_difference_outside_the_departures_rectangles_fails() {
     let mut s = Setup::new("outside");
     s.departures[0].rects = vec![Rect {
@@ -218,13 +240,6 @@ fn lists_that_name_the_wrong_cases_are_refused() {
             .check_lists(&titles)
             .unwrap_err()
             .contains("provisional.tsv")
-    );
-    s.provisional = vec!["v-dep".to_owned()];
-    assert!(
-        s.run()
-            .check_lists(&titles)
-            .unwrap_err()
-            .contains("both provisional")
     );
     s.provisional.clear();
     s.departures[0].case = "nothing".to_owned();

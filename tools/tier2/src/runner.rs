@@ -285,9 +285,6 @@ impl Run<'_> {
                     "provisional.tsv lists {p}, which no screen with vtium's golden draws"
                 ));
             }
-            if self.departures.iter().any(|d| d.case == *p) {
-                return Err(format!("{p} is both provisional and a listed departure"));
-            }
         }
         for d in self.departures {
             if !self.cases.iter().any(|c| c.screen.name == d.case) {
@@ -435,16 +432,7 @@ impl Run<'_> {
             }
         }
         let departure = self.departures.iter().find(|d| d.case == r.name);
-        let provisional = self.provisional.contains(&r.name);
         r.status = match (c.verdict, departure) {
-            _ if provisional => {
-                notes.push(if c.verdict == Verdict::Pass {
-                    "provisional: not yet reviewed".to_owned()
-                } else {
-                    "provisional, differs: not yet reviewed, so not judged".to_owned()
-                });
-                Status::Provisional
-            }
             (Verdict::Pass, None) => Status::Pass,
             (Verdict::Pass, Some(d)) => {
                 notes.push(format!(
@@ -472,6 +460,13 @@ impl Run<'_> {
             }
             _ => Status::Fail,
         };
+        if self.provisional.contains(&r.name) {
+            notes.push(format!(
+                "provisional: not yet reviewed, so not judged; judged, it would be {}",
+                r.status.name()
+            ));
+            r.status = Status::Provisional;
+        }
         if c.pixels > 0 && c.size_mismatch.is_none() {
             let diff = diff_dir.join(format!("{}.ppm", r.name));
             if write(&diff, &compare::diff_image(img, &tol, &c.points).to_ppm()).is_ok() {

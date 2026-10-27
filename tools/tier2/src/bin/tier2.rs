@@ -5,7 +5,13 @@
 //! tier2 run [--kmscon DIR] [--out DIR]
 //! tier2 render [--out DIR]
 //! tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]
+//! tier2 screens
 //! ```
+//!
+//! `screens` prints vtium's unifont screens for the C reference's drawing
+//! program in `reference/`, one a line: the name, columns, rows, the
+//! display's width and height (0 for the grid's), the orientation, the
+//! width method, and the bytes and the second part in hex (`-` for none).
 //!
 //! `run` exits 0 when every case passes, 1 when one does not and 2 when it
 //! refuses to run; `compare` exits 0 on pass or near, 1 on fail and 2 on
@@ -14,12 +20,15 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use vtium_render::Orientation;
+use vtium_term::WidthMethod;
 use vtium_tier2::compare;
 use vtium_tier2::draw;
+use vtium_tier2::draw::FontKind;
 use vtium_tier2::ppm;
 use vtium_tier2::report::Status;
 use vtium_tier2::runner::{self, Run};
-use vtium_tier2::screens::CASES;
+use vtium_tier2::screens::{CASES, Source};
 use vtium_tier2::tol::Tolerance;
 
 const HERE: &str = env!("CARGO_MANIFEST_DIR");
@@ -27,7 +36,7 @@ const HERE: &str = env!("CARGO_MANIFEST_DIR");
 fn usage() -> ExitCode {
     eprintln!(
         "usage: tier2 run [--kmscon DIR] [--out DIR]\n       tier2 render [--out DIR]\n       \
-         tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]"
+         tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]\n       tier2 screens"
     );
     ExitCode::from(2)
 }
@@ -220,6 +229,36 @@ fn compare_cmd(opts: &[(String, String)], files: &[String]) -> ExitCode {
     }
 }
 
+fn screens() -> ExitCode {
+    let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    for case in CASES {
+        let s = &case.screen;
+        if case.source != Source::Vtium || s.font != FontKind::Unifont {
+            continue;
+        }
+        let (w, h) = s.display.unwrap_or((0, 0));
+        let orientation = match s.orientation {
+            Orientation::Normal => "normal",
+            Orientation::Right => "right",
+            Orientation::UpsideDown => "upside-down",
+            Orientation::Left => "left",
+        };
+        let width = match s.width_method {
+            WidthMethod::Unicode => "unicode",
+            WidthMethod::Wcwidth => "wcwidth",
+        };
+        println!(
+            "{}\t{}\t{}\t{w}\t{h}\t{orientation}\t{width}\t{}\t{}",
+            s.name,
+            s.cols,
+            s.rows,
+            hex(s.bytes),
+            s.next.map_or_else(|| "-".to_owned(), hex)
+        );
+    }
+    ExitCode::SUCCESS
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some((cmd, rest)) = args.split_first() else {
@@ -229,6 +268,7 @@ fn main() -> ExitCode {
         "run" => &["--kmscon", "--out"],
         "render" => &["--out"],
         "compare" => &["--tol", "--diff"],
+        "screens" => &[],
         _ => return usage(),
     };
     let Some((opts, files)) = split(rest, flags) else {
@@ -238,6 +278,7 @@ fn main() -> ExitCode {
         "run" if files.is_empty() => run(&opts),
         "render" if files.is_empty() => render(&opts),
         "compare" => compare_cmd(&opts, &files),
+        "screens" if files.is_empty() => screens(),
         _ => usage(),
     }
 }
