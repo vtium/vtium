@@ -26,6 +26,33 @@ jobs:
       - name: ADR-1000 coverage ledger
         run: docs/scripts/coverage
 
+  # Tier 1 and the capability probes: vtium judged by the C reference's
+  # goldens and probes at the commits tools/conformance/pin.tsv names.
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: vtium
+      - name: pinned commits
+        id: pin
+        run: awk '!/^#/ && NF { print $1 "=" $2 }' vtium/tools/conformance/pin.tsv >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: aaronsb/libtsm
+          ref: ${{ steps.pin.outputs.libtsm }}
+          path: libtsm
+      - uses: actions/checkout@v4
+        with:
+          repository: aaronsb/kmscon
+          ref: ${{ steps.pin.outputs.kmscon }}
+          path: kmscon
+      - uses: dtolnay/rust-toolchain@stable
+      - run: make conformance conformance-probes conformance-issues
+        working-directory: vtium
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   tools:
     runs-on: ubuntu-latest
     steps:
