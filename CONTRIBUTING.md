@@ -23,6 +23,10 @@ cargo build --profile minspec
 
 A contribution that adds something new extends the harness in the same pull request. It proves the extension works: the new check is shown red without the feature, or with the defect planted, and green with it. A new capability without a harness case that would catch its absence is not accepted.
 
+### Its tests cite the rows they cover
+
+ADR-1000's tables list every mode and feature vtium supports, ignores or refuses. A test that drives a row's behaviour through the crate that implements it, and checks the result, names the row in a `// covers: <id>` comment above it, or a `# covers: <id>` comment in a replay file. A test of a lower layer the row depends on carries no tag. `docs/scripts/coverage` checks the tags and states how ids are formed, and `docs/scripts/coverage --update` writes the tables' `tests` column from them.
+
 ### The submitter defends it
 
 The person who submits a pull request answers for it. They can explain its purpose, what caused the need for it (the defect or the capability gap), its effects (what it changes and what could break), and its value. Review will challenge its design, its trade-offs and its proofs, and the submitter is expected to defend them in their own words.
@@ -58,7 +62,7 @@ Decisions are recorded as ADRs in `docs/architecture/`, created and checked with
 
 - **`unsafe` only in `vtium-platform`.** It is there for ioctls and FFI. Every other crate carries `#![forbid(unsafe_code)]`.
 - **Bounded parsing.** Anything read from the pty comes from an untrusted program. Every buffer, string, parameter list and image that input can grow has a fixed limit.
-- **Write from specs and permissive sources, never from kitty's code.** Implement from published protocol specifications and from permissively licensed implementations such as Ghostty, WezTerm, foot and libsixel. kitty is GPL-3.0, and its source is not read while working on vtium, by a person or by an agent. kitty as a running program may be used for black-box comparison. This is the C fork's ADR-300 rule. A file adapted from a permissive source names the source and its licence in its header.
+- **Write from specs and permissive sources, never from kitty's code.** Implement from published protocol specifications and from permissively licensed implementations such as Ghostty, WezTerm, foot and libsixel. kitty is GPL-3.0, and its source is not read while working on vtium, by a person or by an agent. kitty as a running program may be used for black-box comparison. This is the C fork's rule, kmscon ADR-300. <!-- adr-cite-ignore: kmscon's record, not one of vtium's --> A file adapted from a permissive source names the source and its licence in its header.
 
 ## Licence
 
