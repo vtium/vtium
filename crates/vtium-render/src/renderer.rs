@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use vtium_font::{Face, Font, Style, Width as FontWidth};
 use vtium_term::{Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, Rgb, Width};
 
-use crate::blend::{dim, pixel};
+use crate::blend::pixel;
 use crate::bounds::ROW_SCRATCH_MAX;
 use crate::cache::{Budgets, GlyphCache, Profile, Storage};
 use crate::compose::{Area, Composer, Job, int};
@@ -601,14 +601,8 @@ impl<F: Face> Renderer<F> {
         hidden: bool,
     ) {
         let d = self.config.decorations;
-        // dim mixes the colours reverse video left; the cursor draws over
-        // the result
-        let ink = if fc.attrs.contains(Attrs::DIM) {
-            dim(fc.fg, fc.bg)
-        } else {
-            fc.fg
-        };
-        let (mut fg, mut bg) = (ink, fc.bg);
+        // the frame has dimmed the foreground; the cursor draws over it
+        let (mut fg, mut bg) = (fc.fg, fc.bg);
         let mut underline = fc.attrs.underline();
         let mut ul_cursor = false;
         let mut bar = false;
@@ -678,7 +672,7 @@ impl<F: Face> Renderer<F> {
                 ..at
             };
             let paint = Paint {
-                fg: ink,
+                fg: fc.fg,
                 bg: fc.bg,
                 underline,
                 strike,
