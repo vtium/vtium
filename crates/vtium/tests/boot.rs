@@ -2063,3 +2063,48 @@ fn the_last_display_going_while_released_wakes_nothing() {
         "nothing woke"
     );
 }
+
+/// A line that wraps is one line to the selection: a double click takes a
+/// word across the wrap, and a triple click every row of the line, copied
+/// with no line end where it wrapped (vtium/vtium#97).
+// covers: clipboard.selection
+#[test]
+fn a_selection_follows_a_wrapped_line() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "w=$(stty size | cut -d' ' -f2); printf '%*s' $((w - 3)) '' | tr ' ' x; \
+         printf ' abcdef end\\n'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "cdef end")));
+    let cols = h.app.term.terminal.screen().cols();
+    let last = i32::try_from(cols).unwrap() - 1;
+    let none = Mods::empty();
+    h.point(
+        [
+            over(last, 0, None),
+            press(Button::Left, false),
+            release(Button::Left),
+            press(Button::Left, true),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"abcdef"[..]));
+    h.point(
+        [
+            over(2, 1, None),
+            press(Button::Left, false),
+            release(Button::Left),
+            press(Button::Left, true),
+            release(Button::Left),
+            press(Button::Left, true),
+            release(Button::Left),
+        ],
+        none,
+    );
+    let line = format!("{} abcdef end\n", "x".repeat(cols - 3));
+    assert_eq!(h.app.selection(), Some(line.as_bytes()));
+}
