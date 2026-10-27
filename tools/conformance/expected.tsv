@@ -105,7 +105,6 @@
 *	six-scroll-bottom	pending	#48	sixel
 *	six-scroll-region	pending	#48	sixel
 *	six-text	pending	#48	sixel
-frame	prog-tmux	departure	crates/vtium-term/README.md	Moving the cursor marks nothing.
 *	img-scroll-up-bottom	pending	#28	images
 *	img-alt-1047	pending	#28	images
 *	img-alt-shown	pending	#28	images
