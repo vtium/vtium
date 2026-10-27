@@ -35,11 +35,11 @@ Each capability the C reference's probes judge, the ADR-1000 rows its probe cove
 | `xtversion` | works | `query.xtversion` | `crates/vtium-term/src/terminal/reply.rs::no_reply_carries_the_requests_bytes`<br>`crates/vtium-term/tests/replies.rs::xtversion_reports_the_hosts_text` |  |
 | `xtgettcap` | works | `query.xtgettcap` | `crates/vtium-term/src/terminal/reply.rs::no_reply_carries_the_requests_bytes`<br>`crates/vtium-term/tests/replies.rs::a_table_past_its_bounds_is_refused`<br>`crates/vtium-term/tests/replies.rs::xtgettcap_answers_from_the_table_in_uppercase`<br>`crates/vtium-term/tests/replies.rs::xtgettcap_answers_sixteen_names`<br>`crates/vtium-term/tests/replies.rs::xtgettcap_replies_up_to_its_bound` |  |
 | `osc-4-query` | works | `colour.palette.query` | `crates/vtium-term/src/terminal/reply.rs::no_reply_carries_the_requests_bytes`<br>`crates/vtium-term/tests/replies.rs::osc_4_reports_palette_colours` |  |
-| `osc-4-set` | missing | `colour.palette.set` |  | missing, #38; no test for `colour.palette.set` |
+| `osc-4-set` | works | `colour.palette.set` | `crates/vtium-term/tests/colours.rs::osc_104_resets_palette_colours_to_the_configured_palette`<br>`crates/vtium-term/tests/colours.rs::osc_4_sets_palette_colours` |  |
 | `osc-10-11-query` | works | `colour.dynamic.query` | `crates/vtium-term/src/terminal/reply.rs::no_reply_carries_the_requests_bytes`<br>`crates/vtium-term/tests/replies.rs::osc_10_and_11_report_the_default_colours` |  |
-| `osc-10-11-set` | missing | `colour.dynamic.set` |  | missing, #38; no test for `colour.dynamic.set` |
-| `osc-12-query` | missing | `colour.dynamic.set` |  | missing, #38; no test for `colour.dynamic.set` |
-| `osc-104-110-111-reset` | missing | `colour.palette.set` |  | missing, #38; no test for `colour.palette.set` |
+| `osc-10-11-set` | works | `colour.dynamic.set` | `crates/vtium-term/src/terminal/reply.rs::no_reply_carries_the_requests_bytes`<br>`crates/vtium-term/tests/colours.rs::osc_10_11_and_12_set_and_query`<br>`crates/vtium-term/tests/colours.rs::osc_110_111_and_112_reset_to_the_configured_palette` |  |
+| `osc-12-query` | works | `colour.dynamic.set` | `crates/vtium-term/src/terminal/reply.rs::no_reply_carries_the_requests_bytes`<br>`crates/vtium-term/tests/colours.rs::osc_10_11_and_12_set_and_query`<br>`crates/vtium-term/tests/colours.rs::osc_110_111_and_112_reset_to_the_configured_palette` |  |
+| `osc-104-110-111-reset` | works | `colour.palette.set` | `crates/vtium-term/tests/colours.rs::osc_104_resets_palette_colours_to_the_configured_palette`<br>`crates/vtium-term/tests/colours.rs::osc_4_sets_palette_colours` |  |
 | `kitty-keyboard` | missing | `input.kitty-keyboard` |  | missing, #42; no test for `input.kitty-keyboard` |
 | `modify-other-keys` | works | `input.modify-other-keys` | `crates/vtium-term/src/terminal/reply.rs::no_reply_carries_the_requests_bytes`<br>`crates/vtium-term/tests/input.rs::modify_other_keys_encodes_modified_keys`<br>`crates/vtium-term/tests/replies.rs::xtmodkeys_sets_and_reports_the_level` |  |
 | `mouse-1000` | works | `DEC-1000` | `crates/vtium-term/tests/modes.rs::mouse_tracking_reports_by_its_mode` |  |

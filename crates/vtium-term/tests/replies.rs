@@ -774,8 +774,8 @@ fn a_truncated_osc_4_list_gets_no_reply() {
 }
 
 // The same bound inside one string: an OSC 4 at the OSC bound holds about
-// 260,000 queries, whose replies would be 7 MiB, so the list stops at the
-// reply that reaches the bound, as a stream of queries does.
+// 260,000 queries, whose replies would be 7 MiB, so the list's queries
+// stop at the reply that reaches the bound, as a stream of queries does.
 #[test]
 fn an_osc_4_list_stops_at_the_replies_bound() {
     let mut seq = b"\x1b]4".to_vec();
