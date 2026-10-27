@@ -29,6 +29,20 @@ help: ## Show this help
 minspec: ## Build the minspec binary, target/minspec/vtium
 	cargo build --profile minspec -p vtium
 
+# vtium as a system installs it, staged under DESTDIR: the minspec binary,
+# the VT unit, the compiled terminfo entry and the example configuration.
+# Tier 3 installs this tree in its guest.
+DESTDIR ?= target/install-tree
+VTIUM_INSTALL := crates/vtium/install
+
+.PHONY: install-tree
+install-tree: minspec ## Stage vtium's install tree under DESTDIR (default target/install-tree; needs tic)
+	install -Dm755 $(VTIUM_MINSPEC) $(DESTDIR)/usr/bin/vtium
+	install -Dm644 $(VTIUM_INSTALL)/kmsconvt@.service $(DESTDIR)/usr/lib/systemd/system/kmsconvt@.service
+	install -dm755 $(DESTDIR)/usr/share/terminfo
+	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/kmscon.ti
+	install -Dm644 $(VTIUM_INSTALL)/kmscon.conf.example $(DESTDIR)/etc/kmscon/kmscon.conf.example
+
 # Tier 1 against the C reference's goldens and probes, at the commits
 # tools/conformance/pin.tsv names, read from checkouts beside this one.
 LIBTSM ?= ../libtsm
@@ -106,3 +120,4 @@ KMSCON ?= ../kmscon
 tier2: ## Draw tier 2's screens and judge them against their goldens (KMSCON=DIR)
 	cargo build --release -p vtium-tier2 --bins
 	target/release/tier2 run --kmscon $(KMSCON)
+
