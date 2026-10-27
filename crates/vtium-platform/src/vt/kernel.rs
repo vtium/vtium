@@ -410,8 +410,9 @@ impl<C: Console> Vt for KernelVt<C> {
     /// [`VtEvent::Retaken`]. A release the kernel no longer waits on is
     /// taken again: a VT still shown is reported as [`VtEvent::Retaken`],
     /// and one no longer shown as [`VtEvent::Release`], whose
-    /// acknowledgement then answers nothing. Fails only when the kernel can
-    /// say neither.
+    /// acknowledgement then decides as for any release gone, so a switch
+    /// back while the owner sleeps is acquired only then. Fails only when
+    /// the kernel can say neither.
     fn refuse_release(&mut self) -> io::Result<()> {
         if self.state != State::Releasing {
             return Ok(());
@@ -425,14 +426,15 @@ impl<C: Console> Vt for KernelVt<C> {
             }
             return Ok(());
         };
-        if self.release_gone(e)? {
+        let shown = self.release_gone(e)?;
+        // While Active, so VT_PROCESS is set too; retake logs each refusal.
+        let _ = self.retake();
+        if shown {
             self.events.push(VtEvent::Retaken);
         } else {
-            self.state = State::Inactive;
+            self.state = State::Releasing;
             self.events.push(VtEvent::Release);
         }
-        // retake logs each refusal.
-        let _ = self.retake();
         Ok(())
     }
 
@@ -482,7 +484,11 @@ impl<C: Console> Vt for KernelVt<C> {
 
     /// Ctrl+Alt+F1 to F12 and the XF86Switch_VT keys ask the kernel for
     /// that VT (vt_real.c:484-530); this VT's own key is taken and does
-    /// nothing.
+    /// nothing. `VT_PROCESS` is set first: the kernel drops the switch
+    /// while the VT is in `VT_AUTO` and `KD_GRAPHICS`, as another process
+    /// can leave it (vt_ioctl.c:1259-1263), and while the VT is ours
+    /// nothing waits that `VT_SETMODE` would cancel but a release not yet
+    /// read, which the new switch replaces.
     fn key(&mut self, key: &KeyEvent) -> bool {
         let Some(target) = switch_target(key) else {
             return false;
@@ -492,6 +498,10 @@ impl<C: Console> Vt for KernelVt<C> {
         }
         if target != self.num {
             log::debug!(target: "vt", "leaving VT {} for VT {target} on a key", self.num);
+            match self.console.set_switching(Switching::Process) {
+                Ok(()) => self.set.process = true,
+                Err(e) => log::warn!(target: "vt", "cannot take VT {}'s switching: {e}", self.num),
+            }
             if let Err(e) = self.console.activate(target) {
                 log::warn!(target: "vt", "cannot leave VT {} for VT {target}: {e}", self.num);
             }

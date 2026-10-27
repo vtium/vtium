@@ -10,7 +10,9 @@ use xkbcommon::xkb::keysyms;
 
 use super::fake::{COOKED, Call, FakeConsole, Lines};
 use super::kernel::Retakes;
-use super::{DisplayMode, FakeVt, KbMode, KernelVt, Reldisp, Switch, Switching, Vt, VtEvent};
+use super::{
+    Console, DisplayMode, FakeVt, KbMode, KernelVt, Reldisp, Switch, Switching, Vt, VtEvent,
+};
 use crate::event_loop::Loop;
 use crate::input::{KeyEvent, Mods};
 
@@ -297,16 +299,18 @@ fn a_retake_is_reported_only_while_the_vt_is_ours() {
     assert!(!vt.is_active());
 }
 
-/// Another process resets the VT while a release waits: `VT_AUTO`, which
-/// ends the kernel's wait (vt_ioctl.c:780), text mode, and the keyboard
-/// and line settings a console has.
+/// Another process resets the VT while a release waits, through the
+/// stand-in's calls: `VT_AUTO`, whose `VT_SETMODE` ends the kernel's wait
+/// (vt_ioctl.c:780), text mode, and the keyboard and line settings a
+/// console has.
 fn reset_while_released(console: &FakeConsole) {
-    let mut k = console.0.borrow_mut();
-    k.switching = Switching::Auto;
-    k.pending_switch = None;
-    k.display = DisplayMode::Text;
-    k.keyboard = KbMode::Unicode;
-    k.lines = COOKED;
+    let reset = [
+        console.set_switching(Switching::Auto),
+        console.set_display_mode(DisplayMode::Text),
+        console.set_keyboard_mode(KbMode::Unicode),
+        console.set_termios(&COOKED),
+    ];
+    assert!(reset.iter().all(Result::is_ok));
 }
 
 /// The kernel shows VT 3 again, and signals the acquire only in
@@ -393,12 +397,61 @@ fn a_refusal_after_the_switch_completed_releases_the_vt() {
     assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Release]);
     assert_eq!(console.modes(), taken());
     assert_eq!(lines(&console), SILENT);
-    // The owner sleeps and acknowledges, which answers nothing.
-    console.clear();
+    // The owner sleeps and acknowledges; the VT stays released.
     assert!(vt.acknowledge_release().is_ok());
-    assert!(console.calls().is_empty());
+    assert!(!vt.is_active());
+    assert_eq!(vt.events().count(), 0);
     switched_back(&console, &mut vt);
     assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Acquired]);
+}
+
+#[test]
+fn a_switch_back_during_the_sleep_a_refusal_asked_for_waits_for_its_acknowledgement() {
+    let (console, mut vt) = shown();
+    vt.events().for_each(drop);
+    asked_away(&console, &mut vt, 5);
+    reset_while_released(&console);
+    console.show(5);
+    assert!(vt.refuse_release().is_ok());
+    vt.events().for_each(drop);
+    // Switched back while the displays go to sleep: nothing is acquired
+    // before the owner acknowledges.
+    switched_back(&console, &mut vt);
+    assert_eq!(vt.events().count(), 0);
+    assert!(!vt.is_active());
+    assert!(vt.acknowledge_release().is_ok());
+    assert!(vt.is_active());
+    assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Acquired]);
+}
+
+#[test]
+fn an_acquired_release_reports_no_error() {
+    let (console, mut vt) = shown();
+    vt.events().for_each(drop);
+    asked_away(&console, &mut vt, 5);
+    reset_while_released(&console);
+    vt.events().for_each(drop);
+    console.fail(Some(Call::SetDisplay(DisplayMode::Graphics)));
+    assert!(vt.acknowledge_release().is_ok());
+    assert!(vt.is_active());
+    assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Acquired]);
+    assert_eq!(console.0.borrow().switching, Switching::Process);
+}
+
+#[test]
+fn a_switch_key_works_when_another_process_left_vt_auto() {
+    let (console, mut vt) = shown();
+    vt.events().for_each(drop);
+    // VT_AUTO in KD_GRAPHICS: the kernel drops any VT_ACTIVATE.
+    assert!(console.set_switching(Switching::Auto).is_ok());
+    assert!(vt.key(&key(ctrl_alt(), keysyms::KEY_F2)));
+    assert_eq!(console.0.borrow().switching, Switching::Process);
+    assert_eq!(console.0.borrow().pending_switch, Some(2));
+    // The release it asks for is vtium's to answer.
+    vt.release_signal();
+    assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Release]);
+    assert!(vt.acknowledge_release().is_ok());
+    assert_eq!(console.0.borrow().on_screen, 2);
 }
 
 #[test]

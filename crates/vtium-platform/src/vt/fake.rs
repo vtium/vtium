@@ -168,8 +168,22 @@ impl Console for FakeConsole {
         Ok(())
     }
 
+    /// The switch as `change_console` makes it, with the stand-in's modes
+    /// taken as the shown VT's: under `VT_PROCESS` the switch waits for an
+    /// answer (vt_ioctl.c:1223-1240), under `VT_AUTO` it completes, except
+    /// in `KD_GRAPHICS`, where it is dropped (1259-1263).
     fn activate(&self, num: u16) -> io::Result<()> {
-        self.call(Call::Activate(num))
+        self.call(Call::Activate(num))?;
+        let mut k = self.0.borrow_mut();
+        if num == k.on_screen {
+            return Ok(());
+        }
+        match (k.switching, k.display) {
+            (Switching::Process, _) => k.pending_switch = Some(num),
+            (Switching::Auto, DisplayMode::Text) => k.on_screen = num,
+            (Switching::Auto, DisplayMode::Graphics) => {}
+        }
+        Ok(())
     }
 
     fn flush_input(&self) -> io::Result<()> {
