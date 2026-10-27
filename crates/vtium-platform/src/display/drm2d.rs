@@ -961,9 +961,19 @@ impl<K: Kms> Drm2d<K> {
             .and_then(|i| 1u32.checked_shl(i))?;
         let mut planes = Planes::default();
         let mut primary = None;
-        for plane in self.card.planes().ok()? {
-            if self.card.plane_crtcs(plane).unwrap_or(0) & bit == 0 {
-                continue;
+        let all = self
+            .card
+            .planes()
+            .inspect_err(|e| log::warn!("cannot list the card's planes: {e}"))
+            .ok()?;
+        for plane in all {
+            match self.card.plane_crtcs(plane) {
+                Ok(crtcs) if crtcs & bit != 0 => {}
+                Ok(_) => continue,
+                Err(e) => {
+                    log::warn!("cannot read the CRTCs of plane {plane}: {e}");
+                    continue;
+                }
             }
             let props = match self.card.properties(plane, Object::Plane) {
                 Ok(props) => props,
@@ -1000,9 +1010,17 @@ impl<K: Kms> Drm2d<K> {
     /// Hides every cursor and overlay plane, which another program may
     /// have left in the middle of the screen.
     fn clear_planes(&self, req: &mut Request) {
-        for plane in self.card.planes().unwrap_or_default() {
-            let Ok(props) = self.card.properties(plane, Object::Plane) else {
-                continue;
+        let all = self.card.planes().unwrap_or_else(|e| {
+            log::warn!("cannot list the card's planes: {e}");
+            Vec::new()
+        });
+        for plane in all {
+            let props = match self.card.properties(plane, Object::Plane) {
+                Ok(props) => props,
+                Err(e) => {
+                    log::warn!("cannot read the properties of plane {plane}: {e}");
+                    continue;
+                }
             };
             if matches!(value(&props, "type"), Some(PLANE_CURSOR | PLANE_OVERLAY)) {
                 let props = Props::new(&props);

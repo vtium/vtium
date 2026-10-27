@@ -1632,3 +1632,61 @@ fn a_plane_whose_properties_cannot_be_read_is_named() {
         "{errors:?}"
     );
 }
+
+#[test]
+fn a_plane_list_that_cannot_be_read_is_named() {
+    let card = virtio_gpu();
+    card.state().planes_unreadable = true;
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    logs::capture();
+    v.wake_up().unwrap();
+    assert!(v.outputs.is_empty());
+    let errors = logs::at_least(Level::Warn);
+    assert!(
+        errors
+            .iter()
+            .any(|l| l == "cannot list the card's planes: Input/output error (os error 5)"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn a_plane_whose_crtcs_cannot_be_read_is_named() {
+    let card = virtio_gpu();
+    card.state().crtcs_unreadable.push(35);
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    logs::capture();
+    v.wake_up().unwrap();
+    assert!(v.outputs.is_empty());
+    let errors = logs::at_least(Level::Warn);
+    assert!(
+        errors
+            .iter()
+            .any(|l| l == "cannot read the CRTCs of plane 35: Input/output error (os error 5)"),
+        "{errors:?}"
+    );
+}
+
+// An overlay plane on no CRTC of the display is read only to hide it.
+#[test]
+fn a_plane_that_cannot_be_hidden_for_its_unread_type_is_named() {
+    let card = virtio_gpu();
+    card.state().planes.insert(
+        37,
+        Plane {
+            crtcs: 0b10,
+            kind: PLANE_OVERLAY,
+            damage: false,
+        },
+    );
+    card.state().unreadable.push(37);
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    logs::capture();
+    v.wake_up().unwrap();
+    assert_eq!(primary(&v, 40), 35);
+    let errors = logs::at_least(Level::Warn);
+    assert_eq!(
+        errors,
+        ["cannot read the properties of plane 37: Bad address (os error 14)"]
+    );
+}
