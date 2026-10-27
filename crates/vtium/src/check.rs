@@ -19,12 +19,6 @@ applies nothing, and reads nothing but the configuration files.\n";
 /// What a value means beyond its own key, which the start reports too.
 pub fn semantics(config: &Config) -> Vec<String> {
     let mut out = Vec::new();
-    if let Some(name) = config
-        .text(&keys::PALETTE)
-        .filter(|p| !matches!(*p, "legacy" | "custom"))
-    {
-        out.push(format!("palette={name} is not built yet; legacy is used"));
-    }
     if config.switch(&keys::HWACCEL) {
         out.push("hwaccel is not built yet; vtium draws in software".to_owned());
     }
@@ -97,15 +91,27 @@ mod tests {
 
     #[test]
     fn what_the_values_mean_together_is_checked_too() {
-        let (lines, status) = run_with(&[], "palette=nord\nmode=1024x768\nuse-original-mode\n");
+        let (lines, status) = run_with(&[], "mode=1024x768\nuse-original-mode\n");
+        assert_eq!(status, 1);
+        assert_eq!(lines, ["mode is set, so use-original-mode is off"]);
+    }
+
+    #[test]
+    fn a_palette_vtium_does_not_hold_is_reported() {
+        let (lines, status) = run_with(&["--palette=frob"], "palette=nord\n");
         assert_eq!(status, 1);
         assert_eq!(
             lines,
             [
-                "palette=nord is not built yet; legacy is used",
-                "mode is set, so use-original-mode is off",
+                "argument 2: palette=\"frob\" is none of legacy, custom, nord, solarized, \
+                 solarized-black, solarized-white, soft-black, base16-dark, base16-light, vga, \
+                 ignored"
             ]
         );
+        for name in vtium_term::PALETTE_NAMES.iter().chain(&["custom"]) {
+            let conf = format!("palette={name}\n");
+            assert_eq!(run_with(&[], &conf), (Vec::new(), 0), "{name}");
+        }
     }
 
     #[test]
