@@ -298,6 +298,8 @@ def evaluate(variant, case, ppm, meta, log):
     entry["thumb_actual"] = write_thumb(t3img.thumbnail(img), stem + ".thumb.png")
     if golden is None:  # a check, passed when the capture was taken
         entry["status"] = "pass"
+        if meta.get("notes", {}).get(case):
+            entry["note"] = meta["notes"][case]
         return entry
     if gimg is None:
         entry["status"] = "missing"

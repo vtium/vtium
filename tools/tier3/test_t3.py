@@ -441,10 +441,12 @@ class ImplementationTest(unittest.TestCase):
         with open(built, "w") as f:
             f.write("logind build")
         impl["features"] = {"logind": built}
+        verbose = "kernel.printk = 7 4 1 7\n"
         for variant, sysctl, binary in (
                 ("power-reboot-hard", "kernel.ctrl-alt-del = 1\n", None),
-                ("power-reboot", None, None), ("power-suspend-off", None, None),
-                ("power-suspend-logind", None, "logind build")):
+                ("power-reboot", None, None), ("power-off", None, None),
+                ("power-suspend-off", verbose, None),
+                ("power-suspend-logind", verbose, "logind build")):
             with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
                 t3_scenario.build_disc(variant, self.dir.name, impl)
                 path = os.path.join(disc, "sysctl.conf")
@@ -1113,11 +1115,16 @@ class VariantTest(unittest.TestCase):
 
 class PowerTest(unittest.TestCase):
     """The power variants (t3_power.py): their machine, their cases and the
-    verdict each case takes from the console log."""
+    verdict each case takes from the console log and QEMU's SHUTDOWN
+    event."""
 
     # A console log as each action leaves it, systemd's status lines
     # coloured as on the guest's serial console.
     OK = "[\x1b[0;32m  OK  \x1b[0m] "
+    POWER_OFF = ["[ 9.1] vtium[404]: grab-power-off: asking init to power off",
+                 OK + "Reached target Unmount All Filesystems.",
+                 OK + "Reached target System Power Off.",
+                 "[ 12.0] reboot: Power down"]
     LOGS = {
         "reboot": ["[ 9.1] vtium[404]: grab-reboot: asking init to reboot",
                    OK + "Stopped target Graphical Interface.",
@@ -1126,10 +1133,8 @@ class PowerTest(unittest.TestCase):
                    "[ 12.0] reboot: Restarting system"],
         "reboot-hard": ["[ 9.1] vtium[404]: grab-reboot: restarting the kernel at once",
                         "[ 9.2] reboot: Restarting system"],
-        "power-off": ["[ 9.1] vtium[404]: grab-power-off: asking init to power off",
-                      OK + "Reached target Unmount All Filesystems.",
-                      OK + "Reached target System Power Off.",
-                      "[ 12.0] reboot: Power down"],
+        "power-off": POWER_OFF,
+        "power-off-after-s3": POWER_OFF,
         "suspend": ["[ 9.1] vtium[404]: grab-suspend: suspending",
                     OK + "Reached target Sleep.",
                     "[ 9.1] vtium[404]: grab-suspend: logind took the request",
@@ -1138,10 +1143,19 @@ class PowerTest(unittest.TestCase):
         "suspend-sysfs": ["[ 9.1] vtium[404]: grab-suspend: suspending",
                           "[ 9.1] vtium[404]: grab-suspend: writing mem to /sys/power/state"],
     }
+    # What a power-off after S3 ends with in QEMU: systemd-shutdown exits
+    # when reboot(2) returns, ten seconds after the kernel's last line.
+    PANIC = ["[ 22.0] Kernel panic - not syncing: Attempted to kill init! exitcode=0x00000000"]
+    SHUTDOWN = {"reboot": "guest-reset", "reboot-hard": "guest-reset",
+                "power-off": "guest-shutdown", "power-off-after-s3": "guest-shutdown",
+                "suspend": None, "suspend-sysfs": None}
 
     def log(self, case, before=(), drop=None, extra=()):
         lines = list(before) + [l for l in self.LOGS[case] if drop is None or drop not in l]
         return ("\r\n".join(lines + list(extra)) + "\r\n").encode()
+
+    def judge(self, case, serial, since=0):
+        return t3_power.judge(case, serial, since, self.SHUTDOWN[case])
 
     def test_variants(self):
         # The minspec machine, out of the default run, each with its own
@@ -1168,18 +1182,22 @@ class PowerTest(unittest.TestCase):
                 if set(cases) & set(t3_power.SUSPENDS):
                     self.assertIn("ICH9-LPC.disable_s3=0", v["qemu"])
                 seen += cases
-        self.assertEqual(sorted(seen), sorted(t3_power.CHECKS))
+        self.assertEqual(sorted(set(seen)), sorted(t3_power.CHECKS))
+        # power-off runs on a guest that has not slept.
+        self.assertEqual(t3_scenario.VARIANTS["power-off"]["power"], ["power-off"])
         # Suspend through logind runs vtium built with it; the minspec
-        # build suspends through sysfs.
+        # build suspends through sysfs. Each is followed by a power-off.
         self.assertEqual(t3_scenario.VARIANTS["power-suspend-logind"]["features"], "logind")
         self.assertNotIn("features", t3_scenario.VARIANTS["power-suspend-off"])
+        for name in ("power-suspend-off", "power-suspend-logind"):
+            self.assertEqual(t3_scenario.VARIANTS[name]["power"][-1], "power-off-after-s3")
 
     def test_chords_match_the_configuration(self):
         # Each qcode chord the driver presses is the chord kmscon-power.conf
         # binds for its key.
         keys = {"reboot": "grab-reboot", "reboot-hard": "grab-reboot",
-                "power-off": "grab-power-off", "suspend": "grab-suspend",
-                "suspend-sysfs": "grab-suspend"}
+                "power-off": "grab-power-off", "power-off-after-s3": "grab-power-off",
+                "suspend": "grab-suspend", "suspend-sysfs": "grab-suspend"}
         with open(os.path.join(t3_common.GUEST, "kmscon-power.conf")) as f:
             conf = dict(line.strip().split("=", 1) for line in f if line.startswith("grab-"))
         for case, chord in t3_power.CHORDS.items():
@@ -1191,21 +1209,39 @@ class PowerTest(unittest.TestCase):
     def test_passes(self):
         for case in t3_power.CHECKS:
             with self.subTest(case):
-                self.assertIsNone(t3_power.judge(case, self.log(case)))
+                self.assertIsNone(self.judge(case, self.log(case)))
 
     def test_each_required_line(self):
         for case, want in t3_power.EXPECT.items():
             for marker in want["require"] + want.get("anywhere", []):
                 with self.subTest(case=case, missing=marker):
-                    why = t3_power.judge(case, self.log(case, drop=marker))
+                    why = self.judge(case, self.log(case, drop=marker))
                     self.assertIn(repr(marker), why or "")
+
+    def test_a_kernel_panic_fails_every_case(self):
+        # The review's run: power-off "passed" on a guest that panicked
+        # once its ACPI power-off did not take.
+        for case in t3_power.CHECKS:
+            with self.subTest(case):
+                why = self.judge(case, self.log(case, extra=self.PANIC))
+                self.assertIn("'Kernel panic' on the console", why or "")
+
+    def test_qemus_shutdown_reason(self):
+        # A power-off is QEMU's guest-shutdown and a reboot its
+        # guest-reset; a guest still running, or ended another way, fails.
+        for case, wrong in (("power-off", "guest-reset"), ("power-off", "guest-panic"),
+                            ("power-off", "none: still running"), ("power-off", None),
+                            ("reboot", "guest-shutdown"), ("reboot-hard", None)):
+            with self.subTest(case=case, shutdown=wrong):
+                why = t3_power.judge(case, self.log(case), 0, wrong)
+                self.assertIn("SHUTDOWN reason", why or "")
 
     def test_order(self):
         # The kernel restarting before systemd reached its target is not a
         # clean reboot.
         lines = self.LOGS["reboot"]
         serial = ("\n".join(lines[:1] + lines[-1:] + lines[1:-1]) + "\n").encode()
-        self.assertIn("'reboot: Restarting system'", t3_power.judge("reboot", serial) or "")
+        self.assertIn("'reboot: Restarting system'", self.judge("reboot", serial) or "")
 
     def test_forbidden_lines(self):
         for case, extra in (("reboot-hard", OK_TARGET_REBOOT),
@@ -1215,23 +1251,44 @@ class PowerTest(unittest.TestCase):
                             ("suspend", "[ 9.1] grab-suspend: writing mem to /sys/power/state"),
                             ("suspend-sysfs", PowerTest.OK + "Reached target Sleep.")):
             with self.subTest(case):
-                why = t3_power.judge(case, self.log(case, extra=[extra]))
+                why = self.judge(case, self.log(case, extra=[extra]))
                 self.assertIn("on the console after the key", why or "")
 
     def test_only_after_the_key(self):
         # Lines from before the key do not count: a boot's own lines never
         # pass a case, and an earlier line never fails one.
         serial = self.log("reboot")
-        self.assertIsNotNone(t3_power.judge("reboot", serial, since=len(serial)))
+        self.assertIsNotNone(self.judge("reboot", serial, since=len(serial)))
         earlier = (OK_TARGET_REBOOT + "\r\n").encode()
-        self.assertIsNone(t3_power.judge("reboot-hard", earlier + self.log("reboot-hard"),
-                                         since=len(earlier)))
+        self.assertIsNone(self.judge("reboot-hard", earlier + self.log("reboot-hard"),
+                                     since=len(earlier)))
+
+    def test_a_known_failure_passes_while_it_shows(self):
+        case = "power-off-after-s3"
+        # The known failure: systemd shut down, the machine did not power
+        # off, the kernel panicked, and QEMU went on running.
+        why, note = t3_power.verdict(case, self.log(case, extra=self.PANIC), 0,
+                                     "none: still running")
+        self.assertIsNone(why)
+        self.assertIn("known: after an S3 resume", note)
+        # Gone: the entry goes with the fix.
+        why, note = t3_power.verdict(case, self.log(case), 0, "guest-shutdown")
+        self.assertIn("no longer fails as KNOWN says", why)
+        # Failing another way: vtium's line missing.
+        serial = self.log(case, drop="grab-power-off", extra=self.PANIC)
+        why, note = t3_power.verdict(case, serial, 0, "none: still running")
+        self.assertIn("not as KNOWN says", why)
+        # Only a KNOWN case passes so.
+        why, note = t3_power.verdict("power-off", self.log("power-off", extra=self.PANIC), 0,
+                                     "none: still running")
+        self.assertIsNotNone(why)
 
     def test_failed_variant_fails_every_case(self):
         meta = t3_scenario.failure_meta("no boot")
         cases = t3_scenario.evaluate_variant("power-suspend-off", {}, meta, LOG)
         self.assertEqual([c["name"] for c in cases],
-                         ["power-suspend-off/suspend-sysfs", "power-suspend-off/power-off"])
+                         ["power-suspend-off/suspend-sysfs",
+                          "power-suspend-off/power-off-after-s3"])
         self.assertEqual({c["status"] for c in cases}, {"fail"})
 
 

@@ -4,8 +4,9 @@ seen to reboot, power off, or suspend and resume.
 Each case is a check without a golden. Its capture is the screen vtium
 drew before the key (after the resume, for suspend), and it passes when
 the console log shows vtium asked for the action and the guest carried it
-out the way the action promises. QEMU runs with -no-reboot, so a reboot
-ends the VM as a power-off does; the kernel's last line tells them apart.
+out the way the action promises, with no kernel panic. QEMU runs with
+-no-reboot, so a reboot ends the VM as a power-off does: QEMU's SHUTDOWN
+event tells them apart, "guest-reset" from "guest-shutdown".
 """
 
 import re
@@ -15,6 +16,7 @@ CHORDS = {
     "reboot": ("ctrl", "alt", "delete"),
     "reboot-hard": ("ctrl", "alt", "delete"),
     "power-off": ("ctrl", "alt", "end"),
+    "power-off-after-s3": ("ctrl", "alt", "end"),
     "suspend": ("ctrl", "alt", "home"),
     "suspend-sysfs": ("ctrl", "alt", "home"),
 }
@@ -29,9 +31,12 @@ CHECKS = {
     "reboot-hard": "grab-reboot (Ctrl+Alt+Delete) with /proc/sys/kernel/ctrl-alt-del at 1. "
                    "Correct: vtium syncs and restarts the kernel at once, with no shutdown by "
                    "systemd.",
-    "power-off": "grab-power-off (Ctrl+Alt+End). Correct: vtium asks init with SIGRTMIN+4, "
-                 "systemd reaches its power-off target, stopping the services and unmounting "
-                 "the filesystems, and the kernel powers down.",
+    "power-off": "grab-power-off (Ctrl+Alt+End) on a guest that has not slept. Correct: vtium "
+                 "asks init with SIGRTMIN+4, systemd reaches its power-off target, stopping the "
+                 "services and unmounting the filesystems, and the machine powers off.",
+    "power-off-after-s3": "grab-power-off (Ctrl+Alt+End) after a suspend and resume. vtium's "
+                          "part is power-off's; the known failure (KNOWN) is the guest's ACPI "
+                          "power-off after S3, which does not take, so the kernel panics.",
     "suspend": "grab-suspend (Ctrl+Alt+Home) in vtium built with logind, then QEMU's wake-up. "
                "Correct: logind takes the request and systemd suspends the guest to RAM through "
                "its sleep target; after the wake-up vtium draws its screen again.",
@@ -41,11 +46,21 @@ CHECKS = {
                      "vtium draws its screen again.",
 }
 
+POWER_OFF = {
+    "require": ["grab-power-off: asking init to power off",
+                "Reached target Unmount All Filesystems",
+                "Reached target System Power Off",
+                "reboot: Power down"],
+    "forbid": ["reboot: Restarting system"],
+    "shutdown": "guest-shutdown",
+}
+
 # Lines each case requires on the console, in order, lines it requires in
-# any order, and lines it forbids.
-# vtium's own line shows the key reached it; systemd's targets show the
-# services stopped and the filesystems unmounted; the kernel's last line
-# shows how the machine ended.
+# any order, lines it forbids, and the reason of QEMU's SHUTDOWN event it
+# requires (None: the guest runs on). vtium's own line shows the key
+# reached it; systemd's targets show the services stopped and the
+# filesystems unmounted; the kernel's last line and QEMU's event show how
+# the machine ended. A kernel panic fails every case.
 EXPECT = {
     "reboot": {
         "require": ["grab-reboot: asking init to reboot",
@@ -53,20 +68,17 @@ EXPECT = {
                     "Reached target System Reboot",
                     "reboot: Restarting system"],
         "forbid": ["reboot: Power down"],
+        "shutdown": "guest-reset",
     },
     "reboot-hard": {
         "require": ["grab-reboot: restarting the kernel at once",
                     "reboot: Restarting system"],
         "forbid": ["Reached target System Reboot", "Reached target Unmount All Filesystems",
                    "reboot: Power down"],
+        "shutdown": "guest-reset",
     },
-    "power-off": {
-        "require": ["grab-power-off: asking init to power off",
-                    "Reached target Unmount All Filesystems",
-                    "Reached target System Power Off",
-                    "reboot: Power down"],
-        "forbid": ["reboot: Restarting system"],
-    },
+    "power-off": POWER_OFF,
+    "power-off-after-s3": POWER_OFF,
     "suspend": {
         "require": ["grab-suspend: suspending",
                     "Reached target Sleep",
@@ -75,11 +87,33 @@ EXPECT = {
         # console takes the two lines in either order.
         "anywhere": ["grab-suspend: logind took the request"],
         "forbid": ["reboot: ", "writing mem to /sys/power/state"],
+        "shutdown": None,
     },
     "suspend-sysfs": {
         "require": ["grab-suspend: suspending",
                     "grab-suspend: writing mem to /sys/power/state"],
         "forbid": ["reboot: ", "Reached target Sleep"],
+        "shutdown": None,
+    },
+}
+
+PANIC = "Kernel panic"
+
+# Cases that fail today for a reason outside vtium, each with the lines
+# that show it and why. Such a case passes with a note while it fails that
+# way, and fails once it no longer does, so its entry goes with the fix.
+KNOWN = {
+    "power-off-after-s3": {
+        "shows": ["grab-power-off: asking init to power off",
+                  "Reached target System Power Off",
+                  "reboot: Power down",
+                  "Kernel panic - not syncing: Attempted to kill init!"],
+        "why": "after an S3 resume, through logind or /sys/power/state alike, the guest "
+               "kernel logs entering S5 and 'reboot: Power down', and QEMU's q35 machine does "
+               "not power off: 10 s later reboot(2) returns to systemd-shutdown, which exits, "
+               "and the kernel panics as PID 1 is gone. systemd stopped the services and "
+               "unmounted the filesystems first. vtium's part, SIGRTMIN+4 to PID 1, is "
+               "power-off's, which passes on a guest that has not slept.",
     },
 }
 
@@ -87,13 +121,18 @@ EXPECT = {
 _ESCAPES = re.compile(r"\x1b\[[0-9;?!]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 
 
-def judge(case, serial, since=0):
+def _lines(serial, since):
+    return _ESCAPES.sub("", serial[since:].decode(errors="replace")).splitlines()
+
+
+def judge(case, serial, since=0, shutdown=None):
     """Why `case` failed, from the console log `serial` (bytes) after offset
-    `since`, where the key was pressed; None when it passed. Each required
-    line must appear after the one before it, each "anywhere" line
-    somewhere, and no forbidden line may appear."""
-    text = _ESCAPES.sub("", serial[since:].decode(errors="replace"))
-    lines = text.splitlines()
+    `since`, where the key was pressed, and the reason of QEMU's SHUTDOWN
+    event, `shutdown`; None when it passed. Each required line must appear
+    after the one before it, each "anywhere" line somewhere, no forbidden
+    line and no kernel panic may appear, and QEMU's event must be the one
+    the case requires."""
+    lines = _lines(serial, since)
     want = EXPECT[case]
     at = 0
     for marker in want["require"]:
@@ -105,7 +144,26 @@ def judge(case, serial, since=0):
     for marker in want.get("anywhere", []):
         if not any(marker in line for line in lines):
             return "no %r on the console after the key" % marker
-    for marker in want["forbid"]:
+    for marker in want["forbid"] + [PANIC]:
         if any(marker in line for line in lines):
             return "%r on the console after the key" % marker
+    if shutdown != want["shutdown"]:
+        return "QEMU's SHUTDOWN reason is %r, not %r" % (shutdown, want["shutdown"])
     return None
+
+
+def verdict(case, serial, since=0, shutdown=None):
+    """(why the case failed or None, a note or None): judge's verdict, but a
+    KNOWN case passes with a note while its known failure shows, and fails
+    once it passes or fails some other way."""
+    why = judge(case, serial, since, shutdown)
+    known = KNOWN.get(case)
+    if known is None:
+        return why, None
+    if why is None:
+        return ("%s no longer fails as KNOWN says; remove its entry" % case), None
+    lines = _lines(serial, since)
+    missing = [m for m in known["shows"] if not any(m in line for line in lines)]
+    if missing:
+        return "%s (and not as KNOWN says: no %r)" % (why, missing[0]), None
+    return None, "known: " + known["why"]

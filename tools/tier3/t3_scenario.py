@@ -99,12 +99,16 @@ VARIANTS = {
 # minimal configuration and the keys bound (guest/kmscon-power.conf). Each
 # variant's "power" lists its cases (t3_power), pressed in order on the
 # console's login prompt. A reboot or a power-off ends the VM, so each
-# reboot has a variant of its own and power-off follows suspend. The
-# hard reboot's guest sets "sysctl" before vtium starts. QEMU offers S3,
+# has a variant of its own, and only a suspend comes before another case.
+# power-off-after-s3 shows a power-off after each suspend path, a known
+# failure of the guest's (t3_power.KNOWN). The hard reboot's guest sets
+# "sysctl" before vtium starts, and the suspending guests log the kernel at
+# info level, so its ACPI lines reach the console. QEMU offers S3,
 # so the guest suspends to RAM, which QMP reports. A variant naming
 # "features" runs vtium built with them (t3.build_features) in place of
 # the tree's minspec binary.
 S3 = ["-global", "ICH9-LPC.disable_s3=0"]
+VERBOSE = "kernel.printk = 7 4 1 7\n"
 POWER = {
     "device": "virtio-vga,xres=1366,yres=768,edid=on",
     "display": "none",
@@ -117,10 +121,13 @@ POWER = {
 VARIANTS.update({
     "power-reboot": dict(POWER, power=["reboot"]),
     "power-reboot-hard": dict(POWER, power=["reboot-hard"], sysctl="kernel.ctrl-alt-del = 1\n"),
-    "power-suspend-off": dict(POWER, power=["suspend-sysfs", "power-off"], qemu=S3),
-    "power-suspend-logind": dict(POWER, power=["suspend"], qemu=S3, features="logind"),
+    "power-off": dict(POWER, power=["power-off"]),
+    "power-suspend-off": dict(POWER, power=["suspend-sysfs", "power-off-after-s3"], qemu=S3,
+                              sysctl=VERBOSE),
+    "power-suspend-logind": dict(POWER, power=["suspend", "power-off-after-s3"], qemu=S3,
+                                 sysctl=VERBOSE, features="logind"),
 })
-POWER_VARIANTS = ["power-reboot", "power-reboot-hard", "power-suspend-off",
+POWER_VARIANTS = ["power-reboot", "power-reboot-hard", "power-off", "power-suspend-off",
                   "power-suspend-logind"]
 
 # What `t3.py run` runs when no variant is named, in the order workers take
@@ -352,7 +359,7 @@ def run_variant(variant, timing, impl, log):
               v["device"], log, display=v["display"],
               capture=v.get("capture", "screendump"), cpus=v["cpus"], memory_mb=v["memory_mb"],
               extra=v.get("qemu", ()))
-    caps, errors, error, installed = {}, {}, None, None
+    caps, errors, notes, error, installed = {}, {}, {}, None, None
     try:
         line = vm.wait_serial("TIER3-INSTALL-OK", timeout=180)
         log(line)
@@ -373,7 +380,7 @@ def run_variant(variant, timing, impl, log):
         prompt = wait_stable(vm, tmp, settle=2.0, timeout=90, want=not_blank)
         phase("console")
         if "power" in v:
-            press_power_keys(vm, v["power"], work, caps, errors, log, phase)
+            press_power_keys(vm, v["power"], work, caps, errors, notes, log, phase)
         else:
             draw_screens(variant, vm, work, prompt, caps, errors, log, phase)
     except Exception as e:  # reported per case; the captures so far still count
@@ -388,7 +395,7 @@ def run_variant(variant, timing, impl, log):
         conf = [line.strip() for line in f if line.strip() and not line.startswith("#")]
     rss = resident_kb(vm)
     meta = {"installed": installed,
-            "displays": displays, "errors": errors, "device": v["device"], "config": conf,
+            "displays": displays, "errors": errors, "notes": notes, "device": v["device"], "config": conf,
             "cell": console_cell(vm.serial), "cpus": v["cpus"], "memory_mb": v["memory_mb"],
             "bench": bench_figures(vm, caps, conf, v.get("images", True)),
             "rss_kb": rss, "resident": resident(rss),
@@ -487,12 +494,14 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
 POWER_TIMEOUT = 180
 
 
-def press_power_keys(vm, cases, work, caps, errors, log, phase):
+def press_power_keys(vm, cases, work, caps, errors, notes, log, phase):
     """Press each power case's chord on the console (t3_power), in order.
     A case's capture is the screen before its key, or after the wake-up for
-    suspend; it is kept when the console log after the key passes
-    t3_power.judge, and `errors` gets the reason otherwise. A case that ends
-    the VM is last; a case that fails leaves the next to run."""
+    suspend; it is kept when the console log after the key, and QEMU's
+    SHUTDOWN event for a case that ends the VM, pass t3_power.verdict, and
+    `errors` gets the reason otherwise; `notes` gets a known failure's
+    note. A case that ends the VM is last; a case that fails leaves the
+    next to run."""
     for case in cases:
         path = os.path.join(work, case + ".ppm")
         try:
@@ -509,13 +518,17 @@ def press_power_keys(vm, cases, work, caps, errors, log, phase):
                     vm.wait_serial("Finished System Suspend", timeout=POWER_TIMEOUT)
                 # Drawn again after the wake-up: a blank screen fails the case.
                 wait_stable(vm, path, settle=2.0, timeout=60, want=not_blank)
-            elif vm.wait_exit(POWER_TIMEOUT) is None:
-                raise RuntimeError("the guest still runs %d s after the key" % POWER_TIMEOUT)
+            shutdown = None
+            if case not in t3_power.SUSPENDS:
+                exited = vm.wait_exit(POWER_TIMEOUT) is not None
+                shutdown = vm.shutdown_reason() if exited else "none: still running"
             with open(vm.serial, "rb") as f:
-                why = t3_power.judge(case, f.read(), since)
+                why, note = t3_power.verdict(case, f.read(), since, shutdown)
             if why:
                 raise RuntimeError(why)
             caps[case] = path
+            if note:
+                notes[case] = note
         except (RuntimeError, OSError) as e:  # QMP gone with the VM is an OSError
             errors[case] = str(e)
             log("%s: %s" % (case, e))
