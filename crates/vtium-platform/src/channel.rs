@@ -188,6 +188,8 @@ pub(crate) struct Channel<E> {
     feed_owed: bool,
     /// The last read found no output, and none is held.
     drained: bool,
+    /// The consumer was told the child exited.
+    exit_told: bool,
 }
 
 impl<E: Endpoint> Channel<E> {
@@ -206,6 +208,7 @@ impl<E: Endpoint> Channel<E> {
             paused: false,
             feed_owed: false,
             drained: false,
+            exit_told: false,
         }
     }
 
@@ -244,9 +247,12 @@ impl<E: Endpoint> Channel<E> {
     }
 
     /// The child exited. What it wrote is still read and fed; replies to it
-    /// are dropped, so a backlog of them no longer holds the reading.
+    /// are dropped, so a backlog of them no longer holds the reading. A read
+    /// before the exit says nothing of what the child wrote after it, so
+    /// the exit waits for a fresh one.
     pub(crate) fn orphan(&mut self) -> Next {
         let stalled = self.writer.backlog || self.writer.dropping;
+        self.drained = false;
         self.writer.orphaned = true;
         self.writer.backlog = false;
         self.writer.dropping = false;
@@ -254,6 +260,26 @@ impl<E: Endpoint> Channel<E> {
             return self.restart();
         }
         Next::default()
+    }
+
+    /// Whether to tell the consumer the child exited, with what the loop
+    /// does next: true once, when a read after the exit finds the output
+    /// it left all fed. While output is held or stalled the exit waits for
+    /// the feed or the resume.
+    pub(crate) fn settle<C: Consumer + ?Sized>(
+        &mut self,
+        mut next: Next,
+        consumer: &mut C,
+    ) -> (Next, bool) {
+        if !self.writer.orphaned || self.exit_told {
+            return (next, false);
+        }
+        if !next.feed && !self.waiting() && !self.drained() {
+            // No edge may come for output already there: read it now.
+            next = next.or(self.ready(true, false, consumer));
+        }
+        self.exit_told = self.drained();
+        (next, self.exit_told)
     }
 
     /// A feed on a later turn, unless one is owed already.

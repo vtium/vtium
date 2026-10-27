@@ -69,6 +69,9 @@ struct Child {
     max_read: usize,
     /// Reads take all they can, rather than a random part.
     whole_reads: bool,
+    /// It exited: the pty reads what it left, then EIO, and it reads no
+    /// more input.
+    exited: bool,
     rng: Rng,
 }
 
@@ -83,6 +86,7 @@ impl Child {
             got: Vec::new(),
             max_read,
             whole_reads: false,
+            exited: false,
             rng: Rng(seed),
         }
     }
@@ -96,6 +100,9 @@ impl Child {
 
     /// Reads up to `n` bytes of its input; true when it read any.
     fn read_input(&mut self, n: usize) -> bool {
+        if self.exited {
+            return false;
+        }
         let n = n.min(self.input.len());
         self.got.extend(self.input.drain(..n));
         n > 0
@@ -109,6 +116,9 @@ impl Endpoint for Script {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let mut c = self.0.borrow_mut();
         let ready = c.written - c.read;
+        if ready == 0 && c.exited {
+            return Err(io::Error::from_raw_os_error(5));
+        }
         if ready == 0 {
             return Err(io::ErrorKind::WouldBlock.into());
         }
@@ -126,6 +136,9 @@ impl Endpoint for Script {
 
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         let mut c = self.0.borrow_mut();
+        if c.exited {
+            return Err(io::Error::from_raw_os_error(5));
+        }
         let room = c.room - c.input.len();
         if room == 0 {
             return Err(io::ErrorKind::WouldBlock.into());
@@ -610,4 +623,28 @@ fn a_paste_into_a_child_that_does_not_read_is_queued_whole() {
     assert_eq!(c.input.len() + d.ch.queued(), paste.len());
     // A paste never stalls reading.
     assert!(!d.ch.stalled());
+}
+
+// The exit waits for output the child left while the pty was paused, after
+// an earlier read had found nothing more.
+#[test]
+fn an_exit_while_paused_waits_for_the_output_after_the_resume() {
+    let mut d = Driver::new(Child::new(b"headTAIL".to_vec(), READ_MAX, 4096, 8));
+    d.child.borrow_mut().whole_reads = true;
+    let mut out: Vec<u8> = Vec::new();
+    d.child_writes(4);
+    let _ = d.ch.ready(true, false, &mut out);
+    assert_eq!(out, b"head");
+    d.ch.pause();
+    d.child_writes(4);
+    d.child.borrow_mut().exited = true;
+    let next = d.ch.orphan();
+    let (next, told) = d.ch.settle(next, &mut out);
+    assert!(!told, "the exit came before the output it left");
+    assert_eq!(next, Next::default());
+    let next = d.ch.resume().or(d.ch.feed_later());
+    assert!(next.rearm);
+    let (_, told) = d.ch.settle(Next::default(), &mut out);
+    assert!(told);
+    assert_eq!(out, b"headTAIL");
 }

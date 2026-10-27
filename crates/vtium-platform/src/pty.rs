@@ -235,14 +235,11 @@ impl Pty {
     }
 
     /// Does what `next` asks, and once the child has exited and the output
-    /// it left has been read, tells the consumer.
-    fn settle<C: Consumer + ?Sized>(&mut self, mut next: Next, consumer: &mut C) {
-        if self.exit.is_some() && !next.feed && !self.channel.waiting() && !self.channel.drained() {
-            // No edge may come for output already there: read it now.
-            next = next.or(self.channel.ready(true, false, consumer));
-        }
+    /// it left has been fed, tells the consumer.
+    fn settle<C: Consumer + ?Sized>(&mut self, next: Next, consumer: &mut C) {
+        let (next, told) = self.channel.settle(next, consumer);
         self.kick(next);
-        if self.channel.drained() {
+        if told {
             if let Some(status) = self.exit.take() {
                 consumer.exited(status);
             }
