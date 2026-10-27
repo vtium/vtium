@@ -65,6 +65,8 @@ A case is compared with its golden exactly, outside any mask its sidecar gives. 
 
 A departure's rectangles cover whole cells, the cells where its difference shows, so any difference inside them passes as the departure: a defect in a listed cell, such as an underline lost from the cut `中` in `edges-left`, is not seen until that cell's departure row goes or its rectangles shrink.
 
+A screen ported from one of the C reference's carries its bytes exactly: `run` reads `tests/test_pixels.c` at the pin and refuses to run when a ported screen's bytes or second part differ from the C screen it names.
+
 Each list is checked before any case runs: a pending golden the pin lacks or a screen draws, a departure whose case no screen draws or whose title the README does not list, a provisional golden no vtium screen draws, a vtium screen named as a C golden, and two screens of one name are each refused.
 
 Refused rather than judged (aaronsb/kmscon#10): a PPM that is not P6 with a maxval of 255, with a side of 0 or past 16384, or with a raster shorter or longer than its header says; a sidecar line that is not `key=value`, an unknown or repeated key, a value that is not a decimal number, a `max_delta` past 255, one limit at 0 with the other not, and a mask that is empty, inverted or reaches past the golden. A mask that hides no difference is noted in the report.

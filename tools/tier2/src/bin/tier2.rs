@@ -100,7 +100,9 @@ fn run(opts: &[(String, String)]) -> ExitCode {
         let pending = runner::pending(&read(&here.join("pending.tsv"))?)?;
         let provisional = runner::provisional(&read(&here.join("provisional.tsv"))?)?;
         let titles = runner::readme_departures(&read(&root.join("crates/vtium-render/README.md"))?);
-        let goldens = runner::extract(&kmscon, &pin, &out)?;
+        let pinned = runner::extract(&kmscon, &pin, &out)?;
+        runner::check_ported(CASES, &read(&pinned.join(runner::SCREENS))?)?;
+        let goldens = pinned.join(runner::GOLDENS);
         Ok((pin, departures, pending, provisional, titles, goldens))
     };
     let (pin, departures, pending, provisional, titles, goldens) = match lists() {

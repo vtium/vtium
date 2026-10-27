@@ -16,6 +16,7 @@ const fn case(name: &'static str, source: Source) -> Case {
     Case {
         screen: Screen::new(name, "two letters", b"ab", 2, 1),
         source,
+        ported: None,
     }
 }
 

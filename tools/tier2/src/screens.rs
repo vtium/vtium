@@ -29,6 +29,9 @@ pub enum Source {
 pub struct Case {
     pub screen: Screen,
     pub source: Source,
+    /// The C reference's screen in `tests/test_pixels.c` whose bytes this
+    /// one carries, checked against the pin on every run.
+    pub ported: Option<&'static str>,
 }
 
 /// Block elements and box drawing stacked across rows and columns
@@ -260,6 +263,7 @@ const fn edges(name: &'static str, orientation: Orientation) -> Case {
             ..Screen::new(name, EDGES_DESC, EDGES, 12, 4)
         },
         source: Source::Vtium,
+        ported: None,
     }
 }
 
@@ -274,6 +278,7 @@ pub const CASES: &[Case] = &[
             ..Screen::new("blocks", BLOCKS_DESC, BLOCKS, 48, 10)
         },
         source: Source::Kmscon,
+        ported: Some("blocks"),
     },
     // DejaVu Sans Mono at 22 pixels, its line height and 6 pixel rows more
     Case {
@@ -285,6 +290,7 @@ pub const CASES: &[Case] = &[
             ..Screen::new("blocks-spaced", BLOCKS_DESC, BLOCKS, 48, 10)
         },
         source: Source::Kmscon,
+        ported: Some("blocks-spaced"),
     },
     edges("edges", Orientation::Normal),
     edges("edges-right", Orientation::Right),
@@ -304,6 +310,7 @@ pub const CASES: &[Case] = &[
             6,
         ),
         source: Source::Vtium,
+        ported: None,
     },
     Case {
         screen: Screen::new(
@@ -317,6 +324,7 @@ pub const CASES: &[Case] = &[
             5,
         ),
         source: Source::Vtium,
+        ported: Some("vs16"),
     },
     Case {
         screen: Screen {
@@ -332,6 +340,7 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
+        ported: Some("vs16"),
     },
     Case {
         screen: Screen::new(
@@ -345,6 +354,7 @@ pub const CASES: &[Case] = &[
             10,
         ),
         source: Source::Vtium,
+        ported: Some("wide-deco"),
     },
     Case {
         screen: Screen {
@@ -363,6 +373,7 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
+        ported: Some("redraw"),
     },
     Case {
         screen: Screen {
@@ -375,6 +386,7 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
+        ported: Some("ascii"),
     },
     Case {
         screen: Screen {
@@ -387,6 +399,7 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
+        ported: Some("bold"),
     },
     Case {
         screen: Screen {
@@ -399,6 +412,7 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
+        ported: Some("palette"),
     },
     Case {
         screen: Screen {
@@ -411,6 +425,7 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
+        ported: Some("inverse"),
     },
     Case {
         screen: Screen {
@@ -423,6 +438,7 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
+        ported: Some("cjk"),
     },
     Case {
         screen: Screen {
@@ -435,6 +451,7 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
+        ported: Some("box"),
     },
     Case {
         screen: Screen {
@@ -447,6 +464,7 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
+        ported: Some("underline"),
     },
     Case {
         screen: Screen {
@@ -459,6 +477,7 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
+        ported: Some("strike"),
     },
     Case {
         screen: Screen {
@@ -472,6 +491,7 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
+        ported: Some("deco-config"),
     },
     Case {
         screen: Screen {
@@ -488,6 +508,7 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
+        ported: Some("deco-force"),
     },
     Case {
         screen: Screen {
@@ -500,6 +521,7 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
+        ported: Some("combining"),
     },
     Case {
         screen: Screen {
@@ -512,6 +534,7 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
+        ported: Some("mosaic"),
     },
     Case {
         screen: Screen {
@@ -524,5 +547,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
+        ported: Some("emoji"),
     },
 ];
