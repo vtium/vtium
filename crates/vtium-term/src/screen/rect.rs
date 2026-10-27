@@ -34,7 +34,7 @@ pub(crate) struct Rect {
 pub(crate) enum Extent {
     /// The cells from the first corner to the second in reading order,
     /// each row after the first from the screen's first column and each
-    /// before the last to its last, where a character was printed (DECSACE
+    /// before the last to its last, that hold a character (DECSACE
     /// 0 and 1).
     #[default]
     Stream,
@@ -161,6 +161,9 @@ impl Screen {
             let Some(line) = self.line_mut(y) else {
                 continue;
             };
+            // The target's clusters go before any is written, so a cluster
+            // written early does not count against one replaced later.
+            line.erase(target.left..target.right.saturating_add(1), &Style::DEFAULT);
             for (x, sx) in (target.left..=target.right).zip(source.left..) {
                 let cell = from.cell(sx);
                 let cut = match cell.width() {

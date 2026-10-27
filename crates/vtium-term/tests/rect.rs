@@ -478,3 +478,16 @@ fn a_rectangle_marks_only_its_cells() {
         }
     }
 }
+
+// DECCRA gives back the target's cluster bytes before it writes, so a
+// copy whose clusters fit the line's budget keeps them whole, even where
+// the cluster it replaces comes after the one it writes.
+// covers: ctl.rect
+#[test]
+fn a_copy_keeps_clusters_that_fit_the_line() {
+    let [a, b, c] = ["a", "b", "c"].map(|base| format!("{base}{}", "\u{301}".repeat(5)));
+    let mut t = term(4, 2, format!("{c}Z\r\nX{a}{b}Y").as_bytes());
+    assert_eq!(text(&t), [format!("{c}Z"), format!("X{a}{b}Y")]);
+    t.input(b"\x1b[1;1;1;2;1;2;1;1$v");
+    assert_eq!(text(&t)[1], format!("{c}Z{b}Y"));
+}
