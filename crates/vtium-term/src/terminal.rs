@@ -722,11 +722,11 @@ impl Consumer for State {
     fn csi_dispatch(&mut self, params: &Params, intermediates: Intermediates, final_byte: u8) {
         // Only SGR and DECCARA read sub-parameters; any other sequence
         // carrying them does nothing, as in the C reference.
-        let sgr = matches!(
+        let reads_subparams = matches!(
             (intermediates.as_bytes(), final_byte),
             (_, b'm') | ([b'$'], b'r')
         );
-        if !sgr && params.has_subparams() {
+        if !reads_subparams && params.has_subparams() {
             return;
         }
         match (params.marker(), intermediates.as_bytes(), final_byte) {

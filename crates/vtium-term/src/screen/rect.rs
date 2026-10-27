@@ -9,7 +9,7 @@
 //!
 //! A wide character the rectangle's edge cuts goes whole, as an edit's
 //! does (`edit.rs`); DECCARA and DECRARA change it whole. An operation that
-//! writes a row's last column ends the row's wrap, as EL 0 does, and one
+//! reaches a row's last column ends the row's wrap, as EL 0 does, and one
 //! that replaces the main screen's first row whole ends the scrollback's
 //! newest line's (`edit.rs`); DECCARA and DECRARA change no text and keep
 //! both.
