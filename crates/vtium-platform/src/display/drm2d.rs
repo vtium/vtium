@@ -38,8 +38,21 @@ fn errno(e: &io::Error) -> Option<Errno> {
 /// An operation that waits until no page flip is in flight.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Waiting {
-    Modeset,
+    /// A modeset, a wake-up's when `wake`.
+    Modeset { wake: bool },
     Sleep,
+}
+
+/// What a scan of the connectors is for. Only a wake-up's commits a
+/// modeset while blanked (the operator's decision on vtium/vtium#18).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Scan {
+    /// A hotplug: sets modes when anything is new.
+    Hotplug,
+    /// A retry after a hotplug or an unblank failed: sets every mode.
+    Retry,
+    /// A wake-up: sets every mode, blanked or not.
+    WakeUp,
 }
 
 /// A DRM card's displays, drawn into dumb buffers. Outside the crate the
@@ -69,6 +82,8 @@ pub struct Drm2d<K: Kms> {
     owed: bool,
     /// Wake-ups tried again so far, while retrying.
     retries: Option<usize>,
+    /// The retries are a wake-up's; else a failed hotplug's or unblank's.
+    waking: bool,
     events: Vec<Event>,
     timers: Timers,
     link: Option<Box<dyn Link>>,
@@ -108,6 +123,7 @@ impl<K: Kms> Drm2d<K> {
             blanked: false,
             owed: false,
             retries: None,
+            waking: false,
             events: Vec::new(),
             timers: Timers::default(),
             link: None,
@@ -327,15 +343,16 @@ impl<K: Kms> Drm2d<K> {
 
     /// Powers every display on after the blank, on the input that ends
     /// it: through the modeset a hotplug while blanked left owed, with
-    /// every display on, or else through each display's DPMS.
+    /// every display on, or else through each display's DPMS. A modeset
+    /// owed that fails is tried again as a failed hotplug is: the blank
+    /// stays ended, since no later input comes to `unblank`.
     pub fn unblank(&mut self) -> io::Result<()> {
         self.blanked = false;
         let done = if std::mem::take(&mut self.owed) && self.awake {
-            let set = self.request_modeset();
+            let set = self.scan(Scan::Retry);
             if set.is_err() {
-                // Nothing changed on the card: still dark, still owed.
-                self.blanked = true;
                 self.owed = true;
+                self.retry(false);
             }
             set
         } else {
@@ -470,13 +487,24 @@ impl<K: Kms> Drm2d<K> {
     /// [`crate::WAKE_RETRIES`] times.
     pub fn wake_up(&mut self) -> io::Result<()> {
         self.foreground = true;
-        let woken = self.try_wake();
-        self.retries = woken.is_err().then_some(0);
+        self.retries = None;
+        let woken = self.try_wake(Scan::WakeUp);
+        if woken.is_err() {
+            self.retry(true);
+        }
         self.settle();
         woken
     }
 
-    fn try_wake(&mut self) -> io::Result<()> {
+    /// Starts the retries, unless they run: a wake-up's when `wake`.
+    fn retry(&mut self, wake: bool) {
+        self.waking = wake || (self.waking && self.retries.is_some());
+        self.retries.get_or_insert(0);
+    }
+
+    /// Takes DRM master and sets every display up again: as a wake-up,
+    /// which reports [`Event::Awake`], or as a retry, which does not.
+    fn try_wake(&mut self, scan: Scan) -> io::Result<()> {
         if !self.master {
             self.card.set_master().inspect_err(|e| {
                 log::warn!("cannot take DRM master: {e}");
@@ -490,21 +518,34 @@ impl<K: Kms> Drm2d<K> {
             o.ages = Ages::default();
             o.redraw = true;
         }
-        if let Err(e) = self.scan(true) {
+        if let Err(e) = self.scan(scan) {
             self.release_master();
             self.awake = false;
             return Err(e);
         }
-        self.events.push(Event::Awake);
+        if scan == Scan::WakeUp {
+            self.events.push(Event::Awake);
+        }
         Ok(())
     }
 
-    /// A wake-up retry's timer fired.
+    /// A wake-up retry's timer fired. While blanked, a failed hotplug's or
+    /// unblank's retry commits nothing: it leaves the modeset owed to the
+    /// input that ends the blank.
     pub(crate) fn retry_wake(&mut self) {
         let Some(tried) = self.retries else {
             return;
         };
-        if self.try_wake().is_ok() {
+        let scan = if self.waking {
+            Scan::WakeUp
+        } else {
+            Scan::Retry
+        };
+        if self.blanked && scan == Scan::Retry {
+            log::debug!("blanked: the retried modeset waits for input");
+            self.owed = true;
+            self.retries = None;
+        } else if self.try_wake(scan).is_ok() {
             self.retries = None;
         } else if tried.saturating_add(1) >= crate::WAKE_RETRIES {
             log::error!("cannot wake the display after {tried} retries");
@@ -565,7 +606,8 @@ impl<K: Kms> Drm2d<K> {
     }
 
     /// Looks for connectors plugged in or out, as on a udev hotplug event,
-    /// and sets up what changed. A failure is retried as a wake-up is. A
+    /// and sets up what changed. A failure is retried as a wake-up is,
+    /// though a retry while blanked leaves its modeset owed to input. A
     /// wake-up that failed and ran out of retries is tried again.
     pub fn poll(&mut self) -> io::Result<()> {
         if !self.awake {
@@ -574,9 +616,9 @@ impl<K: Kms> Drm2d<K> {
             }
             return self.wake_up();
         }
-        let scanned = self.scan(false);
+        let scanned = self.scan(Scan::Hotplug);
         if scanned.is_err() && self.awake {
-            self.retries.get_or_insert(0);
+            self.retry(false);
         }
         self.settle();
         scanned
@@ -640,10 +682,15 @@ impl<K: Kms> Drm2d<K> {
             return;
         }
         match self.waiting.take() {
-            Some(Waiting::Modeset) => {
+            Some(Waiting::Modeset { wake: false }) if self.blanked => {
+                // The blank came while the modeset waited.
+                log::debug!("blanked: the modeset waits for input");
+                self.owed = true;
+            }
+            Some(Waiting::Modeset { wake }) => {
                 if let Err(e) = self.modeset() {
                     log::debug!("the modeset failed: {e}");
-                    self.retries.get_or_insert(0);
+                    self.retry(wake);
                 }
             }
             Some(Waiting::Sleep) => self.finish_sleep(),
@@ -678,9 +725,9 @@ impl<K: Kms> Drm2d<K> {
         }
     }
 
-    /// The hotplug scan: binds a display to each connected connector with
-    /// modes, lets go of those gone, and sets modes when anything is new.
-    fn scan(&mut self, force: bool) -> io::Result<()> {
+    /// The scan: binds a display to each connected connector with modes,
+    /// lets go of those gone, and sets modes as `scan` asks.
+    fn scan(&mut self, scan: Scan) -> io::Result<()> {
         if !self.awake {
             return Ok(());
         }
@@ -688,7 +735,7 @@ impl<K: Kms> Drm2d<K> {
         for o in &mut self.outputs {
             o.available = false;
         }
-        let mut needs = force;
+        let mut needs = scan != Scan::Hotplug;
         for &id in &res.connectors {
             // A connector the kernel lists can be gone by the time it is
             // read, as during a monitor's power cycle.
@@ -733,7 +780,7 @@ impl<K: Kms> Drm2d<K> {
             self.card.set_master()?;
             self.master = true;
         }
-        if needs && self.blanked && !force {
+        if needs && self.blanked && scan != Scan::WakeUp {
             // Blanked, a hotplug commits nothing: the modeset waits for the
             // input that ends the blank, and a display plugged in stays
             // dark until then (the operator's decision on vtium/vtium#18).
@@ -741,7 +788,7 @@ impl<K: Kms> Drm2d<K> {
             self.owed = true;
             Ok(())
         } else if needs {
-            self.request_modeset()
+            self.request_modeset(scan == Scan::WakeUp)
         } else {
             self.announce();
             Ok(())
@@ -899,13 +946,16 @@ impl<K: Kms> Drm2d<K> {
         }
     }
 
-    /// A modeset now, or once no flip is in flight.
-    fn request_modeset(&mut self) -> io::Result<()> {
-        if self.waiting == Some(Waiting::Sleep) {
-            return Ok(());
-        }
+    /// A modeset now, or once no flip is in flight: a wake-up's when
+    /// `wake`.
+    fn request_modeset(&mut self, wake: bool) -> io::Result<()> {
+        let wake = match self.waiting {
+            Some(Waiting::Sleep) => return Ok(()),
+            Some(Waiting::Modeset { wake: waiting }) => wake || waiting,
+            None => wake,
+        };
         if self.outputs.iter().any(|o| o.flipping) {
-            self.waiting = Some(Waiting::Modeset);
+            self.waiting = Some(Waiting::Modeset { wake });
             return Ok(());
         }
         self.modeset()

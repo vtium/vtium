@@ -93,7 +93,7 @@ const WAKE_RETRY: Bound = Bound {
 const RETRIES: Bound = Bound {
     name: "WAKE_RETRIES",
     value: 20,
-    what: "Tries to wake a DRM card after a wake-up or a hotplug scan failed",
+    what: "Tries to wake a DRM card after a wake-up, a hotplug scan or an unblank's modeset failed",
     past: "The tries stop with `Event::WakeFailed`, until the next wake-up or hotplug",
     cite: "`MAX_VT_TIMEOUT_RETRIES`, drm_shared.c:51",
 };

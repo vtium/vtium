@@ -1128,6 +1128,62 @@ fn a_display_without_dpms_keeps_the_blank() {
     assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
 }
 
+// Re-review finding 3: a hotplug's modeset deferred behind a flip in
+// flight, when the blank comes before the flip completes, commits nothing
+// and is owed to the input that ends the blank.
+#[test]
+fn a_deferred_modeset_waits_for_input_once_blanked() {
+    let mut v = a_then_b(ModePolicy::default());
+    frame(&mut v, &[DOT]).unwrap();
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    assert_eq!(v.waits(), (true, false), "the modeset waits on the flip");
+    let (mut blank, at) = blanked(&mut v);
+    let commits = v.card().state().commits.len();
+    flip(&mut v);
+    assert_eq!(v.card().state().commits.len(), commits, "nothing committed");
+    assert_eq!(v.card().state().dpms[&A], 3);
+    assert_eq!(v.waits(), (false, false));
+    v.events().for_each(drop);
+    activity(&mut v, &mut blank, at);
+    let c = v.card().last_commit().unwrap();
+    assert_ne!(c.flags & DRM_MODE_ATOMIC_ALLOW_MODESET, 0);
+    assert_eq!(
+        (c.get(100, "ACTIVE"), c.get(101, "ACTIVE")),
+        (Some(1), Some(1))
+    );
+    assert_eq!(v.card().state().dpms[&A], 0);
+}
+
+// Re-review finding 3: the retries of a hotplug that failed commit nothing
+// once blanked; the modeset is owed to the input that ends the blank.
+#[test]
+fn a_hotplug_retry_waits_for_input_once_blanked() {
+    let mut v = a_then_b(ModePolicy::default());
+    v.card().state().listed.push(B);
+    v.card().state().commit_errors.extend([Errno::INVAL; 4]);
+    assert!(v.poll().is_err());
+    assert_eq!(v.waits(), (false, true), "the retries");
+    let (mut blank, at) = blanked(&mut v);
+    v.events().for_each(drop);
+    let commits = v.card().state().commits.len();
+    v.retry_wake();
+    assert_eq!(v.card().state().commits.len(), commits, "nothing committed");
+    assert_eq!(v.waits(), (false, false));
+    assert!(events(&mut v).is_empty());
+    assert_eq!(v.card().state().dpms[&A], 3);
+    activity(&mut v, &mut blank, at);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(
+        (c.get(100, "ACTIVE"), c.get(101, "ACTIVE")),
+        (Some(1), Some(1))
+    );
+    assert_eq!(
+        events(&mut v),
+        [Event::Redraw(DisplayId(A)), Event::Added(DisplayId(B))]
+    );
+}
+
 // Re-review finding 2: the flip of the modeset the input ending the blank
 // runs is bounded, as every flip in flight is.
 #[test]
@@ -1145,6 +1201,31 @@ fn the_flip_of_the_modeset_owed_is_bounded() {
         app.0.events().any(|e| e == Event::Flipped(DisplayId(A)))
     });
     assert!(took.as_millis() >= 900, "flipped after {took:?}");
+}
+
+// Re-review finding 1: where the modeset the input ending the blank runs
+// fails, it is tried again as a failed hotplug is, and the displays come
+// on; the blank, which the input ended, stays ended.
+#[test]
+fn a_failed_modeset_owed_is_tried_again() {
+    let (mut lp, mut app) = in_loop(a_then_b(ModePolicy::default()));
+    let (mut blank, at) = blanked(&mut app.0);
+    app.0.events().for_each(drop);
+    app.0.card().state().listed.push(B);
+    app.0.poll().unwrap();
+    app.0.card().state().commit_errors.extend([Errno::INVAL; 4]);
+    assert!(blank.input(at));
+    assert!(app.0.unblank().is_err());
+    assert_eq!(app.0.card().state().dpms[&A], 3);
+    let mut seen = Vec::new();
+    turn_until(&mut lp, &mut app, |app| {
+        seen.extend(app.0.events());
+        seen.contains(&Event::Added(DisplayId(B)))
+    });
+    assert_eq!(app.0.card().state().dpms[&A], 0);
+    assert_eq!(app.0.dpms(DisplayId(A)), Some(Dpms::On));
+    assert!(!seen.contains(&Event::Awake), "no wake-up: {seen:?}");
+    assert_eq!(app.0.waits(), (false, false));
 }
 
 // Input while blanked with no modeset owed powers the displays on through
