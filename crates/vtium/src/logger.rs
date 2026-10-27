@@ -41,3 +41,29 @@ pub fn init(level: Level) {
         log::set_max_level(level.to_level_filter());
     }
 }
+
+/// The build's revision: `git describe` as `make minspec` passes it in
+/// `VTIUM_REVISION`, or else the package version.
+pub const REVISION: &str = match option_env!("VTIUM_REVISION") {
+    Some(r) => r,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
+/// The line the log opens with, `log: vtium Revision REV` under the
+/// target `log`, which tier 3 reads to know the console that ran.
+pub fn revision() -> String {
+    format!("vtium Revision {REVISION}")
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_revision_line_is_three_words() {
+        let line = super::revision();
+        let mut words = line.split_whitespace();
+        assert_eq!(words.next(), Some("vtium"));
+        assert_eq!(words.next(), Some("Revision"));
+        assert!(words.next().is_some(), "{line}");
+        assert_eq!(words.next(), None, "{line}");
+    }
+}

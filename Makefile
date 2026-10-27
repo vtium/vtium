@@ -27,7 +27,7 @@ help: ## Show this help
 
 .PHONY: minspec
 minspec: ## Build the minspec binary, target/minspec/vtium
-	cargo build --profile minspec -p vtium
+	VTIUM_REVISION=$(shell git describe --always --dirty 2>/dev/null) cargo build --profile minspec -p vtium
 
 # Tier 1 against the C reference's goldens and probes, at the commits
 # tools/conformance/pin.tsv names, read from checkouts beside this one.
