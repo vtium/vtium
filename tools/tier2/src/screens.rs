@@ -60,17 +60,18 @@ const EDGES: &[u8] = concat!(
     "\x1b[4;9m0123456\x1b[0m\r\n",
     "\x1b[3;1H\x1b[30;43mlast\x1b[0m",
     "\x1b[1;11H\x1b[4m中\x1b[0m",
-    "\x1b[2;11H\x1b[7m語\x1b[0m",
+    "\x1b[3;11H\x1b[7m語\x1b[0m",
     "\x1b[4;8H\x1b[45m    \x1b[0m",
 )
 .as_bytes();
 
 const EDGES_DESC: &str = "A grid of 12 by 4 cells on a display that holds 11 and a half \
 columns and 4 rows and 3 pixel rows: text and coloured cells reach the last whole column and \
-row, and two wide characters, one underlined and one in reverse, start in the last whole \
-column. Correct: the 5 pixel columns at the right and the 3 pixel rows at the bottom in the \
-default background; each wide character's left half, with its underline or reverse, in the \
-last whole column, cut at the margin.";
+row, and two wide characters start in the last whole column, an underlined one in the first \
+row and a reversed one in the third, with a cell of the default background between them. \
+Correct: the grid centred, with the 5 spare pixel columns and 3 spare pixel rows around it in \
+the default background; each wide character's left half, with its underline or reverse, in \
+the last whole column, cut at the margin";
 
 /// The C reference's `vs16` screen.
 const VS16: &[u8] = concat!(
