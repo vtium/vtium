@@ -8,6 +8,16 @@
 //!
 //! A wide character an edit cuts goes whole, on either side of the cut.
 //!
+//! An edit that clears a row's last column ends the row's wrap: its text no
+//! longer continues on the next row. EL 0, EL 2, ECH and DCH end the
+//! cursor's row's, as does ED on the cursor's row from the cursor; ED ends
+//! the wrap of each row it clears whole, and DECSED, which may leave a
+//! protected cell, ends none but the cursor's row's. This is xterm's rule
+//! (`ClearRight`, `ScrnDeleteChar`, `ClearBufRows`), with EL 2 as Ghostty's
+//! `eraseLine` has it, since xterm keeps the wrap of a row EL 2 clears.
+//! IL, DL and scrolling move lines with their flags and bring in unflagged
+//! ones.
+//!
 //! [`Line::erase`]: crate::Line::erase
 //! [`Line::insert_cells`]: crate::Line::insert_cells
 //! [`Line::delete_cells`]: crate::Line::delete_cells
@@ -17,6 +27,7 @@ use core::ops::Range;
 
 use super::Screen;
 use crate::cell::Width;
+use crate::line::LineFlags;
 use crate::style::{Attrs, Style};
 
 /// Which cells of a region an erase clears.
@@ -104,6 +115,23 @@ impl Screen {
         }
     }
 
+    /// Ends the wrap of each row of `rows`: their text no longer continues
+    /// on the next row.
+    fn unwrap_rows(&mut self, rows: Range<usize>) {
+        for y in rows {
+            if let Some(line) = self.line_mut(y) {
+                line.flags_mut().remove(LineFlags::WRAPPED);
+            }
+        }
+    }
+
+    /// Ends the wrap of the rows an erase of `which` clears whole.
+    fn unwrap_cleared_rows(&mut self, rows: Range<usize>, which: Erase) {
+        if which == Erase::All {
+            self.unwrap_rows(rows);
+        }
+    }
+
     /// The cursor's column for an erase: a pending wrap erases the last
     /// column.
     fn erase_column(&self) -> usize {
@@ -116,8 +144,9 @@ impl Screen {
             return;
         }
         let x = self.erase_column();
-        let end = x.saturating_add(n).saturating_sub(1);
-        self.erase_region((x, self.cursor_y), (end, self.cursor_y), Erase::All);
+        let (y, end) = (self.cursor_y, x.saturating_add(n).saturating_sub(1));
+        self.erase_region((x, y), (end, y), Erase::All);
+        self.unwrap_rows(y..y.saturating_add(1));
     }
 
     /// EL 0: from the cursor to the end of its line.
@@ -125,6 +154,7 @@ impl Screen {
         let y = self.cursor_y;
         let x = self.erase_column();
         self.erase_region((x, y), (self.cols, y), which);
+        self.unwrap_rows(y..y.saturating_add(1));
     }
 
     /// EL 1: from the start of the cursor's line to the cursor.
@@ -137,22 +167,27 @@ impl Screen {
     pub fn erase_line(&mut self, which: Erase) {
         let y = self.cursor_y;
         self.erase_region((0, y), (self.cols, y), which);
+        self.unwrap_rows(y..y.saturating_add(1));
     }
 
     /// ED 1: from the top of the screen to the cursor.
     pub fn erase_above(&mut self, which: Erase) {
         self.erase_region((0, 0), (self.cursor_x, self.cursor_y), which);
+        self.unwrap_cleared_rows(0..self.cursor_y, which);
     }
 
     /// ED 0: from the cursor to the end of the screen.
     pub fn erase_below(&mut self, which: Erase) {
-        let x = self.erase_column();
-        self.erase_region((x, self.cursor_y), (self.cols, self.rows), which);
+        let (x, y) = (self.erase_column(), self.cursor_y);
+        self.erase_region((x, y), (self.cols, self.rows), which);
+        self.unwrap_rows(y..y.saturating_add(1));
+        self.unwrap_cleared_rows(y.saturating_add(1)..self.rows, which);
     }
 
     /// ED 2: the whole screen.
     pub fn erase_screen(&mut self, which: Erase) {
         self.erase_region((0, 0), (self.cols, self.rows), which);
+        self.unwrap_cleared_rows(0..self.rows, which);
     }
 
     /// ICH: `n` blank cells at the cursor, the rest of the line moving
@@ -198,6 +233,7 @@ impl Screen {
         if let Some(line) = self.line_mut(y) {
             line.delete_cells(x, n, cols, &blank);
         }
+        self.unwrap_rows(y..y.saturating_add(1));
         self.mark_cells(y, x..cols);
     }
 

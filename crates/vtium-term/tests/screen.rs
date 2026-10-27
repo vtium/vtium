@@ -618,3 +618,48 @@ fn a_wrapped_line_is_flagged() {
     assert!(flags(0).contains(vtium_term::LineFlags::WRAPPED));
     assert!(!flags(1).contains(vtium_term::LineFlags::WRAPPED));
 }
+
+// An edit that clears a row's last column ends its wrap, as xterm's
+// `ClearRight` (EL 0, ECH, the cursor's row under ED 0), `ScrnDeleteChar`
+// (DCH) and `ClearBufRows` (the rows ED clears whole) do, and EL 2 as
+// Ghostty's `eraseLine` does: xterm keeps the flag there, but the erased
+// row's text no longer continues. EL 1, ICH, the cursor's row under ED 1,
+// and the rows DECSED clears whole, where a protected cell may stay, keep
+// it. IL, DL and a scroll move lines with their flags and bring in
+// unflagged ones.
+#[test]
+fn an_edit_that_clears_the_last_column_ends_the_wrap() {
+    let wrapped = |t: &Terminal, row| {
+        let line = t.screen().line(row).unwrap();
+        line.flags().contains(vtium_term::LineFlags::WRAPPED)
+    };
+    let cases: [(&[u8], [bool; 3]); 15] = [
+        (b"", [true, true, false]),
+        (b"\x1b[1;3H\x1b[K", [false, true, false]),
+        (b"\x1b[1;3H\x1b[2K", [false, true, false]),
+        (b"\x1b[1;1H\x1b[X", [false, true, false]),
+        (b"\x1b[1;1H\x1b[P", [false, true, false]),
+        (b"\x1b[1;3H\x1b[J", [false, false, false]),
+        (b"\x1b[2;1H\x1b[1J", [false, true, false]),
+        (b"\x1b[2J", [false, false, false]),
+        (b"\x1b[1;3H\x1b[1K", [true, true, false]),
+        (b"\x1b[1;1H\x1b[@", [true, true, false]),
+        (b"\x1b[1;1H\x1b[1J", [true, true, false]),
+        (b"\x1b[3;1H\x1b[?1J", [true, true, false]),
+        (b"\x1b[1;1H\x1b[L", [false, true, true]),
+        (b"\x1b[1;1H\x1b[M", [true, false, false]),
+        (b"\x1b[S", [true, false, false]),
+    ];
+    for (bytes, flags) in cases {
+        let mut t = term(4, 3, b"abcdefghij");
+        t.input(bytes);
+        let got = [wrapped(&t, 0), wrapped(&t, 1), wrapped(&t, 2)];
+        assert_eq!(got, flags, "{bytes:?}");
+    }
+    // A scroll takes the flag into the scrollback.
+    let mut t = Terminal::new(4, 2, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"abcdefgh\r\n");
+    let line = t.screen().scrollback().next().unwrap();
+    assert!(line.flags().contains(vtium_term::LineFlags::WRAPPED));
+}
