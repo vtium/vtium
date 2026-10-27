@@ -11,7 +11,7 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/child.rs` | The session's command and environment |
 | `src/respawn.rs` | Whether the session's command starts again |
 | `src/wait.rs` | The start's wait for a display |
-| `src/blink.rs`, `src/font.rs`, `src/pointer.rs` | The blink timers; the font's fallback, size, sprite policy and missing glyph; the pointer guard |
+| `src/blink.rs`, `src/font.rs`, `src/pointer.rs` | The blink timers; the font's fallback, size, sprite policy and missing glyph; who draws the pointer, the display's cursor plane or the renderer |
 | `src/sync.rs` | When the terminal presents: the mode 2026 hold and coalescing without it |
 | `src/grab.rs` | The terminal's grabs, third in the key order |
 | `src/layout.rs` | The grid and each display's font height with several displays, and the zoom and rotation steps |
@@ -72,13 +72,13 @@ Each was the C reference's behaviour at kmscon `b1f7a7c5`.
 - **The font fallback is tried once,** then the error is returned; the C reference retried for as long as the lookup failed (aaronsb/kmscon#63).
 - **`KMS_START_SCRIPT` is not set.** The C reference set it to `kmscon-launch-gui` on a DRM display (`src/misc/pty.c:286-291`), a script vtium does not install; the operator's decision on vtium/vtium#21.
 - **With no display by `display-wait` after the start, vtium exits with status 1** (see "No display"); the C reference kept running with no display, as vtium does under `display-wait=forever`.
-- **A failed renderer set leaves the pointer drawn in software,** and the next successful set gives it back to the hardware cursor; the C reference drew it nowhere (aaronsb/kmscon#211).
+- **A failed renderer set keeps the display's renderer, and the pointer on its cursor plane;** the C reference set the hardware cursor up from the failed set's text, which had no font, and drew the pointer nowhere (aaronsb/kmscon#211).
 
 - **A child's exit closes its pty after the output it left is read** (vtium-platform's departure), and the next child starts from a hard reset (RIS).
 
 ## Not yet built
 
-Each is the C reference's and waits for its own change: drawing through the GPU, which `hwaccel` asks for and which warns at start (vtium draws in software), the `multi-monitor` key's `clone` and `largest` (vtium lays several displays out as `scaled`, the operator's choice on vtium/vtium#21), the hardware cursor (the pointer is drawn in software), selection and copy with the pointer, pasting a selection (OSC 52's is taken and the last one held, at most vtium-term's `CLIPBOARD_MAX`, for that paste; `no-clipboard-write` drops it, and the console has no system clipboard to hand it to), the render timer's on-screen display, outline fonts (`font-engine=freetype` and `pango` draw with unifont), the named palettes but `legacy` and `custom` (vtium-term holds no other yet), and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs, the decoration colours and the rest.
+Each is the C reference's and waits for its own change: drawing through the GPU, which `hwaccel` asks for and which warns at start (vtium draws in software), the `multi-monitor` key's `clone` and `largest` (vtium lays several displays out as `scaled`, the operator's choice on vtium/vtium#21), selection and copy with the pointer, pasting a selection (OSC 52's is taken and the last one held, at most vtium-term's `CLIPBOARD_MAX`, for that paste; `no-clipboard-write` drops it, and the console has no system clipboard to hand it to), the render timer's on-screen display, outline fonts (`font-engine=freetype` and `pango` draw with unifont), the named palettes but `legacy` and `custom` (vtium-term holds no other yet), and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs, the decoration colours and the rest.
 
 ## Left to tier 3
 

@@ -13,6 +13,7 @@ use vtium_render::{Config as RenderConfig, DrawState, Mapped, RenderTimer, Rende
 use vtium_term::{Age, Terminal};
 
 use crate::blink::Blink;
+use crate::pointer::Pointer;
 use crate::sync::{Action, Coalesce, Sync, Wait};
 use crate::video::Video;
 
@@ -110,6 +111,8 @@ pub struct View {
     /// The height the display's font was asked for.
     pub height: u32,
     pub orientation: vtium_render::Orientation,
+    /// Who draws the pointer: the display's cursor plane or the renderer.
+    pub pointer: Pointer,
 }
 
 impl View {
@@ -137,6 +140,7 @@ impl View {
                 .filter(|&m| m > 0)
                 .and_then(|m| 1_000_000_000_000_u64.checked_div(u64::from(m)))
                 .map(std::time::Duration::from_nanos),
+            pointer: Pointer::default(),
         }
     }
 
@@ -148,11 +152,14 @@ impl View {
         self.orientation = config.orientation;
         self.since = Age::NEVER;
         self.lost = true;
+        self.pointer.reset();
     }
 
     /// Draws `term` into `video`'s canvas and presents it, unless a hold
-    /// keeps the last frame or a flip is in flight. Returns whether a
-    /// frame was queued.
+    /// keeps the last frame or a flip is in flight. The pointer goes on
+    /// the display's cursor plane where it has one, and a frame that drew
+    /// nothing is still presented when the plane changed. Returns whether
+    /// a frame was queued.
     pub fn draw(
         &mut self,
         term: &mut Term,
@@ -169,6 +176,13 @@ impl View {
             return false;
         }
         let start = clock();
+        let tip = state.pointer;
+        let state = &DrawState {
+            pointer: self
+                .pointer
+                .before_draw(video, self.id, &self.renderer, tip),
+            ..*state
+        };
         let Some(canvas) = video.canvas(self.id) else {
             return false;
         };
@@ -195,7 +209,8 @@ impl View {
         self.pending = false;
         self.owed = false;
         self.lost = false;
-        let queued = if damage.is_empty() {
+        self.pointer.after_draw(video, self.id, &self.renderer, tip);
+        let queued = if damage.is_empty() && !video.need_commit(self.id) {
             false
         } else {
             match video.swap(self.id, &damage) {
@@ -218,5 +233,230 @@ impl View {
         let end = clock();
         term.coalesce.drawn(&mut self.wait, start, end, queued);
         queued
+    }
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    clippy::disallowed_methods,
+    clippy::indexing_slicing,
+    clippy::unwrap_used,
+    reason = "a test's sizes are small, its clock is the host's, and a test fails by panicking"
+)]
+mod tests {
+    use std::any::Any;
+    use std::io;
+    use std::time::Duration;
+
+    use vtium_font::Unifont;
+    use vtium_platform::display::{Canvas, Dpms, Event};
+    use vtium_render::Arrow;
+
+    use super::*;
+
+    const ID: DisplayId = DisplayId(1);
+    const SIZE: (u32, u32) = (36, 34);
+
+    /// A display in memory, with a cursor plane or without: what each swap
+    /// carried, and where the plane shows the pointer.
+    struct Plane {
+        has_plane: bool,
+        pixels: Vec<u8>,
+        age: u32,
+        arrow: Option<Arrow>,
+        shown: Option<(i32, i32)>,
+        /// The plane's state the last swap sent.
+        sent: Option<(i32, i32)>,
+        /// The number of damage rectangles each swap carried.
+        swaps: Vec<usize>,
+    }
+
+    impl Plane {
+        fn new(has_plane: bool) -> Plane {
+            Plane {
+                has_plane,
+                pixels: vec![0; (SIZE.0 * SIZE.1 * 4) as usize],
+                age: 0,
+                arrow: None,
+                shown: None,
+                sent: None,
+                swaps: Vec::new(),
+            }
+        }
+
+        /// The pixel at `x`, `y`.
+        fn pixel(&self, x: u32, y: u32) -> u32 {
+            let i = ((y * SIZE.0 + x) * 4) as usize;
+            u32::from_ne_bytes(self.pixels[i..i + 4].try_into().unwrap())
+        }
+    }
+
+    impl Video for Plane {
+        fn backend(&self) -> &'static str {
+            "plane"
+        }
+        fn events(&mut self) -> Vec<Event> {
+            Vec::new()
+        }
+        fn displays(&self) -> Vec<DisplayId> {
+            vec![ID]
+        }
+        fn name(&self, _: DisplayId) -> String {
+            "PLANE-1".into()
+        }
+        fn size(&self, _: DisplayId) -> Option<(u32, u32)> {
+            Some(SIZE)
+        }
+        fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
+            None
+        }
+        fn canvas(&mut self, _: DisplayId) -> Option<Canvas<'_>> {
+            Some(Canvas {
+                pixels: &mut self.pixels,
+                width: SIZE.0,
+                height: SIZE.1,
+                stride: SIZE.0 * 4,
+                age: self.age,
+            })
+        }
+        fn swap(&mut self, _: DisplayId, damage: &[DisplayRect]) -> Result<Swapped, SwapError> {
+            self.swaps.push(damage.len());
+            self.sent = self.shown;
+            if damage.is_empty() {
+                return Ok(Swapped::Cursor);
+            }
+            self.age = 1;
+            Ok(Swapped::Frame)
+        }
+        fn is_flipping(&self, _: DisplayId) -> bool {
+            false
+        }
+        fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
+            Ok(())
+        }
+        fn sleep(&mut self) {}
+        fn wake_up(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn unblank(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn input(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn hotplug(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn as_any(&mut self) -> &mut dyn Any {
+            self
+        }
+        fn setup_cursor(&mut self, _: DisplayId, arrow: &Arrow) -> io::Result<()> {
+            if !self.has_plane {
+                return Err(io::ErrorKind::Unsupported.into());
+            }
+            self.arrow = Some(arrow.clone());
+            self.shown = None;
+            Ok(())
+        }
+        fn show_cursor(&mut self, _: DisplayId, at: (i32, i32)) -> io::Result<()> {
+            self.shown = Some(at);
+            Ok(())
+        }
+        fn hide_cursor(&mut self, _: DisplayId) {
+            self.shown = None;
+        }
+        fn need_commit(&self, _: DisplayId) -> bool {
+            self.shown != self.sent
+        }
+    }
+
+    /// A terminal of 4 by 2 cells and its view on a display of 36 by 34,
+    /// the grid at 2,1.
+    fn view() -> (Term, View) {
+        let clock: Clock = Rc::new(Instant::now);
+        let term = Term::new(
+            Terminal::new(4, 2, 0),
+            Sync::new(Duration::ZERO, 0),
+            Blink::new(false),
+            clock,
+        );
+        let face: Box<dyn Face> = Box::new(Unifont::new(16));
+        let view = View::new(
+            ID,
+            Font::new(face),
+            SIZE,
+            None,
+            RenderConfig::default(),
+            false,
+        );
+        (term, view)
+    }
+
+    fn draw(term: &mut Term, view: &mut View, video: &mut Plane, pointer: Option<(u32, u32)>) {
+        let state = DrawState {
+            pointer,
+            ..DrawState::default()
+        };
+        view.draw(term, video, &state, &Instant::now);
+    }
+
+    /// Whether the display shows anything but black.
+    fn lit(video: &Plane) -> bool {
+        (0..SIZE.1).any(|y| (0..SIZE.0).any(|x| video.pixel(x, y) != 0))
+    }
+
+    // The pointer on a display's cursor plane (vtium/vtium#92): the plane
+    // takes the renderer's arrow, and moving or hiding the pointer draws
+    // nothing and swaps the plane's change alone.
+    #[test]
+    fn a_cursor_plane_shows_the_pointer_and_nothing_is_drawn() {
+        let (mut term, mut view) = view();
+        let mut video = Plane::new(true);
+        draw(&mut term, &mut view, &mut video, Some((5, 6)));
+        assert_eq!(video.arrow.as_ref(), Some(view.renderer.arrow()));
+        assert_eq!(video.sent, Some((7, 7)), "the first frame carries it");
+        assert!(!lit(&video), "the frame draws no arrow");
+        draw(&mut term, &mut view, &mut video, Some((9, 9)));
+        assert_eq!(video.sent, Some((11, 10)));
+        assert_eq!(video.swaps, [1, 0], "the move swaps the plane alone");
+        draw(&mut term, &mut view, &mut video, Some((9, 9)));
+        assert_eq!(video.swaps, [1, 0], "nothing changed, nothing swapped");
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(video.sent, None);
+        assert_eq!(video.swaps, [1, 0, 0]);
+    }
+
+    // A new renderer, as a zoom or a rotation makes, gives the plane its
+    // arrow at the next draw.
+    #[test]
+    fn a_new_renderer_gives_the_plane_its_arrow() {
+        let (mut term, mut view) = view();
+        let mut video = Plane::new(true);
+        draw(&mut term, &mut view, &mut video, Some((5, 6)));
+        let config = RenderConfig {
+            orientation: vtium_render::Orientation::Right,
+            ..RenderConfig::default()
+        };
+        let face: Box<dyn Face> = Box::new(Unifont::new(16));
+        view.rebuild(Font::new(face), 16, config);
+        draw(&mut term, &mut view, &mut video, Some((5, 6)));
+        let turned = Arrow::new(16, vtium_render::Orientation::Right);
+        assert_eq!(video.arrow, Some(turned));
+        // turned right, the grid's pixel 5,6 lands at 2 + 32 - 1 - 6, 1 + 5
+        assert_eq!(video.sent, Some((27, 6)));
+    }
+
+    // A display without a cursor plane has the renderer draw the arrow.
+    #[test]
+    fn without_a_cursor_plane_the_arrow_is_drawn() {
+        let (mut term, mut view) = view();
+        let mut video = Plane::new(false);
+        draw(&mut term, &mut view, &mut video, Some((5, 6)));
+        assert_eq!(video.arrow, None);
+        assert!(lit(&video), "the frame draws the arrow");
+        // its tip's fill, one pixel below the hotspot at 7,7
+        assert_eq!(video.pixel(7, 8) & 0xff_ff_ff, 0xff_ff_ff);
+        assert_eq!(video.swaps, [1]);
     }
 }
