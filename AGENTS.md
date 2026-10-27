@@ -76,7 +76,7 @@ The VT review runs one build at a time, from one place, so no stray builds float
 - The maintainer switches to that VT (Ctrl-Alt-F<n>), follows each step of the guide and answers y, n or skip, with a note. Sudo asks for its password in the terminal the run started from.
 - When the run ends, the console comes back on that VT and the steering session reads the answers from the log.
 
-A delegated agent proves its branch through the gates and tiers 1 to 3 in its worktree, and stops there. On this machine, which is the maintainer's live desktop, an agent opens no `/dev/dri` device, takes no DRM master, switches no VT, opens no `/dev/tty<N>` console and runs no sudo. Its own ptys and the tier 3 VM are fine.
+A delegated agent proves its branch through the gates and tiers 1 to 3 in its worktree, and stops there. On this machine, which is the maintainer's live desktop, an agent takes no DRM master, sets no mode, switches no VT, opens no `/dev/tty<N>` console and runs no sudo. Creating GL contexts on a render node and allocating and mapping dumb buffers without a modeset are fine, as are its own ptys and the tier 3 VM.
 
 ## The working loop
 
