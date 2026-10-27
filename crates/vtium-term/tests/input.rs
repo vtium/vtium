@@ -184,6 +184,23 @@ fn no_key_sends_fixterms_csi_u() {
     }
 }
 
+// A typed character is sent in the input's encoding: its byte in 8-bit
+// input to U+00FF and in 7-bit input to U+007F, and `?` past that.
+// covers: input.legacy
+#[test]
+fn a_typed_character_is_sent_in_the_inputs_encoding() {
+    for (decscl, e_acute, euro) in [
+        (&b""[..], "\u{e9}".as_bytes(), "\u{20ac}".as_bytes()),
+        (b"\x1b[62\"p", b"\xe9", b"?"),
+        (b"\x1b[61\"p", b"?", b"?"),
+    ] {
+        let mut t = term(8, 2, decscl);
+        let none = Mods::empty();
+        assert_eq!(char_key(&mut t, '\u{e9}', none), e_acute, "{decscl:?}");
+        assert_eq!(char_key(&mut t, '\u{20ac}', none), euro, "{decscl:?}");
+    }
+}
+
 // xterm's paste filtering, with allowPasteControls false, turns ESC and the
 // C1 controls in every paste into a space, so no form of the end marker
 // reaches the program inside a bracketed paste (ADR-1000).
