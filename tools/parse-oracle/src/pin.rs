@@ -115,7 +115,8 @@ pub fn source(libtsm: &Path, clone: &Path, pin: &Pin) -> Result<PathBuf, String>
             "--filter=blob:none",
             &pin.url,
             &pin.commit,
-        ])?;
+        ])
+        .map_err(|e| format!("{} has no commit {}\n  {e}", pin.url, pin.commit))?;
     }
     if !has_commit(clone, &pin.commit) {
         return Err(format!("{} has no commit {}", pin.url, pin.commit));

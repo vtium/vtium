@@ -11,7 +11,12 @@
 //! parse-oracle selftest  shows the run turns red for every plant
 //! parse-oracle replay F  the differential over a saved script
 //! ```
+//!
+//! Only `c_side`, the FFI with the C reference, holds unsafe code.
 
+#![deny(unsafe_code)]
+
+#[allow(unsafe_code, reason = "the FFI with the C reference")]
 mod c_side;
 mod departures;
 mod generate;
@@ -148,12 +153,23 @@ fn departs(expected: &[Departure], without: &[Departure]) -> Departs {
         .fold(Departs::default(), |all, &d| all.with(d))
 }
 
+/// A trace line cut to a readable width; the saved script has it whole.
+fn shorten(line: &str) -> String {
+    const WIDTH: usize = 120;
+    match line.get(..WIDTH) {
+        Some(head) if line.len() > WIDTH => {
+            format!("{head}... ({} more bytes)", line.len() - WIDTH)
+        }
+        _ => line.to_string(),
+    }
+}
+
 fn report_difference(d: &Difference, save: &Path) {
     println!("DIFFERENCE in {}, at trace line {}", d.label, d.line + 1);
     println!("  C reference:");
-    d.c.iter().for_each(|l| println!("    {l}"));
+    d.c.iter().for_each(|l| println!("    {}", shorten(l)));
     println!("  vtium-parse:");
-    d.rust.iter().for_each(|l| println!("    {l}"));
+    d.rust.iter().for_each(|l| println!("    {}", shorten(l)));
     println!(
         "  the stream's script: {} (parse-oracle replay replays it)",
         save.display()
