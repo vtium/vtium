@@ -1,5 +1,7 @@
 //! A key's value from its text, checked against the key's bound.
 
+use std::ffi::OsString;
+
 use super::keys::{self, Key, Kind, TEXT_MAX};
 use super::{ModeSpec, Origin, Problem, Reports, Value};
 
@@ -9,9 +11,7 @@ pub(super) fn default(key: &Key) -> Option<Value> {
         keys::Default::Switch(b) => Some(Value::Switch(b)),
         keys::Default::Number(n) => Some(Value::Number(n)),
         keys::Default::Text(t) => Some(Value::Text(t.to_owned())),
-        keys::Default::Command(c) => {
-            Some(Value::Command(c.iter().map(|w| (*w).to_owned()).collect()))
-        }
+        keys::Default::Command(c) => Some(Value::Command(c.iter().map(OsString::from).collect())),
         keys::Default::Rgb(c) => Some(Value::Rgb(c)),
         keys::Default::Unset => None,
     }
@@ -97,7 +97,9 @@ pub(super) fn parse(
                 return None;
             }
             match split_command(text) {
-                Ok(words) => Some(Value::Command(words)),
+                Ok(words) => Some(Value::Command(
+                    words.into_iter().map(OsString::from).collect(),
+                )),
                 Err(why) => {
                     reports.push(origin.clone(), Problem::BadCommand { key: key.name, why });
                     None

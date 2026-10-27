@@ -3,13 +3,9 @@
 //! display, input device or tty, and reads only the configuration files,
 //! so it runs unprivileged (the operator's decision on vtium/vtium#21).
 
-use std::ffi::OsString;
-use std::io;
-use std::path::Path;
+use crate::config::{Config, Loaded, keys};
 
-use crate::config::{self, Config, Loaded, keys};
-
-/// The subcommand's name, the first argument.
+/// The subcommand's name, which stands among the options.
 pub const SUBCOMMAND: &str = "check-config";
 
 /// The subcommand's help.
@@ -46,31 +42,37 @@ pub fn warnings(loaded: &Loaded) -> Vec<String> {
     out
 }
 
-/// Runs the subcommand on `args` (after its name) with `read` for the
-/// files: the lines to print and the exit status.
-pub fn run(
-    args: &[OsString],
-    read: &mut dyn FnMut(&Path) -> io::Result<Option<Vec<u8>>>,
-) -> (Vec<String>, i32) {
-    let loaded = config::load(args, Some("seat0"), read);
+/// The subcommand on the configuration `loaded`, which the command line
+/// named it in: the lines to print and the exit status.
+pub fn run(loaded: &Loaded) -> (Vec<String>, i32) {
     if loaded.config.switch(&keys::HELP) {
         return (vec![HELP.trim_end().to_owned()], 0);
     }
-    let lines = warnings(&loaded);
+    let lines = warnings(loaded);
     let status = i32::from(!lines.is_empty());
     (lines, status)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
+    use std::path::Path;
+
     use super::*;
+    use crate::config;
 
     fn run_with(args: &[&str], conf: &str) -> (Vec<String>, i32) {
-        let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+        let args: Vec<OsString> = [SUBCOMMAND]
+            .iter()
+            .chain(args)
+            .map(OsString::from)
+            .collect();
         let conf = conf.as_bytes().to_vec();
-        run(&args, &mut |p: &Path| {
+        let loaded = config::load(&args, Some("seat0"), &mut |p: &Path| {
             Ok((p == Path::new("/etc/kmscon/kmscon.conf")).then(|| conf.clone()))
-        })
+        });
+        assert!(loaded.check);
+        run(&loaded)
     }
 
     #[test]
@@ -86,7 +88,7 @@ mod tests {
         assert_eq!(
             lines,
             [
-                "argument 1: unknown key \"--bogus\", ignored",
+                "argument 2: unknown key \"--bogus\", ignored",
                 "/etc/kmscon/kmscon.conf:1: sb-size=\"200000\" is out of bounds, 100000 used",
                 "/etc/kmscon/kmscon.conf:2: unknown key \"frob\", ignored",
             ]

@@ -13,6 +13,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::process::Command;
 
 use crate::config::Config;
@@ -70,17 +71,20 @@ pub fn child(
     };
     set("TERM_SESSION_TYPE", session_type);
 
-    let words: Vec<String> = match config.command(&LOGIN) {
+    let words: Vec<OsString> = match config.command(&LOGIN) {
         Some(words) => words.to_vec(),
         None if reset => vec!["/bin/login".into(), "-p".into()],
         None => vec!["/bin/login".into()],
     };
     let argv = words
         .iter()
-        .map(|w| match w.strip_prefix('$') {
-            Some(escaped) if escaped.starts_with('$') => OsString::from(escaped),
-            Some(name) => env.get(OsStr::new(name)).cloned().unwrap_or_default(),
-            None => OsString::from(w),
+        .map(|w| match w.as_bytes().strip_prefix(b"$") {
+            Some(escaped) if escaped.starts_with(b"$") => OsString::from_vec(escaped.to_vec()),
+            Some(name) => env
+                .get(OsStr::from_bytes(name))
+                .cloned()
+                .unwrap_or_default(),
+            None => w.clone(),
         })
         .collect();
     Child { argv, env }

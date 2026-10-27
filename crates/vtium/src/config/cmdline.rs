@@ -1,18 +1,32 @@
 //! The command line: `--key=value` or `--key value`, `--switch` and
 //! `--no-switch`, the one-letter forms (`-c DIR`, `-cDIR`), and
 //! `--login -- COMMAND...`, whose words after `--` are the session's
-//! command. Each name is matched whole.
+//! command, and the subcommand `check-config` wherever it stands among
+//! the options. Each name is matched whole.
 
 use std::ffi::OsString;
 
 use super::keys::{self, Kind};
 use super::{Assignment, Origin, Problem, Reports, Value, value};
+use crate::check::SUBCOMMAND;
+
+/// What the command line gives.
+pub(super) struct Parsed {
+    /// The values, in order.
+    pub(super) assignments: Vec<Assignment>,
+    /// The subcommand `check-config` stands among the options.
+    pub(super) check: bool,
+}
 
 /// The values `args` gives, in order, with what they could not give
-/// reported.
-pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Vec<Assignment> {
+/// reported. A word that is no option is the subcommand when it is
+/// [`SUBCOMMAND`], wherever it stands before `--`.
+pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Parsed {
     let mut out = Vec::new();
+    let mut check = false;
     let mut login = false;
+    // `--login`'s command is the words after `--`.
+    let mut dashes = false;
     let mut words = args
         .iter()
         .enumerate()
@@ -24,12 +38,13 @@ pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Vec<Assignment>
             continue;
         };
         if word == "--" {
-            let rest = words
-                .by_ref()
-                .map(|(_, w)| w.to_string_lossy().into_owned())
-                .collect::<Vec<_>>();
+            dashes = true;
+            // The words are passed as given, bytes that are not UTF-8
+            // included, as the C reference passed them.
+            let rest = words.by_ref().map(|(_, w)| w.clone()).collect::<Vec<_>>();
             if !login {
                 for w in rest {
+                    let w = w.to_string_lossy().into_owned();
                     reports.push(origin.clone(), Problem::StrayArgument(w));
                 }
             } else if rest.is_empty() {
@@ -72,6 +87,9 @@ pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Vec<Assignment>
                     continue;
                 }
             }
+        } else if word == SUBCOMMAND {
+            check = true;
+            continue;
         } else {
             reports.push(origin, Problem::StrayArgument(word.to_owned()));
             continue;
@@ -115,5 +133,16 @@ pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Vec<Assignment>
         };
         out.push(Assignment { key, value, origin });
     }
-    out
+    if login && !dashes {
+        reports.push(
+            Origin::CommandLine {
+                arg: args.len().max(1),
+            },
+            Problem::LoginWithoutCommand,
+        );
+    }
+    Parsed {
+        assignments: out,
+        check,
+    }
 }

@@ -49,7 +49,7 @@ Each was the C reference's behaviour at kmscon `b1f7a7c5`.
 - **A value that cannot be read is reported and the rest of the file is read.** The C reference stopped reading the file at a value its parser refused, such as `render-timer=fast` (`src/misc/conf.c:486-490, 504-512`), and read numbers with `atoi`, so `font-size=12px` was 12, `sb-size=abc` 0 and `sb-size=-1` 4294967295. vtium takes digits only, clamps a number to its key's bound, and reports both.
 - **A seat's file that cannot be read is reported and skipped;** the C reference failed the seat (`src/seat.c:786-790`).
 - **Each option name is matched whole.** The C reference's `getopt_long` took any unique prefix (`--lo` for `--login`).
-- **A command-line word that is no option is reported and dropped.** The C reference's `getopt_long` moved it to the end of the arguments, into the `--login` command.
+- **A command-line word that is no option refuses the start, with `--login` too.** The C reference's `getopt_long` moved it to the end of the arguments, so with `--login` it joined the command, and without it the C reference refused to start (`src/misc/conf.c:310-313`). `check-config` is the one such word vtium takes, wherever it stands before `--`.
 - **A mode line is read whole:** a size is digits, each side 1 to 65535, and a name at most 63 bytes; anything else is reported. The C reference read it with `sscanf`, which took a leading number and ignored the rest (`src/config.c:564-617`).
 - **`no-` turns off a switch only.** The C reference read `no-font-size=12` as `font-size=12` (`src/misc/conf.c:318-341`).
 - **`configdir` is set on the command line only.** The C reference let `kmscon.conf` set the directory the seat's file was read from.

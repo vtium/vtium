@@ -148,7 +148,7 @@ fn tier3_command_lines() {
         c.command(&LOGIN),
         Some(
             &[
-                "/usr/bin/env".to_owned(),
+                OsString::from("/usr/bin/env"),
                 "DEMO_LABEL=vtium dev".into(),
                 "/bin/bash".into()
             ][..]
@@ -406,7 +406,7 @@ fn login_commands() {
         l.config.command(&LOGIN),
         Some(
             &[
-                "/bin/sh".to_owned(),
+                OsString::from("/bin/sh"),
                 "-c".into(),
                 "echo \"hi\"".into(),
                 "a b".into(),
@@ -432,7 +432,10 @@ fn login_commands() {
     let l = load_with(&["--login=/bin/sh"], None, &[]);
     assert_eq!(problems(&l), [&Problem::TakesNoValue("login")]);
     let l = load_with(&["-l", "--", "/bin/sh"], None, &[]);
-    assert_eq!(l.config.command(&LOGIN), Some(&["/bin/sh".to_owned()][..]));
+    assert_eq!(
+        l.config.command(&LOGIN),
+        Some(&[OsString::from("/bin/sh")][..])
+    );
 }
 
 #[test]
@@ -440,7 +443,7 @@ fn stray_arguments_never_reach_the_command() {
     let l = load_with(&["/bin/sh", "--login", "x", "--", "/bin/login"], None, &[]);
     assert_eq!(
         l.config.command(&LOGIN),
-        Some(&["/bin/login".to_owned()][..])
+        Some(&[OsString::from("/bin/login")][..])
     );
     assert_eq!(
         problems(&l),
@@ -748,4 +751,74 @@ fn only_a_regular_file_is_read() {
         }]
     );
     std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn login_without_its_command_is_reported() {
+    for args in [&["--login"][..], &["--login", "--oneshot"], &["-l"]] {
+        let l = load_with(args, None, &[]);
+        assert_eq!(problems(&l), [&Problem::LoginWithoutCommand], "{args:?}");
+        assert_eq!(l.config.command(&LOGIN), None);
+    }
+}
+
+#[test]
+fn check_config_is_found_wherever_the_options_put_it() {
+    for args in [
+        &["check-config"][..],
+        &["-c", "/x", "check-config"],
+        &["check-config", "-c", "/x"],
+        &["--oneshot", "check-config", "--no-blink"],
+    ] {
+        let l = load_with(args, None, &[]);
+        assert!(l.check, "{args:?}");
+        assert_eq!(l.reports, [], "{args:?}");
+    }
+    // An option's value and the command's words are not the subcommand.
+    let l = load_with(&["-c", "check-config"], None, &[]);
+    assert!(!l.check);
+    assert_eq!(l.config.text(&CONFIGDIR), Some("check-config"));
+    let l = load_with(&["--login", "--", "check-config"], None, &[]);
+    assert!(!l.check);
+    assert_eq!(
+        l.config.command(&LOGIN),
+        Some(&[OsString::from("check-config")][..])
+    );
+}
+
+#[test]
+fn a_stray_argument_or_a_login_without_its_command_refuses_the_start() {
+    for args in [
+        &["x"][..],
+        &["--", "/bin/sh"],
+        &["--login"],
+        &["--login", "--"],
+    ] {
+        let l = load_with(args, None, &[]);
+        assert!(l.refuses_start(), "{args:?}");
+    }
+    for args in [
+        &["--frob"][..],
+        &["--sb-size=x"],
+        &["--login", "--", "/bin/sh"],
+    ] {
+        let l = load_with(args, None, &[]);
+        assert!(!l.refuses_start(), "{args:?}");
+    }
+    // A file's report never refuses the start.
+    assert!(!main_file("x\nlogin=\n").refuses_start());
+}
+
+#[test]
+fn a_command_word_that_is_not_utf8_is_passed_as_given() {
+    use std::os::unix::ffi::OsStringExt;
+    let word = OsString::from_vec(b"/bin/\xff".to_vec());
+    let args = [
+        OsString::from("--login"),
+        OsString::from("--"),
+        word.clone(),
+    ];
+    let l = load(&args, None, &mut |_: &Path| Ok(None));
+    assert_eq!(l.reports, []);
+    assert_eq!(l.config.command(&LOGIN), Some(&[word][..]));
 }

@@ -90,3 +90,20 @@ fn it_opens_nothing_but_the_configuration() {
     }
     std::fs::remove_dir_all(d).ok();
 }
+
+/// The subcommand is found after the options too: this is the check's
+/// help, not vtium's.
+#[test]
+fn check_config_after_the_options_still_checks() {
+    let d = dir("after", "");
+    let out = Command::new(env!("CARGO_BIN_EXE_vtium"))
+        .arg("-c")
+        .arg(&d)
+        .args(["check-config", "--help"])
+        .output()
+        .expect("vtium runs");
+    assert_eq!(out.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("It only checks"));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "");
+    std::fs::remove_dir_all(d).ok();
+}

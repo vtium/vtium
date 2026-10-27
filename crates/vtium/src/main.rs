@@ -51,16 +51,20 @@ fn clock() -> Clock {
 fn main() -> ExitCode {
     vtium::logger::init(log::Level::Info);
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
-    if args.first().is_some_and(|a| a == check::SUBCOMMAND) {
-        let (lines, status) = check::run(args.get(1..).unwrap_or_default(), &mut config::read_file);
+    let loaded = config::load(&args, Some("seat0"), &mut config::read_file);
+    if loaded.check {
+        let (lines, status) = check::run(&loaded);
         for line in lines {
             eprintln!("{line}");
         }
         return ExitCode::from(u8::try_from(status).unwrap_or(1));
     }
-    let loaded = config::load(&args, Some("seat0"), &mut config::read_file);
     for w in check::warnings(&loaded) {
         vtium::warn::warn(w);
+    }
+    if loaded.refuses_start() {
+        log::error!("the command line cannot start vtium; see --help");
+        return ExitCode::FAILURE;
     }
     let config = loaded.config;
     if config.switch(&keys::HELP) {

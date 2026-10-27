@@ -50,7 +50,8 @@ pub enum Value {
     Number(u64),
     /// A [`Kind::Text`] or [`Kind::Choice`] value.
     Text(String),
-    Command(Vec<String>),
+    /// A command's words, passed to it as given.
+    Command(Vec<OsString>),
     Rgb([u8; 3]),
     Modes(Vec<ModeSpec>),
 }
@@ -374,7 +375,7 @@ impl Config {
     }
 
     /// A command key's words, if set.
-    pub fn command(&self, key: &Key) -> Option<&[String]> {
+    pub fn command(&self, key: &Key) -> Option<&[OsString]> {
         match self.get(key) {
             Some(Value::Command(c)) => Some(c),
             _ => None,
@@ -408,6 +409,23 @@ impl Config {
 pub struct Loaded {
     pub config: Config,
     pub reports: Vec<Report>,
+    /// The command line names the subcommand `check-config`.
+    pub check: bool,
+}
+
+impl Loaded {
+    /// The command line cannot start vtium: it holds a word that is no
+    /// option, or `--login` with no command after `--`. The C reference
+    /// refused both (`src/misc/conf.c:310-313`, `src/config.c:439-450`).
+    pub fn refuses_start(&self) -> bool {
+        self.reports.iter().any(|r| {
+            matches!(r.origin, Origin::CommandLine { .. })
+                && matches!(
+                    r.problem,
+                    Problem::StrayArgument(_) | Problem::LoginWithoutCommand
+                )
+        })
+    }
 }
 
 /// The configuration files under `dir`, the lowest precedence first: the
@@ -445,7 +463,10 @@ pub fn load(
     read: &mut dyn FnMut(&Path) -> io::Result<Option<Vec<u8>>>,
 ) -> Loaded {
     let mut reports = Reports::default();
-    let given = cmdline::parse(args, &mut reports);
+    let cmdline::Parsed {
+        assignments: given,
+        check,
+    } = cmdline::parse(args, &mut reports);
 
     let mut config = Config::default();
     if let Some(dir) = given
@@ -496,6 +517,7 @@ pub fn load(
     Loaded {
         config,
         reports: reports.finish(),
+        check,
     }
 }
 
