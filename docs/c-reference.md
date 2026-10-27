@@ -307,3 +307,167 @@ Output still unread when the child exited was lost with the closed pty (`kmscon/
 **Check:** with `reset-env` the C reference ran `/bin/login -p`, without it `/bin/login` (`kmscon/src/misc/pty.c:261-272`). The branch's README names `/bin/login` as the default. Which argv vtium uses for each setting belongs in #21.
 
 **Not planned:** the exit of the whole process after five quick restarts or under `oneshot` (`kmscon/src/terminal.c:1856-1868`) is assigned to #21 by the branch's README, and #21's body does not yet list it.
+
+## 7. Rendering
+
+Frames were drawn on demand, never on a clock: a draw was asked for by parsed output (at the end of the loop turn), a key, the 500 ms blink timer, the cursor-blink timer, the end of a coalescing wait, the end of a synchronized-output hold, a completed flip with a draw owed, the font-retry timer, or the render timer's on-screen figures (`kmscon/src/terminal.c:164`, `kmscon/src/terminal.c:571-591`, `kmscon/src/terminal.c:669-690`, `kmscon/src/terminal.c:715-774`).
+
+The render timer only measured: once a second it closed an interval of flips, CPU time per frame, damage area, glyph misses and holds, logged it or drew it on the screen, and never scheduled a frame; it was off by default (`kmscon/src/render_timer.h:26-38`, `kmscon/src/terminal.c:790-819`, `kmscon/src/terminal.c:731-734`).
+
+A draw request for a display resolved to one of four answers: draw now, draw when the flip in flight completes, owe the draw because a synchronized-output hold is in force, or nothing to do (`kmscon/src/terminal.c:461-480`, `kmscon/src/terminal_sync.c:191-196`).
+
+A frame ran in a fixed order: start the frame's measurement, resolve the decoration colours, prepare the renderer (retrying a failed font set at most once a second), draw the whole frame, draw the software pointer, present, record the frame for coalescing, and end the measurement (`kmscon/src/terminal.c:402-455`, `kmscon/src/render/text.c:698-718`, `kmscon/src/render/text.c:49-52`).
+
+The renderer pulled one whole frame from libtsm since this display's age and walked its cells itself; there were no per-cell callbacks from libtsm, the C reference having replaced its old draw interface with this frame call (`kmscon/src/render/text.c:741-768`, `kmscon/docs/architecture/render/ADR-102-cells-carry-clusters-and-unresolved-colour-glyphs-and-underlines-become-sprites.md:183-191`). <!-- adr-cite-ignore: kmscon's records -->
+
+Each display kept its own age, so one terminal shown on several displays marked each display's changes; a full redraw zeroed the age (`kmscon/src/render/text.h:101-108`, `kmscon/src/render/text.h:214-217`).
+
+bbulk, the CPU renderer, kept its own damage flags per cell for what the frame could not know (blink phases, the cursor, the pointer, a forced redraw), and assumed double buffering: a changed cell was drawn on this frame and the next, since the back buffer was two frames old (`kmscon/src/render/bbulk.c:34-41`, `kmscon/src/render/bbulk.c:119-129`, `kmscon/src/render/bbulk.c:1523-1541`, `kmscon/src/render/bbulk.c:1583-1614`).
+
+A change of default colours, decoration colours or a display's need to redraw forced two full redraws, one per buffer (`kmscon/src/render/bbulk.c:1793-1810`).
+
+Per cell, bbulk drew the background, the underline, the glyph and the strike; an undecorated cell was one alpha-mask blend straight into the mapped back buffer, and a decorated cell was composed in system memory and sent as one premultiplied ARGB blend, so device memory was never read back (`kmscon/src/render/bbulk.c:52-55`, `kmscon/src/render/bbulk.c:1413-1475`, `kmscon/src/video/drm2d_render.c:89-125`).
+
+Cells under an opaque picture with nothing over them went out as row runs, one blend per row; ADR-104 measured 1.77 ms falling to 0.77 ms at 1366x768 (`kmscon/src/render/bbulk.c:64-68`, `kmscon/docs/architecture/render/ADR-104-first-measurement-of-bbulk-image-composition-s1-to-s6-at-three-sizes.md:126`). <!-- adr-cite-ignore: kmscon's records -->
+
+Presenting merged each row's damaged cells within 3 cells of each other into rectangles, handed them to the display as damage clips, and swapped; with damage clips, a frame that drew nothing was not swapped (`kmscon/src/render/bbulk.c:116-117`, `kmscon/src/render/bbulk.c:1720-1783`, `kmscon/src/render/text.c:854-866`).
+
+A frame that drew nothing was still swapped when the display needed a commit, such as a moved hardware cursor (`kmscon/src/video/video.c:362-374`, `kmscon/src/render/text.c:859`).
+
+Because libtsm marked the whole screen on any scroll, a region scroll redrew about 99.5% of the screen in bbulk (`kmscon/docs/architecture/render/ADR-104-first-measurement-of-bbulk-image-composition-s1-to-s6-at-three-sizes.md:125`). <!-- adr-cite-ignore: kmscon's records -->
+
+gltex cleared and redrew the whole screen on every frame and always swapped, drawing in passes: pictures below backgrounds, cell backgrounds, pictures below text, text, pictures above text, and the pointer last (`kmscon/src/render/gltex.c:1372-1373`, `kmscon/src/render/gltex.c:2337-2398`, `kmscon/src/render/gltex.c:264-282`).
+
+Synchronized output (mode 2026) held a frame: while a hold was in force a draw was owed and nothing was drawn; the reset that ended the frame stopped the parser's call, and the frame presented at once or when the flip in flight completed (`kmscon/src/terminal_sync.h:26-47`, `kmscon/docs/architecture/terminal/ADR-201-one-mode-registry-in-libtsm-and-synchronized-output-mode-2026.md:85`). <!-- adr-cite-ignore: kmscon's records -->
+
+A hold expired after `sync-timeout`, 200 ms by default and at most 10 s, waiting up to 1 s more for output already read but not parsed; the terminal then ended it through libtsm, so DECRQM reported it reset; a hold whose timer could not be armed was cancelled at once (`kmscon/src/terminal_sync.h:57-63`, `kmscon/src/terminal_sync.c:113-133`, `kmscon/src/terminal.c:755-763`).
+
+`sync-timeout=0` withdrew the mode, and DECRQM answered 4 (`kmscon/src/terminal_sync.h:91-98`).
+
+A display that had lost its picture drew through a hold (`kmscon/src/terminal_sync.h:26-47`).
+
+Without a hold, a turn that parsed at least 16 KiB or left output unparsed waited for the write to end, at most one display refresh (60 Hz when the display reported none or a rate outside 20 to 1000 Hz), so bulk output did not redraw a large screen hundreds of times a second; a keystroke's echo drew at once (`kmscon/src/terminal_sync.h:141-171`, `kmscon/src/terminal_sync.c:235-260`, `kmscon/src/terminal.c:561-570`).
+
+**In vtium:** the CPU compositor, its damage and the render timer are vtium/vtium#16 (`vtium-render`), judged by tier 2, vtium/vtium#17; the redraw loop, the blink timers and synchronized output with its timeout are vtium/vtium#21 (`vtium`); the mode itself is vtium/vtium#12; gltex is vtium/vtium#33.
+
+**Verdict: follows, with listed departures.** #16 lists a wide glyph cut at the margin (aaronsb/kmscon#44), the frame after a full redraw (aaronsb/kmscon#81) and typing that damages only its cells (aaronsb/kmscon#156); #21 lists a frame schedule under mode 2026 checked against fresh draws (aaronsb/kmscon#192).
+
+**Check:**
+
+- The glyph research on vtium/vtium#16 recommends composing each changed row in a cached scratch buffer and copying it out, never reading the dumb buffer. The C reference blended each cell straight into the mapped back buffer and composed only decorated cells in system memory. Both avoid reading device memory; the row scratch changes the order of drawing and the granularity of the copy.
+- `docs/architecture.md` ("Determinism") says the C reference's eviction depended on "the render timer". The render timer only measured; what renewed an image's use was each drawn frame, and frames were drawn on the events above. The departure stands; its cause is the drawn frame.
+
+**Not planned:** coalescing without mode 2026 (ADR-201 step 6, `kmscon/src/terminal_sync.h:141-171`) is named in no vtium issue; #21 names the redraw loop and mode 2026 only. <!-- adr-cite-ignore: kmscon's records -->
+
+## 8. Fonts
+
+A font backend answered three questions: whether it had a glyph for a cluster in a style (bold, italic), what that glyph looked like at a cell width of 1 or 2, and, optionally, where underline and strike sat (`kmscon/src/font/font.h:53-63`, `kmscon/src/font/font.h:164-184`).
+
+With `font-engine` unset, the first backend that loaded won, in the order FreeType, Pango, unifont, PSF, then the built-in 8x16, the last resort (`kmscon/src/font/font.c:124`, `kmscon/src/font/font.c:149-167`, `kmscon/src/main.c:185`); unifont always loaded, so in the minimal build `font-name` alone changed nothing (`kmscon/README.md:122-129`).
+
+There was no fallback between backends glyph by glyph (`kmscon/README.md:129`).
+
+Drawing a cluster went in this order: box drawing, block elements, Braille, sextants and octants drawn as sprites at the cell's exact size; otherwise the backend's glyph; otherwise U+25A1, then `?`, then nothing; and the result re-boxed to exactly the cells asked for (`kmscon/src/font/font.c:331-368`, `kmscon/src/font/font.c:272-308`).
+
+The sprites existed because a cell taller than the font's ascent and descent left gaps between rows of box drawing (`kmscon/src/font/font_box.h:26-34`).
+
+Emoji presentation needed no table: VS15 meant text, VS16 meant emoji, otherwise a wide cell meant emoji (`kmscon/src/font/font.h:139-162`).
+
+A glyph was an 8-bit coverage mask or premultiplied ARGB for colour, exactly 1 or 2 cells wide; underline and strike were never part of it (`kmscon/src/font/font.h:58-63`, `kmscon/src/font/font.h:104-108`).
+
+Decorations were one-cell sprites (single, double, curly, dotted, dashed underline, and strike), tinted at draw time and tiled across cells, so any colour applied without a new sprite (`kmscon/src/render/deco.h:26-48`, `kmscon/src/render/deco.c:120-162`, `kmscon/docs/architecture/render/ADR-102-cells-carry-clusters-and-unresolved-colour-glyphs-and-underlines-become-sprites.md:220`). <!-- adr-cite-ignore: kmscon's records -->
+
+Their metrics came from the backend, or else were derived from the cell height, and always clamped inside the cell (`kmscon/src/font/font.c:380-408`).
+
+Backends kept no glyph cache; every miss rendered a new glyph that the renderer then owned (`kmscon/src/render/bbulk.c:557-572`).
+
+A glyph was cached under the frame's 64-bit cluster key, which carried a generation so it never named two clusters, plus bold, italic, the cell width and one renderer byte (`kmscon/src/font/font.h:64-102`, `libtsm/src/tsm/libtsm.h:389-402`); ADR-102 had said the cache would key on the codepoints (`kmscon/docs/architecture/render/ADR-102-cells-carry-clusters-and-unresolved-colour-glyphs-and-underlines-become-sprites.md:197`). <!-- adr-cite-ignore: kmscon's records -->
+
+bbulk kept one LRU of glyphs, twice the cell count, with both formats mixed, each glyph rotated once when inserted (`kmscon/src/render/bbulk.c:432-433`, `kmscon/src/render/bbulk.c:562-563`).
+
+gltex kept four pools by format and width, each strips of slots in LRU order, capped at 8192 glyphs, 64 MiB a pool and a hard stop of 512 MiB a display, past which glyphs drew blank (`kmscon/src/render/gltex.c:207-241`, `kmscon/src/render/gltex.c:860-909`).
+
+PSF fonts were bounded against crafted files (65535 glyphs, 32 by 256 pixels, 16 MiB of file) (`kmscon/src/font/font_psf.c:59-78`); unifont was compiled in and inflated whole when it loaded (`kmscon/src/font/font_unifont.c:32-38`).
+
+**In vtium:** PSF, unifont and the sprites are vtium/vtium#15 (`vtium-font`, branch `feat/font-psf`); the drawn-glyph cache is vtium/vtium#16 (`vtium-render`); outline fonts, pure Rust, are vtium/vtium#23 and #24 (kmscon `ADR-304` §3); overhang is vtium/vtium#26; font selection with one fallback is vtium/vtium#21. <!-- adr-cite-ignore: kmscon's records -->
+
+**Verdict: follows, with listed departures.** `vtium-font`'s README keeps the drawing order (sprites, face, U+25A1, `?`, last resort, boxed to the cells) and lists its PSF departures and its lazily inflated unifont. #21 lists one fallback, then an error, where the C reference retried forever (aaronsb/kmscon#63).
+
+**Check**, from the glyph research on vtium/vtium#16, not yet in an ADR:
+
+- The cache key is the cluster's codepoints with bold, italic and width, where the C reference's key was the frame's generation-tagged cluster key. It matches what ADR-102 said and what ADR-1001's renumbered indices need. <!-- adr-cite-ignore: kmscon's records -->
+- Bitmap glyphs are stored at scale 1 and scaled while drawing, and masks of only 0 and 255 are stored at 1 bit; the C reference cached every glyph at its drawn size, rotated.
+- A full cache draws the glyph uncached; gltex drew blank.
+- Two cache profiles, minspec and performance, chosen by a new `kmscon.conf` key; the C reference had one size per renderer.
+
+## 9. Images
+
+libtsm held, for each screen buffer, a store of images and of the placements that showed them; image keys carried a slot and a generation, and placement keys were never reused (`libtsm/src/tsm/libtsm-int.h:192-317`, `libtsm/src/tsm/tsm-image.c:188-234`).
+
+The stores were bounded: 1024 images and 4096 placements a store, an image side of 65535 pixels, a cell of 1024 pixels, a box of 10,000 cells (`libtsm/src/tsm/libtsm.h:653-687`).
+
+A placement was anchored to the line holding its top row, so it moved with the line into the scrollback and back; a frame walked the visible lines plus as many above as the tallest placement, so a picture whose top had scrolled away still drew (`libtsm/src/tsm/libtsm-int.h:192-203`, `kmscon/docs/architecture/render/ADR-103-images-are-placements-that-travel-with-lines-sixel-and-the-kitty-graphics-protocol-feed-one-store.md:377`). <!-- adr-cite-ignore: kmscon's records -->
+
+A sixel acted as cell content: text or an erase over it cut it, and cuts split a placement into pieces that kept the whole picture; a kitty placement was touched only by ED 2, and moved in a region scroll only when wholly inside it (`libtsm/src/tsm/tsm-image.c:18-29`, `libtsm/src/tsm/tsm-image.c:733-741`).
+
+Placements drew in three bands: below cell backgrounds, below text, and above text, every sixel above (`libtsm/src/tsm/libtsm.h:573-626`).
+
+Eviction went by rank (unplaced transient, unplaced, placed only in the scrollback, kitty placed on the screen), then by last use on one clock for the whole process; a sixel placed on the screen was never evicted (`libtsm/src/tsm/libtsm.h:747-771`, `libtsm/src/tsm/tsm-image.c:46-50`).
+
+Sixel decoded in the parser straight to ARGB, reserving from the budget as it grew (`libtsm/src/tsm/tsm-sixel.c:37-42`, `libtsm/src/tsm/tsm-vte-image.c:28-49`).
+
+Kitty's payload was base64-decoded as it streamed and never collected whole; files, shared memory, PNG and zlib went to the host, and the parser took nothing more until the host replied (`libtsm/src/tsm/tsm-kitty.c:13-32`, `libtsm/src/tsm/tsm-kitty.c:57-60`).
+
+The host was a helper process, because kmscon ran as root and must neither read the files a program names nor decode PNG or zlib itself; the helper did both as an unprivileged user and returned a sealed memfd (`kmscon/docs/image-helper.md:3`, `kmscon/docs/architecture/render/ADR-103-images-are-placements-that-travel-with-lines-sixel-and-the-kitty-graphics-protocol-feed-one-store.md:447`). <!-- adr-cite-ignore: kmscon's records -->
+
+One helper ran per session, started at the first request, one request out at a time, stopped when the session ended, its user changed, or it failed a request (`kmscon/docs/image-helper.md:9`, `kmscon/src/image_host.h:95-104`).
+
+The helper was forked and exec'd with its identity resolved beforehand, a new session, only its socket open, a memory limit, checked credentials, no ambient capabilities, no new privileges, and an environment of only `TMPDIR` (`kmscon/src/image_host.c:186-222`, `kmscon/src/image_host.c:238-241`, `kmscon/docs/architecture/render/ADR-103-images-are-placements-that-travel-with-lines-sixel-and-the-kitty-graphics-protocol-feed-one-store.md:455`). <!-- adr-cite-ignore: kmscon's records -->
+
+Its identity was the logind session's user, or before login `kmscon-image` (else `nobody`) with file media refused; without logind, the pty's owner, never root by fallback (`kmscon/src/image_identity.h:26-56`, `kmscon/docs/image-helper.md:16-45`).
+
+A request that took more than 2 s, failed a check or lost the socket ended with a failure reply, and the helper was killed through its pidfd (`kmscon/src/image_host.h:26-58`, `kmscon/src/image_host.c:272-283`).
+
+While a request was out, the pty and asciicast playback were paused, so later output could not land before the image; the reply resumed them and owed a redraw (`kmscon/src/terminal_image.c:88-122`, `kmscon/src/terminal.c:852-857`).
+
+One image budget for the whole process covered every screen's images and bbulk's scaled pictures: by default four frames of every display's pixels, clamped to 16 to 192 MiB, since full-screen video peaks at three frames (`kmscon/src/render/image_budget.h:26-37`, `kmscon/src/render/image_budget.c:58-68`, `kmscon/docs/architecture/render/ADR-103-images-are-placements-that-travel-with-lines-sixel-and-the-kitty-graphics-protocol-feed-one-store.md:534-544`). <!-- adr-cite-ignore: kmscon's records -->
+
+Making room first trimmed renderer pictures not drawn last frame, then evicted across every screen by rank and last use, or refused (`kmscon/src/render/image_budget.c:143-162`, `kmscon/src/render/image_budget.c:398-430`).
+
+A renderer's picture made inside a frame never evicted an image that frame drew, and each renderer kept at most twice its screen in ARGB between frames (`kmscon/src/render/image_budget.h:124-133`, `kmscon/src/render/image_budget.c:93-110`).
+
+Sixel and kitty were offered only while the limit was above zero and every display's renderer drew placements (`kmscon/src/render/image_budget.h:169-189`).
+
+**In vtium:** one pipeline, the store and its rules are vtium/vtium#28 (`vtium-image`); sixel is vtium/vtium#48 and kitty vtium/vtium#49; pictures in the compositor vtium/vtium#30; the helper vtium/vtium#31; a picture over a picture vtium/vtium#29; animation vtium/vtium#32; one grid across displays vtium/vtium#35.
+
+**Verdict: follows, with listed departures.** #28 keeps one store, the sixel and kitty rules, the pause while the helper decodes and the anchor to a line, and puts the protocol rules in one function; it lists a reservation refused before anything is evicted (aaronsb/kmscon#138) and scans counted as input work (aaronsb/libtsm#52). `docs/architecture.md` lists eviction by a clock only stream events advance, where the C reference renewed use on every drawn frame. #30 keys scaled copies on the whole picture (aaronsb/kmscon#132) and damages only a changed pane (aaronsb/kmscon#157).
+
+**Check:** `docs/architecture.md` gives each store its own use clock. The C reference's budget was one per process and evicted across every screen by one process-wide clock (`kmscon/src/render/image_budget.c:143-162`, `libtsm/src/tsm/tsm-image.c:46-50`). With a clock per store, the order of eviction across stores, or a budget split per store, has to be decided.
+
+**Not planned:** whether the compositor's scaled pictures share the image budget, as bbulk's did, is stated in no issue.
+
+## 10. Configuration and startup
+
+Options came from the command line first and then `kmscon.conf` in `--configdir` (`/etc/kmscon` by default); an option set on the command line was locked, so the file could not override it (`kmscon/src/config.c:1500-1552`, `kmscon/src/misc/conf.c:255-283`, `kmscon/src/misc/conf.c:338`).
+
+Every option had the same name on the command line and in the file, without the leading dashes (`kmscon/README.md:174-177`).
+
+The seat's configuration started as a copy of the main one and then read `<seat>.seat.conf` (`kmscon/src/config.c:1554-1576`).
+
+`--mode` and `--use-original-mode` together kept the mode and dropped the other (`kmscon/src/config.c:1541-1548`).
+
+`TERM` defaulted to `kmscon`, a build option (`kmscon/meson.options:51-52`); the `kmscon` terminfo entry was compiled with `tic -x` at install, and the XTGETTCAP table was generated from the same entry, with a test that failed on drift (`kmscon/scripts/terminfo/build_terminfo.py:18-22`, `kmscon/src/terminal_termcap.h:1-4`).
+
+Two systemd units started it: `kmsconvt@.service` replaced `getty@` on a VT as `kmscon --vt=%I --no-switchvt`, with `getty@` as its fallback on failure, and `kmscon.service` ran it on a system with no VTs (`kmscon/scripts/systemd/kmsconvt@.service.in:28-53`, `kmscon/scripts/systemd/kmscon.service.in:1-14`).
+
+A PAM file let `login` run under it (`kmscon/scripts/pam/kmscon:1-7`).
+
+The build chose features by meson options: video backends, font backends, gltex, images with their helper, libseat (off by default), sd-login and zlib; a minimal profile turned off images, drm3d, gltex, FreeType, Pango and D-Bus (`kmscon/README.md:83-99`, `kmscon/README.md:101-118`).
+
+Optional backends were modules loaded at start: drm3d, gltex, FreeType, Pango, PSF and unifont each lived in a `mod_*.c` (`kmscon/src/main.c:184-188`, `kmscon/src/video/mod_drm3d.c:41-52`, `kmscon/src/render/mod_gltex.c:39-58`).
+
+**In vtium:** the binary's configuration, command line, terminfo entry and XTGETTCAP table are vtium/vtium#21 (`vtium`), keeping the `kmscon.conf` keys and options tier 3 uses (kmscon `ADR-304` §1); the minspec build is `cargo build --profile minspec` with images, outline fonts and the GPU path as Cargo features (`docs/architecture.md`, "The minspec build"). <!-- adr-cite-ignore: kmscon's records -->
+
+**Verdict: follows.** Cargo features replace meson options and loadable modules, a Rust shape for the same choice. #21 carries the drift test for the terminfo entry. #5 changes the default of `use-original-mode` (see part 3 for what the C default was).
+
+**Not planned:** the seat's own `<seat>.seat.conf`, the command line's precedence over the file, and the systemd units and PAM file are named in no issue; tier 3 boots the installed build, so #22 needs the units.
