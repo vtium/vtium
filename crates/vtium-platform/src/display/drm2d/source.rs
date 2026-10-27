@@ -1,5 +1,5 @@
 //! drm2d in the event loop: the card's page flip events, the bound on
-//! waiting for a flip, and the wake-up retries.
+//! each flip in flight, and the wake-up retries.
 
 use std::io;
 use std::marker::PhantomData;
@@ -14,17 +14,16 @@ use super::super::kms::Kms;
 use super::super::mode::ModePolicy;
 use super::Drm2d;
 
-/// The loop's timers, while armed.
+/// The loop's timers, while armed, besides each display's flip bound.
 #[derive(Default)]
 pub(super) struct Timers {
-    pub(super) flip_wait: Option<RegistrationToken>,
     pub(super) wake_retry: Option<RegistrationToken>,
 }
 
 #[derive(Clone, Copy)]
 pub(super) enum Clock {
-    /// The bound on waiting for a flip, [`crate::FLIP_WAIT_MS`].
-    FlipWait,
+    /// The bound on a flip in flight on the CRTC, [`crate::FLIP_WAIT_MS`].
+    Flip(u32),
     /// The next wake-up try, after [`crate::WAKE_RETRY_MS`].
     WakeRetry,
 }
@@ -32,7 +31,7 @@ pub(super) enum Clock {
 impl Clock {
     fn after(self) -> Duration {
         let ms = match self {
-            Clock::FlipWait => crate::FLIP_WAIT_MS,
+            Clock::Flip(_) => crate::FLIP_WAIT_MS,
             Clock::WakeRetry => crate::WAKE_RETRY_MS,
         };
         Duration::from_millis(u64::try_from(ms).unwrap_or(u64::MAX))
@@ -56,7 +55,7 @@ impl Drm2d<Card> {
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
 impl<K: Kms + 'static> Drm2d<K> {
     /// Puts the card in the loop behind `handle`: its page flip events,
-    /// the bound on waiting for a flip and the wake-up retries. `access`
+    /// the bound on each flip in flight and the wake-up retries. `access`
     /// finds the device in the loop's data, or `None` once it is gone.
     pub fn insert<D, A>(&mut self, handle: &LoopHandle<'static, D>, access: A) -> io::Result<()>
     where
@@ -114,10 +113,7 @@ where
             .insert_source(Timer::from_duration(clock.after()), move |_, _, data| {
                 if let Some(video) = access(data) {
                     match clock {
-                        Clock::FlipWait => {
-                            video.timers.flip_wait = None;
-                            video.flip_wait_expired();
-                        }
+                        Clock::Flip(crtc) => video.flip_expired(crtc),
                         Clock::WakeRetry => {
                             video.timers.wake_retry = None;
                             video.retry_wake();

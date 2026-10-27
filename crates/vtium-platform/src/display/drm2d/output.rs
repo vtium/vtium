@@ -3,6 +3,7 @@
 
 use std::io;
 
+use calloop::RegistrationToken;
 use drm_ffi::{
     DRM_MODE_DPMS_OFF, DRM_MODE_DPMS_ON, DRM_MODE_DPMS_STANDBY, DRM_MODE_DPMS_SUSPEND,
     drm_mode_modeinfo,
@@ -216,6 +217,11 @@ pub(super) struct Output<M> {
     pub(super) dpms: Option<(u32, Dpms)>,
     pub(super) online: bool,
     pub(super) flipping: bool,
+    /// Flips started, so the bound's timer names the flip it bounds.
+    pub(super) flips: u64,
+    /// The timer bounding the flip in flight, and the flip it was armed
+    /// for.
+    pub(super) flip_timer: Option<(RegistrationToken, u64)>,
     pub(super) available: bool,
     pub(super) announced: bool,
 }
@@ -231,6 +237,12 @@ impl<M: AsMut<[u8]>> Output<M> {
 
     pub(super) fn front(&self) -> usize {
         self.back ^ 1
+    }
+
+    /// A flip is in flight, to be bounded by its own timer.
+    pub(super) fn start_flip(&mut self) {
+        self.flipping = true;
+        self.flips = self.flips.wrapping_add(1);
     }
 
     pub(super) fn dpms_on(&self) -> bool {

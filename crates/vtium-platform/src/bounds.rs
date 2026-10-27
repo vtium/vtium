@@ -77,9 +77,9 @@ const EXIT_FEED: Bound = Bound {
 const FLIP_WAIT: Bound = Bound {
     name: "FLIP_WAIT_MS",
     value: 1000,
-    what: "Milliseconds a modeset or a sleep waits for a page flip in flight to complete",
-    past: "The operation goes ahead and the flip is no longer waited for. The loop runs on while it waits: the operation starts from the flip's completion event or from this timer",
-    cite: "drm_shared.c:834-859, where the C reference blocked its loop for the wait; the operator's decision on vtium/vtium#18",
+    what: "Milliseconds each page flip in flight waits for its completion event: a swap's, a cursor commit's or a modeset's, and a modeset or a sleep waiting on it",
+    past: "The flip is taken as done, logged once at warn level: the display reports `Event::Flipped` and lends its canvas again, and a modeset or a sleep waiting on it goes ahead. The loop runs on while it waits",
+    cite: "drm_shared.c:834-859, where the C reference blocked its loop for the wait and bounded no swap's flip; the operator's decision on vtium/vtium#18",
 };
 
 const WAKE_RETRY: Bound = Bound {
@@ -148,7 +148,7 @@ pub const MOTION_COALESCE_AT: usize = MOTION.value;
 /// Bytes fed after the child exits before the exit is told.
 pub const EXIT_FEED_MAX: usize = EXIT_FEED.value;
 
-/// Milliseconds a modeset or a sleep waits for a page flip in flight.
+/// Milliseconds a page flip in flight waits for its completion event.
 pub const FLIP_WAIT_MS: usize = FLIP_WAIT.value;
 
 /// Milliseconds between tries to wake a DRM card.

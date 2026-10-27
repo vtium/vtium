@@ -390,7 +390,7 @@ fn a_modeset_goes_ahead_when_the_flip_never_completes() {
     v.poll().unwrap();
     // The flip's event is lost: the card forgets it.
     v.card().state().pending.clear();
-    v.flip_wait_expired();
+    v.flip_expired(100);
     assert_eq!(v.waits(), (false, false));
     assert!(v.card().last_commit().unwrap().mentions(B));
 }
@@ -422,7 +422,7 @@ fn a_sleep_goes_ahead_when_the_flip_never_completes() {
     let mut v = awake(one());
     frame(&mut v, &[DOT]).unwrap();
     v.sleep();
-    v.flip_wait_expired();
+    v.flip_expired(100);
     assert_eq!(events(&mut v), [Event::Asleep]);
     assert!(!v.card().state().master);
     // A late event finds nothing flipping.
@@ -793,4 +793,42 @@ fn the_display_says_whether_a_plane_carries_the_pointer() {
     let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
     assert!(v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).is_err());
     assert!(!v.hardware_cursor(DisplayId(A)));
+}
+
+// Finding 5: the bound on a flip covers every flip in flight. A flip whose
+// event is lost is taken as done after it, with one warning, and drawing
+// resumes.
+// covers: platform.drm2d-fbdev
+#[test]
+fn a_lost_flip_event_is_taken_as_done_after_the_bound() {
+    let (mut lp, mut app) = in_loop(awake(one()));
+    logs::capture();
+    app.0.card().state().lose_flips = true;
+    for _ in 0..2 {
+        frame(&mut app.0, &[DOT]).unwrap();
+        app.0.card().complete_flips();
+        let took = turn_until(&mut lp, &mut app, |app| {
+            app.0.events().any(|e| e == Event::Flipped(DisplayId(A)))
+        });
+        assert!(took.as_millis() >= 900, "flipped after {took:?}");
+        assert!(app.0.canvas(DisplayId(A)).is_some());
+    }
+    assert_eq!(logs::at_least(Level::Warn).len(), 1, "one warning");
+}
+
+// An event that comes after the bound still tells the owner it may draw:
+// the swap it tried meanwhile was busy.
+#[test]
+fn a_late_flip_event_after_the_bound_is_a_flip() {
+    let (mut lp, mut app) = in_loop(awake(one()));
+    frame(&mut app.0, &[DOT]).unwrap();
+    turn_until(&mut lp, &mut app, |app| {
+        app.0.events().any(|e| e == Event::Flipped(DisplayId(A)))
+    });
+    assert!(matches!(frame(&mut app.0, &[DOT]), Err(SwapError::Busy)));
+    app.0.card().complete_flips();
+    turn_until(&mut lp, &mut app, |app| {
+        app.0.events().any(|e| e == Event::Flipped(DisplayId(A)))
+    });
+    assert_eq!(app.0.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
 }

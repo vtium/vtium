@@ -18,8 +18,8 @@
 //! Each device collects its [`Event`]s, and the owner drains them once a
 //! turn of the loop, where the terminal draws (`Loop::run`'s callback).
 //! Nothing here blocks: a modeset or a sleep that finds a page flip in
-//! flight waits for the flip's completion event, at most
-//! [`crate::FLIP_WAIT_MS`].
+//! flight waits for the flip's completion event, and each flip in flight
+//! is taken as done after [`crate::FLIP_WAIT_MS`] without one.
 
 mod blank;
 mod card;

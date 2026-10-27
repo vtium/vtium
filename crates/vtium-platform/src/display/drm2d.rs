@@ -56,6 +56,8 @@ pub struct Drm2d<K: Kms> {
     policy: ModePolicy,
     outputs: Vec<Output<K::Map>>,
     waiting: Option<Waiting>,
+    /// A flip's event was lost, and that was logged as a warning.
+    lost_flip: bool,
     /// Wake-ups tried again so far, while retrying.
     retries: Option<usize>,
     events: Vec<Event>,
@@ -92,6 +94,7 @@ impl<K: Kms> Drm2d<K> {
             policy,
             outputs: Vec::new(),
             waiting: None,
+            lost_flip: false,
             retries: None,
             events: Vec::new(),
             timers: Timers::default(),
@@ -270,13 +273,14 @@ impl<K: Kms> Drm2d<K> {
             }
             return Err(e.into());
         }
-        o.flipping = true;
+        o.start_flip();
         if swapped == Swapped::Frame {
             o.back = o.front();
             o.damage.clear();
             o.fresh = false;
         }
         o.need_commit = false;
+        self.settle();
         Ok(swapped)
     }
 
@@ -542,28 +546,42 @@ impl<K: Kms> Drm2d<K> {
         read
     }
 
+    /// A flip's event arrived. One that comes after its flip was taken as
+    /// done still tells the owner it may draw, as a swap tried meanwhile
+    /// was busy.
     fn flipped(&mut self, crtc: u32) {
+        let ready = self.awake && self.waiting.is_none();
         match self.outputs.iter_mut().find(|o| o.crtc == crtc) {
-            Some(o) if o.flipping => {
+            Some(o) => {
                 o.flipping = false;
-                if o.announced && self.waiting.is_none() {
+                if o.announced && ready {
                     self.events.push(Event::Flipped(o.id));
                 }
             }
-            Some(_) => {}
             None => log::debug!("a page flip on CRTC {crtc}, which drives no display"),
         }
     }
 
-    /// The bound on waiting for a flip ran out.
-    pub(crate) fn flip_wait_expired(&mut self) {
-        if self.waiting.is_none() {
+    /// The bound on the flip in flight on `crtc` ran out: the flip is taken
+    /// as done, so drawing and any operation waiting on it go ahead.
+    pub(crate) fn flip_expired(&mut self, crtc: u32) {
+        let Some(o) = self.outputs.iter_mut().find(|o| o.crtc == crtc) else {
+            return;
+        };
+        o.flip_timer = None;
+        if !o.flipping {
             return;
         }
-        log::warn!("timeout waiting for a page flip");
-        for o in &mut self.outputs {
-            o.flipping = false;
+        if std::mem::replace(&mut self.lost_flip, true) {
+            log::debug!("no page flip event for {}; taking the flip as done", o.name);
+        } else {
+            log::warn!(
+                "no page flip event for {} within {} ms; taking the flip as done",
+                o.name,
+                crate::FLIP_WAIT_MS
+            );
         }
+        self.flipped(crtc);
         self.resolve();
         self.settle();
     }
@@ -585,28 +603,30 @@ impl<K: Kms> Drm2d<K> {
         }
     }
 
-    /// Arms and disarms the loop's timers to match what waits.
+    /// Arms and disarms the loop's timers to match what waits: a bound for
+    /// each flip in flight, armed when the flip starts, and the wake-up
+    /// retries.
     fn settle(&mut self) {
         let Some(link) = &self.link else {
             return;
         };
-        for (want, token, clock) in [
-            (
-                self.waiting.is_some(),
-                &mut self.timers.flip_wait,
-                Clock::FlipWait,
-            ),
-            (
-                self.retries.is_some(),
-                &mut self.timers.wake_retry,
-                Clock::WakeRetry,
-            ),
-        ] {
-            match (want, token.take()) {
-                (true, None) => *token = link.arm(clock),
-                (false, Some(t)) => link.disarm(t),
-                (_, t) => *token = t,
+        for o in &mut self.outputs {
+            let want = o.flipping.then_some(o.flips);
+            match (want, o.flip_timer.take()) {
+                (Some(flip), Some((t, armed))) if armed == flip => o.flip_timer = Some((t, armed)),
+                (want, armed) => {
+                    if let Some((t, _)) = armed {
+                        link.disarm(t);
+                    }
+                    o.flip_timer = want.and_then(|f| Some((link.arm(Clock::Flip(o.crtc))?, f)));
+                }
             }
+        }
+        let token = &mut self.timers.wake_retry;
+        match (self.retries.is_some(), token.take()) {
+            (true, None) => *token = link.arm(Clock::WakeRetry),
+            (false, Some(t)) => link.disarm(t),
+            (_, t) => *token = t,
         }
     }
 
@@ -759,6 +779,8 @@ impl<K: Kms> Drm2d<K> {
             dpms,
             online: false,
             flipping: false,
+            flips: 0,
+            flip_timer: None,
             available: true,
             announced: false,
         })
@@ -955,6 +977,9 @@ impl<K: Kms> Drm2d<K> {
     }
 
     fn free(&self, mut o: Output<K::Map>) {
+        if let (Some(link), Some((t, _))) = (&self.link, o.flip_timer.take()) {
+            link.disarm(t);
+        }
         self.free_buffers(&mut o);
         if let Some(c) = o.cursor.take() {
             let _ = self.card.rm_fb(c.fb);
@@ -1028,7 +1053,7 @@ impl<K: Kms> Drm2d<K> {
                 }
                 o.mode_blob = blob.unwrap_or(0);
                 o.online = true;
-                o.flipping = true;
+                o.start_flip();
                 o.back = o.front();
                 o.damage.set_whole();
                 o.fresh = false;
@@ -1108,10 +1133,7 @@ impl Failure {
 impl<K: Kms> Drop for Drm2d<K> {
     fn drop(&mut self) {
         if let Some(link) = &self.link {
-            for token in [self.timers.flip_wait.take(), self.timers.wake_retry.take()]
-                .into_iter()
-                .flatten()
-            {
+            if let Some(token) = self.timers.wake_retry.take() {
                 link.disarm(token);
             }
         }

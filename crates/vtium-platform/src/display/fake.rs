@@ -101,6 +101,8 @@ pub(crate) struct State {
     pub(crate) set_crtcs: Vec<(u32, u32, u32, Mode)>,
     /// CRTCs with a flip pending, and those whose flip completed.
     pub(crate) pending: Vec<u32>,
+    /// Flips complete without their events, as a driver that loses them.
+    pub(crate) lose_flips: bool,
     pub(crate) completed: Vec<u32>,
     pub(crate) blobs: BTreeMap<u32, Vec<u8>>,
     pub(crate) dumbs: BTreeMap<u32, (u32, u32)>,
@@ -204,10 +206,14 @@ impl FakeCard {
         self.state.borrow_mut()
     }
 
-    /// Completes every pending flip: their events are ready to read.
+    /// Completes every pending flip: their events are ready to read, or
+    /// lost while [`State::lose_flips`] is set.
     pub(crate) fn complete_flips(&self) {
         let mut s = self.state.borrow_mut();
         let pending = std::mem::take(&mut s.pending);
+        if s.lose_flips {
+            return;
+        }
         if !pending.is_empty() {
             let _ = (&self.events.1).write(b"e");
         }
