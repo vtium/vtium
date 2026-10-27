@@ -64,8 +64,10 @@ pub struct Row {
 pub enum Expectation {
     /// vtium prints this, which differs from the golden.
     Departure(String),
-    /// vtium lacks what the case needs, and differs from the golden.
-    Pending,
+    /// vtium lacks what the case needs: its output, or its exit as
+    /// [`snapshot`](crate::runner::snapshot) writes it, differs from the
+    /// golden and stays as this snapshot until the case is taken up.
+    Pending(String),
 }
 
 /// A listed case in one view: the expectation and the rows behind it.
@@ -132,7 +134,11 @@ pub fn expected_rows(text: &str) -> Result<Vec<Row>, String> {
 }
 
 /// Checks each departure's entry against its source: `read` returns the
-/// text of a SOURCE.
+/// text of a SOURCE. In a README the entry must sit in its `## Departures`
+/// section, or in its goldens list: a section whose heading names goldens,
+/// or the items under a list entry whose bold lead starts `Goldens`. In
+/// `INTERFACE.md` the entry must be a sentence that lets an implementation
+/// list the case as a departure.
 pub fn check_sources(
     rows: &[Row],
     read: impl Fn(&str) -> Result<String, String>,
@@ -142,17 +148,41 @@ pub fn check_sources(
         if !texts.contains_key(row.source.as_str()) {
             texts.insert(&row.source, read(&row.source)?);
         }
-        let found = texts
-            .get(row.source.as_str())
-            .is_some_and(|t| t.contains(&row.entry));
+        let text = texts.get(row.source.as_str()).map_or("", String::as_str);
+        let found = if row.source == "INTERFACE.md" {
+            row.entry.contains("may list it as a departure") && text.contains(&row.entry)
+        } else {
+            departure_lines(text).any(|line| line.contains(&row.entry))
+        };
         if !found {
             return Err(format!(
-                "expected.tsv:{}: {} has no entry {:?}",
+                "expected.tsv:{}: {} lists no departure {:?} under its Departures heading or its goldens list",
                 row.line, row.source, row.entry
             ));
         }
     }
     Ok(())
+}
+
+/// The lines of a README that list departures: its `## Departures`
+/// section, a section whose heading names goldens, and the items nested
+/// under a list entry whose bold lead starts `Goldens`.
+pub fn departure_lines(text: &str) -> impl Iterator<Item = &str> {
+    let mut section = false;
+    let mut goldens_item = false;
+    text.lines().filter(move |line| {
+        if let Some(heading) = line.strip_prefix('#') {
+            let heading = heading.trim_start_matches('#').trim();
+            section = heading == "Departures" || heading.to_lowercase().contains("golden");
+            goldens_item = false;
+            return false;
+        }
+        if line.starts_with("- ") {
+            goldens_item = line.starts_with("- **Goldens");
+            return section;
+        }
+        section || (goldens_item && line.starts_with(' '))
+    })
 }
 
 /// The expectation for each listed case in each view, keyed by view and
@@ -164,50 +194,72 @@ pub fn expectations(
     views: &[&str],
     dir: &Path,
 ) -> Result<BTreeMap<(String, String), Expected>, String> {
-    let mut out: BTreeMap<(String, String), Expected> = BTreeMap::new();
+    let mut grouped: BTreeMap<(String, String), Vec<Row>> = BTreeMap::new();
     for view in views {
         for row in rows.iter().filter(|r| r.view == "*" || r.view == *view) {
-            let key = ((*view).to_owned(), row.case.clone());
-            let entry = out.entry(key).or_insert_with(|| Expected {
-                kind: Expectation::Pending,
-                rows: Vec::new(),
-            });
-            entry.rows.push(row.clone());
+            grouped
+                .entry(((*view).to_owned(), row.case.clone()))
+                .or_default()
+                .push(row.clone());
         }
     }
-    for ((view, case), e) in &mut out {
-        if e.rows.iter().any(|r| r.pending) {
-            continue;
-        }
-        let path = dir.join(view).join(format!("{case}.txt"));
+    let mut out = BTreeMap::new();
+    for ((view, case), rows) in grouped {
+        let pending = rows.iter().any(|r| r.pending);
+        let path = expected_path(dir, &view, &case, pending);
         let text = std::fs::read_to_string(&path).map_err(|_| {
             format!(
-                "{case} is a departure in the {view} view with no {}; write it with `conformance expect {view} {case}` and read it",
+                "{case} is {} in the {view} view with no {}; write it with `conformance expect {view} {case}` and read it",
+                if pending { "pending" } else { "a departure" },
                 path.display()
             )
         })?;
-        e.kind = Expectation::Departure(text);
-    }
-    // an expected output no departure row asks for is stale
-    for view in views {
-        let Ok(files) = std::fs::read_dir(dir.join(view)) else {
-            continue;
+        let kind = if pending {
+            Expectation::Pending(text)
+        } else {
+            Expectation::Departure(text)
         };
-        for file in files.flatten() {
-            let name = file.file_name().to_string_lossy().into_owned();
-            let case = name.strip_suffix(".txt").unwrap_or(&name).to_owned();
-            let listed = out
-                .get(&((*view).to_owned(), case))
-                .is_some_and(|e| matches!(e.kind, Expectation::Departure(_)));
-            if !listed {
-                return Err(format!(
-                    "{} has no departure row in expected.tsv",
-                    file.path().display()
-                ));
+        out.insert((view, case), Expected { kind, rows });
+    }
+    // an expected output or snapshot no row asks for is stale
+    for view in views {
+        for pending in [false, true] {
+            let sub = if pending {
+                dir.join("pending").join(view)
+            } else {
+                dir.join(view)
+            };
+            let Ok(files) = std::fs::read_dir(&sub) else {
+                continue;
+            };
+            for file in files.flatten() {
+                let name = file.file_name().to_string_lossy().into_owned();
+                let case = name.strip_suffix(".txt").unwrap_or(&name).to_owned();
+                let listed = out
+                    .get(&((*view).to_owned(), case))
+                    .is_some_and(|e| matches!(e.kind, Expectation::Pending(_)) == pending);
+                if !listed {
+                    return Err(format!(
+                        "{} has no {} row in expected.tsv",
+                        file.path().display(),
+                        if pending { "pending" } else { "departure" }
+                    ));
+                }
             }
         }
     }
     Ok(out)
+}
+
+/// Where a listed case's expected output lives: `<view>/<case>.txt` for a
+/// departure, `pending/<view>/<case>.txt` for a pending case's snapshot.
+pub fn expected_path(dir: &Path, view: &str, case: &str, pending: bool) -> std::path::PathBuf {
+    let dir = if pending {
+        dir.join("pending")
+    } else {
+        dir.to_owned()
+    };
+    dir.join(view).join(format!("{case}.txt"))
 }
 
 #[cfg(test)]
@@ -232,13 +284,35 @@ mod tests {
     }
 
     #[test]
-    fn a_departure_names_an_entry_its_source_holds() {
+    fn a_departure_names_an_entry_its_source_lists_as_one() {
         let rows = expected_rows("*\tx\tdeparture\tREADME.md\tDA1 reports\n").unwrap_or_default();
+        let readme = |text: &'static str| move |_: &str| Ok(text.to_owned());
+        let departures = "# c\n\n## Departures\n\n- **DA1 reports a VT220**\n\n## Bounds\n";
+        assert_eq!(check_sources(&rows, readme(departures)), Ok(()));
+        assert!(check_sources(&rows, readme("## Departures\n\n- **DA2 reports**\n")).is_err());
+        // the entry anywhere else in the file is not a listed departure
+        assert!(check_sources(&rows, readme("## Notes\n\n- **DA1 reports a VT220**\n")).is_err());
+        assert!(
+            check_sources(&rows, readme("## Departures\n\n## Bounds\n\nDA1 reports\n")).is_err()
+        );
+        let goldens = "## Notes\n\n- **Goldens the departures move**:\n  - `x`: DA1 reports a VT220.\n- **Other**\n";
+        assert_eq!(check_sources(&rows, readme(goldens)), Ok(()));
+        let after =
+            "## Notes\n\n- **Goldens the departures move**:\n- **Other**\n  - DA1 reports\n";
+        assert!(check_sources(&rows, readme(after)).is_err());
         assert_eq!(
-            check_sources(&rows, |_| Ok("- **DA1 reports a VT220**".to_owned())),
+            check_sources(&rows, readme("## Golden cases\n\nDA1 reports\n")),
             Ok(())
         );
-        assert!(check_sources(&rows, |_| Ok("- **DA2 reports**".to_owned())).is_err());
+        let iface =
+            expected_rows("*\tx\tdeparture\tINTERFACE.md\tDA1 reports\n").unwrap_or_default();
+        assert!(check_sources(&iface, readme("DA1 reports")).is_err());
+        let iface = expected_rows("*\tx\tdeparture\tINTERFACE.md\tY may list it as a departure.\n")
+            .unwrap_or_default();
+        assert_eq!(
+            check_sources(&iface, readme("X. Y may list it as a departure.")),
+            Ok(())
+        );
     }
 
     #[test]

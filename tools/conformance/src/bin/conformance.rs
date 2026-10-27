@@ -25,8 +25,9 @@ const OPTIONAL: [&str; 6] = [
 ];
 
 const USAGE: &str = "usage: conformance [run] [--without CASE]... [--seed N] [--rounds N]
-       conformance expect VIEW CASE
+       conformance expect VIEW CASE...
        conformance probes
+       conformance issues
 each takes [--libtsm DIR] [--kmscon DIR] [--out DIR]";
 
 struct Options {
@@ -46,7 +47,11 @@ fn options(args: &[String]) -> Result<Options, String> {
         kmscon: root.join("../kmscon"),
         out: Path::new(TOOL).join("out"),
         without: Vec::new(),
-        seed: 1,
+        // a CI run takes its own seed, so each run tries other cuts
+        seed: std::env::var("GITHUB_RUN_ID")
+            .ok()
+            .and_then(|id| id.parse().ok())
+            .unwrap_or(1),
         rounds: 2,
         rest: Vec::new(),
     };
@@ -201,64 +206,77 @@ fn run(o: &Options) -> Result<bool, String> {
             count("FAIL")
         );
     }
-    let mut chunked = 0;
-    for case in &corpus.cases {
-        let input = corpus.input(case, vtium_conformance::view::View::Screen)?;
-        match chunking::check(&input, o.seed, o.rounds) {
-            Ok(()) => chunked += 1,
-            // a case the replay refuses has failed above already
-            Err(why) if why.starts_with("exits ") => {}
-            Err(why) => {
-                ok = false;
-                println!("FAIL chunking {}: {why}", case.name);
+    println!(
+        "chunking: seed {}, {} rounds of extra cuts",
+        o.seed, o.rounds
+    );
+    for (view, name, _) in VIEWS {
+        let mut chunked = 0;
+        for case in &corpus.cases {
+            let input = corpus.input(case, view)?;
+            match chunking::check(&input, o.seed, o.rounds) {
+                Ok(()) => chunked += 1,
+                // the replay refuses the case: the verdicts above judged
+                // the refusal, as a failure or against a pending snapshot
+                Err(why) if why.starts_with("exits ") => {}
+                Err(why) => {
+                    ok = false;
+                    println!("FAIL chunking {name} {}: {why}", case.name);
+                }
             }
         }
+        println!("chunking {name}: {chunked} cases unchanged");
     }
-    println!(
-        "chunking: {chunked} cases unchanged by {} rounds of extra cuts from seed {}",
-        o.rounds, o.seed
-    );
     Ok(ok)
 }
 
-/// Writes vtium's output for a listed departure to `expected/`, to be read
-/// against the golden before it is committed.
+/// Writes vtium's output for listed cases: a departure's expected output
+/// under `expected/<view>/`, a pending case's snapshot, its output or its
+/// exit, under `expected/pending/<view>/`. Each is read against the golden
+/// before it is committed.
 fn expect(o: &Options) -> Result<bool, String> {
-    let [view, case] = &o.rest[..] else {
+    let [view, cases @ ..] = &o.rest[..] else {
         return Err(USAGE.to_owned());
     };
-    let corpus = corpus(o, &pins()?)?;
-    let rows = lists::expected_rows(&read(&Path::new(TOOL).join("expected.tsv"))?)?;
-    let departure = rows
-        .iter()
-        .any(|r| &r.case == case && !r.pending && (r.view == "*" || &r.view == view));
-    let pending = rows
-        .iter()
-        .any(|r| &r.case == case && r.pending && (r.view == "*" || &r.view == view));
-    if !departure || pending {
-        return Err(format!(
-            "{case} has no departure row for the {view} view in expected.tsv"
-        ));
+    if cases.is_empty() {
+        return Err(USAGE.to_owned());
     }
     let (v, _, _) = VIEWS
         .iter()
         .find(|(_, n, _)| n == view)
         .ok_or_else(|| format!("no view {view}"))?;
-    let c = corpus
-        .cases
-        .iter()
-        .find(|c| &c.name == case)
-        .ok_or_else(|| format!("no case {case}"))?;
-    let out = vtium_conformance::replay::run(&corpus.input(c, *v)?).map_err(|f| f.message)?;
-    let dir = Path::new(TOOL).join("expected").join(view);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let path = dir.join(format!("{case}.txt"));
-    std::fs::write(&path, out).map_err(|e| format!("{}: {e}", path.display()))?;
-    println!(
-        "wrote {}; read it against {}/golden*/{case}.txt",
-        path.display(),
-        corpus.root.display()
-    );
+    let corpus = corpus(o, &pins()?)?;
+    let rows = lists::expected_rows(&read(&Path::new(TOOL).join("expected.tsv"))?)?;
+    for case in cases {
+        let listed: Vec<_> = rows
+            .iter()
+            .filter(|r| &r.case == case && (r.view == "*" || &r.view == view))
+            .collect();
+        if listed.is_empty() {
+            return Err(format!(
+                "{case} has no row for the {view} view in expected.tsv"
+            ));
+        }
+        let pending = listed.iter().any(|r| r.pending);
+        let c = corpus
+            .cases
+            .iter()
+            .find(|c| &c.name == case)
+            .ok_or_else(|| format!("no case {case}"))?;
+        let got = vtium_conformance::replay::run(&corpus.input(c, *v)?);
+        let text = match (&got, pending) {
+            (_, true) => runner::snapshot(&got),
+            (Ok(out), false) => out.clone(),
+            (Err(f), false) => return Err(format!("{case} exits {}: {}", f.code, f.message)),
+        };
+        let path = lists::expected_path(&Path::new(TOOL).join("expected"), view, case, pending);
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
+        println!("wrote {}", path.display());
+    }
+    println!("read each against {}/golden*/", corpus.root.display());
     Ok(true)
 }
 
@@ -301,6 +319,65 @@ fn probes(o: &Options) -> Result<bool, String> {
     Ok(status.success())
 }
 
+/// Every issue the lists name as owing a case or a capability, checked
+/// open through `gh`: a pending row or a missing capability whose issue
+/// closed is stale, since the issue's work should have taken the case up.
+fn issues() -> Result<bool, String> {
+    let rows = lists::expected_rows(&read(&Path::new(TOOL).join("expected.tsv"))?)?;
+    let caps = vtium_conformance::coverage::capabilities(&read(
+        &Path::new(TOOL).join("capabilities.list"),
+    )?)?;
+    let mut owed: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for row in rows.iter().filter(|r| r.pending) {
+        owed.entry(row.source.clone())
+            .or_default()
+            .push(row.case.clone());
+    }
+    for cap in caps.iter().filter(|c| c.status == "missing") {
+        owed.entry(cap.issue.clone())
+            .or_default()
+            .push(cap.name.clone());
+    }
+    let mut ok = true;
+    for (issue, names) in &owed {
+        let n = issue.trim_start_matches('#');
+        let out = std::process::Command::new("gh")
+            .args([
+                "issue",
+                "view",
+                n,
+                "--repo",
+                "vtium/vtium",
+                "--json",
+                "state",
+                "-q",
+                ".state",
+            ])
+            .output()
+            .map_err(|e| format!("gh: {e}"))?;
+        let state = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        if !out.status.success() {
+            return Err(format!(
+                "gh issue view {n}: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        if state != "OPEN" {
+            ok = false;
+            println!(
+                "FAIL {issue} is {state}, and still owes {}",
+                names.join(", ")
+            );
+        }
+    }
+    println!(
+        "issues: {} named, {}",
+        owed.len(),
+        if ok { "all open" } else { "some closed" }
+    );
+    Ok(ok)
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = options(&args).and_then(|mut o| {
@@ -313,6 +390,7 @@ fn main() -> ExitCode {
             "run" if o.rest.is_empty() => run(&o),
             "expect" => expect(&o),
             "probes" if o.rest.is_empty() => probes(&o),
+            "issues" if o.rest.is_empty() => issues(),
             _ => Err(USAGE.to_owned()),
         }
     });

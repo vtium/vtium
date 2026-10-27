@@ -62,8 +62,10 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
 
-/// What chunking must not change: the last block without its replies, the
-/// replies of the whole replay, and every test line in order.
+/// What chunking must not change: the last block without its replies and
+/// its `changed` count, the replies of the whole replay, and every test
+/// line in order. A block's `changed` count is the cells changed since the
+/// block before, so an extra block moves it.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Outcome {
     pub last: Vec<String>,
@@ -80,7 +82,11 @@ pub fn outcome(out: &str) -> Outcome {
     let last = lines
         .iter()
         .skip(start)
-        .filter(|l| !l.starts_with("reply ") && !l.starts_with("host: ") && !l.starts_with("test "))
+        .filter(|l| {
+            !["reply ", "host: ", "test ", "changed "]
+                .iter()
+                .any(|p| l.starts_with(p))
+        })
         .map(|l| (*l).to_owned())
         .collect();
     let replies = lines

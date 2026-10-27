@@ -17,17 +17,21 @@ pub mod runner;
 pub mod view;
 
 /// Why a replay printed no result: exit 2 for a usage failure, 3 for one
-/// the implementation cannot print.
+/// the implementation cannot print, with what it printed before it stopped.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
     pub code: u8,
     pub message: String,
+    /// The blocks and test lines printed before the failure, which the
+    /// command line prints as it goes, as the C reference did.
+    pub output: String,
 }
 
 pub(crate) fn usage(message: impl Into<String>) -> Failure {
     Failure {
         code: 2,
         message: message.into(),
+        output: String::new(),
     }
 }
 
@@ -35,6 +39,7 @@ pub(crate) fn internal(message: impl Into<String>) -> Failure {
     Failure {
         code: 3,
         message: message.into(),
+        output: String::new(),
     }
 }
 

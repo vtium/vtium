@@ -42,9 +42,9 @@ fn departure(text: &str) -> Expected {
     }
 }
 
-fn pending() -> Expected {
+fn pending(snapshot: &str) -> Expected {
     Expected {
-        kind: Expectation::Pending,
+        kind: Expectation::Pending(snapshot.to_owned()),
         rows: Vec::new(),
     }
 }
@@ -67,7 +67,26 @@ fn a_difference_fails_unlisted_and_passes_listed() {
         judge(&got, &golden, Some(&departure(AB))),
         Verdict::Departure
     );
-    assert_eq!(judge(&got, &golden, Some(&pending())), Verdict::Pending);
+    assert_eq!(judge(&got, &golden, Some(&pending(AB))), Verdict::Pending);
+}
+
+// A pending case holds still: any change from its snapshot fails, so a
+// regression in what the case does run is seen while the rest waits.
+#[test]
+fn a_pending_case_fails_on_any_change_from_its_snapshot() {
+    let c = corpus("snapshot");
+    let golden = AB.replace("|ab|", "|ac|");
+    let got = replay(&c);
+    let moved = pending(&AB.replace("|ab|", "|ad|"));
+    assert!(matches!(
+        judge(&got, &golden, Some(&moved)),
+        Verdict::Fail(_)
+    ));
+    let refused = pending("exit 2: test command image needs feature images\n");
+    assert!(matches!(
+        judge(&got, &golden, Some(&refused)),
+        Verdict::Fail(_)
+    ));
 }
 
 #[test]
@@ -89,7 +108,7 @@ fn a_listed_case_that_matches_its_golden_fails_so_the_list_stays_true() {
         Verdict::Fail(_)
     ));
     assert!(matches!(
-        judge(&replay(&c), AB, Some(&pending())),
+        judge(&replay(&c), AB, Some(&pending(AB))),
         Verdict::Fail(_)
     ));
 }
@@ -99,9 +118,23 @@ fn a_replay_that_exits_fails_unless_pending() {
     let failure = Err(vtium_conformance::Failure {
         code: 2,
         message: "test command image needs feature images".to_owned(),
+        output: "checkpoint 1\n".to_owned(),
     });
     assert!(matches!(judge(&failure, AB, None), Verdict::Fail(_)));
-    assert_eq!(judge(&failure, AB, Some(&pending())), Verdict::Pending);
+    let snapshot = vtium_conformance::runner::snapshot(&failure);
+    assert_eq!(
+        snapshot,
+        "checkpoint 1\nexit 2: test command image needs feature images\n"
+    );
+    assert_eq!(
+        judge(&failure, AB, Some(&pending(&snapshot))),
+        Verdict::Pending
+    );
+    let other = pending("checkpoint 2\nexit 2: test command image needs feature images\n");
+    assert!(matches!(
+        judge(&failure, AB, Some(&other)),
+        Verdict::Fail(_)
+    ));
 }
 
 #[test]

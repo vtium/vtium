@@ -18,6 +18,10 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(failure) => {
+            // what printed before the failure, as the C reference printed it
+            let _ = std::io::stdout()
+                .lock()
+                .write_all(failure.output.as_bytes());
             eprintln!("vtium-replay: {}", failure.message);
             ExitCode::from(failure.code)
         }

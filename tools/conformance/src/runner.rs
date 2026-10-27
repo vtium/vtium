@@ -150,7 +150,8 @@ pub enum Verdict {
     Pass,
     /// The output differs from the golden as a listed departure says.
     Departure,
-    /// A listed pending case still differs from its golden.
+    /// A listed pending case still differs from its golden, and prints or
+    /// exits as its snapshot says.
     Pending,
     /// Anything else, with why.
     Fail(String),
@@ -173,10 +174,20 @@ pub fn judge(
             diff(&golden, out)
         )),
         (None, Err(f)) => Verdict::Fail(format!("exits {}: {}", f.code, f.message)),
-        (Some(Expectation::Pending), _) if matches => {
+        (Some(Expectation::Pending(_)), _) if matches => {
             Verdict::Fail("listed as pending, and matches its golden: drop its rows".to_owned())
         }
-        (Some(Expectation::Pending), _) => Verdict::Pending,
+        (Some(Expectation::Pending(want)), _) => {
+            let got = got.map_or_else(|f| snapshot(&Err(f.clone())), |out| out.clone());
+            if got == mask(want) {
+                Verdict::Pending
+            } else {
+                Verdict::Fail(format!(
+                    "pending, and changed from its snapshot\n{}",
+                    diff(&mask(want), &got)
+                ))
+            }
+        }
         (Some(Expectation::Departure(_)), _) if matches => {
             Verdict::Fail("listed as a departure, and matches its golden: drop its rows".to_owned())
         }
@@ -188,6 +199,15 @@ pub fn judge(
         (Some(Expectation::Departure(_)), Err(f)) => {
             Verdict::Fail(format!("exits {}: {}", f.code, f.message))
         }
+    }
+}
+
+/// What a pending case's snapshot holds: the replay's output, or what it
+/// printed before it stopped and then its exit code and message.
+pub fn snapshot(got: &Result<String, crate::Failure>) -> String {
+    match got {
+        Ok(out) => out.clone(),
+        Err(f) => format!("{}exit {}: {}\n", mask(&f.output), f.code, f.message),
     }
 }
 

@@ -7,9 +7,10 @@ The crate is a workspace member, so `cargo test --workspace` builds both program
 ```
 make conformance          # every case, both views, and the chunking check (LIBTSM=../libtsm)
 make conformance-probes   # the capability probes (LIBTSM=../libtsm KMSCON=../kmscon)
+make conformance-issues   # every issue the lists name is open (gh)
 ```
 
-`conformance` takes `--libtsm DIR` and `--kmscon DIR` (default `../libtsm` and `../kmscon` beside this repository) and `--out DIR` (default `out/` here, which git ignores). It reads the pinned commits through `git archive` only, into `out/<repo>-<commit>/`, so the checkouts' branches and working trees never reach the judge; a checkout that lacks the commit is refused with the command that fetches it. It exits 0 when every verdict holds, 1 on a failure, and 2 when it refuses to run.
+`conformance` takes `--libtsm DIR` and `--kmscon DIR` (default `../libtsm` and `../kmscon` beside this repository) and `--out DIR` (default `out/` here, which git ignores). It reads the pinned commits through `git archive` only, into `out/<repo>-<commit>/`, afresh on every run, so the checkouts' branches and working trees never reach the judge; a checkout that lacks the commit is refused with the command that fetches it. It exits 0 when every verdict holds, 1 on a failure, and 2 when it refuses to run.
 
 | Path | What it is |
 |---|---|
@@ -28,6 +29,7 @@ make conformance-probes   # the capability probes (LIBTSM=../libtsm KMSCON=../km
 | `pin.tsv` | The libtsm and kmscon commits the runner judges against. |
 | `expected.tsv` | The cases whose output differs from the golden, each with the departure that lists it or the issue that owes it. |
 | `expected/screen/`, `expected/frame/` | vtium's expected output for each listed departure, by view. |
+| `expected/pending/screen/`, `expected/pending/frame/` | Each pending case's snapshot: vtium's output, or what it printed before the replay stopped and its exit code and message. |
 | `capabilities.list` | vtium's capability list: each probe `works` or `missing`, with the issue for each gap and the ADR-1000 rows it judges. |
 | `COVERAGE.md` | Each capability, the tests that guard its rows, and its gap. |
 | `tests/` | The verdicts and the command line on a corpus written in the test: see its README. |
@@ -48,23 +50,23 @@ A case in a view is judged against its golden, after INTERFACE.md's masking: a n
 |---|---|
 | no | vtium's output equals the golden |
 | as a departure | vtium's output equals `expected/<view>/<case>.txt`, and the golden differs from it |
-| as pending | vtium's output differs from the golden, or the replay exits for a command or view vtium lacks |
+| as pending | vtium's output differs from the golden and equals `expected/pending/<view>/<case>.txt`, or the replay exits as that snapshot says, after printing what it says |
 
-So an unlisted difference fails, a listed case that comes to match its golden fails until its rows go, and a departure prints exactly what it lists.
+So an unlisted difference fails, a listed case that comes to match its golden fails until its rows go, a departure prints exactly what it lists, and a pending case fails on any change from its snapshot: a regression in the part of it vtium runs shows while the rest waits. A replay that stops at a command vtium lacks still prints the blocks before it, as the C reference did, and the snapshot holds them.
 
-Each case also replays with 1 to 8 extra cuts at random offsets outside test commands, two rounds from seed 1 (`--seed`, `--rounds`), and must end in the same last block, with the same replies over the whole replay and the same `test` lines, as the case with its own cuts (docs/architecture.md, "Determinism"). A failure names the seed and the cuts.
+Each case also replays in each view with 1 to 8 extra cuts at random offsets outside test commands, two rounds (`--rounds`), and must end in the same last block, with the same replies over the whole replay and the same `test` lines, as the case with its own cuts (docs/architecture.md, "Determinism"). The last block's `changed` count is left out, since an extra block moves it. The seed is `GITHUB_RUN_ID` when it is set, so each CI run tries other cuts, else 1, and `--seed` sets it; the report prints it, and a failure names the seed and the cuts.
 
 Before any case runs, the runner checks `--describe` against INTERFACE.md's `describe` block (the same major version, the block's order, and every mandatory feature), each row of `expected.tsv` against `cases.list`, each departure's entry against the file it names, and each file under `expected/` against a departure row.
 
 ## The lists
 
-`expected.tsv` holds one row per reason a case differs: `VIEW CASE KIND SOURCE ENTRY`, VIEW being `screen`, `frame` or `*` for both. A departure's SOURCE is the file that lists it, a crate's README or `INTERFACE.md` for the pinned interface, and ENTRY appears in that file word for word. A pending row's SOURCE is the vtium issue that owes the case, and ENTRY says what vtium lacks; a case with any pending row is pending in that view. A departure's expected output is written by `conformance expect VIEW CASE`, which refuses a case with no departure row, and is read against the golden before it is committed.
+`expected.tsv` holds one row per reason a case differs: `VIEW CASE KIND SOURCE ENTRY`, VIEW being `screen`, `frame` or `*` for both. A departure's SOURCE is the file that lists it: a README, where ENTRY appears word for word in its `## Departures` section or its goldens list (a section whose heading names goldens, or the items under a list entry whose bold lead starts `Goldens`); or `INTERFACE.md` for the pinned interface, where ENTRY is a sentence that lets an implementation list the case as a departure. A pending row's SOURCE is the vtium issue that owes the case, and ENTRY says what vtium lacks; a case with any pending row is pending in that view. `conformance expect VIEW CASE...` writes each listed case's expected output or snapshot and refuses an unlisted case; each is read against the golden before it is committed.
 
-`--without CASE` takes a case's rows out of the expectations for one run, so a listed difference can be seen failing.
+`--without CASE` takes a case's rows out of the expectations for one run, so a listed difference can be seen failing. `conformance issues` asks `gh` for the state of every issue a pending row or a missing capability names, and fails on a closed one: its work should have taken the case up. It needs the network, so it runs in CI and through `make conformance-issues`, never in `cargo test`.
 
 `capabilities.list` is run.py's format, `NAME STATUS ISSUE NOTE`, with the note starting with the ADR-1000 rows the probe judges. The image probes are `works -Dimages`: they pass in a build with images and must fail in one without, and `conformance probes` passes `--build images=false` until vtium-image lands (#48, #49). run.py fails when a `works` probe fails, a `missing` probe passes, or the list and `probes.replay` name different probes; `coverage_map_matches_the_capability_list_and_adr_1000` fails when `COVERAGE.md` differs from the list and ADR-1000's `tests` columns, and `VTIUM_CONFORMANCE_BLESS=1 cargo test -p vtium-conformance coverage` rewrites it. The terminfo probes join when vtium has a terminfo entry (#21), and the font probes with outline fonts (#23); run.py skips `xtgettcap` without the termcap fixture kmscon's build compiles with `tic`.
 
-## Departures awaiting their crate's entry
+## Departures
 
 A departure belongs in the README of the crate that implements it. This one is listed here until vtium-term's README carries it.
 

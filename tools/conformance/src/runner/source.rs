@@ -8,13 +8,9 @@ use std::process::{Command, Stdio};
 use super::lists::Pin;
 
 /// Extracts `paths` of the pinned commit from the checkout at `repo` into
-/// `out/<name>-<commit>/`, once, and returns that directory.
+/// `out/<name>-<commit>/`, afresh on every run, and returns that directory.
 pub fn extract(repo: &Path, pin: &Pin, paths: &[&str], out: &Path) -> Result<PathBuf, String> {
     let dest = out.join(format!("{}-{}", pin.name, pin.commit));
-    let done = dest.join(".extracted");
-    if done.exists() {
-        return Ok(dest);
-    }
     let has = Command::new("git")
         .arg("-C")
         .arg(repo)
@@ -59,6 +55,5 @@ pub fn extract(repo: &Path, pin: &Pin, paths: &[&str], out: &Path) -> Result<Pat
             pin.commit
         ));
     }
-    std::fs::write(&done, &pin.commit).map_err(|e| format!("{}: {e}", done.display()))?;
     Ok(dest)
 }

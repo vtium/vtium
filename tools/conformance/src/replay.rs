@@ -75,23 +75,14 @@ pub fn cuts(text: &[u8], len: usize) -> Result<Vec<usize>, Failure> {
     Ok(cuts)
 }
 
-/// Replays `input` and returns what it prints.
+/// Replays `input` and returns what it prints, or the failure that stopped
+/// it with what it printed first.
 pub fn run(input: &Input) -> Result<String, Failure> {
     let mut r = Replay::new(input);
-    let mut pos = 0;
-    for &cut in &input.cuts {
-        check_cut(&input.data, cut)?;
-        r.feed(input.data.get(pos..cut).unwrap_or_default())?;
-        pos = cut;
-        let _ = writeln!(r.out, "checkpoint {cut}");
-        r.block();
+    match r.play(input) {
+        Ok(()) => Ok(r.out),
+        Err(f) => Err(Failure { output: r.out, ..f }),
     }
-    r.feed(input.data.get(pos..).unwrap_or_default())?;
-    if !input.cuts.is_empty() {
-        let _ = writeln!(r.out, "checkpoint {}", input.data.len());
-    }
-    r.block();
-    Ok(r.out)
 }
 
 /// A cut inside a test command's introducer is a usage failure; one later
@@ -135,6 +126,24 @@ impl<'a> Replay<'a> {
             frame: FrameState::new(palettes::DEFAULT),
             callers: [None; 8],
         }
+    }
+
+    /// Feeds the stream, printing a block at each cut and at the end.
+    fn play(&mut self, input: &Input) -> Result<(), Failure> {
+        let mut pos = 0;
+        for &cut in &input.cuts {
+            check_cut(&input.data, cut)?;
+            self.feed(input.data.get(pos..cut).unwrap_or_default())?;
+            pos = cut;
+            let _ = writeln!(self.out, "checkpoint {cut}");
+            self.block();
+        }
+        self.feed(input.data.get(pos..).unwrap_or_default())?;
+        if !input.cuts.is_empty() {
+            let _ = writeln!(self.out, "checkpoint {}", input.data.len());
+        }
+        self.block();
+        Ok(())
     }
 
     /// Feeds a segment between two cuts, running each test command in it.
