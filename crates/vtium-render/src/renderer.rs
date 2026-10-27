@@ -76,7 +76,11 @@ pub struct DrawState {
     /// The palette's default background, around the grid and behind the
     /// pointer.
     pub background: Rgb,
-    /// The pointer's centre in the grid's pixels, unturned, when shown.
+    /// The pointer's centre in the grid's pixels, unturned, for the
+    /// renderer to draw: set only on a display without a cursor plane
+    /// (fbdev, legacy drm2d, a plane that refused the cursor), which the
+    /// display tells its owner. `None` when the pointer is hidden or the
+    /// display's cursor plane shows it.
     pub pointer: Option<(u32, u32)>,
 }
 
@@ -407,20 +411,18 @@ impl<F: Face> Renderer<F> {
         let pointer = state
             .pointer
             .and_then(|p| self.place_pointer(&grid, state, p));
-        for p in self
-            .pointer
-            .iter()
-            .chain(pointer.iter())
-            .copied()
-            .collect::<Vec<_>>()
-        {
-            self.stamp_pointer(&p);
+        if pointer != self.pointer {
+            // it appeared, moved, hid or changed colour: the cells it left
+            // and the cells it covers change
+            for p in [self.pointer, pointer].into_iter().flatten() {
+                self.stamp_pointer(&p);
+            }
+            self.pointer = pointer;
         }
         let cells = self.draw_cells(&grid, frame, target, state);
-        if let Some(p) = &pointer {
-            self.draw_pointer(p, target);
+        if let Some(p) = pointer.filter(|p| self.pointer_cells_drawn(p)) {
+            self.draw_pointer(&p, target);
         }
-        self.pointer = pointer;
         let layout = self.layout;
         let whole = full.then_some(Rect {
             x: 0,
@@ -817,6 +819,11 @@ impl<F: Face> Renderer<F> {
                 self.cells.stamp(c, r);
             }
         }
+    }
+
+    /// Whether this frame drew a cell under `p`, and so drew over it.
+    fn pointer_cells_drawn(&self, p: &Pointer) -> bool {
+        (p.row..p.row.saturating_add(2)).any(|r| self.cells.any_drawn(p.col, r, 2))
     }
 
     /// Draws the pointer over the cells under it, which join the damage.

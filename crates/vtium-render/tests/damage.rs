@@ -394,6 +394,49 @@ fn an_age_past_the_history_draws_the_buffer_whole() {
     }
 }
 
+// The pointer drawn in software, on a display without a cursor plane,
+// damages its cells only when it appears, moves or hides, or a cell under
+// it changes: an idle frame with the pointer shown draws nothing.
+#[test]
+fn the_pointer_damages_its_cells_only_when_it_changes() {
+    let mut s = prompt();
+    let (w, h) = PROMPT;
+    let mut d = Display::new(2, w, h);
+    let base = state(&s);
+    let at = |p: Option<(u32, u32)>| DrawState { pointer: p, ..base };
+    // the two by two cells from `col`, `row`: a rectangle a row
+    let quad = |col: u32, row: u32| {
+        [row, row + 1].map(|r| Rect {
+            width: 16,
+            ..cell(col, r, w, h, 20, 4)
+        })
+    };
+    let (shown, moved) = (at(Some((60, 20))), at(Some((100, 40))));
+    // the pointer at 60,20 covers columns 7 and 8 of rows 0 and 1; at
+    // 100,40, columns 12 and 13 of rows 2 and 3
+    for st in [&shown, &shown] {
+        assert_eq!(d.draw(&mut s, st), whole(w, h));
+    }
+    assert!(d.draw(&mut s, &shown).is_empty(), "idle, the pointer shown");
+    assert!(d.back().writes.is_empty(), "an idle frame writes nothing");
+    for buffer in ["moved", "the other buffer"] {
+        assert_eq!(
+            d.draw(&mut s, &moved),
+            [quad(7, 0), quad(12, 2)].concat(),
+            "{buffer}"
+        );
+    }
+    assert!(d.draw(&mut s, &moved).is_empty(), "idle after the move");
+    s.put(13, 3, 'k', false, style(rgb(FG), rgb(BG)));
+    assert_eq!(d.draw(&mut s, &moved), quad(12, 2), "a cell under it");
+    assert_eq!(d.draw(&mut s, &moved), quad(12, 2), "the other buffer");
+    assert!(d.draw(&mut s, &moved).is_empty());
+    let hidden = at(None);
+    assert_eq!(d.draw(&mut s, &hidden), quad(12, 2), "hidden");
+    assert_eq!(d.draw(&mut s, &hidden), quad(12, 2), "the other buffer");
+    assert!(d.draw(&mut s, &hidden).is_empty(), "idle, no pointer");
+}
+
 #[test]
 fn damage_merges_cells_up_to_three_apart() {
     let mut s = Screen::new(20, 2, rgb(FG), rgb(BG));
