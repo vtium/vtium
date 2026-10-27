@@ -200,7 +200,15 @@ impl fmt::Display for Problem {
             Problem::NeedsValue(k) => write!(f, "{k} needs a value, ignored"),
             Problem::TakesNoValue(k) => write!(f, "{k} takes no value, ignored"),
             Problem::NotANumber { key, value } => {
-                write!(f, "{key}={} is not a whole number, ignored", quote(value))
+                let or = match keys::find(key).map(|k| k.kind) {
+                    Some(Kind::Number { word: Some(w), .. }) => format!(" or {w}"),
+                    _ => String::new(),
+                };
+                write!(
+                    f,
+                    "{key}={} is not a whole number{or}, ignored",
+                    quote(value)
+                )
             }
             Problem::Clamped { key, value, used } => {
                 write!(f, "{key}={} is out of bounds, {used} used", quote(value))
