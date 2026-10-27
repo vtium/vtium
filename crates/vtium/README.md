@@ -24,11 +24,15 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/main.rs` | Start-up and the loop |
 | `tests/check_config.rs` | `vtium check-config` run as a binary: its warnings, exit status and help, and with strace on the machine, that it opens nothing but the configuration |
 | `tests/panic_hook.rs` | The panic hook's order, in a process of its own |
-| `tests/boot.rs` | The seat booted with no hardware: output drawn, keys, a VT switch, the blank, the respawn limit, DECARM, the font's policy, the exit |
+| `tests/boot.rs` | The seat booted with no hardware: output drawn, keys, a VT switch, the blank and what counts as activity, the respawn limit, DECARM, the font's policy, the exit |
 | `install/kmscon.conf.example` | The example configuration, generated from the key table |
 | `install/kmscon.ti` | The terminfo entry, installed compiled with `tic -x` |
 
 `docs/config.md` describes every key. `VTIUM_BLESS=1 cargo test -p vtium` rewrites the three generated files; without it, a test fails when one differs from its source.
+
+## The blank
+
+After `dpms-timeout` with no activity every display powers down, and the next activity powers it up. Activity is a key or pointer event, and the wake-up after the user switches back to vtium's VT. A hotplug and a re-take are not: a re-take sets the displays up again and keeps the blank and its timer as they were, and while blanked its set-up waits for the input that ends the blank (the operator's decision on vtium/vtium#21).
 
 ## Bounds
 

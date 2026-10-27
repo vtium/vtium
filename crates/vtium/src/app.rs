@@ -10,15 +10,16 @@
 //!   whole; `Release` deactivates the terminal, puts the input and every
 //!   device to sleep, and acknowledges once each reported `Asleep`;
 //!   `Retaken` sets every device's displays up again, or while blanked
-//!   at the input that ends the blank; `Hangup` exits.
+//!   at the input that ends the blank, and keeps the blank and its timer;
+//!   `Hangup` exits.
 //! - **Keys**, in order: the VT's, then the seat's (none: one session),
 //!   then the terminal's grabs, then DECARM's drop of a repeat, then the
 //!   encoder. A key draws at once and holds the cursor's blink.
 //! - **The blank.** Each key and pointer event goes to every device's
 //!   `input`, which retries a failed wake-up, and to [`Blank::input`]; a
-//!   device's `Awake` goes to [`Blank::input`] too, and whenever it says
-//!   the displays were blanked every device unblanks. A hotplug never
-//!   counts.
+//!   device's `Awake` goes to [`Blank::input`] too, but a re-take's, and
+//!   whenever it says the displays were blanked every device unblanks. A
+//!   hotplug or a re-take never counts.
 //! - **The child.** It runs on the pty at the grid's size; when it exits
 //!   the respawn policy starts it again or ends vtium.
 //! - **Exit.** A request (SIGTERM, SIGINT, a hangup, the policy) switches
@@ -142,6 +143,9 @@ pub struct App {
     /// The VT was re-taken while blanked: every device is set up again
     /// at the input that ends the blank.
     retake_owed: bool,
+    /// Devices a re-take is setting up again: their `Awake` is not
+    /// activity (the operator's decision on vtium/vtium#21).
+    retaking: BTreeSet<PathBuf>,
     /// Devices a release waits on.
     releasing: Option<BTreeSet<PathBuf>>,
     /// Every display draws at once at the end of the turn.
@@ -247,6 +251,7 @@ impl App {
             respawn: None,
             awake: false,
             retake_owed: false,
+            retaking: BTreeSet::new(),
             releasing: None,
             draw_now: false,
             text_due: None,
@@ -313,6 +318,7 @@ impl App {
     pub fn remove_video(&mut self, node: &std::path::Path) {
         self.videos.remove(node);
         self.views.retain(|(n, _), _| n != node);
+        self.retaking.remove(node);
         if let Some(r) = &mut self.releasing {
             r.remove(node);
         }
@@ -577,16 +583,13 @@ impl App {
     /// The blank's timer: every display powers down.
     fn blank_now(&mut self) {
         for video in self.videos.values_mut() {
-            for id in video.displays() {
-                if let Err(e) = video.set_dpms(id, Dpms::Off) {
-                    log::warn!("cannot blank a display: {e}");
-                }
-            }
+            power_down(video.as_mut());
         }
         self.deactivate();
     }
 
-    /// A key or pointer event, or a device's wake-up, counts as activity.
+    /// A key or pointer event, or a device's wake-up but a re-take's,
+    /// counts as activity.
     fn activity(&mut self, now: Instant) {
         if self.blank.input(now) {
             let retake = std::mem::take(&mut self.retake_owed);
@@ -609,8 +612,10 @@ impl App {
     fn vt_event(&mut self, event: VtEvent, now: Instant) {
         match event {
             VtEvent::Acquired => {
-                // The wake-up sets every device up, an owed re-take's too.
+                // The wake-up sets every device up, an owed re-take's too,
+                // and each `Awake` it brings counts as activity.
                 self.retake_owed = false;
+                self.retaking.clear();
                 if let Some(input) = &mut self.input {
                     input.wake_up();
                 }
@@ -639,6 +644,7 @@ impl App {
             }
             VtEvent::Retaken => {
                 for (node, video) in &mut self.videos {
+                    self.retaking.insert(node.clone());
                     if let Err(e) = video.wake_up() {
                         log::warn!("cannot set up {} again: {e}", node.display());
                     }
@@ -677,6 +683,15 @@ impl App {
                     t.flip();
                 }
             }
+            // A re-take's set-up keeps the blank and its timer: a retry
+            // that lands after the blank powers the displays down again.
+            Event::Awake if self.retaking.remove(node) => {
+                if self.blank.blanked() {
+                    if let Some(video) = self.videos.get_mut(node) {
+                        power_down(video.as_mut());
+                    }
+                }
+            }
             Event::Awake => self.activity(now),
             Event::Asleep => {
                 if let Some(r) = &mut self.releasing {
@@ -684,6 +699,7 @@ impl App {
                 }
             }
             Event::WakeFailed => {
+                self.retaking.remove(node);
                 log::warn!(
                     "{}: the displays did not wake; the next key tries again",
                     node.display()
@@ -1219,6 +1235,15 @@ impl App {
                     .to_owned()
             })
             .collect()
+    }
+}
+
+/// Powers every display of `video` down.
+fn power_down(video: &mut dyn Video) {
+    for id in video.displays() {
+        if let Err(e) = video.set_dpms(id, Dpms::Off) {
+            log::warn!("cannot blank a display: {e}");
+        }
     }
 }
 

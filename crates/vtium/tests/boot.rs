@@ -263,12 +263,26 @@ impl Harness {
         done(&self.app)
     }
 
+    /// The memory device, or the one a late device holds.
     fn memory(&mut self) -> &mut Memory {
+        let any = self
+            .app
+            .videos
+            .get_mut(Path::new("/dev/mem0"))
+            .expect("the memory device")
+            .as_any();
+        if any.is::<Late>() {
+            return &mut any.downcast_mut::<Late>().expect("a late device").memory;
+        }
+        any.downcast_mut::<Memory>().expect("the memory device")
+    }
+
+    fn late(&mut self) -> &mut Late {
         self.app
             .videos
             .get_mut(Path::new("/dev/mem0"))
-            .and_then(|v| v.as_any().downcast_mut::<Memory>())
-            .expect("the memory device")
+            .and_then(|v| v.as_any().downcast_mut::<Late>())
+            .expect("the late device")
     }
 
     /// The scripted VT the harness was built with.
@@ -532,6 +546,100 @@ fn a_retake_while_blanked_waits_dark_for_input() {
     assert!(h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::Off)));
     h.type_str("b");
     assert_eq!(h.memory().wake_ups, wake_ups + 1);
+}
+
+/// A seat that blanks after 3 s with no input, on the scripted VT.
+fn blanking() -> Harness {
+    Harness::with_vt(
+        &[
+            "--dpms-timeout=3",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read x",
+        ],
+        ScriptedVt::default(),
+    )
+}
+
+#[test]
+fn a_retake_keeps_the_blanks_countdown() {
+    let mut h = blanking();
+    let start = now();
+    h.until(Duration::from_secs(2), |_| false);
+    assert_eq!(h.memory().dpms, Some(Dpms::On), "lit before the timeout");
+    let wake_ups = h.memory().wake_ups;
+    h.scripted().events.push(VtEvent::Retaken);
+    // The re-take sets the display up again and is not activity: the
+    // blank comes 3 s after the start, not 3 s after the re-take.
+    assert!(
+        h.until_memory(Duration::from_secs(2), |m| m.dpms == Some(Dpms::Off)),
+        "blanked at the start's timeout, {:?} after the start",
+        now() - start
+    );
+    assert_eq!(h.memory().wake_ups, wake_ups + 1, "set up again");
+}
+
+#[test]
+fn an_acquire_restarts_the_blanks_countdown() {
+    let mut h = blanking();
+    h.until(Duration::from_secs(2), |_| false);
+    h.scripted().events.push(VtEvent::Release);
+    assert!(h.until(SECOND, |a| !a.vt.is_active()), "released");
+    let wake_ups = h.memory().wake_ups;
+    h.scripted().active = true;
+    h.scripted().events.push(VtEvent::Acquired);
+    assert!(
+        h.until_memory(SECOND, |m| m.wake_ups == wake_ups + 1),
+        "woken by the acquire"
+    );
+    // The switch back is the user's: the countdown starts again from it.
+    assert!(
+        !h.until_memory(Duration::from_secs(2), |m| m.dpms == Some(Dpms::Off)),
+        "lit 2 s after the acquire"
+    );
+    assert!(
+        h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::Off)),
+        "blanked 3 s after the acquire"
+    );
+}
+
+#[test]
+fn a_retakes_wake_up_landing_after_the_blank_leaves_it_dark() {
+    let late = Late {
+        memory: Memory::default(),
+        held: None,
+    };
+    let mut h = Harness::build(
+        &[
+            "--dpms-timeout=1",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read x",
+        ],
+        ScriptedVt::default(),
+        Box::new(late),
+    );
+    assert!(h.until_memory(SECOND, |m| m.frames > 0), "drawn");
+    // The re-take's wake-up retries past the blank.
+    h.late().held = Some(Event::Awake);
+    h.scripted().events.push(VtEvent::Retaken);
+    assert!(
+        h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::Off)),
+        "blanked after dpms-timeout"
+    );
+    // Its modeset lights the display, and its `Awake` arrives.
+    h.memory().dpms = Some(Dpms::On);
+    h.late().held = None;
+    h.until(Duration::from_millis(200), |_| false);
+    assert_eq!(h.memory().dpms, Some(Dpms::Off), "dark again");
+    // Still blanked: the next key unblanks.
+    h.type_str("a");
+    assert_eq!(h.memory().unblanks, 1);
+    assert_eq!(h.memory().dpms, Some(Dpms::On));
 }
 
 fn key(mods: Mods, keysym: u32) -> InputEvent {
@@ -880,27 +988,25 @@ fn a_long_write_draws_at_most_once_a_refresh() {
     assert!(frames <= most, "{frames} frames in {elapsed:?}");
 }
 
-/// A device whose `Asleep` waits until the test lets it through, as a
-/// flip in flight delays a DRM device's.
-struct LateSleep {
+/// A device whose events of one kind wait until the test lets them
+/// through: an `Asleep` as a flip in flight delays a DRM device's, an
+/// `Awake` as a wake-up's retries do.
+struct Late {
     memory: Memory,
-    held: bool,
+    held: Option<Event>,
 }
 
-impl Video for LateSleep {
+impl Video for Late {
     fn backend(&self) -> &'static str {
         "memory"
     }
     fn events(&mut self) -> Vec<Event> {
-        let held = self.held;
-        let mut events = self.memory.events();
-        let late: Vec<Event> = events
-            .iter()
-            .filter(|e| held && matches!(e, Event::Asleep))
-            .cloned()
-            .collect();
-        events.retain(|e| !(held && matches!(e, Event::Asleep)));
-        self.memory.events.extend(late);
+        let (late, events) = self
+            .memory
+            .events()
+            .into_iter()
+            .partition(|e| Some(*e) == self.held);
+        self.memory.events = late;
         events
     }
     fn displays(&self) -> Vec<DisplayId> {
@@ -951,9 +1057,9 @@ impl Video for LateSleep {
 /// many turns the last takes.
 #[test]
 fn a_release_waits_for_every_device_to_sleep() {
-    let late = LateSleep {
+    let late = Late {
         memory: Memory::default(),
-        held: true,
+        held: Some(Event::Asleep),
     };
     let mut h = Harness::build(
         &["--login", "--", "/bin/sh", "-c", "read x"],
@@ -969,12 +1075,7 @@ fn a_release_waits_for_every_device_to_sleep() {
         h.app.vt.is_active(),
         "acknowledged before every device slept"
     );
-    h.app
-        .videos
-        .get_mut(Path::new("/dev/mem0"))
-        .and_then(|v| v.as_any().downcast_mut::<LateSleep>())
-        .expect("the late device")
-        .held = false;
+    h.late().held = None;
     assert!(
         h.until(SECOND, |a| !a.vt.is_active()),
         "acknowledged once the last device slept"
