@@ -6,14 +6,15 @@
 //! The dispatch here carries the printing, the C0 and C1 controls, and the
 //! control functions. The modes go through the mode table (`modes.rs`),
 //! SGR through `sgr.rs`, the replies through `reply.rs`, the character
-//! sets through `charset.rs`, and the keys, the pointer, focus and pastes
-//! through `input.rs`.
+//! sets through `charset.rs`, OSC 52 through `clipboard.rs`, and the keys,
+//! the pointer, focus and pastes through `input.rs`.
 //!
 //! A control function is matched by its final byte, its private marker and
 //! its intermediates exactly, as `vtium-parse`'s README asks: `CSI ? 5 A`
 //! is not CUU.
 
 mod charset;
+mod clipboard;
 mod input;
 mod modes;
 mod reply;
@@ -188,6 +189,8 @@ struct State {
     dcs: Dcs,
     /// The cursor's blink interval, `CSI 16 ; Pn ]` (the Linux console's).
     cursor_blink_ms: Option<u32>,
+    /// The selection OSC 52 set last, until the host takes it.
+    clipboard: Option<Vec<u8>>,
     /// The queries answered, in order, for the reply rule's test.
     #[cfg(test)]
     answered: Vec<Query>,
@@ -224,6 +227,7 @@ impl Terminal {
             pause: false,
             dcs: Dcs::Ignored,
             cursor_blink_ms: None,
+            clipboard: None,
             #[cfg(test)]
             answered: Vec::new(),
         };
@@ -264,6 +268,14 @@ impl Terminal {
 
     pub fn take_replies(&mut self) -> Vec<u8> {
         core::mem::take(&mut self.state.out)
+    }
+
+    /// The selection a program set with OSC 52 since the last call, decoded,
+    /// at most [`CLIPBOARD_MAX`](crate::CLIPBOARD_MAX) bytes; a later set
+    /// replaced an earlier one. The host puts it in its selection buffer, or
+    /// drops it when its configuration turns copy-out off.
+    pub fn take_clipboard_write(&mut self) -> Option<Vec<u8>> {
+        self.state.clipboard.take()
     }
 
     /// DECSCUSR's style.
@@ -721,9 +733,14 @@ impl Consumer for State {
         }
     }
 
+    /// A truncated string is dropped whole, as vtium-parse's README asks.
     fn osc_end(&mut self, data: &[u8], truncated: bool, end: StringEnd) {
-        if end.is_complete() && !truncated {
-            self.reply_osc(data, end);
+        if !end.is_complete() || truncated {
+            return;
+        }
+        match data.strip_prefix(b"52;") {
+            Some(args) => self.set_clipboard(args),
+            None => self.reply_osc(data, end),
         }
     }
 
