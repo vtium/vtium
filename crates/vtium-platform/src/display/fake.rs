@@ -6,7 +6,8 @@
 //! flip is pending with EBUSY, and a commit asking for a flip event that
 //! names no CRTC (`prepare_signaling`) or a CRTC that is off and stays off
 //! (`drm_atomic_crtc_check`) with EINVAL. A framebuffer removed while a
-//! plane shows it takes the plane off its CRTC (`atomic_remove_fb`).
+//! plane shows it takes the plane off its CRTC (`atomic_remove_fb`), and
+//! a dumb buffer keeps what its mappings wrote, for a test to read back.
 //! A connector's DPMS and its CRTC's `ACTIVE` are one state, as on an
 //! atomic driver: setting either sets the other.
 
@@ -134,10 +135,45 @@ pub(crate) struct State {
     pub(crate) fbs: BTreeMap<u32, (u32, u32)>,
 }
 
+/// The bytes of each dumb buffer, by handle: what its mappings wrote.
+type Memory = Rc<RefCell<BTreeMap<u32, Vec<u8>>>>;
+
+/// A dumb buffer's mapping: its bytes, written back to the card's memory
+/// when the mapping goes, as device memory keeps what was written to it.
+#[derive(Debug)]
+pub(crate) struct Mapping {
+    handle: u32,
+    bytes: Vec<u8>,
+    memory: Memory,
+}
+
+impl std::ops::Deref for Mapping {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+impl AsMut<[u8]> for Mapping {
+    fn as_mut(&mut self) -> &mut [u8] {
+        &mut self.bytes
+    }
+}
+
+impl Drop for Mapping {
+    fn drop(&mut self) {
+        let bytes = std::mem::take(&mut self.bytes);
+        if let Some(m) = self.memory.borrow_mut().get_mut(&self.handle) {
+            *m = bytes;
+        }
+    }
+}
+
 /// The stand-in card.
 #[derive(Debug)]
 pub(crate) struct FakeCard {
     state: RefCell<State>,
+    memory: Memory,
     next: Cell<u32>,
     /// Property names by id; ids are given per name.
     names: RefCell<Vec<String>>,
@@ -154,6 +190,7 @@ impl Default for FakeCard {
             .unwrap_or_else(|e| panic!("non-blocking: {e}"));
         FakeCard {
             state: RefCell::default(),
+            memory: Memory::default(),
             next: Cell::new(1000),
             names: RefCell::default(),
             events: (Rc::new(OwnedFd::from(watched)), writer),
@@ -225,6 +262,12 @@ impl FakeCard {
             );
         }
         card
+    }
+
+    /// The bytes of the dumb buffer `handle` as its last mapping left
+    /// them, if it is still there.
+    pub(crate) fn memory(&self, handle: u32) -> Option<Vec<u8>> {
+        self.memory.borrow().get(&handle).cloned()
     }
 
     pub(crate) fn state(&self) -> std::cell::RefMut<'_, State> {
@@ -300,7 +343,7 @@ const PLANE_PROPS: [&str; 10] = [
 ];
 
 impl Kms for FakeCard {
-    type Map = Vec<u8>;
+    type Map = Mapping;
 
     fn fd(&self) -> Rc<OwnedFd> {
         Rc::clone(&self.events.0)
@@ -442,14 +485,20 @@ impl Kms for FakeCard {
             .borrow_mut()
             .dumbs
             .insert(handle, (width, height));
+        let size = width * 4 * height;
+        // A new buffer holds whatever the device memory held.
+        self.memory
+            .borrow_mut()
+            .insert(handle, vec![0xa5; usize::try_from(size).unwrap_or(0)]);
         Ok(Dumb {
             handle,
             pitch: width * 4,
-            size: u64::from(width * 4 * height),
+            size: u64::from(size),
         })
     }
 
     fn destroy_dumb(&self, handle: u32) -> io::Result<()> {
+        self.memory.borrow_mut().remove(&handle);
         let mut s = self.state.borrow_mut();
         s.dumbs
             .remove(&handle)
@@ -457,9 +506,13 @@ impl Kms for FakeCard {
             .ok_or_else(|| err(Errno::NOENT))
     }
 
-    fn map_dumb(&self, dumb: &Dumb) -> io::Result<Vec<u8>> {
-        // A mapping holds whatever the device memory held.
-        Ok(vec![0xa5; usize::try_from(dumb.size).unwrap_or(0)])
+    fn map_dumb(&self, dumb: &Dumb) -> io::Result<Mapping> {
+        let bytes = self.memory(dumb.handle).ok_or_else(|| err(Errno::NOENT))?;
+        Ok(Mapping {
+            handle: dumb.handle,
+            bytes,
+            memory: Rc::clone(&self.memory),
+        })
     }
 
     fn add_fb(&self, _: &Dumb, width: u32, height: u32, _: u32) -> io::Result<u32> {

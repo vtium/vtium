@@ -367,6 +367,35 @@ fn the_cursor_goes_with_the_next_commit() {
     assert_eq!(c.get(cp, "CRTC_ID"), Some(0));
 }
 
+// The pointer's image on the cursor plane (vtium/vtium#92): the plane's
+// framebuffer holds the image row by row at the buffer's pitch, cut to the
+// plane's 64 by 64 and clear around it, and the commit that shows it names
+// that framebuffer, with the hotspot on the pointer.
+#[test]
+fn the_cursor_plane_shows_the_image_set_up() {
+    let mut v = awake(one());
+    let cp = cursor_plane(&v, A);
+    let image: Vec<u32> = (0..70 * 2).map(|i| 0xff00_0000 | i).collect();
+    v.setup_cursor(DisplayId(A), &image, 70, 2, (3, 1)).unwrap();
+    v.show_cursor(DisplayId(A), 40, 30).unwrap();
+    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Cursor);
+    let c = v.card().last_commit().unwrap();
+    let cursor = v.outputs[0].cursor.as_ref().unwrap();
+    assert_eq!(c.get(cp, "FB_ID"), Some(u64::from(cursor.fb)));
+    assert_eq!(c.get(cp, "CRTC_X"), Some(40 - 3));
+    assert_eq!(c.get(cp, "CRTC_Y"), Some(30 - 1));
+    assert_eq!(c.get(cp, "HOTSPOT_X"), Some(3));
+    assert_eq!(c.get(cp, "HOTSPOT_Y"), Some(1));
+    let bytes = v.card().memory(cursor.dumb.handle).unwrap();
+    assert_eq!(bytes.len(), 64 * 64 * 4);
+    for (px, i) in bytes.chunks_exact(4).zip(0u32..) {
+        let (x, y) = (i % 64, i / 64);
+        let want = if y < 2 { 0xff00_0000 | (y * 70 + x) } else { 0 };
+        let got = u32::from_ne_bytes(px.try_into().unwrap());
+        assert_eq!(got, want, "{x},{y}");
+    }
+}
+
 #[test]
 fn a_failed_commit_keeps_the_cursor_waiting() {
     let mut v = awake(one());
