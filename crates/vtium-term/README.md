@@ -100,13 +100,17 @@ The C reference's cluster table took a hash seed from the system's entropy, and 
 - **Sixel (vtium/vtium#48)** adds attribute 4 to DA1, and the rows 80, 1070 and 8452 to the mode table, offered only while sixel is on, as the C reference's `HOST_SIXEL` rows were.
 - **The colour stacks and setting (vtium/vtium#38)** answer OSC 12 and set colours through OSC 4, 10, 11 and 104 to 111; the queries read `Terminal::palette()`.
 - **Tier 1 before the runner:** a scratch replay, not committed, compared the screen view's `checkpoint`, `size`, `cursor` and `row` lines with the C reference's `golden/` for every case in `cases.list` at origin/main. Before vtium/vtium#12, 118 of 164 cases matched, and 113 with the `flags` lines too; after it, 137 match, with the `flags` lines too, and after vtium/vtium#13, 138. With the `reply` and `test` lines added, 91 match, and with the `attr` lines, 90. Every case that differs on rows, flags, replies or attributes outside the image, frame and palette cases is a listed departure, or one of these: `kit-cursor` (DECSTBM homes the cursor), `utf8-ill-formed` (vtium-parse's C1 departure), `img-resize` and `img-resize-shrink` (the screen view's own departure in the replay interface), and `host-palette` (the `palette` command). The capability probes that are replay cases pass for the modes, SGR, the replies and the input, `da1-level` and `da3` among them, which the C reference failed; `xtgettcap` differs only by the uppercase names.
-- **Goldens the departures move**, for vtium/vtium#14's list. The character-set departures move none: no case designates into G1 to G3, invokes a set into GR or uses a single shift, and `dec-graphics` matches its golden.
-  - `kit-cursor`: DECSTBM homes the cursor. The stream ends with `CSI r`, after which vtium's cursor is at 0,0 where the golden's is at 5,2.
-  - `replies-da1`, `prog-tmux`, `host-identify`, `six-off`, `six-replies`, `kit-host-icat` and `kit-host-icat-nohook`: DA1's `CSI ? 62 ; 22 c` where the golden has level 60.
-  - `host-identify`: XTGETTCAP's names in uppercase hex, `544E` and `436F` where the golden echoes `544e` and `436f`.
-  - `input-paste`: the paste filter turns the ESC of the pasted `CSI 201 ~` into a space, so checkpoint 151's reply is `1b5b3230307e205b3230317e781b5b3230317e`.
-  - `query-frames`: columns a widening resize adds are blank in the default style. The golden's frame view shows columns 10 and 11 of each row, added by the resize from 10 to 12 columns, with `fg=#ffffff` and `ul=#ffffff`; vtium's are default cells and print no `cells` line. Test: `columns_a_widening_resize_adds_are_blank_in_the_default_style`.
-  - `img-alt-47` (an image case): the C reference's alternate screen started with cells of colour code 0 on 0, so its golden shows `attr` runs of `fg=0 bg=0` where vtium's untouched cells have the default colours. No specification covers it; it is a candidate for the runner's list when the image cases run.
+
+## Golden differences
+
+The cases whose golden a departure moves, for vtium/vtium#14's list. The character-set departures move none: no case designates into G1 to G3, invokes a set into GR or uses a single shift, and `dec-graphics` matches its golden.
+
+- `kit-cursor`: DECSTBM homes the cursor. The stream ends with `CSI r`, after which vtium's cursor is at 0,0 where the golden's is at 5,2.
+- `replies-da1`, `prog-tmux`, `host-identify`, `six-off`, `six-replies`, `kit-host-icat` and `kit-host-icat-nohook`: DA1's `CSI ? 62 ; 22 c` where the golden has level 60.
+- `host-identify`: XTGETTCAP's names in uppercase hex, `544E` and `436F` where the golden echoes `544e` and `436f`.
+- `input-paste`: the paste filter turns the ESC of the pasted `CSI 201 ~` into a space, so checkpoint 151's reply is `1b5b3230307e205b3230317e781b5b3230317e`.
+- `query-frames`: columns a widening resize adds are blank in the default style. The golden's frame view shows columns 10 and 11 of each row, added by the resize from 10 to 12 columns, with `fg=#ffffff` and `ul=#ffffff`; vtium's are default cells and print no `cells` line. Test: `columns_a_widening_resize_adds_are_blank_in_the_default_style`.
+- `img-alt-47` (an image case): the C reference's alternate screen started with cells of colour code 0 on 0, so its golden shows `attr` runs of `fg=0 bg=0` where vtium's untouched cells have the default colours. No specification covers it; it is a candidate for the runner's list when the image cases run.
 
 ## Bounds
 
