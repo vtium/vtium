@@ -39,10 +39,12 @@
 //!   [`LEAVE_WAIT`] while the switch is pending.
 
 use std::any::Any;
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use vtium_font::{Face, Font, Psf, Unifont};
@@ -60,8 +62,9 @@ use crate::child::{self, Display as SessionDisplay, Place};
 use crate::config::keys;
 use crate::config::{Config, ModeSpec};
 use crate::font;
-use crate::grab::{self, Chord, Grab, Power, PowerKey};
+use crate::grab::{self, Chord, Grab};
 use crate::layout::{self, Zoom};
+use crate::power::{self, Power, PowerKey};
 use crate::respawn::{self, Next, Respawn};
 use crate::sync::{Action, Sync};
 use crate::term::{Clock, Term, View};
@@ -239,6 +242,9 @@ pub struct App {
     /// The power keys the configuration binds, and what they act through.
     power_keys: Vec<(PowerKey, Vec<Chord>)>,
     power: Box<dyn Power>,
+    /// The child writing `/sys/power/state` has not exited: the machine
+    /// sleeps, or is going to.
+    sleeping: Rc<Cell<bool>>,
 }
 
 impl App {
@@ -301,7 +307,8 @@ impl App {
             selection: None,
             tracking: MouseTracking::Off,
             power_keys,
-            power: Box::<grab::System>::default(),
+            power: Box::new(power::System),
+            sleeping: Rc::default(),
             modes,
             use_original,
             vt,
@@ -958,8 +965,14 @@ impl App {
             // One action a press: a held chord's repeats would ask again,
             // and systemd takes seven Ctrl+Alt+Del in two seconds as an
             // immediate reboot.
-            if !key.repeat {
-                grab::press(power_key, self.power.as_mut());
+            if key.repeat {
+                return;
+            }
+            if let Some(child) = power::press(power_key, self.power.as_mut(), self.sleeping.get()) {
+                let sleeping = Rc::clone(&self.sleeping);
+                if let Err(e) = vtium_platform::power::watch(&self.handle, child, sleeping) {
+                    log::error!("grab-suspend: cannot watch the write to /sys/power/state: {e}");
+                }
             }
             return;
         }

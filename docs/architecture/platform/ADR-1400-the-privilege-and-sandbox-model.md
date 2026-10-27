@@ -45,6 +45,10 @@ basis:
   - upstream: "aaronsb/kmscon PR #162, the helper's progression in commit order: identity first (c8f02579, 2136ddfc, 6f9b0759), the host's distrust of the helper (79d765f1, a15d49ad, 935eec64), the path rules (58f21637, 76202204, 9ef29b7e, a7d475dc), the pre-login and root cases (735d12b7, f1a7f077, 2bd8013d, 75eaa582, fb991022); and the minimal build's refusal of an option turned on without its dependency (d30292fe)"
   - standard: "systemd.exec(5), systemd.resource-control(5) and pam_systemd(8), systemd 262: what a unit's directives apply to the processes it starts (external, not re-verified here)"
   - precedent: ADR-1000
+  - operator: aaronsb
+    level: directed
+    said: 'sd-bus behind the logind Cargo feature, plus a fallback: when logind is not running or the feature is off, vtium writes mem to /sys/power/state as root, so the minspec build suspend key works too'
+    via: operator decision on vtium/vtium#21 grab-suspend, 2026-10-27, relayed by the team lead; paraphrased in the relay
 agent:
   name: Claude
   model: claude-opus-5-5
@@ -96,7 +100,7 @@ The C reference's layers, in its order, each optional above L0:
 |---|---|---|---|---|
 | L0, the baseline | Root for life; the VT, DRM or fbdev, and evdev opened directly; the login child holding only fds 0-2; the reply rule and every bound | nothing | minspec; #12, #18, #19, #20, #21 | Uses none, as the C reference's minimal build used none but libudev. |
 | L1, the helper | Reading and decoding image media as the session's user, with the identity modes below (feature `images`) | L0 | images; #31 | No logind: the identity is the pty's owner, as in the C reference. No pre-login account: `nobody`, then refused, as in the C reference. |
-| L2, logind and libseat | The helper's identity from logind, through sd-login (feature `logind`); devices and VT switching through libseat (feature `libseat`) | L0, L1 | seat; #31, #34 | A build without the feature, or a system where logind or the seat daemon is not running, behaves as L0 and L1, as the C reference did with logind absent and libseat off by default. |
+| L2, logind and libseat | The helper's identity from logind, through sd-login, and `grab-suspend` through logind's `Suspend`, through sd-bus (feature `logind`); devices and VT switching through libseat (feature `libseat`) | L0, L1 | seat; #31, #34, #21 | A build without the feature, or a system where logind or the seat daemon is not running, behaves as L0 and L1, as the C reference did with logind absent and libseat off by default; `grab-suspend` writes `mem` to `/sys/power/state` as root. |
 
 The units and the sysusers file are installed files, never a layer: a hand launch needs none of them (D3).
 
@@ -104,6 +108,7 @@ The units and the sysusers file are installed files, never a layer: a hand launc
 
 - `images` brings the helper. No build has images without it.
 - `logind` reads sessions through sd-login, from libsystemd or libelogind. It is on wherever `images` is in the default feature set, as the C reference's `sd_login=auto` linked sd-login whenever images were built and the library was present; it is used at run time only when logind is running. A build with `images` and without `logind` is an explicit choice for hosts without libsystemd or libelogind, and on a logind host it falls back to the pty's owner, which kmscon ADR-103 rejected as the first identity source because root can chown a pty; vtium lists that build as a departure. (Added 2026-10-26, from the advisor's review.)
+- `logind` also calls logind's `Suspend` for `grab-suspend` through sd-bus, from libsystemd, with a 2 s bound on the answer. Where the bus has no logind and cannot start it, or the feature is off, vtium writes `mem` to `/sys/power/state` as root, from a shell it starts, so the loop still serves the VT's switch to the kernel's suspend console. That write passes logind's inhibitors and its `PrepareForSleep` signal by, so on a logind host a build without the feature suspends with no delay inhibitor held and no other session's lock-on-suspend run; a refusal from a running logind is never worked around. sd-bus from libelogind is left to an issue. (Added 2026-10-27, from the operator's decision on vtium/vtium#21.)
 - `libseat` takes devices and VT switching through libseat.
 - A feature turned on without the C library it binds fails the build with a message naming the library, as the C reference's minimal build refused an option without its dependency. The minspec build links none of them.
 

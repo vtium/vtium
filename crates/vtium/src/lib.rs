@@ -35,6 +35,7 @@ pub mod hook;
 pub mod layout;
 pub mod logger;
 pub mod pointer;
+pub mod power;
 pub mod respawn;
 pub mod start;
 pub mod sync;

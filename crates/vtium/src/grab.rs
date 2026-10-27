@@ -1,18 +1,11 @@
-//! The keys vtium takes for itself, before the encoder.
-//!
-//! The seat's are the power keys, second in the key order after the VT's:
-//! `grab-reboot`, `grab-power-off` and `grab-suspend`, each unbound until
-//! the configuration binds a [`Chord`] to it. The terminal's grabs come
-//! third. Each is the C reference's default (`src/config.c:1275-1303` at
+//! The keys vtium takes for itself, before the encoder: the [`Chord`]s a
+//! grab key binds, which the power keys ([`crate::power`]) take, and the
+//! terminal's grabs, third in the key order. Each grab is the C
+//! reference's default (`src/config.c:1275-1303` at
 //! kmscon b1f7a7c5), matched as it matched them
 //! (`src/misc/conf.c:1103-1131`): the held modifiers exactly, and the
 //! key's keysyms. The C reference had no key to paste; Shift+Insert
 //! pastes, as xterm's `insert-selection` translation does.
-
-use std::io;
-use std::process::Child;
-
-use vtium_platform::power::Suspend;
 
 /// What a grab does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -146,135 +139,6 @@ pub fn matches(chords: &[Chord], mods: u8, keysyms: &[u32]) -> bool {
         .any(|c| c.mods == mods && c.keysyms == keysyms)
 }
 
-/// A power key: the seat's, unbound by default.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PowerKey {
-    /// `grab-reboot`.
-    Reboot,
-    /// `grab-power-off`.
-    PowerOff,
-    /// `grab-suspend`.
-    Suspend,
-}
-
-/// What the power keys act through: PID 1, logind and the kernel. The
-/// binary's is [`System`]; a test's is a stand-in.
-pub trait Power {
-    /// `/proc/sys/kernel/ctrl-alt-del`'s text.
-    fn ctrl_alt_del(&mut self) -> io::Result<String>;
-    /// `SIGINT` to PID 1, which init takes as Ctrl+Alt+Del: systemd starts
-    /// `ctrl-alt-del.target`, a reboot.
-    fn interrupt_init(&mut self) -> io::Result<()>;
-    /// `SIGRTMIN+4` to PID 1: systemd starts `poweroff.target`, which
-    /// stops the services and unmounts the filesystems first.
-    fn power_off_init(&mut self) -> io::Result<()>;
-    /// `sync()`, then `reboot(RB_AUTOBOOT)`: the kernel restarts at once.
-    fn restart_kernel(&mut self) -> io::Result<()>;
-    /// Suspend to RAM: logind's `Suspend` when built in and running, else
-    /// `mem` written to `/sys/power/state`.
-    fn suspend(&mut self) -> io::Result<()>;
-}
-
-/// The machine vtium runs on.
-#[derive(Default)]
-pub struct System {
-    /// The child writing `mem` to `/sys/power/state`, until it is reaped.
-    sleeper: Option<Child>,
-}
-
-impl Power for System {
-    fn ctrl_alt_del(&mut self) -> io::Result<String> {
-        std::fs::read_to_string("/proc/sys/kernel/ctrl-alt-del")
-    }
-    fn interrupt_init(&mut self) -> io::Result<()> {
-        vtium_platform::power::interrupt_init()
-    }
-    fn power_off_init(&mut self) -> io::Result<()> {
-        vtium_platform::power::power_off_init()
-    }
-    fn restart_kernel(&mut self) -> io::Result<()> {
-        vtium_platform::power::restart_kernel()
-    }
-    fn suspend(&mut self) -> io::Result<()> {
-        if let Some(sleeper) = &mut self.sleeper {
-            match sleeper.try_wait()? {
-                None => {
-                    log::warn!("grab-suspend: the last suspend has not woken yet");
-                    return Ok(());
-                }
-                Some(status) => log::info!("grab-suspend: the last suspend's write {status}"),
-            }
-            self.sleeper = None;
-        }
-        match vtium_platform::power::suspend()? {
-            Suspend::Logind => log::warn!("grab-suspend: logind took the request"),
-            Suspend::Sysfs(child) => {
-                log::warn!("grab-suspend: writing mem to /sys/power/state");
-                self.sleeper = Some(child);
-            }
-        }
-        Ok(())
-    }
-}
-
-/// Acts on a power key's press through `power`, and logs what it did.
-///
-/// The reboot takes the C reference's two paths (`src/seat.c:479-513`),
-/// chosen by `/proc/sys/kernel/ctrl-alt-del`, which the kernel reads for
-/// its own Ctrl+Alt+Del: at 0, or when it cannot be read, PID 1 is asked
-/// to reboot; at any other number the kernel restarts at once. Power-off
-/// asks PID 1, and suspend asks logind, or the kernel where logind is not
-/// running or not built in; neither calls `reboot(2)`.
-pub fn press(key: PowerKey, power: &mut dyn Power) {
-    let done = match key {
-        PowerKey::Reboot => match ctrl_alt_del(power) {
-            0 => {
-                log::warn!("grab-reboot: asking init to reboot");
-                power.interrupt_init()
-            }
-            _ => {
-                log::warn!("grab-reboot: restarting the kernel at once");
-                power.restart_kernel()
-            }
-        },
-        PowerKey::PowerOff => {
-            log::warn!("grab-power-off: asking init to power off");
-            power.power_off_init()
-        }
-        PowerKey::Suspend => {
-            log::warn!("grab-suspend: suspending");
-            power.suspend()
-        }
-    };
-    if let Err(e) = done {
-        log::error!("{}: {e}", name(key));
-    }
-}
-
-/// The configuration key that binds `key`.
-pub fn name(key: PowerKey) -> &'static str {
-    match key {
-        PowerKey::Reboot => "grab-reboot",
-        PowerKey::PowerOff => "grab-power-off",
-        PowerKey::Suspend => "grab-suspend",
-    }
-}
-
-/// `/proc/sys/kernel/ctrl-alt-del`'s number; 0, with a warning, when it
-/// cannot be read, as the C reference took it.
-fn ctrl_alt_del(power: &mut dyn Power) -> i64 {
-    match power.ctrl_alt_del() {
-        Ok(text) => text.trim().parse().unwrap_or_else(|_| {
-            log::warn!("grab-reboot: cannot read /proc/sys/kernel/ctrl-alt-del; asking init");
-            0
-        }),
-        Err(e) => {
-            log::warn!("grab-reboot: cannot open /proc/sys/kernel/ctrl-alt-del ({e}); asking init");
-            0
-        }
-    }
-}
-
 #[cfg(test)]
 #[expect(clippy::expect_used, reason = "a test fails by panicking")]
 mod tests {
@@ -370,82 +234,5 @@ mod tests {
         assert!(!matches(&chords, CTRL | ALT, &[END]));
         assert!(!matches(&chords, CTRL | ALT, &[DELETE, END]));
         assert!(!matches(&[], CTRL | ALT, &[DELETE]));
-    }
-
-    /// A stand-in for PID 1, logind and `reboot(2)`: it records each call.
-    #[derive(Default)]
-    struct Host {
-        ctrl_alt_del: Option<String>,
-        calls: Vec<&'static str>,
-    }
-
-    impl Power for Host {
-        fn ctrl_alt_del(&mut self) -> io::Result<String> {
-            self.calls.push("read ctrl-alt-del");
-            self.ctrl_alt_del
-                .clone()
-                .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
-        }
-        fn interrupt_init(&mut self) -> io::Result<()> {
-            self.calls.push("SIGINT to PID 1");
-            Ok(())
-        }
-        fn power_off_init(&mut self) -> io::Result<()> {
-            self.calls.push("SIGRTMIN+4 to PID 1");
-            Ok(())
-        }
-        fn restart_kernel(&mut self) -> io::Result<()> {
-            self.calls.push("sync, reboot(RB_AUTOBOOT)");
-            Ok(())
-        }
-        fn suspend(&mut self) -> io::Result<()> {
-            self.calls.push("logind Suspend");
-            Ok(())
-        }
-    }
-
-    fn reboot_with(ctrl_alt_del: Option<&str>) -> Vec<&'static str> {
-        let mut host = Host {
-            ctrl_alt_del: ctrl_alt_del.map(str::to_owned),
-            ..Host::default()
-        };
-        press(PowerKey::Reboot, &mut host);
-        host.calls
-    }
-
-    #[test]
-    fn the_reboot_asks_init_while_ctrl_alt_del_is_0() {
-        assert_eq!(
-            reboot_with(Some("0\n")),
-            ["read ctrl-alt-del", "SIGINT to PID 1"]
-        );
-    }
-
-    #[test]
-    fn the_reboot_restarts_the_kernel_while_ctrl_alt_del_is_set() {
-        for text in ["1\n", "-1", " 7 "] {
-            assert_eq!(
-                reboot_with(Some(text)),
-                ["read ctrl-alt-del", "sync, reboot(RB_AUTOBOOT)"],
-                "{text:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn the_reboot_asks_init_when_ctrl_alt_del_cannot_be_read() {
-        assert_eq!(reboot_with(None), ["read ctrl-alt-del", "SIGINT to PID 1"]);
-        assert_eq!(
-            reboot_with(Some("on")),
-            ["read ctrl-alt-del", "SIGINT to PID 1"]
-        );
-    }
-
-    #[test]
-    fn power_off_asks_init_and_suspend_asks_logind() {
-        let mut host = Host::default();
-        press(PowerKey::PowerOff, &mut host);
-        press(PowerKey::Suspend, &mut host);
-        assert_eq!(host.calls, ["SIGRTMIN+4 to PID 1", "logind Suspend"]);
     }
 }

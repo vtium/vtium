@@ -39,8 +39,8 @@ vtium's platform layer: everything that touches the kernel and the session. This
 | `src/input/tests.rs` | Keys through the built-in keymap, compose, the repeat, the LEDs, the pointer kinds, and the devices' sleep, wake-up and hangup. |
 | `src/ioctl.rs` | The ioctls rustix does not wrap, each with its request number checked against the kernel's headers, and the evdev codes vtium reads. |
 | `src/mmap.rs` | `Mapping`: the crate's one mmap, of a dumb buffer or the framebuffer. |
-| `src/power.rs` | The power keys' requests: init's Ctrl+Alt+Del and power-off signals to PID 1, the kernel's restart, and suspend through logind or `/sys/power/state`. |
-| `src/logind.rs` | logind's `Suspend` through sd-bus, feature `logind`: the binding's few calls, and which bus errors mean logind is not running. |
+| `src/power.rs` | The power keys' requests: init's Ctrl+Alt+Del and power-off signals to PID 1, the kernel's restart, and suspend through logind or a shell writing `/sys/power/state`, reaped from the loop through its pidfd. |
+| `src/logind.rs` | logind's `Suspend` through sd-bus, feature `logind`: the binding's few calls, a 2 s bound on logind's answer, and which bus errors mean logind is not running. |
 | `src/bounds.rs` | Every bound, with its value, what happens past it and its source: the one source for the constants and for the table below. |
 | `tests/pty.rs` | The pty and the loop through a real pty, with children that are the test binary run again in a role. It has its own `main`, so the thread that blocks the loop's signals is the only one. |
 
@@ -163,7 +163,8 @@ A known limit for tier 3 to look at, read from the kernel's source and not obser
 - **log** for the crate's messages, which the binary routes. It was already in the tree through calloop's `tracing`.
 - **xkbcommon** for libxkbcommon, which the C reference used for keymaps, compose and key state. It is the binding Smithay's and the X.Org Rust bindings share, safe wrappers over the C library, built with its default features off, so neither its Wayland nor its X11 parts come in; it adds `xkeysym` and links `libxkbcommon.so` dynamically. Pinned at `=0.9.0`. libxkbcommon logs its own errors to stderr; the C reference routed them through its logger, which needs a C variadic callback the binding does not take.
 - **udev** for libudev, which the C reference's monitor used, and which its minimal build still linked: Smithay's binding, adding `libudev-sys`, `io-lifetimes` and, to build, `pkg-config`; it links `libudev.so` dynamically, a library of its own and not libsystemd (ADR-1400's observable). Pinned at `=0.9.3`.
-- **libsystemd**, with the `logind` feature only, for sd-bus: five calls declared in `src/logind.rs` and linked dynamically, with no binding crate. The minspec build has the feature off and links no libsystemd (ADR-1400).
+- **libc** for `kill(2)` with systemd's power-off signal and libc's `SIGRTMIN`: rustix sends a real-time signal only through an unsafe constructor whose contract forbids sending it. It was already in the build through xkbcommon and nix. Pinned at `=0.2.191`.
+- **libsystemd**, with the `logind` feature only, for sd-bus: six calls declared in `src/logind.rs` and linked dynamically, with no binding crate. The minspec build has the feature off and links no libsystemd (ADR-1400).
 - **nix** arrives through calloop's `signals` feature, which gives the loop its signalfd. rustix has no signalfd wrapper, and the alternatives are a `libc` call or a raw syscall in `unsafe`, which vtium/vtium#6 excludes. vtium-platform calls nothing in nix. Revisit when rustix wraps signalfd.
 
 ## Left to the host

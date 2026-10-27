@@ -12,7 +12,7 @@ use std::time::Instant;
 
 use vtium::app::App;
 use vtium::config;
-use vtium::grab::Power;
+use vtium::power::Power;
 use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{InputEvent, KeyEvent, Mods};
 use vtium_platform::vt::FakeVt;
@@ -42,9 +42,9 @@ impl Power for Host {
         self.0.borrow_mut().push("sync, reboot(RB_AUTOBOOT)");
         Ok(())
     }
-    fn suspend(&mut self) -> io::Result<()> {
-        self.0.borrow_mut().push("logind Suspend");
-        Ok(())
+    fn suspend(&mut self) -> io::Result<Option<std::process::Child>> {
+        self.0.borrow_mut().push("suspend");
+        Ok(None)
     }
 }
 
@@ -113,7 +113,7 @@ fn a_bound_chord_acts_once_a_press() {
     app.input_event(key(ctrl_alt().union(Mods::SHIFT), DELETE, false), now());
     assert_eq!(
         *host.0.borrow(),
-        ["SIGINT to PID 1", "SIGRTMIN+4 to PID 1", "logind Suspend"]
+        ["SIGINT to PID 1", "SIGRTMIN+4 to PID 1", "suspend"]
     );
 }
 

@@ -18,6 +18,7 @@ struct BusError {
 #[link(name = "systemd")]
 unsafe extern "C" {
     fn sd_bus_open_system(bus: *mut *mut c_void) -> c_int;
+    fn sd_bus_set_method_call_timeout(bus: *mut c_void, usec: u64) -> c_int;
     fn sd_bus_call_method(
         bus: *mut c_void,
         destination: *const c_char,
@@ -56,17 +57,32 @@ impl std::fmt::Display for Error {
     }
 }
 
+/// How long the loop waits for logind's answer. sd-bus's default is 25 s;
+/// logind answers a `Suspend` it takes at once, and queues the sleep.
+pub const CALL_TIMEOUT_US: u64 = 2_000_000;
+
 /// The bus errors that mean nothing owns, and nothing can start,
-/// `org.freedesktop.login1`.
-const NOT_RUNNING: [&str; 2] = [
+/// `org.freedesktop.login1`: no such name, or the bus or systemd failing
+/// to start it, as on a host with logind masked.
+const NOT_RUNNING: [&str; 3] = [
     "org.freedesktop.DBus.Error.ServiceUnknown",
     "org.freedesktop.DBus.Error.NameHasNoOwner",
+    "org.freedesktop.DBus.Error.TimedOut",
+];
+
+/// The prefixes of the same: the bus's errors starting a service, and
+/// systemd's errors starting its unit.
+const NOT_RUNNING_PREFIXES: [&str; 2] = [
+    "org.freedesktop.DBus.Error.Spawn.",
+    "org.freedesktop.systemd1.",
 ];
 
 /// The error a failed call gives, from the bus error's name and message.
 fn classify(name: Option<String>, message: Option<String>, code: c_int) -> Error {
+    let not_running =
+        |n: &str| NOT_RUNNING.contains(&n) || NOT_RUNNING_PREFIXES.iter().any(|p| n.starts_with(p));
     match name {
-        Some(name) if NOT_RUNNING.contains(&name.as_str()) => Error::NotRunning(name),
+        Some(name) if not_running(&name) => Error::NotRunning(name),
         Some(name) => Error::Refused {
             name,
             message: message.unwrap_or_default(),
@@ -90,6 +106,13 @@ pub fn suspend() -> Result<(), Error> {
         return Err(Error::NoBus(io::Error::from_raw_os_error(
             opened.saturating_neg(),
         )));
+    }
+    #[expect(unsafe_code, reason = "sd-bus's C interface")]
+    // SAFETY: `bus` is the connection just opened.
+    let timed = unsafe { sd_bus_set_method_call_timeout(bus, CALL_TIMEOUT_US) };
+    if timed < 0 {
+        log::warn!(target: "power", "cannot bound logind's answer: {}",
+            io::Error::from_raw_os_error(timed.saturating_neg()));
     }
     let mut error = BusError {
         name: ptr::null(),
@@ -148,16 +171,32 @@ mod tests {
 
     #[test]
     fn no_logind_on_the_bus_is_told_from_a_refusal() {
-        for name in NOT_RUNNING {
-            assert!(matches!(
-                classify(Some(name.to_owned()), None, -2),
-                Error::NotRunning(_)
-            ));
+        // Nothing owns the name and nothing can start it: a host without
+        // logind, or with it masked.
+        for name in [
+            "org.freedesktop.DBus.Error.ServiceUnknown",
+            "org.freedesktop.DBus.Error.NameHasNoOwner",
+            "org.freedesktop.DBus.Error.TimedOut",
+            "org.freedesktop.DBus.Error.Spawn.ServiceNotFound",
+            "org.freedesktop.DBus.Error.Spawn.ChildExited",
+            "org.freedesktop.systemd1.UnitMasked",
+            "org.freedesktop.systemd1.NoSuchUnit",
+        ] {
+            assert!(
+                matches!(
+                    classify(Some(name.to_owned()), None, -2),
+                    Error::NotRunning(_)
+                ),
+                "{name}"
+            );
         }
+        // logind answered, or is too slow to: never worked around.
         for name in [
             "org.freedesktop.login1.BlockedByInhibitor",
             "org.freedesktop.DBus.Error.AccessDenied",
             "org.freedesktop.DBus.Error.InteractiveAuthorizationRequired",
+            "org.freedesktop.DBus.Error.NoReply",
+            "org.freedesktop.DBus.Error.Timeout",
         ] {
             assert!(matches!(
                 classify(Some(name.to_owned()), Some("no".to_owned()), -1),

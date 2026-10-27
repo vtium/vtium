@@ -19,6 +19,9 @@ logind = []
 [dependencies]
 calloop = { version = "0.14.4", features = ["signals"] }
 drm-ffi = "=0.9.1"
+# kill(2) with a real-time signal and libc's SIGRTMIN, which rustix does
+# not send safely; already in the build through xkbcommon and nix.
+libc = "=0.2.191"
 log = "0.4"
 udev = "=0.9.3"
 xkbcommon = { version = "=0.9.0", default-features = false }
