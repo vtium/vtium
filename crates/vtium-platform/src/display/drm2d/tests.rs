@@ -371,6 +371,7 @@ fn the_cursor_goes_with_the_next_commit() {
 // framebuffer holds the image row by row at the buffer's pitch, clear
 // around it on the plane's 64 by 64, and the commit that shows it names
 // that framebuffer, with the hotspot on the pointer.
+// covers: platform.drm2d-fbdev
 #[test]
 fn the_cursor_plane_shows_the_image_set_up() {
     let mut v = awake(one());

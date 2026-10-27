@@ -10,6 +10,8 @@
 //! among them, uses the legacy calls and presents whole frames.
 
 mod output;
+
+pub use output::CURSOR_MAX;
 mod source;
 
 use std::io;
@@ -26,8 +28,8 @@ use super::kms::{Connector, Encoder, Kms, Object, Request, Resources};
 use super::mode::{self, Mode, ModePolicy};
 use super::{Ages, Canvas, Damage, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
 use output::{
-    ARGB8888, Buffer, CURSOR_MAX, Cursor, Output, PLANE_CURSOR, PLANE_OVERLAY, PLANE_PRIMARY,
-    Planes, Props, XRGB8888, clip_bytes, connector_name, dpms_value, invalid, mode_bytes, value,
+    ARGB8888, Buffer, Cursor, Output, PLANE_CURSOR, PLANE_OVERLAY, PLANE_PRIMARY, Planes, Props,
+    XRGB8888, clip_bytes, connector_name, dpms_value, invalid, mode_bytes, value,
 };
 use source::{Clock, Link, Timers};
 

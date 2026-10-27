@@ -208,6 +208,16 @@ mod tests {
         r
     }
 
+    // The arrow is never larger than the cursor plane drm2d sets up: the
+    // two crates bound the same side, 64 pixels.
+    #[test]
+    fn the_arrow_fits_the_cursor_plane() {
+        assert_eq!(
+            u64::from(vtium_render::POINTER_SIDE_MAX),
+            vtium_platform::display::CURSOR_MAX
+        );
+    }
+
     #[test]
     fn a_display_with_a_cursor_plane_shows_the_arrow_there() {
         let r = renderer(Orientation::Normal);
