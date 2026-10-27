@@ -38,6 +38,9 @@
 //! A [`Face`] draws a character at its own width; a [`Font`] puts a face
 //! and the [`sprite`]s together and draws any cluster exactly into its
 //! cells, falling back to U+25A1 and `?` for a character the face lacks.
+//! Its [`SpritePolicy`] chooses, for each [`sprite::Range`], between the
+//! face's glyphs and the sprites, and [`Font::coverage`] counts how much
+//! of each range the face holds.
 //! Every glyph is a [`Glyph`]: an 8-bit coverage mask, or premultiplied
 //! RGBA for a colour face. The bitmap faces and the sprites draw masks,
 //! and the same font, size and character give the same bytes on every
@@ -61,6 +64,7 @@ mod face;
 mod glyph;
 #[cfg(feature = "gzip")]
 mod gzip;
+mod policy;
 mod psf;
 pub mod sprite;
 #[cfg(feature = "unifont")]
@@ -72,6 +76,7 @@ pub use bounds::{
 };
 pub use face::{Cell, Decorations, Face, Font, REPLACEMENT, Style, Width};
 pub use glyph::{Format, Glyph};
+pub use policy::{Coverage, RangeCoverage, Source, SpritePolicy};
 pub use psf::{Psf, PsfError};
 #[cfg(feature = "unifont")]
 pub use unifont::Unifont;
