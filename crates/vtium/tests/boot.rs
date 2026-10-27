@@ -16,7 +16,7 @@ use vtium::config;
 use vtium::video::Video;
 use vtium_platform::display::{Canvas, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
 use vtium_platform::event_loop::Loop;
-use vtium_platform::input::{InputEvent, KeyEvent, Mods};
+use vtium_platform::input::{Button, InputEvent, KeyEvent, Mods, PointerEvent};
 use vtium_platform::vt::{FakeVt, Switch, Vt, VtEvent};
 
 const W: u32 = 320;
@@ -671,4 +671,125 @@ fn a_due_draw_held_by_a_flip_does_not_spin_the_loop() {
     }
     assert!(h.app.screen_text().iter().any(|l| l.contains("xxxx")));
     assert_eq!(zero, 0, "told not to wait {zero} times of {turns} turns");
+}
+
+fn pointer(event: PointerEvent) -> InputEvent {
+    InputEvent::Pointer(event)
+}
+
+fn moved(x: i32) -> InputEvent {
+    pointer(PointerEvent::Moved {
+        x,
+        y: 0,
+        held: None,
+    })
+}
+
+fn button(pressed: bool) -> InputEvent {
+    pointer(PointerEvent::Button {
+        button: Button::Left,
+        pressed,
+        double_click: false,
+    })
+}
+
+/// A press and a release reach a child that is not reading, behind
+/// keys that fill the queue: motion after them coalesces, buttons never.
+#[test]
+fn button_reports_are_queued_whole_while_the_child_does_not_read() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty raw -echo; printf '\\033[?1003h\\033[?1006hready'; sleep 2; \
+         awk 'BEGIN{RS=\"q\"}{p=gsub(/<0;[0-9]+;[0-9]+M/,\"\");r=gsub(/<0;[0-9]+;[0-9]+m/,\"\");printf \"press=%d release=%d\\r\\n\",p,r;exit}'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "ready")));
+    let queued = |h: &Harness| h.app.pty.as_ref().map_or(0, |p| p.queued());
+    // Keys fill the pty and then the queue past the point motion
+    // coalesces from.
+    let mut keys = 0;
+    while queued(&h) < vtium_platform::MOTION_COALESCE_AT && keys < 1_000_000 {
+        keys += 1;
+        h.type_str("a");
+    }
+    assert!(
+        queued(&h) >= vtium_platform::MOTION_COALESCE_AT,
+        "the queue filled"
+    );
+    for event in [
+        moved(0),
+        moved(8),
+        button(true),
+        moved(0),
+        moved(8),
+        button(false),
+        moved(0),
+    ] {
+        h.app.input_event(event, now());
+    }
+    h.type_str("q");
+    assert!(
+        h.until(Duration::from_secs(10), |a| a
+            .screen_text()
+            .iter()
+            .any(|l| l.contains("press="))),
+        "{:?}",
+        h.app.screen_text()
+    );
+    assert!(
+        h.app
+            .screen_text()
+            .iter()
+            .any(|l| l.ends_with("press=1 release=1")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// A wheel event is one report while the program tracks the pointer, and
+/// three lines of scrollback while it does not, however many steps it
+/// carries.
+#[test]
+fn a_wheel_event_is_one_report_or_three_lines() {
+    let mut h = Harness::new(&[
+        "--font-size=16",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "i=0; while [ $i -lt 40 ]; do echo line$i; i=$((i+1)); done; \
+         stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
+         awk 'BEGIN{RS=\"q\"}{n=gsub(/<64;/,\"\");printf \"wheel=%d\\r\\n\",n;exit}'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| {
+        a.screen_text().iter().any(|l| l.ends_with("ready"))
+    }));
+    h.app
+        .input_event(pointer(PointerEvent::Wheel(i32::MAX)), now());
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| a
+            .screen_text()
+            .iter()
+            .any(|l| l.ends_with("wheel=1"))),
+        "{:?}",
+        h.app.screen_text()
+    );
+    // The program stops tracking: the wheel scrolls back three lines.
+    let mut h = Harness::new(&[
+        "--font-size=16",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "i=0; while [ $i -lt 40 ]; do echo line$i; i=$((i+1)); done; read x",
+    ]);
+    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "line39")));
+    h.app
+        .input_event(pointer(PointerEvent::Wheel(i32::MAX)), now());
+    assert_eq!(h.app.term.terminal.screen().scrolled_back(), 3);
+    h.app.input_event(pointer(PointerEvent::Wheel(-1)), now());
+    assert_eq!(h.app.term.terminal.screen().scrolled_back(), 0);
 }

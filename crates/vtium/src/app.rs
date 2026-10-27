@@ -805,6 +805,7 @@ impl App {
         };
         let tracking = self.term.terminal.mouse_tracking() != MouseTracking::Off;
         let mods = Mods::from_bits(self.input.as_ref().map_or(0, |i| i.mods().bits()));
+        let moved = matches!(event, PointerEvent::Moved { .. });
         match event {
             PointerEvent::Moved { x, y, held } => {
                 self.pointer.x = u32::try_from(x).unwrap_or(0);
@@ -847,14 +848,10 @@ impl App {
                 }
             }
             PointerEvent::Wheel(steps) => {
-                if tracking {
-                    let (col, row) = at(&self.pointer);
-                    let button = if steps > 0 {
-                        MouseButton::WheelUp
-                    } else {
-                        MouseButton::WheelDown
-                    };
-                    for _ in 0..steps.unsigned_abs() {
+                let ctrl = mods.contains(Mods::CTRL);
+                match wheel(steps, tracking, ctrl) {
+                    Wheel::Report(button) => {
+                        let (col, row) = at(&self.pointer);
                         self.term.terminal.mouse(
                             col,
                             row,
@@ -865,23 +862,29 @@ impl App {
                             mods,
                         );
                     }
-                } else {
-                    let n = usize::try_from(steps.unsigned_abs()).unwrap_or(0);
-                    let screen = self.term.terminal.screen_mut();
-                    if steps > 0 {
-                        screen.scroll_view_up(n);
-                    } else {
-                        screen.scroll_view_down(n);
+                    Wheel::Zoom(dir) => self.zoom(dir),
+                    Wheel::Scroll { up: true } => {
+                        self.term.terminal.screen_mut().scroll_view_up(WHEEL_LINES);
+                    }
+                    Wheel::Scroll { up: false } => {
+                        self.term
+                            .terminal
+                            .screen_mut()
+                            .scroll_view_down(WHEEL_LINES);
                     }
                 }
             }
             PointerEvent::Sync => {}
             PointerEvent::Hide => self.pointer.visible = false,
         }
+        // Only motion may be coalesced while the child does not read; a
+        // press, a release or a wheel report is queued whole.
         let bytes = self.term.terminal.take_replies();
-        if let Some(pty) = &mut self.pty {
-            if !bytes.is_empty() {
+        if let Some(pty) = self.pty.as_mut().filter(|_| !bytes.is_empty()) {
+            if moved {
                 pty.write_motion(&bytes);
+            } else {
+                pty.write(&bytes);
             }
         }
         self.draw_now = true;
@@ -1233,6 +1236,40 @@ const PALETTE_KEYS: [&crate::config::Key; 16] = [
     &keys::PALETTE_WHITE,
 ];
 
+/// The lines of scrollback a wheel event scrolls (`src/terminal.c:1648`).
+const WHEEL_LINES: usize = 3;
+
+/// What a wheel event does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Wheel {
+    /// A report of the wheel's button to the program tracking the pointer.
+    Report(MouseButton),
+    Zoom(Zoom),
+    /// [`WHEEL_LINES`] of scrollback.
+    Scroll {
+        up: bool,
+    },
+}
+
+/// What a wheel event of `steps` does: one report while the program
+/// tracks the pointer, else a zoom with Ctrl, else a scroll, whatever
+/// the number of steps (`src/terminal.c:1492-1497, 1639-1650` at kmscon
+/// b1f7a7c5).
+fn wheel(steps: i32, tracking: bool, ctrl: bool) -> Wheel {
+    let up = steps > 0;
+    if tracking {
+        Wheel::Report(if up {
+            MouseButton::WheelUp
+        } else {
+            MouseButton::WheelDown
+        })
+    } else if ctrl {
+        Wheel::Zoom(if up { Zoom::In } else { Zoom::Out })
+    } else {
+        Wheel::Scroll { up }
+    }
+}
+
 fn mouse_button(b: Button) -> MouseButton {
     match b {
         Button::Left => MouseButton::Left,
@@ -1326,4 +1363,29 @@ pub fn open_video(
     };
     app.add_video(key, video);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_wheel_event_is_one_report_a_zoom_or_a_scroll_whatever_its_steps() {
+        for steps in [1, 7, i32::MAX] {
+            assert_eq!(
+                wheel(steps, true, true),
+                Wheel::Report(MouseButton::WheelUp)
+            );
+            assert_eq!(wheel(steps, false, true), Wheel::Zoom(Zoom::In));
+            assert_eq!(wheel(steps, false, false), Wheel::Scroll { up: true });
+        }
+        for steps in [-1, -7, i32::MIN] {
+            assert_eq!(
+                wheel(steps, true, false),
+                Wheel::Report(MouseButton::WheelDown)
+            );
+            assert_eq!(wheel(steps, false, true), Wheel::Zoom(Zoom::Out));
+            assert_eq!(wheel(steps, false, false), Wheel::Scroll { up: false });
+        }
+    }
 }
