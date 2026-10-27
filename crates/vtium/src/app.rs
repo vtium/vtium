@@ -1310,7 +1310,11 @@ impl App {
         self.report(now);
         self.term.coalesce.turn_end();
         self.term.changed = false;
-        if let Some(wait) = self.wait.turn(now, self.presented) {
+        let flipping = self
+            .views
+            .iter()
+            .any(|((node, _), v)| self.videos.get(node).is_some_and(|d| d.is_flipping(v.id)));
+        if let Some(wait) = self.wait.turn(now, self.presented, flipping) {
             log::error!("no display appeared within {} s", wait.as_secs());
             self.request_exit(Exit::NoDisplay);
         }

@@ -2232,3 +2232,103 @@ fn under_no_wait_with_no_display_no_child_starts() {
     assert!(h.app.pty.is_none(), "no child");
     assert_eq!(first(&h.app), None);
 }
+
+/// Under `display-wait=0` a display set up at the start is drawn, its
+/// flip read, and vtium runs on.
+#[test]
+fn under_no_wait_a_display_at_the_start_runs() {
+    let mut h = Harness::new(&["--display-wait=0", "--login", "--", "/bin/sh", "-c", FIRST]);
+    h.until(Duration::from_millis(500), |a| a.finished().is_some());
+    assert_eq!(h.app.finished(), None, "a display was there");
+    assert!(h.memory().frames > 0, "drawn");
+    assert_eq!(first(&h.app).map(|f| f.0), Some("10 40".to_owned()));
+}
+
+/// A device whose flips land [`Slow::FLIP`] after the swap, as a DRM
+/// card's page flip lands at the next vblank: until then the frame is on
+/// its way and `Flipped` is not yet raised.
+struct Slow {
+    memory: Memory,
+    landed: Option<Instant>,
+}
+
+impl Slow {
+    const FLIP: Duration = Duration::from_millis(50);
+}
+
+impl Video for Slow {
+    fn backend(&self) -> &'static str {
+        self.memory.backend()
+    }
+    fn events(&mut self) -> Vec<Event> {
+        let mut events = self.memory.events();
+        if self.landed.is_some_and(|t| now() >= t) {
+            self.landed = None;
+            events.push(Event::Flipped(ID));
+        }
+        events
+    }
+    fn displays(&self) -> Vec<DisplayId> {
+        self.memory.displays()
+    }
+    fn name(&self, id: DisplayId) -> String {
+        self.memory.name(id)
+    }
+    fn size(&self, id: DisplayId) -> Option<(u32, u32)> {
+        self.memory.size(id)
+    }
+    fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
+        self.memory.refresh_mhz(id)
+    }
+    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
+        self.memory.canvas(id)
+    }
+    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        let swapped = self.memory.swap(id, damage)?;
+        self.memory.events.retain(|e| *e != Event::Flipped(id));
+        self.landed = Some(now() + Slow::FLIP);
+        Ok(swapped)
+    }
+    fn is_flipping(&self, _: DisplayId) -> bool {
+        self.landed.is_some()
+    }
+    fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
+        self.memory.set_dpms(id, dpms)
+    }
+    fn sleep(&mut self) {
+        self.memory.sleep();
+    }
+    fn wake_up(&mut self) -> io::Result<()> {
+        self.memory.wake_up()
+    }
+    fn unblank(&mut self) -> io::Result<()> {
+        self.memory.unblank()
+    }
+    fn input(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn hotplug(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+/// Under `display-wait=0` a display whose flip lands after the first turn
+/// is waited for: vtium runs on once the flip is read.
+#[test]
+fn under_no_wait_a_frame_on_its_way_is_waited_for() {
+    let slow = Slow {
+        memory: Memory::default(),
+        landed: None,
+    };
+    let mut h = Harness::build(
+        &["--display-wait=0", "--login", "--", "/bin/sh", "-c", FIRST],
+        FakeVt::new(),
+        Box::new(slow),
+    );
+    h.until(Duration::from_millis(500), |a| a.finished().is_some());
+    assert_eq!(h.app.finished(), None, "the flip was waited for");
+    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+}
