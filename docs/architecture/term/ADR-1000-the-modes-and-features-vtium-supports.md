@@ -40,7 +40,7 @@ considered:
     said: "all the generally supported capabilities, not esoteric 1970s terminal modes"
     via: operator, in session 2026-10-27, relayed by the team lead
     covers: [where the line falls]
-status: proposed
+status: accepted
 date: 2026-10-26
 deciders:
   - aaronsb

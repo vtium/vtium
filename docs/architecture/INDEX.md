@@ -18,4 +18,4 @@ _Escape protocols and the screen model - parser, modes, cells, scrollback_
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [ADR-1000](./term/ADR-1000-the-modes-and-features-vtium-supports.md) | The modes and features vtium supports | proposed |
+| [ADR-1000](./term/ADR-1000-the-modes-and-features-vtium-supports.md) | The modes and features vtium supports | accepted |
