@@ -980,3 +980,32 @@ fn a_release_waits_for_every_device_to_sleep() {
         "acknowledged once the last device slept"
     );
 }
+
+/// The next session starts from a hard reset, drawn at once: the screen
+/// the last session left is not shown until the new one writes.
+#[test]
+fn a_restart_draws_the_reset_screen() {
+    let flag = std::env::temp_dir().join(format!("vtium-restart-{}", std::process::id()));
+    std::fs::remove_file(&flag).ok();
+    let script = format!(
+        "if [ -e {f} ]; then exec sleep 30; fi; : > {f}; printf 'first'; sleep 0.3",
+        f = flag.display()
+    );
+    // "irst", in the first row's cells 1 to 4, past the cursor's cell.
+    let irst = |m: &Memory| {
+        (0..16).any(|y| {
+            let row = (y * W * 4) as usize;
+            m.pixels[row + 8 * 4..row + 40 * 4].iter().any(|&b| b != 0)
+        })
+    };
+    let mut h = Harness::new(&["--no-blink", "--login", "--", "/bin/sh", "-c", &script]);
+    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "first")));
+    assert!(h.until_memory(SECOND, irst), "the first session drawn");
+    assert!(h.until(SECOND, |a| a.screen_text().iter().all(|l| l.is_empty())));
+    assert!(
+        h.until_memory(SECOND, |m| !irst(m)),
+        "the reset screen is drawn"
+    );
+    assert!(!h.app.term.unparsed);
+    std::fs::remove_file(&flag).ok();
+}

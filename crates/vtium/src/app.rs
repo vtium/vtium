@@ -922,9 +922,13 @@ impl App {
             .map_or(Next::Restart, |r| r.exited(since, oneshot));
         match next {
             Next::Restart => {
-                // A new session starts from a hard reset (RIS).
+                // A new session starts from a hard reset (RIS), drawn at
+                // once, with nothing of the last session's output left
+                // (`terminal_close` at kmscon b1f7a7c5).
                 self.term.terminal.input(b"\x1bc");
                 self.term.terminal.take_replies();
+                self.term.unparsed = false;
+                self.draw_now = true;
                 self.spawn();
             }
             Next::Oneshot => self.request_exit(Exit::Oneshot),
