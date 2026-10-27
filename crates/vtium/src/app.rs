@@ -12,9 +12,10 @@
 //!   `Retaken` sets every device's displays up again, or while blanked
 //!   at the input that ends the blank, and keeps the blank and its timer;
 //!   `Hangup` exits.
-//! - **Keys**, in order: the VT's, then the seat's (none: one session),
-//!   then the terminal's grabs, then DECARM's drop of a repeat, then the
-//!   encoder. A key draws at once and holds the cursor's blink.
+//! - **Keys**, in order: the VT's, then the seat's (the power keys, which
+//!   act on a press and never on its repeat), then the terminal's grabs,
+//!   then DECARM's drop of a repeat, then the encoder. A key draws at once
+//!   and holds the cursor's blink.
 //! - **The pointer.** While the program tracks it, its events are
 //!   reported, but those made with Shift held, as xterm's are. The others
 //!   select, copy and paste ([`App::pointer_event`]).
@@ -58,7 +59,7 @@ use crate::child::{self, Display as SessionDisplay, Place};
 use crate::config::keys;
 use crate::config::{Config, ModeSpec};
 use crate::font;
-use crate::grab::{self, Grab};
+use crate::grab::{self, Chord, Grab, Power, PowerKey};
 use crate::layout::{self, Zoom};
 use crate::respawn::{Next, Respawn};
 use crate::sync::{Action, Sync};
@@ -230,6 +231,9 @@ pub struct App {
     /// The mouse tracking the program asked for, last seen: a change
     /// clears the selection.
     tracking: MouseTracking,
+    /// The power keys the configuration binds, and what they act through.
+    power_keys: Vec<(PowerKey, Vec<Chord>)>,
+    power: Box<dyn Power>,
 }
 
 impl App {
@@ -271,6 +275,15 @@ impl App {
             .filter(|d| !d.is_zero());
         let modes = config.modes(&keys::MODE).to_vec();
         let use_original = config.switch(&keys::USE_ORIGINAL_MODE) && modes.is_empty();
+        let power_keys = [
+            (PowerKey::Reboot, &keys::GRAB_REBOOT),
+            (PowerKey::PowerOff, &keys::GRAB_POWER_OFF),
+            (PowerKey::Suspend, &keys::GRAB_SUSPEND),
+        ]
+        .into_iter()
+        .map(|(k, key)| (k, config.chords(key).to_vec()))
+        .filter(|(_, chords)| !chords.is_empty())
+        .collect();
         let wait = Wait::new(match config.text(&keys::DISPLAY_WAIT) {
             // `forever`.
             Some(_) => None,
@@ -283,6 +296,8 @@ impl App {
             clipboard_write: config.switch(&keys::CLIPBOARD_WRITE),
             selection: None,
             tracking: MouseTracking::Off,
+            power_keys,
+            power: Box::new(grab::System),
             modes,
             use_original,
             vt,
@@ -321,6 +336,12 @@ impl App {
             leaving: None,
             inherited,
         }
+    }
+
+    /// Puts the power keys' actions through `power`, a test's stand-in
+    /// for PID 1, logind and the kernel.
+    pub fn set_power(&mut self, power: Box<dyn Power>) {
+        self.power = power;
     }
 
     /// The selection buffer: what the user copied last, or a program set
@@ -900,12 +921,26 @@ impl App {
         self.user_input(now);
     }
 
-    /// The key order: the VT's keys, the seat's (none), the terminal's
-    /// grabs, DECARM, the encoder. Each key that passes the VT's clears
-    /// the selection, as the C reference's did (`src/terminal.c:1370` at
+    /// The key order: the VT's keys, the seat's, the terminal's grabs,
+    /// DECARM, the encoder. Each key that passes the seat's clears the
+    /// selection, as the C reference's did (`src/terminal.c:1370` at
     /// kmscon b1f7a7c5).
     fn key(&mut self, key: &KeyEvent, now: Instant) {
         if self.vt.key(key) || !self.awake {
+            return;
+        }
+        let bits = key.mods.bits();
+        if let Some(&(power_key, _)) = self
+            .power_keys
+            .iter()
+            .find(|(_, chords)| grab::matches(chords, bits, &key.keysyms))
+        {
+            // One action a press: a held chord's repeats would ask again,
+            // and systemd takes seven Ctrl+Alt+Del in two seconds as an
+            // immediate reboot.
+            if !key.repeat {
+                grab::press(power_key, self.power.as_mut());
+            }
             return;
         }
         let screen = self.term.terminal.screen_mut();

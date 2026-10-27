@@ -13,7 +13,7 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/wait.rs` | The start's wait for a display |
 | `src/blink.rs`, `src/font.rs`, `src/pointer.rs` | The blink timers; the font's fallback, size, sprite policy and missing glyph; the pointer guard |
 | `src/sync.rs` | When the terminal presents: the mode 2026 hold and coalescing without it |
-| `src/grab.rs` | The terminal's grabs, third in the key order |
+| `src/grab.rs` | The keys vtium takes: the power keys, the seat's, second in the key order, and the terminal's grabs, third; the chords a grab key binds |
 | `src/layout.rs` | The grid and each display's font height with several displays, and the zoom and rotation steps |
 | `src/term.rs` | The session's terminal as the pty's consumer, and a view per display that draws it |
 | `src/video.rs` | A video device behind one trait: drm2d, fbdev, or a test's stand-in |
@@ -25,6 +25,7 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/main.rs` | Start-up and the loop |
 | `tests/check_config.rs` | `vtium check-config` run as a binary: its warnings, exit status and help, and with strace on the machine, that it opens nothing but the configuration |
 | `tests/panic_hook.rs` | The panic hook's order, in a process of its own |
+| `tests/power_keys.rs` | The power keys through the key order, acting on a stand-in for PID 1, logind and the kernel |
 | `tests/boot.rs` | The seat booted with no hardware: output drawn, keys, a VT switch, the blank and what counts as activity, the respawn limit, DECARM, selection, copy and paste with the pointer, the font's policy, the wait for a display and the session with none, the exit |
 | `install/kmscon.conf.example` | The example configuration, generated from the key table |
 | `install/kmscon.ti` | The terminfo entry, installed compiled with `tic -x` |
@@ -85,11 +86,13 @@ Each was the C reference's behaviour at kmscon `b1f7a7c5`.
 - **The middle button pastes at its release.** The C reference pasted at the press (`src/terminal.c:1531-1536`). Spec: xterm's translation `~Ctrl ~Meta <Btn2Up>: insert-selection(SELECT, CUT_BUFFER0)`. Test: `a_hostile_selection_is_pasted_filtered_once_a_press`.
 - **A drag ends when the left button is no longer held, and at the VT's release.** The C reference kept a drag until the left button's release came, so after a release it missed, as across a VT switch, plain motion went on extending the selection. Spec: none covers it; the reason: motion with no button held is not a drag. Test: `a_drag_ends_without_its_button_and_at_a_vt_release`.
 - **Shift+Insert pastes, once a press.** The C reference had no key to paste. Spec: xterm's translation `Shift <KeyPress> Insert: insert-selection(SELECT, CUT_BUFFER0)`; a repeat of the held key pastes nothing more. Tests: `shift_insert_pastes_as_in_xterm`, `a_hostile_selection_is_pasted_filtered_once_a_press`, and the triple click's above.
+- **A power key acts once a press.** The C reference rebooted again at each repeat of a held `grab-reboot` chord (`src/seat.c:631-636`), and systemd takes seven Ctrl+Alt+Del in two seconds as a reboot that stops no service (`CtrlAltDelBurstAction=reboot-force`). Spec: none covers a key's repeat; the reason: a held key asks once. Test: `a_bound_chord_acts_once_a_press`.
+- **`grab-power-off` and `grab-suspend` power the machine off and suspend it.** The C reference had neither key. Spec: systemd(1)'s `SIGRTMIN+4`, which starts `poweroff.target`, and logind's `Suspend` method (org.freedesktop.login1(5)); the operator's decision on vtium/vtium#21. Neither calls `reboot(2)`. Tests: `power_off_asks_init_and_suspend_asks_logind`, and tier 3's power variants.
 - **A click with no drag, or a double click on a space, leaves the selection buffer as it was.** The C reference copied the one cell a click selected, or emptied its buffer for the space, so the next paste sent that character or nothing. Spec: xterm's `SelectSet`, which takes a selection only when it is not empty. Test: the triple click's above.
 
 ## Not yet built
 
-Each is the C reference's and waits for its own change: drawing through the GPU, which `hwaccel` asks for and which warns at start (vtium draws in software), the `multi-monitor` key's `clone` and `largest` (vtium lays several displays out as `scaled`, the operator's choice on vtium/vtium#21), the hardware cursor (the pointer is drawn in software), the render timer's on-screen display, outline fonts (`font-engine=freetype` and `pango` draw with unifont), and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs, the decoration colours and the rest.
+Each is the C reference's and waits for its own change: drawing through the GPU, which `hwaccel` asks for and which warns at start (vtium draws in software), the `multi-monitor` key's `clone` and `largest` (vtium lays several displays out as `scaled`, the operator's choice on vtium/vtium#21), the hardware cursor (the pointer is drawn in software), the render timer's on-screen display, outline fonts (`font-engine=freetype` and `pango` draw with unifont), and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs but `grab-reboot`, the decoration colours and the rest.
 
 ## Left to tier 3
 
@@ -100,10 +103,12 @@ Each needs a real VT or display, which the boot tests stand in for:
 - A release a real flip in flight delays, acknowledged once the device reports asleep.
 - A card udev raises during `display-wait`, and the getty `OnFailure=` starts when no display comes.
 - Whether fbdev stays lit when a re-take while blanked defers its set-up to the input that ends the blank; on drm2d the displays stay dark.
+- What each power key asks of the machine: tier 3's power variants press each on the console and see the guest reboot both ways, power off with its services stopped and its filesystems unmounted, and suspend and resume.
 
 ## C behaviour kept
 
 - The XTGETTCAP table is the C reference's: the same 137 names and values as its ncurses-built `src/terminal_termcap.h`, and `Ms`, which the C reference's entry lacked, for OSC 52.
 - A `login` word that is `$NAME` becomes that variable of the session's environment, after the environment is reset.
 - With no mouse tracking, or with Shift, the left button's drag selects and its release copies, a double click selects and copies a word, and the right button clears the selection, where xterm's extends it (`src/terminal.c:1509-1542`). A pointer in the strip past the grid is at the grid's nearest cell (`src/terminal.c:173-190`). A key, the pointer hiding and a change of mouse tracking clear the selection (`src/terminal.c:890-897, 1370, 1655-1659`).
+- `grab-reboot` is unbound by default (`src/config.c:1409`). Bound, it is matched after the VT's keys and before the terminal's grabs, only while the VT is ours, and leaves the selection; it asks init with `SIGINT` while `/proc/sys/kernel/ctrl-alt-del` is 0 or cannot be read, and otherwise calls `sync()` and `reboot(RB_AUTOBOOT)` (`src/seat.c:479-513, 584-636`).
 - A wheel event is one report while the program tracks the pointer, else a zoom with Ctrl, else three lines of scrollback, whatever its number of steps (`src/terminal.c:1492-1497, 1639-1650`).

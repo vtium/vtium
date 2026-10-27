@@ -137,6 +137,26 @@ pub(super) fn parse(
                 None
             }
         },
+        Kind::Grab => {
+            if !text_ok(key, text, origin, reports) {
+                return None;
+            }
+            match crate::grab::parse(text) {
+                Ok(chords) => Some(Value::Chords(chords)),
+                Err(why) => {
+                    let value = text.to_owned();
+                    reports.push(
+                        origin.clone(),
+                        Problem::BadValue {
+                            key: key.name,
+                            value,
+                            why,
+                        },
+                    );
+                    None
+                }
+            }
+        }
         Kind::Switch => {
             reports.push(origin.clone(), Problem::TakesNoValue(key.name));
             None
