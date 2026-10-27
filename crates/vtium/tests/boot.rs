@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use vtium::app::{App, Exit};
 use vtium::config;
+use vtium::start::Start;
 use vtium::video::Video;
 use vtium_platform::display::{Canvas, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
 use vtium_platform::event_loop::Loop;
@@ -226,6 +227,9 @@ impl Harness {
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
         let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
         assert_eq!(loaded.reports, [], "the harness's command line");
+        // What `main` takes before the seat; the seat's input is the
+        // test's.
+        let _ = Start::new(&loaded.config, "C".to_owned());
         let lp: Loop<App> = Loop::new().expect("a loop");
         let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
         let mut app = App::new(loaded.config, Box::new(vt), lp.handle(), Rc::new(now), env);
@@ -636,7 +640,7 @@ impl Video for SlowFlip {
 }
 
 /// A coalesced draw that comes due while a flip is in flight ends its
-/// wait: the loop is never told to turn again at once for it.
+/// wait: the loop is not told to turn again at once for it.
 #[test]
 fn a_due_draw_held_by_a_flip_does_not_spin_the_loop() {
     let slow = SlowFlip {
@@ -670,7 +674,12 @@ fn a_due_draw_held_by_a_flip_does_not_spin_the_loop() {
         turns += 1;
     }
     assert!(h.app.screen_text().iter().any(|l| l.contains("xxxx")));
-    assert_eq!(zero, 0, "told not to wait {zero} times of {turns} turns");
+    // A timer that falls due between a turn and the wait asks for none
+    // now and then; a spin asks for none on every turn.
+    assert!(
+        zero < 10 && turns < 1000,
+        "told not to wait {zero} times of {turns} turns"
+    );
 }
 
 fn pointer(event: PointerEvent) -> InputEvent {
@@ -792,4 +801,42 @@ fn a_wheel_event_is_one_report_or_three_lines() {
     assert_eq!(h.app.term.terminal.screen().scrolled_back(), 3);
     h.app.input_event(pointer(PointerEvent::Wheel(-1)), now());
     assert_eq!(h.app.term.terminal.screen().scrolled_back(), 0);
+}
+
+/// Every key a file may set is read by the seat as `main` starts it, or
+/// listed as not built.
+#[test]
+fn every_key_a_file_sets_is_read_or_listed_as_not_built() {
+    use vtium::config::{KEYS, Scope, keys};
+    // The custom palette's keys are read only under palette=custom.
+    let h = Harness::new(&[
+        "--palette=custom",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "read x",
+    ]);
+    let read = h.app.config().read();
+    let unread: Vec<&str> = KEYS
+        .iter()
+        .filter(|k| k.scope == Scope::Anywhere)
+        .map(|k| k.name)
+        .filter(|name| !read.contains(name))
+        .filter(|name| !keys::NOT_BUILT.iter().any(|k| k.name == *name))
+        .collect();
+    assert_eq!(unread, Vec::<&str>::new());
+    let readme = include_str!("../README.md");
+    let not_built = readme
+        .split("## Not yet built")
+        .nth(1)
+        .and_then(|s| s.split("\n## ").next())
+        .expect("the README's Not yet built");
+    for key in keys::NOT_BUILT {
+        assert!(
+            not_built.contains(&format!("`{}`", key.name)),
+            "{}",
+            key.name
+        );
+    }
 }

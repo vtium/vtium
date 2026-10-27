@@ -22,6 +22,7 @@ mod value;
 #[cfg(test)]
 mod tests;
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::ffi::OsString;
@@ -290,10 +291,21 @@ pub(crate) struct Assignment {
 }
 
 /// Every key's value and where it came from.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Config {
     values: BTreeMap<&'static str, (Option<Value>, Origin)>,
+    /// The keys whose value was asked for, which a test holds against
+    /// the table: each key a file sets is read or listed as not built.
+    read: RefCell<BTreeSet<&'static str>>,
 }
+
+impl PartialEq for Config {
+    fn eq(&self, other: &Config) -> bool {
+        self.values == other.values
+    }
+}
+
+impl Eq for Config {}
 
 impl std::default::Default for Config {
     /// Every key at its default.
@@ -302,7 +314,10 @@ impl std::default::Default for Config {
             .iter()
             .map(|k| (k.name, (value::default(k), Origin::Default)))
             .collect();
-        Config { values }
+        Config {
+            values,
+            read: RefCell::default(),
+        }
     }
 }
 
@@ -324,7 +339,13 @@ impl Config {
     }
 
     fn get(&self, key: &Key) -> Option<&Value> {
+        self.read.borrow_mut().insert(key.name);
         self.values.get(key.name).and_then(|(v, _)| v.as_ref())
+    }
+
+    /// The names of the keys whose value was asked for so far.
+    pub fn read(&self) -> BTreeSet<&'static str> {
+        self.read.borrow().clone()
     }
 
     /// A switch's value; false for a key that is no switch.

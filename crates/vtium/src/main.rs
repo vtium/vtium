@@ -8,7 +8,7 @@
 
 use std::ffi::OsString;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::ExitCode;
 use std::rc::Rc;
 use std::time::Instant;
@@ -16,9 +16,10 @@ use std::time::Instant;
 use vtium::app::{App, Exit};
 use vtium::check;
 use vtium::config::{self, KEYS, Kind, Scope, keys};
+use vtium::start::Start;
 use vtium::term::Clock;
 use vtium_platform::event_loop::{Loop, Signal};
-use vtium_platform::input::{Direct, Input, InputConfig, Keymap, KeymapConfig, locale};
+use vtium_platform::input::{Direct, Input, Keymap, locale};
 use vtium_platform::udev::Udev;
 use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty, Vt};
 
@@ -37,18 +38,6 @@ fn help() -> String {
         out.push_str(&format!("  {short}--{}{arg}\n      {}\n", k.name, k.what));
     }
     out
-}
-
-/// The VT's device for the `vt` key: a number names `/dev/ttyN`, a name
-/// is under `/dev`, a path is itself (`src/config.c:329-361`).
-fn vt_path(vt: &str) -> PathBuf {
-    if !vt.is_empty() && vt.bytes().all(|b| b.is_ascii_digit()) {
-        PathBuf::from(format!("/dev/tty{vt}"))
-    } else if vt.starts_with('.') || vt.starts_with('/') {
-        PathBuf::from(vt)
-    } else {
-        Path::new("/dev").join(vt)
-    }
 }
 
 #[expect(
@@ -82,8 +71,9 @@ fn main() -> ExitCode {
         println!("vtium {}", env!("CARGO_PKG_VERSION"));
         return ExitCode::SUCCESS;
     }
-    let path = match config.text(&keys::VT) {
-        Some(vt) => Some(vt_path(vt)),
+    let start = Start::new(&config, locale());
+    let path = match start.vt.clone() {
+        Some(vt) => Some(vt),
         None => match Tty::find() {
             Ok(path) => path,
             Err(e) => {
@@ -93,10 +83,10 @@ fn main() -> ExitCode {
         },
     };
     let status = match path {
-        Some(path) => run_kernel(config, &path),
+        Some(path) => run_kernel(config, start, &path),
         None => {
             log::info!(target: "vt", "no VTs: using a fake VT");
-            run(config, |_| Ok(FakeVt::new()))
+            run(config, start, |_| Ok(FakeVt::new()))
         }
     };
     match status {
@@ -108,9 +98,9 @@ fn main() -> ExitCode {
     }
 }
 
-fn run_kernel(config: config::Config, path: &Path) -> io::Result<i32> {
+fn run_kernel(config: config::Config, start: Start, path: &Path) -> io::Result<i32> {
     let (tty, num) = Tty::open(path)?;
-    run(config, move |lp| {
+    run(config, start, move |lp| {
         let vt = KernelVt::new(lp, tty, num, |app: &mut App| app.vt.get::<KernelVt<Tty>>())?;
         // A panic aborts without running the guard: the hook puts the VT
         // back first.
@@ -128,6 +118,7 @@ fn run_kernel(config: config::Config, path: &Path) -> io::Result<i32> {
 /// status.
 fn run<V: Vt + 'static>(
     config: config::Config,
+    start: Start,
     open: impl FnOnce(&mut Loop<App>) -> io::Result<V>,
 ) -> io::Result<i32> {
     let mut lp: Loop<App> = Loop::new()?;
@@ -137,8 +128,6 @@ fn run<V: Vt + 'static>(
     // A write to a child gone returns an error in place of ending vtium.
     lp.on_signal(Signal::SIGPIPE, |_| {})?;
     let vt = open(&mut lp)?;
-    let switch = config.switch(&keys::SWITCHVT);
-    let mouse = true;
     let clock = clock();
     let mut app = App::new(
         config,
@@ -148,14 +137,9 @@ fn run<V: Vt + 'static>(
         std::env::vars_os().collect(),
     );
 
-    let keymap = Keymap::new(&KeymapConfig {
-        locale: locale(),
-        ..KeymapConfig::default()
-    })
-    .or_else(Keymap::fallback);
-    match keymap {
+    match Keymap::new(&start.keymap).or_else(Keymap::fallback) {
         Some(keymap) => {
-            let mut input = Input::new(Direct, keymap, InputConfig::new(0, 0, mouse));
+            let mut input = Input::new(Direct, keymap, start.input);
             input.insert(&lp.handle(), |app: &mut App| app.input.as_mut());
             app.input = Some(input);
         }
@@ -173,7 +157,7 @@ fn run<V: Vt + 'static>(
     }
     app.insert_blank();
 
-    let started = if switch {
+    let started = if start.switch {
         app.vt.activate()
     } else {
         app.vt.wait()

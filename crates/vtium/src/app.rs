@@ -167,6 +167,12 @@ pub struct App {
     exit: Option<Exit>,
     leaving: Option<Leaving>,
     inherited: Vec<(OsString, OsString)>,
+    /// `oneshot`: the child's exit ends vtium.
+    oneshot: bool,
+    /// The `mode` lines, for each DRM device opened.
+    modes: Vec<ModeSpec>,
+    /// `use-original-mode`, off when a mode is set.
+    use_original: bool,
 }
 
 impl App {
@@ -208,7 +214,12 @@ impl App {
             .number(&keys::DPMS_TIMEOUT)
             .map(Duration::from_secs)
             .filter(|d| !d.is_zero());
+        let modes = config.modes(&keys::MODE).to_vec();
+        let use_original = config.switch(&keys::USE_ORIGINAL_MODE) && modes.is_empty();
         App {
+            oneshot: config.switch(&keys::ONESHOT),
+            modes,
+            use_original,
             vt,
             videos: BTreeMap::new(),
             input: None,
@@ -241,6 +252,11 @@ impl App {
             leaving: None,
             inherited,
         }
+    }
+
+    /// The configuration the seat runs with.
+    pub fn config(&self) -> &Config {
+        &self.config
     }
 
     /// Puts the DPMS blank's timer in the loop.
@@ -898,7 +914,7 @@ impl App {
         log::info!("child exited: {status}");
         // The pty closes with what is queued for the child.
         self.pty = None;
-        let oneshot = self.config.switch(&keys::ONESHOT);
+        let oneshot = self.oneshot;
         let since = now.saturating_duration_since(self.epoch);
         let next = self
             .respawn
@@ -1325,11 +1341,10 @@ pub fn open_video(
     let key = node.to_owned();
     let video: Box<dyn Video> = match kind {
         DeviceKind::Drm => {
-            let modes = app.config.modes(&keys::MODE).to_vec();
-            let use_original = app.config.switch(&keys::USE_ORIGINAL_MODE);
+            let modes = app.modes.clone();
             let gpu = id_path.map(str::to_owned);
             let policy = ModePolicy {
-                use_original: use_original && modes.is_empty(),
+                use_original: app.use_original,
                 wanted: (!modes.is_empty()).then(|| {
                     Box::new(move |connector: &str| {
                         ModeSpec::find(&modes, gpu.as_deref(), connector).map(|m| Wanted {

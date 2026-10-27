@@ -29,6 +29,9 @@ pub fn semantics(config: &Config) -> Vec<String> {
     {
         out.push(format!("palette={name} is not built yet; legacy is used"));
     }
+    if config.switch(&keys::HWACCEL) {
+        out.push("hwaccel is not built yet; vtium draws in software".to_owned());
+    }
     if config.switch(&keys::USE_ORIGINAL_MODE) && !config.modes(&keys::MODE).is_empty() {
         out.push("mode is set, so use-original-mode is off".to_owned());
     }
@@ -101,6 +104,14 @@ mod tests {
                 "mode is set, so use-original-mode is off",
             ]
         );
+    }
+
+    #[test]
+    fn a_key_not_built_yet_warns() {
+        let (lines, status) = run_with(&[], "hwaccel\n");
+        assert_eq!(status, 1);
+        assert_eq!(lines, ["hwaccel is not built yet; vtium draws in software"]);
+        assert_eq!(run_with(&[], "no-hwaccel\n"), (Vec::new(), 0));
     }
 
     #[test]

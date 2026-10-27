@@ -35,6 +35,7 @@ pub mod layout;
 pub mod logger;
 pub mod pointer;
 pub mod respawn;
+pub mod start;
 pub mod sync;
 pub mod term;
 pub mod termcap;
