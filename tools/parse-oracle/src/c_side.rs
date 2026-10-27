@@ -24,6 +24,10 @@ use crate::script::{Line, Side, Trace, out};
 const CSI_ARG_MAX: usize = 16;
 const CSI_SUBARG_MAX: usize = 8;
 const OSC_MAX_LEN: usize = 128;
+/// osc-bound: the bytes an OSC string keeps, as the parse README's
+/// departure states it, written here and not taken from vtium-parse so that
+/// a wrong `OSC_MAX` there shows as a difference.
+const OSC_BOUND: usize = 1 << 20;
 const XTGETTCAP_MAX_LEN: usize = 1039;
 const FLAG_8BIT_MODE: u32 = 0x08;
 const FLAG_7BIT_MODE: u32 = 0x10;
@@ -166,6 +170,8 @@ struct Pending {
     action: i32,
     osc: [u8; OSC_MAX_LEN],
     osc_len: u32,
+    /// osc-bound: the string as the Rust side collected it.
+    osc_bound: Vec<u8>,
     osc_truncated: bool,
 }
 
@@ -178,6 +184,8 @@ struct State {
     intermediates: Vec<u32>,
     /// A character failed to fit the OSC string.
     osc_truncated: bool,
+    /// osc-bound: the OSC string, collected here in place of `osc_arg`.
+    osc_bound: Vec<u8>,
     /// The DCS string reaches the trace.
     hooked: bool,
     pending: Option<Pending>,
@@ -316,7 +324,11 @@ extern "C" fn oracle_osc_end(vte: *mut Vte, end: u32) {
         s.trace
             .out
             .push_str(if s.osc_truncated { " t " } else { " " });
-        s.trace.hex(&v.osc_arg[..v.osc_len as usize]);
+        if s.departs.has(Departure::OscBound) {
+            s.trace.hex(&s.osc_bound);
+        } else {
+            s.trace.hex(&v.osc_arg[..v.osc_len as usize]);
+        }
         Some(Line::Counted)
     });
 }
@@ -381,6 +393,8 @@ extern "C" fn oracle_hook_clear(vte: *mut Vte) {
     with(|s| {
         s.marker = None;
         s.intermediates.clear();
+        // osc-bound: the clear empties the string as it empties osc_arg
+        s.osc_bound.clear();
     });
 }
 
@@ -410,10 +424,23 @@ extern "C" fn oracle_hook_osc_collect(vte: *mut Vte, c: u32) {
     if with(|s| s.departs.has(Departure::OscPrefix) && s.osc_truncated) {
         return;
     }
+    let mut buf = [0u8; 4];
+    // osc-bound: the character joins the Rust side's string, by the C
+    // reference's rule (tsm-vte.c:2912-2921) at the larger bound
+    if with(|s| s.departs.has(Departure::OscBound)) {
+        let n = unsafe { tsm_ucs4_to_utf8(c, buf.as_mut_ptr()) };
+        with(|s| {
+            if s.osc_bound.len() + n > OSC_BOUND {
+                s.osc_truncated = true;
+            } else {
+                s.osc_bound.extend_from_slice(&buf[..n]);
+            }
+        });
+        return;
+    }
     let len = unsafe { (*vte).osc_len };
     unsafe { oracle_ref_osc_collect(vte, c) };
     // a noncharacter encodes to nothing, which is no truncation
-    let mut buf = [0u8; 4];
     if unsafe { (*vte).osc_len } == len && unsafe { tsm_ucs4_to_utf8(c, buf.as_mut_ptr()) } > 0 {
         with(|s| s.osc_truncated = true);
     }
@@ -486,6 +513,7 @@ extern "C" fn oracle_hook_action(vte: *mut Vte, data: u32, action: i32) {
             action,
             osc: v.osc_arg,
             osc_len: v.osc_len,
+            osc_bound: std::mem::take(&mut s.osc_bound),
             osc_truncated: s.osc_truncated,
         });
         true
@@ -534,7 +562,10 @@ extern "C" fn oracle_hook_parse(vte: *mut Vte, mut raw: u32) {
                 (*vte).osc_arg = p.osc;
                 (*vte).osc_len = p.osc_len;
             }
-            with(|s| s.osc_truncated = p.osc_truncated);
+            with(|s| {
+                s.osc_truncated = p.osc_truncated;
+                s.osc_bound = p.osc_bound;
+            });
         }
         let end = if raw == u32::from(b'\\') { 0x9c } else { 0x1b };
         unsafe { oracle_ref_action(vte, end, p.action) };
@@ -583,6 +614,7 @@ impl CSide {
                 marker: None,
                 intermediates: Vec::new(),
                 osc_truncated: false,
+                osc_bound: Vec::new(),
                 hooked: false,
                 pending: None,
                 drop_backslash: false,

@@ -44,6 +44,10 @@ conformance-probes: ## Run the C reference's capability probes through vtium-rep
 	cargo build --release -p vtium-conformance --bins
 	target/release/conformance probes --libtsm $(LIBTSM) --kmscon $(KMSCON)
 
+.PHONY: parse-oracle
+parse-oracle: ## Compare vtium-parse with the C reference's parser at tools/parse-oracle/pin.tsv (LIBTSM=DIR; needs gcc)
+	LIBTSM=$(abspath $(LIBTSM)) cargo run --release --manifest-path tools/parse-oracle/Cargo.toml -- run
+
 .PHONY: conformance-issues
 conformance-issues: ## Check that every issue the conformance lists say owes a case or a capability is open (needs gh)
 	cargo build --release -p vtium-conformance --bins

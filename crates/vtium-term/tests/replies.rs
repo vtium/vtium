@@ -646,6 +646,64 @@ fn control_strings_vtium_does_not_take_change_nothing() {
     ]);
 }
 
+// ADR-1000: the OSC strings vtium ignores or refuses change nothing and get
+// no reply, their queries included: the title and icon name, X properties
+// and Sun's title strings, the special and Tektronix colours, a colour in a
+// wide-gamut space, XTQALLOWED and its kin, the working directory,
+// notifications and progress, iTerm2's and the applications' own strings,
+// the log file, and kitty's clipboard, file transfer and drag and drop.
+// covers: window.title, window.xprop, colour.special, colour.tektronix
+// covers: colour.wide-gamut, query.xtqallowed, text.contour-fonts, osc.7
+// covers: osc.notify, osc.9.4, osc.1337, osc.app-specific, osc.46
+// covers: osc.5522, osc.5113, osc.72
+#[test]
+fn the_osc_strings_vtium_does_not_take_change_nothing() {
+    inert(&[
+        b"\x1b]0;title\x07",
+        b"\x1b]1;icon\x1b\\",
+        b"\x1b]2;title\x1b\\",
+        b"\x1b]3;WM_NAME=x\x07",
+        b"\x1b]ltitle\x1b\\",
+        b"\x1b]Llabel\x1b\\",
+        b"\x1b]Ifile.xpm\x1b\\",
+        b"\x1b]5;0;rgb:ff/00/00\x07",
+        b"\x1b]5;0;?\x07",
+        b"\x1b]6;1;1\x07",
+        b"\x1b]105;0\x07",
+        b"\x1b]106;1\x07",
+        b"\x1b]15;?\x07",
+        b"\x1b]16;rgb:00/ff/00\x07",
+        b"\x1b]18;?\x1b\\",
+        b"\x1b]115\x07",
+        b"\x1b]116\x07",
+        b"\x1b]118\x07",
+        b"\x1b]4;1;oklch(0.6 0.2 30)\x07",
+        b"\x1b]11;lab(50% 40 59)\x07",
+        b"\x1b]60\x07",
+        b"\x1b]61\x07",
+        b"\x1b]62\x07",
+        b"\x1b]60;font=Mono;size=12\x1b\\",
+        b"\x1b]7;file://host/tmp\x1b\\",
+        b"\x1b]9;done\x07",
+        b"\x1b]777;notify;title;body\x07",
+        b"\x1b]99;i=1:p=?;\x1b\\",
+        b"\x1b]99;;hello\x1b\\",
+        b"\x1b]9;4;1;50\x07",
+        b"\x1b]1337;SetUserVar=a=Yg==\x07",
+        b"\x1b]1337;CurrentDir=/tmp\x07",
+        b"\x1b]51;[\"call\"]\x07",
+        b"\x1b]176;app\x07",
+        b"\x1b]555\x07",
+        b"\x1b]3008;start=1;type=shell\x1b\\",
+        b"\x1b]7501;x\x07",
+        b"\x1b]46;/tmp/log\x07",
+        b"\x1b]5522;type=read:mime=dGV4dC9wbGFpbg==\x1b\\",
+        b"\x1b]5522;type=write\x1b\\",
+        b"\x1b]5113;ac=send;id=x\x1b\\",
+        b"\x1b]72;t=o\x1b\\",
+    ]);
+}
+
 // ADR-1000: DECST8C, kitty's screen-to-scrollback (`CSI 22 J`) and
 // unscroll (`CSI + T`), the status line, the page size, the LEDs and the
 // bell volumes are ignored.
@@ -698,6 +756,40 @@ fn replies_waiting_for_the_host_are_bounded() {
         rounds += 1;
     }
     assert!(rounds > 1, "the bound never paused the input");
+}
+
+// vtium-parse's README, "Notes for vtium-term": an OSC 4 the parser
+// truncated is refused whole, though each query it kept is complete, so a
+// list past the OSC bound gets no reply.
+#[test]
+fn a_truncated_osc_4_list_gets_no_reply() {
+    let mut seq = b"\x1b]4".to_vec();
+    while seq.len() <= vtium_parse::OSC_MAX + 8 {
+        seq.extend_from_slice(b";1;?");
+    }
+    seq.push(0x07);
+    let mut t = term(8, 2, b"");
+    t.input(&seq);
+    assert_eq!(t.take_replies(), b"");
+}
+
+// The same bound inside one string: an OSC 4 at the OSC bound holds about
+// 260,000 queries, whose replies would be 7 MiB, so the list stops at the
+// reply that reaches the bound, as a stream of queries does.
+#[test]
+fn an_osc_4_list_stops_at_the_replies_bound() {
+    let mut seq = b"\x1b]4".to_vec();
+    while seq.len() < vtium_parse::OSC_MAX - 8 {
+        seq.extend_from_slice(b";1;?");
+    }
+    seq.push(0x07);
+    let mut t = term(8, 2, b"");
+    t.input(&seq);
+    let replies = t.take_replies();
+    let one = b"\x1b]4;1;rgb:cdcd/0000/0000\x07";
+    assert!(replies.len() >= vtium_term::REPLIES_PENDING_MAX);
+    assert!(replies.len() < vtium_term::REPLIES_PENDING_MAX + one.len());
+    assert!(replies.chunks(one.len()).all(|r| r == one));
 }
 
 // The same bound, for a host that calls the input again without taking the
