@@ -224,14 +224,19 @@ impl Trace {
         }
     }
 
-    /// A private marker and intermediates as hex bytes, `-` for none.
+    /// A private marker and intermediates as hex bytes, split by `/`
+    /// (`3f/24`) so a byte on the wrong side shows, or `-` for none.
     pub fn intermediates(&mut self, marker: Option<u32>, bytes: &[u32]) {
         if marker.is_none() && bytes.is_empty() {
             self.out.push_str(" -");
             return;
         }
         self.out.push(' ');
-        for b in marker.iter().chain(bytes) {
+        if let Some(m) = marker {
+            out!(self.out, "{m:02x}");
+        }
+        self.out.push('/');
+        for b in bytes {
             out!(self.out, "{b:02x}");
         }
     }

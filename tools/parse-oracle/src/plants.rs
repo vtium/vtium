@@ -62,6 +62,12 @@ pub const PLANTS: &[Plant] = &[
         from: "            0xc2..=0xdf => (1, 0x80, 0xbf),",
         to: "            0xc0..=0xdf => (1, 0x80, 0xbf),",
     },
+    Plant {
+        name: "marker-as-intermediate",
+        file: "src/parser.rs",
+        from: "                    self.params.set_marker(b);",
+        to: "                    let _ = self.intermediates.push(b);",
+    },
     // shows only with pauses
     Plant {
         name: "pause-ignored",
@@ -147,6 +153,8 @@ pub fn build(plant: &Plant, out: &Path) -> Result<PathBuf, String> {
         .args(["build", "--quiet", "--release", "--manifest-path"])
         .arg(tool.join("Cargo.toml"))
         .env("CARGO_TARGET_DIR", &target)
+        // a plant may leave code unused; its warnings are not the test's
+        .env("RUSTFLAGS", "-A warnings")
         .env("LIBTSM", env!("ORACLE_LIBTSM_GIT"))
         .status()
         .map_err(|e| format!("cargo: {e}"))?;
