@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Tests the VT review tools (tools/vt, docs/vt-review.md) without a VT, sudo
 or logind. Each case gets a temporary directory of stand-ins named by
-VTIUM_VT_STANDINS: systemctl, loginctl, setpriv and sudo record their calls,
-chvt and fgconsole record that they were reached (no tool may switch a VT),
+VTIUM_VT_STANDINS: systemctl, loginctl, setpriv, getent and sudo record their
+calls, "shells" stands for /etc/shells, chvt and fgconsole record that they were reached (no tool may switch a VT),
 "active" stands for the VT on screen, and a stand-in vtium binary records its
 arguments and exits, crashes, waits for a signal or runs its session. The
 stand-ins also lead PATH, so a command the tools reach by name finds one.
@@ -31,6 +31,10 @@ VT_SH = os.path.join(VT, "vt.sh")
 GUIDE_SH = os.path.join(VT, "checks", "guide.sh")
 DEMO_SH = os.path.join(VT, "demo.sh")
 FEEDBACK_SH = os.path.join(VT, "feedback.sh")
+USER = subprocess.run(["id", "-un"], capture_output=True, text=True, check=True).stdout.strip()
+# script(1) as run-vt.sh finds it, on the PATH it pins.
+SCRIPT = next(os.path.join(d, "script") for d in ("/usr/sbin", "/usr/bin", "/sbin", "/bin")
+              if os.access(os.path.join(d, "script"), os.X_OK))
 
 # Each call, one line: the command's name and its arguments.
 RECORD = 'printf "%s\\n" "${0##*/} $*" >>"$CALLS"\n'
@@ -81,6 +85,26 @@ SETPRIV = "#!/bin/bash\n" + RECORD + """
 while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done
 shift
 exec "$@"
+"""
+
+# passwd NAME prints $PASSWD when it is set (an empty one: no such user),
+# else NAME's entry with the caller's uid and gid, $LOGIN_HOME and $LOGIN_SHELL.
+GETENT = "#!/bin/bash\n" + RECORD + """
+[ "$1" = passwd ] || exit 2
+if [ -n "${PASSWD+x}" ]; then
+	[ -n "$PASSWD" ] || exit 2
+	printf '%s\\n' "$PASSWD"
+	exit
+fi
+printf '%s:x:%s:%s::%s:%s\\n' "$2" "$(id -u)" "$(id -g)" "$LOGIN_HOME" "$LOGIN_SHELL"
+"""
+
+# The operator's login shell: prints how it was started, as whom and where,
+# then the line it reads, so a transcript shows each.
+LOGIN_SHELL = """#!/bin/bash
+printf 'login shell: %s as %s in %s\\n' "$*" "$(id -un)" "$PWD"
+read -r line || true
+printf 'read: %s\\n' "$line"
 """
 
 SUDO = "#!/bin/bash\n" + RECORD + """
@@ -137,10 +161,16 @@ class Stage:
         self.standins = os.path.join(tmp, "standins")
         os.mkdir(self.standins)
         for name, text in (("systemctl", SYSTEMCTL), ("loginctl", LOGINCTL), ("setpriv", SETPRIV),
-                           ("sudo", SUDO), ("cargo", "#!/bin/bash\n" + RECORD),
+                           ("getent", GETENT), ("sudo", SUDO), ("cargo", "#!/bin/bash\n" + RECORD),
                            ("chvt", FORBIDDEN), ("fgconsole", FORBIDDEN)):
             write(os.path.join(self.standins, name), text)
         write(os.path.join(self.standins, "active"), "tty7\n", 0o644)
+        self.home = os.path.join(tmp, "home")
+        os.mkdir(self.home)
+        self.login_shell = os.path.join(tmp, "login-shell")
+        write(self.login_shell, LOGIN_SHELL)
+        write(os.path.join(self.standins, "shells"),
+              f"# Pathnames of valid login shells.\n/bin/sh\n/bin/bash\n{self.login_shell}\n", 0o644)
         self.bin = os.path.join(tmp, "vtium")
         write(self.bin, BIN)
         self.dir = os.path.join(tmp, "vt")
@@ -163,6 +193,9 @@ class Stage:
             BIN_SIGNALS=self.signals,
             BIN_PID=os.path.join(self.tmp, "bin-pid"),
             ACTIVE_UNITS="kmsconvt@tty8.service",
+            LOGIN_HOME=self.home,
+            LOGIN_SHELL="/bin/bash",
+            SHELL="/bin/bash",
         )
         env.update(extra)
         return env
@@ -458,6 +491,70 @@ class RunVt(Case):
         self.assertEqual(self.s.changes(), ["stop kmsconvt@tty8.service", "start kmsconvt@tty8.service"])
 
 
+    def test_a_shell_runs_as_the_user_with_the_shell_passwd_names(self):
+        t = os.path.join(self.s.tmp, "shell.transcript")
+        p = self.run_vt("--shell", f"--transcript={t}", "8", LOGIN_SHELL=self.s.login_shell)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        argv = read(self.s.bin_args).splitlines()
+        self.assertIn("--oneshot", argv)
+        uid, gid = os.getuid(), os.getgid()
+        self.assertEqual(argv[argv.index("--") + 1:],
+                         [os.path.join(self.s.standins, "setpriv"), f"--reuid={uid}", f"--regid={gid}", "--init-groups",
+                          "--reset-env", "--", "/usr/bin/env", "-C", self.s.home, SCRIPT, "-q", "-f", "-c",
+                          f"exec {self.s.login_shell} -l", t])
+        self.assertIn(f"with {USER}'s shell", p.stdout)
+        self.assertEqual(self.s.calls_of("getent"), [f"passwd {USER}"])
+        # Without a transcript, the shell is the session itself.
+        p = self.run_vt("--shell", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        argv = read(self.s.bin_args).splitlines()
+        self.assertEqual(argv[argv.index("/usr/bin/env"):], ["/usr/bin/env", "-C", self.s.home, "/bin/bash", "-l"])
+
+    def test_a_shell_not_in_etc_shells_is_refused(self):
+        listed_missing = "/usr/bin/no-such-shell"
+        with open(os.path.join(self.s.standins, "shells"), "a") as f:
+            f.write(listed_missing + "\n/bin/sh;id\nbash\n")
+        for shell, why in (("/bin/zsh-not-listed", "is not in " + os.path.join(self.s.standins, "shells")),
+                           ("", "has no login shell"),
+                           ("bash", "is not an absolute path"),
+                           ("# Pathnames of valid login shells.", "is not an absolute path"),
+                           ("/bin/sh;id", "is not an absolute path"),
+                           (listed_missing, "is not an executable file")):
+            with self.subTest(shell=shell):
+                self.refused(self.run_vt("--shell", "8", LOGIN_SHELL=shell), why)
+                self.refused(self.run_vt("--shell", "--dry-run", "8", LOGIN_SHELL=shell), why)
+        self.assertEqual(self.s.changes(), [])
+        self.assertFalse(os.path.exists(self.s.bin_args))
+
+    def test_the_session_never_runs_as_root(self):
+        for mode in (["--shell"], [], ["--login"]):
+            with self.subTest(mode=mode):
+                self.refused(self.run_vt(*mode, "8", SUDO_USER="root"), "never as root")
+                self.refused(self.run_vt(*mode, "8", PASSWD="toor:x:0:0::/root:/bin/bash"), "never as root")
+                self.refused(self.run_vt(*mode, "--dry-run", "8", PASSWD="toor:x:0:0::/root:/bin/bash"),
+                             "never as root")
+        self.refused(self.run_vt("--shell", "8", PASSWD=""), "no such user")
+        self.assertEqual(self.s.changes(), [])
+        self.assertFalse(os.path.exists(self.s.bin_args))
+
+    def test_the_shell_takes_no_other_session(self):
+        guide = os.path.join(VT, "checks", "start.guide")
+        for opts, why in ((["--shell", "--login"], "--shell runs your shell"),
+                          (["--shell", f"--guide={guide}"], "--shell runs your shell"),
+                          (["--transcript=/tmp/x"], "--transcript goes with --shell")):
+            with self.subTest(opts=opts):
+                self.refused(self.run_vt(*opts, "8"), why)
+        self.assertEqual(self.s.changes(), [])
+
+    def test_a_transcript_the_user_cannot_write_is_refused(self):
+        self.refused(self.run_vt("--shell", "--transcript=" + os.path.join(self.s.tmp, "none", "t"), "8"),
+                     "cannot write the transcript")
+        os.symlink("/etc/passwd", os.path.join(self.s.tmp, "link"))
+        self.refused(self.run_vt("--shell", "--transcript=" + os.path.join(self.s.tmp, "link"), "8"),
+                     "cannot write the transcript")
+        self.assertEqual(self.s.changes(), [])
+
+
 class VtSh(Case):
     """vt.sh, the desktop side behind the make targets."""
 
@@ -561,6 +658,39 @@ class VtSh(Case):
         self.assertIn("vtium log: ", out)
         self.assertEqual(self.s.changes(), ["stop kmsconvt@tty5.service", "start kmsconvt@tty5.service"])
 
+    def test_a_shell_dry_run_names_its_log_and_transcript(self):
+        p = self.vt_sh(VTIUM_VT_SESSION="shell", VTIUM_VT_DRY_RUN="1")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        line = next(l for l in p.stdout.splitlines() if l.startswith("+ "))
+        self.assertRegex(line, r" --shell --transcript=" + self.s.dir + r"/vt-[0-9T]+-tty5-XXXXXX\.transcript 5 --$")
+        self.assertRegex(p.stdout, r"vtium's log would go to " + self.s.dir + r"/vt-[0-9T]+-tty5-XXXXXX\.log; "
+                         r"the shell's transcript to " + self.s.dir + r"/vt-[0-9T]+-tty5-XXXXXX\.transcript")
+        # run-vt.sh's dry run names the shell it would run.
+        self.assertIn(f" {SCRIPT} -q -f -c exec\\ /bin/bash\\ -l {self.s.dir}/vt-", p.stdout)
+        self.assertEqual(self.s.calls_of("sudo"), [])
+        self.assertEqual(self.s.changes(), [])
+        self.assertFalse(os.path.exists(self.s.bin_args))
+
+    def test_a_shell_ended_with_ctrl_c_or_a_crash_restores_the_unit(self):
+        proc = subprocess.Popen(["bash", VT_SH], env=self.s.env(VTIUM_VT_BIN=self.s.bin, BIN_MODE="wait",
+                                                                VTIUM_VT_SESSION="shell",
+                                                                ACTIVE_UNITS="kmsconvt@tty5.service"),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=self.s.tmp,
+                                start_new_session=True)
+        end = time.monotonic() + 10
+        while not os.path.exists(self.s.bin_args) and time.monotonic() < end:
+            time.sleep(0.02)
+        os.killpg(proc.pid, signal.SIGINT)
+        out, err = proc.communicate(timeout=15)
+        self.assertEqual(proc.returncode, 0, out + err)
+        self.assertIn("vt-shell: ended with Ctrl-C", out)
+        self.assertRegex(out, r"vtium log: " + self.s.dir + r"/vt-[0-9T]+-tty5-\w{6}\.log\n"
+                         r"transcript: " + self.s.dir + r"/vt-[0-9T]+-tty5-\w{6}\.transcript\n")
+        self.assertEqual(self.s.changes(), ["stop kmsconvt@tty5.service", "start kmsconvt@tty5.service"])
+        p = self.vt_sh(VTIUM_VT_SESSION="shell", BIN_STATUS="101", ACTIVE_UNITS="kmsconvt@tty5.service")
+        self.assertEqual(p.returncode, 101, p.stdout + p.stderr)
+        self.assertIn("transcript: " + self.s.dir, p.stdout)
+
     def test_the_start_guide_runs_and_its_log_reaches_the_caller(self):
         # Enter to begin; step 1: Enter, y, a note; step 2: Enter, the shell's
         # two lines, n and no note; Enter to end.
@@ -600,6 +730,25 @@ class VtSh(Case):
         self.assertEqual(self.s.calls_of("sudo")[0], "-v")
         self.assertEqual(self.s.changes(), ["stop kmsconvt@tty5.service", "start kmsconvt@tty5.service"])
 
+    def test_the_shell_runs_and_its_paths_reach_the_caller(self):
+        typed = os.path.join(self.s.tmp, "typed")
+        write(typed, "ls -l\n", 0o644)
+        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-shell", f"VTIUM_BIN={self.s.bin}", "VT=6"],
+                           env=self.s.env(BIN_MODE="session", BIN_STDIN=typed, LOGIN_SHELL=self.s.login_shell,
+                                          ACTIVE_UNITS="getty@tty6.service"),
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        log = os.path.join(self.s.dir, "vt-") + r"[0-9T]+-tty6-\w{6}"
+        self.assertRegex(p.stdout, r"health: 0 'panicked at' lines in vtium's log\n"
+                                   f"vtium log: {log}\\.log\ntranscript: {log}\\.transcript\n")
+        transcript = p.stdout.split("transcript: ")[1].split("\n")[0]
+        self.assertEqual(stat.S_IMODE(os.stat(transcript).st_mode), 0o600)
+        text = read(transcript).replace("\r", "")
+        self.assertIn(f"login shell: -l as {USER} in {self.s.home}\n", text)
+        self.assertIn("read: ls -l\n", text)
+        self.assertEqual(self.s.calls_of("sudo")[0], "-v")
+        self.assertEqual(self.s.changes(), ["stop getty@tty6.service", "start getty@tty6.service"])
+
 
 class Make(Case):
     """The Makefile's guards, which act before anything is built."""
@@ -610,7 +759,7 @@ class Make(Case):
 
     def test_help_lists_the_targets(self):
         p = self.make("help")
-        for target in ("minspec", "test-tools", "vt-demo", "vt-login", "vt-check"):
+        for target in ("minspec", "test-tools", "vt-demo", "vt-login", "vt-check", "vt-shell"):
             self.assertIn(target, p.stdout)
 
     def test_the_binary_is_never_taken_from_the_environment(self):
@@ -761,7 +910,7 @@ class Guide(Case):
                 g.wait_for(b"Press Enter to end.")
                 g.send(b"\r")
                 self.assertEqual(g.finish(), 1)
-        self.assertEqual(sorted(os.listdir(self.s.tmp)), sorted(["standins", "vtium", "vt", "open"]))
+        self.assertEqual(sorted(os.listdir(self.s.tmp)), sorted(["standins", "vtium", "vt", "open", "home", "login-shell"]))
         self.assertEqual(os.listdir(open_dir), [])
 
     def test_a_run_on_a_terminal(self):
