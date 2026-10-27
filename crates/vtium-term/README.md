@@ -118,6 +118,7 @@ The C reference's cluster table took a hash seed from the system's entropy, and 
 
 The cases whose golden a departure moves, for vtium/vtium#14's list. The character-set departures move none: no case designates into G1 to G3, invokes a set into GR or uses a single shift, and `dec-graphics` matches its golden.
 
+- `prog-tmux`: tmux asks for the colour scheme with `CSI ? 996 n`, which vtium answers `CSI ? 997 ; 1 n`, dark, at the head of the case's replies; the C reference sent nothing.
 - `kit-cursor`: DECSTBM homes the cursor. The stream ends with `CSI r`, after which vtium's cursor is at 0,0 where the golden's is at 5,2.
 - `replies-da1`, `prog-tmux`, `host-identify`, `six-off`, `six-replies`, `kit-host-icat` and `kit-host-icat-nohook`: DA1's `CSI ? 62 ; 22 c` where the golden has level 60.
 - `host-identify`: XTGETTCAP's names in uppercase hex, `544E` and `436F` where the golden echoes `544e` and `436f`.
