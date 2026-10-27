@@ -134,11 +134,10 @@ pub fn expected_rows(text: &str) -> Result<Vec<Row>, String> {
 }
 
 /// Checks each departure's entry against its source: `read` returns the
-/// text of a SOURCE. In a README the entry must sit in its `## Departures`
-/// section, or in its goldens list: a section whose heading names goldens,
-/// or the items under a list entry whose bold lead starts `Goldens`. In
-/// `INTERFACE.md` the entry must be a sentence that lets an implementation
-/// list the case as a departure.
+/// text of a SOURCE. In a README the entry must sit under a
+/// `## Departures` or a `## Golden differences` heading. In `INTERFACE.md`
+/// the entry must be a sentence that lets an implementation list the case
+/// as a departure.
 pub fn check_sources(
     rows: &[Row],
     read: impl Fn(&str) -> Result<String, String>,
@@ -156,7 +155,7 @@ pub fn check_sources(
         };
         if !found {
             return Err(format!(
-                "expected.tsv:{}: {} lists no departure {:?} under its Departures heading or its goldens list",
+                "expected.tsv:{}: {} has no {:?} under a Departures or a Golden differences heading",
                 row.line, row.source, row.entry
             ));
         }
@@ -164,24 +163,16 @@ pub fn check_sources(
     Ok(())
 }
 
-/// The lines of a README that list departures: its `## Departures`
-/// section, a section whose heading names goldens, and the items nested
-/// under a list entry whose bold lead starts `Goldens`.
+/// The lines of a README under a `## Departures` or a
+/// `## Golden differences` heading.
 pub fn departure_lines(text: &str) -> impl Iterator<Item = &str> {
-    let mut section = false;
-    let mut goldens_item = false;
+    let mut listed = false;
     text.lines().filter(move |line| {
-        if let Some(heading) = line.strip_prefix('#') {
-            let heading = heading.trim_start_matches('#').trim();
-            section = heading == "Departures" || heading.to_lowercase().contains("golden");
-            goldens_item = false;
+        if line.starts_with('#') {
+            listed = matches!(*line, "## Departures" | "## Golden differences");
             return false;
         }
-        if line.starts_with("- ") {
-            goldens_item = line.starts_with("- **Goldens");
-            return section;
-        }
-        section || (goldens_item && line.starts_with(' '))
+        listed
     })
 }
 
@@ -295,15 +286,14 @@ mod tests {
         assert!(
             check_sources(&rows, readme("## Departures\n\n## Bounds\n\nDA1 reports\n")).is_err()
         );
-        let goldens = "## Notes\n\n- **Goldens the departures move**:\n  - `x`: DA1 reports a VT220.\n- **Other**\n";
+        let goldens = "## Golden differences\n\n- `x`: DA1 reports a VT220.\n\n## Bounds\n";
         assert_eq!(check_sources(&rows, readme(goldens)), Ok(()));
-        let after =
-            "## Notes\n\n- **Goldens the departures move**:\n- **Other**\n  - DA1 reports\n";
-        assert!(check_sources(&rows, readme(after)).is_err());
-        assert_eq!(
-            check_sources(&rows, readme("## Golden cases\n\nDA1 reports\n")),
-            Ok(())
-        );
+        // a goldens list under any other heading is not one
+        let bullet =
+            "## Notes\n\n- **Goldens the departures move**:\n  - `x`: DA1 reports a VT220.\n";
+        assert!(check_sources(&rows, readme(bullet)).is_err());
+        assert!(check_sources(&rows, readme("## Golden cases\n\nDA1 reports\n")).is_err());
+        assert!(check_sources(&rows, readme("### Departures\n\nDA1 reports\n")).is_err());
         let iface =
             expected_rows("*\tx\tdeparture\tINTERFACE.md\tDA1 reports\n").unwrap_or_default();
         assert!(check_sources(&iface, readme("DA1 reports")).is_err());
