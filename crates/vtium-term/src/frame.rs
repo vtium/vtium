@@ -5,6 +5,11 @@
 //! for the display reading it, the cursor, and the selection. Resolving at
 //! draw time is what lets a palette change recolour text already on the
 //! screen.
+//!
+//! A cell's colours resolve in the C reference's order: bold brightens a
+//! foreground palette colour below 8 to its bright twin, the palette gives
+//! RGB, inverse video, DECSCNM and the selection swap the two, and dim
+//! draws the foreground halfway to the background.
 
 use core::ops::Range;
 
@@ -114,6 +119,13 @@ impl Palette {
     }
 }
 
+/// SGR 2's foreground: halfway from `fg` to `bg`, each channel the sum of
+/// the two halved (the C reference's `color_dim`).
+fn dim(fg: Rgb, bg: Rgb) -> Rgb {
+    let ch = |f: u8, b: u8| (f / 2).saturating_add(b / 2);
+    Rgb::new(ch(fg.r, bg.r), ch(fg.g, bg.g), ch(fg.b, bg.b))
+}
+
 /// DECSCUSR's cursor shapes.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CursorShape {
@@ -142,15 +154,17 @@ pub struct Cursor {
 pub struct FrameCell<'a> {
     pub glyph: Glyph<'a>,
     pub width: Width,
-    /// The foreground after the palette and inverse video.
+    /// The foreground after the palette, bold as bright, inverse video and
+    /// dim.
     pub fg: Rgb,
     /// The background after the palette and inverse video.
     pub bg: Rgb,
-    /// The underline colour SGR 58 set, resolved; `None` follows the
-    /// configured underline colour, or the foreground.
+    /// The underline colour SGR 58 set, resolved and exact; `None` follows
+    /// the configured underline colour, or the foreground.
     pub underline_color: Option<Rgb>,
-    /// SGR's attributes, which a renderer draws: bold, dim, blink,
-    /// conceal, the underline style, overline, strike, the script.
+    /// SGR's attributes, which a renderer draws: the bold face, blink,
+    /// conceal, the underline style, overline, strike, the script. Dim and
+    /// bold as bright are already in the colours.
     pub attrs: Attrs,
     /// The background is the default one and not inverted: an image placed
     /// below cell backgrounds shows through (libtsm#35).
@@ -234,12 +248,21 @@ impl<'a> Frame<'a> {
         }
         let cell = line.cell(col);
         let style = line.style(cell);
-        let mut fg = self.palette.resolve(style.fg, self.palette.fg);
+        let fg_color = match style.fg {
+            Color::Indexed(i) if i < 8 && style.attrs.contains(Attrs::BOLD) => {
+                Color::Indexed(i.saturating_add(8))
+            }
+            c => c,
+        };
+        let mut fg = self.palette.resolve(fg_color, self.palette.fg);
         let mut bg = self.palette.resolve(style.bg, self.palette.bg);
         let selected = self.selection.get(row).is_some_and(|r| r.contains(&col));
         let inverse = (style.attrs.contains(Attrs::INVERSE) != self.reverse) != selected;
         if inverse {
             core::mem::swap(&mut fg, &mut bg);
+        }
+        if style.attrs.contains(Attrs::DIM) {
+            fg = dim(fg, bg);
         }
         let underline_color = match style.underline_color {
             Color::Default => None,
@@ -424,6 +447,185 @@ mod tests {
             Some(Rgb::new(9, 9, 9))
         );
         assert_eq!(frame.cell(0, 1).unwrap().underline_color, None);
+    }
+
+    fn with(mut style: Style, attrs: &[Attrs]) -> Style {
+        for &a in attrs {
+            style.attrs.insert(a);
+        }
+        style
+    }
+
+    /// The colours of a cell written in `style`, `reverse` being DECSCNM.
+    struct Colours {
+        fg: Rgb,
+        bg: Rgb,
+        underline_color: Option<Rgb>,
+    }
+
+    fn resolved(style: Style, reverse: bool) -> Colours {
+        let line = styled(style);
+        let damage = Damage::new(4, 1);
+        let palette = palette();
+        let frame = Frame::new(
+            vec![&line],
+            &damage,
+            &palette,
+            Age::NEVER,
+            Cursor::default(),
+            reverse,
+        );
+        let cell = frame.cell(0, 0).unwrap();
+        Colours {
+            fg: cell.fg,
+            bg: cell.bg,
+            underline_color: cell.underline_color,
+        }
+    }
+
+    // The C reference's color_resolve: bold adds 8 to a palette colour
+    // below 8 in the foreground. Colours 8 to 255, RGB, the default
+    // foreground, the background and SGR 58's colour stay as set.
+    // covers: sgr.bold
+    #[test]
+    fn bold_brightens_the_first_eight_palette_colours_of_the_foreground() {
+        let bold = |fg| {
+            resolved(
+                with(
+                    Style {
+                        fg,
+                        ..Style::DEFAULT
+                    },
+                    &[Attrs::BOLD],
+                ),
+                false,
+            )
+            .fg
+        };
+        assert_eq!(bold(Color::Indexed(0)), Rgb::new(8, 8, 8));
+        assert_eq!(bold(Color::Indexed(1)), Rgb::new(9, 9, 9));
+        assert_eq!(bold(Color::Indexed(7)), Rgb::new(15, 15, 15));
+        assert_eq!(bold(Color::Indexed(8)), Rgb::new(8, 8, 8));
+        assert_eq!(bold(Color::Indexed(9)), Rgb::new(9, 9, 9));
+        assert_eq!(bold(Color::Indexed(16)), Rgb::new(16, 16, 16));
+        assert_eq!(
+            bold(Color::Rgb(Rgb::new(1, 2, 3))),
+            Rgb::new(1, 2, 3),
+            "RGB"
+        );
+        assert_eq!(bold(Color::Default), WHITE, "the default foreground");
+
+        let plain = Style {
+            fg: Color::Indexed(1),
+            ..Style::DEFAULT
+        };
+        assert_eq!(resolved(plain, false).fg, Rgb::new(1, 1, 1), "not bold");
+
+        let cell = resolved(
+            with(
+                Style {
+                    fg: Color::Indexed(1),
+                    bg: Color::Indexed(2),
+                    underline_color: Color::Indexed(3),
+                    ..Style::DEFAULT
+                },
+                &[Attrs::BOLD],
+            ),
+            false,
+        );
+        assert_eq!(cell.bg, Rgb::new(2, 2, 2), "the background");
+        assert_eq!(cell.underline_color, Some(Rgb::new(3, 3, 3)), "SGR 58");
+    }
+
+    // Bold brightens the foreground before inverse video and DECSCNM swap
+    // it: the bright colour becomes the background.
+    // covers: sgr.bold
+    #[test]
+    fn bold_brightens_before_inverse_video() {
+        let style = Style {
+            fg: Color::Indexed(1),
+            bg: Color::Indexed(4),
+            ..Style::DEFAULT
+        };
+        let inverse = resolved(with(style, &[Attrs::BOLD, Attrs::INVERSE]), false);
+        assert_eq!(
+            (inverse.fg, inverse.bg),
+            (Rgb::new(4, 4, 4), Rgb::new(9, 9, 9))
+        );
+        let reverse = resolved(with(style, &[Attrs::BOLD]), true);
+        assert_eq!(
+            (reverse.fg, reverse.bg),
+            (Rgb::new(4, 4, 4), Rgb::new(9, 9, 9))
+        );
+    }
+
+    const FG: Rgb = Rgb::new(0xff, 0x80, 0x40);
+    const BG: Rgb = Rgb::new(0x21, 0xa0, 0xc3);
+    /// The C reference's color_dim of `FG` and `BG`: ff/2 + 21/2,
+    /// 80/2 + a0/2, 40/2 + c3/2. A rounded mean would give 90 in red.
+    const DIM: Rgb = Rgb::new(0x8f, 0x90, 0x81);
+
+    // SGR 2: the foreground halfway to the background, each channel the
+    // sum of the two halved; the background and SGR 58's colour stay.
+    // covers: sgr.dim
+    #[test]
+    fn dim_draws_the_foreground_halfway_to_the_background() {
+        let style = Style {
+            fg: Color::Rgb(FG),
+            bg: Color::Rgb(BG),
+            ..Style::DEFAULT
+        };
+        let cell = resolved(with(style, &[Attrs::DIM]), false);
+        assert_eq!((cell.fg, cell.bg), (DIM, BG));
+        assert_eq!(cell.underline_color, None);
+
+        let set = Style {
+            underline_color: Color::Rgb(Rgb::new(0, 0xff, 0)),
+            ..style
+        };
+        let cell = resolved(with(set, &[Attrs::DIM]), false);
+        assert_eq!(cell.underline_color, Some(Rgb::new(0, 0xff, 0)));
+
+        let white = Style {
+            fg: Color::Rgb(WHITE),
+            bg: Color::Rgb(WHITE),
+            ..Style::DEFAULT
+        };
+        assert_eq!(
+            resolved(with(white, &[Attrs::DIM]), false).fg,
+            Rgb::new(254, 254, 254),
+            "each half rounds down"
+        );
+    }
+
+    // Dim mixes the colours inverse video and DECSCNM left, so the old
+    // foreground stays behind the mix.
+    // covers: sgr.dim
+    #[test]
+    fn dim_follows_inverse_video() {
+        let style = Style {
+            fg: Color::Rgb(FG),
+            bg: Color::Rgb(BG),
+            ..Style::DEFAULT
+        };
+        let inverse = resolved(with(style, &[Attrs::DIM, Attrs::INVERSE]), false);
+        assert_eq!((inverse.fg, inverse.bg), (DIM, FG));
+        let reverse = resolved(with(style, &[Attrs::DIM]), true);
+        assert_eq!((reverse.fg, reverse.bg), (DIM, FG));
+    }
+
+    // Bold brightens first and dim mixes the bright colour: 9/2 + 21/2,
+    // 9/2 + a0/2, 9/2 + c3/2.
+    // covers: sgr.bold, sgr.dim
+    #[test]
+    fn bold_and_dim_dim_the_bright_colour() {
+        let style = Style {
+            fg: Color::Indexed(1),
+            bg: Color::Rgb(BG),
+            ..Style::DEFAULT
+        };
+        let cell = resolved(with(style, &[Attrs::BOLD, Attrs::DIM]), false);
+        assert_eq!((cell.fg, cell.bg), (Rgb::new(0x14, 0x54, 0x65), BG));
     }
 
     #[test]
