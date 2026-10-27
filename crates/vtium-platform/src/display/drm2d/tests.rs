@@ -379,6 +379,32 @@ fn a_failed_commit_keeps_the_cursor_waiting() {
     assert!(!v.need_commit(DisplayId(A)));
 }
 
+// Re-review finding 4: a cursor change undone before the swap leaves the
+// plane as the last commit set it, so the swap sends nothing. With the
+// plane off, a commit would name no CRTC, which the kernel refuses with a
+// flip event.
+#[test]
+fn a_cursor_change_undone_before_the_swap_sends_nothing() {
+    let mut v = awake(one());
+    v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
+    let commits = v.card().state().commits.len();
+    v.show_cursor(DisplayId(A), 1, 1).unwrap();
+    v.hide_cursor(DisplayId(A));
+    assert!(!v.need_commit(DisplayId(A)));
+    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Nothing);
+    assert_eq!(v.card().state().commits.len(), commits);
+    v.show_cursor(DisplayId(A), 1, 1).unwrap();
+    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Cursor);
+    flip(&mut v);
+    let commits = v.card().state().commits.len();
+    v.show_cursor(DisplayId(A), 2, 2).unwrap();
+    v.set_cursor_offset(DisplayId(A), 1, 1);
+    v.set_cursor_offset(DisplayId(A), 0, 0);
+    v.show_cursor(DisplayId(A), 1, 1).unwrap();
+    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Nothing);
+    assert_eq!(v.card().state().commits.len(), commits);
+}
+
 #[test]
 fn the_cursor_image_is_cut_to_the_plane() {
     let mut v = awake(one());

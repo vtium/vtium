@@ -3,8 +3,9 @@
 //! when a test says, and failures planted where a test wants them. It
 //! behaves as the kernel does where drm2d depends on it: a commit or a
 //! modeset without DRM master is refused with EACCES, a commit while a
-//! flip is pending with EBUSY, and a commit asking for a flip event on a
-//! CRTC that is off and stays off with EINVAL (`drm_atomic_crtc_check`).
+//! flip is pending with EBUSY, and a commit asking for a flip event that
+//! names no CRTC (`prepare_signaling`) or a CRTC that is off and stays off
+//! (`drm_atomic_crtc_check`) with EINVAL.
 //! A connector's DPMS and its CRTC's `ACTIVE` are one state, as on an
 //! atomic driver: setting either sets the other.
 
@@ -511,7 +512,7 @@ impl Kms for FakeCard {
             let now = commit.get(c, "ACTIVE").map_or(active(c), |v| v != 0);
             !active(c) && !now
         });
-        if event && stays_off {
+        if event && (crtcs.is_empty() || stays_off) {
             return Err(err(Errno::INVAL));
         }
         if crtcs.iter().any(|c| s.pending.contains(c)) {

@@ -169,6 +169,10 @@ pub(super) struct Buffer<M> {
     pub(super) size: (u32, u32),
 }
 
+/// What a cursor plane shows: the image's framebuffer, where its corner
+/// is on the CRTC and its hotspot, or `None` where the plane is off.
+pub(super) type Shown = Option<(u32, (i64, i64), (i32, i32))>;
+
 /// The hardware cursor's image on the cursor plane, and where it is shown.
 #[derive(Debug, Default)]
 pub(super) struct Cursor {
@@ -180,6 +184,21 @@ pub(super) struct Cursor {
     pub(super) at: (i32, i32),
     pub(super) offset: (i32, i32),
     pub(super) visible: bool,
+}
+
+impl Cursor {
+    /// Where the image's corner goes on the CRTC.
+    fn corner(&self) -> (i64, i64) {
+        let at = |offset: i32, at: i32, hot: i32| {
+            i64::from(offset)
+                .saturating_add(i64::from(at))
+                .saturating_sub(i64::from(hot))
+        };
+        (
+            at(self.offset.0, self.at.0, self.hot.0),
+            at(self.offset.1, self.at.1, self.hot.1),
+        )
+    }
 }
 
 /// A connector driven through a CRTC.
@@ -201,9 +220,9 @@ pub(super) struct Output<M> {
     pub(super) lent: bool,
     /// The back buffer holds a frame drawn with damage and not presented.
     pub(super) fresh: bool,
-    /// The cursor plane's state changed since the last commit.
-    pub(super) need_commit: bool,
     pub(super) cursor: Option<Cursor>,
+    /// What the cursor plane shows, as the last commit that took set it.
+    pub(super) cursor_set: Shown,
     /// `None` where the connector has no DPMS property.
     pub(super) dpms: Option<(u32, Dpms)>,
     pub(super) online: bool,
@@ -237,6 +256,19 @@ impl<M: AsMut<[u8]>> Output<M> {
     pub(super) fn start_flip(&mut self) {
         self.flipping = true;
         self.flips = self.flips.wrapping_add(1);
+    }
+
+    /// What the cursor plane is to show, as the next commit sets it.
+    pub(super) fn cursor_shown(&self) -> Shown {
+        self.planes.as_ref()?.cursor.as_ref()?;
+        let c = self.cursor.as_ref().filter(|c| c.visible)?;
+        Some((c.fb, c.corner(), c.hot))
+    }
+
+    /// Whether the cursor plane is to show something other than what the
+    /// last commit that took set.
+    pub(super) fn cursor_changed(&self) -> bool {
+        self.cursor_shown() != self.cursor_set
     }
 
     pub(super) fn dpms_on(&self) -> bool {
@@ -318,12 +350,7 @@ impl<M: AsMut<[u8]>> Output<M> {
                         cprops.set(req, *cp, "HOTSPOT_X", signed(i64::from(c.hot.0)))?;
                         cprops.set(req, *cp, "HOTSPOT_Y", signed(i64::from(c.hot.1)))?;
                     }
-                    let x = i64::from(c.offset.0)
-                        .saturating_add(i64::from(c.at.0))
-                        .saturating_sub(i64::from(c.hot.0));
-                    let y = i64::from(c.offset.1)
-                        .saturating_add(i64::from(c.at.1))
-                        .saturating_sub(i64::from(c.hot.1));
+                    let (x, y) = c.corner();
                     cprops.set(req, *cp, "FB_ID", u64::from(c.fb))?;
                     cprops.set(req, *cp, "CRTC_ID", crtc)?;
                     cprops.set(req, *cp, "SRC_X", 0)?;

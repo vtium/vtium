@@ -165,7 +165,7 @@ impl<K: Kms> Drm2d<K> {
     pub fn need_commit(&self, id: DisplayId) -> bool {
         self.awake
             && self.output(id).is_some_and(|o| {
-                o.online && o.dpms_on() && (o.fresh || (o.need_commit && !self.legacy))
+                o.online && o.dpms_on() && (o.fresh || (!self.legacy && o.cursor_changed()))
             })
     }
 
@@ -237,7 +237,7 @@ impl<K: Kms> Drm2d<K> {
         }
         let swapped = if o.fresh {
             Swapped::Frame
-        } else if o.need_commit && !legacy {
+        } else if !legacy && o.cursor_changed() {
             Swapped::Cursor
         } else {
             return Ok(Swapped::Nothing);
@@ -289,7 +289,7 @@ impl<K: Kms> Drm2d<K> {
             o.damage.clear();
             o.fresh = false;
         }
-        o.need_commit = false;
+        o.cursor_set = o.cursor_shown();
         self.settle();
         Ok(swapped)
     }
@@ -429,7 +429,6 @@ impl<K: Kms> Drm2d<K> {
             return;
         };
         if let Some(c) = o.cursor.take() {
-            o.need_commit |= c.visible;
             let _ = self.card.rm_fb(c.fb);
             let _ = self.card.destroy_dumb(c.dumb.handle);
         }
@@ -445,9 +444,6 @@ impl<K: Kms> Drm2d<K> {
             .cursor
             .as_mut()
             .ok_or_else(|| invalid("the display has no cursor set up"))?;
-        if !c.visible || c.at != (x, y) {
-            o.need_commit = true;
-        }
         c.at = (x, y);
         c.visible = true;
         Ok(())
@@ -456,9 +452,8 @@ impl<K: Kms> Drm2d<K> {
     /// Hides the cursor from the next swap.
     pub fn hide_cursor(&mut self, id: DisplayId) {
         if let Some(o) = self.output_mut(id) {
-            if let Some(c) = o.cursor.as_mut().filter(|c| c.visible) {
+            if let Some(c) = o.cursor.as_mut() {
                 c.visible = false;
-                o.need_commit = true;
             }
         }
     }
@@ -468,9 +463,6 @@ impl<K: Kms> Drm2d<K> {
     pub fn set_cursor_offset(&mut self, id: DisplayId, x: i32, y: i32) {
         if let Some(o) = self.output_mut(id) {
             if let Some(c) = o.cursor.as_mut() {
-                if c.offset != (x, y) {
-                    o.need_commit = true;
-                }
                 c.offset = (x, y);
             }
         }
@@ -819,8 +811,8 @@ impl<K: Kms> Drm2d<K> {
             damage: Damage::default(),
             lent: false,
             fresh: false,
-            need_commit: false,
             cursor: None,
+            cursor_set: None,
             dpms,
             online: false,
             redraw: false,
@@ -1180,6 +1172,7 @@ impl<K: Kms> Drm2d<K> {
                 o.mode_blob = blob;
                 self.install(o, made);
                 o.online = true;
+                o.cursor_set = o.cursor_shown();
                 o.start_flip();
                 o.damage.set_whole();
             } else {
