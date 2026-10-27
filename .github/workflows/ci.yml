@@ -48,8 +48,10 @@ jobs:
           ref: ${{ steps.pin.outputs.kmscon }}
           path: kmscon
       - uses: dtolnay/rust-toolchain@stable
-      - run: make conformance conformance-probes
+      - run: make conformance conformance-probes conformance-issues
         working-directory: vtium
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   tools:
     runs-on: ubuntu-latest

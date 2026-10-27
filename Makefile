@@ -44,6 +44,11 @@ conformance-probes: ## Run the C reference's capability probes through vtium-rep
 	cargo build --release -p vtium-conformance --bins
 	target/release/conformance probes --libtsm $(LIBTSM) --kmscon $(KMSCON)
 
+.PHONY: conformance-issues
+conformance-issues: ## Check that every issue the conformance lists say owes a case or a capability is open (needs gh)
+	cargo build --release -p vtium-conformance --bins
+	target/release/conformance issues
+
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
