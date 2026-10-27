@@ -1,6 +1,6 @@
 # vtium-platform
 
-vtium's platform layer: everything that touches the kernel and the session. This crate now holds the pty and the event loop. The displays (vtium/vtium#18) and the VT, udev and keyboard input (vtium/vtium#19) come next and go into the same loop. Syscalls go through rustix (vtium/vtium#6), so descriptors are owned values and errors are `Result`s. The crate denies `unsafe_code`, and each site that needs it carries an `#[expect]` with its reason and a SAFETY comment. The pty and the event loop face the child's output, so the crate also denies the determinism lints vtium-parse denies.
+vtium's platform layer: everything that touches the kernel and the session. This crate holds the pty, the event loop and the displays (vtium/vtium#18). The VT, udev and keyboard input (vtium/vtium#19) come next and go into the same loop. Syscalls go through rustix (vtium/vtium#6), so descriptors are owned values and errors are `Result`s; DRM's ioctls go through `drm-ffi`. The crate denies `unsafe_code`, and each site that needs it carries an `#[expect]` with its reason and a SAFETY comment: the ioctls in `src/ioctl.rs`, the mmap in `src/mmap.rs` and the pty's pre-exec hook. The pty and the event loop face the child's output, so the crate also denies the determinism lints vtium-parse denies.
 
 | Path | What it is |
 |---|---|
@@ -9,10 +9,26 @@ vtium's platform layer: everything that touches the kernel and the session. This
 | `src/pty.rs` | `Pty`: opening the pty, the child's session, the window size, writes to the child, the child's exit, and the pty's place in the loop. |
 | `src/channel.rs` | The pty's two directions as state with no event loop: reads fed to the `Consumer` in parts it chooses, the reply stall, and the queue's writes. Its tests drive it against a scripted child. |
 | `src/queue.rs` | The bytes the child has not read, in runs by kind, with replies counted and pointer motion coalesced. |
+| `src/display.rs` | The displays' shared types: the canvas lent for a frame and its age, damage, events and swap errors. |
+| `src/display/mode.rs` | Display modes and the one each display opens in (vtium/vtium#5). |
+| `src/display/kms.rs` | `Kms`: what drm2d asks of a DRM card, as a trait the real card and the tests' stand-in implement. |
+| `src/display/card.rs` | `Card`: a DRM card through the kernel's ioctls, and the flip events read from it. |
+| `src/display/drm2d.rs` | `Drm2d`: a card's displays, the hotplug scan, modesets, swaps, the cursor, DPMS, sleep and wake-up. |
+| `src/display/drm2d/output.rs` | One display on a card: its CRTC and planes, buffers and cursor, and the atomic state a commit sets for it. |
+| `src/display/drm2d/source.rs` | drm2d in the loop: the card's descriptor, the flip-wait bound and the wake-up retries as sources. |
+| `src/display/drm2d/tests.rs` | drm2d against the stand-in card: modesets, the clips and cursor commits of a frame sequence, failed swaps, the waits on a pending flip, a monitor's power cycle, the wake-up retries, and the same through a real loop. |
+| `src/display/fake.rs` | The stand-in card, and a log capture for tests. |
+| `src/display/fbdev.rs` | `Fbdev` and `Fb`: a framebuffer device's one display. |
+| `src/display/fbdev/tests.rs` | fbdev against a stand-in device: activation, pixel layouts, the stand-in flip event, sleep and DPMS. |
+| `src/display/blank.rs` | `Blank`: the DPMS blank after a time with no input. |
+| `src/ioctl.rs` | The ioctls rustix does not wrap, each with its request number checked against the kernel's headers. |
+| `src/mmap.rs` | `Mapping`: the crate's one mmap, of a dumb buffer or the framebuffer. |
 | `src/bounds.rs` | Every bound, with its value, what happens past it and its source: the one source for the constants and for the table below. |
 | `tests/pty.rs` | The pty and the loop through a real pty, with children that are the test binary run again in a role. It has its own `main`, so the thread that blocks the loop's signals is the only one. |
 
-`cargo test -p vtium-platform` runs every test. The bounds table below is generated from `src/bounds.rs`, and `readme_table_matches_bounds` fails when it drifts; `VTIUM_PLATFORM_BLESS=1 cargo test -p vtium-platform readme_table` rewrites it.
+`cargo test -p vtium-platform` runs every test. The bounds table below is generated from `src/bounds.rs`, and `readme_table_matches_bounds` fails when it drifts; `VTIUM_PLATFORM_BLESS=1 cargo test -p vtium-platform readme_table` rewrites it. `request_numbers_match_the_headers` reads the kernel's UAPI headers from `/usr/include`, or from `VTIUM_KERNEL_HEADERS`.
+
+The tests take no DRM master and set no mode. The display logic runs against a stand-in card and a stand-in framebuffer; the real ioctls run here only on a render node, which refuses dumb buffers, and fully on a KMS device in tier 3 (vtium/vtium#22).
 
 ## Behaviour
 
@@ -22,16 +38,37 @@ The child is watched through a pidfd, so SIGCHLD keeps its default disposition a
 
 What the consumer is fed, and every reply it writes, depend only on the bytes the child sent (docs/architecture.md, "Determinism"). A stall delays them and drops nothing, as long as the consumer stops once `Replies::full` is true. `src/channel/tests.rs` holds the chunking-invariance property test, with random read sizes, random takes, a child that reads at random and pauses at random. `tests/pty.rs` repeats it through a real pty.
 
+## Displays
+
+The C reference's video layer (`src/video/`) is the floor. A video device is one DRM card (`Drm2d`) or one fbdev node (`Fbdev`), opened by the seat and handed over. Each lends its back buffer to the compositor as a `Canvas` in XRGB8888 with the buffer's age (1 holds the previous frame, 2 the one before, 0 unknown), takes the frame back with its damage through `swap`, and reports through events the owner drains once a turn: a display added, removed or to be redrawn whole, a frame flipped, the device awake or asleep.
+
+- **drm2d** draws into two dumb buffers a display. A display is a connected connector with modes, driven through a free CRTC and, with atomic modesetting, its primary plane and cursor plane. Its mode is the configured `mode=WxH[@rate]`, or with `use-original-mode` the mode the console left, or the panel's preferred mode, or its first listed mode when none is preferred. A modeset of every display is tried as a test-only commit first; a failed test is tried again with each display's default mode. A swap is a non-blocking commit with a flip event, carrying the frame's damage as `FB_DAMAGE_CLIPS` where the primary plane takes them, and the hardware cursor on the cursor plane. A swap while a flip is in flight is `Busy`. A device with universal planes and no atomic commits, or neither, uses the legacy calls and presents whole frames (aaronsb/kmscon#84).
+- **Sleep and wake-up.** `sleep` blanks the shown buffers, waits for any flip in flight, hides the cursor and overlay planes and drops DRM master, then reports `Asleep`, on which the VT release is acknowledged. `wake_up` takes master and sets every display again; while it fails, as while another process holds master, it is tried every `WAKE_RETRY_MS`, at most `WAKE_RETRIES` times. A hotplug scan (`poll`) lets go of displays gone, binds new ones, and sets modes when anything is new; the last display's going drops master, and a display coming back takes it again.
+- **fbdev** keeps the mode it is given, in one buffer, at 32, 24 or 16 bits of true colour. XRGB8888 is drawn straight into the framebuffer; any other layout is drawn into an XRGB8888 copy and converted where the damage says. A timer at the refresh interval stands in for the flip event.
+- **DPMS** is set through the connector's DPMS property or `FBIOBLANK`, and a drm2d swap while a display is powered down is `Off`. `Blank` powers the displays down after `dpms-timeout` with no key or pointer event (600 s by default, `DPMS_TIMEOUT`) and up at the next one; the owner wires input to it.
+
 ## Departures
 
 - **The consumer stops at the reply that fills the queue, and no reply is dropped.** Once replies the child has not read reach `REPLY_HIGH`, `Replies::full` is true and the consumer returns after the sequence whose reply reached it; nothing more is read or fed until the replies drain below `REPLY_LOW`. The C reference set the same stall after its input callback returned, so the callback parsed the whole read and could pass `REPLY_MAX`, dropping replies, and whether it did depended on how reads split the stream (pty.c:474-517, 579-618). Spec: docs/architecture.md, "Determinism", chunking invariance. `REPLY_MAX` stays as a ceiling for a consumer that does not stop.
 - **Pointer motion is coalesced for a child that does not read.** From `MOTION_COALESCE_AT` bytes queued, a motion report replaces the motion reports queued after the last other write; button reports, keys and replies are queued whole and keep their order. The C reference queued every motion report, so a child that enabled any-motion tracking (mode 1003) and never read grew the queue for as long as the pointer moved (aaronsb/kmscon#247). Spec: vtium/vtium#20.
 - **The child's exit reaches the consumer after the output it left, in bounded time.** The exit is told once a read after it finds nothing more, or after `EXIT_FEED_MAX` bytes more than the pty holds, so a process the child started that ignores the hangup and writes on cannot hold it back; the host then closes the pty and drops the rest. Replies written after the exit are dropped and never stall the reading. The C reference told the exit at the child's reaping and closed the pty with the child's own output still unread (pty.c:737-768, 830-848; terminal.c:1856-1868), so how much of it the screen showed depended on timing. FIONREAD cannot count what the child left: on Linux 7.2 it reports the line discipline's 4 KiB while the flip buffers hold 16 KiB more. Spec: docs/architecture.md, "Determinism", chunking invariance.
 
+- **Nothing waits by blocking the loop.** A modeset or a sleep that finds a page flip in flight waits for the flip's completion event, at most `FLIP_WAIT_MS`, with the loop running; the VT release is acknowledged on `Asleep`. Modesets are committed non-blocking with a flip event. The C reference polled the card for up to 1 s with its loop stopped, and committed modesets blocking (drm_shared.c:834-859, 861-937). Spec: the operator's decision on vtium/vtium#18; `lib.rs`, a loop that never blocks.
+- **A failed swap is not a presented frame.** Its error reaches the caller, `EBUSY` as `SwapError::Busy`, the buffers stay as they were, and the frame's damage and the cursor's state go with the next swap that succeeds, bounded by `DAMAGE_CLIPS_MAX`. The buffer's age tells the compositor the back buffer holds the frame that failed. The C reference dropped the swap's result (video.c:305-313), so a failed or busy commit counted as presented, and freed the damage of a failed swap. Spec: aaronsb/kmscon#93; the kernel's `FB_DAMAGE_CLIPS`, damage since the plane's last update.
+- **Damage clips go only with atomic commits.** A device with universal planes and no atomic commits presents whole frames through the legacy page flip and reports no damage support (aaronsb/kmscon#84, the operator's decision of 2026-10-26).
+- **A monitor's power cycle skips the gone connector and takes master back.** A connector the kernel lists but no longer answers for is skipped, and a display that comes back after the last one went takes DRM master again before its modeset. An `EACCES` from the test-only commit, as while another process holds master, is logged at debug level and not tried again with default modes. The C reference dropped master when its last display went and committed without it when one came back, logging `test-only atomic commit failed, -13` at error level for each try and its default-mode retry (aaronsb/kmscon#237).
+- **The default-mode retry sets the default mode.** The retry after a failed test commit makes a mode blob of each display's default mode, and buffers of its size. The C reference made a display's mode blob once, when it bound the display, so its retry sent the first attempt's mode again (drm_shared.c:994-1015 with 598 and 1421-1422), and an online display kept buffers of the first attempt's size (drm2d_video.c:156-160).
+- **The first preferred mode is the default.** Where a panel marks more than one mode preferred, the first is taken; the C reference took the last (drm_shared.c:1357-1359). The kernel lists preferred modes first. With none preferred, the first listed mode is taken, as in the C reference (the operator's decision on vtium/vtium#5).
+- **`use-original-mode` without the console's mode in the list takes the default mode.** The C reference set an empty mode (drm_shared.c:1376-1377).
+- **A display whose connector has no DPMS property is treated as on.** The C reference refused every swap on it (drm_shared.c:1067-1068 with 789-790).
+- **fbdev converts without dithering.** A layout other than XRGB8888 is converted by cutting each channel to its length. The C reference dithered, carrying the error from one drawn pixel to the next (fbdev_render.c), so a pixel's value depended on which pixels were drawn before it; the copy here gives the same pixels for the same frame. Spec: docs/architecture.md, "Determinism".
+
 ## Dependencies
 
 - **rustix** for every syscall (vtium/vtium#6), with its `runtime` feature for the one call it keeps there: the empty signal mask the pty's child starts with. It is pinned at `=1.1.5`: rustix keeps that module unstable and publishes it under a name that changes between releases, so any update is made by hand, renaming the import in `src/pty.rs`.
 - **calloop**, the event loop kmscon ADR-304 chose, <!-- adr-cite-ignore: kmscon's record, not one of vtium's --> pinned at 0.14.4: 0.14.5 needs Rust 1.86, and the workspace's `rust-version` is 1.85. Move to 0.14.5 or later when the workspace moves to 1.86.
+- **drm-ffi** for DRM's ioctls, safe wrappers over `drm-sys`'s kernel structures (vtium/vtium#6 named the `drm` crate, whose wrappers these are). It was already in reach through `drm`, and taking it alone leaves out `drm`'s `bytemuck` derive and its proc-macro crates; it adds `drm-sys` and a second `linux-raw-sys`, 0.9.4, beside rustix's 0.12.1. Pinned at `=0.9.1`.
+- **log** for the displays' messages, which the binary routes. It was already in the tree through calloop's `tracing`.
 - **nix** arrives through calloop's `signals` feature, which gives the loop its signalfd. rustix has no signalfd wrapper, and the alternatives are a `libc` call or a raw syscall in `unsafe`, which vtium/vtium#6 excludes. vtium-platform calls nothing in nix. Revisit when rustix wraps signalfd.
 
 ## Left to the host
@@ -39,15 +76,22 @@ What the consumer is fed, and every reply it writes, depend only on the bytes th
 - **The child's command and environment** are the host's `Command`: `TERM`, `COLORTERM`, `XDG_SEAT`, `XDG_VTNR`, `TERM_SESSION_TYPE`, the environment reset and `/bin/login` as the default (pty.c:252-302). That is the binary's (vtium/vtium#21).
 - **The respawn policy**: a new session after an exit, oneshot, and the C reference's limit of 5 restarts within 2 seconds (pty.c:52-53, 737-768). That limit reads the clock, so it belongs where the binary decides what an exit means, not in the loop (vtium/vtium#21).
 
-## Notes for the display, VT and input work
+## Left to the seat and the binary
 
-- Each device descriptor (the DRM device, the udev monitor, each evdev device, fbdev) goes into the loop through `Loop::handle` as a calloop `Generic` source. Timers (key repeat, the render timer, the decode timeout and mode 2026's timeout) are calloop `Timer` sources. The time those timers read stays in the places docs/architecture.md, "Determinism", names.
+- **Opening the devices** is the seat's: the VT layer or libseat opens a card or a framebuffer and hands the descriptor to `Card::new` or `Fb::new` (vtium/vtium#19, #34). Which backend a device gets, drm2d or fbdev, and skipping a framebuffer a DRM driver backs, are the seat's choices too.
+- **When to sleep and wake** follows the VT's release and acquire signals and the hand-back (vtium/vtium#19, #36). The release is acknowledged on `Event::Asleep`. A wake-up retried while the session is in the foreground, past `WAKE_RETRIES`, is vtium/vtium#36.
+- **What to draw** is the compositor's (vtium/vtium#16): it draws `Canvas::age` frames of damage, or the whole frame at age 0, draws again on `Event::Flipped`, and swaps a frame that drew nothing when `need_commit` says the cursor moved.
+- **The DPMS blank's wiring**: the binary feeds key and pointer events to `Blank::input`, powers the displays up when it returns true, and powers them down and deactivates the terminal from the callback `Blank::insert` takes (vtium/vtium#21).
+
+## Notes for the VT and input work
+
+- Each device descriptor (the udev monitor, each evdev device) goes into the loop through `Loop::handle` as a calloop `Generic` source, as `Drm2d::insert` puts the card. Timers (key repeat, the render timer, the decode timeout and mode 2026's timeout) are calloop `Timer` sources. The time those timers read stays in the places docs/architecture.md, "Determinism", names.
 - The VT's release and acquire signals (`VT_PROCESS`) go through `Loop::on_signal`, which adds them to the loop's one signalfd. Add every signal before any thread starts: a thread inherits the mask of the thread that starts it, and a thread without the mask could take the signal instead of the loop.
-- An ioctl rustix does not wrap is defined through rustix's `ioctl` module, one definition per ioctl in one module, with a test that its request number equals the kernel header's (vtium/vtium#6).
+- An ioctl rustix does not wrap goes in `src/ioctl.rs`, one definition per ioctl through rustix's `ioctl` module, and `request_numbers_match_the_headers` gains its line (vtium/vtium#6).
 
 ## Bounds
 
-The child's output comes from an untrusted program, so nothing it sends grows memory past these. Keys and pastes are queued whole, which only the user can grow.
+The child's output comes from an untrusted program, so nothing it sends grows memory past these. Keys and pastes are queued whole, which only the user can grow. The display rows bound the time an operation waits on the device and what a run of failed swaps accumulates.
 
 <!-- bounds table: generated from src/bounds.rs -->
 | Bound | Value | What it bounds | Past it | Source |
