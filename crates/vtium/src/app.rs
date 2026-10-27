@@ -954,7 +954,7 @@ impl<V: Vt + 'static> App<V> {
                 .as_mut()
                 .and_then(|t| t.report(Duration::from_secs(1), px))
             {
-                log::info!(target: "terminal", "{report} display={}[{}]", node.display(), id.0);
+                log::info!(target: "terminal", "{}", render_timer_line(&report, node, *id));
             }
         }
     }
@@ -1036,6 +1036,17 @@ impl<V: Vt + 'static> App<V> {
             })
             .collect()
     }
+}
+
+/// The render timer's log text for a display, after the `terminal:`
+/// target: the figures, then `display=NODE[ID]` (tier 3's `t3_bench.py`
+/// reads each `key=value`).
+pub fn render_timer_line(
+    report: &vtium_render::Report,
+    node: &std::path::Path,
+    id: DisplayId,
+) -> String {
+    format!("{report} display={}[{}]", node.display(), id.0)
 }
 
 /// The palette `palette` names: `None` for `legacy`, the terminal's own,

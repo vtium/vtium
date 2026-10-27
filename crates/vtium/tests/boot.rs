@@ -439,3 +439,23 @@ fn a_retaken_vt_sets_the_displays_up_again_and_draws_them_whole() {
     assert_eq!(h.memory().wake_ups, wake_ups + 1);
     assert!(h.app.vt.is_active());
 }
+
+/// Prints a render-timer line as the log writes it, for tier 3's parser:
+/// `VTIUM_PRINT_TIMER=1 cargo test -p vtium --test boot render_timer -- --nocapture`.
+#[test]
+fn a_render_timer_line() {
+    let mut t = vtium_render::RenderTimer::new();
+    for _ in 0..30 {
+        t.frame(Duration::from_micros(1500), true, 640 * 16, 2);
+        t.flip();
+    }
+    let report = t
+        .report(Duration::from_secs(1), u64::from(W) * u64::from(H))
+        .expect("a second of frames");
+    let line = vtium::app::render_timer_line(&report, Path::new("/dev/dri/card0"), DisplayId(42));
+    assert!(line.starts_with("render-timer: interval_ms="), "{line}");
+    assert!(line.ends_with(" display=/dev/dri/card0[42]"), "{line}");
+    if std::env::var_os("VTIUM_PRINT_TIMER").is_some() {
+        println!("[   12.345678] vtium[505]: terminal: {line}");
+    }
+}
