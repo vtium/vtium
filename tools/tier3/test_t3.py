@@ -11,7 +11,9 @@ logger a worker process receives (t3_common.py).
     python3 -I -B tools/tier3/test_t3.py
 """
 
+import argparse
 import contextlib
+import hashlib
 import io
 import os
 import pickle
@@ -534,6 +536,16 @@ class ImplementationTest(unittest.TestCase):
             self.assertEqual(t3_scenario.console_startup_ms(f.name), 76.7)
         finally:
             os.unlink(f.name)
+        # vtium logs its Display line without the C reference's "terminal:"
+        with tempfile.NamedTemporaryFile("w", delete=False) as f:
+            f.write("[    6.663227] vtium[459]: log: vtium Revision 0.1\n"
+                    "[    6.700000] vtium[459]: vt: using tty /dev/tty2\n"
+                    "[    6.739898] vtium[459]: Display Virtual-1 with backend [drm2d] "
+                    "text renderer [bbulk], cell size 8x16\n")
+        try:
+            self.assertEqual(t3_scenario.console_startup_ms(f.name), 76.7)
+        finally:
+            os.unlink(f.name)
         with open(os.path.join(t3_common.GUEST, "t3")) as f:
             self.assertIn("pidof kmscon vtium", f.read())
 
@@ -762,6 +774,80 @@ class DeparturesTest(unittest.TestCase):
         # The run's verdict counts a departure as a pass.
         with open(os.path.join(t3_common.HERE, "t3.py")) as f:
             self.assertIn('c["status"] in ("pass", "near", "departure")', f.read())
+
+
+class ProvisionTest(unittest.TestCase):
+    """Where provisioning keeps its images: a vtium cache that
+    target/tier3/vm/images links to, with the pristine and base images of
+    another checkout linked from it and only read there."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.vm = os.path.join(self.dir.name, "vm")
+        patch = mock.patch.object(t3, "VM", self.vm)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def path(self, *parts):
+        return os.path.join(self.dir.name, *parts)
+
+    def test_link_images(self):
+        cache = self.path("cache", "images")
+        t3.link_images(cache, LOG)
+        self.assertTrue(os.path.isdir(cache))
+        self.assertEqual(os.readlink(os.path.join(self.vm, "images")), cache)
+        other = self.path("other")
+        t3.link_images(other, LOG)
+        self.assertEqual(os.readlink(os.path.join(self.vm, "images")), other)
+        # images kept in a directory of their own are not replaced
+        os.unlink(os.path.join(self.vm, "images"))
+        os.makedirs(os.path.join(self.vm, "images"))
+        with self.assertRaisesRegex(SystemExit, "is a directory; move its images to"):
+            t3.link_images(cache, LOG)
+
+    def test_reuse(self):
+        shared = self.path("shared")
+        write_tree(shared, {"base-x.qcow2": "base", "img.qcow2": "pristine"})
+        before = {n: os.stat(os.path.join(shared, n)).st_mtime_ns for n in os.listdir(shared)}
+        cache = self.path("cache")
+        os.makedirs(cache)
+        dest = os.path.join(cache, "base-x.qcow2")
+        self.assertTrue(t3.reuse(shared, "base-x.qcow2", dest, LOG))
+        self.assertEqual(os.readlink(dest), os.path.realpath(os.path.join(shared, "base-x.qcow2")))
+        # nothing to reuse, or no directory to reuse from
+        self.assertFalse(t3.reuse(shared, "base-y.qcow2", os.path.join(cache, "y"), LOG))
+        self.assertFalse(t3.reuse(None, "base-x.qcow2", os.path.join(cache, "z"), LOG))
+        # a pristine image must have the pinned digest
+        sha = hashlib.sha256(b"pristine").hexdigest()
+        self.assertTrue(t3.reuse(shared, "img.qcow2", os.path.join(cache, "img.qcow2"), LOG,
+                                 sha256=sha))
+        with self.assertRaisesRegex(SystemExit, "not the pinned"):
+            t3.reuse(shared, "img.qcow2", os.path.join(cache, "img2"), LOG, sha256="0" * 64)
+        # the shared directory gained nothing and changed nothing
+        self.assertEqual({n: os.stat(os.path.join(shared, n)).st_mtime_ns
+                          for n in os.listdir(shared)}, before)
+
+    def test_provision_writes_only_the_cache(self):
+        # The base image and pristine image come from the shared directory;
+        # the lock and the links land in the cache and the VM directory.
+        shared = self.path("shared")
+        base = os.path.basename(t3_common.base_image("img.qcow2", "2026/10/20"))
+        write_tree(shared, {base: "base", "img.qcow2": "pristine"})
+        cache = self.path("cache")
+        args = argparse.Namespace(image="img.qcow2", archive="2026/10/20", url="u", key="k",
+                                  sha256=hashlib.sha256(b"pristine").hexdigest(),
+                                  images=cache, reuse=shared)
+        with mock.patch.object(t3, "BASE", os.path.join(self.vm, "base.qcow2")), \
+                mock.patch.object(t3, "base_image",
+                                  lambda i, a: os.path.join(self.vm, "images", base)), \
+                mock.patch.object(t3, "_provision", side_effect=AssertionError("built")), \
+                mock.patch.object(t3.subprocess, "run", side_effect=AssertionError("fetched")):
+            self.assertEqual(t3.provision(args, LOG), 0)
+        self.assertEqual(sorted(os.listdir(shared)), sorted([base, "img.qcow2"]))
+        self.assertEqual(sorted(os.listdir(cache)), sorted([base, base + ".lock", "img.qcow2"]))
+        with open(os.path.join(self.vm, "base.qcow2")) as f:
+            self.assertEqual(f.read(), "base")
 
 
 class BaseImageTest(unittest.TestCase):
@@ -1315,4 +1401,8 @@ class LoggerTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    # A skipped test says why, so a skip is never read as a pass.
+    result = unittest.main(exit=False).result
+    for test, reason in result.skipped:
+        print("skipped %s: %s" % (test.id(), reason), file=sys.stderr)
+    sys.exit(not result.wasSuccessful())
