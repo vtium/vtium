@@ -241,6 +241,7 @@ dependencies = [
 name = "vtium"
 version = "0.0.0"
 dependencies = [
+ "log",
  "vtium-font",
  "vtium-image",
  "vtium-platform",

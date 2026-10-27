@@ -25,9 +25,29 @@ pub fn select<F, E>(
     }
 }
 
+/// The height `font-size=0` picks for a display `width` by `height`: at
+/// most 120 columns, taking a cell as half as wide as it is high, and at
+/// least 40 rows, and never under 16 (`src/terminal.c:899-918`).
+pub fn auto_size(width: u32, height: u32) -> u32 {
+    if width == 0 || height == 0 {
+        return FALLBACK_SIZE;
+    }
+    let by_width = width.saturating_mul(2) / 120;
+    by_width.min(height / 40).max(16)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_automatic_size() {
+        assert_eq!(auto_size(1366, 768), 19);
+        assert_eq!(auto_size(1280, 800), 20);
+        assert_eq!(auto_size(3840, 2160), 54);
+        assert_eq!(auto_size(640, 480), 16);
+        assert_eq!(auto_size(0, 768), 16);
+    }
 
     #[test]
     fn the_size_asked_for() {

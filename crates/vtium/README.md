@@ -1,6 +1,6 @@
 # vtium
 
-The binary: the configuration and command line, the terminfo entry and the XTGETTCAP table generated from it, the session's command and environment, the respawn policy, and the rules the terminal wiring follows. Each is a function of what it is given, time included, so its tests need no VT, display or pty. The wiring of the VT, the displays and the loop comes with vtium/vtium#21's second part.
+The binary: the configuration and command line, the terminfo entry and the XTGETTCAP table generated from it, the session's command and environment, the respawn policy, the rules the terminal follows, and the seat wired to them through vtium-platform's loop. The rules are functions of what they are given, time included, so their tests need no VT, display or pty. The seat takes the time from the loop too: `tests/boot.rs` boots it with the fake VT, a video device in memory and a real child on a real pty.
 
 | Path | What it is |
 |---|---|
@@ -9,7 +9,15 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/termcap.rs`, `src/termcap/table.rs` | The XTGETTCAP table, generated from `install/kmscon.ti` |
 | `src/child.rs` | The session's command and environment |
 | `src/respawn.rs` | Whether the session's command starts again |
-| `src/blink.rs`, `src/font.rs`, `src/pointer.rs` | The blink timers, the font fallback and the pointer guard |
+| `src/blink.rs`, `src/font.rs`, `src/pointer.rs` | The blink timers, the font fallback and size, and the pointer guard |
+| `src/sync.rs` | When the terminal presents: the mode 2026 hold and coalescing without it |
+| `src/grab.rs` | The terminal's grabs, third in the key order |
+| `src/term.rs` | The session's terminal as the pty's consumer, and a view per display that draws it |
+| `src/video.rs` | A video device behind one trait: drm2d, fbdev, or a test's stand-in |
+| `src/app.rs` | The seat: the VT's events, the devices, the keys, the blank, the child, the exit |
+| `src/logger.rs` | The log on stderr |
+| `src/main.rs` | Start-up and the loop |
+| `tests/boot.rs` | The seat booted with no hardware: output drawn, keys, a VT switch, the blank, the respawn limit, DECARM, the exit |
 | `install/kmscon.conf.example` | The example configuration, generated from the key table |
 | `install/kmscon.ti` | The terminfo entry, installed compiled with `tic -x` |
 
@@ -42,6 +50,12 @@ Each was the C reference's behaviour at kmscon `b1f7a7c5`.
 - **The respawn limit times each start from that start, on the monotonic clock.** The C reference recorded a start only when the exit before it was quick, in whole seconds of the wall clock (`src/misc/pty.c:747-767`), so after one slow restart a command that failed at once restarted without end. A slow exit after quick restarts now starts the command again with the count reset, where the C reference exited at the next exit whatever its timing.
 - **The font fallback is tried once,** then the error is returned; the C reference retried for as long as the lookup failed (aaronsb/kmscon#63).
 - **A failed renderer set leaves the pointer drawn in software,** and the next successful set gives it back to the hardware cursor; the C reference drew it nowhere (aaronsb/kmscon#211).
+
+- **A child's exit closes its pty after the output it left is read** (vtium-platform's departure), and the next child starts from a hard reset (RIS).
+
+## Not yet built
+
+Each is the C reference's and waits for its own change: zoom and rotation (their grab keys are taken and do nothing), several displays at different sizes (`multi-monitor`; vtium uses the smallest grid every display holds), the hardware cursor (the pointer is drawn in software), selection and copy with the pointer, the render timer's on-screen display, outline fonts (`font-engine=freetype` and `pango` draw with unifont), and the keys the table lacks, `mode`, the palette, the `xkb-*` keys and `mouse` among them.
 
 ## C behaviour kept
 

@@ -22,3 +22,6 @@ vtium-font.workspace = true
 vtium-render.workspace = true
 vtium-platform.workspace = true
 vtium-image = { workspace = true, optional = true }
+# The messages vtium-platform writes through it, and the binary's own,
+# which the binary routes to stderr.
+log = "0.4"
