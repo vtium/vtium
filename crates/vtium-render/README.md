@@ -48,7 +48,7 @@ The renderer draws the pointer only when `DrawState::pointer` is set, which the 
 - **Conceal and overline are not drawn.** A concealed cell shows its text, and an overline draws nothing. Both are vtium/vtium#37's: a concealed cell draws as its background, and an overline as a decoration beside the underline.
 - **Rapid blink (SGR 6) blinks at SGR 5's rate.** ADR-1000's `sgr.rapid-blink` asks for a faster phase, which is vtium/vtium#37's; `tests/blink.rs` pins the shared phase until then.
 - **`Frame::palette()` is owed.** The frame does not expose its palette, so the owner passes the default foreground and background in `DrawState`. The frame types the renderers read are vtium/vtium#10's.
-- **A full frame takes about 3 ms.** At 1366x768 a full redraw with a warm cache measures 2.8-3.0 ms in a release build (`tests/figures.rs`), against the 0.33 ms ADR-1300 measured for its draw kernel over the same screen in cached memory. The performance pass is vtium/vtium#78.
+- **A full frame takes about 1 ms.** At 1366x768 a full redraw with a warm cache measures 0.94 ms in a release build and 1.52 ms in the minspec build, on one pinned core (`tests/figures.rs`), against the 0.33 ms ADR-1300 measured for its draw kernel alone over the same screen in cached memory. Writing the frame's 4 MB into two buffers takes about 0.27 ms of it, reading the frame and keeping each cell's history about 0.15 ms, building the cells' jobs about 0.1 ms, and the 1-bit glyph loop with its cache lookups the rest. Reaching ADR-1300's figure, or the operator revising it, is vtium/vtium#78's.
 
 ## Bounds
 

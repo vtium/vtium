@@ -495,10 +495,13 @@ impl GlyphCache {
         }
     }
 
+    /// Marks entry `i` used by the frame. Recency is the frame, so a glyph
+    /// the frame already used is already among its pool's newest.
     fn touch(&mut self, i: u32) {
         let frame = self.frame;
-        if let Some(e) = self.entry_mut(i) {
-            e.used = frame;
+        match self.entry_mut(i) {
+            Some(e) if e.used != frame => e.used = frame,
+            _ => return,
         }
         self.unlink(i);
         self.push_front(i);

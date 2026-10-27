@@ -276,16 +276,17 @@ pub struct Renderer<F> {
     compose: Composer,
 }
 
-/// How many cells the cell at `col` draws over: 0 for the trailing half of
-/// a wide character, which the leading half draws; 2 for a leading half
-/// with its trailing half on the screen; else 1. A half whose partner is
-/// missing draws as one cell, so no frame leaves a cell undrawn.
-fn span(frame: &Frame<'_>, row: usize, col: usize, cols: usize) -> usize {
-    let width = |c: usize| frame.cell(row, c).map(|f| f.width);
+/// How many cells the cell at `col`, `width` wide, draws over: 0 for the
+/// trailing half of a wide character, which the leading half draws; 2 for
+/// a leading half with its trailing half on the screen; else 1. A half
+/// whose partner is missing draws as one cell, so no frame leaves a cell
+/// undrawn.
+fn span(frame: &Frame<'_>, row: usize, col: usize, width: Width, cols: usize) -> usize {
+    let width_at = |c: usize| frame.cell(row, c).map(|f| f.width);
     let next = col.saturating_add(1);
-    match width(col) {
-        Some(Width::WideTail) if col.checked_sub(1).and_then(width) == Some(Width::Wide) => 0,
-        Some(Width::Wide) if next < cols && width(next) == Some(Width::WideTail) => 2,
+    match width {
+        Width::WideTail if col.checked_sub(1).and_then(width_at) == Some(Width::Wide) => 0,
+        Width::Wide if next < cols && width_at(next) == Some(Width::WideTail) => 2,
         _ => 1,
     }
 }
@@ -475,8 +476,11 @@ impl<F: Face> Renderer<F> {
     /// Where the cursor draws: the leading cell of a wide character whose
     /// trailing half it sits on.
     fn cursor_cell(frame: &Frame<'_>, c: &Cursor, cols: usize) -> (usize, usize) {
+        let tail = frame
+            .cell(c.row, c.col)
+            .is_some_and(|fc| span(frame, c.row, c.col, fc.width, cols) == 0);
         match c.col.checked_sub(1) {
-            Some(prev) if span(frame, c.row, c.col, cols) == 0 => (prev, c.row),
+            Some(prev) if tail => (prev, c.row),
             _ => (c.col, c.row),
         }
     }
@@ -529,7 +533,7 @@ impl<F: Face> Renderer<F> {
             };
             let here = col;
             col = col.saturating_add(1);
-            let ncells = span(p.frame, row, here, g.cols);
+            let ncells = span(p.frame, row, here, fc.width, g.cols);
             // a cell that joins or leaves a wide pair draws differently
             let role = u8::try_from(ncells).unwrap_or(1);
             let mut changed = fc.changed;
@@ -731,7 +735,7 @@ impl<F: Face> Renderer<F> {
             };
             let here = col;
             col = col.saturating_add(1);
-            let ncells = span(p.frame, row, here, g.cols);
+            let ncells = span(p.frame, row, here, fc.width, g.cols);
             if ncells == 0 {
                 continue;
             }
