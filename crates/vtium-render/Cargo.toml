@@ -14,3 +14,7 @@ workspace = true
 [dependencies]
 vtium-term.workspace = true
 vtium-font.workspace = true
+
+[features]
+# the glyph cache defaults to its performance profile (ADR-1300 D4)
+performance-cache = []
