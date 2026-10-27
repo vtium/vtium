@@ -39,7 +39,7 @@ The sysroot is `/usr`-merged and carries an empty loader cache. qemu-user finds 
 | `snapshot` | `snapshot.debian.org/archive/debian/20261020T000000Z`, which never changes |
 | `suite` | `bookworm`: glibc 2.36, so the binaries run on bookworm and later |
 | `key` | the Debian archive key that signs the suite's `InRelease`, primary fingerprint `04B54C3CDCA79751B16BC6B5225629DF75B188BD` |
-| `deb` | each package per architecture, with its version, pool path and SHA-256: libc6, libc6-dev, linux-libc-dev, libgcc-s1, libgcc-12-dev, libudev1, libudev-dev, libxkbcommon0, libxkbcommon-dev |
+| `deb` | each package per architecture, with its version, pool path and SHA-256: libc6, libc6-dev, linux-libc-dev, libgcc-s1, libgcc-12-dev, libudev1, libudev-dev, libxkbcommon0, libxkbcommon-dev; libsystemd0 and libsystemd-dev for the `logind` feature, with the libraries libsystemd0 loads (libcap2, libgcrypt20, libgpg-error0, liblz4-1, liblzma5, libzstd1) |
 
 `tools/arm/sysroot pin` resolves the `deb` rows again from the snapshot: it verifies `InRelease` against the pinned key, fetched into a keyring beside the sysroots and never the user's, each architecture's `Packages.xz` against `InRelease`, and reads each package's version, path and SHA-256 from `Packages`. A change of snapshot or package goes in a commit of its own.
 

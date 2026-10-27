@@ -16,6 +16,14 @@ deb	arm64	libudev1	252.39-1~deb12u2	b76444b0259abfa416f8c1d9a652d208a24770667a11
 deb	arm64	libudev-dev	252.39-1~deb12u2	d7d5f1255999f1ffe3a033a47f41c4cbcb4de339b3a9172c8c3bb9bb3d465efb	pool/main/s/systemd/libudev-dev_252.39-1~deb12u2_arm64.deb
 deb	arm64	libxkbcommon0	1.5.0-1	ec518d8a19796a399ab95e7bc4dfbb6bd2ed8e151f77b222df26208db412d852	pool/main/libx/libxkbcommon/libxkbcommon0_1.5.0-1_arm64.deb
 deb	arm64	libxkbcommon-dev	1.5.0-1	7d39b34b202fe58e18992b439c79c149ebb1b821b58dfb863ff4898e06420699	pool/main/libx/libxkbcommon/libxkbcommon-dev_1.5.0-1_arm64.deb
+deb	arm64	libsystemd0	252.39-1~deb12u2	293ab474b90276dae9ebc03ed01e622e0c1f2578e83ed3aa926ae1eaf84dda9c	pool/main/s/systemd/libsystemd0_252.39-1~deb12u2_arm64.deb
+deb	arm64	libsystemd-dev	252.39-1~deb12u2	f8ae28bfa408bdd46e715bf1c01d7a6155b64e2beba8717634ef38adf22d2496	pool/main/s/systemd/libsystemd-dev_252.39-1~deb12u2_arm64.deb
+deb	arm64	libcap2	1:2.66-4+deb12u3+b1	b3a21ae1cef9c2f3fa340007100fb0aa934ab6a4d8aed131660de9713db2bb6e	pool/main/libc/libcap2/libcap2_2.66-4+deb12u3+b1_arm64.deb
+deb	arm64	libgcrypt20	1.10.1-3+deb12u1	140af58350c9b15bfa611000d9e0205528bbed2cba39271bf12bd36de2678f2e	pool/main/libg/libgcrypt20/libgcrypt20_1.10.1-3+deb12u1_arm64.deb
+deb	arm64	libgpg-error0	1.46-1	aff6ce011ae9abf7090e906f0cf6bc2b447bbc4cc7e03ff117f9d73528857352	pool/main/libg/libgpg-error/libgpg-error0_1.46-1_arm64.deb
+deb	arm64	liblz4-1	1.9.4-1	f061216ce11aabba8f032dfd6c75c181e782fef7493033b9621a8c3b2953b87e	pool/main/l/lz4/liblz4-1_1.9.4-1_arm64.deb
+deb	arm64	liblzma5	5.4.1-1+deb12u1	647ce9d81e41c30071ce6ac0d3324579216a33aaa1d28971d6952315f6a95a75	pool/main/x/xz-utils/liblzma5_5.4.1-1+deb12u1_arm64.deb
+deb	arm64	libzstd1	1.5.4+dfsg2-5	95e173c9538f96ede4fc275ec7863f395a97dd0ea62454be9bc914efa1b9be93	pool/main/libz/libzstd/libzstd1_1.5.4+dfsg2-5_arm64.deb
 deb	armhf	libc6	2.36-9+deb12u14	758c68b92654747025b48476a45c315bf16df1321224abdd9be672bfd120be45	pool/main/g/glibc/libc6_2.36-9+deb12u14_armhf.deb
 deb	armhf	libc6-dev	2.36-9+deb12u14	ca9486dc7f2dfb25c61c0c93d561c01f8abdf9866bd4c157f0ccd518295bbbb7	pool/main/g/glibc/libc6-dev_2.36-9+deb12u14_armhf.deb
 deb	armhf	linux-libc-dev	6.1.176-1	5641c2f8c252bacc210abb9456deb4344357ccf32ca5821cb8ffe3a9a193a1fb	pool/main/l/linux/linux-libc-dev_6.1.176-1_armhf.deb
@@ -25,3 +33,11 @@ deb	armhf	libudev1	252.39-1~deb12u2	094567c28c3dc3930ea8c7b53c5fef7439a84ae42cdf
 deb	armhf	libudev-dev	252.39-1~deb12u2	ea007d7e1d5c05da6377a8d25303e8411b4f57930017631f21fc1dd8de48c90a	pool/main/s/systemd/libudev-dev_252.39-1~deb12u2_armhf.deb
 deb	armhf	libxkbcommon0	1.5.0-1	2ef51eccfd22dc660b28f68db6128e162e7afccf044db0a40c99ab3a41da92c6	pool/main/libx/libxkbcommon/libxkbcommon0_1.5.0-1_armhf.deb
 deb	armhf	libxkbcommon-dev	1.5.0-1	22f86a1c6c1b535d1c071885c41547cb4ec4beeddea8e9fc209a91ca80bc807b	pool/main/libx/libxkbcommon/libxkbcommon-dev_1.5.0-1_armhf.deb
+deb	armhf	libsystemd0	252.39-1~deb12u2	fe49d9caa76c1ebc90210936c3aa85aeb6e9bb283d4128b825519887117fdb4d	pool/main/s/systemd/libsystemd0_252.39-1~deb12u2_armhf.deb
+deb	armhf	libsystemd-dev	252.39-1~deb12u2	1b06a10f98154f855d4f4e140a7cc59d0821baf6debd6a943636fbac315f69d5	pool/main/s/systemd/libsystemd-dev_252.39-1~deb12u2_armhf.deb
+deb	armhf	libcap2	1:2.66-4+deb12u3+b1	26c599095f5bdac228385ea99ff82344ab1395c828cb24e7e55da823f3ca2e8c	pool/main/libc/libcap2/libcap2_2.66-4+deb12u3+b1_armhf.deb
+deb	armhf	libgcrypt20	1.10.1-3+deb12u1	e217694621014cbb2849c2d9fd49e3a9ce9219c67c244286f35d277300a07b6f	pool/main/libg/libgcrypt20/libgcrypt20_1.10.1-3+deb12u1_armhf.deb
+deb	armhf	libgpg-error0	1.46-1	caa6ee2f9d1e5d7cd21a2bf712be8c836766cfa4fc76853feca7c4e69ec9b7ac	pool/main/libg/libgpg-error/libgpg-error0_1.46-1_armhf.deb
+deb	armhf	liblz4-1	1.9.4-1	a646819a654404c38c219f5df4504ba1c214326daca6a00ce4ad9bb073447fbd	pool/main/l/lz4/liblz4-1_1.9.4-1_armhf.deb
+deb	armhf	liblzma5	5.4.1-1+deb12u1	bfbb78b257213e3d66a8c5940c1f5e922dc3bad5c427c9077324657a5eb78e00	pool/main/x/xz-utils/liblzma5_5.4.1-1+deb12u1_armhf.deb
+deb	armhf	libzstd1	1.5.4+dfsg2-5	a2ca48bc43bb51d3cbc6beb07aefd3fe252859868a4ccb9c1edbfc942786e4b1	pool/main/libz/libzstd/libzstd1_1.5.4+dfsg2-5_armhf.deb
