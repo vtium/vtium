@@ -29,6 +29,16 @@
 //! goes to the [`Consumer`].
 
 use crate::bounds::{OSC_MAX, XTGETTCAP_MAX};
+
+/// The OSC buffer's first allocation, which holds a title, an OSC 133 mark
+/// or an OSC 8 URI with no growth; a longer string doubles it up to
+/// [`OSC_MAX`].
+const OSC_FLOOR: usize = 4096;
+
+/// A buffer grown past this is released when its string ends, so a long
+/// OSC 52 leaves no megabyte behind; one within it is kept for the next
+/// string.
+const OSC_KEEP: usize = 64 * 1024;
 use crate::consumer::{Chunk, Consumer, InputMode, StringEnd};
 use crate::params::{Intermediates, Params};
 use crate::utf8::{self, Decoder};
@@ -293,9 +303,10 @@ fn transition(state: State, c: u32) -> (Option<State>, Action) {
 /// The escape-sequence parser: bytes in, [`Consumer`] calls out.
 ///
 /// It holds every buffer it uses inline (about 1.7 KiB) but the OSC
-/// string's, which the first OSC string reserves at [`OSC_MAX`] and every
-/// later one reuses, so no string allocates again or grows it. Its `Debug`
-/// shows only the bytes its buffers hold.
+/// string's, which grows by doubling from [`OSC_FLOOR`] to at most
+/// [`OSC_MAX`], is released after a string past [`OSC_KEEP`], and is
+/// emptied as each string ends. Its `Debug` shows only the bytes its
+/// buffers hold.
 #[derive(Clone)]
 pub struct Parser {
     state: State,
@@ -305,8 +316,8 @@ pub struct Parser {
     /// More than [`INTERMEDIATES_MAX`](crate::INTERMEDIATES_MAX) arrived,
     /// so the sequence dispatches nothing.
     too_many_intermediates: bool,
-    /// The OSC string's bytes: empty with no allocation until the first
-    /// OSC string, then reserved at [`OSC_MAX`] and never grown.
+    /// The OSC string's bytes: no allocation until the first OSC string,
+    /// and empty between strings.
     osc: Vec<u8>,
     /// A character failed to fit, so the OSC string takes no more.
     osc_full: bool,
@@ -396,6 +407,7 @@ impl Parser {
         self.dcs = Dcs::None;
         self.drop_backslash = self.pending_end == Some(State::ApcString);
         self.pending_end = None;
+        self.release_osc();
         self.state = State::Ground;
     }
 
@@ -576,11 +588,6 @@ impl Parser {
             Action::DcsCollect => self.dcs_collect(consumer, c),
             Action::OscStart => {
                 self.osc.clear();
-                // the first OSC string, or the first after a clone, which
-                // copies only the bytes
-                if self.osc.capacity() < OSC_MAX {
-                    self.osc.reserve_exact(OSC_MAX);
-                }
                 self.osc_full = false;
             }
             Action::OscCollect => self.osc_collect(c),
@@ -590,6 +597,17 @@ impl Parser {
                 Some(b) => consumer.apc_put(Chunk::Bytes(&[b])),
                 None => consumer.apc_put(Chunk::Char(c)),
             },
+        }
+    }
+
+    /// Empties the OSC buffer once its string is handed on or dropped, so
+    /// the string (an OSC 52 selection's base64 among them) does not wait
+    /// for the next one, and releases it when it grew past [`OSC_KEEP`].
+    fn release_osc(&mut self) {
+        if self.osc.capacity() > OSC_KEEP {
+            self.osc = Vec::new();
+        } else {
+            self.osc.clear();
         }
     }
 
@@ -614,11 +632,28 @@ impl Parser {
         if utf8::is_noncharacter(c) {
             return;
         }
-        if self.osc.len().saturating_add(c.len_utf8()) > OSC_MAX {
+        let len = self.osc.len().saturating_add(c.len_utf8());
+        if len > OSC_MAX {
             self.osc_full = true;
             return;
         }
-        // the buffer holds OSC_MAX, so this never reallocates
+        if len > self.osc.capacity() {
+            // double, from OSC_FLOOR to at most OSC_MAX, so a string at the
+            // bound reallocates the buffer a few times and not once a
+            // piece; memory the system refuses truncates the string, which
+            // the consumer then refuses, where a panic would end the terminal
+            let want = self
+                .osc
+                .capacity()
+                .saturating_mul(2)
+                .clamp(OSC_FLOOR, OSC_MAX)
+                .max(len);
+            let more = want.saturating_sub(self.osc.len());
+            if self.osc.try_reserve_exact(more).is_err() {
+                self.osc_full = true;
+                return;
+            }
+        }
         self.osc
             .extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes());
     }
@@ -694,6 +729,7 @@ impl Parser {
         match string {
             State::OscString => {
                 consumer.osc_end(&self.osc, self.osc_full, end);
+                self.release_osc();
             }
             State::DcsPass => {
                 match self.dcs {
@@ -795,25 +831,71 @@ mod tests {
         assert_eq!(parser.tcap.get(..parser.tcap_len), Some(&[0][..]));
     }
 
-    // The OSC buffer is reserved once, at the bound, by the first OSC
-    // string, and kept: no string allocates again or grows it past the
-    // bound, however long it is and however it is cut.
+    /// The buffers the OSC string has had, by address and capacity, as a
+    /// stream is fed in pieces of 4 KiB.
+    fn buffers(parser: &mut Parser, stream: &[u8]) -> Vec<(usize, usize)> {
+        let mut count = Count::default();
+        let mut seen: Vec<(usize, usize)> = Vec::new();
+        for piece in stream.chunks(4096) {
+            parser.advance(&mut count, piece);
+            let now = (parser.osc.as_ptr() as usize, parser.osc.capacity());
+            if seen.last() != Some(&now) {
+                seen.push(now);
+            }
+        }
+        seen
+    }
+
+    // A string grows the OSC buffer by doubling from OSC_FLOOR, never past
+    // OSC_MAX, so a string at the bound reallocates it a few times and not
+    // once a piece; a string past OSC_KEEP releases it as it ends.
     #[test]
-    fn the_osc_buffer_is_reserved_once_at_its_bound() {
+    fn the_osc_buffer_doubles_to_the_bound_and_is_released_after_a_long_string() {
+        let mut parser = Parser::new();
+        assert_eq!(parser.osc.capacity(), 0, "a new parser allocates nothing");
+        let mut long = b"\x1b]52;c;".to_vec();
+        long.resize(OSC_MAX.saturating_mul(2), b'A');
+        let seen = buffers(&mut parser, &long);
+        let capacities: Vec<usize> = seen.iter().map(|&(_, c)| c).collect();
+        assert_eq!(capacities.first(), Some(&OSC_FLOOR));
+        assert_eq!(capacities.last(), Some(&OSC_MAX));
+        assert!(capacities.len() <= 9, "{capacities:?}");
+        assert!(capacities.iter().all(|&c| c <= OSC_MAX), "{capacities:?}");
+        let mut count = Count::default();
+        parser.advance(&mut count, b"\x07");
+        assert_eq!(parser.osc.capacity(), 0, "the buffer is not released");
+    }
+
+    // A string within OSC_KEEP keeps the buffer, and the next string reuses
+    // it with no allocation.
+    #[test]
+    fn a_short_string_keeps_the_osc_buffer() {
         let mut parser = Parser::new();
         let mut count = Count::default();
-        assert_eq!(parser.osc.capacity(), 0, "a new parser allocates nothing");
-        parser.advance(&mut count, b"\x1b]0;x\x07");
-        assert_eq!(parser.osc.capacity(), OSC_MAX);
-        let buffer = parser.osc.as_ptr();
-        let flood = [b'x'; 4096];
-        parser.advance(&mut count, b"\x1b]52;c;");
-        for _ in 0..(OSC_MAX / flood.len()).saturating_add(4) {
-            parser.advance(&mut count, &flood);
-        }
-        parser.advance(&mut count, b"\x1b\\\x1b]2;y\x07");
-        assert_eq!(parser.osc.capacity(), OSC_MAX);
-        assert_eq!(parser.osc.as_ptr(), buffer, "the buffer moved");
+        parser.advance(&mut count, b"\x1b]0;title\x07");
+        let buffer = (parser.osc.as_ptr(), parser.osc.capacity());
+        let mut medium = b"\x1b]8;;".to_vec();
+        medium.resize(OSC_KEEP, b'u');
+        medium.push(0x07);
+        parser.advance(&mut count, &medium);
+        parser.advance(&mut count, b"\x1b]2;title\x07");
+        assert!(parser.osc.capacity() <= OSC_KEEP);
+        assert_eq!(parser.osc.as_ptr(), buffer.0, "the buffer moved");
+    }
+
+    // The string is gone from the parser once its end is handed on, so a
+    // selection's base64 does not wait in memory for the next string.
+    #[test]
+    fn the_osc_string_is_cleared_as_it_ends() {
+        let mut parser = Parser::new();
+        let mut count = Count::default();
+        parser.advance(&mut count, b"\x1b]52;c;aGk=\x07");
+        assert!(parser.osc.is_empty());
+        parser.advance(&mut count, b"\x1b]52;c;aGk=\x1b");
+        assert_eq!(parser.osc, b"52;c;aGk=", "an ST waiting at its ESC");
+        parser.advance(&mut count, b"\\");
+        assert!(parser.osc.is_empty());
+        assert!(!format!("{parser:?}").contains("aGk"));
     }
 
     // A string ends whatever ends it; one ended by a character the parser

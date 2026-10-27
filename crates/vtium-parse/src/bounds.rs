@@ -44,7 +44,7 @@ const VALUE: Bound = Bound {
 const OSC: Bound = Bound {
     name: "OSC_MAX",
     value: 1 << 20,
-    what: "Bytes an OSC string keeps, as UTF-8, in one buffer the first OSC string reserves at this size and every later one reuses: an OSC 52 payload at vtium-term's `CLIPBOARD_MAX` with room to spare, and 500 times an OSC 8 URI at the 2083 bytes VTE and iTerm2 allow",
+    what: "Bytes an OSC string keeps, as UTF-8, in a buffer that doubles from 4 KiB to at most this size and is released after a string past 64 KiB: an OSC 52 payload at vtium-term's `CLIPBOARD_MAX` with room to spare, and 500 times an OSC 8 URI at the 2083 bytes VTE and iTerm2 allow",
     past: "The character that would pass it and everything after it are dropped as they arrive, so the kept bytes are a prefix, and the string still dispatches, marked truncated; vtium-term acts on no truncated string, so it is dropped whole",
     cite: "vtium's own, at tmux's `input-buffer-size` (`tmux.h:3509` at `df302c5`), which drops a longer sequence; xterm ignores a string past `maxStringParse`, 20000 bytes, or 600000 with sixel or ReGIS (`main.h:277-283` at `5c75ead`); Ghostty keeps 2048 bytes of an OSC string and 8 MiB of an OSC 52 (`src/terminal/osc.zig:361, 365` at `a732580`) and drops a longer one; foot grows its buffer with no bound short of half the address space (`osc.c:1708-1723` at `152487e`). The C reference kept 127 (`OSC_MAX_LEN`, tsm-vte-int.h:31; tsm-vte.c:2912-2921)",
 };
