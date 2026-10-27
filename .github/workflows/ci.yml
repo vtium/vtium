@@ -20,6 +20,32 @@ jobs:
       - name: minspec build
         run: cargo build --profile minspec
 
+  # minspec's ARM targets (tools/arm/README.md). The tests run natively on
+  # an aarch64 runner, which judges what qemu-user cannot; the cross build
+  # takes both targets through the sysroots and wrappers `make arm` uses.
+  arm-native:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace --all-features
+      - name: minspec build
+        run: cargo build --profile minspec
+
+  arm-cross:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/vtium/arm
+          key: arm-sysroot-${{ hashFiles('tools/arm/pin.tsv') }}
+      - run: make arm
+
   adr:
     runs-on: ubuntu-latest
     steps:
