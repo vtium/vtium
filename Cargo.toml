@@ -39,3 +39,8 @@ panic = "abort"
 inherits = "release"
 opt-level = "z"
 strip = true
+
+# The renderer's glyph loop and writes are built for speed inside the
+# minspec build: the operator's decision on vtium/vtium#78.
+[profile.minspec.package.vtium-render]
+opt-level = 3
