@@ -9,8 +9,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # libudev and libxkbcommon, which vtium-platform links
-      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev
+      # libudev and libxkbcommon, which vtium-platform links, and libsystemd,
+      # which its logind feature links
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -27,7 +28,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --workspace --all-features
       - name: minspec build
