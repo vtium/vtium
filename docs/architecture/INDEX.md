@@ -20,3 +20,10 @@ _Escape protocols and the screen model - parser, modes, cells, scrollback_
 |-----|-------|--------|
 | [ADR-1000](./term/ADR-1000-the-modes-and-features-vtium-supports.md) | The modes and features vtium supports | accepted |
 | [ADR-1001](./term/ADR-1001-cells-are-8-bytes-with-styles-links-and-clusters-in-line-tables.md) | Cells are 8 bytes, with styles, links and clusters in line tables | accepted |
+
+## Platform
+_The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_
+
+| ADR | Title | Status |
+|-----|-------|--------|
+| [ADR-1400](./platform/ADR-1400-the-privilege-and-sandbox-model.md) | The privilege and sandbox model | accepted |
