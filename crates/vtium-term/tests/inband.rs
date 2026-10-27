@@ -146,7 +146,11 @@ fn a_colour_stack_pop_reports_a_change_of_scheme() {
     t.input(b"\x1b]11;#000000\x07\x1b[1#P\x1b]11;#ffffff\x07\x1b[2#P");
     assert_eq!(sent(&mut t), "\x1b[?997;1n\x1b[?997;2n");
     t.input(b"\x1b[1;2#Q");
-    assert_eq!(sent(&mut t), "", "dark, then light again: no change at the end");
+    assert_eq!(
+        sent(&mut t),
+        "",
+        "dark, then light again: no change at the end"
+    );
     t.input(b"\x1b[2;1#Q");
     assert_eq!(sent(&mut t), "\x1b[?997;1n", "one report for two pops");
 }
