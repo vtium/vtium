@@ -1,25 +1,3 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
-edges	drawn by the C reference at the pin; the operator reviews it
-edges-right	drawn by the C reference at the pin; the operator reviews it
-edges-upside-down	drawn by the C reference at the pin; the operator reviews it
-edges-left	drawn by the C reference at the pin; the operator reviews it
-erase-pen	drawn by the C reference at the pin; the operator reviews it
-vs16-unifont	drawn by the C reference at the pin; the operator reviews it
-vs16-wcwidth	drawn by the C reference at the pin; the operator reviews it
-wide-deco-unifont	drawn by the C reference at the pin; the operator reviews it
-redraw-unifont	drawn by the C reference at the pin; the operator reviews it
-ascii-unifont	drawn by the C reference at the pin; the operator reviews it
-bold-unifont	drawn by the C reference at the pin; the operator reviews it
-palette-unifont	drawn by the C reference at the pin; the operator reviews it
-inverse-unifont	drawn by the C reference at the pin; the operator reviews it
-cjk-unifont	drawn by the C reference at the pin; the operator reviews it
-box-unifont	drawn by the C reference at the pin; the operator reviews it
-underline-unifont	drawn by the C reference at the pin; the operator reviews it
-strike-unifont	drawn by the C reference at the pin; the operator reviews it
-deco-config-unifont	drawn by the C reference at the pin; the operator reviews it
-deco-force-unifont	drawn by the C reference at the pin; the operator reviews it
-combining-unifont	drawn by the C reference at the pin; the operator reviews it
-mosaic-unifont	drawn by the C reference at the pin; the operator reviews it
-emoji-unifont	drawn by the C reference at the pin; the operator reviews it
