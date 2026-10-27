@@ -1,4 +1,5 @@
-//! The resident size of the cell model on the minspec machine: a 1366x768
+//! The resident size of the cell model on tier 3's x86 variant of the
+//! minspec machine (docs/architecture.md, "The minspec build"): a 1366x768
 //! display in unifont's 8x16 cells is 170 columns by 48 rows (ADR-1001,
 //! "Memory"). Each figure is computed from the structures themselves, by
 //! capacity, and pinned, so a change to the model changes the record.
