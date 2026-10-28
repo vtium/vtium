@@ -26,13 +26,19 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "Yes: a link never opens anything; Ctrl+click only copies its address. A keyboard link mode for consoles without a mouse is acceptable as a later, low-priority issue."
+    via: the session's ADR questions, 2026-10-27
+    paraphrase: true
+    covers: [nothing opens, no mouse]
 observable:
   - "A replay case opens a link, prints across a wrap, scrolls it into the scrollback and resizes; each cell keeps its link, and a sweep frees only links no line names"
   - "A flood of distinct links past `LINKS_BYTES_MAX` strips the oldest scrollback lines' links first and keeps every link on the screen; fed whole and chunked, it ends in the same store"
   - "An over-long URI, an over-long id, a byte outside 0x21-0x7E and a URI with no scheme each give the state their rule names"
   - "On a VT: hovering a link underlines all of it, Ctrl shows its URI on the bottom row, and Ctrl+click then the middle button pastes the URI into the shell"
   - "With a shell that sends OSC 133, Ctrl+Shift+Up lands each marked prompt in the scrollback at the top of the view, one press each, and Ctrl+Shift+Down returns to the live screen"
-status: proposed
+status: accepted
 date: 2026-10-27
 deciders:
   - aaronsb
