@@ -722,7 +722,7 @@ fn create_all_reports_each_set_and_fails_only_the_broken_one() {
         "broken",
         &format!("source=file:{}\n", w.path("broken.psf").display()),
     );
-    w.frit("typo", "source=kbd:ter-v16n\nsize=24\n");
+    w.frit("typo", "source=kbd:ter-v16n\ncp-size=8\n");
     let o = w.run(&["create", "--all"]);
     assert_eq!(status(&o), 1);
     let out = stdout(&o);
@@ -734,7 +734,7 @@ fn create_all_reports_each_set_and_fails_only_the_broken_one() {
     );
     assert_eq!(lines[1], "built\tgood");
     assert!(
-        lines[2].starts_with("failed\ttypo\t") && lines[2].contains(":2: size="),
+        lines[2].starts_with("failed\ttypo\t") && lines[2].contains(":2: cp-size="),
         "{out}"
     );
 }
@@ -1012,4 +1012,146 @@ fn a_kbd_name_does_not_follow_a_link_out_of_the_data_directory() {
         assert!(text.contains("leaves"), "{source}: {text}");
         assert!(!text.contains(&sha), "{source}: {text}");
     }
+}
+
+#[path = "common/ttf.rs"]
+mod ttf;
+
+/// `w` with the outline fixture installed under `fonts/` as a family's
+/// regular face, and `create --out` run on a frit of `text` with that as
+/// the font directory: the exit status, stdout and stderr, and the set.
+fn outline_set(w: &World, text: &str) -> (i32, String, String, Option<Arc<Set>>) {
+    fs::create_dir_all(w.path("fonts/test")).unwrap();
+    fs::write(
+        w.path("fonts/test/TestMono-Regular.ttf"),
+        ttf::test_mono().build(),
+    )
+    .unwrap();
+    let frit = w.frit("outline", text);
+    let out = w.path("out/outline.vtglass");
+    let _ = fs::remove_file(&out);
+    let fonts = w.path("fonts");
+    let o = w.run(&[
+        "--font-dir",
+        fonts.to_str().unwrap(),
+        "create",
+        "--out",
+        out.to_str().unwrap(),
+        frit.to_str().unwrap(),
+    ]);
+    let set = fs::read(&out)
+        .ok()
+        .map(|b| Arc::new(Set::from_bytes(b).expect("the set reads")));
+    (status(&o), stdout(&o), stderr(&o), set)
+}
+
+// covers: text.emoji
+#[test]
+fn an_outline_font_with_color_glyphs_and_a_bitmap_fallback_builds_a_set() {
+    let w = World::new("outline");
+    let (code, out, err, set) = outline_set(
+        &w,
+        "source=font:Test Mono\nsource=builtin:unifont\ncover=U+0042\nsize=10\nsize=20\nlicense=OFL-1.1\n",
+    );
+    assert_eq!(code, 0, "{out}{err}");
+    assert_eq!(out, "built\toutline\n");
+    let set = set.expect("a set");
+    set.check_chunks().expect("chunks");
+    let strikes: Vec<_> = set
+        .strikes()
+        .map(|s| (s.cell.width, s.cell.height, s.baseline, s.format))
+        .collect();
+    use vtium_font::set::PixelFormat::{Bits, R8, Rgba};
+    assert_eq!(
+        strikes,
+        // unifont's 8x16 cell fits only the 12x20 one
+        [
+            (6, 10, 8, R8),
+            (6, 10, 8, Rgba),
+            (12, 20, 16, Bits),
+            (12, 20, 16, R8),
+            (12, 20, 16, Rgba)
+        ]
+    );
+    assert_eq!(
+        set.meta_values("source-family").collect::<Vec<_>>(),
+        ["Test Mono"]
+    );
+    assert_eq!(
+        set.meta_values("source-license").collect::<Vec<_>>(),
+        ["Free for testing, no warranty."]
+    );
+    assert_eq!(
+        set.meta_values("source-format").collect::<Vec<_>>(),
+        ["outline+color", "builtin:unifont"]
+    );
+    let face = SetFace::new(set, 20).expect("a face");
+    let a = face.draw(&['A'], Style::default()).expect("A");
+    assert_eq!(a.format(), vtium_font::Format::Mask);
+    assert!(a.pixels().iter().any(|&p| p > 0 && p < 255), "R8 coverage");
+    let smile = face
+        .draw(&['\u{1f600}'], Style::default())
+        .expect("a smile");
+    assert_eq!(
+        (smile.format(), smile.cells(), smile.width()),
+        (vtium_font::Format::Rgba, vtium_font::Width::Wide, 24)
+    );
+    // B from unifont's 8x16, on the 12x20 cell's bottom row, centred
+    let b = face.draw(&['B'], Style::default()).expect("B");
+    assert_eq!(b.format(), vtium_font::Format::Mask);
+    assert!(b.pixels()[..12 * 4].iter().all(|&p| p == 0));
+    assert!(!face.has_glyph('C'), "unifont covers only B");
+}
+
+#[test]
+fn color_glyphs_fill_a_bitmap_fonts_cell() {
+    let w = World::new("outline-after-bitmap");
+    let (code, out, err, set) = outline_set(
+        &w,
+        "source=kbd:ter-v16n\nsource=font:Test Mono\ncover=U+1F600-U+1F64F\n",
+    );
+    assert_eq!(code, 0, "{out}{err}");
+    let set = set.expect("a set");
+    let formats: Vec<_> = set
+        .strikes()
+        .map(|s| (s.cell.width, s.cell.height, s.format))
+        .collect();
+    use vtium_font::set::PixelFormat::{Bits, Rgba};
+    assert_eq!(formats, [(8, 16, Bits), (8, 16, Rgba)]);
+    let face = SetFace::new(set, 16).expect("a face");
+    let smile = face
+        .draw(&['\u{1f600}'], Style::default())
+        .expect("a smile");
+    assert_eq!((smile.width(), smile.height()), (16, 16));
+    assert!(!face.has_glyph('\u{4e00}'), "outside cover=");
+}
+
+#[test]
+fn an_outline_font_first_needs_its_sizes_and_a_missing_one_is_left_out() {
+    let w = World::new("outline-sizes");
+    let (code, out, _, _) = outline_set(&w, "source=font:Test Mono\n");
+    assert_eq!(code, 1);
+    assert!(
+        out.starts_with("failed\toutline\t") && out.contains("size="),
+        "{out}"
+    );
+    let (code, out, _, _) = outline_set(&w, "source=kbd:ter-v16n\nsize=24\n");
+    assert_eq!(code, 1);
+    assert!(out.contains("first source is an outline font"), "{out}");
+    let (code, out, err, set) = outline_set(
+        &w,
+        "source=font:Noto Color Emoji\npackage=noto-fonts-emoji\nsource=font:Test Mono\nsize=10\n",
+    );
+    assert_eq!(code, 0, "{out}{err}");
+    assert_eq!(
+        out,
+        "built-partial\toutline\tleft out: font:Noto Color Emoji\n"
+    );
+    assert!(err.contains("noto-fonts-emoji"), "{err}");
+    assert_eq!(
+        set.expect("a set")
+            .meta_values("source-missing")
+            .collect::<Vec<_>>(),
+        ["font:Noto Color Emoji"]
+    );
 }

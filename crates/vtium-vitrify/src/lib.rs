@@ -24,5 +24,6 @@ pub mod cli;
 pub mod decode;
 pub mod frit;
 pub mod glyphs;
+pub mod outline;
 pub mod sources;
 pub mod store;

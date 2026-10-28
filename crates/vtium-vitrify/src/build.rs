@@ -1,11 +1,14 @@
-//! A set from a frit's parsed sources (ADR-1200 D1, D2, D4): the first
-//! source sets the cell, each later one fills only the codepoints the
-//! earlier ones lack, scaled by the largest whole factor at which its cell
-//! fits the strike's, placed on the strike's baseline and centred across
-//! the cell; a source whose cell does not fit at factor 1 fills nothing.
-//! Bitmap sources give one 1-bit strike.
+//! A set from a frit's parsed sources (ADR-1200 D1, D2, D4, D13): the
+//! first source sets the cell, a bitmap font at its own cell and an
+//! outline font at each `size=`; each later one fills only the codepoints
+//! the earlier ones lack. A bitmap font is scaled by the largest whole
+//! factor at which its cell fits the strike's, placed on the strike's
+//! bottom row and centred across the cell, and one whose cell does not fit
+//! at factor 1 fills nothing; an outline font is rasterised at the cell.
+//! Each cell holds a strike a pixel format: 1-bit glyphs from bitmap
+//! fonts, R8 from outlines and premultiplied RGBA from color glyphs.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder, VERSION, builtin};
 use vtium_font::sprite::Range;
@@ -13,9 +16,11 @@ use vtium_font::{
     Cell, Coverage, Face, RangeCoverage, Sha256, SpritePolicy, Style, Width, sha256_hex,
 };
 
+use crate::child::Parser;
 use crate::frit::{Frit, Source};
 use crate::glyphs::Glyphs;
-use crate::sources::Resolved;
+use crate::outline::{Outline, OutlineRequest};
+use crate::sources::{Input, Resolved};
 
 /// One source's glyphs at its own cell: 1-bit, each row padded to a byte,
 /// one or two cells wide.
@@ -189,11 +194,137 @@ fn build_key_for(frit: &Frit, sources: &[Option<Resolved>], tool: &str) -> [u8; 
     h.finish()
 }
 
+/// A source's glyphs as parsed: a bitmap font at its own cell, or an
+/// outline font rasterised at the set's cells.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Parsed {
+    Bitmap(Font),
+    Outline(Outline),
+}
+
+impl Parsed {
+    /// What was read, for the provenance.
+    fn format(&self) -> &str {
+        match self {
+            Parsed::Bitmap(f) => &f.format,
+            Parsed::Outline(o) => &o.format,
+        }
+    }
+}
+
 /// A source found and parsed: what it read, and its glyphs.
 pub struct Part<'a> {
     pub source: &'a Source,
     pub resolved: &'a Resolved,
-    pub font: Font,
+    pub parsed: Parsed,
+}
+
+/// The cells and baselines a set whose first source is `first` is built
+/// at: a bitmap font's own cell, its baseline at the cell's bottom, or
+/// each cell an outline font was rasterised at.
+fn cells(frit: &Frit, first: &Parsed) -> Result<Vec<(Cell, u32)>, String> {
+    match first {
+        Parsed::Bitmap(font) => {
+            if !frit.sizes.is_empty() && frit.sizes != [font.cell.height] {
+                return Err(format!(
+                    "size= is for a set whose first source is an outline font; this one's is a \
+                     bitmap font, its cell {}x{}",
+                    font.cell.width, font.cell.height
+                ));
+            }
+            Ok(vec![(font.cell, font.cell.height)])
+        }
+        Parsed::Outline(o) => Ok(o
+            .strikes
+            .iter()
+            .map(|s| {
+                let cell = Cell {
+                    width: s.width,
+                    height: s.height,
+                };
+                (cell, s.baseline)
+            })
+            .collect()),
+    }
+}
+
+/// Parses each source of `frit` found (`resolved`, in the frit's order) in
+/// the parser's child, a built-in as the tool holds it, and assembles the
+/// set's bytes. An outline font that comes first is rasterised at each
+/// `size=`, letting it set the cell; a later one at the cells the first
+/// set, within its `cover=`.
+pub fn parse_and_assemble(
+    frit: &Frit,
+    resolved: &[Option<Resolved>],
+    key: &[u8; 32],
+    parser: &Parser,
+) -> Result<Vec<u8>, String> {
+    let mut parts: Vec<Part<'_>> = Vec::new();
+    let mut missing = Vec::new();
+    for (source, resolved) in frit.sources.iter().zip(resolved) {
+        let Some(resolved) = resolved else {
+            missing.push(source);
+            continue;
+        };
+        let parsed = match &resolved.input {
+            Input::Font(request) => parser
+                .parse(request)
+                .map(|g| Parsed::Bitmap(Font::from_glyphs(g))),
+            Input::Builtin(font) => Ok(Parsed::Bitmap(font.clone())),
+            Input::Outline(request) => {
+                let at: Vec<(u32, u32)> = match parts.first() {
+                    Some(first) => cells(frit, &first.parsed)?
+                        .iter()
+                        .map(|(c, _)| (c.width, c.height))
+                        .collect(),
+                    None if frit.sizes.is_empty() => {
+                        return Err(format!(
+                            "source={}: an outline font that sets the cell is drawn at the \
+                             heights size= names, and the frit names none",
+                            source.spelling
+                        ));
+                    }
+                    None => frit.sizes.iter().map(|&h| (0, h)).collect(),
+                };
+                let request = OutlineRequest {
+                    cells: at,
+                    cover: source.cover.clone(),
+                    ..request.clone()
+                };
+                parser.rasterise(&request).map(Parsed::Outline)
+            }
+        }
+        .map_err(|e| format!("source={}: {e}", source.spelling))?;
+        parts.push(Part {
+            source,
+            resolved,
+            parsed,
+        });
+    }
+    assemble(frit, &parts, &missing, key)
+}
+
+/// One cell's strikes, a pixel format each, and the codepoints they map.
+struct Strikes {
+    bits: StrikeBuilder,
+    r8: StrikeBuilder,
+    rgba: StrikeBuilder,
+    mapped: BTreeSet<u32>,
+}
+
+impl Strikes {
+    fn new(cell: Cell, baseline: u32, compress: bool) -> Strikes {
+        let strike = |format| {
+            let s = StrikeBuilder::new(format, cell, Style::default()).baseline(baseline);
+            if compress { s } else { s.compress(false) }
+        };
+        Strikes {
+            bits: strike(PixelFormat::Bits),
+            r8: strike(PixelFormat::R8),
+            rgba: strike(PixelFormat::Rgba),
+            mapped: BTreeSet::new(),
+        }
+    }
 }
 
 /// The set `frit` describes, from the fonts of its sources found, in
@@ -208,25 +339,43 @@ pub fn assemble(
     let main = parts
         .first()
         .ok_or("no source of the frit is on this machine")?;
-    let cell = main.font.cell;
-    let mut strike = StrikeBuilder::new(PixelFormat::Bits, cell, Style::default());
-    if !frit.compress {
-        strike = strike.compress(false);
-    }
-    let mut mapped: BTreeMap<u32, ()> = BTreeMap::new();
-    for part in parts {
-        fill(&mut strike, &mut mapped, &part.font, part.source, cell);
-    }
-    if mapped.is_empty() {
-        return Err("the sources give the set no glyph".to_owned());
-    }
-    let coverage = Coverage::new(|range: Range| {
-        RangeCoverage::count(range, |c| mapped.contains_key(&u32::from(c)))
-    });
     let mut set = SetBuilder::new(&frit.name)
-        .policy(SpritePolicy::default_for(&coverage))
         .meta("build-key", &sha256_hex(key))
         .meta("tool", concat!("vtium-vitrify ", env!("CARGO_PKG_VERSION")));
+    let mut coverage = None;
+    for (i, &(cell, baseline)) in cells(frit, &main.parsed)?.iter().enumerate() {
+        let mut strikes = Strikes::new(cell, baseline, frit.compress);
+        for part in parts {
+            match &part.parsed {
+                Parsed::Bitmap(font) => fill(&mut strikes, font, part.source, cell),
+                Parsed::Outline(o) => {
+                    if let Some(s) = o.strikes.get(i) {
+                        fill_outline(&mut strikes, s, part.source);
+                    }
+                }
+            }
+        }
+        if strikes.mapped.is_empty() {
+            return Err(format!(
+                "the sources give the set no glyph at {}x{}",
+                cell.width, cell.height
+            ));
+        }
+        let mapped = &strikes.mapped;
+        coverage.get_or_insert_with(|| {
+            Coverage::new(|range: Range| {
+                RangeCoverage::count(range, |c| mapped.contains(&u32::from(c)))
+            })
+        });
+        for strike in [strikes.bits, strikes.r8, strikes.rgba] {
+            if !strike.is_empty() {
+                set = set.strike(strike);
+            }
+        }
+    }
+    if let Some(coverage) = coverage {
+        set = set.policy(SpritePolicy::default_for(&coverage));
+    }
     for line in frit.text.lines() {
         set = set.meta("frit", line);
     }
@@ -234,9 +383,15 @@ pub fn assemble(
         set = set
             .meta("source", &part.source.spelling)
             .meta("source-sha256", &sha256_hex(&part.resolved.sha256))
-            .meta("source-format", &part.font.format);
+            .meta("source-format", part.parsed.format());
         if let Some(sha) = part.resolved.unimap_sha256 {
             set = set.meta("source-unimap-sha256", &sha256_hex(&sha));
+        }
+        if let Parsed::Outline(o) = &part.parsed {
+            set = set.meta("source-family", &o.family);
+            if !o.license.is_empty() {
+                set = set.meta("source-license", &o.license);
+            }
         }
     }
     for source in missing {
@@ -245,18 +400,45 @@ pub fn assemble(
     if let Some(license) = &frit.license {
         set = set.meta("license", license);
     }
-    set.strike(strike).write().map_err(|e| e.to_string())
+    set.write().map_err(|e| e.to_string())
 }
 
-/// Adds `font`'s glyphs for the codepoints `source` covers and the strike
-/// lacks, placed at the strike's `cell`.
-fn fill(
-    strike: &mut StrikeBuilder,
-    mapped: &mut BTreeMap<u32, ()>,
-    font: &Font,
-    source: &Source,
-    cell: Cell,
-) {
+/// Adds an outline font's glyphs at one cell for the codepoints `source`
+/// covers and the cell lacks: R8 glyphs to the R8 strike, color glyphs
+/// to the RGBA strike.
+fn fill_outline(strikes: &mut Strikes, outline: &crate::outline::Strike, source: &Source) {
+    let mut placed: BTreeMap<(bool, u32), u32> = BTreeMap::new();
+    for &(c, g) in &outline.map {
+        let Some(ch) = char::from_u32(c) else {
+            continue;
+        };
+        let Some(glyph) = outline.glyphs.get(g as usize) else {
+            continue;
+        };
+        if strikes.mapped.contains(&c) || !source.covers(c) {
+            continue;
+        }
+        let strike = if glyph.color {
+            &mut strikes.rgba
+        } else {
+            &mut strikes.r8
+        };
+        let index = *placed.entry((glyph.color, g)).or_insert_with(|| {
+            let width = if glyph.wide {
+                Width::Wide
+            } else {
+                Width::Narrow
+            };
+            strike.glyph(width, glyph.pixels.clone())
+        });
+        strike.map(ch, index);
+        strikes.mapped.insert(c);
+    }
+}
+
+/// Adds `font`'s glyphs for the codepoints `source` covers and the cell
+/// lacks to the 1-bit strike, placed at `cell`.
+fn fill(strikes: &mut Strikes, font: &Font, source: &Source, cell: Cell) {
     let scale = (cell.width / font.cell.width.max(1)).min(cell.height / font.cell.height.max(1));
     if scale == 0 {
         return;
@@ -266,7 +448,7 @@ fn fill(
         let Some(ch) = char::from_u32(c) else {
             continue;
         };
-        if mapped.contains_key(&c) || !source.covers(c) {
+        if strikes.mapped.contains(&c) || !source.covers(c) {
             continue;
         }
         let index = match placed.get(&g) {
@@ -275,13 +457,15 @@ fn fill(
                 let Some((width, bits)) = font.glyphs.get(g as usize) else {
                     continue;
                 };
-                let i = strike.glyph(*width, place(bits, *width, font.cell, cell, scale));
+                let i = strikes
+                    .bits
+                    .glyph(*width, place(bits, *width, font.cell, cell, scale));
                 placed.insert(g, i);
                 i
             }
         };
-        strike.map(ch, index);
-        mapped.insert(c, ());
+        strikes.bits.map(ch, index);
+        strikes.mapped.insert(c);
     }
 }
 
