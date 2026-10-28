@@ -1,7 +1,7 @@
 //! Tier 2's screens, each with the golden that judges it.
 //!
-//! The C reference's tier 2 (`tests/test_pixels.c` at the pinned kmscon
-//! commit) drew every screen with an outline font, DejaVu Sans Mono through
+//! The C reference's tier 2 (`tests/test_pixels.c` at the kmscon commit
+//! `provenance.tsv` names) drew every screen with an outline font, DejaVu Sans Mono through
 //! FreeType, so its goldens judge vtium only where no outline glyph shows:
 //! the two block screens, which hold only sprites and spaces. The others
 //! are re-baselined when the Rust font layer lands (vtium/vtium#24), as
@@ -19,8 +19,8 @@ use crate::draw::{DecoSpec, Decorations, FontKind, Screen, TestFont};
 /// Where a screen's golden lives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Source {
-    /// The C reference's, `tests/goldens/tier2/<name>.ppm` at the pinned
-    /// kmscon commit.
+    /// The C reference's, copied from its `tests/goldens/tier2/` into
+    /// `tools/tier2/reference/goldens/<name>.ppm`.
     Kmscon,
     /// vtium's own, `tools/tier2/goldens/<name>.ppm`.
     Vtium,
@@ -32,7 +32,7 @@ pub struct Case {
     pub screen: Screen,
     pub source: Source,
     /// The C reference's screen in `tests/test_pixels.c` whose bytes this
-    /// one carries, checked against the pin on every run.
+    /// one carries, checked against the copy on every run.
     pub ported: Option<&'static str>,
 }
 

@@ -1,5 +1,6 @@
-//! The C reference's screens, read from its `tests/test_pixels.c` at the
-//! pin, so every screen ported from one is checked to carry its bytes.
+//! The C reference's screens, read from the copy of its
+//! `tests/test_pixels.c` in `reference/`, so every screen ported from one is
+//! checked to carry its bytes.
 //!
 //! The reader knows the subset of C that file writes its screens in:
 //! string literals, object-like `#define`s whose bodies are strings and

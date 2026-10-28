@@ -1,19 +1,22 @@
 //! The run: each screen drawn and judged against its golden, the C
-//! reference's at the pinned kmscon commit or vtium's own, and the report.
+//! reference's copied into `reference/goldens/` or vtium's own, and the
+//! report.
 //!
-//! Every golden of the C reference's tier 2 at the pin is a case: drawn by
-//! a screen here, or listed in `pending.tsv` with the issue that owes it,
-//! so a golden the pin brings that nobody looked at is `missing`, as is a
-//! golden of vtium's that no screen draws. A difference from a golden is a
-//! failure unless `departures.tsv` lists the case under a departure the
-//! render crate's README states, and every differing pixel lies in the
-//! rectangles it names; a listed departure the case no longer shows fails
-//! too, until its row goes.
+//! Every golden of the C reference's tier 2 at the commit `provenance.tsv`
+//! names, as `c-goldens.list` gives them, is a case: copied and drawn by a
+//! screen here, or listed in `pending.tsv` with the issue that owes it. A
+//! listed golden that is neither is `missing`, as is a golden of vtium's
+//! that no screen draws. A difference
+//! from a golden is a failure unless `departures.tsv` lists the case under
+//! a departure the render crate's README states, and every differing pixel
+//! lies in the rectangles it names; a listed departure the case no longer
+//! shows fails too, until its row goes.
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::Path;
+
+use vtium_conformance::runner::provenance;
 
 use crate::compare::{self, Verdict};
 use crate::cref;
@@ -23,18 +26,13 @@ use crate::report::{self, CaseReport, Status};
 use crate::screens::{Case, Source};
 use crate::tol::{Rect, Tolerance};
 
-/// Where the C reference keeps its tier 2 goldens.
+/// The copies of the C reference's files, from the repository root: every
+/// file under it has a row in `provenance.tsv`.
+pub const COPIED: &str = "tools/tier2/reference";
+/// The C reference's tier 2 goldens, in `reference/goldens/` here.
 pub const GOLDENS: &str = "tests/goldens/tier2";
-/// The C reference's tier 2 screens.
+/// The C reference's tier 2 screens, in `reference/test_pixels.c` here.
 pub const SCREENS: &str = "tests/test_pixels.c";
-
-/// A repository read at a pinned commit.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Pin {
-    pub name: String,
-    pub commit: String,
-    pub url: String,
-}
 
 /// The non-comment lines of a TSV, numbered from 1, split at tabs.
 fn rows(text: &str) -> impl Iterator<Item = (usize, Vec<&str>)> {
@@ -42,24 +40,6 @@ fn rows(text: &str) -> impl Iterator<Item = (usize, Vec<&str>)> {
         .enumerate()
         .filter(|(_, l)| !l.trim().is_empty() && !l.starts_with('#'))
         .map(|(i, l)| (i + 1, l.split('\t').collect()))
-}
-
-/// Reads `pin.tsv`: `NAME COMMIT URL` a line.
-pub fn pins(text: &str) -> Result<Vec<Pin>, String> {
-    rows(text)
-        .map(|(n, f)| match f[..] {
-            [name, commit, url]
-                if commit.len() == 40 && commit.bytes().all(|b| b.is_ascii_hexdigit()) =>
-            {
-                Ok(Pin {
-                    name: name.to_owned(),
-                    commit: commit.to_owned(),
-                    url: url.to_owned(),
-                })
-            }
-            _ => Err(format!("pin.tsv:{n}: want NAME, a 40-digit COMMIT and URL")),
-        })
-        .collect()
 }
 
 /// A case whose difference from its golden a departure explains.
@@ -164,66 +144,88 @@ pub fn provisional(text: &str) -> Result<Vec<String>, String> {
         .collect()
 }
 
-/// Extracts the C reference's tier 2 goldens and screens at `pin` from the
-/// checkout at `repo` into `out/<name>-<commit>/`, afresh, through `git
-/// archive`, so the checkout's branch and working tree never reach the
-/// judge; returns that directory.
-pub fn extract(repo: &Path, pin: &Pin, out: &Path) -> Result<PathBuf, String> {
-    let dest = out.join(format!("{}-{}", pin.name, pin.commit));
-    let has = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(["cat-file", "-e", &format!("{}^{{commit}}", pin.commit)])
-        .stderr(Stdio::null())
-        .status()
-        .map_err(|e| format!("git: {e}"))?;
-    if !has.success() {
-        return Err(format!(
-            "{} has no commit {}: clone {} there, or fetch it (git -C {} fetch origin)",
-            repo.display(),
-            pin.commit,
-            pin.url,
-            repo.display()
-        ));
+/// Reads `c-goldens.list`: a file name a line, `#` comments, each the
+/// name of a file in the C reference's `tests/goldens/tier2/`.
+pub fn c_goldens(text: &str) -> Result<Vec<String>, String> {
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for (n, f) in rows(text) {
+        match f[..] {
+            [name] if !name.is_empty() && !name.contains('/') => {
+                if !seen.insert(name) {
+                    return Err(format!("c-goldens.list:{n}: {name} is listed twice"));
+                }
+                out.push(name.to_owned());
+            }
+            _ => return Err(format!("c-goldens.list:{n}: want one file name")),
+        }
     }
-    if dest.exists() {
-        fs::remove_dir_all(&dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    Ok(out)
+}
+
+/// Every difference between `c-goldens.list` and the files of the C
+/// reference's `tests/goldens/tier2/` at the pin.
+pub fn check_pin(at_pin: &BTreeSet<String>, listed: &BTreeSet<String>) -> Vec<String> {
+    let mut faults = Vec::new();
+    for f in at_pin.difference(listed) {
+        faults.push(format!("{f} is at the pin but not in c-goldens.list"));
     }
-    fs::create_dir_all(&dest).map_err(|e| format!("{}: {e}", dest.display()))?;
-    let mut git = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args([
-            "archive",
-            "--format=tar",
-            &pin.commit,
-            "--",
-            GOLDENS,
-            SCREENS,
-        ])
-        .stdout(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("git archive: {e}"))?;
-    let stdout = git.stdout.take().ok_or("git archive: no output")?;
-    let tar = Command::new("tar")
-        .arg("-x")
-        .arg("-C")
-        .arg(&dest)
-        .stdin(stdout)
-        .status()
-        .map_err(|e| format!("tar: {e}"))?;
-    let git = git.wait().map_err(|e| format!("git archive: {e}"))?;
-    if !git.success() || !tar.success() {
-        return Err(format!(
-            "extracting {GOLDENS} and {SCREENS} at {} failed",
-            pin.commit
-        ));
+    for f in listed.difference(at_pin) {
+        faults.push(format!("c-goldens.list names {f}, which the pin lacks"));
     }
-    Ok(dest)
+    faults
+}
+
+/// The rows of `provenance.tsv`, and the kmscon commit they all name.
+pub fn provenance_rows(text: &str) -> Result<(Vec<provenance::Copy>, String), String> {
+    let copies = provenance::read(text)?;
+    let commit = provenance::commit(&copies, "kmscon")?.to_owned();
+    if copies.iter().any(|c| c.repo != "kmscon") {
+        return Err("provenance.tsv names a repository other than kmscon".to_owned());
+    }
+    Ok((copies, commit))
+}
+
+/// What a run reads besides the goldens.
+#[derive(Clone, Debug)]
+pub struct Lists {
+    /// The kmscon commit the copies came from.
+    pub commit: String,
+    pub departures: Vec<Departure>,
+    pub pending: Vec<Pending>,
+    pub provisional: Vec<String>,
+    /// The departures the render crate's README lists.
+    pub titles: Vec<String>,
+    pub c_goldens: Vec<String>,
+}
+
+fn read(path: &Path) -> Result<String, String> {
+    fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Reads the lists of the tool at `root`'s `tools/tier2`, once every copy
+/// under `reference/` matches its row of `provenance.tsv` and every case
+/// in `cases` ported from a C screen carries its bytes.
+pub fn load(root: &Path, cases: &[Case]) -> Result<Lists, String> {
+    let tool = root.join("tools/tier2");
+    let (copies, commit) = provenance_rows(&read(&tool.join("provenance.tsv"))?)?;
+    let faults = provenance::check(root, &copies, &[COPIED], &[]);
+    if !faults.is_empty() {
+        return Err(faults.join("\n"));
+    }
+    check_ported(cases, &read(&tool.join("reference/test_pixels.c"))?)?;
+    Ok(Lists {
+        commit,
+        departures: departures(&read(&tool.join("departures.tsv"))?)?,
+        pending: pending(&read(&tool.join("pending.tsv"))?)?,
+        provisional: provisional(&read(&tool.join("provisional.tsv"))?)?,
+        titles: readme_departures(&read(&root.join("crates/vtium-render/README.md"))?),
+        c_goldens: c_goldens(&read(&tool.join("c-goldens.list"))?)?,
+    })
 }
 
 /// Checks that every case ported from a C screen carries that screen's
-/// bytes and second part, as `test_pixels.c` at the pin gives them.
+/// bytes and second part, as the copy of `test_pixels.c` gives them.
 pub fn check_ported(cases: &[Case], test_pixels: &str) -> Result<(), String> {
     let c = cref::screens(test_pixels)?;
     for case in cases {
@@ -273,7 +275,7 @@ fn goldens_in(dir: &Path) -> Result<BTreeSet<String>, String> {
 pub struct Run<'a> {
     /// The screens, `screens::CASES` but in the runner's tests.
     pub cases: &'a [Case],
-    /// The C reference's goldens, extracted at the pin.
+    /// The C reference's goldens, copied into `reference/goldens`.
     pub kmscon_goldens: &'a Path,
     /// vtium's goldens, `tools/tier2/goldens`.
     pub vtium_goldens: &'a Path,
@@ -281,6 +283,8 @@ pub struct Run<'a> {
     pub pending: &'a [Pending],
     /// vtium's goldens the operator has not reviewed.
     pub provisional: &'a [String],
+    /// The files of the C reference's tier 2 goldens, `c-goldens.list`.
+    pub c_goldens: &'a [String],
     /// Where `actual/` and `diff/` go.
     pub out: &'a Path,
     /// What report paths are relative to.
@@ -294,13 +298,19 @@ fn rel(root: &Path, p: &Path) -> String {
 impl Run<'_> {
     /// Checks the lists against the goldens, before any case runs.
     pub fn check_lists(&self, readme_titles: &[String]) -> Result<(), String> {
-        let kmscon = goldens_in(self.kmscon_goldens)?;
+        let copied = goldens_in(self.kmscon_goldens)?;
+        let listed = self.listed();
+        for c in &copied {
+            if !listed.contains(c) {
+                return Err(format!("{c} is copied, but c-goldens.list has no {c}.ppm"));
+            }
+        }
         let mut names = BTreeSet::new();
         for c in self.cases {
             if !names.insert(c.screen.name) {
                 return Err(format!("two screens are named {}", c.screen.name));
             }
-            if c.source == Source::Vtium && kmscon.contains(c.screen.name) {
+            if c.source == Source::Vtium && listed.contains(c.screen.name) {
                 return Err(format!(
                     "the screen {} has vtium's golden but the C reference's name",
                     c.screen.name
@@ -308,15 +318,21 @@ impl Run<'_> {
             }
         }
         for p in self.pending {
-            if !kmscon.contains(&p.golden) {
-                return Err(format!(
-                    "pending.tsv lists {}, which the pin has no golden for",
-                    p.golden
-                ));
-            }
             if self.cases.iter().any(|c| c.screen.name == p.golden) {
                 return Err(format!(
                     "pending.tsv lists {}, which a screen draws",
+                    p.golden
+                ));
+            }
+            if !listed.contains(&p.golden) {
+                return Err(format!(
+                    "pending.tsv lists {}, which c-goldens.list has no golden for",
+                    p.golden
+                ));
+            }
+            if copied.contains(&p.golden) {
+                return Err(format!(
+                    "pending.tsv lists {}, which is copied: a screen draws it, or the copy goes",
                     p.golden
                 ));
             }
@@ -397,24 +413,33 @@ impl Run<'_> {
                 .iter()
                 .any(|c| c.source == src && c.screen.name == name)
         };
-        for name in goldens_in(self.kmscon_goldens)? {
+        for name in self.listed() {
             if drawn(Source::Kmscon, &name) {
                 continue;
             }
             let golden = self.kmscon_goldens.join(format!("{name}.ppm"));
-            let mut r = match self.pending.iter().find(|p| p.golden == name) {
+            let r = match self.pending.iter().find(|p| p.golden == name) {
                 Some(p) => {
                     let mut r = CaseReport::new(&name, Status::Pending);
                     r.note = Some(format!("{}: {}", p.issue, p.why));
                     r
                 }
+                None if golden.exists() => {
+                    let mut r = CaseReport::new(&name, Status::Missing);
+                    r.golden = Some(rel(self.root, &golden));
+                    r.note = Some(
+                        "a copied golden of the C reference's that no screen draws".to_owned(),
+                    );
+                    r
+                }
                 None => {
                     let mut r = CaseReport::new(&name, Status::Missing);
-                    r.note = Some("a golden of the C reference's that no screen draws and pending.tsv does not list".to_owned());
+                    r.note = Some(
+                        "a golden of the C reference's that no screen draws and pending.tsv does not list".to_owned(),
+                    );
                     r
                 }
             };
-            r.golden = Some(rel(self.root, &golden));
             out.push(r);
         }
         for name in goldens_in(self.vtium_goldens)? {
@@ -429,6 +454,15 @@ impl Run<'_> {
             }
         }
         Ok(out)
+    }
+
+    /// The names of the goldens `c-goldens.list` gives, without `.ppm`.
+    fn listed(&self) -> BTreeSet<String> {
+        self.c_goldens
+            .iter()
+            .filter_map(|f| f.strip_suffix(".ppm"))
+            .map(str::to_owned)
+            .collect()
     }
 
     /// Judges `img` against the golden at `golden`, with its sidecar.

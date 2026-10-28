@@ -101,13 +101,6 @@ fn a_mask_past_the_image_is_refused_when_compared() {
 #[test]
 fn malformed_lists_are_refused() {
     for text in [
-        "kmscon\tb1f7a7c\thttps://example.org/k.git",
-        "kmscon\tb1f7a7c5df563f3378584db7298753848a7a9a1g\thttps://example.org/k.git",
-        "kmscon b1f7a7c5df563f3378584db7298753848a7a9a13 https://example.org/k.git",
-    ] {
-        assert!(runner::pins(text).is_err(), "pin {text:?} was taken");
-    }
-    for text in [
         "edges\tA wide glyph",
         "edges\tA wide glyph\t0,0,1",
         "edges\tA wide glyph\t0,0,1,1;2,2,1,1",
