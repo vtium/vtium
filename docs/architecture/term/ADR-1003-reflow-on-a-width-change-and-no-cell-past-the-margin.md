@@ -53,13 +53,19 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "Accepted. Zooming in on a full scrollback dropping its oldest lines is the cost of resizing. The fill and the pad cell are agreed. The timing gate is judged on the SBC estimate until real hardware is available."
+    via: the session's ADR questions, 2026-10-27; the figure was shown
+    paraphrase: true
+    covers: [long lines, zooming in on a full scrollback]
 observable:
   - "The probe `reflow` (kmscon tests/capabilities/probes.replay) passes: `abcdefghijklmno` printed on 10 columns reads as one row after a resize to 20"
   - "A replay case for each rule of this record, under the decision it pins"
   - "A property test: rewrapping to another width and back restores the text of the scrollback and the screen"
   - "A property test: the screen after a stream with resizes is the same fed whole or cut at random points, and the same with the scrollback reflowed lazily or all at once"
   - "Reflow time and memory measured with a 100,000-line scrollback on the minspec machine, recorded in vtium-term's README"
-status: proposed
+status: accepted
 date: 2026-10-27
 deciders:
   - aaronsb
