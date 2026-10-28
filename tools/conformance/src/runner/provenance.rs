@@ -78,8 +78,8 @@ pub fn commit<'a>(copies: &'a [Copy], repo: &str) -> Result<&'a str, String> {
 
 /// Every fault of the copies under `root`, the root of this repository:
 /// each row's file hashed against its SHA-256, and each file under the
-/// `copied` directories checked for a row.
-pub fn check(root: &Path, copies: &[Copy], copied: &[&str]) -> Vec<String> {
+/// `copied` directories, other than vtium's `own`, checked for a row.
+pub fn check(root: &Path, copies: &[Copy], copied: &[&str], own: &[&str]) -> Vec<String> {
     let mut faults = Vec::new();
     for c in copies {
         match std::fs::read(root.join(&c.path)) {
@@ -98,9 +98,59 @@ pub fn check(root: &Path, copies: &[Copy], copied: &[&str]) -> Vec<String> {
             let rel = file
                 .strip_prefix(root)
                 .map_or_else(|_| file.display().to_string(), |p| p.display().to_string());
-            if !copies.iter().any(|c| c.path == rel) {
+            if !own.contains(&rel.as_str()) && !copies.iter().any(|c| c.path == rel) {
                 faults.push(format!("{rel} has no row in provenance.tsv"));
             }
+        }
+    }
+    faults
+}
+
+/// Every fault of the rows against their sources: each row's source read
+/// by `fetch` (repository, commit, path) and hashed against its SHA-256, an
+/// excerpt `PATH:FIRST-LAST` by those lines.
+pub fn verify(
+    copies: &[Copy],
+    fetch: impl Fn(&str, &str, &str) -> Result<Vec<u8>, String>,
+) -> Vec<String> {
+    let mut faults = Vec::new();
+    for c in copies {
+        let at = format!(
+            "provenance.tsv:{}: {} {}:{}",
+            c.line, c.repo, c.commit, c.source
+        );
+        let (path, lines) = match c.source.rsplit_once(':') {
+            Some((path, range)) => match range
+                .split_once('-')
+                .and_then(|(a, b)| Some((a.parse::<usize>().ok()?, b.parse::<usize>().ok()?)))
+            {
+                Some(lines) => (path, Some(lines)),
+                None => {
+                    faults.push(format!("{at}: want PATH or PATH:FIRST-LAST"));
+                    continue;
+                }
+            },
+            None => (c.source.as_str(), None),
+        };
+        let data = match fetch(&c.repo, &c.commit, path) {
+            Ok(data) => data,
+            Err(why) => {
+                faults.push(format!("{at}: {why}"));
+                continue;
+            }
+        };
+        let data = match lines {
+            Some((first, last)) => data
+                .split_inclusive(|&b| b == b'\n')
+                .skip(first.saturating_sub(1))
+                .take(last.saturating_sub(first).saturating_add(1))
+                .flatten()
+                .copied()
+                .collect(),
+            None => data,
+        };
+        if sha256::hex(&data) != c.sha256 {
+            faults.push(format!("{at}: the source's SHA-256 is not the row's"));
         }
     }
     faults
@@ -153,7 +203,10 @@ mod tests {
     fn a_copy_that_matches_its_row_passes() {
         let root = tree("match");
         let copies = read(&row("corpus/golden/a.txt", ABC)).unwrap_or_default();
-        assert_eq!(check(&root, &copies, &["corpus"]), Vec::<String>::new());
+        assert_eq!(
+            check(&root, &copies, &["corpus"], &[]),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
@@ -167,7 +220,8 @@ mod tests {
             row("corpus/golden/gone.txt", ABC)
         ))
         .unwrap_or_default();
-        let faults = check(&root, &copies, &["corpus"]);
+        let _ = std::fs::write(root.join("corpus/ours.txt"), "vtium's");
+        let faults = check(&root, &copies, &["corpus"], &["corpus/ours.txt"]);
         assert_eq!(faults.len(), 3, "{faults:?}");
         assert!(faults[0].starts_with("corpus/golden/a.txt differs from libtsm"));
         assert!(faults[1].starts_with("corpus/golden/gone.txt: "));
@@ -189,5 +243,29 @@ mod tests {
         ))
         .unwrap_or_default();
         assert!(commit(&two, "libtsm").is_err());
+    }
+
+    #[test]
+    fn rows_are_verified_against_their_sources() {
+        let copies = read(&format!(
+            "{}x\tkmscon\t{COMMIT}\tsrc.c:2-2\t{ABC}\n",
+            row("a", ABC)
+        ))
+        .unwrap_or_default();
+        let fetch = |repo: &str, commit: &str, path: &str| match (repo, commit, path) {
+            ("libtsm", COMMIT, "test/conformance/a") => Ok(b"abc".to_vec()),
+            ("kmscon", COMMIT, "src.c") => Ok(b"one\nabc".to_vec()),
+            _ => Err(format!("no {path} at {commit}")),
+        };
+        assert_eq!(verify(&copies, fetch), Vec::<String>::new());
+        let faults = verify(&copies, |_: &str, _: &str, _: &str| Ok(b"abd".to_vec()));
+        assert_eq!(faults.len(), 2, "{faults:?}");
+        let gone = verify(&copies, |_: &str, c: &str, _: &str| {
+            Err(format!("no commit {c}"))
+        });
+        assert!(
+            gone[0].ends_with(&format!("no commit {COMMIT}")),
+            "{gone:?}"
+        );
     }
 }

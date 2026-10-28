@@ -42,7 +42,12 @@ fn outcome(text: &str) -> Outcome {
 fn the_copies_match_their_provenance() {
     let copies = provenance::read(&read("provenance.tsv")).unwrap_or_else(|e| panic!("{e}"));
     let root = Path::new(TOOL).join("../..");
-    let faults = provenance::check(&root, &copies, &["tools/conformance/corpus"]);
+    let faults = provenance::check(
+        &root,
+        &copies,
+        &["tools/conformance/corpus", "tools/conformance/probes"],
+        &["tools/conformance/probes/vtium.replay"],
+    );
     assert_eq!(faults, Vec::<String>::new());
     assert!(provenance::commit(&copies, "libtsm").is_ok());
     assert!(provenance::commit(&copies, "kmscon").is_ok());

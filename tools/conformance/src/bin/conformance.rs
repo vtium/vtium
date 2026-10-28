@@ -18,8 +18,9 @@ const CORPUS: &str = "corpus";
 /// The interface's documents, each a later version of the one before.
 const INTERFACE: [&str; 2] = ["corpus/INTERFACE.md", "INTERFACE-vtium.md"];
 const PROBES: [&str; 2] = ["probes/probes.replay", "probes/vtium.replay"];
-/// The directories every file of which is a copy.
-const COPIED: [&str; 1] = ["tools/conformance/corpus"];
+/// The directories every file of which is a copy, but for vtium's own.
+const COPIED: [&str; 2] = ["tools/conformance/corpus", "tools/conformance/probes"];
+const OWN: [&str; 1] = ["tools/conformance/probes/vtium.replay"];
 /// The build features the capability list names: vtium is built without
 /// images until vtium-image lands (#48, #49).
 const BUILD: [(&str, bool); 1] = [("images", false)];
@@ -37,9 +38,12 @@ const OPTIONAL: [&str; 6] = [
 const USAGE: &str = "usage: conformance [run] [--without CASE]... [--seed N] [--rounds N]
        conformance expect VIEW CASE...
        conformance probes
-       conformance issues";
+       conformance issues
+       conformance provenance [--libtsm DIR] [--kmscon DIR]";
 
 struct Options {
+    libtsm: PathBuf,
+    kmscon: PathBuf,
     without: Vec<String>,
     seed: u64,
     rounds: usize,
@@ -48,6 +52,8 @@ struct Options {
 
 fn options(args: &[String]) -> Result<Options, String> {
     let mut o = Options {
+        libtsm: repo_root().join("../libtsm"),
+        kmscon: repo_root().join("../kmscon"),
         without: Vec::new(),
         // a CI run takes its own seed, so each run tries other cuts
         seed: std::env::var("GITHUB_RUN_ID")
@@ -65,6 +71,8 @@ fn options(args: &[String]) -> Result<Options, String> {
                 .ok_or_else(|| format!("{arg} needs a value"))
         };
         match arg.as_str() {
+            "--libtsm" => o.libtsm = PathBuf::from(value()?),
+            "--kmscon" => o.kmscon = PathBuf::from(value()?),
             "--without" => o.without.push(value()?),
             "--seed" => o.seed = value()?.parse().map_err(|_| "--seed takes a number")?,
             "--rounds" => o.rounds = value()?.parse().map_err(|_| "--rounds takes a number")?,
@@ -86,7 +94,7 @@ fn read(path: &Path) -> Result<String, String> {
 /// The copies, each checked against its row of `provenance.tsv`.
 fn copies() -> Result<Vec<provenance::Copy>, String> {
     let copies = provenance::read(&read(&Path::new(TOOL).join("provenance.tsv"))?)?;
-    let faults = provenance::check(&repo_root(), &copies, &COPIED);
+    let faults = provenance::check(&repo_root(), &copies, &COPIED, &OWN);
     if faults.is_empty() {
         Ok(copies)
     } else {
@@ -369,6 +377,44 @@ fn probes() -> Result<bool, String> {
     Ok(failures == 0)
 }
 
+/// Each row of `provenance.tsv` against its source, read from the
+/// checkouts with `git show COMMIT:PATH` and nothing else, for a review of
+/// a change to the copies. The gates never run it.
+fn verify_provenance(o: &Options) -> Result<bool, String> {
+    let copies = provenance::read(&read(&Path::new(TOOL).join("provenance.tsv"))?)?;
+    let faults = provenance::verify(&copies, |repo, commit, path| {
+        let dir = match repo {
+            "libtsm" => &o.libtsm,
+            "kmscon" => &o.kmscon,
+            _ => return Err(format!("no checkout for {repo}")),
+        };
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["show", &format!("{commit}:{path}")])
+            .output()
+            .map_err(|e| format!("git: {e}"))?;
+        if out.status.success() {
+            Ok(out.stdout)
+        } else {
+            Err(format!(
+                "git -C {} show: {}",
+                dir.display(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ))
+        }
+    });
+    for fault in &faults {
+        println!("FAIL {fault}");
+    }
+    println!(
+        "provenance: {} rows, {} match their sources",
+        copies.len(),
+        copies.len().saturating_sub(faults.len())
+    );
+    Ok(faults.is_empty())
+}
+
 /// Every issue the lists name as owing a case or a capability, checked
 /// open through `gh`: a pending row or a missing capability whose issue
 /// closed is stale, since the issue's work should have taken the case up.
@@ -441,6 +487,7 @@ fn main() -> ExitCode {
             "expect" => expect(&o),
             "probes" if o.rest.is_empty() => probes(),
             "issues" if o.rest.is_empty() => issues(),
+            "provenance" if o.rest.is_empty() => verify_provenance(&o),
             _ => Err(USAGE.to_owned()),
         }
     });

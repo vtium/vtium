@@ -1,9 +1,9 @@
 //! The named palettes against the C reference's tables.
 //!
 //! `palettes.c.txt` is lines 254-451 of `src/tsm/tsm-vte.c` at the libtsm
-//! commit `tools/conformance/pin.tsv` pins, copied verbatim under the MIT
-//! notice COPYING carries for libtsm. `make conformance` reads that commit
-//! and fails when the copy differs from it.
+//! commit its row of `tools/conformance/provenance.tsv` names, copied
+//! verbatim under the MIT notice COPYING carries for libtsm. `make
+//! conformance` fails when the copy differs from the row's SHA-256.
 
 use vtium_term::{PALETTE_NAMES, Palette, Rgb};
 

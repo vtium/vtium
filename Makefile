@@ -83,8 +83,14 @@ conformance-probes: ## Run the capability probes through vtium-replay
 	cargo build --release -p vtium-conformance --bins
 	target/release/conformance probes
 
-# The parse oracle compiles the C reference's parser from a libtsm checkout.
+# The parse oracle and the provenance check read libtsm and kmscon
+# checkouts; neither is a gate.
 LIBTSM ?= ../libtsm
+
+.PHONY: conformance-provenance
+conformance-provenance: ## Check each row of tools/conformance/provenance.tsv against its source with git show (LIBTSM=DIR KMSCON=DIR)
+	cargo build --release -p vtium-conformance --bins
+	target/release/conformance provenance --libtsm $(LIBTSM) --kmscon $(KMSCON)
 
 .PHONY: parse-oracle
 parse-oracle: ## Compare vtium-parse with the C reference's parser at tools/parse-oracle/pin.tsv (LIBTSM=DIR; needs gcc)

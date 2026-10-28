@@ -10,6 +10,7 @@ The crate is a workspace member, so `cargo test --workspace` builds both program
 make conformance          # the copies, every case, both views and the chunking check
 make conformance-probes   # the copies and the capability probes
 make conformance-issues   # every issue the lists name is open (gh)
+make conformance-provenance   # each row of provenance.tsv against its source (LIBTSM=DIR KMSCON=DIR); a review step, not a gate
 ```
 
 `conformance` exits 0 when every verdict holds, 1 on a failure, and 2 when it refuses to run.
@@ -47,7 +48,9 @@ make conformance-issues   # every issue the lists name is open (gh)
 
 `provenance.tsv` holds one row per copied file, `PATH REPO COMMIT SOURCE SHA256`: PATH from the root of this repository, the repository (`libtsm` or `kmscon`, aaronsb's forks), the commit, the path there, and the copy's SHA-256. The corpus came from libtsm's `test/conformance/` and the probes from kmscon's `tests/capabilities/probes.replay`. The draw2 goldens, which vtium does not owe, stayed behind. One row is an excerpt: vtium-term's `crates/vtium-term/tests/palettes.c.txt` is lines 254 to 451 of libtsm's `src/tsm/tsm-vte.c`, the C reference's palette tables, which vtium-term's palette test reads.
 
-Every run, and `the_copies_match_their_provenance` in `cargo test`, checks each row's file against its SHA-256, and every file under `corpus/` for a row. A golden changes only in a commit of its own that lists each moved value, as CONTRIBUTING.md asks, and that commit changes its row too.
+Every run, and `the_copies_match_their_provenance` in `cargo test`, checks each row's file against its SHA-256, and every file under `corpus/` for a row. Every file under `probes/` has a row too, but for vtium's own `vtium.replay`. A golden changes only in a commit of its own that lists each moved value, as CONTRIBUTING.md asks, and that commit changes its row too.
+
+Nothing in a run ties a row to its source, so any change to `provenance.tsv` is verified at review with `make conformance-provenance` (LIBTSM=DIR KMSCON=DIR, default `../libtsm` and `../kmscon`): it reads each row's source from the checkouts with `git show COMMIT:PATH`, read-only, and fails on a source whose SHA-256 differs from the row's or a commit a checkout lacks. It is not a gate.
 
 ## The replay
 
