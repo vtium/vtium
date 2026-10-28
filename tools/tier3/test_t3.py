@@ -968,7 +968,8 @@ class VtiumGoldenTest(unittest.TestCase):
         # and those vtium/vtium#126 recaptured from the sets' fills; every
         # golden it names must be one a case draws.
         prov = t3_evaluate.read_provisional()
-        moved = []
+        moved = ["%s/%s" % (v, s) for v in ("2d-320x240-psf8", "2d-640x480-psf16")
+                 for s in ("underline-styles", "strike", "wide-margin", "cjk")]
         self.assertEqual(sorted(prov), sorted(["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
                                                "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
                                                "sysvinit-two-vts/cjk"] + moved))

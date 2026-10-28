@@ -30,3 +30,16 @@ The goldens of the guest without systemd (vtium/vtium#104, `../README.md`, The g
 | `sysvinit-no-udev/sgr.png` | The `sgr` screen, with no udev daemon: the card and the keyboard found in sysfs alone. |
 | `sysvinit-no-udev/cjk.png` | The `cjk` screen, with no udev daemon. |
 | `sysvinit-two-vts/cjk.png` | The `cjk` screen, drawn by tty2's console with a second console started on tty3 at the boot (vtium/vtium#139). |
+
+## Recaptured with the sets (vtium/vtium#126)
+
+vtium draws only vitrified sets, so the small displays draw sets the guest builds before the console starts: the 8x8 test font with the built-in Unscii-8 after it, and the 8x16 one with unifont after it (`../guest/frits`). The sprites win over a fill font's glyphs, so box drawing, blocks, shades and Braille draw as before. Eight goldens moved, where a character the test font lacked, `?` before, now draws as Unscii-8's U+25A1, the missing glyph, at 8x8, since Unscii-8 holds none of them, and as unifont's glyph at 8x16. They were recaptured from `make tier3-minimal` and are listed in `../provisional.tsv` until the operator reviews them; the table's descriptions of those eight are the goldens before. The rows and columns that moved, counted from 1, with the pixels that differ:
+
+- `2d-320x240-psf8/cjk`: 560 px; rows 1: cols 17-24; 2: cols 1-16,20-25; 3: cols 2-3,5-6,8-9,11-12,14-15
+- `2d-320x240-psf8/strike`: 115 px; rows 9: cols 20-23,29-34
+- `2d-320x240-psf8/underline-styles`: 140 px; rows 18: cols 16-19,25-30
+- `2d-320x240-psf8/wide-margin`: 140 px; rows 3: cols 39-40; 6: cols 1-2; 8: cols 1-2; 10: cols 39-40; 13: cols 1-2
+- `2d-640x480-psf16/cjk`: 1034 px; rows 1: cols 17-24; 2: cols 1-16,20-25; 3: cols 2-3,5-6,8-9,11-12,14-15
+- `2d-640x480-psf16/strike`: 292 px; rows 7: cols 20-23,29-34
+- `2d-640x480-psf16/underline-styles`: 305 px; rows 14: cols 16-19,25-30
+- `2d-640x480-psf16/wide-margin`: 295 px; rows 2: cols 79-80; 4: cols 1-2; 6: cols 1-2; 7: cols 79-80; 10: cols 1-2
