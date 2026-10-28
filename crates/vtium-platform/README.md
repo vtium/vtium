@@ -39,6 +39,7 @@ vtium's platform layer: everything that touches the kernel and the session. This
 | `src/input/fake.rs` | Stand-in input devices: queued events, set bitmaps and recorded LED writes. |
 | `src/input/tests.rs` | Keys through the built-in keymap, compose, the repeat, the LEDs, the pointer kinds, and the devices' sleep, wake-up and hangup. |
 | `src/ioctl.rs` | The ioctls rustix does not wrap, each with its request number checked against the kernel's headers, and the evdev codes vtium reads. |
+| `src/fds.rs` | `cloexec_above_stdio`: every descriptor from 3 up marked close-on-exec, through `close_range(2)` or, on a kernel without `CLOSE_RANGE_CLOEXEC`, each one `/proc/self/fd` lists, so vtium-vitrify's parser inherits none of the descriptors its parent was handed. |
 | `src/mmap.rs` | `Mapping`: the crate's one mmap, of a dumb buffer or the framebuffer. |
 | `src/power.rs` | The power keys' requests: init's Ctrl+Alt+Del and power-off signals to PID 1, the kernel's restart, and suspend through logind or a shell writing `/sys/power/state`, reaped from the loop through its pidfd. |
 | `src/logind.rs` | logind's `Suspend` through sd-bus, feature `logind`: the binding's few calls, a 2 s bound on logind's answer, and which bus errors mean logind is not running. |
