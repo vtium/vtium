@@ -63,6 +63,7 @@
 //! on every host.
 
 mod legacy;
+pub(crate) mod spans;
 
 use core::fmt;
 
@@ -121,18 +122,12 @@ impl Range {
     /// The first and last codepoints of each run of the range.
     fn spans(self) -> &'static [(u32, u32)] {
         match self {
-            Range::BoxDrawing => &[(0x2500, 0x257f)],
-            Range::BlockElements => &[(0x2580, 0x259f)],
-            Range::Braille => &[(0x2800, 0x28ff)],
-            Range::Sextants => &[(0x1fb00, 0x1fb3b)],
-            Range::Octants => &[(0x1cd00, 0x1cde5)],
-            Range::LegacyComputing => &[
-                (0x1cea0, 0x1ceaf),
-                (0x1fb3c, 0x1fb92),
-                (0x1fb94, 0x1fbaf),
-                (0x1fbbd, 0x1fbbf),
-                (0x1fbce, 0x1fbef),
-            ],
+            Range::BoxDrawing => spans::BOX_DRAWING,
+            Range::BlockElements => spans::BLOCK_ELEMENTS,
+            Range::Braille => spans::BRAILLE,
+            Range::Sextants => spans::SEXTANTS,
+            Range::Octants => spans::OCTANTS,
+            Range::LegacyComputing => spans::LEGACY_COMPUTING,
         }
     }
 }

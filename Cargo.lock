@@ -300,6 +300,9 @@ name = "vtium-conformance"
 version = "0.0.0"
 dependencies = [
  "regex",
+ "rustix",
+ "vtium",
+ "vtium-platform",
  "vtium-term",
 ]
 
@@ -308,6 +311,7 @@ name = "vtium-font"
 version = "0.0.0"
 dependencies = [
  "miniz_oxide",
+ "rustix",
 ]
 
 [[package]]
