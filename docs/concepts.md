@@ -118,7 +118,7 @@ flowchart LR
     H["by hand"] -.-> R
     R["recipe<br>declares a set"] -.-> C["create<br>on the target<br>(root)"]
     R -.-> O["create --out<br>elsewhere<br>(any user)"]
-    O -.->|"a .glass file"| I["install<br>on the target<br>(root)"]
+    O -.->|"a .vtglass file"| I["install<br>on the target<br>(root)"]
     C -.-> ST[("the store<br>root-owned")]
     I -.-> ST
     ST -.->|"owner and hash<br>checked"| V["vtium"]
@@ -146,7 +146,7 @@ A set is declared as a **recipe**: a small text file naming the set's sources in
 
 ### Building and installing
 
-The create command builds a set from its recipe, in one of two ways. Built on the target, as root, the set goes straight into the machine's store, sized for its own display, a minspec board's small panel included, so a fresh install needs no other machine. Built elsewhere, by any user, `create --out` writes the set as a portable `.glass` file for hardware the builder cannot preview or does not have, such as an 8K desktop's large sizes built on a 320x240 machine; the install command, run as root on the target, checks the file and adds it to the store. The builder asks for sudo once, at the end, for a command it shows first, which writes the recipe and runs create. At an interactive terminal the tool opens with a small banner of its name in glass, and never in a script or a pipe (vtium/vtium#112).
+The create command builds a set from its recipe, in one of two ways. Built on the target, as root, the set goes straight into the machine's store, sized for its own display, a minspec board's small panel included, so a fresh install needs no other machine. Built elsewhere, by any user, `create --out` writes the set as a portable `.vtglass` file for hardware the builder cannot preview or does not have, such as an 8K desktop's large sizes built on a 320x240 machine; the install command, run as root on the target, checks the file and adds it to the store. The builder asks for sudo once, at the end, for a command it shows first, which writes the recipe and runs create. At an interactive terminal the tool opens with a small banner of its name in glass, and never in a script or a pipe (vtium/vtium#112).
 
 ### Loading, the fallback and switching
 

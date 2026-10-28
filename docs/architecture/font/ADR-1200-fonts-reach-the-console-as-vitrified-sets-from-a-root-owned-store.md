@@ -171,7 +171,7 @@ flowchart LR
     S["sources<br>kbd fonts, PSF, BDF, unimaps,<br>vconsole.conf, the kernel's font,<br>outline fonts"] --> C
     S --> O
     R --> O["vtium-vitrify create --out<br>(any user, anywhere)"]
-    O -->|"a portable .glass file"| I["vtium-vitrify install<br>(root, on the target)"]
+    O -->|"a portable .vtglass file"| I["vtium-vitrify install<br>(root, on the target)"]
     C["vtium-vitrify create<br>(root, on the target)"] --> ST["store<br>/var/lib/vtium/fonts<br>sets + manifest"]
     I --> ST
     ST -->|"owner and SHA-256 checked"| V["vtium<br>(the console)"]
@@ -256,12 +256,14 @@ A minor version adds sections or fields a reader skips. A major version is a cha
 
 ### D3: the trusted store, and how the console checks a set
 
-- `/var/lib/vtium/fonts/` holds the sets, each named `<sha256>.glass`, the `manifest` and a `lock` file. The prefix is set at build time. Recipes live under `/etc`, since an administrator writes them; sets live under `/var/lib`, since `create` and `install` write them and a cache cleaner may not remove them.
+- `/var/lib/vtium/fonts/` holds the sets, each named `<sha256>.vtglass`, the `manifest` and a `lock` file. The prefix is set at build time. Recipes live under `/etc`, since an administrator writes them; sets live under `/var/lib`, since `create` and `install` write them and a cache cleaner may not remove them.
 - The manifest is TSV: a first line `# vtium-vitrify manifest 1`, a header row, and one row per set, sorted by name: the name, the set's SHA-256, its build key, its format version, its strikes' cell sizes, and its first source as the recipe spelled it.
 - The console, as root, opens the store directory with `O_DIRECTORY | O_NOFOLLOW` and checks that it and each of its parents is owned by uid 0 and writable by neither group nor others. It opens the manifest and the set relative to that directory with `O_NOFOLLOW`, and checks each is a regular file with the same owner and mode. It reads the manifest within its bound, finds the row, and streams the set once, computing its SHA-256 and keeping the header and every section but `GLYF`. A hash that differs from the row refuses the set. Each `GLYF` chunk is read the first time a glyph is drawn from it and checked against its own hash, which the whole-file hash already covered; a deflated chunk is then inflated once, refused unless it decodes to exactly the length its index gives, and kept decoded, so the console holds only the chunks in use, as it does with unifont, and a file changed after the check is caught chunk by chunk.
 - Any failure refuses the set: vtium logs the set, the reason and the command to run, and draws the next choice (D9). The owner the check expects is a parameter, root in the console, so tests run unprivileged.
 - The hash is SHA-256, so `sha256sum` checks a set by hand against its row. Whether vtium-font writes it or takes a crate is the implementing issue's choice, measured against the binary's budget.
-- `create` and `install` write under the lock: the set to a temporary file in the store, synced and renamed to `<sha256>.glass`; then the manifest the same way, then the directory synced, then the set files no row names removed. A console that read the old manifest finds its old file, or, if it is gone, reads the manifest once more.
+- `create` and `install` write under the lock: the set to a temporary file in the store, synced and renamed to `<sha256>.vtglass`; then the manifest the same way, then the directory synced, then the set files no row names removed. A console that read the old manifest finds its old file, or, if it is gone, reads the manifest once more.
+
+> Edited 2026-10-28: the operator renamed a built set's extension so it matches the `VTGLASS` magic and is not a generic one. D3's first and last bullets and the figure's portable file read `.glass`.
 
 ### D4: `vtium-vitrify`, its own binary in the install tree
 
