@@ -330,19 +330,22 @@ impl Scrollback {
     /// waiting, counted at `width` and their ids reserved from `next_id`.
     /// At a width of one column, where a wide character becomes an empty
     /// cell, every row is taken, as one that waited would keep it. Returns
-    /// the rows taken, oldest first, and the index the first had.
+    /// the rows taken, oldest first, and where the rewrapped row at index
+    /// `i` is among them: at `i + older - first`, as `(older, first)`.
     pub(crate) fn take_for_reflow(
         &mut self,
         width: usize,
         margin: usize,
         reach: Option<usize>,
         next_id: &mut u64,
-    ) -> (Vec<Line>, usize) {
+    ) -> (Vec<Line>, (usize, usize)) {
         if width < 2 {
+            let before = self.lines.len();
             self.rewrap_all();
+            let older = self.lines.len().saturating_sub(before);
             let rows = mem::take(&mut self.lines);
             self.view = None;
-            return (rows.into(), 0);
+            return (rows.into(), (older, 0));
         }
         let mut split = self.lines.len();
         let mut taken = 0usize;
@@ -384,8 +387,9 @@ impl Scrollback {
             self.waiting = Waiting::default();
         }
         self.view = None;
+        let before = older.len();
         older.extend(rows);
-        (older.into(), split)
+        (older.into(), (before, split))
     }
 
     /// Sets the view's top to the rewrapped row at `i`, or the screen.

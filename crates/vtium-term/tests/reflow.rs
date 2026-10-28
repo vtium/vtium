@@ -352,6 +352,41 @@ fn a_row_printed_with_mode_2028_reset_is_cut() {
     assert!(t.screen().reflow());
 }
 
+// "Cost": a resize whose margin takes rows still waiting from an earlier
+// resize keeps the view on its text, as rewrapping at once does.
+#[test]
+fn the_view_keeps_its_text_when_the_margin_takes_waiting_rows() {
+    let view = |t: &mut Terminal| {
+        let at = t.screen().scrolled_back();
+        snapshot(t)
+            .into_iter()
+            .filter(|l| l.starts_with("view"))
+            .chain([format!("{at}")])
+            .collect::<Vec<_>>()
+    };
+    for len in 1..8 {
+        let text: Vec<u8> = (0..30)
+            .flat_map(|i| format!("{}\r\n", format!("{i:02}").repeat(len)).into_bytes())
+            .collect();
+        for (rows, first, second) in [(5, 2, 18), (2, 3, 9), (3, 1, 7), (5, 3, 30), (4, 3, 1)] {
+            for up in 1..24 {
+                let mut lazy = with_scrollback(4, rows, 100, &text);
+                let mut eager = with_scrollback(4, rows, 100, &text);
+                for t in [&mut lazy, &mut eager] {
+                    t.resize(first, rows);
+                }
+                eager.screen_mut().rewrap_scrollback();
+                for t in [&mut lazy, &mut eager] {
+                    t.screen_mut().scroll_view_up(up);
+                    t.resize(second, rows);
+                }
+                let case = format!("lines of {len}, {rows} rows, to {first}, {up} up, to {second}");
+                assert_eq!(view(&mut lazy), view(&mut eager), "{case}");
+            }
+        }
+    }
+}
+
 // "Mode 2028" (ADR-1000's DEC-2028): set by default and by RIS, kept by
 // DECSTR and reported by DECRQM; a row printed while it is reset is cut at
 // a narrower width, and SM marks the cursor's row as rewrapping again.
@@ -430,6 +465,18 @@ fn snapshot(t: &mut Terminal) -> Vec<String> {
     let mut out: Vec<String> = s.scrollback().map(describe).collect();
     out.extend(s.lines().iter().map(describe));
     out.push(format!("cursor {:?}", s.cursor()));
+    let palette = Palette::new([Rgb::default(); 256], Rgb::default(), Rgb::default());
+    let frame = s.frame(&palette, Age::NEVER);
+    for row in 0..frame.rows() {
+        let text: String = (0..s.cols())
+            .filter_map(|c| match frame.cell(row, c)?.glyph {
+                Glyph::Char(ch) => Some(ch),
+                _ => Some(' '),
+            })
+            .collect();
+        out.push(format!("view {row} {:?} {text}", s.scrolled_back()));
+    }
+    out.push(format!("selection {:?}", s.selection_text()));
     out
 }
 
@@ -501,20 +548,34 @@ fn rewrapping_to_another_width_and_back_restores_the_text() {
     }
 }
 
-/// Feeds `bytes` in chunks cut at `cuts`, resizing at each `(at, cols,
-/// rows)` between the bytes before and after `at`, and rewrapping the
-/// whole scrollback after each resize when `eager`.
-fn feed(
-    t: &mut Terminal,
-    bytes: &[u8],
-    cuts: &[usize],
-    resizes: &[(usize, usize, usize)],
-    eager: bool,
-) {
+/// What the host does between two bytes of a stream.
+#[derive(Clone, Copy, Debug)]
+enum Event {
+    Resize(usize, usize),
+    ViewUp(usize),
+    ViewDown(usize),
+    /// A selection from one view cell to another.
+    Select(usize, usize, usize, usize),
+}
+
+/// A random event, resizes up to 30 by 8.
+fn event(rng: &mut Rng) -> Event {
+    match rng.below(5) {
+        0 | 1 => Event::Resize(1 + rng.below(30), 1 + rng.below(8)),
+        2 => Event::ViewUp(1 + rng.below(40)),
+        3 => Event::ViewDown(1 + rng.below(10)),
+        _ => Event::Select(rng.below(30), rng.below(8), rng.below(30), rng.below(8)),
+    }
+}
+
+/// Feeds `bytes` in chunks cut at `cuts`, applying each `(at, event)`
+/// between the bytes before and after `at`, and rewrapping the whole
+/// scrollback after each resize when `eager`.
+fn feed(t: &mut Terminal, bytes: &[u8], cuts: &[usize], events: &[(usize, Event)], eager: bool) {
     let mut at = 0;
     let mut stops: Vec<usize> = cuts
         .iter()
-        .chain(resizes.iter().map(|r| &r.0))
+        .chain(events.iter().map(|r| &r.0))
         .copied()
         .collect();
     stops.push(bytes.len());
@@ -526,18 +587,30 @@ fn feed(
             t.input(&bytes[at..stop]);
             at = stop;
         }
-        for &(_, cols, rows) in resizes.iter().filter(|r| r.0 == stop) {
-            t.resize(cols, rows);
-            if eager {
-                t.screen_mut().rewrap_scrollback();
+        for &(_, e) in events.iter().filter(|r| r.0 == stop) {
+            let s = t.screen_mut();
+            match e {
+                Event::Resize(cols, rows) => {
+                    t.resize(cols, rows);
+                    if eager {
+                        t.screen_mut().rewrap_scrollback();
+                    }
+                }
+                Event::ViewUp(n) => s.scroll_view_up(n),
+                Event::ViewDown(n) => s.scroll_view_down(n),
+                Event::Select(x, y, x2, y2) => {
+                    s.select_start(x, y);
+                    s.select_to(x2, y2);
+                }
             }
         }
     }
 }
 
-// The screen after a stream with resizes is the same fed whole or cut at
-// random points, and the same with the scrollback rewrapped lazily or all
-// at once at each resize.
+// The screen after a stream with resizes, view moves and selections is
+// the same fed whole or cut at random points, and the same with the
+// scrollback rewrapped lazily or all at once at each resize, the view and
+// the selection included.
 #[test]
 fn reflow_is_the_same_chunked_and_lazy_or_eager() {
     for seed in 0..common::seeds(150) {
@@ -549,15 +622,14 @@ fn reflow_is_the_same_chunked_and_lazy_or_eager() {
             let len = rng.below(40);
             bytes.extend(common::grammar_stream(&mut rng, len));
         }
-        let resizes: Vec<(usize, usize, usize)> = (0..1 + rng.below(6))
-            .map(|_| {
-                (
-                    rng.below(bytes.len() + 1),
-                    1 + rng.below(30),
-                    1 + rng.below(8),
-                )
-            })
+        let mut events: Vec<(usize, Event)> = (0..1 + rng.below(10))
+            .map(|_| (rng.below(bytes.len() + 1), event(&mut rng)))
             .collect();
+        // A run of events with no output between them: resizes, view moves
+        // and selections in turn reach rows still waiting.
+        for _ in 0..rng.below(8) {
+            events.push((bytes.len(), event(&mut rng)));
+        }
         let cuts: Vec<usize> = (0..rng.below(20))
             .map(|_| rng.below(bytes.len() + 1))
             .collect();
@@ -568,15 +640,15 @@ fn reflow_is_the_same_chunked_and_lazy_or_eager() {
             t
         };
         let mut whole = make();
-        feed(&mut whole, &bytes, &[], &resizes, false);
+        feed(&mut whole, &bytes, &[], &events, false);
         let mut chunked = make();
-        feed(&mut chunked, &bytes, &cuts, &resizes, false);
+        feed(&mut chunked, &bytes, &cuts, &events, false);
         assert!(
             whole.screen() == chunked.screen(),
             "seed {seed}: chunked differs"
         );
         let mut eager = make();
-        feed(&mut eager, &bytes, &[], &resizes, true);
+        feed(&mut eager, &bytes, &[], &events, true);
         assert_eq!(
             snapshot(&mut whole),
             snapshot(&mut eager),

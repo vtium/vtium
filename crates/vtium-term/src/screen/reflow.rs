@@ -413,7 +413,7 @@ impl Screen {
             .filter_map(|a| self.scrollback.lines().position(|l| l.id() == a.line))
             .chain(view)
             .min();
-        let (mut run, split) =
+        let (mut run, (older, split)) =
             self.scrollback
                 .take_for_reflow(cols, rows, reach, &mut self.next_id);
         let sb = run.len();
@@ -435,7 +435,7 @@ impl Screen {
             saved: (!alternate && saved.1 < rows)
                 .then(|| Place::cursor(saved.0, sb.saturating_add(saved.1), old)),
             view: view
-                .and_then(|v| v.checked_sub(split))
+                .and_then(|v| v.saturating_add(older).checked_sub(split))
                 .filter(|&row| row < sb)
                 .map(|row| Place::at(row, 0)),
             selection: selection
