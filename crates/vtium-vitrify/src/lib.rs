@@ -11,7 +11,7 @@
 )]
 //! vtium-vitrify: builds vitrified font sets for vtium (ADR-1200).
 //!
-//! A recipe ([`recipe`]) names a set's sources; [`sources`] finds and
+//! A frit ([`frit`]) names a set's sources; [`sources`] finds and
 //! reads them as the invoking user; [`child`] parses each in an
 //! unprivileged child process with [`decode`]'s decoders and hands back
 //! the bounded [`glyphs`] form; [`build`] lays the glyphs into a set; and
@@ -22,7 +22,7 @@ pub mod build;
 pub mod child;
 pub mod cli;
 pub mod decode;
+pub mod frit;
 pub mod glyphs;
-pub mod recipe;
 pub mod sources;
 pub mod store;

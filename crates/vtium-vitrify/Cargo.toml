@@ -1,6 +1,6 @@
 [package]
 name = "vtium-vitrify"
-description = "Builds vitrified font sets for vtium from recipes, and keeps the root-owned store"
+description = "Builds vitrified font sets for vtium from frits, and keeps the root-owned store"
 version.workspace = true
 edition.workspace = true
 # ruzstd 0.9 needs 1.87; the console's crates keep the workspace's 1.85
@@ -14,7 +14,7 @@ workspace = true
 
 [dependencies]
 # The set format, its writer and the store's check; the PSF reader; the
-# built-in sets a recipe may name as sources.
+# built-in sets a frit may name as sources.
 vtium-font.workspace = true
 # KDGETMODE, KDFONTOP and GIO_UNIMAP for the console: source (ADR-1200 D8).
 vtium-platform.workspace = true

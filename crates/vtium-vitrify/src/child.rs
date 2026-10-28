@@ -40,7 +40,7 @@ const REQUEST_BYTES_MAX: u64 = 8 + 3 * (4 + vtium_font::PSF_BYTES_MAX as u64);
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Request {
     pub font: Vec<u8>,
-    /// The recipe's `unimap=`.
+    /// The frit's `unimap=`.
     pub unimap: Option<Vec<u8>>,
     /// kbd's `def.uni`, for a font with no table and no `unimap=`.
     pub def_uni: Option<Vec<u8>>,

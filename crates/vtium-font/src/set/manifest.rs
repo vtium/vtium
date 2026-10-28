@@ -9,7 +9,7 @@
 //!
 //! The fields are separated by tabs. One row a set, sorted by name: its name, the set file's SHA-256, its
 //! build key, its format version, its strikes' cell sizes, comma-separated
-//! and smallest first, and its first source as the recipe spelled it.
+//! and smallest first, and its first source as the frit spelled it.
 
 use std::fmt;
 
@@ -45,7 +45,7 @@ pub struct ManifestRow {
     pub build_key: [u8; 32],
     pub version: (u16, u16),
     pub cells: Vec<Cell>,
-    /// The recipe's first source, as it spelled it.
+    /// The frit's first source, as it spelled it.
     pub source: String,
 }
 

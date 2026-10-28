@@ -1,34 +1,34 @@
-//! Recipes (ADR-1200 D1): `/etc/vtium/fonts/<name>.recipe`, in
+//! Frits (ADR-1200 D1): `/etc/vtium/fonts/<name>.vtfrit`, in
 //! kmscon.conf's line syntax, read strictly. One `key=value` a line, blanks
 //! around the key and the value dropped, `#` to the line's end a comment.
 //! An unknown key, a malformed line, a value out of range or a key this
-//! build does not build yet refuses the whole recipe, naming the file and
-//! the line, since `create` runs unattended and a half-read recipe builds
+//! build does not build yet refuses the whole frit, naming the file and
+//! the line, since `create` runs unattended and a half-read frit builds
 //! the wrong set.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-/// The most bytes a recipe holds.
-pub const RECIPE_BYTES_MAX: usize = 64 * 1024;
+/// The most bytes a frit holds.
+pub const FRIT_BYTES_MAX: usize = 64 * 1024;
 /// The most bytes one line holds.
-pub const RECIPE_LINE_MAX: usize = 4096;
-/// The most sources a recipe names.
-pub const RECIPE_SOURCES_MAX: usize = 16;
+pub const FRIT_LINE_MAX: usize = 4096;
+/// The most sources a frit names.
+pub const FRIT_SOURCES_MAX: usize = 16;
 
-/// Set names a recipe may not take: the built-in sets'.
+/// Set names a frit may not take: the built-in sets'.
 pub const RESERVED: [&str; 2] = ["unifont", "unscii-8"];
 
-/// Why a recipe was refused: its file, the line from 1 (0 for the whole
+/// Why a frit was refused: its file, the line from 1 (0 for the whole
 /// file) and the reason.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct RecipeError {
+pub struct FritError {
     pub file: PathBuf,
     pub line: usize,
     pub why: String,
 }
 
-impl fmt::Display for RecipeError {
+impl fmt::Display for FritError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.line == 0 {
             write!(f, "{}: {}", self.file.display(), self.why)
@@ -38,7 +38,7 @@ impl fmt::Display for RecipeError {
     }
 }
 
-impl std::error::Error for RecipeError {}
+impl std::error::Error for FritError {}
 
 /// Where a source's glyphs come from.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -62,7 +62,7 @@ pub type Cover = (u32, u32);
 /// One `source=` line and the keys that follow it.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Source {
-    /// The value as the recipe spelled it.
+    /// The value as the frit spelled it.
     pub spelling: String,
     pub origin: Origin,
     /// `unimap=`: a kbd unimap name or an absolute path.
@@ -78,15 +78,15 @@ impl Source {
     }
 }
 
-/// A parsed recipe.
+/// A parsed frit.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Recipe {
+pub struct Frit {
     pub name: String,
     pub sources: Vec<Source>,
     /// `compress=`: deflate the strikes that gain (ADR-1200 D13).
     pub compress: bool,
     pub license: Option<String>,
-    /// The recipe's bytes, verbatim, for the provenance and the build key.
+    /// The frit's bytes, verbatim, for the provenance and the build key.
     pub text: String,
 }
 
@@ -100,10 +100,10 @@ pub fn valid_name(name: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'))
 }
 
-impl Recipe {
-    /// Reads and parses the recipe at `path`.
-    pub fn load(path: &Path) -> Result<Recipe, RecipeError> {
-        let err = |why: String| RecipeError {
+impl Frit {
+    /// Reads and parses the frit at `path`.
+    pub fn load(path: &Path) -> Result<Frit, FritError> {
+        let err = |why: String| FritError {
             file: path.to_owned(),
             line: 0,
             why,
@@ -112,28 +112,28 @@ impl Recipe {
         if !meta.is_file() {
             return Err(err("not a regular file".to_owned()));
         }
-        if meta.len() > RECIPE_BYTES_MAX as u64 {
-            return Err(err(format!("larger than {RECIPE_BYTES_MAX} bytes")));
+        if meta.len() > FRIT_BYTES_MAX as u64 {
+            return Err(err(format!("larger than {FRIT_BYTES_MAX} bytes")));
         }
         let bytes = std::fs::read(path).map_err(|e| err(e.to_string()))?;
         let stem = path
             .file_name()
             .and_then(|n| n.to_str())
-            .map(|n| n.strip_suffix(".recipe").unwrap_or(n))
+            .map(|n| n.strip_suffix(".vtfrit").unwrap_or(n))
             .unwrap_or_default();
-        Recipe::parse(&bytes, path, stem)
+        Frit::parse(&bytes, path, stem)
     }
 
-    /// Parses a recipe's bytes; `file` names it in errors and `stem` is the
-    /// set's name when the recipe gives none.
-    pub fn parse(bytes: &[u8], file: &Path, stem: &str) -> Result<Recipe, RecipeError> {
-        let err = |line: usize, why: &str| RecipeError {
+    /// Parses a frit's bytes; `file` names it in errors and `stem` is the
+    /// set's name when the frit gives none.
+    pub fn parse(bytes: &[u8], file: &Path, stem: &str) -> Result<Frit, FritError> {
+        let err = |line: usize, why: &str| FritError {
             file: file.to_owned(),
             line,
             why: why.to_owned(),
         };
-        if bytes.len() > RECIPE_BYTES_MAX {
-            return Err(err(0, "larger than RECIPE_BYTES_MAX"));
+        if bytes.len() > FRIT_BYTES_MAX {
+            return Err(err(0, "larger than FRIT_BYTES_MAX"));
         }
         let text = std::str::from_utf8(bytes).map_err(|_| err(0, "not UTF-8"))?;
         let mut name = None;
@@ -141,8 +141,8 @@ impl Recipe {
         let mut compress = None;
         let mut license = None;
         for (line, n) in text.split('\n').zip(1usize..) {
-            if line.len() > RECIPE_LINE_MAX {
-                return Err(err(n, "longer than RECIPE_LINE_MAX"));
+            if line.len() > FRIT_LINE_MAX {
+                return Err(err(n, "longer than FRIT_LINE_MAX"));
             }
             if line.contains('\0') {
                 return Err(err(n, "holds a NUL byte"));
@@ -168,7 +168,7 @@ impl Recipe {
                     Ok(())
                 }
             };
-            let current = |sources: &mut Vec<Source>| -> Result<usize, RecipeError> {
+            let current = |sources: &mut Vec<Source>| -> Result<usize, FritError> {
                 sources
                     .len()
                     .checked_sub(1)
@@ -180,8 +180,8 @@ impl Recipe {
                     name = Some(value.to_owned());
                 }
                 "source" => {
-                    if sources.len() >= RECIPE_SOURCES_MAX {
-                        return Err(err(n, "more sources than RECIPE_SOURCES_MAX"));
+                    if sources.len() >= FRIT_SOURCES_MAX {
+                        return Err(err(n, "more sources than FRIT_SOURCES_MAX"));
                     }
                     let origin = origin(value).map_err(|why| err(n, &why))?;
                     sources.push(Source {
@@ -263,7 +263,7 @@ impl Recipe {
         if sources.is_empty() {
             return Err(err(0, "no source="));
         }
-        Ok(Recipe {
+        Ok(Frit {
             name,
             sources,
             compress: compress.unwrap_or(true),
@@ -356,8 +356,8 @@ fn cover(value: &str) -> Result<Cover, String> {
 mod tests {
     use super::*;
 
-    fn parse(text: &str) -> Result<Recipe, RecipeError> {
-        Recipe::parse(text.as_bytes(), Path::new("/r/t.recipe"), "t")
+    fn parse(text: &str) -> Result<Frit, FritError> {
+        Frit::parse(text.as_bytes(), Path::new("/r/t.vtfrit"), "t")
     }
 
     fn refusal(text: &str) -> (usize, String) {
@@ -451,18 +451,18 @@ mod tests {
 
     #[test]
     fn a_line_past_its_bound_and_a_nul_are_refused() {
-        let long = format!("source=kbd:{}\n", "x".repeat(RECIPE_LINE_MAX));
+        let long = format!("source=kbd:{}\n", "x".repeat(FRIT_LINE_MAX));
         assert_eq!(refusal(&long).0, 1);
         assert_eq!(refusal("source=kbd:x\0\n").0, 1);
-        let many = "source=kbd:x\n".repeat(RECIPE_SOURCES_MAX + 1);
-        assert_eq!(refusal(&many).0, RECIPE_SOURCES_MAX + 1);
-        let e = Recipe::parse(&[0xff], Path::new("/r/t.recipe"), "t").expect_err("refused");
+        let many = "source=kbd:x\n".repeat(FRIT_SOURCES_MAX + 1);
+        assert_eq!(refusal(&many).0, FRIT_SOURCES_MAX + 1);
+        let e = Frit::parse(&[0xff], Path::new("/r/t.vtfrit"), "t").expect_err("refused");
         assert_eq!(e.why, "not UTF-8");
     }
 
     #[test]
     fn the_error_names_the_file_and_line() {
         let e = parse("source=kbd:x\nbogus=1\n").expect_err("refused");
-        assert_eq!(e.to_string(), "/r/t.recipe:2: unknown key bogus");
+        assert_eq!(e.to_string(), "/r/t.vtfrit:2: unknown key bogus");
     }
 }

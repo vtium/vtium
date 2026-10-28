@@ -1,4 +1,4 @@
-//! A set from a recipe's parsed sources (ADR-1200 D1, D2, D4): the first
+//! A set from a frit's parsed sources (ADR-1200 D1, D2, D4): the first
 //! source sets the cell, each later one fills only the codepoints the
 //! earlier ones lack, scaled by the largest whole factor at which its cell
 //! fits the strike's, placed on the strike's baseline and centred across
@@ -13,8 +13,8 @@ use vtium_font::{
     Cell, Coverage, Face, RangeCoverage, Sha256, SpritePolicy, Style, Width, sha256_hex,
 };
 
+use crate::frit::{Frit, Source};
 use crate::glyphs::Glyphs;
-use crate::recipe::{Recipe, Source};
 use crate::sources::Resolved;
 
 /// One source's glyphs at its own cell: 1-bit, each row padded to a byte,
@@ -129,15 +129,15 @@ fn place(glyph: &[u8], width: Width, from: Cell, cell: Cell, scale: u32) -> Vec<
 }
 
 /// The build key (ADR-1200 D4): the SHA-256 of the format version, the
-/// recipe's bytes and the SHA-256 of everything read for each source, in
+/// frit's bytes and the SHA-256 of everything read for each source, in
 /// order, so a set rebuilds when any of them changes.
-pub fn build_key(recipe: &Recipe, sources: &[Resolved]) -> [u8; 32] {
+pub fn build_key(frit: &Frit, sources: &[Resolved]) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(b"vtium-vitrify build key\0");
     h.update(&VERSION.0.to_le_bytes());
     h.update(&VERSION.1.to_le_bytes());
-    h.update(&(recipe.text.len() as u64).to_le_bytes());
-    h.update(recipe.text.as_bytes());
+    h.update(&(frit.text.len() as u64).to_le_bytes());
+    h.update(frit.text.as_bytes());
     for s in sources {
         h.update(&s.sha256);
         for extra in [s.unimap_sha256, s.def_uni_sha256] {
@@ -153,21 +153,21 @@ pub fn build_key(recipe: &Recipe, sources: &[Resolved]) -> [u8; 32] {
     h.finish()
 }
 
-/// The set `recipe` describes, from its sources' fonts in order: its bytes.
+/// The set `frit` describes, from its sources' fonts in order: its bytes.
 pub fn assemble(
-    recipe: &Recipe,
+    frit: &Frit,
     fonts: &[Font],
     resolved: &[Resolved],
     key: &[u8; 32],
 ) -> Result<Vec<u8>, String> {
-    let main = fonts.first().ok_or("a recipe with no source")?;
+    let main = fonts.first().ok_or("a frit with no source")?;
     let cell = main.cell;
     let mut strike = StrikeBuilder::new(PixelFormat::Bits, cell, Style::default());
-    if !recipe.compress {
+    if !frit.compress {
         strike = strike.compress(false);
     }
     let mut mapped: BTreeMap<u32, ()> = BTreeMap::new();
-    for (font, source) in fonts.iter().zip(&recipe.sources) {
+    for (font, source) in fonts.iter().zip(&frit.sources) {
         fill(&mut strike, &mut mapped, font, source, cell);
     }
     if mapped.is_empty() {
@@ -176,14 +176,14 @@ pub fn assemble(
     let coverage = Coverage::new(|range: Range| {
         RangeCoverage::count(range, |c| mapped.contains_key(&u32::from(c)))
     });
-    let mut set = SetBuilder::new(&recipe.name)
+    let mut set = SetBuilder::new(&frit.name)
         .policy(SpritePolicy::default_for(&coverage))
         .meta("build-key", &sha256_hex(key))
         .meta("tool", concat!("vtium-vitrify ", env!("CARGO_PKG_VERSION")));
-    for line in recipe.text.lines() {
-        set = set.meta("recipe", line);
+    for line in frit.text.lines() {
+        set = set.meta("frit", line);
     }
-    for ((source, font), r) in recipe.sources.iter().zip(fonts).zip(resolved) {
+    for ((source, font), r) in frit.sources.iter().zip(fonts).zip(resolved) {
         set = set
             .meta("source", &source.spelling)
             .meta("source-sha256", &sha256_hex(&r.sha256))
@@ -192,7 +192,7 @@ pub fn assemble(
             set = set.meta("source-unimap-sha256", &sha256_hex(&sha));
         }
     }
-    if let Some(license) = &recipe.license {
+    if let Some(license) = &frit.license {
         set = set.meta("license", license);
     }
     set.strike(strike).write().map_err(|e| e.to_string())

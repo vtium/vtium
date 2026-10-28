@@ -15,29 +15,29 @@ use vtium_font::{SET_BYTES_MAX, sha256_hex};
 
 use crate::build::{Font, assemble, build_key};
 use crate::child::Parser;
-use crate::recipe::{RESERVED, Recipe, valid_name};
+use crate::frit::{Frit, RESERVED, valid_name};
 use crate::sources::{Consoles, Host, Input, KBD_DIRS, KernelConsoles, Resolved, resolve};
-use crate::store::{StoreWriter, default_recipes, default_store, manifest, write_atomic};
+use crate::store::{StoreWriter, default_frits, default_store, manifest, write_atomic};
 
 const USAGE: &str = "\
 Usage: vtium-vitrify [OPTION]... COMMAND [ARG]...
 
-Builds vitrified font sets from recipes and keeps vtium's font store.
+Builds vitrified font sets from frits and keeps vtium's font store.
 
 Commands:
-  create [--force] NAME|RECIPE...    build recipes into the store (root)
-  create [--force] --all             build every recipe in the recipes directory (root)
+  create [--force] NAME|FRIT...      build frits into the store (root)
+  create [--force] --all             build every frit in the frits directory (root)
   create [--force] --kbd NAME | --file PATH | --vconsole | --console VT
-                                     write the one-source recipe and build it (root)
-  create --out FILE RECIPE           build a portable set into FILE (any user)
+                                     write the one-source frit and build it (root)
+  create --out FILE FRIT             build a portable set into FILE (any user)
   install FILE...                    check portable sets and add them to the store (root)
   list [--json]                      list the store's sets and the built-ins
   verify [NAME...]                   run the console's check on the store's sets
-  remove NAME...                     drop sets from the store; their recipes stay (root)
+  remove NAME...                     drop sets from the store; their frits stay (root)
 
 Options:
   --store DIR           a store the invoking user owns, in place of the system's
-  --recipes DIR         the recipes directory, in place of the system's
+  --frits DIR           the frits directory, in place of the system's
   --kbd-dir DIR         a kbd data directory, in place of the build's list (repeatable)
   --vconsole-conf FILE  vconsole.conf, in place of /etc/vconsole.conf
   --kernel-cmdline FILE the kernel command line, in place of /proc/cmdline
@@ -48,7 +48,7 @@ Options:
 #[derive(Debug, Default)]
 struct Options {
     store: Option<PathBuf>,
-    recipes: Option<PathBuf>,
+    frits: Option<PathBuf>,
     kbd_dirs: Vec<PathBuf>,
     vconsole_conf: Option<PathBuf>,
     kernel_cmdline: Option<PathBuf>,
@@ -97,7 +97,7 @@ fn parse_args(args: &[OsString]) -> Result<Options, Usage> {
         };
         match arg.as_str() {
             "--store" => o.store = Some(value("--store")?.into()),
-            "--recipes" => o.recipes = Some(value("--recipes")?.into()),
+            "--frits" => o.frits = Some(value("--frits")?.into()),
             "--kbd-dir" => o.kbd_dirs.push(value("--kbd-dir")?.into()),
             "--vconsole-conf" => o.vconsole_conf = Some(value("--vconsole-conf")?.into()),
             "--kernel-cmdline" => o.kernel_cmdline = Some(value("--kernel-cmdline")?.into()),
@@ -232,8 +232,8 @@ impl Cli<'_> {
         })
     }
 
-    fn recipes_dir(&self) -> PathBuf {
-        self.o.recipes.clone().unwrap_or_else(default_recipes)
+    fn frits_dir(&self) -> PathBuf {
+        self.o.frits.clone().unwrap_or_else(default_frits)
     }
 
     fn host<'c>(&self, consoles: &'c dyn Consoles) -> Host<'c> {
@@ -257,13 +257,13 @@ impl Cli<'_> {
         }
     }
 
-    /// A recipe named on the command line: a path when it holds a `/`,
-    /// else `<recipes>/<name>.recipe`.
-    fn recipe_path(&self, word: &str) -> PathBuf {
+    /// A frit named on the command line: a path when it holds a `/`,
+    /// else `<frits>/<name>.vtfrit`.
+    fn frit_path(&self, word: &str) -> PathBuf {
         if word.contains('/') {
             PathBuf::from(word)
         } else {
-            self.recipes_dir().join(format!("{word}.recipe"))
+            self.frits_dir().join(format!("{word}.vtfrit"))
         }
     }
 
@@ -271,18 +271,19 @@ impl Cli<'_> {
         let o = self.o;
         if let Some(out) = &o.out {
             if o.all || o.shortcut.is_some() || words.len() != 1 {
-                return self.usage("create --out FILE takes one RECIPE");
+                return self.usage("create --out FILE takes one FRIT");
             }
-            let path = self.recipe_path(words.first().map_or("", String::as_str));
+            let path = self.frit_path(words.first().map_or("", String::as_str));
             return self.create_out(&path, out);
         }
-        let targets: Vec<PathBuf> = match (&o.shortcut, o.all, words.is_empty()) {
-            (Some(_), false, true) | (None, true, true) => Vec::new(),
-            (None, false, false) => words.iter().map(|w| self.recipe_path(w)).collect(),
-            _ => return self.usage(
-                "create takes recipes, --all, or one of --kbd, --file, --vconsole and --console",
-            ),
-        };
+        let targets: Vec<PathBuf> =
+            match (&o.shortcut, o.all, words.is_empty()) {
+                (Some(_), false, true) | (None, true, true) => Vec::new(),
+                (None, false, false) => words.iter().map(|w| self.frit_path(w)).collect(),
+                _ => return self.usage(
+                    "create takes frits, --all, or one of --kbd, --file, --vconsole and --console",
+                ),
+            };
         if let Some(why) = self.refuse_without_root("create") {
             return self.fail(&why);
         }
@@ -292,7 +293,7 @@ impl Cli<'_> {
                 Err(why) => return self.fail(&why),
             }
         } else if o.all {
-            match recipes_in(&self.recipes_dir()) {
+            match frits_in(&self.frits_dir()) {
                 Ok(t) => t,
                 Err(why) => return self.fail(&why),
             }
@@ -318,27 +319,27 @@ impl Cli<'_> {
         u8::from(!ok)
     }
 
-    fn create_out(&mut self, recipe: &Path, out: &Path) -> u8 {
+    fn create_out(&mut self, frit: &Path, out: &Path) -> u8 {
         let consoles = KernelConsoles;
         let host = self.host(&consoles);
         let built = Parser::new().and_then(|parser| {
-            let recipe = Recipe::load(recipe).map_err(|e| e.to_string())?;
-            let (resolved, key) = read_sources(&recipe, &host)?;
-            let bytes = parse_and_assemble(&recipe, &resolved, &key, &parser)?;
+            let frit = Frit::load(frit).map_err(|e| e.to_string())?;
+            let (resolved, key) = read_sources(&frit, &host)?;
+            let bytes = parse_and_assemble(&frit, &resolved, &key, &parser)?;
             write_atomic(out, &bytes).map_err(|e| format!("{}: {e}", out.display()))?;
-            Ok(recipe.name)
+            Ok(frit.name)
         });
         match built {
             Ok(name) => u8::from(!self.report(&name, Outcome::Built)),
             Err(why) => {
-                let name = recipe_name(recipe);
+                let name = frit_name(frit);
                 u8::from(!self.report(&name, Outcome::Failed(why)))
             }
         }
     }
 
-    /// Writes the one-source recipe a shortcut implies, refusing to
-    /// overwrite a different recipe of that name; returns its path.
+    /// Writes the one-source frit a shortcut implies, refusing to
+    /// overwrite a different frit of that name; returns its path.
     fn write_shortcut(&self, s: &Shortcut) -> Result<PathBuf, String> {
         let (name, source) = match s {
             Shortcut::Kbd(name) => (font_name(name), format!("kbd:{name}")),
@@ -367,13 +368,13 @@ impl Cli<'_> {
             return Err(format!("{name:?} is not a name a set may take"));
         }
         let text = format!("source={source}\n");
-        let dir = self.recipes_dir();
-        let path = dir.join(format!("{name}.recipe"));
+        let dir = self.frits_dir();
+        let path = dir.join(format!("{name}.vtfrit"));
         match std::fs::read(&path) {
             Ok(old) if old == text.as_bytes() => return Ok(path),
             Ok(_) => {
                 return Err(format!(
-                    "{} holds a different recipe: build it by name, or remove it first",
+                    "{} holds a different frit: build it by name, or remove it first",
                     path.display()
                 ));
             }
@@ -502,24 +503,24 @@ impl Cli<'_> {
     }
 }
 
-/// The recipes in `dir`, sorted by name.
-fn recipes_in(dir: &Path) -> Result<Vec<PathBuf>, String> {
+/// The frits in `dir`, sorted by name.
+fn frits_in(dir: &Path) -> Result<Vec<PathBuf>, String> {
     let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let mut out: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "recipe"))
+        .filter(|p| p.extension().is_some_and(|e| e == "vtfrit"))
         .collect();
     out.sort();
     Ok(out)
 }
 
-/// The name a set from `path` would take when its recipe cannot be read:
+/// The name a set from `path` would take when its frit cannot be read:
 /// the file's stem.
-fn recipe_name(path: &Path) -> String {
+fn frit_name(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy())
-        .map(|n| n.strip_suffix(".recipe").unwrap_or(&n).to_owned())
+        .map(|n| n.strip_suffix(".vtfrit").unwrap_or(&n).to_owned())
         .unwrap_or_default()
 }
 
@@ -540,25 +541,25 @@ fn font_name(spelling: &str) -> String {
     name
 }
 
-/// Reads every source of `recipe` and makes its build key.
-fn read_sources(recipe: &Recipe, host: &Host<'_>) -> Result<(Vec<Resolved>, [u8; 32]), String> {
-    let resolved = recipe
+/// Reads every source of `frit` and makes its build key.
+fn read_sources(frit: &Frit, host: &Host<'_>) -> Result<(Vec<Resolved>, [u8; 32]), String> {
+    let resolved = frit
         .sources
         .iter()
         .map(|s| resolve(s, host).map_err(|e| format!("source={}: {e}", s.spelling)))
         .collect::<Result<Vec<_>, _>>()?;
-    let key = build_key(recipe, &resolved);
+    let key = build_key(frit, &resolved);
     Ok((resolved, key))
 }
 
 /// Parses each source in the child and assembles the set's bytes.
 fn parse_and_assemble(
-    recipe: &Recipe,
+    frit: &Frit,
     resolved: &[Resolved],
     key: &[u8; 32],
     parser: &Parser,
 ) -> Result<Vec<u8>, String> {
-    let fonts = recipe
+    let fonts = frit
         .sources
         .iter()
         .zip(resolved)
@@ -570,10 +571,10 @@ fn parse_and_assemble(
             .map_err(|e| format!("source={}: {e}", s.spelling))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    assemble(recipe, &fonts, resolved, key)
+    assemble(frit, &fonts, resolved, key)
 }
 
-/// Builds the recipe at `path` into the store, unless its build key is
+/// Builds the frit at `path` into the store, unless its build key is
 /// the manifest's already.
 fn build_into(
     writer: &StoreWriter,
@@ -582,20 +583,20 @@ fn build_into(
     parser: &Parser,
     force: bool,
 ) -> (String, Outcome) {
-    let recipe = match Recipe::load(path) {
+    let frit = match Frit::load(path) {
         Ok(r) => r,
-        Err(e) => return (recipe_name(path), Outcome::Failed(e.to_string())),
+        Err(e) => return (frit_name(path), Outcome::Failed(e.to_string())),
     };
-    let name = recipe.name.clone();
+    let name = frit.name.clone();
     let built = (|| {
-        let (resolved, key) = read_sources(&recipe, host)?;
+        let (resolved, key) = read_sources(&frit, host)?;
         let manifest = writer.manifest()?;
         if !force && manifest.row(&name).is_some_and(|r| r.build_key == key) {
             return Ok(Outcome::Current);
         }
-        let bytes = parse_and_assemble(&recipe, &resolved, &key, parser)?;
+        let bytes = parse_and_assemble(&frit, &resolved, &key, parser)?;
         let set = Set::from_bytes(bytes.clone()).map_err(|e| e.to_string())?;
-        let first = recipe
+        let first = frit
             .sources
             .first()
             .map(|s| s.spelling.clone())

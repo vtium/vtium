@@ -1,4 +1,4 @@
-//! Finding and reading a recipe's sources, as the invoking user, before
+//! Finding and reading a frit's sources, as the invoking user, before
 //! anything is parsed (ADR-1200 D1, D8, D14): kbd names resolved as
 //! `setfont` resolves them, files, vconsole.conf with the kernel's command
 //! line over it, the kernel's own font, and the built-in sets. Each source
@@ -11,7 +11,7 @@ use vtium_font::{PSF_BYTES_MAX, Sha256};
 use vtium_platform::vt::font::{ConsoleFont, ConsoleTty};
 
 use crate::child::Request;
-use crate::recipe::{Origin, Source};
+use crate::frit::{Origin, Source};
 
 /// The kbd data directories the build names, in the order they are
 /// searched: kbd's own, Debian's console-setup and the Red Hat family's.
@@ -490,7 +490,7 @@ mod tests {
         assert_eq!(r.def_uni_sha256, Some(Sha256::digest(b"0x00 U+0041\n")));
         let r = resolve(&source("kbd:f", Origin::Kbd("f".into()), Some("lat1u")), &h).unwrap();
         assert_eq!(r.unimap_sha256, Some(Sha256::digest(b"0x41 U+0041\n")));
-        // def.uni is not read when the recipe names a unimap
+        // def.uni is not read when the frit names a unimap
         assert_eq!(r.def_uni_sha256, None);
         let e = resolve(&source("kbd:g", Origin::Kbd("g".into()), None), &h).unwrap_err();
         assert!(e.starts_with("no kbd font g in "), "{e}");

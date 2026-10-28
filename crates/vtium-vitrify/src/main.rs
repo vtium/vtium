@@ -1,4 +1,4 @@
-//! vtium-vitrify: builds vitrified font sets for vtium from recipes, and
+//! vtium-vitrify: builds vitrified font sets for vtium from frits, and
 //! keeps the root-owned store they are loaded from (ADR-1200).
 
 use std::ffi::OsString;

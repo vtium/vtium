@@ -293,7 +293,7 @@ fn codepoint(s: &str) -> Option<u32> {
 }
 
 /// A font file's bytes parsed into the glyph form: decompressed, read as
-/// PSF1 or PSF2, and mapped by `unimap` when the recipe gives one, else by
+/// PSF1 or PSF2, and mapped by `unimap` when the frit gives one, else by
 /// the font's own table, else by `def_uni`, kbd's default map. A font with
 /// none of them is refused, naming `unimap=`.
 pub fn font(bytes: &[u8], unimap: Option<&[u8]>, def_uni: Option<&[u8]>) -> Result<Glyphs, String> {

@@ -161,10 +161,10 @@ pub fn default_store() -> PathBuf {
     PathBuf::from(option_env!("VTIUM_FONT_STORE").unwrap_or("/var/lib/vtium/fonts"))
 }
 
-/// The default recipes' directory, set at build time with
-/// `VTIUM_FONT_RECIPES`.
-pub fn default_recipes() -> PathBuf {
-    PathBuf::from(option_env!("VTIUM_FONT_RECIPES").unwrap_or("/etc/vtium/fonts"))
+/// The default frits' directory, set at build time with
+/// `VTIUM_FONT_FRITS`.
+pub fn default_frits() -> PathBuf {
+    PathBuf::from(option_env!("VTIUM_FONT_FRITS").unwrap_or("/etc/vtium/fonts"))
 }
 
 #[cfg(test)]
