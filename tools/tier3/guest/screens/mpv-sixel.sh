@@ -1,7 +1,7 @@
 #!/bin/bash
 # kit: sixel
 # look-for: For five seconds mpv plays a test pattern in a 1920x1080 window in
-# look-for: the middle of the screen: colour bars, a moving rainbow band and
+# look-for: the middle of the screen: color bars, a moving rainbow band and
 # look-for: squares, a counter rising by 30 a second. Then this page comes back
 # look-for: clean, mpv's counts in bold. With --render-timer=osd kmscon's show.
 # look-for: mpv's full-screen sixel at 8K is limited by its encoder.

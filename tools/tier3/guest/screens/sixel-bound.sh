@@ -8,7 +8,7 @@
 # libtsm stops after about 16 million pixels of image work, and kmscon
 # parses the rest of what it read on later turns of its event loop. The
 # picture is 10000x48 pixels, each 6-pixel band painted 40 times over in
-# turning colours, about 19 million pixels from 3.5 KB of output, all in
+# turning colors, about 19 million pixels from 3.5 KB of output, all in
 # one read; the picture appears only when its last byte is parsed. The
 # line after it is parsed after the picture.
 esc=$'\033'

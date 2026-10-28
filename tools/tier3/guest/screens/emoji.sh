@@ -1,5 +1,5 @@
 #!/bin/bash
-# look-for: Each emoji in colour, whole and centred in its two cells, bars in
+# look-for: Each emoji in color, whole and centred in its two cells, bars in
 # look-for: line with |ab|; family, flag, keycap and tone one picture each.
 # wrong-looks-like: A grey or cut corner of a large emoji (stock kmscon), a
 # wrong-looks-like: cluster in pieces, a plain 1 for the keycap, bars out of line.

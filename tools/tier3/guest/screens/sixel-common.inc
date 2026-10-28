@@ -59,9 +59,9 @@ bits() {
 }
 
 # A picture $1 by $2 pixels of circles centred in it, the rest transparent.
-# The arguments after the size are a colour (r,g,b percentages, or none for
+# The arguments after the size are a color (r,g,b percentages, or none for
 # a transparent hole) and a diameter each, the outermost circle first; a
-# pixel takes the colour of the innermost circle it is in. A pixel is in a
+# pixel takes the color of the innermost circle it is in. A pixel is in a
 # circle of diameter d when (2x + 1 - w)^2 + (2y + 1 - h)^2 < d^2.
 circles() {
 	local w=$1 h=$2 s=$esc'P0;1q"1;1;'$1';'$2
@@ -106,7 +106,7 @@ circles() {
 	printf '%s' "$s$esc\\"
 }
 
-# An opaque sixel picture $1 by $2 pixels in one colour (r,g,b percentages).
+# An opaque sixel picture $1 by $2 pixels in one color (r,g,b percentages).
 swatch() {
 	local w=$1 h=$2 y s=$esc'Pq"1;1;'$1';'$2"#1;2;${3//,/;}"
 	for ((y = 0; y < h; y += 6)); do
@@ -116,7 +116,7 @@ swatch() {
 	printf '%s' "$s$esc\\"
 }
 
-# $2 cells of colour $1 (r,g,b, 0 to 255) through the text path: spaces on
+# $2 cells of color $1 (r,g,b, 0 to 255) through the text path: spaces on
 # an SGR 48;2 background.
 block() {
 	printf '%s[48;2;%sm%*s%s[0m' "$esc" "${1//,/;}" "$2" '' "$esc"
@@ -146,7 +146,7 @@ term_size() {
 }
 
 # The 8-bit value kmscon makes of a sixel percentage, rounded half up, as
-# r,g,b: the colour a text twin takes.
+# r,g,b: the color a text twin takes.
 eight() {
 	local IFS=, c out=
 	for c in $1; do

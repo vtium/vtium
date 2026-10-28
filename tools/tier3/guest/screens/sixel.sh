@@ -4,11 +4,11 @@
 # look-for: over a checkerboard, TEXT across the checkerboard as text. Right: a
 # look-for: blue disc in an orange ring, the text behind it showing past its edge.
 # look-for: Below: seven discs, red, green, blue, cyan, magenta, yellow and
-# look-for: orange, each with a square of text cells in its colour to its right
+# look-for: orange, each with a square of text cells in its color to its right
 # look-for: and its name under both; then the same pairs as squares on mid-grey.
 # look-for: Each disc matches its square. Each picture fills whole cells.
 # wrong-looks-like: No pictures (stock kmscon has no sixel; the page says so), a
-# wrong-looks-like: disc or square not the colour of its name, a disc unlike its
+# wrong-looks-like: disc or square not the color of its name, a disc unlike its
 # wrong-looks-like: square (kmscon draws one path wrong; both off alike is the
 # wrong-looks-like: display), bars out of order, a box hiding the text around the
 # wrong-looks-like: ring, bars behind TEXT, or a picture running into a label.
@@ -26,14 +26,14 @@
 # orange, as sixel RGB percentages (#R;2;r;g;b): red 100;0;0, green 0;100;0,
 # blue 0;0;100, cyan 0;100;100, magenta 100;0;100, yellow 100;100;0, orange
 # 100;50;0; the ring is orange around blue 0;0;100. Beside each, the same
-# colour comes through the text path as a background (SGR 48;2;r;g;b) on
+# color comes through the text path as a background (SGR 48;2;r;g;b) on
 # spaces, in 8 bits: 255 for 100%, 128 for 50% (127.5, which kmscon rounds
 # up). The two paths share nothing before the display, so a disc unlike its
 # square is a kmscon fault, and a pair off alike is the display's doing: a
-# colour profile, or dimming of a small bright patch on a black screen. The
-# swatches repeat the pairs on mid-grey (128;128;128), so no colour is judged
+# color profile, or dimming of a small bright patch on a black screen. The
+# swatches repeat the pairs on mid-grey (128;128;128), so no color is judged
 # against black alone. The tier 3 goldens are compared exactly, so they pin
-# each colour. The last line is the cell size the terminal reports.
+# each color. The last line is the cell size the terminal reports.
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/sixel-common.inc"
 sixel_offered
 cell_size
@@ -75,7 +75,7 @@ bars() {
 	printf '%s' "$s$esc\\"
 }
 
-# The colours of the discs and swatches, as sixel percentages and as the
+# The colors of the discs and swatches, as sixel percentages and as the
 # 8-bit values of their text twins.
 names=(red green blue cyan magenta yellow orange)
 pct=(100,0,0 0,100,0 0,0,100 0,100,100 100,0,100 100,100,0 100,50,0)
@@ -83,7 +83,7 @@ rgb=(255,0,0 0,255,0 0,0,255 0,255,255 255,0,255 255,255,0 255,128,0)
 grey=128,128,128
 
 # The text first, then the pictures over it, each placed from the saved
-# cursor at the start of the third row. Each colour has a slot 10 columns
+# cursor at the start of the third row. Each color has a slot 10 columns
 # wide from column 3: its disc, then its text square one column further; on
 # the grey band its swatch, then its text square touching it.
 printf 'Sixel pictures, sent through the pty as a program sends them:\n\n'
