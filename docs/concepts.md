@@ -24,7 +24,7 @@ The same shell session at the display floor and one step up, as vtium draws it: 
 
 ## The suite
 
-vtium is one console and a few programs and files around it. The table lists each, who runs it, and whether it is built or proposed. vtium-vitrify's design is ADR-1200, proposed on vtium/vtium#3, with the commands later issues add. <!-- adr-cite-ignore: ADR-1200 is proposed on the docs/font-adr branch -->
+vtium is one console and a few programs and files around it. The table lists each, who runs it, and whether it is built or proposed. vtium-vitrify's design is ADR-1200, accepted on 2026-10-28 (vtium/vtium#3), with the commands later issues add.
 
 | Piece | What it is | Run by | State | Held by |
 |---|---|---|---|---|
@@ -105,7 +105,7 @@ The other VT's owner can be a desktop, a getty or another vtium.
 
 ## Fonts as vitrified sets
 
-This section describes the design ADR-1200 proposes on vtium/vtium#3, with the preview of vtium/vtium#120 and the guided builder of vtium/vtium#121; none of it is accepted or built yet. Today vtium draws GNU Unifont, compiled in, and reads PSF bitmap console fonts from a path. <!-- adr-cite-ignore: ADR-1200 is proposed on the docs/font-adr branch -->
+This section describes the design ADR-1200 decides (accepted 2026-10-28, vtium/vtium#3), with the preview of vtium/vtium#120 and the guided builder of vtium/vtium#121; none of it is built yet. Today vtium draws GNU Unifont, compiled in, and reads PSF bitmap console fonts from a path.
 
 In the design, fonts reach the console already prepared. A **vitrified set** is a font baked into one file of ready-to-draw glyph bitmaps at fixed cell sizes, with its map from Unicode characters to glyphs, its metrics and its provenance. The console only reads sets: it never decompresses a file, parses a font format or turns an outline into pixels. A set is drawn at its baked sizes and whole multiples of them, and the console holds in memory only the chunks of glyphs it has drawn.
 
@@ -138,7 +138,7 @@ flowchart LR
 
 ### Try many, build a few
 
-Someone choosing a font tries many and builds few. vtium-vitrify's preview command draws a sample of a font at the terminal's own cell size, with the same code a build uses, as a picture where the terminal shows pictures and as a text summary where it does not, and builds nothing. A machine then holds a few sets, each baked at a few sizes chosen for its display. Which sizes to recommend for a display, and how a set is stored, are being researched for ADR-1200's revision. <!-- adr-cite-ignore: ADR-1200 is proposed on the docs/font-adr branch -->
+Someone choosing a font tries many and builds few. vtium-vitrify's preview command draws a sample of a font at the terminal's own cell size, with the same code a build uses, as a picture where the terminal shows pictures and as a text summary where it does not, and builds nothing. A machine then holds a few sets, each baked at a few sizes chosen for its display: per locale, a bitmap set scaled by whole factors and at most one smooth outline size (ADR-1200). On a build that isn't minspec, a size a set lacks can be drawn on demand by the sandboxed helper (vtium/vtium#123); the console itself never parses a font.
 
 ### The recipe
 
