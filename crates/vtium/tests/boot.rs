@@ -581,7 +581,6 @@ fn strike_color_colors_the_strike() {
 
 /// `force-decoration-colors` draws the configured underline color over
 /// the one a program sets with SGR 58; off, the program's wins.
-// covers: sgr.underline-color
 #[test]
 fn force_decoration_colors_wins_over_sgr_58() {
     let text = "\\033[4;58:2::0:0:255mU\\033[24;59m \\033[9mS\\033[29m";
