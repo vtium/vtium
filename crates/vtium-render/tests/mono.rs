@@ -225,19 +225,17 @@ fn a_color_glyph_draws_as_unifonts_bitmap_or_its_silhouette() {
         ..DrawState::default()
     };
     r.draw(&u.frame(Age::NEVER), &mut want, 0, &state);
-    for depth in [Depth::One] {
-        let c = color_glyphs(depth);
-        let a: Vec<Option<u32>> = (0..16)
-            .flat_map(|y| (0..8).map(move |x| (x, y)))
-            .map(|(x, y)| c.pixel(x, y))
-            .collect();
-        let b: Vec<Option<u32>> = (0..16)
-            .flat_map(|y| (0..8).map(move |x| (x, y)))
-            .map(|(x, y)| want.pixel(x, y))
-            .collect();
-        assert_eq!(a, b, "unifont's A at {depth:?}");
-        assert!((0..16).all(|y| (8..16).all(|x| c.pixel(x, y) == Some(WHITE))));
-    }
+    let c = color_glyphs(Depth::One);
+    let a: Vec<Option<u32>> = (0..16)
+        .flat_map(|y| (0..8).map(move |x| (x, y)))
+        .map(|(x, y)| c.pixel(x, y))
+        .collect();
+    let b: Vec<Option<u32>> = (0..16)
+        .flat_map(|y| (0..8).map(move |x| (x, y)))
+        .map(|(x, y)| want.pixel(x, y))
+        .collect();
+    assert_eq!(a, b, "unifont's A");
+    assert!((0..16).all(|y| (8..16).all(|x| c.pixel(x, y) == Some(WHITE))));
     let color = color_glyphs(Depth::Color);
     assert_eq!(color.pixel(0, 0), Some(0xff_0000));
 }
