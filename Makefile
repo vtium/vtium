@@ -152,15 +152,20 @@ vt-check: export VTIUM_VT_STEPS = $(value GUIDE_STEPS)
 vt-check: $(vt_build) ## Run a guide's checks on a free VT; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3')
 	tools/vt/vt.sh
 
-# Tier 2 against the C reference's goldens at the commit tools/tier2/pin.tsv
-# names, read from a kmscon checkout beside this one, and against vtium's
-# own. Out of cargo test, which needs no checkout of the C repositories.
+# Tier 2 against vtium's goldens and the C reference's, copied into
+# tools/tier2/reference (provenance.tsv). tier2-provenance reads a kmscon
+# checkout and is not a gate.
 KMSCON ?= ../kmscon
 
 .PHONY: tier2
-tier2: ## Draw tier 2's screens and judge them against their goldens (KMSCON=DIR)
+tier2: ## Draw tier 2's screens and judge them against their goldens
 	cargo build --release -p vtium-tier2 --bins
-	target/release/tier2 run --kmscon $(KMSCON)
+	$(or $(CARGO_TARGET_DIR),target)/release/tier2 run
+
+.PHONY: tier2-provenance
+tier2-provenance: ## Check tools/tier2's copies against their sources with git show (KMSCON=DIR)
+	cargo build --release -p vtium-tier2 --bins
+	$(or $(CARGO_TARGET_DIR),target)/release/tier2 provenance --kmscon $(KMSCON)
 
 # Tier 3: vtium's install tree in a QEMU/KVM guest with a real kernel VT and
 # KMS device, its screens captured and compared with the C reference's

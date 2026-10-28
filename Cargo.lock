@@ -360,6 +360,7 @@ dependencies = [
 name = "vtium-tier2"
 version = "0.0.0"
 dependencies = [
+ "vtium-conformance",
  "vtium-font",
  "vtium-render",
  "vtium-term",

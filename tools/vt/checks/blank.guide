@@ -7,18 +7,16 @@
 title: a program times and wakes the blank
 
 step: setterm times the blank, and a program wakes it
-probe: shell
-do: at the prompt type, all on one line:
-do: TERM=linux setterm --blank 1; sleep 90; printf '\033[13]'
-do: then Enter, and touch no key or the pointer until the prompt is back.
+run: TERM=linux setterm --blank 1; sleep 90; printf '\033[13]'
+do: after Enter, touch no key or the pointer until the question below the
+do: command comes back.
 expect: the screen goes dark about a minute after Enter, and lights again
 expect: about half a minute later with no key pressed, this screen drawn
-expect: whole, then the prompt.
+expect: whole, then the question.
 
 step: RIS returns the blank to dpms-timeout
-probe: shell
-do: at the prompt type: printf '\033c'
-do: then Enter, then exit and Enter, and touch nothing for a minute and a
-do: half.
-expect: the screen stays lit: the program's minute has given way to
-expect: dpms-timeout's 600 seconds.
+run: printf '\033c'; sleep 90
+do: after Enter, touch nothing until the question comes back, a minute and
+do: a half later.
+expect: RIS clears the screen at once, and it stays lit until the question:
+expect: the program's minute has given way to dpms-timeout's 600 seconds.
