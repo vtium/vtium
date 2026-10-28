@@ -300,7 +300,14 @@ fn when_the_screens_hold_the_bound_a_new_link_prints_unlinked() {
 // covers: osc.8
 #[test]
 fn the_stores_heap_stays_at_or_under_its_charge() {
-    for (n, len) in [(5000, 30), (600, 1000), (300, 2083), (40, 60)] {
+    for (n, len) in [
+        (1, 30),
+        (2, 30),
+        (5000, 30),
+        (600, 1000),
+        (300, 2083),
+        (40, 60),
+    ] {
         let mut t = with_scrollback(4, 24, 1000);
         t.input(&flood(n, len));
         let s = t.screen();
@@ -413,4 +420,103 @@ fn a_link_and_a_mark_share_a_line() {
     let line = t.screen().line(0).unwrap();
     assert!(line.flags().contains(LineFlags::PROMPT));
     assert!(line.link(line.cell(0)).is_some());
+}
+
+// A sweep reads the link under the pointer as the stream left it, so the
+// store follows the bytes however they were cut: a hover the stream erased
+// keeps nothing alive.
+// covers: osc.8
+#[test]
+fn a_sweep_after_an_erase_under_the_pointer_follows_the_bytes() {
+    let long = format!("https://hover.example/{}", "h".repeat(1999));
+    assert_eq!(long.len(), 2021);
+    let start = || {
+        let mut t = with_scrollback(4, 24, 1000);
+        t.input(format!("{}x{}", osc8("", &long), osc8("", "")).as_bytes());
+        t.screen_mut().set_pointer(Some((0, 0)), false);
+        assert!(t.screen().hovered_link().is_some());
+        t
+    };
+    let erase = b"\x1b[2J\x1b[3J";
+    let rest = flood(600, 1000);
+    let mut whole = start();
+    whole.input(&[&erase[..], &rest].concat());
+    let mut split = start();
+    split.input(erase);
+    split.input(&rest);
+    assert_eq!(split.screen(), whole.screen());
+}
+
+// "Drawing": the overlay's row is marked whenever what it shows changes:
+// crossing from one link to another under Ctrl, and a link arriving under
+// a still pointer.
+// covers: osc.8
+#[test]
+fn the_overlay_row_is_marked_when_its_uri_changes() {
+    let a = osc8("", "https://a.example/");
+    let b = osc8("", "https://b.example/");
+    let end = osc8("", "");
+    let mut t = term(6, 4, format!("{a}aa{b}bb{end}").as_bytes());
+    let palette = Palette::default();
+    t.screen_mut().set_pointer(Some((0, 0)), true);
+    let age = t.screen_mut().checkpoint();
+    t.screen_mut().set_pointer(Some((2, 0)), true);
+    let frame = t.screen().frame(&palette, age);
+    assert_eq!(frame.overlay().unwrap().uri, "https://b.example/");
+    assert!(frame.row_changed(3), "crossing to another link");
+
+    let age = t.screen_mut().checkpoint();
+    t.input(format!("\x1b[H{a}aaaa{end}").as_bytes());
+    let frame = t.screen().frame(&palette, age);
+    assert_eq!(frame.overlay().unwrap().uri, "https://a.example/");
+    assert!(frame.row_changed(3), "a link arriving under the pointer");
+}
+
+// "Link storage": a sweep renumbers the links it keeps in every line's
+// table, on both screens and in the scrollback. Each line prints its own
+// name under a link carrying that name, the alternate screen's opened
+// after links that die, so every renumbering moves it.
+// covers: osc.8
+#[test]
+fn every_line_keeps_its_own_link_through_sweeps_and_strips() {
+    let mut t = with_scrollback(8, 4, 1000);
+    for i in 0..10 {
+        t.input(osc8("", &format!("https://dead{i}.example/")).as_bytes());
+    }
+    let alt = format!("https://alt.example/{}", "a".repeat(900));
+    t.input(format!("\x1b[?47h{}alt{}\x1b[?47l", osc8("", &alt), osc8("", "")).as_bytes());
+    for i in 0..600 {
+        let uri = format!("https://n{i}.example/{}", "p".repeat(1000));
+        t.input(format!("{}n{i}{}\r\n", osc8("", &uri), osc8("", "")).as_bytes());
+    }
+    t.screen_mut().rewrap_scrollback();
+    let check = |t: &Terminal| {
+        let s = t.screen();
+        let mut linked = 0;
+        for line in s.scrollback().chain(s.lines()) {
+            let text = common::line_text(line);
+            for x in 0..line.len() {
+                if let Some(l) = line.link(line.cell(x)) {
+                    let uri = s.link_uri(l).unwrap();
+                    assert!(
+                        uri.starts_with(&format!("https://{text}.")),
+                        "{text:?} names {uri}"
+                    );
+                    linked += 1;
+                }
+            }
+        }
+        linked
+    };
+    assert!(check(&t) > 0);
+    let oldest = t.screen().scrollback().next().unwrap();
+    assert_eq!(
+        oldest.link(oldest.cell(0)),
+        None,
+        "the oldest were stripped"
+    );
+    t.input(b"\x1b[?47h");
+    let s = t.screen();
+    assert_eq!(rows(s)[0], "alt");
+    assert_eq!(uri(s, 0, 0), Some(alt.as_str()));
 }

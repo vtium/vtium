@@ -148,6 +148,12 @@ impl LinkStore {
             return None;
         };
         let text = [id, uri].concat().into_boxed_str();
+        // A list's first allocation holds four; the first entry takes room
+        // for itself alone, so one link's heap stays under its charge.
+        if self.entries.capacity() == 0 {
+            self.entries.reserve_exact(1);
+            self.order.reserve_exact(1);
+        }
         self.entries.push(Entry { text, id_len });
         self.order.insert(at, n);
         self.charged = self.charged.saturating_add(Self::cost(id, uri));
@@ -279,6 +285,24 @@ mod tests {
         assert_eq!(store.get(b), Some((Some("1"), "https://a/")));
         assert_eq!(store.get(a), Some((None, "https://a/")));
         assert_eq!(store.charged(), 10 + 11 + 10 + 3 * ENTRY_OVERHEAD);
+    }
+
+    #[test]
+    fn one_links_heap_stays_under_its_charge() {
+        let mut store = LinkStore::default();
+        store.insert("", "x:");
+        assert!(
+            store.heap_bytes() <= store.charged(),
+            "{}",
+            store.heap_bytes()
+        );
+        store.insert("", "y:");
+        store.retain(&[false, true]);
+        assert!(
+            store.heap_bytes() <= store.charged(),
+            "{}",
+            store.heap_bytes()
+        );
     }
 
     #[test]

@@ -62,33 +62,49 @@ impl Screen {
 
     /// Frees the links no line names, stripping the scrollback's oldest
     /// lines when that leaves less than a quarter of the bound free with
-    /// `cost` more, and renumbers the rest.
+    /// `cost` more, and renumbers the rest. The hover is found again
+    /// first, so a link the stream erased under the pointer keeps nothing
+    /// alive, however the bytes were cut.
     fn sweep(&mut self, cost: usize) {
-        let mut refs = vec![0u32; self.links.len()];
-        let mut count = |line: &Line| {
-            for &link in line.link_table() {
-                if let Some(r) = refs.get_mut(slot(link)) {
-                    *r = r.saturating_add(1);
-                }
-            }
-        };
-        self.main.iter().for_each(&mut count);
-        self.alt.iter().for_each(&mut count);
-        self.scrollback.all_rows().for_each(&mut count);
-        if let Some(r) = self.hover.link.and_then(|l| refs.get_mut(slot(l))) {
-            *r = r.saturating_add(1);
+        self.refresh_hover();
+        let mut refs = self.count_refs();
+        let stripped = self.strip_oldest(&mut refs, cost);
+        self.renumber(&refs);
+        if stripped && self.scrollback.offset() != 0 {
+            self.damage.mark_all();
         }
+    }
+
+    /// How many lines name each link, by `LinkId`, the hovered link
+    /// counted once more.
+    fn count_refs(&self) -> Vec<u32> {
+        let mut refs = vec![0u32; self.links.len()];
+        let lines = self.main.iter().chain(&self.alt);
+        let tables = lines
+            .chain(self.scrollback.all_rows())
+            .map(Line::link_table);
+        for &link in tables.flatten().chain(&self.hover.link) {
+            if let Some(r) = refs.get_mut(slot(link)) {
+                *r = r.saturating_add(1);
+            }
+        }
+        refs
+    }
+
+    /// Strips the scrollback's oldest lines of their links, counting each
+    /// down in `refs`, until a quarter of the bound would be free with
+    /// `cost` more. Returns whether any line lost a link.
+    fn strip_oldest(&mut self, refs: &mut [u32], cost: usize) -> bool {
         let store = &self.links;
         let mut live = (0..refs.len())
             .filter(|&i| refs.get(i).is_some_and(|&r| r > 0))
             .filter_map(|i| u32::try_from(i).ok())
             .map(|i| store.cost_of(LinkId::new(i)))
             .fold(0, usize::saturating_add);
-        let floor = LINKS_BYTES_MAX / 4;
         let free = |live: usize| LINKS_BYTES_MAX.saturating_sub(live.saturating_add(cost));
         let mut stripped = false;
         for line in self.scrollback.all_rows_mut() {
-            if free(live) >= floor {
+            if free(live) >= LINKS_BYTES_MAX / 4 {
                 break;
             }
             for &link in line.link_table() {
@@ -101,18 +117,20 @@ impl Screen {
             }
             stripped |= line.strip_links();
         }
+        stripped
+    }
+
+    /// Keeps the links `refs` counts, renumbered, and renames them in
+    /// every line's table and in the hover.
+    fn renumber(&mut self, refs: &[u32]) {
         let keep: Vec<bool> = refs.iter().map(|&r| r > 0).collect();
         let map = self.links.retain(&keep);
         let rename = |link: LinkId| map.get(slot(link)).copied().flatten();
-        self.main.iter_mut().for_each(|l| l.rename_links(rename));
-        self.alt.iter_mut().for_each(|l| l.rename_links(rename));
-        self.scrollback
-            .all_rows_mut()
-            .for_each(|l| l.rename_links(rename));
-        self.hover.link = self.hover.link.and_then(rename);
-        if stripped && self.scrollback.offset() != 0 {
-            self.damage.mark_all();
+        let lines = self.main.iter_mut().chain(&mut self.alt);
+        for line in lines.chain(self.scrollback.all_rows_mut()) {
+            line.rename_links(rename);
         }
+        self.hover.link = self.hover.link.and_then(rename);
     }
 
     /// Ends the open link, as RIS and a switch of screens do.
@@ -141,7 +159,9 @@ impl Screen {
         self.links.heap_bytes()
     }
 
-    /// The link of column `x` of view row `y`, if it has one.
+    /// The link of column `x` of view row `y`, if it has one. The id is
+    /// valid until the next [`Terminal::input`](crate::Terminal::input):
+    /// a sweep of the link store renumbers the links it keeps.
     pub fn link_at(&self, x: usize, y: usize) -> Option<LinkId> {
         if x >= self.cols {
             return None;
@@ -163,7 +183,8 @@ impl Screen {
         self.refresh_hover();
     }
 
-    /// The link under the pointer.
+    /// The link under the pointer, valid until the next input, as
+    /// [`link_at`](Self::link_at)'s is.
     pub fn hovered_link(&self) -> Option<LinkId> {
         self.hover.link
     }
@@ -177,12 +198,15 @@ impl Screen {
         let overlay = pointer
             .filter(|_| self.hover.show_uri && link.is_some())
             .map(|(_, y)| if y == last && last > 0 { 0 } else { last });
-        if link != self.hover.link {
+        let changed = link != self.hover.link;
+        if changed {
             self.mark_link_rows(self.hover.link);
             self.mark_link_rows(link);
             self.hover.link = link;
         }
-        if overlay != self.hover.overlay {
+        // The overlay shows the hovered link's URI, so a new link redraws
+        // its row even where the row stays.
+        if changed || overlay != self.hover.overlay {
             for row in [self.hover.overlay, overlay].into_iter().flatten() {
                 self.damage.mark_rows(row..row.saturating_add(1));
             }

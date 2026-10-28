@@ -46,8 +46,10 @@ impl LineId {
     }
 }
 
-/// A hyperlink in the link store (vtium/vtium#40), as a line's link table
-/// holds it.
+/// A hyperlink in the link store (vtium/vtium#40, ADR-1002), as a line's
+/// link table holds it. Outside the terminal an id is valid only until the
+/// next [`Terminal::input`](crate::Terminal::input): a sweep of the store
+/// renumbers the links it keeps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LinkId(u32);
 
@@ -361,18 +363,20 @@ impl Line {
         let Some(t) = self.tables.as_mut() else {
             return;
         };
-        let renamed: Vec<Option<LinkId>> = t.links.iter().map(|&l| rename(l)).collect();
-        for (link, new) in t.links.iter_mut().zip(&renamed) {
-            if let Some(new) = new {
-                *link = *new;
+        // The table indices, 1-based, of links with no new name; empty,
+        // and unallocated, on a line that loses none.
+        let mut gone = Vec::new();
+        for (i, link) in t.links.iter_mut().enumerate() {
+            match rename(*link) {
+                Some(new) => *link = new,
+                None => gone.push(i.saturating_add(1)),
             }
         }
-        if renamed.iter().all(Option::is_some) {
+        if gone.is_empty() {
             return;
         }
         for cell in &mut self.cells {
-            let i = usize::from(cell.link().0);
-            if i.checked_sub(1).and_then(|i| renamed.get(i)) == Some(&None) {
+            if gone.contains(&usize::from(cell.link().0)) {
                 *cell = Cell::new(cell.content(), cell.width(), cell.style(), LinkIndex(0));
             }
         }
