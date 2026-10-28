@@ -22,7 +22,7 @@
 <text x="436" y="145" font-size="13" text-anchor="middle" fill="#1f2933">the console</text>
 <rect x="632" y="56" width="200" height="56" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
 <text x="732" y="80" font-size="14" text-anchor="middle" fill="#1f2933">the store</text>
-<text x="732" y="100" font-size="13" text-anchor="middle" fill="#1f2933">frits and sets</text>
+<text x="732" y="100" font-size="13" text-anchor="middle" fill="#1f2933">sets and manifest</text>
 <rect x="632" y="168" width="200" height="56" fill="#ffffff" stroke="#9aa5b1" stroke-width="1" stroke-dasharray="6 4"/>
 <text x="732" y="192" font-size="14" text-anchor="middle" fill="#1f2933">vtium-vitrify</text>
 <text x="732" y="212" font-size="13" text-anchor="middle" fill="#1f2933">create, install</text>

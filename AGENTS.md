@@ -10,7 +10,7 @@ How to work on vtium, for coding agents and the people who run them. [CONTRIBUTI
 | aaronsb/kmscon | `../kmscon` | the C reference's terminal, the origin of the capability probes vtium copied (#111), and the origin of the tier 2 and tier 3 goldens vtium copied (#111) |
 | aaronsb/libtsm | `../libtsm` | the C reference's screen and parser, the origin of tier 1's replay interface and goldens, copied into `tools/conformance/` with their provenance, and the origin of the tools that made and checked them: the case generator, the recorder and the interface check, ported into `tools/conformance/` in Rust |
 
-The two forks are the frozen C reference: the floor for behaviour, never the ceiling, and no guide to how vtium is built. vtium is idiomatic Rust. Read the forks and change nothing in them. No gate, tool, CI job or build runs their code or reads their checkouts: what vtium needs from them is copied into its own tree with its provenance (#111), and only the provenance checks under [The gates](#the-gates) read a checkout, for review. Their local checkouts are often behind, so fetch and read `origin/main` (`git -C ../kmscon show origin/main:<path>`). Every `gh` command for a fork takes `-R aaronsb/kmscon` or `-R aaronsb/libtsm`, since plain `gh` here targets vtium/vtium.
+The two forks are the frozen C reference: the floor for behaviour, never the ceiling, and no guide to how vtium is built. vtium is idiomatic Rust. Read the forks and change nothing in them. No gate, CI job or build, and no tool but the three provenance checks under [The gates](#the-gates), runs their code or reads their checkouts: what vtium needs from them is copied into its own tree with its provenance (#111), and the provenance checks read a checkout only for review. Their local checkouts are often behind, so fetch and read `origin/main` (`git -C ../kmscon show origin/main:<path>`). Every `gh` command for a fork takes `-R aaronsb/kmscon` or `-R aaronsb/libtsm`, since plain `gh` here targets vtium/vtium.
 
 A question about behaviour or structure is answered from the C reference first, through [docs/c-reference.md](docs/c-reference.md) and then the forks' code at `origin/main`, taking its logic flow and never its code structure, before anything new is designed.
 
@@ -42,7 +42,8 @@ cargo fmt --all --check \
   && make conformance \
   && make conformance-probes \
   && make conformance-issues \
-  && make tier2
+  && make tier2 \
+  && make arm
 ```
 
 `make conformance` and `make conformance-probes` read the goldens and probes in `tools/conformance/`, copied from the C reference with the provenance of each file in `tools/conformance/provenance.tsv`, and `make tier2` reads tier 2's in `tools/tier2/reference/` the same way. `make conformance-issues` asks GitHub through `gh` that every issue the conformance lists name is open. No gate needs a checkout of the C repositories. Three review steps, outside the gates, read one with git, read-only, when a change touches the copies: `make conformance-provenance`, `make tier2-provenance` and `make tier3-provenance` check each copied file against its source commit (`LIBTSM=DIR` and `KMSCON=DIR`, default `../libtsm` and `../kmscon`).
