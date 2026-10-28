@@ -12,7 +12,7 @@
 //! (vtium/vtium#23), and last the small displays in the PSF fonts
 //! `tools/testfont` writes (vtium/vtium#75).
 
-use vtium_render::Orientation;
+use vtium_render::{Depth, Orientation};
 use vtium_term::WidthMethod;
 
 use crate::draw::{DecoSpec, Decorations, FontKind, Screen, TestFont};
@@ -682,6 +682,66 @@ pub const CASES: &[Case] = &[
                 SMALL_80,
                 80,
                 30,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            display: Some((320, 240)),
+            font: FontKind::Psf(TestFont::Small8x8),
+            depth: Depth::One,
+            ..Screen::new(
+                "small-320x240-1bit",
+                "small-320x240 on a 1-bit display (vtium/vtium#135). Correct: only black and white pixels; text on the default background lit whatever its color, the dark blue and red included; the reversed title and status line and every colored background lit with their glyphs unlit; a foreground equal to its background, as black on the black background block, invisible; every underline, strike and sprite lit like the text in its cell; the border unlit.",
+                SMALL_40,
+                40,
+                30,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            display: Some((640, 480)),
+            font: FontKind::Psf(TestFont::Small8x16),
+            depth: Depth::One,
+            ..Screen::new(
+                "small-640x480-1bit",
+                "small-640x480 on a 1-bit display (vtium/vtium#135). Correct: as small-320x240-1bit, at 80 columns; the dim word drawn as plain lit text; the 256-color and 24-bit ramps a run of lit cells, each block whose background differs from the default background's color lit.",
+                SMALL_80,
+                80,
+                30,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            depth: Depth::One,
+            ..Screen::new(
+                "palette-unifont-1bit",
+                "palette-unifont on a 1-bit display (vtium/vtium#135). Correct: the background blocks lit but the one in the default background's color; every letter pair lit, black ones included, on the default background; the ramps lit cell by cell.",
+                PALETTE,
+                48,
+                10,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            depth: Depth::One,
+            ..Screen::new(
+                "underline-unifont-1bit",
+                "underline-unifont on a 1-bit display (vtium/vtium#135). Correct: every underline style lit, in the text color or in an SGR 58 color alike; on the colored background and in reverse, the cell lit with its glyph and underline unlit; the curl's coverage cut at half.",
+                UNDERLINE,
+                48,
+                10,
             )
         },
         source: Source::Vtium,

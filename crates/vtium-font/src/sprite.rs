@@ -152,6 +152,53 @@ pub fn has(c: char) -> bool {
     Range::of(c).is_some()
 }
 
+/// `c` as a `width` by `height` sprite for a 1-bit display
+/// (vtium/vtium#135), where [`draw`]'s coverage cut at half breaks it, or
+/// `None` for a sprite the cut keeps whole, any other character and a size
+/// [`draw`] refuses.
+///
+/// - The shades, U+2591 to U+2593: ordered 2x2 patterns a quarter, half
+///   and three quarters lit, the first pixel of each 2x2 the top left, so
+///   cells of even sides join. [`draw`]'s shades are even coverage, which
+///   the cut draws empty or solid.
+/// - U+1FB9A and U+1FBBD to U+1FBBF: every pixel [`draw`] covers lit, so
+///   the triangles' tips and the thin diagonals stay joined where the cut
+///   splits them.
+pub fn one_bit(c: char, width: u32, height: u32, thickness: u32) -> Option<Glyph> {
+    // the 2x2 ordered dither's thresholds, top left, top right, bottom
+    // left, bottom right
+    const ORDER: [u32; 4] = [0, 2, 3, 1];
+    let lit = match c {
+        '\u{2591}' => 1,
+        '\u{2592}' => 2,
+        '\u{2593}' => 3,
+        '\u{1fb9a}' | '\u{1fbbd}'..='\u{1fbbf}' => {
+            let mut g = draw(c, width, height, thickness)?;
+            for y in 0..height {
+                for x in 0..width {
+                    if g.pixel(x, y)
+                        .is_some_and(|p| p.first().is_some_and(|&a| a != 0))
+                    {
+                        g.fill(x, y, x.saturating_add(1), y.saturating_add(1), 0xff);
+                    }
+                }
+            }
+            return Some(g);
+        }
+        _ => return None,
+    };
+    let mut buf = Glyph::mask(width, height)?;
+    for y in 0..height {
+        for x in 0..width {
+            let i = usize::try_from((y & 1) << 1 | x & 1).unwrap_or(0);
+            if ORDER.get(i).is_some_and(|&t| t < lit) {
+                buf.fill(x, y, x.saturating_add(1), y.saturating_add(1), 0xff);
+            }
+        }
+    }
+    Some(buf)
+}
+
 /// `c` as a `width` by `height` sprite with light lines `thickness` pixels
 /// wide (heavy lines twice that; 0 draws 1), or `None` for a character it
 /// does not draw, a side of 0, a size past [`Glyph::mask`]'s bound, or a

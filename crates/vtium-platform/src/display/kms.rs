@@ -120,4 +120,10 @@ pub(crate) trait Kms {
     /// Reads the pending events, adding the CRTC of each completed flip to
     /// `flipped`.
     fn read_events(&self, flipped: &mut Vec<u32>) -> io::Result<()>;
+
+    /// The levels of the 1-bit or gray panel the card drives, `None` for
+    /// a color display ([`super::depth`]).
+    fn levels(&self) -> Option<u8> {
+        None
+    }
 }

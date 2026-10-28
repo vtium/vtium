@@ -2,3 +2,7 @@
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
 emoji-rgba	vtium output of a new screen (vtium/vtium#23), not yet reviewed by the operator
+small-320x240-1bit	vtium/vtium#135: a 1-bit display, drawn by vtium, not yet reviewed
+small-640x480-1bit	vtium/vtium#135: a 1-bit display, drawn by vtium, not yet reviewed
+palette-unifont-1bit	vtium/vtium#135: a 1-bit display, drawn by vtium, not yet reviewed
+underline-unifont-1bit	vtium/vtium#135: a 1-bit display, drawn by vtium, not yet reviewed
