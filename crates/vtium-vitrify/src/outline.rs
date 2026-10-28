@@ -339,6 +339,9 @@ impl Outline {
                     pixels,
                 });
             }
+            if map_len > r.0.len() / 8 {
+                return Err("an answer cut short: its map is longer than the bytes left");
+            }
             let mut map = Vec::with_capacity(map_len);
             for _ in 0..map_len {
                 let (c, g) = (r.u32()?, r.u32()?);

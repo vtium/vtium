@@ -19,10 +19,12 @@
 //! the method in its `META` (`color-scale=`), and the method is part of
 //! the build key, so a tool built with another method rebuilds the set.
 //!
-//! Every method works in integers over premultiplied RGBA, its weights
-//! computed with additions, multiplications and divisions alone, so the
-//! same glyph gives the same bytes on every host: no `sin`, `exp` or
-//! `powf` from the platform's maths library.
+//! Every method works over premultiplied RGBA. Weights, sizes and
+//! placement are computed in f64 with IEEE basic operations alone
+//! (addition, multiplication, division, floor, ceil, round) and rounded to
+//! 14-bit integers; pixels are integers. So the same glyph gives the same
+//! bytes on every host: no `sin`, `exp` or `powf` from the platform's
+//! maths library.
 
 /// A way to scale a color bitmap.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

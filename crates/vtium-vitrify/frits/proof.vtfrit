@@ -13,7 +13,8 @@
 # Attribution, which CC-BY-4.0 asks of the sets this frit takes; the set
 # carries this frit in its provenance, and with it these lines:
 # - Font Awesome by Fonticons, Inc. (https://fontawesome.com), icons under
-#   CC-BY-4.0, through Nerd Fonts (U+ED00-U+F2FF).
+#   CC-BY-4.0, through Nerd Fonts (U+ED00-U+F2FF, less U+EE00-U+EE0B).
+# - Nerd Fonts' own progress glyphs, MIT, U+EE00-U+EE0B.
 # - Codicons by Microsoft Corporation (https://github.com/microsoft/vscode-codicons),
 #   CC-BY-4.0, through Nerd Fonts (U+EA60-U+EC84).
 # - Material Design Icons by Pictogrammers (https://pictogrammers.com),
