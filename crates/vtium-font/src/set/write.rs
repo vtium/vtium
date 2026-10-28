@@ -249,17 +249,17 @@ pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
         return Err("an unknown sprite source");
     }
 
+    let key = |s: &RawStrike| (s.cell_height, s.cell_width, s.style, s.format);
     let mut order: Vec<&RawStrike> = set.strikes.iter().collect();
-    order.sort_by_key(|s| (s.cell_height, s.cell_width, s.style));
+    order.sort_by_key(|s| key(s));
     if order.is_empty() || u32_of(order.len())? > SET_STRIKES_MAX {
         return Err("no strikes, or more than SET_STRIKES_MAX");
     }
-    let key = |s: &RawStrike| (s.cell_height, s.cell_width, s.style);
     if order
         .windows(2)
         .any(|w| matches!(w, [a, b] if key(a) == key(b)))
     {
-        return Err("two strikes of one style and cell size");
+        return Err("two strikes of one style, cell size and format");
     }
     for s in &order {
         if !matches!(s.format, FORMAT_BITS | FORMAT_R8 | FORMAT_RGBA) {
