@@ -49,7 +49,10 @@ fn osc_4_sets_palette_colours() {
     // a set and a query in one list, an index past 255 and a spec vtium
     // does not read are skipped, and the list goes on
     assert_eq!(
-        reply(&mut t, b"\x1b]4;2;rgb:00/00/01;300;#ffffff;3;red;2;?\x1b\\"),
+        reply(
+            &mut t,
+            b"\x1b]4;2;rgb:00/00/01;300;#ffffff;3;rgbi:1/0/0;2;?\x1b\\"
+        ),
         b"\x1b]4;2;rgb:0000/0000/0101\x1b\\"
     );
     assert_eq!(t.palette().color(3), Palette::default().color(3));
@@ -86,12 +89,68 @@ fn colour_specs_are_read_as_x11_reads_them() {
         "#1234",
         "#1234567",
         "#12345g",
-        "red",
         "rgbi:1/0/0",
         "oklch(0.6 0.2 30)",
     ] {
         assert_eq!(parsed(bad), None, "{bad:?}");
     }
+}
+
+// X11's colour names, which XParseColor looks up in rgb.txt: in any case
+// and with any spaces, the numbered variants and both spellings of grey.
+// covers: colour.names
+#[test]
+fn colour_names_are_read_from_x11s_table() {
+    let rgb = |r, g, b| Some(Rgb::new(r, g, b));
+    assert_eq!(parsed("red"), rgb(255, 0, 0));
+    assert_eq!(parsed("CornflowerBlue"), rgb(100, 149, 237));
+    assert_eq!(parsed("cornflower blue"), rgb(100, 149, 237));
+    assert_eq!(parsed("DarkSlateGray"), rgb(47, 79, 79));
+    assert_eq!(parsed("dark slate gray"), rgb(47, 79, 79));
+    assert_eq!(parsed("DARK SLATE GREY"), rgb(47, 79, 79));
+    assert_eq!(parsed("darkslate gray"), rgb(47, 79, 79));
+    assert_eq!(parsed("LightGoldenrodYellow"), rgb(250, 250, 210));
+    assert_eq!(parsed("AliceBlue"), rgb(240, 248, 255));
+    assert_eq!(parsed("YellowGreen"), rgb(154, 205, 50));
+    assert_eq!(parsed("snow4"), rgb(139, 137, 137));
+    assert_eq!(parsed("gray0"), rgb(0, 0, 0));
+    assert_eq!(parsed("Grey100"), rgb(255, 255, 255));
+    assert_eq!(parsed("x11 gray"), rgb(190, 190, 190));
+    assert_eq!(parsed("WebGray"), rgb(128, 128, 128));
+    assert_eq!(parsed(" red "), rgb(255, 0, 0));
+    for bad in [
+        "re",
+        "redd",
+        "red0",
+        "gray101",
+        "slategrey1",
+        "r\u{e9}d",
+        "-red",
+        "darkslategrayx",
+        "lightgoldenrodyellowx",
+        "    ",
+    ] {
+        assert_eq!(parsed(bad), None, "{bad:?}");
+    }
+}
+
+// ctlseqs, OSC 10 and kitty's OSC 21: a colour name sets the defaults and
+// a palette colour as an `rgb:` spec does.
+// covers: colour.names
+#[test]
+fn colour_names_set_the_defaults_and_kittys_keys() {
+    let mut t = term(4, 1, b"");
+    t.input(b"\x1b]10;red\x07\x1b]11;navy blue;CornflowerBlue\x1b\\");
+    assert_eq!(t.palette().fg(), Rgb::new(255, 0, 0));
+    assert_eq!(t.palette().bg(), Rgb::new(0, 0, 128));
+    assert_eq!(t.palette().cursor(), Some(Rgb::new(100, 149, 237)));
+    t.input(b"\x1b]21;foreground=dark orange;5=Medium Orchid\x1b\\");
+    assert_eq!(t.palette().fg(), Rgb::new(255, 140, 0));
+    assert_eq!(t.palette().color(5), Rgb::new(186, 85, 211));
+    assert_eq!(
+        reply(&mut t, b"\x1b]10;?\x07"),
+        b"\x1b]10;rgb:ffff/8c8c/0000\x07"
+    );
 }
 
 // ctlseqs, OSC 104: each index listed returns to the configured palette's
@@ -147,7 +206,7 @@ fn osc_10_11_and_12_set_and_query() {
     );
     // a list from 11 sets 11 and 12, and a field vtium does not read
     // leaves its colour
-    t.input(b"\x1b]11;#000001;#000002\x07\x1b]10;red;#000003\x07");
+    t.input(b"\x1b]11;#000001;#000002\x07\x1b]10;bright red;#000003\x07");
     assert_eq!(t.palette().fg(), Rgb::new(0x10, 0x20, 0x30));
     assert_eq!(t.palette().bg(), Rgb::new(0, 0, 3));
     assert_eq!(t.palette().cursor(), Some(Rgb::new(0, 0, 2)));

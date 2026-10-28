@@ -20,6 +20,8 @@ use crate::bounds::{COLOR_STACK_MAX, REPLIES_PENDING_MAX};
 use crate::palette::{Palette, Special};
 use crate::style::Rgb;
 
+mod names;
+
 /// A colour OSC 10 to 19 or a kitty key names, past the 256.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Dynamic {
@@ -133,11 +135,12 @@ impl Stack {
     }
 }
 
-/// An X11 colour specification, as XParseColor reads the two forms vtium
-/// takes: `rgb:r/g/b` with one to four hex digits a channel, each scaled
-/// to the channel's range, and `#rgb` with one to four hex digits a
-/// channel, each the channel's most significant bits. The prefix and the
-/// digits are read in either case. Each channel keeps its top 8 bits.
+/// An X11 colour specification, as XParseColor reads the three forms
+/// vtium takes: `rgb:r/g/b` with one to four hex digits a channel, each
+/// scaled to the channel's range; `#rgb` with one to four hex digits a
+/// channel, each the channel's most significant bits; and a colour name
+/// ([`named`]). The prefix and the digits are read in either case. Each
+/// channel keeps its top 8 bits.
 pub(super) fn parse_color(spec: &[u8]) -> Option<Rgb> {
     if let Some(rest) = spec
         .get(..4)
@@ -149,7 +152,9 @@ pub(super) fn parse_color(spec: &[u8]) -> Option<Rgb> {
         let rgb = Rgb::new(next()?, next()?, next()?);
         return channels.next().is_none().then_some(rgb);
     }
-    let digits = spec.strip_prefix(b"#")?;
+    let Some(digits) = spec.strip_prefix(b"#") else {
+        return named(spec);
+    };
     let n = digits.len() / 3;
     if n == 0 || digits.len() % 3 != 0 {
         return None;
@@ -157,6 +162,28 @@ pub(super) fn parse_color(spec: &[u8]) -> Option<Rgb> {
     let mut channels = digits.chunks(n);
     let mut next = || channel(channels.next()?, false);
     Some(Rgb::new(next()?, next()?, next()?))
+}
+
+/// A colour name from X11's rgb.txt, read in any case and with any spaces,
+/// so `DarkSlateGray` and `dark slate gray` name one colour.
+fn named(spec: &[u8]) -> Option<Rgb> {
+    let mut key = [0u8; names::NAME_MAX];
+    let mut len = 0usize;
+    for &b in spec.iter().filter(|&&b| b != b' ') {
+        *key.get_mut(len)? = b.to_ascii_lowercase();
+        len = len.saturating_add(1);
+    }
+    let key = key.get(..len)?;
+    let text = names::TEXT.as_bytes();
+    let at = names::NAMES
+        .binary_search_by(|&(start, n, _)| {
+            let start = usize::from(start);
+            let name = text.get(start..start.saturating_add(usize::from(n)));
+            name.unwrap_or_default().cmp(key)
+        })
+        .ok()?;
+    let &(_, _, [r, g, b]) = names::NAMES.get(at)?;
+    Some(Rgb::new(r, g, b))
 }
 
 /// One to four hex digits as a channel's top 8 bits: of the value scaled
@@ -469,5 +496,67 @@ impl State {
             Dynamic::Bg => self.colors.set_bg(configured.bg()),
             Dynamic::Special(s) => self.colors.set_special(s, configured.special(s)),
         }
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails by panicking")]
+mod tests {
+    use super::*;
+
+    /// Only case and spaces fold: other blanks, non-ASCII bytes and a name
+    /// run on are not a name, and spaces do not count to the longest.
+    #[test]
+    fn names_fold_only_case_and_spaces() {
+        let goldenrod = Some(Rgb::new(250, 250, 210));
+        assert_eq!(named(b"l i g h t g o l d e n r o d y e l l o w"), goldenrod);
+        assert_eq!(named(b"  LightGoldenrodYellow  "), goldenrod);
+        for bad in [
+            &b"red\t"[..],
+            b"\tred",
+            b"red\0",
+            b"r\xc3\xa9d",
+            b"red\xa0",
+            b"lightgoldenrodyellowx",
+            b"xlightgoldenrodyellow",
+            b"",
+            b"   ",
+        ] {
+            assert_eq!(named(bad), None, "{bad:?}");
+        }
+    }
+
+    /// The table against the rgb.txt it was generated from: each line's
+    /// name, as written, in capitals and with its spaces removed, reads as
+    /// the line's colour, and the table holds no name rgb.txt does not.
+    #[test]
+    fn every_name_in_rgb_txt_reads_as_its_colour() {
+        let text = include_str!("color/rgb.txt");
+        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 782, "rgb.txt is not rgb-1.1.1's");
+        let mut folded = std::collections::BTreeSet::new();
+        for line in lines {
+            let mut fields = line.split_whitespace();
+            let mut channel = || fields.next().and_then(|c| c.parse().ok());
+            let (r, g, b) = (channel(), channel(), channel());
+            let want = Some(Rgb::new(
+                r.expect("a channel"),
+                g.expect("a channel"),
+                b.expect("a channel"),
+            ));
+            let words: Vec<&str> = fields.collect();
+            let name = words.join(" ");
+            let joined = words.concat();
+            for spelling in [name.clone(), name.to_ascii_uppercase(), joined.clone()] {
+                assert_eq!(named(spelling.as_bytes()), want, "{spelling:?}");
+                assert_eq!(parse_color(spelling.as_bytes()), want, "{spelling:?}");
+            }
+            folded.insert(joined.to_ascii_lowercase());
+        }
+        assert_eq!(names::NAMES.len(), folded.len());
+        assert_eq!(
+            names::TEXT.len(),
+            folded.iter().map(String::len).sum::<usize>()
+        );
     }
 }
