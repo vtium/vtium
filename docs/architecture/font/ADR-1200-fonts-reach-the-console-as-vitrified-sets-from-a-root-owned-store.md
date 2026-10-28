@@ -356,12 +356,14 @@ vtium's own unit runs no `create`. A distribution's package (AUR, deb, rpm and t
 - The font is `font-name` from the command line or kmscon.conf; unset, `vconsole.font=` from the kernel command line, then `FONT=` from `/etc/vconsole.conf`; unset, the built-in.
 - A name is looked up in the manifest by set name, then by first source as spelled, so `font-engine=psf` with `font-name=/usr/share/kbd/consolefonts/ter-v16n.psf.gz` finds the set built from that path, and `FONT=ter-v16n` finds the set `create --vconsole` built.
 - `font-size` picks the strike of that height, else one whose whole multiple is that height, else the tallest strike under it scaled by the largest whole factor that fits; `font-size=0` picks the height from the display as today. Zoom steps through the set's strike heights and their whole multiples; below the set's smallest strike it stops there and logs one line naming the set and its smallest size. A zoom to another size above the smallest draws at once from a baked strike scaled and then from the strike the helper generates (D15).
-- A set built for another display than the one it lands on gives way to a build of the same frit for this display, else to the frit generated at run time (D15; ADR-1301 D2, the operator's answer on #136). Whether a frit with no built set is generated on first use is ADR-1301's proposal, not yet decided.
-- A name that matches no set, or a set refused by D3, draws the built-in and logs one line: the name, the reason and the command, `vtium-vitrify create --kbd NAME`, `--file PATH` or `--vconsole`, as the name came. A console with no font named draws the built-in and logs nothing.
+- A set built for another display than the one it lands on gives way to a build of the same frit for this display, else to the frit generated at run time (D15; ADR-1301 D2, the operator's answer on #136). A frit with no built set is generated on first use, the built-in drawing until its first glyphs arrive (ADR-1301 D2).
+- A name that matches no set and no frit, or a set refused by D3, draws the built-in and logs one line: the name, the reason and the command, `vtium-vitrify create --kbd NAME`, `--file PATH` or `--vconsole`, as the name came. A console with no font named draws the built-in and logs nothing.
 
 > Edited 2026-10-28: the operator decided "Zoom below a set's smallest size stops there with a log line." The sentence on zoom is new.
 
 > Edited 2026-10-28: generation at run time is in every build (D15), and a mismatched set falls back to it. The zoom sentence's last clause read: "In a build with D15's dynamic strikes, a zoom to another size above the smallest draws at once from a baked strike scaled and then from the helper's strike." The bullet on a set built for another display is new.
+
+> Edited 2026-10-28: the operator decided that a machine with no built set generates from its default frit on first use. The bullet on a mismatched set ended: "Whether a frit with no built set is generated on first use is ADR-1301's proposal, not yet decided." The fallback bullet began: "A name that matches no set, or a set refused by D3". In D15, "How long the helper lives once started is ADR-1301's proposal, not yet decided." is replaced the same day.
 
 ### D10: how it is judged
 
@@ -440,7 +442,7 @@ Any build may generate glyphs no built set holds by rasterising them in ADR-1400
 4. The console checks each chunk's bounds and dimensions, as it checks decoded images from the helper, and swaps the glyphs in as they arrive. The chunks carry no store hash: they come from a process of the session's user, and the console trusts them only to be well-formed glyphs.
 5. Generated strikes live in a per-boot memory cache, never in the root store. Keeping them is `create`'s job.
 
-The root process parses no font file either way. The source font must be readable by the session's user. Generation follows the frit as `create` does: its sources, `cover=` and options. The helper's memory while rasterising, about 22 MB for a CJK font, mostly the font file read whole (measured on x86), is why a minspec install prefers built sets. How long the helper lives once started is ADR-1301's proposal, not yet decided. ADR-1400 takes a dated note that its L1 helper also serves dynamic strikes, beside its OSC 50 note (D5).
+The root process parses no font file either way. The source font must be readable by the session's user. Generation follows the frit as `create` does: its sources, `cover=` and options. The helper's memory while rasterising, about 22 MB for a CJK font, mostly the font file read whole (measured on x86), is why a minspec install prefers built sets. The helper starts on the first request and exits after an idle interval (ADR-1301 D2). ADR-1400 takes a dated note that its L1 helper also serves dynamic strikes, beside its OSC 50 note (D5).
 
 > Added 2026-10-28: the operator's decision on rasterising outside minspec, replacing D6's ban on rasterising at run time.
 
