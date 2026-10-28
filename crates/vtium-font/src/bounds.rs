@@ -94,7 +94,7 @@ const SET_META: Bound = Bound {
     value: 1 << 20,
     what: "Bytes of a set's `META` provenance",
     past: "The set is refused",
-    cite: "vtium's own: the recipe verbatim and a line or three for each source (ADR-1200 D2)",
+    cite: "vtium's own: the frit verbatim and a line or three for each source (ADR-1200 D2)",
 };
 
 const SET_STRIKES: Bound = Bound {

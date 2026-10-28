@@ -117,8 +117,8 @@ fn small_set(compress: bool) -> Vec<u8> {
     r8.map('\u{4e01}', g);
     SetBuilder::new("small-1.0")
         .meta("build-key", &"0".repeat(64))
-        .meta("recipe", "source=file:/a.psf")
-        .meta("recipe", "size=8")
+        .meta("frit", "source=file:/a.psf")
+        .meta("frit", "size=8")
         .meta("license", "OFL-1.1")
         .policy(SpritePolicy::SPRITES.with(Range::Braille, Source::Auto))
         .strike(r8)
@@ -163,13 +163,13 @@ fn a_set_reads_back_every_field() {
                 "build-key",
                 "0000000000000000000000000000000000000000000000000000000000000000"
             ),
-            ("recipe", "source=file:/a.psf"),
-            ("recipe", "size=8"),
+            ("frit", "source=file:/a.psf"),
+            ("frit", "size=8"),
             ("license", "OFL-1.1"),
         ]
     );
     assert_eq!(
-        set.meta_values("recipe").collect::<Vec<_>>(),
+        set.meta_values("frit").collect::<Vec<_>>(),
         ["source=file:/a.psf", "size=8"]
     );
     assert_eq!(

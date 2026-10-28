@@ -40,7 +40,7 @@ impl StrikeBuilder {
     /// An empty strike of `style` at `cell` in `format`, its baseline at
     /// the cell's bottom and its decorations those of a face with no
     /// metrics of its own ([`Decorations::for_height`]). Its chunks are
-    /// deflated for R8 and RGBA and raw for 1-bit, as a recipe's default
+    /// deflated for R8 and RGBA and raw for 1-bit, as a frit's default
     /// `compress=yes` stores them (ADR-1200 D1, D13).
     pub fn new(format: PixelFormat, cell: Cell, style: Style) -> StrikeBuilder {
         StrikeBuilder {
@@ -143,7 +143,7 @@ impl SetBuilder {
 
     /// Adds a provenance line after `name` and `format`, which the builder
     /// writes first (ADR-1200 D2, `META`). A key may repeat; a multi-line
-    /// value, such as the recipe, is one line of the key for each of its
+    /// value, such as the frit, is one line of the key for each of its
     /// lines.
     pub fn meta(mut self, key: &str, value: &str) -> SetBuilder {
         self.meta.push((key.to_owned(), value.to_owned()));

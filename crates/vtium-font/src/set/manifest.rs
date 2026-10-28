@@ -9,7 +9,7 @@
 //!
 //! The fields are separated by tabs. One row a set, sorted by name: its name, the set file's SHA-256, its
 //! build key, its format version, its strikes' cell sizes, comma-separated
-//! and smallest first, and its first source as the recipe spelled it.
+//! and smallest first, and its first source as the frit spelled it.
 
 use std::fmt;
 
@@ -40,19 +40,19 @@ impl std::error::Error for ManifestError {}
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ManifestRow {
     pub name: String,
-    /// The set file's SHA-256, which names it `<sha256>.glass`.
+    /// The set file's SHA-256, which names it `<sha256>.vtglass`.
     pub sha256: [u8; 32],
     pub build_key: [u8; 32],
     pub version: (u16, u16),
     pub cells: Vec<Cell>,
-    /// The recipe's first source, as it spelled it.
+    /// The frit's first source, as it spelled it.
     pub source: String,
 }
 
 impl ManifestRow {
     /// The set's file name in the store.
     pub fn file_name(&self) -> String {
-        format!("{}.glass", hex(&self.sha256))
+        format!("{}.vtglass", hex(&self.sha256))
     }
 }
 

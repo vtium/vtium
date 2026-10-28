@@ -1,6 +1,6 @@
 //! Packs the built-in sets (ADR-1200 D7): `data/unifont.hex` into
-//! `OUT_DIR/unifont.glass` with the `unifont` feature, and
-//! `data/unscii-8.hex` into `OUT_DIR/unscii-8.glass` with the `unscii`
+//! `OUT_DIR/unifont.vtglass` with the `unifont` feature, and
+//! `data/unscii-8.hex` into `OUT_DIR/unscii-8.vtglass` with the `unscii`
 //! feature. Each is a vitrified set (ADR-1200 D2) written by the set
 //! writer's own code, which this script includes, its 1-bit glyph chunks
 //! each deflated so the binary carries the font compressed.
@@ -85,7 +85,7 @@ fn main() {
         println!("cargo::rerun-if-changed={}", b.hex);
         if std::env::var_os(b.feature).is_some() {
             let bytes = pack(b);
-            std::fs::write(out.join(format!("{}.glass", b.name)), bytes).expect("write a set");
+            std::fs::write(out.join(format!("{}.vtglass", b.name)), bytes).expect("write a set");
         }
     }
 }

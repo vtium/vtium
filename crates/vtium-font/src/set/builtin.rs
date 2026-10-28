@@ -24,7 +24,7 @@ pub(crate) fn unifont() -> Option<&'static Arc<Set>> {
         static SLOT: Slot = OnceLock::new();
         load(
             &SLOT,
-            include_bytes!(concat!(env!("OUT_DIR"), "/unifont.glass")),
+            include_bytes!(concat!(env!("OUT_DIR"), "/unifont.vtglass")),
         )
     }
     #[cfg(not(feature = "unifont"))]
@@ -38,7 +38,7 @@ pub(crate) fn unscii_8() -> Option<&'static Arc<Set>> {
         static SLOT: Slot = OnceLock::new();
         load(
             &SLOT,
-            include_bytes!(concat!(env!("OUT_DIR"), "/unscii-8.glass")),
+            include_bytes!(concat!(env!("OUT_DIR"), "/unscii-8.vtglass")),
         )
     }
     #[cfg(not(feature = "unscii"))]

@@ -1,0 +1,34 @@
+[package]
+name = "vtium-vitrify"
+description = "Builds vitrified font sets for vtium from frits, and keeps the root-owned store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The set format, its writer and the store's check; the PSF reader; the
+# built-in sets a frit may name as sources.
+vtium-font.workspace = true
+# KDGETMODE, KDFONTOP and GIO_UNIMAP for the console: source (ADR-1200 D8).
+vtium-platform.workspace = true
+# gzip's deflate, for compressed fonts and unimaps; vtium-font already
+# builds this version.
+miniz_oxide = "0.8.9"
+# The store's lock, the parser's no-new-privileges and limits, and the
+# effective uid; vtium-platform already builds this version.
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "process", "thread"] }
+# The decoders kbd's other compressions need (ADR-1200 D6), each pure
+# Rust with no C compiled, in this binary only; the README says why each.
+bzip2 = "=0.6.1"
+lzma-rust2 = { version = "=0.24.0", default-features = false, features = ["std", "xz"] }
+ruzstd = "=0.8.2"
+
+[dev-dependencies]
+# The xz encoder, for the tests' fixtures only.
+lzma-rust2 = { version = "=0.24.0", default-features = false, features = ["std", "xz", "encoder"] }
