@@ -357,8 +357,8 @@ fn only_chunks_drawn_from_are_held() {
 
 // Every PSF fixture drawn through its vitrified set is the Psf draw, glyph
 // for glyph at 1, 2 and 3 times its height, plain and bold, and its
-// coverage and policy are the font's: 1-bit strikes expand at load to the
-// mask the Psf draw gives (ADR-1200 D10, D13)
+// coverage, policy and decorations are the font's: a 1-bit glyph expands
+// when drawn to the mask the Psf draw gives (ADR-1200 D10, D13)
 #[test]
 fn psf_fixtures_draw_alike_through_their_sets() {
     for name in [
