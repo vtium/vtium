@@ -45,6 +45,16 @@ expect: the screen goes dark about a minute after Enter, and lights again
 expect: about 15 seconds later with no key pressed, this screen drawn
 expect: whole, then the prompt.
 
+step: Colored underlines in every style, and the strike
+probe: shell
+do: at the prompt type, all on one line:
+do: printf '\033[4:1;58:2::255:0:0msingle\033[0m \033[4:2;58:2::0:200:0mdouble\033[0m \033[4:3;58:2::0:128:255mcurly\033[0m \033[4:4;58:5:208mdotted\033[0m \033[4:5;58:5:201mdashed\033[0m \033[9mstrike\033[0m \033[9;4:3;58:5:226mboth\033[0m\n'
+do: then Enter.
+expect: single in red, double in green, curly in blue, dotted in orange
+expect: and dashed in magenta, each in its own style under white text;
+expect: strike struck through in the text's color; both carries a yellow
+expect: curly underline and a strike, each telling apart from the other.
+
 step: Anything else
 do: look over the session as a whole.
 expect: nothing looks wrong: note anything that does, however small.
