@@ -451,8 +451,13 @@ impl<F: Face> Renderer<F> {
         let arrow = pointer_image(&font, ch, config);
         Renderer {
             compose: Composer::new(
-                GlyphCache::new(budgets, config.storage, config.orientation)
-                    .with_fallback(Fallback::new(config.depth, font.cell())),
+                GlyphCache::new(budgets, config.storage, config.orientation).with_fallback(
+                    Fallback::new(
+                        config.depth,
+                        font.cell(),
+                        font.decorations().underline_thickness,
+                    ),
+                ),
                 sprites,
             ),
             font,

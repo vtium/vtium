@@ -2,11 +2,11 @@
 //! half and three quarters lit, which repeat every 2 pixels so cells of
 //! even sides join.
 
-use vtium_font::sprite::shade_one_bit;
+use vtium_font::sprite::one_bit;
 
 /// The shade's rows as `#` lit and `.` unlit.
 fn rows(c: char, w: u32, h: u32) -> Vec<String> {
-    let g = shade_one_bit(c, w, h).unwrap();
+    let g = one_bit(c, w, h, 1).unwrap();
     g.rows()
         .map(|r| {
             r.iter()
@@ -24,18 +24,18 @@ fn each_shade_is_its_ordered_pattern() {
 }
 
 #[test]
-fn only_the_shades_take_a_pattern() {
-    for c in ['\u{2588}', '\u{2590}', '\u{2594}', 'A'] {
-        assert!(shade_one_bit(c, 8, 16).is_none(), "{c}");
+fn only_the_sprites_the_cut_breaks_have_a_1_bit_shape() {
+    for c in ['\u{2588}', '\u{2590}', '\u{2594}', '\u{1fb98}', 'A'] {
+        assert!(one_bit(c, 8, 16, 1).is_none(), "{c}");
     }
-    assert!(shade_one_bit('\u{2591}', 0, 16).is_none());
+    assert!(one_bit('\u{2591}', 0, 16, 1).is_none());
 }
 
 #[test]
 fn every_pixel_is_lit_or_unlit_in_its_share() {
     for (c, share) in [('\u{2591}', 4), ('\u{2592}', 2)] {
         for (w, h) in [(8, 8), (8, 16), (16, 32), (12, 24)] {
-            let g = shade_one_bit(c, w, h).unwrap();
+            let g = one_bit(c, w, h, 1).unwrap();
             assert!(g.pixels().iter().all(|&p| p == 0 || p == 0xff));
             let lit = g.pixels().iter().filter(|&&p| p == 0xff).count() as u32;
             assert_eq!(lit, w * h / share, "{c} {w}x{h}");

@@ -152,13 +152,19 @@ pub fn has(c: char) -> bool {
     Range::of(c).is_some()
 }
 
-/// A shade, U+2591 to U+2593, as a `width` by `height` sprite for a 1-bit
-/// display (vtium/vtium#135): an ordered 2x2 pattern a quarter, half or
-/// three quarters lit, its first pixel in each 2x2 the top left, so cells
-/// whose sides are even join without a seam. [`draw`]'s shades are even
-/// coverage, which a 1-bit display cuts at half to empty or solid. `None`
-/// for any other character or a size [`Glyph::mask`] refuses.
-pub fn shade_one_bit(c: char, width: u32, height: u32) -> Option<Glyph> {
+/// `c` as a `width` by `height` sprite for a 1-bit display
+/// (vtium/vtium#135), where [`draw`]'s coverage cut at half breaks it, or
+/// `None` for a sprite the cut keeps whole, any other character and a size
+/// [`draw`] refuses.
+///
+/// - The shades, U+2591 to U+2593: ordered 2x2 patterns a quarter, half
+///   and three quarters lit, the first pixel of each 2x2 the top left, so
+///   cells of even sides join. [`draw`]'s shades are even coverage, which
+///   the cut draws empty or solid.
+/// - U+1FB9A and U+1FBBD to U+1FBBF: every pixel [`draw`] covers lit, so
+///   the triangles' tips and the thin diagonals stay joined where the cut
+///   splits them.
+pub fn one_bit(c: char, width: u32, height: u32, thickness: u32) -> Option<Glyph> {
     // the 2x2 ordered dither's thresholds, top left, top right, bottom
     // left, bottom right
     const ORDER: [u32; 4] = [0, 2, 3, 1];
@@ -166,6 +172,19 @@ pub fn shade_one_bit(c: char, width: u32, height: u32) -> Option<Glyph> {
         '\u{2591}' => 1,
         '\u{2592}' => 2,
         '\u{2593}' => 3,
+        '\u{1fb9a}' | '\u{1fbbd}'..='\u{1fbbf}' => {
+            let mut g = draw(c, width, height, thickness)?;
+            for y in 0..height {
+                for x in 0..width {
+                    if g.pixel(x, y)
+                        .is_some_and(|p| p.first().is_some_and(|&a| a != 0))
+                    {
+                        g.fill(x, y, x.saturating_add(1), y.saturating_add(1), 0xff);
+                    }
+                }
+            }
+            return Some(g);
+        }
         _ => return None,
     };
     let mut buf = Glyph::mask(width, height)?;
