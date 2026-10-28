@@ -1074,7 +1074,7 @@ class BaseImageTest(unittest.TestCase):
     def test_pinned_base(self):
         # The pinned image, archive and guest files name one base image; a
         # change to any of them provisions a new one, about 330 MiB
-        # downloaded and a 1,145 MiB file.
+        # downloaded and a file of about 1.1 GiB.
         with open(os.path.join(t3_common.ROOT, "Makefile")) as f:
             make = dict(re.findall(r"^(T3_IMAGE_VER|T3_ARCHIVE)\s*:=\s*(\S+)", f.read(), re.M))
         image = "Arch-Linux-x86_64-cloudimg-%s.qcow2" % make["T3_IMAGE_VER"]
