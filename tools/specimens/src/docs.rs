@@ -63,16 +63,29 @@ fn issues(list: &[u32]) -> String {
         .join(", ")
 }
 
+/// The directory under `docs/specimens/` simulated renders go in, which
+/// judge nothing.
+pub const SIMULATED: &str = "simulated";
+
+/// A profile's directory under `docs/specimens/`.
+pub fn dir(p: &Profile) -> String {
+    match p.panel {
+        Some(_) => format!("{SIMULATED}/{}", p.name),
+        None => p.name.to_owned(),
+    }
+}
+
 /// Every file under `docs/specimens/`, by its path there, but
 /// `provisional.tsv`, which the operator keeps.
 pub fn files(provisional: &[String]) -> Result<BTreeMap<String, Content>, String> {
     let mut out = BTreeMap::new();
-    let mut rows = Vec::new();
+    let (mut rows, mut simulated) = (Vec::new(), Vec::new());
     for p in PROFILES {
         let Glyphs::Builtin { set, .. } = p.glyphs else {
             rows.push(row(p, None, false));
             continue;
         };
+        let d = dir(p);
         let screens = draw::screens(p)?;
         let font = draw::font(p)?;
         let layout = draw::layout(p, &font)?;
@@ -80,7 +93,7 @@ pub fn files(provisional: &[String]) -> Result<BTreeMap<String, Content>, String
         let names = screen_names(screens.len());
         if screens.len() > 1 {
             out.insert(
-                format!("{}/collage.png", p.name),
+                format!("{d}/collage.png"),
                 Content::Png(draw::collage(&screens)),
             );
         }
@@ -92,19 +105,23 @@ pub fn files(provisional: &[String]) -> Result<BTreeMap<String, Content>, String
             screens: screens.len(),
         };
         out.insert(
-            format!("{}/README.md", p.name),
+            format!("{d}/README.md"),
             Content::Text(profile_readme(p, &facts, &names)),
         );
-        out.insert(
-            format!("{}/vtium.conf", p.name),
-            Content::Text(p.conf.to_owned()),
-        );
+        out.insert(format!("{d}/vtium.conf"), Content::Text(p.conf.to_owned()));
         for (name, img) in names.into_iter().zip(screens) {
-            out.insert(format!("{}/{name}", p.name), Content::Png(img));
+            out.insert(format!("{d}/{name}"), Content::Png(img));
         }
-        rows.push(row(p, Some(&facts), pending));
+        let r = row(p, Some(&facts), pending);
+        match p.panel {
+            Some(_) => simulated.push(r),
+            None => rows.push(r),
+        }
     }
-    out.insert("README.md".to_owned(), Content::Text(index(&rows)));
+    out.insert(
+        "README.md".to_owned(),
+        Content::Text(index(&rows, &simulated)),
+    );
     Ok(out)
 }
 
@@ -119,20 +136,21 @@ struct Facts {
 fn row(p: &Profile, facts: Option<&Facts>, provisional: bool) -> String {
     match (facts, p.glyphs) {
         (Some(f), _) => {
-            let status = if provisional {
-                "provisional"
-            } else {
-                "reviewed"
+            let status = match (p.panel, provisional) {
+                (Some(_), _) => "simulation",
+                (None, true) => "provisional",
+                (None, false) => "reviewed",
             };
             let shot = preview(f.screens);
             format!(
-                "| [{name}]({name}/) | {} | {} | {} | `{}` | {} | {status} | [<img src=\"{name}/{shot}\" width=\"160\">]({name}/{shot}) |",
+                "| [{name}]({d}/) | {} | {} | {} | `{}` | {} | {status} | [<img src=\"{d}/{shot}\" width=\"160\">]({d}/{shot}) |",
                 p.depth,
                 f.cell,
                 f.grid,
                 f.set,
                 f.screens,
                 name = p.name,
+                d = dir(p),
             )
         }
         (None, Glyphs::Pending { font, issues: list }) => format!(
@@ -159,8 +177,19 @@ fn profile_readme(p: &Profile, f: &Facts, names: &[String]) -> String {
         .map(|n| format!("[{n}]({n})"))
         .collect::<Vec<_>>()
         .join(", ");
+    let (title, simulation) = match p.panel {
+        Some(panel) => (
+            format!("{} (simulated)", p.name),
+            format!(
+                "**A simulation of the panel's conversion, not vtium's output.** vtium draws this display as color; these screens are that drawing taken through the conversion the panel's Linux driver makes (v7.3): each pixel to gray8 by BT.601 luma, `(77r + 150g + 29b) / 256` (`drivers/gpu/drm/drm_format_internal.h:39-47`), then to the panel's levels as {}. Each level is drawn as the gray it is on a panel whose levels are evenly spaced. They judge nothing: `make specimens-check` leaves `simulated/` out.\n\n",
+                panel.driver()
+            ),
+        ),
+        None => (p.name.to_owned(), String::new()),
+    };
     format!(
-        "# {name}\n\n\
+        "# {title}\n\n\
+         {simulation}\
          {summary}: {width}x{height}, {depth}, drawn in `{set}` at {cell}, {grid} cells, {arrayed}.\n\n\
          ![{name}]({preview})\n\n\
          | Display | Class | Cell | Grid | Font | Screens |\n\
@@ -187,7 +216,7 @@ fn profile_readme(p: &Profile, f: &Facts, names: &[String]) -> String {
     )
 }
 
-fn index(rows: &[String]) -> String {
+fn index(rows: &[String], simulated: &[String]) -> String {
     let titles = card::TITLES
         .iter()
         .enumerate()
@@ -201,12 +230,18 @@ fn index(rows: &[String]) -> String {
          |---|---|---|---|---|---|---|---|\n\
          {rows}\n\n\
          A pending profile waits on the issues it names. A provisional one is drawn and judged, and waits on the operator's review; `provisional.tsv` lists them.\n\n\
+         ## Gray panels, simulated\n\n\
+         vtium draws a gray panel exactly as a color display, and the panel's driver converts each pixel (#135). These renders take vtium's color drawing through that conversion, as Linux v7.3's drivers make it, to show what such a panel shows. They are simulations, not vtium's output, and judge nothing.\n\n\
+         | Profile | Depth | Cell | Grid | Font | Screens | Status | Preview |\n\
+         |---|---|---|---|---|---|---|---|\n\
+         {simulated}\n\n\
          ## The card\n\n\
          The card is one byte stream of vtium's own, written by `tools/specimens`, in four blocks of 40x30 cells. A block is one 320x240 screen at 8x8, and a page holds as many blocks as its grid fits, centered:\n\n\
          {titles}\n\n\
          `tools/specimens/README.md` lists what the card leaves out and why.\n\n\
          ## Drawing and judging\n\n\
-         `make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and fail on any difference from what is committed: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A change that moves a specimen fails until the moved files are committed, each in a commit of its own that lists what moved.\n",
+         `make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and fail on any difference from what is committed, `simulated/` aside: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A change that moves a specimen fails until the moved files are committed, each in a commit of its own that lists what moved.\n",
         rows = rows.join("\n"),
+        simulated = simulated.join("\n"),
     )
 }

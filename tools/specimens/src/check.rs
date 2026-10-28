@@ -29,11 +29,14 @@ pub fn write(dir: &Path) -> Result<Vec<String>, String> {
 
 /// Each fault of `dir` against what `docs::files` draws: a file missing,
 /// differing, unreadable, or there and not drawn. Empty when every file
-/// matches.
+/// matches. The simulated renders are left out: they show a panel's
+/// conversion and judge nothing.
 pub fn check(dir: &Path) -> Result<Vec<String>, String> {
-    let files = docs::files(&docs::provisional(dir)?)?;
+    let mut files = docs::files(&docs::provisional(dir)?)?;
+    files.retain(|name, _| !simulated(name));
     let mut faults: Vec<String> = strays(dir, &files)?
         .into_iter()
+        .filter(|f| !simulated(f))
         .map(|s| format!("{s}: not drawn by the profile table"))
         .collect();
     for (name, want) in &files {
@@ -84,6 +87,11 @@ fn strays(dir: &Path, files: &BTreeMap<String, Content>) -> Result<Vec<String>, 
         .into_iter()
         .filter(|f| f != "provisional.tsv" && !files.contains_key(f))
         .collect())
+}
+
+/// Whether `name` is one of the simulated renders' files.
+fn simulated(name: &str) -> bool {
+    Path::new(name).starts_with(docs::SIMULATED)
 }
 
 fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {

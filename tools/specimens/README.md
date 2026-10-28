@@ -14,7 +14,7 @@ target/release/specimens card PROFILE [PAGE]   # a page of the card's bytes, for
 | Path | What it is |
 |---|---|
 | `src/card.rs` | The card: four blocks of 40x30 cells, each written from its own top left with CUP. |
-| `src/profiles.rs` | The profile table, and the layout of the card's blocks on a grid. |
+| `src/profiles.rs` | The profile table, the gray panels' conversion, and the layout of the card's blocks on a grid. |
 | `src/draw.rs` | A page through `vtium-term` and one frame of `vtium-render` into a canvas, and the collage. |
 | `src/png.rs` | The PNG writer and reader: 8-bit RGB, deflated with `miniz_oxide`, which vtium-font already links. |
 | `src/docs.rs` | What `docs/specimens/` holds: the screens, collages, READMEs and vtium.conf files, drawn from the table. |
@@ -27,7 +27,7 @@ A block is one 320x240 screen at 8x8 cells (#118). A page holds as many blocks a
 
 1. **Text:** a header naming the profile (display, depth, cell, grid, set, display class), then ASCII, Latin-1 and Latin Extended, Greek, Cyrillic, combining marks beside their precomposed letters, CJK, Hangul and fullwidth forms in two cells, and punctuation, arrows, maths and currency.
 2. **Attributes:** bold, dim, italic, reverse, conceal, strike and their combinations; the five underline styles; each in an SGR 58 color, in the semicolon and colon forms; underline, strike and colors together.
-3. **Color:** the 16 colors as foreground, bold and background; the 256-color cube, the 16 and the grays; 24-bit ramps and hues, as backgrounds, as foreground over background in half blocks, and per letter; reverse and dim over color; SGR 39 and 49.
+3. **Color:** the 16 colors as foreground, bold and background; the 256-color cube, the 16 and the grays; 24-bit hues as backgrounds, as foreground over background in half blocks, and per letter; reverse and dim over color, and SGR 39 and 49; then the grays a panel's levels and conversion show on: the 24 grays 232-255 and a 24-bit ramp from black to white in 40 steps as backgrounds, the 24 grays as text on black and on white, and a 24-bit ramp of 20 steps as text on black and on white.
 4. **Sprites and symbols:** light, heavy, double and rounded boxes and their junctions, block elements, eighths, quadrants and shades, a Braille wave and a Braille sample, sextants, octants and the rest of Symbols for Legacy Computing's block shapes; Nerd Font private-use symbols, emoji, a ZWJ sequence and a flag, VS15 and VS16; and a wide character written where only the grid's last column is left, which wraps whole to the next row.
 
 Every escape the card uses is one ADR-1000 lists as supported. What it leaves out:
@@ -47,7 +47,7 @@ Conceal, SGR 8, is on the card though vtium-render draws its text until #37 hide
 
 ## The profiles
 
-Each built profile draws with a built-in set (ADR-1200 D7) at the height vtium chooses for its display, `font-size=0` with #118's rule; its README in `docs/specimens/` says why that is the best choice there. A profile whose font no merged code draws yet is pending, with the issues it waits on: the 1-bit panel on #135, and the outline fonts at 1920x1080 and 2560x1440 on #23, #126 and #141. vtium ships no PSF font, so no profile draws one: the 8x8 and 8x16 PSF fonts tier 2 builds hold ASCII test glyphs, which no display's best configuration would choose.
+Each built profile draws with a built-in set (ADR-1200 D7) at the height vtium chooses for its display, `font-size=0` with #118's rule; its README in `docs/specimens/` says why that is the best choice there. A profile whose font no merged code draws yet is pending, with the issues it waits on: the 1-bit panel on #135, and the outline fonts at 1920x1080 and 2560x1440 on #23, #126 and #141. The gray panel profiles, `320x240-gray4`, `320x240-gray16` and `640x480-gray16`, are simulations: vtium draws a gray panel exactly as color and the panel's driver converts each pixel (#135), so their screens are the color drawing taken through that driver's arithmetic as Linux v7.3 makes it (`Panel` in `src/profiles.rs`, with each line cited), each level drawn as the gray it is on a panel of evenly spaced levels. They live in `docs/specimens/simulated/`, say in their header and README that they are simulations, and judge nothing: `check` leaves them out, and `make specimens` redraws them with the rest. vtium ships no PSF font, so no profile draws one: the 8x8 and 8x16 PSF fonts tier 2 builds hold ASCII test glyphs, which no display's best configuration would choose.
 
 ## How it draws
 

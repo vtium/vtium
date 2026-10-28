@@ -202,7 +202,8 @@ fn attributes(b: &mut Block<'_>) {
     b.put(28, 0, "\x1b[1;4:2;38;2;255;160;0mbold orange, doubled");
 }
 
-/// The 16 colors, the 256-color palette and 24-bit color.
+/// The 16 colors, the 256-color palette, 24-bit color, and the grays a
+/// gray panel's levels and conversion show on.
 fn color(b: &mut Block<'_>) {
     b.put(1, 0, "\x1b[2m16 colors: SGR 30-37 and 90-97, bold");
     for (row, base) in [(2, 30), (3, 90)] {
@@ -235,9 +236,7 @@ fn color(b: &mut Block<'_>) {
         .map(|i| format!("\x1b[48:5:{i}m "))
         .collect();
     b.put(15, 0, &s);
-    let s: String = (16..56).map(|i| format!("\x1b[38;5;{i}m#")).collect();
-    b.put(16, 0, &s);
-    b.put(17, 0, "\x1b[2m24-bit color: SGR 38;2 and 48;2");
+    b.put(16, 0, "\x1b[2m24-bit color: SGR 38;2 and 48;2");
     let step = |i: usize| hue(i * 360 / BLOCK_COLS);
     let s: String = (0..BLOCK_COLS)
         .map(|i| {
@@ -245,22 +244,15 @@ fn color(b: &mut Block<'_>) {
             format!("\x1b[48;2;{r};{g};{bl}m ")
         })
         .collect();
+    b.put(17, 0, &s);
+    let ramp = |i: usize, n: usize| (i * 255 / (n - 1)) as u8;
+    let s: String = (0..BLOCK_COLS)
+        .map(|i| {
+            let v = ramp(i, BLOCK_COLS);
+            format!("\x1b[38;2;0;{v};0;48;2;{v};0;{}m▀", 255 - v)
+        })
+        .collect();
     b.put(18, 0, &s);
-    let ramp = |i: usize| (i * 255 / (BLOCK_COLS - 1)) as u8;
-    let s: String = (0..BLOCK_COLS)
-        .map(|i| {
-            let v = ramp(i);
-            format!("\x1b[38;2;{v};{v};{v};48;2;{v};0;{}m▀", 255 - v)
-        })
-        .collect();
-    b.put(19, 0, &s);
-    let s: String = (0..BLOCK_COLS)
-        .map(|i| {
-            let v = ramp(i);
-            format!("\x1b[38:2::0:{v}:0;48:2::{v}:{v}:0m▄")
-        })
-        .collect();
-    b.put(20, 0, &s);
     let s: String = "every letter its own hue"
         .chars()
         .enumerate()
@@ -269,24 +261,47 @@ fn color(b: &mut Block<'_>) {
             format!("\x1b[1;38;2;{r};{g};{bl}m{c}")
         })
         .collect();
-    b.put(21, 0, &s);
-    b.put(22, 0, "\x1b[2mReverse and dim over color");
+    b.put(19, 0, &s);
+    b.put(20, 0, "\x1b[2mReverse, dim, and SGR 39 and 49");
     b.put(
-        23,
+        21,
         0,
         "\x1b[31;44m red on blue \x1b[7m reversed \x1b[27;2m dimmed ",
     );
     b.put(
-        24,
+        22,
         0,
-        "\x1b[38;5;208;48;5;18m orange on navy \x1b[2m dim \x1b[22;7m reversed ",
+        "\x1b[38;5;208;48;5;18m orange on navy \x1b[2m dim \x1b[22;7m reversed \x1b[27;39;49m default",
     );
-    b.put(25, 0, "\x1b[2mThe default colors, SGR 39 and 49");
-    b.put(
-        26,
-        0,
-        "\x1b[41;33m yellow on red \x1b[39m default fg \x1b[49;32m default bg ",
-    );
+    b.put(23, 0, "\x1b[2mGrays: 232-255, then 24-bit steps");
+    let s: String = (232..256).map(|i| format!("\x1b[48;5;{i}m ")).collect();
+    b.put(24, 0, &s);
+    let s: String = (0..BLOCK_COLS)
+        .map(|i| {
+            let v = ramp(i, BLOCK_COLS);
+            format!("\x1b[48:2::{v}:{v}:{v}m ")
+        })
+        .collect();
+    b.put(25, 0, &s);
+    const LETTERS: &str = "ABCDEFGHIJKLMNOPQRSTUVWX";
+    for (row, on) in [(26, "49"), (27, "48;2;255;255;255")] {
+        let s: String = (232..256)
+            .zip(LETTERS.chars())
+            .map(|(i, c)| format!("\x1b[{on};38;5;{i}m{c}"))
+            .collect();
+        b.put(row, 0, &s);
+    }
+    let half = BLOCK_COLS / 2;
+    let s: String = ["49", "48;2;255;255;255"]
+        .iter()
+        .flat_map(|on| {
+            (0..half).map(move |i| {
+                let v = ramp(i, half);
+                format!("\x1b[{on};38;2;{v};{v};{v}m{}", char::from(b'a' + i as u8))
+            })
+        })
+        .collect();
+    b.put(28, 0, &s);
 }
 
 /// The color `deg` degrees round the hue circle, at full saturation.

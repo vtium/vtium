@@ -122,7 +122,13 @@ pub fn screens(profile: &Profile) -> Result<Vec<Image>, String> {
             let rgb = canvas
                 .pixels()
                 .iter()
-                .flat_map(|&p| [(p >> 16) as u8, (p >> 8) as u8, p as u8])
+                .flat_map(|&p| {
+                    let rgb = [(p >> 16) as u8, (p >> 8) as u8, p as u8];
+                    match profile.panel {
+                        Some(panel) => [panel.show(rgb); 3],
+                        None => rgb,
+                    }
+                })
                 .collect();
             Ok(Image {
                 width: profile.width,

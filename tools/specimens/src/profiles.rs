@@ -35,6 +35,57 @@ pub struct Profile {
     pub why: &'static str,
     /// The vtium.conf lines for the profile, comments included.
     pub conf: &'static str,
+    /// For a gray panel, the conversion its driver applies to vtium's color
+    /// drawing, which the profile's renders simulate.
+    pub panel: Option<Panel>,
+}
+
+/// A gray panel's conversion, as its Linux driver makes it from the
+/// XRGB8888 framebuffer vtium draws (Linux v7.3). Each pixel goes to gray8
+/// by BT.601 luma, `(77r + 150g + 29b) / 256`
+/// (`drivers/gpu/drm/drm_format_internal.h:39-47`, through
+/// `drm_fb_xrgb8888_to_gray8`, `drivers/gpu/drm/drm_format_helper.c:1084-1126`),
+/// then to the panel's levels by the gray8 value's top bits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Panel {
+    /// st7586's 4 levels: gray8 shifted right 6, then its lookup table
+    /// (`drivers/gpu/drm/sitronix/st7586.c:80-106`).
+    St7586,
+    /// The SSD132x panels' 16 levels: gray8's top nibble, two pixels a byte
+    /// (`drivers/gpu/drm/solomon/ssd130x.c:968` and `:801-809`).
+    Ssd132x,
+}
+
+impl Panel {
+    /// The bits of gray8 the panel keeps.
+    pub fn bits(self) -> u32 {
+        match self {
+            Panel::St7586 => 2,
+            Panel::Ssd132x => 4,
+        }
+    }
+
+    /// The driver's name and source, for the READMEs.
+    pub fn driver(self) -> &'static str {
+        match self {
+            Panel::St7586 => {
+                "st7586 (`drivers/gpu/drm/sitronix/st7586.c:80-106`: gray8 >> 6, its 4 levels through `st7586_lookup`)"
+            }
+            Panel::Ssd132x => {
+                "ssd130x's SSD132x path (`drivers/gpu/drm/solomon/ssd130x.c:968` and `:801-809`: gray8 >> 4, two 4-bit pixels a byte)"
+            }
+        }
+    }
+
+    /// `rgb`, one pixel, as the panel shows it: its level drawn as the gray
+    /// that level is on a panel whose levels are evenly spaced.
+    pub fn show(self, rgb: [u8; 3]) -> u8 {
+        let [r, g, b] = rgb.map(u32::from);
+        let gray8 = (77 * r + 150 * g + 29 * b) / 256;
+        let level = gray8 >> (8 - self.bits());
+        let top = (1 << self.bits()) - 1;
+        (level * 255 / top) as u8
+    }
 }
 
 /// How a profile's grid holds the card: the blocks a page holds across and
@@ -90,6 +141,8 @@ const UNSCII_WHY: &str = "ADR-1200 D7 draws the built-in Unscii-8 for cells unde
 
 const UNIFONT_WHY: &str = "16-pixel cells leave at least 80x25 here, so #118's rule keeps `font-size=0`'s 16 pixels, and ADR-1200 D7 draws the built-in unifont from 16 pixels: 8x16 cells for Latin, Greek and Cyrillic and 16x16 for CJK and Hangul, which it covers whole, with nothing built. The size the display wants is under 24 pixels, the smallest outline size D11 builds, so a default machine holds no outline set for it. Emoji draw as unifont's monochrome glyphs where it has one, and Nerd Font symbols as the missing glyph until #23 and #64 draw them from an outline font.";
 
+const GRAY_WHY: &str = "vtium draws a gray panel exactly as a color display and lets the panel's driver convert each pixel (#135): the screens here are the color profile's drawing taken through the driver's arithmetic, a simulation of what the panel shows, not vtium's output. The font is the color profile's at this size, for the same reasons; a gray panel's few levels keep the bitmap glyphs crisp, and the card's gray bands show which levels survive the conversion.";
+
 /// Every profile, smallest display first.
 pub const PROFILES: &[Profile] = &[
     Profile {
@@ -105,6 +158,7 @@ pub const PROFILES: &[Profile] = &[
         summary: "A 1-bit 320x240 panel, such as an SSD130x OLED or a memory LCD",
         why: "A 1-bit panel lights a pixel or does not, so a bitmap font drawn whole fits it exactly, and Unscii-8 at 8x8 gives the same 40x30 cells as the color profile. #135 maps each cell's colors to lit or unlit.",
         conf: "",
+        panel: None,
     },
     Profile {
         name: "320x240",
@@ -119,6 +173,52 @@ pub const PROFILES: &[Profile] = &[
         summary: "minspec's display floor, a 320x240 SPI panel",
         why: UNSCII_WHY,
         conf: "# vtium's defaults: font-size=0 picks 8 pixels here (#118), which\n# draws the built-in Unscii-8 (ADR-1200 D7).\nfont-size=0\n",
+        panel: None,
+    },
+    Profile {
+        name: "320x240-gray4",
+        width: 320,
+        height: 240,
+        depth: "gray4, simulated",
+        class: "gray panel",
+        glyphs: Glyphs::Builtin {
+            set: "unscii-8",
+            height: 8,
+        },
+        summary: "A 320x240 panel of 4 gray levels, as st7586 drives",
+        why: GRAY_WHY,
+        conf: "# vtium's defaults: font-size=0 picks 8 pixels here (#118), which\n# draws the built-in Unscii-8 (ADR-1200 D7). The panel converts.\nfont-size=0\n",
+        panel: Some(Panel::St7586),
+    },
+    Profile {
+        name: "320x240-gray16",
+        width: 320,
+        height: 240,
+        depth: "gray16, simulated",
+        class: "gray panel",
+        glyphs: Glyphs::Builtin {
+            set: "unscii-8",
+            height: 8,
+        },
+        summary: "A 320x240 panel of 16 gray levels, as the SSD132x panels take",
+        why: GRAY_WHY,
+        conf: "# vtium's defaults: font-size=0 picks 8 pixels here (#118), which\n# draws the built-in Unscii-8 (ADR-1200 D7). The panel converts.\nfont-size=0\n",
+        panel: Some(Panel::Ssd132x),
+    },
+    Profile {
+        name: "640x480-gray16",
+        width: 640,
+        height: 480,
+        depth: "gray16, simulated",
+        class: "gray panel",
+        glyphs: Glyphs::Builtin {
+            set: "unifont",
+            height: 16,
+        },
+        summary: "A 640x480 panel of 16 gray levels, as the SSD132x panels take",
+        why: GRAY_WHY,
+        conf: "# vtium's defaults: font-size=0 picks 16 pixels here, which draws\n# the built-in unifont (ADR-1200 D7). The panel converts.\nfont-size=0\n",
+        panel: Some(Panel::Ssd132x),
     },
     Profile {
         name: "480x320",
@@ -133,6 +233,7 @@ pub const PROFILES: &[Profile] = &[
         summary: "A 480x320 SPI panel, 3.5 inches",
         why: UNSCII_WHY,
         conf: "# vtium's defaults: font-size=0 picks 8 pixels here (#118), which\n# draws the built-in Unscii-8 (ADR-1200 D7).\nfont-size=0\n",
+        panel: None,
     },
     Profile {
         name: "640x480",
@@ -147,6 +248,7 @@ pub const PROFILES: &[Profile] = &[
         summary: "VGA, the smallest display with 80 columns of 16-pixel text",
         why: UNIFONT_WHY,
         conf: "# vtium's defaults: font-size=0 picks 16 pixels here, which draws\n# the built-in unifont (ADR-1200 D7).\nfont-size=0\n",
+        panel: None,
     },
     Profile {
         name: "800x480",
@@ -161,6 +263,7 @@ pub const PROFILES: &[Profile] = &[
         summary: "A 7-inch panel, as on the Raspberry Pi touch display",
         why: UNIFONT_WHY,
         conf: "# vtium's defaults: font-size=0 picks 16 pixels here, which draws\n# the built-in unifont (ADR-1200 D7).\nfont-size=0\n",
+        panel: None,
     },
     Profile {
         name: "1366x768",
@@ -175,6 +278,7 @@ pub const PROFILES: &[Profile] = &[
         summary: "A common laptop panel",
         why: "`font-size=0` asks 19 pixels here, and a bitmap set draws at the largest whole multiple of its cell that fits (ADR-1200 D9), so the built-in unifont (D7) draws at 16 pixels, 170x48 cells, and the whole card fits one page. 19 pixels is under 24, the smallest outline size D11 builds, so a default machine holds no outline set for this display. Emoji draw as unifont's monochrome glyphs where it has one, and Nerd Font symbols as the missing glyph until #23 and #64 draw them from an outline font.",
         conf: "# vtium's defaults: font-size=0 asks 19 pixels here, and unifont\n# draws at 16, its largest whole multiple that fits (ADR-1200 D9).\nfont-size=0\n",
+        panel: None,
     },
     Profile {
         name: "1920x1080",
@@ -189,6 +293,7 @@ pub const PROFILES: &[Profile] = &[
         summary: "A full HD monitor",
         why: "ADR-1200 D11 builds one outline size for the display the package hook sees, snapped down to 24, 32 or 48 pixels: 1920x1080 gives 24, a grid of 160x45, with unifont filling the outline font's gaps.",
         conf: "",
+        panel: None,
     },
     Profile {
         name: "2560x1440",
@@ -203,6 +308,7 @@ pub const PROFILES: &[Profile] = &[
         summary: "A QHD monitor",
         why: "ADR-1200 D11 snaps the size this display wants down to 32 pixels, a grid of 160x45, with unifont filling the outline font's gaps.",
         conf: "",
+        panel: None,
     },
 ];
 
@@ -232,6 +338,21 @@ mod tests {
         );
         assert_eq!(Layout::new(39, 30), None);
         assert_eq!(Layout::new(40, 29), None);
+    }
+
+    // BT.601 luma by the kernel's integers, then the panel's top bits:
+    // pure red is gray8 76 (19635 / 256), level 1 of 4 and 4 of 16; pure
+    // green 149, level 9 of 16.
+    #[test]
+    fn a_gray_panel_keeps_the_top_bits_of_bt601_luma() {
+        assert_eq!(Panel::St7586.show([255, 0, 0]), 85);
+        assert_eq!(Panel::Ssd132x.show([255, 0, 0]), 68);
+        assert_eq!(Panel::St7586.show([127, 127, 127]), 85);
+        assert_eq!(Panel::Ssd132x.show([127, 127, 127]), 119);
+        assert_eq!(Panel::St7586.show([255, 255, 255]), 255);
+        assert_eq!(Panel::Ssd132x.show([255, 255, 255]), 255);
+        assert_eq!(Panel::St7586.show([0, 0, 0]), 0);
+        assert_eq!(Panel::Ssd132x.show([0, 255, 0]), 153);
     }
 
     #[test]
