@@ -107,11 +107,15 @@ fn main() -> ExitCode {
 }
 
 fn run_kernel(config: config::Config, start: Start, path: &Path) -> io::Result<i32> {
-    let (tty, num) = Tty::open(path)?;
+    let path = path.to_owned();
     run(
         config,
         start,
+        // The VT opens once the loop blocks its signals: `vtium blank`
+        // finds a vtium by its open VT, and its signal at the default
+        // disposition would end vtium.
         Box::new(move |lp| {
+            let (tty, num) = Tty::open(&path)?;
             let vt = KernelVt::new(lp, tty, num, |app: &mut App| app.vt.get::<KernelVt<Tty>>())?;
             let restore = vt.restorer()?;
             vtium::hook::restore_first(move || restore.run());
