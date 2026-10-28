@@ -263,7 +263,7 @@ A minor version adds sections or fields a reader skips. A major version is a cha
 - The hash is SHA-256, so `sha256sum` checks a set by hand against its row. Whether vtium-font writes it or takes a crate is the implementing issue's choice, measured against the binary's budget.
 - `create` and `install` write under the lock: the set to a temporary file in the store, synced and renamed to `<sha256>.vtglass`; then the manifest the same way, then the directory synced, then the set files no row names removed. A console that read the old manifest finds its old file, or, if it is gone, reads the manifest once more.
 
-> Edited 2026-10-28: the operator renamed a built set's extension so it matches the `VTGLASS` magic and is not a generic one. D3's first and last bullets and the figure's portable file read `.glass`.
+> Edited 2026-10-28: the operator renamed a built set's extension from `.glass` to `.vtglass`.
 
 ### D4: `vtium-vitrify`, its own binary in the install tree
 

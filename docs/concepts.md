@@ -105,7 +105,7 @@ The other VT's owner can be a desktop, a getty or another vtium.
 
 ## Fonts as vitrified sets
 
-This section describes the design ADR-1200 decides (accepted 2026-10-28, vtium/vtium#3), with the preview of vtium/vtium#120 and the guided builder of vtium/vtium#121; none of it is built yet. Today vtium draws GNU Unifont, compiled in, and reads PSF bitmap console fonts from a path.
+This section describes the design ADR-1200 decides (accepted 2026-10-28, vtium/vtium#3), with the preview of vtium/vtium#120 and the guided builder of vtium/vtium#121. The set format, the console's reader, the store check and the built-in sets are built (vtium/vtium#124); vtium-vitrify (vtium/vtium#125) and set selection (vtium/vtium#126) are not yet, so vtium draws the built-in unifont set and reads PSF bitmap console fonts from a path.
 
 In the design, fonts reach the console already prepared. A **vitrified set** is a font baked into one file of ready-to-draw glyph bitmaps at fixed cell sizes, with its map from Unicode characters to glyphs, its metrics and its provenance. The console only reads sets: it parses no font format and turns no outline into pixels, and a chunk a set stores deflated is inflated, with the inflate the console already carries, when that chunk is first drawn. A set is drawn at its baked sizes and whole multiples of them, and the console holds in memory only the chunks of glyphs it has drawn.
 
