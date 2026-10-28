@@ -76,12 +76,20 @@ arm-test: arm-sysroot ## Run the workspace's tests for each ARM target under qem
 .PHONY: conformance
 conformance: ## Judge vtium against tier 1's goldens
 	cargo build --release -p vtium-conformance --bins
-	target/release/conformance run
+	$(or $(CARGO_TARGET_DIR),target)/release/conformance run
 
 .PHONY: conformance-probes
 conformance-probes: ## Run the capability probes through vtium-replay
 	cargo build --release -p vtium-conformance --bins
-	target/release/conformance probes
+	$(or $(CARGO_TARGET_DIR),target)/release/conformance probes
+
+# Records real programs through a pty with this machine's bash, less, vim
+# and tmux; not a gate.
+.PHONY: conformance-record
+conformance-record: ## Record the corpus's programs into OUT=DIR, each <name>.bin and <name>.cuts (NAMES='prog-shell ...', default all)
+	$(if $(OUT),,$(error conformance-record needs OUT=DIR))
+	cargo build --release -p vtium-conformance --features record --bin conformance-record
+	$(or $(CARGO_TARGET_DIR),target)/release/conformance-record $(OUT) $(NAMES)
 
 # The parse oracle and the provenance check read libtsm and kmscon
 # checkouts; neither is a gate.
@@ -90,7 +98,7 @@ LIBTSM ?= ../libtsm
 .PHONY: conformance-provenance
 conformance-provenance: ## Check each row of tools/conformance/provenance.tsv against its source with git show (LIBTSM=DIR KMSCON=DIR)
 	cargo build --release -p vtium-conformance --bins
-	target/release/conformance provenance --libtsm $(LIBTSM) --kmscon $(KMSCON)
+	$(or $(CARGO_TARGET_DIR),target)/release/conformance provenance --libtsm $(LIBTSM) --kmscon $(KMSCON)
 
 .PHONY: parse-oracle
 parse-oracle: ## Compare vtium-parse with the C reference's parser at tools/parse-oracle/pin.tsv (LIBTSM=DIR; needs gcc)
@@ -99,7 +107,7 @@ parse-oracle: ## Compare vtium-parse with the C reference's parser at tools/pars
 .PHONY: conformance-issues
 conformance-issues: ## Check that every issue the conformance lists say owes a case or a capability is open (needs gh)
 	cargo build --release -p vtium-conformance --bins
-	target/release/conformance issues
+	$(or $(CARGO_TARGET_DIR),target)/release/conformance issues
 
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
