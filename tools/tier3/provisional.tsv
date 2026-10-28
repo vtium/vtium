@@ -2,15 +2,3 @@
 # golden under goldens/, and why. A case compared with a provisional golden
 # is drawn and compared, and its difference is noted but does not fail the
 # run; the row goes when the operator accepts the golden.
-2d-320x240-psf8/small-console	vtium's own capture (vtium/vtium#75), awaiting the operator's review
-2d-320x240-psf8/sgr	vtium's own capture (vtium/vtium#75), awaiting the operator's review
-2d-320x240-psf8/boxdraw	vtium's own capture (vtium/vtium#75), awaiting the operator's review
-2d-320x240-psf8/underline-styles	vtium's own capture (vtium/vtium#75), awaiting the operator's review
-2d-320x240-psf8/wide-margin	vtium's own capture (vtium/vtium#75), awaiting the operator's review
-2d-320x240-psf8/cjk	vtium's own capture (vtium/vtium#75), awaiting the operator's review
-2d-640x480-psf16/small-console	vtium's own capture (vtium/vtium#75), awaiting the operator's review
-2d-640x480-psf16/sgr	vtium's own capture (vtium/vtium#75), awaiting the operator's review
-2d-640x480-psf16/boxdraw	vtium's own capture (vtium/vtium#75), awaiting the operator's review
-2d-640x480-psf16/underline-styles	vtium's own capture (vtium/vtium#75), awaiting the operator's review
-2d-640x480-psf16/wide-margin	vtium's own capture (vtium/vtium#75), awaiting the operator's review
-2d-640x480-psf16/cjk	vtium's own capture (vtium/vtium#75), awaiting the operator's review
