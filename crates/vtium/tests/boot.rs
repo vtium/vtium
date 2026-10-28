@@ -3457,7 +3457,7 @@ fn osc_50_leaves_the_font_for_a_set_that_fails_the_stores_check() {
         "\\033]50;tiny\\007",
         tampered("osc50-tampered"),
     );
-    assert_eq!(h.app.font_name(), "unifont");
+    assert_eq!(h.app.font_name(), "unscii-8");
     assert_eq!(h.app.cells(), [(8, 8)]);
 }
 
