@@ -371,3 +371,91 @@ fn a_scaled_shade_fills_its_cell_at_1_bit() {
     let q = [lit_in(0, 0), lit_in(8, 0), lit_in(0, 16), lit_in(8, 16)];
     assert_eq!(q, [32; 4]);
 }
+
+/// The lit pixels of each of `s`'s first `n` cells in row 0, drawn at 1
+/// bit with `state`'s pointer.
+fn lit_cells(
+    s: &Screen,
+    frame: &vtium_term::Frame<'_>,
+    n: u32,
+    pointer: Option<(u32, u32)>,
+) -> Vec<usize> {
+    let (w, h) = (s.cols as u32 * 8 + 4, s.rows as u32 * 16 + 4);
+    let mut r = Renderer::new(unifont(), w, h, one());
+    let mut c = Canvas::new(w, h, 0x12_3456);
+    let state = DrawState {
+        background: s.palette.bg(),
+        pointer,
+        ..DrawState::default()
+    };
+    r.draw(frame, &mut c, 0, &state);
+    bits_only(&c);
+    (0..n).map(|col| lit(&c, col, 0)).collect()
+}
+
+// SGR 2's half-way color is no background: dim text is lit as plain text
+#[test]
+fn dim_text_at_1_bit_is_plain_lit_text() {
+    let bg = rgb(BG);
+    let mut s = Screen::new(2, 1, rgb("c0c0c0"), bg);
+    s.text(0, 0, "H", style(rgb("c0c0c0"), bg));
+    let mut dim = style(rgb("c0c0c0"), bg);
+    dim.attrs = Attrs::DIM;
+    s.text(1, 0, "H", dim);
+    let got = lit_cells(&s, &s.frame(Age::NEVER), 2, None);
+    assert!(got[0] > 10, "{got:?}");
+    assert_eq!(got[0], got[1]);
+}
+
+// the selection's cells are lit with their glyphs unlit, in its own
+// colors (OSC 17 and 19) and inverted alike
+#[test]
+fn the_selection_at_1_bit_is_lit_with_its_glyphs_unlit() {
+    use std::ops::Range;
+    use vtium_term::Special;
+    let bg = rgb(BG);
+    let mut s = Screen::new(3, 1, rgb("c0c0c0"), bg);
+    s.text(0, 0, "HHH", style(rgb("c0c0c0"), bg));
+    let frame = s
+        .frame(Age::NEVER)
+        .with_selection(vec![Range { start: 1, end: 2 }]);
+    let plain = lit_cells(&s, &frame, 3, None);
+    assert_eq!(plain[1], 128 - plain[0], "{plain:?}");
+    assert_eq!(plain[2], plain[0]);
+    s.palette
+        .set_special(Special::SelectionBg, Some(rgb("0000ff")));
+    s.palette
+        .set_special(Special::SelectionFg, Some(rgb("ffff00")));
+    let frame = s
+        .frame(Age::NEVER)
+        .with_selection(vec![Range { start: 1, end: 2 }]);
+    assert_eq!(lit_cells(&s, &frame, 3, None), plain);
+}
+
+// the pointer's outline is cut to black and its fill stays white, over a
+// lit cell and an unlit one
+#[test]
+fn the_pointer_at_1_bit_is_white_in_a_black_outline() {
+    let bg = rgb(BG);
+    let mut s = Screen::new(4, 2, rgb("c0c0c0"), bg);
+    let mut rev = style(rgb("c0c0c0"), bg);
+    rev.attrs = Attrs::INVERSE;
+    s.text(0, 0, "    ", rev);
+    let without = lit_cells(&s, &s.frame(Age::NEVER), 2, None);
+    assert_eq!(without, [128, 128]);
+    // over the lit row the outline darkens pixels
+    let over_lit = lit_cells(&s, &s.frame(Age::NEVER), 2, Some((4, 4)));
+    assert!(over_lit[0] < 128 || over_lit[1] < 128, "{over_lit:?}");
+    // over the unlit row the fill lights pixels
+    let (w, h) = (36, 36);
+    let mut r = Renderer::new(unifont(), w, h, one());
+    let mut c = Canvas::new(w, h, 0);
+    let state = DrawState {
+        background: s.palette.bg(),
+        pointer: Some((4, 20)),
+        ..DrawState::default()
+    };
+    r.draw(&s.frame(Age::NEVER), &mut c, 0, &state);
+    bits_only(&c);
+    assert!(lit(&c, 0, 1) > 0, "the arrow's fill over an unlit cell");
+}

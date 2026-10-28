@@ -296,6 +296,98 @@ fn a_device_that_takes_true_color_is_not_1_bit() {
     assert_eq!(v.levels(DISPLAY), None);
 }
 
+/// The bytes of `lines` lines `stride` long packing `px`, `width` pixels
+/// a line lit where white, as the kernel orders them: the reference the
+/// packing is held to.
+fn reference(px: &[u32], width: usize, stride: usize, visual: u32, nonstd: u32) -> Vec<u8> {
+    let msb = cfg!(target_endian = "big") != (nonstd & FB_NONSTD_REV_PIX_IN_B != 0);
+    let mut out = vec![0u8; stride * (px.len() / width)];
+    for (i, &p) in px.iter().enumerate() {
+        let (x, y) = (i % width, i / width);
+        let lit = p == W;
+        if lit == (visual == FB_VISUAL_MONO10) {
+            out[y * stride + x / 8] |= if msb { 0x80 >> (x % 8) } else { 1 << (x % 8) };
+        }
+    }
+    out
+}
+
+// Each visual and order at odd widths, under random partial damage: the
+// bytes the damage touches match the reference, and the rest keep their
+// last value (the review's case).
+#[test]
+fn packing_at_odd_widths_under_partial_damage_matches_the_reference() {
+    let cases = [
+        (FB_VISUAL_MONO10, 0),
+        (FB_VISUAL_MONO01, 0),
+        (FB_VISUAL_MONO10, FB_NONSTD_REV_PIX_IN_B),
+    ];
+    for (visual, nonstd) in cases {
+        for width in [1u32, 7, 9, 13, 17] {
+            let mut fb = FakeFb::new(1);
+            fb.visual = visual;
+            fb.depths = vec![1];
+            {
+                let mut var = fb.var.borrow_mut();
+                var.nonstd = nonstd;
+                var.xres = width;
+                var.xres_virtual = width;
+            }
+            let mut v = awake(fb);
+            let (w, stride) = (width as usize, (width / 8 + 8) as usize);
+            let mut seed = 12345u32 ^ width;
+            let mut rnd = || {
+                seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12345);
+                seed >> 16
+            };
+            let mut px = vec![0u32; w * 3];
+            let mut before: Option<Vec<u8>> = None;
+            for round in 0..40 {
+                let canvas = v.canvas(DISPLAY).unwrap();
+                for (i, p) in px.iter_mut().enumerate() {
+                    *p = if rnd() & 1 == 1 { W } else { 0 };
+                    canvas.pixels[i * 4..i * 4 + 4].copy_from_slice(&p.to_ne_bytes());
+                }
+                let damage = if round == 0 {
+                    Rect {
+                        x: 0,
+                        y: 0,
+                        width,
+                        height: 3,
+                    }
+                } else {
+                    let (x, y) = (rnd() % width, rnd() % 3);
+                    Rect {
+                        x,
+                        y,
+                        width: 1 + rnd() % (width - x),
+                        height: 1 + rnd() % (3 - y),
+                    }
+                };
+                v.swap(DISPLAY, &[damage]).unwrap();
+                let got = map(&mut v)[..stride * 3].to_vec();
+                let want = reference(&px, w, stride, visual, nonstd);
+                let bytes = damage.x / 8..(damage.x + damage.width).div_ceil(8);
+                for y in 0..3u32 {
+                    for b in 0..width.div_ceil(8) {
+                        let i = y as usize * stride + b as usize;
+                        let rows = damage.y..damage.y + damage.height;
+                        let at = format!(
+                            "visual {visual} order {nonstd} width {width} round {round} line {y} byte {b}"
+                        );
+                        if rows.contains(&y) && bytes.contains(&b) {
+                            assert_eq!(got[i], want[i], "{at}");
+                        } else if let Some(p) = &before {
+                            assert_eq!(got[i], p[i], "untouched: {at}");
+                        }
+                    }
+                }
+                before = Some(got);
+            }
+        }
+    }
+}
+
 #[test]
 fn sleep_clears_and_unmaps_and_waking_asks_for_a_redraw() {
     let mut v = awake(FakeFb::new(32));
