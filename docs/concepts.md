@@ -32,12 +32,12 @@ vtium is one console and a few programs and files around it. The table lists eac
 | `vtium blank`, `vtium wake` | Blank or wake a VT's displays from outside its session | root | proposed | vtium/vtium#116 |
 | `vtium-vitrify preview` | Draws a sample of a font as a set would, building nothing | the user | proposed | vtium/vtium#120 |
 | `vtium-vitrify new` | The guided builder, and the templates it writes and reads, which end in a frit | the user, with sudo once at the end | proposed | vtium/vtium#121 |
-| `vtium-vitrify create` | Builds a set from a frit: into the store on the target, or as a portable file elsewhere | root or a package hook on the target; any user elsewhere | proposed | vtium/vtium#3 |
-| `vtium-vitrify install` | Checks a portable set and adds it to the store | root or a package hook | proposed | vtium/vtium#3 |
-| `vtium-vitrify list`, `verify`, `remove` | Lists the built sets, runs the console's check on them, drops one | anyone; `remove` root | proposed | vtium/vtium#3 |
+| `vtium-vitrify create` | Builds a set from a frit: into the store on the target, or as a portable file elsewhere | root or a package hook on the target; any user elsewhere | built, first slice: PSF sources | vtium/vtium#125 |
+| `vtium-vitrify install` | Checks a portable set and adds it to the store | root or a package hook | built, first slice: PSF sources | vtium/vtium#125 |
+| `vtium-vitrify list`, `verify`, `remove` | Lists the built sets, runs the console's check on them, drops one | anyone; `remove` root | built, first slice: PSF sources | vtium/vtium#125 |
 | `vtium-vitrify set` | Switches the running console among built sets | the user, in the session | proposed | vtium/vtium#3 |
 | `vtium-clipboard`, also `vticlip` | Copies to the console's selection from a script or a pipe | the user, in the session | proposed; copy decided, paste open | vtium/vtium#113 |
-| The frits and the store | Frits that declare sets, and the built sets with a manifest of their hashes | written by root | the store and its check built; frits wait for vtium-vitrify (#125) | vtium/vtium#3 |
+| The frits and the store | Frits that declare sets, and the built sets with a manifest of their hashes | written by root | the store and its check built; frits built by vtium-vitrify's first slice (#125) | vtium/vtium#3 |
 | The built-in sets | Unifont, and Unscii-8 for small displays, compiled into vtium as the fallback and the template every set follows | inside `vtium` | Unifont and Unscii-8 built in as sets; the console draws unifont, and choosing Unscii-8 for small cells waits for set selection | vtium/vtium#3 |
 | The configuration | One file, a file for the seat, and the command line | written by root, read by `vtium` | built | [config.md](config.md) |
 | The unit | systemd's service for vtium on a VT, in getty's place | started by logind | built | [systemd.md](systemd.md) |
@@ -109,7 +109,7 @@ This section describes the design ADR-1200 decides (accepted 2026-10-28, vtium/v
 
 In the design, fonts reach the console already prepared. A **vitrified set** is a font baked into one file of ready-to-draw glyph bitmaps at fixed cell sizes, with its map from Unicode characters to glyphs, its metrics and its provenance. The console only reads sets: it parses no font format and turns no outline into pixels, and a chunk a set stores deflated is inflated, with the inflate the console already carries, when that chunk is first drawn. A set is drawn at its baked sizes and whole multiples of them, and the console holds in memory only the chunks of glyphs it has drawn.
 
-The figure follows a set from choosing a font to the console. Each command is vtium-vitrify's, and only vtium is built; the rest is proposed and drawn dashed.
+The figure follows a set from choosing a font to the console. Each command is vtium-vitrify's. vtium and vtium-vitrify's `create`, `install`, `list`, `verify` and `remove` are built, for PSF sources; the rest is proposed and drawn dashed.
 
 ```mermaid
 flowchart LR

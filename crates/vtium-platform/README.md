@@ -1,6 +1,6 @@
 # vtium-platform
 
-vtium's platform layer: everything that touches the kernel and the session. This crate holds the pty, the event loop, the displays (vtium/vtium#18), and the VT, the seat's devices through udev and the keyboards and pointers (vtium/vtium#19), all in one loop. Syscalls go through rustix (vtium/vtium#6), so descriptors are owned values and errors are `Result`s; DRM's ioctls go through `drm-ffi`, keys through libxkbcommon and the device monitor through libudev, the two C libraries at the crate's boundary. The crate denies `unsafe_code`, and each site that needs it carries an `#[expect]` with its reason and a SAFETY comment: the ioctls in `src/ioctl.rs`, the mmap in `src/mmap.rs` and the pty's pre-exec hook. The pty and the event loop face the child's output, so the crate also denies the determinism lints vtium-parse denies.
+vtium's platform layer: everything that touches the kernel and the session. This crate holds the pty, the event loop, the displays (vtium/vtium#18), and the VT, the seat's devices through udev and the keyboards and pointers (vtium/vtium#19), all in one loop. Syscalls go through rustix (vtium/vtium#6), so descriptors are owned values and errors are `Result`s; DRM's ioctls go through `drm-ffi`, keys through libxkbcommon and the device monitor through libudev, the two C libraries at the crate's boundary. The crate denies `unsafe_code`, and each site that needs it carries an `#[expect]` with its reason and a SAFETY comment: the ioctls in `src/ioctl.rs` and the console font's in `src/vt/font.rs`, the mmap in `src/mmap.rs` and the pty's pre-exec hook. The pty and the event loop face the child's output, so the crate also denies the determinism lints vtium-parse denies.
 
 | Path | What it is |
 |---|---|
@@ -25,6 +25,7 @@ vtium's platform layer: everything that touches the kernel and the session. This
 | `src/vt/kernel.rs` | `KernelVt`: the kernel's VT behind the guard that restores it, its signals, its keys, its tty and the VT shown; `Restore` for a panic hook. |
 | `src/vt/shown.rs` | tty0's `active`: the VT the kernel shows, opened, read from its start and parsed. |
 | `src/vt/tty.rs` | `Tty`: a VT's tty through the VT and keyboard ioctls, and the VT to use when none is configured. |
+| `src/vt/font.rs` | The console font's ioctls, `KDFONTOP` and `GIO_UNIMAP`, behind a trait so vtium-vitrify's `console:` source is tested against a stand-in kernel. |
 | `src/vt/fake_vt.rs` | `FakeVt`: the VT of a system without kernel VTs. |
 | `src/vt/fake.rs` | The stand-in VT: each call recorded, the modes it leaves, and failures planted where a test wants them. |
 | `src/vt/tests.rs` | The VT against the stand-in: the modes left on every exit, a failed setup's included, the release and acquire, the VT shown, the switch keys, a hangup and the fake VT. |
