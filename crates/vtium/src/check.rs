@@ -98,6 +98,7 @@ fn semantics_under(config: &Config, status: &Result<String, String>, signal: i32
 pub fn warnings(loaded: &Loaded) -> Vec<String> {
     let mut out: Vec<String> = loaded.reports.iter().map(ToString::to_string).collect();
     out.extend(semantics(&loaded.config));
+    out.extend(crate::config::budget::memory_warning());
     out
 }
 

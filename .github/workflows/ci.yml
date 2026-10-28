@@ -86,6 +86,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: vtium
+      # libudev and libxkbcommon, which vtium-platform links through
+      # vtium-vitrify, the tool that vitrifies the test fonts
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev
       - uses: dtolnay/rust-toolchain@stable
       - run: make tier2
         working-directory: vtium

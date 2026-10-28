@@ -57,7 +57,7 @@ fn screen() -> Screen {
     s.text(0, 0, "H", style(rgb("ff0000"), bg));
     // dark blue on the default background
     s.text(1, 0, "H", style(rgb("00002a"), bg));
-    // a colored background: lit, its glyph unlit
+    // a dark colored background: unlit like the default, its glyph lit
     s.text(2, 0, "H", style(rgb("ffff00"), rgb("0000ff")));
     // a foreground equal to its background: invisible
     s.text(3, 0, "H", style(bg, bg));
@@ -96,8 +96,8 @@ fn colors_map_to_lit_or_unlit_by_cell() {
     // text on the default background, red and dark blue alike
     assert_eq!(lit(&c, 0, 0), glyph);
     assert_eq!(lit(&c, 1, 0), glyph);
-    // a colored background lit, its glyph unlit
-    assert_eq!(lit(&c, 2, 0), 128 - glyph);
+    // a dark colored background unlit, its glyph lit
+    assert_eq!(lit(&c, 2, 0), glyph);
     // a foreground equal to its background: none, or all on a colored one
     assert_eq!(lit(&c, 3, 0), 0);
     assert_eq!(lit(&c, 4, 0), 128);
@@ -407,29 +407,97 @@ fn dim_text_at_1_bit_is_plain_lit_text() {
     assert_eq!(got[0], got[1]);
 }
 
-// the selection's cells are lit with their glyphs unlit, in its own
-// colors (OSC 17 and 19) and inverted alike
+// the operator's decision (2026-10-28): what vtium draws to mark state,
+// the selection and the cursor, inverts the cell's lit state at 1 bit,
+// whatever its colors, on either theme
 #[test]
-fn the_selection_at_1_bit_is_lit_with_its_glyphs_unlit() {
+fn the_selection_at_1_bit_inverts_the_cell() {
     use std::ops::Range;
     use vtium_term::Special;
-    let bg = rgb(BG);
-    let mut s = Screen::new(3, 1, rgb("c0c0c0"), bg);
-    s.text(0, 0, "HHH", style(rgb("c0c0c0"), bg));
-    let frame = s
-        .frame(Age::NEVER)
-        .with_selection(vec![Range { start: 1, end: 2 }]);
-    let plain = lit_cells(&s, &frame, 3, None);
-    assert_eq!(plain[1], 128 - plain[0], "{plain:?}");
-    assert_eq!(plain[2], plain[0]);
-    s.palette
-        .set_special(Special::SelectionBg, Some(rgb("0000ff")));
-    s.palette
-        .set_special(Special::SelectionFg, Some(rgb("ffff00")));
-    let frame = s
-        .frame(Age::NEVER)
-        .with_selection(vec![Range { start: 1, end: 2 }]);
-    assert_eq!(lit_cells(&s, &frame, 3, None), plain);
+    for (theme_bg, theme_fg) in [("101010", "c0c0c0"), ("f0f0f0", "202020")] {
+        let (bg, fg) = (rgb(theme_bg), rgb(theme_fg));
+        let mut s = Screen::new(3, 1, fg, bg);
+        s.text(0, 0, "HHH", style(fg, bg));
+        let sel = || vec![Range { start: 1, end: 2 }];
+        let plain = lit_cells(&s, &s.frame(Age::NEVER), 3, None);
+        assert_eq!(plain[2], plain[0], "{theme_bg}");
+        let inverted = lit_cells(&s, &s.frame(Age::NEVER).with_selection(sel()), 3, None);
+        assert_eq!(
+            inverted[1],
+            128 - plain[0],
+            "inverted, {theme_bg}: {inverted:?}"
+        );
+        for (sel_bg, sel_fg) in [
+            ("0000ff", "ffff00"),
+            ("ffff00", "0000ff"),
+            (theme_bg, theme_fg),
+        ] {
+            s.palette
+                .set_special(Special::SelectionBg, Some(rgb(sel_bg)));
+            s.palette
+                .set_special(Special::SelectionFg, Some(rgb(sel_fg)));
+            let got = lit_cells(&s, &s.frame(Age::NEVER).with_selection(sel()), 3, None);
+            assert_eq!(got[1], 128 - plain[0], "{sel_bg} on {theme_bg}: {got:?}");
+            assert_eq!((got[0], got[2]), (plain[0], plain[2]));
+        }
+    }
+}
+
+// reverse video inverts the cell it would draw unreversed, so dark blue
+// text on the dark default background, reversed, still shows
+#[test]
+fn reverse_video_at_1_bit_inverts_the_cell() {
+    for (theme_bg, theme_fg, ink) in [
+        ("101010", "c0c0c0", "000040"),
+        ("f0f0f0", "202020", "ffffc0"),
+    ] {
+        let (bg, fg) = (rgb(theme_bg), rgb(theme_fg));
+        let mut s = Screen::new(2, 1, fg, bg);
+        s.text(0, 0, "H", style(rgb(ink), bg));
+        let mut rev = style(rgb(ink), bg);
+        rev.attrs = Attrs::INVERSE;
+        s.text(1, 0, "H", rev);
+        let got = lit_cells(&s, &s.frame(Age::NEVER), 2, None);
+        assert_eq!(got[1], 128 - got[0], "{ink} on {theme_bg}: {got:?}");
+    }
+}
+
+// a block cursor inverts its cell, whatever its color
+#[test]
+fn a_block_cursor_at_1_bit_inverts_its_cell() {
+    use vtium_term::{Cursor, CursorShape};
+    for (theme_bg, theme_fg) in [("101010", "c0c0c0"), ("f0f0f0", "202020")] {
+        let (bg, fg) = (rgb(theme_bg), rgb(theme_fg));
+        for color in [
+            None,
+            Some(rgb(theme_bg)),
+            Some(rgb("000080")),
+            Some(rgb("ffff80")),
+        ] {
+            let mut s = Screen::new(2, 1, fg, bg);
+            s.text(0, 0, "HH", style(fg, bg));
+            s.cursor = Cursor {
+                row: 0,
+                col: 1,
+                visible: true,
+                shape: CursorShape::Block,
+                color,
+                ..Cursor::default()
+            };
+            let (w, h) = (20, 20);
+            let mut r = Renderer::new(unifont(), w, h, one());
+            let mut c = Canvas::new(w, h, 0x12_3456);
+            let state = DrawState {
+                background: bg,
+                cursor_on: true,
+                ..DrawState::default()
+            };
+            r.draw(&s.frame(Age::NEVER), &mut c, 0, &state);
+            bits_only(&c);
+            let (a, b) = (lit(&c, 0, 0), lit(&c, 1, 0));
+            assert_eq!(b, 128 - a, "{color:?} on {theme_bg}: {a} {b}");
+        }
+    }
 }
 
 // the pointer's outline is cut to black and its fill stays white, over a
@@ -460,23 +528,27 @@ fn the_pointer_at_1_bit_is_white_in_a_black_outline() {
     assert!(lit(&c, 0, 1) > 0, "the arrow's fill over an unlit cell");
 }
 
-// the operator's decision (2026-10-28): at 1 bit polarity follows the
-// default background, light by the kernel's own cut, luma 128 and above.
-// A light theme lights the screen and leaves its default text unlit; a
-// colored background flips from the screen's polarity under either.
+// the operator's decisions (2026-10-28): at 1 bit the screen follows the
+// default background, and every cell's background is lit or unlit by the
+// same cut, BT.601 luma 128 and above, so a background on the default's
+// side draws like the default and one on the other side flips. Text is its
+// background's opposite, invisible only where it equals the background.
 #[test]
 fn a_light_theme_at_1_bit_is_dark_text_on_a_lit_screen() {
     for (theme_bg, theme_fg, screen) in [("f0f0f0", "202020", 128), ("101010", "c0c0c0", 0)] {
         let (bg, fg) = (rgb(theme_bg), rgb(theme_fg));
-        let mut s = Screen::new(4, 1, fg, bg);
-        // default text, red text, text on blue, and a blank default cell
+        let mut s = Screen::new(7, 1, fg, bg);
+        // default text, red text, a blank default cell, black on white,
+        // white on black, yellow on blue, and dark text on dark blue
         s.text(0, 0, "H", style(fg, bg));
         s.text(1, 0, "H", style(rgb("ff0000"), bg));
-        s.text(2, 0, "H", style(rgb("ffff00"), rgb("0000ff")));
-        s.text(3, 0, " ", style(fg, bg));
+        s.text(2, 0, " ", style(fg, bg));
+        s.text(3, 0, "H", style(rgb("000000"), rgb("ffffff")));
+        s.text(4, 0, "H", style(rgb("ffffff"), rgb("000000")));
+        s.text(5, 0, "H", style(rgb("ffff00"), rgb("0000ff")));
+        s.text(6, 0, "H", style(rgb("000040"), rgb("0000ff")));
         let c = drawn(&s, one(), false);
-        let blank = lit(&c, 3, 0);
-        assert_eq!(blank, screen, "the blank cell, {theme_bg}");
+        assert_eq!(lit(&c, 2, 0), screen, "the blank cell, {theme_bg}");
         // the text is the screen's opposite: a glyph's pixels flip
         let text = lit(&c, 0, 0);
         assert!(
@@ -484,8 +556,16 @@ fn a_light_theme_at_1_bit_is_dark_text_on_a_lit_screen() {
             "default text, {theme_bg}: {text}"
         );
         assert_eq!(lit(&c, 1, 0), text, "red text, {theme_bg}");
-        // the colored cell flips from the screen
-        assert_eq!(lit(&c, 2, 0), 128 - text, "the blue cell, {theme_bg}");
+        // dark on a lit cell and lit on a dark cell, whatever the theme
+        let (dark_on_lit, lit_on_dark) = (
+            if screen == 128 { text } else { 128 - text },
+            if screen == 0 { text } else { 128 - text },
+        );
+        assert_eq!(lit(&c, 3, 0), dark_on_lit, "black on white, {theme_bg}");
+        assert_eq!(lit(&c, 4, 0), lit_on_dark, "white on black, {theme_bg}");
+        assert_eq!(lit(&c, 5, 0), lit_on_dark, "yellow on blue, {theme_bg}");
+        // text on its background's side still shows, as the opposite
+        assert_eq!(lit(&c, 6, 0), lit_on_dark, "dark blue on blue, {theme_bg}");
         // the border follows the default background
         let border = c.pixel(0, 0);
         assert_eq!(

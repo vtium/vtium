@@ -114,9 +114,13 @@ pub(crate) struct State {
     pub(crate) plane_crtc: BTreeMap<u32, u32>,
     /// The framebuffer each plane shows.
     pub(crate) plane_fb: BTreeMap<u32, u32>,
+    /// The card is this process's DRM master. The open makes it so, as the
+    /// kernel makes the first opener of a card no process holds master of.
     pub(crate) master: bool,
     /// Another process holds master: taking it fails.
     pub(crate) master_elsewhere: bool,
+    /// The times master was let go while held.
+    pub(crate) master_drops: usize,
     pub(crate) commits: Vec<Commit>,
     /// Errors the next commits return, one each.
     pub(crate) commit_errors: VecDeque<Errno>,
@@ -193,7 +197,10 @@ impl Default for FakeCard {
             .set_nonblocking(true)
             .unwrap_or_else(|e| panic!("non-blocking: {e}"));
         FakeCard {
-            state: RefCell::default(),
+            state: RefCell::new(State {
+                master: true,
+                ..State::default()
+            }),
             memory: Memory::default(),
             next: Cell::new(1000),
             names: RefCell::default(),
@@ -390,7 +397,12 @@ impl Kms for FakeCard {
     }
 
     fn drop_master(&self) -> io::Result<()> {
-        self.state.borrow_mut().master = false;
+        let mut s = self.state.borrow_mut();
+        if !s.master {
+            return Err(err(Errno::INVAL));
+        }
+        s.master = false;
+        s.master_drops += 1;
         Ok(())
     }
 

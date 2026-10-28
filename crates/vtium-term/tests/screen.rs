@@ -191,6 +191,7 @@ fn ed_3_empties_the_scrollback() {
     t.screen_mut().scroll_view_up(1);
     t.input(b"\x1b[3J");
     assert_eq!(t.screen().scrollback().len(), 0);
+    assert_eq!(t.screen().scrollback_bytes(), 0);
     assert_eq!(t.screen().scrolled_back(), 0);
     assert_eq!(text(&t), ["3", "4"]);
 }

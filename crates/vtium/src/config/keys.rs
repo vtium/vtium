@@ -6,7 +6,7 @@
 //! fails when either differs, and `VTIUM_BLESS=1` rewrites them.
 
 use vtium_font::CELL_SIDE_MAX;
-use vtium_term::{SB_SIZE_DEFAULT, SB_SIZE_MAX};
+use vtium_term::{SB_MEMORY_DEFAULT, SB_MEMORY_MAX, SB_MEMORY_MIN, SB_SIZE_DEFAULT, SB_SIZE_MAX};
 
 /// The most bytes a text value or a `login` command holds.
 pub const TEXT_MAX: usize = 4095;
@@ -234,6 +234,22 @@ pub const SB_SIZE_CAP: Key = Key {
     reader: "vtium-term",
     what: "The most lines `sb-size` may ask for. Unset, it follows the machine's memory: 10,000 lines below 2 GiB, 30,000 from 2 GiB and 100,000 from 4 GiB.",
     cite: "ADR-1001, \"Scrollback size\"; the operator on vtium/vtium#21",
+};
+
+pub const SB_MEMORY: Key = Key {
+    name: "sb-memory",
+    short: None,
+    kind: Kind::Number {
+        min: SB_MEMORY_MIN as u64,
+        max: SB_MEMORY_MAX as u64,
+        unit: "bytes",
+        word: None,
+    },
+    default: Default::Number(SB_MEMORY_DEFAULT as u64),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "The most bytes the scrollback holds, or KiB, MiB or GiB with `K`, `M` or `G` (`6M`), at most a quarter of the machine's memory, or the default when `/proc/meminfo` cannot be read; its oldest lines go past it, as past `sb-size`. The default keeps the worst scrollback a program can write inside the 16 MiB minspec peak.",
+    cite: "vtium/vtium#131; ADR-1001, \"Memory\"",
 };
 
 pub const BLINK: Key = Key {
@@ -998,7 +1014,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 77] = [
+pub const KEYS: [Key; 78] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1011,6 +1027,7 @@ pub const KEYS: [Key; 77] = [
     BACKSPACE_DELETE,
     SB_SIZE,
     SB_SIZE_CAP,
+    SB_MEMORY,
     BLINK,
     BLINK_TEXT,
     BLINK_DECORATIONS,

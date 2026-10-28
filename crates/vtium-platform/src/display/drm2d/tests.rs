@@ -676,6 +676,48 @@ fn waking_again_sets_the_mode_and_asks_for_a_redraw() {
     assert!(v.card().last_commit().unwrap().flags & DRM_MODE_ATOMIC_ALLOW_MODESET != 0);
 }
 
+// The open makes the card DRM master; the seat puts a card opened while
+// its VT is not shown to sleep, which lets master go for the shown VT's
+// vtium, and the acquire takes it (vtium/vtium#139).
+// covers: platform.vt-switch
+#[test]
+fn a_card_opened_while_the_vt_is_not_shown_lets_master_go_until_the_acquire() {
+    let mut v = one();
+    assert!(v.card().state().master, "the open made the card master");
+    v.sleep();
+    assert_eq!(events(&mut v), [Event::Asleep]);
+    assert!(!v.card().state().master);
+    v.wake_up().unwrap();
+    assert!(v.card().state().master);
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
+}
+
+// A card opened for the shown VT is woken at once and keeps the master
+// its open gave it.
+#[test]
+fn a_card_opened_while_the_vt_is_shown_keeps_master() {
+    let mut v = one();
+    v.wake_up().unwrap();
+    let s = v.card().state();
+    assert!(s.master);
+    assert_eq!(s.master_drops, 0, "master was never let go");
+}
+
+// A card opened while another process holds master, as after the shown
+// VT's vtium took it, sleeps with nothing to let go.
+#[test]
+fn a_card_opened_without_master_sleeps_quietly() {
+    let mut v = one();
+    {
+        let mut s = v.card().state();
+        s.master = false;
+        s.master_elsewhere = true;
+    }
+    v.sleep();
+    assert_eq!(events(&mut v), [Event::Asleep]);
+    assert!(!v.card().state().master);
+}
+
 // A monitor's power cycle: the connector goes, and another comes, as an
 // MST connector is replaced (aaronsb/kmscon#237).
 #[test]

@@ -314,6 +314,9 @@ impl App {
             config.number(&keys::SB_SIZE_CAP).map(to_usize),
         );
         terminal.screen_mut().set_scrollback_max(lines);
+        terminal
+            .screen_mut()
+            .set_scrollback_memory(crate::config::budget::sb_memory(&config));
         terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
         terminal.set_palette(config.palette());
         terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
@@ -479,12 +482,16 @@ impl App {
             .flatten()
     }
 
-    /// Adds a video device, asleep; the VT's acquire wakes it.
+    /// Adds a video device, woken while the VT is ours and else put to
+    /// sleep, which lets go of the DRM master a card's open took; the VT's
+    /// acquire wakes it (vtium/vtium#139).
     pub fn add_video(&mut self, node: PathBuf, mut video: Box<dyn Video>) {
         if self.awake {
             if let Err(e) = video.wake_up() {
                 log::warn!("cannot wake {}: {e}", node.display());
             }
+        } else {
+            video.sleep();
         }
         self.videos.insert(node, video);
     }
@@ -2160,17 +2167,10 @@ fn to_u32(n: u64) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
-/// The machine's memory in bytes, from `/proc/meminfo`; 0 when unread,
-/// which takes the smallest scrollback cap.
+/// The machine's memory in bytes; 0 when unread, which takes the
+/// smallest scrollback cap.
 fn physical_memory() -> u64 {
-    std::fs::read_to_string("/proc/meminfo")
-        .ok()
-        .and_then(|text| {
-            let line = text.lines().find(|l| l.starts_with("MemTotal:"))?;
-            let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
-            kib.checked_mul(1024)
-        })
-        .unwrap_or(0)
+    crate::config::budget::physical_memory().unwrap_or(0)
 }
 
 /// Opens a device and wraps it as a video device in the loop, for

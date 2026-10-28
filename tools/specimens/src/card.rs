@@ -12,14 +12,20 @@
 
 use std::fmt::Write as _;
 
-use crate::profiles::{Glyphs, Layout, Profile};
+use crate::profiles::{Layout, Profile};
 
 pub const BLOCK_COLS: usize = 40;
 pub const BLOCK_ROWS: usize = 30;
-pub const BLOCKS: usize = 4;
+pub const BLOCKS: usize = 5;
 
 /// The blocks' titles, in order.
-pub const TITLES: [&str; BLOCKS] = ["Text", "Attributes", "Color", "Sprites and symbols"];
+pub const TITLES: [&str; BLOCKS] = [
+    "Text",
+    "Attributes",
+    "Color",
+    "Sprites and symbols",
+    "Emoji and scripts",
+];
 
 /// The row of the last block whose line ends in a wide character at the
 /// grid's last column, which wraps whole to the row below's first column.
@@ -86,7 +92,8 @@ pub fn page(profile: &Profile, layout: &Layout, page: usize) -> Vec<u8> {
             0 => text(&mut b, profile, layout),
             1 => attributes(&mut b),
             2 => color(&mut b),
-            _ => sprites(&mut b, layout),
+            3 => sprites(&mut b),
+            _ => emoji(&mut b, layout),
         }
     }
     out.into_bytes()
@@ -94,16 +101,8 @@ pub fn page(profile: &Profile, layout: &Layout, page: usize) -> Vec<u8> {
 
 /// The header naming the profile, then text in the scripts vtium draws.
 fn text(b: &mut Block<'_>, p: &Profile, l: &Layout) {
-    let set = match p.glyphs {
-        Glyphs::Builtin { set, .. } => set,
-        Glyphs::Pending { font, .. } => font,
-    };
-    let cell = match p.glyphs {
-        Glyphs::Builtin { .. } => {
-            format!("{}x{}", p.width / l.cols as u32, p.height / l.rows as u32)
-        }
-        Glyphs::Pending { .. } => "-".to_owned(),
-    };
+    let set = p.glyphs.set();
+    let cell = format!("{}x{}", p.cell.0, p.cell.1);
     b.put(0, 0, &format!("\x1b[1;7m VTium test card{:>23} ", p.name));
     b.put(
         1,
@@ -347,9 +346,8 @@ fn braille_wave() -> [String; 2] {
     })
 }
 
-/// vtium's sprites, then symbols and emoji, then a wide character at the
-/// grid's right margin.
-fn sprites(b: &mut Block<'_>, l: &Layout) {
+/// vtium's sprites, then Nerd Font symbols.
+fn sprites(b: &mut Block<'_>) {
     let boxes: [(&str, [char; 6]); 4] = [
         ("light", ['┌', '─', '┐', '│', '└', '┘']),
         ("heavy", ['┏', '━', '┓', '┃', '┗', '┛']),
@@ -403,14 +401,62 @@ fn sprites(b: &mut Block<'_>, l: &Layout) {
         0,
         "\u{e0a0} \u{e0b0}\u{e0b1}\u{e0b2}\u{e0b3} \u{f015} \u{f07b} \u{f09b} \u{e7a8} \u{f121} \u{f0e7} \u{f303}",
     );
-    b.put(19, 0, "\x1b[2mEmoji, a ZWJ sequence and a flag");
-    b.put(20, 0, "😀 🎉 🚀 👍 🐧 ❤ 👩\u{200d}💻 🇫🇮");
-    b.put(21, 0, "\x1b[2mVS15 text and VS16 emoji presentation");
+}
+
+/// Emoji, then UTF-8 samples of 2, 3 and 4 bytes a character, each
+/// labelled with its bytes and script and drawn as vtium draws it today,
+/// unshaped (#144), then a wide character at the grid's right margin.
+fn emoji(b: &mut Block<'_>, l: &Layout) {
+    b.put(1, 0, "\x1b[2mEmoji: skin tones, ZWJ, flags, keycaps");
+    b.put(2, 0, "😀 😂 🥲 🤖 👻 🦀 🌍 🍕 ⚡ 🎉");
     b.put(
-        22,
+        3,
         0,
-        "☺\u{fe0e}|☺\u{fe0f}| ❤\u{fe0e}|❤\u{fe0f}| ✔\u{fe0e}|✔\u{fe0f}| #\u{fe0f}\u{20e3}|",
+        "👋 👋\u{1f3fb} 👋\u{1f3fc} 👋\u{1f3fd} 👋\u{1f3fe} 👋\u{1f3ff} 👍\u{1f3fd} 🧑\u{1f3ff}",
     );
+    b.put(
+        4,
+        0,
+        "👨\u{200d}👩\u{200d}👧\u{200d}👦 👩\u{200d}💻 🧑\u{200d}🚀 👨\u{200d}🍳 🏳\u{fe0f}\u{200d}🌈 🐻\u{200d}❄\u{fe0f}",
+    );
+    b.put(
+        5,
+        0,
+        "🇫🇮 🇯🇵 🇧🇷 🇺🇦 🇰🇪 🇺🇸 🏴\u{e0067}\u{e0062}\u{e0073}\u{e0063}\u{e0074}\u{e007f}",
+    );
+    b.put(
+        6,
+        0,
+        "1\u{fe0f}\u{20e3} #\u{fe0f}\u{20e3} *\u{fe0f}\u{20e3} \x1b[2mVS15|16\x1b[22m ☺\u{fe0e}|☺\u{fe0f}| ✈\u{fe0e}|✈\u{fe0f}| ♥\u{fe0e}|♥\u{fe0f}|",
+    );
+    b.put(7, 0, "\x1b[2mUTF-8: bytes, script; unshaped (#144)");
+    let samples: [(&str, &str); 16] = [
+        (
+            "2 Latin",
+            "a\u{308}\u{327}\u{301} o\u{306}\u{324}\u{303} e\u{323}\u{302}\u{300} u\u{308}\u{301}\u{308} x\u{334}\u{335}\u{336}",
+        ),
+        ("2 Armenian", "Բարեւ աշխարհ"),
+        ("2 Hebrew", "שָׁלוֹם עוֹלָם"),
+        ("2 Arabic", "مرحبا بالعالم"),
+        ("3 Polytonic", "ἀρχὴ ᾅδης ῥῆμα"),
+        ("3 Devanagari", "नमस्ते दुनिया"),
+        ("3 Tamil", "வணக்கம் உலகம்"),
+        ("3 Thai", "สวัสดีชาวโลก"),
+        ("3 Georgian", "გამარჯობა"),
+        ("3 Ethiopic", "ሰላም ለዓለም"),
+        (
+            "3 Jamo",
+            "\u{1112}\u{119e}\u{11ab} \u{1100}\u{119e}\u{11af} \u{110b}\u{119e}\u{11ab}",
+        ),
+        ("4 CJK Ext B", "𠀀 𠮷 𡈽 𪚥 𠜎"),
+        ("4 Math", "𝐀𝐁𝐂 𝑥𝑦𝑧 𝔄𝔅 𝕏𝕐 𝟘𝟙𝟚"),
+        ("4 Gothic", "𐌲𐌿𐍄𐌹𐍃𐌺"),
+        ("4 Cuneiform", "𒀭𒈹𒁲𒂗"),
+        ("4 Legacy", "🯰🯱🯲🯳🯴🯵🯶🯷🯸🯹 🯀🯁🯂🯃"),
+    ];
+    for (i, (label, sample)) in samples.iter().enumerate() {
+        b.put(8 + i, 0, &format!("\x1b[2m{label:<13}\x1b[22m{sample}"));
+    }
     b.put(27, 0, "\x1b[2mA wide character at the margin wraps:");
     // the dots run to the grid's second last column, past the block when the
     // grid is wider; the last block has no neighbour to its right
