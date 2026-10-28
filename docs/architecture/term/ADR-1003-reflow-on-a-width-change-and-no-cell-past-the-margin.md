@@ -152,6 +152,8 @@ The view, while scrolled back, keeps the text of its top row at its top. The sel
 
 A logical line's first row keeps its `LineId`. Each other row a rewrap makes takes a new id, and rows a join removes give theirs up. Ids are allocated in the order of the rows, when the resize happens, for the whole run, the rows rewrapped on demand included (Cost), so the ids do not depend on when a row was reached. Anything anchored to a row (a placement, the selection, the view) is carried by its offset in the logical line, never by its old id. OSC 133's marks (vtium/vtium#40) are kept on the row that holds the text they mark, the first row of the logical line when no finer place is known.
 
+> Note 2026-10-28 (vtium/vtium#41): ids are unique, not ordered. They are allocated when the resize happens, the rows still waiting first, so the rows a resize takes of a long line whose head waits take ids above those of lines after it; nothing orders rows by `LineId`, and a row's place comes from where it is.
+
 > Note 2026-10-28 (vtium/vtium#41): every mark of a logical line goes to its first row. A mark records no column, so a finer place depends on the widths the line passed through, and a scrollback rewrapped late would put it elsewhere than one rewrapped at each resize. A wrapped prompt's INPUT mark moves to the prompt's first row; vtium/vtium#40 can record a finer place.
 
 ### The scrollback's bound

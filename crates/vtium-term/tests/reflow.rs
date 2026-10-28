@@ -640,14 +640,16 @@ fn reflow_is_the_same_chunked_and_lazy_or_eager() {
             bytes.extend(common::grammar_stream(&mut rng, len));
         }
         // Long lines with no wide character, which a resize takes the
-        // newest rows of, and a drop past sb-size cuts by length.
+        // newest rows of, and a drop past sb-size cuts by length. OSC 133
+        // sets no mark until vtium/vtium#40, so the marks such a line
+        // carries are tested in `screen/reflow.rs`.
         if rng.below(2) == 0 {
             for _ in 0..rng.below(4) {
                 let len = rng.below(400);
                 let line: String = (0..len)
                     .map(|i| char::from(b'a' + (i % 26) as u8))
                     .collect();
-                bytes.extend(format!("\x1b]133;A\x07{line}\r\n").into_bytes());
+                bytes.extend(format!("{line}\r\n").into_bytes());
             }
         }
         let mut events: Vec<(usize, Event)> = (0..1 + rng.below(10))

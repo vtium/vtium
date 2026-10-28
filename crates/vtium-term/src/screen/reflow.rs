@@ -726,4 +726,78 @@ mod tests {
         assert!(!out[3].flags().contains(LineFlags::OUTPUT));
         assert!(!out[0].flags().contains(LineFlags::WRAPPED));
     }
+    /// Each scrollback row's and screen row's id, flags and text, every
+    /// waiting row rewrapped.
+    fn rows_of(screen: &mut Screen) -> Vec<(LineId, LineFlags, String)> {
+        screen.rewrap_scrollback();
+        let text = |l: &Line| -> String {
+            l.cells()
+                .iter()
+                .map(|&c| match l.glyph(c) {
+                    Glyph::Char(ch) => ch,
+                    _ => ' ',
+                })
+                .collect()
+        };
+        screen
+            .scrollback()
+            .chain(screen.lines())
+            .map(|l| (l.id(), l.flags(), text(l)))
+            .collect()
+    }
+
+    // Marks on a long line's rows, which a resize's margin takes part of
+    // and a drop past sb-size cuts by length, land where rewrapping it at
+    // once puts them: every mark on the line's first row, which keeps its
+    // id, or none once a drop has taken that row.
+    #[test]
+    fn marks_through_a_split_and_a_drop_land_on_the_first_row() {
+        let all = LineFlags::MARKS;
+        for (sb, to, kept) in [
+            (100, 7, true),
+            (100, 13, true),
+            (12, 7, false),
+            (5, 3, false),
+            (30, 7, false),
+            (33, 7, false),
+        ] {
+            let mut screen = Screen::new(10, 3, 100);
+            screen.set_scrollback_max(sb);
+            let mut first = None;
+            for (n, c) in ('a'..='z').cycle().take(260).enumerate() {
+                screen.print(c);
+                // A mark of its own on the line's first row, a middle
+                // row and its last.
+                let mark = match n {
+                    0 => LineFlags::PROMPT,
+                    130 => LineFlags::INPUT,
+                    255 => LineFlags::OUTPUT,
+                    _ => continue,
+                };
+                let y = screen.cursor_y;
+                if let Some(line) = screen.main.get_mut(y) {
+                    line.flags_mut().insert(mark);
+                    first = first.or(Some(line.id()));
+                }
+            }
+            screen.newline();
+            screen.resize(to, 3);
+            for _ in 0..2 {
+                let rows = rows_of(&mut screen.clone());
+                let marked: Vec<_> = rows
+                    .iter()
+                    .filter(|(_, f, _)| f.intersection(all) != LineFlags::empty())
+                    .collect();
+                if kept {
+                    assert_eq!(marked.len(), 1, "sb {sb}, to {to}");
+                    assert_eq!(marked[0].1.intersection(all), all, "sb {sb}, to {to}");
+                    assert_eq!(Some(marked[0].0), first, "sb {sb}, to {to}");
+                } else {
+                    assert!(marked.is_empty(), "sb {sb}, to {to}: {marked:?}");
+                }
+                // Back from rows that waited and rows that did not.
+                screen.resize(10, 3);
+            }
+        }
+    }
 }
