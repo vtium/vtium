@@ -732,7 +732,7 @@ impl App {
     /// `dpms-timeout` again after RIS, and a wake, which a key or pointer
     /// event would give. A timeout lasts until changed (the operator's
     /// decisions on vtium/vtium#79).
-    fn program_blank(&mut self, request: BlankRequest, now: Instant) {
+    fn blank_request(&mut self, request: BlankRequest, now: Instant) {
         let timeout = request.timeout.map(|t| match t {
             BlankTimeout::Minutes(m) => Some(Duration::from_secs(60 * u64::from(m))),
             BlankTimeout::Configured => self.dpms_timeout,
@@ -1397,7 +1397,7 @@ impl App {
         }
         if let Some(request) = self.term.terminal.take_blank_request() {
             if self.program_blank {
-                self.program_blank(request, now);
+                self.blank_request(request, now);
             }
         }
         self.child_exited(now);
