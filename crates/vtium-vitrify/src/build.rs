@@ -27,6 +27,9 @@ use crate::sources::{Input, Resolved};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Font {
     pub cell: Cell,
+    /// The baseline's row from the cell's top, where the font gives one:
+    /// a built-in set's strike does, a PSF font does not.
+    pub baseline: Option<u32>,
     pub glyphs: Vec<(Width, Vec<u8>)>,
     /// Each codepoint and its glyph.
     pub map: BTreeMap<u32, u32>,
@@ -43,6 +46,7 @@ impl Font {
                 width: g.width,
                 height: g.height,
             },
+            baseline: None,
             glyphs: g
                 .bits
                 .chunks(size)
@@ -61,10 +65,15 @@ impl Font {
             .cells()
             .first()
             .ok_or_else(|| format!("the built-in {name} has no strike"))?;
+        let baseline = set
+            .strikes()
+            .find(|s| s.cell == cell && s.style == Style::default())
+            .map(|s| s.baseline);
         let face = vtium_font::set::SetFace::new(set, cell.height)
             .ok_or_else(|| format!("the built-in {name} has no strike"))?;
         let mut font = Font {
             cell,
+            baseline,
             glyphs: Vec::new(),
             map: BTreeMap::new(),
             format: format!("builtin:{name}"),
@@ -106,6 +115,7 @@ impl Font {
         let mut h = Sha256::new();
         h.update(&self.cell.width.to_le_bytes());
         h.update(&self.cell.height.to_le_bytes());
+        h.update(&self.baseline.unwrap_or(u32::MAX).to_le_bytes());
         h.update(&(self.glyphs.len() as u64).to_le_bytes());
         for (width, bits) in &self.glyphs {
             h.update(&[u8::from(*width == Width::Wide)]);
@@ -137,14 +147,13 @@ fn set_bit(bits: &mut [u8], row: usize, x: u32, y: u32) {
 }
 
 /// `glyph`, `width` cells wide in a font of `from`'s cell, scaled by
-/// `scale` into a glyph of the same width at `cell`: on the bottom row,
-/// centred across.
-fn place(glyph: &[u8], width: Width, from: Cell, cell: Cell, scale: u32) -> Vec<u8> {
+/// `scale` into a glyph of the same width at `cell`, its top `y0` rows
+/// down, centred across.
+fn place(glyph: &[u8], width: Width, from: Cell, cell: Cell, scale: u32, y0: u32) -> Vec<u8> {
     let cells = width.cells();
     let (src_w, dst_w) = (from.width * cells, cell.width * cells);
     let (src_row, dst_row) = (src_w.div_ceil(8) as usize, dst_w.div_ceil(8) as usize);
     let x0 = (dst_w - src_w * scale) / 2;
-    let y0 = cell.height - from.height * scale;
     let mut out = vec![0u8; dst_row * cell.height as usize];
     for y in 0..from.height * scale {
         for x in 0..src_w * scale {
@@ -232,7 +241,7 @@ fn cells(frit: &Frit, first: &Parsed) -> Result<Vec<(Cell, u32)>, String> {
                     font.cell.width, font.cell.height
                 ));
             }
-            Ok(vec![(font.cell, font.cell.height)])
+            Ok(vec![(font.cell, font.baseline.unwrap_or(font.cell.height))])
         }
         Parsed::Outline(o) => Ok(o
             .strikes
@@ -347,7 +356,7 @@ pub fn assemble(
         let mut strikes = Strikes::new(cell, baseline, frit.compress);
         for part in parts {
             match &part.parsed {
-                Parsed::Bitmap(font) => fill(&mut strikes, font, part.source, cell),
+                Parsed::Bitmap(font) => fill(&mut strikes, font, part.source, cell, baseline),
                 Parsed::Outline(o) => {
                     if let Some(s) = o.strikes.get(i) {
                         fill_outline(&mut strikes, s, part.source);
@@ -437,12 +446,18 @@ fn fill_outline(strikes: &mut Strikes, outline: &crate::outline::Strike, source:
 }
 
 /// Adds `font`'s glyphs for the codepoints `source` covers and the cell
-/// lacks to the 1-bit strike, placed at `cell`.
-fn fill(strikes: &mut Strikes, font: &Font, source: &Source, cell: Cell) {
+/// lacks to the 1-bit strike, placed at `cell`: its baseline on the
+/// strike's `baseline` (ADR-1200 D1), kept inside the cell; a font that
+/// gives no baseline on the cell's bottom row.
+fn fill(strikes: &mut Strikes, font: &Font, source: &Source, cell: Cell, baseline: u32) {
     let scale = (cell.width / font.cell.width.max(1)).min(cell.height / font.cell.height.max(1));
     if scale == 0 {
         return;
     }
+    let lowest = cell.height - font.cell.height * scale;
+    let y0 = font
+        .baseline
+        .map_or(lowest, |b| baseline.saturating_sub(b * scale).min(lowest));
     let mut placed: BTreeMap<u32, u32> = BTreeMap::new();
     for (&c, &g) in &font.map {
         let Some(ch) = char::from_u32(c) else {
@@ -459,7 +474,7 @@ fn fill(strikes: &mut Strikes, font: &Font, source: &Source, cell: Cell) {
                 };
                 let i = strikes
                     .bits
-                    .glyph(*width, place(bits, *width, font.cell, cell, scale));
+                    .glyph(*width, place(bits, *width, font.cell, cell, scale, y0));
                 placed.insert(g, i);
                 i
             }
@@ -491,10 +506,10 @@ mod tests {
             width: 6,
             height: 6,
         };
-        let out = place(&[0x80, 0x00], Width::Narrow, from, cell, 2);
+        let out = place(&[0x80, 0x00], Width::Narrow, from, cell, 2, 2);
         assert_eq!(out, [0, 0, 0b0110_0000, 0b0110_0000, 0, 0]);
         // two cells wide: 8 pixels into 12, 2 columns from the left
-        let wide = place(&[0x80, 0x00], Width::Wide, from, cell, 2);
+        let wide = place(&[0x80, 0x00], Width::Wide, from, cell, 2, 2);
         assert_eq!(wide.len(), 2 * 6);
         assert_eq!(&wide[4..8], &[0b0011_0000, 0, 0b0011_0000, 0]);
     }

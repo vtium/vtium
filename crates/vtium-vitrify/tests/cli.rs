@@ -1096,10 +1096,18 @@ fn an_outline_font_with_color_glyphs_and_a_bitmap_fallback_builds_a_set() {
         (smile.format(), smile.cells(), smile.width()),
         (vtium_font::Format::Rgba, vtium_font::Width::Wide, 24)
     );
-    // B from unifont's 8x16, on the 12x20 cell's bottom row, centred
+    // B from unifont's 8x16, its baseline (row 14) on the strike's (row
+    // 16), centred across: its lowest ink, unifont's row 13, on row 15
     let b = face.draw(&['B'], Style::default()).expect("B");
     assert_eq!(b.format(), vtium_font::Format::Mask);
-    assert!(b.pixels()[..12 * 4].iter().all(|&p| p == 0));
+    let inked: Vec<usize> = b
+        .pixels()
+        .chunks(12)
+        .enumerate()
+        .filter(|(_, row)| row.iter().any(|&p| p != 0))
+        .map(|(y, _)| y)
+        .collect();
+    assert_eq!(inked.last(), Some(&15), "{inked:?}");
     assert!(!face.has_glyph('C'), "unifont covers only B");
 }
 
