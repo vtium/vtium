@@ -44,6 +44,7 @@ use std::os::fd::OwnedFd;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command as Process, ExitStatus, Stdio};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -879,10 +880,11 @@ impl Helper {
     /// Takes a frame of glyphs, or refuses it: an ask's must be at the
     /// oldest ask's cell and among the codepoints it has yet to send; a
     /// fill's at a cell filling and among those the fill has not brought.
-    /// A fill's whose glyphs the store holds, as an ask during the fill
-    /// brought them, is dropped (ADR-1200 D18). An ask's past the store's
-    /// limit evicts the sets least recently on the screen; a fill's past
-    /// it is dropped and the fill stopped.
+    /// The store takes the frame without the glyphs it holds, as a request
+    /// may send again a glyph an earlier one brought (ADR-1200 D18), and a
+    /// frame with nothing new adds nothing. An ask's past the store's limit
+    /// evicts the sets least recently on the screen; a fill's past it is
+    /// dropped and the fill stopped.
     fn glyphs(
         &mut self,
         fill: bool,
@@ -902,7 +904,14 @@ impl Helper {
         {
             return Err(not_asked());
         }
-        if fill {
+        let store = Rc::clone(&self.store);
+        let without_held = || {
+            store
+                .borrow()
+                .fresh(cell, Arc::clone(set), &runs, bytes)
+                .ok_or_else(not_asked)
+        };
+        let fresh = if fill {
             if self.stopped.contains(&cell) {
                 return Ok(None);
             }
@@ -916,21 +925,21 @@ impl Helper {
                 Fill::Stopped | Fill::Done => return Ok(None),
                 Fill::None => return Err(not_asked()),
             }
-            let mut new = false;
             for c in codepoints(&runs) {
                 let Some(c) = c.filter(|&c| !state.brought.has(c)) else {
                     return Err("the helper's fill repeats a glyph".to_owned());
                 };
                 state.brought.put(c, true);
-                new |= !state.held.has(c);
             }
-            if !new {
+            let fresh = without_held()?;
+            if fresh.chars().next().is_none() {
                 return Ok(None);
             }
-            if self.store.borrow().bytes().saturating_add(bytes) > self.limit {
+            if self.store.borrow().bytes().saturating_add(fresh.bytes()) > self.limit {
                 self.store_full(cell, now);
                 return Ok(None);
             }
+            fresh
         } else {
             let ask = self.asks.front_mut().ok_or_else(not_asked)?;
             if ask.cell != cell {
@@ -945,15 +954,16 @@ impl Helper {
                 // no display draws at the cell any more
                 return Ok(None);
             };
-            if bytes > self.limit {
-                // the store cannot take it whole: dropped, and its glyphs
-                // asked for again when the screen shows them
-                for c in codepoints(&runs).flatten() {
-                    state.pending.put(c, false);
-                }
+            // answered, held or not; what the store cannot take is asked
+            // for again when the screen shows it
+            for c in codepoints(&runs).flatten() {
+                state.pending.put(c, false);
+            }
+            let mut fresh = without_held()?;
+            if fresh.bytes() > self.limit {
                 return Ok(None);
             }
-            while self.store.borrow().bytes().saturating_add(bytes) > self.limit {
+            while self.store.borrow().bytes().saturating_add(fresh.bytes()) > self.limit {
                 let Some((at, gone)) = self.store.borrow_mut().evict() else {
                     break;
                 };
@@ -962,17 +972,18 @@ impl Helper {
                         state.held.put(c, false);
                     }
                 }
+                // a glyph the frame carries may have left with the set
+                fresh = without_held()?;
             }
-        }
-        let face = self
-            .store
-            .borrow_mut()
-            .add(cell, Arc::clone(set), runs.clone(), bytes)
-            .ok_or_else(not_asked)?;
+            fresh
+        };
+        let added: Vec<char> = fresh.chars().collect();
+        let Some(face) = self.store.borrow_mut().add(fresh) else {
+            return Ok(None);
+        };
         if let Some(state) = self.state(cell) {
-            for c in codepoints(&runs).flatten() {
-                state.held.put(c, true);
-                state.pending.put(c, false);
+            for &c in &added {
+                state.held.put(u32::from(c), true);
             }
             if fill {
                 state.first_glyphs.get_or_insert(now);
@@ -1112,9 +1123,10 @@ mod tests {
         height: 16,
     };
 
-    /// A set of `chars`, each solid, at `cell`.
+    /// A set of `chars`, each solid, at `cell`, its chunks raw as the
+    /// helper writes them.
     fn set(cell: Cell, chars: &[char]) -> Vec<u8> {
-        let mut s = StrikeBuilder::new(PixelFormat::R8, cell, Style::default());
+        let mut s = StrikeBuilder::new(PixelFormat::R8, cell, Style::default()).compress(false);
         let g = s.glyph(
             Width::Narrow,
             vec![255; (cell.width * cell.height) as usize],
@@ -1482,6 +1494,98 @@ mod tests {
         assert!(s.held('A') && s.held('B'));
         assert_eq!(s.helper.store.borrow().bytes(), (a.len() + b.len()) as u64);
         assert!(!s.helper.busy());
+    }
+
+    // D18, D19: the fill's later batch sends again the glyph an ask during
+    // the fill brought; the store takes the batch without it, holds it
+    // once and counts the batch as written again
+    #[test]
+    fn an_asked_glyph_a_later_fill_batch_sends_again_is_held_once() {
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, &['A']));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        fixture.extend(frame_bytes(FRAME_FILL, &set(CELL, &['A', 'B'])));
+        fixture.extend(filled(CELL));
+        let mut s = StandIn::new("askinfill", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.fill(CELL, &[], now);
+        s.helper.ask(CELL, &['A'], now);
+        let answers = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(answers.len(), 2);
+        assert!(answers[0].face.has_glyph('A'));
+        assert!(answers[1].face.has_glyph('B') && !answers[1].face.has_glyph('A'));
+        assert!(s.held('A') && s.held('B'));
+        let (a, b) = (set(CELL, &['A']).len(), set(CELL, &['B']).len());
+        assert_eq!(s.helper.store.borrow().bytes(), (a + b) as u64);
+        assert!(!s.helper.busy());
+    }
+
+    // D18: a fill batch on its way when an ask is sent brings the asked
+    // glyph first; the ask's answer adds nothing, and the ask ends
+    #[test]
+    fn an_asks_glyph_a_fill_batch_brought_first_adds_nothing() {
+        let ab = set(CELL, &['A', 'B']);
+        let mut fixture = frame_bytes(FRAME_FILL, &ab);
+        fixture.extend(frame_bytes(FRAME_GLYPHS, &set(CELL, &['A'])));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        fixture.extend(filled(CELL));
+        let mut s = StandIn::new("fillbeforeask", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.fill(CELL, &[], now);
+        s.helper.ask(CELL, &['A'], now);
+        let answers = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(answers.len(), 1);
+        assert!(s.held('A') && s.held('B'));
+        assert_eq!(s.helper.store.borrow().bytes(), ab.len() as u64);
+        assert!(!s.helper.busy());
+        // answered, so A is neither pending nor lacking
+        let state = s.helper.cells.iter().find(|c| c.cell == CELL).unwrap();
+        assert!(!state.pending.has(0x41) && !state.absent.has(0x41));
+    }
+
+    // D18, D19: the fill's limit weighs a batch as the store writes it
+    // again, so a batch whose new glyphs fit is taken
+    #[test]
+    fn a_fill_batch_fits_the_store_by_its_new_glyphs() {
+        let (a, c) = (set(CELL, &['A']), set(CELL, &['C']));
+        let limit = (a.len() + c.len()) as u64;
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &a);
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        fixture.extend(frame_bytes(FRAME_FILL, &set(CELL, &['A', 'C'])));
+        fixture.extend(filled(CELL));
+        let mut s = StandIn::limited("fillfits", ANSWERS, &fixture, limit);
+        let now = t0();
+        s.helper.fill(CELL, &[], now);
+        s.helper.ask(CELL, &['A'], now);
+        let answers = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(answers.len(), 2);
+        assert!(s.held('A') && s.held('C'));
+        assert_eq!(s.helper.store.borrow().bytes(), limit);
+        assert!(!s.helper.full);
+    }
+
+    // D18, D19: an ask's frame carries B, which the store holds in the set
+    // its eviction drops; the store keeps B from the frame
+    #[test]
+    fn a_held_glyph_whose_set_an_ask_evicts_is_kept_from_the_asks_frame() {
+        let bc = set(CELL, &['B', 'C']);
+        let limit = bc.len() as u64;
+        let mut fixture = frame_bytes(FRAME_FILL, &set(CELL, &['A', 'B']));
+        fixture.extend(frame_bytes(FRAME_GLYPHS, &bc));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        fixture.extend(filled(CELL));
+        let mut s = StandIn::limited("evictheld", ANSWERS, &fixture, limit);
+        let now = t0();
+        s.helper.fill(CELL, &[], now);
+        s.helper.ask(CELL, &['B', 'C'], now);
+        let answers = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(answers.len(), 2);
+        assert!(answers[1].face.has_glyph('B') && answers[1].face.has_glyph('C'));
+        assert!(!s.held('A') && s.held('B') && s.held('C'));
+        assert_eq!(s.helper.store.borrow().bytes(), limit);
     }
 
     // a zoom or a hotplug during a fill: the frames already on their way

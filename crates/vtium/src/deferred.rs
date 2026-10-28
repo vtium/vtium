@@ -184,17 +184,37 @@ pub struct Generated {
 /// The store, shared between the console and its displays' faces.
 pub type Shared = Rc<RefCell<Generated>>;
 
+/// A set the helper sent, without the glyphs the store held at its cell
+/// when it was made ([`Generated::fresh`]): what adding it takes.
+#[derive(Debug)]
+pub struct Fresh(Entry);
+
+impl Fresh {
+    /// The bytes the store counts for it.
+    pub fn bytes(&self) -> u64 {
+        self.0.bytes
+    }
+
+    /// The codepoints it adds, in order.
+    pub fn chars(&self) -> impl Iterator<Item = char> + '_ {
+        self.0.glyphs.iter().map(|&(c, _)| c)
+    }
+}
+
 impl Generated {
-    /// Adds a checked set of glyphs at `cell`, mapping `runs` and taking
-    /// `bytes`; the face it draws through, for the caller to ask what it
-    /// holds.
-    pub fn add(
-        &mut self,
+    /// A checked set of glyphs at `cell`, mapping `runs` and taking
+    /// `bytes`, without the glyphs the store holds at `cell` (ADR-1200
+    /// D18): a set that carries some is written again without them, as
+    /// compaction writes one ([`rewrite`]), and counts the bytes written.
+    /// It adds nothing when it carries nothing new, or when it cannot be
+    /// written again. `None` when `set` has no face at `cell`.
+    pub fn fresh(
+        &self,
         cell: Cell,
         set: Arc<Set>,
-        runs: Vec<(u32, u32)>,
+        runs: &[(u32, u32)],
         bytes: u64,
-    ) -> Option<SetFace> {
+    ) -> Option<Fresh> {
         let face = SetFace::new(set, cell.height)?;
         let mut glyphs: Vec<(char, u64)> = runs
             .iter()
@@ -204,13 +224,41 @@ impl Generated {
             .collect();
         glyphs.sort_unstable();
         glyphs.dedup_by_key(|&mut (c, _)| c);
-        self.entries.push(Entry {
+        let held: Vec<char> = glyphs
+            .iter()
+            .map(|&(c, _)| c)
+            .filter(|&c| self.held(cell, c))
+            .collect();
+        let mut entry = Entry {
             cell,
-            face: face.clone(),
+            face,
             glyphs,
             bytes,
-        });
+        };
+        if !held.is_empty() && entry.compact(&held).1 {
+            entry.glyphs.clear();
+            entry.bytes = 0;
+        }
+        Some(Fresh(entry))
+    }
+
+    /// Adds `fresh`: the face it draws through, for the caller to ask what
+    /// it holds; `None` when it adds no glyph.
+    pub fn add(&mut self, fresh: Fresh) -> Option<SetFace> {
+        let Fresh(entry) = fresh;
+        if entry.glyphs.is_empty() {
+            return None;
+        }
+        let face = entry.face.clone();
+        self.entries.push(entry);
         Some(face)
+    }
+
+    /// Whether the store holds `c`'s glyph at `cell`.
+    fn held(&self, cell: Cell, c: char) -> bool {
+        self.entries
+            .iter()
+            .any(|e| e.cell == cell && e.glyphs.binary_search_by_key(&c, |&(g, _)| g).is_ok())
     }
 
     /// The bytes held: each set's as the helper sent it or as compaction
@@ -467,6 +515,18 @@ mod tests {
         Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap())
     }
 
+    /// Adds `set` at `cell` to `store` as the helper does: what it adds.
+    fn add(
+        store: &mut Generated,
+        cell: Cell,
+        set: Arc<Set>,
+        runs: Vec<(u32, u32)>,
+        bytes: u64,
+    ) -> Option<SetFace> {
+        let fresh = store.fresh(cell, set, &runs, bytes)?;
+        store.add(fresh)
+    }
+
     fn face(generated: &Shared) -> DeferredFace {
         DeferredFace::new(Box::new(Unifont::new(16)), CELL, 16, Rc::clone(generated))
     }
@@ -485,9 +545,13 @@ mod tests {
         let unifont = Unifont::new(16);
         let a = f.draw(&['A'], Style::default()).unwrap();
         assert_eq!(a, unifont.draw(&['A'], Style::default()).unwrap());
-        generated
-            .borrow_mut()
-            .add(CELL, solid(CELL, &['A']), vec![(0x41, 1)], 1);
+        add(
+            &mut generated.borrow_mut(),
+            CELL,
+            solid(CELL, &['A']),
+            vec![(0x41, 1)],
+            1,
+        );
         let a = f.draw(&['A'], Style::default()).unwrap();
         assert_eq!(covered(&a), 8 * 16);
     }
@@ -497,9 +561,13 @@ mod tests {
     #[test]
     fn a_character_the_frit_lacks_draws_in_the_built_in_font() {
         let generated = Shared::default();
-        generated
-            .borrow_mut()
-            .add(CELL, solid(CELL, &['A']), vec![(0x41, 1)], 1);
+        add(
+            &mut generated.borrow_mut(),
+            CELL,
+            solid(CELL, &['A']),
+            vec![(0x41, 1)],
+            1,
+        );
         let f = face(&generated);
         let unifont = Unifont::new(16);
         assert_eq!(
@@ -516,9 +584,13 @@ mod tests {
             lacking,
             unifont_font.glyph(&['\u{10fffd}'], Width::Narrow, Style::default())
         );
-        generated
-            .borrow_mut()
-            .add(CELL, solid(CELL, &['\u{25a1}']), vec![(0x25a1, 1)], 1);
+        add(
+            &mut generated.borrow_mut(),
+            CELL,
+            solid(CELL, &['\u{25a1}']),
+            vec![(0x25a1, 1)],
+            1,
+        );
         let lacking = font
             .glyph(&['\u{10fffd}'], Width::Narrow, Style::default())
             .unwrap();
@@ -597,15 +669,23 @@ mod tests {
         let f = face_in(&generated, cell);
         assert_eq!((f.cell(), f.size_step()), (cell, 16));
         // glyphs at the built-in's own cell are not the frit's
-        generated
-            .borrow_mut()
-            .add(CELL, solid(CELL, &['A']), vec![(0x41, 1)], 1);
+        add(
+            &mut generated.borrow_mut(),
+            CELL,
+            solid(CELL, &['A']),
+            vec![(0x41, 1)],
+            1,
+        );
         let a = f.draw(&['A'], Style::default()).unwrap();
         assert_eq!((a.width(), a.height()), (10, 20));
         assert!(covered(&a) < 10 * 20);
-        generated
-            .borrow_mut()
-            .add(cell, solid(cell, &['A']), vec![(0x41, 1)], 1);
+        add(
+            &mut generated.borrow_mut(),
+            cell,
+            solid(cell, &['A']),
+            vec![(0x41, 1)],
+            1,
+        );
         let a = f.draw(&['A'], Style::default()).unwrap();
         assert_eq!(covered(&a), 10 * 20);
         assert_eq!(f.cell(), cell);
@@ -621,8 +701,8 @@ mod tests {
     #[test]
     fn the_set_least_recently_on_the_screen_is_evicted_first() {
         let mut g = Generated::default();
-        g.add(CELL, solid(CELL, &['A']), vec![(0x41, 1)], 10);
-        g.add(CELL, solid(CELL, &['B']), vec![(0x42, 1)], 20);
+        add(&mut g, CELL, solid(CELL, &['A']), vec![(0x41, 1)], 10);
+        add(&mut g, CELL, solid(CELL, &['B']), vec![(0x42, 1)], 20);
         assert_eq!(g.bytes(), 30);
         // A is on the screen, B is not
         g.touch(CELL, &['A']);
@@ -681,7 +761,7 @@ mod tests {
                     .collect()
             })
             .unwrap();
-        store.add(CELL, set, runs, bytes.len() as u64).unwrap();
+        add(store, CELL, set, runs, bytes.len() as u64).unwrap();
         bytes.len() as u64
     }
 
@@ -754,6 +834,55 @@ mod tests {
         assert_eq!(g.bytes(), answer(&[d], &[a]).len() as u64);
     }
 
+    // ADR-1200 D18, D19: a frame that carries glyphs the store holds is
+    // written again without them, and the store counts the set it wrote
+    #[test]
+    fn a_frame_of_held_and_new_glyphs_adds_only_the_new() {
+        let r8 = |c, seed| (c, Width::Narrow, shade(Width::Narrow, seed));
+        let (a, b, c) = (r8('A', 1), r8('B', 2), r8('C', 3));
+        let generated = Shared::default();
+        let first = put(&mut generated.borrow_mut(), answer(&[], &[a, b.clone()]));
+        let f = face(&generated);
+        let drawn = ['A', 'B'].map(|k| f.draw(&[k], Style::default()).unwrap());
+        // the frame's B differs from the held one, so a B drawn from it shows
+        let frame = answer(&[], &[r8('B', 9), c.clone()]);
+        let sent = Arc::new(Set::from_bytes(frame.clone()).unwrap());
+        let added = add(
+            &mut generated.borrow_mut(),
+            CELL,
+            Arc::clone(&sent),
+            vec![(0x42, 2)],
+            frame.len() as u64,
+        )
+        .unwrap();
+        assert!(added.has_glyph('C') && !added.has_glyph('B'));
+        let rebuilt = answer(&[], &[c]).len() as u64;
+        assert_eq!(generated.borrow().bytes(), first + rebuilt);
+        for (k, glyph) in ['A', 'B'].into_iter().zip(drawn) {
+            assert_eq!(f.draw(&[k], Style::default()), Some(glyph), "{k}");
+        }
+        let from_frame = SetFace::new(sent, CELL.height).unwrap();
+        assert_eq!(
+            f.draw(&['C'], Style::default()),
+            from_frame.draw(&['C'], Style::default())
+        );
+        // a frame of held glyphs alone adds nothing
+        let held = answer(&[], &[b, r8('C', 3)]);
+        let bytes = held.len() as u64;
+        let held = Arc::new(Set::from_bytes(held).unwrap());
+        assert!(
+            add(
+                &mut generated.borrow_mut(),
+                CELL,
+                held,
+                vec![(0x42, 2)],
+                bytes
+            )
+            .is_none()
+        );
+        assert_eq!(generated.borrow().bytes(), first + rebuilt);
+    }
+
     #[test]
     fn glyphs_at_another_cell_are_not_drawn_and_retain_drops_them() {
         let generated = Shared::default();
@@ -761,9 +890,13 @@ mod tests {
             width: 16,
             height: 32,
         };
-        generated
-            .borrow_mut()
-            .add(other, solid(other, &['A']), vec![(0x41, 1)], 1);
+        add(
+            &mut generated.borrow_mut(),
+            other,
+            solid(other, &['A']),
+            vec![(0x41, 1)],
+            1,
+        );
         let f = face(&generated);
         assert_eq!(
             f.draw(&['A'], Style::default()),
