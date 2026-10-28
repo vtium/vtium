@@ -681,13 +681,15 @@ impl<K: Kms> Drm2d<K> {
     /// Lets the displays go: blanks them, waits for the flips in flight
     /// (at most [`crate::FLIP_WAIT_MS`]), hides the cursor and overlay
     /// planes and drops DRM master. [`Event::Asleep`] tells when it is
-    /// done.
+    /// done. A card that never woke drops the master its open gave it, so
+    /// the vtium of the VT shown can take it (vtium/vtium#139).
     pub fn sleep(&mut self) {
         self.foreground = false;
         self.owed = false;
         self.retries = None;
         self.wake_failed = false;
         if !self.awake {
+            self.release_master();
             self.events.push(Event::Asleep);
             self.settle();
             return;

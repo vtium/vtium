@@ -457,12 +457,16 @@ impl App {
             .flatten()
     }
 
-    /// Adds a video device, asleep; the VT's acquire wakes it.
+    /// Adds a video device, woken while the VT is ours and else put to
+    /// sleep, which lets go of the DRM master a card's open took; the VT's
+    /// acquire wakes it (vtium/vtium#139).
     pub fn add_video(&mut self, node: PathBuf, mut video: Box<dyn Video>) {
         if self.awake {
             if let Err(e) = video.wake_up() {
                 log::warn!("cannot wake {}: {e}", node.display());
             }
+        } else {
+            video.sleep();
         }
         self.videos.insert(node, video);
     }

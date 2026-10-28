@@ -39,6 +39,7 @@ struct Memory {
     age: u32,
     unblanks: u32,
     wake_ups: u32,
+    sleeps: u32,
     /// Each DPMS state set, in order.
     dpms_sets: Vec<Dpms>,
     /// Each canvas lent's age, in order.
@@ -67,6 +68,7 @@ impl Memory {
             age: 0,
             unblanks: 0,
             wake_ups: 0,
+            sleeps: 0,
             dpms_sets: Vec::new(),
             ages: Vec::new(),
             refresh_mhz: 60_000,
@@ -133,6 +135,7 @@ impl Video for Memory {
         Ok(())
     }
     fn sleep(&mut self) {
+        self.sleeps += 1;
         self.awake = false;
         self.events.push(Event::Asleep);
     }
@@ -761,6 +764,46 @@ fn an_acquire_restarts_the_blanks_countdown() {
         h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::Off)),
         "blanked 3 s after the acquire"
     );
+}
+
+/// A device added while the VT is not shown, as a card plugged in then,
+/// is put to sleep, which lets a card's DRM master go, and the acquire
+/// wakes it; one added while the VT is shown is woken and never slept
+/// (vtium/vtium#139).
+#[test]
+fn a_device_added_while_the_vt_is_not_shown_sleeps_until_the_acquire() {
+    let mut h = Harness::with_vt(
+        &["--login", "--", "/bin/sh", "-c", "read x"],
+        ScriptedVt::default(),
+    );
+    assert!(h.until(SECOND, |a| a.vt.is_active()), "acquired");
+    let add = |h: &mut Harness, node: &str| {
+        h.app
+            .add_video(PathBuf::from(node), Box::new(Memory::default()));
+    };
+    let counts = |h: &mut Harness, node: &str| {
+        let m = h
+            .app
+            .videos
+            .get_mut(Path::new(node))
+            .and_then(|v| v.as_any().downcast_mut::<Memory>())
+            .expect("the device added");
+        (m.sleeps, m.wake_ups)
+    };
+    add(&mut h, "/dev/mem1");
+    assert_eq!(
+        counts(&mut h, "/dev/mem1"),
+        (0, 1),
+        "shown: woken, not slept"
+    );
+    h.scripted().events.push(VtEvent::Release);
+    assert!(h.until(SECOND, |a| !a.vt.is_active()), "released");
+    add(&mut h, "/dev/mem2");
+    assert_eq!(counts(&mut h, "/dev/mem2"), (1, 0), "not shown: slept");
+    h.scripted().active = true;
+    h.scripted().events.push(VtEvent::Acquired);
+    h.until(Duration::from_millis(200), |_| false);
+    assert_eq!(counts(&mut h, "/dev/mem2"), (1, 1), "woken by the acquire");
 }
 
 #[test]
