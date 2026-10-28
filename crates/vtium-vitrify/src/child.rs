@@ -182,21 +182,26 @@ impl Parser {
 
     /// Runs the parser on `request` and checks what it gives back.
     pub fn parse(&self, request: &Request) -> Result<Glyphs, String> {
-        let out = self.exchange(request.encode(), GLYPHS_BYTES_MAX)?;
+        let out = self.exchange(vec![request.encode().into()], GLYPHS_BYTES_MAX)?;
         Glyphs::decode(&out).map_err(|why| format!("the parser's answer was refused: {why}"))
     }
 
     /// Runs the parser on an outline font and checks what it gives back
     /// against `request`.
     pub fn rasterise(&self, request: &OutlineRequest) -> Result<Outline, String> {
-        let out = self.exchange(request.encode(), OUTLINE_ANSWER_BYTES_MAX)?;
+        let out = self.exchange(request.pieces().to_vec(), OUTLINE_ANSWER_BYTES_MAX)?;
         Outline::decode(&out, request)
             .map_err(|why| format!("the parser's answer was refused: {why}"))
     }
 
-    /// Starts the parser, hands it `request` and reads its answer, at most
-    /// `answer_max` bytes; any failure of the parser's is the error.
-    fn exchange(&self, request: Vec<u8>, answer_max: usize) -> Result<Vec<u8>, String> {
+    /// Starts the parser, hands it `request`, piece by piece, and reads
+    /// its answer, at most `answer_max` bytes; any failure of the parser's
+    /// is the error.
+    fn exchange(
+        &self,
+        request: Vec<std::sync::Arc<[u8]>>,
+        answer_max: usize,
+    ) -> Result<Vec<u8>, String> {
         // a descriptor this process inherited without close-on-exec, one
         // root opened among them, would otherwise reach the parser
         vtium_platform::cloexec_above_stdio()
@@ -237,7 +242,7 @@ impl Parser {
         // input before it writes, and one that dies early closes its end
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let wrote = stdin.map(|mut stdin| stdin.write_all(&request));
+            let wrote = stdin.map(|mut stdin| request.iter().try_for_each(|p| stdin.write_all(p)));
             let mut out = Vec::new();
             let read = stdout.map(|stdout| {
                 stdout

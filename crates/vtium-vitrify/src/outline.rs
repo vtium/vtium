@@ -35,6 +35,8 @@
 //! glyphs are not, and a COLR glyph's layers are laid over each other here,
 //! premultiplied with the renderer's rounding.
 
+use std::sync::Arc;
+
 use crate::frit::Cover;
 use vtium_font::{CELL_SIDE_MAX, SET_CHUNK_BYTES};
 
@@ -66,7 +68,9 @@ const GLYPH_COLOR: u8 = 2;
 /// What the parser is given to rasterise an outline font.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OutlineRequest {
-    pub font: Vec<u8>,
+    /// Shared, so the parent holds one copy of a font however many
+    /// requests and pipes carry it.
+    pub font: Arc<[u8]>,
     /// The family to take: in a collection, its first face of that family;
     /// a single font must be of it. Empty takes the first face.
     pub family: String,
@@ -165,9 +169,18 @@ impl<'a> Reader<'a> {
 
 impl OutlineRequest {
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = REQUEST_MAGIC.to_vec();
-        put32(&mut out, len32(self.font.len()));
-        out.extend_from_slice(&self.font);
+        self.pieces()
+            .iter()
+            .flat_map(|p| p.iter().copied())
+            .collect()
+    }
+
+    /// The request as written to the parser: its head, the font itself,
+    /// not copied, and the rest.
+    pub(crate) fn pieces(&self) -> [Arc<[u8]>; 3] {
+        let mut head = REQUEST_MAGIC.to_vec();
+        put32(&mut head, len32(self.font.len()));
+        let mut out = Vec::new();
         put32(&mut out, len32(self.family.len()));
         out.extend_from_slice(self.family.as_bytes());
         put32(&mut out, len32(self.cells.len()));
@@ -180,7 +193,7 @@ impl OutlineRequest {
             put32(&mut out, a);
             put32(&mut out, b);
         }
-        out
+        [head.into(), Arc::clone(&self.font), out.into()]
     }
 
     pub fn decode(bytes: &[u8]) -> Result<OutlineRequest, &'static str> {
@@ -189,7 +202,7 @@ impl OutlineRequest {
             return Err("not an outline request");
         }
         let n = r.count(usize::try_from(OUTLINE_BYTES_MAX).unwrap_or(usize::MAX))?;
-        let font = r.take(n)?.to_vec();
+        let font = Arc::from(r.take(n)?);
         let family = r.name(NAME_MAX)?;
         let mut cells = Vec::new();
         for _ in 0..r.count(OUTLINE_CELLS_MAX)? {

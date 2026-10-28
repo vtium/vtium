@@ -597,7 +597,7 @@ fn outline(source: &Source, font: Vec<u8>, family: &str) -> Result<Resolved, Sou
         unimap_sha256: None,
         def_uni_sha256: None,
         input: Input::Outline(OutlineRequest {
-            font,
+            font: font.into(),
             family: family.to_owned(),
             cells: Vec::new(),
             cover: Vec::new(),
@@ -986,7 +986,7 @@ mod tests {
             panic!("not an outline: {:?}", r.input);
         };
         assert_eq!(
-            (req.font.as_slice(), req.family.as_str()),
+            (&req.font[..], req.family.as_str()),
             (&b"outline bytes"[..], "Test")
         );
         assert_eq!(r.sha256, Sha256::digest(b"outline bytes"));

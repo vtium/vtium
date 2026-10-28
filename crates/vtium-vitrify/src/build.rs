@@ -296,9 +296,10 @@ pub fn parse_and_assemble(
                     None => frit.sizes.iter().map(|&h| (0, h)).collect(),
                 };
                 let request = OutlineRequest {
+                    font: std::sync::Arc::clone(&request.font),
+                    family: request.family.clone(),
                     cells: at,
                     cover: source.cover.clone(),
-                    ..request.clone()
                 };
                 parser.rasterise(&request).map(Parsed::Outline)
             }

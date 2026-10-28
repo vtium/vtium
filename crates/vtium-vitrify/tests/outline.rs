@@ -15,7 +15,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_vtium-vitrify");
 
 fn request(cells: &[(u32, u32)], cover: &[(u32, u32)]) -> OutlineRequest {
     OutlineRequest {
-        font: ttf::test_mono().build(),
+        font: ttf::test_mono().build().into(),
         family: "Test Mono".to_owned(),
         cells: cells.to_vec(),
         cover: cover.to_vec(),
@@ -126,7 +126,7 @@ fn a_font_of_another_family_or_none_at_all_is_refused() {
     assert!(e.contains("Test Mono") && e.contains("Other Sans"), "{e}");
     r.family = "test-mono".to_owned();
     rasterise(&r).expect("case, blanks and hyphens ignored");
-    r.font = b"not a font at all".to_vec();
+    r.font = b"not a font at all".to_vec().into();
     assert!(rasterise(&r).is_err());
 }
 
@@ -192,7 +192,7 @@ fn the_parsers_child_rasterises() {
     let o = parser.rasterise(&req).expect("rasterised");
     assert_eq!(o, rasterise(&req).expect("rasterised"));
     let mut bad = req.clone();
-    bad.font = vec![0; 64];
+    bad.font = vec![0; 64].into();
     let e = parser.rasterise(&bad).expect_err("not a font");
     assert!(e.contains("not a TrueType or OpenType font"), "{e}");
 }
