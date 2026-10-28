@@ -15,6 +15,16 @@ vtium's test card, drawn by vtium's renderer in memory for each display profile,
 
 A pending profile waits on the issues it names. A provisional one is drawn and judged, and waits on the operator's review; `provisional.tsv` lists them.
 
+## Gray panels, simulated
+
+vtium draws a gray panel exactly as a color display, and the panel's driver converts each pixel (#135). These renders take vtium's color drawing through that conversion, as Linux v7.3's drivers make it, to show what such a panel shows. They are simulations, not vtium's output, and judge nothing.
+
+| Profile | Depth | Cell | Grid | Font | Screens | Status | Preview |
+|---|---|---|---|---|---|---|---|
+| [320x240-gray4](simulated/320x240-gray4/) | gray4, simulated | 8x8 | 40x30 | `unscii-8` | 4 | simulation | [<img src="simulated/320x240-gray4/collage.png" width="160">](simulated/320x240-gray4/collage.png) |
+| [320x240-gray16](simulated/320x240-gray16/) | gray16, simulated | 8x8 | 40x30 | `unscii-8` | 4 | simulation | [<img src="simulated/320x240-gray16/collage.png" width="160">](simulated/320x240-gray16/collage.png) |
+| [640x480-gray16](simulated/640x480-gray16/) | gray16, simulated | 8x16 | 80x30 | `unifont` | 2 | simulation | [<img src="simulated/640x480-gray16/collage.png" width="160">](simulated/640x480-gray16/collage.png) |
+
 ## The card
 
 The card is one byte stream of vtium's own, written by `tools/specimens`, in four blocks of 40x30 cells. A block is one 320x240 screen at 8x8, and a page holds as many blocks as its grid fits, centered:
@@ -28,4 +38,4 @@ The card is one byte stream of vtium's own, written by `tools/specimens`, in fou
 
 ## Drawing and judging
 
-`make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and fail on any difference from what is committed: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A change that moves a specimen fails until the moved files are committed, each in a commit of its own that lists what moved.
+`make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and fail on any difference from what is committed, `simulated/` aside: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A change that moves a specimen fails until the moved files are committed, each in a commit of its own that lists what moved.
