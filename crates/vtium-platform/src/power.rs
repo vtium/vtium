@@ -4,12 +4,16 @@
 
 use std::cell::Cell;
 use std::io;
+use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::rc::Rc;
 
 use calloop::generic::Generic;
 use calloop::{Interest, LoopHandle, Mode, PostAction};
 use rustix::process::{Pid, PidfdFlags, Signal, kill_process, pidfd_open};
+// The name of rustix's runtime module changes between releases; Cargo.toml
+// pins rustix to the release whose name this is (see pty.rs).
+use rustix::runtime_448b8ad740e2a26f::{How, KernelSigSet, kernel_sigprocmask};
 
 /// Sends PID 1 `SIGINT`, which init takes as Ctrl+Alt+Del: systemd starts
 /// `ctrl-alt-del.target`, a reboot, and sysvinit runs its `ctrlaltdel`
@@ -93,13 +97,29 @@ fn spawn(command: &mut Command) -> io::Result<Child> {
 }
 
 /// `/bin/sh` running `script` with none of vtium's environment, the
-/// session's included, and a fixed `PATH`.
+/// session's included, a fixed `PATH`, and no signal blocked: the loop
+/// blocks the signals it reads from its signalfd, and an exec keeps the
+/// mask.
 fn shell(script: &str) -> Command {
     let mut command = Command::new("/bin/sh");
     command
         .args(["-c", script])
         .env_clear()
         .env("PATH", "/usr/bin:/bin");
+    #[expect(
+        unsafe_code,
+        reason = "the signal mask can only be cleared for the child between fork and exec"
+    )]
+    // SAFETY: the hook runs in the forked child before exec and makes one
+    // raw rt_sigprocmask syscall, which allocates nothing and takes no
+    // lock. The child has one thread and needs no blocked signal before
+    // the exec.
+    unsafe {
+        command.pre_exec(|| {
+            kernel_sigprocmask(How::SETMASK, Some(&KernelSigSet::empty()))?;
+            Ok(())
+        });
+    }
     command
 }
 
@@ -158,20 +178,38 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&out.stdout), "||/usr/bin:/bin");
     }
 
-    /// Set in the process [`the_sysfs_shell_holds_only_its_stdio`] runs
+    /// Set in the process [`the_sysfs_shell_holds_only_its_stdio_and_blocks_nothing`] runs
     /// itself in.
     const ALONE: &str = "VTIUM_POWER_TEST_ALONE";
+
+    /// The `SigBlk` mask in the `/proc/<pid>/status` at `path`.
+    fn signals_blocked(path: &str) -> u64 {
+        signals_blocked_in(&std::fs::read_to_string(path).expect("status"))
+    }
+
+    fn signals_blocked_in(status: &str) -> u64 {
+        let hex = status
+            .lines()
+            .find_map(|l| l.strip_prefix("SigBlk:"))
+            .expect("SigBlk");
+        u64::from_str_radix(hex.trim(), 16).expect("SigBlk")
+    }
 
     /// Runs in a process of its own with no other test, as vtium starts
     /// the shell from its one thread: other tests' threads open
     /// descriptors meanwhile, xkbcommon's keymap files without
     /// close-on-exec among them. What this process passes down unmarked
-    /// reaches that one, as vtium's parent passes down to vtium.
+    /// reaches that one, as vtium's parent passes down to vtium, and the
+    /// signals it blocks are blocked in the thread that starts the shell.
     #[test]
-    fn the_sysfs_shell_holds_only_its_stdio() {
-        const NAME: &str = "power::tests::the_sysfs_shell_holds_only_its_stdio";
+    fn the_sysfs_shell_holds_only_its_stdio_and_blocks_nothing() {
+        const NAME: &str = "power::tests::the_sysfs_shell_holds_only_its_stdio_and_blocks_nothing";
         if std::env::var_os(ALONE).is_none() {
-            let out = Command::new(std::env::current_exe().expect("this binary"))
+            // as vtium's loop blocks the signals it reads; env's
+            // --block-signal needs coreutils 8.31 or later
+            let out = Command::new("env")
+                .arg("--block-signal=TERM,USR1")
+                .arg(std::env::current_exe().expect("this binary"))
                 .args(["--exact", NAME, "--test-threads=1", "--nocapture"])
                 .env(ALONE, "1")
                 .output()
@@ -189,12 +227,25 @@ mod tests {
         let null = std::fs::File::open("/dev/null").expect("/dev/null");
         let held = rustix::io::fcntl_dupfd_cloexec(&null, 100).expect("dup");
         rustix::io::fcntl_setfd(&held, rustix::io::FdFlags::empty()).expect("setfd");
-        let mut command = shell("ls /proc/self/fd");
-        command.stdin(Stdio::null()).stdout(Stdio::piped());
+        // the signals this thread blocks, as vtium's loop blocks those it
+        // reads
+        let blocked = signals_blocked("/proc/thread-self/status");
+        assert_ne!(blocked & (1 << (libc::SIGTERM - 1)), 0, "{blocked:x}");
+        let mut command = shell("ls /proc/self/fd; cat /proc/self/status >&2");
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         let out = spawn(&mut command)
             .expect("a shell")
             .wait_with_output()
             .expect("its output");
+        let status = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(
+            signals_blocked_in(&status),
+            0,
+            "the shell's blocked signals"
+        );
         let listed = String::from_utf8_lossy(&out.stdout);
         let fds: Vec<&str> = listed.lines().collect();
         let held = std::os::fd::AsRawFd::as_raw_fd(&held).to_string();
