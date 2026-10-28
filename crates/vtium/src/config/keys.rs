@@ -801,8 +801,8 @@ pub const FONT_NAME: Key = Key {
     default: Default::Text("monospace"),
     scope: Scope::Anywhere,
     reader: "vtium-font",
-    what: "The font's name, or with `font-engine=psf` the path of a PSF font.",
-    cite: "src/config.c:1424",
+    what: "The font: a set in the store, by its name or by its first source, so a kbd font's name, or with `font-engine=psf` a PSF font's path, finds the set `vtium-vitrify create --kbd` or `--file` built from it. Unset, vconsole's font; with none, or a name with no set built, vtium draws its built-in sets, and logs the `create` command that builds a named one.",
+    cite: "src/config.c:1424; ADR-1200 (D9); vtium/vtium#126",
 };
 
 pub const FONT_SIZE: Key = Key {
@@ -819,6 +819,17 @@ pub const FONT_SIZE: Key = Key {
     reader: "vtium-font",
     what: "The font's height; 0 picks one from the display's size.",
     cite: "src/config.c:1423; vtium-font's `CELL_SIDE_MAX`",
+};
+
+pub const ALLOW_FONT_OPS: Key = Key {
+    name: "allow-font-ops",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(true),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Let a program switch the font among the built sets with xterm's OSC 50 (`OSC 50 ; NAME ST`, as `vtium-vitrify set NAME` sends it) and ask which set is in use (`OSC 50 ; ? ST`). On by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the sets root built into the store and the built-in ones, never a file. A switch changes the live console only; `font-name` decides the font at the next start. Off, vtium ignores OSC 50, the query included.",
+    cite: "ADR-1200 (D5); vtium/vtium#126",
 };
 
 pub const GLYPH_SOURCE: Key = Key {
@@ -1053,6 +1064,7 @@ pub const KEYS: [Key; 76] = [
     FONT_ENGINE,
     FONT_NAME,
     FONT_SIZE,
+    ALLOW_FONT_OPS,
     GLYPH_SOURCE,
     GLYPH_SOURCE_BOX,
     GLYPH_SOURCE_BLOCK,

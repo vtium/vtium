@@ -17,3 +17,8 @@ workspace = true
 
 [dependencies]
 vtium-font.workspace = true
+
+[dev-dependencies]
+# the tests read the fonts back with the PSF loader, which the console
+# leaves out
+vtium-font = { workspace = true, features = ["psf"] }

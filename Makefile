@@ -30,14 +30,16 @@ minspec: ## Build the minspec binary, target/minspec/vtium
 	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo build --profile minspec -p vtium
 
 # vtium as a system installs it, staged under DESTDIR: the minspec binary,
-# the VT unit, the compiled terminfo entry and the example configuration.
-# Tier 3 installs this tree in its guest.
+# vtium-vitrify, the VT unit, the compiled terminfo entry and the example
+# configuration. Tier 3 installs this tree in its guest.
 DESTDIR ?= target/install-tree
 VTIUM_INSTALL := crates/vtium/install
 
 .PHONY: install-tree
 install-tree: minspec ## Stage vtium's install tree under DESTDIR (default target/install-tree; needs tic)
 	install -Dm755 $(VTIUM_MINSPEC) $(DESTDIR)/usr/bin/vtium
+	cargo build --release -p vtium-vitrify
+	install -Dm755 $(or $(CARGO_TARGET_DIR),target)/release/vtium-vitrify $(DESTDIR)/usr/bin/vtium-vitrify
 	install -Dm644 $(VTIUM_INSTALL)/kmsconvt@.service $(DESTDIR)/usr/lib/systemd/system/kmsconvt@.service
 	install -dm755 $(DESTDIR)/usr/share/terminfo
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/kmscon.ti

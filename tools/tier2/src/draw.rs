@@ -13,8 +13,10 @@
 //! glyphs, the performance profile's budgets, and glyphs stored at 8 bits
 //! and at their drawn size. Every one must draw the same bytes.
 
-use vtium_font::set::SetFace;
-use vtium_font::{Cell, Face, Font, Glyph, Psf, Style as FontStyle, Unifont};
+use std::sync::Arc;
+
+use vtium_font::set::{Set, SetFace};
+use vtium_font::{Cell, Face, Font, Glyph, Psf, Sha256, Style as FontStyle, Unifont};
 use vtium_render::{
     Budgets, Canvas, Config, DecoColor, DecorationColors, Depth, DrawState, Orientation, Profile,
     Renderer, Storage,
@@ -36,6 +38,14 @@ pub enum FontKind {
     /// A PSF font `tools/testfont` writes, read through vtium-font's PSF
     /// loader at its own size.
     Psf(TestFont),
+    /// A PSF font `tools/testfont` writes, vitrified as `vtium-vitrify
+    /// create` builds it (ADR-1200), with `fill`, a built-in set, filling
+    /// the characters the font lacks, and drawn from the set at the font's
+    /// own size, as the console draws a set from its store.
+    Set {
+        font: TestFont,
+        fill: Option<&'static str>,
+    },
     /// The vitrified set [`crate::colorset`] builds, unifont's ASCII in a
     /// 1-bit strike and color glyphs in an RGBA strike at 8x16, drawn for
     /// cells `height` pixels high (vtium/vtium#23).
@@ -58,6 +68,67 @@ impl TestFont {
             TestFont::Small8x8 => vtium_testfont::small8x8()?.psf2(),
             TestFont::Small8x16 => vtium_testfont::small8x16()?.psf1(),
         }
+    }
+
+    /// The name `tools/testfont` gives the font's file.
+    fn file(self) -> &'static str {
+        match self {
+            TestFont::Small8x8 => "vtium-test-8x8.psf",
+            TestFont::Small8x16 => "vtium-test-8x16.psf",
+        }
+    }
+
+    /// The set `vtium-vitrify create` builds from a frit naming the font,
+    /// then `fill`: its bytes. The font is parsed in this process, where
+    /// `create` parses it in its child.
+    pub fn vitrify(self, fill: Option<&str>) -> Result<Vec<u8>, String> {
+        use vtium_vitrify::build::{Font as Bitmap, Parsed, Part, assemble, build_key};
+        use vtium_vitrify::child::Request;
+        use vtium_vitrify::frit::Frit;
+        use vtium_vitrify::sources::{Input, Resolved};
+        let bytes = self.bytes()?;
+        let mut frit = format!("source=file:/usr/share/vtium-tests/{}\n", self.file());
+        if let Some(fill) = fill {
+            frit.push_str(&format!("source=builtin:{fill}\n"));
+        }
+        let name = self.file().trim_end_matches(".psf");
+        let frit = Frit::parse(frit.as_bytes(), std::path::Path::new("/tier2.vtfrit"), name)
+            .map_err(|e| e.to_string())?;
+        let mut fonts = vec![(
+            Bitmap::from_glyphs(vtium_vitrify::decode::font(&bytes, None, None)?),
+            Resolved {
+                input: Input::Font(Request {
+                    font: bytes.clone(),
+                    unimap: None,
+                    def_uni: None,
+                }),
+                sha256: Sha256::digest(&bytes),
+                unimap_sha256: None,
+                def_uni_sha256: None,
+            },
+        )];
+        if let Some(fill) = fill {
+            let font = Bitmap::from_builtin(fill)?;
+            let resolved = Resolved {
+                input: Input::Builtin(font.clone()),
+                sha256: font.digest(),
+                unimap_sha256: None,
+                def_uni_sha256: None,
+            };
+            fonts.push((font, resolved));
+        }
+        let read: Vec<Option<Resolved>> = fonts.iter().map(|(_, r)| Some(r.clone())).collect();
+        let parts: Vec<Part<'_>> = frit
+            .sources
+            .iter()
+            .zip(&fonts)
+            .map(|(source, (font, resolved))| Part {
+                source,
+                resolved,
+                parsed: Parsed::Bitmap(font.clone()),
+            })
+            .collect();
+        assemble(&frit, &parts, &[], &build_key(&frit, &read))
     }
 }
 
@@ -219,6 +290,13 @@ pub fn draw(screen: &Screen) -> Result<Image, String> {
         FontKind::Psf(font) => {
             let psf = Psf::parse(&font.bytes()?).map_err(|e| format!("{font:?}: {e}"))?;
             draw_with(screen, || Font::new(psf.clone()))
+        }
+        FontKind::Set { font, fill } => {
+            let set = Set::from_bytes(font.vitrify(fill)?).map_err(|e| format!("{font:?}: {e}"))?;
+            let set = Arc::new(set);
+            let height = set.cells().first().map_or(16, |c| c.height);
+            let face = SetFace::new(set, height).ok_or_else(|| format!("{font:?}: no strike"))?;
+            draw_with(screen, || Font::new(face.clone()))
         }
         FontKind::ColorSet { height } => {
             let face = SetFace::new(crate::colorset::set()?, height)
@@ -427,6 +505,28 @@ mod tests {
         let green = image.rgb().chunks(3).any(|p| p == [0, 0xff, 0]);
         assert!(green, "the underline did not take index 196's new color");
     }
+    // ADR-1200 D10: a PSF test font vitrified as `create` builds it draws
+    // every small screen exactly as the PSF loader draws it, so the small
+    // displays' goldens judge the set too.
+    #[test]
+    fn a_vitrified_test_font_draws_as_the_psf_loader_does() {
+        let mut compared = Vec::new();
+        for case in crate::screens::CASES {
+            let FontKind::Psf(font) = case.screen.font else {
+                continue;
+            };
+            compared.push(case.screen.name);
+            let psf = draw(&case.screen).unwrap();
+            let set = draw(&Screen {
+                font: FontKind::Set { font, fill: None },
+                ..case.screen
+            })
+            .unwrap();
+            assert!(psf == set, "{}", case.screen.name);
+        }
+        assert_eq!(compared, ["small-320x240", "small-640x480"]);
+    }
+
     // The color glyph screen at twice its cell, where the cache stores a
     // glyph at the set's size or at its drawn size by configuration: every
     // configuration draws the same bytes, and in the first three rows,

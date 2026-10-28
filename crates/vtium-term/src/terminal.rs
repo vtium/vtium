@@ -20,6 +20,7 @@ mod blank;
 mod charset;
 mod clipboard;
 mod color;
+mod font;
 mod inband;
 mod input;
 mod modes;
@@ -150,6 +151,10 @@ struct HostSettings {
     /// The palette the host configured, which the color resets return
     /// to.
     palette: Palette,
+    /// OSC 50 is taken: the host's `allow-font-ops`.
+    font_ops: bool,
+    /// The font set in use, as OSC 50's query reports it.
+    font_name: Option<String>,
 }
 
 /// A DCS string being collected.
@@ -208,6 +213,8 @@ struct State {
     blank: BlankRequest,
     /// The selection OSC 52 set last, until the host takes it.
     clipboard: Option<clipboard::Selection>,
+    /// The set OSC 50 asked for last, until the host takes it.
+    font_request: Option<String>,
     /// The text area and the visibility the in-band reports compare with.
     inband: Inband,
     /// XTPUSHSGR's pens, and the palettes XTPUSHCOLORS and OSC 30001 keep.
@@ -236,6 +243,8 @@ impl Terminal {
                 cell: None,
                 display: None,
                 palette: Palette::default(),
+                font_ops: false,
+                font_name: None,
             },
             colors: Palette::default(),
             cursor_style: CursorStyle::Default,
@@ -252,6 +261,7 @@ impl Terminal {
             cursor_blink_ms: None,
             blank: BlankRequest::default(),
             clipboard: None,
+            font_request: None,
             inband: Inband::new(cols, rows),
             sgr_stack: sgr::Stack::default(),
             color_stack: color::Stack::default(),
@@ -305,6 +315,39 @@ impl Terminal {
     /// drops it when its configuration turns copy-out off.
     pub fn take_clipboard_write(&mut self) -> Option<Vec<u8>> {
         self.state.clipboard.take().map(|s| s.0)
+    }
+
+    /// Takes OSC 50 while `on`, both a set asked for and the query; off,
+    /// as until the host first turns it on, both are ignored
+    /// (`terminal/font.rs`).
+    pub fn set_font_ops(&mut self, on: bool) {
+        self.state.host.font_ops = on;
+        if !on {
+            self.state.font_request = None;
+        }
+    }
+
+    /// Names the font set in use, which OSC 50's query reports: false,
+    /// keeping the name before, for a `name` that cannot name a set.
+    pub fn set_font_name(&mut self, name: &str) -> bool {
+        let ok = font::is_set_name(name.as_bytes());
+        if ok {
+            self.state.host.font_name = Some(name.to_owned());
+        }
+        ok
+    }
+
+    /// A set asked for with OSC 50 waits for the host to take it.
+    pub fn font_requested(&self) -> bool {
+        self.state.font_request.is_some()
+    }
+
+    /// The set a program asked for with OSC 50 since the last call, a name
+    /// a set can take; a later request replaced an earlier one. The host
+    /// switches to it when it is built, and names the set in use with
+    /// [`set_font_name`](Self::set_font_name).
+    pub fn take_font_request(&mut self) -> Option<String> {
+        self.state.font_request.take()
     }
 
     /// What a program asked of the screen blank with the Linux console's
@@ -822,6 +865,8 @@ impl Consumer for State {
             self.screen.set_hyperlink(args);
         } else if let Some(args) = data.strip_prefix(b"133;") {
             self.screen.shell_mark(args);
+        } else if let Some(pt) = data.strip_prefix(b"50;") {
+            self.osc_font(pt, end);
         } else {
             let scheme = self.scheme();
             self.osc_color(data, end);

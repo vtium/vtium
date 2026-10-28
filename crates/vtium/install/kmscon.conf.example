@@ -185,11 +185,14 @@
 ## The font source to use. Unset, each the build has, in this order.
 #font-engine=
 
-## The font's name, or with `font-engine=psf` the path of a PSF font.
+## The font: a set in the store, by its name or by its first source, so a kbd font's name, or with `font-engine=psf` a PSF font's path, finds the set `vtium-vitrify create --kbd` or `--file` built from it. Unset, vconsole's font; with none, or a name with no set built, vtium draws its built-in sets, and logs the `create` command that builds a named one.
 #font-name=monospace
 
 ## The font's height; 0 picks one from the display's size.
 #font-size=0
+
+## Let a program switch the font among the built sets with xterm's OSC 50 (`OSC 50 ; NAME ST`, as `vtium-vitrify set NAME` sends it) and ask which set is in use (`OSC 50 ; ? ST`). On by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the sets root built into the store and the built-in ones, never a file. A switch changes the live console only; `font-name` decides the font at the next start. Off, vtium ignores OSC 50, the query included.
+#allow-font-ops
 
 ## Where the six sprite ranges draw from: `font`, the font's glyphs; `sprites`, vtium's; `auto`, the font's where it has one. Unset, a named font's glyphs for each range it covers whole and the sprites for the rest; the built-in unifont draws the sprites.
 #glyph-source=

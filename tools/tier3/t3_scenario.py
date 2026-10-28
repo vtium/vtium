@@ -64,13 +64,18 @@ VARIANTS = {
         "cpus": 1,
         "memory_mb": 512,
         "images": False,
+        "frits": ["default8x16.vtfrit"],
     },
     # 2d-potato-min also runs the pointer case ("pointer"): after the VT
     # switch it moves the pointer with QMP and reads the display's cursor
     # plane from the guest (t3_pointer).
+    # A variant drawing a PSF font names the frits the guest builds into the
+    # store before the console starts ("frits", guest/frits), since vtium
+    # draws only sets (ADR-1200).
     # The small displays (vtium/vtium#75) on the minspec machine: minspec's
     # floor, 320x240 in an 8x8 PSF font as 40 by 30 cells, and 640x480 in an
-    # 8x16 one as 80 by 30, both fonts tools/testfont's ("fonts"). They draw
+    # 8x16 one as 80 by 30, both fonts tools/testfont's ("fonts"), each with
+    # a built-in set filling what it lacks. They draw
     # SMALL_SCREENS ("screens"), and the C reference drew neither, so their
     # goldens are vtium's own ("goldens": VTIUM_GOLDEN).
     "2d-320x240-psf8": {
@@ -82,6 +87,7 @@ VARIANTS = {
         "memory_mb": 512,
         "images": False,
         "fonts": True,
+        "frits": ["vtium-test-8x8.vtfrit"],
         "screens": SMALL_SCREENS,
         "goldens": VTIUM_GOLDEN,
     },
@@ -94,6 +100,7 @@ VARIANTS = {
         "memory_mb": 512,
         "images": False,
         "fonts": True,
+        "frits": ["vtium-test-8x16.vtfrit"],
         "screens": SMALL_SCREENS,
         "goldens": VTIUM_GOLDEN,
     },
@@ -191,6 +198,7 @@ SYSVINIT = {
     "memory_mb": 512,
     "images": False,
     "fonts": True,
+    "frits": ["vtium-test-8x16.vtfrit"],
     "screens": ["sgr", "cjk"],
     "goldens": VTIUM_GOLDEN,
 }
@@ -332,10 +340,10 @@ def build_disc(variant, work, impl):
     """The T3PKG disc: the tree as tree.tar, the variant's config, the
     screens, its guest's setup, and t3-console on the guest without
     systemd, the variant's sysctl settings if it has any, vtium built with
-    its features if it names any, the test fonts if it draws with them, a
-    `pointer` file if it reads the cursor plane, a `no-udev` file if it
-    runs without a udev daemon, and a `two-vts` file if it runs a second
-    vtium on tty3 from the boot."""
+    its features if it names any, the test fonts if it draws with them, the
+    frits it builds, a `pointer` file if it reads the cursor plane, a
+    `no-udev` file if it runs without a udev daemon, and a `two-vts` file
+    if it runs a second vtium on tty3 from the boot."""
     disc = os.path.join(work, "disc")
     shutil.rmtree(disc, ignore_errors=True)
     os.makedirs(disc)
@@ -360,6 +368,10 @@ def build_disc(variant, work, impl):
         shutil.copy(impl["features"][VARIANTS[variant]["features"]], os.path.join(disc, "vtium"))
     if VARIANTS[variant].get("fonts"):
         shutil.copytree(impl["fonts"], os.path.join(disc, "fonts"))
+    if VARIANTS[variant].get("frits"):
+        os.makedirs(os.path.join(disc, "frits"))
+        for frit in VARIANTS[variant]["frits"]:
+            shutil.copy(os.path.join(GUEST, "frits", frit), os.path.join(disc, "frits"))
     if VARIANTS[variant].get("pointer"):
         open(os.path.join(disc, "pointer"), "w").close()
     iso = os.path.join(work, "t3pkg.iso")

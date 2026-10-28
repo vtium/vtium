@@ -406,17 +406,22 @@ class ImplementationTest(unittest.TestCase):
 
     def test_disc(self):
         # The tree goes on the disc as tree.tar, with the variant's config,
-        # and the pointer variant's carries the `pointer` file, on which
-        # guest/setup lets the screens read the DRM state.
+        # the pointer variant's carries the `pointer` file, on which
+        # guest/setup lets the screens read the DRM state, and a PSF
+        # variant's its frits, which guest/setup builds into the store.
         impl = t3_impl.tree(self.tree, self.tar)
         disc = os.path.join(self.dir.name, "disc")
-        for variant, extra in (("2d-potato-min", ["pointer"]), ("2d-potato-min-psf", [])):
+        for variant, extra in (("2d-potato-min", ["pointer"]), ("2d-potato-min-psf", ["frits"])):
             with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
                 t3_scenario.build_disc(variant, self.dir.name, impl)
                 self.assertEqual(sorted(os.listdir(disc)),
-                                 ["kmscon.conf"] + extra + ["screens", "setup", "t3", "tree.tar"])
+                                 sorted(["kmscon.conf", "screens", "setup", "t3", "tree.tar"]
+                                        + extra))
                 with open(os.path.join(disc, "kmscon.conf")) as f:
                     self.assertIn("render-timer=log", f.read())
+                if "frits" in extra:
+                    self.assertEqual(os.listdir(os.path.join(disc, "frits")),
+                                     ["default8x16.vtfrit"])
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             self.assertIn('if [ -f "$disc"/pointer ]; then', f.read())
 
@@ -959,12 +964,15 @@ class VtiumGoldenTest(unittest.TestCase):
     def test_shipped(self):
         # The operator accepted vtium's sixteen small-display goldens on
         # 2026-10-28, the four vtium/vtium#119 adds in advance, so the list
-        # in the tree names only the guest without systemd's (vtium/vtium#104);
-        # every golden it names must be one a case draws.
+        # in the tree names only the guest without systemd's (vtium/vtium#104)
+        # and those vtium/vtium#126 recaptured from the sets' fills; every
+        # golden it names must be one a case draws.
         prov = t3_evaluate.read_provisional()
-        self.assertEqual(sorted(prov), ["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
-                                        "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
-                                        "sysvinit-two-vts/cjk"])
+        moved = ["%s/%s" % (v, s) for v in ("2d-320x240-psf8", "2d-640x480-psf16")
+                 for s in ("underline-styles", "strike", "wide-margin", "cjk")]
+        self.assertEqual(sorted(prov), sorted(["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
+                                               "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
+                                               "sysvinit-two-vts/cjk"] + moved))
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
                                                    t3_evaluate.VTIUM_GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
@@ -1267,10 +1275,19 @@ class VariantTest(unittest.TestCase):
                                  "tools/tier3/goldens/%s/small-console.png" % name)
                 self.assertEqual(goldens["vt-restore"], "tools/tier3/goldens/%s/cjk.png" % name)
                 self.assertIsNone(goldens["vt-switch"])
-        # the 8x8 font is drawn at its own size, not the 16 pixels the
-        # default size picks at 320x240
+        # no font size is set: at 320x240 the default size is the font's
+        # own, 8 (vtium/vtium#118)
         with open(os.path.join(t3_common.GUEST, "kmscon-small-8x8.conf")) as f:
-            self.assertIn("font-size=8\n", f.read())
+            self.assertNotIn("font-size", f.read())
+        # each PSF variant's frits are in guest/frits, and each names its
+        # variant's font as its first source
+        for variant, conf in t3_scenario.VARIANTS.items():
+            if "frits" not in conf:
+                continue
+            with open(os.path.join(t3_common.GUEST, conf["conf"])) as f:
+                font = re.search(r"^font-name=(.*)$", f.read(), re.M).group(1)
+            with open(os.path.join(t3_common.GUEST, "frits", conf["frits"][0])) as f:
+                self.assertIn("source=file:%s\n" % font, f.read(), variant)
         # vt-restore compares with the last screen, cjk, as in SCREENS
         self.assertEqual(t3_evaluate.SMALL_SCREENS[-1], t3_evaluate.SCREENS[-1])
         # every other variant is judged by the C reference's goldens
@@ -1736,8 +1753,9 @@ class SysvinitTest(unittest.TestCase):
             self.assertFalse(any(guest["shown"] in m for m in guest["boot"]))
 
     def test_disc(self):
-        # The guest's own setup and t3-console, which its inittab runs, and
-        # the no-udev file only for the variant without udev.
+        # The guest's own setup and t3-console, which its inittab runs, the
+        # frit of the test font the drawing variants draw, and the no-udev
+        # file only for the variant without udev.
         tree = os.path.join(self.dir.name, "tree")
         write_tree(tree, ImplementationTest.TREE)
         impl = t3_impl.tree(tree, os.path.join(self.dir.name, "out", "tree.tar"))
@@ -1745,9 +1763,9 @@ class SysvinitTest(unittest.TestCase):
         write_tree(fonts, {"vtium-test-8x16.psf": "font"})
         impl["fonts"] = fonts
         disc = os.path.join(self.dir.name, "disc")
-        for variant, extra in (("sysvinit-640x480", ["fonts"]),
-                               ("sysvinit-no-udev", ["fonts", "no-udev"]),
-                               ("sysvinit-two-vts", ["fonts", "two-vts"]),
+        for variant, extra in (("sysvinit-640x480", ["fonts", "frits"]),
+                               ("sysvinit-no-udev", ["fonts", "frits", "no-udev"]),
+                               ("sysvinit-two-vts", ["fonts", "frits", "two-vts"]),
                                ("sysvinit-reboot", [])):
             with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
                 t3_scenario.build_disc(variant, self.dir.name, impl)

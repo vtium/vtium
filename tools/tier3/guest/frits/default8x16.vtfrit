@@ -1,0 +1,3 @@
+# tier 3's 2d-potato-min-psf set: kbd's default 8x16 alone, as the C
+# reference's minimal build drew it, so its goldens judge the set.
+source=file:/usr/share/kbd/consolefonts/default8x16.psfu.gz

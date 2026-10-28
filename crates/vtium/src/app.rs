@@ -52,7 +52,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use vtium_font::{Face, Font, Psf, Unifont};
+use vtium_font::{Face, Font};
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::display::{Blank, DisplayId, Dpms, Event};
 use vtium_platform::input::{Button, InputEvent, KeyEvent, Mods as InputMods, PointerEvent};
@@ -71,7 +71,7 @@ use crate::blink::{Blink, Timer};
 use crate::child::{self, Display as SessionDisplay, Place};
 use crate::config::keys;
 use crate::config::{Config, ModeSpec};
-use crate::font;
+use crate::font::{self, Chosen};
 use crate::grab::{self, Chord, Grab};
 use crate::layout::{self, Zoom};
 use crate::power::{self, Power, PowerKey};
@@ -230,6 +230,17 @@ pub struct App {
     step: u32,
     /// The base font's cell, the grid's and the pty's.
     cell: (u32, u32),
+    /// The font set, chosen at the first display and switched by OSC 50.
+    font: Option<Chosen>,
+    /// Where the font's sets come from.
+    font_sources: font::Sources,
+    /// The font changed: every display's renderer is rebuilt.
+    refont: bool,
+    /// OSC 50's refusals since its last switch: only the first is logged.
+    font_refused: u64,
+    /// The locale, which keeps the built-in Unscii-8 from a zh, ja or ko
+    /// locale (ADR-1200 D7).
+    locale: String,
     orientation: Orientation,
     grid: (usize, usize),
     exit: Option<Exit>,
@@ -293,6 +304,7 @@ impl App {
         terminal.screen_mut().set_scrollback_max(lines);
         terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
         terminal.set_palette(config.palette());
+        terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
         if let Ok(table) = crate::termcap::termcap() {
             terminal.set_termcap(table);
         }
@@ -349,6 +361,11 @@ impl App {
             has_font: false,
             step: 16,
             cell: (8, 16),
+            font: None,
+            font_sources: font::Sources::default(),
+            refont: false,
+            font_refused: 0,
+            locale: locale(&inherited),
             orientation: Orientation::Normal,
             config,
             handle,
@@ -380,6 +397,14 @@ impl App {
     /// for PID 1, logind and the kernel.
     pub fn set_power(&mut self, power: Box<dyn Power>) {
         self.power = power;
+    }
+
+    /// Reads the font's sets from `sources` in place of the system's store
+    /// and vconsole files: a test's stand-in. The font is chosen again at
+    /// the next display.
+    pub fn set_font_sources(&mut self, sources: font::Sources) {
+        self.font_sources = sources;
+        self.font = None;
     }
 
     /// The selection buffer: what the user copied last, or a program set
@@ -508,16 +533,110 @@ impl App {
         self.pty = Some(pty);
     }
 
-    /// A face at `height`, as the configuration names it.
-    fn face(&self, height: u32) -> Result<Box<dyn Face>, String> {
-        let name = self.config.text(&keys::FONT_NAME).unwrap_or_default();
-        match self.config.text(&keys::FONT_ENGINE) {
-            Some("psf") => {
-                let mut psf = Psf::load(name).map_err(|e| format!("{name}: {e}"))?;
-                psf.set_height(height);
-                Ok(Box::new(psf))
+    /// Chooses the font set once, at the first display (ADR-1200 D9): the
+    /// set the configuration or vconsole names, from the store, else the
+    /// built-ins, with one line naming the command that builds the set.
+    fn choose_font(&mut self) {
+        if self.font.is_some() {
+            return;
+        }
+        let s = &self.font_sources;
+        let wanted = font::wanted(
+            &self.config,
+            &font::read_text(&s.vconsole_conf),
+            &font::read_text(&s.kernel_cmdline),
+        );
+        let chosen = match wanted {
+            None => Chosen::Builtin(None),
+            Some(w) if vtium_font::set::builtin(&w.name).is_some() => {
+                font::by_name(s, &w.name).unwrap_or(Chosen::Builtin(None))
             }
-            _ => Ok(Box::new(Unifont::new(height))),
+            Some(w) => match font::load(s, &w) {
+                Ok((name, set)) => {
+                    log::info!("the font is the set {name}");
+                    Chosen::Set { name, set }
+                }
+                Err((why, held)) => {
+                    log::warn!(
+                        "the font {} is not drawn ({why}): vtium draws its built-in font; build the set with {}",
+                        w.name,
+                        w.command(held)
+                    );
+                    Chosen::Builtin(None)
+                }
+            },
+        };
+        self.font = Some(chosen);
+    }
+
+    /// The font set in use, the built-ins before one is chosen.
+    fn chosen(&self) -> &Chosen {
+        const BUILTIN: &Chosen = &Chosen::Builtin(None);
+        self.font.as_ref().unwrap_or(BUILTIN)
+    }
+
+    /// The name of the font set in use, as OSC 50's query reports it.
+    pub fn font_name(&self) -> &str {
+        self.chosen().name(self.font_size, &self.locale)
+    }
+
+    /// The font set's face at `height`.
+    fn face(&self, height: u32) -> Result<Box<dyn Face>, String> {
+        let chosen = self.chosen();
+        chosen.face(height, &self.locale).ok_or_else(|| {
+            format!(
+                "the set {} draws nothing at {height} pixels",
+                chosen.name(height, &self.locale)
+            )
+        })
+    }
+
+    /// OSC 50 asked for the set `name` (ADR-1200 D5): a built set switches
+    /// the live console as a zoom does, on a new grid; anything else
+    /// leaves the font. The first refusal since the last switch is logged
+    /// and the rest counted, so a program's flood of requests logs one
+    /// line.
+    fn switch_font(&mut self, name: &str) {
+        self.choose_font();
+        let same = match self.chosen() {
+            Chosen::Set { name: n, .. } => n == name,
+            Chosen::Builtin(Some(n)) => *n == name,
+            Chosen::Builtin(None) => false,
+        };
+        if same {
+            return;
+        }
+        let new = font::by_name(&self.font_sources, name).and_then(|new| {
+            let old = self.font.replace(new);
+            self.refont = true;
+            if self.relayout() {
+                return Ok(());
+            }
+            self.font = old;
+            self.refont = true;
+            self.relayout();
+            Err(format!("it draws nothing at {} pixels", self.font_size))
+        });
+        match new {
+            Ok(()) => {
+                let refused = std::mem::take(&mut self.font_refused);
+                if refused > 1 {
+                    log::info!(
+                        "OSC 50 was refused {} more times before this switch",
+                        refused.saturating_sub(1)
+                    );
+                }
+                log::info!("OSC 50: the font is now the set {}", self.font_name());
+            }
+            Err(why) => {
+                if self.font_refused == 0 {
+                    log::warn!(
+                        "OSC 50 asked for the font {name}: {why}; the font stays {}, and OSC 50's further refusals are counted until a switch",
+                        self.font_name()
+                    );
+                }
+                self.font_refused = self.font_refused.saturating_add(1);
+            }
         }
     }
 
@@ -566,6 +685,7 @@ impl App {
         };
         let refresh = video.refresh_mhz(id);
         let (backend, name) = (video.backend(), video.name(id));
+        self.choose_font();
         let Ok(face) = self.face(self.font_size.max(1)) else {
             log::error!("cannot load the font for display {name}");
             return;
@@ -609,10 +729,12 @@ impl App {
         if sizes.is_empty() {
             return true;
         }
+        self.choose_font();
         if self.auto_size {
             let w = sizes.iter().map(|s| s.0).min().unwrap_or(0);
             let h = sizes.iter().map(|s| s.1).min().unwrap_or(0);
-            self.font_size = font::auto_size(w, h);
+            let smallest = self.chosen().smallest(&self.locale);
+            self.font_size = font::auto_size(w, h, smallest);
         }
         let base = match font::select(self.font_size, self.has_font, |h| self.face(h)) {
             Ok((face, h)) => {
@@ -634,6 +756,8 @@ impl App {
             }
         };
         self.font_size = base;
+        let name = self.chosen().name(base, &self.locale).to_owned();
+        self.term.terminal.set_font_name(&name);
         let cell = |h: u32| {
             self.face(h).ok().map(|f| {
                 let c = f.cell();
@@ -648,11 +772,12 @@ impl App {
         let config = self.render_config();
         let heights: Vec<u32> = l.heights.clone();
         let keys: Vec<(PathBuf, DisplayId)> = self.views.keys().cloned().collect();
+        let refont = std::mem::take(&mut self.refont);
         for (key, height) in keys.into_iter().zip(heights) {
             let stale = self
                 .views
                 .get(&key)
-                .is_some_and(|v| v.height != height || v.orientation != self.orientation);
+                .is_some_and(|v| refont || v.height != height || v.orientation != self.orientation);
             if !stale {
                 continue;
             }
@@ -1134,11 +1259,22 @@ impl App {
         self.draw_now = true;
     }
 
-    /// A zoom: the base height a size step larger or smaller, which ends
-    /// `font-size=0`'s following of the display. A height with no font
-    /// keeps the one in use.
+    /// A zoom: the base height the next of the set's strikes and their
+    /// whole multiples, larger or smaller, which ends `font-size=0`'s
+    /// following of the display (ADR-1200 D9). Below the smallest it
+    /// stops, with a line naming the set and its smallest height. A
+    /// height with no font keeps the one in use.
     fn zoom(&mut self, dir: Zoom) {
-        let Some(size) = layout::zoom(self.font_size, self.step, dir) else {
+        self.choose_font();
+        let chosen = self.chosen();
+        let Some(size) = font::zoom(&chosen.rungs(&self.locale), self.font_size, dir) else {
+            if dir == Zoom::Out {
+                let smallest = chosen.smallest(&self.locale);
+                log::info!(
+                    "the set {} draws no smaller than {smallest} pixels: zoom stops there",
+                    chosen.name(smallest, &self.locale)
+                );
+            }
             return;
         };
         let (old, auto) = (self.font_size, self.auto_size);
@@ -1463,6 +1599,10 @@ impl App {
                 self.selection = Some(selection);
             }
         }
+        // The terminal takes OSC 50 only under `allow-font-ops`.
+        if let Some(name) = self.term.terminal.take_font_request() {
+            self.switch_font(&name);
+        }
         // After the exit, whose respawn's RIS returns the blank to
         // `dpms-timeout` for the next session.
         self.child_exited(now);
@@ -1769,6 +1909,22 @@ fn after(t: Instant, d: Duration) -> Instant {
 
 fn to_usize(n: u64) -> usize {
     usize::try_from(n).unwrap_or(usize::MAX)
+}
+
+/// The locale in `env`, found as locale(7) says: the first of `LC_ALL`,
+/// `LC_CTYPE` and `LANG` set and not empty, else `C`.
+fn locale(env: &[(OsString, OsString)]) -> String {
+    ["LC_ALL", "LC_CTYPE", "LANG"]
+        .iter()
+        .find_map(|name| {
+            env.iter()
+                .rev()
+                .find(|(k, _)| k == name)
+                .and_then(|(_, v)| v.to_str())
+                .filter(|v| !v.is_empty())
+        })
+        .unwrap_or("C")
+        .to_owned()
 }
 
 fn to_u32(n: u64) -> u32 {
