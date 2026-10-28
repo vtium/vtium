@@ -85,8 +85,7 @@ fn fit(top: u32, rows: u32, h: u32) -> u32 {
 /// The dash's width in a cell `w` wide: five eighths of it, a half rounded
 /// up, at least 1 and, from 2 pixels, leaving a gap of at least 1.
 fn dash(w: u32) -> u32 {
-    let d = (w.saturating_mul(5).saturating_add(4) / 8).max(1);
-    if w >= 2 { d.min(w - 1) } else { d }
+    (w.saturating_mul(5).saturating_add(4) / 8).clamp(1, w.saturating_sub(1).max(1))
 }
 
 /// The rows an underline may take in a cell `h` tall: a quarter, the most
@@ -281,7 +280,7 @@ mod tests {
     /// cell's left edge for `round(5w / 8)` pixels, kept from 1 to `w - 1`.
     fn is_the_dash(w: u32, h: u32, px: &[u8]) -> bool {
         let m = Decorations::for_height(h);
-        let len = ((5 * w) as f64 / 8.0).round() as u32;
+        let len = (5 * w + 4) / 8;
         let len = len.clamp(1, w.saturating_sub(1).max(1));
         let lines = m.underline..m.underline + m.underline_thickness;
         (0..h).all(|y| {
