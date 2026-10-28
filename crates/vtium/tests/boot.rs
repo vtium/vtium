@@ -3499,7 +3499,8 @@ fn a_frit_with_no_stated_cell_takes_the_displays() {
     let _ = std::fs::remove_dir_all(&fonts.frits);
 }
 
-// #145: a frit whose cell= is unreadable is not drawn; the built-in font is
+// #145, ADR-1200 D9: a frit whose cell= is unreadable is not drawn; the
+// built-in font is, with one line naming the font and why, and no command
 #[test]
 fn a_frit_with_an_unreadable_cell_leaves_the_built_in_font() {
     let (fonts, _go) = frit_fonts_of(
@@ -3518,6 +3519,7 @@ fn a_frit_with_an_unreadable_cell_leaves_the_built_in_font() {
             .any(|l| l.starts_with("the font t is not drawn (line 2: cell=10 is not WIDTHxHEIGHT")),
         "{lines:?}"
     );
+    assert!(lines.iter().all(|l| !l.contains("create")), "{lines:?}");
     let _ = std::fs::remove_dir_all(&fonts.frits);
 }
 
@@ -3762,29 +3764,42 @@ fn a_name_a_frit_bears_is_the_frit_and_font_name_wins_over_vconsole() {
     let _ = std::fs::remove_dir_all(&fonts.frits);
 }
 
-// ADR-1200 D9: a name that is neither a frit nor a source draws the
-// built-in font, with one line naming the font and why, and no command
+// ADR-1200 D9: an outline family, font-name under font-engine=pango or
+// freetype, is a one-source frit with a font: source
 #[test]
-fn a_name_that_is_no_font_draws_the_built_in_font_with_one_line() {
-    let fonts = recording("neither");
-    logged();
-    let h = with_fonts(
+fn a_family_is_generated_as_a_one_source_frit() {
+    let fonts = recording("family");
+    let mut h = with_fonts(
         &["--font-engine=pango", "--font-name=DejaVu Sans Mono"],
         fonts.clone(),
     );
-    assert_eq!(h.app.font_name(), "unifont");
-    let lines = logged();
-    let said: Vec<&String> = lines
-        .iter()
-        .filter(|l| l.contains("DejaVu Sans Mono"))
-        .collect();
-    assert_eq!(said.len(), 1, "{lines:?}");
-    assert!(
-        said[0].starts_with("the font DejaVu Sans Mono is not drawn (")
-            && said[0].ends_with("): vtium draws its built-in font"),
-        "{said:?}"
+    assert_eq!(h.app.font_name(), "DejaVu Sans Mono");
+    assert_eq!(
+        recorded(&mut h, &fonts, 1),
+        [pair("DejaVu Sans Mono", "source=font:DejaVu Sans Mono\n")]
     );
-    assert!(lines.iter().all(|l| !l.contains("create")), "{lines:?}");
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// ADR-1200 D17: a zoom steps an outline frit by 1 pixel, as the C
+// reference's outline engines did, each height but the stated one as
+// wide as the built-in font there
+#[test]
+fn a_zoom_steps_an_outline_frit_by_one_pixel() {
+    let (equal, minus) = (0x3d, 0x2d);
+    let fonts = recording("outline-zoom");
+    std::fs::write(
+        fonts.frits.join("t.vtfrit"),
+        "source=outline:/f.ttf\ncell=10x20\n",
+    )
+    .expect("the frit");
+    let mut h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
+    let mut cells = vec![h.app.cells()[0]];
+    for k in [equal, minus, minus] {
+        h.app.input_event(key(Mods::CTRL, k), now());
+        cells.push(h.app.cells()[0]);
+    }
+    assert_eq!(cells, [(10, 20), (8, 21), (10, 20), (8, 19)]);
     let _ = std::fs::remove_dir_all(&fonts.frits);
 }
 

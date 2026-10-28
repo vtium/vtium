@@ -794,7 +794,7 @@ impl App {
             let h = sizes.iter().map(|s| s.1).min().unwrap_or(0);
             self.font_size = self.chosen().auto_height(w, h, &self.locale);
         }
-        self.font_size = self.chosen().snap(self.font_size);
+        self.font_size = self.chosen().snap(self.font_size, &self.locale);
         let base = match font::select(self.font_size, self.has_font, |h| self.face(h)) {
             Ok((face, h)) => {
                 if !self.has_font {
