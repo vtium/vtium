@@ -80,6 +80,11 @@ class ScreenTextTest(unittest.TestCase):
             if name not in textless:
                 with self.subTest(name):
                     self.assertTrue(t3_evaluate.screen_text(name, LOG))
+        # small-console fits 40 columns, its ruler ending at the 40th
+        small = t3_evaluate.screen_text("small-console", LOG)
+        self.assertEqual(len(small[0]), 40)
+        self.assertTrue(small[0].endswith("40"))
+        self.assertLessEqual(max(len(line) for line in small), 40)
         # e and U+0301 between bars: one cell built from two code points.
         self.assertEqual(t3_evaluate.screen_text("combining", LOG)[1][27:31], "|e\u0301|")
 
@@ -432,6 +437,33 @@ class ImplementationTest(unittest.TestCase):
         with open(os.path.join(disc, "kmscon.conf")) as f:
             self.assertIn("render-timer=log", f.read())
 
+    def test_fonts_disc(self):
+        # A variant drawing with the test fonts carries them, which
+        # guest/setup installs where its config names them; others carry none.
+        impl = t3_impl.tree(self.tree, self.tar)
+        fonts = os.path.join(self.dir.name, "fonts")
+        os.mkdir(fonts)
+        for name in ("vtium-test-8x8.psf", "vtium-test-8x16.psf"):
+            with open(os.path.join(fonts, name), "w") as f:
+                f.write(name)
+        impl["fonts"] = fonts
+        disc = os.path.join(self.dir.name, "disc")
+        for variant, conf in (("2d-320x240-psf8", "vtium-test-8x8.psf"),
+                              ("2d-640x480-psf16", "vtium-test-8x16.psf")):
+            with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
+                t3_scenario.build_disc(variant, self.dir.name, impl)
+                self.assertEqual(sorted(os.listdir(os.path.join(disc, "fonts"))),
+                                 ["vtium-test-8x16.psf", "vtium-test-8x8.psf"])
+                with open(os.path.join(disc, "kmscon.conf")) as f:
+                    self.assertIn("font-name=/usr/local/share/tier3-fonts/%s\n" % conf,
+                                  f.read())
+        with mock.patch.object(t3_scenario, "make_iso"):
+            t3_scenario.build_disc("2d-potato-min", self.dir.name, impl)
+        self.assertNotIn("fonts", os.listdir(disc))
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            self.assertIn('install -Dm644 -t /usr/local/share/tier3-fonts "$disc"/fonts/*',
+                          f.read())
+
     def test_power_disc(self):
         # The hard reboot's disc carries its sysctl settings, which
         # guest/setup applies; the other power variants' carry none.
@@ -494,6 +526,10 @@ class ImplementationTest(unittest.TestCase):
         self.assertEqual(t3_scenario.resident({}), {"first_screen": "sgr", "first_kib": None,
                                                     "peak_kib": None, "peak_screen": None})
         self.assertEqual(t3_scenario.failure_meta("x")["resident"], t3_scenario.resident({}))
+        # a variant with screens of its own counts from its first
+        self.assertEqual(t3_scenario.resident({"small-console": 9000}, ["small-console", "cjk"]),
+                         {"first_screen": "small-console", "first_kib": 9000,
+                          "peak_kib": 9000, "peak_screen": "small-console"})
 
     def test_variant_errors(self):
         # The scenario's own error comes first and the renderer's after it, so
@@ -523,6 +559,11 @@ class ImplementationTest(unittest.TestCase):
                          (["the console that drew logged itself as kmscon v10, not vtium"],
                           True))
         self.assertEqual(errors(None, bbulk, caps, rss, None), ([none], True))
+        # a variant's own screens are the ones read
+        small = {"small-console": "a", "cjk": "b"}
+        self.assertEqual(t3_scenario.variant_errors(None, bbulk, "bbulk", small, {"cjk": 1},
+                                                    vtium, ["small-console", "cjk"]),
+                         (["no resident memory reading (T3-RSS) after small-console"], True))
 
     def test_console_revision(self):
         # The guest's own account of the console that ran: its log's
@@ -968,6 +1009,51 @@ class VariantTest(unittest.TestCase):
             self.assertEqual(t3_scenario.variant_cases(name), t3_evaluate.CASES)
         with open(os.path.join(t3_common.GUEST, "kmscon-minimal-psf.conf")) as f:
             self.assertIn("font-engine=psf\n", f.read())
+
+    def test_small_displays(self):
+        # The small displays (vtium/vtium#75) on the minspec machine: 320x240
+        # in the 8x8 test font, 640x480 in the 8x16 one, each drawing the
+        # small screens, judged by vtium's goldens, and in tier3-minimal.
+        potato = t3_scenario.VARIANTS["2d-potato-min-psf"]
+        with open(os.path.join(t3_common.ROOT, "Makefile")) as f:
+            minimal = re.search(r"^tier3-minimal:.*\n\t(.*)", f.read(), re.M).group(1)
+        for name, size, font in (("2d-320x240-psf8", "xres=320,yres=240", "vtium-test-8x8.psf"),
+                                 ("2d-640x480-psf16", "xres=640,yres=480",
+                                  "vtium-test-8x16.psf")):
+            with self.subTest(name):
+                v = t3_scenario.VARIANTS[name]
+                for key in ("cpus", "memory_mb", "renderer", "images"):
+                    self.assertEqual(v[key], potato[key])
+                self.assertIn(size, v["device"])
+                self.assertTrue(v["fonts"])
+                self.assertEqual(v["goldens"], t3_evaluate.VTIUM_GOLDEN)
+                self.assertEqual(t3_scenario.screens_of(name), t3_evaluate.SMALL_SCREENS)
+                self.assertNotIn(name, t3_scenario.DEFAULT_VARIANTS)
+                self.assertIn(name, minimal)
+                with open(os.path.join(t3_common.GUEST, v["conf"])) as f:
+                    conf = f.read()
+                self.assertIn("font-engine=psf\n", conf)
+                self.assertIn("/" + font + "\n", conf)
+                cases = t3_scenario.variant_cases(name)
+                self.assertEqual(cases, t3_evaluate.SMALL_SCREENS + ["vt-switch", "vt-restore"])
+                # every case judged by vtium's golden, the restore by cjk's
+                meta = t3_scenario.failure_meta("no boot")
+                entries = t3_scenario.evaluate_variant(name, {}, meta, LOG)
+                goldens = {e["name"].split("/", 1)[1]: e["golden"] for e in entries}
+                self.assertEqual(goldens["small-console"],
+                                 "tools/tier3/goldens/%s/small-console.png" % name)
+                self.assertEqual(goldens["vt-restore"], "tools/tier3/goldens/%s/cjk.png" % name)
+                self.assertIsNone(goldens["vt-switch"])
+        # the 8x8 font is drawn at its own size, not the 16 pixels the
+        # default size picks at 320x240
+        with open(os.path.join(t3_common.GUEST, "kmscon-small-8x8.conf")) as f:
+            self.assertIn("font-size=8\n", f.read())
+        # vt-restore compares with the last screen, cjk, as in SCREENS
+        self.assertEqual(t3_evaluate.SMALL_SCREENS[-1], t3_evaluate.SCREENS[-1])
+        # every other variant is judged by the C reference's goldens
+        entries = t3_scenario.evaluate_variant("2d-potato-min", {}, t3_scenario.failure_meta("x"),
+                                               LOG)
+        self.assertTrue(entries[0]["golden"].startswith("target/tier3/kmscon-"))
 
     def test_resident_memory(self):
         # guest/t3's T3-RSS lines: the largest VmRSS of the kmscon

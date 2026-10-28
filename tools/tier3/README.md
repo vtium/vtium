@@ -2,13 +2,13 @@
 
 Tier 3 for vtium: vtium's install tree, installed in a pinned Arch Linux guest under QEMU/KVM and started by systemd on a VT, as a system would run it, with a real kernel VT and a virtio-gpu KMS device. A script logs in over the emulated keyboard, draws fixed screens, captures each one and compares it with its golden. The exit status is the verdict. The harness is also the way to put any test content on a real VT: a screen is a shell script in `guest/screens/`.
 
-The goldens are the C reference's, at the kmscon commit `pin.tsv` names, read from a kmscon checkout beside this one as tier 2's are. The harness itself came from the C fork's `fork/tier3` at c631dbab, which is frozen; it lives and changes here.
+The goldens are the C reference's, at the kmscon commit `pin.tsv` names, read from a kmscon checkout beside this one as tier 2's are, but for the small displays, which the C reference never drew: their goldens are vtium's own, in `goldens/`. The harness itself came from the C fork's `fork/tier3` at c631dbab, which is frozen; it lives and changes here.
 
 ## Running it
 
 ```sh
 make tier3-image             # fetch, verify and provision the guest image, or reuse one built from the same inputs
-make tier3-minimal           # the install tree, then the minspec variants: 1 vCPU, 512 MB, unifont and a PSF font
+make tier3-minimal           # the install tree, then the minspec variants: 1 vCPU, 512 MB, unifont, a PSF font, 320x240 and 640x480
 make tier3                   # the install tree, then every variant; VARIANTS="..." for some
 make tier3-run VARIANTS=2d-potato-min   # the last run's tree, or TREE=DIR, without building
 make tier3 JOBS=2            # up to two variants at once, each in its own VM
@@ -84,9 +84,13 @@ Each step waits for state the driver can observe: a line on the serial log or th
 | `gl-1280x800` | 4 vCPUs, 4096 MB | `virtio-vga-gl`, `-display egl-headless` | gltex | `kmscon-gl.conf` |
 | `2d-potato-min` | 1 vCPU, 512 MB | `virtio-vga`, EDID 1366x768 | bbulk | `kmscon-minimal.conf`: unifont |
 | `2d-potato-min-psf` | 1 vCPU, 512 MB | `virtio-vga`, EDID 1366x768 | bbulk | `kmscon-minimal-psf.conf`: kbd's 8x16 PSF font |
+| `2d-320x240-psf8` | 1 vCPU, 512 MB | `virtio-vga`, EDID 320x240 | bbulk | `kmscon-small-8x8.conf`: the 8x8 PSF2 test font at its own size, 40 by 30 cells |
+| `2d-640x480-psf16` | 1 vCPU, 512 MB | `virtio-vga`, EDID 640x480 | bbulk | `kmscon-small-8x16.conf`: the 8x16 PSF1 test font, 80 by 30 cells |
 | `power-reboot`, `power-reboot-hard`, `power-off`, `power-suspend-off`, `power-suspend-logind` | 1 vCPU, 512 MB | `virtio-vga`, EDID 1366x768; S3 offered to the suspending ones | bbulk | `kmscon-power.conf`: the power keys bound |
 
-`make tier3` runs the first five (`DEFAULT_VARIANTS`), whose goldens the C reference drew with DejaVu Sans Mono through FreeType and pango, and the GL one through its GPU renderer; vtium draws in software with unifont or PSF until its outline fonts land (vtium/vtium#23), so those variants judge how far vtium is from them. Until then every case of the four 2D variants fails but `vt-switch`: the text screens on the font, and the image screens and their keyed cases also on the pictures vtium does not yet draw (vtium/vtium#48, vtium/vtium#49). Every case of `gl-1280x800` fails on its renderer: the variant requires gltex, and vtium draws in software until its GPU path lands (vtium/vtium#33). `make tier3-minimal` runs the two minspec variants, whose goldens are the C reference's minimal build with the same font backends vtium has. Their image screens draw no picture (`"images": False`): each must report images not offered, and the keys that act on pictures are not sent.
+`make tier3` runs the first five (`DEFAULT_VARIANTS`), whose goldens the C reference drew with DejaVu Sans Mono through FreeType and pango, and the GL one through its GPU renderer; vtium draws in software with unifont or PSF until its outline fonts land (vtium/vtium#23), so those variants judge how far vtium is from them. Until then every case of the four 2D variants fails but `vt-switch`: the text screens on the font, and the image screens and their keyed cases also on the pictures vtium does not yet draw (vtium/vtium#48, vtium/vtium#49). Every case of `gl-1280x800` fails on its renderer: the variant requires gltex, and vtium draws in software until its GPU path lands (vtium/vtium#33). `make tier3-minimal` runs the four minspec variants. The two potato ones draw every screen, and their goldens are the C reference's minimal build with the same font backends vtium has. Their image screens draw no picture (`"images": False`): each must report images not offered, and the keys that act on pictures are not sent.
+
+The two small displays are minspec's floor and the size at which everything vtium supports is usable (vtium/vtium#75, docs/architecture.md). They draw `SMALL_SCREENS` (`t3_evaluate.py`): `small-console`, written for 40 columns, then `sgr`, `boxdraw`, `underline-styles`, `wide-margin` and `cjk`, so `vt-restore` compares with `cjk` as in every variant. Their fonts are `tools/testfont`'s, which the run writes into `target/tier3/fonts` and the disc carries to `/usr/local/share/tier3-fonts`, so no console font of the guest's reaches them. At 320x240 the default font size is 16, which would draw the 8x8 font doubled as 20 by 15 cells, so its configuration sets `font-size=8`.
 
 The power variants run only when named, as `make tier3 VARIANTS="power-reboot power-reboot-hard power-off power-suspend-off power-suspend-logind"`. Each presses the power keys (vtium/vtium#21) on the console's login prompt, in the order of its cases, and its cases are checks without a golden (`t3_power.py`). A case's capture is the screen before its key, and it passes when the console log after the key shows vtium's line for the key and then the action carried out, with no kernel panic, and a case that ends the VM passes only on QEMU's SHUTDOWN event for it: `guest-reset` for a reboot, `guest-shutdown` for a power-off.
 
@@ -119,7 +123,7 @@ Goldens are `golden/<variant>/<screen>.png` in the pinned kmscon commit, full re
 
 `departures.tsv` lists the cases whose difference from their golden a departure explains: a line names variants and screens (each pair a case), the README that lists the departure under `## Departures`, its bold title exactly as written there, and the rectangles, end-exclusive and covering whole cells, its difference must lie in. Today it holds one: the "no sixel" line of the ten image screens in the two minspec variants quotes the DA1 reply, where vtium sends `CSI ? 62 ; 22 c` and the C golden shows `?60;1;6;9;15c` (row 1, columns 25 to 60). A run refuses to start when a line names a case no variant draws, a check without a golden, or a title its README does not list. A rectangle covers whole cells, so a defect in a listed cell is not seen until the line goes or its rectangles shrink.
 
-The run exits 1 on any `fail` or `missing`, or a binary over the budget. Nothing here writes a golden: they are the C reference's, and moving the pin is a change to the judge, in a commit of its own with the report before and after. A screen of vtium's own, with no golden in the pinned commit, reports `missing` until vtium's goldens have a home.
+The run exits 1 on any `fail` or `missing`, or a binary over the budget. Nothing here writes a golden. The C reference's are read at the pin, and moving the pin is a change to the judge, in a commit of its own with the report before and after. vtium's own are `goldens/<variant>/<screen>.png`, for the variants that name them (`"goldens"` in `t3_scenario.py`): reviewed captures of vtium's, each added in a commit of its own that lists it and what it shows, as `goldens/README.md` does (kmscon `ADR-304` §6). <!-- adr-cite-ignore: kmscon's record -->
 
 ## Report
 
@@ -150,7 +154,7 @@ The figures are measured on a guest: a vCPU preempted by the host still counts a
 The fork's harness judged the C reference's packages and could run a vtium build in their place. Here it judges vtium's install tree alone:
 
 - **The build:** `make install-tree` in place of the C reference's `make pkg` and `pkg-minimal` in the docker dev image. The package path (`pacman -U`, `--pkg-dir`, `--pkg-name`), the libtsm commit checks, the image-helper probe in `setup`, `upstream.mk`'s comparison runs (`--compare-only`) and the stand-in tree are gone. A minspec variant needs no build of its own: the configuration selects the font.
-- **The goldens:** read from the pinned kmscon commit, not a directory in this tree, and never written: `tier3-bless` is gone.
+- **The goldens:** the C reference's read from the pinned kmscon commit, not a directory in this tree, and vtium's own for the small displays in `goldens/`; the harness writes neither: `tier3-bless` is gone.
 - **The paths:** `target/tier3/` for the work directories, the report, the lock, the tree, the extracted goldens and the VM directory, whose `images` links to vtium's image cache, `T3_IMAGES`. The fork's own images are reused from `T3_REUSE` read-only.
 - **The size:** the binary against 2.50 MiB, failing the run past it, in place of the main package's size against 1.77 MiB, which was reported and not judged.
 - **The console:** a run fails unless the console logs itself as vtium.

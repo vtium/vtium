@@ -10,6 +10,10 @@ import t3_power
 import t3img
 from t3_common import GOLDEN, GUEST, HERE, ROOT, RUNDIR, rel
 
+# vtium's own goldens, for variants whose screens the C reference never
+# drew: VTIUM_GOLDEN/VARIANT/SCREEN.png.
+VTIUM_GOLDEN = os.path.join(HERE, "goldens")
+
 # Screens drawn by `t3 NAME` in the guest (guest/screens/NAME.sh), in the
 # order of the C reference's VT demo (fork/demo/sections), then sixel-bound and
 # the benchmark scenarios, which have no demo page, except that cjk
@@ -19,6 +23,10 @@ SCREENS = ["sgr", "colour-forms", "underline-styles", "underline-colour", "strik
            "boxdraw", "blocks", "mosaic", "wide-margin", "combining", "emoji", "sync-hold", "sixel",
            "sixel-ramps", "sixel-article", "sixel-bound", "sixel-evict", "photos",
            "photo-scroll", "mpv-sixel", "tmux-2x2", "tmux-3x3", "kitty", "kitty-photo", "kitty-files", "kitty-layers", "s1-scroll", "flood", "cjk"]
+# The screens of the small displays (vtium/vtium#75): small-console, written
+# for 40 columns, then screens of the list above that draw at any width,
+# cjk last as there.
+SMALL_SCREENS = ["small-console", "sgr", "boxdraw", "underline-styles", "wide-margin", "cjk"]
 # Cases captured after a screen is drawn, by pressing keys: each is (screen,
 # case, the chords pressed before its capture), captured once the screen has
 # changed, so a key that changes nothing fails its case. After the last, the
@@ -66,12 +74,12 @@ def keyed(name):
     return [k for s, k, _ in KEYED if s == name]
 
 
-def cases():
-    """Every case of a variant's report: each screen and the keyed cases after
-    it, then the VT switch (a check without a golden) and the restore after
-    it."""
+def cases(screens=None):
+    """Every case of a variant's report: each of `screens` (default SCREENS)
+    and the keyed cases after it, then the VT switch (a check without a
+    golden) and the restore after it."""
     out = []
-    for name in SCREENS:
+    for name in SCREENS if screens is None else screens:
         out += [name] + keyed(name)
     return out + ["vt-switch", "vt-restore"]
 
@@ -230,7 +238,7 @@ def screen_text(case, log):
     A script whose "# screen-text:" line begins "none" is not run: its
     printed lines are not its rows, as when it scrolls."""
     base = SAME_AS.get(case, case)
-    if base not in SCREENS:
+    if base not in SCREENS + SMALL_SCREENS:
         return None
     reason = " ".join(header(base)["screen-text"])
     if reason.startswith("none"):
@@ -251,14 +259,16 @@ def screen_text(case, log):
     return text.rstrip("\n").split("\n")
 
 
-def golden_for(variant, case):
-    """(golden, tolerance sidecar) paths for a case, or (None, None) for a
-    check without a golden (NO_GOLDEN)."""
+def golden_for(variant, case, root=None):
+    """(golden, tolerance sidecar) paths for a case under `root` (default
+    GOLDEN, the C reference's), or (None, None) for a check without a golden
+    (NO_GOLDEN)."""
     if case in NO_GOLDEN:
         return None, None
     base = SAME_AS.get(case, case)
-    return (os.path.join(GOLDEN, variant, base + ".png"),
-            os.path.join(GOLDEN, variant, base + ".tol"))
+    root = root or GOLDEN
+    return (os.path.join(root, variant, base + ".png"),
+            os.path.join(root, variant, base + ".tol"))
 
 
 def write_thumb(img, path):
@@ -266,9 +276,10 @@ def write_thumb(img, path):
     return rel(path)
 
 
-def evaluate(variant, case, ppm, meta, log):
-    """The report entry for one case, from its capture (or None)."""
-    golden, tolpath = golden_for(variant, case)
+def evaluate(variant, case, ppm, meta, log, golden_root=None):
+    """The report entry for one case, from its capture (or None), judged by
+    the golden under `golden_root` (golden_for)."""
+    golden, tolpath = golden_for(variant, case, golden_root)
     stem = os.path.join(RUNDIR, variant, case)
     description, wrong = describe(case)
     entry = {"name": "%s/%s" % (variant, case), "description": description,

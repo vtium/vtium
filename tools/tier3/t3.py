@@ -188,6 +188,7 @@ def run(args, log):
             build_tree(args.tree_target, tree, log)
         impl = t3_impl.tree(tree)
         impl["features"] = build_features(variants, log)
+        impl["fonts"] = build_fonts(variants, log)
         log("tree: %s, binary %d B, %s installed"
             % (rel(impl["path"]), impl["binary_bytes"], t3_impl.mib(impl["installed_bytes"])))
         results, interrupted = t3_runner.run_variants(variants, args.jobs, impl,
@@ -234,6 +235,21 @@ def build_features(variants, log):
                              % (features, r.returncode))
         out[features] = os.path.join(target, "minspec", "vtium")
     return out
+
+
+def build_fonts(variants, log):
+    """The test fonts tools/testfont writes, in OUT/fonts afresh, when a
+    variant in `variants` draws with them; None otherwise."""
+    if not any(t3_scenario.VARIANTS[v].get("fonts") for v in variants):
+        return None
+    fonts = os.path.join(OUT, "fonts")
+    log("writing the test fonts into %s" % rel(fonts))
+    shutil.rmtree(fonts, ignore_errors=True)
+    r = subprocess.run(["cargo", "run", "--release", "--quiet", "-p", "vtium-testfont", "--",
+                        fonts], cwd=ROOT)
+    if r.returncode:
+        raise SystemExit("writing the test fonts failed with exit code %d" % r.returncode)
+    return fonts
 
 
 def summary(impl, metas):
