@@ -15,7 +15,7 @@ mod judge;
 use regex::Regex;
 use regex::bytes::Regex as BytesRegex;
 
-use crate::runner::lists::departure_lines;
+use crate::runner::lists;
 use crate::spec::{Spec, whole};
 
 pub use judge::{Outcome, Replay, build_feature, check_list, verdict};
@@ -400,9 +400,10 @@ pub fn merge(copied: Vec<Probe>, ours: Vec<Probe>) -> Result<Vec<Probe>, String>
     Ok(out)
 }
 
-/// Each probe's departure, found word for word under a Departures or a
-/// Golden differences heading of the README it names, as `expected.tsv`'s
-/// departure rows are; `read` reads a README by its path from the root of
+/// Each probe's departure, the headline of an item under a Departures or
+/// a Golden differences heading of the README it names inside the
+/// repository, as `expected.tsv`'s departure rows are
+/// ([`lists::lists`]); `read` reads a README by its path from the root of
 /// the repository.
 pub fn check_departures(
     probes: &[Probe],
@@ -412,11 +413,13 @@ pub fn check_departures(
         let Some(d) = &probe.departure else {
             continue;
         };
+        let at = format!("{}: {}", probe.at, probe.name);
+        lists::readme(&d.source).map_err(|why| format!("{at}: {why}"))?;
         let text = read(&d.source)?;
-        if !departure_lines(&text).any(|line| line.contains(&d.entry)) {
+        if !lists::lists(&text, &d.entry) {
             return Err(format!(
-                "{}: {}: {} has no {:?} under a Departures or a Golden differences heading",
-                probe.at, probe.name, d.source, d.entry
+                "{at}: {} lists no departure {:?} under a Departures or a Golden differences heading",
+                d.source, d.entry
             ));
         }
     }

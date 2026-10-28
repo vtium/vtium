@@ -243,6 +243,37 @@ fn vtium_probes_take_the_place_of_placeholders_and_of_departures_only() {
         probes::read("t.replay", "probe p\ndeparture r/README.md\n", &spec).is_err(),
         "a departure with no entry"
     );
+    // the bypasses review found: an entry that is a fragment of a listed
+    // line, and a source that is not a README in the repository
+    assert!(check("-").is_err(), "a list marker as the entry");
+    assert!(check("Bold").is_err(), "a fragment of the headline");
+    assert!(
+        check("is listed. Why.").is_err(),
+        "a fragment past the headline"
+    );
+    let cited = |source: &str| {
+        let probe = BOLD.replace(
+            "size 4 1\n",
+            &format!("size 4 1\ndeparture {source} Bold is listed.\n"),
+        );
+        probes::check_departures(&read(&probe), |_| {
+            Ok("## Departures\n\n- **Bold is listed.**\n".to_owned())
+        })
+    };
+    assert!(
+        cited("tools/conformance/probes/vtium.replay").is_err(),
+        "a probe file citing itself"
+    );
+    assert!(cited("/etc/README.md").is_err(), "an absolute source");
+    assert!(
+        cited("../README.md").is_err(),
+        "a source outside the repository"
+    );
+    assert!(
+        cited("r/../../README.md").is_err(),
+        "a source that climbs out"
+    );
+    assert_eq!(cited("r/README.md"), Ok(()));
 }
 
 #[test]
