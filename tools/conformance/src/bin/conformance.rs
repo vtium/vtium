@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use vtium_conformance::generate::{self, Inputs};
+use vtium_conformance::interface;
 use vtium_conformance::probes::{self, Outcome, Replay};
 use vtium_conformance::runner::lists::{self, Expected};
 use vtium_conformance::runner::{self, Corpus, VIEWS, Verdict, chunking, provenance};
@@ -19,7 +21,11 @@ const CORPUS: &str = "corpus";
 const INTERFACE: [&str; 2] = ["corpus/INTERFACE.md", "INTERFACE-vtium.md"];
 const PROBES: [&str; 2] = ["probes/probes.replay", "probes/vtium.replay"];
 /// The directories every file of which is a copy, but for vtium's own.
-const COPIED: [&str; 2] = ["tools/conformance/corpus", "tools/conformance/probes"];
+const COPIED: [&str; 3] = [
+    "tools/conformance/corpus",
+    "tools/conformance/probes",
+    "tools/conformance/generator",
+];
 const OWN: [&str; 1] = ["tools/conformance/probes/vtium.replay"];
 /// The build features the capability list names: vtium is built without
 /// images until vtium-image lands (#48, #49).
@@ -37,6 +43,8 @@ const OPTIONAL: [&str; 6] = [
 
 const USAGE: &str = "usage: conformance [run] [--without CASE]... [--seed N] [--rounds N]
        conformance expect VIEW CASE...
+       conformance generate DIR
+       conformance interface
        conformance probes
        conformance issues
        conformance provenance [--libtsm DIR] [--kmscon DIR]";
@@ -106,13 +114,18 @@ fn corpus() -> Result<Corpus, String> {
     Corpus::open(&Path::new(TOOL).join(CORPUS))
 }
 
-/// The interface: 1.0 as the corpus holds it, and vtium's additions.
-fn spec() -> Result<Spec, String> {
-    let texts = INTERFACE
+/// The interface's documents: 1.0 as the corpus holds it, and vtium's
+/// additions.
+fn texts() -> Result<Vec<String>, String> {
+    INTERFACE
         .iter()
         .map(|file| read(&Path::new(TOOL).join(file)))
-        .collect::<Result<Vec<_>, _>>()?;
-    Spec::read(&texts.iter().map(String::as_str).collect::<Vec<_>>())
+        .collect()
+}
+
+/// The interface, read from its documents.
+fn spec() -> Result<Spec, String> {
+    Spec::read(&texts()?.iter().map(String::as_str).collect::<Vec<_>>())
 }
 
 /// The listed expectations, each departure's entry checked against the
@@ -175,18 +188,44 @@ fn check_describe(spec: &Spec) -> Result<(), String> {
     Ok(())
 }
 
+/// The interface check (`vtium_conformance::interface`): the goldens
+/// under the grammar, the worked examples, the palettes, the refusals and
+/// the grammar's controls. Prints each fault, or one line when all hold.
+fn check_interface(spec: &Spec, corpus: &Corpus) -> Result<bool, String> {
+    let texts = texts()?;
+    let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+    let check = interface::check(spec, &texts, corpus, &vtium_conformance::describe());
+    let faults = check.faults();
+    for fault in &faults {
+        println!("FAIL replay-interface: {fault}");
+    }
+    if faults.is_empty() {
+        println!("{}", check.summary());
+    }
+    Ok(faults.is_empty())
+}
+
+/// `--describe` and the interface check alone.
+fn interface() -> Result<bool, String> {
+    copies()?;
+    let spec = spec()?;
+    check_describe(&spec)?;
+    check_interface(&spec, &corpus()?)
+}
+
 fn run(o: &Options) -> Result<bool, String> {
     let copies = copies()?;
     let corpus = corpus()?;
     let expected = expectations(&corpus, &o.without)?;
-    check_describe(&spec()?)?;
+    let spec = spec()?;
+    check_describe(&spec)?;
     println!(
         "conformance: {} cases, copied from libtsm {}; {} copies match provenance.tsv",
         corpus.cases.len(),
         provenance::commit(&copies, "libtsm")?,
         copies.len()
     );
-    let mut ok = true;
+    let mut ok = check_interface(&spec, &corpus)?;
     for (view, name, golden_dir) in VIEWS {
         let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
         for case in &corpus.cases {
@@ -306,6 +345,21 @@ fn expect(o: &Options) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Writes every synthetic case under the directory named, from the
+/// generator's recipes and its inputs under `generator/`, and prints the
+/// lines `cases.list` takes.
+fn write_cases(o: &Options) -> Result<bool, String> {
+    let [dir] = &o.rest[..] else {
+        return Err(USAGE.to_owned());
+    };
+    let inputs = Inputs::read(&Path::new(TOOL).join("generator"))?;
+    print!(
+        "{}",
+        generate::write(Path::new(dir), &generate::cases(&inputs))?
+    );
+    Ok(true)
+}
+
 /// The capability probes, each judged against `capabilities.list`: a
 /// probe the list does not name, a name no probe defines, and a verdict
 /// that disagrees with the list each fail the run.
@@ -325,13 +379,15 @@ fn probes() -> Result<bool, String> {
         };
         all = probes::merge(all, probes::read(file, &text, &spec)?)?;
     }
+    probes::check_departures(&all, |path| read(&repo_root().join(path)))?;
     for probe in &all {
         let missing = caps
             .iter()
             .any(|c| c.name == probe.name && c.status == "missing");
         probes::check_expectations(probe.file(), probe, &spec, missing)?;
     }
-    let replay = Replay::new(&spec, &vtium_conformance::describe())?;
+    let replay = Replay::new(&spec, &vtium_conformance::describe())?
+        .with_fixtures(Path::new(TOOL).join("fixtures"));
     let mut failures = 0usize;
     for probe in all
         .iter()
@@ -352,14 +408,6 @@ fn probes() -> Result<bool, String> {
             failures += 1;
             continue;
         };
-        if !probe.fixtures.is_empty() {
-            println!(
-                "skip {}: no fixture {}",
-                cap.name,
-                probe.fixtures.join(", ")
-            );
-            continue;
-        }
         let outcome: Outcome = replay.run(probe);
         let (line, agrees) = probes::verdict(cap, &outcome, &BUILD);
         println!("{line}");
@@ -485,6 +533,8 @@ fn main() -> ExitCode {
         match command.as_str() {
             "run" if o.rest.is_empty() => run(&o),
             "expect" => expect(&o),
+            "generate" => write_cases(&o),
+            "interface" if o.rest.is_empty() => interface(),
             "probes" if o.rest.is_empty() => probes(),
             "issues" if o.rest.is_empty() => issues(),
             "provenance" if o.rest.is_empty() => verify_provenance(&o),

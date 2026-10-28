@@ -1,6 +1,7 @@
 # vtium's own capability probes, in probes.replay's format (README.md, The
 # probes). A probe here takes the place of a placeholder of the same name
-# in the copied probes.replay.
+# in the copied probes.replay, or, naming the departure that changes it,
+# of a copied probe of the same name.
 
 # OSC 52 copy: the host takes what a program set, once (#110; the
 # interface's clipboard command, INTERFACE-vtium.md)
@@ -12,3 +13,16 @@ cmd clipboard
 check
 want test clipboard 68656c6c6f
 want test clipboard none
+
+# XTGETTCAP from vtium's table, fixtures/kmscon.termcap: TN is kmscon, and
+# Smulx comes back byte for byte as the entry has it, \E decoded and its %
+# sequence kept, in one reply, each name in uppercase hex where the copied
+# probe expected the request's spelling
+probe xtgettcap
+size 80 24
+departure crates/vtium-term/README.md XTGETTCAP prints each name in uppercase hex from the table.
+fixture kmscon.termcap
+cmd termcap;file=kmscon.termcap
+send "\eP+q544e;536d756c78\e\\"
+check
+reply "\eP1+r544E=6B6D73636F6E;536D756C78=1B5B343A25703125646D\e\\"

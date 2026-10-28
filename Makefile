@@ -76,12 +76,20 @@ arm-test: arm-sysroot ## Run the workspace's tests for each ARM target under qem
 .PHONY: conformance
 conformance: ## Judge vtium against tier 1's goldens
 	cargo build --release -p vtium-conformance --bins
-	target/release/conformance run
+	$(or $(CARGO_TARGET_DIR),target)/release/conformance run
 
 .PHONY: conformance-probes
 conformance-probes: ## Run the capability probes through vtium-replay
 	cargo build --release -p vtium-conformance --bins
-	target/release/conformance probes
+	$(or $(CARGO_TARGET_DIR),target)/release/conformance probes
+
+# Records real programs through a pty with this machine's bash, less, vim
+# and tmux; not a gate.
+.PHONY: conformance-record
+conformance-record: ## Record the corpus's programs into OUT=DIR, each <name>.bin and <name>.cuts (NAMES='prog-shell ...', default all)
+	$(if $(OUT),,$(error conformance-record needs OUT=DIR))
+	cargo build --release -p vtium-conformance --features record --bin conformance-record
+	$(or $(CARGO_TARGET_DIR),target)/release/conformance-record $(OUT) $(NAMES)
 
 # The parse oracle and the provenance check read libtsm and kmscon
 # checkouts; neither is a gate.
@@ -90,7 +98,7 @@ LIBTSM ?= ../libtsm
 .PHONY: conformance-provenance
 conformance-provenance: ## Check each row of tools/conformance/provenance.tsv against its source with git show (LIBTSM=DIR KMSCON=DIR)
 	cargo build --release -p vtium-conformance --bins
-	target/release/conformance provenance --libtsm $(LIBTSM) --kmscon $(KMSCON)
+	$(or $(CARGO_TARGET_DIR),target)/release/conformance provenance --libtsm $(LIBTSM) --kmscon $(KMSCON)
 
 .PHONY: parse-oracle
 parse-oracle: ## Compare vtium-parse with the C reference's parser at tools/parse-oracle/pin.tsv (LIBTSM=DIR; needs gcc)
@@ -99,7 +107,7 @@ parse-oracle: ## Compare vtium-parse with the C reference's parser at tools/pars
 .PHONY: conformance-issues
 conformance-issues: ## Check that every issue the conformance lists say owes a case or a capability is open (needs gh)
 	cargo build --release -p vtium-conformance --bins
-	target/release/conformance issues
+	$(or $(CARGO_TARGET_DIR),target)/release/conformance issues
 
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
@@ -169,7 +177,7 @@ tier2-provenance: ## Check tools/tier2's copies against their sources with git s
 
 # Tier 3: vtium's install tree in a QEMU/KVM guest with a real kernel VT and
 # KMS device, its screens captured and compared with the C reference's
-# goldens at the commit tools/tier3/pin.tsv names, read from KMSCON
+# goldens copied into tools/tier3/c-goldens, and vtium's own
 # (tools/tier3/README.md). QEMU runs headless as the invoking user. Each
 # variant boots the machine tools/tier3/t3_scenario.py names; JOBS=N runs up to
 # N variants at once, and with JOBS above 1, T3_DEADLINE=S stops a variant
@@ -180,11 +188,9 @@ T3_PY       := python3 -I -B
 JOBS        ?= 1
 T3_DEADLINE ?= 1800
 # The guest images: a cache every vtium checkout shares, which
-# target/tier3/vm/images links to. A pristine or base image T3_REUSE already
-# holds, the kmscon checkout's by default, is linked from there and only
-# read; tier 3 writes nothing into another checkout.
+# target/tier3/vm/images links to, and where tier3-image fetches the pristine
+# image and builds the base image.
 T3_IMAGES   ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/vtium/tier3/images
-T3_REUSE    ?= $(KMSCON)/fork/vm/images
 
 # The pinned guest: the official Arch Linux cloud image, verified against the
 # arch-boxes signing key, and the Arch Linux Archive snapshot its packages
@@ -201,24 +207,30 @@ T3_ARCHIVE      := 2026/10/20
 T3_REV = $(shell git rev-parse --short HEAD 2>/dev/null)$(if $(shell git status --porcelain --untracked-files=no 2>/dev/null),+dirty)
 T3_RUN = T3_VTIUM_REV=$(T3_REV) T3_IMAGE=$(T3_IMAGE) T3_IMAGE_SHA256=$(T3_IMAGE_SHA256) \
 	T3_ARCHIVE=$(T3_ARCHIVE) $(T3_PY) $(T3_DIR)/t3.py run --jobs $(JOBS) \
-	--deadline $(T3_DEADLINE) --kmscon $(KMSCON)
+	--deadline $(T3_DEADLINE)
 
 .PHONY: tier3-image
-tier3-image: ## Fetch, verify and provision tier 3's guest image, or reuse one built from the same inputs (T3_IMAGES=DIR, T3_REUSE=DIR)
+tier3-image: ## Fetch, verify and provision tier 3's guest image, unless the cache holds one built from the same inputs (T3_IMAGES=DIR)
 	$(T3_PY) $(T3_DIR)/t3.py provision --image $(T3_IMAGE) --archive $(T3_ARCHIVE) \
 		--url $(T3_IMAGE_URL) --sha256 $(T3_IMAGE_SHA256) --key $(T3_IMAGE_KEY) \
-		--images $(T3_IMAGES) --reuse $(T3_REUSE)
+		--images $(T3_IMAGES)
 
 # tier3 and tier3-minimal name the tree's target for t3.py, which builds it
 # under the run lock, so a second run cannot rebuild the tree under a running
 # one. The recipes hold no $(MAKE), so `make -n` runs nothing.
 .PHONY: tier3
-tier3: tier3-image ## Tier 3: build the install tree, then run every variant, or VARIANTS="..." (JOBS=N, KMSCON=DIR)
+tier3: tier3-image ## Tier 3: build the install tree, then run every variant, or VARIANTS="..." (JOBS=N)
 	$(T3_RUN) --tree-target install-tree $(VARIANTS)
 
 .PHONY: tier3-minimal
-tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: unifont, a PSF font, and the 320x240 and 640x480 displays (KMSCON=DIR)
+tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: unifont, a PSF font, and the 320x240 and 640x480 displays
 	$(T3_RUN) --tree-target install-tree $(or $(VARIANTS),2d-potato-min 2d-potato-min-psf 2d-320x240-psf8 2d-640x480-psf16)
+
+# Each row of tools/tier3/provenance.tsv against its source in a kmscon
+# checkout, read with git; a review step when the copies change, never a gate.
+.PHONY: tier3-provenance
+tier3-provenance: ## Check tools/tier3's copies against their sources with git (KMSCON=DIR)
+	$(T3_PY) $(T3_DIR)/t3.py provenance --kmscon $(KMSCON)
 
 .PHONY: tier3-run
 tier3-run: ## Tier 3 on a tree built already: the last run's, or TREE=DIR (VARIANTS=, JOBS= as for tier3)
