@@ -959,8 +959,9 @@ impl App {
                         .map_err(|e| format!("cannot watch its wake-up: {e}"))?;
                     Ok(ping)
                 });
-            match command.and_then(|c| wake.map(|w| (c, w))) {
-                Ok((command, ping)) => {
+            let frit = helper::FritText::read(&path);
+            match command.and_then(|c| frit.and_then(|f| wake.map(|w| (c, f, w)))) {
+                Ok((command, frit, ping)) => {
                     let wake = std::sync::Mutex::new(ping);
                     self.helper = Some(Helper::new(
                         command,
@@ -970,7 +971,7 @@ impl App {
                             }
                         }),
                         self.epoch,
-                        path,
+                        frit,
                         self.console_font.clone(),
                         generated,
                         crate::deferred::store_limit(physical_memory()),

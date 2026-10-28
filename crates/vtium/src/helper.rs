@@ -42,7 +42,7 @@ use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command as Process, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -73,7 +73,7 @@ pub const REASON_BYTES_MAX: u32 = 4096;
 /// The most codepoints one request names, the helper's `FIRST_MAX`.
 pub const FIRST_MAX: usize = 32_000;
 
-const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ1";
+const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ2";
 const ASK: u32 = 1;
 const FILL: u32 = 2;
 const STOP: u32 = 3;
@@ -141,10 +141,38 @@ fn len32(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
-/// One request's bytes: `kind` at `cell` for the frit at `frit`, naming
-/// `codepoints` (cut at [`FIRST_MAX`]) and `held`, with the kernel's font.
+/// A frit as the console hands it to the helper: its name and its text,
+/// read from its file or made on the fly (ADR-1200 D9), so the helper
+/// needs no file for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FritText {
+    pub name: String,
+    pub text: String,
+}
+
+impl FritText {
+    /// The frit at `path`, named for its file less `.vtfrit`.
+    pub fn read(path: &Path) -> Result<FritText, String> {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n.strip_suffix(".vtfrit").unwrap_or(n))
+            .filter(|n| !n.is_empty())
+            .ok_or_else(|| format!("{} names no frit", path.display()))?;
+        let text = crate::font::frit_text(path)
+            .map_err(|why| format!("cannot read {}: {why}", path.display()))?;
+        Ok(FritText {
+            name: name.to_owned(),
+            text,
+        })
+    }
+}
+
+/// One request's bytes: `kind` at `cell` for `frit`, naming `codepoints`
+/// (cut at [`FIRST_MAX`]) and `held`, with the kernel's font. The display's
+/// capabilities are reserved, and sent empty.
 fn encode(
-    frit: &std::path::Path,
+    frit: &FritText,
     console: Option<&ConsoleFont>,
     kind: u32,
     cell: Cell,
@@ -153,11 +181,13 @@ fn encode(
 ) -> Vec<u8> {
     let mut out = REQUEST_MAGIC.to_vec();
     put32(&mut out, kind);
-    let path = frit.to_string_lossy();
-    put32(&mut out, len32(path.len()));
-    out.extend_from_slice(path.as_bytes());
+    for field in [&frit.name, &frit.text] {
+        put32(&mut out, len32(field.len()));
+        out.extend_from_slice(field.as_bytes());
+    }
     put32(&mut out, cell.width);
     put32(&mut out, cell.height);
+    put32(&mut out, 0);
     let codepoints = codepoints.get(..FIRST_MAX).unwrap_or(codepoints);
     put32(&mut out, len32(codepoints.len()));
     for &c in codepoints {
@@ -462,7 +492,7 @@ pub struct Helper {
     command: Command,
     /// Wakes the loop: called by the reader thread after each frame.
     wake: Arc<dyn Fn() + Send + Sync>,
-    frit: PathBuf,
+    frit: FritText,
     console: Option<ConsoleFont>,
     store: Shared,
     limit: u64,
@@ -486,15 +516,15 @@ pub struct Helper {
 }
 
 impl Helper {
-    /// The helper `command` starts for the frit at `frit`, handing it the
-    /// kernel's `console` font, whose glyphs go into `store` up to `limit`
-    /// bytes; its reader calls `wake` after each answer, in a vtium
-    /// started at `epoch`.
+    /// The helper `command` starts for `frit`, handing it the kernel's
+    /// `console` font, whose glyphs go into `store` up to `limit` bytes;
+    /// its reader calls `wake` after each answer, in a vtium started at
+    /// `epoch`.
     pub fn new(
         command: Command,
         wake: Arc<dyn Fn() + Send + Sync>,
         epoch: Instant,
-        frit: PathBuf,
+        frit: FritText,
         console: Option<ConsoleFont>,
         store: Shared,
         limit: u64,
@@ -1057,7 +1087,6 @@ fn after(t: Instant, d: Duration) -> Instant {
 )]
 mod tests {
     use super::*;
-    use std::path::Path;
     use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
     use vtium_font::{Face, Style, Width};
 
@@ -1135,7 +1164,7 @@ mod tests {
                     command,
                     wake,
                     t0(),
-                    PathBuf::from("/etc/vtium/fonts/t.vtfrit"),
+                    frit("source=builtin:unscii-8\n"),
                     None,
                     Shared::default(),
                     limit,
@@ -1189,17 +1218,48 @@ mod tests {
         Instant::now()
     }
 
+    /// The frit `t` of `text`.
+    fn frit(text: &str) -> FritText {
+        FritText {
+            name: "t".to_owned(),
+            text: text.to_owned(),
+        }
+    }
+
     #[test]
     fn a_request_is_the_helpers_format() {
-        let bytes = encode(Path::new("/a"), None, ASK, CELL, &[0x41], &[(0x42, 0x43)]);
-        let mut want = b"VTVSREQ1".to_vec();
+        let bytes = encode(&frit("x=y\n"), None, ASK, CELL, &[0x41], &[(0x42, 0x43)]);
+        let mut want = b"VTVSREQ2".to_vec();
         want.extend_from_slice(&ASK.to_le_bytes());
-        want.extend_from_slice(&2u32.to_le_bytes());
-        want.extend_from_slice(b"/a");
-        for v in [8u32, 16, 1, 0x41, 1, 0x42, 0x43, 0] {
+        want.extend_from_slice(&1u32.to_le_bytes());
+        want.extend_from_slice(b"t");
+        want.extend_from_slice(&4u32.to_le_bytes());
+        want.extend_from_slice(b"x=y\n");
+        // the cell, the reserved capabilities, the codepoint, the held
+        // range, no console font
+        for v in [8u32, 16, 0, 1, 0x41, 1, 0x42, 0x43, 0] {
             want.extend_from_slice(&v.to_le_bytes());
         }
         assert_eq!(bytes, want);
+    }
+
+    #[test]
+    fn a_frit_is_read_with_the_name_of_its_file() {
+        let dir = std::env::temp_dir().join(format!("vtium-helper-read-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ter-v16n.vtfrit");
+        std::fs::write(&path, "source=kbd:ter-v16n\n").unwrap();
+        let read = FritText::read(&path);
+        let gone = FritText::read(&dir.join("gone.vtfrit"));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            read,
+            Ok(FritText {
+                name: "ter-v16n".to_owned(),
+                text: "source=kbd:ter-v16n\n".to_owned(),
+            })
+        );
+        assert!(gone.unwrap_err().contains("gone.vtfrit"));
     }
 
     #[test]
@@ -1532,7 +1592,7 @@ mod tests {
             },
             Arc::new(|| {}),
             t0(),
-            PathBuf::from("/a"),
+            frit(""),
             None,
             Shared::default(),
             1 << 20,
