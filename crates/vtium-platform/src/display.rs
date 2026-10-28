@@ -126,7 +126,8 @@ pub enum Event {
     /// acknowledged.
     Asleep,
     /// Waking up, a modeset or an unblank failed, and the retries ran out.
-    /// The device's `input`, on the next key or pointer event, tries again.
+    /// The device's `input`, at the user's next key press or pointer
+    /// action, tries again.
     WakeFailed,
 }
 

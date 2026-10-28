@@ -264,8 +264,9 @@ impl<F: Framebuffer> Fbdev<F> {
         Ok(())
     }
 
-    /// A key or pointer event came. After [`Event::WakeFailed`], it tries
-    /// the unblank again, at most [`crate::WAKE_RETRIES`] times more.
+    /// The user pressed a key or acted with the pointer (a move, a button
+    /// or the wheel). After [`Event::WakeFailed`], it tries the unblank
+    /// again, at most [`crate::WAKE_RETRIES`] times more.
     /// Otherwise, and while the retries run, it does nothing.
     pub fn input(&mut self) -> io::Result<()> {
         if self.retries.is_some() || !std::mem::take(&mut self.wake_failed) {

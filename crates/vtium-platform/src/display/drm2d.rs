@@ -427,8 +427,8 @@ impl<K: Kms> Drm2d<K> {
         done
     }
 
-    /// A key or pointer event came. After [`Event::WakeFailed`], it tries
-    /// again, at most [`crate::WAKE_RETRIES`] times more: the wake-up,
+    /// The user pressed a key or acted with the pointer (a move, a button
+    /// or the wheel). After [`Event::WakeFailed`], it tries again, at most [`crate::WAKE_RETRIES`] times more: the wake-up,
     /// with every display on, where the card is asleep in the foreground,
     /// or else a modeset of every display, owed to [`Drm2d::unblank`]
     /// while blanked. Otherwise, and while the retries run, it does
