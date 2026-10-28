@@ -67,6 +67,7 @@ mod mmap;
 pub mod power;
 pub mod pty;
 mod queue;
+pub mod rt_signal;
 pub mod udev;
 pub mod vt;
 

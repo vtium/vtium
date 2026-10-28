@@ -25,7 +25,7 @@ use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty};
 
 fn help() -> String {
     let mut out = String::from(
-        "Usage: vtium [OPTION]... [--login -- COMMAND...]\n       vtium check-config [OPTION]...   check the configuration, apply nothing\n\n",
+        "Usage: vtium [OPTION]... [--login -- COMMAND...]\n       vtium check-config [OPTION]...   check the configuration, apply nothing\n       vtium blank --vt N               blank the displays of the vtium on VT N now\n       vtium wake --vt N                wake the displays of the vtium on VT N\n\n",
     );
     for k in &KEYS {
         let arg = match k.kind {
@@ -51,6 +51,9 @@ fn clock() -> Clock {
 fn main() -> ExitCode {
     vtium::logger::init(log::Level::Info);
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if let Some(status) = vtium::blank::subcommand(&args) {
+        return ExitCode::from(u8::try_from(status).unwrap_or(1));
+    }
     let loaded = config::load(&args, Some("seat0"), &mut config::read_file);
     if loaded.check {
         let (lines, status) = check::run(&loaded);
@@ -104,11 +107,15 @@ fn main() -> ExitCode {
 }
 
 fn run_kernel(config: config::Config, start: Start, path: &Path) -> io::Result<i32> {
-    let (tty, num) = Tty::open(path)?;
+    let path = path.to_owned();
     run(
         config,
         start,
+        // The VT opens once the loop blocks its signals: `vtium blank`
+        // finds a vtium by its open VT, and its signal at the default
+        // disposition would end vtium.
         Box::new(move |lp| {
+            let (tty, num) = Tty::open(&path)?;
             let vt = KernelVt::new(lp, tty, num, |app: &mut App| app.vt.get::<KernelVt<Tty>>())?;
             let restore = vt.restorer()?;
             vtium::hook::restore_first(move || restore.run());
@@ -129,6 +136,7 @@ fn run(config: config::Config, start: Start, open: Open) -> io::Result<i32> {
     }
     // A write to a child gone returns an error in place of ending vtium.
     lp.on_signal(Signal::SIGPIPE, |_| {})?;
+    vtium::blank::listen(&lp.handle())?;
     let vt = open(&mut lp)?;
     let clock = clock();
     let mut app = App::new(

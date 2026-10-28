@@ -67,6 +67,13 @@ impl Blank {
         self.blanked
     }
 
+    /// The displays blank now, whatever the timeout, as when the owner is
+    /// told to from outside. Returns whether they were lit, so the owner
+    /// powers them down; the next input ends it as it ends the timer's.
+    pub fn blank_now(&mut self) -> bool {
+        !std::mem::replace(&mut self.blanked, true)
+    }
+
     /// The displays blank after `timeout` with no input, `None` or zero
     /// never. A change restarts the countdown from `now` and keeps a
     /// blank in force; it returns whether the timeout changed.
@@ -217,6 +224,24 @@ mod tests {
         assert!(b.set_timeout(None, start + 3 * T));
         assert_eq!(b.deadline(), None, "off");
         assert!(!b.fire(start + 10 * T));
+    }
+
+    /// A blank at once holds, with the timeout or without, until input
+    /// ends it; the countdown then runs from that input.
+    #[test]
+    fn a_blank_at_once_holds_until_input() {
+        let start = Instant::now();
+        for timeout in [Some(T), None] {
+            let mut b = Blank::new(timeout, start);
+            assert!(b.blank_now(), "was lit");
+            assert!(b.blanked());
+            assert!(!b.blank_now(), "blanked already");
+            assert_eq!(b.deadline(), None, "nothing until input");
+            assert!(!b.fire(start + 3 * T), "one blank");
+            assert!(b.input(start + T));
+            assert!(!b.blanked());
+            assert_eq!(b.deadline(), timeout.map(|t| start + T + t));
+        }
     }
 
     #[test]
