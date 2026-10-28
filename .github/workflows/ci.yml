@@ -89,24 +89,15 @@ jobs:
       - run: make test-tools
         working-directory: vtium
 
-  # Tier 2: the renderer's screens against the C reference's goldens at the
-  # commit tools/tier2/pin.tsv names, and against vtium's own. The report
-  # and the images are kept whatever the result.
+  # Tier 2: the renderer's screens against vtium's goldens and the C
+  # reference's, copied into tools/tier2/reference with provenance; vtium is
+  # the only checkout. The report and the images are kept whatever the result.
   tier2:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           path: vtium
-      - name: pinned commit
-        id: pin
-        run: |
-          awk '!/^#/ && $1 == "kmscon" { print "commit=" $2; sub(/^https:\/\/github.com\//, "", $3); sub(/\.git$/, "", $3); print "repository=" $3 }' vtium/tools/tier2/pin.tsv >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ steps.pin.outputs.repository }}
-          ref: ${{ steps.pin.outputs.commit }}
-          path: kmscon
       - uses: dtolnay/rust-toolchain@stable
       - run: make tier2
         working-directory: vtium
