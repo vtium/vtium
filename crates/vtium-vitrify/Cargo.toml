@@ -20,9 +20,10 @@ vtium-platform.workspace = true
 # gzip's deflate, for compressed fonts and unimaps; vtium-font already
 # builds this version.
 miniz_oxide = "0.8.9"
-# The store's lock, the parser's no-new-privileges and limits, and the
-# effective uid; vtium-platform already builds this version.
-rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "process", "thread"] }
+# The store's lock, the parser's no-new-privileges and limits, the
+# effective uid, and the terminal's width for the banner; vtium-platform
+# already builds this version with these features.
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "process", "termios", "thread"] }
 # The decoders kbd's other compressions need (ADR-1200 D6), each pure
 # Rust with no C compiled, in this binary only; the README says why each.
 bzip2 = "=0.6.1"
@@ -30,5 +31,8 @@ lzma-rust2 = { version = "=0.24.0", default-features = false, features = ["std",
 ruzstd = "=0.8.2"
 
 [dev-dependencies]
+# A pty for the banner's tests; vtium-platform already builds this
+# version with these features.
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "pty", "termios"] }
 # The xz encoder, for the tests' fixtures only.
 lzma-rust2 = { version = "=0.24.0", default-features = false, features = ["std", "xz", "encoder"] }

@@ -42,7 +42,7 @@ fn main() {
         .skip(1)
         .filter(|a| !a.starts_with('-'))
         .collect();
-    let cases: [(&str, fn()); 7] = [
+    let cases: [(&str, fn()); 8] = [
         // first: no thread has started yet
         (
             "sigterm_is_served_while_the_loop_waits",
@@ -72,6 +72,7 @@ fn main() {
             "a_writing_grandchild_does_not_hold_back_the_exit",
             a_writing_grandchild_does_not_hold_back_the_exit,
         ),
+        ("the_child_holds_only_the_pty", the_child_holds_only_the_pty),
     ];
     let mut ran = 0;
     for (name, case) in cases {
@@ -718,6 +719,31 @@ fn the_child_starts_with_default_signals_and_none_blocked() {
     );
     assert_ne!(blocked & term, 0, "the parent blocks SIGTERM");
     assert_eq!(state("child "), (0, 0), "the child's ignored and blocked");
+}
+
+// pty.c:252-297. A descriptor vtium's parent passed down without
+// close-on-exec reaches neither the login shell nor what it starts.
+fn the_child_holds_only_the_pty() {
+    // numbered high so it is never the one ls opens
+    let null = fs::File::open("/dev/null").expect("/dev/null");
+    let held = rustix::io::fcntl_dupfd_cloexec(&null, 100).expect("dup");
+    rustix::io::fcntl_setfd(&held, rustix::io::FdFlags::empty()).expect("setfd");
+    let mut lp = host_loop();
+    let mut h = Host::default();
+    let mut ls = Command::new("ls");
+    ls.args(["-1", "/proc/self/fd"]);
+    open(&lp, &mut h, ls);
+    turn_until(&mut lp, &mut h, 500, |h| h.term.exited.is_some());
+    let listed = String::from_utf8_lossy(&h.term.taken);
+    let fds: Vec<&str> = listed.lines().map(str::trim_end).collect();
+    let held = std::os::fd::AsRawFd::as_raw_fd(&held).to_string();
+    // ls opens one descriptor of its own to read the directory
+    assert!(
+        fds.len() <= 4
+            && ["0", "1", "2"].iter().all(|f| fds.contains(f))
+            && !fds.contains(&held.as_str()),
+        "{fds:?}"
+    );
 }
 
 // The child exits while a grandchild that ignores the hangup goes on

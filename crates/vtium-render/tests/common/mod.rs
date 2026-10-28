@@ -107,10 +107,19 @@ pub fn style(fg: Rgb, bg: Rgb) -> Style {
     }
 }
 
+/// The text of tests/reference/screens.tsv.
+pub fn reference_screens_tsv() -> String {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/reference/screens.tsv");
+    std::fs::read_to_string(path).expect("screens.tsv")
+}
+
 /// The screens of tests/reference/screens.tsv, by name.
 pub fn reference_screens() -> Vec<(String, Screen)> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/reference/screens.tsv");
-    let text = std::fs::read_to_string(path).expect("screens.tsv");
+    parse_screens(&reference_screens_tsv())
+}
+
+/// The screens of `text`, in screens.tsv's form, by name.
+pub fn parse_screens(text: &str) -> Vec<(String, Screen)> {
     let mut out: Vec<(String, Screen)> = Vec::new();
     for line in text.lines().filter(|l| !l.starts_with('#')) {
         let f: Vec<&str> = line.split('\t').collect();
@@ -168,18 +177,23 @@ pub fn arrow_over(p: u32, src: u32) -> u32 {
 /// FNV-1a 64 over the width and height as little-endian u32, then each
 /// pixel as a little-endian u32.
 pub fn digest(c: &Canvas) -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    digest_pixels(c.width(), c.height(), c.pixels())
+}
+
+/// [`digest`] of `pixels`, `w` by `h`.
+pub fn digest_pixels(w: u32, h: u32, pixels: &[u32]) -> u64 {
+    let mut d: u64 = 0xcbf2_9ce4_8422_2325;
     let mut eat = |v: u32| {
         for b in v.to_le_bytes() {
-            h = (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3);
+            d = (d ^ u64::from(b)).wrapping_mul(0x100_0000_01b3);
         }
     };
-    eat(c.width());
-    eat(c.height());
-    for &p in c.pixels() {
+    eat(w);
+    eat(h);
+    for &p in pixels {
         eat(p);
     }
-    h
+    d
 }
 
 /// A display buffer that keeps what is written, for a test to read back

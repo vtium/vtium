@@ -11,7 +11,7 @@
 //!   in the space from the single line's top downwards;
 //! - dotted: square dots a thickness wide, as many a cell as fit with a gap
 //!   of the same size, centred in their slots;
-//! - dashed: one dash a cell over its middle two thirds;
+//! - dashed: one dash a cell, from its left edge for five eighths of it;
 //! - strike: the font's strike-through, full width.
 //!
 //! A line that would leave the cell is moved up into it. An underline takes
@@ -19,6 +19,9 @@
 //! double or a curl as far up as it needed (vtium/vtium#119): a curl lowers
 //! its wave to fit, down to 2 rows peak to peak, and a double, or a curl
 //! that still does not fit, draws as the single line.
+//!
+//! The dash is vtium's: the C reference's, over each cell's middle two
+//! thirds, lined up with each character at 8 pixels.
 
 use vtium_font::Decorations;
 use vtium_term::UnderlineStyle;
@@ -77,6 +80,12 @@ fn fit(top: u32, rows: u32, h: u32) -> u32 {
     } else {
         h.saturating_sub(rows)
     }
+}
+
+/// The dash's width in a cell `w` wide: five eighths of it, a half rounded
+/// up, at least 1 and, from 2 pixels, leaving a gap of at least 1.
+fn dash(w: u32) -> u32 {
+    (w.saturating_mul(5).saturating_add(4) / 8).clamp(1, w.saturating_sub(1).max(1))
 }
 
 /// The rows an underline may take in a cell `h` tall: a quarter, the most
@@ -196,12 +205,7 @@ pub(crate) fn draw(kind: Kind, w: u32, h: u32, m: &Decorations) -> Vec<u8> {
         (Kind::Curly, Some(amp)) => curly(&mut s, m, amp),
         (Kind::Single | Kind::Double | Kind::Curly, _) => s.fill_rows(0, w, m.underline, t),
         (Kind::Dotted, _) => dotted(&mut s, m),
-        (Kind::Dashed, _) => s.fill_rows(
-            w.saturating_add(3) / 6,
-            w.saturating_mul(5).saturating_add(3) / 6,
-            m.underline,
-            t,
-        ),
+        (Kind::Dashed, _) => s.fill_rows(0, dash(w), m.underline, t),
         (Kind::Strike, _) => s.fill_rows(0, w, m.strike, m.strike_thickness),
     }
     s.px
@@ -272,12 +276,28 @@ mod tests {
         }
     }
 
+    /// Whether `px` is the dash at `w` by `h`: the font's line from the
+    /// cell's left edge for `round(5w / 8)` pixels, kept from 1 to `w - 1`.
+    fn is_the_dash(w: u32, h: u32, px: &[u8]) -> bool {
+        let m = Decorations::for_height(h);
+        let len = (5 * w + 4) / 8;
+        let len = len.clamp(1, w.saturating_sub(1).max(1));
+        let lines = m.underline..m.underline + m.underline_thickness;
+        (0..h).all(|y| {
+            (0..w).all(|x| {
+                let lit = lines.contains(&y) && x < len;
+                px[(y * w + x) as usize] == if lit { 0xff } else { 0 }
+            })
+        })
+    }
+
     // Every sprite at every cell size from 1x1 to 24x48 against the C
     // reference's `kmscon_deco_render` (tests/reference/README.md); the
     // curly wave's sine is vtium's own, so this is also the check that it
     // draws the C reference's bytes. A double or curl past a quarter of the
-    // cell is the render crate's departure: it must differ from the C
-    // reference's and draw the fallback.
+    // cell, and the dash in a cell 2 or more pixels wide, are the render
+    // crate's departures: each must differ from the C reference's and draw
+    // the fallback or the dash.
     // covers: platform.compositor
     #[test]
     fn sprites_match_the_c_reference() {
@@ -303,22 +323,31 @@ mod tests {
                 &px,
             );
             checked += 1;
-            if past_a_quarter(Kind::ALL[kind - 1], w, h) {
-                departed += 1;
-                if d == want {
+            let k = Kind::ALL[kind - 1];
+            let redrawn = if k == Kind::Dashed {
+                (w >= 2).then(|| is_the_dash(w, h, &px))
+            } else {
+                past_a_quarter(k, w, h).then(|| falls_back(k, w, h, &px))
+            };
+            match redrawn {
+                Some(_) if d == want => {
                     bad.push(format!("{line} (a departure, drawn as the C reference)"));
-                } else if !falls_back(Kind::ALL[kind - 1], w, h, &px) {
-                    bad.push(format!("{line} (a departure, not the fallback)"));
                 }
-            } else if d != want {
-                bad.push(line.to_owned());
+                Some(false) => bad.push(format!("{line} (a departure, not the redrawn shape)")),
+                Some(true) => departed += 1,
+                None if d != want => bad.push(line.to_owned()),
+                None => {}
             }
         }
         assert_eq!(checked, 6 * 24 * 48);
         // every width's double at heights 2 to 11; every width's curl at
         // heights 1 to 11, and widths 12 to 24 at 12 to 15, 16 to 24 at
-        // 16 to 19, 20 to 24 at 20 to 23 and 24 at 24 to 27
-        assert_eq!(departed, 10 * 24 + (11 * 24 + 4 * 13 + 4 * 9 + 4 * 5 + 4));
+        // 16 to 19, 20 to 24 at 20 to 23 and 24 at 24 to 27; the dash at
+        // widths 2 to 24 and every height
+        assert_eq!(
+            departed,
+            10 * 24 + (11 * 24 + 4 * 13 + 4 * 9 + 4 * 5 + 4) + 23 * 48
+        );
         assert!(
             bad.is_empty(),
             "{} of {checked} differ, first: {:?}",
@@ -355,6 +384,36 @@ mod tests {
         for kind in UNDERLINES {
             assert_eq!(rows(&draw(kind, 8, 8, &m), 8), Some((7, 8)), "{kind:?}");
         }
+    }
+
+    /// The bottom row of `kind` at `w` by 16, as `█` and `·`.
+    fn bottom_row(kind: Kind, w: u32) -> String {
+        let px = draw(kind, w, 16, &Decorations::for_height(16));
+        px[(15 * w) as usize..]
+            .iter()
+            .map(|&p| if p == 0 { '·' } else { '█' })
+            .collect()
+    }
+
+    // At 8 pixels a dash over the middle of each cell lined up with each
+    // character (the operator, 2026-10-28).
+    // covers: platform.compositor
+    #[test]
+    fn a_dash_runs_from_the_left_edge_for_five_eighths_of_the_cell() {
+        for (w, want) in [
+            (1, "█"),
+            (2, "█·"),
+            (5, "███··"),
+            (8, "█████···"),
+            (16, "██████████······"),
+            (24, "███████████████·········"),
+        ] {
+            assert_eq!(bottom_row(Kind::Dashed, w), want, "w {w}");
+        }
+        // a half rounds up, and a gap remains
+        assert_eq!(bottom_row(Kind::Dashed, 4), "███·");
+        assert_eq!(bottom_row(Kind::Dashed, 12), "████████····");
+        assert_eq!(bottom_row(Kind::Dashed, 3), "██·");
     }
 
     // covers: platform.compositor

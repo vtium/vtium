@@ -18,12 +18,30 @@ applies nothing, and reads nothing but the configuration files.\n";
 
 /// What a value means beyond its own key, which the start reports too.
 pub fn semantics(config: &Config) -> Vec<String> {
-    // systemd's own test that it is the running init (sd_booted(3)).
-    semantics_under(config, std::path::Path::new("/run/systemd/system").is_dir())
+    // Any user may read PID 1's status; `SigCgt` says what it catches.
+    let status = std::fs::read_to_string("/proc/1/status").map_err(|e| e.to_string());
+    semantics_under(config, &status, vtium_platform::power::power_off_signal())
 }
 
-/// [`semantics`] where `systemd` tells whether systemd is PID 1.
-fn semantics_under(config: &Config, systemd: bool) -> Vec<String> {
+/// Whether PID 1 catches `signal`, from the text of `/proc/1/status`:
+/// the `SigCgt` line is a hex mask with bit `signal - 1` set for a caught
+/// signal. `Err` names why the text does not answer.
+fn init_catches(status: &str, signal: i32) -> Result<bool, String> {
+    let mask = status
+        .lines()
+        .find_map(|line| line.strip_prefix("SigCgt:"))
+        .ok_or("it has no SigCgt line")?;
+    let mask = u64::from_str_radix(mask.trim(), 16)
+        .map_err(|_| format!("its SigCgt line is not a hex mask: {:?}", mask.trim()))?;
+    let bit = u32::try_from(signal).ok().and_then(|n| n.checked_sub(1));
+    Ok(bit
+        .and_then(|b| mask.checked_shr(b))
+        .is_some_and(|m| m & 1 == 1))
+}
+
+/// [`semantics`] where `status` is what reading `/proc/1/status` gave (the
+/// text, or the error's message) and `signal` is the power-off signal.
+fn semantics_under(config: &Config, status: &Result<String, String>, signal: i32) -> Vec<String> {
     let mut out = Vec::new();
     if config.switch(&keys::HWACCEL) {
         out.push("hwaccel is not built yet; vtium draws in software".to_owned());
@@ -31,12 +49,22 @@ fn semantics_under(config: &Config, systemd: bool) -> Vec<String> {
     if config.switch(&keys::USE_ORIGINAL_MODE) && !config.modes(&keys::MODE).is_empty() {
         out.push("mode is set, so use-original-mode is off".to_owned());
     }
-    if !systemd && !config.chords(&keys::GRAB_POWER_OFF).is_empty() {
-        out.push(
-            "grab-power-off is bound, and systemd is not PID 1 (no /run/systemd/system): \
-             its SIGRTMIN+4 powers nothing off"
-                .to_owned(),
-        );
+    if !config.chords(&keys::GRAB_POWER_OFF).is_empty() {
+        let caught = match status {
+            Ok(text) => init_catches(text, signal).map_err(|why| format!("/proc/1/status: {why}")),
+            Err(why) => Err(format!("/proc/1/status could not be read: {why}")),
+        };
+        match caught {
+            Ok(true) => {}
+            Ok(false) => out.push(format!(
+                "grab-power-off is bound, and PID 1 does not catch SIGRTMIN+4 (signal {signal}, \
+                 from SigCgt in /proc/1/status): it powers nothing off"
+            )),
+            Err(why) => out.push(format!(
+                "grab-power-off is bound, and whether PID 1 catches SIGRTMIN+4 (signal {signal}) \
+                 is unknown, since {why}"
+            )),
+        }
     }
     out
 }
@@ -135,24 +163,81 @@ mod tests {
         assert_eq!(run_with(&[], "no-hwaccel\n"), (Vec::new(), 0));
     }
 
+    fn status(cgt: &str) -> Result<String, String> {
+        Ok(format!(
+            "Name:\tinit\nSigIgn:\t0000000000001000\nSigCgt:\t{cgt}\nCapInh:\t0\n"
+        ))
+    }
+
+    fn power_off_warnings(conf: &str, status: &Result<String, String>) -> Vec<String> {
+        let args = [OsString::from(SUBCOMMAND)];
+        let conf = conf.as_bytes().to_vec();
+        let loaded = config::load(&args, None, &mut |_: &Path| Ok(Some(conf.clone())));
+        semantics_under(&loaded.config, status, 38)
+    }
+
+    const BOUND: &str = "grab-power-off=<Ctrl><Alt>End\n";
+
     #[test]
-    fn grab_power_off_warns_without_systemd() {
-        let load = |conf: &str| {
-            let args = [OsString::from(SUBCOMMAND)];
-            let conf = conf.as_bytes().to_vec();
-            config::load(&args, None, &mut |_: &Path| Ok(Some(conf.clone())))
-        };
-        let bound = load("grab-power-off=<Ctrl><Alt>End\n");
+    fn grab_power_off_is_silent_where_init_catches_the_signal() {
+        // Both masks have bit 37 (signal 38) set.
+        for cgt in ["00000021fdc1fefb", "0000002000014a03"] {
+            assert_eq!(
+                power_off_warnings(BOUND, &status(cgt)),
+                [] as [&str; 0],
+                "{cgt}"
+            );
+        }
+    }
+
+    #[test]
+    fn grab_power_off_warns_where_init_catches_nothing_of_it() {
         assert_eq!(
-            semantics_under(&bound.config, false),
+            power_off_warnings(BOUND, &status("0000000000000000")),
             [
-                "grab-power-off is bound, and systemd is not PID 1 (no /run/systemd/system): \
-              its SIGRTMIN+4 powers nothing off"
+                "grab-power-off is bound, and PID 1 does not catch SIGRTMIN+4 (signal 38, \
+                 from SigCgt in /proc/1/status): it powers nothing off"
             ]
         );
-        assert_eq!(semantics_under(&bound.config, true), [] as [&str; 0]);
-        let unbound = load("grab-reboot=<Ctrl><Alt>Delete\n");
-        assert_eq!(semantics_under(&unbound.config, false), [] as [&str; 0]);
+        // Bit 38 (signal 39) is a neighbour, not the signal.
+        assert_eq!(
+            power_off_warnings(BOUND, &status("0000004000000000")).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn grab_power_off_names_why_an_unreadable_status_does_not_answer() {
+        let unreadable = Err("Permission denied (os error 13)".to_owned());
+        assert_eq!(
+            power_off_warnings(BOUND, &unreadable),
+            [
+                "grab-power-off is bound, and whether PID 1 catches SIGRTMIN+4 (signal 38) is \
+                 unknown, since /proc/1/status could not be read: Permission denied (os error 13)"
+            ]
+        );
+        let no_line = Ok("Name:\tinit\n".to_owned());
+        let says = |lines: Vec<String>, what: &str| lines.iter().all(|l| l.contains(what));
+        assert!(says(
+            power_off_warnings(BOUND, &no_line),
+            "it has no SigCgt line"
+        ));
+        assert!(says(
+            power_off_warnings(BOUND, &status("zz")),
+            "not a hex mask"
+        ));
+        assert_eq!(power_off_warnings(BOUND, &no_line).len(), 1);
+        assert_eq!(power_off_warnings(BOUND, &status("zz")).len(), 1);
+    }
+
+    #[test]
+    fn an_unbound_grab_power_off_checks_nothing() {
+        let unbound = "grab-reboot=<Ctrl><Alt>Delete\n";
+        assert_eq!(power_off_warnings(unbound, &status("0")), [] as [&str; 0]);
+        assert_eq!(
+            power_off_warnings(unbound, &Err("x".to_owned())),
+            [] as [&str; 0]
+        );
     }
 
     #[test]
