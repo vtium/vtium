@@ -1628,13 +1628,15 @@ fn typing_hides_the_pointer_under_pointer_hide_while_typing() {
         h.type_str("a");
         let hidden = h.until_memory(Duration::from_millis(500), |m| !m.white_at(x, y));
         assert_eq!(hidden, hides, "typing hides it: {hides}");
-        // A key the program is not sent, a grab's, leaves it.
+        // A key the program is not sent, a grab's or a modifier's alone,
+        // leaves it.
         h.point([over(10, 5, None)], Mods::empty());
         assert!(h.until_memory(SECOND, |m| m.white_at(x, y)), "shown again");
         h.app.input_event(key(Mods::SHIFT, 0xff52), now());
+        h.app.input_event(key(Mods::empty(), 0xffe1), now());
         assert!(
             !h.until_memory(Duration::from_millis(300), |m| !m.white_at(x, y)),
-            "a grab leaves it"
+            "a grab and a modifier leave it"
         );
     }
 }
