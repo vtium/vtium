@@ -2,3 +2,15 @@
 # golden under goldens/, and why. A case compared with a provisional golden
 # is drawn and compared, and its difference is noted but does not fail the
 # run; the row goes when the operator accepts the golden.
+2d-320x240-psf8/small-console	vtium/vtium#126: recaptured from the set of the 8x8 test font with Unscii-8 filling what it lacks; awaits the operator's review
+2d-320x240-psf8/boxdraw	vtium/vtium#126: recaptured from the set of the 8x8 test font with Unscii-8 filling what it lacks; awaits the operator's review
+2d-320x240-psf8/underline-styles	vtium/vtium#126: recaptured from the set of the 8x8 test font with Unscii-8 filling what it lacks; awaits the operator's review
+2d-320x240-psf8/strike	vtium/vtium#126: recaptured from the set of the 8x8 test font with Unscii-8 filling what it lacks; awaits the operator's review
+2d-320x240-psf8/wide-margin	vtium/vtium#126: recaptured from the set of the 8x8 test font with Unscii-8 filling what it lacks; awaits the operator's review
+2d-320x240-psf8/cjk	vtium/vtium#126: recaptured from the set of the 8x8 test font with Unscii-8 filling what it lacks; awaits the operator's review
+2d-640x480-psf16/small-console	vtium/vtium#126: recaptured from the set of the 8x16 test font with unifont filling what it lacks; awaits the operator's review
+2d-640x480-psf16/boxdraw	vtium/vtium#126: recaptured from the set of the 8x16 test font with unifont filling what it lacks; awaits the operator's review
+2d-640x480-psf16/underline-styles	vtium/vtium#126: recaptured from the set of the 8x16 test font with unifont filling what it lacks; awaits the operator's review
+2d-640x480-psf16/strike	vtium/vtium#126: recaptured from the set of the 8x16 test font with unifont filling what it lacks; awaits the operator's review
+2d-640x480-psf16/wide-margin	vtium/vtium#126: recaptured from the set of the 8x16 test font with unifont filling what it lacks; awaits the operator's review
+2d-640x480-psf16/cjk	vtium/vtium#126: recaptured from the set of the 8x16 test font with unifont filling what it lacks; awaits the operator's review
