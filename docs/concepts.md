@@ -29,12 +29,12 @@ vtium is one console and a few programs and files around it. The table lists eac
 | Piece | What it is | Run by | State | Held by |
 |---|---|---|---|---|
 | `vtium` | The console: one process per VT, which owns that VT, its display and its input devices, and runs the session | root, started by init or logind | built | [ADR-1400](architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md), vtium/vtium#21 |
-| `vtium blank`, `vtium wake` | Blank or wake a VT's displays from outside its session | root | proposed | vtium/vtium#116 |
+| `vtium blank`, `vtium wake` | Blank or wake a VT's displays from outside its session, by signalling the vtium on that VT | root, or the user vtium runs as | built | vtium/vtium#116 |
 | `vtium-vitrify preview` | Draws a sample of a font as a set would, building nothing | the user | proposed | vtium/vtium#120 |
 | `vtium-vitrify new` | The guided builder, and the templates it writes and reads, which end in a frit | the user, with sudo once at the end | proposed | vtium/vtium#121 |
-| `vtium-vitrify create` | Builds a set from a frit: into the store on the target, or as a portable file elsewhere | root or a package hook on the target; any user elsewhere | built, first slice: PSF sources | vtium/vtium#125 |
-| `vtium-vitrify install` | Checks a portable set and adds it to the store | root or a package hook | built, first slice: PSF sources | vtium/vtium#125 |
-| `vtium-vitrify list`, `verify`, `remove` | Lists the built sets, runs the console's check on them, drops one | anyone; `remove` root | built, first slice: PSF sources | vtium/vtium#125 |
+| `vtium-vitrify create` | Builds a set from a frit: into the store on the target, or as a portable file elsewhere | root or a package hook on the target; any user elsewhere | built: PSF and kbd sources, and outline and color fonts rasterised in its sandboxed parser | vtium/vtium#125, #23 |
+| `vtium-vitrify install` | Checks a portable set and adds it to the store | root or a package hook | built | vtium/vtium#125 |
+| `vtium-vitrify list`, `verify`, `remove` | Lists the built sets, runs the console's check on them, drops one | anyone; `remove` root | built | vtium/vtium#125 |
 | `vtium-vitrify set` | Switches the running console among built sets | the user, in the session | built | vtium/vtium#126 |
 | `vtium-clipboard`, also `vticlip` | Copies to the console's selection from a script or a pipe | the user, in the session | proposed; copy decided, paste open | vtium/vtium#113 |
 | The frits and the store | Frits that declare sets, and the built sets with a manifest of their hashes | written by root | the store and its check built; frits built by vtium-vitrify's first slice (#125) | vtium/vtium#3 |
@@ -105,11 +105,11 @@ The other VT's owner can be a desktop, a getty or another vtium.
 
 ## Fonts as vitrified sets
 
-This section describes the design ADR-1200 decides (accepted 2026-10-28, vtium/vtium#3), with the preview of vtium/vtium#120 and the guided builder of vtium/vtium#121. The set format, the console's reader, the store check and the built-in sets (vtium/vtium#124), vtium-vitrify's first slice for PSF sources (vtium/vtium#125), and the console's set selection and switching (vtium/vtium#126) are built: vtium reads no font file, and draws a set from the store or its built-ins.
+This section describes the design ADR-1200 decides (accepted 2026-10-28, vtium/vtium#3), with the preview of vtium/vtium#120 and the guided builder of vtium/vtium#121. The set format, the console's reader, the store check and the built-in sets (vtium/vtium#124), vtium-vitrify with PSF, kbd and outline sources (vtium/vtium#125, #23), and the console's set selection and switching (vtium/vtium#126) are built: vtium reads no font file, and draws a set from the store or its built-ins.
 
 In the design, fonts reach the console already prepared. A **vitrified set** is a font baked into one file of ready-to-draw glyph bitmaps at fixed cell sizes, with its map from Unicode characters to glyphs, its metrics and its provenance. The console only reads sets: it parses no font format and turns no outline into pixels, and a chunk a set stores deflated is inflated, with the inflate the console already carries, when that chunk is first drawn. A set is drawn at its baked sizes and whole multiples of them, and the console holds in memory only the chunks of glyphs it has drawn.
 
-The figure follows a set from choosing a font to the console. Each command is vtium-vitrify's. vtium and vtium-vitrify's `create`, `install`, `list`, `verify`, `remove` and `set` are built, for PSF sources; the rest is proposed and drawn dashed.
+The figure follows a set from choosing a font to the console. Each command is vtium-vitrify's. vtium and vtium-vitrify's `create`, `install`, `list`, `verify`, `remove` and `set` are built; the rest is proposed and drawn dashed.
 
 ```mermaid
 flowchart LR
@@ -144,7 +144,7 @@ Someone choosing a font tries many and builds few. vtium-vitrify's preview comma
 
 ### The frit
 
-A set is declared as a **frit**, named for the ground glass a glassmaker melts again: a small text file, `/etc/vtium/fonts/NAME.vtfrit`, naming the set's sources in order, later ones filling characters the earlier ones lack, with the sizes and fallbacks to build. Its sources can be console fonts, font files, the kernel's own font, and later outline fonts. A frit is written in one of three ways, which give the same file: by hand; by vtium-vitrify's new command, a guided builder that asks about the target display, the sizes, the coverage and the fallbacks and previews each choice; or from a template that command writes, which reads back and writes out again with nothing lost, so a script or a package can make the builder's choices without its questions. Later, vtium-vitrify may find installed fonts that match chosen profiles and build sets for them without a frit written for each (vtium/vtium#117, a direction not yet decided).
+A set is declared as a **frit**, named for the ground glass a glassmaker melts again: a small text file, `/etc/vtium/fonts/NAME.vtfrit`, naming the set's sources in order, later ones filling characters the earlier ones lack, with the sizes and fallbacks to build. Its sources can be console fonts, font files, the kernel's own font, and outline fonts, color emoji among them, found among the fonts installed on the machine by their family. A frit is written in one of three ways, which give the same file: by hand; by vtium-vitrify's new command, a guided builder that asks about the target display, the sizes, the coverage and the fallbacks and previews each choice; or from a template that command writes, which reads back and writes out again with nothing lost, so a script or a package can make the builder's choices without its questions. Later, vtium-vitrify may find installed fonts that match chosen profiles and build sets for them without a frit written for each (vtium/vtium#117, a direction not yet decided).
 
 ### Building and installing
 
@@ -180,7 +180,7 @@ vtium reads the keyboard itself and passes keys to the session, apart from the k
 
 After a period with no key press or pointer action (a move, a button or the wheel), vtium turns its displays off, and the next one turns them on; output alone never keeps them on. A program can set the timeout or wake the screen with the Linux console's own sequences, and setting the timeout wakes the screen too, as on the Linux console. A setting, on by default, lets the administrator turn that program control off, and no program can turn the screen off at once (vtium/vtium#79).
 
-Blanking at once and waking from outside the session are proposed in vtium/vtium#116: root sends vtium a signal, or runs a vtium subcommand that finds the vtium on a given VT and signals it, so a script or a power daemon acts without writing to the session's terminal.
+From outside the session, `SIGRTMIN+1` blanks the displays at once and `SIGRTMIN+2` wakes them, so a script or a power daemon acts without writing to the session's terminal. `vtium blank --vt N` and `vtium wake --vt N` find the vtium on VT N and send it the signal. Root or the user vtium runs as may send them (vtium/vtium#116).
 
 ## How VTium is judged
 

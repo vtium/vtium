@@ -46,6 +46,10 @@ pub enum FontKind {
         font: TestFont,
         fill: Option<&'static str>,
     },
+    /// The vitrified set [`crate::colorset`] builds, unifont's ASCII in a
+    /// 1-bit strike and color glyphs in an RGBA strike at 8x16, drawn for
+    /// cells `height` pixels high (vtium/vtium#23).
+    ColorSet { height: u32 },
 }
 
 /// The PSF fonts the small displays draw with (vtium/vtium#75).
@@ -78,7 +82,7 @@ impl TestFont {
     /// then `fill`: its bytes. The font is parsed in this process, where
     /// `create` parses it in its child.
     pub fn vitrify(self, fill: Option<&str>) -> Result<Vec<u8>, String> {
-        use vtium_vitrify::build::{Font as Parsed, Part, assemble, build_key};
+        use vtium_vitrify::build::{Font as Bitmap, Parsed, Part, assemble, build_key};
         use vtium_vitrify::child::Request;
         use vtium_vitrify::frit::Frit;
         use vtium_vitrify::sources::{Input, Resolved};
@@ -91,7 +95,7 @@ impl TestFont {
         let frit = Frit::parse(frit.as_bytes(), std::path::Path::new("/tier2.vtfrit"), name)
             .map_err(|e| e.to_string())?;
         let mut fonts = vec![(
-            Parsed::from_glyphs(vtium_vitrify::decode::font(&bytes, None, None)?),
+            Bitmap::from_glyphs(vtium_vitrify::decode::font(&bytes, None, None)?),
             Resolved {
                 input: Input::Font(Request {
                     font: bytes.clone(),
@@ -104,7 +108,7 @@ impl TestFont {
             },
         )];
         if let Some(fill) = fill {
-            let font = Parsed::from_builtin(fill)?;
+            let font = Bitmap::from_builtin(fill)?;
             let resolved = Resolved {
                 input: Input::Builtin(font.clone()),
                 sha256: font.digest(),
@@ -121,7 +125,7 @@ impl TestFont {
             .map(|(source, (font, resolved))| Part {
                 source,
                 resolved,
-                font: font.clone(),
+                parsed: Parsed::Bitmap(font.clone()),
             })
             .collect();
         assemble(&frit, &parts, &[], &build_key(&frit, &read))
@@ -289,6 +293,11 @@ pub fn draw(screen: &Screen) -> Result<Image, String> {
             let set = Arc::new(set);
             let height = set.cells().first().map_or(16, |c| c.height);
             let face = SetFace::new(set, height).ok_or_else(|| format!("{font:?}: no strike"))?;
+            draw_with(screen, || Font::new(face.clone()))
+        }
+        FontKind::ColorSet { height } => {
+            let face = SetFace::new(crate::colorset::set()?, height)
+                .ok_or("the color set has no strike")?;
             draw_with(screen, || Font::new(face.clone()))
         }
     }
@@ -514,6 +523,35 @@ mod tests {
         assert_eq!(compared, ["small-320x240", "small-640x480"]);
     }
 
+    // The color glyph screen at twice its cell, where the cache stores a
+    // glyph at the set's size or at its drawn size by configuration: every
+    // configuration draws the same bytes, and in the first three rows,
+    // which hold no decoration, each pixel is the 16-pixel drawing's
+    // doubled. A decoration is drawn for the scaled cell, not doubled.
+    #[test]
+    fn the_color_set_draws_alike_at_twice_its_cell() {
+        let case = crate::screens::CASES
+            .iter()
+            .find(|c| c.screen.name == "emoji-rgba")
+            .expect("the emoji-rgba screen");
+        let one = draw(&case.screen).unwrap();
+        let two = draw(&Screen {
+            font: FontKind::ColorSet { height: 32 },
+            ..case.screen
+        })
+        .unwrap();
+        assert_eq!(
+            (two.width(), two.height()),
+            (2 * one.width(), 2 * one.height())
+        );
+        let w = one.width() as usize;
+        let undecorated = 2 * w * 2 * 48;
+        for (i, p) in two.rgb().chunks(3).take(undecorated).enumerate() {
+            let (x, y) = (i % (2 * w), i / (2 * w));
+            let at = ((y / 2) * w + x / 2) * 3;
+            assert_eq!(p, &one.rgb()[at..at + 3], "{x},{y}");
+        }
+    }
     // A PSF test font draws through vtium-font's PSF loader at its own
     // cell: an 8x8 cell for the 8x8 font, where unifont's would be 8x16,
     // and each glyph's rows as the font holds them.

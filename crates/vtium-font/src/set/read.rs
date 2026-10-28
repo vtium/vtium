@@ -699,18 +699,21 @@ impl Set {
         self.policy
     }
 
-    /// Each strike, sorted by cell height, then width, then style.
+    /// Each strike, sorted by cell height, then width, then style, then
+    /// format.
     pub fn strikes(&self) -> impl Iterator<Item = StrikeInfo> + '_ {
         self.strikes.iter().map(|s| s.info)
     }
 
     /// The distinct cell sizes, smallest first.
     pub fn cells(&self) -> Vec<Cell> {
-        self.strikes
-            .iter()
-            .filter(|s| s.info.style == Style::default())
-            .map(|s| s.info.cell)
-            .collect()
+        let mut cells: Vec<Cell> = Vec::new();
+        for s in self.regulars() {
+            if cells.last() != Some(&s.info.cell) {
+                cells.push(s.info.cell);
+            }
+        }
+        cells
     }
 
     /// How many glyph chunks are held in memory.
@@ -791,9 +794,10 @@ impl Set {
     /// The strike that draws `cp` at `cell` in `style`, and whether bold
     /// is to be drawn by widening: the style's own strike, else for bold
     /// italic the bold one, then the italic one widened, else the regular
-    /// one, widened for bold. A strike lacking `cp` passes it on, so a
-    /// style drawn from fewer sources than the regular falls back to the
-    /// regular glyphs (ADR-1200 D1, `style=`).
+    /// one, widened for bold. Of a style's strikes, one a pixel format,
+    /// the one that maps `cp` draws it. A strike lacking `cp` passes it
+    /// on, so a style drawn from fewer sources than the regular falls back
+    /// to the regular glyphs (ADR-1200 D1, `style=`).
     fn strike_for(&self, cell: Cell, style: Style, cp: u32) -> Option<(&Strike, bool)> {
         let find = |bold: bool, italic: bool| {
             self.strikes.iter().find(|k| {
@@ -818,27 +822,38 @@ impl Set {
             .or_else(|| find(false, false).map(|s| (s, bold)))
     }
 
-    /// The regular strike for `cell`.
-    fn regular(&self, cell: Cell) -> Option<&Strike> {
+    /// Every regular strike, in order.
+    fn regulars(&self) -> impl Iterator<Item = &Strike> {
         self.strikes
             .iter()
-            .find(|k| k.info.cell == cell && k.info.style == Style::default())
+            .filter(|k| k.info.style == Style::default())
+    }
+
+    /// The regular strikes for `cell`, one a pixel format, their
+    /// codepoints apart: 1-bit glyphs from bitmap sources, R8 from outline
+    /// fonts, RGBA from color fonts.
+    fn regular(&self, cell: Cell) -> impl Iterator<Item = &Strike> {
+        self.regulars().filter(move |k| k.info.cell == cell)
     }
 
     /// Whether the set maps `c` at `cell`.
     pub(crate) fn has(&self, cell: Cell, c: char) -> bool {
-        self.regular(cell)
-            .is_some_and(|s| s.run(u32::from(c)).is_some())
+        self.regular(cell).any(|s| s.run(u32::from(c)).is_some())
     }
 
-    /// The regular strike's coverage of `range` at `cell`.
+    /// The regular strikes' coverage of `range` at `cell`, summed.
     pub(crate) fn coverage(&self, cell: Cell, range: Range) -> Option<RangeCoverage> {
-        Some(self.regular(cell)?.coverage.get(range))
+        self.regular(cell)
+            .map(|s| s.coverage.get(range))
+            .reduce(|a, b| RangeCoverage {
+                covered: a.covered.saturating_add(b.covered).min(a.total),
+                total: a.total,
+            })
     }
 
-    /// The regular strike's decorations at `cell`.
+    /// The first regular strike's decorations at `cell`.
     pub(crate) fn decorations(&self, cell: Cell) -> Option<Decorations> {
-        Some(self.regular(cell)?.info.decorations)
+        Some(self.regular(cell).next()?.info.decorations)
     }
 
     /// The glyph for `c` at `cell`, drawn at `scale`; `None` when the set
@@ -849,11 +864,10 @@ impl Set {
         self.draw_index(strike, index, widen, scale)
     }
 
-    /// Glyph 0 of the regular strike at `cell`, drawn when the set holds
-    /// neither U+25A1 nor `?`.
+    /// Glyph 0 of the first regular strike at `cell` that holds a glyph,
+    /// drawn when the set holds neither U+25A1 nor `?`.
     pub(crate) fn last_resort(&self, cell: Cell, style: Style, scale: u32) -> Option<Glyph> {
-        let strike = self.regular(cell)?;
-        (strike.info.glyph_count > 0).then_some(())?;
+        let strike = self.regular(cell).find(|s| s.info.glyph_count > 0)?;
         self.draw_index(strike, 0, style.bold, scale)
     }
 

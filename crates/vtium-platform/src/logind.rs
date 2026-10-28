@@ -1,10 +1,15 @@
-//! logind over the system bus, through sd-bus from libsystemd (feature
-//! `logind`, ADR-1400's L2 layer). The binding is the few calls vtium
-//! makes; everything around them is Rust.
+//! logind over the system bus, through sd-bus from libsystemd or libelogind
+//! (feature `logind`, ADR-1400's L2 layer). The binding is the few calls
+//! vtium makes; everything around them is Rust. The build script links the
+//! library pkg-config finds first, libsystemd then libelogind: both export
+//! these calls with the same signatures and `sd_bus_error`'s layout.
 
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::io;
 use std::ptr;
+
+#[cfg(test)]
+mod library;
 
 /// sd-bus's error, as `sd-bus.h` lays it out.
 #[repr(C)]
@@ -15,7 +20,6 @@ struct BusError {
 }
 
 #[expect(unsafe_code, reason = "sd-bus's C interface")]
-#[link(name = "systemd")]
 unsafe extern "C" {
     fn sd_bus_open_system(bus: *mut *mut c_void) -> c_int;
     fn sd_bus_set_method_call_timeout(bus: *mut c_void, usec: u64) -> c_int;

@@ -784,7 +784,7 @@ class ProvenanceTest(unittest.TestCase):
                                   tree_target="install-tree", jobs=1, deadline=1)
         base = os.path.join(self.root, "base.qcow2")
         write_tree(self.root, {"base.qcow2": ""})
-        with mock.patch.object(t3, "BASE", base), \
+        with mock.patch.dict(t3_scenario.GUESTS["arch"], base=base), \
                 mock.patch.object(t3_runner, "raise_on_sigterm", lambda log: None), \
                 mock.patch.object(t3_runner, "run_lock", contextlib.nullcontext), \
                 mock.patch.object(t3_common, "read_provenance", lambda: rows), \
@@ -855,7 +855,9 @@ class DeparturesTest(unittest.TestCase):
         self.assertEqual(deps["2d-potato-min-psf/flood"],
                          {"readme": "crates/vtium-term/README.md", "title": self.TITLE,
                           "rects": [[203, 16, 491, 32]]})
-        self.assertEqual(len(deps), 20)
+        self.assertEqual(deps["2d-potato-min/underline-styles"]["rects"],
+                         [[123, 80, 251, 96], [123, 224, 339, 240]])
+        self.assertEqual(len(deps), 22)
 
     def test_read(self):
         path = self.tsv("a,b\tx,y\tR.md\tT\t0,0,8,16;8,0,16,16\n")
@@ -961,15 +963,15 @@ class VtiumGoldenTest(unittest.TestCase):
 
     def test_shipped(self):
         # The operator accepted vtium's sixteen small-display goldens on
-        # 2026-10-28, the four vtium/vtium#119 adds in advance; the twelve
-        # vtium/vtium#126 recaptured with the sets' fills wait for the
-        # operator's review. Every golden the list names must be one a case
-        # draws.
+        # 2026-10-28, the four vtium/vtium#119 adds in advance, so the list
+        # in the tree names only the guest without systemd's (vtium/vtium#104)
+        # and those vtium/vtium#126 recaptured from the sets' fills; every
+        # golden it names must be one a case draws.
         prov = t3_evaluate.read_provisional()
-        moved = ["small-console", "boxdraw", "underline-styles", "strike", "wide-margin", "cjk"]
-        self.assertEqual(sorted(prov), sorted("%s/%s" % (v, s)
-                                              for v in ("2d-320x240-psf8", "2d-640x480-psf16")
-                                              for s in moved))
+        moved = []
+        self.assertEqual(sorted(prov), sorted(["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
+                                               "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
+                                               "sysvinit-two-vts/cjk"] + moved))
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
                                                    t3_evaluate.VTIUM_GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
@@ -1054,7 +1056,8 @@ class ProvisionTest(unittest.TestCase):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
         self.vm = os.path.join(self.dir.name, "vm")
-        for name, value in (("VM", self.vm), ("BASE", os.path.join(self.vm, "base.qcow2"))):
+        for name, value in (("VM", self.vm), ("BASE", os.path.join(self.vm, "base.qcow2")),
+                            ("BASE_SYSVINIT", os.path.join(self.vm, "base-sysvinit.qcow2"))):
             patch = mock.patch.object(t3, name, value)
             patch.start()
             self.addCleanup(patch.stop)
@@ -1076,15 +1079,16 @@ class ProvisionTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "is a directory; move its images to"):
             t3.link_images(cache, LOG)
 
-    def args(self, cache):
-        return argparse.Namespace(image="img.qcow2", archive="2026/10/20", url="u", key="k",
-                                  sha256="0" * 64, images=cache)
+    def args(self, cache, guest="arch"):
+        return argparse.Namespace(guest=guest, image="img.qcow2", archive="2026/10/20", url="u",
+                                  key="k" if guest == "arch" else None, sha256="0" * 64,
+                                  images=cache)
 
-    def provision(self, cache):
-        """Provision into `cache`: [(what, detail)] for each fetch and build,
-        which write the files they would."""
+    def provision(self, cache, guest="arch", base="x.qcow2"):
+        """Provision `guest` into `cache`: [(what, detail)] for each fetch
+        and build, which write the files they would."""
         done = []
-        base = os.path.join(self.vm, "images", "base", "x.qcow2")
+        base = os.path.join(self.vm, "images", "base", base)
 
         def fetch(argv, check):
             done.append(("fetch", argv[2:]))
@@ -1094,11 +1098,11 @@ class ProvisionTest(unittest.TestCase):
             done.append(("build", path))
             write_tree(os.path.dirname(path), {os.path.basename(path): "base"})
 
-        with mock.patch.object(t3, "base_image", lambda i, a: base), \
+        with mock.patch.object(t3, "base_image", lambda i, a, *guest: base), \
                 mock.patch.object(t3, "_provision", side_effect=build), \
                 mock.patch.object(t3_runner, "run_lock", contextlib.nullcontext), \
                 mock.patch.object(t3.subprocess, "run", side_effect=fetch):
-            self.assertEqual(t3.provision(self.args(cache), LOG), 0)
+            self.assertEqual(t3.provision(self.args(cache, guest), LOG), 0)
         return done
 
     def test_fetches_and_builds_into_the_cache(self):
@@ -1116,6 +1120,26 @@ class ProvisionTest(unittest.TestCase):
             self.assertEqual(f.read(), "base")
         # a cache holding both: nothing is fetched or built
         self.assertEqual(self.provision(cache), [])
+
+    def test_the_guest_without_systemd(self):
+        # Its image is fetched with fetch-debian.sh, which takes no key, and
+        # its base image is linked from base-sysvinit.qcow2, beside the
+        # Arch guest's, which stays as it was.
+        cache = self.path("cache")
+        self.provision(cache)
+        pristine = os.path.join(self.vm, "images", "pristine")
+        done = self.provision(cache, "sysvinit", "sysvinit-y.qcow2")
+        self.assertEqual(done, [("build", os.path.join(self.vm, "images", "base",
+                                                       "sysvinit-y.qcow2"))])
+        os.unlink(os.path.join(cache, "pristine", "img.qcow2"))
+        done = self.provision(cache, "sysvinit", "sysvinit-z.qcow2")
+        self.assertEqual(done[0], ("fetch", [pristine, "u", "img.qcow2", "0" * 64]))
+        self.assertEqual(os.readlink(os.path.join(self.vm, "base-sysvinit.qcow2")),
+                         os.path.join("images", "base", "sysvinit-z.qcow2"))
+        self.assertEqual(os.readlink(os.path.join(self.vm, "base.qcow2")),
+                         os.path.join("images", "base", "x.qcow2"))
+        self.assertEqual(t3.guest_of("sysvinit")["fetch"], "fetch-debian.sh")
+        self.assertEqual(t3.guest_of("arch")["fetch"], "fetch-image.sh")
 
     def test_names_outside_pristine_and_base_are_not_read(self):
         # An image under the pristine image's or the base image's name at
@@ -1414,6 +1438,14 @@ class VariantTest(unittest.TestCase):
             t3_qemu.subprocess.Popen = saved
 
 
+# The console after grab-reboot on the guest without systemd, as sysvinit
+# and its scripts left it.
+REBOOT_SYSVINIT = ["[ 9.1] vtium[404]: grab-reboot: asking init to reboot",
+                   "INIT: Switching to runlevel: 6",
+                   "Will now restart.",
+                   "[ 12.0] reboot: Restarting system"]
+
+
 class PowerTest(unittest.TestCase):
     """The power variants (t3_power.py): their machine, their cases and the
     verdict each case takes from the console log and QEMU's SHUTDOWN
@@ -1443,13 +1475,23 @@ class PowerTest(unittest.TestCase):
                     OK + "Finished System Suspend."],
         "suspend-sysfs": ["[ 9.1] vtium[404]: grab-suspend: suspending",
                           "[ 9.1] vtium[404]: grab-suspend: writing mem to /sys/power/state"],
+        "reboot-sysvinit": REBOOT_SYSVINIT,
+        "power-off-sysvinit": ["[ 9.1] vtium[404]: grab-power-off: asking init to power off",
+                               "INIT: Switching to runlevel: 0",
+                               "Will now halt.",
+                               "[ 9.9] reboot: Power down"],
     }
+    # vtium's warning at its start where PID 1 does not catch SIGRTMIN+4.
+    WARNING = ("[ 3.2] vtium[404]: config: grab-power-off is bound, and PID 1 does not catch "
+               "SIGRTMIN+4 (signal 38, from SigCgt in /proc/1/status): it powers nothing off")
+
     # What a power-off after S3 ends with in QEMU: systemd-shutdown exits
     # when reboot(2) returns, ten seconds after the kernel's last line.
     PANIC = ["[ 22.0] Kernel panic - not syncing: Attempted to kill init! exitcode=0x00000000"]
     SHUTDOWN = {"reboot": "guest-reset", "reboot-hard": "guest-reset",
                 "power-off": "guest-shutdown", "power-off-after-s3": "guest-shutdown",
-                "suspend": None, "suspend-sysfs": None}
+                "suspend": None, "suspend-sysfs": None,
+                "reboot-sysvinit": "guest-reset", "power-off-sysvinit": "guest-shutdown"}
 
     def log(self, case, before=(), drop=None, extra=()):
         lines = list(before) + [l for l in self.LOGS[case] if drop is None or drop not in l]
@@ -1463,7 +1505,8 @@ class PowerTest(unittest.TestCase):
         # cases, all checks without a golden.
         potato = t3_scenario.VARIANTS["2d-potato-min"]
         seen = []
-        for name in t3_scenario.POWER_VARIANTS:
+        for name in t3_scenario.POWER_VARIANTS + ["sysvinit-reboot", "sysvinit-restart",
+                                                  "sysvinit-power-off"]:
             with self.subTest(name):
                 v = t3_scenario.VARIANTS[name]
                 for key in ("device", "cpus", "memory_mb", "renderer"):
@@ -1484,6 +1527,17 @@ class PowerTest(unittest.TestCase):
                     self.assertIn("ICH9-LPC.disable_s3=0", v["qemu"])
                 seen += cases
         self.assertEqual(sorted(set(seen)), sorted(t3_power.CHECKS))
+        # The cases of the guest without systemd run on it alone, and the
+        # hard reboot on both guests.
+        for name in t3_scenario.POWER_VARIANTS:
+            self.assertNotIn("guest", t3_scenario.VARIANTS[name])
+            for case in ("reboot-sysvinit", "power-off-sysvinit"):
+                self.assertNotIn(case, t3_scenario.VARIANTS[name]["power"])
+        self.assertEqual(t3_scenario.VARIANTS["sysvinit-reboot"]["power"], ["reboot-sysvinit"])
+        self.assertEqual(t3_scenario.VARIANTS["sysvinit-power-off"]["power"],
+                         ["power-off-sysvinit"])
+        self.assertEqual(t3_scenario.VARIANTS["sysvinit-restart"]["sysctl"],
+                         t3_scenario.VARIANTS["power-reboot-hard"]["sysctl"])
         # power-off runs on a guest that has not slept.
         self.assertEqual(t3_scenario.VARIANTS["power-off"]["power"], ["power-off"])
         # Suspend through logind runs vtium built with it; the minspec
@@ -1498,7 +1552,9 @@ class PowerTest(unittest.TestCase):
         # binds for its key.
         keys = {"reboot": "grab-reboot", "reboot-hard": "grab-reboot",
                 "power-off": "grab-power-off", "power-off-after-s3": "grab-power-off",
-                "suspend": "grab-suspend", "suspend-sysfs": "grab-suspend"}
+                "suspend": "grab-suspend", "suspend-sysfs": "grab-suspend",
+                "reboot-sysvinit": "grab-reboot",
+                "power-off-sysvinit": "grab-power-off"}
         with open(os.path.join(t3_common.GUEST, "kmscon-power.conf")) as f:
             conf = dict(line.strip().split("=", 1) for line in f if line.startswith("grab-"))
         for case, chord in t3_power.CHORDS.items():
@@ -1544,8 +1600,33 @@ class PowerTest(unittest.TestCase):
         serial = ("\n".join(lines[:1] + lines[-1:] + lines[1:-1]) + "\n").encode()
         self.assertIn("'reboot: Restarting system'", self.judge("reboot", serial) or "")
 
+    def test_the_warning_before_the_key(self):
+        # Under systemd, vtium's warning at its start fails the power-off:
+        # the warning is for a host where the key powers nothing off.
+        for case in ("power-off", "power-off-after-s3"):
+            with self.subTest(case):
+                serial = (self.WARNING + "\r\n").encode()
+                why = self.judge(case, serial + self.log(case), since=len(serial))
+                self.assertIn("%r on the console before the key"
+                              % t3_power.POWER_OFF_WARNING, why or "")
+
+    def test_no_known_failure_on_the_sysvinit_guest(self):
+        # sysvinit catches SIGRTMIN+4, so vtium gives no warning and
+        # power-off-sysvinit passes with no note; a warning fails it.
+        case = "power-off-sysvinit"
+        self.assertNotIn(case, t3_power.KNOWN)
+        self.assertEqual(t3_power.verdict(case, self.log(case), 0, "guest-shutdown"),
+                         (None, None))
+        warned = (self.WARNING + "\r\n").encode()
+        why, _ = t3_power.verdict(case, warned + self.log(case), len(warned), "guest-shutdown")
+        self.assertIn("on the console before the key", why or "")
+
     def test_forbidden_lines(self):
         for case, extra in (("reboot-hard", OK_TARGET_REBOOT),
+                            ("reboot-hard", "INIT: Switching to runlevel: 6"),
+                            ("reboot-sysvinit", OK_TARGET_REBOOT),
+                            ("reboot-sysvinit", "[ 12.1] reboot: Power down"),
+                            ("power-off-sysvinit", "[ 12.1] reboot: Restarting system"),
                             ("reboot", "[ 12.1] reboot: Power down"),
                             ("power-off", "[ 12.1] reboot: Restarting system"),
                             ("suspend", "[ 12.1] reboot: Restarting system"),
@@ -1604,6 +1685,219 @@ def timer_line(t, flips, frames, interval_ms=1000.0, cpu=(1.0, 1.0, 2.0, 3.0), d
             "damage_pct=%.2f skipped=%d skipped_cpu_ms=%.3f"
             % (before, t, pid, interval_ms, flips * 1000 / interval_ms, flips, frames, cpu[0],
                cpu[1], cpu[2], cpu[3], damage[0], damage[1], skipped[0], skipped[1]))
+
+
+class SysvinitTest(unittest.TestCase):
+    """The guest without systemd (guest-sysvinit/): its variants, its disc,
+    its account of PID 1 and udev, and its base image."""
+
+    LINE = ("[  12.3] TIER3-INSTALL-OK packages: ; init: init /usr/sbin/init; systemd: no; "
+            "udev: %s; tree: %s")
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+
+    def test_variants(self):
+        # The minspec machine, out of the default and minimal runs, in make
+        # tier3-nosystemd's; the drawing ones at 640x480 in the 8x16 test
+        # font, judged by vtium's goldens, the second without udev.
+        small = t3_scenario.VARIANTS["2d-640x480-psf16"]
+        with open(os.path.join(t3_common.ROOT, "Makefile")) as f:
+            make = f.read()
+        minimal = re.search(r"^tier3-minimal:.*\n\t(.*)", make, re.M).group(1)
+        nosystemd = re.search(r"^tier3-nosystemd:.*\n(?:\t.*\n)*?\t.*--tree-target install-tree "
+                              r"(.*)", make, re.M).group(1)
+        self.assertEqual(nosystemd, "$(or $(VARIANTS),%s)" % " ".join(
+            t3_scenario.SYSVINIT_VARIANTS))
+        sysvinit = [n for n, v in t3_scenario.VARIANTS.items() if v.get("guest") == "sysvinit"]
+        # The two-console boot is vtium/vtium#139's check, out of the run
+        # until that lands.
+        self.assertEqual(sorted(sysvinit),
+                         sorted(t3_scenario.SYSVINIT_VARIANTS + ["sysvinit-two-vts"]))
+        for name in sysvinit:
+            with self.subTest(name):
+                v = t3_scenario.VARIANTS[name]
+                self.assertEqual(v["guest"], "sysvinit")
+                self.assertEqual((v["cpus"], v["memory_mb"]), (1, 512))
+                self.assertEqual(t3_scenario.base_of(name),
+                                 (t3_common.BASE_SYSVINIT, "tier3-image-nosystemd"))
+                self.assertNotIn(name, t3_scenario.DEFAULT_VARIANTS)
+                self.assertNotIn(name, minimal)
+        for name in ("sysvinit-640x480", "sysvinit-no-udev"):
+            with self.subTest(name):
+                v = t3_scenario.VARIANTS[name]
+                for key in ("device", "conf", "renderer", "images", "fonts", "goldens"):
+                    self.assertEqual(v[key], small[key])
+                self.assertEqual(t3_scenario.variant_cases(name),
+                                 ["sgr", "cjk", "vt-switch", "vt-restore"])
+        self.assertTrue(t3_scenario.VARIANTS["sysvinit-640x480"].get("udev", True))
+        self.assertFalse(t3_scenario.VARIANTS["sysvinit-no-udev"]["udev"])
+        two = t3_scenario.VARIANTS["sysvinit-two-vts"]
+        self.assertTrue(two["two_vts"])
+        self.assertEqual(t3_scenario.variant_cases("sysvinit-two-vts"),
+                         ["cjk", "vt-switch", "vt-restore"])
+        for name in ("sysvinit-640x480", "sysvinit-no-udev"):
+            self.assertNotIn("two_vts", t3_scenario.VARIANTS[name])
+        self.assertEqual(t3_scenario.base_of("2d-potato-min"), (t3_common.BASE, "tier3-image"))
+        self.assertEqual(t3_scenario.guest_of("sysvinit-reboot")["boot"],
+                         ["vt: using tty /dev/tty2"])
+        # What shows the switch to tty2 took: a line no boot logs. Under
+        # systemd logind spawns the console at the switch; under sysvinit
+        # the console logged its VT at the boot and sets its display up
+        # only once the VT is shown.
+        self.assertEqual(t3_scenario.GUESTS["arch"]["shown"], "vt: using tty /dev/tty2")
+        self.assertEqual(t3_scenario.GUESTS["sysvinit"]["shown"], "text renderer [")
+        for guest in t3_scenario.GUESTS.values():
+            self.assertFalse(any(guest["shown"] in m for m in guest["boot"]))
+
+    def test_disc(self):
+        # The guest's own setup and t3-console, which its inittab runs, the
+        # frit of the test font the drawing variants draw, and the no-udev
+        # file only for the variant without udev.
+        tree = os.path.join(self.dir.name, "tree")
+        write_tree(tree, ImplementationTest.TREE)
+        impl = t3_impl.tree(tree, os.path.join(self.dir.name, "out", "tree.tar"))
+        fonts = os.path.join(self.dir.name, "fonts")
+        write_tree(fonts, {"vtium-test-8x16.psf": "font"})
+        impl["fonts"] = fonts
+        disc = os.path.join(self.dir.name, "disc")
+        for variant, extra in (("sysvinit-640x480", ["fonts", "frits"]),
+                               ("sysvinit-no-udev", ["fonts", "frits", "no-udev"]),
+                               ("sysvinit-two-vts", ["fonts", "frits", "two-vts"]),
+                               ("sysvinit-reboot", [])):
+            with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
+                t3_scenario.build_disc(variant, self.dir.name, impl)
+                self.assertEqual(sorted(os.listdir(disc)),
+                                 sorted(["kmscon.conf", "screens", "setup", "t3", "t3-console",
+                                         "tree.tar"] + extra))
+                for name in ("setup", "t3-console"):
+                    with open(os.path.join(disc, name)) as f, \
+                            open(os.path.join(t3_common.GUEST_SYSVINIT, name)) as g:
+                        self.assertEqual(f.read(), g.read(), name)
+        with mock.patch.object(t3_scenario, "make_iso"):
+            t3_scenario.build_disc("2d-potato-min", self.dir.name, impl)
+        self.assertNotIn("t3-console", os.listdir(disc))
+        self.assertNotIn("no-udev", os.listdir(disc))
+        with open(os.path.join(disc, "setup")) as f, \
+                open(os.path.join(t3_common.GUEST, "setup")) as g:
+            self.assertEqual(f.read(), g.read())
+
+    def test_setup_reports_the_guest(self):
+        # guest-sysvinit/setup's report line carries what check_guest reads,
+        # stops udev for a variant without it, and installs t3-console.
+        with open(os.path.join(t3_common.GUEST_SYSVINIT, "setup")) as f:
+            text = f.read()
+        for field in ('"TIER3-INSTALL-OK packages: ', '"init: $(cat /proc/1/comm) ',
+                      '"systemd: $systemd;"', '"udev: $(pidof systemd-udevd udevd || echo none);"',
+                      '"tree: $tree"', 'if [ -f "$disc"/no-udev ]; then',
+                      'if [ -f "$disc"/two-vts ]; then', "telinit q",
+                      "install -m755 \"$disc\"/t3-console /usr/local/sbin/t3-console"):
+            self.assertIn(field, text)
+
+    def test_install_fields(self):
+        impl = {"tree_sha256": "a" * 64}
+        installed = t3_scenario.check_install(self.LINE % ("none", "a" * 64), impl)
+        self.assertEqual(installed, {"init": "init /usr/sbin/init", "systemd": "no",
+                                     "udev": "none", "tree": "a" * 64})
+        with self.assertRaisesRegex(RuntimeError, "packages installed that are not the run's"):
+            t3_scenario.check_install((self.LINE % ("none", "a" * 64)).replace(
+                "packages: ;", "packages: vtium 1 ;"), impl)
+
+    def test_login_on_a_pty(self):
+        # vtium's session logs in on a pty; a login on a VT's own tty is a
+        # getty's, drawn by the kernel's console.
+        t3_scenario.check_login("T3-LOGIN /dev/pts/0\r\n")
+        for line in ("T3-LOGIN /dev/tty1", "T3-LOGIN /dev/pts/", "T3-LOGIN not a tty"):
+            with self.subTest(line):
+                with self.assertRaisesRegex(RuntimeError, "the login was not vtium's"):
+                    t3_scenario.check_login(line)
+
+    def test_draw_screens_refuses_a_getty_login(self):
+        # The driver's own path: a login the guest reports on a VT's tty
+        # stops the variant before any screen is typed.
+        class Vm:
+            typed = []
+
+            def type(self, text):
+                self.typed.append(text)
+
+            def wait_event(self, marker, timeout):
+                return "T3-LOGIN /dev/tty1"
+
+        vm = Vm()
+        screen = t3img.Image(1, 1, b"\0\0\0")
+        with mock.patch.object(t3_scenario, "wait_stable", lambda *a, **k: screen):
+            with self.assertRaisesRegex(RuntimeError, "the login was not vtium's"):
+                t3_scenario.draw_screens("sysvinit-640x480", vm, self.dir.name, screen, {}, {},
+                                         LOG, lambda name: None)
+        self.assertEqual(vm.typed, ["tester\n", "tester\n"])
+
+    def test_check_guest(self):
+        good = {"init": "init /usr/sbin/init", "systemd": "no", "udev": "212", "tree": "x"}
+        t3_scenario.check_guest("sysvinit-640x480", good)
+        t3_scenario.check_guest("sysvinit-no-udev", dict(good, udev="none"))
+        # Another guest is held to nothing.
+        t3_scenario.check_guest("2d-potato-min", {"tree": "x"})
+        for variant, account, why in (
+                ("sysvinit-640x480", dict(good, init="systemd /usr/lib/systemd/systemd"),
+                 "PID 1 is"),
+                ("sysvinit-640x480", dict(good, systemd="yes"), "directory exists"),
+                ("sysvinit-640x480", {"tree": "x"}, "PID 1 is None"),
+                ("sysvinit-640x480", dict(good, udev="none"), "the variant runs one"),
+                ("sysvinit-no-udev", good, "the variant runs none"),
+                ("sysvinit-reboot", {k: v for k, v in good.items() if k != "udev"},
+                 "udev daemon is None")):
+            with self.subTest(why):
+                with self.assertRaisesRegex(RuntimeError, why):
+                    t3_scenario.check_guest(variant, account)
+
+    def test_base_image(self):
+        # Keyed by the guest's own files, under a name of its own in the
+        # cache's base/, beside the Arch guest's.
+        arch = t3_common.base_image("img.qcow2", "x")
+        mine = t3_common.base_image("img.qcow2", "x", t3_common.GUEST_SYSVINIT,
+                                    t3_common.SYSVINIT_INPUTS, "sysvinit-")
+        self.assertEqual(os.path.dirname(mine), os.path.dirname(arch))
+        self.assertRegex(os.path.basename(mine), r"^sysvinit-[0-9a-f]{16}\.qcow2$")
+        for name in t3_common.SYSVINIT_INPUTS:
+            self.assertTrue(os.path.isfile(os.path.join(t3_common.GUEST_SYSVINIT, name)))
+        self.assertEqual(t3.guest_of("sysvinit")["inputs"], t3_common.SYSVINIT_INPUTS)
+
+    def test_nothing_upgrades_past_the_snapshot(self):
+        # The image's own apt timers and unattended-upgrades would install
+        # packages newer than the snapshot: they are masked at the boot's
+        # start, and unattended-upgrades purged before the first fetch.
+        with open(os.path.join(t3_common.GUEST_SYSVINIT, "user-data.in")) as f:
+            text = f.read()
+        boot = text[text.index("\nbootcmd:"):text.index("\nwrite_files:")]
+        for unit in ("apt-daily.timer", "apt-daily-upgrade.timer", "apt-daily.service",
+                     "apt-daily-upgrade.service", "unattended-upgrades.service"):
+            self.assertIn(unit, boot)
+        self.assertIn("systemctl, mask, --now", boot)
+        self.assertLess(text.index("purge unattended-upgrades"), text.index("apt update"))
+
+    def test_pinned_base(self):
+        # The pinned image, snapshot and guest files name one base image; a
+        # change to any of them provisions a new one, an overlay of about
+        # 165 MiB on the 416 MiB pristine image.
+        with open(os.path.join(t3_common.ROOT, "Makefile")) as f:
+            make = dict(re.findall(r"^(T3SV_IMAGE_VER|T3SV_SNAPSHOT)\s*:=\s*(\S+)", f.read(),
+                                   re.M))
+        image = "debian-13-generic-amd64-%s.qcow2" % make["T3SV_IMAGE_VER"]
+        base = t3_common.base_image(image, make["T3SV_SNAPSHOT"], t3_common.GUEST_SYSVINIT,
+                                    t3_common.SYSVINIT_INPUTS, "sysvinit-")
+        self.assertEqual(os.path.basename(base), "sysvinit-cbcceb5d646e8d78.qcow2")
+
+    def test_run_needs_its_base(self):
+        # A run naming a variant of the guest without systemd refuses
+        # without that guest's base image, naming the target that builds it.
+        args = argparse.Namespace(variants=["sysvinit-reboot"], tree=None, tree_target=None,
+                                  jobs=1, deadline=1)
+        missing = os.path.join(self.dir.name, "base-sysvinit.qcow2")
+        with mock.patch.dict(t3_scenario.GUESTS["sysvinit"], base=missing):
+            with self.assertRaisesRegex(SystemExit, "run `make tier3-image-nosystemd`"):
+                t3.run(args, LOG)
 
 
 class PointerTest(unittest.TestCase):

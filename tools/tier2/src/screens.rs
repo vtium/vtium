@@ -8,8 +8,9 @@
 //! kmscon's ADR-304 §6 decides (adr-cite-ignore: kmscon's record).
 //! The screens after them are vtium's, drawn in unifont, for the harness
 //! work the C reference had queued (aaronsb/kmscon#8, #10, #70, #118, #122),
-//! and last the small displays in the PSF fonts `tools/testfont` writes
-//! (vtium/vtium#75).
+//! then color glyphs from an RGBA strike of a vitrified set built in memory
+//! (vtium/vtium#23), and last the small displays in the PSF fonts
+//! `tools/testfont` writes (vtium/vtium#75).
 
 use vtium_render::Orientation;
 use vtium_term::WidthMethod;
@@ -247,6 +248,23 @@ const EMOJI: &[u8] = concat!(
     "🫨  missing\r\n",
     "\x1b[7;48H😀",
 ).as_bytes();
+
+/// Color glyphs from an RGBA strike (vtium/vtium#23): beside text, on
+/// colored backgrounds, reversed, under each decoration, in the narrow
+/// presentation, one the set lacks, and one written at the last column.
+const EMOJI_RGBA: &[u8] = concat!(
+    "a😀b🚀c❤\u{fe0f}d \x1b[1m😀\x1b[0m  text beside color, bold\r\n",
+    "\x1b[44m 😀 🚀 ❤\u{fe0f} \x1b[43m 😀 🚀 \x1b[48;5;28m 😀 \x1b[0m on blue, yellow, green\r\n",
+    "\x1b[7m 😀 🚀 ❤\u{fe0f} \x1b[0m \x1b[7;34;43m 😀 \x1b[0m  reversed, blue on yellow\r\n",
+    "\x1b[4m😀🚀❤\u{fe0f}\x1b[0m \x1b[4:3;58:5:196m😀🚀\x1b[0m \x1b[4:2;44m😀\x1b[0m ",
+    "\x1b[4;58;2;0;255;0m🚀\x1b[0m  underlines\r\n",
+    "\x1b[9m😀🚀❤\u{fe0f}\x1b[0m \x1b[9;31m😀\x1b[0m \x1b[9;4;41m🚀\x1b[0m \x1b[7;9m😀\x1b[0m  struck\r\n",
+    "a❤b a❤\u{fe0e}b a❤\u{fe0f}b \x1b[41ma❤b\x1b[0m  none, VS15, VS16\r\n",
+    "lacks \u{1f44d}, text \x1b[32mgreen\x1b[0m \x1b[1;34mbold blue\x1b[0m\r\n",
+    "the grin wraps from the last column",
+    "\x1b[8;48H😀",
+)
+.as_bytes();
 
 /// The 320x240 floor (vtium/vtium#75): a full-width title, a shell session
 /// with a line that wraps, a box of sprites around styled words, the 16
@@ -624,6 +642,20 @@ pub const CASES: &[Case] = &[
         },
         source: Source::Vtium,
         ported: Some("emoji"),
+    },
+    Case {
+        screen: Screen {
+            font: FontKind::ColorSet { height: 16 },
+            ..Screen::new(
+                "emoji-rgba",
+                "Color glyphs (vtium/vtium#23), drawn from a vitrified set built in memory: unifont's ASCII in a 1-bit strike and a grin, a rocket and a heart in a premultiplied RGBA strike at the same 8x16 cell, each two cells wide with edges of partial alpha and the rocket's flame translucent. The glyphs between letters and in bold; on blue, yellow and 256-color green backgrounds; reversed, plain and blue on yellow; under a single underline, a red curl, a double line on blue and a 24-bit green line; struck plain, in red, over an underline on red, and reversed; the heart with no selector, VS15 and VS16, and with no selector on red; an emoji the set lacks; and a grin written at the last column, which wraps to row 9. Correct: each color glyph in its own colors whatever the foreground, bold and reverse, its edges and the flame blended into the cell's background, which shows through around and under it; underlines below the glyphs and strikes over them in their own colors; the heart two cells wide with VS16 and cut to its middle cell otherwise; the lacking emoji as `?` centred in two cells; the text glyphs drawn as in unifont.",
+                EMOJI_RGBA,
+                48,
+                10,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
     },
     Case {
         screen: Screen {

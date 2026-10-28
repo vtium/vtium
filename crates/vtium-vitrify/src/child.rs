@@ -4,9 +4,10 @@
 //! `/` as its directory and no descriptor but its three pipes. Run as root,
 //! the parent starts the child as `nobody`, its supplementary groups
 //! dropped; the child then sets no-new-privileges and its limits, refuses
-//! to run as root, parses, and writes the glyph form ([`Glyphs`]), which
-//! the parent checks field by field. A panic, a fault, a limit reached or
-//! a malformed answer fails that source and nothing else.
+//! to run as root, parses a bitmap font or rasterises an outline one, and
+//! writes the glyph form ([`Glyphs`]) or the outline form ([`Outline`]),
+//! which the parent checks field by field. A panic, a fault, a limit
+//! reached or a malformed answer fails that source and nothing else.
 
 use std::ffi::OsString;
 use std::io::{Read, Write};
@@ -22,12 +23,14 @@ use rustix::process::{
 
 use crate::decode;
 use crate::glyphs::{GLYPHS_BYTES_MAX, Glyphs};
+use crate::outline::{OUTLINE_ANSWER_BYTES_MAX, OUTLINE_BYTES_MAX, Outline, OutlineRequest};
 
 /// The argument that makes the binary the parser.
 pub const PARSE_ARG: &str = "--parse";
 
 /// The parser's address space: the largest font, decompressed, its glyph
-/// form and the map of every codepoint, with room to spare.
+/// form and the map of every codepoint, with room to spare; or the
+/// largest outline font, read twice, and its largest answer.
 pub const PARSER_MEMORY: u64 = 512 << 20;
 /// The parser's CPU time, in seconds: the kernel ends it past this.
 pub const PARSER_SECONDS: u64 = 30;
@@ -40,8 +43,12 @@ const MESSAGE_MAX: u64 = 4096;
 
 const REQUEST_MAGIC: &[u8; 8] = b"VTVREQ1\0";
 /// The most bytes a request takes: a font and two unimaps, each at most a
-/// PSF's bound.
-const REQUEST_BYTES_MAX: u64 = 8 + 3 * (4 + vtium_font::PSF_BYTES_MAX as u64);
+/// PSF's bound, or an outline font and what it is drawn at.
+const REQUEST_BYTES_MAX: u64 = {
+    let bitmap = 8 + 3 * (4 + vtium_font::PSF_BYTES_MAX as u64);
+    let outline = OUTLINE_BYTES_MAX + (1 << 20);
+    if bitmap > outline { bitmap } else { outline }
+};
 
 /// What the parser is given: a font file's bytes and the unimaps it may
 /// take.
@@ -175,6 +182,26 @@ impl Parser {
 
     /// Runs the parser on `request` and checks what it gives back.
     pub fn parse(&self, request: &Request) -> Result<Glyphs, String> {
+        let out = self.exchange(vec![request.encode().into()], GLYPHS_BYTES_MAX)?;
+        Glyphs::decode(&out).map_err(|why| format!("the parser's answer was refused: {why}"))
+    }
+
+    /// Runs the parser on an outline font and checks what it gives back
+    /// against `request`.
+    pub fn rasterise(&self, request: &OutlineRequest) -> Result<Outline, String> {
+        let out = self.exchange(request.pieces().to_vec(), OUTLINE_ANSWER_BYTES_MAX)?;
+        Outline::decode(&out, request)
+            .map_err(|why| format!("the parser's answer was refused: {why}"))
+    }
+
+    /// Starts the parser, hands it `request`, piece by piece, and reads
+    /// its answer, at most `answer_max` bytes; any failure of the parser's
+    /// is the error.
+    fn exchange(
+        &self,
+        request: Vec<std::sync::Arc<[u8]>>,
+        answer_max: usize,
+    ) -> Result<Vec<u8>, String> {
         // a descriptor this process inherited without close-on-exec, one
         // root opened among them, would otherwise reach the parser
         vtium_platform::cloexec_above_stdio()
@@ -213,14 +240,17 @@ impl Parser {
         // the input, the answer and the exit on another, so the deadline
         // is kept however the parser behaves; the parser reads all its
         // input before it writes, and one that dies early closes its end
-        let request = request.encode();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let wrote = stdin.map(|mut stdin| stdin.write_all(&request));
+            let wrote = stdin.map(|mut stdin| request.iter().try_for_each(|p| stdin.write_all(p)));
             let mut out = Vec::new();
             let read = stdout.map(|stdout| {
                 stdout
-                    .take(GLYPHS_BYTES_MAX as u64 + 1)
+                    .take(
+                        u64::try_from(answer_max)
+                            .unwrap_or(u64::MAX)
+                            .saturating_add(1),
+                    )
                     .read_to_end(&mut out)
             });
             let _ = tx.send((wrote, read, out, child.wait()));
@@ -257,7 +287,7 @@ impl Parser {
         if let Some(Err(e)) = read {
             return Err(format!("cannot read the parser's answer: {e}"));
         }
-        Glyphs::decode(&out).map_err(|why| format!("the parser's answer was refused: {why}"))
+        Ok(out)
     }
 }
 
@@ -298,15 +328,23 @@ fn parser_main() -> Result<(), String> {
         .take(REQUEST_BYTES_MAX)
         .read_to_end(&mut input)
         .map_err(|e| format!("the parser cannot read its request: {e}"))?;
-    let request =
-        Request::decode(&input).map_err(|why| format!("a malformed parse request: {why}"))?;
-    let glyphs = decode::font(
-        &request.font,
-        request.unimap.as_deref(),
-        request.def_uni.as_deref(),
-    )?;
+    let answer = if input.starts_with(crate::outline::REQUEST_MAGIC) {
+        let request = OutlineRequest::decode(&input)
+            .map_err(|why| format!("a malformed outline request: {why}"))?;
+        drop(input);
+        crate::outline::rasterise(&request)?.encode()
+    } else {
+        let request =
+            Request::decode(&input).map_err(|why| format!("a malformed parse request: {why}"))?;
+        decode::font(
+            &request.font,
+            request.unimap.as_deref(),
+            request.def_uni.as_deref(),
+        )?
+        .encode()
+    };
     std::io::stdout()
-        .write_all(&glyphs.encode())
+        .write_all(&answer)
         .map_err(|e| format!("the parser cannot answer: {e}"))
 }
 
