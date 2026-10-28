@@ -15,7 +15,8 @@ from t3_common import RUNDIR, rel
 
 # The operator's size budget for the minspec binary, 2.50 MiB, raised from
 # 2.30 MiB when vtium reached 2,400,640 B with the pulse's colors, pointer
-# and selection (2026-10-27). A run whose binary is larger fails, and raising
+# and selection (2026-10-27). The minspec link packs relative relocations
+# (DT_RELR, 2026-10-28), 2,627,808 -> 2,561,720 B. A run whose binary is larger fails, and raising
 # the budget is a decision recorded on vtium/vtium#22.
 BINARY = "usr/bin/vtium"
 BINARY_BUDGET = 2621440

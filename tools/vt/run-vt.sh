@@ -240,7 +240,7 @@ if [ -n "$shell" ]; then
 fi
 
 # The binary runs as root, so only its owner or root may have written it.
-[ -n "$bin" ] || die "--bin=PATH names the vtium binary (make vt-demo builds target/minspec/vtium)"
+[ -n "$bin" ] || die "--bin=PATH names the vtium binary (make vt-demo builds target/x86_64-unknown-linux-gnu/minspec/vtium)"
 bin=$(readlink -m -- "$bin")
 [ -f "$bin" ] && [ -x "$bin" ] || die "no vtium binary at $bin: build it first (make minspec)"
 read -r owner mode < <(stat -c '%u %a' -- "$bin")

@@ -20,7 +20,7 @@ The console starts its children, the session on the pty and the power keys' susp
 
 ## The minspec build
 
-The default build is minspec: the smallest complete console. It covers drm2d or fbdev, the CPU renderer, bitmap fonts, the parser and screen, the pty and keyboard input. Images, outline fonts and the GPU path are features added on top. `cargo build --profile minspec` builds it size-optimised. Its size and memory are measured from the first working build.
+The default build is minspec: the smallest complete console. It covers drm2d or fbdev, the CPU renderer, bitmap fonts, the parser and screen, the pty and keyboard input. Images, outline fonts and the GPU path are features added on top. `cargo build --profile minspec` builds it size-optimised, and `make minspec` links the binary with packed relative relocations (DT_RELR), which needs glibc 2.36 at run time (vtium/vtium#143) and binutils 2.38 at build. Its size and memory are measured from the first working build.
 
 The machine minspec is judged against is a single-board computer that presents a DRM buffer (vtium/vtium#75):
 
