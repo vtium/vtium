@@ -237,6 +237,9 @@ struct Running {
 /// The request the helper is answering.
 struct InFlight {
     request: Request,
+    /// When it was asked, and when its first glyphs came.
+    asked: Instant,
+    first: Option<Instant>,
     /// When the next answer is due.
     due: Instant,
     /// Sent again to a helper started for it once already.
@@ -254,13 +257,18 @@ pub struct Helper {
     in_flight: Option<InFlight>,
     failed: Option<String>,
     answer: Duration,
+    /// When vtium started, for the line each answered request logs.
+    epoch: Instant,
 }
 
 impl Helper {
-    pub fn new(command: Command, wake: Arc<dyn Fn() + Send + Sync>) -> Helper {
+    /// The helper `command` starts, whose reader calls `wake` after each
+    /// answer, in a vtium started at `epoch`.
+    pub fn new(command: Command, wake: Arc<dyn Fn() + Send + Sync>, epoch: Instant) -> Helper {
         Helper {
             command,
             wake,
+            epoch,
             running: None,
             queue: VecDeque::new(),
             in_flight: None,
@@ -305,6 +313,8 @@ impl Helper {
         self.send(
             InFlight {
                 request,
+                asked: now,
+                first: None,
                 due: now,
                 resent: false,
             },
@@ -435,13 +445,15 @@ impl Helper {
                         break;
                     }
                     flight.due = after(now, self.answer);
+                    flight.first.get_or_insert(now);
                     out.push(Answer::Glyphs { cell, set });
                 }
                 Event::Done => {
-                    if self.in_flight.take().is_none() {
+                    let Some(flight) = self.in_flight.take() else {
                         self.fail("the helper answered what was not asked");
                         break;
-                    }
+                    };
+                    self.done(&flight, now);
                     self.next(now);
                 }
                 Event::Failed(why) => {
@@ -465,6 +477,22 @@ impl Helper {
             ));
         }
         out
+    }
+
+    /// Logs a request answered whole: when it was asked after vtium
+    /// started, and how long its first glyphs and the last took.
+    fn done(&self, flight: &InFlight, now: Instant) {
+        let ms = |d: Duration| d.as_millis();
+        let cell = flight.request.cell;
+        let since = |t: Instant| ms(t.saturating_duration_since(flight.asked));
+        log::info!(
+            "the font's glyphs at {}x{} are generated: asked {} ms after vtium started, the first in {} ms, the last in {} ms",
+            cell.width,
+            cell.height,
+            ms(flight.asked.saturating_duration_since(self.epoch)),
+            flight.first.map_or(0, since),
+            since(now)
+        );
     }
 
     /// The helper closed its end: an idle exit, or a failure.
@@ -583,7 +611,7 @@ mod tests {
                 let _ = tx.lock().map(|t| t.send(()));
             });
             StandIn {
-                helper: Helper::new(command, wake),
+                helper: Helper::new(command, wake, t0()),
                 woke,
                 dir,
             }
@@ -786,6 +814,7 @@ mod tests {
                 account: None,
             },
             Arc::new(|| {}),
+            t0(),
         );
         h.request(
             Request {
