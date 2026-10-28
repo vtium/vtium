@@ -229,6 +229,7 @@ pub fn parse_hex(s: &str) -> Option<[u8; 32]> {
 }
 
 #[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
 
@@ -288,7 +289,7 @@ mod tests {
     #[test]
     fn a_long_message_of_many_blocks() {
         let data: Vec<u8> = (0..(1usize << 20) + 13)
-            .map(|i| ((i * 31 + 7) % 251) as u8)
+            .map(|i| u8::try_from((i * 31 + 7) % 251).expect("under 251"))
             .collect();
         let mut h = Sha256::new();
         for piece in data.chunks(1000) {
