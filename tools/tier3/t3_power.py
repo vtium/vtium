@@ -48,8 +48,8 @@ CHECKS = {
                      "suspends to RAM with no sleep target of systemd's, and after the wake-up "
                      "vtium draws its screen again.",
     "power-off-sysvinit": "grab-power-off (Ctrl+Alt+End) on the guest without systemd, whose "
-                          "PID 1, sysvinit, takes SIGRTMIN+4 as systemd does. Correct: vtium gives "
-                          "no warning at its start, sends the signal, sysvinit switches to "
+                          "PID 1, sysvinit, catches SIGRTMIN+4 as systemd does. Correct: vtium "
+                          "gives no warning at its start, sends the signal, sysvinit switches to "
                           "runlevel 0, stopping the services and unmounting the filesystems, and "
                           "the machine powers off.",
     "reboot-sysvinit": "grab-reboot (Ctrl+Alt+Delete) with /proc/sys/kernel/ctrl-alt-del at 0 "
@@ -59,12 +59,13 @@ CHECKS = {
                        "filesystems, and the kernel restarts.",
 }
 
-# vtium's warning at its start that a bound grab-power-off powers nothing
-# off, given when /run/systemd/system is absent.
-NO_SYSTEMD_WARNING = "grab-power-off is bound, and systemd is not PID 1"
+# The start of each of vtium's warnings at its start that a bound
+# grab-power-off may power nothing off: PID 1 does not catch SIGRTMIN+4, or
+# /proc/1/status does not say.
+POWER_OFF_WARNING = "grab-power-off is bound"
 
 POWER_OFF = {
-    "before": {"forbid": [NO_SYSTEMD_WARNING]},
+    "before": {"forbid": [POWER_OFF_WARNING]},
     "require": ["grab-power-off: asking init to power off",
                 "Reached target Unmount All Filesystems",
                 "Reached target System Power Off",
@@ -106,7 +107,7 @@ EXPECT = {
         "shutdown": "guest-reset",
     },
     "power-off-sysvinit": {
-        "before": {"forbid": [NO_SYSTEMD_WARNING]},
+        "before": {"forbid": [POWER_OFF_WARNING]},
         "require": ["grab-power-off: asking init to power off",
                     "INIT: Switching to runlevel: 0",
                     "Will now halt.",
@@ -152,14 +153,6 @@ KNOWN = {
                "unmounted the filesystems first. vtium's part, SIGRTMIN+4 to PID 1, is "
                "power-off's, which passes on a guest that has not slept.",
     },
-    # Known by the lines before the key alone: judged without them, the
-    # case must pass, and it passes with a note while they show.
-    "power-off-sysvinit": {
-        "before": [NO_SYSTEMD_WARNING],
-        "why": "vtium warns at its start that a bound grab-power-off powers nothing off "
-               "wherever /run/systemd/system is absent, and sysvinit, which handles "
-               "SIGRTMIN+4, powers off; the warning is wrong on this guest (vtium/vtium#138).",
-    },
 }
 
 # CSI and OSC sequences, which systemd's colored status lines carry.
@@ -170,15 +163,14 @@ def _lines(serial, since):
     return _ESCAPES.sub("", serial[since:].decode(errors="replace")).splitlines()
 
 
-def judge(case, serial, since=0, shutdown=None, allowed=()):
+def judge(case, serial, since=0, shutdown=None):
     """Why `case` failed, from the console log `serial` (bytes) after offset
     `since`, where the key was pressed, and the reason of QEMU's SHUTDOWN
     event, `shutdown`; None when it passed. Each line required before the
     key must appear before `since`, and none it forbids there; after it,
     each required line must appear after the one before it, each "anywhere"
     line somewhere, no forbidden line and no kernel panic may appear, and
-    QEMU's event must be the one the case requires. A line before the key
-    that is `allowed` is not held against the case."""
+    QEMU's event must be the one the case requires."""
     lines = _lines(serial, since)
     want = EXPECT[case]
     before = _ESCAPES.sub("", serial[:since].decode(errors="replace")).splitlines()
@@ -186,7 +178,7 @@ def judge(case, serial, since=0, shutdown=None, allowed=()):
         if not any(marker in line for line in before):
             return "no %r on the console before the key" % marker
     for marker in want.get("before", {}).get("forbid", []):
-        if marker not in allowed and any(marker in line for line in before):
+        if any(marker in line for line in before):
             return "%r on the console before the key" % marker
     at = 0
     for marker in want["require"]:
@@ -210,16 +202,8 @@ def verdict(case, serial, since=0, shutdown=None):
     """(why the case failed or None, a note or None): judge's verdict, but a
     KNOWN case passes with a note while its known failure shows, and fails
     once it passes or fails some other way."""
-    known = KNOWN.get(case)
-    if known is not None and "before" in known:
-        why = judge(case, serial, since, shutdown, allowed=known["before"])
-        if why:
-            return why, None
-        before = _ESCAPES.sub("", serial[:since].decode(errors="replace"))
-        if not all(m in before for m in known["before"]):
-            return ("%s no longer fails as KNOWN says; remove its entry" % case), None
-        return None, "known: " + known["why"]
     why = judge(case, serial, since, shutdown)
+    known = KNOWN.get(case)
     if known is None:
         return why, None
     if why is None:

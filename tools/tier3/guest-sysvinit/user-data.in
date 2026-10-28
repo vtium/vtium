@@ -10,12 +10,19 @@ users:
     plain_text_passwd: tester
     lock_passwd: false
     shell: /bin/bash
+# The image's apt timers and unattended-upgrades would install packages
+# newer than the snapshot; they are masked before anything starts them.
+bootcmd:
+  - [systemctl, mask, --now, apt-daily.timer, apt-daily-upgrade.timer, apt-daily.service,
+     apt-daily-upgrade.service, unattended-upgrades.service]
 write_files:
   - path: /usr/local/sbin/tier3-provision
     permissions: "0755"
     content: |
       #!/bin/sh
       set -eux
+      # Before the first fetch, so nothing upgrades past the snapshot.
+      DEBIAN_FRONTEND=noninteractive apt-get -y purge unattended-upgrades
       rm -f /etc/apt/sources.list
       cat > /etc/apt/sources.list.d/debian.sources <<EOF
       Types: deb

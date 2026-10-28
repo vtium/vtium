@@ -1465,9 +1465,9 @@ class PowerTest(unittest.TestCase):
                                "Will now halt.",
                                "[ 9.9] reboot: Power down"],
     }
-    # vtium's warning at its start where /run/systemd/system is absent.
-    WARNING = ("[ 3.2] vtium[404]: config: grab-power-off is bound, and systemd is not PID 1 "
-               "(no /run/systemd/system): its SIGRTMIN+4 powers nothing off")
+    # vtium's warning at its start where PID 1 does not catch SIGRTMIN+4.
+    WARNING = ("[ 3.2] vtium[404]: config: grab-power-off is bound, and PID 1 does not catch "
+               "SIGRTMIN+4 (signal 38, from SigCgt in /proc/1/status): it powers nothing off")
 
     # What a power-off after S3 ends with in QEMU: systemd-shutdown exits
     # when reboot(2) returns, ten seconds after the kernel's last line.
@@ -1592,26 +1592,18 @@ class PowerTest(unittest.TestCase):
                 serial = (self.WARNING + "\r\n").encode()
                 why = self.judge(case, serial + self.log(case), since=len(serial))
                 self.assertIn("%r on the console before the key"
-                              % t3_power.NO_SYSTEMD_WARNING, why or "")
+                              % t3_power.POWER_OFF_WARNING, why or "")
 
-    def test_the_known_warning_on_the_sysvinit_guest(self):
-        # vtium's wrong warning before the key is a known failure of
-        # power-off-sysvinit: with it, the case passes with a note; without
-        # it, the entry is due to go; and the power-off itself still judges.
+    def test_no_known_failure_on_the_sysvinit_guest(self):
+        # sysvinit catches SIGRTMIN+4, so vtium gives no warning and
+        # power-off-sysvinit passes with no note; a warning fails it.
         case = "power-off-sysvinit"
+        self.assertNotIn(case, t3_power.KNOWN)
+        self.assertEqual(t3_power.verdict(case, self.log(case), 0, "guest-shutdown"),
+                         (None, None))
         warned = (self.WARNING + "\r\n").encode()
-        why, note = t3_power.verdict(case, warned + self.log(case), len(warned),
-                                     "guest-shutdown")
-        self.assertIsNone(why)
-        self.assertIn("known: vtium warns at its start", note)
-        why, note = t3_power.verdict(case, self.log(case), 0, "guest-shutdown")
-        self.assertIn("no longer fails as KNOWN says", why)
-        serial = warned + self.log(case, drop="Switching to runlevel")
-        why, note = t3_power.verdict(case, serial, len(warned), "guest-shutdown")
-        self.assertIn("'INIT: Switching to runlevel: 0'", why)
-        why, note = t3_power.verdict(case, warned + self.log(case), len(warned),
-                                     "none: still running")
-        self.assertIn("SHUTDOWN reason", why)
+        why, _ = t3_power.verdict(case, warned + self.log(case), len(warned), "guest-shutdown")
+        self.assertIn("on the console before the key", why or "")
 
     def test_forbidden_lines(self):
         for case, extra in (("reboot-hard", OK_TARGET_REBOOT),
@@ -1734,6 +1726,14 @@ class SysvinitTest(unittest.TestCase):
         self.assertEqual(t3_scenario.base_of("2d-potato-min"), (t3_common.BASE, "tier3-image"))
         self.assertEqual(t3_scenario.guest_of("sysvinit-reboot")["boot"],
                          ["vt: using tty /dev/tty2"])
+        # What shows the switch to tty2 took: a line no boot logs. Under
+        # systemd logind spawns the console at the switch; under sysvinit
+        # the console logged its VT at the boot and sets its display up
+        # only once the VT is shown.
+        self.assertEqual(t3_scenario.GUESTS["arch"]["shown"], "vt: using tty /dev/tty2")
+        self.assertEqual(t3_scenario.GUESTS["sysvinit"]["shown"], "text renderer [")
+        for guest in t3_scenario.GUESTS.values():
+            self.assertFalse(any(guest["shown"] in m for m in guest["boot"]))
 
     def test_disc(self):
         # The guest's own setup and t3-console, which its inittab runs, and
@@ -1796,6 +1796,26 @@ class SysvinitTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "the login was not vtium's"):
                     t3_scenario.check_login(line)
 
+    def test_draw_screens_refuses_a_getty_login(self):
+        # The driver's own path: a login the guest reports on a VT's tty
+        # stops the variant before any screen is typed.
+        class Vm:
+            typed = []
+
+            def type(self, text):
+                self.typed.append(text)
+
+            def wait_event(self, marker, timeout):
+                return "T3-LOGIN /dev/tty1"
+
+        vm = Vm()
+        screen = t3img.Image(1, 1, b"\0\0\0")
+        with mock.patch.object(t3_scenario, "wait_stable", lambda *a, **k: screen):
+            with self.assertRaisesRegex(RuntimeError, "the login was not vtium's"):
+                t3_scenario.draw_screens("sysvinit-640x480", vm, self.dir.name, screen, {}, {},
+                                         LOG, lambda name: None)
+        self.assertEqual(vm.typed, ["tester\n", "tester\n"])
+
     def test_check_guest(self):
         good = {"init": "init /usr/sbin/init", "systemd": "no", "udev": "212", "tree": "x"}
         t3_scenario.check_guest("sysvinit-640x480", good)
@@ -1827,17 +1847,30 @@ class SysvinitTest(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(t3_common.GUEST_SYSVINIT, name)))
         self.assertEqual(t3.guest_of("sysvinit")["inputs"], t3_common.SYSVINIT_INPUTS)
 
+    def test_nothing_upgrades_past_the_snapshot(self):
+        # The image's own apt timers and unattended-upgrades would install
+        # packages newer than the snapshot: they are masked at the boot's
+        # start, and unattended-upgrades purged before the first fetch.
+        with open(os.path.join(t3_common.GUEST_SYSVINIT, "user-data.in")) as f:
+            text = f.read()
+        boot = text[text.index("\nbootcmd:"):text.index("\nwrite_files:")]
+        for unit in ("apt-daily.timer", "apt-daily-upgrade.timer", "apt-daily.service",
+                     "apt-daily-upgrade.service", "unattended-upgrades.service"):
+            self.assertIn(unit, boot)
+        self.assertIn("systemctl, mask, --now", boot)
+        self.assertLess(text.index("purge unattended-upgrades"), text.index("apt update"))
+
     def test_pinned_base(self):
         # The pinned image, snapshot and guest files name one base image; a
-        # change to any of them provisions a new one, about 0.4 GiB
-        # downloaded and a file of about 1 GiB.
+        # change to any of them provisions a new one, an overlay of about
+        # 165 MiB on the 416 MiB pristine image.
         with open(os.path.join(t3_common.ROOT, "Makefile")) as f:
             make = dict(re.findall(r"^(T3SV_IMAGE_VER|T3SV_SNAPSHOT)\s*:=\s*(\S+)", f.read(),
                                    re.M))
         image = "debian-13-generic-amd64-%s.qcow2" % make["T3SV_IMAGE_VER"]
         base = t3_common.base_image(image, make["T3SV_SNAPSHOT"], t3_common.GUEST_SYSVINIT,
                                     t3_common.SYSVINIT_INPUTS, "sysvinit-")
-        self.assertEqual(os.path.basename(base), "sysvinit-2b2fbd269ea5b0f8.qcow2")
+        self.assertEqual(os.path.basename(base), "sysvinit-cbcceb5d646e8d78.qcow2")
 
     def test_run_needs_its_base(self):
         # A run naming a variant of the guest without systemd refuses

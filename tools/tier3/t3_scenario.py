@@ -206,16 +206,18 @@ VARIANTS.update({
 SYSVINIT_VARIANTS = ["sysvinit-640x480", "sysvinit-no-udev", "sysvinit-reboot",
                      "sysvinit-restart", "sysvinit-power-off"]
 
-# Each guest's base image, the make target that provisions it, and the
-# console lines its boot ends with before the driver presses Ctrl+Alt+F2:
-# under systemd, logind up and the login prompts reached, after which the
-# switch spawns the console; under sysvinit, the console on tty2 started by
-# the inittab.
+# Each guest's base image, the make target that provisions it, the console
+# lines its boot ends with before the driver presses Ctrl+Alt+F2, and the
+# line that shows the switch took, which no boot logs: under systemd, logind
+# up and the login prompts reached, then the console the switch spawns
+# logging its VT; under sysvinit, the console the inittab started on tty2
+# logging its VT, then its display set up once the VT is shown.
 GUESTS = {
     "arch": {"base": BASE, "image": "tier3-image",
-             "boot": ["Started User Login Management", "Reached target Login Prompts"]},
+             "boot": ["Started User Login Management", "Reached target Login Prompts"],
+             "shown": "vt: using tty /dev/tty2"},
     "sysvinit": {"base": BASE_SYSVINIT, "image": "tier3-image-nosystemd",
-                 "boot": ["vt: using tty /dev/tty2"]},
+                 "boot": ["vt: using tty /dev/tty2"], "shown": "text renderer ["},
 }
 
 # What `t3.py run` runs when no variant is named, in the order workers take
@@ -537,7 +539,7 @@ def run_variant(variant, timing, impl, log):
         # earlier: a boot without the keypress has no console on tty2.
         # Under sysvinit, the console the inittab started on tty2 takes it.
         vm.keys("ctrl", "alt", "f2")
-        vm.wait_serial("vt: using tty /dev/tty2", timeout=60)
+        vm.wait_serial(guest["shown"], timeout=60)
         tmp = os.path.join(work, "wait.ppm")
         prompt = wait_stable(vm, tmp, settle=2.0, timeout=90, want=not_blank)
         phase("console")
