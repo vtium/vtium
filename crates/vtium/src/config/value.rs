@@ -58,12 +58,15 @@ pub(super) fn parse(
         Kind::Number { word, .. } if word == Some(text) => Some(Value::Text(text.to_owned())),
         Kind::Number { min, max, unit, .. } => {
             // A byte count may end in K, M or G, powers of 1024.
-            let (digits, scale) = match text.as_bytes().last() {
-                Some(b'K' | b'k') if unit == "bytes" => (&text[..text.len() - 1], 1 << 10),
-                Some(b'M' | b'm') if unit == "bytes" => (&text[..text.len() - 1], 1 << 20),
-                Some(b'G' | b'g') if unit == "bytes" => (&text[..text.len() - 1], 1 << 30),
-                _ => (text, 1),
+            let suffixed = |s: [char; 2], scale| {
+                text.strip_suffix(s)
+                    .filter(|_| unit == "bytes")
+                    .map(|d| (d, scale))
             };
+            let (digits, scale) = suffixed(['K', 'k'], 1 << 10)
+                .or_else(|| suffixed(['M', 'm'], 1 << 20))
+                .or_else(|| suffixed(['G', 'g'], 1 << 30))
+                .unwrap_or((text, 1));
             if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
                 let value = text.to_owned();
                 reports.push(
