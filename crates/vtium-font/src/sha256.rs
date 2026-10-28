@@ -270,6 +270,36 @@ mod tests {
         );
     }
 
+    // a message of two blocks before padding: the 896-bit message NIST
+    // gives for SHA-512, whose SHA-256 digest is published beside it
+    #[test]
+    fn a_two_block_message() {
+        assert_eq!(
+            hash(
+                b"abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmno\
+                  ijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"
+            ),
+            "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1"
+        );
+    }
+
+    // a 1 MiB message and 13 bytes, fed in uneven pieces, against the
+    // digest Python's hashlib gives for the same bytes
+    #[test]
+    fn a_long_message_of_many_blocks() {
+        let data: Vec<u8> = (0..(1usize << 20) + 13)
+            .map(|i| ((i * 31 + 7) % 251) as u8)
+            .collect();
+        let mut h = Sha256::new();
+        for piece in data.chunks(1000) {
+            h.update(piece);
+        }
+        assert_eq!(
+            hex(&h.finish()),
+            "59facc7129eb285381699c869e4d33112119bcdb753081c7ae5103cc01d29d77"
+        );
+    }
+
     // every length a padding block can end at
     #[test]
     fn split_updates_match_one() {
