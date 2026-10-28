@@ -36,6 +36,7 @@ _Cells and images to pixels - the renderer and its display interface_
 | ADR | Title | Status |
 |-----|-------|--------|
 | [ADR-1300](./render/ADR-1300-the-drawn-glyph-cache-and-frame-composition.md) | The drawn-glyph cache and frame composition | accepted |
+| [ADR-1301](./render/ADR-1301-glyphs-and-sprites-are-drawn-for-the-display-s-capabilities.md) | Glyphs and sprites are drawn for the display's capabilities | proposed |
 
 ## Platform
 _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_
