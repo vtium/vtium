@@ -7,12 +7,28 @@
 //! tables compact at. The budget is the width the line was written at: a
 //! line trimmed for the scrollback keeps the clusters its cells name, which
 //! may pass the budget of its fewer cells but never that of the widest
-//! screen. A rewrap (ADR-1003) moves clusters with their cells and holds
-//! them to the logical line's budget as written: a written row of `w`
-//! columns names at most `CLUSTER_BYTES_PER_CELL * w` bytes on at least
-//! half its columns of text but its last, a pad taking at most one, so a
-//! logical line of `n` rows at most the widest screen wide names at most
-//! the budget of `2n + 1` rows of it.
+//! screen.
+//!
+//! A rewrap (ADR-1003) moves clusters with their cells, so a row may name
+//! more than its own cells' budget, and the bounds are the logical line's
+//! and the scrollback's:
+//!
+//! - A row written `w` columns wide names at most `CLUSTER_BYTES_PER_CELL *
+//!   w` bytes. Every cell of a wrapped row is text but a pad at its end,
+//!   so it names at most twice the budget a cell of text (at `w` = 2, one
+//!   cell beside a pad); a logical line's last row may hold its budget on
+//!   one cell. A logical line of `n` rows at most `W` cells wide holds at
+//!   most `nW` cells of text, so it names at most `12nW + 6W`: the budget
+//!   of `2n + 1` rows of the widest screen.
+//! - Its heap is that budget's `heap_bound` and 256 bytes a row: each row
+//!   holds its tables' 80-byte struct and up to two style entries of 14
+//!   bytes past its cells' own, its fill's and a pad's.
+//! - Across the scrollback and the screen the rows name at most the budget
+//!   of `W + 1` columns a row. A widening joins rows written narrower,
+//!   each with at most one pad column of budget its text does not use,
+//!   and frees rows that new text fills; a narrowing spreads text over more
+//!   rows, the oldest past `sb-size` dropped. So the worst case ADR-1001
+//!   computes for a full-width row grows by one column's budget, 6 bytes.
 
 mod common;
 
@@ -45,7 +61,7 @@ fn heap_bound(len: usize) -> usize {
 /// Checks every line of `screen`, written on screens at most `widest`
 /// columns wide: each row's accounting, and each logical line's bytes and
 /// heap against the budget of `2n + 1` rows of the widest screen for its
-/// `n` rows.
+/// `n` rows, as the module's notes derive.
 fn check(screen: &Screen, widest: usize, path: &str, step: usize) {
     let mut lines: Vec<&Line> = screen.scrollback().collect();
     lines.extend(screen.lines());
@@ -205,5 +221,53 @@ fn resizing_and_the_alternate_screen_keep_clusters_bounded() {
             _ => {}
         }
         check(t.screen(), 12, "resize, alternate", step);
+        if !t.screen().alternate() {
+            t.screen_mut().rewrap_scrollback();
+            check_total(t.screen(), 12, step);
+        }
+    }
+}
+
+/// The scrollback's and the screen's rows name at most the budget of one
+/// column more than the widest screen a row: see the module's notes.
+fn check_total(screen: &Screen, widest: usize, step: usize) {
+    let rows: Vec<&Line> = screen.scrollback().chain(screen.lines()).collect();
+    let named: usize = rows.iter().map(|l| named_bytes(l)).sum();
+    let bound = CLUSTER_BYTES_PER_CELL * (widest + 1) * rows.len();
+    assert!(
+        named <= bound,
+        "step {step}: {named} bytes in {} rows, over {bound}",
+        rows.len()
+    );
+}
+
+// ADR-1003, "The scrollback's bound": rows printed narrow with a wide
+// character and a pad, widened, and the rows freed filled with full rows,
+// name more than the widest screen's budget a row, and no more than one
+// column's more.
+#[test]
+fn a_rewrap_names_at_most_one_column_more_a_row() {
+    let heavy = "e\u{301}\u{301}";
+    for (narrow, widest) in [(3, 12), (2, 12), (5, 12), (3, 9), (11, 12), (7, 12)] {
+        // A wide cluster that fills a row of `narrow` columns' budget.
+        let marks = (CLUSTER_BYTES_PER_CELL * narrow - 4) / 2;
+        let wide = format!("\u{4E2D}{}", "\u{301}".repeat(marks));
+        let mut t = Terminal::new(narrow, 4, 60);
+        t.screen_mut().set_scrollback_max(60);
+        t.input(wide.repeat(200).as_bytes());
+        t.input(b"\r\n");
+        t.screen_mut().resize(widest, 4);
+        t.screen_mut().rewrap_scrollback();
+        let merged = t.screen().scrollback().len();
+        for _ in merged..60 {
+            t.input(format!("{}\r\n", heavy.repeat(widest)).as_bytes());
+        }
+        check_total(t.screen(), widest, 0);
+        if (narrow, widest) == (3, 12) {
+            let s = t.screen();
+            let rows: Vec<&Line> = s.scrollback().chain(s.lines()).collect();
+            let named: usize = rows.iter().map(|l| named_bytes(l)).sum();
+            assert!(named > CLUSTER_BYTES_PER_CELL * widest * rows.len());
+        }
     }
 }
