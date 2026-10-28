@@ -13,7 +13,7 @@ use crate::cache::{Budgets, GlyphCache, Profile, Storage};
 use crate::compose::{Area, Composer, Job, int};
 use crate::damage::Cells;
 use crate::deco::{Kind, Sprites};
-use crate::mono::{self, Depth, Fallback, Ink, Quantize};
+use crate::mono::{self, Depth, Fallback, Ink, Threshold};
 use crate::target::{Orientation, Rect, Target};
 
 /// The bar cursor: U+258F, LEFT ONE EIGHTH BLOCK, a sprite.
@@ -584,7 +584,7 @@ impl<F: Face> Renderer<F> {
         let arrow = core::mem::take(&mut self.arrow);
         let mut line = core::mem::take(&mut self.pointer_line);
         let mut mono_line = core::mem::take(&mut self.mono_line);
-        let mut target = Quantize::new(target, self.config.depth, &mut mono_line);
+        let mut target = Threshold::new(target, self.config.depth, &mut mono_line);
         let mut out = Over::new(&mut target, pointer.map(|p| (&arrow, p.at)), &mut line);
         let all = Rect {
             x: 0,
@@ -902,7 +902,7 @@ impl<F: Face> Renderer<F> {
             underline: paint.underline.map(|(k, c)| (k, ink.fg(c))),
             strike: paint.strike.map(|c| ink.fg(c)),
             text: paint.text,
-            silhouette: depth != Depth::Color,
+            silhouette: depth == Depth::One,
         }
     }
 

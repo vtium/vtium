@@ -218,7 +218,7 @@
 ## The glyph cache's budgets. Unset, `minspec`, or `performance` in a build with vtium-render's `performance-cache` feature.
 #glyph-cache=
 
-## Each display's depth. `1` draws it in black and white, each cell lit or unlit by its colors, never by their brightness; `gray4` and `gray16` map the colors the same way and draw each glyph's edges in a gray panel's 4 or 16 levels; `color` draws its colors; `auto` takes the levels the display says it shows: an fbdev device at 1 bit, or a DRM panel whose driver vtium-platform lists.
+## Each display's depth. `1` draws it in black and white, each cell lit or unlit by its colors, never by their brightness; `gray4` and `gray16` record a gray panel of 4 or 16 levels, drawn as color, which the panel converts; `color` draws its colors; `auto` takes the levels the display says it shows: an fbdev device at 1 bit, or a DRM panel whose driver vtium-platform lists.
 #display-depth=auto
 
 ## Measure each display's frames once a second, and write the figures to the log, draw them on screen, or both.

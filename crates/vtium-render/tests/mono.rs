@@ -211,8 +211,8 @@ fn color_glyphs(depth: Depth) -> Canvas {
     c
 }
 
-// the operator's decision on vtium/vtium#135: a color glyph on a 1-bit or
-// gray display is the built-in unifont's bitmap of the character, and where
+// the operator's decision on vtium/vtium#135: a color glyph on a 1-bit
+// display is the built-in unifont's bitmap of the character, and where
 // unifont has none, its silhouette
 #[test]
 fn a_color_glyph_draws_as_unifonts_bitmap_or_its_silhouette() {
@@ -225,7 +225,7 @@ fn a_color_glyph_draws_as_unifonts_bitmap_or_its_silhouette() {
         ..DrawState::default()
     };
     r.draw(&u.frame(Age::NEVER), &mut want, 0, &state);
-    for depth in [Depth::One, Depth::Gray(4)] {
+    for depth in [Depth::One] {
         let c = color_glyphs(depth);
         let a: Vec<Option<u32>> = (0..16)
             .flat_map(|y| (0..8).map(move |x| (x, y)))
@@ -242,12 +242,11 @@ fn a_color_glyph_draws_as_unifonts_bitmap_or_its_silhouette() {
     assert_eq!(color.pixel(0, 0), Some(0xff_0000));
 }
 
-// a gray panel takes the cells' lit and unlit colors and its levels for
-// coverage: a bitmap font draws crisp, as at 1 bit, and the curl's edges
-// take the levels between
+// the operator's decision (2026-10-28): a gray panel is drawn as color,
+// and the panel converts the frame itself
 #[test]
-fn a_gray_display_draws_bitmaps_crisp_and_coverage_at_its_levels() {
-    let one = drawn(&screen(), one(), false);
+fn a_gray_display_draws_as_a_color_one() {
+    let color = drawn(&screen(), Config::default(), false);
     let gray = drawn(
         &screen(),
         Config {
@@ -256,16 +255,6 @@ fn a_gray_display_draws_bitmaps_crisp_and_coverage_at_its_levels() {
         },
         false,
     );
-    for y in 0..gray.height() {
-        for x in 0..gray.width() {
-            let p = gray.pixel(x, y).unwrap();
-            let v = p & 0xff;
-            assert!(p == v * 0x01_0101 && v % 85 == 0, "{p:06x} at {x},{y}");
-        }
-    }
-    for row in [0, 2, 3] {
-        for col in 0..8 {
-            assert_eq!(lit(&gray, col, row), lit(&one, col, row), "{col},{row}");
-        }
-    }
+    assert_eq!(gray, color);
+    assert_eq!(color_glyphs(Depth::Gray(16)), color_glyphs(Depth::Color));
 }

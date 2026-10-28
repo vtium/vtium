@@ -927,7 +927,7 @@ pub const DISPLAY_DEPTH: Key = Key {
     default: Default::Text("auto"),
     scope: Scope::Anywhere,
     reader: "vtium-render",
-    what: "Each display's depth. `1` draws it in black and white, each cell lit or unlit by its colors, never by their brightness; `gray4` and `gray16` map the colors the same way and draw each glyph's edges in a gray panel's 4 or 16 levels; `color` draws its colors; `auto` takes the levels the display says it shows: an fbdev device at 1 bit, or a DRM panel whose driver vtium-platform lists.",
+    what: "Each display's depth. `1` draws it in black and white, each cell lit or unlit by its colors, never by their brightness; `gray4` and `gray16` record a gray panel of 4 or 16 levels, drawn as color, which the panel converts; `color` draws its colors; `auto` takes the levels the display says it shows: an fbdev device at 1 bit, or a DRM panel whose driver vtium-platform lists.",
     cite: "the operator on vtium/vtium#135",
 };
 
