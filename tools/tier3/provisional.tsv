@@ -2,3 +2,8 @@
 # golden under goldens/, and why. A case compared with a provisional golden
 # is drawn and compared, and its difference is noted but does not fail the
 # run; the row goes when the operator accepts the golden.
+sysvinit-640x480/sgr	vtium's capture on the guest without systemd (vtium/vtium#104), pixel for pixel the reviewed 2d-640x480-psf16 golden of the same screen; not yet reviewed
+sysvinit-640x480/cjk	vtium's capture on the guest without systemd (vtium/vtium#104), pixel for pixel the reviewed 2d-640x480-psf16 golden of the same screen; not yet reviewed
+sysvinit-no-udev/sgr	vtium's capture on the guest without systemd (vtium/vtium#104), pixel for pixel the reviewed 2d-640x480-psf16 golden of the same screen; not yet reviewed
+sysvinit-no-udev/cjk	vtium's capture on the guest without systemd (vtium/vtium#104), pixel for pixel the reviewed 2d-640x480-psf16 golden of the same screen; not yet reviewed
+sysvinit-two-vts/cjk	vtium's capture on the guest without systemd (vtium/vtium#104), pixel for pixel the reviewed 2d-640x480-psf16 golden of the same screen; not yet reviewed
