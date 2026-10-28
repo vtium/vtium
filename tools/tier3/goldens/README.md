@@ -20,3 +20,13 @@ The goldens of the small displays (vtium/vtium#75), which the C reference never 
 | `2d-640x480-psf16/strike.png` | The `strike` screen at 80 columns, every line on its own row. (vtium/vtium#119) |
 | `2d-640x480-psf16/wide-margin.png` | The `wide-margin` screen at column 80, its cases as at 320x240. |
 | `2d-640x480-psf16/cjk.png` | The `cjk` screen at 8x16. |
+
+The goldens of the guest without systemd (vtium/vtium#104, `../README.md`, The guest without systemd) are vtium's captures from `make tier3-nosystemd` on the branch that added it, each pixel for pixel the reviewed `2d-640x480-psf16` golden of the same screen, as the same display, configuration and font draw it under either init. They stay in `../provisional.tsv` until the operator reviews them.
+
+| Golden | What it shows |
+|---|---|
+| `sysvinit-640x480/sgr.png` | The `sgr` screen at 80 columns, drawn by the console the inittab started on tty2, with the udev daemon running. |
+| `sysvinit-640x480/cjk.png` | The `cjk` screen at 8x16, the same console. |
+| `sysvinit-no-udev/sgr.png` | The `sgr` screen, with no udev daemon: the card and the keyboard found in sysfs alone. |
+| `sysvinit-no-udev/cjk.png` | The `cjk` screen, with no udev daemon. |
+| `sysvinit-two-vts/cjk.png` | The `cjk` screen, drawn by tty2's console with a second console started on tty3 at the boot (vtium/vtium#139). |

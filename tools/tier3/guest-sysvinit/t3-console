@@ -1,0 +1,12 @@
+#!/bin/bash
+# The inittab runs this on tty2, and on tty3 for a variant with two
+# consoles, where it ran a getty: vtium on the VT named by $1, as
+# docs/systemd.md says an init without systemd runs it. Its log goes to the
+# serial console, each line stamped as systemd's journal stamps the lines it
+# forwards there, "[UPTIME] vtium[PID]: TEXT", which the driver reads; vtium
+# keeps this shell's PID.
+exec > >(while IFS= read -r line; do
+    read -r up _ < /proc/uptime
+    printf '[%12s] vtium[%d]: %s\n' "$up" "$$" "$line"
+done > /dev/ttyS0) 2>&1
+exec /usr/bin/vtium --vt="$1" --no-switchvt
