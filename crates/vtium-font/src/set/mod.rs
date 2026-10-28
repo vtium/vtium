@@ -31,6 +31,7 @@ mod store;
 pub(crate) mod write;
 
 pub use builder::{SetBuilder, StrikeBuilder, WriteError};
+#[cfg(feature = "unifont")]
 pub(crate) use builtin::unifont;
 pub use builtin::{builtin, builtin_name};
 pub use face::SetFace;
