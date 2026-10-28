@@ -11,11 +11,11 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/child.rs` | The session's command and environment |
 | `src/respawn.rs` | When the session's command first starts, and whether it starts again |
 | `src/wait.rs` | The start's wait for a display |
-| `src/blink.rs`, `src/font.rs`, `src/pointer.rs` | The blink timers; the font's fallback, size, sprite policy and missing glyph; who draws the pointer, the display's cursor plane or the renderer |
+| `src/blink.rs`, `src/font.rs`, `src/pointer.rs` | The blink timers; the font set (see "The font"), its faces, zoom steps and automatic size, the lookup's fallback, sprite policy and missing glyph; who draws the pointer, the display's cursor plane or the renderer |
 | `src/sync.rs` | When the terminal presents: the mode 2026 hold and coalescing without it |
 | `src/grab.rs` | The chords a grab key binds, and the terminal's grabs, third in the key order |
 | `src/power.rs` | The power keys, the seat's, second in the key order: what each asks of PID 1, logind and the kernel |
-| `src/layout.rs` | The grid and each display's font height with several displays, and the zoom and rotation steps |
+| `src/layout.rs` | The grid and each display's font height with several displays, the zoom's direction and the rotation step |
 | `src/term.rs` | The session's terminal as the pty's consumer, and a view per display that draws it |
 | `src/video.rs` | A video device behind one trait: drm2d, fbdev, or a test's stand-in |
 | `src/app.rs` | The seat: the VT's events, the devices, the keys, the pointer's selection, copy and paste, the blank, the child, the exit |
@@ -27,7 +27,7 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `tests/check_config.rs` | `vtium check-config` run as a binary: its warnings, exit status and help, and with strace on the machine, that it opens nothing but the configuration |
 | `tests/panic_hook.rs` | The panic hook's order, in a process of its own |
 | `tests/power_keys.rs` | The power keys through the key order, acting on a stand-in for PID 1, logind and the kernel |
-| `tests/boot.rs` | The seat booted with no hardware: output drawn, keys, a VT switch, the blank and what counts as activity, the respawn limit, DECARM, selection, copy and paste with the pointer, the font's policy, the wait for a display and the session with none, the exit |
+| `tests/boot.rs` | The seat booted with no hardware: output drawn, keys, a VT switch, the blank and what counts as activity, the respawn limit, DECARM, selection, copy and paste with the pointer, the font's policy, the font set from a store, OSC 50 and zoom, the wait for a display and the session with none, the exit |
 | `install/kmscon.conf.example` | The example configuration, generated from the key table |
 | `install/kmscon.ti` | The terminfo entry, installed compiled with `tic -x` |
 | `install/kmsconvt@.service` | The VT unit: vtium in place of getty on a VT, which `make install-tree` installs and tier 3's guest starts |
@@ -51,6 +51,16 @@ Once a display has come, vtium never exits for want of one. When the last goes, 
 ## Selection, copy and paste
 
 The pointer drives vtium-term's selection, and the seat keeps one selection buffer: what the user copied last, or what a program set last with OSC 52 while `clipboard-write` is on. The console has no system clipboard. The middle button and the keys `grab-paste` binds, Shift+Insert by default, paste the buffer through vtium-term's `Terminal::paste`, filtered, and bracketed while the program asks with mode 2004. The buffer holds at most the text of the scrollback and the screen, or vtium-term's `CLIPBOARD_MAX` bytes from one OSC 52.
+
+## The font
+
+vtium draws vitrified sets only (ADR-1200) and parses no font file: vtium-font's PSF loader is behind a feature the binary leaves out.
+
+- **At start** the font is `font-name` when a file or the command line sets it, else vconsole's (`vconsole.font=` on the kernel command line over `FONT=` in `/etc/vconsole.conf`), else none. A name is looked up in the store's manifest by set name, then by the set's first source as `vtium-vitrify create` spells it: `file:PATH` for a path, as `font-engine=psf` gives one, `kbd:NAME` for another name, `vconsole` for vconsole's. The set is loaded after the store's check (ADR-1200 D3). A name with no set, or a set the check refuses, draws the built-ins with one line naming the reason and the command that builds the set, `sudo vtium-vitrify create --file PATH`, `--kbd NAME` or `--vconsole`, with `--force` for a set the store holds. `font-engine=unifont` or `8x16`, or no name, draws the built-ins with no line (D9).
+- **The built-ins** are Unscii-8 for cells under 16 pixels and unifont from 16, but in a zh, ja or ko locale, whose characters Unscii-8 lacks, unifont at every size (D7). The locale is the first of `LC_ALL`, `LC_CTYPE` and `LANG` vtium starts with.
+- **`font-size`** picks the set's strike of that height, else one whose whole multiple it is, else the tallest under it scaled by the largest whole factor that fits. `font-size=0` picks it from the smallest display: the C reference's rule, at least 16, but where 16-pixel cells would leave fewer than 80 by 25 cells, the set's smallest height.
+- **Zoom** steps through the set's strike heights and their whole multiples, the built-ins through Unscii-8's 8 and unifont's 16, 32 and on, and below the smallest stops with one line naming the set and its height (D9).
+- **OSC 50,** under `allow-font-ops`, on by default, switches the live console to a set the store's manifest or the built-ins name, checked as at start, on a new grid with a pty resize, as a zoom does; anything else leaves the font with one line saying why. Its query names the set in use. The output after a set asked for waits for the turn that switches, so a query written with it, as `vtium-vitrify set` writes it, names the new set. A switch changes the live console only; the configuration decides the font at the next start (D5).
 
 ## Bounds
 
@@ -81,6 +91,10 @@ Each was the C reference's behaviour at kmscon `b1f7a7c5`.
 - **A seat's name is checked before it names a file;** the C reference formatted any name into the path (`src/config.c:1571`).
 - **The respawn limit times each start from that start, on the monotonic clock.** The C reference recorded a start only when the exit before it was quick, in whole seconds of the wall clock (`src/misc/pty.c:747-767`), so after one slow restart a command that failed at once restarted without end. A slow exit after quick restarts now starts the command again with the count reset, where the C reference exited at the next exit whatever its timing.
 - **The font fallback is tried once,** then the error is returned; the C reference retried for as long as the lookup failed (aaronsb/kmscon#63).
+- **`font-engine=psf` with a path draws the set built from that path,** and the built-ins with a line naming `vtium-vitrify create --file PATH` where none is built; the C reference read the PSF file at start (`src/font/font_psf.c`). An unset `font-name` takes vconsole's font, which the C reference never read. Source: ADR-1200 D9, the operator's direction on vtium/vtium#3. Tests: `the_configured_font_is_a_set_from_the_store`, `a_path_or_vconsoles_font_finds_the_set_built_from_it`, `a_font_with_no_set_or_a_refused_one_draws_the_builtins`.
+- **The automatic size goes under 16 on a small display.** Where 16-pixel cells, half as wide as high, would leave fewer than 80 by 25 cells, `font-size=0` picks the font's smallest height, so 320x240 draws 40 by 30 cells of 8x8. The C reference never went under 16 (`src/terminal.c:899-918`), which drew an 8x8 font doubled as 20 by 15 cells. Source: vtium/vtium#118, the rule the operator confirms there; minspec's floor in docs/architecture.md. Tests: `a_small_display_takes_the_fonts_own_height`, `a_320x240_display_draws_40_by_30_cells_of_8x8`.
+- **Zoom steps through the font's sizes and stops at its smallest.** The C reference stepped by the font's size step down to 10 pixels (`src/terminal.c:1325-1355`). Source: ADR-1200 D9. Tests: `zoom_steps_through_the_strikes_and_their_multiples`, `zoom_steps_through_the_strikes_and_stops_at_the_smallest`.
+- **OSC 50 switches the font among the built sets.** The C reference had no OSC 50. Spec: xterm's OSC 50 and `allowFontOps`; vtium-term's README lists where vtium departs from xterm. Source: ADR-1200 D5. Tests: `osc_50_switches_among_the_built_sets`, `osc_50_leaves_the_font_for_a_set_not_built_or_with_font_ops_off`, `a_query_after_osc_50_names_the_new_set`.
 - **`KMS_START_SCRIPT` is not set.** The C reference set it to `kmscon-launch-gui` on a DRM display (`src/misc/pty.c:286-291`), a script vtium does not install; the operator's decision on vtium/vtium#21.
 - **With no display by `display-wait` after the start, vtium exits with status 1** (see "No display"); the C reference kept running with no display, as vtium does under `display-wait=forever`. During the wait the session's command waits for the first display, where the C reference started it on its default grid when the VT was shown (`src/seat.c:438-447`). Spec: the operator's decisions on vtium/vtium#21 and #99. Tests: `under_a_wait_the_child_starts_when_the_first_display_comes`, `under_no_wait_with_no_display_no_child_starts`.
 - **The session's command starts on the grid of every display set up when it starts.** The C reference activated its displays one at a time as its VT was activated, and the first one's activation opened the pty on that display's grid, so a second display resized the session at once (`src/seat.c:179-212, 244-250`). vtium starts the command at the end of the turn that sets the displays up, so it sees no SIGWINCH as it starts; a display set up a turn later, as one udev brings, still resizes the session. Spec: the operator's decision on vtium/vtium#99. Test: `the_child_starts_on_the_grid_of_every_display_at_the_start`.
@@ -99,7 +113,7 @@ Each was the C reference's behaviour at kmscon `b1f7a7c5`.
 
 ## Not yet built
 
-Each is the C reference's and waits for its own change: drawing through the GPU, which `hwaccel` asks for and which warns at start (vtium draws in software), the `multi-monitor` key's `clone` and `largest` (vtium lays several displays out as `scaled`, the operator's choice on vtium/vtium#21), the render timer's on-screen display, outline fonts (`font-engine=freetype` and `pango` draw with unifont), and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs but `grab-reboot`, and the rest.
+Each is the C reference's and waits for its own change: drawing through the GPU, which `hwaccel` asks for and which warns at start (vtium draws in software), the `multi-monitor` key's `clone` and `largest` (vtium lays several displays out as `scaled`, the operator's choice on vtium/vtium#21), the render timer's on-screen display, outline fonts (`font-engine=freetype` and `pango` name a set, which until vtium/vtium#23 holds only bitmap fonts), and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs but `grab-reboot`, and the rest.
 
 ## Left to tier 3
 
