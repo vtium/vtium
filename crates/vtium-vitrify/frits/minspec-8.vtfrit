@@ -1,0 +1,91 @@
+# minspec-8: minspec's curated set at 8x8 cells (vtium/vtium#23): the
+# built-in unscii-8 for text, with a chosen subset of Nerd Fonts' symbols and
+# of color emoji drawn over it. vtium ships this frit, never the fonts:
+# `vtium-vitrify create` builds the set on the target from the fonts its
+# packages installed, and a font missing there is left out with a warning.
+#
+# Each source and each range is written down with why it is here, so the
+# selection can be reviewed and grown. A cover= limits the source above it.
+#
+# Licences, as each source's documentation gives them; the set's
+# provenance names each outline font's own licence string:
+# - unscii-8: public domain (Unscii by Viznut), built into vtium.
+# - Symbols Nerd Font Mono (Nerd Fonts' symbols-only font): MIT for the
+#   patcher; each icon set under its own licence, listed at each range.
+#   Font Logos (U+F300-U+F381) carries no licence grant and is left out.
+#   Font Awesome and Codicons are CC-BY-4.0 and Material Design Icons
+#   Apache-2.0: not needed at minspec, so left out here, not refused.
+# - Noto Color Emoji: SIL OFL 1.1, redistributable in a derived set.
+# - Twemoji (CC-BY-4.0, attribution required) is not used.
+
+name=minspec-8
+license=OFL-1.1 AND MIT
+
+# Text: unscii-8 first, sets the 8x8 cell. It holds 1-bit emoji and
+# symbols of its own; the color and Nerd Fonts ranges below are kept
+# out of it here so they draw in color, and it fills what they lack last.
+source=builtin:unscii-8
+cover=U+0000-U+25FF        # text, box drawing, blocks, shapes
+cover=U+27C0-U+E09F        # math, arrows, CJK, Hangul, up to the Powerline range
+cover=U+E0D8-U+E5F9        # the private use the symbols below leave free
+cover=U+F8FF-U+1F2FF       # presentation forms, ancient scripts, enclosed alphanumerics
+cover=U+1FB00-U+10FFFF     # Symbols for Legacy Computing and beyond
+
+# Nerd Fonts' symbols, one cell wide (the Mono build), for prompts and
+# file listers. Written against ttf-nerd-fonts-symbols-mono (Arch) /
+# fonts-symbols-nerd-font (Debian), Nerd Fonts 3.x, file
+# SymbolsNerdFontMono-Regular.ttf.
+source=font:Symbols Nerd Font Mono
+package=ttf-nerd-fonts-symbols-mono
+cover=U+E0A0-U+E0A2        # Powerline: branch, line number, lock (Powerline's licence)
+cover=U+E0B0-U+E0B3        # Powerline: the arrow separators every prompt draws
+cover=U+E0A3               # Powerline Extra (MIT): column number
+cover=U+E0B4-U+E0C8        # Powerline Extra (MIT): round, slant, flame separators
+cover=U+E0CA               # Powerline Extra (MIT)
+cover=U+E0CC-U+E0D7        # Powerline Extra (MIT): pixel, hexagon, lego separators
+cover=U+E5FA-U+E6B7        # Seti-UI (MIT): file type icons eza, lsd and yazi draw
+cover=U+E700-U+E8EF        # Devicons (MIT): language and tool logos
+cover=U+F400-U+F533        # Octicons (MIT): git status in prompts
+cover=U+23FB-U+23FE        # IEC Power Symbols (MIT)
+cover=U+2B58               # IEC Power Symbols (MIT)
+
+# Color emoji, two cells wide, the ones terminals show most: smileys,
+# gitmoji and the status marks build tools print. Written against
+# noto-fonts-emoji 1:2.057-1 (Arch), NotoColorEmoji.ttf, SHA-256
+# 15671215ab769fdc7162a045d56fd7d7e477c51b04e6b3c761d914d8fdd6cc44.
+source=font:Noto Color Emoji
+package=noto-fonts-emoji
+cover=U+1F600-U+1F64F      # Emoticons: the smileys
+cover=U+2705               # check mark button: tests passed
+cover=U+274C               # cross mark: tests failed
+cover=U+2728               # sparkles: gitmoji's new feature
+cover=U+2B50               # star
+cover=U+26A0               # warning
+cover=U+26A1               # high voltage: gitmoji's performance
+cover=U+23F3               # hourglass: waiting
+cover=U+2764               # red heart
+cover=U+1F389              # party popper: gitmoji's release
+cover=U+1F3A8              # artist palette: gitmoji's style
+cover=U+1F41B              # bug: gitmoji's bug fix
+cover=U+1F40D              # snake: Python
+cover=U+1F980              # crab: Rust
+cover=U+1F44D-U+1F44E      # thumbs up and down
+cover=U+1F4A1              # light bulb
+cover=U+1F4A5              # collision: gitmoji's breaking change
+cover=U+1F4C1-U+1F4C2      # folders: file managers
+cover=U+1F4C4              # page: files
+cover=U+1F4DD              # memo: gitmoji's documentation
+cover=U+1F4E6              # package: gitmoji's dependencies
+cover=U+1F512-U+1F513      # locks: gitmoji's security
+cover=U+1F525              # fire: gitmoji's removal
+cover=U+1F527              # wrench: gitmoji's configuration
+cover=U+1F680              # rocket: gitmoji's deploy
+cover=U+1F6A7              # construction: work in progress
+cover=U+1F6A8              # police light: gitmoji's lint
+cover=U+1F9EA              # test tube: gitmoji's tests
+cover=U+1F504              # arrows: refresh and sync
+
+# What the ranges above kept out of the text font: unscii-8's own 1-bit
+# glyphs for every symbol and emoji the color and Nerd Fonts sources did
+# not give, so the set covers all that unscii-8 covers.
+source=builtin:unscii-8

@@ -1,0 +1,39 @@
+# proof: vtium/vtium#23's proof frit, a desktop set from installed fonts:
+# a code font for text, Nerd Fonts' symbols for their private-use range,
+# and Noto Color Emoji for emoji, at three sizes. vtium ships this frit,
+# never the fonts; a font missing on the target is left out with a warning.
+#
+# Licences, as each source's documentation gives them; the set's
+# provenance names each outline font's own licence string:
+# - JetBrains Mono: SIL OFL 1.1.
+# - Symbols Nerd Font Mono: MIT for the patcher, each icon set under its
+#   own (Font Awesome and Codicons CC-BY-4.0, which asks for attribution,
+#   Material Design Icons Apache-2.0, the rest MIT or OFL-1.1). The set
+#   names its sources, which carries that attribution.
+# - Noto Color Emoji: SIL OFL 1.1.
+
+name=proof
+license=OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+# Text, setting the cell at each size. Written against ttf-jetbrains-mono
+# 2.304-2 (Arch), JetBrainsMono-Regular.ttf, SHA-256
+# a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f.
+source=font:JetBrains Mono
+package=ttf-jetbrains-mono
+
+# Nerd Fonts' symbols, one cell wide: their private-use ranges, the Basic
+# Multilingual Plane's and Material Design's.
+source=font:Symbols Nerd Font Mono
+package=ttf-nerd-fonts-symbols-mono
+cover=U+E000-U+F8FF
+cover=U+F0001-U+F1AF0
+
+# Every emoji Noto Color Emoji maps, two cells wide. Written against
+# noto-fonts-emoji 1:2.057-1 (Arch), NotoColorEmoji.ttf, SHA-256
+# 15671215ab769fdc7162a045d56fd7d7e477c51b04e6b3c761d914d8fdd6cc44.
+source=font:Noto Color Emoji
+package=noto-fonts-emoji
+
+size=16
+size=24
+size=32
