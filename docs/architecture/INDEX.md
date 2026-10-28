@@ -28,7 +28,7 @@ _Font loading, glyph rasterisation, color glyphs and fallback_
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [ADR-1200](./font/ADR-1200-fonts-reach-the-console-as-vitrified-sets-from-a-root-owned-store.md) | Fonts reach the console as vitrified sets from a root-owned store | accepted |
+| [ADR-1200](./font/ADR-1200-glyphs-are-generated-at-run-time-in-a-sandboxed-helper-from-a-profile-s-frit.md) | Glyphs are generated at run time in a sandboxed helper, from a profile's frit | accepted |
 
 ## Render
 _Cells and images to pixels - the renderer and its display interface_
