@@ -544,6 +544,7 @@ dependencies = [
  "drm-ffi",
  "libc",
  "log",
+ "pkg-config",
  "rustix",
  "udev",
  "xkbcommon",

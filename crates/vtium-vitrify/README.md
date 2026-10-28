@@ -36,6 +36,8 @@ Each build or install prints one line a set, tab-separated: `built`, `current`, 
 
 The store is `/var/lib/vtium/fonts` and the frits are in `/etc/vtium/fonts`, each changed at build time with `VTIUM_FONT_STORE` and `VTIUM_FONT_FRITS`. `--store DIR` names a store the invoking user owns in place of the system's, for tests and for staging; the console reads only the system's. `--frits DIR`, `--kbd-dir DIR` (repeatable), `--font-dir DIR` (repeatable), `--vconsole-conf FILE` and `--kernel-cmdline FILE` replace the other paths the host gives.
 
+When stdin and stdout are both terminals, the tool opens with a banner of its name in glass (`src/banner.rs`, vtium/vtium#112). `--no-banner` or a non-empty `NO_COLOR` turns it off, and it never precedes `--json` or `--version`, never shows in a Chinese, Japanese or Korean locale, and never reaches a pipe.
+
 ## Frits
 
 One `key=value` a line, blanks around key and value dropped, `#` to the line's end a comment, as kmscon.conf reads; unlike kmscon.conf, an unknown key, a malformed line, a value with a control character or a key this build does not build yet refuses the whole frit, naming the file and line. This slice reads `name=`, `source=` (`font:`, `kbd:`, `file:`, `outline:`, `vconsole`, `console:VT`, `builtin:`), `package=`, `sha256=`, `unimap=`, `cover=` (`ascii`, `latin-1`, `U+XXXX` and `U+XXXX-U+YYYY`), `style=regular`, `size=`, `compress=` and `license=`.

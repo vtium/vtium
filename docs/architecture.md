@@ -14,7 +14,9 @@ vtium (binary)
 
 Only `vtium-platform` may use `unsafe`. Every other crate carries `#![forbid(unsafe_code)]`.
 
-`vtium-platform` makes its syscalls through rustix, with no `libc` call and no `extern "C"` declaration for one (vtium/vtium#6). Its `unsafe` is of four kinds: an ioctl rustix does not wrap, defined once in the crate's ioctl module with a test that its request number equals the kernel header's; an mmap of a framebuffer; the pty child's pre-exec hook, which makes only raw syscalls (it clears the signal mask and makes the child a session leader with the pty as its controlling terminal); and FFI to a C library where vtium must call one, such as libseat (vtium/vtium#34). C stays at that boundary. The crate denies `unsafe_code`, so each site carries an `#[expect]` with its reason.
+`vtium-platform` makes its syscalls through rustix, with no `libc` call and no `extern "C"` declaration for one (vtium/vtium#6). Its `unsafe` is of four kinds: an ioctl rustix does not wrap, defined once in the crate's ioctl module with a test that its request number equals the kernel header's; an mmap of a framebuffer; the pre-exec hooks of the pty child and the suspend shell, which make only raw syscalls (both reset every signal's disposition and clear the signal mask, and the pty child's makes it a session leader with the pty as its controlling terminal); and FFI to a C library where vtium must call one, such as libseat (vtium/vtium#34). C stays at that boundary. The crate denies `unsafe_code`, so each site carries an `#[expect]` with its reason.
+
+The console starts its children, the session on the pty and the power keys' suspend shell, only from its one thread, marking every inherited descriptor close-on-exec just before the fork (vtium/vtium#133); a new thread that opens descriptors must revisit that call, which a descriptor opened between the marking and the fork would pass.
 
 ## The minspec build
 
