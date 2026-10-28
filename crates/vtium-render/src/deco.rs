@@ -412,16 +412,20 @@ mod tests {
         let lit: Vec<bool> = px.chunks(16).map(|r| r[0] != 0).collect();
         assert_eq!(&lit[12..], &[false, true, false, true]);
         // the 8-pixel strike's own lines scaled by 2: two rows thick from
-        // row 14, which leave no room for a double
+        // row 14, which leave no room for a double, so it draws as the
+        // 8-pixel single line scaled; the quarter's 4 rows hold a curl 2
+        // rows peak to peak and its 2-row line, which the 8-pixel cell had
+        // no room for
         let own = Decorations {
             underline: 14,
             underline_thickness: 2,
             strike: 8,
             strike_thickness: 2,
         };
-        assert_eq!(
-            draw(Kind::Double, 16, 16, &own),
-            draw(Kind::Single, 16, 16, &own)
-        );
+        let single = draw(Kind::Single, 16, 16, &own);
+        assert_eq!(draw(Kind::Double, 16, 16, &own), single);
+        let curl = draw(Kind::Curly, 16, 16, &own);
+        assert_ne!(curl, single);
+        assert_eq!(rows(&curl, 16), Some((12, 16)));
     }
 }
