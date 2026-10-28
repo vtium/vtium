@@ -1,0 +1,24 @@
+size 12x4
+cursor 8,3
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 48
+frame-cursor 8,3 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |ＡＢＣ|
+cells 0 0-0 w=2 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 0 1-1 w=0 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 0 2-2 w=2 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 0 3-3 w=0 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 0 4-4 w=2 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 0 5-5 w=0 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+row 1 |0123456789A|
+row 2 |漢|
+cells 2 0-0 w=2 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 2 1-1 w=0 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+row 3 |ab한국어|
+cells 3 2-2 w=2 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 3 3-3 w=0 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 3 4-4 w=2 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 3 5-5 w=0 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 3 6-6 w=2 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 3 7-7 w=0 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
