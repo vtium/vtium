@@ -60,7 +60,8 @@ pub const SERVE_ARG: &str = "serve";
 /// 2026-10-28; ADR-1301 D2).
 pub const HELPER_IDLE_MS: u64 = 60_000;
 /// The helper's CPU time over its life, in seconds: the kernel ends it
-/// past this, and the console's next request starts another.
+/// past this, and the console's next request starts another, a bounded
+/// number of times a boot (the console's `RESTARTS_MAX`).
 pub const HELPER_SECONDS: u64 = 300;
 
 pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ1";
@@ -472,6 +473,30 @@ impl Engine {
         &self.coverage
     }
 
+    /// Why no source gives a glyph at `cell`: each bitmap source whose own
+    /// cell does not fit it.
+    pub fn none_at(&self, cell: Cell) -> String {
+        let unfit: Vec<String> = self
+            .sources
+            .iter()
+            .filter_map(|(source, loaded)| match loaded {
+                Loaded::Bitmap(f) if f.cell.width > cell.width || f.cell.height > cell.height => {
+                    Some(format!(
+                        "source={}: its {}x{} cell does not fit",
+                        source.spelling, f.cell.width, f.cell.height
+                    ))
+                }
+                _ => None,
+            })
+            .collect();
+        let mut why = format!("the frit gives no glyph at {}x{}", cell.width, cell.height);
+        if !unfit.is_empty() {
+            why.push_str(": ");
+            why.push_str(&unfit.join("; "));
+        }
+        why
+    }
+
     /// The glyphs at `cell` for `want`, sorted codepoints: each from the
     /// first source in the frit's order that gives it, as a vitrified set
     /// of that one cell; `None` when no source gives any.
@@ -573,7 +598,8 @@ impl Engine {
 }
 
 /// Answers `request` with `engine`'s glyphs: the codepoints it names
-/// first, then the rest of the coverage a batch at a time, then done. A
+/// first, then the rest of the coverage a batch at a time, then done; or,
+/// when no source gives a glyph at the cell, a failure naming why. A
 /// batch whose set passes [`FRAME_BYTES_MAX`] is cut in two. Only a write
 /// that fails is the error: the console is gone.
 fn answer(engine: &Engine, request: &ServeRequest, out: &mut dyn Write) -> io::Result<()> {
@@ -589,6 +615,7 @@ fn answer(engine: &Engine, request: &ServeRequest, out: &mut dyn Write) -> io::R
     let mut queue: VecDeque<&[u32]> = std::iter::once(&first[..])
         .chain(rest.chunks(BATCH))
         .collect();
+    let mut sent = false;
     while let Some(want) = queue.pop_front() {
         if want.is_empty() {
             continue;
@@ -601,9 +628,15 @@ fn answer(engine: &Engine, request: &ServeRequest, out: &mut dyn Write) -> io::R
                 queue.push_front(a);
             }
             Ok(Some(set)) if set.len() > FRAME_BYTES_MAX as usize => {}
-            Ok(Some(set)) => write_frame(out, FRAME_GLYPHS, &set)?,
+            Ok(Some(set)) => {
+                write_frame(out, FRAME_GLYPHS, &set)?;
+                sent = true;
+            }
             Err(why) => return failed(out, &why),
         }
+    }
+    if !sent {
+        return failed(out, &engine.none_at(request.cell));
     }
     write_frame(out, FRAME_DONE, &[])
 }
@@ -911,6 +944,41 @@ mod tests {
         assert_eq!(frames.len(), 2);
         assert!(frames.iter().all(|f| f.0 == FRAME_FAILED));
         assert!(String::from_utf8_lossy(&frames[0].1).contains("not on this machine"));
+    }
+
+    #[test]
+    fn a_request_no_source_can_fill_fails_naming_why() {
+        // unifont's 8x16 does not fit a 4x8 cell: no glyph, and the reason
+        let d = Dir::new("nofit");
+        let frit = d.frit("source=builtin:unifont\n");
+        let r = ServeRequest {
+            cell: Cell {
+                width: 4,
+                height: 8,
+            },
+            ..request(frit, &['A'])
+        };
+        let mut out = Vec::new();
+        assert_eq!(
+            serve(
+                std::io::Cursor::new(r.encode()),
+                &mut out,
+                &Paths::default(),
+                Duration::from_secs(5)
+            ),
+            0
+        );
+        let frames = frames(&out);
+        assert_eq!(
+            frames.len(),
+            1,
+            "{:?}",
+            frames.iter().map(|f| f.0).collect::<Vec<_>>()
+        );
+        assert_eq!(frames[0].0, FRAME_FAILED);
+        let why = String::from_utf8_lossy(&frames[0].1);
+        assert!(why.contains("no glyph at 4x8"), "{why}");
+        assert!(why.contains("8x16"), "{why}");
     }
 
     #[test]
