@@ -1,6 +1,6 @@
 # vtium-font
 
-vtium's glyph sources: font files, vitrified sets and built-in sets in, glyph bitmaps out. It reads and writes vitrified sets (ADR-1200), the portable files of ready glyphs every font reaches the console as, and checks the root-owned store they are loaded from; loads PC Screen Fonts (PSF1 and PSF2, gzipped ones with the `gzip` feature); carries GNU Unifont built in as a set (the `unifont` feature); and draws box drawing, block elements, Braille, sextants, octants and the rest of Symbols for Legacy Computing's block shapes as sprites that fill their cell. A `Font` puts a face and the sprites together, choosing between them for each sprite range by its `SpritePolicy`, and draws any cluster exactly into its cells. It forbids unsafe code. Every glyph is a `Glyph`, a coverage mask or premultiplied RGBA, and its bytes are the same on every host. Outline fonts (vtium/vtium#23) come later as another `Face`.
+vtium's glyph sources: font files, vitrified sets and built-in sets in, glyph bitmaps out. It reads and writes vitrified sets (ADR-1200), the portable files of ready glyphs every font reaches the console as, and checks the root-owned store they are loaded from; loads PC Screen Fonts (PSF1 and PSF2, gzipped ones with the `gzip` feature); carries GNU Unifont and Unscii-8 built in as sets (the `unifont` and `unscii` features); and draws box drawing, block elements, Braille, sextants, octants and the rest of Symbols for Legacy Computing's block shapes as sprites that fill their cell. A `Font` puts a face and the sprites together, choosing between them for each sprite range by its `SpritePolicy`, and draws any cluster exactly into its cells. It forbids unsafe code. Every glyph is a `Glyph`, a coverage mask or premultiplied RGBA, and its bytes are the same on every host. Outline fonts (vtium/vtium#23) come later as another `Face`.
 
 | Path | What it is |
 |---|---|
@@ -16,6 +16,7 @@ vtium's glyph sources: font files, vitrified sets and built-in sets in, glyph bi
 | `src/set/builder.rs` | `SetBuilder` and `StrikeBuilder`: a set described with vtium-font's types, for the tests and `vtium-vitrify`. |
 | `src/set/read.rs` | `Set`: the reader, each chunk read, checked and inflated the first time a glyph is drawn from it, a 1-bit glyph expanded as it is drawn. |
 | `src/set/read/parse.rs` | Each section's check against its bounds and the other sections. |
+| `src/set/builtin.rs` | The built-in sets, `unifont` and `unscii-8`, and the one ADR-1200 D7 draws for a cell height and locale. |
 | `src/set/face.rs` | `SetFace`: one cell size of a set drawn as a `Face`, and the strike a height picks (ADR-1200 D9). |
 | `src/set/store.rs` | `Store`: the store's check, ownership, modes, links and the whole-file hash. |
 | `src/set/manifest.rs` | `Manifest`: the store's TSV list of sets, parsed and written. |
@@ -26,8 +27,8 @@ vtium's glyph sources: font files, vitrified sets and built-in sets in, glyph bi
 | `src/sprite/legacy.rs` | The Symbols for Legacy Computing sprites the C reference left to the font, adapted from Ghostty's sprite font with its notice. |
 | `src/sprite/spans.rs` | Each sprite range's codepoints, which a set's writer counts its coverage over. `build.rs` includes it. |
 | `src/bounds.rs` | Every bound, with its value, what happens past it and its source: the one source for the constants and for the table below. |
-| `build.rs` | Packs `data/unifont.hex` into the built-in unifont set with the set writer's own code. |
-| `data/` | The unifont glyphs and their licence: see its README. |
+| `build.rs` | Packs `data/unifont.hex` and `data/unscii-8.hex` into the built-in sets with the set writer's own code. |
+| `data/` | The unifont and Unscii-8 glyphs and their licences: see its README. |
 | `tests/` | The integration tests, fixtures and C reference digests: see its README. |
 | `fuzz/` | The cargo-fuzz targets for the PSF loader and the set reader, their own workspace so CI does not build them: see its README. |
 
@@ -83,7 +84,7 @@ A vitrified set (ADR-1200 D2) is one file, little-endian throughout: the `VTGLAS
 - **The store.** `Store::open` opens the store with `O_DIRECTORY | O_NOFOLLOW` and checks it and each parent; `Store::load` reads the manifest and the set relative to the store's directory with `O_NOFOLLOW`, checks each is a regular file of the expected owner writable by no one else, and streams the set once, hashing all of it and keeping all but its chunks, which it refuses unless the hash is the manifest row's. A FIFO in the store is opened without blocking and refused. The expected owner is a parameter, root in the console, so `tests/store.rs` runs as the invoking user.
 - **Drawing.** `SetFace` draws one cell size of a set: the tallest strike whose whole multiple is the height asked for, else the tallest under it scaled by the largest whole factor that fits, else the smallest at its own size (ADR-1200 D9). A style draws from its own strike; a codepoint it lacks, or a style with no strike, draws from the regular strike, bold widened as vtium-font's bitmap faces widen it, a pixel set when it or its left neighbour in the same cell is.
 
-The built-in sets are unifont, compiled in with the `unifont` feature, and, by ADR-1200 D7, Unscii-8, whose pinned `unscii-8.hex` is not yet in `data/`.
+The built-in sets (ADR-1200 D7) are `unifont`, an 8x16 strike compiled in with the `unifont` feature, and `unscii-8`, an 8x8 strike compiled in with the `unscii` feature, 15,550 B as a set. `set::builtin` gives either by name, and `set::builtin_name` the one D7 draws: `unscii-8` for cells under 16 pixels high and `unifont` from 16, and `unifont` in a zh, ja or ko locale, since Unscii-8 holds no CJK. Both draw the sprites for every sprite range.
 
 Choices the format leaves to this crate, each settled here:
 
@@ -129,7 +130,7 @@ Scale does not change what a source keeps, only what a draw returns: a font scal
 
 ## Licences
 
-The unifont glyphs in `data/unifont.hex` are GNU Unifont 17.0.03, dual-licensed under the SIL Open Font License 1.1 and the GNU GPL 2+ with the font embedding exception; vtium takes them under the OFL, whose text is `data/OFL-1.1.txt`. The test fixtures and their licences are listed in `tests/fixtures/README.md`. `miniz_oxide` (MIT, Zlib or Apache-2.0) inflates a set's chunks, the built-in sets' among them, and gzip fonts, in every build, and deflates a set's chunks when one is written. `rustix` (Apache-2.0 with the LLVM exception, Apache-2.0 or MIT), already in the console through vtium-platform, opens the store's files relative to its directory.
+The Unscii-8 glyphs in `data/unscii-8.hex` are Unscii 2.1 by Viznut, in the public domain (`data/unscii.txt`). The unifont glyphs in `data/unifont.hex` are GNU Unifont 17.0.03, dual-licensed under the SIL Open Font License 1.1 and the GNU GPL 2+ with the font embedding exception; vtium takes them under the OFL, whose text is `data/OFL-1.1.txt`. The test fixtures and their licences are listed in `tests/fixtures/README.md`. `miniz_oxide` (MIT, Zlib or Apache-2.0) inflates a set's chunks, the built-in sets' among them, and gzip fonts, in every build, and deflates a set's chunks when one is written. `rustix` (Apache-2.0 with the LLVM exception, Apache-2.0 or MIT), already in the console through vtium-platform, opens the store's files relative to its directory.
 
 ## Bounds
 

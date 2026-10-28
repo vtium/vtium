@@ -427,7 +427,7 @@ impl Set {
 
     /// A built-in set, compiled into the binary and trusted by
     /// construction: its chunks are not hashed again.
-    #[cfg_attr(not(feature = "unifont"), allow(dead_code))]
+    #[cfg_attr(not(any(feature = "unifont", feature = "unscii")), allow(dead_code))]
     pub(crate) fn from_static(bytes: &'static [u8]) -> Result<Set, SetError> {
         let parts = Set::split(bytes)?;
         let mut set = Set::build(&parts, false)?;

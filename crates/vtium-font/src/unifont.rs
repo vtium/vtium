@@ -19,8 +19,6 @@
 //! Copyright (c) 2012 Ted Kotz <ted@kotz.us>
 //! Copyright (c) 2012-2013 David Herrmann <dh.herrmann@googlemail.com>
 
-use std::sync::OnceLock;
-
 use crate::bounds::CELL_SIDE_MAX;
 use crate::face::{Cell, Decorations, Face, Style};
 use crate::glyph::Glyph;
@@ -28,20 +26,15 @@ use crate::policy::{RangeCoverage, SpritePolicy};
 use crate::set::Set;
 use crate::sprite::Range;
 
-static PACKED: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/unifont.glass"));
-
 /// The built-in set's one cell.
 const CELL: Cell = Cell {
     width: 8,
     height: 16,
 };
 
-/// The built-in unifont set, read once; `None` only if the build packed a
-/// set its own reader refuses, which `tests::the_builtin_set_reads` holds
-/// against.
-pub(crate) fn set() -> Option<&'static Set> {
-    static SET: OnceLock<Option<Set>> = OnceLock::new();
-    SET.get_or_init(|| Set::from_static(PACKED).ok()).as_ref()
+/// The built-in unifont set.
+fn set() -> Option<&'static Set> {
+    crate::set::unifont().map(|s| &**s)
 }
 
 /// The built-in unifont, drawn at a whole multiple of 8x16.

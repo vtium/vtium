@@ -12,11 +12,13 @@ authors.workspace = true
 workspace = true
 
 [features]
-default = ["gzip", "unifont"]
+default = ["gzip", "unifont", "unscii"]
 # gzip-compressed PSF fonts, as the C reference's zlib option read them
 gzip = []
 # the built-in unifont, a vitrified set compiled in, inflated a chunk at a time
 unifont = []
+# the built-in Unscii-8 set, for cells under 16 pixels high (ADR-1200 D7)
+unscii = []
 
 [dependencies]
 # inflates a vitrified set's deflated chunks in every build, the built-in

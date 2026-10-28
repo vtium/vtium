@@ -798,3 +798,76 @@ fn decorations_scale_as_the_strike_draws() {
     // the bitmap face's lines at 8x2 are not the 8-pixel lines doubled
     assert_ne!(Decorations::for_height(16).underline_thickness, 2);
 }
+
+// The built-in Unscii-8 set (ADR-1200 D7): its provenance, its one 8x8
+// strike, and its glyphs as `data/unscii-8.hex` gives them
+#[cfg(feature = "unscii")]
+#[test]
+fn the_builtin_unscii_8_reads() {
+    use vtium_font::set::builtin;
+    let set = builtin("unscii-8").expect("the built-in set");
+    assert_eq!(set.name(), "unscii-8");
+    assert_eq!(
+        set.meta_values("source-sha256").collect::<Vec<_>>(),
+        ["03094f7fbab7085cf6a6b624cee61e47e71ce5d0c2f308c2f4436afdc17f776c"]
+    );
+    assert_eq!(
+        set.meta_values("license").collect::<Vec<_>>(),
+        ["public domain"]
+    );
+    let strikes: Vec<_> = set.strikes().collect();
+    assert_eq!(strikes.len(), 1);
+    assert_eq!(
+        strikes[0].cell,
+        Cell {
+            width: 8,
+            height: 8
+        }
+    );
+    assert_eq!(strikes[0].baseline, 7);
+    assert_eq!(strikes[0].glyph_count, 3191);
+    set.check_chunks().expect("every chunk decodes");
+    let face = SetFace::new(set, 8).expect("a face");
+    // 00041:183C66667E666600
+    assert_eq!(
+        face.draw(&['A'], Style::default()),
+        Some(mask(
+            8,
+            8,
+            &expanded(8, &[0x18, 0x3c, 0x66, 0x66, 0x7e, 0x66, 0x66, 0x00])
+        ))
+    );
+    assert!(face.has_glyph('\u{25a1}') && face.has_glyph('?'));
+    assert!(!face.has_glyph('\u{4e00}'), "Unscii-8 holds no CJK");
+    // 40x30 on the 320x240 floor; scaled twice, 8x16
+    assert_eq!(
+        face.cell(),
+        Cell {
+            width: 8,
+            height: 8
+        }
+    );
+}
+
+// D7's choice of built-in: Unscii-8 under 16 pixels, unifont from 16, and
+// never Unscii-8 in a zh, ja or ko locale
+#[test]
+fn the_builtin_is_chosen_by_height_and_locale() {
+    use vtium_font::set::{builtin, builtin_name};
+    for (height, locale, want) in [
+        (8, "en_US.UTF-8", "unscii-8"),
+        (15, "C", "unscii-8"),
+        (15, "", "unscii-8"),
+        (16, "en_US.UTF-8", "unifont"),
+        (32, "de_DE", "unifont"),
+        (8, "zh_CN.UTF-8", "unifont"),
+        (8, "ja_JP", "unifont"),
+        (12, "ko_KR.UTF-8@euro", "unifont"),
+        (8, "zh", "unifont"),
+    ] {
+        assert_eq!(builtin_name(height, locale), want, "{height} {locale}");
+    }
+    assert!(builtin("other").is_none());
+    #[cfg(feature = "unifont")]
+    assert_eq!(builtin("unifont").expect("unifont").name(), "unifont");
+}
