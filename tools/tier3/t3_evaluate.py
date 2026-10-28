@@ -212,12 +212,11 @@ def read_provisional(path=PROVISIONAL_FILE):
 PROVISIONAL = read_provisional()
 
 
-def check_vtium_goldens(cases_of, provisional, root=None):
-    """Every reason vtium's goldens under `root` (default VTIUM_GOLDEN)
-    cannot judge a run: a golden or sidecar no case of a variant naming them
-    compares with (`cases_of` maps each such variant to its cases), and a
-    provisional.tsv row for a golden that does not exist."""
-    root = root or VTIUM_GOLDEN
+def check_goldens(cases_of, root, provisional=()):
+    """Every reason the goldens under `root` cannot judge a run: a golden or
+    sidecar no case of a variant they judge compares with (`cases_of` maps
+    each such variant to its cases), and a `provisional` row (vtium's
+    provisional.tsv) for a golden that does not exist."""
     errors = []
     for dirpath, _, names in os.walk(root):
         for name in names:

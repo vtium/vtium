@@ -14,9 +14,10 @@ Stdlib only. The work is split across the modules beside this one:
 Variants run one at a time, or with --jobs N up to N at once, each in its own
 worker process.
 
-    t3.py provision                       put the pinned image in the image cache, build the
-                                          base image from it or reuse one, and link
-                                          target/tier3/vm/base.qcow2 to it
+    t3.py provision                       fetch and verify the pinned image into the image
+                                          cache, build the base image from it unless the
+                                          cache holds it, and link target/tier3/vm/base.qcow2
+                                          to it
     t3.py run [--jobs N] [VARIANT ...]    install the tree, run the scenario, compare
                                           (default: every variant)
     t3.py run --tree-target TARGET        build the tree first, with make TARGET
@@ -29,7 +30,6 @@ Paths are relative to the repository root, which is two levels above this file.
 import argparse
 import base64
 import fcntl
-import hashlib
 import os
 import shutil
 import signal
@@ -42,38 +42,35 @@ import t3_evaluate  # noqa: E402
 import t3_impl  # noqa: E402
 import t3_runner  # noqa: E402
 import t3_scenario  # noqa: E402
-from t3_common import (BASE, GUEST, IMAGES, KMSCON, OUT, REPORT, REUSE, ROOT, TREE, VM,  # noqa: E402
-                       Logger, base_image, rel)
+from t3_common import (BASE, GUEST, IMAGES, OUT, REPORT, ROOT, TREE, VM, Logger,  # noqa: E402
+                       base_image, rel)
 from t3_qemu import Qemu, make_iso  # noqa: E402
 
 
 # --- provisioning -----------------------------------------------------------
 
 def provision(args, log):
-    """Links target/tier3/vm/images to the image cache, puts the pristine
-    image there, and builds the base image for these guest files, pristine
-    image and archive date unless the cache already holds it, then points
-    target/tier3/vm/base.qcow2 at it. A lock beside the image keeps two
-    checkouts from building the same one at once; the second finds it built.
-
-    The pristine image and a built base image are linked from --reuse when
-    it holds them, and only read there: tier 3 writes nothing into another
-    checkout. Otherwise the pristine image is fetched and verified
-    (fetch-image.sh), and the base image provisioned.
+    """Links target/tier3/vm/images to the image cache, fetches and
+    verifies the pristine image into its pristine/ unless it is there
+    (fetch-image.sh), and builds the base image for these guest files,
+    pristine image and archive date into its base/ unless it is there, then
+    points target/tier3/vm/base.qcow2 at it. A lock beside the base image
+    keeps two checkouts from building the same one at once; the second finds
+    it built.
     """
     link_images(args.images, log)
-    pristine = os.path.join(VM, "images", args.image)
-    if not os.path.exists(pristine):
-        if not reuse(args.reuse, args.image, pristine, log, sha256=args.sha256):
-            subprocess.run(["sh", os.path.join(t3_common.HERE, "fetch-image.sh"),
-                            os.path.join(VM, "images"), args.url, args.image, args.sha256,
-                            args.key], check=True)
+    pristine = pristine_image(args.image)
+    if not os.path.isfile(pristine):
+        subprocess.run(["sh", os.path.join(t3_common.HERE, "fetch-image.sh"),
+                        os.path.dirname(pristine), args.url, args.image, args.sha256,
+                        args.key], check=True)
     base = base_image(args.image, args.archive)
+    os.makedirs(os.path.dirname(base), exist_ok=True)
     with open(base + ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        if os.path.exists(base):
+        if os.path.isfile(base):
             log("base image already built: %s" % rel(base))
-        elif not reuse(args.reuse, os.path.basename(base), base, log):
+        else:
             with t3_runner.run_lock():
                 _provision(args, log, base)
     link = BASE + ".link"
@@ -105,30 +102,14 @@ def link_images(images, log):
     log("%s -> %s" % (rel(here), images))
 
 
-def reuse(source, name, dest, log, sha256=None):
-    """Link `dest` to `name` in the directory `source` when it holds it, read
-    there and never written: the link names its real path. With `sha256`
-    the file must have that digest. Whether it was linked."""
-    if not source:
-        return False
-    path = os.path.realpath(os.path.join(source, name))
-    if not os.path.isfile(path):
-        return False
-    if sha256 is not None:
-        h = hashlib.sha256()
-        with open(path, "rb") as f:
-            for block in iter(lambda: f.read(1 << 20), b""):
-                h.update(block)
-        if h.hexdigest() != sha256:
-            raise SystemExit("%s has SHA-256 %s, not the pinned %s"
-                             % (path, h.hexdigest(), sha256))
-    os.symlink(path, dest)
-    log("reused %s from %s" % (name, source))
-    return True
+def pristine_image(image):
+    """Where the pristine `image` lives: in the cache's pristine/, with the
+    signature and keyring fetch-image.sh checks it with."""
+    return os.path.join(VM, "images", "pristine", image)
 
 
 def _provision(args, log, base):
-    pristine = os.path.join(VM, "images", args.image)
+    pristine = pristine_image(args.image)
     work = os.path.join(VM, "provision")
     shutil.rmtree(work, ignore_errors=True)
     seed = os.path.join(work, "seed")
@@ -178,11 +159,14 @@ def run(args, log):
     variants = args.variants or t3_scenario.DEFAULT_VARIANTS
     t3_runner.raise_on_sigterm(log)
     with t3_runner.run_lock():
-        golden = t3_common.extract_goldens(args.kmscon)
-        log("goldens: %s" % rel(golden))
-        errors = t3_evaluate.check_departures(t3_evaluate.DEPARTURES, t3_scenario.variant_cases)
-        errors += t3_evaluate.check_vtium_goldens(t3_scenario.vtium_golden_cases(),
-                                                  t3_evaluate.PROVISIONAL)
+        copies = t3_common.read_provenance()
+        log("goldens: %s, copied from kmscon %s"
+            % (rel(t3_common.GOLDEN), t3_common.golden_commit(copies)))
+        errors = t3_common.check_copies(copies)
+        errors += t3_evaluate.check_departures(t3_evaluate.DEPARTURES, t3_scenario.variant_cases)
+        errors += t3_evaluate.check_goldens(t3_scenario.c_golden_cases(), t3_common.GOLDEN)
+        errors += t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
+                                            t3_evaluate.VTIUM_GOLDEN, t3_evaluate.PROVISIONAL)
         if errors:
             raise SystemExit("\n".join(errors))
         tree = args.tree or TREE
@@ -297,9 +281,6 @@ def main(argv=None):
     p.add_argument("--key", required=True, help="the fingerprint of the key that signs it")
     p.add_argument("--images", default=IMAGES, metavar="DIR",
                    help="the image cache target/tier3/vm/images links to (default %s)" % IMAGES)
-    p.add_argument("--reuse", default=REUSE, metavar="DIR",
-                   help="a directory whose pristine and base images are linked and only read "
-                        "(default %s)" % os.path.relpath(REUSE, ROOT))
     r = sub.add_parser("run")
     r.add_argument("--jobs", type=int, default=1, metavar="N",
                    help="run up to N variants at once (default 1)")
@@ -311,9 +292,6 @@ def main(argv=None):
                         "first, into %s" % rel(TREE))
     r.add_argument("--tree", metavar="DIR",
                    help="the install tree to run, built already (default %s)" % rel(TREE))
-    r.add_argument("--kmscon", default=KMSCON, metavar="DIR",
-                   help="the kmscon checkout whose pinned commit holds the goldens "
-                        "(default %s)" % os.path.relpath(KMSCON, ROOT))
     r.add_argument("variants", nargs="*", help="any of: " + ", ".join(t3_scenario.VARIANTS))
     args = ap.parse_args(argv)
     unknown = set(getattr(args, "variants", [])) - set(t3_scenario.VARIANTS)
