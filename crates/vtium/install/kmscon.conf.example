@@ -41,6 +41,9 @@
 ## Turn the displays off after this long with no key or pointer event; 0 never does.
 #dpms-timeout=600
 
+## Let a program set the blank's timeout with the Linux console's `CSI 9 ; n ]` (n minutes, at most 60; 0 never blanks) and wake the displays with `CSI 13 ]`, as `setterm --blank` does under `TERM=linux`; RIS returns the timeout to `dpms-timeout`. Off, the sequences are ignored. A key or pointer event wakes the displays either way.
+#program-blank
+
 ## At start, how long to wait for a display, counted from when the VT is first shown; with none by then vtium exits with status 1, so the unit's `OnFailure=` can start a getty. 0 waits for no display to come: a display set up when the VT is first shown counts once its first frame is on screen. `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time. Once a display has come, vtium never exits for want of one.
 #display-wait=10
 

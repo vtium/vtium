@@ -273,6 +273,17 @@ pub const DPMS_TIMEOUT: Key = Key {
     cite: "src/config.c:1388",
 };
 
+pub const PROGRAM_BLANK: Key = Key {
+    name: "program-blank",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(true),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Let a program set the blank's timeout with the Linux console's `CSI 9 ; n ]` (n minutes, at most 60; 0 never blanks) and wake the displays with `CSI 13 ]`, as `setterm --blank` does under `TERM=linux`; RIS returns the timeout to `dpms-timeout`. Off, the sequences are ignored. A key or pointer event wakes the displays either way.",
+    cite: "ADR-1000 (`ctl.linux-blank`, `ctl.linux-unblank`); vtium/vtium#79",
+};
+
 pub const DISPLAY_WAIT: Key = Key {
     name: "display-wait",
     short: None,
@@ -844,7 +855,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 64] = [
+pub const KEYS: [Key; 65] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -860,6 +871,7 @@ pub const KEYS: [Key; 64] = [
     BLINK,
     SYNC_TIMEOUT,
     DPMS_TIMEOUT,
+    PROGRAM_BLANK,
     DISPLAY_WAIT,
     HWACCEL,
     USE_ORIGINAL_MODE,

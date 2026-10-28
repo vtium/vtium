@@ -1060,3 +1060,13 @@ fn the_key_table_keeps_its_rules() {
         }
     }
 }
+
+#[test]
+fn program_blank_is_on_until_turned_off() {
+    assert!(Config::default().switch(&PROGRAM_BLANK));
+    let l = main_file("no-program-blank\n");
+    assert!(!l.config.switch(&PROGRAM_BLANK));
+    assert!(problems(&l).is_empty());
+    let l = load_with(&["--no-program-blank"], None, &[]);
+    assert!(!l.config.switch(&PROGRAM_BLANK));
+}
