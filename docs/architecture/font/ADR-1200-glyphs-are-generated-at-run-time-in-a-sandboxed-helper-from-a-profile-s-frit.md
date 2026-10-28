@@ -232,6 +232,10 @@ considered:
   - operator: aaronsb
     said: "The store holds each helper answer as one set buffer. Evicting a glyph compacts: the console rebuilds each touched set without the evicted glyphs, through vtium-font's set writer, keeping 1-bit glyphs 1-bit, and counts the rebuilt bytes. So the limit bounds real memory. The rebuild runs only when an ask arrives with the store full, and it evicts enough of the least recently shown glyphs to cover the overrun in one pass. Two options were rejected: Hiding evicted glyphs without freeing them lets the store outgrow its limit while its count says otherwise. Storing glyphs individually needs a second copy of vtium-font's drawing in the console, against ADR-1301's one engine."
     via: the operator's decision on vtium/vtium#145, 2026-10-28, relayed by the team lead
+  - operator: aaronsb
+    said: "One side owns each fact: the console's per-boot store is the only record of which glyphs the console holds. The helper keeps what it sent for one request only, an ask or a fill, and skips repeats only within it. A later fill may send again glyphs the console still holds, and the console drops them; that cost is accepted."
+    via: the team lead's reading of the operator's design rule (one side owns each fact), 2026-10-28
+    paraphrase: true
 observable:
   - "On a cold start with a CJK frit, the first frame draws in the built-in font in the profile's cell, the frit's glyphs replace it as the helper sends them, no frame waits on the helper, and the grid's size never changes when they arrive"
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame (#149)"
@@ -399,10 +403,13 @@ The console, which opens its VT as root already, reads the kernel's font once at
 ### D18: asks and the fill
 
 - **Asks come first.** An ask names the characters a cell shows that the store does not hold, has not been told the frit lacks, and has not already asked for; the helper answers it whole, ahead of anything else.
-- **The fill.** While nothing is asked, the helper fills the cell's coverage in order: the screen's characters, then printable Latin and box drawing, then the rest of the frit's coverage, 1,024 codepoints a batch, skipping what the console holds and what it has sent.
+- **The fill.** While nothing is asked, the helper fills the cell's coverage in order: the screen's characters, then printable Latin and box drawing, then the rest of the frit's coverage, 1,024 codepoints a batch, skipping what the console holds as the fill names it.
+- **One record of what is held.** The console's store (D19) is the only record of which glyphs the console holds. The helper keeps what it sent for one request only, an ask or a fill, and sends a glyph once within it; a later request may send again a glyph the console holds, and the console drops it.
 - **Preemption between batches.** A waiting ask is taken before each batch, so it waits at most one batch.
 - **The fill stops at the store's limit** (D19), so speculative glyphs never churn the store. A stop ends a cell's fill, as on a zoom away from that cell.
 - **Glyphs already held** are drawn from the store, with no request.
+
+> Edited 2026-10-28: the fill skipped what the console held and what the helper had sent at the cell in any earlier request, so the helper kept a second record of what the console held. The team lead's reading of the operator's design rule, one side owns each fact (`considered`), leaves the store as the only record: the helper skips repeats within one request only. The earlier text is in git at e807139.
 
 ### D19: the store
 

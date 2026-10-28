@@ -457,6 +457,8 @@ struct CellState {
     absent: Bits,
     pending: Bits,
     fill: Fill,
+    /// The codepoints the fill asked for last has brought, held or not.
+    brought: Bits,
     /// The fill's first codepoints, sent again with a restart.
     first: Vec<u32>,
     /// When the fill was asked for, and when its first glyphs came.
@@ -472,6 +474,7 @@ impl CellState {
             absent: Bits::new(),
             pending: Bits::new(),
             fill: Fill::None,
+            brought: Bits::new(),
             first: Vec::new(),
             started: None,
             first_glyphs: None,
@@ -587,6 +590,7 @@ impl Helper {
             return;
         };
         state.fill = Fill::Active;
+        state.brought = Bits::new();
         state.first = first.iter().map(|&c| u32::from(c)).collect();
         state.started = Some(now);
         state.first_glyphs = None;
@@ -624,10 +628,9 @@ impl Helper {
     }
 
     /// Forgets every cell but `cells`, as no display draws at them: their
-    /// glyphs leave the store, and a running helper is told to stop each,
-    /// whatever its fill, so it ends the fill and sends the cell's glyphs
-    /// again when it is filled again; the frames already on their way for
-    /// them are dropped.
+    /// glyphs leave the store, a running helper is told to stop each,
+    /// whatever its fill, and the frames already on their way for them are
+    /// dropped.
     pub fn retain(&mut self, cells: &[Cell], now: Instant) {
         let gone: Vec<Cell> = self
             .cells
@@ -812,9 +815,10 @@ impl Helper {
             .map(|c| c.cell)
             .collect();
         for cell in fills {
-            let Some(state) = self.cells.iter().find(|c| c.cell == cell) else {
+            let Some(state) = self.cells.iter_mut().find(|c| c.cell == cell) else {
                 continue;
             };
+            state.brought = Bits::new();
             let (first, held) = (state.first.clone(), state.held.ranges());
             self.send(FILL, cell, &first, &held, now);
         }
@@ -874,9 +878,11 @@ impl Helper {
 
     /// Takes a frame of glyphs, or refuses it: an ask's must be at the
     /// oldest ask's cell and among the codepoints it has yet to send; a
-    /// fill's at a cell filling and among those it does not hold. An ask's
-    /// past the store's limit evicts the sets least recently on the
-    /// screen; a fill's past it is dropped and the fill stopped.
+    /// fill's at a cell filling and among those the fill has not brought.
+    /// A fill's whose glyphs the store holds, as an ask during the fill
+    /// brought them, is dropped (ADR-1200 D18). An ask's past the store's
+    /// limit evicts the sets least recently on the screen; a fill's past
+    /// it is dropped and the fill stopped.
     fn glyphs(
         &mut self,
         fill: bool,
@@ -902,7 +908,7 @@ impl Helper {
             }
             let state = self
                 .cells
-                .iter()
+                .iter_mut()
                 .find(|c| c.cell == cell)
                 .ok_or_else(not_asked)?;
             match state.fill {
@@ -910,10 +916,16 @@ impl Helper {
                 Fill::Stopped | Fill::Done => return Ok(None),
                 Fill::None => return Err(not_asked()),
             }
+            let mut new = false;
             for c in codepoints(&runs) {
-                if c.is_none_or(|c| state.held.has(c)) {
-                    return Err("the helper's fill repeats a glyph the console holds".to_owned());
-                }
+                let Some(c) = c.filter(|&c| !state.brought.has(c)) else {
+                    return Err("the helper's fill repeats a glyph".to_owned());
+                };
+                state.brought.put(c, true);
+                new |= !state.held.has(c);
+            }
+            if !new {
+                return Ok(None);
             }
             if self.store.borrow().bytes().saturating_add(bytes) > self.limit {
                 self.store_full(cell, now);
@@ -1449,6 +1461,29 @@ mod tests {
         assert!(why.contains("did not name"), "{why}");
     }
 
+    // D18: an ask during a fill and the fill are two requests, and each
+    // sends the glyph the ask named; the console takes the ask's and drops
+    // the fill's, which the store already holds
+    #[test]
+    fn a_fill_frame_of_glyphs_an_ask_brought_is_dropped() {
+        let (a, b) = (set(CELL, &['A']), set(CELL, &['B']));
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &a);
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        fixture.extend(frame_bytes(FRAME_FILL, &a));
+        fixture.extend(frame_bytes(FRAME_FILL, &b));
+        fixture.extend(filled(CELL));
+        let mut s = StandIn::new("fillafterask", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.fill(CELL, &[], now);
+        s.helper.ask(CELL, &['A'], now);
+        let answers = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(answers.len(), 2);
+        assert!(s.held('A') && s.held('B'));
+        assert_eq!(s.helper.store.borrow().bytes(), (a.len() + b.len()) as u64);
+        assert!(!s.helper.busy());
+    }
+
     // a zoom or a hotplug during a fill: the frames already on their way
     // for the cell no display draws are dropped, and the helper stays
     #[test]
@@ -1512,9 +1547,7 @@ mod tests {
         assert_eq!(s.helper.failed(), None);
     }
 
-    // the helper skips what it sent at a cell only while the console holds
-    // the cell: one dropped whose fill is done is stopped too, so a fill back
-    // at it is drawn again
+    // a cell dropped whose fill is done is stopped too
     #[test]
     fn a_cell_dropped_after_its_fill_is_stopped() {
         let mut fixture = frame_bytes(FRAME_FILL, &set(CELL, &['A']));
