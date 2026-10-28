@@ -15,7 +15,7 @@
 
 use vtium_font::{Cell, Face, Font, Glyph, Psf, Style as FontStyle, Unifont};
 use vtium_render::{
-    Budgets, Canvas, Config, DecoColor, DecorationColors, DrawState, Orientation, Profile,
+    Budgets, Canvas, Config, DecoColor, DecorationColors, Depth, DrawState, Orientation, Profile,
     Renderer, Storage,
 };
 use vtium_term::{Age, Glyph as Text, Rgb, Terminal, WidthMethod};
@@ -134,6 +134,8 @@ pub struct Screen {
     pub font: FontKind,
     pub width_method: WidthMethod,
     pub decorations: Decorations,
+    /// The display's depth: a 1-bit screen is drawn in black and white.
+    pub depth: Depth,
 }
 
 impl Screen {
@@ -162,6 +164,7 @@ impl Screen {
                 strike: None,
                 force: false,
             },
+            depth: Depth::Color,
         }
     }
 }
@@ -336,6 +339,7 @@ fn draw_config<F: Face>(
     let mut term = Terminal::new(screen.cols, screen.rows, 0);
     let config = Config {
         decorations: screen.decorations.colors(),
+        depth: screen.depth,
         ..config
     };
     // as a host sets it at start: the screen's method, and what RIS
