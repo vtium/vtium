@@ -1950,6 +1950,113 @@ impl Video for Late {
     }
 }
 
+/// A device with a cursor plane: what was set up on it and where it shows.
+struct Planed {
+    memory: Memory,
+    set_ups: u32,
+    shown: Option<(i32, i32)>,
+}
+
+impl Video for Planed {
+    fn backend(&self) -> &'static str {
+        "memory"
+    }
+    fn events(&mut self) -> Vec<Event> {
+        self.memory.events()
+    }
+    fn displays(&self) -> Vec<DisplayId> {
+        self.memory.displays()
+    }
+    fn name(&self, id: DisplayId) -> String {
+        self.memory.name(id)
+    }
+    fn size(&self, id: DisplayId) -> Option<(u32, u32)> {
+        self.memory.size(id)
+    }
+    fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
+        self.memory.refresh_mhz(id)
+    }
+    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
+        self.memory.canvas(id)
+    }
+    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        self.memory.swap(id, damage)
+    }
+    fn is_flipping(&self, id: DisplayId) -> bool {
+        self.memory.is_flipping(id)
+    }
+    fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
+        self.memory.set_dpms(id, dpms)
+    }
+    fn sleep(&mut self) {
+        self.memory.sleep();
+    }
+    fn wake_up(&mut self) -> io::Result<()> {
+        self.memory.wake_up()
+    }
+    fn unblank(&mut self) -> io::Result<()> {
+        self.memory.unblank()
+    }
+    fn input(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn hotplug(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn setup_cursor(&mut self, _: DisplayId, _: &vtium_render::Arrow) -> io::Result<()> {
+        self.set_ups += 1;
+        Ok(())
+    }
+    fn show_cursor(&mut self, _: DisplayId, at: (i32, i32)) -> io::Result<()> {
+        self.shown = Some(at);
+        Ok(())
+    }
+    fn hide_cursor(&mut self, _: DisplayId) {
+        self.shown = None;
+    }
+    fn hardware_cursor(&self, _: DisplayId) -> bool {
+        self.set_ups > 0
+    }
+}
+
+/// A display with a cursor plane shows the pointer there; under
+/// `soft-cursor` the renderer draws it and the plane is never set up.
+#[test]
+fn soft_cursor_draws_the_pointer_in_software() {
+    for soft in [false, true] {
+        let mut args = vec!["--login", "--", "/bin/sh", "-c", "read x"];
+        if soft {
+            args.insert(0, "--soft-cursor");
+        }
+        let planed = Planed {
+            memory: Memory::default(),
+            set_ups: 0,
+            shown: None,
+        };
+        let mut h = Harness::build(&args, FakeVt::new(), Box::new(planed));
+        h.until(Duration::from_millis(200), |_| false);
+        h.point([over(10, 5, None)], Mods::empty());
+        let (x, y) = (10 * 8 + 4, 5 * 16 + 8);
+        h.until(Duration::from_millis(300), |_| false);
+        let p = h
+            .app
+            .videos
+            .get_mut(Path::new("/dev/mem0"))
+            .and_then(|v| v.as_any().downcast_mut::<Planed>())
+            .expect("the planed device");
+        if soft {
+            assert_eq!((p.set_ups, p.shown), (0, None));
+            assert!(p.memory.white_at(x, y + 1), "drawn in software");
+        } else {
+            assert_eq!((p.set_ups, p.shown), (1, Some((84, 88))));
+            assert!(!p.memory.white_at(x, y + 1), "not drawn in software");
+        }
+    }
+}
+
 /// A release is acknowledged once every device reports asleep, however
 /// many turns the last takes.
 #[test]

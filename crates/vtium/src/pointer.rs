@@ -17,6 +17,10 @@
 //! draws the pointer in software until then. Each decision is logged, as
 //! the C reference named the cursor, `HW` or `SW`, in its display's line.
 //!
+//! `soft-cursor` has the renderer draw the pointer on every display and
+//! sets no cursor plane up, as the C reference's key did
+//! (`src/terminal.c:1269-1270`).
+//!
 //! A failed renderer set keeps the renderer the display had, and with it
 //! the arrow on its plane. The C reference set the hardware cursor up from
 //! the failed set's text, which had no font, and so drew the pointer
@@ -62,9 +66,20 @@ pub enum Route {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Pointer {
     route: Route,
+    /// `soft-cursor`: the renderer draws it, whatever the display has.
+    soft: bool,
 }
 
 impl Pointer {
+    /// A pointer the renderer always draws, as `soft-cursor` asks: the
+    /// display's cursor plane is never set up.
+    pub fn software() -> Pointer {
+        Pointer {
+            route: Route::Unset,
+            soft: true,
+        }
+    }
+
     pub fn route(&self) -> Route {
         self.route
     }
@@ -86,6 +101,10 @@ impl Pointer {
         renderer: &Renderer<F>,
         tip: Option<(u32, u32)>,
     ) -> Option<(u32, u32)> {
+        if self.route == Route::Unset && tip.is_some() && self.soft {
+            log::info!(target: "pointer", "display {} draws it in software: soft-cursor", id.0);
+            self.route = Route::Software;
+        }
         if self.route == Route::Unset && tip.is_some() {
             match plane.set_up(id, renderer.arrow()) {
                 Ok(()) => {
@@ -334,6 +353,25 @@ mod tests {
         p.before_draw(&mut plane, ID, &r, None);
         p.after_draw(&mut plane, ID, &r, None);
         assert_eq!(plane.shown, None);
+    }
+
+    // `soft-cursor`: the renderer draws the pointer, and the plane is
+    // never offered the arrow, after a new renderer too.
+    #[test]
+    fn a_soft_pointer_never_sets_the_plane_up() {
+        let r = renderer(Orientation::Normal);
+        let (mut p, mut plane) = (Pointer::software(), Fake::default());
+        for _ in 0..2 {
+            assert_eq!(
+                p.before_draw(&mut plane, ID, &r, Some((5, 6))),
+                Some((5, 6))
+            );
+            assert_eq!(p.route(), Route::Software);
+            p.after_draw(&mut plane, ID, &r, Some((5, 6)));
+            assert!(!p.after_swap(&plane, ID));
+            p.reset();
+        }
+        assert_eq!((plane.set_ups, plane.shown), (0, None));
     }
 
     // A plane given up after a failed commit: the pointer goes to the

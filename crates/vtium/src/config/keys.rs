@@ -732,6 +732,17 @@ pub const MOUSE: Key = Key {
     cite: "src/config.c:1385",
 };
 
+pub const SOFT_CURSOR: Key = Key {
+    name: "soft-cursor",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Draw the pointer in software on every display, never on a display's cursor plane.",
+    cite: "src/config.c:151-152, 1387; src/terminal.c:1269-1270",
+};
+
 pub const POINTER_HIDE_TIMEOUT: Key = Key {
     name: "pointer-hide-timeout",
     short: None,
@@ -952,7 +963,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 73] = [
+pub const KEYS: [Key; 74] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1007,6 +1018,7 @@ pub const KEYS: [Key; 73] = [
     XKB_REPEAT_DELAY,
     XKB_REPEAT_RATE,
     MOUSE,
+    SOFT_CURSOR,
     POINTER_HIDE_TIMEOUT,
     POINTER_HIDE_WHILE_TYPING,
     GRAB_PASTE,

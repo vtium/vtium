@@ -158,6 +158,9 @@
 ## Take pointers: mice, touchpads and touchscreens.
 #mouse
 
+## Draw the pointer in software on every display, never on a display's cursor plane.
+#no-soft-cursor
+
 ## Hide the pointer after this long with no pointer event, until it next moves; 0 never hides it.
 #pointer-hide-timeout=20
 

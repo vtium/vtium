@@ -553,7 +553,7 @@ impl App {
             return;
         };
         let font = self.font_at(face);
-        let view = View::new(
+        let mut view = View::new(
             id,
             font,
             size,
@@ -561,6 +561,9 @@ impl App {
             self.render_config(),
             self.measure(),
         );
+        if self.config.switch(&keys::SOFT_CURSOR) {
+            view.pointer = crate::pointer::Pointer::software();
+        }
         self.views.insert((node.clone(), id), view);
         if !self.relayout() {
             self.views.remove(&(node.clone(), id));
