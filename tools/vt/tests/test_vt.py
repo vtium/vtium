@@ -938,7 +938,12 @@ class Guide(Case):
         for text, why in ((ok.replace("do: d", "do: hold Logo"), "name the Super (Windows) key, not Logo"),
                           (ok.replace("title: T\n", ""), "no title"),
                           ("title: T\n", "no steps"),
-                          (ok.replace("expect: e\n", ""), "needs do: and expect: lines"),
+                          (ok.replace("expect: e\n", ""), "needs an expect: line, and a do: or run: line"),
+                          (ok.replace("do: d\n", ""), "needs an expect: line, and a do: or run: line"),
+                          (ok + "run:\n", "run: needs the command"),
+                          (ok + "run: true\nrun: false\n", "one run per step"),
+                          (ok + "run: true\nprobe: shell\n", "runs a command or a probe, not both"),
+                          (ok + "probe: shell\nrun: true\n", "runs a command or a probe, not both"),
                           (ok + "probe: nonesuch\n", "probe mode 'nonesuch' is not one of: shell focus"),
                           (ok + "probe: shell\nprobe: focus\n", "one probe per step"),
                           (ok + "intro: late\n", "intro lines go before the first step"),
@@ -949,6 +954,10 @@ class Guide(Case):
                 self.refused(p, why)
         self.refused(self.check(ok, steps="2"), "'2' is not a step of this guide (1 to 1)")
         self.assertEqual(self.check(ok, steps="1").returncode, 0)
+        # A step whose command is all it needs, with no do: line.
+        p = self.check("title: T\nstep: S\nrun: echo {vt}\nexpect: e\nstep: U\ndo: d\nexpect: e\n")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(p.stdout, "T: 2 steps\n   1  run          S\n   2  (no probe)   U\n")
 
     def guide_env(self, **extra):
         env = {"PATH": os.environ["PATH"], "TERM": "linux", "VTIUM_VT_DIR": self.s.dir,
@@ -1031,6 +1040,54 @@ class Guide(Case):
         self.assertEqual(log[-3:-1], ["-- step 5 of 5: Not run", "  ended here"])
         self.assertRegex(log[-1], r"^=== ended at step 5, ")
         self.assertEqual(stat.S_IMODE(os.stat(self.s.dir).st_mode), 0o700)
+
+    def test_a_run_step_runs_its_command_on_the_guides_terminal(self):
+        guide = os.path.join(self.s.tmp, "t.guide")
+        ran = "printf 'ran %s on %s\\n' $((6 * 7)) \"$(tty)\"; sleep 2"
+        write(guide, "title: Run guide\n"
+                     f"step: Ran\nrun: {ran}\ndo: keep still\nexpect: ran 42\n"
+                     "step: Failed\nrun: echo VT {vt}; exit 3\nexpect: VT 6\n", 0o644)
+        g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
+        g.wait_for(b"Press Enter to begin.")
+        g.send(b"\r")
+        # The step shows the command before it runs, under Run:.
+        g.wait_for(b"Step 1 of 2: Ran")
+        g.wait_for(b"Run:    " + ran.encode())
+        g.wait_for(b"Do:     keep still")
+        g.wait_for(b"Expect: ran 42")
+        g.wait_for(b"Press Enter to run it (")
+        self.assertNotIn(b"ran 42 on", g.seen)
+        g.send(b"\r")
+        # Enter runs it, shown as at a shell prompt, on the guide's own terminal.
+        g.wait_for(b"vtium-check$ " + ran.encode())
+        g.wait_for(b"ran 42 on /dev/pts/")
+        g.wait_for(b"\r\n")
+        tty = g.seen.split(b"ran 42 on ")[1].split(b"\r\n")[0].decode()
+        # A key pressed while the command runs answers nothing.
+        g.send(b"y")
+        g.wait_for(b"[y]es [n]o [s]kip: ")
+        g.send(b"n")
+        g.wait_for(b"Note (Enter for none): ")
+        g.send(b"\r")
+        g.wait_for(b"Step 2 of 2: Failed")
+        g.wait_for(b"Run:    echo VT 6; exit 3")
+        g.wait_for(b"Press Enter to run it (")
+        g.send(b"\r")
+        g.wait_for(b"VT 6")
+        g.wait_for(b"The command exited with status 3.")
+        g.wait_for(b"[y]es [n]o [s]kip: ")
+        g.send(b"s")
+        g.wait_for(b"Note (Enter for none): ")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter to end the run.")
+        g.send(b"\r")
+        self.assertEqual(g.finish(), 0)
+        log = read(os.path.join(self.s.dir, "vt-check.log")).splitlines()
+        self.assertRegex(log[0], r"^=== Run guide, \S+, guide " + guide + ", tty " + tty + ", steps all$")
+        self.assertEqual(log[1:8], ["-- step 1 of 2: Ran", "  run: " + ran, "  answer: no",
+                                    "-- step 2 of 2: Failed", "  run: echo VT 6; exit 3",
+                                    "  command exited with status 3", "  answer: skip"])
+        self.assertRegex(log[8], r"^=== done ")
 
 
 class Demo(Case):
