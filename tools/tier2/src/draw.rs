@@ -524,7 +524,15 @@ mod tests {
             .unwrap();
             assert!(psf == set, "{}", case.screen.name);
         }
-        assert_eq!(compared, ["small-320x240", "small-640x480"]);
+        assert_eq!(
+            compared,
+            [
+                "small-320x240",
+                "small-640x480",
+                "small-320x240-1bit",
+                "small-640x480-1bit"
+            ]
+        );
     }
 
     // The color glyph screen at twice its cell, where the cache stores a

@@ -685,6 +685,7 @@ impl App {
         };
         let refresh = video.refresh_mhz(id);
         let (backend, name) = (video.backend(), video.name(id));
+        let levels = video.levels(id);
         self.choose_font();
         let Ok(face) = self.face(self.font_size.max(1)) else {
             log::error!("cannot load the font for display {name}");
@@ -697,7 +698,7 @@ impl App {
             size,
             refresh,
             RenderConfig {
-                depth: depth(&self.config, video.levels(id)),
+                depth: depth(&self.config, levels),
                 ..self.render_config()
             },
             self.measure(),

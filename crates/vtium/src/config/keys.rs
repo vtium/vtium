@@ -998,7 +998,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 76] = [
+pub const KEYS: [Key; 77] = [
     CONFIGDIR,
     HELP,
     VERSION,
