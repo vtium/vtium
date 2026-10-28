@@ -840,6 +840,76 @@ fn under_no_program_blank_a_program_neither_times_nor_wakes_the_blank() {
     assert_eq!(h.memory().dpms, Some(Dpms::On), "a key still wakes");
 }
 
+/// A seat that blanks after 2 s with no input, on the scripted VT, whose
+/// session runs `script`.
+fn blank_in_two(script: &str) -> Harness {
+    Harness::with_vt(
+        &["--dpms-timeout=2", "--login", "--", "/bin/sh", "-c", script],
+        ScriptedVt::default(),
+    )
+}
+
+// The end of a pointer frame and the pointer's hide are vtium's own, not
+// the user's: neither restarts the blank's countdown, as the C reference's
+// did not (`src/seat.c:578-590` at kmscon b1f7a7c5).
+#[test]
+fn the_pointers_frame_end_and_hide_are_not_activity() {
+    let mut h = blank_in_two("read x");
+    let start = now();
+    h.until(Duration::from_millis(1200), |_| false);
+    for event in [PointerEvent::Sync, PointerEvent::Hide] {
+        h.app.input_event(pointer(event), h.at());
+    }
+    // Due 2 s after the start; counted from the hide, 3.2 s.
+    let left = (start + Duration::from_millis(2700)).saturating_duration_since(now());
+    assert!(
+        h.until_memory(left, OFF),
+        "blanked 2 s after the start, not 2 s after the hide"
+    );
+}
+
+#[test]
+fn a_pointer_move_restarts_the_blanks_countdown() {
+    let mut h = blank_in_two("read x");
+    let start = now();
+    h.until(Duration::from_millis(1200), |_| false);
+    h.app.input_event(pointer(over(1, 1, None)), h.at());
+    let left = (start + Duration::from_millis(2700)).saturating_duration_since(now());
+    assert!(!h.until_memory(left, OFF), "lit 2 s after the start");
+    assert!(
+        h.until_memory(Duration::from_secs(2), OFF),
+        "blanked 2 s after the move"
+    );
+}
+
+// The VT review's step on vtium/vtium#79, in seconds: a program's timeout,
+// the pointer's hide on the way, and the program's wake. `CSI 9 ; n ]`
+// counts in minutes, so RIS returns the timeout instead, a request on the
+// same path.
+// covers: ctl.linux-unblank
+#[test]
+fn a_programs_timeout_blanks_past_the_pointers_hide_and_its_wake_ends_it() {
+    let mut h = blank_in_two(
+        r"printf '\033[9;0]'; sleep 0.3; printf '\033c'; sleep 4; printf '\033[13]'; read x",
+    );
+    let start = now();
+    h.until(Duration::from_millis(1800), |_| false);
+    h.app.input_event(pointer(PointerEvent::Hide), h.at());
+    // The RIS at 0.3 s restarts the countdown: due at 2.3 s; counted from
+    // the hide, 3.8 s.
+    let left = (start + Duration::from_millis(3000)).saturating_duration_since(now());
+    assert!(
+        h.until_memory(left, OFF),
+        "blanked 2 s after the RIS, not 2 s after the hide"
+    );
+    let unblanks = h.memory().unblanks;
+    assert!(
+        h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::On)),
+        "woken by the program at 4.3 s"
+    );
+    assert_eq!(h.memory().unblanks, unblanks + 1);
+}
+
 fn key(mods: Mods, keysym: u32) -> InputEvent {
     InputEvent::Key(KeyEvent {
         keycode: 0,

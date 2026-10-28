@@ -972,9 +972,16 @@ impl App {
     }
 
     /// A pointer event, with the modifiers held on the keyboards as it
-    /// came.
+    /// came. A move, a button or the wheel is the user's activity; the
+    /// end of a frame and the hide are vtium's own, as the C reference
+    /// counted them (`src/seat.c:578-590` at kmscon b1f7a7c5).
     pub fn pointer_event(&mut self, event: PointerEvent, mods: InputMods, now: Instant) {
-        self.activity(now);
+        match event {
+            PointerEvent::Moved { .. } | PointerEvent::Button { .. } | PointerEvent::Wheel(_) => {
+                self.activity(now);
+            }
+            PointerEvent::Sync | PointerEvent::Hide => {}
+        }
         self.pointer(event, Mods::from_bits(mods.bits()));
     }
 
