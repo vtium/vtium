@@ -36,7 +36,8 @@ pub trait Video: Any {
     fn sleep(&mut self);
     fn wake_up(&mut self) -> io::Result<()>;
     fn unblank(&mut self) -> io::Result<()>;
-    /// A key or pointer event came: a failed wake-up is tried again.
+    /// The user pressed a key or acted with the pointer (a move, a button
+    /// or the wheel): a failed wake-up is tried again.
     fn input(&mut self) -> io::Result<()>;
     /// The connectors changed.
     fn hotplug(&mut self) -> io::Result<()>;
