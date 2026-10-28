@@ -229,6 +229,9 @@ considered:
     said: "A kbd name, a `font-engine=psf` path, or vconsole.conf's `FONT=` that no frit bears becomes a one-source frit made on the fly, so existing console setups keep working."
     via: the operator's answer in the team lead's session, 2026-10-28, accepting the team lead's recommendation
     paraphrase: true
+  - operator: aaronsb
+    said: "The store holds each helper answer as one set buffer. Evicting a glyph compacts: the console rebuilds each touched set without the evicted glyphs, through vtium-font's set writer, keeping 1-bit glyphs 1-bit, and counts the rebuilt bytes. So the limit bounds real memory. The rebuild runs only when an ask arrives with the store full, and it evicts enough of the least recently shown glyphs to cover the overrun in one pass. Two options were rejected: Hiding evicted glyphs without freeing them lets the store outgrow its limit while its count says otherwise. Storing glyphs individually needs a second copy of vtium-font's drawing in the console, against ADR-1301's one engine."
+    via: the operator's decision on vtium/vtium#145, 2026-10-28, relayed by the team lead
 observable:
   - "On a cold start with a CJK frit, the first frame draws in the built-in font in the profile's cell, the frit's glyphs replace it as the helper sends them, no frame waits on the helper, and the grid's size never changes when they arrive"
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame (#149)"
@@ -406,7 +409,11 @@ The console, which opens its VT as root already, reads the kernel's font once at
 - **Per boot, in memory.** Generated glyphs live in the console's memory for the boot, and nothing the console or the helper writes to disk holds a glyph. The store holds only the cells the displays draw at; a zoom away drops the old cell's glyphs.
 - **Its limit comes from the machine's memory,** the way the scrollback takes its own budget, with no new key or size decision: 16 MiB below 2 GiB, 64 MiB from 2 GiB and 128 MiB from 4 GiB, the tiers the scrollback's line cap takes (`store_limit` on `feat/deferred`, `sb_size_cap` in vtium-term). A 512 MB board takes 16 MiB (the operator, 2026-10-28): the Latin fill used under 1 MB, and a full CJK cell at 8x16 is about 11 MB (measured).
 - **Only an ask evicts,** the glyphs least recently shown first; the fill stops at the limit instead. An evicted glyph is asked for again when the screen shows it.
+- **Eviction compacts** (the operator, 2026-10-28). The store holds each helper answer as one set. When an ask's glyphs arrive with the store full, enough of the glyphs least recently shown leave to cover the overrun in one pass, and the console writes each set they leave again without them, through vtium-font's set writer, each glyph in its own pixel format, 1-bit glyphs staying 1-bit. The store counts the bytes it wrote, so its limit bounds the memory the sets take. The writer adds 71,472 bytes to minspec's console binary, 2,683,344 to 2,754,816 (measured), 22,096 of them its deflate, which the rewritten sets do not use.
+- **Rejected:** hiding evicted glyphs without freeing them, which lets the store outgrow its limit while its count says otherwise; and storing glyphs one by one, which needs a second copy of vtium-font's drawing in the console, against ADR-1301's one engine.
 - vtium keeps no prerendered or persistent glyph cache of any kind (Alternatives Considered).
+
+> Edited 2026-10-28: the operator decided how a glyph leaves the store (vtium/vtium#145, `considered`), and D19 takes the decision in its compaction and rejected bullets. D19 said only that an ask evicted the glyphs least recently shown; the store then evicted a whole helper answer at a time, aged by its most recently shown glyph.
 
 ### D20: keys
 

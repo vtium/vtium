@@ -8,17 +8,22 @@
 //! Nothing here is written to disk. The store holds only the cells the
 //! displays draw at ([`Generated::retain`]), within a limit taken from the
 //! machine's memory ([`store_limit`]): a fill stops at it, and a request
-//! past it evicts the sets least recently on the screen
-//! ([`Generated::evict`]), whose glyphs are asked for again when the
-//! screen shows them.
+//! past it compacts the store ([`Generated::make_room`], ADR-1200 D19):
+//! the glyphs least recently on the screen leave, each set they leave is
+//! written again without them, and the store counts the bytes written, so
+//! the limit bounds the memory the sets take. An evicted glyph is asked
+//! for again when the screen shows it.
 
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use vtium_font::set::{Set, SetFace};
+use vtium_font::set::{PixelFormat, Set, SetBuilder, SetFace, StrikeBuilder, StrikeInfo};
 use vtium_font::sprite::Range;
-use vtium_font::{Cell, Decorations, Face, Glyph, RangeCoverage, SpritePolicy, Style};
+use vtium_font::{
+    Cell, Decorations, Face, Format, Glyph, RangeCoverage, SpritePolicy, Style, Width,
+};
 
 const GIB: u64 = 1 << 30;
 
@@ -33,16 +38,139 @@ pub fn store_limit(ram: u64) -> u64 {
     }
 }
 
-/// One set the helper sent: its cell, the face it draws through, the
-/// codepoints it maps, its bytes, and when the screen last showed one of
-/// them.
+/// One set the helper sent, or its rebuild: its cell, the face it draws
+/// through, each codepoint it maps with when the screen last showed it,
+/// and its bytes.
 #[derive(Debug)]
 struct Entry {
     cell: Cell,
     face: SetFace,
-    runs: Vec<(u32, u32)>,
+    /// Sorted by codepoint.
+    glyphs: Vec<(char, u64)>,
     bytes: u64,
-    used: u64,
+}
+
+impl Entry {
+    /// When the screen last showed one of its glyphs.
+    fn used(&self) -> u64 {
+        self.glyphs.iter().map(|&(_, used)| used).max().unwrap_or(0)
+    }
+
+    /// Its codepoints as runs of consecutive ones, first and length.
+    fn runs(&self) -> Vec<(u32, u32)> {
+        let mut runs: Vec<(u32, u32)> = Vec::new();
+        for &(c, _) in &self.glyphs {
+            let c = u32::from(c);
+            match runs.last_mut() {
+                Some((first, n)) if first.checked_add(*n) == Some(c) => {
+                    *n = n.saturating_add(1);
+                }
+                _ => runs.push((c, 1)),
+            }
+        }
+        runs
+    }
+
+    /// Each glyph's share of the set's bytes, rounded up: what dropping
+    /// it is taken to free when the glyphs to evict are chosen.
+    fn share(&self) -> u64 {
+        let n = u64::try_from(self.glyphs.len()).unwrap_or(u64::MAX).max(1);
+        self.bytes.div_ceil(n).max(1)
+    }
+
+    /// Drops `gone`, sorted, and writes the set again without them: the
+    /// codepoints it no longer holds, every one of them when the set
+    /// cannot be written again or holds nothing after, and the entry
+    /// then left to be removed.
+    fn compact(&mut self, gone: &[char]) -> (Vec<char>, bool) {
+        self.glyphs.retain(|(c, _)| gone.binary_search(c).is_err());
+        if !self.glyphs.is_empty()
+            && let Some((face, bytes)) = rewrite(&self.face, self.cell, &self.glyphs)
+        {
+            self.face = face;
+            self.bytes = bytes;
+            return (gone.to_vec(), false);
+        }
+        let mut all = gone.to_vec();
+        all.extend(self.glyphs.iter().map(|&(c, _)| c));
+        all.sort_unstable();
+        (all, true)
+    }
+}
+
+/// The set `face` draws, written again through vtium-font's set writer
+/// with only `kept`'s glyphs at `cell`, as the helper writes an answer:
+/// a strike a pixel format, its chunks raw. Each glyph keeps its format:
+/// RGBA stays RGBA, and a mask whose every pixel is 0 or 255 in a set
+/// with a 1-bit strike stays 1-bit, every other mask R8. The new face
+/// and its bytes; `None` when a glyph cannot be drawn or the set cannot
+/// be written.
+fn rewrite(face: &SetFace, cell: Cell, kept: &[(char, u64)]) -> Option<(SetFace, u64)> {
+    let set = face.set();
+    let strikes: Vec<StrikeInfo> = set
+        .strikes()
+        .filter(|s| s.cell == cell && s.style == Style::default())
+        .collect();
+    let one_bit = strikes.iter().any(|s| s.format == PixelFormat::Bits);
+    let formats = [PixelFormat::Bits, PixelFormat::R8, PixelFormat::Rgba];
+    let mut builders = formats.map(|format| {
+        let mut s = StrikeBuilder::new(format, cell, Style::default()).compress(false);
+        if let Some(info) = strikes.iter().find(|s| s.format == format) {
+            s = s.baseline(info.baseline).decorations(info.decorations);
+        }
+        (s, BTreeMap::<(bool, Vec<u8>), u32>::new())
+    });
+    for &(c, _) in kept {
+        let glyph = face.draw_unscaled(&[c], Style::default())?;
+        let pixels = glyph.pixels();
+        let (slot, bytes) = match glyph.format() {
+            Format::Rgba => (2, pixels.to_vec()),
+            Format::Mask if one_bit && pixels.iter().all(|&p| p == 0 || p == 0xff) => {
+                (0, pack(&glyph)?)
+            }
+            Format::Mask => (1, pixels.to_vec()),
+        };
+        let (strike, placed) = builders.get_mut(slot)?;
+        let wide = glyph.cells() == Width::Wide;
+        // codepoints that shared a glyph share it again
+        let index = match placed.get(&(wide, bytes.clone())) {
+            Some(&i) => i,
+            None => {
+                let i = strike.glyph(glyph.cells(), bytes.clone());
+                placed.insert((wide, bytes), i);
+                i
+            }
+        };
+        strike.map(c, index);
+    }
+    let mut builder = SetBuilder::new(set.name()).policy(set.policy());
+    for (key, value) in set.meta().filter(|(k, _)| !matches!(*k, "name" | "format")) {
+        builder = builder.meta(key, value);
+    }
+    for (strike, _) in builders {
+        if !strike.is_empty() {
+            builder = builder.strike(strike);
+        }
+    }
+    let bytes = builder.write().ok()?;
+    let len = u64::try_from(bytes.len()).ok()?;
+    let set = Set::from_bytes(bytes).ok()?;
+    Some((SetFace::new(Arc::new(set), cell.height)?, len))
+}
+
+/// A mask of 0 and 255 as 1-bit rows padded to a byte, the first pixel
+/// the high bit.
+fn pack(glyph: &Glyph) -> Option<Vec<u8>> {
+    let row = usize::try_from(glyph.width().div_ceil(8)).ok()?;
+    let mut out = Vec::with_capacity(row.checked_mul(usize::try_from(glyph.height()).ok()?)?);
+    for line in glyph.rows() {
+        let at = out.len();
+        out.resize(at.checked_add(row)?, 0);
+        for (x, _) in line.iter().enumerate().filter(|&(_, &p)| p != 0) {
+            *out.get_mut(at.checked_add(x / 8)?)? |= 0x80 >> (x % 8);
+        }
+    }
+    Some(out)
 }
 
 /// The helper's glyphs this boot.
@@ -68,19 +196,88 @@ impl Generated {
         bytes: u64,
     ) -> Option<SetFace> {
         let face = SetFace::new(set, cell.height)?;
+        let mut glyphs: Vec<(char, u64)> = runs
+            .iter()
+            .flat_map(|&(first, n)| (0..n).map(move |i| first.checked_add(i)))
+            .filter_map(|c| char::from_u32(c?))
+            .map(|c| (c, self.tick))
+            .collect();
+        glyphs.sort_unstable();
+        glyphs.dedup_by_key(|&mut (c, _)| c);
         self.entries.push(Entry {
             cell,
             face: face.clone(),
-            runs,
+            glyphs,
             bytes,
-            used: self.tick,
         });
         Some(face)
     }
 
-    /// The bytes held.
+    /// The bytes held: each set's as the helper sent it or as compaction
+    /// wrote it again.
     pub fn bytes(&self) -> u64 {
         self.entries.iter().map(|e| e.bytes).sum()
+    }
+
+    /// Frees at least `overrun` bytes for an ask at a full store: drops
+    /// the glyphs least recently shown, across every set, until their
+    /// share of their sets' bytes covers it, and writes each set they
+    /// leave again without them ([`rewrite`]). When the rewritten sets
+    /// free less than their share, the next least recently shown glyphs
+    /// go too. The codepoints no longer held, by cell; nothing is
+    /// redrawn, and each is asked for again when the screen shows it.
+    pub fn make_room(&mut self, overrun: u64) -> Vec<(Cell, Vec<char>)> {
+        let mut out: Vec<(Cell, Vec<char>)> = Vec::new();
+        let mut short = overrun;
+        while short > 0 && !self.entries.is_empty() {
+            let held = self.bytes();
+            let mut oldest: Vec<(u64, usize, char)> = self
+                .entries
+                .iter()
+                .enumerate()
+                .flat_map(|(i, e)| e.glyphs.iter().map(move |&(c, used)| (used, i, c)))
+                .collect();
+            oldest.sort_unstable();
+            let mut gone: Vec<Vec<char>> = vec![Vec::new(); self.entries.len()];
+            let mut freed = 0u64;
+            for (_, i, c) in oldest {
+                if freed >= short {
+                    break;
+                }
+                let (Some(list), Some(e)) = (gone.get_mut(i), self.entries.get(i)) else {
+                    continue;
+                };
+                list.push(c);
+                freed = freed.saturating_add(e.share());
+            }
+            if freed == 0 {
+                // no set maps a codepoint, so none draws a glyph
+                self.entries.clear();
+                break;
+            }
+            for (i, mut list) in gone.into_iter().enumerate().rev() {
+                let Some(e) = self.entries.get_mut(i).filter(|_| !list.is_empty()) else {
+                    continue;
+                };
+                list.sort_unstable();
+                let (lost, empty) = e.compact(&list);
+                let cell = e.cell;
+                if empty {
+                    self.entries.remove(i);
+                }
+                match out.iter_mut().find(|(at, _)| *at == cell) {
+                    Some((_, chars)) => chars.extend(lost),
+                    None => out.push((cell, lost)),
+                }
+            }
+            short = short.saturating_sub(held.saturating_sub(self.bytes()));
+        }
+        for (_, chars) in &mut out {
+            chars.sort_unstable();
+            chars.dedup();
+        }
+        out.retain(|(_, chars)| !chars.is_empty());
+        out
     }
 
     /// Drops the set least recently on the screen: its cell and the
@@ -90,19 +287,23 @@ impl Generated {
             .entries
             .iter()
             .enumerate()
-            .min_by_key(|(_, e)| e.used)?;
+            .min_by_key(|(_, e)| e.used())?;
         let e = self.entries.remove(i);
-        Some((e.cell, e.runs))
+        Some((e.cell, e.runs()))
     }
 
-    /// The screen shows `chars` at `cell`: the sets that hold them are the
-    /// most recently used.
+    /// The screen shows `chars` at `cell`: their glyphs are the most
+    /// recently shown.
     pub fn touch(&mut self, cell: Cell, chars: &[char]) {
         self.tick = self.tick.saturating_add(1);
         let tick = self.tick;
         for e in self.entries.iter_mut().filter(|e| e.cell == cell) {
-            if chars.iter().any(|&c| e.face.has_glyph(c)) {
-                e.used = tick;
+            for c in chars {
+                if let Ok(i) = e.glyphs.binary_search_by_key(c, |&(g, _)| g)
+                    && let Some((_, used)) = e.glyphs.get_mut(i)
+                {
+                    *used = tick;
+                }
             }
         }
     }
@@ -246,8 +447,7 @@ impl Face for DeferredFace {
 )]
 mod tests {
     use super::*;
-    use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
-    use vtium_font::{Font, Unifont, Width};
+    use vtium_font::{Font, Unifont};
 
     const CELL: Cell = Cell {
         width: 8,
@@ -430,6 +630,128 @@ mod tests {
         assert_eq!(g.bytes(), 10);
         assert_eq!(g.evict(), Some((CELL, vec![(0x41, 1)])));
         assert_eq!(g.evict(), None);
+    }
+
+    /// `seed`'s R8 glyph `cells` wide at [`CELL`], its coverage between 1
+    /// and 254, so no pixel of it is 1-bit.
+    fn shade(cells: Width, seed: u32) -> Vec<u8> {
+        let n = CELL.width * CELL.height * if cells == Width::Wide { 2 } else { 1 };
+        (0..n)
+            .map(|i| u8::try_from((i * 7 + seed * 13) % 254 + 1).unwrap())
+            .collect()
+    }
+
+    /// `seed`'s 1-bit glyph at [`CELL`]: a byte a row.
+    fn bits(seed: u32) -> Vec<u8> {
+        (0..CELL.height)
+            .map(|i| u8::try_from((i * 17 + seed) % 256).unwrap())
+            .collect()
+    }
+
+    type Glyphs<'a> = &'a [(char, Width, Vec<u8>)];
+
+    /// A set at [`CELL`] as the helper writes one: `one_bit` in a 1-bit
+    /// strike, `r8` in an R8 one, chunks raw, the baseline at the cell's
+    /// bottom.
+    fn answer(one_bit: Glyphs, r8: Glyphs) -> Vec<u8> {
+        let mut set = SetBuilder::new("t");
+        for (format, glyphs) in [(PixelFormat::Bits, one_bit), (PixelFormat::R8, r8)] {
+            let mut s = StrikeBuilder::new(format, CELL, Style::default())
+                .baseline(CELL.height)
+                .compress(false);
+            for (c, width, bytes) in glyphs {
+                let g = s.glyph(*width, bytes.clone());
+                s.map(*c, g);
+            }
+            if !s.is_empty() {
+                set = set.strike(s);
+            }
+        }
+        set.write().unwrap()
+    }
+
+    /// Adds `bytes`, a set at [`CELL`], to `store`: its size.
+    fn put(store: &mut Generated, bytes: Vec<u8>) -> u64 {
+        let set = Arc::new(Set::from_bytes(bytes.clone()).unwrap());
+        let runs = vtium_font::set::SetFace::new(Arc::clone(&set), CELL.height)
+            .map(|f| {
+                (0..=0x10ffff_u32)
+                    .filter(|&c| char::from_u32(c).is_some_and(|c| f.has_glyph(c)))
+                    .map(|c| (c, 1))
+                    .collect()
+            })
+            .unwrap();
+        store.add(CELL, set, runs, bytes.len() as u64).unwrap();
+        bytes.len() as u64
+    }
+
+    // #145, ADR-1200 D19: an ask at a full store compacts it, the glyphs
+    // least recently shown leaving first, and the store counts the
+    // rebuilt sets' real bytes
+    #[test]
+    fn a_full_store_compacts_the_least_recently_shown_glyphs() {
+        let wide = '\u{4e2d}';
+        let r8 = |c, cells, seed| (c, cells, shade(cells, seed));
+        let (a, b, c) = (
+            r8('A', Width::Narrow, 1),
+            r8('B', Width::Narrow, 2),
+            r8('C', Width::Narrow, 3),
+        );
+        let w = r8(wide, Width::Wide, 4);
+        let (d, e) = (('D', Width::Narrow, bits(5)), ('E', Width::Narrow, bits(6)));
+        let generated = Shared::default();
+        let before = {
+            let mut g = generated.borrow_mut();
+            put(&mut g, answer(&[], &[a.clone(), b, c.clone(), w.clone()]))
+                + put(&mut g, answer(&[d.clone(), e], &[]))
+        };
+        assert_eq!(generated.borrow().bytes(), before);
+        // shown: D, then A, then C and the wide one; B and E never
+        generated.borrow_mut().touch(CELL, &['D']);
+        generated.borrow_mut().touch(CELL, &['A']);
+        generated.borrow_mut().touch(CELL, &['C', wide]);
+        let f = face(&generated);
+        let kept = ['A', 'C', wide, 'D'];
+        let drawn = kept.map(|k| f.draw(&[k], Style::default()).unwrap());
+        // the store after: the same answers written without B and E
+        let after = answer(&[], &[a, c, w]).len() as u64 + answer(&[d], &[]).len() as u64;
+        assert!(after < before);
+        let gone = generated.borrow_mut().make_room(before - after);
+        assert_eq!(gone, vec![(CELL, vec!['B', 'E'])]);
+        assert_eq!(generated.borrow().bytes(), after);
+        for (k, glyph) in kept.into_iter().zip(drawn) {
+            assert_eq!(f.draw(&[k], Style::default()), Some(glyph), "{k}");
+        }
+        // B and E draw in the built-in font until they are asked for again
+        for k in ['B', 'E'] {
+            assert!(!f.generated_has(k));
+            assert_eq!(
+                f.draw(&[k], Style::default()),
+                Unifont::new(16).draw(&[k], Style::default())
+            );
+        }
+    }
+
+    // ADR-1200 D13, D19: compaction keeps each glyph in its own format
+    #[test]
+    fn a_1_bit_glyph_stays_1_bit_in_the_rebuilt_set() {
+        let mut g = Generated::default();
+        let a = ('A', Width::Narrow, shade(Width::Narrow, 1));
+        let d = ('D', Width::Narrow, bits(5));
+        let e = ('E', Width::Narrow, bits(6));
+        put(&mut g, answer(&[d.clone(), e], std::slice::from_ref(&a)));
+        g.touch(CELL, &['A', 'D']);
+        assert_eq!(g.make_room(1), vec![(CELL, vec!['E'])]);
+        let strikes: Vec<_> = g.entries[0]
+            .face
+            .set()
+            .strikes()
+            .map(|s| (s.format, s.glyph_count))
+            .collect();
+        assert_eq!(strikes.len(), 2);
+        assert!(strikes.contains(&(PixelFormat::Bits, 1)));
+        assert!(strikes.contains(&(PixelFormat::R8, 1)));
+        assert_eq!(g.bytes(), answer(&[d], &[a]).len() as u64);
     }
 
     #[test]
