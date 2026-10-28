@@ -315,31 +315,46 @@ fn a_font_without_a_table_takes_its_unimap_then_def_uni() {
 }
 
 #[test]
-fn bzip2_xz_and_zstd_sources_are_refused_by_name() {
+fn a_kbd_font_in_each_compression_builds_the_same_glyphs() {
     let w = World::new("compressions");
-    for (ext, magic, name) in [
-        ("bz2", [0x42u8, 0x5a], "bzip2"),
-        ("xz", [0xfd, 0x37], "xz"),
-        ("zst", [0x28, 0xb5], "zstd"),
-    ] {
-        let mut bytes = magic.to_vec();
-        bytes.extend_from_slice(b"rest of a compressed font");
-        fs::write(w.path(&format!("kbd/consolefonts/z.psf.{ext}")), bytes).unwrap();
+    let plain = psf2(8, 16, 64, Some(&table()));
+    let psf = Psf::parse(&plain).expect("the font");
+    let chars: Vec<char> = table().iter().map(|&(_, c)| c).collect();
+    let mut bz = Vec::new();
+    bzip2::read::BzEncoder::new(plain.as_slice(), bzip2::Compression::best())
+        .read_to_end(&mut bz)
+        .unwrap();
+    let mut xz = lzma_rust2::XzWriter::new(Vec::new(), lzma_rust2::XzOptions::default()).unwrap();
+    xz.write_all(&plain).unwrap();
+    let xz = xz.finish().unwrap();
+    let zst = ruzstd::encoding::compress_to_vec(
+        plain.as_slice(),
+        ruzstd::encoding::CompressionLevel::Fastest,
+    );
+    for (ext, bytes, name) in [("bz2", bz, "bzip2"), ("xz", xz, "xz"), ("zst", zst, "zstd")] {
+        let font = w.path(&format!("kbd/consolefonts/z.psf.{ext}"));
+        fs::write(&font, bytes).unwrap();
         let r = w.recipe("z", "source=kbd:z\n");
-        let out = w.path("out/z.glass");
+        let out = w.path(&format!("out/z-{ext}.glass"));
         let o = w.run(&[
             "create",
             "--out",
             out.to_str().unwrap(),
             r.to_str().unwrap(),
         ]);
-        assert_eq!(status(&o), 1);
-        let line = stdout(&o);
-        assert!(
-            line.contains(&format!("{name} compression is not read")),
-            "{line}"
+        assert_eq!(
+            (status(&o), stdout(&o)),
+            (0, "built\tz\n".to_owned()),
+            "{name}: {}",
+            stderr(&o)
         );
-        fs::remove_file(w.path(&format!("kbd/consolefonts/z.psf.{ext}"))).unwrap();
+        let set = Arc::new(Set::from_bytes(fs::read(&out).unwrap()).unwrap());
+        assert_eq!(
+            set.meta_values("source-format").next(),
+            Some(format!("psf2+{name}+table").as_str())
+        );
+        draws_as(set, &psf, &chars);
+        fs::remove_file(&font).unwrap();
     }
 }
 

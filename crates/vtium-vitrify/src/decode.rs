@@ -3,9 +3,11 @@
 //! font without its own table takes. Everything here reads bytes someone
 //! else supplied, and runs only in the parser's child process.
 //!
-//! gzip is decoded through `miniz_oxide`'s inflate. bzip2, xz and zstd are
-//! recognised and refused: their pure-Rust decoders are not yet in the
-//! build.
+//! gzip is decoded through `miniz_oxide`'s inflate, bzip2 through `bzip2`
+//! on its Rust port of libbzip2, xz through `lzma-rust2` and zstd through
+//! `ruzstd`, each checking its stream's own check value.
+
+use std::io::Read;
 
 use miniz_oxide::inflate::stream::{InflateState, inflate};
 use miniz_oxide::{DataFormat, MZFlush, MZStatus};
@@ -46,24 +48,52 @@ impl Compression {
     }
 }
 
+/// The most bytes a compressed file holds before it is decompressed, in
+/// every compression: vtium-font's bound for gzip, which a crafted file of
+/// tiny deflate blocks makes slow past it.
+pub const COMPRESSED_BYTES_MAX: usize = GZIP_BYTES_MAX as usize;
+
 /// `bytes` decompressed, at most `PSF_BYTES_MAX` of them, and the
 /// compression it was in.
 pub fn decompress(bytes: &[u8]) -> Result<(Vec<u8>, Compression), String> {
     let limit = PSF_BYTES_MAX as usize;
-    match Compression::of(bytes) {
-        Compression::Plain if bytes.len() > limit => {
-            Err(format!("larger than {PSF_BYTES_MAX} bytes"))
+    let kind = Compression::of(bytes);
+    if kind == Compression::Plain {
+        if bytes.len() > limit {
+            return Err(format!("larger than {PSF_BYTES_MAX} bytes"));
         }
-        Compression::Plain => Ok((bytes.to_vec(), Compression::Plain)),
-        Compression::Gzip if bytes.len() > GZIP_BYTES_MAX as usize => Err(format!(
-            "larger than {GZIP_BYTES_MAX} bytes before it is decompressed"
-        )),
-        Compression::Gzip => gunzip(bytes, limit).map(|b| (b, Compression::Gzip)),
-        other => Err(format!(
-            "{} compression is not read by this build of vtium-vitrify",
-            other.name()
-        )),
+        return Ok((bytes.to_vec(), kind));
     }
+    if bytes.len() > COMPRESSED_BYTES_MAX {
+        return Err(format!(
+            "{}: larger than {COMPRESSED_BYTES_MAX} bytes before it is decompressed",
+            kind.name()
+        ));
+    }
+    let out = match kind {
+        Compression::Gzip => gunzip(bytes, limit),
+        Compression::Bzip2 => read_bounded(bzip2::read::MultiBzDecoder::new(bytes), limit),
+        Compression::Xz => read_bounded(lzma_rust2::XzReader::new(bytes, true), limit),
+        Compression::Zstd => ruzstd::decoding::StreamingDecoder::new(bytes)
+            .map_err(|e| e.to_string())
+            .and_then(|d| read_bounded(d, limit)),
+        Compression::Plain => Ok(bytes.to_vec()),
+    };
+    out.map(|b| (b, kind))
+        .map_err(|e| format!("{}: {e}", kind.name()))
+}
+
+/// What `reader` decodes, refused past `limit` bytes.
+fn read_bounded(reader: impl Read, limit: usize) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    reader
+        .take((limit as u64).saturating_add(1))
+        .read_to_end(&mut out)
+        .map_err(|e| format!("corrupt or cut short: {e}"))?;
+    if out.len() > limit {
+        return Err(format!("decompresses past {limit} bytes"));
+    }
+    Ok(out)
 }
 
 const FHCRC: u8 = 1 << 1;
@@ -348,9 +378,12 @@ pub fn font(bytes: &[u8], unimap: Option<&[u8]>, def_uni: Option<&[u8]>) -> Resu
     clippy::expect_used,
     clippy::unwrap_used,
     clippy::indexing_slicing,
+    clippy::panic,
     reason = "a test fails by panicking"
 )]
 pub(crate) mod tests {
+    use std::io::{Read, Write};
+
     use super::*;
 
     /// A PSF2 font of `count` glyphs `width` by `height`, glyph `g`'s rows
@@ -408,23 +441,81 @@ pub(crate) mod tests {
         assert_eq!(crc32(b"123456789"), 0xcbf4_3926);
     }
 
+    /// `bytes` in a bzip2 stream.
+    pub(crate) fn bzip2(bytes: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        bzip2::read::BzEncoder::new(bytes, bzip2::Compression::best())
+            .read_to_end(&mut out)
+            .unwrap();
+        out
+    }
+
+    /// `bytes` in an xz stream with a CRC-64 check.
+    pub(crate) fn xz(bytes: &[u8]) -> Vec<u8> {
+        let mut w =
+            lzma_rust2::XzWriter::new(Vec::new(), lzma_rust2::XzOptions::default()).unwrap();
+        w.write_all(bytes).unwrap();
+        w.finish().unwrap()
+    }
+
+    /// `bytes` in a zstd frame with its checksum.
+    pub(crate) fn zstd(bytes: &[u8]) -> Vec<u8> {
+        ruzstd::encoding::compress_to_vec(bytes, ruzstd::encoding::CompressionLevel::Fastest)
+    }
+
     #[test]
-    fn each_compression_is_told_by_its_magic() {
+    fn each_compression_is_told_by_its_magic_and_decoded() {
         let plain = psf2(8, 2, 2, None);
-        let (back, c) = decompress(&gzip(&plain)).expect("gunzip");
-        assert_eq!((back, c), (plain.clone(), Compression::Gzip));
         assert_eq!(decompress(&plain).expect("plain").1, Compression::Plain);
-        for (magic, name) in [
-            ([0x42, 0x5a], "bzip2"),
-            ([0xfd, 0x37], "xz"),
-            ([0x28, 0xb5], "zstd"),
+        for (packed, kind) in [
+            (gzip(&plain), Compression::Gzip),
+            (bzip2(&plain), Compression::Bzip2),
+            (xz(&plain), Compression::Xz),
+            (zstd(&plain), Compression::Zstd),
         ] {
-            let e = decompress(&[magic[0], magic[1], 0, 0]).expect_err(name);
-            assert!(
-                e.contains(name) && e.contains("not read by this build"),
-                "{e}"
-            );
+            let (back, c) = decompress(&packed).unwrap_or_else(|e| panic!("{kind:?}: {e}"));
+            assert_eq!((back.as_slice(), c), (plain.as_slice(), kind));
         }
+    }
+
+    #[test]
+    fn a_corrupt_or_cut_stream_is_refused_in_each_compression() {
+        let plain = psf2(8, 16, 64, None);
+        for (name, packed) in [
+            ("bzip2", bzip2(&plain)),
+            ("xz", xz(&plain)),
+            ("zstd", zstd(&plain)),
+        ] {
+            let e = decompress(&packed[..packed.len() - 4]).expect_err(name);
+            assert!(e.starts_with(name), "{name}: {e}");
+            // a flipped byte in the checked data or its check value
+            let mut bad = packed.clone();
+            let at = bad.len() - 6;
+            bad[at] ^= 0x55;
+            assert!(decompress(&bad).is_err(), "{name}: a flipped byte decoded");
+        }
+    }
+
+    #[test]
+    fn each_compression_is_refused_past_its_bounds() {
+        let big = vec![0u8; PSF_BYTES_MAX as usize + 1];
+        for (name, packed) in [
+            ("gzip", gzip(&big)),
+            ("bzip2", bzip2(&big)),
+            ("xz", xz(&big)),
+            ("zstd", zstd(&big)),
+        ] {
+            assert!(
+                packed.len() <= COMPRESSED_BYTES_MAX,
+                "{name}: the fixture is small"
+            );
+            let e = decompress(&packed).expect_err(name);
+            assert!(e.contains("past"), "{name}: {e}");
+        }
+        let mut long = bzip2(b"x");
+        long.resize(COMPRESSED_BYTES_MAX + 1, 0);
+        let e = decompress(&long).expect_err("long");
+        assert!(e.contains("before it is decompressed"), "{e}");
     }
 
     #[test]
@@ -435,8 +526,6 @@ pub(crate) mod tests {
         assert!(decompress(&g).expect_err("crc").contains("CRC-32"));
         let g = gzip(b"hello");
         assert!(decompress(&g[..g.len() - 3]).is_err());
-        let big = gzip(&vec![0u8; PSF_BYTES_MAX as usize + 1]);
-        assert!(decompress(&big).expect_err("big").contains("past"));
     }
 
     #[test]

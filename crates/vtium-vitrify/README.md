@@ -47,7 +47,20 @@ The build key is the SHA-256 of the format version, the recipe's bytes, and for 
 - **A font's map** is the recipe's `unimap=` when given, else the font's own table, else kbd's `def.uni`; a font with none is refused, naming `unimap=`.
 - **vconsole** reads `FONT=` and `FONT_UNIMAP=` from vconsole.conf, with the kernel command line's `vconsole.font=` and `vconsole.font_unimap=` over them, as systemd-vconsole-setup reads them (`src/vconsole/vconsole-setup.c`). With no `FONT=`, systemd ran no `setfont` and the kernel kept its font, so the source is refused and names `console:VT`. `FONT_MAP=` maps the kernel's 8-bit translation and sets no glyph, so it is not read.
 - **console:VT** opens `/dev/tty<VT>` read-only as root, checks with `KDGETMODE` that it is in text mode, reads its font with `KD_FONT_OP_GET_TALL`, or `KD_FONT_OP_GET` on a kernel without it, and its map with `GIO_UNIMAP`, and hands the parser a PSF2 of them.
-- **Compression** is told by its magic, as kbd tells it. gzip is decoded; bzip2, xz and zstd are refused by name until their decoders join the build.
+- **Compression** is told by its magic, as kbd tells it, and decoded with its stream's own check value verified: gzip, bzip2, xz and zstd, each refused past `COMPRESSED_BYTES_MAX` before it is decoded and past `PSF_BYTES_MAX` once decoded.
+
+## Decoders
+
+Each is pure Rust, compiles no C and has no build script, and only this binary links it; `cargo tree -p vtium -e normal` lists none of them and the minspec binary's size does not move. The operator approved them on 2026-10-28.
+
+| Format | Crate | Licence | Why this one |
+|---|---|---|---|
+| gzip | `miniz_oxide` 0.8.9 | MIT, Zlib or Apache-2.0 | Already in every vtium build for the sets' deflated chunks; vitrify frames gzip around it. |
+| bzip2 | `bzip2` 0.6.1, on `libbz2-rs-sys` 0.2.5 | MIT or Apache-2.0; `libbz2-rs-sys` under libbzip2's BSD-style licence | Trifecta Tech Foundation's Rust port of libbzip2, the default backend of the most used bzip2 crate, maintained (0.2.5, May 2026), `build = false`; its one C file is a header no build compiles. `bzip2-rs`, decoder only, has had no release since 2021. |
+| xz | `lzma-rust2` 0.24.0, features `std` and `xz` | Apache-2.0 | Maintained (October 2026), verifies the stream's check, and with no default features adds only `sha2` and its RustCrypto crates (MIT or Apache-2.0). `lzma-rs` has had no release since January 2023; `xz2` and `liblzma` compile liblzma's C. |
+| zstd | `ruzstd` 0.9.1, default features | MIT | The pure-Rust zstd decoder, maintained (October 2026); `hash` adds `twox-hash` (MIT) to verify each frame's checksum. `zstd` binds the C library. It needs Rust 1.87, so this crate's `rust-version` is 1.87 while the console's stay at the workspace's 1.85. |
+
+The tests' xz fixtures take `lzma-rust2`'s encoder as a dev-dependency; bzip2 and zstd fixtures use the encoders the decoding crates carry.
 
 ## The parser
 
@@ -62,7 +75,6 @@ The build key is the SHA-256 of the format version, the recipe's bytes, and for 
 ## What this slice leaves for later
 
 - BDF, CPI and raw fonts, `bdf:` and `outline:` sources, `size=`, `cp-size=`, styles other than regular, the named `cover=` sets and `glyph-source=`: each is refused by name.
-- bzip2, xz and zstd: refused by name until their pure-Rust decoders are accepted.
 - `create --default`, the locale's sets (ADR-1200 D11).
 - The parser's account is `nobody`; ADR-1400's pre-login account takes its place once vtium/vtium#31 names it.
 - A root run is unverified on the maintainer's machine: the drop to `nobody`, `nobody` executing the binary from its install path, and the real `console:VT` ioctls. Tier 3's guest is where they run.
@@ -75,7 +87,8 @@ The build key is the SHA-256 of the format version, the recipe's bytes, and for 
 | `RECIPE_LINE_MAX` | 4096 bytes | The recipe is refused, naming the line |
 | `RECIPE_SOURCES_MAX` | 16 | The recipe is refused, naming the line |
 | `UNIMAP_ENTRIES_MAX` | 65535, kbd's count | The unimap is refused |
-| A font file, a unimap | vtium-font's `PSF_BYTES_MAX`, gzipped `GZIP_BYTES_MAX` | The source is refused before it is parsed |
+| A font file, a unimap | vtium-font's `PSF_BYTES_MAX` | The source is refused before it is parsed |
+| `COMPRESSED_BYTES_MAX` | vtium-font's `GZIP_BYTES_MAX`, 1 MiB, in every compression | The source is refused before it is decoded |
 | vconsole.conf, the kernel command line | 64 KiB | The source is refused |
 | `GLYPHS_BYTES_MAX` | the largest PSF's glyphs and a map of every codepoint | The parser's answer is refused |
 | `PARSER_MEMORY`, `PARSER_SECONDS` | 512 MiB, 30 s | The kernel ends the parser; the source fails |
