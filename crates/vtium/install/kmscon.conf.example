@@ -35,6 +35,12 @@
 ## Blink text with SGR 5 and a blinking cursor, every 500 ms; off, neither blinks.
 #blink
 
+## How text with SGR 5 or 6 draws in the blink's off phase: `full` hides it, `partial` draws it halfway to its background as SGR 2 does, and `off` draws it steady. The cursor blinks as `blink` says either way.
+#blink-text=full
+
+## The underline and strike of blinking text blink with it: hidden in the off phase with `blink-text=full`, dimmed with `partial`. Off, they stay while the text blinks.
+#no-blink-decorations
+
 ## The longest a synchronized frame (mode 2026) is held before it is shown as drawn; 0 offers no mode 2026.
 #sync-timeout=200
 

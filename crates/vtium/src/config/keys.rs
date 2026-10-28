@@ -241,6 +241,28 @@ pub const BLINK: Key = Key {
     cite: "src/config.c:1373; src/terminal.c:163, 715-724",
 };
 
+pub const BLINK_TEXT: Key = Key {
+    name: "blink-text",
+    short: None,
+    kind: Kind::Choice(&["full", "partial", "off"]),
+    default: Default::Text("full"),
+    scope: Scope::Anywhere,
+    reader: "vtium-render",
+    what: "How text with SGR 5 or 6 draws in the blink's off phase: `full` hides it, `partial` draws it halfway to its background as SGR 2 does, and `off` draws it steady. The cursor blinks as `blink` says either way.",
+    cite: "src/render/bbulk.c:1521; the operator on vtium/vtium#81",
+};
+
+pub const BLINK_DECORATIONS: Key = Key {
+    name: "blink-decorations",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    reader: "vtium-render",
+    what: "The underline and strike of blinking text blink with it: hidden in the off phase with `blink-text=full`, dimmed with `partial`. Off, they stay while the text blinks.",
+    cite: "src/render/bbulk.c:1521; the operator on vtium/vtium#81",
+};
+
 pub const SYNC_TIMEOUT: Key = Key {
     name: "sync-timeout",
     short: None,
@@ -844,7 +866,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 64] = [
+pub const KEYS: [Key; 66] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -858,6 +880,8 @@ pub const KEYS: [Key; 64] = [
     SB_SIZE,
     SB_SIZE_CAP,
     BLINK,
+    BLINK_TEXT,
+    BLINK_DECORATIONS,
     SYNC_TIMEOUT,
     DPMS_TIMEOUT,
     DISPLAY_WAIT,

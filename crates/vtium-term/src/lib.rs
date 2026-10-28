@@ -82,7 +82,7 @@ pub use bounds::{
 };
 pub use cell::{Cell, ClusterOffset, Content, LinkIndex, StyleIndex, Width};
 pub use damage::{Age, Damage};
-pub use frame::{Cursor, CursorShape, Frame, FrameCell};
+pub use frame::{Cursor, CursorShape, Frame, FrameCell, dim};
 pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId};
 pub use palette::{PALETTE_NAMES, Palette, Special};
 pub use screen::{Erase, Screen, WidthMethod};

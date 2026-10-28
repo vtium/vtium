@@ -7,7 +7,9 @@
 mod common;
 
 use common::{Screen, WriteOnly, rgb, style, unifont};
-use vtium_render::{Canvas, Config, DrawState, Orientation, Rect, Renderer, Target};
+use vtium_render::{
+    BlinkStyle, Canvas, Config, DrawState, Orientation, Rect, Renderer, Target, TextBlink,
+};
 use vtium_term::{Age, Attrs, CursorShape, Rgb};
 
 const FG: &str = "c0c0c0";
@@ -54,11 +56,7 @@ fn inside(w: &Rect, damage: &[Rect]) -> bool {
 }
 
 /// `s` drawn whole by a fresh renderer.
-fn fresh(s: &Screen, st: &DrawState, width: u32, height: u32, turn: Orientation) -> Canvas {
-    let config = Config {
-        orientation: turn,
-        ..Config::default()
-    };
+fn fresh(s: &Screen, st: &DrawState, width: u32, height: u32, config: Config) -> Canvas {
     let mut r = Renderer::new(unifont(), width, height, config);
     let mut c = Canvas::new(width, height, 0);
     r.draw(&s.frame(Age::NEVER), &mut c, 0, st);
@@ -104,7 +102,7 @@ struct Display {
     back: usize,
     width: u32,
     height: u32,
-    turn: Orientation,
+    config: Config,
 }
 
 impl Display {
@@ -117,6 +115,10 @@ impl Display {
             orientation: turn,
             ..Config::default()
         };
+        Display::with(buffers, width, height, config)
+    }
+
+    fn with(buffers: usize, width: u32, height: u32, config: Config) -> Display {
         Display {
             r: Renderer::new(unifont(), width, height, config),
             since: Age::NEVER,
@@ -131,7 +133,7 @@ impl Display {
             back: 0,
             width,
             height,
-            turn,
+            config,
         }
     }
 
@@ -169,7 +171,7 @@ impl Display {
                 "frame {frame} at age {age} wrote {w:?} outside its damage {damage:?}"
             );
         }
-        let want = fresh(s, st, self.width, self.height, self.turn);
+        let want = fresh(s, st, self.width, self.height, self.config);
         same_pixels(
             buf.canvas.canvas(),
             &want,
@@ -375,7 +377,7 @@ fn an_age_past_the_history_draws_the_buffer_whole() {
     let (w, h) = PROMPT;
     let st = state(&s);
     let mut r = Renderer::new(unifont(), w, h, Config::default());
-    let want = fresh(&s, &st, w, h, Orientation::Normal);
+    let want = fresh(&s, &st, w, h, Config::default());
     let mut bufs: Vec<WriteOnly> = (0..3).map(|_| WriteOnly::new(w, h)).collect();
     let mut since = Age::NEVER;
     // the first two frames at age 0; the third buffer at age 3 holds a
@@ -510,14 +512,24 @@ fn damage_merges_cells_up_to_three_apart() {
 /// and buffers whose contents are lost; the display checks every frame
 /// against a whole draw of the same state.
 fn run(buffers: usize, turn: Orientation) {
+    run_with(
+        buffers,
+        Config {
+            orientation: turn,
+            ..Config::default()
+        },
+    );
+}
+
+fn run_with(buffers: usize, config: Config) {
     let (cols, rows) = (24usize, 6usize);
     let mut s = Screen::new(cols, rows, rgb(FG), rgb(BG));
-    let (w, h) = if matches!(turn, Orientation::Right | Orientation::Left) {
+    let (w, h) = if matches!(config.orientation, Orientation::Right | Orientation::Left) {
         (rows as u32 * 16 + 5, cols as u32 * 8 + 3)
     } else {
         (cols as u32 * 8 + 3, rows as u32 * 16 + 5)
     };
-    let mut d = Display::turned(buffers, w, h, turn);
+    let mut d = Display::with(buffers, w, h, config);
     s.cursor.visible = true;
     let mut seed = 0x1234_5678u32;
     let mut rand = move |n: u32| {
@@ -533,11 +545,15 @@ fn run(buffers: usize, turn: Orientation) {
                 Rgb::new(rand(256) as u8, 200, 100),
                 Rgb::new(0, rand(256) as u8, 40),
             );
-            match rand(6) {
-                0 => st.attrs.insert(Attrs::BLINK),
-                1 => st.attrs.set_underline(vtium_term::UnderlineStyle::Curly),
-                2 => st.attrs.insert(Attrs::STRIKE),
-                _ => {}
+            // blinking cells carry decorations too, for each blink option
+            if rand(3) == 0 {
+                st.attrs.insert(Attrs::BLINK);
+            }
+            if rand(3) == 0 {
+                st.attrs.set_underline(vtium_term::UnderlineStyle::Curly);
+            }
+            if rand(3) == 0 {
+                st.attrs.insert(Attrs::STRIKE);
             }
             let wide = rand(5) == 0 && col + 1 < cols;
             let c = if wide {
@@ -602,6 +618,25 @@ fn every_frame_matches_a_whole_draw_turned() {
         Orientation::Left,
     ] {
         run(2, turn);
+    }
+}
+
+// Each text blink option keeps the history exact: a phase change redraws
+// what the option changes, and only that.
+// covers: sgr.blink.style, sgr.blink.decorations
+#[test]
+fn every_frame_matches_a_whole_draw_under_each_blink_option() {
+    for style in [BlinkStyle::Full, BlinkStyle::Partial, BlinkStyle::Off] {
+        for decorations in [false, true] {
+            let blink = TextBlink { style, decorations };
+            run_with(
+                2,
+                Config {
+                    blink,
+                    ..Config::default()
+                },
+            );
+        }
     }
 }
 
