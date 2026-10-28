@@ -11,9 +11,6 @@ use std::rc::Rc;
 use calloop::generic::Generic;
 use calloop::{Interest, LoopHandle, Mode, PostAction};
 use rustix::process::{Pid, PidfdFlags, Signal, kill_process, pidfd_open};
-// The name of rustix's runtime module changes between releases; Cargo.toml
-// pins rustix to the release whose name this is (see pty.rs).
-use rustix::runtime_448b8ad740e2a26f::{How, KernelSigSet, kernel_sigprocmask};
 
 /// Sends PID 1 `SIGINT`, which init takes as Ctrl+Alt+Del: systemd starts
 /// `ctrl-alt-del.target`, a reboot, and sysvinit runs its `ctrlaltdel`
@@ -97,9 +94,10 @@ fn spawn(command: &mut Command) -> io::Result<Child> {
 }
 
 /// `/bin/sh` running `script` with none of vtium's environment, the
-/// session's included, a fixed `PATH`, and no signal blocked: the loop
-/// blocks the signals it reads from its signalfd, and an exec keeps the
-/// mask.
+/// session's included, a fixed `PATH`, and every signal at its default
+/// disposition and none blocked, as the pty's child starts: the loop
+/// blocks the signals it reads from its signalfd, a vtium started in the
+/// background ignores SIGINT and SIGQUIT, and an exec keeps both.
 fn shell(script: &str) -> Command {
     let mut command = Command::new("/bin/sh");
     command
@@ -108,17 +106,13 @@ fn shell(script: &str) -> Command {
         .env("PATH", "/usr/bin:/bin");
     #[expect(
         unsafe_code,
-        reason = "the signal mask can only be cleared for the child between fork and exec"
+        reason = "the signal dispositions and mask can only be set for the child between fork and exec"
     )]
-    // SAFETY: the hook runs in the forked child before exec and makes one
-    // raw rt_sigprocmask syscall, which allocates nothing and takes no
-    // lock. The child has one thread and needs no blocked signal before
-    // the exec.
+    // SAFETY: the hook runs in the forked child before exec, which has one
+    // thread and needs no handler or blocked signal, as default_signals
+    // requires; it makes only raw syscalls.
     unsafe {
-        command.pre_exec(|| {
-            kernel_sigprocmask(How::SETMASK, Some(&KernelSigSet::empty()))?;
-            Ok(())
-        });
+        command.pre_exec(|| crate::pty::default_signals());
     }
     command
 }
@@ -178,21 +172,18 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&out.stdout), "||/usr/bin:/bin");
     }
 
-    /// Set in the process [`the_sysfs_shell_holds_only_its_stdio_and_blocks_nothing`] runs
+    /// Set in the process [`the_sysfs_shell_holds_only_its_stdio_with_default_signals`] runs
     /// itself in.
     const ALONE: &str = "VTIUM_POWER_TEST_ALONE";
 
-    /// The `SigBlk` mask in the `/proc/<pid>/status` at `path`.
-    fn signals_blocked(path: &str) -> u64 {
-        signals_blocked_in(&std::fs::read_to_string(path).expect("status"))
-    }
-
-    fn signals_blocked_in(status: &str) -> u64 {
+    /// The signal set in `field` of a `/proc/<pid>/status`: bit n-1 is
+    /// signal n.
+    fn signals(status: &str, field: &str) -> u64 {
         let hex = status
             .lines()
-            .find_map(|l| l.strip_prefix("SigBlk:"))
-            .expect("SigBlk");
-        u64::from_str_radix(hex.trim(), 16).expect("SigBlk")
+            .find_map(|l| l.strip_prefix(field))
+            .expect(field);
+        u64::from_str_radix(hex.trim(), 16).expect(field)
     }
 
     /// Runs in a process of its own with no other test, as vtium starts
@@ -200,15 +191,19 @@ mod tests {
     /// descriptors meanwhile, xkbcommon's keymap files without
     /// close-on-exec among them. What this process passes down unmarked
     /// reaches that one, as vtium's parent passes down to vtium, and the
-    /// signals it blocks are blocked in the thread that starts the shell.
+    /// signals it blocks and ignores are so in the thread that starts the
+    /// shell.
     #[test]
-    fn the_sysfs_shell_holds_only_its_stdio_and_blocks_nothing() {
-        const NAME: &str = "power::tests::the_sysfs_shell_holds_only_its_stdio_and_blocks_nothing";
+    fn the_sysfs_shell_holds_only_its_stdio_with_default_signals() {
+        const NAME: &str =
+            "power::tests::the_sysfs_shell_holds_only_its_stdio_with_default_signals";
         if std::env::var_os(ALONE).is_none() {
-            // as vtium's loop blocks the signals it reads; env's
-            // --block-signal needs coreutils 8.31 or later
+            // as vtium's loop blocks the signals it reads, and a vtium
+            // started in the background ignores SIGINT; env's
+            // --block-signal and --ignore-signal need coreutils 8.31 or
+            // later
             let out = Command::new("env")
-                .arg("--block-signal=TERM,USR1")
+                .args(["--block-signal=TERM,USR1", "--ignore-signal=INT"])
                 .arg(std::env::current_exe().expect("this binary"))
                 .args(["--exact", NAME, "--test-threads=1", "--nocapture"])
                 .env(ALONE, "1")
@@ -229,8 +224,11 @@ mod tests {
         rustix::io::fcntl_setfd(&held, rustix::io::FdFlags::empty()).expect("setfd");
         // the signals this thread blocks, as vtium's loop blocks those it
         // reads
-        let blocked = signals_blocked("/proc/thread-self/status");
+        let own = std::fs::read_to_string("/proc/thread-self/status").expect("status");
+        let blocked = signals(&own, "SigBlk:");
         assert_ne!(blocked & (1 << (libc::SIGTERM - 1)), 0, "{blocked:x}");
+        let ignored = signals(&own, "SigIgn:");
+        assert_ne!(ignored & (1 << (libc::SIGINT - 1)), 0, "{ignored:x}");
         let mut command = shell("ls /proc/self/fd; cat /proc/self/status >&2");
         command
             .stdin(Stdio::null())
@@ -242,9 +240,14 @@ mod tests {
             .expect("its output");
         let status = String::from_utf8_lossy(&out.stderr);
         assert_eq!(
-            signals_blocked_in(&status),
+            signals(&status, "SigBlk:"),
             0,
             "the shell's blocked signals"
+        );
+        assert_eq!(
+            signals(&status, "SigIgn:"),
+            0,
+            "the shell's ignored signals"
         );
         let listed = String::from_utf8_lossy(&out.stdout);
         let fds: Vec<&str> = listed.lines().collect();
