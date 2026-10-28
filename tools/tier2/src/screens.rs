@@ -707,7 +707,7 @@ pub const CASES: &[Case] = &[
             depth: Depth::One,
             ..Screen::new(
                 "small-320x240-1bit",
-                "small-320x240 on a 1-bit display (vtium/vtium#135). Correct: only black and white pixels; text on the default background lit whatever its color, the dark blue and red included; the reversed title and status line and every colored background lit with their glyphs unlit; a foreground equal to its background, as black on the black background block, invisible; every underline, strike and sprite lit like the text in its cell; the border unlit.",
+                "small-320x240 on a 1-bit display (vtium/vtium#135). Correct: only black and white pixels; text on the default background lit whatever its color, the dark blue and red included; the reversed title and status line and every background of luma 128 or more lit with their glyphs unlit, and darker backgrounds unlit with their glyphs lit; a foreground equal to its background, as black on the black background block, invisible; every underline, strike and sprite lit like the text in its cell; the border unlit.",
                 SMALL_40,
                 40,
                 30,
@@ -723,7 +723,7 @@ pub const CASES: &[Case] = &[
             depth: Depth::One,
             ..Screen::new(
                 "small-640x480-1bit",
-                "small-640x480 on a 1-bit display (vtium/vtium#135). Correct: as small-320x240-1bit, at 80 columns; the dim word drawn as plain lit text; the 256-color and 24-bit ramps a run of lit cells, each block whose background differs from the default background's color lit.",
+                "small-640x480 on a 1-bit display (vtium/vtium#135). Correct: as small-320x240-1bit, at 80 columns; the dim word drawn as plain lit text; the 256-color and 24-bit ramps lit where a block's luma is 128 or more and unlit under it.",
                 SMALL_80,
                 80,
                 30,
@@ -737,7 +737,7 @@ pub const CASES: &[Case] = &[
             depth: Depth::One,
             ..Screen::new(
                 "palette-unifont-1bit",
-                "palette-unifont on a 1-bit display (vtium/vtium#135). Correct: the background blocks lit but the one in the default background's color; every letter pair lit, black ones included, on the default background; the ramps lit cell by cell.",
+                "palette-unifont on a 1-bit display (vtium/vtium#135). Correct: the background blocks and the ramps lit where their luma is 128 or more and unlit under it; every letter pair lit, black ones included, on the default background.",
                 PALETTE,
                 48,
                 10,
@@ -751,7 +751,7 @@ pub const CASES: &[Case] = &[
             depth: Depth::One,
             ..Screen::new(
                 "underline-unifont-1bit",
-                "underline-unifont on a 1-bit display (vtium/vtium#135). Correct: every underline style lit, in the text color or in an SGR 58 color alike; on the colored background and in reverse, the cell lit with its glyph and underline unlit; the curl's coverage cut at half.",
+                "underline-unifont on a 1-bit display (vtium/vtium#135). Correct: every underline style lit, in the text color or in an SGR 58 color alike; on blue, under luma 128, the cell unlit with its glyph and underline lit, and in reverse the cell lit with its glyph and underline unlit; the curl's coverage cut at half.",
                 UNDERLINE,
                 48,
                 10,
@@ -765,7 +765,7 @@ pub const CASES: &[Case] = &[
             depth: Depth::One,
             ..Screen::new(
                 "light-theme-1bit",
-                "A light theme, OSC 11's #f0f0f0 behind OSC 10's #202020, on a 1-bit display (vtium/vtium#135). Correct: the screen and border lit, as a light default background lights a mono panel; default and red text unlit on it; the blue, reversed, grey and black cells unlit with their letters lit, each flipping from the screen; `black on white`, whose bright white differs from the default background, unlit with its letters lit; the underlines, strike and box lines unlit like the text; the shades as patterns.",
+                "A light theme, OSC 11's #f0f0f0 behind OSC 10's #202020, on a 1-bit display (vtium/vtium#135). Correct: the screen and border lit, as a light default background lights a mono panel; default and red text unlit on it; the grey cell and `black on white` lit with their letters unlit, on the default's side of the luma cut; the blue, reversed and black cells unlit with their letters lit, flipping from the screen; the underlines, strike and box lines unlit like the text; the shades as patterns.",
                 LIGHT,
                 40,
                 5,
