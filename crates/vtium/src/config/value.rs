@@ -83,6 +83,12 @@ pub(super) fn parse(
                 .parse::<u64>()
                 .unwrap_or(u64::MAX)
                 .saturating_mul(scale);
+            // `sb-memory` is also at most what this machine allows.
+            let max = if key.name == keys::SB_MEMORY.name {
+                max.min(super::budget::sb_memory_cap())
+            } else {
+                max
+            };
             let used = n.clamp(min, max);
             if used != n {
                 let value = text.to_owned();

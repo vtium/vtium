@@ -1742,17 +1742,10 @@ fn to_u32(n: u64) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
-/// The machine's memory in bytes, from `/proc/meminfo`; 0 when unread,
-/// which takes the smallest scrollback cap.
+/// The machine's memory in bytes; 0 when unread, which takes the
+/// smallest scrollback cap.
 fn physical_memory() -> u64 {
-    std::fs::read_to_string("/proc/meminfo")
-        .ok()
-        .and_then(|text| {
-            let line = text.lines().find(|l| l.starts_with("MemTotal:"))?;
-            let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
-            kib.checked_mul(1024)
-        })
-        .unwrap_or(0)
+    crate::config::budget::physical_memory().unwrap_or(0)
 }
 
 /// Opens a device and wraps it as a video device in the loop, for

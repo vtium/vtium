@@ -1,89 +1,114 @@
-//! `sb-memory` on this machine: the key's fence holds it from 1 MiB to
-//! 1 GiB, and a quarter of the machine's memory caps it at start
-//! (vtium/vtium#131). The start and `vtium check-config` report the cap
-//! through [`sb_memory_warning`], and the seat takes [`sb_memory`].
+//! `sb-memory` on this machine (vtium/vtium#131): the key's fence holds it
+//! from 1 MiB to 1 GiB, and [`sb_memory_cap`] lowers the top to a quarter
+//! of the machine's memory, or to the default when the memory cannot be
+//! read. Reading the key clamps it to that cap, so a value past either is
+//! reported once; [`memory_warning`] reports the memory left unread.
+
+use std::cell::Cell;
 
 use super::{Config, keys};
 
-/// The scrollback's byte budget for `config` on this machine.
+/// Where the machine's memory is read.
+const MEMINFO: &str = "/proc/meminfo";
+
+/// The machine's memory in bytes, from [`MEMINFO`]'s `MemTotal`; `None`
+/// when it cannot be read.
+pub fn physical_memory() -> Option<u64> {
+    MEMORY.with(|m| {
+        if let Some(known) = m.get() {
+            return known;
+        }
+        let read = std::fs::read_to_string(MEMINFO)
+            .ok()
+            .and_then(|text| mem_total(&text));
+        m.set(Some(read));
+        read
+    })
+}
+
+thread_local! {
+    /// The machine's memory once read: it does not change while vtium
+    /// runs. A test sets it in place of the machine's.
+    static MEMORY: Cell<Option<Option<u64>>> = const { Cell::new(None) };
+}
+
+/// `MemTotal` in bytes from `/proc/meminfo`'s text.
+fn mem_total(text: &str) -> Option<u64> {
+    let line = text.lines().find(|l| l.starts_with("MemTotal:"))?;
+    let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    kib.checked_mul(1024)
+}
+
+/// The most `sb-memory` may be on a machine with `ram` bytes: a quarter
+/// of it inside the key's fence, or the default when `ram` is unknown.
+fn cap_for(ram: Option<u64>) -> u64 {
+    let cap = ram.map_or(vtium_term::SB_MEMORY_DEFAULT, vtium_term::sb_memory_cap);
+    u64::try_from(cap).unwrap_or(u64::MAX)
+}
+
+/// The most `sb-memory` may be on this machine.
+pub fn sb_memory_cap() -> u64 {
+    cap_for(physical_memory())
+}
+
+/// The scrollback's byte budget `config` gives on this machine.
 pub fn sb_memory(config: &Config) -> usize {
-    sb_memory_on(config, physical_memory()).0
-}
-
-/// The warning when a quarter of this machine's memory lowers
-/// `sb-memory`, naming the key, the value asked and the value used.
-pub fn sb_memory_warning(config: &Config) -> Option<String> {
-    sb_memory_on(config, physical_memory()).1
-}
-
-/// The budget `config` asks for on a machine with `ram` bytes, and the
-/// warning when a quarter of `ram` lowers it.
-fn sb_memory_on(config: &Config, ram: u64) -> (usize, Option<String>) {
     let asked = config
         .number(&keys::SB_MEMORY)
-        .map_or(vtium_term::SB_MEMORY_DEFAULT, |n| {
-            usize::try_from(n).unwrap_or(usize::MAX)
-        });
-    let used = vtium_term::sb_memory(asked, ram);
-    let warning = (used != asked).then(|| {
-        format!("sb-memory={asked} is more than a quarter of the machine's memory, {used} used")
-    });
-    (used, warning)
+        .unwrap_or(vtium_term::SB_MEMORY_DEFAULT as u64);
+    usize::try_from(asked.min(sb_memory_cap())).unwrap_or(usize::MAX)
 }
 
-/// The machine's memory in bytes, from `/proc/meminfo`; 0 when unread,
-/// which takes the least budget.
-fn physical_memory() -> u64 {
-    std::fs::read_to_string("/proc/meminfo")
-        .ok()
-        .and_then(|text| {
-            let line = text.lines().find(|l| l.starts_with("MemTotal:"))?;
-            let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
-            kib.checked_mul(1024)
-        })
-        .unwrap_or(0)
+/// The warning when the machine's memory cannot be read, which holds
+/// `sb-memory` to its default.
+pub fn memory_warning() -> Option<String> {
+    physical_memory().is_none().then(|| {
+        format!(
+            "cannot read the machine's memory from {MEMINFO}; sb-memory is at most {}",
+            vtium_term::SB_MEMORY_DEFAULT
+        )
+    })
+}
+
+/// Sets the machine's memory a test sees, `None` for unread.
+#[cfg(test)]
+pub(super) fn set_test_memory(ram: Option<u64>) {
+    MEMORY.with(|m| m.set(Some(ram)));
 }
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
-    use std::path::Path;
-
     use super::*;
 
-    fn config(conf: &str) -> Config {
-        let args = [OsString::from("vtium")];
-        let conf = conf.as_bytes().to_vec();
-        super::super::load(&args, Some("seat0"), &mut |p: &Path| {
-            Ok((p == Path::new("/etc/kmscon/kmscon.conf")).then(|| conf.clone()))
-        })
-        .config
+    #[test]
+    fn memtotal_is_read_in_kib() {
+        let text = "MemTotal:        524288 kB\nMemFree:  1 kB\n";
+        assert_eq!(mem_total(text), Some(512 << 20));
+        assert_eq!(mem_total("MemFree: 1 kB\n"), None);
+        assert_eq!(mem_total("MemTotal: lots kB\n"), None);
     }
 
-    // A quarter of the machine's memory caps `sb-memory`, with one warning
-    // naming the key, the value asked and the value used.
+    // A quarter of the machine's memory, inside the fence; the default when
+    // the memory cannot be read.
     #[test]
-    fn a_quarter_of_the_memory_caps_sb_memory_with_a_warning() {
-        let ram = 512 << 20;
-        let default = vtium_term::SB_MEMORY_DEFAULT;
-        assert_eq!(sb_memory_on(&config(""), ram), (default, None));
+    fn the_cap_is_a_quarter_of_the_memory_or_the_default() {
+        assert_eq!(cap_for(Some(512 << 20)), 128 << 20);
+        assert_eq!(cap_for(Some(64 << 30)), 1 << 30);
+        assert_eq!(cap_for(Some(0)), 1 << 20);
+        assert_eq!(cap_for(None), vtium_term::SB_MEMORY_DEFAULT as u64);
+    }
+
+    #[test]
+    fn unread_memory_holds_the_default_with_a_warning_naming_meminfo() {
+        set_test_memory(None);
+        assert_eq!(sb_memory(&Config::default()), vtium_term::SB_MEMORY_DEFAULT);
         assert_eq!(
-            sb_memory_on(&config("sb-memory=128M\n"), ram),
-            (128 << 20, None)
-        );
-        assert_eq!(
-            sb_memory_on(&config("sb-memory=1G\n"), ram),
-            (
-                128 << 20,
-                Some(
-                    "sb-memory=1073741824 is more than a quarter of the machine's memory, 134217728 used"
-                        .to_owned()
-                )
+            memory_warning().as_deref(),
+            Some(
+                "cannot read the machine's memory from /proc/meminfo; sb-memory is at most 5963776"
             )
         );
-        assert_eq!(
-            sb_memory_on(&config("sb-memory=1G\n"), 8 << 30),
-            (1 << 30, None)
-        );
+        set_test_memory(Some(512 << 20));
+        assert_eq!(memory_warning(), None);
     }
 }

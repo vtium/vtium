@@ -1179,6 +1179,7 @@ fn pointer_char_takes_one_character() {
 /// (vtium/vtium#131); a quarter of the machine's memory caps it at start.
 #[test]
 fn sb_memory_is_fenced_from_1_mib_to_1_gib() {
+    super::budget::set_test_memory(Some(8 << 30));
     assert_eq!(
         Config::default().number(&SB_MEMORY),
         Some(vtium_term::SB_MEMORY_DEFAULT as u64)
@@ -1256,4 +1257,35 @@ fn sb_memory_is_fenced_from_1_mib_to_1_gib() {
             .as_deref(),
         Some("sb-memory=\"0\" is out of bounds, 1048576 used")
     );
+}
+
+// On the 512 MB minspec machine a quarter of the memory caps `sb-memory`:
+// a value past it, or past 1 GiB, is reported once, naming the value
+// asked and the value used.
+#[test]
+fn sb_memory_past_the_machines_quarter_is_reported_once() {
+    super::budget::set_test_memory(Some(512 << 20));
+    for asked in ["200M", "2G"] {
+        let l = main_file(&format!("sb-memory={asked}\n"));
+        assert_eq!(l.config.number(&SB_MEMORY), Some(128 << 20), "{asked}");
+        assert_eq!(
+            problems(&l),
+            [&Problem::Clamped {
+                key: "sb-memory",
+                value: asked.into(),
+                used: 128 << 20
+            }]
+        );
+        assert_eq!(crate::check::warnings(&l).len(), 1, "{asked}");
+    }
+    let l = main_file("sb-memory=128M\n");
+    assert_eq!(l.reports, []);
+    // Unread, the memory holds `sb-memory` to its default.
+    super::budget::set_test_memory(None);
+    let l = main_file("sb-memory=6M\n");
+    assert_eq!(
+        l.config.number(&SB_MEMORY),
+        Some(vtium_term::SB_MEMORY_DEFAULT as u64)
+    );
+    assert_eq!(crate::check::warnings(&l).len(), 2);
 }
