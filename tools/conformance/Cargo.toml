@@ -1,8 +1,6 @@
-# Tier 1 for vtium: vtium-replay meets the C reference's replay interface
-# (libtsm's test/conformance/INTERFACE.md), and conformance judges it
-# against the C reference's goldens at a pinned commit. A workspace member,
-# so cargo test builds and checks it; reading the goldens needs a libtsm
-# checkout, which only the conformance command and CI's conformance job use.
+# Tier 1 for vtium: vtium-replay meets the replay interface, and
+# conformance judges it against the goldens and probes copied here from the
+# C reference. A workspace member, so cargo test builds and checks it.
 [package]
 name = "vtium-conformance"
 description = "The replay interface over vtium-term, and the runner that judges it against the C reference's goldens"
@@ -19,3 +17,6 @@ workspace = true
 
 [dependencies]
 vtium-term.workspace = true
+# the replay interface's grammar and the probes' patterns are regular
+# expressions, with no backreference or lookaround
+regex = { version = "1.12", default-features = false, features = ["std", "unicode"] }

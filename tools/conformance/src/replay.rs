@@ -190,6 +190,16 @@ impl<'a> Replay<'a> {
             Command::SyncFrames => {
                 let _ = writeln!(self.out, "test sync-frames {}", t.sync_frames());
             }
+            Command::Clipboard => {
+                self.out.push_str("test clipboard ");
+                match t.take_clipboard_write() {
+                    Some(data) => data.iter().for_each(|b| {
+                        let _ = write!(self.out, "{b:02x}");
+                    }),
+                    None => self.out.push_str("none"),
+                }
+                self.out.push('\n');
+            }
             Command::Version(text) => {
                 if t.set_version(&text).is_err() {
                     let _ = writeln!(self.out, "test version error -22");
@@ -427,5 +437,19 @@ mod tests {
     fn a_test_line_comes_before_the_block_that_follows() {
         let out = run(&input(b"a\x1b_tsm-test;sync-frames\x1b\\", &[])).unwrap_or_default();
         assert!(out.starts_with("test sync-frames 0\nsize 6x1\n"), "{out}");
+    }
+
+    // INTERFACE-vtium.md: the host takes what OSC 52 set, once
+    #[test]
+    fn the_clipboard_command_takes_what_osc_52_set() {
+        let take = b"\x1b_tsm-test;clipboard\x1b\\";
+        let mut data = b"\x1b]52;c;aGk=\x07".to_vec();
+        data.extend_from_slice(take);
+        data.extend_from_slice(take);
+        let out = run(&input(&data, &[])).unwrap_or_default();
+        assert!(
+            out.starts_with("test clipboard 6869\ntest clipboard none\nsize "),
+            "{out}"
+        );
     }
 }
