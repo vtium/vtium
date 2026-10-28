@@ -68,26 +68,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-  # The VT review tools and tier 3's harness, with the kmscon checkout at
-  # tools/tier3/pin.tsv's commit beside vtium, so the tests that read tier
-  # 3's goldens run.
+  # The VT review tools and tier 3's harness, whose tests read the goldens
+  # copied into tools/tier3/c-goldens; vtium is the only checkout.
   tools:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          path: vtium
-      - name: pinned commit
-        id: pin
-        run: |
-          awk '!/^#/ && $1 == "kmscon" { print "commit=" $2; sub(/^https:\/\/github.com\//, "", $3); sub(/\.git$/, "", $3); print "repository=" $3 }' vtium/tools/tier3/pin.tsv >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ steps.pin.outputs.repository }}
-          ref: ${{ steps.pin.outputs.commit }}
-          path: kmscon
       - run: make test-tools
-        working-directory: vtium
 
   # Tier 2: the renderer's screens against vtium's goldens and the C
   # reference's, copied into tools/tier2/reference with provenance; vtium is
