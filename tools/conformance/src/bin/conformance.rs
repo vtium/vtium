@@ -379,13 +379,15 @@ fn probes() -> Result<bool, String> {
         };
         all = probes::merge(all, probes::read(file, &text, &spec)?)?;
     }
+    probes::check_departures(&all, |path| read(&repo_root().join(path)))?;
     for probe in &all {
         let missing = caps
             .iter()
             .any(|c| c.name == probe.name && c.status == "missing");
         probes::check_expectations(probe.file(), probe, &spec, missing)?;
     }
-    let replay = Replay::new(&spec, &vtium_conformance::describe())?;
+    let replay = Replay::new(&spec, &vtium_conformance::describe())?
+        .with_fixtures(Path::new(TOOL).join("fixtures"));
     let mut failures = 0usize;
     for probe in all
         .iter()
@@ -406,14 +408,6 @@ fn probes() -> Result<bool, String> {
             failures += 1;
             continue;
         };
-        if !probe.fixtures.is_empty() {
-            println!(
-                "skip {}: names the fixture {}, which the runner does not serve",
-                cap.name,
-                probe.fixtures.join(", ")
-            );
-            continue;
-        }
         let outcome: Outcome = replay.run(probe);
         let (line, agrees) = probes::verdict(cap, &outcome, &BUILD);
         println!("{line}");

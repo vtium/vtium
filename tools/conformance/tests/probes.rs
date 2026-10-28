@@ -68,6 +68,11 @@ fn the_probe_files_read_and_their_expectations_check() {
     let ours = probes::read("vtium.replay", &read("probes/vtium.replay"), &spec)
         .unwrap_or_else(|e| panic!("{e}"));
     let all = probes::merge(copied, ours).unwrap_or_else(|e| panic!("{e}"));
+    probes::check_departures(&all, |path| {
+        std::fs::read_to_string(Path::new(TOOL).join("../..").join(path))
+            .map_err(|e| format!("{path}: {e}"))
+    })
+    .unwrap_or_else(|e| panic!("{e}"));
     for probe in &all {
         let missing = caps
             .iter()
@@ -181,8 +186,11 @@ fn malformed_probes_are_refused_before_anything_runs() {
     assert!(check(&format!("{re}example \"row 0 |y|\"\n"), true));
 }
 
+/// A departure as a README lists it.
+const README: &str = "# x\n\n## Departures\n\n- **Bold is listed.** Why.\n\n## Bounds\n\n- **Bounds are not departures.**\n";
+
 #[test]
-fn vtium_probes_take_the_place_of_placeholders_only() {
+fn vtium_probes_take_the_place_of_placeholders_and_of_departures_only() {
     let spec = spec();
     let read = |text: &str| probes::read("t.replay", text, &spec).unwrap_or_else(|e| panic!("{e}"));
     let copied = read("probe p\nplaceholder later\n");
@@ -193,6 +201,65 @@ fn vtium_probes_take_the_place_of_placeholders_only() {
     assert!(
         probes::merge(read(BOLD), read(BOLD)).is_err(),
         "a real probe replaced"
+    );
+    let departs = |entry: &str| {
+        BOLD.replace(
+            "size 4 1\n",
+            &format!("size 4 1\ndeparture r/README.md {entry}\n"),
+        )
+    };
+    let merged = probes::merge(read(BOLD), read(&departs("Bold is listed.")))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(merged.len(), 1);
+    assert!(merged[0].departure().is_some());
+    assert!(
+        probes::merge(
+            read("probe bold\nplaceholder later\n"),
+            read(&departs("Bold is listed."))
+        )
+        .is_err(),
+        "a departure for a placeholder"
+    );
+    assert!(
+        probes::merge(Vec::new(), read(&departs("Bold is listed."))).is_err(),
+        "a departure that replaces nothing"
+    );
+    let check = |entry: &str| {
+        probes::check_departures(&read(&departs(entry)), |path| match path {
+            "r/README.md" => Ok(README.to_owned()),
+            _ => Err(format!("no {path}")),
+        })
+    };
+    assert_eq!(check("Bold is listed."), Ok(()));
+    assert!(
+        check("Bold is not listed.").is_err(),
+        "an entry the README lacks"
+    );
+    assert!(
+        check("Bounds are not departures.").is_err(),
+        "an entry under another heading"
+    );
+    assert!(
+        probes::read("t.replay", "probe p\ndeparture r/README.md\n", &spec).is_err(),
+        "a departure with no entry"
+    );
+}
+
+#[test]
+fn a_probe_reads_its_fixture_from_the_fixture_directory() {
+    let spec = spec();
+    let probe = "probe t\nsize 8 1\nfixture kmscon.termcap\ncmd termcap;file=kmscon.termcap\nsend \"\\eP+q544e\\e\\\\\"\ncheck\nreply \"\\eP1+r544E=6B6D73636F6E\\e\\\\\"\n";
+    let probes = probes::read("t.replay", probe, &spec).unwrap_or_else(|e| panic!("{e}"));
+    let replay = Replay::new(&spec, &vtium_conformance::describe())
+        .unwrap_or_else(|e| panic!("{e}"))
+        .with_fixtures(Path::new(TOOL).join("fixtures"));
+    assert_eq!(replay.run(&probes[0]), Outcome::Pass);
+    let none = Replay::new(&spec, &vtium_conformance::describe())
+        .unwrap_or_else(|e| panic!("{e}"))
+        .with_fixtures(Path::new(TOOL).join("no-such-dir"));
+    assert!(
+        matches!(none.run(&probes[0]), Outcome::Unjudged(why) if why.contains("kmscon.termcap")),
+        "a fixture the directory lacks"
     );
 }
 

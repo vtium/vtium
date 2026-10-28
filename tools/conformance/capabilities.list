@@ -36,7 +36,7 @@ da1-level                     works   -     query.da1                      DA1 r
 da2                           works   -     query.da2                      DA2 replies
 da3                           works   -     query.da3                      DA3 answers DECRPTUI, where the C reference answered DA1
 xtversion                     works   -     query.xtversion                XTVERSION replies with the host's text
-xtgettcap                     works   -     query.xtgettcap                XTGETTCAP answers from the table; skipped without the kmscon.termcap fixture
+xtgettcap                     works   -     query.xtgettcap                XTGETTCAP answers from vtium's table, the fixtures/kmscon.termcap fixture; vtium.replay's probe, for its listed departure
 osc-4-query                   works   -     color.palette.query            OSC 4 queries a palette color
 osc-4-set                     works   -     color.palette.set              OSC 4 sets a palette color
 osc-10-11-query               works   -     color.dynamic.query            OSC 10 and 11 query the default colors
