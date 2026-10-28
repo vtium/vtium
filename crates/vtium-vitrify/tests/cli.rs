@@ -864,19 +864,22 @@ fn the_parser_runs_without_new_privileges_and_within_its_limits() {
         .spawn()
         .unwrap();
     // The parser reads its request only once every limit is set, so the
-    // limits are read when a byte of it has left the pipe.
+    // limits are read when a byte of it has left the pipe, unless the
+    // parser ended first.
     let mut stdin = child.stdin.take().unwrap();
     stdin.write_all(&[0]).unwrap();
-    let mut read = false;
-    for _ in 0..10_000 {
+    let read = loop {
         if rustix::io::ioctl_fionread(&stdin).unwrap() == 0 {
-            read = true;
-            break;
+            break true;
         }
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
-    let proc_status = fs::read_to_string(format!("/proc/{}/status", child.id())).unwrap();
-    let limits = fs::read_to_string(format!("/proc/{}/limits", child.id())).unwrap();
+        if child.try_wait().unwrap().is_some() {
+            break false;
+        }
+        std::thread::yield_now();
+    };
+    let proc_status =
+        fs::read_to_string(format!("/proc/{}/status", child.id())).unwrap_or_default();
+    let limits = fs::read_to_string(format!("/proc/{}/limits", child.id())).unwrap_or_default();
     drop(stdin);
     let mut err = String::new();
     child
