@@ -8,18 +8,23 @@
 //! (ADR-1400 D2's last account before login), and sandboxes itself. A
 //! thread writes the requests and another reads the answers, so neither
 //! a slow nor a hung helper stalls the loop; the reader wakes the loop
-//! after each answer. Each frame is checked before it is trusted: its
-//! length against [`FRAME_BYTES_MAX`] before anything is allocated, a set
-//! through vtium-font's reader, which bounds every field, and every strike
-//! at the cell asked for, regular in style.
+//! after each answer; the reader also reaps the helper as it exits. Each
+//! frame is checked before it is trusted: its length against
+//! [`FRAME_BYTES_MAX`] before anything is allocated, a set through
+//! vtium-font's reader, which bounds every field, every strike at the cell
+//! asked for, regular in style, no codepoint the cell holds already, and
+//! the cell's frames inside [`CELL_BYTES_MAX`].
 //!
 //! A helper that crashes, panics, fails a request, answers what is not a
-//! frame, or gives no answer for [`ANSWER_MS`] is ended, and the console
-//! logs one line and asks it nothing more: the built-in font goes on
-//! drawing what the helper has not sent. A helper that exits 0 between
-//! requests left at its idle interval, and the next request starts
-//! another; one that left as a request went out is started again for it,
-//! once.
+//! frame, answers a request with no glyph, gives no answer for
+//! [`ANSWER_MS`], or leaves a request unfinished for [`REQUEST_MS`] is
+//! ended, and the console logs one line and asks it nothing more: the
+//! built-in font goes on drawing what the helper has not sent. A helper
+//! that exits 0 between requests left at its idle interval, and the next
+//! request starts another; one that left as a request went out, before
+//! answering it, is started again for it, once. One its CPU limit ended is
+//! replaced at the next request, the request it was answering dropped, at
+//! most [`RESTARTS_MAX`] times a boot.
 //!
 //! The wire format is `vtium-vitrify`'s serve mode's (`serve.rs`), whose
 //! constants this module repeats.
@@ -27,13 +32,15 @@
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io::{Read, Write};
+use std::os::fd::OwnedFd;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::PathBuf;
-use std::process::{Child, Command as Process, Stdio};
+use std::process::{Command as Process, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use rustix::process::{Pid, PidfdFlags, Signal, pidfd_open, pidfd_send_signal};
 use vtium_font::Cell;
 use vtium_font::set::Set;
 use vtium_platform::vt::font::ConsoleFont;
@@ -42,6 +49,12 @@ use vtium_platform::vt::font::ConsoleFont;
 /// end, before it is ended: a CJK frit's first batch on a Cortex-A53 takes
 /// about a second.
 pub const ANSWER_MS: u64 = 10_000;
+/// How long one request may take whole, however often its frames come.
+pub const REQUEST_MS: u64 = 60_000;
+/// The most bytes of glyphs one cell's frames hold.
+pub const CELL_BYTES_MAX: u64 = 64 << 20;
+/// How many times a boot replaces a helper its CPU limit ended.
+pub const RESTARTS_MAX: u32 = 3;
 /// The most bytes one frame's payload holds, the helper's
 /// `FRAME_BYTES_MAX`.
 pub const FRAME_BYTES_MAX: u32 = 16 << 20;
@@ -158,13 +171,19 @@ impl Request {
 /// What the reader thread saw.
 #[derive(Debug)]
 enum Event {
-    Glyphs(Arc<Set>),
+    /// A set and the codepoints it maps, as `(first, count)` runs, with
+    /// the bytes its frame took.
+    Glyphs {
+        set: Arc<Set>,
+        runs: Vec<(u32, u32)>,
+        bytes: u64,
+    },
     Done,
     Failed(String),
     /// Bytes that are not a frame, or a set its reader refused.
     Malformed(String),
-    /// The helper closed its end.
-    Closed,
+    /// The helper closed its end and was reaped: how it exited.
+    Closed(Option<ExitStatus>),
 }
 
 /// Reads one frame's head: its kind and length, or `None` at the end of
@@ -189,35 +208,105 @@ fn head(r: &mut impl Read) -> Result<Option<(u32, u32)>, String> {
     )))
 }
 
-/// Reads one frame into an event: its length checked against its kind's
-/// bound before its payload is allocated.
-fn frame(r: &mut impl Read) -> Event {
+/// The codepoints a set maps, as `(first, count)` runs, read from its
+/// `CMAP` section as vtium-font's format lays it out: every offset and
+/// count is checked against the bytes, so a malformed set is an error,
+/// and the set's reader checks the rest.
+fn mapped_runs(bytes: &[u8]) -> Result<Vec<(u32, u32)>, String> {
+    let bad = || "glyphs whose map vtium cannot read".to_owned();
+    let field = |at: usize, n: usize| bytes.get(at..at.checked_add(n)?);
+    let u32_at = |at: usize| {
+        field(at, 4)
+            .and_then(|b| b.try_into().ok())
+            .map(u32::from_le_bytes)
+    };
+    let u64_at = |at: usize| {
+        field(at, 8)
+            .and_then(|b| b.try_into().ok())
+            .map(u64::from_le_bytes)
+    };
+    let usize_of = |v: u64| usize::try_from(v).ok();
+    let sections = u32_at(12).ok_or_else(bad)?;
+    let (mut off, mut len) = (None, None);
+    for i in 0..sections {
+        let entry = usize_of(u64::from(i))
+            .and_then(|i| i.checked_mul(20))
+            .and_then(|e| e.checked_add(16))
+            .ok_or_else(bad)?;
+        if field(entry, 4).ok_or_else(bad)? == b"CMAP" {
+            off = entry.checked_add(4).and_then(u64_at).and_then(usize_of);
+            len = entry.checked_add(12).and_then(u64_at).and_then(usize_of);
+            break;
+        }
+    }
+    let (off, len) = off.zip(len).ok_or_else(bad)?;
+    let cmap = bytes
+        .get(off..off.checked_add(len).ok_or_else(bad)?)
+        .ok_or_else(bad)?;
+    let at32 = |at: usize| {
+        cmap.get(at..at.checked_add(4)?)
+            .and_then(|b| b.try_into().ok())
+            .map(u32::from_le_bytes)
+    };
+    let strikes = at32(0).ok_or_else(bad)?;
+    let record = usize_of(u64::from(at32(4).ok_or_else(bad)?)).ok_or_else(bad)?;
+    if record < 16 {
+        return Err(bad());
+    }
+    let mut at = 8usize;
+    let mut runs = Vec::new();
+    for _ in 0..strikes {
+        let count = at32(at).ok_or_else(bad)?;
+        at = at.checked_add(4).ok_or_else(bad)?;
+        for _ in 0..count {
+            let first = at32(at).ok_or_else(bad)?;
+            let n = at.checked_add(4).and_then(at32).ok_or_else(bad)?;
+            runs.push((first, n));
+            at = at.checked_add(record).ok_or_else(bad)?;
+        }
+    }
+    Ok(runs)
+}
+
+/// Reads one frame into an event, or `None` at the end of the stream: its
+/// length checked against its kind's bound before its payload is
+/// allocated.
+fn frame(r: &mut impl Read) -> Option<Event> {
     let (kind, len) = match head(r) {
         Ok(Some(h)) => h,
-        Ok(None) => return Event::Closed,
-        Err(why) => return Event::Malformed(why),
+        Ok(None) => return None,
+        Err(why) => return Some(Event::Malformed(why)),
     };
     let max = match kind {
         FRAME_GLYPHS => FRAME_BYTES_MAX,
         FRAME_DONE => 0,
         FRAME_FAILED => REASON_BYTES_MAX,
-        other => return Event::Malformed(format!("a frame of unknown kind {other}")),
+        other => return Some(Event::Malformed(format!("a frame of unknown kind {other}"))),
     };
     if len > max {
-        return Event::Malformed(format!("a frame of {len} bytes, past its kind's {max}"));
+        return Some(Event::Malformed(format!(
+            "a frame of {len} bytes, past its kind's {max}"
+        )));
     }
     let mut payload = vec![0u8; usize::try_from(len).unwrap_or(0)];
     if r.read_exact(&mut payload).is_err() {
-        return Event::Malformed("a frame cut short".to_owned());
+        return Some(Event::Malformed("a frame cut short".to_owned()));
     }
-    match kind {
-        FRAME_GLYPHS => match Set::from_bytes(payload) {
-            Ok(set) => Event::Glyphs(Arc::new(set)),
-            Err(e) => Event::Malformed(format!("glyphs vtium cannot read: {e}")),
+    Some(match kind {
+        FRAME_GLYPHS => match mapped_runs(&payload) {
+            Err(why) => Event::Malformed(why),
+            Ok(runs) => match Set::from_bytes(payload) {
+                Ok(set) => Event::Glyphs {
+                    set: Arc::new(set),
+                    runs,
+                    bytes: u64::from(len),
+                },
+                Err(e) => Event::Malformed(format!("glyphs vtium cannot read: {e}")),
+            },
         },
         FRAME_DONE => Event::Done,
         _ => Event::Failed(String::from_utf8_lossy(&payload).into_owned()),
-    }
+    })
 }
 
 /// An answer the console takes.
@@ -227,9 +316,10 @@ pub enum Answer {
     Glyphs { cell: Cell, set: Arc<Set> },
 }
 
-/// The helper's process and its two threads.
+/// The helper's process: its pidfd, which ends it, the writer's queue and
+/// the reader's events. The reader thread owns the child and reaps it.
 struct Running {
-    child: Child,
+    pidfd: Option<OwnedFd>,
     requests: mpsc::Sender<Vec<u8>>,
     events: mpsc::Receiver<Event>,
 }
@@ -242,12 +332,58 @@ struct InFlight {
     first: Option<Instant>,
     /// When the next answer is due.
     due: Instant,
+    /// When the request must be answered whole.
+    end: Instant,
     /// Sent again to a helper started for it once already.
     resent: bool,
 }
 
+/// What the helper has sent at one cell this boot: a bit for each
+/// codepoint, and the bytes of its frames.
+struct Held {
+    cell: Cell,
+    bits: Vec<u64>,
+    bytes: u64,
+}
+
+/// One bit for each Unicode codepoint.
+const CODEPOINT_WORDS: usize = 0x11_0000 / 64;
+
+impl Held {
+    fn new(cell: Cell) -> Held {
+        Held {
+            cell,
+            bits: vec![0; CODEPOINT_WORDS],
+            bytes: 0,
+        }
+    }
+
+    /// Marks each codepoint of `runs`; false when one is past Unicode or
+    /// already held.
+    fn mark(&mut self, runs: &[(u32, u32)]) -> bool {
+        for &(first, n) in runs {
+            for c in (0..n).map(|i| first.checked_add(i)) {
+                let Some(c) = c else {
+                    return false;
+                };
+                let (word, bit) = ((c / 64) as usize, c % 64);
+                let Some(w) = self.bits.get_mut(word) else {
+                    return false;
+                };
+                if *w & (1 << bit) != 0 {
+                    return false;
+                }
+                *w |= 1 << bit;
+            }
+        }
+        true
+    }
+}
+
 /// The helper as the console sees it: started on the first request,
-/// fed one request at a time, given up for this boot at its first failure.
+/// fed one request at a time, replaced at the next request when its CPU
+/// limit ended it, at most [`RESTARTS_MAX`] times a boot, and otherwise
+/// given up for this boot at its first failure.
 pub struct Helper {
     command: Command,
     /// Wakes the loop: called by the reader thread after each frame.
@@ -255,8 +391,12 @@ pub struct Helper {
     running: Option<Running>,
     queue: VecDeque<Request>,
     in_flight: Option<InFlight>,
+    held: Vec<Held>,
+    restarts: u32,
     failed: Option<String>,
     answer: Duration,
+    request: Duration,
+    cell_bytes: u64,
     /// When vtium started, for the line each answered request logs.
     epoch: Instant,
 }
@@ -272,8 +412,12 @@ impl Helper {
             running: None,
             queue: VecDeque::new(),
             in_flight: None,
+            held: Vec::new(),
+            restarts: 0,
             failed: None,
             answer: Duration::from_millis(ANSWER_MS),
+            request: Duration::from_millis(REQUEST_MS),
+            cell_bytes: CELL_BYTES_MAX,
         }
     }
 
@@ -282,14 +426,21 @@ impl Helper {
         self.failed.as_deref()
     }
 
-    /// When [`Helper::poll`] must next run: the answer due.
+    /// When [`Helper::poll`] must next run: the next answer due, or the
+    /// request's end, whichever comes first.
     pub fn deadline(&self) -> Option<Instant> {
-        self.in_flight.as_ref().map(|f| f.due)
+        self.in_flight.as_ref().map(|f| f.due.min(f.end))
     }
 
     /// Whether a request is queued or answering.
     pub fn busy(&self) -> bool {
         self.in_flight.is_some() || !self.queue.is_empty()
+    }
+
+    /// Forgets what was sent at every cell but `cells`, as the console
+    /// drops those glyphs, so a cell asked for again starts afresh.
+    pub fn retain(&mut self, cells: &[Cell]) {
+        self.held.retain(|h| cells.contains(&h.cell));
     }
 
     /// Asks for `request`, after those already asked.
@@ -316,6 +467,7 @@ impl Helper {
                 asked: now,
                 first: None,
                 due: now,
+                end: after(now, self.request),
                 resent: false,
             },
             now,
@@ -360,6 +512,11 @@ impl Helper {
         let mut child = process
             .spawn()
             .map_err(|e| format!("cannot start {}: {e}", c.program.display()))?;
+        // a pidfd names this child alone, even once the reader has reaped it
+        let pidfd = i32::try_from(child.id())
+            .ok()
+            .and_then(Pid::from_raw)
+            .and_then(|pid| pidfd_open(pid, PidfdFlags::empty()).ok());
         let (stdin, stdout) = (child.stdin.take(), child.stdout.take());
         let (requests, to_write) = mpsc::channel::<Vec<u8>>();
         if let Some(mut stdin) = stdin {
@@ -377,23 +534,27 @@ impl Helper {
         }
         let (tx, events) = mpsc::channel();
         let wake = Arc::clone(&self.wake);
-        if let Some(mut stdout) = stdout {
-            std::thread::spawn(move || {
-                loop {
-                    let e = frame(&mut stdout);
-                    let end = matches!(e, Event::Closed | Event::Malformed(_));
+        std::thread::spawn(move || {
+            if let Some(mut stdout) = stdout {
+                while let Some(e) = frame(&mut stdout) {
+                    let malformed = matches!(e, Event::Malformed(_));
                     if tx.send(e).is_err() {
                         break;
                     }
                     wake();
-                    if end {
+                    if malformed {
                         break;
                     }
                 }
-            });
-        }
+            }
+            // reaped here, as it exits, so a helper that closes its output
+            // a moment before it exits is waited for, never ended
+            let status = child.wait().ok();
+            let _ = tx.send(Event::Closed(status));
+            wake();
+        });
         Ok(Running {
-            child,
+            pidfd,
             requests,
             events,
         })
@@ -412,17 +573,16 @@ impl Helper {
         }
     }
 
-    /// Ends the helper's process, if it runs, and waits for it.
+    /// Ends the helper's process, if it runs; its reader reaps it.
     fn stop(&mut self) {
         self.in_flight = None;
-        if let Some(mut r) = self.running.take() {
-            let _ = r.child.kill();
-            let _ = r.child.wait();
+        if let Some(fd) = self.running.take().and_then(|r| r.pidfd) {
+            let _ = pidfd_send_signal(&fd, Signal::KILL);
         }
     }
 
     /// Takes what the helper has sent since the last call, and gives the
-    /// helper up when its answer is past due.
+    /// helper up when its answer or its request is past due.
     pub fn poll(&mut self, now: Instant) -> Vec<Answer> {
         let mut out = Vec::new();
         loop {
@@ -430,29 +590,26 @@ impl Helper {
                 break;
             };
             match event {
-                Event::Glyphs(set) => {
-                    let Some(flight) = &mut self.in_flight else {
-                        self.fail("the helper answered what was not asked");
-                        break;
-                    };
-                    let cell = flight.request.cell;
-                    let fits = set.cells() == [cell]
-                        && set
-                            .strikes()
-                            .all(|s| s.style == vtium_font::Style::default());
-                    if !fits {
-                        self.fail("the helper answered glyphs at a cell not asked for");
+                Event::Glyphs { set, runs, bytes } => match self.glyphs(&set, &runs, bytes, now) {
+                    Ok(cell) => out.push(Answer::Glyphs { cell, set }),
+                    Err(why) => {
+                        self.fail(why);
                         break;
                     }
-                    flight.due = after(now, self.answer);
-                    flight.first.get_or_insert(now);
-                    out.push(Answer::Glyphs { cell, set });
-                }
+                },
                 Event::Done => {
                     let Some(flight) = self.in_flight.take() else {
                         self.fail("the helper answered what was not asked");
                         break;
                     };
+                    if flight.first.is_none() {
+                        let c = flight.request.cell;
+                        self.fail(&format!(
+                            "the helper answered no glyph at {}x{}",
+                            c.width, c.height
+                        ));
+                        break;
+                    }
                     self.done(&flight, now);
                     self.next(now);
                 }
@@ -464,19 +621,66 @@ impl Helper {
                     self.fail(&format!("the helper's answer was refused: {why}"));
                     break;
                 }
-                Event::Closed => {
-                    self.closed(now);
+                Event::Closed(status) => {
+                    self.closed(status, now);
                     break;
                 }
             }
         }
-        if self.in_flight.as_ref().is_some_and(|f| f.due <= now) {
-            self.fail(&format!(
+        match &self.in_flight {
+            Some(f) if f.end <= now => self.fail(&format!(
+                "the helper did not finish a request within {} s and was ended",
+                self.request.as_secs()
+            )),
+            Some(f) if f.due <= now => self.fail(&format!(
                 "the helper gave no answer within {} s and was ended",
                 self.answer.as_secs()
-            ));
+            )),
+            _ => {}
         }
         out
+    }
+
+    /// Checks a frame of glyphs against the request answering: every
+    /// strike at the cell asked for and regular, no codepoint the cell
+    /// holds already, and the cell's bytes inside its budget.
+    fn glyphs(
+        &mut self,
+        set: &Set,
+        runs: &[(u32, u32)],
+        bytes: u64,
+        now: Instant,
+    ) -> Result<Cell, &'static str> {
+        let flight = self
+            .in_flight
+            .as_mut()
+            .ok_or("the helper answered what was not asked")?;
+        let cell = flight.request.cell;
+        let fits = set.cells() == [cell]
+            && set
+                .strikes()
+                .all(|s| s.style == vtium_font::Style::default());
+        if !fits {
+            return Err("the helper answered glyphs at a cell not asked for");
+        }
+        let held = match self.held.iter().position(|h| h.cell == cell) {
+            Some(i) => self.held.get_mut(i),
+            None => {
+                self.held.push(Held::new(cell));
+                self.held.last_mut()
+            }
+        }
+        .ok_or("the helper answered what was not asked")?;
+        held.bytes = held.bytes.saturating_add(bytes);
+        if held.bytes > self.cell_bytes {
+            return Err("the helper's glyphs at one cell passed their byte budget");
+        }
+        if !held.mark(runs) {
+            return Err("the helper's glyphs repeat a codepoint it sent");
+        }
+        flight.due = after(now, self.answer);
+        flight.first.get_or_insert(now);
+        Ok(cell)
     }
 
     /// Logs a request answered whole: when it was asked after vtium
@@ -495,37 +699,48 @@ impl Helper {
         );
     }
 
-    /// The helper closed its end: an idle exit, or a failure.
-    fn closed(&mut self, now: Instant) {
-        let Some(mut r) = self.running.take() else {
-            return;
-        };
-        let status = match r.child.try_wait() {
-            Ok(Some(status)) => Some(status),
-            // closed its output and still running: ended here
-            _ => {
-                let _ = r.child.kill();
-                r.child.wait().ok()
-            }
-        };
+    /// The helper closed its end and was reaped. An exit 0 is its idle
+    /// exit: the request it left unread, if any, goes to another, once. An
+    /// end by its CPU limit (`SIGXCPU`, or `SIGKILL` past the hard limit)
+    /// replaces it at the next request, the one it was answering dropped,
+    /// at most [`RESTARTS_MAX`] times a boot. Anything else gives it up.
+    fn closed(&mut self, status: Option<ExitStatus>, now: Instant) {
+        self.running = None;
         let clean = status.is_some_and(|s| s.success());
+        let signal = status.and_then(|s| s.signal());
+        let cpu = matches!(signal, Some(SIGXCPU | SIGKILL));
         match self.in_flight.take() {
             None if clean => self.next(now),
-            Some(flight) if clean && !flight.resent => self.send(
+            Some(flight) if clean && !flight.resent && flight.first.is_none() => self.send(
                 InFlight {
                     resent: true,
                     ..flight
                 },
                 now,
             ),
+            flight if cpu && self.restarts < RESTARTS_MAX => {
+                self.restarts = self.restarts.saturating_add(1);
+                if let Some(f) = flight {
+                    let c = f.request.cell;
+                    log::warn!(
+                        "the helper reached its CPU limit at {}x{}: the characters it had not sent there draw in the built-in font",
+                        c.width,
+                        c.height
+                    );
+                }
+                self.next(now);
+            }
             _ => {
-                let why = match status {
-                    Some(s) if s.signal().is_some() => format!(
-                        "the helper was ended by signal {}",
-                        s.signal().unwrap_or_default()
+                let why = match signal {
+                    Some(_) if cpu => format!(
+                        "the helper reached its CPU limit {} times",
+                        self.restarts.saturating_add(1)
                     ),
-                    Some(s) => format!("the helper exited: {s}"),
-                    None => "the helper exited".to_owned(),
+                    Some(sig) => format!("the helper was ended by signal {sig}"),
+                    None => match status {
+                        Some(s) => format!("the helper exited: {s}"),
+                        None => "the helper exited".to_owned(),
+                    },
                 };
                 self.fail(&why);
             }
@@ -538,6 +753,10 @@ impl Drop for Helper {
         self.stop();
     }
 }
+
+/// `SIGXCPU` and `SIGKILL`, the signals an exhausted `RLIMIT_CPU` sends.
+const SIGXCPU: i32 = 24;
+const SIGKILL: i32 = 9;
 
 fn after(t: Instant, d: Duration) -> Instant {
     t.checked_add(d).unwrap_or(t)
@@ -704,6 +923,8 @@ mod tests {
         let _ = s.woke.recv_timeout(Duration::from_secs(10));
         assert!(s.helper.poll(now).is_empty());
         assert_eq!(s.helper.failed(), None);
+        // the cell asked for again, as after its glyphs were dropped
+        s.helper.retain(&[]);
         s.ask(now);
         assert_eq!(s.run(now).len(), 1);
         assert_eq!(s.helper.failed(), None);
@@ -777,12 +998,12 @@ mod tests {
         huge.extend_from_slice(&u32::MAX.to_le_bytes());
         let e = frame(&mut &huge[..]);
         assert!(
-            matches!(&e, Event::Malformed(why) if why.contains("past its kind's")),
+            matches!(&e, Some(Event::Malformed(why)) if why.contains("past its kind's")),
             "{e:?}"
         );
         let mut done = FRAME_DONE.to_le_bytes().to_vec();
         done.extend_from_slice(&1u32.to_le_bytes());
-        assert!(matches!(frame(&mut &done[..]), Event::Malformed(_)));
+        assert!(matches!(frame(&mut &done[..]), Some(Event::Malformed(_))));
         let why = given_up("huge", "cat >/dev/null & cat \"$1\"; wait", &huge);
         assert!(why.contains("past its kind's"), "{why}");
     }
@@ -803,6 +1024,120 @@ mod tests {
         let why = s.helper.failed().unwrap();
         assert!(why.contains("no answer within 10 s"), "{why}");
         assert!(s.helper.running.is_none());
+    }
+
+    #[test]
+    fn a_frame_that_repeats_a_codepoint_is_refused() {
+        // the same set over and over, as a stand-in that floods: given up at
+        // the second, however long the flood
+        let a = frame_bytes(FRAME_GLYPHS, &set(CELL, 'A'));
+        let flood: Vec<u8> = a.iter().copied().cycle().take(a.len() * 20_000).collect();
+        let mut s = StandIn::new("flood", "cat >/dev/null & cat \"$1\"; wait", &flood);
+        let now = t0();
+        s.ask(now);
+        assert_eq!(s.run(now).len(), 1);
+        let why = s.helper.failed().unwrap();
+        assert!(why.contains("repeat"), "{why}");
+    }
+
+    #[test]
+    fn glyphs_past_a_cells_byte_budget_are_refused() {
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, 'A'));
+        fixture.extend(frame_bytes(FRAME_GLYPHS, &set(CELL, 'B')));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let mut s = StandIn::new("budget", "cat >/dev/null & cat \"$1\"; wait", &fixture);
+        s.helper.cell_bytes = (fixture.len() / 2) as u64;
+        let now = t0();
+        s.ask(now);
+        assert_eq!(s.run(now).len(), 1);
+        let why = s.helper.failed().unwrap();
+        assert!(why.contains("budget"), "{why}");
+    }
+
+    #[test]
+    fn a_request_has_one_deadline_however_often_frames_come() {
+        // a frame now and then keeps the answer due, but not the request's
+        // end
+        let mut s = StandIn::new(
+            "deadline",
+            "cat >/dev/null & cat \"$1\"; exec sleep 30",
+            &frame_bytes(FRAME_GLYPHS, &set(CELL, 'A')),
+        );
+        let now = t0();
+        s.ask(now);
+        let _ = s.woke.recv_timeout(Duration::from_secs(10));
+        let late = after(now, Duration::from_millis(REQUEST_MS));
+        let nearly = after(now, Duration::from_millis(REQUEST_MS - 1));
+        // the frame came at `nearly`'s doorstep: the answer is due 10 s on,
+        // the request at REQUEST_MS
+        assert_eq!(s.helper.poll(nearly).len(), 1);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(s.helper.deadline(), Some(late));
+        assert!(s.helper.poll(late).is_empty());
+        let why = s.helper.failed().unwrap();
+        assert!(why.contains("did not finish"), "{why}");
+    }
+
+    #[test]
+    fn a_request_answered_with_no_glyph_is_a_failure() {
+        let why = given_up(
+            "none",
+            "cat >/dev/null & cat \"$1\"; wait",
+            &frame_bytes(FRAME_DONE, &[]),
+        );
+        assert!(why.contains("no glyph"), "{why}");
+    }
+
+    #[test]
+    fn a_helper_that_closes_before_it_exits_is_no_failure() {
+        // its output closes, then it lingers before exiting 0: reaped, not
+        // ended, and the next request starts another
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, 'A'));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let mut s = StandIn::new(
+            "linger",
+            "head -c 1 >/dev/null; cat \"$1\"; exec 1>&-; sleep 0.3; exit 0",
+            &fixture,
+        );
+        let now = t0();
+        s.ask(now);
+        assert_eq!(s.run(now).len(), 1);
+        while s.helper.running.is_some() && s.woke.recv_timeout(Duration::from_secs(10)).is_ok() {
+            assert!(s.helper.poll(now).is_empty());
+        }
+        assert_eq!(s.helper.failed(), None);
+        s.helper.retain(&[]);
+        s.ask(now);
+        assert_eq!(s.run(now).len(), 1);
+        assert_eq!(s.helper.failed(), None);
+    }
+
+    #[test]
+    fn a_helper_ended_by_its_cpu_limit_is_replaced_a_bounded_number_of_times() {
+        // each helper answers its request, then the kernel ends it for its
+        // CPU time: the next request starts another, up to RESTARTS_MAX
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, 'A'));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let mut s = StandIn::new(
+            "cpu",
+            "head -c 1 >/dev/null; cat \"$1\"; kill -XCPU $$",
+            &fixture,
+        );
+        let now = t0();
+        for round in 0..=RESTARTS_MAX {
+            s.helper.retain(&[]);
+            s.ask(now);
+            assert_eq!(s.run(now).len(), 1, "round {round}");
+            while s.helper.running.is_some() && s.woke.recv_timeout(Duration::from_secs(10)).is_ok()
+            {
+                let _ = s.helper.poll(now);
+            }
+            if round < RESTARTS_MAX {
+                assert_eq!(s.helper.failed(), None, "round {round}");
+            }
+        }
+        let why = s.helper.failed().unwrap();
+        assert!(why.contains("CPU limit"), "{why}");
     }
 
     #[test]

@@ -865,6 +865,9 @@ impl App {
         cells.sort_unstable_by_key(|c| (c.height, c.width));
         cells.dedup();
         generated.borrow_mut().retain(&cells);
+        if let Some(helper) = &mut self.helper {
+            helper.retain(&cells);
+        }
         self.asked.retain(|c| cells.contains(c));
         let new: Vec<vtium_font::Cell> = cells
             .into_iter()
