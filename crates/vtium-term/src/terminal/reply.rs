@@ -78,6 +78,8 @@ queries! {
     ColorScheme,
     /// XTREPORTCOLORS, `CSI # R`.
     ColorStack,
+    /// OSC 50's query of the font set in use.
+    Font,
 }
 
 /// XTVERSION's text until the host sets one.
@@ -400,6 +402,8 @@ mod tests {
         t.set_version("vtium(test)").expect("printable");
         t.set_cell_size(8, 16);
         t.set_display_size(1366, 768);
+        t.set_font_ops(true);
+        assert!(t.set_font_name("unifont"));
         t.input(b"\x1b[3;5H\x1b[1;31m");
         t.take_replies();
         t
@@ -549,6 +553,12 @@ mod tests {
                 let request = cat(&[b"\x1b[", &entry, b"#P\x1b[#Q\x1b[", &n, b"#R"]);
                 (request, vec![], vec![entry, n])
             }
+            // A set asked for by a hostile name, then the query: the
+            // reply names the host's set, never the one asked for.
+            Query::Font => {
+                let request = cat(&[b"\x1b]50;", &tok, b"\x07\x1b]50;?\x1b\\"]);
+                (request, vec![tok], vec![])
+            }
         };
         Probe {
             request,
@@ -635,6 +645,7 @@ mod tests {
                 Query::Visibility => (b"\x1b[?998n", b"\x1b[?999;1n"),
                 Query::ColorScheme => (b"\x1b[?996n", b"\x1b[?997;1n"),
                 Query::ColorStack => (b"\x1b[#P\x1b[3#P\x1b[#R", b"\x1b[?3;3#Q"),
+                Query::Font => (b"\x1b]50;?\x07", b"\x1b]50;unifont\x07"),
             };
             let mut t = fixture();
             t.input(request);
