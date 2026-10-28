@@ -1,6 +1,6 @@
 //! The in-band reports a program opts into, so it hears of a change
 //! without polling: the text area's size (mode 2048), the console's
-//! visibility (mode 2033 and `CSI ? 998 n`) and its colour scheme (mode
+//! visibility (mode 2033 and `CSI ? 998 n`) and its color scheme (mode
 //! 2031 and `CSI ? 996 n`). Each report is sent while its mode is set, and
 //! only on a change; the queries answer whatever the modes hold.
 //!
@@ -90,11 +90,11 @@ fn mode_2033_reports_visibility_on_set_and_each_change() {
     assert_eq!(sent(&mut t), "");
 }
 
-// contour's colour palette update notifications (mode 2031): set, the
+// contour's color palette update notifications (mode 2031): set, the
 // mode sends nothing until the default background changes between dark
 // and light, by OSC 11, OSC 111, OSC 21 or the host's palette; then
 // `CSI ? 997 ; 1 n` dark or `2` light. A change that keeps the scheme, and
-// a palette colour, report nothing.
+// a palette color, report nothing.
 // covers: DEC-2031
 #[test]
 fn mode_2031_reports_a_change_of_scheme() {
@@ -125,12 +125,12 @@ fn mode_2031_reports_a_change_of_scheme() {
     assert_eq!(sent(&mut t), "");
 }
 
-// A pop of the colour stack, XTPOPCOLORS or kitty's OSC 30101, that
+// A pop of the color stack, XTPOPCOLORS or kitty's OSC 30101, that
 // restores a background of the other scheme is a change of scheme: one
 // report a sequence, however many entries it pops.
 // covers: DEC-2031
 #[test]
-fn a_colour_stack_pop_reports_a_change_of_scheme() {
+fn a_color_stack_pop_reports_a_change_of_scheme() {
     let mut t = term(10, 5, b"\x1b[?2031h\x1b]11;#ffffff\x07");
     assert_eq!(sent(&mut t), "\x1b[?997;2n");
     t.input(b"\x1b[#P\x1b]11;#000000\x07");
@@ -159,7 +159,7 @@ fn a_colour_stack_pop_reports_a_change_of_scheme() {
 // is dark and `2` while it is light, whatever mode 2031 holds. Dark is a
 // luma below half, Y = 0.299 R + 0.587 G + 0.114 B on the stored channels
 // (ITU-R BT.601), the rule neovim applies to OSC 11's answer.
-// covers: colour.scheme-report
+// covers: color.scheme-report
 #[test]
 fn the_scheme_query_answers_by_the_backgrounds_luma() {
     let mut t = term(10, 5, b"");

@@ -682,10 +682,10 @@ fn a_cursor_shape_change_at_rest_redraws_its_cell() {
     }
 }
 
-// OSC 12 with the cursor still: the cell under it redraws in the colour
-// covers: cursor.colour
+// OSC 12 with the cursor still: the cell under it redraws in the color
+// covers: cursor.color
 #[test]
-fn a_cursor_colour_change_at_rest_redraws_its_cell() {
+fn a_cursor_color_change_at_rest_redraws_its_cell() {
     let mut s = prompt();
     let (w, h) = PROMPT;
     let mut d = Display::new(2, w, h);

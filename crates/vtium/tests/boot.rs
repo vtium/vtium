@@ -499,7 +499,7 @@ fn the_fonts_policy_follows_the_keys() {
     assert_eq!(h.app.font_policy(), Some((want, Missing::Hex)));
 }
 
-// covers: colour.palette.named
+// covers: color.palette.named
 #[test]
 fn a_named_palette_reaches_the_terminal() {
     let h = Harness::new(&["--palette=solarized-white"]);

@@ -7,16 +7,16 @@
 # COVERAGE.md takes the tests that guard it (tools/conformance/README.md).
 
 # text and attributes
-sgr-colon-subparams           works   -     sgr.extended-colour            colon sub-parameters: SGR reads them, other sequences with them are ignored
+sgr-colon-subparams           works   -     sgr.extended-color             colon sub-parameters: SGR reads them, other sequences with them are ignored
 sgr-underline-styles          works   -     sgr.underline-style            SGR 4:1 to 4:5 and 21 set each underline style, 24 clears
-sgr-underline-colour          works   -     sgr.underline-colour           SGR 58;2, 58:2::r:g:b and 59; 4;58;5;196 never blinks
+sgr-underline-colour          works   -     sgr.underline-color            SGR 58;2, 58:2::r:g:b and 59; 4;58;5;196 never blinks
 sgr-strike                    works   -     sgr.strike                     SGR 9 and 29
 sgr-blink                     works   -     sgr.blink                      SGR 5 and 25 set the frame's blink flag
 sgr-italic                    works   -     sgr.italic                     SGR 3 and 23
-sgr-truecolor                 works   -     sgr.extended-colour            SGR 38;2 and 48;2
+sgr-truecolor                 works   -     sgr.extended-color             SGR 38;2 and 48;2
 sgr-overline                  missing #37   sgr.overline                   SGR 53 and 55: vtium-term keeps the attribute, and interface 1 reserves its key
 sgr-super-subscript           missing #37   sgr.script                     SGR 73 to 75: vtium-term keeps the attribute, and interface 1 reserves its keys
-palette-at-draw               works   -     sgr.draw-time-colour           colours are resolved at draw time: a palette change recolours text
+palette-at-draw               works   -     sgr.draw-time-color            colors are resolved at draw time: a palette change recolors text
 modkeys-not-sgr               works   -     input.modify-other-keys        CSI > 4;1 m and CSI ? 4 m are not SGR 4
 cluster                       works   -     text.grapheme                  a grapheme cluster is one cell whose codepoints read back
 mode-2027                     works   -     DEC-2027                       mode 2027 and its DECRQM reply
@@ -37,12 +37,12 @@ da2                           works   -     query.da2                      DA2 r
 da3                           works   -     query.da3                      DA3 answers DECRPTUI, where the C reference answered DA1
 xtversion                     works   -     query.xtversion                XTVERSION replies with the host's text
 xtgettcap                     works   -     query.xtgettcap                XTGETTCAP answers from the table; skipped without the kmscon.termcap fixture
-osc-4-query                   works   -     colour.palette.query           OSC 4 queries a palette colour
-osc-4-set                     works   -     colour.palette.set             OSC 4 sets a palette colour
-osc-10-11-query               works   -     colour.dynamic.query           OSC 10 and 11 query the default colours
-osc-10-11-set                 works   -     colour.dynamic.set             OSC 10 and 11 set the default colours
-osc-12-query                  works   -     colour.dynamic.set             OSC 12 queries the cursor colour
-osc-104-110-111-reset         works   -     colour.palette.set             OSC 104, 110 and 111 reset what OSC 4, 10 and 11 set
+osc-4-query                   works   -     color.palette.query            OSC 4 queries a palette color
+osc-4-set                     works   -     color.palette.set              OSC 4 sets a palette color
+osc-10-11-query               works   -     color.dynamic.query            OSC 10 and 11 query the default colors
+osc-10-11-set                 works   -     color.dynamic.set              OSC 10 and 11 set the default colors
+osc-12-query                  works   -     color.dynamic.set              OSC 12 queries the cursor color
+osc-104-110-111-reset         works   -     color.palette.set              OSC 104, 110 and 111 reset what OSC 4, 10 and 11 set
 
 # input
 kitty-keyboard                missing #42   input.kitty-keyboard           the kitty keyboard protocol

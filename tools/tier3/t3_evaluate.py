@@ -275,7 +275,7 @@ def describe(case):
 
 
 def screen_text(case, log):
-    """The lines a case's screen script prints, colours removed, so a region
+    """The lines a case's screen script prints, colors removed, so a region
     of the screen can be named by the text drawn there. The guest clears the
     screen first, so line N is the screen's row N. Any other control in the
     output (a cursor move, a tab, a character-set switch) would break that
@@ -301,7 +301,7 @@ def screen_text(case, log):
         return None
     text = re.sub(r"\x1b\[[0-9;:]*m", "", out)
     if re.search(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]", text):
-        log("%s: no screen text: the script prints controls other than colours" % case)
+        log("%s: no screen text: the script prints controls other than colors" % case)
         return None
     return text.rstrip("\n").split("\n")
 

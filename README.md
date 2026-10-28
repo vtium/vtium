@@ -2,7 +2,7 @@
 
 A terminal for the Linux virtual console, drawn straight to the display through KMS/DRM with no display server: modern text styling, sixel and kitty graphics on a bare VT.
 
-vtium is a Rust terminal inspired by [kmscon](https://github.com/kmscon/kmscon) and libtsm, by David Herrmann and their contributors (see [COPYING](COPYING)). It carries forward the work of the [aaronsb/kmscon](https://github.com/aaronsb/kmscon) fork, which added underline styles and colours, grapheme clusters, colour emoji, sixel and the kitty graphics protocol, a GPU path with a CPU fallback, and a minimal build for small machines. vtium is a separate project: it is not upstream kmscon and not its Rust conversion.
+vtium is a Rust terminal inspired by [kmscon](https://github.com/kmscon/kmscon) and libtsm, by David Herrmann and their contributors (see [COPYING](COPYING)). It carries forward the work of the [aaronsb/kmscon](https://github.com/aaronsb/kmscon) fork, which added underline styles and colors, grapheme clusters, color emoji, sixel and the kitty graphics protocol, a GPU path with a CPU fallback, and a minimal build for small machines. vtium is a separate project: it is not upstream kmscon and not its Rust conversion.
 
 [docs/concepts.md](docs/concepts.md) introduces vtium's concepts: its pieces, how it is installed and started, and how it is used.
 

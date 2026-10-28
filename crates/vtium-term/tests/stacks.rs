@@ -1,4 +1,4 @@
-//! The SGR and colour stacks, driven through the byte stream: XTPUSHSGR
+//! The SGR and color stacks, driven through the byte stream: XTPUSHSGR
 //! and XTPOPSGR, XTPUSHCOLORS, XTPOPCOLORS and XTREPORTCOLORS (ctlseqs),
 //! and kitty's OSC 30001 and 30101 (`color-stack`), each stack at its
 //! bound, empty, and across DECSTR and RIS.
@@ -149,8 +149,8 @@ fn a_push_past_the_sgr_bound_keeps_nothing() {
 }
 
 /// A terminal whose palette differs from the default in each kind of
-/// colour the stack keeps.
-fn coloured() -> Terminal {
+/// color the stack keeps.
+fn colored() -> Terminal {
     term(
         4,
         2,
@@ -159,13 +159,13 @@ fn coloured() -> Terminal {
 }
 
 // ctlseqs, XTPUSHCOLORS and XTPOPCOLORS: the push keeps the 256 palette
-// colours and the dynamic ones, the defaults and the cursor's, pointer's
-// and selection's colours, and the pop restores them all and recolours
+// colors and the dynamic ones, the defaults and the cursor's, pointer's
+// and selection's colors, and the pop restores them all and recolors
 // every cell.
-// covers: colour.stack
+// covers: color.stack
 #[test]
 fn xtpushcolors_and_xtpopcolors_restore_the_palette() {
-    let mut t = coloured();
+    let mut t = colored();
     let saved = t.palette().clone();
     assert_ne!(saved, Palette::default());
     t.input(b"\x1b[#P");
@@ -176,9 +176,9 @@ fn xtpushcolors_and_xtpopcolors_restore_the_palette() {
     assert_eq!(t.palette(), &saved);
     let palette = t.palette().clone();
     let frame = t.screen().frame(&palette, since);
-    assert!(frame.row_changed(0), "the pop recolours the screen");
+    assert!(frame.row_changed(0), "the pop recolors the screen");
     assert_eq!(frame.cell(0, 0).unwrap().fg, Rgb::new(1, 1, 1));
-    // a pop that restores the colours already drawn marks nothing
+    // a pop that restores the colors already drawn marks nothing
     t.input(b"\x1b[#P");
     let since = t.screen_mut().checkpoint();
     t.input(b"\x1b[#Q");
@@ -188,7 +188,7 @@ fn xtpushcolors_and_xtpopcolors_restore_the_palette() {
 
 // ctlseqs, XTREPORTCOLORS: `CSI ? Pu ; Ps # Q`, the current entry and the
 // palettes stored, the form XTPOPCOLORS takes.
-// covers: colour.stack
+// covers: color.stack
 #[test]
 fn xtreportcolors_reports_the_entry_and_the_palettes_stored() {
     let mut t = term(4, 1, b"");
@@ -206,7 +206,7 @@ fn xtreportcolors_reports_the_entry_and_the_palettes_stored() {
 // becomes the current one; 0 pushes and pops; several parameters act in
 // turn; a parameter past 10 does nothing.
 #[test]
-fn a_colour_stack_entry_is_stored_and_restored_by_number() {
+fn a_color_stack_entry_is_stored_and_restored_by_number() {
     let red = |t: &Terminal| t.palette().color(1);
     let mut t = term(
         4,
@@ -236,9 +236,9 @@ fn a_colour_stack_entry_is_stored_and_restored_by_number() {
 // ctlseqs, XTPUSHCOLORS: entries 1 through 10. A push with the stack full
 // keeps nothing and moves nothing, as in xterm; a pop of an empty stack
 // does nothing.
-// covers: colour.stack
+// covers: color.stack
 #[test]
-fn a_push_past_the_colour_bound_keeps_nothing() {
+fn a_push_past_the_color_bound_keeps_nothing() {
     assert_eq!(COLOR_STACK_MAX, 10);
     let mut t = term(4, 1, b"");
     t.input(b"\x1b[#Q");
@@ -267,13 +267,13 @@ fn a_push_past_the_colour_bound_keeps_nothing() {
     );
 }
 
-// kitty, `color-stack`: OSC 30001 pushes the colours and OSC 30101 pops
+// kitty, `color-stack`: OSC 30001 pushes the colors and OSC 30101 pops
 // them, ended by BEL or ST. They push and pop the stack XTPUSHCOLORS and
 // XTPOPCOLORS do.
-// covers: colour.stack
+// covers: color.stack
 #[test]
-fn osc_30001_and_30101_push_and_pop_the_colours() {
-    let mut t = coloured();
+fn osc_30001_and_30101_push_and_pop_the_colors() {
+    let mut t = colored();
     let saved = t.palette().clone();
     t.input(b"\x1b]30001\x1b\\\x1b]104\x07\x1b]110;111\x07");
     assert_ne!(t.palette(), &saved);
@@ -298,17 +298,17 @@ fn osc_30001_and_30101_push_and_pop_the_colours() {
 }
 
 // RIS returns the terminal to its initial state, so it empties both
-// stacks, as foot empties its colour stack. DECSTR keeps them, as xterm's
+// stacks, as foot empties its color stack. DECSTR keeps them, as xterm's
 // soft reset and foot's do (`ReallyReset` in xterm 412's `charproc.c`).
 #[test]
 fn ris_empties_the_stacks_and_decstr_keeps_them() {
-    let mut t = coloured();
+    let mut t = colored();
     let saved_palette = t.palette().clone();
     t.input(b"\x1b[1;31m\x1b[#{\x1b[#P\x1b[!p");
     assert_eq!(pen(&t), Style::DEFAULT);
     t.input(b"\x1b[#}\x1b[#Q");
     assert_eq!(pen(&t).fg, Color::Indexed(1), "DECSTR keeps the SGR stack");
-    assert_eq!(t.palette(), &saved_palette, "DECSTR keeps the colour stack");
+    assert_eq!(t.palette(), &saved_palette, "DECSTR keeps the color stack");
 
     t.input(b"\x1b[#{\x1b[#P\x1bc");
     assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[?0;0#Q");
@@ -317,7 +317,7 @@ fn ris_empties_the_stacks_and_decstr_keeps_them() {
     assert_eq!(
         t.palette(),
         &Palette::default(),
-        "RIS empties the colour stack"
+        "RIS empties the color stack"
     );
 }
 

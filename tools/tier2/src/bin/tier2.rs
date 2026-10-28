@@ -12,8 +12,8 @@
 //! program in `reference/`, one a line: the name, columns, rows, the
 //! display's width and height (0 for the grid's), the orientation, the
 //! width method, the bytes and the second part in hex (`-` for none), and
-//! the decoration colours: `-`, or `ul=`, `st=` and `force` between commas,
-//! a colour `iN` for palette index N or `xRRGGBB`.
+//! the decoration colors: `-`, or `ul=`, `st=` and `force` between commas,
+//! a color `iN` for palette index N or `xRRGGBB`.
 //!
 //! `run` exits 0 when every case passes, 1 when one does not and 2 when it
 //! refuses to run; `compare` exits 0 on pass or near, 1 on fail and 2 on

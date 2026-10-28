@@ -78,37 +78,37 @@ impl Face for SpritesOnly {
     }
 }
 
-/// A configured decoration colour: `underline-color` or `strike-color`
-/// as an index into the palette or as a colour.
+/// A configured decoration color: `underline-color` or `strike-color`
+/// as an index into the palette or as a color.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DecoSpec {
     Index(u8),
     Rgb(u8, u8, u8),
 }
 
-/// The decoration colours a screen configures; an absent one follows the
+/// The decoration colors a screen configures; an absent one follows the
 /// cell's foreground.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Decorations {
     pub underline: Option<DecoSpec>,
     pub strike: Option<DecoSpec>,
-    /// `force-decoration-colors`: the configured underline colour wins over
+    /// `force-decoration-colors`: the configured underline color wins over
     /// SGR 58's.
     pub force: bool,
 }
 
 impl Decorations {
-    /// The colours as the renderer takes them: an index resolved through
+    /// The colors as the renderer takes them: an index resolved through
     /// each frame's palette, as pixels.c resolves it on every frame.
     fn colors(&self) -> DecorationColors {
-        let colour = |spec: Option<DecoSpec>| match spec {
+        let color = |spec: Option<DecoSpec>| match spec {
             None => DecoColor::Foreground,
             Some(DecoSpec::Index(i)) => DecoColor::Indexed(i),
             Some(DecoSpec::Rgb(r, g, b)) => DecoColor::Rgb(Rgb::new(r, g, b)),
         };
         DecorationColors {
-            underline: colour(self.underline),
-            strike: colour(self.strike),
+            underline: color(self.underline),
+            strike: color(self.strike),
             force: self.force,
         }
     }
@@ -386,12 +386,12 @@ fn draw_config<F: Face>(
 mod tests {
     use super::*;
 
-    // A decoration colour that names an index follows the palette, as
+    // A decoration color that names an index follows the palette, as
     // pixels.c resolved it on every frame: a second part that changes the
-    // index with OSC 4 draws, where the renderer that took the colour once
+    // index with OSC 4 draws, where the renderer that took the color once
     // had the screen refused.
     #[test]
-    fn decoration_colours_follow_a_palette_change() {
+    fn decoration_colors_follow_a_palette_change() {
         let screen = Screen {
             decorations: Decorations {
                 underline: Some(DecoSpec::Index(196)),
@@ -411,7 +411,7 @@ mod tests {
         );
         let image = draw(&screen).unwrap();
         let green = image.rgb().chunks(3).any(|p| p == [0, 0xff, 0]);
-        assert!(green, "the underline did not take index 196's new colour");
+        assert!(green, "the underline did not take index 196's new color");
     }
     // A PSF test font draws through vtium-font's PSF loader at its own
     // cell: an 8x8 cell for the 8x8 font, where unifont's would be 8x16,

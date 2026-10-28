@@ -327,7 +327,7 @@ fn deccara_sets_attributes_in_a_rectangle_or_a_stream() {
     assert_eq!(all(attrs(&t, 0, 4)), [false; 5]);
 }
 
-// kitty's DECCARA extension: every SGR parameter, colours and underline
+// kitty's DECCARA extension: every SGR parameter, colors and underline
 // styles in both forms included, as SGR applies it to the pen; SGR 0 keeps
 // DECSCA's protection. The rectangle's own parameters are not attributes,
 // and with no attribute nothing changes.

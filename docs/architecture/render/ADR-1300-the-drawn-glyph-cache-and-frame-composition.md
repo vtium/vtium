@@ -64,7 +64,7 @@ related: []
 
 ## Summary
 
-- **Decided:** vtium-render keeps the C reference's flow: the font draws a glyph once, the renderer caches it as a mask or a premultiplied colour glyph, and each cell is drawn without reading screen memory. Six differences: the cache keys on the glyph's text, not on a frame's cluster number; bitmap glyphs are stored at 1 bit and at their font's own size; a full cache draws the glyph uncached, never blank; two cache profiles, minspec and performance, chosen by a configuration key; cells with more than one layer are composed a row at a time in main memory and copied out; the GPU path keeps gltex's four pools and blends with the CPU path's integer arithmetic.
+- **Decided:** vtium-render keeps the C reference's flow: the font draws a glyph once, the renderer caches it as a mask or a premultiplied color glyph, and each cell is drawn without reading screen memory. Six differences: the cache keys on the glyph's text, not on a frame's cluster number; bitmap glyphs are stored at 1 bit and at their font's own size; a full cache draws the glyph uncached, never blank; two cache profiles, minspec and performance, chosen by a configuration key; cells with more than one layer are composed a row at a time in main memory and copied out; the GPU path keeps gltex's four pools and blends with the CPU path's integer arithmetic.
 - **Trades away:** Two more drawing loops (1-bit, and scaled while drawing). A copy for each composed row. A frame drawn past a full cache costs a font call for each uncached glyph. The GPU shader does integer arithmetic in floats.
 - **One-way?** No. Everything here is inside vtium-render, with no stored data and no protocol, and changes in a session.
 - **Probes:**
@@ -74,7 +74,7 @@ related: []
 
 ## Context
 
-vtium/vtium#16 builds vtium-render's CPU compositor, and vtium/vtium#33 its GPU path. The minspec machine (1366x768, 1 vCPU, 512 MB, docs/architecture.md) sets the budget: 8,160 cells of 8x16. The operator asked for glyphs that carry colour and transparency, a balance of speed and memory set by profile, a minspec profile any build can pick, both paths considered, and the C reference understood before anything new is built.
+vtium/vtium#16 builds vtium-render's CPU compositor, and vtium/vtium#33 its GPU path. The minspec machine (1366x768, 1 vCPU, 512 MB, docs/architecture.md) sets the budget: 8,160 cells of 8x16. The operator asked for glyphs that carry color and transparency, a balance of speed and memory set by profile, a minspec profile any build can pick, both paths considered, and the C reference understood before anything new is built.
 
 ADR-1001 changes what a cache can key on: clusters live in each line's arena, at byte offsets that change when a line compacts, and a frame carries a cluster's codepoints, not a screen-wide number.
 
@@ -82,19 +82,19 @@ The figures below are from the glyph storage research on vtium/vtium#16. Each is
 
 ## The C reference's flow
 
-The font answered whether it had a glyph for a cluster in a style, and drew it 1 or 2 cells wide, as an 8-bit coverage mask or as premultiplied ARGB for colour (`kmscon/src/font/font.h:53-63`). Backends kept no cache; the renderer owned each glyph it was given.
+The font answered whether it had a glyph for a cluster in a style, and drew it 1 or 2 cells wide, as an 8-bit coverage mask or as premultiplied ARGB for color (`kmscon/src/font/font.h:53-63`). Backends kept no cache; the renderer owned each glyph it was given.
 
 A glyph was cached under `kmscon_glyph_key`: the frame's 64-bit cluster key, which carried a generation so it never named two clusters, plus bold, italic, the cell width and one byte of the renderer's own (`kmscon/src/font/font.h:64-102`).
 
-bbulk, the CPU renderer, kept one LRU of glyphs, twice the cell count, masks and colour glyphs mixed, each rotated once when inserted (`kmscon/src/render/bbulk.c:433`, `kmscon/src/render/bbulk.c:529-572`).
+bbulk, the CPU renderer, kept one LRU of glyphs, twice the cell count, masks and color glyphs mixed, each rotated once when inserted (`kmscon/src/render/bbulk.c:433`, `kmscon/src/render/bbulk.c:529-572`).
 
-bbulk drew each cell as one blend request into the mapped back buffer, the dumb buffer, computed from the request's colours, so device memory was never read. An undecorated cell was its mask lerped from background to foreground. A decorated cell, or one under a picture, was first composed in a scratch of at most two cells, its text layer premultiplied, and then blended over its background (`kmscon/src/render/bbulk.c:603-672`, `kmscon/src/render/bbulk.c:1413-1475`, `kmscon/src/video/drm2d_render.c:46-87`).
+bbulk drew each cell as one blend request into the mapped back buffer, the dumb buffer, computed from the request's colors, so device memory was never read. An undecorated cell was its mask lerped from background to foreground. A decorated cell, or one under a picture, was first composed in a scratch of at most two cells, its text layer premultiplied, and then blended over its background (`kmscon/src/render/bbulk.c:603-672`, `kmscon/src/render/bbulk.c:1413-1475`, `kmscon/src/video/drm2d_render.c:46-87`).
 
-gltex, the GPU renderer, kept four pools: masks and colour glyphs, each 1 or 2 cells wide. Each pool was strips one cell high with an LRU of slots, full at 8192 glyphs or 64 MiB, and grew past full for a frame that needed more; past a hard stop of 512 MiB a display, glyphs drew blank (`kmscon/src/render/gltex.c:207-241`, `kmscon/src/render/gltex.c:860-930`). Its shader composed underline, glyph and strike over the background in floating point (`kmscon/src/render/gltex_atlas.frag:81-94`).
+gltex, the GPU renderer, kept four pools: masks and color glyphs, each 1 or 2 cells wide. Each pool was strips one cell high with an LRU of slots, full at 8192 glyphs or 64 MiB, and grew past full for a frame that needed more; past a hard stop of 512 MiB a display, glyphs drew blank (`kmscon/src/render/gltex.c:207-241`, `kmscon/src/render/gltex.c:860-930`). Its shader composed underline, glyph and strike over the background in floating point (`kmscon/src/render/gltex_atlas.frag:81-94`).
 
 ## Carried forward
 
-- Glyphs are 8-bit coverage masks, tinted when drawn, or premultiplied RGBA colour glyphs, exactly 1 or 2 cells wide: the colour and transparency the operator asked for.
+- Glyphs are 8-bit coverage masks, tinted when drawn, or premultiplied RGBA color glyphs, exactly 1 or 2 cells wide: the color and transparency the operator asked for.
 - Decorations are one-cell sprites, tinted when drawn and tiled across cells, never part of a glyph.
 - The font keeps no cache, and the renderer owns what it draws.
 - A glyph is rotated once, when cached. A change of font, cell size or orientation empties the cache.
@@ -116,11 +116,11 @@ Each difference says what the C reference did, what vtium does, why, the cost or
 
 ### D2: storage by format and width, at 1 bit when lossless, and at the font's own size
 
-A third format is reserved (added 2026-10-26, the operator's agreement): a per-channel subpixel mask, three coverage values a pixel, for outline fonts (#23, #24). It takes its own pools beside the mask and colour pools, under the same budgets and the same lossless rule. Its order comes from the DRM connector's `subpixel` property, after rotation, with grayscale when the property reports none or unknown and a configuration key to override it. The GPU path blends it per channel in the shader. Bitmap fonts and colour glyphs never use it.
+A third format is reserved (added 2026-10-26, the operator's agreement): a per-channel subpixel mask, three coverage values a pixel, for outline fonts (#23, #24). It takes its own pools beside the mask and color pools, under the same budgets and the same lossless rule. Its order comes from the DRM connector's `subpixel` property, after rotation, with grayscale when the property reports none or unknown and a configuration key to override it. The GPU path blends it per channel in the shader. Bitmap fonts and color glyphs never use it.
 
 
 - **The C reference:** bbulk held every glyph 8-bit at its drawn size, in one LRU of both formats. gltex had pools by format and width.
-- **vtium:** both paths keep gltex's four pools, masks and colour glyphs, 1 or 2 cells wide, each with an LRU, a glyph count and a byte ceiling (D4). The colour pools exist only while a colour face is loaded. A mask whose every pixel is 0 or 255 is stored at 1 bit a pixel; any other mask stays 8-bit. A bitmap font's glyph (PSF, unifont) is stored at the font's own size, bold included, and scaled by its whole factor while drawn, each source pixel a square.
+- **vtium:** both paths keep gltex's four pools, masks and color glyphs, 1 or 2 cells wide, each with an LRU, a glyph count and a byte ceiling (D4). The color pools exist only while a color face is loaded. A mask whose every pixel is 0 or 255 is stored at 1 bit a pixel; any other mask stays 8-bit. A bitmap font's glyph (PSF, unifont) is stored at the font's own size, bold included, and scaled by its whole factor while drawn, each source pixel a square.
 - **Why:** bitmap glyphs have no partial pixels, and anti-aliased glyphs have 7-24% (measured), so the 1-bit test keeps exactly what is lossless. A pool's freed slot always fits the next glyph of its pool, and the same layout serves both paths.
 - **Cost or saving:** an 8x16 mask is 16 bytes at 1 bit against 128 at 8; at scale 2 a stored glyph stays 16 bytes where the C reference held 512. A full minspec cache of a bitmap font holds 0.50 MiB of pixels against the C reference's 3.98 MiB, and 32 times less at scale 2 (Memory). Drawing a full frame costs about the same: at 8x16, 0.334 ms at 1 bit against 0.329 ms at 8 bits; an 8x16 font at scale 2, 0.264 ms scaled while drawing against 0.266 ms stored at 16x32 (all measured). A font drawn 16x32 at its own size is the slow case, 0.329 ms at 1 bit against 0.266 ms at 8 bits (measured). The costs are a 1-bit loop, a scaling loop, one scan of each new mask, and vtium-font handing the renderer a bitmap glyph at scale 1 with its scale.
 - **Pixels:** none change. vtium-font scales a bitmap glyph by repeating each pixel into a square after bold, which is what drawing does; a mask stored at 1 bit reads back as the same 0 and 255.
@@ -129,7 +129,7 @@ A third format is reserved (added 2026-10-26, the operator's agreement): a per-c
 
 - **The C reference:** bbulk drew a cell blank when its glyph could not be cached and tried again on the next frame (`kmscon/src/render/bbulk.c:1426-1432`). gltex drew blank past its hard stop.
 - **vtium:** a pool is full for a glyph when taking it would evict a glyph the frame draws, or when the glyph alone passes the pool's byte ceiling. The glyph is then drawn without being cached: on the CPU path from one reused glyph buffer; on the GPU path from a slot held for that frame and given back after it, which is gltex's growth past full with the frame's cells as its bound.
-- **Why:** a blank cell makes the cache change pixels, which the verification forbids. A glyph past the ceiling is real once vtium/vtium#60 lets a stream set the cell size: at 2048 pixels a side a wide mask is 8 MiB and a colour glyph 32 MiB.
+- **Why:** a blank cell makes the cache change pixels, which the verification forbids. A glyph past the ceiling is real once vtium/vtium#60 lets a stream set the cell size: at 2048 pixels a side a wide mask is 8 MiB and a color glyph 32 MiB.
 - **Cost or saving:** a font call each frame for each uncached glyph: 212 ns at 8x16, 666 ns at 16x32, 2,435 ns at 32x64 (measured with unifont). A whole 8x16 screen of them is about 1.7 ms a frame (estimate).
 - **Pixels:** the C reference's blank cells are drawn with their glyphs. No other pixel changes.
 
@@ -161,7 +161,7 @@ A third format is reserved (added 2026-10-26, the operator's agreement): a per-c
 ### D6: the GPU path keeps gltex's pools and draws the CPU path's pixels
 
 - **The C reference:** gltex's four pools of one-cell strips, blended in floating point, so its pixels could differ from bbulk's by rounding (not measured).
-- **vtium:** the four pools of D2 under D4's budgets, each pool's slots laid out as a grid in its textures, 8-bit for masks and RGBA8 for colour, uploaded a slot at a time. The fragment shader composes the cell as the CPU path does, with its integer arithmetic: values held as whole numbers in `highp` floats, which hold 255 × 255 exactly; `div255` with its shifts written as floors of divisions by 256; nearest sampling; no dithering; each channel `c` written as `(c + 0.25) / 255`. A GPU without `highp` in fragment shaders draws on the CPU path.
+- **vtium:** the four pools of D2 under D4's budgets, each pool's slots laid out as a grid in its textures, 8-bit for masks and RGBA8 for color, uploaded a slot at a time. The fragment shader composes the cell as the CPU path does, with its integer arithmetic: values held as whole numbers in `highp` floats, which hold 255 × 255 exactly; `div255` with its shifts written as floors of divisions by 256; nearest sampling; no dithering; each channel `c` written as `(c + 0.25) / 255`. A GPU without `highp` in fragment shaders draws on the CPU path.
 - **Why:** OpenGL ES lets the conversion to an 8-bit channel return either of the two nearest integers; at `c + 0.25` both rounding to nearest and truncating give `c`. A grid uses a texture's height, where a one-cell strip left texture unused at its end and, at large cells, most of its height (`kmscon/src/render/gltex.c:885-896`).
 - **Cost or saving:** the GPU path is a feature for larger machines: its driver, context and a 1366x768 render target took about 72 MiB on a GPU sharing system memory, and four atlases of 10 MiB added about 34 MiB more (measured, radeonsi); a slot upload took 0.4-2.7 µs (measured). The integer shader's cost against gltex's is not measured.
 - **Pixels:** the GPU path's pixels move from gltex's to the CPU path's. Parity is derived from the specification and not yet seen on hardware. A picture scaled with filtering cannot match and is outside it.

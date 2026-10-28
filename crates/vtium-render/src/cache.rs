@@ -3,7 +3,7 @@
 //! A glyph is cached under its text (the cluster's codepoints), bold,
 //! italic and its width in cells, so the same text in the same style is
 //! drawn by the font once however often the screen re-creates it. Glyphs
-//! live in four pools, masks and colour glyphs each one or two cells wide,
+//! live in four pools, masks and color glyphs each one or two cells wide,
 //! and each pool has its own least-recently-used order, a glyph count and a
 //! byte ceiling. Recency is the drawn frame. A glyph that would evict one
 //! the frame draws, or that alone passes its pool's ceiling, is drawn
@@ -51,8 +51,8 @@ pub struct Budgets {
     pub wide: u32,
     /// Bytes in each mask pool.
     pub mask_bytes: u64,
-    /// Bytes in each colour pool.
-    pub colour_bytes: u64,
+    /// Bytes in each color pool.
+    pub color_bytes: u64,
 }
 
 impl Budgets {
@@ -65,13 +65,13 @@ impl Budgets {
                 narrow: cells.saturating_mul(2),
                 wide: cells,
                 mask_bytes: screen.saturating_mul(2),
-                colour_bytes: screen.saturating_mul(8),
+                color_bytes: screen.saturating_mul(8),
             },
             Profile::Performance => Budgets {
                 narrow: cells.saturating_mul(4),
                 wide: cells.saturating_mul(2),
                 mask_bytes: POOL_BYTES_PERFORMANCE,
-                colour_bytes: POOL_BYTES_PERFORMANCE,
+                color_bytes: POOL_BYTES_PERFORMANCE,
             },
         }
     }
@@ -83,7 +83,7 @@ impl Budgets {
             narrow: n,
             wide: n,
             mask_bytes: POOL_BYTES_PERFORMANCE,
-            colour_bytes: POOL_BYTES_PERFORMANCE,
+            color_bytes: POOL_BYTES_PERFORMANCE,
         }
     }
 
@@ -93,8 +93,8 @@ impl Budgets {
         } else {
             self.narrow
         };
-        let bytes = if pool & COLOUR != 0 {
-            self.colour_bytes
+        let bytes = if pool & COLOR != 0 {
+            self.color_bytes
         } else {
             self.mask_bytes
         };
@@ -124,7 +124,7 @@ impl Default for Storage {
 
 const NIL: u32 = u32::MAX;
 const WIDE: usize = 1;
-const COLOUR: usize = 2;
+const COLOR: usize = 2;
 
 /// A glyph's text: one codepoint held in place, or a cluster's.
 #[derive(Debug)]
@@ -268,7 +268,7 @@ impl GlyphCache {
             (font.glyph(text, width, style)?, 1)
         };
         let glyph = Stored::new(&glyph, scale, self.orientation, self.storage.bits);
-        let pool = if glyph.is_rgba() { COLOUR } else { 0 } | if wide { WIDE } else { 0 };
+        let pool = if glyph.is_rgba() { COLOR } else { 0 } | if wide { WIDE } else { 0 };
         if !self.make_room(pool, glyph.bytes()) {
             self.counts.uncached = self.counts.uncached.saturating_add(1);
             return Some(self.spare.insert(glyph));

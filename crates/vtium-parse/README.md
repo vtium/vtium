@@ -46,7 +46,7 @@ Classified against ECMA-48, vt100.net's DEC parser and xterm's ctlseqs, and deci
 
 - Draw the DEL (0x7F) that reaches `print` only when a 96-character set is in GL, and ignore it otherwise: vt100.net, "When a 96-character set is mapped into GL, both 20 and 7F may cause a character to be displayed", and "terminals only claiming VT220 compatibility can always ignore 7F". The C reference wrote U+007F to the screen.
 - Act on an OSC, DCS or APC string only when its `StringEnd` is complete (`St` or `Bel`). Reply to an OSC ended by `Bel` with BEL and to one ended by `St` with `ESC \`.
-- Refuse an OSC string that `osc_end` reports truncated wherever part of it would do harm: an OSC 52 clipboard write, an OSC 8 link, an OSC 4 colour.
+- Refuse an OSC string that `osc_end` reports truncated wherever part of it would do harm: an OSC 52 clipboard write, an OSC 8 link, an OSC 4 color.
 - `dcs_hook` fires for every well-formed DCS string but XTGETTCAP, whatever its final byte. Pick the handler by the final byte, the private marker and the intermediates, and ignore the rest; the C reference hooked only sixel, `DCS q` with no marker or intermediate.
 - Match intermediates and the private marker exactly. The C reference's SGR ran with any intermediate (tsm-vte.c:2683-2690), so the `CSI 0 % m` that the conformance case `prog-vim` contains once ran as SGR 0. A port that rejects the `%` may change that case's screen where the SGR state matters.
 - Treat a `None` parameter as the control function's default.

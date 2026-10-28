@@ -147,7 +147,7 @@ static struct tsm_screen_color rgb(const char *hex)
 }
 
 /* drm2d_display_blend() into a plain buffer: @req's buffer over its
- * colours, clipped to the request and the buffer */
+ * colors, clipped to the request and the buffer */
 static void blend(uint32_t *fb, unsigned int fbw, const struct video_blend_req *req)
 {
 	unsigned int w = req->w < req->buf->width ? req->w : req->buf->width;

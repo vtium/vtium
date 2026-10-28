@@ -15,13 +15,13 @@ The goldens of vtium's own tier 2 screens, which the C reference's tier 2 has no
 | `redraw-unifont.ppm` | 384x160: `unchanged line`, `line 2 CHANGED curly` with `curly` under a curly line, `line three stays`, and `new struck` struck through. |
 | `ascii-unifont.ppm` | 384x160: the pangram in both cases, digits and punctuation, runs of `i`, `l`, `W` and `m`, and a line of code, each glyph in its own 8x16 cell. |
 | `bold-unifont.ppm` | 384x160: `bold` beside `regular`, a bold pangram over two lines, and bold red, green and blue words; bold glyphs widened by a pixel. |
-| `palette-unifont.ppm` | 384x160: the 16 background colours as two-cell blocks, `AB` in each of the 16 foreground colours, a 19-step ramp through the 256-colour palette, and a 9-step red-to-green gradient. |
+| `palette-unifont.ppm` | 384x160: the 16 background colors as two-cell blocks, `AB` in each of the 16 foreground colors, a 19-step ramp through the 256-color palette, and a 9-step red-to-green gradient. |
 | `inverse-unifont.ppm` | 384x160: `inverse` in reverse between plain words, a whole line reversed, `swapped` green on red after red-on-green text, and `bold inverse`. |
 | `cjk-unifont.ppm` | 384x160: Japanese, Chinese and Korean in two-cell glyphs, full-width Latin, `a日b本c語d`, and wide text in bold and in reverse. |
 | `box-unifont.ppm` | 384x160: light and double boxes around `cell`, shades and blocks, eighth blocks, rounded, heavy and diagonal pieces, joined from cell to cell. |
-| `underline-unifont.ppm` | 384x160: `gjpqy` under single, double, curly, dotted and dashed lines, each in the text colour and in an SGR 58 colour; a yellow curl under red text that SGR 59 returns to red; underlines on blue, in reverse and in bold. |
+| `underline-unifont.ppm` | 384x160: `gjpqy` under single, double, curly, dotted and dashed lines, each in the text color and in an SGR 58 color; a yellow curl under red text that SGR 59 returns to red; underlines on blue, in reverse and in bold. |
 | `strike-unifont.ppm` | 384x160: struck text alone, in red, on green, with a straight and a curly underline, in bold, in reverse, and six struck spaces. |
-| `deco-config-unifont.ppm` | 384x160: an underline in index 196's red and a strike in `#00c0ff`; SGR 58's green curl and yellow dots in their own colours; green underlined and yellow struck text; a double underline and strike in the configured colours. |
+| `deco-config-unifont.ppm` | 384x160: an underline in index 196's red and a strike in `#00c0ff`; SGR 58's green curl and yellow dots in their own colors; green underlined and yellow struck text; a double underline and strike in the configured colors. |
 | `deco-force-unifont.ppm` | The same with `force-decoration-colors`: SGR 58's curl and dots drawn in the configured red too. |
 | `combining-unifont.ppm` | 384x160: `é ã ñ` precomposed; the decomposed forms drawn as their base letters alone, in words, underlined, struck and bold, since unifont draws a cluster's first character. |
 | `mosaic-unifont.ppm` | 576x256: every Braille pattern, sextant and octant with their labels, then sextant and octant checkerboards, a Braille grid and wave, sextant and octant bands, and the checkerboards and grid in yellow on blue. |

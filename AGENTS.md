@@ -24,7 +24,7 @@ Upstream `kmscon/kmscon` and `kmscon/libtsm` are never written to: no issue, PR 
 - A spec describes behaviour vtium implements. C function names belong in a marked C-notes section, not in a behaviour spec.
 - Never scope vtium work as "what the C reference does". It does that and more, and follows the specification where the C reference departed from it, listing each departure.
 - Say each fact once. Prose is one line per paragraph.
-- The name is "vtium" in running text, code, paths and commands, and "VTium" in a title or heading that names the project, with VT capitalized as the hardware terminals printed it. Spell it "color", not "colour" (#114 sweeps the existing text).
+- The name is "vtium" in running text, code, paths and commands, and "VTium" in a title or heading that names the project, with VT capitalized as the hardware terminals printed it. Spell it "color", not "colour".
 
 ## The gates
 
@@ -61,7 +61,7 @@ A test that drives a row's behaviour through the crate that implements it, and c
 | `docs/scripts/coverage --update` | Rewrites each row's `tests` column from the tags. Run it after adding or moving a tag; it is idempotent. A merge conflict in the TSVs' `tests` column is resolved by running it again. |
 | `docs/scripts/coverage --layer minspec --require` | Fails while any minspec row other than `no row` has no test. It is the minspec slice's done condition, and joins CI when the binary lands (#21). |
 
-The lint's docstring states how feature ids are formed. An id never changes once committed. A row's `status` records the decision and changes only through an edit to ADR-1000; its coverage is derived from the tags and is never edited by hand.
+The lint's docstring states how feature ids are formed. An id never changes once committed, apart from the one rename ADR-1000 records (#114). A row's `status` records the decision and changes only through an edit to ADR-1000; its coverage is derived from the tags and is never edited by hand.
 
 ## How vtium is judged
 

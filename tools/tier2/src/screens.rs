@@ -57,7 +57,7 @@ light, double, heavy, rounded, diagonal and dashed lines, then blocks and lines 
 blue. Correct: blocks fill their cells and lines run from cell to cell with no gap between \
 rows or columns.";
 
-/// Text to the right and bottom edges, coloured cells in the last column
+/// Text to the right and bottom edges, colored cells in the last column
 /// and row, and a wide character whose second column the display lacks.
 const EDGES: &[u8] = concat!(
     "edges\x1b[41m R\x1b[0m\x1b[42mG\x1b[0m\r\n",
@@ -71,7 +71,7 @@ const EDGES: &[u8] = concat!(
 .as_bytes();
 
 const EDGES_DESC: &str = "A grid of 12 by 4 cells on a display that holds 11 and a half \
-columns and 4 rows and 3 pixel rows: text and coloured cells reach the last whole column and \
+columns and 4 rows and 3 pixel rows: text and colored cells reach the last whole column and \
 row, and two wide characters start in the last whole column, an underlined one in the first \
 row and a reversed one in the third, with a cell of the default background between them. \
 Correct: the grid centred, with the 5 spare pixel columns and 3 spare pixel rows around it in \
@@ -464,7 +464,7 @@ pub const CASES: &[Case] = &[
         screen: Screen {
             ..Screen::new(
                 "bold-unifont",
-                "Bold beside regular, a bold pangram over two lines, and bold in red, green and blue, in unifont. Correct: the bold text drawn as unifont's glyphs widened by a pixel, at the same cell width; the coloured words in their colours.",
+                "Bold beside regular, a bold pangram over two lines, and bold in red, green and blue, in unifont. Correct: the bold text drawn as unifont's glyphs widened by a pixel, at the same cell width; the colored words in their colors.",
                 BOLD,
                 48,
                 10,
@@ -477,7 +477,7 @@ pub const CASES: &[Case] = &[
         screen: Screen {
             ..Screen::new(
                 "palette-unifont",
-                "The 16 ANSI background colours, the 16 foreground colours on letter pairs, a ramp through the 256-colour palette, and a 24-bit gradient from red to green. In unifont. Correct: each block filled edge to edge in its own colour, with no gaps between cells.",
+                "The 16 ANSI background colors, the 16 foreground colors on letter pairs, a ramp through the 256-color palette, and a 24-bit gradient from red to green. In unifont. Correct: each block filled edge to edge in its own color, with no gaps between cells.",
                 PALETTE,
                 48,
                 10,
@@ -529,7 +529,7 @@ pub const CASES: &[Case] = &[
         screen: Screen {
             ..Screen::new(
                 "underline-unifont",
-                "Each underline style (single, double, curly, dotted, dashed) in the text colour and in an SGR 58 colour, over descenders; a red curl ended by SGR 59; underlines on a background, in reverse and in bold. In unifont. Correct: the five styles distinct, the coloured ones in their SGR 58 colour, and the line after SGR 59 in the text colour.",
+                "Each underline style (single, double, curly, dotted, dashed) in the text color and in an SGR 58 color, over descenders; a red curl ended by SGR 59; underlines on a background, in reverse and in bold. In unifont. Correct: the five styles distinct, the colored ones in their SGR 58 color, and the line after SGR 59 in the text color.",
                 UNDERLINE,
                 48,
                 10,
@@ -542,7 +542,7 @@ pub const CASES: &[Case] = &[
         screen: Screen {
             ..Screen::new(
                 "strike-unifont",
-                "Strike-through (SGR 9) alone, in colour, on a background, with straight and curly underlines, in bold, in reverse, and over spaces. In unifont. Correct: a line through the middle of every struck cell, the spaces included.",
+                "Strike-through (SGR 9) alone, in color, on a background, with straight and curly underlines, in bold, in reverse, and over spaces. In unifont. Correct: a line through the middle of every struck cell, the spaces included.",
                 STRIKE,
                 48,
                 10,
@@ -556,7 +556,7 @@ pub const CASES: &[Case] = &[
             decorations: DECO_CONF,
             ..Screen::new(
                 "deco-config-unifont",
-                "Underline and strike with the configured colours (underline-color=196, strike-color=#00c0ff), beside SGR 58 colours and coloured text. In unifont. Correct: underlines and strikes without an SGR 58 colour take the configured colours; an SGR 58 colour still applies.",
+                "Underline and strike with the configured colors (underline-color=196, strike-color=#00c0ff), beside SGR 58 colors and colored text. In unifont. Correct: underlines and strikes without an SGR 58 color take the configured colors; an SGR 58 color still applies.",
                 DECO_CONFIG,
                 48,
                 10,
@@ -573,7 +573,7 @@ pub const CASES: &[Case] = &[
             },
             ..Screen::new(
                 "deco-force-unifont",
-                "The deco-config screen with force-decoration-colors set. In unifont. Correct: every underline and strike in the configured colour, the SGR 58 ones included.",
+                "The deco-config screen with force-decoration-colors set. In unifont. Correct: every underline and strike in the configured color, the SGR 58 ones included.",
                 DECO_CONFIG,
                 48,
                 10,
@@ -612,7 +612,7 @@ pub const CASES: &[Case] = &[
         screen: Screen {
             ..Screen::new(
                 "emoji-unifont",
-                "The emoji screen in unifont, which has no colour glyphs: two wide emoji and a narrow text smiley; a ZWJ family, a skin tone, a flag and a keycap; a heart with VS16, VS15 and no selector; an emoji between letters; emoji under underline, strike, reverse and a red curl; a codepoint of Unicode 15; and an emoji written at the last column, which wraps. Correct: each emoji its unifont glyph in the text colour, a cluster drawn as its first character centred in its cells; the emoji and the VS16 heart two cells wide, the other hearts and the smiley one.",
+                "The emoji screen in unifont, which has no color glyphs: two wide emoji and a narrow text smiley; a ZWJ family, a skin tone, a flag and a keycap; a heart with VS16, VS15 and no selector; an emoji between letters; emoji under underline, strike, reverse and a red curl; a codepoint of Unicode 15; and an emoji written at the last column, which wraps. Correct: each emoji its unifont glyph in the text color, a cluster drawn as its first character centred in its cells; the emoji and the VS16 heart two cells wide, the other hearts and the smiley one.",
                 EMOJI,
                 48,
                 10,

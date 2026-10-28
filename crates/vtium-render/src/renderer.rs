@@ -18,20 +18,20 @@ use crate::target::{Orientation, Rect, Target};
 /// The bar cursor: U+258F, LEFT ONE EIGHTH BLOCK, a sprite.
 const BAR: char = '\u{258f}';
 
-/// The colour a decoration draws in.
+/// The color a decoration draws in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DecoColor {
     /// The cell's foreground as drawn.
     #[default]
     Foreground,
-    /// A palette colour, resolved through each frame's palette, so a
-    /// program that changes it (OSC 4) recolours the decorations.
+    /// A palette color, resolved through each frame's palette, so a
+    /// program that changes it (OSC 4) recolors the decorations.
     Indexed(u8),
     Rgb(Rgb),
 }
 
 impl DecoColor {
-    /// The colour through `palette`; `None` follows the foreground.
+    /// The color through `palette`; `None` follows the foreground.
     fn resolve(self, palette: &Palette) -> Option<Rgb> {
         match self {
             DecoColor::Foreground => None,
@@ -41,13 +41,13 @@ impl DecoColor {
     }
 }
 
-/// The configured decoration colours: `underline-color`, `strike-color` and
+/// The configured decoration colors: `underline-color`, `strike-color` and
 /// `force-decoration-colors`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DecorationColors {
     pub underline: DecoColor,
     pub strike: DecoColor,
-    /// The configured underline colour wins over the one SGR 58 set.
+    /// The configured underline color wins over the one SGR 58 set.
     pub force: bool,
 }
 
@@ -314,7 +314,7 @@ struct Place {
     ncells: usize,
 }
 
-/// What a job paints: its colours, decorations and text.
+/// What a job paints: its colors, decorations and text.
 #[derive(Clone, Copy, Debug)]
 struct Paint {
     fg: Rgb,
@@ -350,7 +350,7 @@ pub struct Renderer<F> {
     pointer: Option<Pointer>,
     /// The line a run under the pointer is blended in.
     pointer_line: Vec<u32>,
-    /// The configured underline and strike colours through the frame being
+    /// The configured underline and strike colors through the frame being
     /// drawn's palette; `None` follows the foreground.
     deco: (Option<Rgb>, Option<Rgb>),
     compose: Composer,

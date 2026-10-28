@@ -66,7 +66,7 @@ fn picture(g: &Glyph) -> Vec<String> {
         .collect()
 }
 
-// the layout the operator approved: the cell in the text colour, the
+// the layout the operator approved: the cell in the text color, the
 // digits cut out in a 3x5 font, two rows of two
 #[test]
 fn u_2603_in_a_narrow_cell_is_two_rows_of_two_digits() {
@@ -209,7 +209,7 @@ fn the_glyph_scales_by_whole_factors() {
 }
 
 // a cell between whole factors: the largest that fits, centred; a narrow
-// cell's margin stays in the text colour, a wide cell's stays clear
+// cell's margin stays in the text color, a wide cell's stays clear
 #[test]
 fn a_cell_between_factors_centres_the_largest_that_fits() {
     let exact = Font::new(Stub::new(8, 16)).with_missing(Missing::Hex);

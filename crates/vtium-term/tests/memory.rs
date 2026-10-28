@@ -84,7 +84,7 @@ fn distinct(col: usize) -> Style {
     }
 }
 
-/// Truecolour art: half blocks, every cell its own foreground and
+/// Truecolor art: half blocks, every cell its own foreground and
 /// background, as an image printed as text gives.
 fn art() -> Line {
     line_of(distinct, |_| "\u{2580}".into(), COLS)
@@ -142,7 +142,7 @@ fn the_minspec_grid_and_scrollback() {
         ("plain text, full width", plain(COLS), &common),
         ("a shell's lines, full width", shell(COLS), &common),
         ("a shell's lines, 60 cells", shell(60), &common),
-        ("truecolour art, full width", art(), &common),
+        ("truecolor art, full width", art(), &common),
         ("the worst case", worst(), &caps),
         (
             "plain text, full width, at each cap",

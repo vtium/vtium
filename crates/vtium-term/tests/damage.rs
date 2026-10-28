@@ -289,7 +289,7 @@ fn clearing_no_selection_marks_nothing() {
     assert!(draw(t.screen(), seen).iter().flatten().all(|&(_, c)| c));
 }
 
-// A palette the host sets while text is on screen recolours every cell, so
+// A palette the host sets while text is on screen recolors every cell, so
 // a display that drew before it sees every cell changed.
 #[test]
 fn a_new_palette_marks_every_cell() {

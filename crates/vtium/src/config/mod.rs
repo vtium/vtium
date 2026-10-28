@@ -151,7 +151,7 @@ pub enum Problem {
         key: &'static str,
         why: &'static str,
     },
-    /// A colour, a mode or a chord that does not read.
+    /// A color, a mode or a chord that does not read.
     BadValue {
         key: &'static str,
         value: String,
@@ -395,7 +395,7 @@ impl Config {
         }
     }
 
-    /// A colour key's value, if set.
+    /// A color key's value, if set.
     pub fn rgb(&self, key: &Key) -> Option<[u8; 3]> {
         match self.get(key) {
             Some(Value::Rgb(c)) => Some(*c),

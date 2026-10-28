@@ -44,21 +44,21 @@ kmscon|KMS Console,
 # Strike-through (user-defined capabilities, ncurses' ecma+strikeout)
   smxx=\E[9m, rmxx=\E[29m,
 
-# Colour (xterm-256color's)
+# Color (xterm-256color's)
   setab=\E[%?%p1%{8}%<%t4%p1%d%e%p1%{16}%<%t10%p1%{8}%-%d%e48;5;%p1%d%;m,
   setaf=\E[%?%p1%{8}%<%t3%p1%d%e%p1%{16}%<%t9%p1%{8}%-%d%e38;5;%p1%d%;m,
   op=\E[39;49m,
 
-# 24-bit direct colour (user-defined capabilities). Each ends in 'm' with no
+# 24-bit direct color (user-defined capabilities). Each ends in 'm' with no
 # empty final parameter, which xterm reads as SGR 0.
   Tc,
   setrgbb=\E[48;2;%p1%d;%p2%d;%p3%dm,
   setrgbf=\E[38;2;%p1%d;%p2%d;%p3%dm,
 
-# Underline styles and colour (user-defined capabilities). Smulx is SGR 4:n,
-# 0 (none) to 5 (dashed). Setulc takes one colour packed as r*65536 + g*256
+# Underline styles and color (user-defined capabilities). Smulx is SGR 4:n,
+# 0 (none) to 5 (dashed). Setulc takes one color packed as r*65536 + g*256
 # + b, as tmux(1) passes it, and writes ITU T.416's colon form 58:2::r:g:b
-# with the colour space empty, which a terminal that does not know SGR 58
+# with the color space empty, which a terminal that does not know SGR 58
 # cannot read as SGR 2 (dim) and the rest, as it would the semicolon form.
   Smulx=\E[4:%p1%dm,
   Setulc=\E[58:2::%p1%{65536}%/%d:%p1%{256}%/%{255}%&%d:%p1%{255}%&%dm,

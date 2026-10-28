@@ -252,7 +252,7 @@ A line leaving the scrollback for good dropped its image placements' top row, an
 
 Change tracking was by age: a counter advanced on each change, each cell and each line kept the age it last changed at, and the screen kept one age that marked everything when set; any scroll, a region scroll included, set the screen's age (`libtsm/src/tsm/libtsm-int.h:173-190`, `libtsm/src/tsm/tsm-screen.c:363-373`, `libtsm/src/tsm/tsm-screen.c:274-280`).
 
-A renderer asked for a frame since the age it last drew; the frame gave every visible cell with its colours resolved, its cluster key and whether it changed, and the cursor as a cell of its own; the frame was valid only until the next call (`libtsm/src/tsm/libtsm.h:380-440`, `libtsm/src/tsm/libtsm.h:520-545`).
+A renderer asked for a frame since the age it last drew; the frame gave every visible cell with its colors resolved, its cluster key and whether it changed, and the cursor as a cell of its own; the frame was valid only until the next call (`libtsm/src/tsm/libtsm.h:380-440`, `libtsm/src/tsm/libtsm.h:520-545`).
 
 A turn of output with no visible change drew nothing, because the terminal first asked whether anything changed since that display's age (`kmscon/src/terminal.c:571-591`, `libtsm/src/tsm/libtsm.h:533-545`).
 
@@ -318,7 +318,7 @@ The render timer only measured: once a second it closed an interval of flips, CP
 
 A draw request for a display resolved to one of four answers: draw now, draw when the flip in flight completes, owe the draw because a synchronized-output hold is in force, or nothing to do (`kmscon/src/terminal.c:461-480`, `kmscon/src/terminal_sync.c:191-196`).
 
-A frame ran in a fixed order: start the frame's measurement, resolve the decoration colours, prepare the renderer (retrying a failed font set at most once a second), draw the whole frame, draw the software pointer, present, record the frame for coalescing, and end the measurement (`kmscon/src/terminal.c:402-455`, `kmscon/src/render/text.c:698-718`, `kmscon/src/render/text.c:49-52`).
+A frame ran in a fixed order: start the frame's measurement, resolve the decoration colors, prepare the renderer (retrying a failed font set at most once a second), draw the whole frame, draw the software pointer, present, record the frame for coalescing, and end the measurement (`kmscon/src/terminal.c:402-455`, `kmscon/src/render/text.c:698-718`, `kmscon/src/render/text.c:49-52`).
 
 The renderer pulled one whole frame from libtsm since this display's age and walked its cells itself; there were no per-cell callbacks from libtsm, the C reference having replaced its old draw interface with this frame call (`kmscon/src/render/text.c:741-768`, `kmscon/docs/architecture/render/ADR-102-cells-carry-clusters-and-unresolved-colour-glyphs-and-underlines-become-sprites.md:183-191`). <!-- adr-cite-ignore: kmscon's records -->
 
@@ -326,7 +326,7 @@ Each display kept its own age, so one terminal shown on several displays marked 
 
 bbulk, the CPU renderer, kept its own damage flags per cell for what the frame could not know (blink phases, the cursor, the pointer, a forced redraw), and assumed double buffering: a changed cell was drawn on this frame and the next, since the back buffer was two frames old (`kmscon/src/render/bbulk.c:34-41`, `kmscon/src/render/bbulk.c:119-129`, `kmscon/src/render/bbulk.c:1523-1541`, `kmscon/src/render/bbulk.c:1583-1614`).
 
-A change of default colours, decoration colours or a display's need to redraw forced two full redraws, one per buffer (`kmscon/src/render/bbulk.c:1793-1810`).
+A change of default colors, decoration colors or a display's need to redraw forced two full redraws, one per buffer (`kmscon/src/render/bbulk.c:1793-1810`).
 
 Per cell, bbulk drew the background, the underline, the glyph and the strike; an undecorated cell was one alpha-mask blend straight into the mapped back buffer, and a decorated cell was composed in system memory and sent as one premultiplied ARGB blend, so device memory was never read back (`kmscon/src/render/bbulk.c:52-55`, `kmscon/src/render/bbulk.c:1413-1475`, `kmscon/src/video/drm2d_render.c:89-125`).
 
@@ -375,9 +375,9 @@ The sprites existed because a cell taller than the font's ascent and descent lef
 
 Emoji presentation needed no table: VS15 meant text, VS16 meant emoji, otherwise a wide cell meant emoji (`kmscon/src/font/font.h:139-162`).
 
-A glyph was an 8-bit coverage mask or premultiplied ARGB for colour, exactly 1 or 2 cells wide; underline and strike were never part of it (`kmscon/src/font/font.h:58-63`, `kmscon/src/font/font.h:104-108`).
+A glyph was an 8-bit coverage mask or premultiplied ARGB for color, exactly 1 or 2 cells wide; underline and strike were never part of it (`kmscon/src/font/font.h:58-63`, `kmscon/src/font/font.h:104-108`).
 
-Decorations were one-cell sprites (single, double, curly, dotted, dashed underline, and strike), tinted at draw time and tiled across cells, so any colour applied without a new sprite (`kmscon/src/render/deco.h:26-48`, `kmscon/src/render/deco.c:120-162`, `kmscon/docs/architecture/render/ADR-102-cells-carry-clusters-and-unresolved-colour-glyphs-and-underlines-become-sprites.md:220`). <!-- adr-cite-ignore: kmscon's records -->
+Decorations were one-cell sprites (single, double, curly, dotted, dashed underline, and strike), tinted at draw time and tiled across cells, so any color applied without a new sprite (`kmscon/src/render/deco.h:26-48`, `kmscon/src/render/deco.c:120-162`, `kmscon/docs/architecture/render/ADR-102-cells-carry-clusters-and-unresolved-colour-glyphs-and-underlines-become-sprites.md:220`). <!-- adr-cite-ignore: kmscon's records -->
 
 Their metrics came from the backend, or else were derived from the cell height, and always clamped inside the cell (`kmscon/src/font/font.c:380-408`).
 

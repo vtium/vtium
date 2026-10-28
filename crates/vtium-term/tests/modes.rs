@@ -258,7 +258,7 @@ fn mode_1048_saves_and_restores_the_cursor_as_decsc_does() {
 
 // ctlseqs, mode 1049: the cursor saved as DECSC saves it, the alternate
 // screen cleared as it is entered; leaving restores the cursor and the
-// pen, so the main screen erases with its own colour (aaronsb/libtsm#20).
+// pen, so the main screen erases with its own color (aaronsb/libtsm#20).
 // covers: DEC-1049
 #[test]
 fn mode_1049_saves_the_cursor_and_the_pen_around_the_alternate_screen() {
