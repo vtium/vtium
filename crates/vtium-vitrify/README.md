@@ -13,7 +13,9 @@ The program that builds vitrified font sets for vtium (ADR-1200), its own binary
 | `src/glyphs.rs` | The bounded glyph form the parser answers with, and its check. |
 | `src/build.rs` | The set from its sources: the cell, the fallbacks fitted into it, the sprite policy, the provenance and the build key. |
 | `src/store.rs` | Writing the store: the lock, files synced and renamed, the manifest, unreferenced sets removed. |
+| `src/switch.rs` | `set`: OSC 50 and its query on the controlling terminal, the reply read in raw mode within its wait. |
 | `tests/cli.rs` | The commands run as the invoking user against a store in a test directory, with fonts, a kbd tree and frits generated in the test. |
+| `tests/switch.rs` | `set` on a real pty in raw mode, answered by vtium-term's terminal, and its refusals before the terminal is touched. |
 
 `cargo test -p vtium-vitrify` runs every test. The store tests need a directory whose ancestors only root or the invoking user may write, as the store's check requires: Cargo's temporary directory under the workspace, else `XDG_RUNTIME_DIR`, or `VTIUM_FONT_STORE_TEST_DIR`.
 
@@ -28,6 +30,7 @@ The program that builds vitrified font sets for vtium (ADR-1200), its own binary
 | `list [--json]` | anyone | The store's sets and the built-ins, as TSV with a header or a JSON array. |
 | `verify [NAME...]` | anyone | The console's check of each set, every chunk read. |
 | `remove NAME...` | root | Drops each set's row and file; its frit stays. |
+| `set NAME` | the session's user | Switches the running console to a set `list` gives (ADR-1200 D5): writes `OSC 50 ; NAME ST` and the query `OSC 50 ; ? ST` to `/dev/tty`, reads the reply in raw mode for at most a second, and puts the terminal's mode back. It prints `set NAME` when the reply names NAME, else `failed`, the name, and the set the console kept or that no reply came, which the console's `allow-font-ops` off or a terminal that is not vtium gives. |
 
 Each build or install prints one line a set, tab-separated: `built`, `current`, `installed`, `removed`, `verified` or `failed`, the name, and for a failure the reason. A set built, or current, with sources left out as missing reports `built-partial` or `current-partial`, the name, and `left out: ` with those sources as the frit spelled them, comma-separated, so a package hook sees the set is not the frit's whole. The exit status is 0 when every set succeeded or was current, 1 when any failed, and 2 on a usage error. A command that writes the system's store refuses without root, naming `sudo`, and exits 1.
 

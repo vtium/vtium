@@ -1,0 +1,4 @@
+# tier 3's 2d-320x240-psf8 set: tools/testfont's 8x8 PSF2 font, with the
+# built-in Unscii-8 filling the characters it lacks (ADR-1200 D1, D7).
+source=file:/usr/local/share/tier3-fonts/vtium-test-8x8.psf
+source=builtin:unscii-8

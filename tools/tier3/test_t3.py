@@ -406,17 +406,22 @@ class ImplementationTest(unittest.TestCase):
 
     def test_disc(self):
         # The tree goes on the disc as tree.tar, with the variant's config,
-        # and the pointer variant's carries the `pointer` file, on which
-        # guest/setup lets the screens read the DRM state.
+        # the pointer variant's carries the `pointer` file, on which
+        # guest/setup lets the screens read the DRM state, and a PSF
+        # variant's its frits, which guest/setup builds into the store.
         impl = t3_impl.tree(self.tree, self.tar)
         disc = os.path.join(self.dir.name, "disc")
-        for variant, extra in (("2d-potato-min", ["pointer"]), ("2d-potato-min-psf", [])):
+        for variant, extra in (("2d-potato-min", ["pointer"]), ("2d-potato-min-psf", ["frits"])):
             with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
                 t3_scenario.build_disc(variant, self.dir.name, impl)
                 self.assertEqual(sorted(os.listdir(disc)),
-                                 ["kmscon.conf"] + extra + ["screens", "setup", "t3", "tree.tar"])
+                                 sorted(["kmscon.conf", "screens", "setup", "t3", "tree.tar"]
+                                        + extra))
                 with open(os.path.join(disc, "kmscon.conf")) as f:
                     self.assertIn("render-timer=log", f.read())
+                if "frits" in extra:
+                    self.assertEqual(os.listdir(os.path.join(disc, "frits")),
+                                     ["default8x16.vtfrit"])
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             self.assertIn('if [ -f "$disc"/pointer ]; then', f.read())
 
@@ -1241,10 +1246,19 @@ class VariantTest(unittest.TestCase):
                                  "tools/tier3/goldens/%s/small-console.png" % name)
                 self.assertEqual(goldens["vt-restore"], "tools/tier3/goldens/%s/cjk.png" % name)
                 self.assertIsNone(goldens["vt-switch"])
-        # the 8x8 font is drawn at its own size, not the 16 pixels the
-        # default size picks at 320x240
+        # no font size is set: at 320x240 the default size is the font's
+        # own, 8 (vtium/vtium#118)
         with open(os.path.join(t3_common.GUEST, "kmscon-small-8x8.conf")) as f:
-            self.assertIn("font-size=8\n", f.read())
+            self.assertNotIn("font-size", f.read())
+        # each PSF variant's frits are in guest/frits, and each names its
+        # variant's font as its first source
+        for variant, conf in t3_scenario.VARIANTS.items():
+            if "frits" not in conf:
+                continue
+            with open(os.path.join(t3_common.GUEST, conf["conf"])) as f:
+                font = re.search(r"^font-name=(.*)$", f.read(), re.M).group(1)
+            with open(os.path.join(t3_common.GUEST, "frits", conf["frits"][0])) as f:
+                self.assertIn("source=file:%s\n" % font, f.read(), variant)
         # vt-restore compares with the last screen, cjk, as in SCREENS
         self.assertEqual(t3_evaluate.SMALL_SCREENS[-1], t3_evaluate.SCREENS[-1])
         # every other variant is judged by the C reference's goldens
