@@ -16,6 +16,7 @@
 use vtium_font::{Face, Font, Style, Width};
 
 use crate::bounds::POOL_BYTES_PERFORMANCE;
+use crate::mono::Fallback;
 use crate::stored::Stored;
 use crate::target::Orientation;
 
@@ -212,6 +213,8 @@ pub(crate) struct GlyphCache {
     spare: Option<Stored>,
     frame: u64,
     counts: CacheCounts,
+    /// A color glyph's bitmap stand-in on a 1-bit or gray display.
+    fallback: Option<Fallback>,
 }
 
 impl GlyphCache {
@@ -228,7 +231,13 @@ impl GlyphCache {
             spare: None,
             frame: 0,
             counts: CacheCounts::default(),
+            fallback: None,
         }
+    }
+
+    /// The cache with `fallback` standing in for color glyphs.
+    pub(crate) fn with_fallback(self, fallback: Option<Fallback>) -> GlyphCache {
+        GlyphCache { fallback, ..self }
     }
 
     /// Starts a drawn frame: glyphs used from now on are this frame's.
@@ -266,6 +275,13 @@ impl GlyphCache {
             font.glyph_unscaled(text, width, style)?
         } else {
             (font.glyph(text, width, style)?, 1)
+        };
+        let (glyph, scale) = match self
+            .fallback
+            .and_then(|f| f.glyph(&glyph, scale, text, width, style))
+        {
+            Some(bitmap) => (bitmap, 1),
+            None => (glyph, scale),
         };
         let glyph = Stored::new(&glyph, scale, self.orientation, self.storage.bits);
         let pool = if glyph.is_rgba() { COLOR } else { 0 } | if wide { WIDE } else { 0 };

@@ -8,10 +8,11 @@
 //! kmscon's ADR-304 §6 decides (adr-cite-ignore: kmscon's record).
 //! The screens after them are vtium's, drawn in unifont, for the harness
 //! work the C reference had queued (aaronsb/kmscon#8, #10, #70, #118, #122),
-//! and last the small displays in the PSF fonts `tools/testfont` writes
-//! (vtium/vtium#75).
+//! then color glyphs from an RGBA strike of a vitrified set built in memory
+//! (vtium/vtium#23), and last the small displays in the PSF fonts
+//! `tools/testfont` writes (vtium/vtium#75).
 
-use vtium_render::Orientation;
+use vtium_render::{Depth, Orientation};
 use vtium_term::WidthMethod;
 
 use crate::draw::{DecoSpec, Decorations, FontKind, Screen, TestFont};
@@ -248,6 +249,23 @@ const EMOJI: &[u8] = concat!(
     "\x1b[7;48H😀",
 ).as_bytes();
 
+/// Color glyphs from an RGBA strike (vtium/vtium#23): beside text, on
+/// colored backgrounds, reversed, under each decoration, in the narrow
+/// presentation, one the set lacks, and one written at the last column.
+const EMOJI_RGBA: &[u8] = concat!(
+    "a😀b🚀c❤\u{fe0f}d \x1b[1m😀\x1b[0m  text beside color, bold\r\n",
+    "\x1b[44m 😀 🚀 ❤\u{fe0f} \x1b[43m 😀 🚀 \x1b[48;5;28m 😀 \x1b[0m on blue, yellow, green\r\n",
+    "\x1b[7m 😀 🚀 ❤\u{fe0f} \x1b[0m \x1b[7;34;43m 😀 \x1b[0m  reversed, blue on yellow\r\n",
+    "\x1b[4m😀🚀❤\u{fe0f}\x1b[0m \x1b[4:3;58:5:196m😀🚀\x1b[0m \x1b[4:2;44m😀\x1b[0m ",
+    "\x1b[4;58;2;0;255;0m🚀\x1b[0m  underlines\r\n",
+    "\x1b[9m😀🚀❤\u{fe0f}\x1b[0m \x1b[9;31m😀\x1b[0m \x1b[9;4;41m🚀\x1b[0m \x1b[7;9m😀\x1b[0m  struck\r\n",
+    "a❤b a❤\u{fe0e}b a❤\u{fe0f}b \x1b[41ma❤b\x1b[0m  none, VS15, VS16\r\n",
+    "lacks \u{1f44d}, text \x1b[32mgreen\x1b[0m \x1b[1;34mbold blue\x1b[0m\r\n",
+    "the grin wraps from the last column",
+    "\x1b[8;48H😀",
+)
+.as_bytes();
+
 /// The 320x240 floor (vtium/vtium#75): a full-width title, a shell session
 /// with a line that wraps, a box of sprites around styled words, the 16
 /// background and foreground colors, block, shade, Braille and sextant
@@ -344,6 +362,19 @@ const fn edges(name: &'static str, orientation: Orientation) -> Case {
 }
 
 /// Every case, in the order the report lists them.
+/// A light theme set by OSC 10 and 11, for a 1-bit display: default
+/// text, a red word, colored and reversed cells, decorations and sprites
+/// (vtium/vtium#135).
+const LIGHT: &[u8] = concat!(
+    "\x1b]10;rgb:20/20/20\x1b\\\x1b]11;rgb:f0/f0/f0\x1b\\",
+    "default text on a light background\r\n",
+    "\x1b[31mred\x1b[0m \x1b[44mon blue\x1b[0m \x1b[7mreversed\x1b[0m\r\n",
+    "\x1b[4munder\x1b[0m \x1b[9mstruck\x1b[0m \x1b[4:3mcurly\x1b[0m \x1b[4:4mdots\x1b[0m\r\n",
+    "\x1b[47mon grey\x1b[0m \x1b[40mon black\x1b[0m \x1b[30;107mblack on white\x1b[0m\r\n",
+    "\u{2591}\u{2592}\u{2593}\u{2588} \u{2500}\u{2500}\u{252c}\u{2500}\u{2500} \u{2502}ok\u{2502}",
+)
+.as_bytes();
+
 pub const CASES: &[Case] = &[
     Case {
         screen: Screen {
@@ -627,6 +658,20 @@ pub const CASES: &[Case] = &[
     },
     Case {
         screen: Screen {
+            font: FontKind::ColorSet { height: 16 },
+            ..Screen::new(
+                "emoji-rgba",
+                "Color glyphs (vtium/vtium#23), drawn from a vitrified set built in memory: unifont's ASCII in a 1-bit strike and a grin, a rocket and a heart in a premultiplied RGBA strike at the same 8x16 cell, each two cells wide with edges of partial alpha and the rocket's flame translucent. The glyphs between letters and in bold; on blue, yellow and 256-color green backgrounds; reversed, plain and blue on yellow; under a single underline, a red curl, a double line on blue and a 24-bit green line; struck plain, in red, over an underline on red, and reversed; the heart with no selector, VS15 and VS16, and with no selector on red; an emoji the set lacks; and a grin written at the last column, which wraps to row 9. Correct: each color glyph in its own colors whatever the foreground, bold and reverse, its edges and the flame blended into the cell's background, which shows through around and under it; underlines below the glyphs and strikes over them in their own colors; the heart two cells wide with VS16 and cut to its middle cell otherwise; the lacking emoji as `?` centred in two cells; the text glyphs drawn as in unifont.",
+                EMOJI_RGBA,
+                48,
+                10,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
             display: Some((320, 240)),
             font: FontKind::Psf(TestFont::Small8x8),
             ..Screen::new(
@@ -650,6 +695,80 @@ pub const CASES: &[Case] = &[
                 SMALL_80,
                 80,
                 30,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            display: Some((320, 240)),
+            font: FontKind::Psf(TestFont::Small8x8),
+            depth: Depth::One,
+            ..Screen::new(
+                "small-320x240-1bit",
+                "small-320x240 on a 1-bit display (vtium/vtium#135). Correct: only black and white pixels; text on the default background lit whatever its color, the dark blue and red included; the reversed title and status line and every colored background lit with their glyphs unlit; a foreground equal to its background, as black on the black background block, invisible; every underline, strike and sprite lit like the text in its cell; the border unlit.",
+                SMALL_40,
+                40,
+                30,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            display: Some((640, 480)),
+            font: FontKind::Psf(TestFont::Small8x16),
+            depth: Depth::One,
+            ..Screen::new(
+                "small-640x480-1bit",
+                "small-640x480 on a 1-bit display (vtium/vtium#135). Correct: as small-320x240-1bit, at 80 columns; the dim word drawn as plain lit text; the 256-color and 24-bit ramps a run of lit cells, each block whose background differs from the default background's color lit.",
+                SMALL_80,
+                80,
+                30,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            depth: Depth::One,
+            ..Screen::new(
+                "palette-unifont-1bit",
+                "palette-unifont on a 1-bit display (vtium/vtium#135). Correct: the background blocks lit but the one in the default background's color; every letter pair lit, black ones included, on the default background; the ramps lit cell by cell.",
+                PALETTE,
+                48,
+                10,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            depth: Depth::One,
+            ..Screen::new(
+                "underline-unifont-1bit",
+                "underline-unifont on a 1-bit display (vtium/vtium#135). Correct: every underline style lit, in the text color or in an SGR 58 color alike; on the colored background and in reverse, the cell lit with its glyph and underline unlit; the curl's coverage cut at half.",
+                UNDERLINE,
+                48,
+                10,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            depth: Depth::One,
+            ..Screen::new(
+                "light-theme-1bit",
+                "A light theme, OSC 11's #f0f0f0 behind OSC 10's #202020, on a 1-bit display (vtium/vtium#135). Correct: the screen and border lit, as a light default background lights a mono panel; default and red text unlit on it; the blue, reversed, grey and black cells unlit with their letters lit, each flipping from the screen; `black on white`, whose bright white differs from the default background, unlit with its letters lit; the underlines, strike and box lines unlit like the text; the shades as patterns.",
+                LIGHT,
+                40,
+                5,
             )
         },
         source: Source::Vtium,

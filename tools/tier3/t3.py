@@ -18,6 +18,8 @@ worker process.
                                           cache, build the base image from it unless the
                                           cache holds it, and link target/tier3/vm/base.qcow2
                                           to it
+    t3.py provision --guest sysvinit      the same for the guest without systemd, linked
+                                          from target/tier3/vm/base-sysvinit.qcow2
     t3.py run [--jobs N] [VARIANT ...]    install the tree, run the scenario, compare
                                           (default: every variant)
     t3.py run --tree-target TARGET        build the tree first, with make TARGET
@@ -46,29 +48,49 @@ import t3_evaluate  # noqa: E402
 import t3_impl  # noqa: E402
 import t3_runner  # noqa: E402
 import t3_scenario  # noqa: E402
-from t3_common import (BASE, GUEST, IMAGES, OUT, REPORT, ROOT, TREE, VM, Logger,  # noqa: E402
-                       base_image, rel)
+from t3_common import (BASE, BASE_SYSVINIT, GUEST, GUEST_SYSVINIT, IMAGES, OUT,  # noqa: E402
+                       REPORT, ROOT, TREE, VM, Logger, base_image, rel)
 from t3_qemu import Qemu, make_iso  # noqa: E402
 
 
 # --- provisioning -----------------------------------------------------------
 
+def guest_of(name):
+    """What provisioning builds the guest `name` (--guest) from: its
+    directory, the files of it the base image is built from, the file each
+    placeholder of its user-data.in takes, base64-encoded, the prefix of
+    the base image's name, the link to the base image, and the script that
+    fetches and verifies its pristine image. "arch" is Arch Linux with
+    systemd, "sysvinit" Debian with sysvinit as PID 1 (guest-sysvinit/)."""
+    if name == "sysvinit":
+        return {"dir": GUEST_SYSVINIT, "inputs": t3_common.SYSVINIT_INPUTS,
+                "embed": {"@INSTALL_SCRIPT@": "tier3-install"}, "prefix": "sysvinit-",
+                "base": BASE_SYSVINIT, "fetch": "fetch-debian.sh"}
+    return {"dir": GUEST, "inputs": t3_common.BASE_INPUTS,
+            "embed": {"@INSTALL_SCRIPT@": "tier3-install",
+                      "@INSTALL_UNIT@": "tier3-install.service"},
+            "prefix": "", "base": BASE, "fetch": "fetch-image.sh"}
+
+
 def provision(args, log):
     """Links target/tier3/vm/images to the image cache, fetches and
-    verifies the pristine image into its pristine/ unless it is there
-    (fetch-image.sh), and builds the base image for these guest files,
+    verifies the guest's pristine image into its pristine/ unless it is
+    there (fetch-image.sh, with the signing key's fingerprint, or
+    fetch-debian.sh), and builds the base image for these guest files,
     pristine image and archive date into its base/ unless it is there, then
-    points target/tier3/vm/base.qcow2 at it. A lock beside the base image
-    keeps two checkouts from building the same one at once; the second finds
-    it built.
+    points the guest's link (target/tier3/vm/base.qcow2 or
+    base-sysvinit.qcow2) at it. A lock beside the base image keeps two
+    checkouts from building the same one at once; the second finds it
+    built.
     """
+    guest = guest_of(args.guest)
     link_images(args.images, log)
     pristine = pristine_image(args.image)
     if not os.path.isfile(pristine):
-        subprocess.run(["sh", os.path.join(t3_common.HERE, "fetch-image.sh"),
-                        os.path.dirname(pristine), args.url, args.image, args.sha256,
-                        args.key], check=True)
-    base = base_image(args.image, args.archive)
+        subprocess.run(["sh", os.path.join(t3_common.HERE, guest["fetch"]),
+                        os.path.dirname(pristine), args.url, args.image, args.sha256]
+                       + ([args.key] if args.key else []), check=True)
+    base = base_image(args.image, args.archive, guest["dir"], guest["inputs"], guest["prefix"])
     os.makedirs(os.path.dirname(base), exist_ok=True)
     with open(base + ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -77,12 +99,12 @@ def provision(args, log):
         else:
             with t3_runner.run_lock():
                 _provision(args, log, base)
-    link = BASE + ".link"
+    link = guest["base"] + ".link"
     if os.path.lexists(link):
         os.unlink(link)
-    os.symlink(os.path.relpath(base, os.path.dirname(BASE)), link)
-    os.replace(link, BASE)
-    log("%s -> %s" % (rel(BASE), os.readlink(BASE)))
+    os.symlink(os.path.relpath(base, os.path.dirname(guest["base"])), link)
+    os.replace(link, guest["base"])
+    log("%s -> %s" % (rel(guest["base"]), os.readlink(guest["base"])))
     return 0
 
 
@@ -113,24 +135,20 @@ def pristine_image(image):
 
 
 def _provision(args, log, base):
+    guest = guest_of(args.guest)
     pristine = pristine_image(args.image)
     work = os.path.join(VM, "provision")
     shutil.rmtree(work, ignore_errors=True)
     seed = os.path.join(work, "seed")
     os.makedirs(seed)
-
-    def b64(name):
-        with open(os.path.join(GUEST, name), "rb") as f:
-            return base64.b64encode(f.read()).decode()
-
-    with open(os.path.join(GUEST, "user-data.in")) as f:
-        ud = f.read()
-    ud = (ud.replace("@ARCHIVE@", args.archive)
-            .replace("@INSTALL_SCRIPT@", b64("tier3-install"))
-            .replace("@INSTALL_UNIT@", b64("tier3-install.service")))
+    with open(os.path.join(guest["dir"], "user-data.in")) as f:
+        ud = f.read().replace("@ARCHIVE@", args.archive)
+    for placeholder, name in guest["embed"].items():
+        with open(os.path.join(guest["dir"], name), "rb") as f:
+            ud = ud.replace(placeholder, base64.b64encode(f.read()).decode())
     with open(os.path.join(seed, "user-data"), "w") as f:
         f.write(ud)
-    shutil.copy(os.path.join(GUEST, "meta-data"), seed)
+    shutil.copy(os.path.join(guest["dir"], "meta-data"), seed)
     iso = os.path.join(work, "seed.iso")
     make_iso(seed, "cidata", iso)
 
@@ -178,9 +196,10 @@ def preflight(log, rows=None, root=None, golden=None):
 
 
 def run(args, log):
-    if not os.path.exists(BASE):
-        raise SystemExit("no base image at %s; run `make tier3-image`" % rel(BASE))
     variants = args.variants or t3_scenario.DEFAULT_VARIANTS
+    for base, target in sorted({t3_scenario.base_of(v) for v in variants}):
+        if not os.path.exists(base):
+            raise SystemExit("no base image at %s; run `make %s`" % (rel(base), target))
     t3_runner.raise_on_sigterm(log)
     with t3_runner.run_lock():
         errors = preflight(log)
@@ -313,11 +332,15 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("provision")
+    p.add_argument("--guest", choices=("arch", "sysvinit"), default="arch",
+                   help="Arch Linux with systemd (default), or Debian with sysvinit")
     p.add_argument("--image", required=True, help="the pristine image's file name")
-    p.add_argument("--archive", required=True, help="Arch Linux Archive date, YYYY/MM/DD")
+    p.add_argument("--archive", required=True,
+                   help="Arch Linux Archive date, YYYY/MM/DD, or snapshot.debian.org's "
+                        "timestamp, YYYYMMDDTHHMMSSZ")
     p.add_argument("--url", required=True, help="where the pristine image is fetched from")
     p.add_argument("--sha256", required=True, help="the pristine image's SHA-256")
-    p.add_argument("--key", required=True, help="the fingerprint of the key that signs it")
+    p.add_argument("--key", help="the fingerprint of the key that signs it (arch)")
     p.add_argument("--images", default=IMAGES, metavar="DIR",
                    help="the image cache target/tier3/vm/images links to (default %s)" % IMAGES)
     v = sub.add_parser("provenance")
@@ -344,6 +367,8 @@ def main(argv=None):
         ap.error("a variant is named twice; each has one work directory")
     if getattr(args, "jobs", 1) < 1:
         ap.error("--jobs must be at least 1")
+    if args.cmd == "provision" and args.guest == "arch" and not args.key:
+        ap.error("--key: the arch guest's image is checked against its signing key")
     if getattr(args, "tree", None) and args.tree_target:
         ap.error("--tree names a tree built already; --tree-target builds %s" % rel(TREE))
     return {"provision": provision, "provenance": verify_provenance,

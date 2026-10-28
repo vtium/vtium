@@ -23,6 +23,7 @@
 
 mod blank;
 mod card;
+mod depth;
 mod drm2d;
 #[cfg(test)]
 mod fake;
