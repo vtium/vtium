@@ -113,7 +113,7 @@ fn main() -> ExitCode {
 }
 
 fn run_kernel(config: config::Config, start: Start, path: &Path) -> io::Result<i32> {
-    let console = kernel_font(&config, path);
+    let console = kernel_font(path);
     let path = path.to_owned();
     run(
         config,
@@ -133,12 +133,11 @@ fn run_kernel(config: config::Config, start: Start, path: &Path) -> io::Result<i
 }
 
 /// The kernel's font on the VT at `path`, read once at start while the
-/// VT is still in text mode, when `font-name` names a frit: the frit's
-/// `console:` source draws from it (vtium/vtium#145). A VT already in graphics
-/// mode, as when vtium starts again on it, gives none, logged at debug.
-fn kernel_font(config: &config::Config, path: &Path) -> Option<ConsoleFont> {
-    let name = config.text(&keys::FONT_NAME)?;
-    vtium::font::frit(&vtium::font::default_frits(), name)?;
+/// VT is still in text mode, for any frit's `console:` source to draw
+/// from, the one OSC 50 switches to included (ADR-1200 D8). A VT already
+/// in graphics mode, as when vtium starts again on it, gives none, logged
+/// at debug.
+fn kernel_font(path: &Path) -> Option<ConsoleFont> {
     let read = ConsoleTty::open(path)
         .map_err(|e| e.to_string())
         .and_then(|tty| vtium_platform::vt::font::read(&tty).map_err(|e| e.to_string()));
