@@ -180,3 +180,33 @@ fn two_strikes_of_one_style_cell_and_format_are_refused() {
         Err(SetError::Malformed("strikes out of order or repeated"))
     ));
 }
+
+#[test]
+fn two_strikes_at_a_cell_that_map_one_codepoint_are_refused() {
+    let both = |format| {
+        let mut s = StrikeBuilder::new(format, CELL, Style::default());
+        let bytes = if format == PixelFormat::Rgba { 96 } else { 24 };
+        let g = s.glyph(Width::Narrow, vec![0; bytes]);
+        s.map('A', g);
+        s
+    };
+    assert!(
+        SetBuilder::new("x")
+            .strike(both(PixelFormat::R8))
+            .strike(both(PixelFormat::Rgba))
+            .write()
+            .is_err(),
+        "the writer keeps a cell's strikes apart"
+    );
+    // the color strike's run, third in CMAP, moved onto the R8 strike's A
+    let set = mixed_set();
+    let overlapping = with_section(&set, b"CMAP", |c| {
+        c[52..56].copy_from_slice(&0x41u32.to_le_bytes())
+    });
+    assert!(matches!(
+        Set::from_bytes(overlapping),
+        Err(SetError::Malformed(
+            "two strikes at a cell map one codepoint"
+        ))
+    ));
+}

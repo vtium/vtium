@@ -222,7 +222,31 @@ pub(super) fn parse_cmap(bytes: &[u8], strikes: &mut [Strike]) -> Result<(), Set
         strike.spans = spans;
         strike.stored = stored;
     }
-    c.end()
+    c.end()?;
+    apart(strikes)
+}
+
+/// One cell's strikes of one style, a pixel format each, map codepoints
+/// apart, so a codepoint draws from one strike whichever is searched first.
+fn apart(strikes: &[Strike]) -> Result<(), SetError> {
+    let mut runs: Vec<(Cell, Style, u32, u32)> = Vec::new();
+    for s in strikes {
+        for r in &s.runs {
+            let last = r.first.saturating_add(r.len.saturating_sub(1));
+            runs.push((s.info.cell, s.info.style, r.first, last));
+        }
+    }
+    let key = |r: &(Cell, Style, u32, u32)| (r.0.height, r.0.width, r.1.bold, r.1.italic, r.2);
+    runs.sort_unstable_by_key(key);
+    let overlap = runs
+        .windows(2)
+        .any(|w| matches!(w, [a, b] if (a.0, a.1) == (b.0, b.1) && b.2 <= a.3));
+    if overlap {
+        return Err(SetError::Malformed(
+            "two strikes at a cell map one codepoint",
+        ));
+    }
+    Ok(())
 }
 
 /// Checks that glyphs `[glyph, glyph + len)`, brought in by earlier runs,

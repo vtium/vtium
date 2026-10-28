@@ -281,6 +281,18 @@ pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
     }
 
     let laid: Vec<Laid> = order.iter().map(|s| lay_out(s)).collect::<Result<_, _>>()?;
+    // one cell's strikes, a pixel format each, map codepoints apart
+    let mut taken: Vec<((u16, u16, u8), u32)> = order
+        .iter()
+        .flat_map(|s| {
+            let k = (s.cell_height, s.cell_width, s.style);
+            s.map.iter().map(move |&(cp, _)| (k, cp))
+        })
+        .collect();
+    taken.sort_unstable();
+    if taken.windows(2).any(|w| matches!(w, [a, b] if a == b)) {
+        return Err("two strikes at a cell map one codepoint");
+    }
     let total_runs = laid
         .iter()
         .try_fold(0u32, |n, l| checked(n, u32_of(l.runs.len())?))?;

@@ -162,6 +162,12 @@ fn an_answer_reads_back_and_each_malformed_one_is_refused() {
         .expect("a color glyph");
     e.pixels[0..4].copy_from_slice(&[9, 0, 0, 8]);
     refused(&bad.encode(), &req, "not premultiplied");
+    // more glyphs than the map names
+    let mut bad = o.clone();
+    let extra = bad.strikes[0].glyphs[0].clone();
+    let codepoints = bad.strikes[0].map.len();
+    bad.strikes[0].glyphs.resize(codepoints + 1, extra);
+    refused(&bad.encode(), &req, "more glyphs than");
     // a map naming a glyph the strike lacks
     let mut bad = o.clone();
     bad.strikes[0].map[0].1 = 99;

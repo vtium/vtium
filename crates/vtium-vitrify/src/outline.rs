@@ -52,6 +52,10 @@ const RANGES_MAX: usize = 4096;
 const NAME_MAX: usize = 256;
 /// The most bytes of a font's licence description kept.
 const LICENSE_MAX: usize = 1024;
+/// The most codepoints a strike's map names: every Unicode codepoint.
+const MAP_MAX: usize = 0x11_0000;
+/// The most glyphs a strike holds: a font's glyph ids are 16 bits.
+const GLYPHS_MAX: usize = 65536;
 
 pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT1\0";
 const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL1";
@@ -290,7 +294,12 @@ impl Outline {
                 return Err("a cell past CELL_SIDE_MAX, or a baseline below it");
             }
             let glyph_count = r.count(usize::MAX)?;
-            let map_len = r.count(0x11_0000)?;
+            let map_len = r.count(MAP_MAX)?;
+            // every glyph is one the map names, so a strike holds no more
+            // glyphs than codepoints, nor than a set's strike holds
+            if glyph_count > map_len.min(GLYPHS_MAX) {
+                return Err("more glyphs than the map names, or than GLYPHS_MAX");
+            }
             let mut glyphs = Vec::new();
             for _ in 0..glyph_count {
                 let flags = r.u8()?;
