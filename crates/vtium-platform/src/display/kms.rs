@@ -121,8 +121,9 @@ pub(crate) trait Kms {
     /// `flipped`.
     fn read_events(&self, flipped: &mut Vec<u32>) -> io::Result<()>;
 
-    /// Whether the card drives a 1-bit panel ([`super::depth`]).
-    fn monochrome(&self) -> bool {
-        false
+    /// The levels of the 1-bit or gray panel the card drives, `None` for
+    /// a color display ([`super::depth`]).
+    fn levels(&self) -> Option<u8> {
+        None
     }
 }

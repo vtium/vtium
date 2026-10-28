@@ -565,7 +565,7 @@ impl App {
             size,
             refresh,
             RenderConfig {
-                depth: depth(&self.config, video.monochrome(id)),
+                depth: depth(&self.config, video.levels(id)),
                 ..self.render_config()
             },
             self.measure(),
@@ -1807,14 +1807,19 @@ pub fn open_video(
     Ok(())
 }
 
-/// A display's depth: `display-depth`, else, at `auto`, what the device
-/// says.
-fn depth(config: &Config, monochrome: bool) -> Depth {
+/// A display's depth: `display-depth`, else, at `auto`, the levels the
+/// device says it shows.
+fn depth(config: &Config, levels: Option<u8>) -> Depth {
     match config.text(&keys::DISPLAY_DEPTH) {
         Some("1") => Depth::One,
+        Some("gray4") => Depth::Gray(4),
+        Some("gray16") => Depth::Gray(16),
         Some("color") => Depth::Color,
-        _ if monochrome => Depth::One,
-        _ => Depth::Color,
+        _ => match levels {
+            None => Depth::Color,
+            Some(2) => Depth::One,
+            Some(n) => Depth::Gray(n),
+        },
     }
 }
 
@@ -1828,14 +1833,18 @@ mod tests {
             let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
             crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None)).config
         };
-        for (args, mono, want) in [
-            (&[][..], false, Depth::Color),
-            (&[][..], true, Depth::One),
-            (&["--display-depth=auto"][..], true, Depth::One),
-            (&["--display-depth=1"][..], false, Depth::One),
-            (&["--display-depth=color"][..], true, Depth::Color),
+        for (args, levels, want) in [
+            (&[][..], None, Depth::Color),
+            (&[][..], Some(2), Depth::One),
+            (&[][..], Some(16), Depth::Gray(16)),
+            (&["--display-depth=auto"][..], Some(4), Depth::Gray(4)),
+            (&["--display-depth=1"][..], None, Depth::One),
+            (&["--display-depth=1"][..], Some(16), Depth::One),
+            (&["--display-depth=gray4"][..], Some(2), Depth::Gray(4)),
+            (&["--display-depth=gray16"][..], None, Depth::Gray(16)),
+            (&["--display-depth=color"][..], Some(2), Depth::Color),
         ] {
-            assert_eq!(depth(&config(args), mono), want, "{args:?} {mono}");
+            assert_eq!(depth(&config(args), levels), want, "{args:?} {levels:?}");
         }
     }
 

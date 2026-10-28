@@ -263,14 +263,11 @@ impl<F: Framebuffer> Fbdev<F> {
         false
     }
 
-    /// Whether the display is 1-bit: the device's visual is
-    /// `FB_VISUAL_MONO01` or `FB_VISUAL_MONO10`.
-    pub fn monochrome(&self, id: DisplayId) -> bool {
-        id == DISPLAY
-            && self
-                .screen
-                .as_ref()
-                .is_some_and(|s| matches!(s.packing, Packing::Mono { .. }))
+    /// The display's levels: 2 where the device's visual is
+    /// `FB_VISUAL_MONO01` or `FB_VISUAL_MONO10`, `None` for true color.
+    pub fn levels(&self, id: DisplayId) -> Option<u8> {
+        let s = self.screen.as_ref().filter(|_| id == DISPLAY)?;
+        matches!(s.packing, Packing::Mono { .. }).then_some(2)
     }
 
     /// Whether the last swap's stand-in flip event is pending.

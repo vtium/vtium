@@ -60,9 +60,10 @@ pub trait Video: Any {
     fn hardware_cursor(&self, _: DisplayId) -> bool {
         false
     }
-    /// Whether the display is 1-bit, as the device says.
-    fn monochrome(&self, _: DisplayId) -> bool {
-        false
+    /// The levels of a 1-bit or gray display, as the device says; `None`
+    /// for color.
+    fn levels(&self, _: DisplayId) -> Option<u8> {
+        None
     }
     /// Whether a swap with no damage has something to send, as a cursor
     /// shown, moved or hidden.
@@ -106,8 +107,8 @@ impl Video for Drm2d<Card> {
     fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
         Drm2d::refresh_mhz(self, id)
     }
-    fn monochrome(&self, id: DisplayId) -> bool {
-        Drm2d::monochrome(self, id)
+    fn levels(&self, id: DisplayId) -> Option<u8> {
+        Drm2d::levels(self, id)
     }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         Drm2d::canvas(self, id)
@@ -180,8 +181,8 @@ impl Video for Fbdev<Fb> {
     fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
         Fbdev::refresh_mhz(self, id)
     }
-    fn monochrome(&self, id: DisplayId) -> bool {
-        Fbdev::monochrome(self, id)
+    fn levels(&self, id: DisplayId) -> Option<u8> {
+        Fbdev::levels(self, id)
     }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         Fbdev::canvas(self, id)

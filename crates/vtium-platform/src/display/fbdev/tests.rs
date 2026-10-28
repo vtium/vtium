@@ -236,7 +236,7 @@ const W: u32 = 0x00ff_ffff;
 #[test]
 fn a_1_bit_framebuffer_is_packed_where_damaged() {
     let mut v = mono(FB_VISUAL_MONO10, 0);
-    assert!(v.monochrome(DISPLAY));
+    assert_eq!(v.levels(DISPLAY), Some(2));
     assert_eq!(v.size(DISPLAY), Some((4, 3)));
     // the first pixel in the low bit, a set bit white
     assert_eq!(packed(&mut v, 0, [W, 0, W, 0], WHOLE), [0x05, 0, 0]);
@@ -278,13 +278,13 @@ fn a_pixel_is_lit_by_its_luma_as_the_kernel_lights_it() {
 #[test]
 fn a_device_that_takes_true_color_is_not_1_bit() {
     let v = awake(FakeFb::new(32));
-    assert!(!v.monochrome(DISPLAY));
+    assert_eq!(v.levels(DISPLAY), None);
     let mut fb = FakeFb::new(8);
     fb.visual = FB_VISUAL_MONO10;
     fb.depths = vec![8];
     let mut v = Fbdev::with(fb);
     assert!(v.wake_up().is_err(), "8 bits of a 1-bit visual");
-    assert!(!v.monochrome(DISPLAY));
+    assert_eq!(v.levels(DISPLAY), None);
 }
 
 #[test]

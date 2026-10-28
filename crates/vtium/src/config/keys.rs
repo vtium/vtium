@@ -923,11 +923,11 @@ pub const GLYPH_CACHE: Key = Key {
 pub const DISPLAY_DEPTH: Key = Key {
     name: "display-depth",
     short: None,
-    kind: Kind::Choice(&["auto", "1", "color"]),
+    kind: Kind::Choice(&["auto", "1", "gray4", "gray16", "color"]),
     default: Default::Text("auto"),
     scope: Scope::Anywhere,
     reader: "vtium-render",
-    what: "Each display's depth. `1` draws it in black and white, each cell lit or unlit by its colors, never by their brightness; `color` draws its colors; `auto` draws at 1 bit a display that says it is 1-bit: an fbdev device at 1 bit, or a DRM panel whose driver vtium-platform lists.",
+    what: "Each display's depth. `1` draws it in black and white, each cell lit or unlit by its colors, never by their brightness; `gray4` and `gray16` map the colors the same way and draw each glyph's edges in a gray panel's 4 or 16 levels; `color` draws its colors; `auto` takes the levels the display says it shows: an fbdev device at 1 bit, or a DRM panel whose driver vtium-platform lists.",
     cite: "the operator on vtium/vtium#135",
 };
 

@@ -64,8 +64,8 @@ enum Scan {
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
 pub struct Drm2d<K: Kms> {
     card: K,
-    /// The card drives a 1-bit panel.
-    monochrome: bool,
+    /// The levels of the 1-bit or gray panel the card drives.
+    levels: Option<u8>,
     /// No universal planes or no atomic commits: the legacy calls.
     legacy: bool,
     hotspot: bool,
@@ -122,13 +122,13 @@ impl<K: Kms> Drm2d<K> {
                 "the driver has no dumb buffers",
             ));
         }
-        let monochrome = card.monochrome();
-        if monochrome {
-            log::info!("the card drives a 1-bit panel");
+        let levels = card.levels();
+        if let Some(n) = levels {
+            log::info!("the card drives a panel of {n} levels");
         }
         Ok(Drm2d {
             card,
-            monochrome,
+            levels,
             legacy,
             hotspot,
             master: false,
@@ -214,10 +214,11 @@ impl<K: Kms> Drm2d<K> {
         self.output(id).is_some_and(|o| o.cursor.is_some())
     }
 
-    /// Whether the display is a 1-bit panel, which the card's driver says
-    /// ([`super::depth`]).
-    pub fn monochrome(&self, id: DisplayId) -> bool {
-        self.monochrome && self.output(id).is_some()
+    /// The levels of the display, 2 for a 1-bit panel and 4 or 16 for a
+    /// gray one, which the card's driver says ([`super::depth`]); `None`
+    /// for a color display.
+    pub fn levels(&self, id: DisplayId) -> Option<u8> {
+        self.levels.filter(|_| self.output(id).is_some())
     }
 
     /// The display's power state, `None` where its connector has none.

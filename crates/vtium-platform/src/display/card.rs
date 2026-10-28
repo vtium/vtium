@@ -313,11 +313,11 @@ impl Kms for Card {
     /// The driver's name from `DRM_IOCTL_VERSION`, and the properties of
     /// the device's device-tree node in sysfs, found by the node's device
     /// number.
-    fn monochrome(&self) -> bool {
+    fn levels(&self) -> Option<u8> {
         let mut name = Vec::new();
         if let Err(e) = drm_ffi::get_version(self.raw(), Some(&mut name), None, None) {
             log::debug!("cannot read the card's driver: {e}");
-            return false;
+            return None;
         }
         let driver = String::from_utf8_lossy(
             &name
@@ -334,7 +334,7 @@ impl Kms for Card {
                 rustix::fs::minor(dev)
             ))
         });
-        super::depth::monochrome(&driver, |property| {
+        super::depth::levels(&driver, |property| {
             std::fs::read(node.as_ref()?.join(property)).ok()
         })
     }
@@ -497,8 +497,8 @@ mod tests {
         // to primary nodes.
         let e = card.resources().expect_err("GETRESOURCES on a render node");
         assert_eq!(e.raw_os_error(), Some(Errno::ACCESS.raw_os_error()));
-        // a render node's driver is a GPU's, never a 1-bit panel's
-        assert!(!card.monochrome());
+        // a render node's driver is a GPU's, never a 1-bit or gray panel's
+        assert_eq!(card.levels(), None);
         let mut flipped = Vec::new();
         card.read_events(&mut flipped).expect("read no events");
         assert!(flipped.is_empty());
