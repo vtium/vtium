@@ -1,5 +1,0 @@
-# The C reference the oracle runs: aaronsb/libtsm at the merge of
-# aaronsb/libtsm#83, whose UTF-8 decoder follows the contract vtium-parse
-# follows. Moving the pin means checking every range in extract.tsv.
-commit	eeaf2931985051585bf50979e0c3f588b4a51ef9
-url	https://github.com/aaronsb/libtsm.git

@@ -8,9 +8,9 @@ How to work on vtium, for coding agents and the people who run them. [CONTRIBUTI
 |---|---|---|
 | vtium/vtium | `.` | vtium itself |
 | aaronsb/kmscon | `../kmscon` | the C reference's terminal, the origin of the capability probes vtium copied (#111), and the origin of the tier 2 and tier 3 goldens vtium copied (#111) |
-| aaronsb/libtsm | `../libtsm` | the C reference's screen and parser, and the origin of tier 1's replay interface and goldens, now copied into `tools/conformance/` with their provenance |
+| aaronsb/libtsm | `../libtsm` | the C reference's screen and parser, the origin of tier 1's replay interface and goldens, copied into `tools/conformance/` with their provenance, and the origin of the tools that made and checked them: the case generator, the recorder and the interface check, ported into `tools/conformance/` in Rust |
 
-The two forks are the frozen C reference: the floor for behaviour, never the ceiling, and no guide to how vtium is built. vtium is idiomatic Rust. Read the forks and change nothing in them: no gate or tool runs their code, and what vtium needs from them is copied into its own tree with its provenance (#111). Their local checkouts are often behind, so fetch and read `origin/main` (`git -C ../kmscon show origin/main:<path>`). Every `gh` command for a fork takes `-R aaronsb/kmscon` or `-R aaronsb/libtsm`, since plain `gh` here targets vtium/vtium.
+The two forks are the frozen C reference: the floor for behaviour, never the ceiling, and no guide to how vtium is built. vtium is idiomatic Rust. Read the forks and change nothing in them. No gate, CI job or build, and no tool but the three provenance checks under [The gates](#the-gates), runs their code or reads their checkouts: what vtium needs from them is copied into its own tree with its provenance (#111), and the provenance checks read a checkout only for review. Their local checkouts are often behind, so fetch and read `origin/main` (`git -C ../kmscon show origin/main:<path>`). Every `gh` command for a fork takes `-R aaronsb/kmscon` or `-R aaronsb/libtsm`, since plain `gh` here targets vtium/vtium.
 
 A question about behaviour or structure is answered from the C reference first, through [docs/c-reference.md](docs/c-reference.md) and then the forks' code at `origin/main`, taking its logic flow and never its code structure, before anything new is designed.
 
@@ -40,12 +40,15 @@ cargo fmt --all --check \
   && docs/scripts/coverage \
   && make test-tools \
   && make conformance \
-  && make conformance-probes
+  && make conformance-probes \
+  && make conformance-issues \
+  && make tier2 \
+  && make arm
 ```
 
-`make conformance` and `make conformance-probes` read the goldens and probes in `tools/conformance/`, copied from the C reference with the provenance of each file in `tools/conformance/provenance.tsv`, and need no checkout of the C repositories. The parse oracle stays in the tree outside the gates: `make parse-oracle` compiles the C reference's parser from `../libtsm` at the commit in `tools/parse-oracle/pin.tsv`, with gcc, and compares vtium-parse with it (`tools/parse-oracle/README.md`).
+`make conformance` and `make conformance-probes` read the goldens and probes in `tools/conformance/`, copied from the C reference with the provenance of each file in `tools/conformance/provenance.tsv`, and `make tier2` reads tier 2's in `tools/tier2/reference/` the same way. `make conformance-issues` asks GitHub through `gh` that every issue the conformance lists name is open. No gate needs a checkout of the C repositories. Three review steps, outside the gates, read one with git, read-only, when a change touches the copies: `make conformance-provenance`, `make tier2-provenance` and `make tier3-provenance` check each copied file against its source commit (`LIBTSM=DIR` and `KMSCON=DIR`, default `../libtsm` and `../kmscon`).
 
-vtium's code, tests and tools are written in Rust. Where vtium must talk to a C library, such as libseat (#34) or the C reference's parser that the parse oracle (`tools/parse-oracle/`, #52) compares against, C stays at that boundary: a binding or the thinnest shim, with everything around it in Rust. A tool that needs the C reference stays out of the default build, so `cargo test --workspace` needs no C toolchain or fork checkout. The C repositories keep their own harness, which judges vtium through language-neutral interfaces.
+vtium's code, tests and tools are written in Rust. Where vtium must talk to a C library, such as libseat (#34), C stays at that boundary: a binding or the thinnest shim, with everything around it in Rust.
 
 A gate reports executed, with its command and result, or names why it did not run. A test is seen failing before the change and passing after it. A new check is seen red on a planted defect, then green. Plant on a copy (`cp f f.bak`, plant, test, `mv f.bak f`, `touch f`), never with `git checkout` or `git stash`, which discard work.
 
@@ -68,7 +71,7 @@ The lint's docstring states how feature ids are formed. An id never changes once
 | Tier | What it compares | Where it runs | Command |
 |---|---|---|---|
 | Unit | each crate's behaviour | here | `cargo test --workspace --all-features` |
-| 1, conformance | screen state and replies after a byte stream, as text, against the C reference's goldens | the replay corpus in `tools/conformance/corpus/`, through the language-neutral interface in its `INTERFACE.md` | `make conformance` (`tools/conformance/`, #14) |
+| 1, conformance | screen state and replies after a byte stream, as text, against the C reference's goldens | the replay corpus in `tools/conformance/corpus/`, through the language-neutral interface in its `INTERFACE.md` | `make conformance` (`tools/conformance/`, #14), which also runs the interface check |
 | Capability probes | each claimed capability, through a replay, against `tools/conformance/capabilities.list` | `tools/conformance/probes/` | `make conformance-probes` |
 | 2, pixels | what the renderer draws in memory, pixel for pixel | `tools/tier2/`: the C reference's goldens, copied into `tools/tier2/reference/` with their provenance, and vtium's own reviewed goldens | `make tier2` |
 | 3, the VM | screenshots of vtium's install tree on a VT in a QEMU/KVM guest with a real KMS device, against the C reference's goldens, copied into `tools/tier3/c-goldens/` with their provenance, with size and memory figures | `tools/tier3/` | `make tier3-minimal` (the minspec variants, 1 vCPU and 512 MB), `make tier3` (every variant) |
@@ -97,7 +100,7 @@ The work runs local-first: GitHub's runners are slow, so they are waited on only
 3. **The author commits locally and runs the gates.** It does not push or open a PR. Its report gives the branch, the head commit, the gate results and the departures, as a PR body would.
 4. **A fresh reviewer reads the diff** (`git diff integration...<branch>`), runs the gates, and plants the defects the change claims to catch. Its findings are fixed in a round on the same branch. A fix round after the second goes to a freshly briefed agent.
 5. **The reviewed branch merges into `integration`** with `git merge --no-ff`, and the full gates run again on the merged tree.
-6. **At a merge point,** such as the end of a wave or a check of vtium against the forks, `integration` is pushed and one PR goes to main, as do the forks' PRs, and their CI is waited on. A PR merges by a regular merge commit, never squash or rebase.
+6. **At a merge point,** such as the end of a wave, `integration` is pushed, one PR goes to main, and its CI is waited on. A PR merges by a regular merge commit, never squash or rebase.
 
 ### Cooperating across worktrees
 
