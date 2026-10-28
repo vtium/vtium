@@ -144,9 +144,10 @@ valued=" font-engine font-name font-size mode multi-monitor gpus term sb-size
 	palette-light-magenta palette-light-cyan palette-white palette-foreground
 	palette-background underline-color strike-color grapheme-width xkb-model
 	xkb-layout xkb-variant xkb-options xkb-repeat-delay xkb-repeat-rate
-	dpms-timeout render-timer image-storage-limit sync-timeout "
+	dpms-timeout render-timer image-storage-limit sync-timeout blink-text "
 switches=" drm hwaccel use-original-mode blink bell soft-cursor mouse
-	natural-scrolling force-decoration-colors backspace-delete verbose debug silent "
+	natural-scrolling force-decoration-colors backspace-delete verbose debug silent
+	blink-decorations program-blank "
 declare -A unit_shift=([B]=0 [K]=10 [M]=20 [G]=30)
 valued=$(tr -s ' \t\n' ' ' <<<"$valued")
 switches=$(tr -s ' \t\n' ' ' <<<"$switches")
