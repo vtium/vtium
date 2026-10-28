@@ -42,6 +42,18 @@ basis:
     via: the team lead's message of 2026-10-28, relaying the operator's decisions; the wording is the team lead's
   - operator: aaronsb
     level: directed
+    said: "HarfRust is part of the glyph engine's flow, since international text doesn't work without shaping. ADR-1301 D1 gains a shaping stage and cluster-keyed strikes, with three kinds of coverage: codepoints and listable clusters (emoji sequences, Arabic forms, precomposed marks) prebuilt, and open clusters (syllabic scripts, contextual ligatures) always generated at run time, drawn unshaped with one log line where the helper is unavailable. The set's cluster map is an optional chunk older readers skip, so the format stays at 1.0."
+    via: vtium/vtium#144, comment of 2026-10-28 headed "The operator's decisions (2026-10-28)"; posted from the operator's account, the wording agent-written
+  - operator: aaronsb
+    level: directed
+    said: "The console's lookup for a cell's cluster: the set's cluster map, then the NFC precomposed codepoint, then the base with its mark overstruck, then the built-in font (#141), then a helper request where allowed, then the replacement glyph. The console never parses a font."
+    via: the team lead's message of 2026-10-28, relaying the operator's decisions recorded on #144; the wording is the team lead's
+  - operator: aaronsb
+    level: directed
+    said: "U+FFFD where the font has it, else U+25A1, the order the C reference used (Unscii-8 has no U+FFFD)."
+    via: the team lead's message of 2026-10-28, relaying the operator's correction of the replacement glyph; the wording is the team lead's
+  - operator: aaronsb
+    level: directed
     said: "The CPU-only call is reversed: nothing prevents the hardware-accelerated path for 1-bit or gray displays where it is a functional display path, though it would be unusual."
     via: the team lead's message of 2026-10-28, relaying the operator's answers on the first draft; the wording is the team lead's
   - operator: aaronsb
@@ -132,7 +144,7 @@ related: []
 
 ## Summary
 
-- **Decided:** vtium has one glyph engine. It takes a frit's sources, the capabilities of the display it draws for, and the frit's options, and gives strikes in the set's chunk format. It runs on two schedules with the same reader, rasteriser and rules, and both respect every frit option: ahead of time, when `vtium-vitrify create` builds a set for a target declared or read at build time, and at run time, when ADR-1400's sandboxed helper generates for the live display (#123). A frit drawn at run time gives what the same frit built ahead of time gives, so a set does not have to be built: a built set is a cache of the frit's output, kept once made, and building ahead gains speed, security and repeatability. Any build may generate at run time; a minspec install prefers built sets. A display's capabilities are its depth, subpixel geometry, density and the rotation vtium draws it in, read without DRM master and overridden by `display-depth` and `display-subpixel`. They place it in one of eight classes, and one grid of classes against options says how glyphs and vtium's own sprites are drawn. Outline glyphs draw crisp below a cell size with no room for antialiasing and antialias above it; that figure is measured, not yet set, and `font-antialias=no` or a frit's `antialias=no` turns antialiasing off at any size. A 1-bit display maps each cell's colors to lit or unlit by cell, its polarity following the default background. A gray panel is drawn as a color display and converts the pixels itself. Color glyphs on 1-bit and gray displays fall back to a bitmap glyph for the same character. Subpixel rendering and dithering are options, never defaults. When a built set's target differs from the display, vtium prefers a build of the same frit for this display, else generates from that frit at run time. One table of rules lints poor combinations at build, at load and in `vtium check-config`. The helper starts on the first request and exits after an idle interval, so a machine that loads only built sets runs none, and a machine with no built set draws by generating from its default frit on first use. A character no font holds draws as the font's replacement glyph, U+FFFD, at every size.
+- **Decided:** vtium has one glyph engine. It takes a frit, the capabilities of the display it draws for, and the clusters to cover; it reads the font, shapes each cluster with HarfRust, rasterises the glyphs, picks each one's form from the grid, and gives strikes keyed by codepoint or by cluster in the set's chunk format. Codepoints and listable clusters are built ahead of time; open clusters, as in syllabic scripts, are always shaped at run time by the helper. The console looks a cell's cluster up in the set, then by its precomposed form, its base with the mark overstruck, the built-in font, the helper, and last the replacement glyph, and never parses a font. It runs on two schedules with the same reader, rasteriser and rules, and both respect every frit option: ahead of time, when `vtium-vitrify create` builds a set for a target declared or read at build time, and at run time, when ADR-1400's sandboxed helper generates for the live display (#123). A frit drawn at run time gives what the same frit built ahead of time gives, so a set does not have to be built: a built set is a cache of the frit's output, kept once made, and building ahead gains speed, security and repeatability. Any build may generate at run time; a minspec install prefers built sets. A display's capabilities are its depth, subpixel geometry, density and the rotation vtium draws it in, read without DRM master and overridden by `display-depth` and `display-subpixel`. They place it in one of eight classes, and one grid of classes against options says how glyphs and vtium's own sprites are drawn. Outline glyphs draw crisp below a cell size with no room for antialiasing and antialias above it; that figure is measured, not yet set, and `font-antialias=no` or a frit's `antialias=no` turns antialiasing off at any size. A 1-bit display maps each cell's colors to lit or unlit by cell, its polarity following the default background. A gray panel is drawn as a color display and converts the pixels itself. Color glyphs on 1-bit and gray displays fall back to a bitmap glyph for the same character. Subpixel rendering and dithering are options, never defaults. When a built set's target differs from the display, vtium prefers a build of the same frit for this display, else generates from that frit at run time. One table of rules lints poor combinations at build, at load and in `vtium check-config`. The helper starts on the first request and exits after an idle interval, so a machine that loads only built sets runs none, and a machine with no built set draws by generating from its default frit on first use. A character no font holds draws as the font's replacement glyph, U+FFFD where the font has it, else U+25A1, at every size.
 - **Trades away:** The sharper edges subpixel rendering gives a desktop LCD, unless a frit asks for it. Smooth outline glyphs below the crisp boundary. Color emoji on 1-bit and gray displays, unless a frit asks for them dithered. Any tuning for a gray panel's levels, until a real panel shows the need. A display detected wrongly draws wrongly until a key names it.
 - **One-way?** No for drawing: the engine and the grid live in vtium-vitrify and vtium-render and change in a session. Built sets are caches of their frits, so changing what a class gets makes them stale; `create --all` rebuilds them, and generation at run time draws the new form meanwhile. The keys' names and values become expensive after the first release.
 - **Probes:**
@@ -146,6 +158,8 @@ related: []
 
 > Edited 2026-10-28: the operator decided the helper's lifetime, the polarity of a 1-bit display and the replacement glyph. The decided line read: "How long the helper lives is proposed here, not decided."; the 1-bit sentence ended "by cell."
 
+> Edited 2026-10-28: the operator's decisions on #144 put shaping in the engine, and corrected the replacement glyph. The decided line opened: "vtium has one glyph engine. It takes a frit's sources, the capabilities of the display it draws for, and the frit's options, and gives strikes in the set's chunk format." and its last sentence read "[...] draws as the font's replacement glyph, U+FFFD, at every size."
+
 ## Context
 
 vtium draws into XRGB8888 and nothing else. minspec's machines bring the displays where that fails: a 1-bit OLED or memory LCD behind a DRM driver that thresholds each frame, gray panels, and small 16-bit color LCDs, often mounted rotated (#75). On a 1-bit panel antialiased coverage breaks into gaps and a color below the threshold vanishes: red text on black is about 30% bright (#135). Outline fonts (#23) need a rasterising mode chosen for each display, ADR-1300 reserved a subpixel format with no rule for when it is used, and ADR-1200 rasterises in two places, `create` ahead of time (D14) and the helper at run time (D15), which must draw alike.
@@ -154,7 +168,7 @@ vtium draws into XRGB8888 and nothing else. minspec's machines bring the display
 
 The C reference rasterised every glyph at run time, in its root process. Its font backends were modules loaded at start, each registering itself (`kmscon/src/font/mod_freetype.c:39-51`, `kmscon/src/font/mod_pango.c:39-51`, `kmscon/src/shl/module.c:195-239`). A font was found by name and pixel height, trying the configured engine and then freetype, pango, unifont, psf and 8x16 in turn (`kmscon/src/font/font.c:124-167`, `kmscon/src/font/font.c:203-232`).
 
-A glyph was drawn the first time a frame needed it: the renderer looked it up under its glyph key, and on a miss asked the font for it 1 or 2 cells wide, rotated it once and kept it in its LRU (`kmscon/src/render/bbulk.c:540-573`). Box drawing, blocks, Braille and the mosaics were drawn by the C reference itself in place of the font's glyph, sized to the cell (`kmscon/src/font/font.c:343-355`, `kmscon/src/font/font_box.c:27-51`). A codepoint the main face lacked came from the next face in fontconfig's list, opened on demand and sized to the cell (`kmscon/src/font/font_freetype.c:691-767`). An emoji cluster came from a color face, scaled into its cells with a box filter, or as the mask of its alpha when color emoji were off (`kmscon/src/font/font_colour.h:69-89`, `kmscon/src/font/font_colour.c:348-354`, `kmscon/src/font/font_freetype.c:769-816`).
+A glyph was drawn the first time a frame needed it: the renderer looked it up under its glyph key, and on a miss asked the font for it 1 or 2 cells wide, rotated it once and kept it in its LRU (`kmscon/src/render/bbulk.c:540-573`). Box drawing, blocks, Braille and the mosaics were drawn by the C reference itself in place of the font's glyph, sized to the cell (`kmscon/src/font/font.c:343-355`, `kmscon/src/font/font_box.c:27-51`). A cluster of several codepoints was shaped with HarfBuzz on the face that covered its first codepoint and drawn into one bitmap, marks placed under or over the base (`kmscon/src/font/font_freetype.c:506-636`). A codepoint the main face lacked came from the next face in fontconfig's list, opened on demand and sized to the cell (`kmscon/src/font/font_freetype.c:691-767`). An emoji cluster came from a color face, scaled into its cells with a box filter, or as the mask of its alpha when color emoji were off (`kmscon/src/font/font_colour.h:69-89`, `kmscon/src/font/font_colour.c:348-354`, `kmscon/src/font/font_freetype.c:769-816`).
 
 FreeType drew with light hinting and in gray, one byte a pixel, reading no pixel order (`kmscon/src/font/font_freetype.c:117-128`), and Pango drew into a 256-level gray bitmap (`kmscon/src/font/font_pango.c:136-235`). A zoom stepped the size by a pixel, found a new font at the new size and handed it to each screen's renderer, which emptied its glyph cache (`kmscon/src/terminal.c:921-955`, `kmscon/src/terminal.c:1325-1355`, `kmscon/src/render/text.c:271-323`, `kmscon/src/render/bbulk.c:468-480`). Its fbdev backend refused a framebuffer that was not true color at 32, 24 or 16 bits (`kmscon/src/video/fbdev_video.c:199-247`), and its DRM backends drew XRGB8888 with no knowledge of a panel's depth.
 
@@ -188,10 +202,44 @@ flowchart LR
 
 ### D1: the glyph engine
 
-- **Inputs:** a frit: its sources with their `cover=`, sizes and styles (ADR-1200 D1), and its options (D4); and the capabilities of the display the strike is for (D3).
-- **Output:** strikes in the set's chunk format (ADR-1200 D2): 1-bit, R8, a subpixel format or RGBA glyphs, 1 or 2 cells wide, in a size's cell.
-- **The engine** is `vtium-vitrify`'s reader and rasteriser (ADR-1200 D14) with this record's grid. It places the target in its class (D5), and for each glyph picks its form from the grid (D6): bitmap, crisp or antialiased outline, subpixel, color, dithered, or a fallback to another source's bitmap glyph.
-- vtium's own sprites are not the engine's: vtium-render draws them for the cell and the live display when a frame is drawn (D7), so they are right on any display whatever a set was built for.
+**Inputs:** the frit, its sources with their `cover=`, sizes and styles (ADR-1200 D1) and its options (D4); the capabilities of the display the strikes are for (D3); and the clusters to cover: the frit's coverage and, ahead of time, Unicode's lists of emoji sequences, or at run time the clusters a request names.
+
+1. **Read:** the font is parsed in `vtium-vitrify`'s child process (ADR-1200 D14) or in the helper (D2), never in the console.
+2. **Shape:** HarfRust turns each cluster into glyph ids with their positions: marks placed, emoji ZWJ sequences and flags collapsed to one glyph, Arabic joining forms chosen. HarfRust is the HarfBuzz project's Rust port, under the MIT licence, parsing through `read-fonts` (#144).
+3. **Rasterise:** each glyph id is rasterised, and a shaped cluster is composed into one bitmap fitted to its 1 or 2 cells.
+4. **The grid:** the engine places the target in its class (D5) and picks each glyph's form from the grid (D6): bitmap, crisp or antialiased outline, subpixel, color, dithered, or a fallback to another source's bitmap glyph.
+5. **Output:** strikes in the set's chunk format (ADR-1200 D2), 1-bit, R8, a subpixel format or RGBA, keyed by codepoint or by cluster.
+
+vtium's own sprites are not the engine's: vtium-render draws them for the cell and the live display when a frame is drawn (D7), so they are right on any display whatever a set was built for.
+
+> Edited 2026-10-28: the operator's decisions on #144 put shaping in the engine; international text does not work without it. D1 read: "Inputs: a frit: its sources with their `cover=`, sizes and styles (ADR-1200 D1), and its options (D4); and the capabilities of the display the strike is for (D3). Output: strikes in the set's chunk format (ADR-1200 D2): 1-bit, R8, a subpixel format or RGBA glyphs, 1 or 2 cells wide, in a size's cell. The engine is `vtium-vitrify`'s reader and rasteriser (ADR-1200 D14) with this record's grid. [...]"
+
+#### Three kinds of coverage
+
+| Kind | Examples | Made |
+|---|---|---|
+| Codepoints | a letter, a CJK ideograph, a symbol | ahead of time, or at run time like any glyph (D2) |
+| Listable clusters | emoji ZWJ sequences, flags, keycaps, Arabic joining forms and lam-alef, a base with marks that precompose | ahead of time, from the frit's coverage and Unicode's emoji sequence lists, or at run time |
+| Open clusters | syllabic scripts such as the Indic ones, contextual ligatures | always at run time, by the helper, kept per boot with the other run-time strikes |
+
+- A set's `META` records which ranges are shaped on demand, so the console knows to ask the helper for their clusters.
+- Where the helper is unavailable, open clusters draw unshaped, one glyph per codepoint, and the console logs one line; the rule checker flags the setup (D8).
+- How a shaped cluster in a syllabic script maps onto cells, and bidirectional text, stay open in #144.
+
+#### The console's lookup for a cell
+
+The console finds a cell's glyph, its cluster or single codepoint, in this order, and parses no font at any step:
+
+1. the set's cluster map, or its codepoint map for a single codepoint;
+2. the cluster's NFC form, where it precomposes to one codepoint the set holds;
+3. the base's glyph with each mark's glyph overstruck on it;
+4. the built-in font for the cell size (ADR-1200 D7, #141);
+5. a request to the helper, where the helper is allowed (D2), drawn from step 4 or 6 until its strike arrives;
+6. the replacement glyph: U+FFFD where the font has it, else U+25A1, the C reference's replacement (D7).
+
+#### Text from the terminal reaches the shaper
+
+An open cluster the helper shapes at run time is text a program wrote to the terminal, so HarfRust and the font parser behind it face input anyone with the terminal can choose. That is attack surface. It runs only in the helper, as the session's user under its sandbox (ADR-1400 D2), its answers are checked like any glyph chunk (ADR-1200 D15), and the shaping path takes a fuzz target that drives clusters through it (#144).
 
 ### D2: two schedules
 
@@ -297,7 +345,9 @@ vtium-render draws for the live display's class, whatever a set was built for.
 - **On a 1-bit display** each cell's colors map to lit or unlit by cell, never by brightness, and the polarity follows the default background (the operator, 2026-10-28). A light default background, one whose BT.601 luma is at least half, makes the screen lit and default text unlit; a dark one makes the screen unlit and default text lit. A cell whose background differs from the default, as reverse video, a selection or a colored background, flips from it, with its glyph flipped again; a foreground equal to its background stays invisible (#135). The border outside the grid follows the default background. Coverage is thresholded at half, and each sprite thresholding would break is drawn as a 1-bit shape: the curl as a one-pixel wave, the shades as fixed patterns of lit pixels. A DRM panel gets pure black and white, which the kernel's conversion keeps exact; a 1-bit fbdev is packed from the XRGB8888 copy (#135).
 > Edited 2026-10-28: the operator decided the polarity. This read: "the default background is unlit; a cell whose background differs from the default, as reverse video, a selection or a colored background, is lit and its glyph unlit".
 
-- **A character no font holds** draws as the font's replacement glyph, U+FFFD, at every size, on every class (the operator, 2026-10-28).
+- **A character no font holds** draws as the font's replacement glyph at every size, on every class: U+FFFD where the font has it, else U+25A1, the C reference's replacement character; Unscii-8 has no U+FFFD (the operator, 2026-10-28).
+
+> Edited 2026-10-28: the operator corrected the replacement glyph. This read: "draws as the font's replacement glyph, U+FFFD, at every size, on every class (the operator, 2026-10-28)."
 - **On a gray panel** vtium draws as for a color display and leaves the mapping to the panel's own conversion, which differs from panel to panel. vtium adds no quantization, contrast rule or color mapping of its own; those come only if a real panel shows the need, in an edit to this record (the operator, 2026-10-28). A gray fbdev, whose memory holds gray values, is written at its depth from the XRGB8888 copy as #135 packs 1 bit; how a DRM gray panel's driver converts is to be confirmed by #135.
 - **Elsewhere** colors are drawn as they are, and a `565` panel's driver or fbdev's packing takes them to 16 bits.
 - **vtium's sprites** (underlines, the curl, the strike, box drawing, blocks, shades and Legacy Computing, `crates/vtium-render/src/deco.rs`, `crates/vtium-font/src/sprite.rs`) are drawn as coverage on every class but 1-bit.
@@ -318,6 +368,7 @@ One table of rules, each with an id, its reason, a severity (note, warning or re
 | A dithered set on a display with color | | warning (the operator, 2026-10-28) |
 | Color glyphs with no bitmap fallback in the frit, for a 1-bit or gray target | note, naming the codepoints left out | |
 | A set's target depth, density or subpixel order that differs from the display's, or a set made with antialiasing under `font-antialias=no` | | note; a build of the same frit for this display is preferred, else the frit is generated at run time (D2); with neither, the set draws, thresholded at half on a 1-bit display |
+| Ranges shaped on demand with no helper to shape them | | warning; open clusters draw unshaped, one glyph per codepoint, with one log line (D1) |
 | A cell size that leaves fewer than 80x25 cells, or 40x30 at the 320x240 floor (#118) | note | note |
 
 A combination never refuses a set at load: vtium draws it as the table says and logs the finding. Refusal is a build's answer, before anything is stored.
@@ -338,14 +389,15 @@ Until that edit, `create` on the target builds for the display it reads, and `cr
 
 ### For the operator's check
 
-These are agent calls the operator has not yet looked at: a combination never refuses a set at load (D8); `create --out` builds for "order unknown" until #136's edit (D9); the HiDPI class starts at 192 DPI and the small color LCD class covers modes of 800x480 or less (D5); the helper's idle bound of 60,000 ms (D2); a light default background as BT.601 luma of at least half (D7); and the `observable` lines.
+These are agent calls the operator has not yet looked at: a combination never refuses a set at load (D8); `create --out` builds for "order unknown" until #136's edit (D9); the HiDPI class starts at 192 DPI and the small color LCD class covers modes of 800x480 or less (D5); a light default background as BT.601 luma of at least half (D7); and the `observable` lines.
 
 ### Beyond the C reference
 
 - vtium rasterises outside the root process, in `vtium-vitrify`'s child at build and the sandboxed helper at run time; the C reference parsed and rasterised fonts as root.
 - vtium keeps a frit's output as a built set, checked by owner and hash, where the C reference rasterised every glyph anew in each process.
 - vtium draws 1-bit and gray displays, which the C reference refused on fbdev and drew blind on DRM.
-- A character no font holds draws as U+FFFD, the replacement glyph; the C reference drew U+25A1, then `?` (`kmscon/src/font/font.h:50`, `kmscon/src/font/font.c:356-366`).
+- A character no font holds draws as U+FFFD where the font has it, else U+25A1; the C reference drew U+25A1, then `?` (`kmscon/src/font/font.h:50`, `kmscon/src/font/font.c:356-366`).
+- vtium shapes clusters in `vtium-vitrify`'s child and the sandboxed helper, keeps shaped clusters in a set's cluster map, and composes a mark on its base in the console without a font; the C reference shaped with HarfBuzz in its root process.
 - Outline glyphs draw crisp below the boundary or on request, where the C reference drew every glyph with light hinting in gray.
 - Subpixel strikes are an option on displays with a stripe; the C reference read no pixel order.
 - Color glyphs fall back to bitmap glyphs on displays without color, and a rule checker names poor combinations; the C reference had neither.
@@ -353,6 +405,7 @@ These are agent calls the operator has not yet looked at: a combination never re
 ## Verification
 
 - **One engine:** a frit generated at run time for a display and the same frit built by `create` for that display give the same strike bytes, for each class, every option of D4 and a minspec build as well as a full one.
+- **Shaping:** a ZWJ sequence, a flag, a keycap, an Arabic word and a base with marks, each built ahead of time and generated at run time, give the same cluster bytes; the console's lookup takes each step of D1 in order, with a stand-in set lacking each earlier step; a fuzz target drives arbitrary clusters through the helper's shaping (#144).
 - **The reader:** each axis against stand-in replies to each ioctl and stand-in sysfs trees, the keys over each, and a failed read leaving the safe end. A depth table row with a planted wrong driver name fails its test.
 - **The grid:** a test per cell of D6 builds a strike for that class and checks the form chosen. A planted rule that offers subpixel on a gray display fails.
 - **Crisp strikes:** every pixel of a crisp strike is 0 or 255, below the boundary and at every size with `antialias=no`.
@@ -385,6 +438,7 @@ These are agent calls the operator has not yet looked at: a combination never re
 
 ### Neutral
 
+- #144 builds shaping and the cluster map, and keeps the cell mapping of syllabic scripts and bidirectional text open; #141 builds the console's fallback to the built-in font.
 - #135 builds the 1-bit path and the depth table; #134 judges subpixel at 320x240; #136 edits ADR-1200 with the target and `antialias=`; #137 builds the checker; #123 runs the engine at run time; #23's strikes give the measurement that sets the crisp boundary.
 - The reader in vtium-platform gains the connector's subpixel, its physical size and EDID, beside #135's driver table.
 - ADR-1200 D6 and D15 take dated notes: any build may generate at run time.
