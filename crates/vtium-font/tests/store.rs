@@ -15,12 +15,30 @@ use vtium_font::set::{
 };
 use vtium_font::{Cell, Face, Sha256, Style, Width};
 
-/// A fresh store directory for `test`, mode 0755, under Cargo's temporary
-/// directory, whose parents the invoking user or root owns.
+/// Where the tests' stores go: Cargo's temporary directory, unless one of
+/// its parents is writable by others, as `/tmp` is when the target
+/// directory is under it, which the store's check refuses; then the
+/// workspace's own `target/tmp`.
+fn base() -> PathBuf {
+    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    let kept = |p: &Path| {
+        p.ancestors()
+            .all(|a| fs::metadata(a).is_ok_and(|m| m.mode() & 0o022 == 0))
+    };
+    if kept(&tmp) {
+        return tmp;
+    }
+    let workspace = fs::canonicalize(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
+        .expect("the workspace")
+        .join("target/tmp");
+    fs::create_dir_all(&workspace).expect("create target/tmp");
+    workspace
+}
+
+/// A fresh store directory for `test`, mode 0755, whose parents the
+/// invoking user or root owns.
 fn store_dir(test: &str) -> PathBuf {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join("vtium-font-store")
-        .join(test);
+    let dir = base().join("vtium-font-store").join(test);
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create the store");
     for d in [dir.as_path(), dir.parent().expect("a parent")] {
