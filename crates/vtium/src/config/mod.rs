@@ -33,6 +33,8 @@ use std::path::{Path, PathBuf};
 
 pub use keys::{KEYS, Key, Kind, Scope, TEXT_MAX};
 
+use vtium_render::DecoColor;
+
 use crate::grab::Chord;
 
 /// The most bytes of a configuration file read; the rest is ignored and
@@ -59,6 +61,8 @@ pub enum Value {
     Modes(Vec<ModeSpec>),
     /// A [`Kind::Grab`] value.
     Chords(Vec<Chord>),
+    /// A [`Kind::DecoColor`] value.
+    DecoColor(DecoColor),
 }
 
 /// One `mode` line: the mode, and the card and connector it is for.
@@ -416,6 +420,14 @@ impl Config {
         match self.get(key) {
             Some(Value::Chords(c)) => c,
             _ => &[],
+        }
+    }
+
+    /// A decoration color key's value, the foreground when unset.
+    pub fn deco_color(&self, key: &Key) -> DecoColor {
+        match self.get(key) {
+            Some(Value::DecoColor(c)) => *c,
+            _ => DecoColor::Foreground,
         }
     }
 

@@ -119,6 +119,15 @@
 ## The default background with `palette=custom`.
 #palette-background=0,0,0
 
+## The color every underline draws in, SGR 4 in each of its styles and SGR 21: `fg` draws it in the text's color, a palette index in that palette color, which follows a program's OSC 4, and `#rrggbb` in that color. A color a program sets with SGR 58 wins unless `force-decoration-colors` is on.
+#underline-color=fg
+
+## The color the strike, SGR 9, draws in, as `underline-color` takes it.
+#strike-color=fg
+
+## `underline-color` wins over the underline color a program sets with SGR 58.
+#no-force-decoration-colors
+
 ## Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and `grab-paste` paste it.
 #clipboard-write
 

@@ -528,6 +528,72 @@ fn a_custom_palette_reaches_the_terminal() {
     );
 }
 
+impl Memory {
+    /// Whether any pixel is `rgb`; the buffer is XRGB8888, little-endian.
+    fn has(&self, [r, g, b]: [u8; 3]) -> bool {
+        self.pixels.chunks_exact(4).any(|p| p[..3] == [b, g, r])
+    }
+}
+
+/// The seat with `options`, once the program's `text` is drawn.
+fn decorated(options: &[&str], text: &str) -> Harness {
+    let script = format!("printf '{text}\\n'; read x");
+    let mut args = options.to_vec();
+    args.extend(["--login", "--", "/bin/sh", "-c", &script]);
+    let mut h = Harness::new(&args);
+    assert!(h.until(SECOND, |a| shows(a, "U S")));
+    h.until(Duration::from_millis(100), |_| false);
+    h
+}
+
+const RED: [u8; 3] = [255, 0, 0];
+const GREEN: [u8; 3] = [0, 255, 0];
+const BLUE: [u8; 3] = [0, 0, 255];
+
+/// `underline-color` draws every underline in its color, a program's SGR
+/// 58 aside.
+#[test]
+fn underline_color_colors_the_underline() {
+    let text = "\\033[4mU\\033[24m \\033[9mS\\033[29m";
+    assert!(!decorated(&[], text).memory().has(RED));
+    let mut h = decorated(&["--underline-color=#ff0000"], text);
+    assert!(h.memory().has(RED));
+    // A palette index follows the palette.
+    let mut h = decorated(
+        &[
+            "--underline-color=4",
+            "--palette=custom",
+            "--palette-blue=0,0,255",
+        ],
+        text,
+    );
+    assert!(h.memory().has(BLUE));
+}
+
+/// `strike-color` draws every strike in its color.
+#[test]
+fn strike_color_colors_the_strike() {
+    let text = "\\033[4mU\\033[24m \\033[9mS\\033[29m";
+    assert!(!decorated(&[], text).memory().has(GREEN));
+    let mut h = decorated(&["--strike-color=#00ff00"], text);
+    assert!(h.memory().has(GREEN));
+}
+
+/// `force-decoration-colors` draws the configured underline color over
+/// the one a program sets with SGR 58; off, the program's wins.
+// covers: sgr.underline-color
+#[test]
+fn force_decoration_colors_wins_over_sgr_58() {
+    let text = "\\033[4;58:2::0:0:255mU\\033[24;59m \\033[9mS\\033[29m";
+    let mut h = decorated(&["--underline-color=#ff0000"], text);
+    assert!(h.memory().has(BLUE) && !h.memory().has(RED));
+    let mut h = decorated(
+        &["--underline-color=#ff0000", "--force-decoration-colors"],
+        text,
+    );
+    assert!(h.memory().has(RED) && !h.memory().has(BLUE));
+}
+
 #[test]
 fn a_retaken_vt_sets_the_displays_up_again_and_draws_them_whole() {
     let mut h = Harness::with_vt(

@@ -41,6 +41,10 @@ pub enum Kind {
     /// Keys a grab takes: chords such as `<Ctrl><Alt>Delete`, separated by
     /// commas ([`crate::grab::parse`]). Empty, it takes none.
     Grab,
+    /// A decoration's color: `fg`, the cell's foreground; a palette index
+    /// from 0 to 255, which follows the palette a program changes; or
+    /// `#rrggbb`.
+    DecoColor,
 }
 
 /// A key's value before any source sets it.
@@ -575,6 +579,39 @@ pub const PALETTE_BACKGROUND: Key = Key {
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
+pub const UNDERLINE_COLOR: Key = Key {
+    name: "underline-color",
+    short: None,
+    kind: Kind::DecoColor,
+    default: Default::Text("fg"),
+    scope: Scope::Anywhere,
+    reader: "vtium-render",
+    what: "The color every underline draws in, SGR 4 in each of its styles and SGR 21: `fg` draws it in the text's color, a palette index in that palette color, which follows a program's OSC 4, and `#rrggbb` in that color. A color a program sets with SGR 58 wins unless `force-decoration-colors` is on.",
+    cite: "src/config.c:263-265, 868-933, 1453-1454",
+};
+
+pub const STRIKE_COLOR: Key = Key {
+    name: "strike-color",
+    short: None,
+    kind: Kind::DecoColor,
+    default: Default::Text("fg"),
+    scope: Scope::Anywhere,
+    reader: "vtium-render",
+    what: "The color the strike, SGR 9, draws in, as `underline-color` takes it.",
+    cite: "src/config.c:266-267, 1455-1456",
+};
+
+pub const FORCE_DECORATION_COLORS: Key = Key {
+    name: "force-decoration-colors",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    reader: "vtium-render",
+    what: "`underline-color` wins over the underline color a program sets with SGR 58.",
+    cite: "src/config.c:268-270, 1457-1458",
+};
+
 pub const CLIPBOARD_WRITE: Key = Key {
     name: "clipboard-write",
     short: None,
@@ -888,7 +925,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 68] = [
+pub const KEYS: [Key; 71] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -930,6 +967,9 @@ pub const KEYS: [Key; 68] = [
     PALETTE_WHITE,
     PALETTE_FOREGROUND,
     PALETTE_BACKGROUND,
+    UNDERLINE_COLOR,
+    STRIKE_COLOR,
+    FORCE_DECORATION_COLORS,
     CLIPBOARD_WRITE,
     XKB_MODEL,
     XKB_LAYOUT,
