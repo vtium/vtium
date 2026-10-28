@@ -71,7 +71,7 @@ transcript: /tmp/vtium-vt/vt-20261027T151200-tty5-a1B2c3.transcript
 
 ## Guides
 
-`make vt-check` runs `tools/vt/checks/guide.sh` as vtium's session. Each step is one screen: what to do and what to expect. Enter starts the step's probe or shell, q stops a probe and `exit` ends a shell, and the operator answers y, n or s, with a note. At a step's first prompt, s skips the step and q ends the checks. After the last step vtium exits and the console comes back.
+`make vt-check` runs `tools/vt/checks/guide.sh` as vtium's session. Each step is one screen: the command it runs, what to do and what to expect. Enter runs the step's command, or starts its probe or shell; q stops a probe and `exit` ends a shell, and the operator answers y, n or s, with a note. At a step's first prompt, s skips the step and q ends the checks. After the last step vtium exits and the console comes back.
 
 The answers, and each line a probe prints, are appended to `/tmp/vtium-vt/vt-check.log` under a header naming the guide, the time, the tty and the steps. `guide.sh` refuses that directory before anything is asked when it is a symlink, another user's or open to anyone else.
 
@@ -82,10 +82,13 @@ A guide is `tools/vt/checks/NAME.guide`, lines of `key: text`; blank lines and l
 | `title:` | once, before the first step: the first screen's heading and the log's header |
 | `intro:` | a line for the first screen, before the first step |
 | `step:` | starts a step, with its title |
-| `probe:` | the step's mode: `shell`, an interactive shell with the prompt `vtium-check$ `, or a mode of `checks/probe.py` (`probe.py --list`), which sets a terminal mode and prints each sequence the terminal sends, timed. A step without one asks once Enter is pressed. |
-| `do:`, `expect:` | a line shown as typed under `Do:` or `Expect:`; each step needs both |
+| `run:` | the step's command, one line, shown under `Run:`. Enter runs it on the guide's terminal, vtium's VT, through `bash --noprofile --norc -c`, echoed after the prompt `vtium-check$ ` as a shell would show it, and the step asks once it ends; a status other than 0 is shown and logged. A key pressed while it runs is dropped, so it never answers the step. |
+| `probe:` | the step's mode: `shell`, an interactive shell with the prompt `vtium-check$ `, or a mode of `checks/probe.py` (`probe.py --list`), which sets a terminal mode and prints each sequence the terminal sends, timed. A step has a `run:` or a `probe:`, not both, and one without either asks once Enter is pressed. |
+| `do:`, `expect:` | a line shown as typed under `Do:` or `Expect:`; each step needs an `expect:` line, and a `do:` or `run:` line |
 
-`{vt}` and `{desktop}` in the text are the run's VT and the desktop's. `guide.sh --check FILE` checks a guide without a terminal and lists its steps. `start.guide` checks that vtium starts and that a shell runs and echoes at its prompt; #21 adds the steps for what it wires in. `blank.guide` checks that `setterm --blank` times the DPMS blank and that a program's `CSI 13 ]` wakes the displays (#79).
+A step that judges a picture runs the command that draws it, so the picture is on screen while the operator answers, and one step judges each picture. `do:` holds what only the operator can do: switch VTs, keep still, look. A step keeps the `shell` probe when typing the command is what it checks.
+
+`{vt}` and `{desktop}` in the text are the run's VT and the desktop's. `guide.sh --check FILE` checks a guide without a terminal and lists its steps. `start.guide` checks that vtium starts and that a shell runs and echoes at its prompt; #21 adds the steps for what it wires in. `blank.guide` checks that `setterm --blank` times the DPMS blank and that a program's `CSI 13 ]` wakes the displays (#79). `vt.guide` checks the switch away and back, and that keys reach vtium and not the kernel console (#19). `wave-a.guide` checks what Wave A changed on screen: the blink styles, X11 color names and a program waking the blank.
 
 The C reference's first guided run left lessons the guides keep:
 
@@ -102,7 +105,7 @@ A section is one file, `tools/vt/sections/NN-name.sh`: deterministic output, at 
 
 ## Testing the tools
 
-`make test-tools`, part of CI, runs `tools/vt/tests/test_vt.py` and shellcheck. The tests run every path without a VT, sudo or logind: `VTIUM_VT_STANDINS` names a directory of stand-ins for `systemctl`, `loginctl`, `setpriv`, `getent`, `sudo`, `/etc/shells`, `/etc/locale.conf`, `/run/user` and the VT on screen, run from there by full path, and a stand-in vtium that exits, crashes, waits for a signal or runs its session. They check that a VT a session is on is refused, that the shell is the one the password database names and `/etc/shells` lists, that a home directory not the user's and a session as uid 0 are refused, that the shell gets the locale and the user's runtime directory and bus only when they are the user's, that the console unit is restored after a crash, Ctrl-C, SIGTERM and SIGHUP, that a guide failing `--check` stops before sudo, that the answers log refuses a symlinked or foreign directory, that no tool reaches `chvt` or `fgconsole`, and they run `start.guide`, the demo and a stand-in shell end to end through `make`. As root, `run-vt.sh` refuses `VTIUM_VT_STANDINS`, and `vt.sh` honours it and `VTIUM_VT_DIR` only together, so a stale export cannot choose what runs as root or where the answers are read.
+`make test-tools`, part of CI, runs `tools/vt/tests/test_vt.py` and shellcheck. The tests run every path without a VT, sudo or logind: `VTIUM_VT_STANDINS` names a directory of stand-ins for `systemctl`, `loginctl`, `setpriv`, `getent`, `sudo`, `/etc/shells`, `/etc/locale.conf`, `/run/user` and the VT on screen, run from there by full path, and a stand-in vtium that exits, crashes, waits for a signal or runs its session. They check that a VT a session is on is refused, that the shell is the one the password database names and `/etc/shells` lists, that a home directory not the user's and a session as uid 0 are refused, that the shell gets the locale and the user's runtime directory and bus only when they are the user's, that the console unit is restored after a crash, Ctrl-C, SIGTERM and SIGHUP, that a guide failing `--check` stops before sudo, that a `run:` step shows its command, runs it on the guide's terminal and drops a key pressed meanwhile, that the answers log refuses a symlinked or foreign directory, that no tool reaches `chvt` or `fgconsole`, and they run `start.guide`, the demo and a stand-in shell end to end through `make`. As root, `run-vt.sh` refuses `VTIUM_VT_STANDINS`, and `vt.sh` honours it and `VTIUM_VT_DIR` only together, so a stale export cannot choose what runs as root or where the answers are read.
 
 ## Departures from the C reference's review
 
@@ -111,4 +114,4 @@ A section is one file, `tools/vt/sections/NN-name.sh`: deterministic output, at 
 - A dry run asks the real read-only questions (the VT on screen, the sessions, the active units); the C reference's assumed them.
 - The demo refuses to record into a symlinked or foreign directory, as the guide's log and the run log do.
 - The health check counts Rust panics; the C reference's counted its own freeze signature.
-- Guides gain the `shell` step. Review kits wait until a section needs one: the demo has one kit, every page.
+- Guides gain the `shell` step and the `run:` line. Review kits wait until a section needs one: the demo has one kit, every page.
