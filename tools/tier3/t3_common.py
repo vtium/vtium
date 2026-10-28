@@ -1,22 +1,18 @@
-"""Paths, the goldens' pin and logging shared by the tier 3 modules.
+"""Paths, the copies from the C reference and logging shared by the tier 3
+modules.
 
 Paths are relative to the repository root, which is two levels above this
 file. What a run writes goes under target/tier3, which git ignores.
 """
 
 import hashlib
-import io
 import os
-import shutil
-import subprocess
 import sys
-import tarfile
 import time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 HERE = os.path.join(ROOT, "tools", "tier3")
 GUEST = os.path.join(HERE, "guest")
-PIN = os.path.join(HERE, "pin.tsv")
 OUT = os.path.join(ROOT, "target", "tier3")
 VM = os.path.join(OUT, "vm")
 RUNDIR = os.path.join(OUT, "run")
@@ -25,79 +21,93 @@ LOCK = os.path.join(OUT, "lock")
 # The install tree a run builds (make install-tree) and installs.
 TREE = os.path.join(OUT, "install")
 BASE = os.path.join(VM, "base.qcow2")
-# The kmscon checkout beside this one, whose pinned commit holds the goldens.
-KMSCON = os.path.join(os.path.dirname(ROOT), "kmscon")
 # The guest images: a cache every vtium checkout shares, which VM/images
-# links to. A base image the kmscon checkout's harness already built from the
-# same inputs is linked from REUSE and only read.
+# links to. The pristine image, its signature and the keyring that checks it
+# are in its pristine/, and the base images in its base/.
 IMAGES = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"),
                       "vtium", "tier3", "images")
-REUSE = os.path.join(KMSCON, "fork", "vm", "images")
-# Where the goldens sit in a kmscon commit.
-GOLDEN_PATH = "fork/tier3/golden"
+# The C reference's goldens, copied byte for byte from the kmscon commit
+# PROVENANCE names, as VARIANT/SCREEN.png.
+GOLDEN = os.path.join(HERE, "c-goldens")
+# Every file tier 3 copied from the C reference, with its source and SHA-256.
+PROVENANCE = os.path.join(HERE, "provenance.tsv")
 # The files in GUEST that provisioning builds the base image from.
 BASE_INPUTS = ("user-data.in", "meta-data", "tier3-install", "tier3-install.service")
 
 
-def read_pin(path=PIN):
-    """pin.tsv's kmscon line: {"commit", "url"}. Lines starting with # are
-    comments; anything else that is not `kmscon COMMIT URL`, with a 40-digit
-    commit, is refused."""
-    pin = None
+def read_provenance(path=PROVENANCE):
+    """provenance.tsv's rows, each {"path", "repo", "commit", "source",
+    "sha256", "line"}: PATH from the repository root, kmscon, the 40-digit
+    COMMIT, the SOURCE path there and the copy's SHA256, separated by tabs.
+    Lines starting with # are comments; any other line of another shape, or
+    a path listed twice, is refused."""
+    rows, seen = [], {}
+    hexdigits = set("0123456789abcdef")
     with open(path) as f:
         for n, line in enumerate(f, 1):
             if not line.strip() or line.startswith("#"):
                 continue
             fields = line.rstrip("\n").split("\t")
-            if (len(fields) != 3 or fields[0] != "kmscon" or len(fields[1]) != 40
-                    or any(c not in "0123456789abcdef" for c in fields[1]) or pin):
-                raise SystemExit("%s:%d: want one line: kmscon, a 40-digit COMMIT and URL, "
-                                 "separated by tabs" % (rel(path), n))
-            pin = {"commit": fields[1], "url": fields[2]}
-    if pin is None:
-        raise SystemExit("%s names no kmscon commit" % rel(path))
-    return pin
+            if (len(fields) != 5 or not all(fields) or fields[1] != "kmscon"
+                    or len(fields[2]) != 40 or not set(fields[2]) <= hexdigits
+                    or len(fields[4]) != 64 or not set(fields[4]) <= hexdigits):
+                raise SystemExit("%s:%d: want PATH kmscon COMMIT SOURCE SHA256, separated by "
+                                 "tabs, with a 40-digit COMMIT and a 64-digit SHA256"
+                                 % (rel(path), n))
+            if fields[0] in seen:
+                raise SystemExit("%s:%d: %s is already on line %d"
+                                 % (rel(path), n, fields[0], seen[fields[0]]))
+            seen[fields[0]] = n
+            rows.append(dict(zip(("path", "repo", "commit", "source", "sha256"), fields),
+                             line=n))
+    return rows
 
 
-# The goldens judging this run: the pinned commit's, extracted under OUT.
-GOLDEN = os.path.join(OUT, "kmscon-%s" % read_pin()["commit"], GOLDEN_PATH)
+def golden_commit(rows, prefix=None):
+    """The kmscon commit the goldens under `prefix` (default GOLDEN, from
+    the repository root) were copied from: one commit, or refused."""
+    prefix = (prefix or rel(GOLDEN)) + "/"
+    commits = sorted({r["commit"] for r in rows if r["path"].startswith(prefix)})
+    if len(commits) != 1:
+        raise SystemExit("provenance.tsv: the goldens are copied from %s"
+                         % ("two commits, %s" % " and ".join(commits) if commits
+                            else "no commit"))
+    return commits[0]
 
 
-def extract_goldens(kmscon, pin=None, golden=None):
-    """Extract the pinned commit's goldens from the kmscon checkout at
-    `kmscon` into `golden` (default GOLDEN), afresh, through `git archive`,
-    so the checkout's branch and working tree never reach the judge. A
-    checkout without the commit is refused with the command that fetches it."""
-    pin = pin or read_pin()
-    golden = golden or GOLDEN
-    commit = pin["commit"]
-    has = subprocess.run(["git", "-C", kmscon, "cat-file", "-e", commit + "^{commit}"],
-                         capture_output=True)
-    if has.returncode:
-        raise SystemExit("%s has no commit %s: clone %s there, or fetch it (git -C %s fetch "
-                         "origin)" % (kmscon, commit, pin["url"], kmscon))
-    archive = subprocess.run(["git", "-C", kmscon, "archive", commit, GOLDEN_PATH],
-                             capture_output=True)
-    if archive.returncode:
-        raise SystemExit("git archive %s %s in %s failed: %s"
-                         % (commit, GOLDEN_PATH, kmscon, archive.stderr.decode().strip()))
-    # The archive's paths start with GOLDEN_PATH: it is unpacked beside
-    # `golden` and that directory moved into place.
-    stage = golden + ".extract"
-    for d in (stage, golden):
-        shutil.rmtree(d, ignore_errors=True)
-    os.makedirs(stage)
-    with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as t:
-        t.extractall(stage, filter="data")
-    os.rename(os.path.join(stage, GOLDEN_PATH), golden)
-    shutil.rmtree(stage)
-    return golden
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def check_copies(rows, root=ROOT, copied=GOLDEN):
+    """Every reason the copies cannot judge: a row's file missing or with
+    another SHA-256 than its row's, and a file under `copied` without a row.
+    Paths are from `root`."""
+    errors = []
+    for r in rows:
+        path = os.path.join(root, r["path"])
+        if not os.path.isfile(path):
+            errors.append("%s is missing (provenance.tsv:%d)" % (r["path"], r["line"]))
+        elif sha256(path) != r["sha256"]:
+            errors.append("%s differs from kmscon %s:%s (provenance.tsv:%d)"
+                          % (r["path"], r["commit"][:12], r["source"], r["line"]))
+    listed = {r["path"] for r in rows}
+    for dirpath, _, names in os.walk(copied):
+        for name in names:
+            path = os.path.relpath(os.path.join(dirpath, name), root)
+            if path not in listed:
+                errors.append("%s has no row in provenance.tsv" % path)
+    return sorted(errors)
 
 
 def base_image(image, archive):
     """Where the base image built from the pristine `image`, the archive
-    date `archive` and the guest's BASE_INPUTS lives: in VM/images, the
-    cache checkouts share through a link, named by a digest of all of them.
+    date `archive` and the guest's BASE_INPUTS lives: in VM/images/base, in
+    the cache checkouts share through a link, named by a digest of all of them.
     Checkouts with the same inputs share one build, and changed inputs get a
     new one beside it, so a base image a running VM backs on is never
     rewritten. BASE is a link to it."""
@@ -108,7 +118,7 @@ def base_image(image, archive):
         with open(os.path.join(GUEST, name), "rb") as f:
             data = f.read()
         h.update(name.encode() + b"\0" + str(len(data)).encode() + b"\0" + data)
-    return os.path.join(VM, "images", "base-%s.qcow2" % h.hexdigest()[:16])
+    return os.path.join(VM, "images", "base", "%s.qcow2" % h.hexdigest()[:16])
 
 
 def rel(path):

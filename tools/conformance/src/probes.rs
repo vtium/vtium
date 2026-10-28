@@ -15,6 +15,7 @@ mod judge;
 use regex::Regex;
 use regex::bytes::Regex as BytesRegex;
 
+use crate::runner::lists;
 use crate::spec::{Spec, whole};
 
 pub use judge::{Outcome, Replay, build_feature, check_list, verdict};
@@ -61,6 +62,15 @@ impl Step {
     }
 }
 
+/// The listed departure that lets a vtium probe take the place of a
+/// copied one: a README, from the root of the repository, and an entry
+/// under its Departures or Golden differences heading.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Departure {
+    pub source: String,
+    pub entry: String,
+}
+
 /// A stanza of a probe file.
 #[derive(Clone, Debug)]
 pub struct Probe {
@@ -72,6 +82,7 @@ pub struct Probe {
     placeholder: Option<String>,
     needs: BTreeSet<String>,
     pub fixtures: Vec<String>,
+    departure: Option<Departure>,
     steps: Vec<(Step, usize)>,
     /// The example after a `want-re` or `reply-re`, by the step's index.
     examples: BTreeMap<usize, (Vec<u8>, usize)>,
@@ -80,6 +91,10 @@ pub struct Probe {
 impl Probe {
     pub fn is_placeholder(&self) -> bool {
         self.placeholder.is_some()
+    }
+
+    pub fn departure(&self) -> Option<&Departure> {
+        self.departure.as_ref()
     }
 
     /// The file the probe was read from.
@@ -196,6 +211,7 @@ pub fn read(file: &str, text: &str, spec: &Spec) -> Result<Vec<Probe>, String> {
                 placeholder: None,
                 needs: BTreeSet::new(),
                 fixtures: Vec::new(),
+                departure: None,
                 steps: Vec::new(),
                 examples: BTreeMap::new(),
             });
@@ -243,6 +259,19 @@ pub fn read(file: &str, text: &str, spec: &Spec) -> Result<Vec<Probe>, String> {
             }
             "fixture" => {
                 probe.fixtures.push(arg.to_owned());
+                None
+            }
+            "departure" => {
+                let (source, entry) = arg
+                    .split_once(' ')
+                    .filter(|(s, e)| {
+                        !s.is_empty() && !e.trim().is_empty() && probe.departure.is_none()
+                    })
+                    .ok_or_else(|| format!("{at}: want departure SOURCE ENTRY once"))?;
+                probe.departure = Some(Departure {
+                    source: source.to_owned(),
+                    entry: entry.to_owned(),
+                });
                 None
             }
             "placeholder" => {
@@ -331,22 +360,70 @@ pub fn read(file: &str, text: &str, spec: &Spec) -> Result<Vec<Probe>, String> {
 }
 
 /// The probes of the copied file, with vtium's own: a probe of vtium's
-/// takes the place of a placeholder of the same name, and of nothing else.
+/// takes the place of a placeholder of the same name, or, when it names
+/// the listed departure that changes it, of a copied probe of the same
+/// name, and of nothing else. [`check_departures`] checks each departure
+/// against its README.
 pub fn merge(copied: Vec<Probe>, ours: Vec<Probe>) -> Result<Vec<Probe>, String> {
+    if let Some(p) = copied.iter().find(|p| p.departure.is_some()) {
+        return Err(format!("{}: a copied probe names no departure", p.at));
+    }
     let mut out = copied;
     for probe in ours {
-        match out.iter_mut().find(|p| p.name == probe.name) {
-            Some(p) if p.is_placeholder() => *p = probe,
-            Some(p) => {
+        let at = format!("{}: {}", probe.at, probe.name);
+        match (
+            out.iter_mut().find(|p| p.name == probe.name),
+            &probe.departure,
+        ) {
+            (Some(p), None) if p.is_placeholder() => *p = probe,
+            (Some(p), Some(_)) if !p.is_placeholder() && p.departure.is_none() => *p = probe,
+            (Some(p), Some(_)) if p.is_placeholder() => {
                 return Err(format!(
-                    "{}: {} is already a probe at {}, which is not a placeholder",
-                    probe.at, probe.name, p.at
+                    "{at}: takes the place of the placeholder at {}, which needs no departure",
+                    p.at
                 ));
             }
-            None => out.push(probe),
+            (Some(p), _) => {
+                return Err(format!(
+                    "{at}: is already a probe at {}, which only a listed departure lets vtium change",
+                    p.at
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(format!(
+                    "{at}: a departure changes a copied probe, and there is none of this name"
+                ));
+            }
+            (None, None) => out.push(probe),
         }
     }
     Ok(out)
+}
+
+/// Each probe's departure, the headline of an item under a Departures or
+/// a Golden differences heading of the README it names inside the
+/// repository, as `expected.tsv`'s departure rows are
+/// ([`lists::lists`]); `read` reads a README by its path from the root of
+/// the repository.
+pub fn check_departures(
+    probes: &[Probe],
+    read: impl Fn(&str) -> Result<String, String>,
+) -> Result<(), String> {
+    for probe in probes {
+        let Some(d) = &probe.departure else {
+            continue;
+        };
+        let at = format!("{}: {}", probe.at, probe.name);
+        lists::readme(&d.source).map_err(|why| format!("{at}: {why}"))?;
+        let text = read(&d.source)?;
+        if !lists::lists(&text, &d.entry) {
+            return Err(format!(
+                "{at}: {} lists no departure {:?} under a Departures or a Golden differences heading",
+                d.source, d.entry
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// A nonzero count, which is masked unless the probe and the

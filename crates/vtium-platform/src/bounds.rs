@@ -94,7 +94,7 @@ const RETRIES: Bound = Bound {
     name: "WAKE_RETRIES",
     value: 2 * FLIP_WAIT.value / WAKE_RETRY.value,
     what: "Tries to wake a DRM card after a wake-up, a hotplug scan or an unblank's modeset failed, and to unblank a framebuffer after `FBIOBLANK` failed",
-    past: "The tries stop with `Event::WakeFailed`, until the next wake-up, hotplug or key or pointer event; a framebuffer's, until the next wake-up, unblank or key or pointer event",
+    past: "The tries stop with `Event::WakeFailed`, until the next wake-up, hotplug, key press or pointer action; a framebuffer's, until the next wake-up, unblank, key press or pointer action",
     cite: "Twice `FLIP_WAIT_MS` at `WAKE_RETRY_MS`, so the tries outlast the sleep of a process that held DRM master before, which a flip in flight delays by up to `FLIP_WAIT_MS`; the C reference tried 20 times (`MAX_VT_TIMEOUT_RETRIES`, drm_shared.c:51). vtium/vtium#19",
 };
 

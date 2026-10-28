@@ -161,9 +161,17 @@ const COLOR_STACK: Bound = Bound {
     cite: "ctlseqs, XTPUSHCOLORS: entries 1 through 10; `MAX_SAVED_SGR` and `xtermPushColors` in xterm 412's `ptyx.h` and `misc.c`. kitty's `color-stack` gives no depth",
 };
 
+const LINKS_BYTES: Bound = Bound {
+    name: "LINKS_BYTES_MAX",
+    value: 256 * 1024,
+    what: "Bytes the link store charges for the OSC 8 links it holds, each distinct link once: its id and URI bytes and 64 for its slot, its index entry and allocation",
+    past: "The store sweeps the links no line names; with less than a quarter of the bound then free, the scrollback's oldest lines lose their links until a quarter is; when the screens alone hold the bound, the open is refused and the text prints unlinked",
+    cite: "ADR-1002, \"Link storage\": about 2,300 links of 50-byte URIs, which keeps the worst default scrollback under the minspec peak; VTE caps a screen at 2^20-2 links (`src/vtedefines.hh:101-119` at `5d75dcf`)",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 18] = [
+pub(crate) const BOUNDS: [Bound; 19] = [
     COLUMNS,
     ROWS,
     CLUSTER,
@@ -180,6 +188,7 @@ pub(crate) const BOUNDS: [Bound; 18] = [
     XTGETTCAP_NAMES_BOUND,
     XTGETTCAP_REPLY,
     CLIPBOARD,
+    LINKS_BYTES,
     SGR_STACK,
     COLOR_STACK,
 ];
@@ -253,6 +262,9 @@ pub const XTGETTCAP_REPLY_MAX: usize = XTGETTCAP_REPLY.value;
 
 /// The most bytes of selection one OSC 52 sets, decoded: 512 KiB.
 pub const CLIPBOARD_MAX: usize = CLIPBOARD.value;
+
+/// Bytes the link store charges for the OSC 8 links it holds.
+pub const LINKS_BYTES_MAX: usize = LINKS_BYTES.value;
 
 /// The most pens XTPUSHSGR keeps.
 pub const SGR_STACK_MAX: usize = SGR_STACK.value;

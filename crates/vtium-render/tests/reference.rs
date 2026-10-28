@@ -30,7 +30,6 @@ fn screens_match_the_c_reference() {
         let mut canvas = Canvas::new(w, h, 0);
         let state = DrawState {
             background: screen.palette.bg(),
-            foreground: screen.palette.fg(),
             ..DrawState::default()
         };
         r.draw(&screen.frame(Age::NEVER), &mut canvas, 0, &state);

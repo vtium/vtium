@@ -75,7 +75,8 @@ pub use arrow::Arrow;
 pub use bounds::{POINTER_SIDE_MAX, POOL_BYTES_PERFORMANCE, RENDER_TIMER_SAMPLES, ROW_SCRATCH_MAX};
 pub use cache::{Budgets, CacheCounts, Profile, Storage};
 pub use renderer::{
-    BlinkStyle, Config, DecoColor, DecorationColors, DrawState, Drawn, Renderer, Stats, TextBlink,
+    BlinkStyle, Config, DecoColor, DecorationColors, DrawState, Drawn, PointerShape, Renderer,
+    Stats, TextBlink,
 };
 pub use target::{Canvas, Mapped, Orientation, Rect, Target};
 pub use timer::{RenderTimer, Report};

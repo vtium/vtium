@@ -8,11 +8,11 @@ use crate::face::Width;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Format {
     /// One byte of coverage a pixel, 0 for none and 255 for full. The
-    /// renderer blends it in the cell's colours. Bitmap fonts and the
+    /// renderer blends it in the cell's colors. Bitmap fonts and the
     /// sprites draw only masks.
     Mask,
-    /// Four bytes a pixel, red, green, blue and alpha, the colours already
-    /// multiplied by alpha, so no colour byte exceeds its alpha. A colour
+    /// Four bytes a pixel, red, green, blue and alpha, the colors already
+    /// multiplied by alpha, so no color byte exceeds its alpha. A color
     /// face such as emoji draws these (vtium/vtium#23, #24).
     Rgba,
 }
@@ -69,7 +69,7 @@ impl Glyph {
 
     /// A glyph holding `pixels` in `format`, or `None` past the bounds,
     /// when `pixels` is not exactly the glyph's length, or for RGBA with a
-    /// colour byte greater than its alpha, which is not premultiplied.
+    /// color byte greater than its alpha, which is not premultiplied.
     pub fn from_pixels(width: u32, height: u32, format: Format, pixels: Vec<u8>) -> Option<Glyph> {
         if pixels.len() != len(width, height, format)? {
             return None;

@@ -44,10 +44,10 @@
 ## The longest a synchronized frame (mode 2026) is held before it is shown as drawn; 0 offers no mode 2026.
 #sync-timeout=200
 
-## Turn the displays off after this long with no key or pointer event; 0 never does.
+## Turn the displays off after this long with no key press or pointer action (a move, a button or the wheel); 0 never does.
 #dpms-timeout=600
 
-## Let a program set the blank's timeout with the Linux console's `CSI 9 ; n ]` (n minutes, at most 60; 0 never blanks) and wake the displays with `CSI 13 ]`, as `setterm --blank` does under `TERM=linux`; RIS returns the timeout to `dpms-timeout`. Off, the sequences are ignored. A key or pointer event wakes the displays either way.
+## Let a program set the blank's timeout with the Linux console's `CSI 9 ; n ]` (n minutes, at most 60; 0 never blanks) and wake the displays with `CSI 13 ]`, as `setterm --blank` does under `TERM=linux`; RIS returns the timeout to `dpms-timeout`. Off, the sequences are ignored. A key press or pointer action wakes the displays either way.
 #program-blank
 
 ## At start, how long to wait for a display, counted from when the VT is first shown; with none by then vtium exits with status 1, so the unit's `OnFailure=` can start a getty. 0 waits for no display to come: a display set up when the VT is first shown counts once its first frame is on screen. `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time. Once a display has come, vtium never exits for want of one.
@@ -62,55 +62,55 @@
 ## A display's mode, `WxH[@RATE]`, for every display, `[CONNECTOR]WxH` for one connector, or `GPU[CONNECTOR]WxH` for one on one card, its udev `ID_PATH`. A key per line; the most specific match wins. Unset, the panel's preferred mode. It turns `use-original-mode` off.
 #mode=
 
-## The sixteen colours and the default foreground and background: a named palette, or `custom`, which takes the `palette-*` keys. Colours 16 to 255 are xterm's in every palette.
+## The sixteen colors and the default foreground and background: a named palette, or `custom`, which takes the `palette-*` keys. Colors 16 to 255 are xterm's in every palette.
 #palette=legacy
 
-## Colour 0 with `palette=custom`.
+## Color 0 with `palette=custom`.
 #palette-black=0,0,0
 
-## Colour 1 with `palette=custom`.
+## Color 1 with `palette=custom`.
 #palette-red=205,0,0
 
-## Colour 2 with `palette=custom`.
+## Color 2 with `palette=custom`.
 #palette-green=0,205,0
 
-## Colour 3 with `palette=custom`.
+## Color 3 with `palette=custom`.
 #palette-yellow=205,205,0
 
-## Colour 4 with `palette=custom`.
+## Color 4 with `palette=custom`.
 #palette-blue=0,0,238
 
-## Colour 5 with `palette=custom`.
+## Color 5 with `palette=custom`.
 #palette-magenta=205,0,205
 
-## Colour 6 with `palette=custom`.
+## Color 6 with `palette=custom`.
 #palette-cyan=0,205,205
 
-## Colour 7 with `palette=custom`.
+## Color 7 with `palette=custom`.
 #palette-light-grey=229,229,229
 
-## Colour 8 with `palette=custom`.
+## Color 8 with `palette=custom`.
 #palette-dark-grey=127,127,127
 
-## Colour 9 with `palette=custom`.
+## Color 9 with `palette=custom`.
 #palette-light-red=255,0,0
 
-## Colour 10 with `palette=custom`.
+## Color 10 with `palette=custom`.
 #palette-light-green=0,255,0
 
-## Colour 11 with `palette=custom`.
+## Color 11 with `palette=custom`.
 #palette-light-yellow=255,255,0
 
-## Colour 12 with `palette=custom`.
+## Color 12 with `palette=custom`.
 #palette-light-blue=92,92,255
 
-## Colour 13 with `palette=custom`.
+## Color 13 with `palette=custom`.
 #palette-light-magenta=255,0,255
 
-## Colour 14 with `palette=custom`.
+## Color 14 with `palette=custom`.
 #palette-light-cyan=0,255,255
 
-## Colour 15 with `palette=custom`.
+## Color 15 with `palette=custom`.
 #palette-white=255,255,255
 
 ## The default foreground with `palette=custom`.
@@ -119,7 +119,16 @@
 ## The default background with `palette=custom`.
 #palette-background=0,0,0
 
-## Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and Shift+Insert paste it.
+## The color every underline draws in, SGR 4 in each of its styles and SGR 21: `fg` draws it in the text's color, a palette index in that palette color, which follows a program's OSC 4, and `#rrggbb` in that color. A color a program sets with SGR 58 wins unless `force-decoration-colors` is on.
+#underline-color=fg
+
+## The color the strike, SGR 9, draws in, as `underline-color` takes it.
+#strike-color=fg
+
+## `underline-color` wins over the underline color a program sets with SGR 58.
+#no-force-decoration-colors
+
+## Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and `grab-paste` paste it.
 #clipboard-write
 
 ## The keyboard model, as xkeyboard-config names it.
@@ -148,6 +157,21 @@
 
 ## Take pointers: mice, touchpads and touchscreens.
 #mouse
+
+## Draw the pointer in software on every display, never on a display's cursor plane.
+#no-soft-cursor
+
+## Draw the pointer as this character's glyph from the font, one cell wide, on the cell under the pointer, white with a dark outline as the arrow is. Unset, or a character the font lacks or whose glyph is blank, the pointer is the arrow.
+#pointer-char=
+
+## Hide the pointer after this long with no pointer event, until it next moves; 0 never hides it.
+#pointer-hide-timeout=20
+
+## Hide the pointer at each key sent to the program, until it next moves. A key vtium takes, such as a grab, leaves it.
+#no-pointer-hide-while-typing
+
+## Paste the selection buffer to the program, once a press, as the middle button does. A chord with Shift names the keysym Shift makes: `<Ctrl><Shift>V`, not `<Ctrl><Shift>v`. Empty, no key pastes.
+#grab-paste=<Shift>Insert
 
 ## Reboot the machine. With `/proc/sys/kernel/ctrl-alt-del` at 0, init is asked, as for Ctrl+Alt+Del, so the services stop first; otherwise the kernel restarts at once. Unset, no key reboots.
 #grab-reboot=

@@ -1,6 +1,6 @@
 //! A configuration file in the C reference's key syntax (`kmscon.conf(5)`):
 //! one key a line, `key=value` or a switch's `key` or `no-key`; `#` starts
-//! a comment anywhere but where it opens a `#rrggbb` colour value; spaces,
+//! a comment anywhere but where it opens a `#rrggbb` color value; spaces,
 //! tabs and carriage returns around the key and the value are dropped.
 
 use std::path::Path;

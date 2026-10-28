@@ -2,7 +2,7 @@
 //!
 //! The display keeps the mode it is given, in one buffer: the
 //! framebuffer, mapped. A device whose pixels are XRGB8888 is drawn into
-//! directly; any other true-colour layout of 16, 24 or 32 bits is drawn
+//! directly; any other true-color layout of 16, 24 or 32 bits is drawn
 //! into an XRGB8888 copy in memory, converted into the device's layout
 //! where a swap's damage says. fbdev has no flip event, so a timer at the
 //! mode's refresh interval stands in for it.
@@ -264,8 +264,9 @@ impl<F: Framebuffer> Fbdev<F> {
         Ok(())
     }
 
-    /// A key or pointer event came. After [`Event::WakeFailed`], it tries
-    /// the unblank again, at most [`crate::WAKE_RETRIES`] times more.
+    /// The user pressed a key or acted with the pointer (a move, a button
+    /// or the wheel). After [`Event::WakeFailed`], it tries the unblank
+    /// again, at most [`crate::WAKE_RETRIES`] times more.
     /// Otherwise, and while the retries run, it does nothing.
     pub fn input(&mut self) -> io::Result<()> {
         if self.retries.is_some() || !std::mem::take(&mut self.wake_failed) {
@@ -437,7 +438,7 @@ impl<F: Framebuffer> Fbdev<F> {
     }
 
     /// Sets the device to its mode in one buffer, at 32, 24 or 16 bits of
-    /// true colour, and maps it cleared.
+    /// true color, and maps it cleared.
     fn activate(&mut self) -> io::Result<()> {
         let mut var = self.dev.var()?;
         var.xoffset = 0;
@@ -475,7 +476,7 @@ impl<F: Framebuffer> Fbdev<F> {
             )));
         }
         if fix.visual != FB_VISUAL_TRUECOLOR {
-            return Err(unsupported("the framebuffer is not true colour".into()));
+            return Err(unsupported("the framebuffer is not true color".into()));
         }
         let channels = [var.red, var.green, var.blue].map(|c| (c.offset, c.length));
         if channels.iter().any(|&(_, length)| length > 8) {

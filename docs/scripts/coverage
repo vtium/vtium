@@ -14,14 +14,15 @@ Ids:
     A mode's id is its kind and number: ANSI-4, DEC-2026.
 
     A feature's id is lowercase words joined by dots, the first naming the
-    family: sgr, colour, cursor, text, ctl, query, window, input, clipboard,
+    family: sgr, color, cursor, text, ctl, query, window, input, clipboard,
     osc, dcs, image or platform. A word holds a-z, 0-9 and inner hyphens.
     The osc family belongs to the group "Clipboard, shell integration and
     other OSC": there a row about one numbered OSC is osc.<number>, with
     further words where the row is part of it (osc.8, osc.52.write,
     osc.9.4). Examples: sgr.dim, ctl.decstbm, query.xtgettcap, platform.pty.
 
-    An id never changes once committed. A row that moves to another group or
+    An id never changes once committed, apart from the one rename ADR-1000
+    records (#114). A row that moves to another group or
     is reworded keeps its id, and a removed row's id is not reused.
 
 Which tests carry a tag:
@@ -81,7 +82,7 @@ TABLES = [
     ROOT / 'docs/architecture/term/ADR-1000-features.tsv',
 ]
 
-FAMILIES = {'sgr', 'colour', 'cursor', 'text', 'ctl', 'query', 'window', 'input',
+FAMILIES = {'sgr', 'color', 'cursor', 'text', 'ctl', 'query', 'window', 'input',
             'clipboard', 'osc', 'dcs', 'image', 'platform'}
 OSC_GROUP = 'Clipboard, shell integration and other OSC'
 

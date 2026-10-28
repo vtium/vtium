@@ -47,7 +47,6 @@ fn draw(s: &Screen, o: Orientation) -> Canvas {
     let mut c = Canvas::new(w, h, 0);
     let st = DrawState {
         cursor_on: true,
-        foreground: s.palette.fg(),
         background: s.palette.bg(),
         ..DrawState::default()
     };
@@ -177,7 +176,6 @@ fn the_pointer_turns_with_the_display() {
     assert_eq!(r.grid_size(), (6, 2));
     let mut c = Canvas::new(36, 54, 0);
     let st = DrawState {
-        foreground: s.palette.fg(),
         background: s.palette.bg(),
         pointer: Some((20, 9)),
         ..DrawState::default()
@@ -240,7 +238,6 @@ fn an_odd_border_rounds_down_in_display_coordinates() {
         let mut r = Renderer::new(unifont(), w, h, config);
         let mut c = Canvas::new(w, h, 0);
         let st = DrawState {
-            foreground: s.palette.fg(),
             background: s.palette.bg(),
             ..DrawState::default()
         };

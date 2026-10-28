@@ -82,6 +82,16 @@ impl Pointer {
         }
     }
 
+    /// The device closed, as the devices sleep: a button down now may come
+    /// up while it is closed, so none is held when it opens again; and a
+    /// finger on a touchpad may move, so its next position is the origin
+    /// the pointer goes on from.
+    pub(crate) fn let_go(&mut self) {
+        self.held = None;
+        self.sync_x = true;
+        self.sync_y = true;
+    }
+
     fn moved(&self) -> PointerEvent {
         PointerEvent::Moved {
             x: self.x,

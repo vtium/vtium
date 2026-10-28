@@ -34,7 +34,7 @@ pub fn psf(w: u32, h: u32) -> Font<Psf> {
 }
 
 pub fn rgb(hex: &str) -> Rgb {
-    let v = u32::from_str_radix(hex, 16).unwrap_or_else(|_| panic!("not a colour: {hex}"));
+    let v = u32::from_str_radix(hex, 16).unwrap_or_else(|_| panic!("not a color: {hex}"));
     Rgb::new((v >> 16) as u8, (v >> 8) as u8, v as u8)
 }
 

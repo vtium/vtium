@@ -2,7 +2,7 @@
 //! channel the sum of the two halved, as the C reference drew it (libtsm's
 //! `color_dim`). Dim follows reverse video and comes before the cursor, and
 //! the decorations that follow the foreground follow it dimmed. Every
-//! expected colour is a literal.
+//! expected color is a literal.
 
 mod common;
 
@@ -26,7 +26,6 @@ fn draw(s: &Screen, cursor_on: bool) -> Canvas {
     let mut c = Canvas::new(w, h, 0);
     let st = DrawState {
         cursor_on,
-        foreground: s.palette.fg(),
         background: s.palette.bg(),
         ..DrawState::default()
     };
@@ -34,8 +33,8 @@ fn draw(s: &Screen, cursor_on: bool) -> Canvas {
     c
 }
 
-/// The colours of the cell at `col` and how many of its pixels each takes.
-fn colours(c: &Canvas, col: u32) -> Vec<(u32, usize)> {
+/// The colors of the cell at `col` and how many of its pixels each takes.
+fn colors(c: &Canvas, col: u32) -> Vec<(u32, usize)> {
     let px: Vec<u32> = (0..16)
         .flat_map(|y| (col * 8..col * 8 + 8).map(move |x| (x, y)))
         .map(|(x, y)| c.pixel(x, y).unwrap())
@@ -48,15 +47,15 @@ fn colours(c: &Canvas, col: u32) -> Vec<(u32, usize)> {
 
 /// The cell at `col` holds exactly `want`, each on at least one pixel.
 fn holds(c: &Canvas, col: u32, want: &[u32], what: &str) {
-    let got: Vec<u32> = colours(c, col).into_iter().map(|(p, _)| p).collect();
+    let got: Vec<u32> = colors(c, col).into_iter().map(|(p, _)| p).collect();
     let mut want = want.to_vec();
     want.sort_unstable();
-    assert_eq!(got, want, "{what}: {:x?}", colours(c, col));
+    assert_eq!(got, want, "{what}: {:x?}", colors(c, col));
 }
 
-/// The colour most of the cell at `col` takes: its background.
+/// The color most of the cell at `col` takes: its background.
 fn ground(c: &Canvas, col: u32) -> u32 {
-    colours(c, col).into_iter().max_by_key(|p| p.1).unwrap().0
+    colors(c, col).into_iter().max_by_key(|p| p.1).unwrap().0
 }
 
 fn dim(mut st: Style) -> Style {
@@ -81,7 +80,7 @@ fn dim_text_draws_halfway_to_its_background() {
     deco.attrs.set_underline(UnderlineStyle::Single);
     deco.attrs.insert(Attrs::STRIKE);
     s.put(2, 0, 'x', false, deco);
-    // a colour SGR 58 set is exact
+    // a color SGR 58 set is exact
     let mut set = deco;
     set.underline_color = Color::Rgb(rgb("00ff00"));
     s.put(3, 0, 'x', false, set);
@@ -93,14 +92,14 @@ fn dim_text_draws_halfway_to_its_background() {
     holds(&c, 2, &[BG_PX, DIM], "dim, underlined and struck");
     holds(&c, 3, &[BG_PX, DIM, 0x00_ff_00], "dim, SGR 58's underline");
     holds(&c, 4, &[BG_PX], "dim blank");
-    // the underline row is lit in the dim colour across the cell
+    // the underline row is lit in the dim color across the cell
     let ul = (0..16)
         .find(|&y| (16..24).all(|x| c.pixel(x, y) == Some(DIM)))
-        .expect("an underline row in the dim colour");
+        .expect("an underline row in the dim color");
     assert!((16..24).all(|x| c.pixel(x, ul) == Some(DIM)));
 }
 
-// Bold keeps its glyph, and the glyph takes the dim colour.
+// Bold keeps its glyph, and the glyph takes the dim color.
 // covers: sgr.dim
 #[test]
 fn bold_and_dim_draw_the_bold_glyph_dimmed() {
@@ -112,16 +111,16 @@ fn bold_and_dim_draw_the_bold_glyph_dimmed() {
     let c = draw(&s, false);
     holds(&c, 0, &[BG_PX, FG_PX], "bold");
     holds(&c, 1, &[BG_PX, DIM], "bold and dim");
-    let lit = |col: u32, colour: u32| -> Vec<(u32, u32)> {
+    let lit = |col: u32, color: u32| -> Vec<(u32, u32)> {
         (0..16)
             .flat_map(|y| (0..8).map(move |x| (x, y)))
-            .filter(|&(x, y)| c.pixel(col * 8 + x, y) == Some(colour))
+            .filter(|&(x, y)| c.pixel(col * 8 + x, y) == Some(color))
             .collect()
     };
     assert_eq!(lit(0, FG_PX), lit(1, DIM), "the same bold glyph");
 }
 
-// Dim mixes the colours as reverse video swapped them: the text draws in
+// Dim mixes the colors as reverse video swapped them: the text draws in
 // the mix over the old foreground.
 // covers: sgr.dim
 #[test]
@@ -153,9 +152,9 @@ fn under_cursor(shape: CursorShape, color: Option<Rgb>) -> Canvas {
 }
 
 // The cursor draws over the cell as dim left it: a block swaps the dimmed
-// foreground with the background; OSC 12's colour replaces the block's
+// foreground with the background; OSC 12's color replaces the block's
 // background; an underline and a bar take the dimmed foreground or OSC
-// 12's colour.
+// 12's color.
 // covers: sgr.dim
 #[test]
 fn the_cursor_draws_over_the_dimmed_cell() {
@@ -163,12 +162,12 @@ fn the_cursor_draws_over_the_dimmed_cell() {
     holds(&block, 0, &[DIM, BG_PX], "block");
     assert_eq!(ground(&block, 0), DIM, "block: the mix behind");
 
-    let coloured = under_cursor(CursorShape::Block, Some(rgb("00ff00")));
-    holds(&coloured, 0, &[0x00_ff_00, BG_PX], "coloured block");
+    let colored = under_cursor(CursorShape::Block, Some(rgb("00ff00")));
+    holds(&colored, 0, &[0x00_ff_00, BG_PX], "colored block");
     assert_eq!(
-        ground(&coloured, 0),
+        ground(&colored, 0),
         0x00_ff_00,
-        "coloured block: its colour behind"
+        "colored block: its color behind"
     );
 
     let underline = under_cursor(CursorShape::Underline, None);
@@ -182,7 +181,7 @@ fn the_cursor_draws_over_the_dimmed_cell() {
         &underline,
         0,
         &[BG_PX, DIM, 0x00_ff_00],
-        "coloured underline",
+        "colored underline",
     );
 
     holds(
@@ -195,6 +194,6 @@ fn the_cursor_draws_over_the_dimmed_cell() {
         &under_cursor(CursorShape::Bar, Some(rgb("00ff00"))),
         0,
         &[BG_PX, 0x00_ff_00],
-        "coloured bar",
+        "colored bar",
     );
 }

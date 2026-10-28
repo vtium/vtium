@@ -40,7 +40,6 @@ fn figures_at_1366x768() {
     let mut buffers = vec![vec![0u8; W as usize * 4 * H as usize]; 2];
     let ds = DrawState {
         cursor_on: true,
-        foreground: s.palette.fg(),
         background: s.palette.bg(),
         ..DrawState::default()
     };

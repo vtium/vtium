@@ -6,6 +6,7 @@ import re
 import subprocess
 
 import t3_bench
+import t3_pointer
 import t3_power
 import t3img
 from t3_common import GOLDEN, GUEST, HERE, ROOT, RUNDIR, rel
@@ -25,8 +26,10 @@ SCREENS = ["sgr", "colour-forms", "underline-styles", "underline-colour", "strik
            "photo-scroll", "mpv-sixel", "tmux-2x2", "tmux-3x3", "kitty", "kitty-photo", "kitty-files", "kitty-layers", "s1-scroll", "flood", "cjk"]
 # The screens of the small displays (vtium/vtium#75): small-console, written
 # for 40 columns, then screens of the list above that draw at any width,
+# with the colored underlines and strikes at small cells (vtium/vtium#119),
 # cjk last as there.
-SMALL_SCREENS = ["small-console", "sgr", "boxdraw", "underline-styles", "wide-margin", "cjk"]
+SMALL_SCREENS = ["small-console", "sgr", "boxdraw", "underline-styles", "underline-colour",
+                 "strike", "wide-margin", "cjk"]
 # Cases captured after a screen is drawn, by pressing keys: each is (screen,
 # case, the chords pressed before its capture), captured once the screen has
 # changed, so a key that changes nothing fails its case. After the last, the
@@ -113,9 +116,10 @@ CHECKS = {
     "vt-restore": "Back on tty2 after Ctrl+Alt+F2, the %s screen redrawn by the first "
                   "instance. Correct: identical to the %s golden." % (SCREENS[-1], SCREENS[-1]),
     **t3_power.CHECKS,
+    **t3_pointer.CHECKS,
 }
 # The checks without a golden: each passes when its capture was taken.
-NO_GOLDEN = {"vt-switch", *t3_power.CHECKS}
+NO_GOLDEN = {"vt-switch", *t3_power.CHECKS, *t3_pointer.CHECKS}
 
 DEPARTURES_FILE = os.path.join(HERE, "departures.tsv")
 
@@ -212,12 +216,11 @@ def read_provisional(path=PROVISIONAL_FILE):
 PROVISIONAL = read_provisional()
 
 
-def check_vtium_goldens(cases_of, provisional, root=None):
-    """Every reason vtium's goldens under `root` (default VTIUM_GOLDEN)
-    cannot judge a run: a golden or sidecar no case of a variant naming them
-    compares with (`cases_of` maps each such variant to its cases), and a
-    provisional.tsv row for a golden that does not exist."""
-    root = root or VTIUM_GOLDEN
+def check_goldens(cases_of, root, provisional=()):
+    """Every reason the goldens under `root` cannot judge a run: a golden or
+    sidecar no case of a variant they judge compares with (`cases_of` maps
+    each such variant to its cases), and a `provisional` row (vtium's
+    provisional.tsv) for a golden that does not exist."""
     errors = []
     for dirpath, _, names in os.walk(root):
         for name in names:
@@ -275,7 +278,7 @@ def describe(case):
 
 
 def screen_text(case, log):
-    """The lines a case's screen script prints, colours removed, so a region
+    """The lines a case's screen script prints, colors removed, so a region
     of the screen can be named by the text drawn there. The guest clears the
     screen first, so line N is the screen's row N. Any other control in the
     output (a cursor move, a tab, a character-set switch) would break that
@@ -301,7 +304,7 @@ def screen_text(case, log):
         return None
     text = re.sub(r"\x1b\[[0-9;:]*m", "", out)
     if re.search(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]", text):
-        log("%s: no screen text: the script prints controls other than colours" % case)
+        log("%s: no screen text: the script prints controls other than colors" % case)
         return None
     return text.rstrip("\n").split("\n")
 

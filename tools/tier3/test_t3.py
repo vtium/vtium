@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Self-test for the parts of tier 3 that run on the host without a guest:
 the caption and screen text a case's report carries (t3_evaluate.py), the
-colours and cells of the sixel goldens (when the kmscon checkout holds the
-pinned commit), the tree a run installs and the guest's account of it
-(t3_impl.py, t3_scenario.py), the machine each variant boots, the console
-lines the driver waits for and the QEMU command line (t3_qemu.py), the
-power cases' verdicts (t3_power.py), a benchmark screen's figures
-(t3_bench.py), and the goldens' pin and the logger a worker process
-receives (t3_common.py).
+colors and cells of the sixel goldens, the tree a run installs and the
+guest's account of it (t3_impl.py, t3_scenario.py), the machine each variant
+boots, the console lines the driver waits for and the QEMU command line
+(t3_qemu.py), the power cases' verdicts (t3_power.py), the pointer case's
+reading of the cursor plane (t3_pointer.py), a benchmark screen's
+figures (t3_bench.py), and the copies against provenance.tsv, the image
+cache and the logger a worker process receives (t3_common.py).
 
     python3 -I -B tools/tier3/test_t3.py
 """
@@ -32,6 +32,7 @@ import t3  # noqa: E402
 import t3_bench  # noqa: E402
 import t3_evaluate  # noqa: E402
 import t3_impl  # noqa: E402
+import t3_pointer  # noqa: E402
 import t3_power  # noqa: E402
 import t3_qemu  # noqa: E402
 import t3_runner  # noqa: E402
@@ -43,7 +44,7 @@ from t3_common import Logger  # noqa: E402
 LOG = Logger()
 
 SCRIPTS = {
-    "colours": r"printf '\033[1;31mred\033[0m plain\nnext\n'",
+    "colors": r"printf '\033[1;31mred\033[0m plain\nnext\n'",
     "fails": "echo partial; exit 3",
     "hangs": "sleep 5; echo late",
     "reads": 'read -r x; echo "got:$x"',
@@ -107,8 +108,8 @@ class ScreenTextTest(unittest.TestCase):
             finally:
                 t3_evaluate.GUEST, t3_evaluate.SCREENS, t3_evaluate.SCREEN_TIMEOUT = saved
 
-    def test_colours_removed(self):
-        self.assertEqual(self.text("colours"), ["red plain", "next"])
+    def test_colors_removed(self):
+        self.assertEqual(self.text("colors"), ["red plain", "next"])
 
     def test_failure_gives_none(self):
         self.assertIsNone(self.text("fails"))
@@ -224,18 +225,8 @@ class AcceptanceTest(unittest.TestCase):
         self.assertEqual(t3_evaluate.screen_text("photo-scrollforward", LOG), None)
 
 
-def kmscon_holds_pin():
-    """Whether the kmscon checkout beside this one holds the pinned commit,
-    which the golden tests read. CI's test-tools job has no checkout."""
-    commit = t3_common.read_pin()["commit"]
-    return subprocess.run(["git", "-C", t3_common.KMSCON, "cat-file", "-e", commit + "^{commit}"],
-                          capture_output=True).returncode == 0
-
-
-@unittest.skipUnless(kmscon_holds_pin(), "no kmscon checkout with the pinned commit beside "
-                                         "this one: the goldens cannot be read")
 class SixelGoldenTest(unittest.TestCase):
-    # The sixel page's colours (sixel.sh), as kmscon draws them: the bars,
+    # The sixel page's colors (sixel.sh), as kmscon draws them: the bars,
     # the seven discs and swatches, each beside its text twin, the ring
     # around its blue disc, and the grey band under the swatches.
     BARS = [(255, 0, 0), (255, 255, 0), (0, 255, 0), (0, 255, 255), (0, 0, 255),
@@ -244,19 +235,6 @@ class SixelGoldenTest(unittest.TestCase):
              "cyan": (0, 255, 255), "magenta": (255, 0, 255), "yellow": (255, 255, 0),
              "orange": (255, 128, 0)}
     GREY = (128, 128, 128)
-
-    @classmethod
-    def setUpClass(cls):
-        cls.dir = tempfile.TemporaryDirectory()
-        golden = os.path.join(cls.dir.name, "golden")
-        t3_common.extract_goldens(t3_common.KMSCON, golden=golden)
-        cls.patch = mock.patch.object(t3_evaluate, "GOLDEN", golden)
-        cls.patch.start()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.patch.stop()
-        cls.dir.cleanup()
 
     @classmethod
     def grid(cls, variant):
@@ -282,9 +260,9 @@ class SixelGoldenTest(unittest.TestCase):
         return (lambda col, row: self.pixel(img, left + int(col * cw), top + int(row * ch)),
                 img.width // cw, cw, ch)
 
-    def test_colours_in_cells(self):
+    def test_colors_in_cells(self):
         # Every default variant's golden holds each picture in the cells the
-        # page puts it in, in its colours.
+        # page puts it in, in its colors.
         for variant in t3_scenario.DEFAULT_VARIANTS:
             with self.subTest(variant):
                 at, _, cw, ch = self.screen(variant, "sixel")
@@ -427,15 +405,20 @@ class ImplementationTest(unittest.TestCase):
         self.assertNotIn("pacman -U", text)
 
     def test_disc(self):
-        # The tree goes on the disc as tree.tar, with the variant's config.
+        # The tree goes on the disc as tree.tar, with the variant's config,
+        # and the pointer variant's carries the `pointer` file, on which
+        # guest/setup lets the screens read the DRM state.
         impl = t3_impl.tree(self.tree, self.tar)
-        with mock.patch.object(t3_scenario, "make_iso"):
-            t3_scenario.build_disc("2d-potato-min", self.dir.name, impl)
         disc = os.path.join(self.dir.name, "disc")
-        self.assertEqual(sorted(os.listdir(disc)),
-                         ["kmscon.conf", "screens", "setup", "t3", "tree.tar"])
-        with open(os.path.join(disc, "kmscon.conf")) as f:
-            self.assertIn("render-timer=log", f.read())
+        for variant, extra in (("2d-potato-min", ["pointer"]), ("2d-potato-min-psf", [])):
+            with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
+                t3_scenario.build_disc(variant, self.dir.name, impl)
+                self.assertEqual(sorted(os.listdir(disc)),
+                                 ["kmscon.conf"] + extra + ["screens", "setup", "t3", "tree.tar"])
+                with open(os.path.join(disc, "kmscon.conf")) as f:
+                    self.assertIn("render-timer=log", f.read())
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            self.assertIn('if [ -f "$disc"/pointer ]; then', f.read())
 
     def test_fonts_disc(self):
         # A variant drawing with the test fonts carries them, which
@@ -530,6 +513,9 @@ class ImplementationTest(unittest.TestCase):
         self.assertEqual(t3_scenario.resident({"small-console": 9000}, ["small-console", "cjk"]),
                          {"first_screen": "small-console", "first_kib": 9000,
                           "peak_kib": 9000, "peak_screen": "small-console"})
+        # the pointer case's readings, after the VT switch, are no screen
+        self.assertEqual(t3_scenario.resident({"sgr": 10547, "pointer": 20000})["peak_screen"],
+                         "sgr")
 
     def test_variant_errors(self):
         # The scenario's own error comes first and the renderer's after it, so
@@ -630,15 +616,14 @@ class ImplementationTest(unittest.TestCase):
 
     def test_tools(self):
         # The report names vtium's commit, the guest's pins and the kmscon
-        # commit whose goldens judged the run.
+        # commit the C reference's goldens were copied from.
         env = {"T3_VTIUM_REV": "84eec92+dirty", "T3_ARCHIVE": "2026/10/20"}
         with mock.patch.dict(os.environ, env, clear=True):
             tools = t3_runner.run_tools()
-        pin = t3_common.read_pin()
         self.assertEqual(tools, {"vtium": "84eec92+dirty", "guest_image": None,
                                  "guest_image_sha256": None, "guest_archive": "2026/10/20",
-                                 "goldens": {"kmscon": pin["commit"],
-                                             "kmscon_repo": pin["url"]}})
+                                 "goldens": {"kmscon": "b1f7a7c5df563f3378584db7298753848a7a9a13",
+                                             "provenance": "tools/tier3/provenance.tsv"}})
 
     def test_option(self):
         # --tree names a tree built already; --tree-target builds the default
@@ -647,7 +632,6 @@ class ImplementationTest(unittest.TestCase):
             args = t3.main(["run", "--tree", "a", "2d-potato-min"])
         self.assertEqual((args.tree, args.tree_target, args.variants),
                          ("a", None, ["2d-potato-min"]))
-        self.assertEqual(args.kmscon, t3_common.KMSCON)
         self.assertTrue(run.called)
         for argv, why in ((["--tree", "a", "--tree-target", "install-tree"],
                            "--tree names a tree built already"),
@@ -682,71 +666,164 @@ class ImplementationTest(unittest.TestCase):
                 t3.build_tree("install-tree", tree, lambda msg: None)
 
 
-class PinTest(unittest.TestCase):
-    """The goldens' pin (pin.tsv) and the goldens read from it, as tier 2's
-    are: the pinned commit's, through git archive, never the checkout's
-    working tree."""
+class ProvenanceTest(unittest.TestCase):
+    """The files tier 3 copied from the C reference (provenance.tsv): the
+    goldens under c-goldens and the harness files they judge the output
+    of, each the copy its row names."""
+
+    COMMIT = "b1f7a7c5df563f3378584db7298753848a7a9a13"
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
+        self.root = self.dir.name
+        self.copied = os.path.join(self.root, "c")
 
-    def pin_file(self, text):
-        path = os.path.join(self.dir.name, "pin.tsv")
+    def table(self, files, extra=""):
+        """A provenance.tsv for {path under root: text}, written beside them."""
+        write_tree(self.root, files)
+        path = os.path.join(self.root, "provenance.tsv")
         with open(path, "w") as f:
-            f.write(text)
+            f.write("# a comment\n")
+            for name, text in files.items():
+                f.write("\t".join((name, "kmscon", self.COMMIT, "fork/" + name,
+                                   hashlib.sha256(text.encode()).hexdigest())) + "\n")
+            f.write(extra)
         return path
 
     def test_read(self):
-        commit = "b1f7a7c5df563f3378584db7298753848a7a9a13"
-        path = self.pin_file("# a comment\nkmscon\t%s\thttps://example/k.git\n" % commit)
-        self.assertEqual(t3_common.read_pin(path), {"commit": commit,
-                                                    "url": "https://example/k.git"})
-        self.assertEqual(t3_common.read_pin()["commit"], commit)
+        rows = t3_common.read_provenance(self.table({"c/v/sgr.png": "golden"}))
+        self.assertEqual(rows, [{"path": "c/v/sgr.png", "repo": "kmscon", "commit": self.COMMIT,
+                                 "source": "fork/c/v/sgr.png",
+                                 "sha256": hashlib.sha256(b"golden").hexdigest(),
+                                 "line": 2}])
+        self.assertEqual(t3_common.golden_commit(rows, "c"), self.COMMIT)
 
     def test_refused(self):
-        good = "kmscon\t%s\turl\n" % ("a" * 40)
-        for text in ("kmscon\tabc\turl\n", "libtsm\t%s\turl\n" % ("a" * 40),
-                     "kmscon %s url\n" % ("a" * 40), "kmscon\t%s\turl\n" % ("A" * 40),
-                     good + good):
-            with self.subTest(text):
-                with self.assertRaisesRegex(SystemExit, "want one line"):
-                    t3_common.read_pin(self.pin_file(text))
-        with self.assertRaisesRegex(SystemExit, "names no kmscon commit"):
-            t3_common.read_pin(self.pin_file("# nothing\n"))
+        sha = "0" * 64
+        for line in ("a\tkmscon\t%s\tsrc\n" % self.COMMIT,
+                     "a\tkmscon\tabc\tsrc\t%s\n" % sha,
+                     "a\tkmscon\t%s\tsrc\t%s\n" % (self.COMMIT, "A" * 64),
+                     "a\tlibtsm\t%s\tsrc\t%s\n" % (self.COMMIT, sha)):
+            with self.subTest(line):
+                with self.assertRaisesRegex(SystemExit, "want PATH kmscon COMMIT SOURCE SHA256"):
+                    t3_common.read_provenance(self.table({}, line))
+        twice = "a\tkmscon\t%s\tsrc\t%s\n" % (self.COMMIT, sha)
+        with self.assertRaisesRegex(SystemExit, "a is already on line 2"):
+            t3_common.read_provenance(self.table({}, twice * 2))
+        other = "c/v/b.png\tkmscon\t%s\tsrc\t%s\n" % ("1" * 40, sha)
+        rows = t3_common.read_provenance(self.table({"c/v/a.png": "x"}, other))
+        with self.assertRaisesRegex(SystemExit, "goldens are copied from two commits"):
+            t3_common.golden_commit(rows, "c")
+
+    def test_copies_checked(self):
+        # Each copy against its row, and each file under the goldens'
+        # directory for a row.
+        files = {"c/v/sgr.png": "golden", "c/v/cjk.png": "golden too", "guest/sgr.sh": "script"}
+        rows = t3_common.read_provenance(self.table(files))
+        self.assertEqual(t3_common.check_copies(rows, self.root, self.copied), [])
+        write_tree(self.root, {"c/v/sgr.png": "moved", "c/v/stray.png": "no row",
+                               "guest/own.sh": "vtium's own"})
+        os.unlink(os.path.join(self.root, "guest/sgr.sh"))
+        self.assertEqual(t3_common.check_copies(rows, self.root, self.copied),
+                         ["c/v/sgr.png differs from kmscon %s:fork/c/v/sgr.png (provenance.tsv:2)"
+                          % self.COMMIT[:12],
+                          "c/v/stray.png has no row in provenance.tsv",
+                          "guest/sgr.sh is missing (provenance.tsv:4)"])
+
+    def test_the_tree(self):
+        # The copies in the tree match their rows, every golden a variant
+        # judged by the C reference's goldens compares with is copied, and
+        # every copy is one a case compares with.
+        rows = t3_common.read_provenance()
+        self.assertEqual(t3_common.check_copies(rows), [])
+        self.assertEqual(t3_common.golden_commit(rows), self.COMMIT)
+        cases_of = t3_scenario.c_golden_cases()
+        self.assertEqual(t3_evaluate.check_goldens(cases_of, t3_common.GOLDEN), [])
+        wanted = {t3_evaluate.golden_for(v, c)[0] for v, cases in cases_of.items()
+                  for c in cases if t3_evaluate.golden_for(v, c)[0]}
+        self.assertEqual(sorted(p for p in wanted if not os.path.exists(p)), [])
+        # the harness files the goldens judge the output of stay copies too
+        copied = {r["path"] for r in rows}
+        for name in ("tools/tier3/guest/screens/sgr.sh", "tools/tier3/guest/user-data.in",
+                     "tools/tier3/t3img.py"):
+            self.assertIn(name, copied)
+
+    def planted(self):
+        """Rows for a planted root whose goldens directory c holds two
+        goldens 2d-potato-min's cases compare with."""
+        return t3_common.read_provenance(self.table({"c/2d-potato-min/sgr.png": "sgr",
+                                                     "c/2d-potato-min/cjk.png": "cjk"}))
+
+    def test_preflight(self):
+        # The checks a run makes before it builds or boots anything: clean
+        # on the planted root, then a changed golden and a stray file.
+        rows = self.planted()
+        self.assertEqual(t3.preflight(LOG, rows, self.root, self.copied), [])
+        write_tree(self.root, {"c/2d-potato-min/sgr.png": "moved",
+                               "c/2d-potato-min/stray.png": "no row"})
+        stray = t3_common.rel(os.path.join(self.copied, "2d-potato-min", "stray.png"))
+        self.assertEqual(sorted(t3.preflight(LOG, rows, self.root, self.copied)),
+                         sorted(["c/2d-potato-min/sgr.png differs from kmscon %s:"
+                                 "fork/c/2d-potato-min/sgr.png (provenance.tsv:2)"
+                                 % self.COMMIT[:12],
+                                 "c/2d-potato-min/stray.png has no row in provenance.tsv",
+                                 "%s is a golden no case draws" % stray]))
+
+    def test_run_refuses_a_bad_tree(self):
+        # run() makes those checks under the run lock and refuses before the
+        # tree is built.
+        rows = self.planted()
+        write_tree(self.root, {"c/2d-potato-min/sgr.png": "moved"})
+        args = argparse.Namespace(variants=["2d-potato-min"], tree=None,
+                                  tree_target="install-tree", jobs=1, deadline=1)
+        base = os.path.join(self.root, "base.qcow2")
+        write_tree(self.root, {"base.qcow2": ""})
+        with mock.patch.object(t3, "BASE", base), \
+                mock.patch.object(t3_runner, "raise_on_sigterm", lambda log: None), \
+                mock.patch.object(t3_runner, "run_lock", contextlib.nullcontext), \
+                mock.patch.object(t3_common, "read_provenance", lambda: rows), \
+                mock.patch.object(t3_common, "ROOT", self.root), \
+                mock.patch.object(t3_common, "GOLDEN", self.copied), \
+                mock.patch.object(t3, "build_tree", side_effect=AssertionError("built")):
+            with self.assertRaisesRegex(SystemExit, "c/2d-potato-min/sgr.png differs"):
+                t3.run(args, LOG)
 
     def git(self, repo, *args):
         return subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t",
                                "-c", "commit.gpgsign=false"] + list(args),
                               check=True, capture_output=True, text=True).stdout.strip()
 
-    def test_extract(self):
-        # The pinned commit's goldens, whatever the checkout's working tree
-        # holds, into a directory emptied first.
-        repo = os.path.join(self.dir.name, "kmscon")
+    def test_verify_against_sources(self):
+        # make tier3-provenance: each row's source read from a kmscon
+        # checkout with git, at the row's commit, whatever its working tree
+        # holds; a source that differs or is missing is reported, and the
+        # exit status is 1.
+        repo = os.path.join(self.root, "kmscon")
         os.makedirs(repo)
         self.git(repo, "init", "-q")
-        write_tree(repo, {"fork/tier3/golden/v/sgr.png": "pinned", "other": "x"})
+        write_tree(repo, {"fork/a.png": "a", "fork/b.png": "b"})
         self.git(repo, "add", ".")
-        self.git(repo, "commit", "-q", "-m", "goldens")
+        self.git(repo, "commit", "-q", "-m", "copies")
         commit = self.git(repo, "rev-parse", "HEAD")
-        write_tree(repo, {"fork/tier3/golden/v/sgr.png": "working tree"})
-        golden = os.path.join(self.dir.name, "out", "golden")
-        write_tree(golden, {"stale.png": "from an earlier run"})
-        pin = {"commit": commit, "url": "u"}
-        self.assertEqual(t3_common.extract_goldens(repo, pin, golden), golden)
-        self.assertEqual(t3_impl.contents(golden), {"v/sgr.png": 6})
-        with open(os.path.join(golden, "v/sgr.png")) as f:
-            self.assertEqual(f.read(), "pinned")
-        # a checkout without the commit, or a commit without goldens
-        with self.assertRaisesRegex(SystemExit, "has no commit %s: clone u there" % ("0" * 40)):
-            t3_common.extract_goldens(repo, {"commit": "0" * 40, "url": "u"}, golden)
-        os.unlink(os.path.join(repo, "fork/tier3/golden/v/sgr.png"))
-        self.git(repo, "rm", "-q", "--cached", "fork/tier3/golden/v/sgr.png")
-        self.git(repo, "commit", "-q", "-m", "no goldens")
-        with self.assertRaisesRegex(SystemExit, "git archive"):
-            t3_common.extract_goldens(repo, {"commit": self.git(repo, "rev-parse", "HEAD"),
-                                             "url": "u"}, golden)
+        write_tree(repo, {"fork/a.png": "working tree"})
+        sha = lambda text: hashlib.sha256(text.encode()).hexdigest()
+        path = os.path.join(self.root, "provenance.tsv")
+        with open(path, "w") as f:
+            for name, digest in (("a.png", sha("a")), ("b.png", sha("not b")),
+                                 ("gone.png", sha("x"))):
+                f.write("\t".join(("c/" + name, "kmscon", commit, "fork/" + name, digest))
+                        + "\n")
+        args = argparse.Namespace(kmscon=repo)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(t3.verify_provenance(args, LOG, t3_common.read_provenance(path)), 1)
+        lines = out.getvalue().splitlines()
+        self.assertEqual(len(lines), 3)
+        self.assertIn("provenance.tsv:2: %s %s:fork/b.png has another SHA-256" % (repo, commit[:12]),
+                      lines[0])
+        self.assertIn("provenance.tsv:3: %s %s:fork/gone.png: " % (repo, commit[:12]), lines[1])
+        self.assertEqual(lines[2], "provenance: 3 rows, 1 match their sources")
 
 
 class DeparturesTest(unittest.TestCase):
@@ -754,7 +831,7 @@ class DeparturesTest(unittest.TestCase):
     is a "departure", which passes; anything else about a listed case fails,
     and a list that names an unknown case or departure refuses the run."""
 
-    TITLE = "DA1 reports a VT220 with colour, `CSI ? 62 ; 22 c`."
+    TITLE = "DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`."
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -878,13 +955,14 @@ class VtiumGoldenTest(unittest.TestCase):
         return path
 
     def test_shipped(self):
-        # The operator accepted vtium's twelve small-display goldens on
-        # 2026-10-28, so the list in the tree names none; every golden it
-        # would name must be one a case draws.
+        # The operator accepted vtium's sixteen small-display goldens on
+        # 2026-10-28, the four vtium/vtium#119 adds in advance, so the list
+        # in the tree names none; every golden it would name must be one a
+        # case draws.
         prov = t3_evaluate.read_provisional()
         self.assertEqual(sorted(prov), [])
-        self.assertEqual(t3_evaluate.check_vtium_goldens(t3_scenario.vtium_golden_cases(),
-                                                         prov), [])
+        self.assertEqual(t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
+                                                   t3_evaluate.VTIUM_GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
             self.assertIn("provisional.tsv", f.read())
 
@@ -910,9 +988,9 @@ class VtiumGoldenTest(unittest.TestCase):
         with open(os.path.join(self.root, "README.md"), "w") as f:
             f.write("not a golden\n")
         cases = {self.VARIANT: t3_scenario.variant_cases(self.VARIANT)}
-        errors = t3_evaluate.check_vtium_goldens(
-            cases, {"%s/small-console" % self.VARIANT: "x", "%s/sgr" % self.VARIANT: "x"},
-            self.root)
+        errors = t3_evaluate.check_goldens(
+            cases, self.root,
+            {"%s/small-console" % self.VARIANT: "x", "%s/sgr" % self.VARIANT: "x"})
         rels = [t3_common.rel(os.path.join(self.root, p)) for p in
                 ("%s/gone.png" % self.VARIANT, "%s/gone.tol" % self.VARIANT, "no-such/sgr.png")]
         self.assertEqual(errors, sorted(["%s is a golden no case draws" % r for r in rels] +
@@ -959,16 +1037,18 @@ class VtiumGoldenTest(unittest.TestCase):
 
 class ProvisionTest(unittest.TestCase):
     """Where provisioning keeps its images: a vtium cache that
-    target/tier3/vm/images links to, with the pristine and base images of
-    another checkout linked from it and only read there."""
+    target/tier3/vm/images links to, the pristine image fetched into its
+    pristine/ and the base image built into its base/, each only when the
+    cache lacks it."""
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
         self.vm = os.path.join(self.dir.name, "vm")
-        patch = mock.patch.object(t3, "VM", self.vm)
-        patch.start()
-        self.addCleanup(patch.stop)
+        for name, value in (("VM", self.vm), ("BASE", os.path.join(self.vm, "base.qcow2"))):
+            patch = mock.patch.object(t3, name, value)
+            patch.start()
+            self.addCleanup(patch.stop)
 
     def path(self, *parts):
         return os.path.join(self.dir.name, *parts)
@@ -987,53 +1067,69 @@ class ProvisionTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "is a directory; move its images to"):
             t3.link_images(cache, LOG)
 
-    def test_reuse(self):
-        shared = self.path("shared")
-        write_tree(shared, {"base-x.qcow2": "base", "img.qcow2": "pristine"})
-        before = {n: os.stat(os.path.join(shared, n)).st_mtime_ns for n in os.listdir(shared)}
-        cache = self.path("cache")
-        os.makedirs(cache)
-        dest = os.path.join(cache, "base-x.qcow2")
-        self.assertTrue(t3.reuse(shared, "base-x.qcow2", dest, LOG))
-        self.assertEqual(os.readlink(dest), os.path.realpath(os.path.join(shared, "base-x.qcow2")))
-        # nothing to reuse, or no directory to reuse from
-        self.assertFalse(t3.reuse(shared, "base-y.qcow2", os.path.join(cache, "y"), LOG))
-        self.assertFalse(t3.reuse(None, "base-x.qcow2", os.path.join(cache, "z"), LOG))
-        # a pristine image must have the pinned digest
-        sha = hashlib.sha256(b"pristine").hexdigest()
-        self.assertTrue(t3.reuse(shared, "img.qcow2", os.path.join(cache, "img.qcow2"), LOG,
-                                 sha256=sha))
-        with self.assertRaisesRegex(SystemExit, "not the pinned"):
-            t3.reuse(shared, "img.qcow2", os.path.join(cache, "img2"), LOG, sha256="0" * 64)
-        # the shared directory gained nothing and changed nothing
-        self.assertEqual({n: os.stat(os.path.join(shared, n)).st_mtime_ns
-                          for n in os.listdir(shared)}, before)
+    def args(self, cache):
+        return argparse.Namespace(image="img.qcow2", archive="2026/10/20", url="u", key="k",
+                                  sha256="0" * 64, images=cache)
 
-    def test_provision_writes_only_the_cache(self):
-        # The base image and pristine image come from the shared directory;
-        # the lock and the links land in the cache and the VM directory.
-        shared = self.path("shared")
-        base = os.path.basename(t3_common.base_image("img.qcow2", "2026/10/20"))
-        write_tree(shared, {base: "base", "img.qcow2": "pristine"})
+    def provision(self, cache):
+        """Provision into `cache`: [(what, detail)] for each fetch and build,
+        which write the files they would."""
+        done = []
+        base = os.path.join(self.vm, "images", "base", "x.qcow2")
+
+        def fetch(argv, check):
+            done.append(("fetch", argv[2:]))
+            write_tree(argv[2], {argv[4]: "pristine"})
+
+        def build(args, log, path):
+            done.append(("build", path))
+            write_tree(os.path.dirname(path), {os.path.basename(path): "base"})
+
+        with mock.patch.object(t3, "base_image", lambda i, a: base), \
+                mock.patch.object(t3, "_provision", side_effect=build), \
+                mock.patch.object(t3_runner, "run_lock", contextlib.nullcontext), \
+                mock.patch.object(t3.subprocess, "run", side_effect=fetch):
+            self.assertEqual(t3.provision(self.args(cache), LOG), 0)
+        return done
+
+    def test_fetches_and_builds_into_the_cache(self):
+        # An empty cache: the pristine image is fetched into pristine/ and
+        # the base image built into base/; base.qcow2 links to it.
         cache = self.path("cache")
-        args = argparse.Namespace(image="img.qcow2", archive="2026/10/20", url="u", key="k",
-                                  sha256=hashlib.sha256(b"pristine").hexdigest(),
-                                  images=cache, reuse=shared)
-        with mock.patch.object(t3, "BASE", os.path.join(self.vm, "base.qcow2")), \
-                mock.patch.object(t3, "base_image",
-                                  lambda i, a: os.path.join(self.vm, "images", base)), \
-                mock.patch.object(t3, "_provision", side_effect=AssertionError("built")), \
-                mock.patch.object(t3.subprocess, "run", side_effect=AssertionError("fetched")):
-            self.assertEqual(t3.provision(args, LOG), 0)
-        self.assertEqual(sorted(os.listdir(shared)), sorted([base, "img.qcow2"]))
-        self.assertEqual(sorted(os.listdir(cache)), sorted([base, base + ".lock", "img.qcow2"]))
+        pristine = os.path.join(self.vm, "images", "pristine")
+        base = os.path.join(self.vm, "images", "base", "x.qcow2")
+        self.assertEqual(self.provision(cache),
+                         [("fetch", [pristine, "u", "img.qcow2", "0" * 64, "k"]),
+                          ("build", base)])
+        self.assertEqual(t3_impl.contents(cache), {"pristine/img.qcow2": 8, "base/x.qcow2": 4,
+                                                   "base/x.qcow2.lock": 0})
         with open(os.path.join(self.vm, "base.qcow2")) as f:
             self.assertEqual(f.read(), "base")
+        # a cache holding both: nothing is fetched or built
+        self.assertEqual(self.provision(cache), [])
+
+    def test_names_outside_pristine_and_base_are_not_read(self):
+        # An image under the pristine image's or the base image's name at
+        # the top of the cache, such as a link an earlier harness left there,
+        # is neither read nor changed: the cache's pristine/ and base/ are
+        # vtium's own.
+        cache = self.path("cache")
+        elsewhere = self.path("elsewhere")
+        write_tree(elsewhere, {"img.qcow2": "theirs", "x.qcow2": "theirs"})
+        os.makedirs(cache)
+        for name in ("img.qcow2", "x.qcow2"):
+            os.symlink(os.path.join(elsewhere, name), os.path.join(cache, name))
+        self.assertEqual([what for what, _ in self.provision(cache)], ["fetch", "build"])
+        for name in ("img.qcow2", "x.qcow2"):
+            self.assertEqual(os.readlink(os.path.join(cache, name)),
+                             os.path.join(elsewhere, name))
+        self.assertEqual(os.path.realpath(os.path.join(self.vm, "base.qcow2")),
+                         os.path.realpath(os.path.join(cache, "base", "x.qcow2")))
 
 
 class BaseImageTest(unittest.TestCase):
     """The provisioned base image is named by what it was built from, in the
-    images directory that worktrees share, so every checkout with the same
+    cache's base/, which worktrees share, so every checkout with the same
     guest files, pristine image and archive date reuses one build, and a
     change to any of them builds a new one beside the old."""
 
@@ -1051,8 +1147,8 @@ class BaseImageTest(unittest.TestCase):
                 with open(os.path.join(guest, name), "w") as f:
                     f.write(name + "\n")
             first = self.key(guest)
-            self.assertEqual(os.path.dirname(first), os.path.join(t3_common.VM, "images"))
-            self.assertRegex(os.path.basename(first), r"^base-[0-9a-f]{16}\.qcow2$")
+            self.assertEqual(os.path.dirname(first), os.path.join(t3_common.VM, "images", "base"))
+            self.assertRegex(os.path.basename(first), r"^[0-9a-f]{16}\.qcow2$")
             self.assertEqual(self.key(guest), first)
             self.assertNotEqual(self.key(guest, archive="2026/10/21"), first)
             self.assertNotEqual(self.key(guest, image="other.qcow2"), first)
@@ -1062,16 +1158,15 @@ class BaseImageTest(unittest.TestCase):
                 self.assertNotEqual(self.key(guest), first, name)
         self.assertIn("user-data.in", t3_common.BASE_INPUTS)
 
-    def test_shared_base(self):
-        # The guest files are the kmscon fork's byte for byte, so the pinned
-        # image and archive name the base image its harness provisioned,
-        # which the shared images directory already holds. A change to them
-        # provisions a new one: about 330 MiB downloaded.
+    def test_pinned_base(self):
+        # The pinned image, archive and guest files name one base image; a
+        # change to any of them provisions a new one, about 330 MiB
+        # downloaded and a file of about 1.1 GiB.
         with open(os.path.join(t3_common.ROOT, "Makefile")) as f:
             make = dict(re.findall(r"^(T3_IMAGE_VER|T3_ARCHIVE)\s*:=\s*(\S+)", f.read(), re.M))
         image = "Arch-Linux-x86_64-cloudimg-%s.qcow2" % make["T3_IMAGE_VER"]
         self.assertEqual(os.path.basename(t3_common.base_image(image, make["T3_ARCHIVE"])),
-                         "base-a801c98304d282ae.qcow2")
+                         "a801c98304d282ae.qcow2")
 
 
 class VariantTest(unittest.TestCase):
@@ -1155,7 +1250,7 @@ class VariantTest(unittest.TestCase):
         # every other variant is judged by the C reference's goldens
         entries = t3_scenario.evaluate_variant("2d-potato-min", {}, t3_scenario.failure_meta("x"),
                                                LOG)
-        self.assertTrue(entries[0]["golden"].startswith("target/tier3/kmscon-"))
+        self.assertEqual(entries[0]["golden"], "tools/tier3/c-goldens/2d-potato-min/sgr.png")
 
     def test_resident_memory(self):
         # guest/t3's T3-RSS lines: the largest VmRSS of the kmscon
@@ -1307,7 +1402,7 @@ class PowerTest(unittest.TestCase):
     event."""
 
     # A console log as each action leaves it, systemd's status lines
-    # coloured as on the guest's serial console.
+    # colored as on the guest's serial console.
     OK = "[\x1b[0;32m  OK  \x1b[0m] "
     POWER_OFF = ["[ 9.1] vtium[404]: grab-power-off: asking init to power off",
                  OK + "Reached target Unmount All Filesystems.",
@@ -1491,6 +1586,94 @@ def timer_line(t, flips, frames, interval_ms=1000.0, cpu=(1.0, 1.0, 2.0, 3.0), d
             "damage_pct=%.2f skipped=%d skipped_cpu_ms=%.3f"
             % (before, t, pid, interval_ms, flips * 1000 / interval_ms, flips, frames, cpu[0],
                cpu[1], cpu[2], cpu[3], damage[0], damage[1], skipped[0], skipped[1]))
+
+
+class PointerTest(unittest.TestCase):
+    """The pointer case (t3_pointer.py): where the cursor plane goes, and
+    the guest's DRM state read and judged."""
+
+    # A DRM atomic state dump as the kernel prints it: the primary plane,
+    # the cursor plane showing a framebuffer, and a CRTC.
+    STATE = ("plane[31]: plane-0\n\tcrtc=crtc-0\n\tfb=40\n\t\tallocated by = vtium\n"
+             "\t\tsize=1366x768\n\tcrtc-pos=1366x768+0+0\n"
+             "\tsrc-pos=1366.000000x768.000000+0.000000+0.000000\n\trotation=1\n"
+             "plane[34]: plane-1\n\tcrtc=crtc-0\n\tfb=41\n\t\tsize=64x64\n"
+             "\tcrtc-pos=64x64+342-1\n"
+             "crtc[36]: crtc-0\n\tenable=1\n\tmode: \"1366x768\": 60\n")
+    HIDDEN = ("plane[31]: plane-0\n\tcrtc=crtc-0\n\tfb=40\n\tcrtc-pos=1366x768+0+0\n"
+              "plane[34]: plane-1\n\tcrtc=(null)\n\tfb=0\n\tcrtc-pos=0x0+0+0\n")
+    DISPLAY = (1366, 768)
+
+    def test_the_hotspot_follows_the_cell(self):
+        for cell_h, hot in ((1, 1), (8, 1), (16, 1), (31, 1), (32, 2), (64, 3), (200, 3)):
+            self.assertEqual(t3_pointer.hotspot(cell_h), hot, cell_h)
+
+    def test_the_corner_is_the_hotspot_from_the_pixel_pointed_at(self):
+        # 1366x768 in 8x16 cells: a grid of 1360x768 at 3,0.
+        cell = (8, 16)
+        self.assertEqual(t3_pointer.corner((0, 0), self.DISPLAY, cell), (2, -1))
+        # the far end of the axis is the grid's last pixel
+        self.assertEqual(t3_pointer.corner((t3_pointer.ABS_MAX,) * 2, self.DISPLAY, cell),
+                         (3 + 1359 - 1, 767 - 1))
+        # a quarter across and down, doubled by the mouse: 16384 * 1360 //
+        # 65535 is 340; and 3 of 65535 is the first pixel's, 49 the second's
+        self.assertEqual(t3_pointer.corner((0x2000, 0x2000), self.DISPLAY, cell),
+                         (3 + 340 - 1, 192 - 1))
+        self.assertEqual(t3_pointer.corner((24, 24), self.DISPLAY, cell), (3 + 0 - 1, 0 - 1))
+        self.assertEqual(t3_pointer.corner((25, 49), self.DISPLAY, cell), (3 + 1 - 1, 1 - 1))
+        # a 64-pixel cell: a hotspot of 3, the grid 1344x768 at 11,0
+        self.assertEqual(t3_pointer.corner((0, 0), self.DISPLAY, (32, 64)), (11 - 3, -3))
+
+    def test_the_planes_are_read_from_the_dump(self):
+        planes = t3_pointer.planes(self.STATE)
+        self.assertEqual([(p["name"], p["crtc"], p["fb"], p["pos"]) for p in planes],
+                         [("plane-0", "crtc-0", 40, (1366, 768, 0, 0)),
+                          ("plane-1", "crtc-0", 41, (64, 64, 342, -1))])
+        self.assertEqual([p["name"] for p in t3_pointer.shown(self.STATE, self.DISPLAY)],
+                         ["plane-1"])
+        self.assertEqual(t3_pointer.shown(self.HIDDEN, self.DISPLAY), [])
+
+    def test_a_reading_is_judged(self):
+        judge = t3_pointer.judge
+        self.assertIsNone(judge(self.STATE, self.DISPLAY, (342, -1)))
+        self.assertIn("is at (342, -1), not (343, -1)", judge(self.STATE, self.DISPLAY, (343, -1)))
+        self.assertIn("0 planes besides the primary", judge(self.HIDDEN, self.DISPLAY, (342, -1)))
+        two = self.STATE + "plane[35]: plane-2\n\tcrtc=crtc-0\n\tfb=42\n\tcrtc-pos=8x8+1+1\n"
+        self.assertIn("2 planes besides the primary", judge(two, self.DISPLAY, (342, -1)))
+        # hidden: no plane besides the primary shows a framebuffer
+        self.assertIsNone(judge(self.HIDDEN, self.DISPLAY, None))
+        self.assertIn("still shows framebuffer 41", judge(self.STATE, self.DISPLAY, None))
+
+    def test_the_dump_is_read_from_the_event_port_after_its_offset(self):
+        events = ("T3-PLANE-BEGIN\nold\nT3-PLANE-END\nT3-DONE pointer\n"
+                  "T3-PLANE-BEGIN\n" + self.STATE + "T3-PLANE-END\nT3-DONE pointer\n")
+        since = events.index("T3-DONE pointer\n") + 1
+        self.assertEqual(t3_pointer.dump(events, since), (self.STATE, None))
+        self.assertEqual(t3_pointer.dump(events, len(events)),
+                         (None, "the guest printed no DRM state"))
+        state, why = t3_pointer.dump("T3-PLANE-ERROR no state file\n")
+        self.assertIsNone(state)
+        self.assertIn("T3-PLANE-ERROR no state file", why)
+
+    def test_the_tablet_moves_with_absolute_events(self):
+        self.assertEqual(t3_pointer.move_events(1, 2),
+                         [{"type": "abs", "data": {"axis": "x", "value": 1}},
+                          {"type": "abs", "data": {"axis": "y", "value": 2}}])
+
+    def test_only_the_pointer_variant_has_the_case(self):
+        for name in t3_scenario.VARIANTS:
+            with self.subTest(name):
+                cases = t3_scenario.variant_cases(name)
+                if t3_scenario.VARIANTS[name].get("pointer"):
+                    self.assertEqual(cases[-1], t3_pointer.CASE)
+                else:
+                    self.assertNotIn(t3_pointer.CASE, cases)
+        self.assertEqual([n for n, v in t3_scenario.VARIANTS.items() if v.get("pointer")],
+                         ["2d-potato-min"])
+        self.assertIn(t3_pointer.CASE, t3_evaluate.NO_GOLDEN)
+        self.assertEqual(t3_evaluate.golden_for("2d-potato-min", t3_pointer.CASE), (None, None))
+        self.assertEqual(t3_evaluate.describe(t3_pointer.CASE),
+                         (t3_pointer.CHECKS[t3_pointer.CASE], None))
 
 
 class BenchTest(unittest.TestCase):

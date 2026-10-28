@@ -47,7 +47,6 @@ fn draw_config(config: Config, s: &Screen, cursor_on: bool, blink_hidden: bool) 
     let st = DrawState {
         cursor_on,
         blink_hidden,
-        foreground: s.palette.fg(),
         background: s.palette.bg(),
         ..DrawState::default()
     };
@@ -99,7 +98,7 @@ fn blinking_text_hides_as_blank_cells_but_under_the_cursor() {
     );
     assert!(draw(&s, true, false) == draw(&shown, false, false), "shown");
 
-    // hidden: blank cells in their own colours, but the cursor's
+    // hidden: blank cells in their own colors, but the cursor's
     let blank = screen(
         &[
             (0, ' ', false, plain),
@@ -380,7 +379,6 @@ fn phase_damage(b: TextBlink, s: &mut Screen) -> Vec<Rect> {
     let mut r = Renderer::new(unifont(), w, h, config);
     let mut c = Canvas::new(w, h, 0);
     let mut st = DrawState {
-        foreground: s.palette.fg(),
         background: s.palette.bg(),
         ..DrawState::default()
     };

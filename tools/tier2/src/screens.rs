@@ -1,7 +1,7 @@
 //! Tier 2's screens, each with the golden that judges it.
 //!
-//! The C reference's tier 2 (`tests/test_pixels.c` at the pinned kmscon
-//! commit) drew every screen with an outline font, DejaVu Sans Mono through
+//! The C reference's tier 2 (`tests/test_pixels.c` at the kmscon commit
+//! `provenance.tsv` names) drew every screen with an outline font, DejaVu Sans Mono through
 //! FreeType, so its goldens judge vtium only where no outline glyph shows:
 //! the two block screens, which hold only sprites and spaces. The others
 //! are re-baselined when the Rust font layer lands (vtium/vtium#24), as
@@ -19,8 +19,8 @@ use crate::draw::{DecoSpec, Decorations, FontKind, Screen, TestFont};
 /// Where a screen's golden lives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Source {
-    /// The C reference's, `tests/goldens/tier2/<name>.ppm` at the pinned
-    /// kmscon commit.
+    /// The C reference's, copied from its `tests/goldens/tier2/` into
+    /// `tools/tier2/reference/goldens/<name>.ppm`.
     Kmscon,
     /// vtium's own, `tools/tier2/goldens/<name>.ppm`.
     Vtium,
@@ -32,7 +32,7 @@ pub struct Case {
     pub screen: Screen,
     pub source: Source,
     /// The C reference's screen in `tests/test_pixels.c` whose bytes this
-    /// one carries, checked against the pin on every run.
+    /// one carries, checked against the copy on every run.
     pub ported: Option<&'static str>,
 }
 
@@ -57,7 +57,7 @@ light, double, heavy, rounded, diagonal and dashed lines, then blocks and lines 
 blue. Correct: blocks fill their cells and lines run from cell to cell with no gap between \
 rows or columns.";
 
-/// Text to the right and bottom edges, coloured cells in the last column
+/// Text to the right and bottom edges, colored cells in the last column
 /// and row, and a wide character whose second column the display lacks.
 const EDGES: &[u8] = concat!(
     "edges\x1b[41m R\x1b[0m\x1b[42mG\x1b[0m\r\n",
@@ -71,7 +71,7 @@ const EDGES: &[u8] = concat!(
 .as_bytes();
 
 const EDGES_DESC: &str = "A grid of 12 by 4 cells on a display that holds 11 and a half \
-columns and 4 rows and 3 pixel rows: text and coloured cells reach the last whole column and \
+columns and 4 rows and 3 pixel rows: text and colored cells reach the last whole column and \
 row, and two wide characters start in the last whole column, an underlined one in the first \
 row and a reversed one in the third, with a cell of the default background between them. \
 Correct: the grid centred, with the 5 spare pixel columns and 3 spare pixel rows around it in \
@@ -277,6 +277,8 @@ const SMALL_40: &[u8] = concat!(
     "lacks: 中 wide, \u{2603} narrow\r\n",
     "\x1b[4:3mcurly\x1b[0m \x1b[4:2mdouble\x1b[0m \x1b[4:4mdots\x1b[0m \x1b[4:5mdash\x1b[0m ",
     "\x1b[4;58:5:196mred\x1b[0m\r\n",
+    "\x1b[4:3;58:5:196mcurl\x1b[0m \x1b[4:2;58:5:46mdouble\x1b[0m \x1b[4:4;58:5:226mdots\x1b[0m ",
+    "\x1b[4:5;58:5:201mdash\x1b[0m \x1b[9;31mstruck\x1b[0m \x1b[9;4;36;58:5:226mboth\x1b[0m\r\n",
     "\x1b[1;32mpi@sbc\x1b[0m:\x1b[1;34m~\x1b[0m$ vi notes.txt",
     "\x1b[28;31H\x1b[42mright edge\x1b[0m",
     "\x1b[30;1H\x1b[7m\"notes.txt\" 3L, 42B            1,1   All\x1b[0m",
@@ -312,6 +314,8 @@ const SMALL_80: &[u8] = concat!(
     "the font lacks: 中文 wide, \u{2603}\u{266a} narrow, a\u{301} combined\r\n",
     "\x1b[4mone\x1b[0m \x1b[4:2mdouble\x1b[0m \x1b[4:3mcurly\x1b[0m \x1b[4:4mdotted\x1b[0m \x1b[4:5mdashed\x1b[0m ",
     "\x1b[4:3;58:5:196mred curl\x1b[0m \x1b[9;31mred strike\x1b[0m \x1b[1;4mbold under\x1b[0m\r\n",
+    "\x1b[4;58:5:46mgreen under\x1b[0m \x1b[4:2;58:5:226myellow double\x1b[0m \x1b[4:4;58:5:201mmagenta dots\x1b[0m ",
+    "\x1b[4:5;58:5:51mcyan dash\x1b[0m \x1b[9;32mgreen strike\x1b[0m \x1b[9;4:3;34;58:5:196mblue, red curl\x1b[0m\r\n",
     "\x1b[1;32mpi@sbc\x1b[0m:\x1b[1;34m~\x1b[0m$ vi notes.txt",
     "\x1b[28;71H\x1b[42mright edge\x1b[0m",
     "\x1b[30;1H\x1b[7m\"notes.txt\" 3L, 42B                                            1,1           All\x1b[0m",
@@ -464,7 +468,7 @@ pub const CASES: &[Case] = &[
         screen: Screen {
             ..Screen::new(
                 "bold-unifont",
-                "Bold beside regular, a bold pangram over two lines, and bold in red, green and blue, in unifont. Correct: the bold text drawn as unifont's glyphs widened by a pixel, at the same cell width; the coloured words in their colours.",
+                "Bold beside regular, a bold pangram over two lines, and bold in red, green and blue, in unifont. Correct: the bold text drawn as unifont's glyphs widened by a pixel, at the same cell width; the colored words in their colors.",
                 BOLD,
                 48,
                 10,
@@ -477,7 +481,7 @@ pub const CASES: &[Case] = &[
         screen: Screen {
             ..Screen::new(
                 "palette-unifont",
-                "The 16 ANSI background colours, the 16 foreground colours on letter pairs, a ramp through the 256-colour palette, and a 24-bit gradient from red to green. In unifont. Correct: each block filled edge to edge in its own colour, with no gaps between cells.",
+                "The 16 ANSI background colors, the 16 foreground colors on letter pairs, a ramp through the 256-color palette, and a 24-bit gradient from red to green. In unifont. Correct: each block filled edge to edge in its own color, with no gaps between cells.",
                 PALETTE,
                 48,
                 10,
@@ -529,7 +533,7 @@ pub const CASES: &[Case] = &[
         screen: Screen {
             ..Screen::new(
                 "underline-unifont",
-                "Each underline style (single, double, curly, dotted, dashed) in the text colour and in an SGR 58 colour, over descenders; a red curl ended by SGR 59; underlines on a background, in reverse and in bold. In unifont. Correct: the five styles distinct, the coloured ones in their SGR 58 colour, and the line after SGR 59 in the text colour.",
+                "Each underline style (single, double, curly, dotted, dashed) in the text color and in an SGR 58 color, over descenders; a red curl ended by SGR 59; underlines on a background, in reverse and in bold. In unifont. Correct: the five styles distinct, the colored ones in their SGR 58 color, and the line after SGR 59 in the text color.",
                 UNDERLINE,
                 48,
                 10,
@@ -542,7 +546,7 @@ pub const CASES: &[Case] = &[
         screen: Screen {
             ..Screen::new(
                 "strike-unifont",
-                "Strike-through (SGR 9) alone, in colour, on a background, with straight and curly underlines, in bold, in reverse, and over spaces. In unifont. Correct: a line through the middle of every struck cell, the spaces included.",
+                "Strike-through (SGR 9) alone, in color, on a background, with straight and curly underlines, in bold, in reverse, and over spaces. In unifont. Correct: a line through the middle of every struck cell, the spaces included.",
                 STRIKE,
                 48,
                 10,
@@ -556,7 +560,7 @@ pub const CASES: &[Case] = &[
             decorations: DECO_CONF,
             ..Screen::new(
                 "deco-config-unifont",
-                "Underline and strike with the configured colours (underline-color=196, strike-color=#00c0ff), beside SGR 58 colours and coloured text. In unifont. Correct: underlines and strikes without an SGR 58 colour take the configured colours; an SGR 58 colour still applies.",
+                "Underline and strike with the configured colors (underline-color=196, strike-color=#00c0ff), beside SGR 58 colors and colored text. In unifont. Correct: underlines and strikes without an SGR 58 color take the configured colors; an SGR 58 color still applies.",
                 DECO_CONFIG,
                 48,
                 10,
@@ -573,7 +577,7 @@ pub const CASES: &[Case] = &[
             },
             ..Screen::new(
                 "deco-force-unifont",
-                "The deco-config screen with force-decoration-colors set. In unifont. Correct: every underline and strike in the configured colour, the SGR 58 ones included.",
+                "The deco-config screen with force-decoration-colors set. In unifont. Correct: every underline and strike in the configured color, the SGR 58 ones included.",
                 DECO_CONFIG,
                 48,
                 10,
@@ -612,7 +616,7 @@ pub const CASES: &[Case] = &[
         screen: Screen {
             ..Screen::new(
                 "emoji-unifont",
-                "The emoji screen in unifont, which has no colour glyphs: two wide emoji and a narrow text smiley; a ZWJ family, a skin tone, a flag and a keycap; a heart with VS16, VS15 and no selector; an emoji between letters; emoji under underline, strike, reverse and a red curl; a codepoint of Unicode 15; and an emoji written at the last column, which wraps. Correct: each emoji its unifont glyph in the text colour, a cluster drawn as its first character centred in its cells; the emoji and the VS16 heart two cells wide, the other hearts and the smiley one.",
+                "The emoji screen in unifont, which has no color glyphs: two wide emoji and a narrow text smiley; a ZWJ family, a skin tone, a flag and a keycap; a heart with VS16, VS15 and no selector; an emoji between letters; emoji under underline, strike, reverse and a red curl; a codepoint of Unicode 15; and an emoji written at the last column, which wraps. Correct: each emoji its unifont glyph in the text color, a cluster drawn as its first character centred in its cells; the emoji and the VS16 heart two cells wide, the other hearts and the smiley one.",
                 EMOJI,
                 48,
                 10,
@@ -627,7 +631,7 @@ pub const CASES: &[Case] = &[
             font: FontKind::Psf(TestFont::Small8x8),
             ..Screen::new(
                 "small-320x240",
-                "minspec's display floor (vtium/vtium#75): a 320x240 display drawn with an 8x8 PSF2 font as 40 by 30 cells. A reversed title across the first row; a shell session, its line past 40 cells wrapping to the next row; a box of sprites around bold, underlined, struck and reversed words; the 16 background colors and 16 foreground colors; shade, block, eighth, Braille and sextant sprites; Latin-1 and punctuation the font holds; a wide and a narrow character it lacks; the five underline styles and a red underline; `right edge` ending in the last column of row 28; an editor's status line reversed across the last row. Correct: every glyph and sprite inside its 8x8 cell, the box lines joined, the colors filling their cells, each lacking character drawn as the missing glyph, every decoration inside its cell, and nothing past the 40th column or the 30th row.",
+                "minspec's display floor (vtium/vtium#75): a 320x240 display drawn with an 8x8 PSF2 font as 40 by 30 cells. A reversed title across the first row; a shell session, its line past 40 cells wrapping to the next row; a box of sprites around bold, underlined, struck and reversed words; the 16 background colors and 16 foreground colors; shade, block, eighth, Braille and sextant sprites; Latin-1 and punctuation the font holds; a wide and a narrow character it lacks; the five underline styles and a red underline; the underline styles in SGR 58 colors, red struck text, and cyan text struck with a yellow underline; `right edge` ending in the last column of row 28; an editor's status line reversed across the last row. Correct: every glyph and sprite inside its 8x8 cell, the box lines joined, the colors filling their cells, each lacking character drawn as the missing glyph, every decoration inside its cell and below the letters, each colored line in its own color and told apart from the glyphs and the other lines, and nothing past the 40th column or the 30th row.",
                 SMALL_40,
                 40,
                 30,
@@ -642,7 +646,7 @@ pub const CASES: &[Case] = &[
             font: FontKind::Psf(TestFont::Small8x16),
             ..Screen::new(
                 "small-640x480",
-                "A 640x480 display drawn with an 8x16 PSF1 font as 80 by 30 cells (vtium/vtium#75): the small-320x240 screen's parts at 80 columns, with `ls -l`, three boxes in light, double, heavy and rounded lines around bold, underlined, struck, reversed, italic, dim and blinking words, ramps through the 256-color palette and in 24-bit color, more sprites and Latin-1, a combining mark, and the decorations in color. Correct: as small-320x240, at 80 columns: the italic word drawn upright, since the font has no italic, the dim word fainter, the blinking word drawn as text, and a combined character as its base letter.",
+                "A 640x480 display drawn with an 8x16 PSF1 font as 80 by 30 cells (vtium/vtium#75): the small-320x240 screen's parts at 80 columns, with `ls -l`, three boxes in light, double, heavy and rounded lines around bold, underlined, struck, reversed, italic, dim and blinking words, ramps through the 256-color palette and in 24-bit color, more sprites and Latin-1, a combining mark, and the decorations in color: each underline style in its own SGR 58 color, green struck text, and blue text struck over a red curl. Correct: as small-320x240, at 80 columns: the italic word drawn upright, since the font has no italic, the dim word fainter, the blinking word drawn as text, and a combined character as its base letter.",
                 SMALL_80,
                 80,
                 30,

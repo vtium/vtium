@@ -13,8 +13,8 @@ mod common;
 
 use common::{Rng, SEQUENCES, TEXT};
 use vtium_term::{
-    Attrs, Color, CursorShape, Glyph, LinkId, Palette, Rgb, Screen, Style, Terminal,
-    UnderlineStyle, Width, WidthMethod,
+    Attrs, Color, CursorShape, Glyph, Palette, Rgb, Screen, Style, Terminal, UnderlineStyle, Width,
+    WidthMethod,
 };
 
 /// One cell as a display draws it.
@@ -27,7 +27,11 @@ struct Drawn {
     underline: Option<Rgb>,
     attrs: Attrs,
     default_bg: bool,
-    link: Option<LinkId>,
+    /// The link's URI: a sweep of the link store may renumber it.
+    link: Option<String>,
+    hovered: bool,
+    /// The URI the overlay shows over this cell's row.
+    overlay: Option<String>,
     selected: bool,
 }
 
@@ -63,7 +67,9 @@ fn draw(screen: &Screen, since: vtium_term::Age) -> Vec<Vec<(Drawn, bool)>> {
                         underline: cell.underline_color,
                         attrs: cell.attrs,
                         default_bg: cell.default_bg,
-                        link: cell.link,
+                        link: cell.link.and_then(|l| screen.link_uri(l)).map(String::from),
+                        hovered: cell.hovered,
+                        overlay: frame.overlay().filter(|o| o.row == r).map(|o| o.uri.into()),
                         selected: cell.selected,
                     };
                     (drawn, cell.changed)
@@ -106,8 +112,11 @@ fn change(t: &mut Terminal, rng: &mut Rng) -> String {
             "pen".into()
         }
         1 => {
-            let link = (rng.below(2) == 0).then(|| LinkId::new(rng.below(4) as u32));
-            s.set_link(link);
+            let link = match rng.below(5) {
+                4 => String::new(),
+                n => format!("https://{n}.example/"),
+            };
+            s.set_hyperlink(format!(";{link}").as_bytes());
             format!("link {link:?}")
         }
         2 => {
@@ -191,6 +200,12 @@ fn change(t: &mut Terminal, rng: &mut Rng) -> String {
             s.set_cursor_style(CursorShape::Bar, false);
             s.set_cursor_visible(rng.below(2) == 0);
             "cursor".into()
+        }
+        18 => {
+            let at = (rng.below(4) != 0).then(|| (rng.below(cols), rng.below(rows)));
+            let ctrl = rng.below(2) == 0;
+            s.set_pointer(at, ctrl);
+            format!("pointer {at:?} ctrl {ctrl}")
         }
         _ => {
             let mut bytes = Vec::new();
@@ -289,7 +304,7 @@ fn clearing_no_selection_marks_nothing() {
     assert!(draw(t.screen(), seen).iter().flatten().all(|&(_, c)| c));
 }
 
-// A palette the host sets while text is on screen recolours every cell, so
+// A palette the host sets while text is on screen recolors every cell, so
 // a display that drew before it sees every cell changed.
 #[test]
 fn a_new_palette_marks_every_cell() {

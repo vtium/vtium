@@ -7,8 +7,8 @@
 //! `cargo test -p vtium-term --test memory -- --nocapture` prints the table.
 
 use vtium_term::{
-    CLUSTER_MAX, Color, Damage, Glyph, Line, LineId, LinkId, Rgb, SB_SIZE_CAP_LARGE,
-    SB_SIZE_CAP_MEDIUM, SB_SIZE_CAP_SMALL, SB_SIZE_DEFAULT, Style, Width,
+    CLUSTER_MAX, Color, Damage, Glyph, LINKS_BYTES_MAX, Line, LineId, LinkId, Rgb,
+    SB_SIZE_CAP_LARGE, SB_SIZE_CAP_MEDIUM, SB_SIZE_CAP_SMALL, SB_SIZE_DEFAULT, Style, Width,
 };
 
 const COLS: usize = 170;
@@ -84,7 +84,7 @@ fn distinct(col: usize) -> Style {
     }
 }
 
-/// Truecolour art: half blocks, every cell its own foreground and
+/// Truecolor art: half blocks, every cell its own foreground and
 /// background, as an image printed as text gives.
 fn art() -> Line {
     line_of(distinct, |_| "\u{2580}".into(), COLS)
@@ -142,7 +142,7 @@ fn the_minspec_grid_and_scrollback() {
         ("plain text, full width", plain(COLS), &common),
         ("a shell's lines, full width", shell(COLS), &common),
         ("a shell's lines, 60 cells", shell(60), &common),
-        ("truecolour art, full width", art(), &common),
+        ("truecolor art, full width", art(), &common),
         ("the worst case", worst(), &caps),
         (
             "plain text, full width, at each cap",
@@ -217,14 +217,16 @@ const FIGURES_64: [usize; 14] = [
     140_800_000, // plain, the larger caps
 ];
 
-// The worst case at the default scrollback stays inside the C reference's
-// measured peak, taking the rest of vtium's process at what the rest of
-// the C reference's cost: its first screen less its two screens.
+// The worst case at the default scrollback, with the link store full,
+// stays inside the C reference's measured peak, taking the rest of vtium's
+// process at what the rest of the C reference's cost: its first screen
+// less its two screens (ADR-1002, "Link storage"). `tests/links.rs` holds
+// the store's heap at or under its charge.
 #[test]
 fn the_worst_default_scrollback_fits_the_minspec_peak() {
     let rest = C_FIRST_SCREEN - C_SCREENS as f64;
     let first = rest + screens_bytes() as f64;
-    let peak = first + (SB_SIZE_DEFAULT * line_bytes(&worst())) as f64;
+    let peak = first + (SB_SIZE_DEFAULT * line_bytes(&worst()) + LINKS_BYTES_MAX) as f64;
     println!(
         "first screen about {:.2} MiB; worst peak at {SB_SIZE_DEFAULT} lines about {:.2} MiB, against {:.2} MiB",
         first / MIB,

@@ -1,0 +1,5 @@
+# Every file tier 2 copied from the C reference:
+# PATH (from the repository root) REPO COMMIT SOURCE SHA256.
+tools/tier2/reference/goldens/blocks-spaced.ppm	kmscon	b1f7a7c5df563f3378584db7298753848a7a9a13	tests/goldens/tier2/blocks-spaced.ppm	a037947736ba738fc0c787d62d4cb4e135ea00f0b2eb0eac37565a86b71a0d07
+tools/tier2/reference/goldens/blocks.ppm	kmscon	b1f7a7c5df563f3378584db7298753848a7a9a13	tests/goldens/tier2/blocks.ppm	9c68dc1f354a4bf96129b8516ca310310035264ce3278b84c7f2635c45dab3bf
+tools/tier2/reference/test_pixels.c	kmscon	b1f7a7c5df563f3378584db7298753848a7a9a13	tests/test_pixels.c	31f6e511e086a4fa10c01a0b8345f39e99a07e77c3f21f07d77e49b0e5b7b896

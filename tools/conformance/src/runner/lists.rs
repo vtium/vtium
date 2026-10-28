@@ -101,16 +101,20 @@ pub fn expected_rows(text: &str) -> Result<Vec<Row>, String> {
 }
 
 /// Checks each departure's entry against its source: `read` returns the
-/// text of a SOURCE. In a README the entry must sit under a
-/// `## Departures` or a `## Golden differences` heading. In `INTERFACE.md`
-/// the entry must be a sentence that lets an implementation list the case
-/// as a departure.
+/// text of a SOURCE. A README's entry is the headline of an item under its
+/// `## Departures` or `## Golden differences` heading ([`lists`]). In
+/// `INTERFACE.md` the entry must be a sentence that lets an implementation
+/// list the case as a departure.
 pub fn check_sources(
     rows: &[Row],
     read: impl Fn(&str) -> Result<String, String>,
 ) -> Result<(), String> {
     let mut texts: BTreeMap<&str, String> = BTreeMap::new();
     for row in rows.iter().filter(|r| !r.pending) {
+        let at = format!("expected.tsv:{}", row.line);
+        if row.source != "INTERFACE.md" {
+            readme(&row.source).map_err(|why| format!("{at}: {why}"))?;
+        }
         if !texts.contains_key(row.source.as_str()) {
             texts.insert(&row.source, read(&row.source)?);
         }
@@ -118,16 +122,60 @@ pub fn check_sources(
         let found = if row.source == "INTERFACE.md" {
             row.entry.contains("may list it as a departure") && text.contains(&row.entry)
         } else {
-            departure_lines(text).any(|line| line.contains(&row.entry))
+            lists(text, &row.entry)
         };
         if !found {
             return Err(format!(
-                "expected.tsv:{}: {} has no {:?} under a Departures or a Golden differences heading",
-                row.line, row.source, row.entry
+                "{at}: {} lists no departure {:?} under a Departures or a Golden differences heading",
+                row.source, row.entry
             ));
         }
     }
     Ok(())
+}
+
+/// Refuses a SOURCE that is not a `README.md` inside the repository: an
+/// absolute path, or one with a `..`, `.` or empty part.
+pub fn readme(source: &str) -> Result<(), String> {
+    let path = std::path::Path::new(source);
+    let inside = !source.is_empty()
+        && path
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
+        && !source.split('/').any(str::is_empty);
+    if inside && path.file_name().is_some_and(|n| n == "README.md") {
+        Ok(())
+    } else {
+        Err(format!(
+            "{source:?} is not a README.md inside the repository, by a relative path"
+        ))
+    }
+}
+
+/// Whether `entry` is the headline of an item under the README `text`'s
+/// `## Departures` or `## Golden differences` heading: the whole bold
+/// opening of a line `- **ENTRY**`, or, in an item with no bold opening,
+/// its whole opening sentences, `- ENTRY` ending in a full stop at the end
+/// of the line or before a space.
+pub fn lists(text: &str, entry: &str) -> bool {
+    let ends = |rest: &str| rest.is_empty() || rest.starts_with(' ');
+    !entry.trim().is_empty()
+        && departure_lines(text).any(|line| {
+            let Some(item) = line.strip_prefix("- ") else {
+                return false;
+            };
+            match item.strip_prefix("**") {
+                Some(bold) => bold
+                    .strip_prefix(entry)
+                    .and_then(|rest| rest.strip_prefix("**"))
+                    .is_some_and(ends),
+                None => {
+                    entry.ends_with('.')
+                        && !entry.contains("**")
+                        && item.strip_prefix(entry).is_some_and(ends)
+                }
+            }
+        })
 }
 
 /// The lines of a README under a `## Departures` or a
@@ -243,24 +291,62 @@ mod tests {
 
     #[test]
     fn a_departure_names_an_entry_its_source_lists_as_one() {
-        let rows = expected_rows("*\tx\tdeparture\tREADME.md\tDA1 reports\n").unwrap_or_default();
+        let row = |entry: &str| {
+            expected_rows(&format!("*\tx\tdeparture\tREADME.md\t{entry}\n")).unwrap_or_default()
+        };
+        let rows = row("DA1 reports a VT220");
         let readme = |text: &'static str| move |_: &str| Ok(text.to_owned());
-        let departures = "# c\n\n## Departures\n\n- **DA1 reports a VT220**\n\n## Bounds\n";
+        let departures = "# c\n\n## Departures\n\n- **DA1 reports a VT220** Why.\n\n## Bounds\n";
         assert_eq!(check_sources(&rows, readme(departures)), Ok(()));
         assert!(check_sources(&rows, readme("## Departures\n\n- **DA2 reports**\n")).is_err());
+        // a fragment of a headline, or of the text after it, is not one
+        for fragment in ["DA1 reports", "-", "VT220", "Why."] {
+            assert!(
+                check_sources(&row(fragment), readme(departures)).is_err(),
+                "{fragment:?}"
+            );
+        }
         // the entry anywhere else in the file is not a listed departure
         assert!(check_sources(&rows, readme("## Notes\n\n- **DA1 reports a VT220**\n")).is_err());
         assert!(
-            check_sources(&rows, readme("## Departures\n\n## Bounds\n\nDA1 reports\n")).is_err()
+            check_sources(
+                &rows,
+                readme("## Departures\n\n## Bounds\n\nDA1 reports a VT220\n")
+            )
+            .is_err()
         );
-        let goldens = "## Golden differences\n\n- `x`: DA1 reports a VT220.\n\n## Bounds\n";
-        assert_eq!(check_sources(&rows, readme(goldens)), Ok(()));
+        // a golden difference's entry is its item's whole opening sentence
+        let goldens = "## Golden differences\n\n- `x`: DA1 reports a VT220. More.\n\n## Bounds\n";
+        assert_eq!(
+            check_sources(&row("`x`: DA1 reports a VT220."), readme(goldens)),
+            Ok(())
+        );
+        assert!(check_sources(&row("`x`: DA1 reports"), readme(goldens)).is_err());
         // a goldens list under any other heading is not one
         let bullet =
             "## Notes\n\n- **Goldens the departures move**:\n  - `x`: DA1 reports a VT220.\n";
-        assert!(check_sources(&rows, readme(bullet)).is_err());
-        assert!(check_sources(&rows, readme("## Golden cases\n\nDA1 reports\n")).is_err());
-        assert!(check_sources(&rows, readme("### Departures\n\nDA1 reports\n")).is_err());
+        assert!(check_sources(&row("`x`: DA1 reports a VT220."), readme(bullet)).is_err());
+        assert!(
+            check_sources(
+                &rows,
+                readme("### Departures\n\n- **DA1 reports a VT220**\n")
+            )
+            .is_err()
+        );
+        // a source that is not a README in the repository
+        for source in [
+            "/etc/README.md",
+            "../README.md",
+            "a/../../README.md",
+            "a/NOTES.md",
+        ] {
+            let rows = expected_rows(&format!("*\tx\tdeparture\t{source}\tDA1 reports a VT220\n"))
+                .unwrap_or_default();
+            assert!(
+                check_sources(&rows, readme(departures)).is_err(),
+                "{source}"
+            );
+        }
         let iface =
             expected_rows("*\tx\tdeparture\tINTERFACE.md\tDA1 reports\n").unwrap_or_default();
         assert!(check_sources(&iface, readme("DA1 reports")).is_err());

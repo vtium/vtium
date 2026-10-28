@@ -48,7 +48,7 @@ fn a_region_scroll_marks_only_the_region() {
 }
 
 // aaronsb/libtsm#47: cells past a scrollback line's end were drawn with the
-// pen, so an SGR under background colour erase recoloured them with no
+// pen, so an SGR under background color erase recolored them with no
 // change marked. They read in the default style whatever the pen, and a pen
 // change alone marks nothing.
 #[test]
@@ -258,7 +258,7 @@ fn the_cluster_budget_cuts_a_cluster_on_a_one_column_line() {
 }
 
 // The C reference's frame showed the columns a widening resize adds with a
-// white foreground and underline colour (the conformance case
+// white foreground and underline color (the conformance case
 // query-frames). They are empty cells in the line's fill: the default
 // style, or on the main screen the background the program erased the
 // line's end with (ADR-1003); the pen has no claim on them, and the

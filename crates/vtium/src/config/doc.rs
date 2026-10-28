@@ -16,9 +16,11 @@ fn kind(k: &Key) -> String {
         Kind::Text => "text".to_owned(),
         Kind::Choice(c) => format!("one of `{}`", c.join("`, `")),
         Kind::Command => "command".to_owned(),
-        Kind::Rgb => "colour, `r,g,b`".to_owned(),
+        Kind::Rgb => "color, `r,g,b`".to_owned(),
         Kind::Mode => "mode, a line each".to_owned(),
         Kind::Grab => "chords, `<Mod>...key`, separated by commas".to_owned(),
+        Kind::DecoColor => "color, `fg`, a palette index or `#rrggbb`".to_owned(),
+        Kind::Char => "character".to_owned(),
     }
 }
 
@@ -39,6 +41,8 @@ fn bound(k: &Key) -> String {
         Kind::Grab => format!(
             "{TEXT_MAX} bytes; modifiers Shift, Lock, Control, Alt, Logo; keys as xkb names them"
         ),
+        Kind::DecoColor => "an index 0 to 255, or six hex digits".to_owned(),
+        Kind::Char => "one character, no control character or space".to_owned(),
     }
 }
 
@@ -76,7 +80,7 @@ pub(super) fn markdown() -> String {
          \n\
          vtium reads `kmscon.conf` in the configuration directory (`--configdir`, `/etc/kmscon` by default), then `<seat>.seat.conf` there, then its command line. Each wins over the ones before it. A file that does not exist is skipped. The files are read once, at start: a change applies when vtium starts again, as at a restart of its service. `vtium check-config` reads them as the start would, applies nothing, and exits 1 on any warning.\n\
          \n\
-         A file holds one key a line: `key=value`, or a switch's `key` to turn it on and `no-key` to turn it off. `#` starts a comment, except where it opens a `#rrggbb` colour value. Spaces and tabs around the key and the value are dropped. On the command line a key is `--key=VALUE` or `--key VALUE`, and a switch `--key` or `--no-key`.\n\
+         A file holds one key a line: `key=value`, or a switch's `key` to turn it on and `no-key` to turn it off. `#` starts a comment, except where it opens a `#rrggbb` color value. Spaces and tabs around the key and the value are dropped. On the command line a key is `--key=VALUE` or `--key VALUE`, and a switch `--key` or `--no-key`.\n\
          \n\
          vtium reports, once at start, a key it does not know, however often it appears, and a value it cannot use: a number out of bounds, which it clamps, and a value it cannot read, which it ignores, keeping the value the sources before it gave. It reads at most {FILE_MAX} bytes of a file and {LINE_MAX} of a line.\n\
          \n\

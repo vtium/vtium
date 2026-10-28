@@ -37,7 +37,7 @@ use core::ops::Range;
 
 use super::Screen;
 use crate::cell::Width;
-use crate::line::Line;
+use crate::line::{Line, LineFlags};
 use crate::style::{Attrs, Style};
 
 /// Which cells of a region an erase clears.
@@ -228,9 +228,15 @@ impl Screen {
         self.unwrap_rows(y..y.saturating_add(1));
     }
 
-    /// ED 2: the whole screen.
+    /// ED 2: the whole screen. The rows it clears whole lose their prompt
+    /// marks (ADR-1002, "Prompt marks").
     pub fn erase_screen(&mut self, which: Erase) {
         let whole = self.erase_region((0, 0), (self.cols, self.rows), which);
+        for &y in &whole {
+            if let Some(line) = self.line_mut(y) {
+                line.flags_mut().remove(LineFlags::MARKS);
+            }
+        }
         self.unwrap_rows(whole);
     }
 

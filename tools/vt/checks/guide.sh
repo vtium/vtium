@@ -6,10 +6,10 @@
 #
 #   guide.sh [--check] GUIDE-FILE
 #
-# Each step says what to do and what to expect, runs its probe until q (or
-# its shell until exit), then asks yes, no or skip and a note. The answers, and
-# every line a probe prints, are appended to vt-check.log in /tmp/vtium-vt
-# (VTIUM_VT_DIR) under a header line for the run.
+# Each step says what to do and what to expect, runs its command, or its
+# probe until q (or its shell until exit), then asks yes, no or skip and a
+# note. The answers, and every line a probe prints, are appended to
+# vt-check.log in /tmp/vtium-vt (VTIUM_VT_DIR) under a header line for the run.
 # GUIDE_STEPS="4 8 9" (or 4,8,9) runs only those steps. In the guide's text,
 # {vt} is GUIDE_VT and {desktop} GUIDE_DESKTOP, the VT of the run and the
 # desktop's, as run-vt.sh sets them.
@@ -19,9 +19,12 @@
 #
 # A guide is lines of "key: text"; blank lines and lines starting with # are
 # skipped. "title:" once and "intro:" lines come first, then each step:
-# "step: TITLE", an optional "probe: MODE" (shell, or one of probe.py --list),
-# and "do:" and "expect:" lines, each shown as typed. A step without a probe
-# asks once the operator presses Enter.
+# "step: TITLE", an optional "run: COMMAND" or "probe: MODE" (shell, or one of
+# probe.py --list), and "do:" and "expect:" lines, each shown as typed. A run:
+# step shows its command, and runs it on this terminal once the operator
+# presses Enter, so the operator watches it rather than typing it. Each step
+# needs an expect: line, and a do: or run: line. A step with neither asks once
+# the operator presses Enter.
 set -euo pipefail
 
 here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
@@ -46,6 +49,7 @@ title=
 intro=()
 titles=()
 probes=()
+runs=()
 dos=()
 expects=()
 # shell is guide.sh's own: an interactive shell, for a step that types at a
@@ -64,8 +68,8 @@ while IFS= read -r line || [ -n "$line" ]; do
 	text=${text//\{vt\}/$vt}
 	text=${text//\{desktop\}/$desktop}
 	# "Logo" was misread at the C reference's first guided pass; a guide names
-	# the key as the operator's keyboard does.
-	[[ ! ${text,,} =~ (^|[^[:alnum:]])logo([^[:alnum:]]|$) ]] ||
+	# the key as the operator's keyboard does. A command's words are not prose.
+	[ "$key" = run ] || [[ ! ${text,,} =~ (^|[^[:alnum:]])logo([^[:alnum:]]|$) ]] ||
 		die "$guide:$n: name the Super (Windows) key, not Logo"
 	s=$((${#titles[@]} - 1))
 	case $key in
@@ -79,16 +83,23 @@ while IFS= read -r line || [ -n "$line" ]; do
 		;;
 	step)
 		[ -n "$text" ] || die "$guide:$n: a step needs a title"
-		titles+=("$text") probes+=("") dos+=("") expects+=("")
+		titles+=("$text") probes+=("") runs+=("") dos+=("") expects+=("")
 		;;
-	probe | do | expect)
+	probe | run | do | expect)
 		[ "$s" -ge 0 ] || die "$guide:$n: $key: before the first step"
 		case $key in
 		probe)
+			[ -z "${runs[s]}" ] || die "$guide:$n: a step runs a command or a probe, not both"
 			[ -z "${probes[s]}" ] || die "$guide:$n: one probe per step"
 			[[ " ${modes[*]} " == *" $text "* ]] ||
 				die "$guide:$n: probe mode '$text' is not one of: ${modes[*]}"
 			probes[s]=$text
+			;;
+		run)
+			[ -n "$text" ] || die "$guide:$n: run: needs the command"
+			[ -z "${probes[s]}" ] || die "$guide:$n: a step runs a command or a probe, not both"
+			[ -z "${runs[s]}" ] || die "$guide:$n: one run per step"
+			runs[s]=$text
 			;;
 		do) dos[s]+=$text$'\n' ;;
 		expect) expects[s]+=$text$'\n' ;;
@@ -101,8 +112,8 @@ done <"$guide"
 total=${#titles[@]}
 [ "$total" -gt 0 ] || die "$guide: no steps"
 for ((s = 0; s < total; s++)); do
-	[ -n "${dos[s]}" ] && [ -n "${expects[s]}" ] ||
-		die "$guide: step $((s + 1)) (${titles[s]}) needs do: and expect: lines"
+	[ -n "${dos[s]}${runs[s]}" ] && [ -n "${expects[s]}" ] ||
+		die "$guide: step $((s + 1)) (${titles[s]}) needs an expect: line, and a do: or run: line"
 done
 
 only=()
@@ -116,7 +127,9 @@ done
 if [ -n "$check" ]; then
 	printf '%s: %s steps\n' "$title" "$total"
 	for ((s = 0; s < total; s++)); do
-		printf '  %2d  %-12s %s\n' "$((s + 1))" "${probes[s]:-(no probe)}" "${titles[s]}"
+		mode=${probes[s]:-(no probe)}
+		[ -z "${runs[s]}" ] || mode=run
+		printf '  %2d  %-12s %s\n' "$((s + 1))" "$mode" "${titles[s]}"
 	done
 	exit 0
 fi
@@ -145,9 +158,11 @@ clear_screen() {
 	printf '\033[0m\033[H\033[2J\033[3J'
 }
 
-# Prints a step's lines under a label, the label on the first one only.
+# Prints a step's lines under a label, the label on the first one only, and
+# nothing when it has none.
 lines() {
 	local label=$1 l
+	[ -n "$2" ] || return 0
 	while IFS= read -r l; do
 		printf '%-8s%s\n' "$label" "$l"
 		label=
@@ -179,17 +194,41 @@ shell() {
 	PS1='vtium-check$ ' /bin/bash --noprofile --norc -i
 }
 
+# A run: step's command, shown as at the shell step's prompt and run on this
+# terminal by a shell with no rc files. A key pressed while it runs is neither
+# echoed onto the picture nor kept, so it never answers the step. Ctrl-C
+# stops the command, and Ctrl-\ the program it runs, as at a prompt: the trap
+# keeps them from ending the checks, and the command, which gets the default
+# actions, ends with its status.
+run() {
+	local status=0 saved
+	note "  run: $1"
+	printf 'vtium-check$ %s\n' "$1"
+	trap : INT QUIT
+	saved=$(stty -g)
+	stty -echo
+	/bin/bash --noprofile --norc -c "$1" || status=$?
+	while read -r -s -n 1 -t 0.05 _; do :; done
+	stty "$saved"
+	trap - INT QUIT
+	[ "$status" -eq 0 ] || {
+		printf '\nThe command exited with status %s.\n' "$status"
+		note "  command exited with status $status"
+	}
+}
+
 note "=== $title, $(date -Is), guide $(readlink -f "$guide"), tty $(tty), steps ${only[*]:-all}"
 
 clear_screen
 printf '%s\n\n' "$title"
 [ ${#intro[@]} -eq 0 ] || printf '%s\n' "${intro[@]}" ""
 cat <<EOF
-Each step says what to do and what to expect. Press Enter to start it, do
-what the step says, end it as the step says (q stops a probe, exit a shell),
-then answer y, n or s, with a note if something looked off. A probe prints
-each sequence the terminal sends, with the time it read it. At a step's
-first prompt, s skips the step and q ends the checks.
+Each step says what to do and what to expect. Press Enter to start it: a
+step that shows a command under Run: runs it for you. Do what the step says,
+end it as the step says (q stops a probe, exit a shell), then answer y, n or
+s, with a note if something looked off. A probe prints each sequence the
+terminal sends, with the time it read it. At a step's first prompt, s skips
+the step and q ends the checks.
 
 After the last step vtium exits and VT $vt gets its console back;
 Ctrl+Alt+F$desktop is your desktop.
@@ -205,9 +244,11 @@ for ((s = 0; s < total; s++)); do
 	fi
 	clear_screen
 	printf 'Step %s of %s: %s\n\n' "$k" "$total" "${titles[s]}"
+	lines "Run:" "${runs[s]}"
 	lines "Do:" "${dos[s]}"
 	lines "Expect:" "${expects[s]}"
-	case ${probes[s]} in
+	case ${runs[s]:+run}${probes[s]} in
+	run) printf '\nPress Enter to run it (s then Enter skips this step, q ends the checks).\n' ;;
 	'') printf '\nPress Enter when done (s then Enter skips this step, q ends the checks).\n' ;;
 	shell) printf '\nPress Enter to start the shell (s then Enter skips this step, q ends the checks).\n' ;;
 	*) printf '\nPress Enter to start the probe (s then Enter skips this step, q ends the checks).\n' ;;
@@ -222,8 +263,9 @@ for ((s = 0; s < total; s++)); do
 		;;
 	q | Q) ended "  ended here" ;;
 	esac
-	case ${probes[s]} in
+	case ${runs[s]:+run}${probes[s]} in
 	'') ;;
+	run) run "${runs[s]}" ;;
 	shell) shell || note "  shell exited with status $?" ;;
 	*) python3 "$probe" "${probes[s]}" || note "  probe exited with status $?" ;;
 	esac

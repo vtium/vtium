@@ -9,6 +9,7 @@ import subprocess
 import time
 
 import t3_bench
+import t3_pointer
 import t3_power
 from t3_common import BASE, GUEST, RUNDIR, rel
 from t3_evaluate import (BENCHMARKS, CASES, IMAGE_SCREENS, KEYED, KEYS_AFTER, SCREENS,
@@ -53,6 +54,7 @@ VARIANTS = {
         "cpus": 1,
         "memory_mb": 512,
         "images": False,
+        "pointer": True,
     },
     "2d-potato-min-psf": {
         "device": "virtio-vga,xres=1366,yres=768,edid=on",
@@ -63,6 +65,9 @@ VARIANTS = {
         "memory_mb": 512,
         "images": False,
     },
+    # 2d-potato-min also runs the pointer case ("pointer"): after the VT
+    # switch it moves the pointer with QMP and reads the display's cursor
+    # plane from the guest (t3_pointer).
     # The small displays (vtium/vtium#75) on the minspec machine: minspec's
     # floor, 320x240 in an 8x8 PSF font as 40 by 30 cells, and 640x480 in an
     # 8x16 one as 80 by 30, both fonts tools/testfont's ("fonts"). They draw
@@ -185,19 +190,28 @@ def screens_of(variant):
 def variant_cases(variant):
     """The cases of `variant`'s report: a power variant's own; otherwise
     every case of its screens, but for a variant without images the keyed
-    cases of the image screens, whose keys act on pictures."""
+    cases of the image screens, whose keys act on pictures, and the pointer
+    case last for a variant that runs it."""
     if "power" in VARIANTS[variant]:
         return list(VARIANTS[variant]["power"])
     out = CASES if "screens" not in VARIANTS[variant] else cases(screens_of(variant))
-    if VARIANTS[variant].get("images", True):
-        return out
-    skipped = {case for screen, case, _ in KEYED if screen in IMAGE_SCREENS}
-    return [c for c in out if c not in skipped]
+    if not VARIANTS[variant].get("images", True):
+        skipped = {case for screen, case, _ in KEYED if screen in IMAGE_SCREENS}
+        out = [c for c in out if c not in skipped]
+    if VARIANTS[variant].get("pointer"):
+        out = out + [t3_pointer.CASE]
+    return out
 
 
 def vtium_golden_cases():
     """{variant: its cases} for every variant judged by vtium's goldens."""
     return {v: variant_cases(v) for v in VARIANTS if VARIANTS[v].get("goldens")}
+
+
+def c_golden_cases():
+    """{variant: its cases} for every variant judged by the C reference's
+    goldens."""
+    return {v: variant_cases(v) for v in VARIANTS if not VARIANTS[v].get("goldens")}
 
 
 def evaluate_variant(variant, caps, meta, log):
@@ -229,8 +243,8 @@ def check_install(line, impl):
 def build_disc(variant, work, impl):
     """The T3PKG disc: the tree as tree.tar, the variant's config, the
     screens, guest/setup, the variant's sysctl settings if it has any,
-    vtium built with its features if it names any, and the test fonts if it
-    draws with them."""
+    vtium built with its features if it names any, the test fonts if it
+    draws with them, and a `pointer` file if it reads the cursor plane."""
     disc = os.path.join(work, "disc")
     shutil.rmtree(disc, ignore_errors=True)
     os.makedirs(disc)
@@ -247,6 +261,8 @@ def build_disc(variant, work, impl):
         shutil.copy(impl["features"][VARIANTS[variant]["features"]], os.path.join(disc, "vtium"))
     if VARIANTS[variant].get("fonts"):
         shutil.copytree(impl["fonts"], os.path.join(disc, "fonts"))
+    if VARIANTS[variant].get("pointer"):
+        open(os.path.join(disc, "pointer"), "w").close()
     iso = os.path.join(work, "t3pkg.iso")
     make_iso(disc, "T3PKG", iso)
     return iso
@@ -336,11 +352,13 @@ def resident_kb(vm):
 
 def resident(rss_kb, screens=SCREENS):
     """The minspec memory figures from `resident_kb`: the resident set after
-    the first of `screens`, and the peak over every screen with the screen it
+    the first of `screens`, and the peak over `screens` with the screen it
     followed (s1-scroll, once its lines fill the scrollback, for the C
-    reference's minimal build). VmRSS is in KiB; None where nothing was read."""
+    reference's minimal build); the pointer case's readings are no screen.
+    VmRSS is in KiB; None where nothing was read."""
     first = screens[0]
-    peak = max(rss_kb, key=rss_kb.get) if rss_kb else None
+    drawn = [s for s in screens if s in rss_kb]
+    peak = max(drawn, key=rss_kb.get) if drawn else None
     return {"first_screen": first, "first_kib": rss_kb.get(first),
             "peak_kib": rss_kb.get(peak), "peak_screen": peak}
 
@@ -535,6 +553,68 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
     wait_stable(vm, path, want=lambda img: img.data != away.data)
     caps["vt-restore"] = path
     phase("vt-restore")
+    if v.get("pointer"):
+        check_pointer(variant, vm, work, caps, errors, log)
+        phase(t3_pointer.CASE)
+
+
+def check_pointer(variant, vm, work, caps, errors, log):
+    """The pointer case (t3_pointer): the pointer moved to each of
+    t3_pointer.MOVES with QMP, the guest's DRM state read after each move and
+    once the pointer hid, each reading judged. The capture, the screen the
+    last reading printed, is kept only when every reading passed; `errors`
+    gets the first reason otherwise."""
+    case = t3_pointer.CASE
+    m = re.search(r"xres=(\d+),yres=(\d+)", VARIANTS[variant]["device"])
+    display = (int(m.group(1)), int(m.group(2)))
+    cell = console_cell(vm.serial)
+    path = os.path.join(work, case + ".ppm")
+    try:
+        if cell is None:
+            raise RuntimeError("the console logged no cell size")
+        for n, at in enumerate(t3_pointer.MOVES):
+            vm.cmd("input-send-event", events=t3_pointer.move_events(*at))
+            if n == 0:
+                vm.wait_serial(t3_pointer.PLANE_LINE, timeout=30)
+            want = t3_pointer.corner(at, display, cell)
+            why = read_plane(vm, display, want, log)
+            if why:
+                raise RuntimeError("after the move to %s: %s" % (at, why))
+        # The pointer hides HIDE_S after its last move; read until it has.
+        deadline = time.time() + t3_pointer.HIDE_S + t3_pointer.HIDE_SLACK_S
+        why = "not read"
+        while why and time.time() < deadline:
+            why = read_plane(vm, display, None, log)
+        if why:
+            raise RuntimeError("once the pointer hid: %s" % why)
+        wait_stable(vm, path)
+        caps[case] = path
+    except RuntimeError as e:
+        errors[case] = str(e)
+        log("%s: %s" % (case, e))
+
+
+def read_plane(vm, display, want, log):
+    """Has the guest print its DRM state (screens/pointer.sh) and judges it
+    against `want` (t3_pointer.judge): the reason it failed, or None."""
+    with open(vm.events, errors="replace") as f:
+        since = len(f.read())
+    vm.type("t3 pointer\n")
+    deadline = time.time() + SCREEN_TIMEOUT
+    while True:
+        with open(vm.events, errors="replace") as f:
+            text = f.read()
+        if "T3-DONE pointer\n" in text[since:]:
+            break
+        if time.time() > deadline:
+            return "no T3-DONE pointer within %d s; see %s" % (SCREEN_TIMEOUT, rel(vm.events))
+        time.sleep(0.2)
+    state, why = t3_pointer.dump(text, since)
+    if why:
+        return why
+    why = t3_pointer.judge(state, display, want)
+    log("cursor plane, want %s: %s" % (want, why or "as wanted"))
+    return why
 
 
 # Seconds a power case may take: the shutdown, the suspend, the wake-up.

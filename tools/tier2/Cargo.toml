@@ -1,7 +1,7 @@
 # Tier 2 for vtium: the renderer draws known screens into memory, and each
 # is compared pixel for pixel with its golden. A workspace member, so cargo
-# test builds and checks the harness; judging the C reference's goldens
-# needs a kmscon checkout, which only `make tier2` and CI's tier2 job use.
+# test builds and checks the harness; `make tier2` judges every screen
+# against the goldens in this tree.
 [package]
 name = "vtium-tier2"
 description = "Tier 2: the renderer's screens against the C reference's pixel goldens"
@@ -22,3 +22,5 @@ vtium-font.workspace = true
 vtium-render.workspace = true
 # the small displays' PSF fonts, built in memory
 vtium-testfont = { path = "../testfont" }
+# provenance.tsv's reading and checks, which tier 1's copies use too
+vtium-conformance = { path = "../conformance" }

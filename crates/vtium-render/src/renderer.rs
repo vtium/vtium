@@ -18,20 +18,20 @@ use crate::target::{Orientation, Rect, Target};
 /// The bar cursor: U+258F, LEFT ONE EIGHTH BLOCK, a sprite.
 const BAR: char = '\u{258f}';
 
-/// The colour a decoration draws in.
+/// The color a decoration draws in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DecoColor {
     /// The cell's foreground as drawn.
     #[default]
     Foreground,
-    /// A palette colour, resolved through each frame's palette, so a
-    /// program that changes it (OSC 4) recolours the decorations.
+    /// A palette color, resolved through each frame's palette, so a
+    /// program that changes it (OSC 4) recolors the decorations.
     Indexed(u8),
     Rgb(Rgb),
 }
 
 impl DecoColor {
-    /// The colour through `palette`; `None` follows the foreground.
+    /// The color through `palette`; `None` follows the foreground.
     fn resolve(self, palette: &Palette) -> Option<Rgb> {
         match self {
             DecoColor::Foreground => None,
@@ -41,13 +41,13 @@ impl DecoColor {
     }
 }
 
-/// The configured decoration colours: `underline-color`, `strike-color` and
+/// The configured decoration colors: `underline-color`, `strike-color` and
 /// `force-decoration-colors`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DecorationColors {
     pub underline: DecoColor,
     pub strike: DecoColor,
-    /// The configured underline colour wins over the one SGR 58 set.
+    /// The configured underline color wins over the one SGR 58 set.
     pub force: bool,
 }
 
@@ -73,6 +73,17 @@ pub struct TextBlink {
     pub decorations: bool,
 }
 
+/// What the pointer draws as: `pointer-char`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PointerShape {
+    /// The arrow, its tip on the pointer's pixel.
+    #[default]
+    Arrow,
+    /// The font's glyph for the character, one cell wide, on the cell
+    /// under the pointer, filled and outlined as the arrow is.
+    Glyph(char),
+}
+
 /// How a renderer draws, fixed for its life.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
@@ -84,6 +95,7 @@ pub struct Config {
     pub storage: Storage,
     pub decorations: DecorationColors,
     pub blink: TextBlink,
+    pub pointer: PointerShape,
 }
 
 impl Default for Config {
@@ -96,6 +108,7 @@ impl Default for Config {
             storage: Storage::default(),
             decorations: DecorationColors::default(),
             blink: TextBlink::default(),
+            pointer: PointerShape::default(),
         }
     }
 }
@@ -108,8 +121,6 @@ pub struct DrawState {
     /// The text blink is in its off phase, which draws blinking text as
     /// [`Config::blink`] says.
     pub blink_hidden: bool,
-    /// The palette's default foreground.
-    pub foreground: Rgb,
     /// The palette's default background, around the grid.
     pub background: Rgb,
     /// The pointer's tip in the grid's pixels, unturned, for the renderer
@@ -314,7 +325,7 @@ struct Place {
     ncells: usize,
 }
 
-/// What a job paints: its colours, decorations and text.
+/// What a job paints: its colors, decorations and text.
 #[derive(Clone, Copy, Debug)]
 struct Paint {
     fg: Rgb,
@@ -350,10 +361,26 @@ pub struct Renderer<F> {
     pointer: Option<Pointer>,
     /// The line a run under the pointer is blended in.
     pointer_line: Vec<u32>,
-    /// The configured underline and strike colours through the frame being
+    /// The configured underline and strike colors through the frame being
     /// drawn's palette; `None` follows the foreground.
     deco: (Option<Rgb>, Option<Rgb>),
     compose: Composer,
+}
+
+/// The pointer's image for cells `cell_height` tall: the arrow, or the
+/// glyph `config.pointer` names. The arrow stands in for a character the
+/// font lacks, which would draw as a fallback (the missing box, U+FFFD or
+/// `?`), and for a blank one, whose glyph covers no pixel.
+fn pointer_image<F: Face>(font: &Font<F>, cell_height: u32, config: Config) -> Arrow {
+    match config.pointer {
+        PointerShape::Glyph(c) if font.has_glyph(c) => {
+            font.glyph(&[c], FontWidth::Narrow, Style::default())
+        }
+        _ => None,
+    }
+    .map(|g| Arrow::glyph(&g, config.orientation))
+    .filter(Arrow::covers)
+    .unwrap_or_else(|| Arrow::new(cell_height, config.orientation))
 }
 
 /// How many cells a cell `width` wide, after a cell `before` wide, draws
@@ -409,6 +436,7 @@ impl<F: Face> Renderer<F> {
             config.orientation,
             config.storage.bits,
         );
+        let arrow = pointer_image(&font, ch, config);
         Renderer {
             compose: Composer::new(
                 GlyphCache::new(budgets, config.storage, config.orientation),
@@ -430,7 +458,7 @@ impl<F: Face> Renderer<F> {
             background: None,
             blink_hidden: false,
             cursor_at: None,
-            arrow: Arrow::new(ch, config.orientation),
+            arrow,
             pointer: None,
             pointer_line: Vec::new(),
             deco: (None, None),
@@ -898,17 +926,22 @@ impl<F: Face> Renderer<F> {
     }
 
     /// The grid's pixel the pointer's tip at `x`, `y` names, kept inside
-    /// the grid.
+    /// the grid; for a glyph pointer, the corner of the cell it is in.
     fn pointer_pixel(&self, g: &Grid, (x, y): (u32, u32)) -> Option<(i64, i64)> {
         if g.cols == 0 || g.rows == 0 {
             return None;
         }
         let l = self.layout;
         let last = |n: usize, side: i64| int(n).saturating_mul(side).saturating_sub(1).max(0);
-        Some((
+        let (px, py) = (
             int(x).min(last(g.cols, l.cw)),
             int(y).min(last(g.rows, l.ch)),
-        ))
+        );
+        let corner = |p: i64, side: i64| p.saturating_sub(p.checked_rem(side).unwrap_or(0));
+        Some(match self.config.pointer {
+            PointerShape::Arrow => (px, py),
+            PointerShape::Glyph(_) => (corner(px, l.cw), corner(py, l.ch)),
+        })
     }
 
     /// Where the arrow draws for the pointer's tip at `x`, `y` in the

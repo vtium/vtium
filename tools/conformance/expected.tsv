@@ -2,9 +2,9 @@
 # golden, one row for each reason (tools/conformance/README.md, "The lists").
 #
 # VIEW	CASE	KIND	SOURCE	ENTRY
-*	replies-da1	departure	crates/vtium-term/README.md	DA1 reports a VT220 with colour, `CSI ? 62 ; 22 c`.
-*	prog-tmux	departure	crates/vtium-term/README.md	DA1 reports a VT220 with colour, `CSI ? 62 ; 22 c`.
-*	prog-tmux	departure	crates/vtium-term/README.md	`prog-tmux`: tmux asks for the colour scheme with `CSI ? 996 n`, which vtium answers `CSI ? 997 ; 1 n`, dark, at the head of the case's replies; the C reference sent nothing.
+*	replies-da1	departure	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.
+*	prog-tmux	departure	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.
+*	prog-tmux	departure	crates/vtium-term/README.md	`prog-tmux`: tmux asks for the color scheme with `CSI ? 996 n`, which vtium answers `CSI ? 997 ; 1 n`, dark, at the head of the case's replies; the C reference sent nothing.
 *	input-paste	departure	crates/vtium-term/README.md	A paste is filtered as xterm filters one.
 *	input-paste	departure	crates/vtium-term/README.md	A paste sends each LF as CR.
 *	insert-wide-one-column	departure	crates/vtium-term/README.md	A line keeps 6 bytes of clusters a cell (ADR-1001's cluster budget),

@@ -34,7 +34,7 @@
 //!   line size.
 //! - [`Damage`] keeps change ages by screen position, so cells and the
 //!   scrollback carry none.
-//! - A [`Frame`] is what a renderer reads: the visible lines with colours
+//! - A [`Frame`] is what a renderer reads: the visible lines with colors
 //!   resolved through the [`Palette`] at draw time, each cell marked
 //!   changed or not for the reading display, and the [`Cursor`].
 //!
@@ -58,14 +58,16 @@
 //! memory unless the configuration sets a cap, at most [`SB_SIZE_MAX`];
 //! and the replies' [`REPLIES_PENDING_MAX`], [`VERSION_MAX`], [`TERMCAP_ENTRIES_MAX`],
 //! [`TERMCAP_NAME_MAX`], [`TERMCAP_VALUE_MAX`], [`XTGETTCAP_NAMES`] and
-//! [`XTGETTCAP_REPLY_MAX`]; OSC 52's [`CLIPBOARD_MAX`]; and the stacks'
-//! [`SGR_STACK_MAX`] and [`COLOR_STACK_MAX`].
+//! [`XTGETTCAP_REPLY_MAX`]; OSC 52's [`CLIPBOARD_MAX`]; OSC 8's link
+//! store's [`LINKS_BYTES_MAX`]; and the stacks' [`SGR_STACK_MAX`] and
+//! [`COLOR_STACK_MAX`].
 
 mod bounds;
 mod cell;
 mod damage;
 mod frame;
 mod line;
+mod links;
 mod palette;
 mod screen;
 mod scrollback;
@@ -76,13 +78,13 @@ mod unicode;
 
 pub use bounds::{
     CLIPBOARD_MAX, CLUSTER_BYTES_PER_CELL, CLUSTER_MAX, COLOR_STACK_MAX, COLUMNS_MAX,
-    REPLIES_PENDING_MAX, ROWS_MAX, SB_SIZE_CAP_LARGE, SB_SIZE_CAP_MEDIUM, SB_SIZE_CAP_SMALL,
-    SB_SIZE_MAX, SGR_STACK_MAX, TERMCAP_ENTRIES_MAX, TERMCAP_NAME_MAX, TERMCAP_VALUE_MAX,
-    VERSION_MAX, XTGETTCAP_NAMES, XTGETTCAP_REPLY_MAX,
+    LINKS_BYTES_MAX, REPLIES_PENDING_MAX, ROWS_MAX, SB_SIZE_CAP_LARGE, SB_SIZE_CAP_MEDIUM,
+    SB_SIZE_CAP_SMALL, SB_SIZE_MAX, SGR_STACK_MAX, TERMCAP_ENTRIES_MAX, TERMCAP_NAME_MAX,
+    TERMCAP_VALUE_MAX, VERSION_MAX, XTGETTCAP_NAMES, XTGETTCAP_REPLY_MAX,
 };
 pub use cell::{Cell, ClusterOffset, Content, LinkIndex, StyleIndex, Width};
 pub use damage::{Age, Damage};
-pub use frame::{Cursor, CursorShape, Frame, FrameCell, dim};
+pub use frame::{Cursor, CursorShape, Frame, FrameCell, Overlay, dim};
 pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId};
 pub use palette::{PALETTE_NAMES, Palette, Special};
 pub use screen::{Erase, Screen, WidthMethod};

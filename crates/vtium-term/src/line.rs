@@ -46,8 +46,10 @@ impl LineId {
     }
 }
 
-/// A hyperlink in the link store (vtium/vtium#40), as a line's link table
-/// holds it.
+/// A hyperlink in the link store (vtium/vtium#40, ADR-1002), as a line's
+/// link table holds it. Outside the terminal an id is valid only until the
+/// next [`Terminal::input`](crate::Terminal::input): a sweep of the store
+/// renumbers the links it keeps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LinkId(u32);
 
@@ -139,6 +141,15 @@ impl LineFlags {
             LineSize::DoubleHeightBottom => 3,
         };
         self.0 = (self.0 & !Self::SIZE_MASK) | (bits << Self::SIZE_SHIFT);
+    }
+}
+
+impl core::ops::BitOr for LineFlags {
+    type Output = Self;
+
+    fn bitor(mut self, other: Self) -> Self {
+        self.insert(other);
+        self
     }
 }
 
@@ -337,6 +348,55 @@ impl Line {
             .as_ref()
             .and_then(|t| t.links.get(i.checked_sub(1)?))
             .copied()
+    }
+
+    /// The links this line's link table holds, each once: those its cells
+    /// name, and those overwritten since it last compacted.
+    pub(crate) fn link_table(&self) -> &[LinkId] {
+        self.tables.as_ref().map_or(&[], |t| &t.links)
+    }
+
+    /// Renames each link of the table to `rename` of it, as a sweep of the
+    /// link store renumbers them; a link it gives no new name for leaves
+    /// the cells that named it unlinked.
+    pub(crate) fn rename_links(&mut self, rename: impl Fn(LinkId) -> Option<LinkId>) {
+        let Some(t) = self.tables.as_mut() else {
+            return;
+        };
+        // The table indices, 1-based, of links with no new name; empty,
+        // and unallocated, on a line that loses none.
+        let mut gone = Vec::new();
+        for (i, link) in t.links.iter_mut().enumerate() {
+            match rename(*link) {
+                Some(new) => *link = new,
+                None => gone.push(i.saturating_add(1)),
+            }
+        }
+        if gone.is_empty() {
+            return;
+        }
+        for cell in &mut self.cells {
+            if gone.contains(&usize::from(cell.link().0)) {
+                *cell = Cell::new(cell.content(), cell.width(), cell.style(), LinkIndex(0));
+            }
+        }
+        self.compact();
+        self.shrink_tables();
+    }
+
+    /// Unlinks every cell and empties the link table, as the link store
+    /// strips the scrollback's oldest lines. Returns whether the table held
+    /// any link.
+    pub(crate) fn strip_links(&mut self) -> bool {
+        if self.link_table().is_empty() {
+            return false;
+        }
+        for cell in &mut self.cells {
+            *cell = Cell::new(cell.content(), cell.width(), cell.style(), LinkIndex(0));
+        }
+        self.compact();
+        self.shrink_tables();
+        true
     }
 
     /// What `cell` shows, its cluster read from this line's arena.
@@ -1081,7 +1141,7 @@ mod tests {
     }
 
     // libtsm#47: cells past a stored line's end were drawn with the pen,
-    // so an SGR under BCE recoloured them. They read as the blank cell in
+    // so an SGR under BCE recolored them. They read as the blank cell in
     // the default style.
     #[test]
     fn cells_past_the_end_read_blank_in_the_default_style() {
@@ -1096,7 +1156,7 @@ mod tests {
     }
 
     #[test]
-    fn trim_keeps_cells_erased_in_a_colour() {
+    fn trim_keeps_cells_erased_in_a_color() {
         let mut line = Line::new(LineId::new(1), 8);
         line.write(0, Glyph::Char('a'), Width::Narrow, &Style::DEFAULT, None);
         let bce = Style {

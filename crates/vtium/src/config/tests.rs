@@ -385,12 +385,12 @@ fn switches() {
 }
 
 #[test]
-fn comments_blanks_and_colours() {
+fn comments_blanks_and_colors() {
     let l = main_file(
         "  font-name =\tDejaVu Sans Mono  # the console's font\r\n\
          # a comment\n\
          \n\
-         term=#a0b1c2 # a colour is not a comment\n\
+         term=#a0b1c2 # a color is not a comment\n\
          sb-size=10#comment\n\
          hwaccel # on\n",
     );
@@ -561,7 +561,7 @@ fn reports_read_as_lines() {
     );
 }
 
-// covers: colour.palette.named
+// covers: color.palette.named
 #[test]
 fn palette_names_a_palette_vtium_term_holds() {
     let mut choices = match PALETTE.kind {
@@ -618,7 +618,7 @@ fn a_palette_vtium_does_not_hold_is_reported_and_leaves_the_value_below() {
     assert_eq!(Some(l.config.palette()), vtium_term::Palette::named("vga"));
 }
 
-// covers: colour.palette.named
+// covers: color.palette.named
 #[test]
 fn custom_takes_the_palette_keys() {
     // Unset, they hold the C reference's defaults, which are legacy's.
@@ -654,17 +654,13 @@ fn custom_takes_the_palette_keys() {
     assert_eq!(l.reports, []);
     let p = l.config.palette();
     for i in 0..16u8 {
-        assert_eq!(
-            p.color(i),
-            vtium_term::Rgb::new(i, 100 + i, 7),
-            "colour {i}"
-        );
+        assert_eq!(p.color(i), vtium_term::Rgb::new(i, 100 + i, 7), "color {i}");
     }
     assert_eq!(p.fg(), vtium_term::Rgb::new(1, 2, 3));
     assert_eq!(p.bg(), vtium_term::Rgb::new(4, 5, 6));
     assert_eq!(p.color(16), vtium_term::Rgb::new(0, 0, 0));
     assert_eq!(p.color(232), vtium_term::Rgb::new(8, 8, 8));
-    // The keys colour nothing under another palette.
+    // The keys color nothing under another palette.
     let l = main_file("palette=nord\npalette-red=1,2,3\n");
     assert_eq!(Some(l.config.palette()), vtium_term::Palette::named("nord"));
 }
@@ -682,13 +678,13 @@ fn read_file_is_bounded() {
 }
 
 #[test]
-fn colours() {
+fn colors() {
     let l = main_file("palette=custom\npalette-red=10, 20,30\npalette-background=1,2,3\n");
     assert_eq!(l.reports, []);
     assert_eq!(l.config.text(&PALETTE), Some("custom"));
     assert_eq!(l.config.rgb(&PALETTE_RED), Some([10, 20, 30]));
     assert_eq!(l.config.rgb(&PALETTE_BACKGROUND), Some([1, 2, 3]));
-    // The C reference's default colours.
+    // The C reference's default colors.
     assert_eq!(l.config.rgb(&PALETTE_BLUE), Some([0, 0, 238]));
     assert_eq!(l.config.rgb(&PALETTE_FOREGROUND), Some([229, 229, 229]));
     let l =
@@ -1099,4 +1095,82 @@ fn program_blank_is_on_until_turned_off() {
     assert!(problems(&l).is_empty());
     let l = load_with(&["--no-program-blank"], None, &[]);
     assert!(!l.config.switch(&PROGRAM_BLANK));
+}
+
+#[test]
+fn grab_paste_binds_shift_insert_until_set() {
+    let chord = |mods, keysym| crate::grab::Chord {
+        mods,
+        keysyms: vec![keysym],
+    };
+    assert_eq!(Config::default().chords(&GRAB_PASTE), [chord(1, 0xff63)]);
+    let l = main_file("grab-paste=<Ctrl><Shift>V,<Shift>Insert\n");
+    assert_eq!(l.reports, []);
+    assert_eq!(
+        l.config.chords(&GRAB_PASTE),
+        [chord(4 | 1, 0x56), chord(1, 0xff63)]
+    );
+    let l = main_file("grab-paste=\n");
+    assert_eq!(l.reports, []);
+    assert_eq!(l.config.chords(&GRAB_PASTE), []);
+}
+
+#[test]
+fn decoration_colors_read_as_the_c_reference_read_them() {
+    use vtium_render::DecoColor;
+    use vtium_term::Rgb;
+    let d = Config::default();
+    assert_eq!(d.deco_color(&UNDERLINE_COLOR), DecoColor::Foreground);
+    assert_eq!(d.deco_color(&STRIKE_COLOR), DecoColor::Foreground);
+    assert!(!d.switch(&FORCE_DECORATION_COLORS));
+    let l =
+        main_file("underline-color=#Ff8000 # orange\nstrike-color=007\nforce-decoration-colors\n");
+    assert_eq!(l.reports, []);
+    assert_eq!(
+        l.config.deco_color(&UNDERLINE_COLOR),
+        DecoColor::Rgb(Rgb::new(255, 128, 0))
+    );
+    // Decimal digits only: a leading 0 is not octal.
+    assert_eq!(l.config.deco_color(&STRIKE_COLOR), DecoColor::Indexed(7));
+    assert!(l.config.switch(&FORCE_DECORATION_COLORS));
+    for bad in [
+        "256", "1234", "", "#12345", "#1234567", "#12345g", "0x10", "-1", "FG", "1,2,3",
+    ] {
+        let l = load_with(
+            &[&format!("--underline-color={bad}"), "--strike-color=fg"],
+            None,
+            &[],
+        );
+        assert_eq!(
+            problems(&l),
+            [&Problem::BadValue {
+                key: "underline-color",
+                value: bad.into(),
+                why: "expected fg, a palette index 0-255 or #rrggbb",
+            }],
+            "{bad:?}"
+        );
+        assert_eq!(l.config.deco_color(&UNDERLINE_COLOR), DecoColor::Foreground);
+    }
+}
+
+#[test]
+fn pointer_char_takes_one_character() {
+    assert_eq!(Config::default().char(&POINTER_CHAR), None);
+    let l = main_file("pointer-char=✛\n");
+    assert_eq!(l.reports, []);
+    assert_eq!(l.config.char(&POINTER_CHAR), Some('✛'));
+    for bad in ["", "ab", "\u{7f}", " ", "\u{3000}", "\u{a0}"] {
+        let l = load_with(&[&format!("--pointer-char={bad}")], None, &[]);
+        assert_eq!(
+            problems(&l),
+            [&Problem::BadValue {
+                key: "pointer-char",
+                value: bad.into(),
+                why: "one character is needed, not a control character or a space",
+            }],
+            "{bad:?}"
+        );
+        assert_eq!(l.config.char(&POINTER_CHAR), None);
+    }
 }

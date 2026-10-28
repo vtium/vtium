@@ -1,16 +1,18 @@
 //! What start-up takes from the configuration before the seat runs: the
 //! VT, whether to switch to it, the keymap, and the key repeat and
 //! pointers (`src/config.c:329-361, 1352-1353, 1377-1385` at kmscon
-//! b1f7a7c5).
+//! b1f7a7c5), with the pointer's hide timeout.
 
 use std::path::{Path, PathBuf};
+
+use std::time::Duration;
 
 use vtium_platform::input::{Direct, Input, InputConfig, Keymap, KeymapConfig};
 
 use crate::config::Config;
 use crate::config::keys::{
-    MOUSE, SWITCHVT, VT, XKB_COMPOSE_FILE, XKB_KEYMAP, XKB_LAYOUT, XKB_MODEL, XKB_OPTIONS,
-    XKB_REPEAT_DELAY, XKB_REPEAT_RATE, XKB_VARIANT,
+    MOUSE, POINTER_HIDE_TIMEOUT, SWITCHVT, VT, XKB_COMPOSE_FILE, XKB_KEYMAP, XKB_LAYOUT, XKB_MODEL,
+    XKB_OPTIONS, XKB_REPEAT_DELAY, XKB_REPEAT_RATE, XKB_VARIANT,
 };
 
 /// The start's settings.
@@ -22,7 +24,8 @@ pub struct Start {
     pub switch: bool,
     /// The `xkb-*` keys, which [`Start::input`] alone reads.
     keymap: KeymapConfig,
-    /// The repeat and `mouse`, which [`Start::input`] alone reads.
+    /// The repeat, `mouse` and the pointer's hide, which [`Start::input`]
+    /// alone reads.
     input: InputConfig,
 }
 
@@ -52,6 +55,12 @@ impl Start {
                 ms(&XKB_REPEAT_DELAY),
                 ms(&XKB_REPEAT_RATE),
                 config.switch(&MOUSE),
+            )
+            .with_pointer_hide(
+                config
+                    .number(&POINTER_HIDE_TIMEOUT)
+                    .filter(|&s| s > 0)
+                    .map(Duration::from_secs),
             ),
         }
     }
@@ -140,6 +149,13 @@ mod tests {
         assert_eq!(s.input.repeat_delay, Duration::from_millis(300));
         assert_eq!(s.input.repeat_rate, Duration::from_millis(40));
         assert!(!s.input.mouse);
+        assert_eq!(start(&[]).input.pointer_hide, Some(Duration::from_secs(20)));
+        let s = start(&["--pointer-hide-timeout=3"]);
+        assert_eq!(s.input.pointer_hide, Some(Duration::from_secs(3)));
+        assert_eq!(
+            start(&["--pointer-hide-timeout=0"]).input.pointer_hide,
+            None
+        );
     }
 
     /// The seat's input is made from the keys, through the one function

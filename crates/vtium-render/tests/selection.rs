@@ -1,7 +1,7 @@
 //! The selection draws inverted, cell by cell: a selection that starts and
 //! ends inside a run of one style inverts exactly its cells, and dim mixes
-//! the colours it left (`crates/vtium-term/src/frame.rs`). Every expected
-//! colour is a literal.
+//! the colors it left (`crates/vtium-term/src/frame.rs`). Every expected
+//! color is a literal.
 
 mod common;
 
@@ -23,7 +23,6 @@ fn draw(s: &Screen, selection: Range<usize>) -> Canvas {
     let mut r = Renderer::new(unifont(), w, h, Config::default());
     let mut c = Canvas::new(w, h, 0);
     let st = DrawState {
-        foreground: s.palette.fg(),
         background: s.palette.bg(),
         ..DrawState::default()
     };
@@ -32,9 +31,9 @@ fn draw(s: &Screen, selection: Range<usize>) -> Canvas {
     c
 }
 
-/// The colours of the cell at `col`, the most used first: its background,
-/// then its glyph's colour.
-fn colours(c: &Canvas, col: u32) -> Vec<u32> {
+/// The colors of the cell at `col`, the most used first: its background,
+/// then its glyph's color.
+fn colors(c: &Canvas, col: u32) -> Vec<u32> {
     let px: Vec<u32> = (0..16)
         .flat_map(|y| (col * 8..col * 8 + 8).map(move |x| (x, y)))
         .map(|(x, y)| c.pixel(x, y).unwrap())
@@ -57,25 +56,20 @@ fn a_selection_inside_a_run_inverts_exactly_its_cells() {
         } else {
             [BG, FG]
         };
-        assert_eq!(
-            colours(&c, col),
-            want,
-            "cell {col}: {:x?}",
-            colours(&c, col)
-        );
+        assert_eq!(colors(&c, col), want, "cell {col}: {:x?}", colors(&c, col));
     }
 }
 
-// dim mixes the colours the selection left, so the old foreground is the
+// dim mixes the colors the selection left, so the old foreground is the
 // selected cell's background
 #[test]
-fn a_selected_dim_cell_mixes_the_swapped_colours() {
+fn a_selected_dim_cell_mixes_the_swapped_colors() {
     let mut dim = style(rgb("ff8040"), rgb("21a0c3"));
     dim.attrs.insert(Attrs::DIM);
     let mut s = Screen::new(4, 1, rgb("c0c0c0"), rgb("101010"));
     s.text(0, 0, "xxx", dim);
     let c = draw(&s, 1..2);
-    assert_eq!(colours(&c, 0), [BG, DIM], "unselected");
-    assert_eq!(colours(&c, 1), [FG, DIM], "selected");
-    assert_eq!(colours(&c, 2), [BG, DIM], "unselected after");
+    assert_eq!(colors(&c, 0), [BG, DIM], "unselected");
+    assert_eq!(colors(&c, 1), [FG, DIM], "selected");
+    assert_eq!(colors(&c, 2), [BG, DIM], "unselected after");
 }

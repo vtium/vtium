@@ -134,9 +134,9 @@ The open link is part of the pen: printed cells take it, erased cells take none,
 
 ### 4. Drawing
 
-A link draws nothing until the pointer is over it, so a program's output looks as the program drew it. While hovered, every visible cell of the link takes a dashed underline in place of its own underline style, in the cell's underline colour: SGR 58's colour when set, otherwise the foreground, as the frame resolves it already. OSC 8 carries no colour, so the hover adds none and no configuration key.
+A link draws nothing until the pointer is over it, so a program's output looks as the program drew it. While hovered, every visible cell of the link takes a dashed underline in place of its own underline style, in the cell's underline color: SGR 58's color when set, otherwise the foreground, as the frame resolves it already. OSC 8 carries no color, so the hover adds none and no configuration key.
 
-While Ctrl is held over a link, the renderer draws an overlay over the bottom row, or over the top row when the pointer is on the bottom one: the URI from its first byte in the default colours inverted, cut at the row's end with `…` when longer. The overlay is no part of the screen: no cell, selection, copy or reply sees it.
+While Ctrl is held over a link, the renderer draws an overlay over the bottom row, or over the top row when the pointer is on the bottom one: the URI from its first byte in the default colors inverted, cut at the row's end with `…` when longer. The overlay is no part of the screen: no cell, selection, copy or reply sees it.
 
 ```text
  drwxr-xr-x  2 aaron aaron 4096 Oct 27 09:12 docs
@@ -152,7 +152,7 @@ A hover change, the pointer entering, leaving or crossing between links or a lin
 | Underline on hover | links cannot be found without the pointer | kitty's default | Taken |
 | Underline always, the hovered one differently | changes how every program's output looks | VTE; foot's and kitty's `always` | Rejected as the default |
 | Underline only while Ctrl is held | links cannot be found without holding Ctrl | Ghostty | Rejected |
-| A configured link colour | a key and a palette entry | kitty's `url_color` | Rejected: the underline colour exists |
+| A configured link color | a key and a palette entry | kitty's `url_color` | Rejected: the underline color exists |
 | The URI shown on hover, always | the overlay covers a row whenever the pointer rests on a link | Ghostty's previews | Rejected |
 | The URI never shown | the user copies an address unseen | kitty's default | Rejected: the specification asks to show it first |
 

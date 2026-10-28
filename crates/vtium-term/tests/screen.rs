@@ -242,7 +242,7 @@ fn decstbm_sets_the_scroll_region() {
     assert_eq!(t.screen().margins(), (0, 4));
 }
 
-// Background colour erase: an erased, inserted or scrolled-in cell takes
+// Background color erase: an erased, inserted or scrolled-in cell takes
 // the pen's background and nothing else of it, as Ghostty's and foot's
 // do (the C reference's probe erase-colours-only).
 // covers: ctl.bce

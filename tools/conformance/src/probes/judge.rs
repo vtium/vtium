@@ -2,6 +2,7 @@
 //! each capability's verdict against the list.
 
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 
 use regex::Regex;
 
@@ -19,6 +20,8 @@ pub struct Replay<'a> {
     views: BTreeSet<String>,
     features: BTreeSet<String>,
     commands: BTreeSet<String>,
+    /// Where a probe's fixtures are, when the runner serves them.
+    fixtures: Option<PathBuf>,
 }
 
 /// A probe's result: passed, failed with why, or not judged, with why.
@@ -59,7 +62,15 @@ impl<'a> Replay<'a> {
             views: words("view "),
             features: words("feature "),
             commands: words("command "),
+            fixtures: None,
         })
+    }
+
+    /// Serves each probe the fixtures it names from `dir`.
+    #[must_use]
+    pub fn with_fixtures(mut self, dir: PathBuf) -> Self {
+        self.fixtures = Some(dir);
+        self
     }
 
     /// What vtium-replay lacks for `probe`, or None.
@@ -99,6 +110,10 @@ impl<'a> Replay<'a> {
         if let Some(why) = self.absent(probe) {
             return Outcome::Fail(format!("absent: {why}"));
         }
+        let fixtures = self.fixtures.clone().unwrap_or_default();
+        if let Some(name) = probe.fixtures.iter().find(|f| !fixtures.join(f).is_file()) {
+            return Outcome::Unjudged(format!("no fixture {name} in {}", fixtures.display()));
+        }
         let mut data = Vec::new();
         let mut cuts = Vec::new();
         for (step, _) in &probe.steps {
@@ -125,9 +140,7 @@ impl<'a> Replay<'a> {
             rows,
             data,
             cuts: cuts.clone(),
-            // no probe vtium runs reads a fixture: one that names one is
-            // skipped before it gets here
-            fixtures: std::path::PathBuf::from("/nonexistent"),
+            fixtures,
         };
         let out = match crate::replay::run(&input) {
             Ok(out) => out,

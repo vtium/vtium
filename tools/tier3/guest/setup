@@ -16,6 +16,12 @@ install -Dm644 "$disc"/kmscon.conf /etc/kmscon/kmscon.conf
 if [ -d "$disc"/fonts ]; then
     install -Dm644 -t /usr/local/share/tier3-fonts "$disc"/fonts/*
 fi
+# The pointer variant's screens read the display's DRM atomic state as
+# tester (screens/pointer.sh), so debugfs is opened to them.
+if [ -f "$disc"/pointer ]; then
+    mountpoint -q /sys/kernel/debug || mount -t debugfs debugfs /sys/kernel/debug
+    chmod 0755 /sys/kernel/debug
+fi
 # A power variant's kernel settings, such as kernel.ctrl-alt-del for the
 # hard reboot, set before the console starts.
 if [ -f "$disc"/sysctl.conf ]; then

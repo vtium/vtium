@@ -31,6 +31,7 @@
 //! runs no `Drop`.
 
 mod fake_vt;
+pub mod font;
 mod kernel;
 mod shown;
 mod tty;

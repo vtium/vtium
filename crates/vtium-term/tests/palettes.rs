@@ -9,9 +9,9 @@ use vtium_term::{PALETTE_NAMES, Palette, Rgb};
 
 const C_TABLES: &str = include_str!("palettes.c.txt");
 
-/// The C names of the sixteen colours and the two defaults, in palette
+/// The C names of the sixteen colors and the two defaults, in palette
 /// order.
-const C_COLOURS: [&str; 18] = [
+const C_COLORS: [&str; 18] = [
     "BLACK",
     "RED",
     "GREEN",
@@ -33,10 +33,10 @@ const C_COLOURS: [&str; 18] = [
 ];
 
 /// One C table: its name as the `palette` key spells it, and its eighteen
-/// colours in palette order.
+/// colors in palette order.
 struct CTable {
     name: String,
-    colours: [Option<Rgb>; 18],
+    colors: [Option<Rgb>; 18],
 }
 
 /// A C numeral, decimal or `0x` hex.
@@ -58,14 +58,14 @@ fn c_tables() -> Vec<CTable> {
             let name = rest.split('[').next().unwrap_or_default();
             tables.push(CTable {
                 name: name.replace('_', "-"),
-                colours: [None; 18],
+                colors: [None; 18],
             });
         } else if let Some(rest) = line.strip_prefix("[TSM_COLOR_") {
-            let (colour, rest) = rest.split_once(']').expect("an entry names its colour");
-            let at = C_COLOURS
+            let (color, rest) = rest.split_once(']').expect("an entry names its color");
+            let at = C_COLORS
                 .iter()
-                .position(|c| *c == colour)
-                .unwrap_or_else(|| panic!("TSM_COLOR_{colour} is no colour"));
+                .position(|c| *c == color)
+                .unwrap_or_else(|| panic!("TSM_COLOR_{color} is no color"));
             let body = rest
                 .split_once('{')
                 .and_then(|(_, b)| b.split_once('}'))
@@ -77,8 +77,8 @@ fn c_tables() -> Vec<CTable> {
             };
             let table = tables.last_mut().expect("an entry follows its table");
             assert!(
-                table.colours[at].replace(Rgb::new(r, g, b)).is_none(),
-                "{} sets TSM_COLOR_{colour} twice",
+                table.colors[at].replace(Rgb::new(r, g, b)).is_none(),
+                "{} sets TSM_COLOR_{color} twice",
                 table.name
             );
         }
@@ -98,7 +98,7 @@ fn eighteen(p: &Palette) -> [Option<Rgb>; 18] {
     out
 }
 
-// covers: colour.palette.named
+// covers: color.palette.named
 #[test]
 fn each_named_palette_is_the_c_references_table() {
     let tables = c_tables();
@@ -120,18 +120,18 @@ fn each_named_palette_is_the_c_references_table() {
     );
     assert_eq!(PALETTE_NAMES, c_names[..], "the names vtium holds");
     for t in &tables {
-        assert!(t.colours.iter().all(Option::is_some), "{} is whole", t.name);
+        assert!(t.colors.iter().all(Option::is_some), "{} is whole", t.name);
         let p = Palette::named(&t.name).unwrap_or_else(|| panic!("{} is held", t.name));
-        for (i, (got, want)) in eighteen(&p).iter().zip(&t.colours).enumerate() {
-            assert_eq!(got, want, "{} TSM_COLOR_{}", t.name, C_COLOURS[i]);
+        for (i, (got, want)) in eighteen(&p).iter().zip(&t.colors).enumerate() {
+            assert_eq!(got, want, "{} TSM_COLOR_{}", t.name, C_COLORS[i]);
         }
     }
 }
 
-// covers: colour.palette.named
+// covers: color.palette.named
 #[test]
 fn every_palette_shares_the_cube_and_the_grey_ramp() {
-    // xterm's 256 colours (the C reference's tsm-render.c:54-66).
+    // xterm's 256 colors (the C reference's tsm-render.c:54-66).
     let cube = |i: u8| {
         let levels = [0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff];
         let n = usize::from(i - 16);
@@ -140,11 +140,11 @@ fn every_palette_shares_the_cube_and_the_grey_ramp() {
     for name in PALETTE_NAMES {
         let p = Palette::named(name).unwrap();
         for i in 16..=231 {
-            assert_eq!(p.color(i), cube(i), "{name} colour {i}");
+            assert_eq!(p.color(i), cube(i), "{name} color {i}");
         }
         for i in 232..=255 {
             let grey = (i - 232) * 10 + 8;
-            assert_eq!(p.color(i), Rgb::new(grey, grey, grey), "{name} colour {i}");
+            assert_eq!(p.color(i), Rgb::new(grey, grey, grey), "{name} color {i}");
         }
     }
     assert_eq!(
@@ -176,7 +176,7 @@ fn only_the_names_vtium_holds_are_palettes() {
     }
 }
 
-// covers: colour.palette.named
+// covers: color.palette.named
 #[test]
 fn a_custom_palette_takes_its_sixteen_and_its_defaults_over_the_cube() {
     let mut sixteen = [Rgb::default(); 16];
@@ -188,11 +188,11 @@ fn a_custom_palette_takes_its_sixteen_and_its_defaults_over_the_cube() {
     let bg = Rgb::new(4, 5, 6);
     let p = Palette::custom(sixteen, fg, bg);
     for i in 0..16 {
-        assert_eq!(p.color(i), Rgb::new(i, i * 2, i * 3), "colour {i}");
+        assert_eq!(p.color(i), Rgb::new(i, i * 2, i * 3), "color {i}");
     }
     assert_eq!((p.fg(), p.bg()), (fg, bg));
     let legacy = Palette::default();
     for i in 16..=255 {
-        assert_eq!(p.color(i), legacy.color(i), "colour {i}");
+        assert_eq!(p.color(i), legacy.color(i), "color {i}");
     }
 }

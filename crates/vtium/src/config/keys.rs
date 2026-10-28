@@ -28,7 +28,7 @@ pub enum Kind {
     Text,
     /// One of a fixed set of words.
     Choice(&'static [&'static str]),
-    /// A colour, `r,g,b`, each 0 to 255.
+    /// A color, `r,g,b`, each 0 to 255.
     Rgb,
     /// A display mode, `[GPU][CONNECTOR]WxH[@RATE]`. Each line adds one:
     /// the seat's file adds to the main file's, and the command line's
@@ -41,6 +41,12 @@ pub enum Kind {
     /// Keys a grab takes: chords such as `<Ctrl><Alt>Delete`, separated by
     /// commas ([`crate::grab::parse`]). Empty, it takes none.
     Grab,
+    /// One character, no control character or space.
+    Char,
+    /// A decoration's color: `fg`, the cell's foreground; a palette index
+    /// from 0 to 255, which follows the palette a program changes; or
+    /// `#rrggbb`.
+    DecoColor,
 }
 
 /// A key's value before any source sets it.
@@ -291,7 +297,7 @@ pub const DPMS_TIMEOUT: Key = Key {
     default: Default::Number(600),
     scope: Scope::Anywhere,
     reader: "vtium-platform",
-    what: "Turn the displays off after this long with no key or pointer event; 0 never does.",
+    what: "Turn the displays off after this long with no key press or pointer action (a move, a button or the wheel); 0 never does.",
     cite: "src/config.c:1388",
 };
 
@@ -302,7 +308,7 @@ pub const PROGRAM_BLANK: Key = Key {
     default: Default::Switch(true),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Let a program set the blank's timeout with the Linux console's `CSI 9 ; n ]` (n minutes, at most 60; 0 never blanks) and wake the displays with `CSI 13 ]`, as `setterm --blank` does under `TERM=linux`; RIS returns the timeout to `dpms-timeout`. Off, the sequences are ignored. A key or pointer event wakes the displays either way.",
+    what: "Let a program set the blank's timeout with the Linux console's `CSI 9 ; n ]` (n minutes, at most 60; 0 never blanks) and wake the displays with `CSI 13 ]`, as `setterm --blank` does under `TERM=linux`; RIS returns the timeout to `dpms-timeout`. Off, the sequences are ignored. A key press or pointer action wakes the displays either way.",
     cite: "ADR-1000 (`ctl.linux-blank`, `ctl.linux-unblank`); vtium/vtium#79",
 };
 
@@ -373,7 +379,7 @@ pub const PALETTE: Key = Key {
     default: Default::Text("legacy"),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "The sixteen colours and the default foreground and background: a named palette, or `custom`, which takes the `palette-*` keys. Colours 16 to 255 are xterm's in every palette.",
+    what: "The sixteen colors and the default foreground and background: a named palette, or `custom`, which takes the `palette-*` keys. Colors 16 to 255 are xterm's in every palette.",
     cite: "src/config.c:1427; libtsm src/tsm/tsm-vte.c:254-478",
 };
 
@@ -384,7 +390,7 @@ pub const PALETTE_BLACK: Key = Key {
     default: Default::Rgb([0, 0, 0]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 0 with `palette=custom`.",
+    what: "Color 0 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -395,7 +401,7 @@ pub const PALETTE_RED: Key = Key {
     default: Default::Rgb([205, 0, 0]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 1 with `palette=custom`.",
+    what: "Color 1 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -406,7 +412,7 @@ pub const PALETTE_GREEN: Key = Key {
     default: Default::Rgb([0, 205, 0]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 2 with `palette=custom`.",
+    what: "Color 2 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -417,7 +423,7 @@ pub const PALETTE_YELLOW: Key = Key {
     default: Default::Rgb([205, 205, 0]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 3 with `palette=custom`.",
+    what: "Color 3 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -428,7 +434,7 @@ pub const PALETTE_BLUE: Key = Key {
     default: Default::Rgb([0, 0, 238]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 4 with `palette=custom`.",
+    what: "Color 4 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -439,7 +445,7 @@ pub const PALETTE_MAGENTA: Key = Key {
     default: Default::Rgb([205, 0, 205]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 5 with `palette=custom`.",
+    what: "Color 5 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -450,7 +456,7 @@ pub const PALETTE_CYAN: Key = Key {
     default: Default::Rgb([0, 205, 205]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 6 with `palette=custom`.",
+    what: "Color 6 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -461,7 +467,7 @@ pub const PALETTE_LIGHT_GREY: Key = Key {
     default: Default::Rgb([229, 229, 229]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 7 with `palette=custom`.",
+    what: "Color 7 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -472,7 +478,7 @@ pub const PALETTE_DARK_GREY: Key = Key {
     default: Default::Rgb([127, 127, 127]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 8 with `palette=custom`.",
+    what: "Color 8 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -483,7 +489,7 @@ pub const PALETTE_LIGHT_RED: Key = Key {
     default: Default::Rgb([255, 0, 0]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 9 with `palette=custom`.",
+    what: "Color 9 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -494,7 +500,7 @@ pub const PALETTE_LIGHT_GREEN: Key = Key {
     default: Default::Rgb([0, 255, 0]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 10 with `palette=custom`.",
+    what: "Color 10 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -505,7 +511,7 @@ pub const PALETTE_LIGHT_YELLOW: Key = Key {
     default: Default::Rgb([255, 255, 0]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 11 with `palette=custom`.",
+    what: "Color 11 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -516,7 +522,7 @@ pub const PALETTE_LIGHT_BLUE: Key = Key {
     default: Default::Rgb([92, 92, 255]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 12 with `palette=custom`.",
+    what: "Color 12 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -527,7 +533,7 @@ pub const PALETTE_LIGHT_MAGENTA: Key = Key {
     default: Default::Rgb([255, 0, 255]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 13 with `palette=custom`.",
+    what: "Color 13 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -538,7 +544,7 @@ pub const PALETTE_LIGHT_CYAN: Key = Key {
     default: Default::Rgb([0, 255, 255]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 14 with `palette=custom`.",
+    what: "Color 14 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -549,7 +555,7 @@ pub const PALETTE_WHITE: Key = Key {
     default: Default::Rgb([255, 255, 255]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 15 with `palette=custom`.",
+    what: "Color 15 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -575,6 +581,39 @@ pub const PALETTE_BACKGROUND: Key = Key {
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
+pub const UNDERLINE_COLOR: Key = Key {
+    name: "underline-color",
+    short: None,
+    kind: Kind::DecoColor,
+    default: Default::Text("fg"),
+    scope: Scope::Anywhere,
+    reader: "vtium-render",
+    what: "The color every underline draws in, SGR 4 in each of its styles and SGR 21: `fg` draws it in the text's color, a palette index in that palette color, which follows a program's OSC 4, and `#rrggbb` in that color. A color a program sets with SGR 58 wins unless `force-decoration-colors` is on.",
+    cite: "src/config.c:263-265, 868-933, 1453-1454",
+};
+
+pub const STRIKE_COLOR: Key = Key {
+    name: "strike-color",
+    short: None,
+    kind: Kind::DecoColor,
+    default: Default::Text("fg"),
+    scope: Scope::Anywhere,
+    reader: "vtium-render",
+    what: "The color the strike, SGR 9, draws in, as `underline-color` takes it.",
+    cite: "src/config.c:266-267, 1455-1456",
+};
+
+pub const FORCE_DECORATION_COLORS: Key = Key {
+    name: "force-decoration-colors",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    reader: "vtium-render",
+    what: "`underline-color` wins over the underline color a program sets with SGR 58.",
+    cite: "src/config.c:268-270, 1457-1458",
+};
+
 pub const CLIPBOARD_WRITE: Key = Key {
     name: "clipboard-write",
     short: None,
@@ -582,7 +621,7 @@ pub const CLIPBOARD_WRITE: Key = Key {
     default: Default::Switch(true),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and Shift+Insert paste it.",
+    what: "Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and `grab-paste` paste it.",
     cite: "ADR-1000 (`osc.52.write`); vtium/vtium#39",
 };
 
@@ -693,6 +732,55 @@ pub const MOUSE: Key = Key {
     reader: "vtium-platform",
     what: "Take pointers: mice, touchpads and touchscreens.",
     cite: "src/config.c:1385",
+};
+
+pub const POINTER_CHAR: Key = Key {
+    name: "pointer-char",
+    short: None,
+    kind: Kind::Char,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-render",
+    what: "Draw the pointer as this character's glyph from the font, one cell wide, on the cell under the pointer, white with a dark outline as the arrow is. Unset, or a character the font lacks or whose glyph is blank, the pointer is the arrow.",
+    cite: "the operator on vtium/vtium#102",
+};
+
+pub const SOFT_CURSOR: Key = Key {
+    name: "soft-cursor",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Draw the pointer in software on every display, never on a display's cursor plane.",
+    cite: "src/config.c:151-152, 1387; src/terminal.c:1269-1270",
+};
+
+pub const POINTER_HIDE_TIMEOUT: Key = Key {
+    name: "pointer-hide-timeout",
+    short: None,
+    kind: Kind::Number {
+        min: 0,
+        max: 86_400,
+        unit: "s",
+        word: None,
+    },
+    default: Default::Number(20),
+    scope: Scope::Anywhere,
+    reader: "vtium-platform",
+    what: "Hide the pointer after this long with no pointer event, until it next moves; 0 never hides it.",
+    cite: "src/input/input_pointer.c:9-18, the C reference's fixed 20 s; the operator on vtium/vtium#102",
+};
+
+pub const POINTER_HIDE_WHILE_TYPING: Key = Key {
+    name: "pointer-hide-while-typing",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Hide the pointer at each key sent to the program, until it next moves. A key vtium takes, such as a grab, leaves it.",
+    cite: "the operator on vtium/vtium#102",
 };
 
 pub const FONT_ENGINE: Key = Key {
@@ -843,6 +931,17 @@ pub const RENDER_TIMER: Key = Key {
     cite: "src/config.c:972-1015, 1475",
 };
 
+pub const GRAB_PASTE: Key = Key {
+    name: "grab-paste",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Shift>Insert"),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Paste the selection buffer to the program, once a press, as the middle button does. A chord with Shift names the keysym Shift makes: `<Ctrl><Shift>V`, not `<Ctrl><Shift>v`. Empty, no key pastes.",
+    cite: "xterm's `Shift <KeyPress> Insert` translation; vtium/vtium#95",
+};
+
 pub const GRAB_REBOOT: Key = Key {
     name: "grab-reboot",
     short: None,
@@ -877,7 +976,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 67] = [
+pub const KEYS: [Key; 75] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -919,6 +1018,9 @@ pub const KEYS: [Key; 67] = [
     PALETTE_WHITE,
     PALETTE_FOREGROUND,
     PALETTE_BACKGROUND,
+    UNDERLINE_COLOR,
+    STRIKE_COLOR,
+    FORCE_DECORATION_COLORS,
     CLIPBOARD_WRITE,
     XKB_MODEL,
     XKB_LAYOUT,
@@ -929,6 +1031,11 @@ pub const KEYS: [Key; 67] = [
     XKB_REPEAT_DELAY,
     XKB_REPEAT_RATE,
     MOUSE,
+    SOFT_CURSOR,
+    POINTER_CHAR,
+    POINTER_HIDE_TIMEOUT,
+    POINTER_HIDE_WHILE_TYPING,
+    GRAB_PASTE,
     GRAB_REBOOT,
     GRAB_POWER_OFF,
     GRAB_SUSPEND,

@@ -6,4 +6,4 @@
 # between) the difference must lie in. A listed case that differs only
 # there is a "departure", which passes; one that differs elsewhere, or no
 # longer differs, fails.
-2d-potato-min,2d-potato-min-psf	sixel,sixel-ramps,sixel-article,sixel-evict,photos,photo-scroll,mpv-sixel,tmux-2x2,tmux-3x3,flood	crates/vtium-term/README.md	DA1 reports a VT220 with colour, `CSI ? 62 ; 22 c`.	203,16,491,32
+2d-potato-min,2d-potato-min-psf	sixel,sixel-ramps,sixel-article,sixel-evict,photos,photo-scroll,mpv-sixel,tmux-2x2,tmux-3x3,flood	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.	203,16,491,32

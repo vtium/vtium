@@ -17,15 +17,18 @@
 //!   then DECARM's drop of a repeat, then the encoder. A key draws at once
 //!   and holds the cursor's blink.
 //! - **The pointer.** While the program tracks it, its events are
-//!   reported, but those made with Shift held, as xterm's are. The others
-//!   select, copy and paste ([`App::pointer_event`]).
-//! - **The blank.** Each key and pointer event goes to every device's
-//!   `input`, which retries a failed wake-up, and to [`Blank::input`]; a
-//!   device's `Awake` goes to [`Blank::input`] too, but a re-take's, and
-//!   whenever it says the displays were blanked every device unblanks.
-//!   The first display, the last going and the next after none count
-//!   too, as a display change, which wakes nothing while the VT is not
-//!   ours; another hotplug or a re-take never counts.
+//!   reported, but a button pressed, a move without a button and the
+//!   wheel with Shift held, as xterm's are. The others select, copy,
+//!   paste and scroll ([`App::pointer_event`]).
+//! - **The blank.** Each key press and pointer action (a move, a button
+//!   or the wheel) goes to every device's `input`, which retries a failed
+//!   wake-up, and to [`Blank::input`]; a device's `Awake` goes to
+//!   [`Blank::input`] too, but a re-take's, and whenever it says the
+//!   displays were blanked every device unblanks. The first display, the
+//!   last going and the next after none count too, as a display change,
+//!   which wakes nothing while the VT is not ours; another hotplug or a
+//!   re-take never counts. The seat's clock drives the blank's countdown
+//!   ([`App::next_wake`]).
 //! - **The child.** It first starts once a display is set up, on the
 //!   grid's size ([`respawn::first_start_due`]); when it exits the respawn
 //!   policy starts it again or ends vtium.
@@ -54,7 +57,9 @@ use vtium_platform::input::{Button, InputEvent, KeyEvent, Mods as InputMods, Poi
 use vtium_platform::pty::{Erase, Pty, Size};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
 use vtium_platform::vt::{Switch, Vt, VtEvent};
-use vtium_render::{Config as RenderConfig, DrawState, Orientation, Profile};
+use vtium_render::{
+    Config as RenderConfig, DecorationColors, DrawState, Orientation, PointerShape, Profile,
+};
 use vtium_term::{
     BlankRequest, BlankTimeout, Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal,
 };
@@ -245,6 +250,10 @@ pub struct App {
     /// The mouse tracking the program asked for, last seen: a change
     /// clears the selection.
     tracking: MouseTracking,
+    /// The keys `grab-paste` binds.
+    paste_keys: Vec<Chord>,
+    /// `pointer-hide-while-typing`.
+    hide_while_typing: bool,
     /// The power keys the configuration binds, and what they act through.
     power_keys: Vec<(PowerKey, Vec<Chord>)>,
     power: Box<dyn Power>,
@@ -314,6 +323,8 @@ impl App {
             dpms_timeout: dpms,
             selection: None,
             tracking: MouseTracking::Off,
+            paste_keys: config.chords(&keys::GRAB_PASTE).to_vec(),
+            hide_while_typing: config.switch(&keys::POINTER_HIDE_WHILE_TYPING),
             power_keys,
             power: Box::new(power::System),
             sleeping: Rc::default(),
@@ -374,15 +385,6 @@ impl App {
     /// The configuration the seat runs with.
     pub fn config(&self) -> &Config {
         &self.config
-    }
-
-    /// Puts the DPMS blank's timer in the loop, in place of the one there.
-    pub fn insert_blank(&mut self) {
-        self.blank.insert(
-            &self.handle,
-            |app: &mut App| Some(&mut app.blank),
-            |app: &mut App| app.blank_now(),
-        );
     }
 
     /// Starts the session's command at the end of the first turn
@@ -526,6 +528,15 @@ impl App {
             profile,
             orientation: self.orientation,
             blink: crate::blink::text_blink(&self.config),
+            decorations: DecorationColors {
+                underline: self.config.deco_color(&keys::UNDERLINE_COLOR),
+                strike: self.config.deco_color(&keys::STRIKE_COLOR),
+                force: self.config.switch(&keys::FORCE_DECORATION_COLORS),
+            },
+            pointer: self
+                .config
+                .char(&keys::POINTER_CHAR)
+                .map_or(PointerShape::Arrow, PointerShape::Glyph),
             ..RenderConfig::default()
         }
     }
@@ -548,7 +559,7 @@ impl App {
             return;
         };
         let font = self.font_at(face);
-        let view = View::new(
+        let mut view = View::new(
             id,
             font,
             size,
@@ -556,6 +567,9 @@ impl App {
             self.render_config(),
             self.measure(),
         );
+        if self.config.switch(&keys::SOFT_CURSOR) {
+            view.pointer = crate::pointer::Pointer::software();
+        }
         self.views.insert((node.clone(), id), view);
         if !self.relayout() {
             self.views.remove(&(node.clone(), id));
@@ -707,11 +721,11 @@ impl App {
         self.send_user_bytes();
     }
 
-    /// The blank's timer: every display powers down. With none, the
+    /// The blank is due: every display powers down. With none, the
     /// countdown starts again.
-    fn blank_now(&mut self) {
+    fn blank_now(&mut self, now: Instant) {
         if self.views.is_empty() {
-            self.blank.input((self.clock)());
+            self.blank.input(now);
             return;
         }
         for video in self.videos.values_mut() {
@@ -720,8 +734,9 @@ impl App {
         self.deactivate();
     }
 
-    /// The user's input: a key or pointer event, or a device's wake-up
-    /// but a re-take's, which follows the user's VT switch. It restarts
+    /// The user's input: a key press or a pointer action (a move, a
+    /// button or the wheel), or a device's wake-up but a re-take's, which
+    /// follows the user's VT switch. It restarts
     /// the blank's countdown, as a display change does for now; the idle
     /// lock (vtium/vtium#87) will count the user's input alone.
     fn user_input(&mut self, now: Instant) {
@@ -739,9 +754,7 @@ impl App {
             BlankTimeout::Configured => self.dpms_timeout,
         });
         if let Some(timeout) = timeout {
-            if self.blank.set_timeout(timeout, now) {
-                self.insert_blank();
-            }
+            self.blank.set_timeout(timeout, now);
         }
         if request.wake {
             self.wake(now);
@@ -957,7 +970,9 @@ impl App {
         }
     }
 
-    /// A key or pointer event from the input devices.
+    /// A key press or pointer event from the input devices. A key press
+    /// is the user's activity; a pointer event is when
+    /// [`App::pointer_event`] says so.
     pub fn input_event(&mut self, event: InputEvent, now: Instant) {
         match event {
             InputEvent::Key(key) => {
@@ -972,9 +987,16 @@ impl App {
     }
 
     /// A pointer event, with the modifiers held on the keyboards as it
-    /// came.
+    /// came. A move, a button or the wheel is the user's activity; the
+    /// end of a frame and the hide are vtium's own, as the C reference
+    /// counted them (`src/seat.c:578-590` at kmscon b1f7a7c5).
     pub fn pointer_event(&mut self, event: PointerEvent, mods: InputMods, now: Instant) {
-        self.activity(now);
+        match event {
+            PointerEvent::Moved { .. } | PointerEvent::Button { .. } | PointerEvent::Wheel(_) => {
+                self.activity(now);
+            }
+            PointerEvent::Sync | PointerEvent::Hide => {}
+        }
         self.pointer(event, Mods::from_bits(mods.bits()));
     }
 
@@ -1017,9 +1039,18 @@ impl App {
             }
             return;
         }
-        let screen = self.term.terminal.screen_mut();
-        screen.clear_selection();
-        if let Some(g) = grab::grab(key.mods.bits(), &key.keysyms) {
+        self.term.terminal.screen_mut().clear_selection();
+        if grab::matches(&self.paste_keys, bits, &key.keysyms) {
+            // One paste a press, however long the key repeats.
+            if !key.repeat {
+                self.paste();
+                self.send_user_bytes();
+            }
+            self.draw_now = true;
+            return;
+        }
+        if let Some(g) = grab::grab(bits, &key.keysyms) {
+            let screen = self.term.terminal.screen_mut();
             let page = self.grid.1.saturating_sub(1).max(1);
             match g {
                 Grab::ScrollUp => screen.scroll_view_up(1),
@@ -1038,12 +1069,6 @@ impl App {
                     self.orientation = layout::rotate(self.orientation, g == Grab::RotateCw);
                     self.relayout();
                 }
-                // One paste a press, however long the key repeats.
-                Grab::Paste if !key.repeat => {
-                    self.paste();
-                    self.send_user_bytes();
-                }
-                Grab::Paste => {}
             }
             self.draw_now = true;
             return;
@@ -1059,6 +1084,9 @@ impl App {
         if self.term.terminal.key(keysym, key.ascii, mods, unicode) {
             self.send_user_bytes();
             self.term.terminal.screen_mut().reset_view();
+            if self.hide_while_typing {
+                self.pointer.visible = false;
+            }
         }
         let rate = self
             .term
@@ -1099,9 +1127,10 @@ impl App {
     }
 
     /// A pointer event: reported to a program that tracks the pointer,
-    /// unless Shift is held, as xterm's `ShiftOverride` lets it select and
-    /// paste (`button.c`); otherwise it selects, copies and pastes. A
-    /// button keeps to the side its press took until its release.
+    /// unless Shift is held, as xterm's `ShiftOverride` lets it select,
+    /// paste and scroll (`button.c`); otherwise it selects, copies, pastes
+    /// and scrolls. A button keeps to the side its press took until its
+    /// release, whatever Shift does meanwhile.
     fn pointer(&mut self, event: PointerEvent, mods: Mods) {
         let tracking = self.term.terminal.mouse_tracking() != MouseTracking::Off;
         let shift = mods.contains(Mods::SHIFT);
@@ -1121,7 +1150,13 @@ impl App {
                 if let Some(drag) = &mut self.pointer.drag {
                     drag.moved |= (col, row) != drag.from;
                     self.term.terminal.screen_mut().select_to(col, row);
-                } else if tracking && !shift && !(held.is_some() && self.pointer.ours) {
+                } else if tracking
+                    && if held.is_some() {
+                        !self.pointer.ours
+                    } else {
+                        !shift
+                    }
+                {
                     let button = held.map_or(MouseButton::None, mouse_button);
                     self.report_pointer(button, MouseEvent::Move, mods);
                 }
@@ -1148,7 +1183,7 @@ impl App {
             }
             PointerEvent::Wheel(steps) => {
                 let ctrl = mods.contains(Mods::CTRL);
-                match wheel(steps, tracking, ctrl) {
+                match wheel(steps, tracking && !shift, ctrl) {
                     Wheel::Report(button) => self.report_pointer(button, MouseEvent::Press, mods),
                     Wheel::Zoom(dir) => self.zoom(dir),
                     Wheel::Scroll { up: true } => {
@@ -1335,7 +1370,6 @@ impl App {
         DrawState {
             cursor_on: self.term.blink.cursor_shown(),
             blink_hidden: !self.term.blink.text_shown(),
-            foreground: palette.fg(),
             background: palette.bg(),
             pointer: self
                 .pointer
@@ -1444,6 +1478,9 @@ impl App {
                     }
                 }
             }
+        }
+        if self.blank.fire(now) {
+            self.blank_now(now);
         }
     }
 
@@ -1562,6 +1599,7 @@ impl App {
         due.extend(self.timer_due);
         due.extend(self.wait.due());
         due.extend(self.term.sync.deadline());
+        due.extend(self.blank.deadline());
         due.extend(self.views.values().filter_map(|v| v.wait.due()));
         if let Some(Leaving::Until(d)) = self.leaving {
             due.push(d);

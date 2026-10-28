@@ -1,6 +1,6 @@
 //! The replies and the control functions around them, driven through the
 //! byte stream: the identification and status reports, XTGETTCAP at its
-//! bounds, DECRQSS, the colour queries, XTWINOPS, DECSCUSR, DECSC and
+//! bounds, DECRQSS, the color queries, XTWINOPS, DECSCUSR, DECSC and
 //! DECRC, the keypad and conformance levels, and the sequences vtium
 //! ignores or refuses, which change nothing and send nothing.
 //!
@@ -46,11 +46,11 @@ fn inert(seqs: &[&[u8]]) {
 }
 
 // ctlseqs, DA1: a VT220 (62), one of xterm's defined levels, with ANSI
-// colour (22); the C reference sent level 60 (aaronsb/libtsm#31). DECID
+// color (22); the C reference sent level 60 (aaronsb/libtsm#31). DECID
 // (ESC Z) answers the same; a parameter other than 0 is another request.
 // covers: query.da1, query.decid
 #[test]
-fn da1_reports_a_vt220_with_colour() {
+fn da1_reports_a_vt220_with_color() {
     let mut t = term(8, 2, b"");
     assert_eq!(reply(&mut t, b"\x1b[c"), b"\x1b[?62;22c");
     assert_eq!(reply(&mut t, b"\x1b[0c"), b"\x1b[?62;22c");
@@ -307,11 +307,11 @@ fn decrqss_reports_decsca_and_decsace() {
     assert_eq!(reply(&mut t, b"\x1bP$q*x\x1b\\"), b"\x1bP1$r0*x\x1b\\");
 }
 
-// ctlseqs, SGR 58: the underline colour has no short form, so DECRQSS
+// ctlseqs, SGR 58: the underline color has no short form, so DECRQSS
 // reports every index, the first sixteen among them, as `58:5:Ps`.
 // covers: query.decrqss
 #[test]
-fn decrqss_reports_every_underline_colour_index_in_the_colon_form() {
+fn decrqss_reports_every_underline_color_index_in_the_colon_form() {
     let mut t = term(8, 2, b"");
     for i in [0, 1, 3, 7, 8, 9, 15] {
         let set = format!("\x1b[m\x1b[58:5:{i}m");
@@ -324,9 +324,9 @@ fn decrqss_reports_every_underline_colour_index_in_the_colon_form() {
     }
 }
 
-// ctlseqs, DECRQSS: a direct underline colour reads back in the colon form.
+// ctlseqs, DECRQSS: a direct underline color reads back in the colon form.
 #[test]
-fn decrqss_reports_a_direct_underline_colour_in_the_colon_form() {
+fn decrqss_reports_a_direct_underline_color_in_the_colon_form() {
     let mut t = term(8, 2, b"");
     t.input(b"\x1b[m\x1b[58:2::18:52:86m");
     assert_eq!(
@@ -335,11 +335,11 @@ fn decrqss_reports_a_direct_underline_colour_in_the_colon_form() {
     );
 }
 
-// ctlseqs, OSC 4: each `index ; ?` pair answers with the palette's colour,
+// ctlseqs, OSC 4: each `index ; ?` pair answers with the palette's color,
 // ended as the query was; an index past 255 is left out.
-// covers: colour.palette.query
+// covers: color.palette.query
 #[test]
-fn osc_4_reports_palette_colours() {
+fn osc_4_reports_palette_colors() {
     let mut t = term(8, 2, b"");
     assert_eq!(
         reply(&mut t, b"\x1b]4;1;?;300;?;196;?\x07"),
@@ -354,9 +354,9 @@ fn osc_4_reports_palette_colours() {
 
 // ctlseqs, OSC 10 and 11: the default foreground and background; a list
 // after 10 goes on to 11.
-// covers: colour.dynamic.query
+// covers: color.dynamic.query
 #[test]
-fn osc_10_and_11_report_the_default_colours() {
+fn osc_10_and_11_report_the_default_colors() {
     let mut t = term(8, 2, b"");
     assert_eq!(
         reply(&mut t, b"\x1b]10;?\x07"),
@@ -664,12 +664,12 @@ fn control_strings_vtium_does_not_take_change_nothing() {
 
 // ADR-1000: the OSC strings vtium ignores or refuses change nothing and get
 // no reply, their queries included: the title and icon name, X properties
-// and Sun's title strings, the special and Tektronix colours, a colour in a
+// and Sun's title strings, the special and Tektronix colors, a color in a
 // wide-gamut space, XTQALLOWED and its kin, the working directory,
 // notifications and progress, iTerm2's and the applications' own strings,
 // the log file, and kitty's clipboard, file transfer and drag and drop.
-// covers: window.title, window.xprop, colour.special, colour.tektronix
-// covers: colour.wide-gamut, query.xtqallowed, text.contour-fonts, osc.7
+// covers: window.title, window.xprop, color.special, color.tektronix
+// covers: color.wide-gamut, query.xtqallowed, text.contour-fonts, osc.7
 // covers: osc.notify, osc.9.4, osc.1337, osc.app-specific, osc.46
 // covers: osc.5522, osc.5113, osc.72
 #[test]

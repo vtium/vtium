@@ -7,7 +7,7 @@ use core::mem;
 
 use common::{Rng, rows, scrollback, term};
 use vtium_term::{
-    Age, Color, Content, Glyph, Line, LineFlags, LinkId, Palette, Rgb, Style, Terminal, Width,
+    Age, Color, Content, Glyph, Line, LineFlags, Palette, Rgb, Style, Terminal, Width,
 };
 
 fn cursor(t: &Terminal) -> (usize, usize) {
@@ -149,8 +149,9 @@ fn a_wide_character_moves_whole_and_leaves_a_pad() {
 #[test]
 fn clusters_styles_and_links_move_with_their_cells() {
     let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
-    let mut t = term(4, 3, b"ab");
-    t.screen_mut().set_link(Some(LinkId::new(7)));
+    let mut t = term(4, 3, b"ab\x1b]8;;https://a.example/\x1b\\");
+    let link = t.screen().link();
+    assert!(link.is_some());
     t.input(format!("\x1b[31mc{family}\x1b[m").as_bytes());
     t.resize(3, 3);
     let s = t.screen();
@@ -159,9 +160,9 @@ fn clusters_styles_and_links_move_with_their_cells() {
     let cell = line.cell(0);
     assert_eq!(line.glyph(cell), Glyph::Cluster(family));
     assert_eq!(line.style(cell).fg, Color::Indexed(1));
-    assert_eq!(line.link(cell), Some(LinkId::new(7)));
+    assert_eq!(line.link(cell), link);
     let line = s.line(0).unwrap();
-    assert_eq!(line.link(line.cell(2)), Some(LinkId::new(7)));
+    assert_eq!(line.link(line.cell(2)), link);
     assert_eq!(line.link(line.cell(1)), None);
 }
 

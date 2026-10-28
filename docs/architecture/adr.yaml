@@ -29,7 +29,7 @@ domains:
   font:
     range: [1200, 1299]
     name: Font
-    description: Font loading, glyph rasterisation, colour glyphs and fallback
+    description: Font loading, glyph rasterisation, color glyphs and fallback
     folder: font
 
   render:
@@ -75,9 +75,9 @@ kinds:
 # `adr` apply to every project that keeps these records.
 capabilities:
   protocols: Escape-sequence parsing and replies (CSI, OSC, DCS, APC, SGR, DA, DECRQM) and the mode table
-  screen: The screen, cell and scrollback model, and the cell attributes beyond colour
+  screen: The screen, cell and scrollback model, and the cell attributes beyond color
   images: Inline images - sixel and the kitty graphics protocol - stored, placed and drawn
-  glyphs: Font loading and glyph rasterisation, including colour glyphs and fallback
+  glyphs: Font loading and glyph rasterisation, including color glyphs and fallback
   renderer: Turning cells and images into pixels, and the interface the display is drawn through
   platform: The Linux VT - DRM/KMS, input, ptys and seats
   harness: The evaluation gauntlet - conformance goldens, probes, fuzzing and CI gates

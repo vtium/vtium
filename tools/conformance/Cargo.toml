@@ -20,3 +20,21 @@ vtium-term.workspace = true
 # the replay interface's grammar and the probes' patterns are regular
 # expressions, with no backreference or lookaround
 regex = { version = "1.12", default-features = false, features = ["std", "unicode"] }
+# conformance-record's pty, its child's session and the loop that reads it,
+# and the SIGHUP that ends a recording; the versions vtium-platform pins
+vtium-platform = { workspace = true, optional = true }
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "process"], optional = true }
+
+[features]
+# conformance-record, which records programs through a pty; opt-in, so
+# make conformance builds neither it nor vtium-platform
+record = ["dep:vtium-platform", "dep:rustix"]
+
+[[bin]]
+name = "conformance-record"
+required-features = ["record"]
+
+[dev-dependencies]
+# the XTGETTCAP table vtium answers from, which tests/termcap.rs holds the
+# xtgettcap probe's fixture to
+vtium = { path = "../../crates/vtium" }

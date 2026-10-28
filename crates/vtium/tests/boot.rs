@@ -266,7 +266,6 @@ impl Harness {
         if let Some(video) = video {
             app.add_video(PathBuf::from("/dev/mem0"), video);
         }
-        app.insert_blank();
         app.vt.activate().expect("the fake VT");
         app.start();
         app.turn(now());
@@ -499,7 +498,7 @@ fn the_fonts_policy_follows_the_keys() {
     assert_eq!(h.app.font_policy(), Some((want, Missing::Hex)));
 }
 
-// covers: colour.palette.named
+// covers: color.palette.named
 #[test]
 fn a_named_palette_reaches_the_terminal() {
     let h = Harness::new(&["--palette=solarized-white"]);
@@ -527,6 +526,71 @@ fn a_custom_palette_reaches_the_terminal() {
         h.app.term.terminal.palette(),
         &vtium_term::Palette::default()
     );
+}
+
+impl Memory {
+    /// Whether any pixel is `rgb`; the buffer is XRGB8888, little-endian.
+    fn has(&self, [r, g, b]: [u8; 3]) -> bool {
+        self.pixels.chunks_exact(4).any(|p| p[..3] == [b, g, r])
+    }
+}
+
+/// The seat with `options`, once the program's `text` is drawn.
+fn decorated(options: &[&str], text: &str) -> Harness {
+    let script = format!("printf '{text}\\n'; read x");
+    let mut args = options.to_vec();
+    args.extend(["--login", "--", "/bin/sh", "-c", &script]);
+    let mut h = Harness::new(&args);
+    assert!(h.until(SECOND, |a| shows(a, "U S")));
+    h.until(Duration::from_millis(100), |_| false);
+    h
+}
+
+const RED: [u8; 3] = [255, 0, 0];
+const GREEN: [u8; 3] = [0, 255, 0];
+const BLUE: [u8; 3] = [0, 0, 255];
+
+/// `underline-color` draws every underline in its color, a program's SGR
+/// 58 aside.
+#[test]
+fn underline_color_colors_the_underline() {
+    let text = "\\033[4mU\\033[24m \\033[9mS\\033[29m";
+    assert!(!decorated(&[], text).memory().has(RED));
+    let mut h = decorated(&["--underline-color=#ff0000"], text);
+    assert!(h.memory().has(RED));
+    // A palette index follows the palette.
+    let mut h = decorated(
+        &[
+            "--underline-color=4",
+            "--palette=custom",
+            "--palette-blue=0,0,255",
+        ],
+        text,
+    );
+    assert!(h.memory().has(BLUE));
+}
+
+/// `strike-color` draws every strike in its color.
+#[test]
+fn strike_color_colors_the_strike() {
+    let text = "\\033[4mU\\033[24m \\033[9mS\\033[29m";
+    assert!(!decorated(&[], text).memory().has(GREEN));
+    let mut h = decorated(&["--strike-color=#00ff00"], text);
+    assert!(h.memory().has(GREEN));
+}
+
+/// `force-decoration-colors` draws the configured underline color over
+/// the one a program sets with SGR 58; off, the program's wins.
+#[test]
+fn force_decoration_colors_wins_over_sgr_58() {
+    let text = "\\033[4;58:2::0:0:255mU\\033[24;59m \\033[9mS\\033[29m";
+    let mut h = decorated(&["--underline-color=#ff0000"], text);
+    assert!(h.memory().has(BLUE) && !h.memory().has(RED));
+    let mut h = decorated(
+        &["--underline-color=#ff0000", "--force-decoration-colors"],
+        text,
+    );
+    assert!(h.memory().has(RED) && !h.memory().has(BLUE));
 }
 
 #[test]
@@ -838,6 +902,138 @@ fn under_no_program_blank_a_program_neither_times_nor_wakes_the_blank() {
     assert_eq!(h.memory().unblanks, 0);
     h.type_str("a");
     assert_eq!(h.memory().dpms, Some(Dpms::On), "a key still wakes");
+}
+
+/// A seat that blanks after 2 s with no input, on the scripted VT, whose
+/// session runs `script`.
+fn blank_in_two(script: &str) -> Harness {
+    Harness::with_vt(
+        &["--dpms-timeout=2", "--login", "--", "/bin/sh", "-c", script],
+        ScriptedVt::default(),
+    )
+}
+
+// The end of a pointer frame and the pointer's hide are vtium's own, not
+// the user's: neither restarts the blank's countdown, as the C reference's
+// did not (`src/seat.c:578-590` at kmscon b1f7a7c5).
+#[test]
+fn the_pointers_frame_end_and_hide_are_not_activity() {
+    let mut h = blank_in_two("read x");
+    let start = now();
+    h.until(Duration::from_millis(1200), |_| false);
+    for event in [PointerEvent::Sync, PointerEvent::Hide] {
+        h.app.input_event(pointer(event), h.at());
+    }
+    // Due 2 s after the start; counted from the hide, 3.2 s.
+    let left = (start + Duration::from_millis(2700)).saturating_duration_since(now());
+    assert!(
+        h.until_memory(left, OFF),
+        "blanked 2 s after the start, not 2 s after the hide"
+    );
+}
+
+#[test]
+fn a_pointer_move_restarts_the_blanks_countdown() {
+    let mut h = blank_in_two("read x");
+    let start = now();
+    h.until(Duration::from_millis(1200), |_| false);
+    h.app.input_event(pointer(over(1, 1, None)), h.at());
+    let left = (start + Duration::from_millis(2700)).saturating_duration_since(now());
+    assert!(!h.until_memory(left, OFF), "lit 2 s after the start");
+    assert!(
+        h.until_memory(Duration::from_secs(2), OFF),
+        "blanked 2 s after the move"
+    );
+}
+
+// The VT review's step on vtium/vtium#79, in seconds: a program's timeout,
+// the pointer's hide on the way, and the program's wake. `CSI 9 ; n ]`
+// counts in minutes, so RIS returns the timeout instead, a request on the
+// same path.
+// covers: ctl.linux-unblank
+#[test]
+fn a_programs_timeout_blanks_past_the_pointers_hide_and_its_wake_ends_it() {
+    let mut h = blank_in_two(
+        r"printf '\033[9;0]'; sleep 0.3; printf '\033c'; sleep 4; printf '\033[13]'; read x",
+    );
+    let start = now();
+    h.until(Duration::from_millis(1800), |_| false);
+    h.app.input_event(pointer(PointerEvent::Hide), h.at());
+    // The RIS at 0.3 s restarts the countdown: due at 2.3 s; counted from
+    // the hide, 3.8 s.
+    let left = (start + Duration::from_millis(3000)).saturating_duration_since(now());
+    assert!(
+        h.until_memory(left, OFF),
+        "blanked 2 s after the RIS, not 2 s after the hide"
+    );
+    let unblanks = h.memory().unblanks;
+    assert!(
+        h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::On)),
+        "woken by the program at 4.3 s"
+    );
+    assert_eq!(h.memory().unblanks, unblanks + 1);
+}
+
+// The VT review's step on vtium/vtium#79 as it ran: `CSI 9 ; 1 ]`, the
+// pointer's hide 20 s later, the blank at the minute, and the program's
+// wake. The seat's clock skips the minute.
+// covers: ctl.linux-blank
+#[test]
+fn a_programs_minute_blanks_past_the_pointers_hide() {
+    let mut h = blank_in_two(r"printf '\033[9;1]ready'; sleep 2; printf '\033[13]'; read x");
+    assert!(
+        h.until(SECOND, |a| a
+            .screen_text()
+            .iter()
+            .any(|l| l.starts_with("ready"))),
+        "the program's minute taken"
+    );
+    h.skip(Duration::from_secs(20));
+    h.app.input_event(pointer(PointerEvent::Hide), h.at());
+    h.skip(Duration::from_secs(39));
+    h.until(Duration::from_millis(300), |_| false);
+    assert_eq!(h.memory().dpms, Some(Dpms::On), "lit at 59 s");
+    h.skip(Duration::from_secs(2));
+    assert!(h.until_memory(SECOND, OFF), "blanked at the minute");
+    let unblanks = h.memory().unblanks;
+    assert!(
+        h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::On)),
+        "woken by the program"
+    );
+    assert_eq!(h.memory().unblanks, unblanks + 1);
+}
+
+// `main`'s loop waits `next_wake` on the seat's clock: with nothing else
+// to time, that is the time left to the blank.
+#[test]
+fn the_loop_wakes_for_the_blank() {
+    let mut h = Harness::with_vt(
+        &[
+            "--no-blink",
+            "--dpms-timeout=60",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read x",
+        ],
+        ScriptedVt::default(),
+    );
+    assert!(
+        h.until_memory(SECOND, |m| m.frames > 0 && m.events.is_empty()),
+        "drawn"
+    );
+    let wake = h.app.next_wake(h.at());
+    assert!(
+        wake.is_some_and(|w| w > Duration::from_secs(55) && w <= Duration::from_secs(60)),
+        "the blank's minute ahead: {wake:?}"
+    );
+    h.skip(Duration::from_secs(45));
+    let wake = h.app.next_wake(h.at());
+    assert!(
+        wake.is_some_and(|w| w > Duration::from_secs(10) && w <= Duration::from_secs(15)),
+        "15 s left: {wake:?}"
+    );
 }
 
 fn key(mods: Mods, keysym: u32) -> InputEvent {
@@ -1294,6 +1490,186 @@ fn shift_selects_and_pastes_while_the_program_tracks_the_pointer() {
     );
 }
 
+/// With Shift held the wheel scrolls vtium's scrollback while the program
+/// tracks the pointer, as xterm's Shift override covers the wheel too;
+/// without it the wheel is reported.
+// covers: input.shift-override
+#[test]
+fn shift_and_the_wheel_scroll_back_while_the_program_tracks_the_pointer() {
+    let mut h = Harness::new(&[
+        "--font-size=16",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "i=0; while [ $i -lt 40 ]; do echo line$i; i=$((i+1)); done; \
+         stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
+         awk 'BEGIN{RS=\"q\"}{n=gsub(/</,\"\");printf \"reports=%d\\r\\n\",n;exit}'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| {
+        a.screen_text().iter().any(|l| l.ends_with("ready"))
+    }));
+    let back = |h: &Harness| h.app.term.terminal.screen().scrolled_back();
+    h.point([PointerEvent::Wheel(1)], Mods::SHIFT);
+    assert_eq!(back(&h), 3);
+    h.point([PointerEvent::Wheel(-1)], Mods::SHIFT);
+    assert_eq!(back(&h), 0);
+    h.point([PointerEvent::Wheel(1)], Mods::empty());
+    assert_eq!(back(&h), 0);
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| a
+            .screen_text()
+            .iter()
+            .any(|l| l.ends_with("reports=1"))),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// A drag whose press was reported stays reported when Shift is pressed
+/// during it: the button keeps the side its press chose.
+// covers: input.shift-override
+#[test]
+fn shift_pressed_during_a_reported_drag_changes_nothing() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty raw -echo; printf '\\033[?1002h\\033[?1006hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    h.point(
+        [over(0, 0, None), press(Button::Left, false)],
+        Mods::empty(),
+    );
+    h.point([over(4, 0, Some(Button::Left))], Mods::SHIFT);
+    h.point([release(Button::Left)], Mods::empty());
+    assert_eq!(h.app.term.terminal.screen().selection_text(), None);
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(a, "E[<0;1;1ME[<36;5;1ME[<0;5;1m")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// `grab-paste` binds the paste to the chords it names, in place of
+/// Shift+Insert, and empty to none, so Shift+Insert reaches the program.
+// covers: clipboard.paste
+#[test]
+fn grab_paste_binds_the_paste() {
+    let script = "stty raw -echo; printf '\\033]52;c;cGFzdGVk\\a\\033[?2004hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x";
+    let shift_insert = key(Mods::SHIFT, 0xff63);
+    let alt_p = InputEvent::Key(KeyEvent {
+        keycode: 0,
+        ascii: u32::from('p'),
+        mods: Mods::ALT,
+        keysyms: vec![u32::from('p')],
+        codepoints: vec![Some('p')],
+        repeat: false,
+    });
+    let mut h = Harness::new(&[
+        "--grab-paste=<Alt>p",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        script,
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    assert_eq!(h.app.selection(), Some(&b"pasted"[..]));
+    h.app.input_event(alt_p, now());
+    h.app.input_event(shift_insert.clone(), now());
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(a, "E[200~pastedE[201~E[2~")),
+        "{:?}",
+        h.app.screen_text()
+    );
+    let mut h = Harness::new(&["--grab-paste=", "--login", "--", "/bin/sh", "-c", script]);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    h.app.input_event(shift_insert, now());
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(a, "E[2~")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+impl Memory {
+    /// Whether the pixel at `x`, `y` is white, the arrow's fill.
+    fn white_at(&self, x: u32, y: u32) -> bool {
+        let at = ((y * self.w + x) * 4) as usize;
+        self.pixels.get(at..at + 3) == Some(&[255, 255, 255][..])
+    }
+}
+
+/// Under `pointer-hide-while-typing` a key the program is sent hides the
+/// pointer until it next moves; off, as by default, typing leaves it.
+#[test]
+fn typing_hides_the_pointer_under_pointer_hide_while_typing() {
+    for hides in [true, false] {
+        let mut args = vec!["--login", "--", "/bin/sh", "-c", "stty -echo; read x"];
+        if hides {
+            args.insert(0, "--pointer-hide-while-typing");
+        }
+        let mut h = Harness::new(&args);
+        h.until(Duration::from_millis(200), |_| false);
+        // The arrow's tip is at the pointer, its fill a pixel below it.
+        h.point([over(10, 5, None)], Mods::empty());
+        let (x, y) = (10 * 8 + 4, 5 * 16 + 8 + 1);
+        assert!(h.until_memory(SECOND, |m| m.white_at(x, y)), "shown");
+        h.type_str("a");
+        let hidden = h.until_memory(Duration::from_millis(500), |m| !m.white_at(x, y));
+        assert_eq!(hidden, hides, "typing hides it: {hides}");
+        // A key the program is not sent, a grab's or a modifier's alone,
+        // leaves it.
+        h.point([over(10, 5, None)], Mods::empty());
+        assert!(h.until_memory(SECOND, |m| m.white_at(x, y)), "shown again");
+        h.app.input_event(key(Mods::SHIFT, 0xff52), now());
+        h.app.input_event(key(Mods::empty(), 0xffe1), now());
+        assert!(
+            !h.until_memory(Duration::from_millis(300), |m| !m.white_at(x, y)),
+            "a grab and a modifier leave it"
+        );
+    }
+}
+
+/// A chord with Shift names the keysym Shift makes, as the C reference
+/// matched grabs: Ctrl+Shift+v makes `V`, so `<Ctrl><Shift>V` binds it and
+/// `<Ctrl><Shift>v` never fires.
+#[test]
+fn a_shift_chord_names_the_shifted_keysym() {
+    let script = "stty raw -echo; printf '\\033]52;c;cGFzdGVk\\a\\033[?2004hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x";
+    let ctrl_shift_v = InputEvent::Key(KeyEvent {
+        keycode: 0,
+        ascii: u32::from('v'),
+        mods: Mods::CTRL.union(Mods::SHIFT),
+        keysyms: vec![u32::from('V')],
+        codepoints: vec![Some('V')],
+        repeat: false,
+    });
+    for (chord, pasted) in [("<Ctrl><Shift>V", true), ("<Ctrl><Shift>v", false)] {
+        let arg = format!("--grab-paste={chord}");
+        let mut h = Harness::new(&[&arg, "--login", "--", "/bin/sh", "-c", script]);
+        assert!(h.until(SECOND, |a| shows(a, "ready")));
+        h.app.input_event(ctrl_shift_v.clone(), now());
+        h.type_str("q");
+        let want = if pasted { "[E[200~pastedE[201~]" } else { "[]" };
+        assert!(
+            h.until(SECOND, |a| shows(a, want)),
+            "{chord}: {:?}",
+            h.app.screen_text()
+        );
+    }
+}
+
 /// A press in the strip past the grid's last cell selects from that cell,
 /// so a new selection never extends the one before it.
 // covers: clipboard.selection
@@ -1600,6 +1976,139 @@ impl Video for Late {
     }
     fn as_any(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+/// Under `pointer-char` the pointer is the glyph, on the cell under it:
+/// anywhere in a cell draws the same frame, and another cell another.
+#[test]
+fn pointer_char_draws_the_glyph_on_the_cell_under_the_pointer() {
+    let mut h = Harness::new(&[
+        "--pointer-char=+",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty -echo; read x",
+    ]);
+    h.until(Duration::from_millis(200), |_| false);
+    let frame = |h: &mut Harness, x: i32, y: i32| {
+        h.point([PointerEvent::Moved { x, y, held: None }], Mods::empty());
+        h.until(Duration::from_millis(100), |_| false);
+        h.memory().pixels.clone()
+    };
+    let (a, b) = (frame(&mut h, 81, 81), frame(&mut h, 87, 95));
+    let other = frame(&mut h, 89, 81);
+    assert!(a == b, "the same cell, the same frame");
+    assert!(a != other, "another cell, another frame");
+    // the glyph's middle is white: unifont's '+' crosses at 4,9 of its cell
+    assert!(h.memory().white_at(88 + 4, 80 + 9));
+}
+
+/// A device with a cursor plane: what was set up on it and where it shows.
+struct Planed {
+    memory: Memory,
+    set_ups: u32,
+    shown: Option<(i32, i32)>,
+}
+
+impl Video for Planed {
+    fn backend(&self) -> &'static str {
+        "memory"
+    }
+    fn events(&mut self) -> Vec<Event> {
+        self.memory.events()
+    }
+    fn displays(&self) -> Vec<DisplayId> {
+        self.memory.displays()
+    }
+    fn name(&self, id: DisplayId) -> String {
+        self.memory.name(id)
+    }
+    fn size(&self, id: DisplayId) -> Option<(u32, u32)> {
+        self.memory.size(id)
+    }
+    fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
+        self.memory.refresh_mhz(id)
+    }
+    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
+        self.memory.canvas(id)
+    }
+    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        self.memory.swap(id, damage)
+    }
+    fn is_flipping(&self, id: DisplayId) -> bool {
+        self.memory.is_flipping(id)
+    }
+    fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
+        self.memory.set_dpms(id, dpms)
+    }
+    fn sleep(&mut self) {
+        self.memory.sleep();
+    }
+    fn wake_up(&mut self) -> io::Result<()> {
+        self.memory.wake_up()
+    }
+    fn unblank(&mut self) -> io::Result<()> {
+        self.memory.unblank()
+    }
+    fn input(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn hotplug(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn setup_cursor(&mut self, _: DisplayId, _: &vtium_render::Arrow) -> io::Result<()> {
+        self.set_ups += 1;
+        Ok(())
+    }
+    fn show_cursor(&mut self, _: DisplayId, at: (i32, i32)) -> io::Result<()> {
+        self.shown = Some(at);
+        Ok(())
+    }
+    fn hide_cursor(&mut self, _: DisplayId) {
+        self.shown = None;
+    }
+    fn hardware_cursor(&self, _: DisplayId) -> bool {
+        self.set_ups > 0
+    }
+}
+
+/// A display with a cursor plane shows the pointer there; under
+/// `soft-cursor` the renderer draws it and the plane is never set up.
+#[test]
+fn soft_cursor_draws_the_pointer_in_software() {
+    for soft in [false, true] {
+        let mut args = vec!["--login", "--", "/bin/sh", "-c", "read x"];
+        if soft {
+            args.insert(0, "--soft-cursor");
+        }
+        let planed = Planed {
+            memory: Memory::default(),
+            set_ups: 0,
+            shown: None,
+        };
+        let mut h = Harness::build(&args, FakeVt::new(), Box::new(planed));
+        h.until(Duration::from_millis(200), |_| false);
+        h.point([over(10, 5, None)], Mods::empty());
+        let (x, y) = (10 * 8 + 4, 5 * 16 + 8);
+        h.until(Duration::from_millis(300), |_| false);
+        let p = h
+            .app
+            .videos
+            .get_mut(Path::new("/dev/mem0"))
+            .and_then(|v| v.as_any().downcast_mut::<Planed>())
+            .expect("the planed device");
+        if soft {
+            assert_eq!((p.set_ups, p.shown), (0, None));
+            assert!(p.memory.white_at(x, y + 1), "drawn in software");
+        } else {
+            assert_eq!((p.set_ups, p.shown), (1, Some((84, 88))));
+            assert!(!p.memory.white_at(x, y + 1), "not drawn in software");
+        }
     }
 }
 
@@ -2301,7 +2810,6 @@ fn held(args: &[&str], videos: Vec<Box<dyn Video>>, hold: Duration) -> Harness {
     for (n, video) in videos.into_iter().enumerate() {
         app.add_video(PathBuf::from(format!("/dev/mem{n}")), video);
     }
-    app.insert_blank();
     app.vt.activate().expect("the fake VT");
     app.start();
     let end = now() + hold;
