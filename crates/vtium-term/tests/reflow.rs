@@ -351,6 +351,28 @@ fn a_row_printed_with_mode_2028_reset_is_cut() {
     assert!(t.screen().reflow());
 }
 
+// "Mode 2028" (ADR-1000's DEC-2028): set by default and by RIS, kept by
+// DECSTR and reported by DECRQM; a row printed while it is reset is cut at
+// a narrower width, and SM marks the cursor's row as rewrapping again.
+// covers: DEC-2028
+#[test]
+fn mode_2028_marks_the_rows_a_resize_cuts() {
+    let mut t = term(8, 3, b"\x1b[?2028$p");
+    assert_eq!(t.take_replies(), b"\x1b[?2028;1$y");
+    t.input(b"\x1b[?2028labcdefghij\x1b[?2028h\r\nxyz\x1b[!p\x1b[?2028$p");
+    assert_eq!(t.take_replies(), b"\x1b[?2028;1$y");
+    t.resize(4, 3);
+    assert_eq!(rows(t.screen()), ["abcd", "ij", "xyz"]);
+
+    let mut t = term(4, 3, b"\x1b[?2028l\x1b[!p\x1b[?2028$p");
+    assert_eq!(t.take_replies(), b"\x1b[?2028;2$y");
+    t.input(b"\x1bc\x1b[?2028$p");
+    assert_eq!(t.take_replies(), b"\x1b[?2028;1$y");
+    t.input(b"abcdef");
+    t.resize(8, 3);
+    assert_eq!(rows(t.screen()), ["abcdef", "", ""]);
+}
+
 /// A stream of shell-like output: text, wide characters, clusters,
 /// newlines, erases in colour, and the cursor left on the last row.
 fn shell_stream(rng: &mut Rng, rows: usize) -> Vec<u8> {

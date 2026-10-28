@@ -368,11 +368,15 @@ impl Screen {
     /// Returns the screen to its state after creation, as RIS and DECSTR
     /// need it: the flags, the margins, the tab stops, the main screen in
     /// use, no selection and the view on the screen. The text, the cursor
-    /// and the pen stay; the terminal's reset clears and moves them.
+    /// and the pen stay; the terminal's reset clears and moves them. Mode
+    /// 2028 stays: the mode table sets it on RIS only.
     pub fn reset(&mut self) {
         self.segment = None;
         self.last_printed = None;
-        self.flags = Flags::RESET;
+        self.flags = Flags {
+            reflow: self.flags.reflow,
+            ..Flags::RESET
+        };
         self.top = 0;
         self.bottom = self.rows.saturating_sub(1);
         self.tabs = default_tabs(self.cols);
