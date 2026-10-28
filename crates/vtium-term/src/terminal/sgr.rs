@@ -25,8 +25,15 @@ use crate::style::{Attrs, Color, Rgb, Style, UnderlineStyle};
 /// Applies SGR's parameters, in order, to the screen's pen.
 pub(super) fn apply(screen: &mut Screen, params: &Params) {
     let mut pen = *screen.pen();
+    apply_from(&mut pen, params, 0);
+    screen.set_pen(pen);
+}
+
+/// Applies SGR's parameters from parameter `first`, in order, to `pen`:
+/// SGR's own, or DECCARA's after its rectangle.
+pub(super) fn apply_from(pen: &mut Style, params: &Params, first: usize) {
     let count = params.count();
-    let mut i = 0;
+    let mut i = first;
     while i < count {
         // An empty parameter is SGR's default, 0 (ECMA-48 5.4.2 e, 8.3.117).
         let code = params.get(i).unwrap_or(0);
@@ -39,7 +46,7 @@ pub(super) fn apply(screen: &mut Screen, params: &Params) {
         }
         let a = &mut pen.attrs;
         match code {
-            0 => reset(&mut pen),
+            0 => reset(pen),
             1 => a.insert(Attrs::BOLD),
             2 => a.insert(Attrs::DIM),
             3 => a.insert(Attrs::ITALIC),
@@ -87,7 +94,6 @@ pub(super) fn apply(screen: &mut Screen, params: &Params) {
         }
         i = i.saturating_add(1);
     }
-    screen.set_pen(pen);
 }
 
 /// SGR 0: everything SGR sets returns to its default; DECSCA's protection

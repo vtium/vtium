@@ -206,6 +206,20 @@ pub const SEQUENCES: &[&str] = &[
     "\x1b[61\"p",
     "\x1b[62\"p",
     "\x1b[64\"p",
+    "\x1b[1\"q",
+    "\x1b[\"q",
+    "\x1b[2;2;4;5$z",
+    "\x1b[$z",
+    "\x1b[3;1;99;99${",
+    "\x1b[120;1;3;4;9$x",
+    "\x1b[19968$x",
+    "\x1b[1;1;3;5;1;2;3;1$v",
+    "\x1b[2;3;99;99;1;1;1$v",
+    "\x1b[2*x",
+    "\x1b[*x",
+    "\x1b[1;2;4;9;1;44$r",
+    "\x1b[2;2;3;3;4:3;38:2::1:2:3$r",
+    "\x1b[1;1;9;9;0;7$t",
 ];
 
 /// A byte stream from the grammar: text and sequences in random order.

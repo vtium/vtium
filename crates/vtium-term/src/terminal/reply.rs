@@ -12,6 +12,7 @@ use vtium_parse::{Params, StringEnd};
 
 use super::State;
 use crate::bounds::VERSION_MAX;
+use crate::screen::Extent;
 use crate::style::{Attrs, Color, Rgb, UnderlineStyle};
 
 macro_rules! queries {
@@ -246,8 +247,9 @@ impl State {
     }
 
     /// DECRQSS: the setting asked for, `DCS 1 $ r Pt ST`, for SGR, DECSTBM,
-    /// DECSCUSR and DECSCL; anything else, and a request longer than any of
-    /// these, the error form `DCS 0 $ r ST`, with no echo (ADR-1000).
+    /// DECSCUSR, DECSCL, DECSCA and DECSACE; anything else, and a request
+    /// longer than any of these, the error form `DCS 0 $ r ST`, with no
+    /// echo (ADR-1000).
     pub(super) fn reply_status(&mut self, request: Option<&[u8]>) {
         let setting = match request {
             Some(b"m") => Some(format!("{}m", self.pen_sgr())),
@@ -262,6 +264,15 @@ impl State {
             Some(b" q") => Some(format!("{} q", self.cursor_style.param())),
             // Pc 1: the replies stay 7-bit whatever DECSCL asked.
             Some(b"\"p") => Some(format!("{};1\"p", self.conformance)),
+            // DECSCA 1 or 0, and DECSACE 2 or 0, as xterm reports them.
+            Some(b"\"q") => {
+                let protected = self.screen.pen().attrs.contains(Attrs::PROTECTED);
+                Some(format!("{}\"q", u8::from(protected)))
+            }
+            Some(b"*x") => {
+                let rectangle = self.screen.attribute_extent() == Extent::Rectangle;
+                Some(format!("{}*x", if rectangle { 2 } else { 0 }))
+            }
             _ => None,
         };
         let reply = match setting {
@@ -445,7 +456,15 @@ mod tests {
                 let request = cat(&[b"\x1bP+q", &known, b";", &unknown, b"\x1b\\"]);
                 (request, vec![known, unknown], vec![])
             }
-            Query::Decrqss => (cat(&[b"\x1bP$q", &tok, b"\x1b\\"]), vec![tok], vec![]),
+            // Hostile text half the time, else a setting vtium reports.
+            Query::Decrqss => {
+                let known: [&[u8]; 6] = [b"m", b"r", b" q", b"\"p", b"\"q", b"*x"];
+                let pick = rng.next();
+                match known.get(usize::try_from(pick % 12).unwrap_or(0)) {
+                    Some(&setting) => (cat(&[b"\x1bP$q", setting, b"\x1b\\"]), vec![], vec![]),
+                    None => (cat(&[b"\x1bP$q", &tok, b"\x1b\\"]), vec![tok], vec![]),
+                }
+            }
             Query::PaletteColor => {
                 let n = rng.padded(1);
                 let request = cat(&[b"\x1b]4;", &n, b";?;", &tok, b";?\x07"]);
