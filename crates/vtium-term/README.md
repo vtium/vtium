@@ -167,18 +167,19 @@ The byte stream comes from an untrusted program, so nothing it sends grows memor
 
 ## Reflow cost
 
-A resize that changes the width rewraps at once the screen, the main screen's rows below it, the rows the view and the selection reach, and the newest scrollback rows that could reach the screen, whole logical lines; it counts the rest of the scrollback at the new width, reading each line's length, and walking cell by cell only a long line with a wide character in it. The rest waits and rewraps when the view, a drop past `sb-size`, a taller screen or the newest line's wrap reaches it, or `Screen::rewrap_scrollback`; the result equals rewrapping everything at each resize, which `reflow_is_the_same_chunked_and_lazy_or_eager` holds over random streams and resizes. A resize to one column, where a wide character becomes an empty cell, rewraps the whole scrollback at once, and a waiting row that never rewraps is cut at each narrowing, so a row that waited loses what one rewrapped at each resize loses. One logical line spanning the scrollback rewraps at once, whole. A rewrap consumes each row as it builds the new ones, so it holds a row or two beyond its result.
+A resize that changes the width rewraps at once the screen, the main screen's rows below it, the newest scrollback rows that could reach the screen, and every row from the view's top or the selection's start down to the screen. Of a logical line with no wide character, which breaks at multiples of the width, it takes only the newest rows it needs, and the line's head waits. It counts the rest of the scrollback at the new width from each line's length, since each line keeps a mark that it may hold a wide character, laying out cell by cell only a long line with one. The rest waits and rewraps when the view, a drop past `sb-size`, a taller screen or the newest line's wrap reaches it, or `Screen::rewrap_scrollback`; a drop cuts a long line with no wide character by length, unrewrapped. The result equals rewrapping everything at each resize, which `reflow_is_the_same_chunked_and_lazy_or_eager` holds over random streams, resizes, view moves and selections. A resize to one column, where a wide character becomes an empty cell, rewraps the whole scrollback at once, and a waiting row that never rewraps is cut at each narrowing, so a row that waited loses what one rewrapped at each resize loses. A rewrap consumes each row as it builds the new ones, so it holds a row or two beyond its result.
 
-Measured by `reflow_cost` (`cargo test --release -p vtium-term --test reflow reflow_cost -- --ignored --nocapture`) on the development machine, a Ryzen 9 9950X3D, 2026-10-27, with 100,000 scrollback rows (10,000 for a style a cell) behind a screen of 170 by 48, resizing to 169, back to 170 and to 100 columns:
+Measured by `reflow_cost` (`cargo test --release -p vtium-term --test reflow reflow_cost -- --ignored --nocapture`) on the development machine, a Ryzen 9 9950X3D, 2026-10-28, with 100,000 scrollback rows (10,000 for a style a cell) behind a screen of 170 by 48, resizing to 169, back to 170 and to 100 columns:
 
 | Scrollback | The resize | The rest of the scrollback | In all, a cell | Heap before and after |
 |---|---|---|---|---|
-| Full rows wrapped in pairs | 4-18 ms | 55-61 ms | 3.7-5.8 ns | 136 MB, 68 MB |
-| One logical line spanning it | 91-93 ms | none | 5.3-5.5 ns | 136 MB, 80 MB |
-| A shell's lines of 40 cells | 0.7-1.3 ms | 2.9-3.1 ms | 0.2-0.3 ns | 32 MB, 32 MB |
-| A style a cell, 10,000 rows | 0.7-1.2 ms | 4.8-6.3 ms | 3.2-5.7 ns | 14.5 MB, 7.8 MB |
+| Full rows wrapped in pairs | 2.0-3.1 ms | 51-56 ms | 3.1-5.2 ns | 136 MB, 68 MB |
+| One logical line spanning it | 1.8-2.5 ms | 41-69 ms | 2.6-4.2 ns | 136 MB, 80 MB |
+| A shell's lines of 40 cells | 0.6-1.1 ms | 2.5 ms | 0.2 ns | 32 MB, 32 MB |
+| Wrapped pairs, the view at the top | 55-85 ms | none | 3.4-5.0 ns | 136 MB, 68 MB |
+| A style a cell, 10,000 rows | 0.2-0.7 ms | 4.7-6.0 ms | 2.9-5.2 ns | 14.5 MB, 7.8 MB |
 
-The resize's own time is mostly the count; the rest is paid only when something reaches it. The minspec board's figures, the gate vtium/vtium#41 names, are not measured yet: no board is at hand, and tier 3's VM runs on a host core, so it measures memory, not a board's speed. ADR-1003 takes the board as ten times slower.
+The resize's own time is mostly the count, except with the view scrolled back, where every row below the view rewraps at once; keeping that to the rows the view shows needs a second stretch of waiting rows, which the operator decides on (ADR-1003's note on Cost). The rest is paid only when something reaches it. The minspec board's figures, the gate vtium/vtium#41 names, are not measured yet: no board is at hand, and tier 3's VM runs on a host core, so it measures memory, not a board's speed. ADR-1003 takes the board as ten times slower.
 
 ## Selection
 

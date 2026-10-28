@@ -152,9 +152,13 @@ The view, while scrolled back, keeps the text of its top row at its top. The sel
 
 A logical line's first row keeps its `LineId`. Each other row a rewrap makes takes a new id, and rows a join removes give theirs up. Ids are allocated in the order of the rows, when the resize happens, for the whole run, the rows rewrapped on demand included (Cost), so the ids do not depend on when a row was reached. Anything anchored to a row (a placement, the selection, the view) is carried by its offset in the logical line, never by its old id. OSC 133's marks (vtium/vtium#40) are kept on the row that holds the text they mark, the first row of the logical line when no finer place is known.
 
+> Note 2026-10-28 (vtium/vtium#41): every mark of a logical line goes to its first row. A mark records no column, so a finer place depends on the widths the line passed through, and a scrollback rewrapped late would put it elsewhere than one rewrapped at each resize. A wrapped prompt's INPUT mark moves to the prompt's first row; vtium/vtium#40 can record a finer place.
+
 ### The scrollback's bound
 
 `sb-size` counts rows at the current width, as it counts them today. A narrowing that leaves more rows than `sb-size` drops the oldest, cutting a logical line where its dropped rows end, and a widening brings nothing back. A row's memory under ADR-1001's bound is unchanged by a rewrap, since a rewrapped row holds fewer cells than the rows it came from or the same cells joined, so the scrollback's worst case at a cap stands.
+
+> Note 2026-10-28 (vtium/vtium#41): a rewrapped row may name more cluster bytes than its own cells' budget, by the pad columns a widening drops and a last row's bytes on few cells. Across the scrollback and the screen the rows name at most one column's budget more than the widest screen's a row, since a widening frees the rows it joins for new text: ADR-1001's worst case grows by 6 bytes a row, to 531.58 MiB at 100,000 rows from 531.01 (`crates/vtium-term/tests/flood.rs`).
 
 ### Cost: the screen at once, the rest on demand
 
@@ -180,6 +184,8 @@ Those are the worst case, where every row is full and wrapped. A shell's scrollb
 
 A rewrap builds each logical line's new rows as it consumes its old ones, so its extra memory is a row or two, never a second scrollback, even for one logical line spanning the whole scrollback.
 
+> Note 2026-10-28 (vtium/vtium#41): as built, three parts differ from the plan above. The waiting rows are one stretch, the oldest, so the rows the view and the selection reach rewrap at once with every row below them to the screen; a view at the top of 100,000 rows of wrapped pairs 170 cells wide costs 55-85 ms on the development machine, and keeping it to the view's rows needs a second waiting stretch, left to the operator. A line with no wide character breaks at multiples of the width, so the margin takes only the rows it needs of a longer one and its head waits, and a drop past `sb-size` cuts its first rows by length: one logical line spanning 100,000 rows resizes in about 2 ms. A resize to one column rewraps the whole scrollback at once, since a wide character becomes an empty cell there and a row that waited would keep it. Each line keeps a mark that it may hold a wide character in its padding, so the count reads lengths alone: 100,000 rows of wrapped pairs count in 2-3 ms.
+
 ### Determinism
 
 The screen, the scrollback, the cursor, the image store and the replies after a run of bytes and resizes follow from that run, in order, and never from how the bytes between two resizes were split, nor from what the view, a selection or a copy reached in between. A resize falls between two input calls; a sequence or a UTF-8 character it falls inside completes after it against the new size, as the parser holds it.
@@ -195,6 +201,8 @@ Images are not built yet (vtium/vtium#28); this fixes what the store receives. A
 ### Mode 2028
 
 Mode 2028, contour's line reflow mode, is set by default and by RIS. SM and RM 2028 mark the cursor's row, and each print marks the row it writes to, as rewrapping or not, from the mode's state. A row marked by the reset mode joins nothing, is joined into nothing and is cut at a narrower margin. The mark is one of ADR-1001's ten spare line flag bits, leaving nine for bidirectional text (vtium/vtium#43). DECRQM reports the mode as the mode table reports every mode (ADR-1000, DEC-2028).
+
+> Note 2026-10-28 (vtium/vtium#41): DECSTR keeps mode 2028, which RIS sets, the mode table's class for a mode only RIS resets (`docs/modes.md`).
 
 ## Consequences
 

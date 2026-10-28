@@ -169,6 +169,8 @@ The C reference's figures are its measured totals, 10.3 MiB after the first scre
 
 Tier 3 measures the real figures from the first working build (kmscon ADR-304 §5).
 
+> Added 2026-10-28, after ADR-1003: a rewrap moves clusters with their cells, so a rewrapped row may name more than its own cells' budget. The scrollback and the screen name at most one column's budget more than the widest screen's a row (`crates/vtium-term/tests/flood.rs`), so the worst case a row grows by 6 bytes, to 5,574: 5.32 MiB at 1,000 lines, 53.16 MiB at 10,000, 159.47 MiB at 30,000 and 531.58 MiB at 100,000. The default scrollback's worst case stays about 0.3 MiB under the minspec peak.
+
 ## Consequences
 
 ### Positive
