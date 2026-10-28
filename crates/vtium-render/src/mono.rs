@@ -2,7 +2,8 @@
 //! unlit by the cell, never by brightness, and every pixel's coverage is
 //! cut at half, so the display gets only pure black and white. A gray
 //! panel is drawn as a color display, and the panel converts the frame
-//! itself (the operator's decision, 2026-10-28).
+//! itself (the operator's decision, 2026-10-28), but for a color glyph,
+//! which takes [`Fallback`]'s bitmap there too.
 //!
 //! The mapping: the default background is unlit, and a cell whose
 //! background differs from it is lit; a color drawn on the cell, its
@@ -24,6 +25,7 @@
 //! silhouette. Nothing here is the CPU path's alone: a hardware path
 //! draws a 1-bit display by the same per-cell mapping and per-pixel cut.
 
+use vtium_font::sprite::shade_one_bit;
 use vtium_font::{Cell, Face, Font, Format, Glyph, Style, Unifont, Width};
 use vtium_term::Rgb;
 
@@ -127,24 +129,31 @@ pub(crate) fn silhouette(src: u32, fg: Rgb) -> u32 {
     a << 24 | t(fg.r) << 16 | t(fg.g) << 8 | t(fg.b)
 }
 
-/// A color glyph's stand-in at 1 bit (the operator's decision on
-/// vtium/vtium#135): the built-in unifont's bitmap of the same character,
-/// where unifont draws it and its cell, at a whole scale, is the font's.
-/// The set chose the character's glyph; only its pixels change.
+/// A glyph's stand-in off color, the operator's decisions on
+/// vtium/vtium#135. A color glyph, on a 1-bit or gray display, is the
+/// built-in unifont's bitmap of the same character, where unifont draws it
+/// and its cell, at a whole scale, is the font's: the set chose the
+/// character's glyph, and only its pixels change. A shade, U+2591 to
+/// U+2593, drawn as even coverage, is at 1 bit vtium-font's ordered
+/// pattern.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Fallback {
-    unifont: Unifont,
+    one_bit: bool,
+    unifont: Option<Unifont>,
 }
 
 impl Fallback {
-    /// The stand-in for a font of cell `cell` at `depth`: none but at 1 bit,
-    /// or where unifont has no scale of that cell.
+    /// The stand-ins for a font of cell `cell` at `depth`: none in color.
     pub(crate) fn new(depth: Depth, cell: Cell) -> Option<Fallback> {
-        let unifont = Unifont::new(cell.height);
-        (depth.one_bit() && unifont.cell() == cell).then_some(Fallback { unifont })
+        let unifont = Some(Unifont::new(cell.height)).filter(|u| u.cell() == cell);
+        (depth != Depth::Color).then_some(Fallback {
+            one_bit: depth.one_bit(),
+            unifont,
+        })
     }
 
-    /// `glyph`'s stand-in when it is a color glyph unifont has a bitmap for.
+    /// `glyph`'s stand-in: unifont's bitmap for a color glyph unifont has,
+    /// and at 1 bit the pattern for a shade of partial coverage.
     pub(crate) fn glyph(
         &self,
         glyph: &Glyph,
@@ -152,10 +161,20 @@ impl Fallback {
         width: Width,
         style: Style,
     ) -> Option<Glyph> {
-        if glyph.format() != Format::Rgba || !self.unifont.has_glyph(*text.first()?) {
-            return None;
+        let &first = text.first()?;
+        match glyph.format() {
+            Format::Rgba => {
+                let u = self.unifont.filter(|u| u.has_glyph(first))?;
+                Font::new(u).glyph(text, width, style)
+            }
+            Format::Mask => {
+                let partial = glyph.pixels().iter().any(|&p| p != 0 && p != 0xff);
+                let one = text.len() == 1;
+                (self.one_bit && one && partial)
+                    .then(|| shade_one_bit(first, glyph.width(), glyph.height()))
+                    .flatten()
+            }
         }
-        Font::new(self.unifont).glyph(text, width, style)
     }
 }
 
@@ -336,7 +355,50 @@ mod tests {
             width: 8,
             height: 16,
         };
-        assert!(Fallback::new(Depth::Gray(4), cell).is_none());
+        // the one gray exception: a color glyph takes unifont's bitmap
+        let f = Fallback::new(Depth::Gray(4), cell).unwrap_or_else(|| panic!("a stand-in"));
+        let a = f.glyph(&color_glyph(), &['A'], Width::Narrow, Style::default());
+        assert!(a.is_some_and(|g| g.format() == Format::Mask));
+        // and a shade keeps its coverage
+        let shade = vtium_font::sprite::draw('\u{2591}', 8, 16, 1)
+            .unwrap_or_else(|| panic!("the light shade"));
+        assert!(
+            f.glyph(&shade, &['\u{2591}'], Width::Narrow, Style::default())
+                .is_none()
+        );
+    }
+
+    // the operator's decision (2026-10-28): at 1 bit a shade drawn as even
+    // coverage is an ordered pattern; one already 1-bit, as a bitmap
+    // font's, stays
+    #[test]
+    fn a_shade_of_partial_coverage_takes_its_pattern_at_1_bit() {
+        let cell = Cell {
+            width: 8,
+            height: 8,
+        };
+        let f = Fallback::new(Depth::One, cell).unwrap_or_else(|| panic!("a stand-in"));
+        for (c, lit) in [('\u{2591}', 16), ('\u{2592}', 32), ('\u{2593}', 48)] {
+            let even = vtium_font::sprite::draw(c, 8, 8, 1).unwrap_or_else(|| panic!("{c}"));
+            let g = f
+                .glyph(&even, &[c], Width::Narrow, Style::default())
+                .unwrap_or_else(|| panic!("{c}'s pattern"));
+            assert_eq!(
+                g.pixels().iter().filter(|&&p| p == 0xff).count(),
+                lit,
+                "{c}"
+            );
+            assert!(g.pixels().iter().all(|&p| p == 0 || p == 0xff), "{c}");
+            assert!(
+                f.glyph(&g, &[c], Width::Narrow, Style::default()).is_none(),
+                "{c}"
+            );
+        }
+        let block = vtium_font::sprite::draw('\u{2588}', 8, 8, 1).unwrap_or_else(|| panic!("█"));
+        assert!(
+            f.glyph(&block, &['\u{2588}'], Width::Narrow, Style::default())
+                .is_none()
+        );
     }
 
     fn color_glyph() -> Glyph {
@@ -371,13 +433,18 @@ mod tests {
             .unwrap_or_else(|| panic!("a character unifont lacks"));
         let kept = f.glyph(&color_glyph(), &[lacks], Width::Narrow, Style::default());
         assert!(kept.is_none());
-        // no stand-in in color, or at a cell unifont has no scale of
+        // no stand-in in color, nor unifont's at a cell it has no scale of
         assert!(Fallback::new(Depth::Color, cell).is_none());
         let small = Cell {
             width: 8,
             height: 8,
         };
-        assert!(Fallback::new(Depth::One, small).is_none());
+        let f = Fallback::new(Depth::One, small).unwrap_or_else(|| panic!("a stand-in"));
+        let g = Glyph::rgba(8, 8).unwrap_or_else(|| panic!("an 8x8 glyph"));
+        assert!(
+            f.glyph(&g, &['A'], Width::Narrow, Style::default())
+                .is_none()
+        );
         assert!(
             Fallback::new(
                 Depth::One,
@@ -386,7 +453,7 @@ mod tests {
                     height: 32
                 }
             )
-            .is_some()
+            .is_some_and(|f| f.unifont.is_some())
         );
     }
 }

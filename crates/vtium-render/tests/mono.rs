@@ -254,5 +254,61 @@ fn a_gray_display_draws_as_a_color_one() {
         false,
     );
     assert_eq!(gray, color);
-    assert_eq!(color_glyphs(Depth::Gray(16)), color_glyphs(Depth::Color));
+    // the one gray exception: a color glyph is unifont's bitmap, in the
+    // cell's own colors, and where unifont has none it draws in color
+    let g = color_glyphs(Depth::Gray(16));
+    let mut u = Screen::new(1, 1, rgb("c0c0c0"), rgb(BG));
+    u.text(0, 0, "A", style(rgb("c0c0c0"), rgb(BG)));
+    let mut r = Renderer::new(unifont(), 8, 16, Config::default());
+    let mut want = Canvas::new(8, 16, 0);
+    let state = DrawState {
+        background: u.palette.bg(),
+        ..DrawState::default()
+    };
+    r.draw(&u.frame(Age::NEVER), &mut want, 0, &state);
+    for y in 0..16 {
+        for x in 0..8 {
+            assert_eq!(g.pixel(x, y), want.pixel(x, y), "{x},{y}");
+            assert_eq!(g.pixel(x + 8, y), Some(0xff_0000), "{},{y}", x + 8);
+        }
+    }
+}
+
+// the operator's decision (2026-10-28): at 1 bit the shades are ordered
+// patterns, a quarter, half and three quarters lit, which join from cell to
+// cell, where their coverage cut at half drew the light shade empty and the
+// others solid
+#[test]
+fn shades_at_1_bit_are_patterns_that_join() {
+    let mut s = Screen::new(6, 2, rgb("c0c0c0"), rgb(BG));
+    for row in 0..2 {
+        s.text(0, row, "░░▒▒▓▓", style(rgb("c0c0c0"), rgb(BG)));
+    }
+    let c = drawn(&s, one(), false);
+    for (col, want) in [(0, 32), (1, 32), (2, 64), (3, 64), (4, 96), (5, 96)] {
+        for row in 0..2 {
+            assert_eq!(lit(&c, col, row), want, "cell {col},{row}");
+        }
+    }
+    // each pair of like cells, two rows tall, repeats every 2 pixels
+    for pair in 0..3u32 {
+        let x0 = pair * 16 + 2;
+        for y in 2..2 + 32 - 2 {
+            for x in x0..x0 + 16 - 2 {
+                assert_eq!(c.pixel(x, y), c.pixel(x + 2, y), "{x},{y} across");
+                assert_eq!(c.pixel(x, y), c.pixel(x, y + 2), "{x},{y} down");
+            }
+        }
+    }
+    // in color the shades keep their coverage: each cell one even gray
+    let color = drawn(&s, Config::default(), false);
+    for col in [0, 2, 4] {
+        let first = color.pixel(col * 8 + 2, 2).unwrap();
+        assert!(first != 0x10_1010 && first != 0xc0_c0c0, "{first:06x}");
+        for y in 2..18 {
+            for x in col * 8 + 2..col * 8 + 10 {
+                assert_eq!(color.pixel(x, y), Some(first), "{x},{y}");
+            }
+        }
+    }
 }
