@@ -7,7 +7,8 @@
 //! control functions. The modes go through the mode table (`modes.rs`),
 //! SGR through `sgr.rs`, the replies through `reply.rs`, the character
 //! sets through `charset.rs`, OSC 52 through `clipboard.rs`, the color
-//! OSC strings through `color.rs`, the in-band reports through
+//! OSC strings through `color.rs`, OSC 8's links and OSC 133's marks
+//! through the screen, the in-band reports through
 //! `inband.rs`, the Linux console's blank sequences through `blank.rs`,
 //! and the keys, the pointer, focus and pastes through `input.rs`.
 //!
@@ -275,7 +276,9 @@ impl Terminal {
             return 0;
         }
         self.state.pause = false;
-        self.parser.advance(&mut self.state, bytes)
+        let taken = self.parser.advance(&mut self.state, bytes);
+        self.state.screen.refresh_hover();
+        taken
     }
 
     pub fn screen(&self) -> &Screen {
@@ -439,6 +442,7 @@ impl Terminal {
             }
             rest = rest.get(taken..).unwrap_or_default();
         }
+        self.state.screen.refresh_hover();
     }
 }
 
@@ -539,11 +543,12 @@ impl State {
     }
 
     /// RIS: DECSTR's reset, the modes only RIS resets, every color the
-    /// program set, the SGR and color stacks emptied, the screen and the
-    /// scrollback erased, the cursor home, and the blank timeout the
-    /// host's again.
+    /// program set, the SGR and color stacks emptied, the open link ended,
+    /// the screen and the scrollback erased, the cursor home, and the
+    /// blank timeout the host's again.
     fn hard_reset(&mut self) {
         self.soft_reset();
+        self.screen.close_link();
         self.reset_colors(true);
         self.sgr_stack = sgr::Stack::default();
         self.color_stack = color::Stack::default();
@@ -811,13 +816,16 @@ impl Consumer for State {
         if !end.is_complete() || truncated {
             return;
         }
-        match data.strip_prefix(b"52;") {
-            Some(args) => self.set_clipboard(args),
-            None => {
-                let scheme = self.scheme();
-                self.osc_color(data, end);
-                self.report_scheme_change(scheme);
-            }
+        if let Some(args) = data.strip_prefix(b"52;") {
+            self.set_clipboard(args);
+        } else if let Some(args) = data.strip_prefix(b"8;") {
+            self.screen.set_hyperlink(args);
+        } else if let Some(args) = data.strip_prefix(b"133;") {
+            self.screen.shell_mark(args);
+        } else {
+            let scheme = self.scheme();
+            self.osc_color(data, end);
+            self.report_scheme_change(scheme);
         }
     }
 

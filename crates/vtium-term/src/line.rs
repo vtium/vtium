@@ -142,6 +142,15 @@ impl LineFlags {
     }
 }
 
+impl core::ops::BitOr for LineFlags {
+    type Output = Self;
+
+    fn bitor(mut self, other: Self) -> Self {
+        self.insert(other);
+        self
+    }
+}
+
 /// What a cell shows, read through its line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Glyph<'a> {
@@ -337,6 +346,53 @@ impl Line {
             .as_ref()
             .and_then(|t| t.links.get(i.checked_sub(1)?))
             .copied()
+    }
+
+    /// The links this line's link table holds, each once: those its cells
+    /// name, and those overwritten since it last compacted.
+    pub(crate) fn link_table(&self) -> &[LinkId] {
+        self.tables.as_ref().map_or(&[], |t| &t.links)
+    }
+
+    /// Renames each link of the table to `rename` of it, as a sweep of the
+    /// link store renumbers them; a link it gives no new name for leaves
+    /// the cells that named it unlinked.
+    pub(crate) fn rename_links(&mut self, rename: impl Fn(LinkId) -> Option<LinkId>) {
+        let Some(t) = self.tables.as_mut() else {
+            return;
+        };
+        let renamed: Vec<Option<LinkId>> = t.links.iter().map(|&l| rename(l)).collect();
+        for (link, new) in t.links.iter_mut().zip(&renamed) {
+            if let Some(new) = new {
+                *link = *new;
+            }
+        }
+        if renamed.iter().all(Option::is_some) {
+            return;
+        }
+        for cell in &mut self.cells {
+            let i = usize::from(cell.link().0);
+            if i.checked_sub(1).and_then(|i| renamed.get(i)) == Some(&None) {
+                *cell = Cell::new(cell.content(), cell.width(), cell.style(), LinkIndex(0));
+            }
+        }
+        self.compact();
+        self.shrink_tables();
+    }
+
+    /// Unlinks every cell and empties the link table, as the link store
+    /// strips the scrollback's oldest lines. Returns whether the table held
+    /// any link.
+    pub(crate) fn strip_links(&mut self) -> bool {
+        if self.link_table().is_empty() {
+            return false;
+        }
+        for cell in &mut self.cells {
+            *cell = Cell::new(cell.content(), cell.width(), cell.style(), LinkIndex(0));
+        }
+        self.compact();
+        self.shrink_tables();
+        true
     }
 
     /// What `cell` shows, its cluster read from this line's arena.
