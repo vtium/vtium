@@ -408,7 +408,7 @@ fn probes() -> Result<bool, String> {
         };
         if !probe.fixtures.is_empty() {
             println!(
-                "skip {}: no fixture {}",
+                "skip {}: names the fixture {}, which the runner does not serve",
                 cap.name,
                 probe.fixtures.join(", ")
             );
