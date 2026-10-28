@@ -230,3 +230,27 @@ tier3-provenance: ## Check tools/tier3's copies against their sources with git (
 .PHONY: tier3-run
 tier3-run: ## Tier 3 on a tree built already: the last run's, or TREE=DIR (VARIANTS=, JOBS= as for tier3)
 	$(T3_RUN) $(if $(TREE),--tree $(TREE)) $(VARIANTS)
+
+# Tier 3 on the guest without systemd (tools/tier3/README.md, docs/systemd.md):
+# Debian 13's generic cloud image, pinned by its build and SHA-256, with its
+# packages from snapshot.debian.org at a pinned time and sysvinit as PID 1.
+# Debian signs no cloud image; the SHA-256 is of the image whose SHA-512
+# matched the build's SHA512SUMS. Its base image is a second one, beside the
+# Arch guest's, so the run is beside tier3-minimal's.
+T3SV_IMAGE_VER    := 20261015-2632
+T3SV_IMAGE        := debian-13-generic-amd64-$(T3SV_IMAGE_VER).qcow2
+T3SV_IMAGE_URL    := https://cloud.debian.org/images/cloud/trixie/$(T3SV_IMAGE_VER)
+T3SV_IMAGE_SHA256 := 1010eb3215be632548cfb6793b53bd8243064d8820b5106f2becfcd179099b2f
+T3SV_SNAPSHOT     := 20261016T000000Z
+
+.PHONY: tier3-image-nosystemd
+tier3-image-nosystemd: ## Fetch, verify and provision tier 3's guest without systemd, unless the cache holds it (T3_IMAGES=DIR)
+	$(T3_PY) $(T3_DIR)/t3.py provision --guest sysvinit --image $(T3SV_IMAGE) \
+		--archive $(T3SV_SNAPSHOT) --url $(T3SV_IMAGE_URL) --sha256 $(T3SV_IMAGE_SHA256) \
+		--images $(T3_IMAGES)
+
+.PHONY: tier3-nosystemd
+tier3-nosystemd: tier3-image-nosystemd ## Tier 3 on the guest without systemd: vtium under sysvinit, without udev, and its power keys
+	T3_VTIUM_REV=$(T3_REV) T3_IMAGE=$(T3SV_IMAGE) T3_IMAGE_SHA256=$(T3SV_IMAGE_SHA256) \
+		T3_ARCHIVE=$(T3SV_SNAPSHOT) $(T3_PY) $(T3_DIR)/t3.py run --jobs $(JOBS) \
+		--deadline $(T3_DEADLINE) --tree-target install-tree $(or $(VARIANTS),sysvinit-640x480 sysvinit-no-udev sysvinit-reboot sysvinit-restart sysvinit-power-off)

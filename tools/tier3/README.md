@@ -14,6 +14,8 @@ make tier3-run VARIANTS=2d-potato-min   # the last run's tree, or TREE=DIR, with
 make tier3 JOBS=2            # up to two variants at once, each in its own VM
 make install-tree DESTDIR=D  # vtium's install tree alone
 make tier3-provenance        # each copy against its source in a kmscon checkout (KMSCON=DIR); a review step, not a gate
+make tier3-image-nosystemd   # fetch, verify and provision the guest without systemd, unless the cache holds it
+make tier3-nosystemd         # the install tree, then the variants on the guest without systemd (The guest without systemd)
 make test-tools              # the harness's self-tests, with no guest
 ```
 
@@ -30,6 +32,8 @@ Host needs: `qemu-system-x86_64` with `/dev/kvm`, `qemu-img`, `xorriso`, `gpg`, 
 | Image signature | detached `.sig` by the arch-boxes key, primary fingerprint `1B9A16984A4E8CB448712D2AE0B78BF4326C6F8F`, fetched from `keyserver.ubuntu.com` into a keyring beside the images (`fetch-image.sh`); the fingerprint pin is the trust anchor |
 | Guest packages | Arch Linux Archive snapshot `2026/10/20`; provisioning runs `pacman -Syyuu` against it, so the guest matches the snapshot exactly |
 | Goldens | `c-goldens/`, copied from `fork/tier3/golden` at the kmscon commit `provenance.tsv` names |
+| Guest without systemd | `debian-13-generic-amd64-20261015-2632.qcow2` from `cloud.debian.org/images/cloud/trixie/20261015-2632/`, SHA-256 `1010eb3215be632548cfb6793b53bd8243064d8820b5106f2becfcd179099b2f`; Debian signs no cloud image, so the pin, taken from the image whose SHA-512 matched the build's `SHA512SUMS`, is the trust anchor (`fetch-debian.sh`) |
+| Its packages | `snapshot.debian.org` at `20261016T000000Z`, the archive and its security updates |
 
 The image pins live in the Makefile, and the guest's package list in `guest/user-data.in`. The guest installs the scenario's programs (`chafa`, `libsixel`, `mpv`, `tmux`), the fonts (`ttf-dejavu`, `wqy-microhei`, `noto-fonts-emoji`) and the C reference's runtime dependencies. vtium needs only libc, libudev, libxkbcommon and libgcc_s, which the base image has.
 
@@ -111,6 +115,32 @@ After an S3 resume the guest does not power off, whichever path suspended it. Th
 
 Three findings from the C reference's runs shaped this table. At 7680x2160 each XRGB buffer is 63 MiB, and with QEMU's default `max_hostmem` (256 MiB) the second instance on tty3 fails to create its buffers; 1 GiB clears it. Once virgl owns the scanout, QMP `screendump` fails with "no surface", so the GL variant captures over VNC on a unix socket (raw RFB, `t3_qemu.py`). QEMU 11.1's `screendump` pads each PPM row to a multiple of 4 bytes while the header gives the width, so `t3img.read_ppm` drops the padding and refuses a body of any other size.
 
+## The guest without systemd
+
+`docs/systemd.md` lists what vtium does on a host whose PID 1 is not systemd; this guest judges that column. It is Debian 13 with sysvinit as PID 1, provisioned from the pins above by `make tier3-image-nosystemd` into the cache's `base/` as `sysvinit-<digest>.qcow2`, keyed by the files in `guest-sysvinit/` it is built from (`SYSVINIT_INPUTS`), and linked from `target/tier3/vm/base-sysvinit.qcow2`. Its one boot under systemd, with cloud-init, installs `sysvinit-core` and `sysv-rc` in place of `systemd-sysv` (and `libpam-systemd`), and `libxkbcommon0`, the one library of vtium's the image lacks; changes the inittab's `tty2` line from getty to `t3-console`; makes `/etc/rc.local`, which initscripts runs at the end of the runlevel, the boot hook; and powers off with `systemctl`, as sysvinit's `shutdown` is the one installed and systemd does not hear it. Alpine was ruled out because the minspec binary needs glibc 2.39, and Devuan because it publishes no disk image for excalibur and no dated snapshot to pin its packages to.
+
+Each boot after that runs sysvinit. The boot hook finds the run's disc with `blkid`, with or without udev, and runs `guest-sysvinit/setup`, which installs the tree and the screens as `guest/setup` does, and `t3-console`, the inittab's line: `vtium --vt=ttyN --no-switchvt` as `docs/systemd.md` says an init runs it, its log stamped onto the serial console as systemd's journal stamps it, so the driver reads it the same. Its report line adds PID 1's name and path, whether `/run/systemd/system` exists and the udev daemons running, and the driver fails the variant unless PID 1 is `init`, the directory is absent and udev runs as the variant says. vtium starts on tty2 at the boot, while tty1's getty is shown, and waits there; tty3 keeps its getty, but in `sysvinit-two-vts`, whose setup gives tty3 a second vtium and has init read the inittab again. The driver presses Ctrl+Alt+F2 once tty2's console has logged its VT, and the run goes on as under systemd.
+
+On every guest the login must report a pty (`T3-LOGIN /dev/pts/N`): vtium's session runs on one, and a login on `/dev/ttyN` is a getty's, drawn by the kernel's console, as when the keys reached a VT vtium did not hold.
+
+| Variant | Machine | Cases |
+|---|---|---|
+| `sysvinit-640x480` | 1 vCPU, 512 MB, `virtio-vga` with EDID 640x480, `kmscon-small-8x16.conf` | `sgr` and `cjk` against vtium's goldens, `vt-switch` to tty3's getty, `vt-restore` |
+| `sysvinit-no-udev` | the same, with the udev daemon stopped and `/run/udev` removed before vtium starts | the same: vtium finds its card and its keyboard in sysfs alone, with no `ID_SEAT`, `ID_PATH` or hotplug |
+| `sysvinit-two-vts` | the same, with a second vtium on tty3 from the boot | `cjk`, `vt-switch` to tty3's vtium, `vt-restore` |
+| `sysvinit-reboot` | 1 vCPU, 512 MB, as the power variants, `kmscon-power.conf` | `reboot-sysvinit` |
+| `sysvinit-restart` | the same, `kernel.ctrl-alt-del` at 1 | `reboot-hard` |
+| `sysvinit-power-off` | the same | `power-off-sysvinit` |
+
+| Case | Key | Passes when the console shows |
+|---|---|---|
+| `reboot-sysvinit` | `grab-reboot`, `kernel.ctrl-alt-del` at 0 | vtium's line that it asks init, sysvinit's `INIT: Switching to runlevel: 6`, its scripts' `Will now restart.`, then the kernel's `reboot: Restarting system` and QEMU's `guest-reset`, with no target of systemd's |
+| `power-off-sysvinit` | `grab-power-off` | no warning at vtium's start, vtium's line that it asks init, `INIT: Switching to runlevel: 0`, `Will now halt.`, then `reboot: Power down` and QEMU's `guest-shutdown` |
+
+sysvinit takes `SIGRTMIN+4` as systemd does (its `init.c` sets a handler that starts the power-off), so vtium's warning at its start, given wherever `/run/systemd/system` is absent, is wrong here; `power-off-sysvinit` carries it as a known failure (`t3_power.KNOWN`, vtium/vtium#138), which passes with a note while the warning shows and fails once it goes. `power-off` on the systemd guest forbids the warning. An init that ignores the signal is vtium/vtium#140's. The drawing variants' goldens are vtium's own, in `goldens/`, and provisional until the operator reviews them.
+
+`make tier3-nosystemd` runs the variants but `sysvinit-two-vts`, in a run beside `make tier3-minimal`'s: it needs the second base image, about 0.4 GiB downloaded and a file of about 1 GiB, which a checkout that only runs the minspec variants need not build. `sysvinit-two-vts` is vtium/vtium#139's check: two vtiums started at the boot race for DRM master, and whichever opens the card second fails to draw, logs no display within 10 s and exits; when that is tty2's, the driver's login reaches tty1's getty, which fails the variant. It joins the run once #139 lands; until then `make tier3-nosystemd VARIANTS=sysvinit-two-vts` runs it. A run of any variant boots the base image of its guest (`t3_scenario.GUESTS`) and refuses to start without it, naming the target that builds it.
+
 ## Goldens, tolerances and masks
 
 The C reference's goldens are `c-goldens/<variant>/<screen>.png`, full resolution and lossless. A keyed case's golden is named after the case; `photo-scrollforward` and `vt-restore` are compared with another screen's (`SAME_AS`). Comparison is exact unless a sidecar `<screen>.tol` sits beside the golden, holding `max_delta=`, `max_pixels=` and `mask=x0,y0,x1,y1` lines (end-exclusive); `#` starts a comment, and a malformed sidecar fails its case.
@@ -154,7 +184,7 @@ The figures are measured on a guest: a vCPU preempted by the host still counts a
 
 ## Self-tests
 
-`make test-tools` runs `test_t3img.py` (image I/O and the masked compare) and `test_t3.py`: the captions and screen text, the tree and its budget, the guest's account of its install, the copies against `provenance.tsv`, where provisioning fetches and builds the images, the base image's inputs, each variant's machine, the console lines the driver reads, the QEMU command line, the benchmark figures and verdicts, and the serial reader. `SixelGoldenTest` reads the colors and cells of the copied sixel goldens.
+`make test-tools` runs `test_t3img.py` (image I/O and the masked compare) and `test_t3.py`: the captions and screen text, the tree and its budget, the guest's account of its install, the copies against `provenance.tsv`, where provisioning fetches and builds the images, the base image's inputs, each variant's machine, the console lines the driver reads, the QEMU command line, the benchmark figures and verdicts, the serial reader, and the guest without systemd's variants, disc, login and account of its init and udev. `SixelGoldenTest` reads the colors and cells of the copied sixel goldens.
 
 ## What changed from the fork's harness
 

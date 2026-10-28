@@ -1,0 +1,79 @@
+#cloud-config
+# Provisions tier 3's guest without systemd on its first and only cloud-init
+# boot, which runs systemd: the packages come from snapshot.debian.org at
+# @ARCHIVE@, sysvinit-core takes PID 1 from the next boot on, and its
+# inittab runs vtium on tty2 where it ran a getty. t3.py substitutes
+# @ARCHIVE@ (the snapshot's timestamp) and @INSTALL_SCRIPT@ (tier3-install,
+# beside this file) before writing the seed disc.
+users:
+  - name: tester
+    plain_text_passwd: tester
+    lock_passwd: false
+    shell: /bin/bash
+write_files:
+  - path: /usr/local/sbin/tier3-provision
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -eux
+      rm -f /etc/apt/sources.list
+      cat > /etc/apt/sources.list.d/debian.sources <<EOF
+      Types: deb
+      URIs: https://snapshot.debian.org/archive/debian/@ARCHIVE@/
+      Suites: trixie trixie-updates
+      Components: main
+      Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+      Types: deb
+      URIs: https://snapshot.debian.org/archive/debian-security/@ARCHIVE@/
+      Suites: trixie-security
+      Components: main
+      Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+      EOF
+      # The snapshot's Release files are past their Valid-Until, and the
+      # snapshot is slow and refuses at times; retry rather than fail.
+      apt() {
+        for try in 1 2 3 4 5; do
+          DEBIAN_FRONTEND=noninteractive apt-get -y -o Acquire::Check-Valid-Until=false \
+            -o Acquire::Retries=5 "$@" && return 0
+          sleep 10
+        done
+        return 1
+      }
+      apt update
+      # sysvinit as PID 1 in place of systemd, with its runlevel scripts
+      # (sysv-rc); systemd-sysv, which apt counts as essential, goes, with
+      # libpam-systemd. And vtium's one library the image lacks, with the
+      # keyboard data it reads.
+      apt install --no-install-recommends --allow-remove-essential sysvinit-core sysv-rc \
+        systemd-sysv- libxkbcommon0 xkb-data
+      echo LANG=C.UTF-8 > /etc/default/locale
+      # tty2 runs vtium where it ran a getty; tty1 and tty3 keep theirs,
+      # and a variant's setup can give tty3 a second vtium. Ctrl+Alt+Del's
+      # SIGINT runs the inittab's ctrlaltdel entry.
+      sed -i 's|^2:23:respawn:/sbin/getty 38400 tty2$|2:23:respawn:/usr/local/sbin/t3-console tty2|' \
+        /etc/inittab
+      grep -qx '2:23:respawn:/usr/local/sbin/t3-console tty2' /etc/inittab
+      grep -qx '3:23:respawn:/sbin/getty 38400 tty3' /etc/inittab
+      grep -q '^ca:12345:ctrlaltdel:/sbin/shutdown ' /etc/inittab
+      # The boot hook: initscripts' rc.local runs it at the end of the
+      # runlevel, before init starts the inittab's terminals.
+      test -x /etc/init.d/rc.local
+      printf '#!/bin/sh\nexec /usr/local/sbin/tier3-install\n' > /etc/rc.local
+      chmod 0755 /etc/rc.local
+      touch /etc/cloud/cloud-init.disabled
+      apt-get clean
+      touch /home/tester/.hushlogin
+      echo "PS1='\$ '" > /home/tester/.bashrc
+      chown tester:tester /home/tester/.hushlogin /home/tester/.bashrc
+      sync
+      echo TIER3-PROVISION-OK > /dev/ttyS0
+      # shutdown is sysvinit's now, which systemd, PID 1 until this boot
+      # ends, does not hear; systemd's own command powers it off.
+      systemctl --no-block poweroff
+  - path: /usr/local/sbin/tier3-install
+    permissions: "0755"
+    encoding: b64
+    content: @INSTALL_SCRIPT@
+runcmd:
+  - [/usr/local/sbin/tier3-provision]
