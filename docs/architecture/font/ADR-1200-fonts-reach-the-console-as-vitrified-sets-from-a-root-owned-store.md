@@ -389,7 +389,7 @@ A zh_CN machine with its default and two favorites holds about 4 MB on a 320x240
 
 ### D15: dynamic strikes, outside minspec, in the helper
 
-A build that is not minspec may draw sizes a set lacks by rasterising them in ADR-1400's L1 helper: a separate process running as the session's user, with no-new-privileges and the helper's sandboxing (#31). The minspec build never rasterises and leaves the helper's rasteriser out. This is decided direction, built after #31's helper and after `create` and `set` land, as a new issue.
+A build that is not minspec may draw sizes a set lacks by rasterising them in ADR-1400's L1 helper: a separate process running as the session's user, with no-new-privileges and the helper's sandboxing (#31). The minspec build never rasterises and leaves the helper's rasteriser out. This is decided direction, built after #31's helper and after `create` and `set` land, as vtium/vtium#123.
 
 1. At a zoom or `font-size` to a size the set lacks, above its smallest strike, the console draws at once from the nearest baked strike scaled by a whole factor (D9).
 2. It asks the helper for the new size, the glyphs visible on screen first.
