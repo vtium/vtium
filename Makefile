@@ -25,9 +25,23 @@ vt_build := $(if $(filter $(VTIUM_MINSPEC),$(VTIUM_BIN)),minspec)
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*## " } /^[a-zA-Z0-9_-]+:.*## / { printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
+# The minspec console binary links with packed relative relocations
+# (DT_RELR), which saves 65,848 B (vtium/vtium#143's floor: glibc 2.36 reads
+# them; the linker needs binutils 2.38 or lld 15). cargo rustc hands the flag
+# to the vtium binary's link alone, so the default dev build, cargo test and
+# the other crates' links stay as they are.
+RELR_LINK := -C link-arg=-Wl,-z,pack-relative-relocs
+
+# check-relr FILE fails unless the dynamic section of FILE carries DT_RELR, so
+# the flag cannot drop silently.
+define check-relr
+readelf -d $(1) | grep -q '(RELR)' || { echo "$(1) carries no DT_RELR: the minspec link lost -z pack-relative-relocs" >&2; exit 1; }
+endef
+
 .PHONY: minspec
 minspec: ## Build the minspec binary, target/minspec/vtium
-	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo build --profile minspec -p vtium
+	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium -- $(RELR_LINK)
+	$(call check-relr,$(VTIUM_MINSPEC))
 
 # vtium as a system installs it, staged under DESTDIR: the minspec binary,
 # vtium-vitrify, the VT unit, the compiled terminfo entry and the example
@@ -38,6 +52,7 @@ VTIUM_INSTALL := crates/vtium/install
 .PHONY: install-tree
 install-tree: minspec ## Stage vtium's install tree under DESTDIR (default target/install-tree; needs tic)
 	install -Dm755 $(VTIUM_MINSPEC) $(DESTDIR)/usr/bin/vtium
+	$(call check-relr,$(DESTDIR)/usr/bin/vtium)
 	cargo build --release -p vtium-vitrify
 	install -Dm755 $(or $(CARGO_TARGET_DIR),target)/release/vtium-vitrify $(DESTDIR)/usr/bin/vtium-vitrify
 	install -Dm644 $(VTIUM_INSTALL)/kmsconvt@.service $(DESTDIR)/usr/lib/systemd/system/kmsconvt@.service
@@ -68,6 +83,10 @@ arm-sysroot: ## Fetch and verify the Debian sysroots the ARM targets link agains
 .PHONY: arm
 arm: arm-sysroot ## Build the minspec profile for each ARM target, target/TRIPLE/minspec (ARM_TARGETS='...'; needs clang)
 	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo build --profile minspec $(addprefix --target ,$(ARM_TARGETS))
+	for t in $(ARM_TARGETS); do \
+		VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $$t -- $(RELR_LINK) || exit 1; \
+		$(call check-relr,$(or $(CARGO_TARGET_DIR),target)/$$t/minspec/vtium) || exit 1; \
+	done
 
 .PHONY: arm-test
 arm-test: arm-sysroot ## Run the workspace's tests for each ARM target under qemu-user (ARM_TEST_TARGETS='...'; needs clang, qemu-user)
