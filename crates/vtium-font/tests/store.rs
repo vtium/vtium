@@ -15,6 +15,10 @@ use vtium_font::set::{
 };
 use vtium_font::{Cell, Face, Sha256, Style, Width};
 
+mod common;
+
+use common::{assemble, sections};
+
 /// The first ancestor of `dir` that the store's check refuses as a parent
 /// for `uid`: a symbolic link, or a directory another user owns or group
 /// or others may write. `None` when every ancestor passes.
@@ -351,6 +355,46 @@ fn a_set_past_its_bound_is_refused() {
         ),
         "{err}"
     );
+}
+
+// A store set whose sections are longer than their tables' counts declare
+// is refused while it is read, before its hash is compared and before the
+// excess is held: its manifest row names its true hash
+#[test]
+fn a_section_longer_than_its_counts_is_refused() {
+    for tag in [b"STRK", b"CMAP", b"POLY"] {
+        let name = String::from_utf8_lossy(tag).to_lowercase();
+        let dir = store_dir(&format!("padded-{name}"));
+        let good = set_bytes("padded", 1);
+        let (major, minor, mut secs) = sections(&good);
+        let s = secs
+            .iter_mut()
+            .find(|(t, _)| t == tag)
+            .expect("the section");
+        s.1.extend(vec![0u8; 1 << 20]);
+        let bytes = assemble(major, minor, &secs);
+        let row = row("padded", &bytes);
+        write(&dir.join(row.file_name()), &bytes);
+        write(
+            &dir.join("manifest"),
+            Manifest::new(vec![row])
+                .expect("a manifest")
+                .to_tsv()
+                .as_bytes(),
+        );
+        let store = Store::open(&dir, uid(&dir)).expect("opens");
+        let err = store.load("padded").expect_err("refused");
+        assert!(
+            matches!(
+                err,
+                StoreError::Set {
+                    error: SetError::Malformed("a section whose length is not its table's"),
+                    ..
+                }
+            ),
+            "{name}: {err}"
+        );
+    }
 }
 
 // The manifest reads back what it wrote, sorted, and refuses each

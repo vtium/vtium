@@ -115,10 +115,10 @@ const SET_GLYPHS: Bound = Bound {
 
 const SET_RUNS: Bound = Bound {
     name: "SET_RUNS_MAX",
-    value: 1 << 20,
+    value: 1 << 18,
     what: "Runs of codepoints a set's `CMAP` holds, over every strike",
     past: "The set is refused",
-    cite: "vtium's own: the built-in unifont is 3,465 runs, and the bound keeps the map under 16 MiB in memory",
+    cite: "vtium's own: the built-in unifont is 3,465 runs, and Noto Sans Mono CJK unlimited, about 44,000 glyphs (ADR-1200 D1), at most 44,000 a strike. A run and its glyph span take 36 bytes in memory, so the map holds at most 9 MiB, and its `CMAP` at most 16,777,352 bytes while it is read",
 };
 
 const SET_CHUNKS: Bound = Bound {
@@ -139,10 +139,10 @@ const SET_CHUNK: Bound = Bound {
 
 const SET_RECORD: Bound = Bound {
     name: "SET_RECORD_BYTES_MAX",
-    value: 256,
+    value: 64,
     what: "Bytes a record of a set's tables declares",
     past: "The set is refused",
-    cite: "vtium's own: format 1.0's largest record is 52 bytes, and a minor version adds fields at a record's end (ADR-1200 D2)",
+    cite: "vtium's own: format 1.0's largest record is 52 bytes, and a minor version adds fields at a record's end (ADR-1200 D2); it bounds what a table's counts can make the reader hold",
 };
 
 const MANIFEST_BYTES: Bound = Bound {

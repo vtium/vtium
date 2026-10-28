@@ -151,8 +151,14 @@ pub(super) fn parse_cmap(bytes: &[u8], strikes: &mut [Strike]) -> Result<(), Set
         if total > SET_RUNS_MAX {
             return Err(SetError::Bound("SET_RUNS_MAX"));
         }
-        let mut runs: Vec<Run> = Vec::new();
-        let mut spans: Vec<Span> = Vec::new();
+        // the runs' bytes are there before any is held, and the map is
+        // allocated once, exactly as large as the counts declare
+        let declared = usize::try_from(n).map_err(|_| SetError::Truncated)?;
+        if c.0.len() < declared.saturating_mul(size) {
+            return Err(SetError::Truncated);
+        }
+        let mut runs: Vec<Run> = Vec::with_capacity(declared);
+        let mut spans: Vec<Span> = Vec::with_capacity(declared);
         let (mut next, mut stored) = (0u32, 0u64);
         for _ in 0..n {
             let mut r = c.record(size)?;

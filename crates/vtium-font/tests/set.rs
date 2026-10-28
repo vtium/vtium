@@ -630,7 +630,7 @@ fn each_bound_refuses_the_set() {
         "SET_STRIKES_MAX"
     );
     assert_eq!(
-        bound(with_section(&set, b"STRK", |s| put32(s, 4, 257))),
+        bound(with_section(&set, b"STRK", |s| put32(s, 4, 65))),
         "SET_RECORD_BYTES_MAX"
     );
     // the first strike's glyph count, then its cell width
@@ -644,7 +644,7 @@ fn each_bound_refuses_the_set() {
         "CELL_SIDE_MAX"
     );
     assert_eq!(
-        bound(with_section(&set, b"CMAP", |s| put32(s, 8, (1 << 20) + 1))),
+        bound(with_section(&set, b"CMAP", |s| put32(s, 8, (1 << 18) + 1))),
         "SET_RUNS_MAX"
     );
     assert_eq!(

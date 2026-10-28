@@ -11,14 +11,16 @@ use std::os::unix::fs::FileExt;
 use std::sync::OnceLock;
 
 use crate::bounds::{
-    SET_BYTES_MAX, SET_CHUNKS_MAX, SET_META_BYTES_MAX, SET_RECORD_BYTES_MAX, SET_SECTIONS_MAX,
+    SET_BYTES_MAX, SET_CHUNKS_MAX, SET_META_BYTES_MAX, SET_RECORD_BYTES_MAX, SET_RUNS_MAX,
+    SET_SECTIONS_MAX, SET_STRIKES_MAX,
 };
 use crate::face::{Cell, Decorations, Style, Width};
 use crate::glyph::{Format, Glyph};
 use crate::policy::{Coverage, RangeCoverage, SpritePolicy};
 use crate::set::format::{
-    CHUNK_RECORD, CMAP, FORMAT_BITS, FORMAT_R8, FORMAT_RGBA, GLYF, MAGIC, MAJOR, META, POLY,
-    PRELUDE_BYTES, SECTION_BYTES, STRK, TABLE_HEAD_BYTES, glyph_bytes,
+    CHUNK_RECORD, CMAP, COVERAGE_RECORD, FORMAT_BITS, FORMAT_R8, FORMAT_RGBA, GLYF, MAGIC, MAJOR,
+    META, POLY, PRELUDE_BYTES, RUN_RECORD, SECTION_BYTES, STRIKE_RECORD, STRK, TABLE_HEAD_BYTES,
+    glyph_bytes,
 };
 use crate::sha256::Sha256;
 use crate::sprite::Range;
@@ -407,6 +409,139 @@ fn index_len(head: &[u8]) -> Result<u64, SetError> {
     )
 }
 
+/// A set's file read once, start to end, every byte hashed.
+struct Stream<R> {
+    reader: R,
+    hash: Sha256,
+}
+
+/// A table's length from its head: `skip` bytes, then its count, checked
+/// against `bound`, and its record size, at least `known`.
+fn table_len(
+    head: &[u8],
+    skip: u64,
+    bound: u32,
+    name: &'static str,
+    known: u32,
+) -> Result<u64, SetError> {
+    let mut c = Cursor(head);
+    c.take(usize_of(skip)?)?;
+    let (count, size) = c.table(bound, name, known)?;
+    let size = u64::try_from(size).map_err(|_| SetError::Truncated)?;
+    add(
+        add(skip, u64::from(TABLE_HEAD_BYTES))?,
+        mul(u64::from(count), size)?,
+    )
+}
+
+impl<R: Read> Stream<R> {
+    /// The next `n` bytes, hashed, kept or not.
+    fn pass(&mut self, n: u64, mut keep: Option<&mut Vec<u8>>) -> Result<(), SetError> {
+        if let Some(kept) = keep.as_deref_mut() {
+            kept.reserve_exact(usize_of(n)?);
+        }
+        let mut buf = [0u8; 16 * 1024];
+        let mut left = n;
+        while left > 0 {
+            let want = usize_of(left.min(16 * 1024))?;
+            let block = buf.get_mut(..want).ok_or(SetError::Truncated)?;
+            self.reader.read_exact(block).map_err(|e| match e.kind() {
+                io::ErrorKind::UnexpectedEof => SetError::Truncated,
+                _ => SetError::Io(e),
+            })?;
+            self.hash.update(block);
+            if let Some(kept) = keep.as_deref_mut() {
+                kept.extend_from_slice(block);
+            }
+            left = left.saturating_sub(u64::try_from(want).unwrap_or(0));
+        }
+        Ok(())
+    }
+
+    fn keep(&mut self, n: u64) -> Result<Vec<u8>, SetError> {
+        let mut kept = Vec::new();
+        self.pass(n, Some(&mut kept))?;
+        Ok(kept)
+    }
+
+    fn skip(&mut self, n: u64) -> Result<(), SetError> {
+        self.pass(n, None)
+    }
+
+    /// Section `tag`, `length` bytes, as the set is checked from it: each
+    /// table's head is read first, and then only as many bytes as its
+    /// counts and record sizes declare, so a set is held in memory only as
+    /// large as a valid set of the counts it declares. `GLYF` keeps its
+    /// head and chunk index and passes over its chunks.
+    fn section(&mut self, tag: [u8; 4], length: u64) -> Result<Vec<u8>, SetError> {
+        let table = u64::from(TABLE_HEAD_BYTES);
+        let mismatch = SetError::Malformed("a section whose length is not its table's");
+        match tag {
+            META => {
+                if length > u64::from(SET_META_BYTES_MAX) {
+                    return Err(SetError::Bound("SET_META_BYTES_MAX"));
+                }
+                self.keep(length)
+            }
+            STRK | POLY => {
+                // POLY's sources and a reserved u16 come before its table
+                let (skip, known) = if tag == STRK {
+                    (0, STRIKE_RECORD)
+                } else {
+                    (8, COVERAGE_RECORD)
+                };
+                let mut kept = self.keep(add(skip, table)?.min(length))?;
+                let need = table_len(&kept, skip, SET_STRIKES_MAX, "SET_STRIKES_MAX", known)?;
+                if need != length {
+                    return Err(mismatch);
+                }
+                self.pass(length.saturating_sub(add(skip, table)?), Some(&mut kept))?;
+                Ok(kept)
+            }
+            CMAP => {
+                let mut kept = self.keep(table.min(length))?;
+                let mut c = Cursor(&kept);
+                let (count, size) = c.table(SET_STRIKES_MAX, "SET_STRIKES_MAX", RUN_RECORD)?;
+                let size = u64::try_from(size).map_err(|_| SetError::Truncated)?;
+                let mut left = length.saturating_sub(table);
+                let mut total = 0u32;
+                for _ in 0..count {
+                    left = left.checked_sub(4).ok_or(SetError::Truncated)?;
+                    let n = self.keep(4)?;
+                    let n = Cursor(&n).u32()?;
+                    total = total.saturating_add(n);
+                    if total > SET_RUNS_MAX {
+                        return Err(SetError::Bound("SET_RUNS_MAX"));
+                    }
+                    kept.extend(n.to_le_bytes());
+                    let runs = mul(u64::from(n), size)?;
+                    left = left.checked_sub(runs).ok_or(SetError::Truncated)?;
+                    self.pass(runs, Some(&mut kept))?;
+                }
+                if left != 0 {
+                    return Err(mismatch);
+                }
+                Ok(kept)
+            }
+            GLYF => {
+                let mut kept = self.keep(table.min(length))?;
+                let n = index_len(&kept)?;
+                if n > length {
+                    return Err(SetError::Truncated);
+                }
+                self.pass(n.saturating_sub(table), Some(&mut kept))?;
+                self.skip(length.saturating_sub(n))?;
+                Ok(kept)
+            }
+            // a section a later minor version added: hashed and skipped
+            _ => {
+                self.skip(length)?;
+                Ok(Vec::new())
+            }
+        }
+    }
+}
+
 impl Set {
     /// Reads and checks a whole set held in memory: every bound, every
     /// table and the chunk index. Each chunk is checked against its hash
@@ -443,67 +578,23 @@ impl Set {
         if len > u64::from(SET_BYTES_MAX) {
             return Err(SetError::Bound("SET_BYTES_MAX"));
         }
-        let mut hash = Sha256::new();
-        let mut reader = (&file).take(len);
-        let mut read = |n: u64, keep: bool, hash: &mut Sha256| -> Result<Vec<u8>, SetError> {
-            let mut kept = Vec::new();
-            let mut left = n;
-            let mut buf = vec![0u8; 64 * 1024];
-            while left > 0 {
-                let want = usize_of(left.min(64 * 1024))?;
-                let block = buf.get_mut(..want).ok_or(SetError::Truncated)?;
-                reader.read_exact(block).map_err(|e| match e.kind() {
-                    io::ErrorKind::UnexpectedEof => SetError::Truncated,
-                    _ => SetError::Io(e),
-                })?;
-                hash.update(block);
-                if keep {
-                    kept.extend_from_slice(block);
-                }
-                left = left.saturating_sub(u64::try_from(want).unwrap_or(0));
-            }
-            Ok(kept)
+        let mut stream = Stream {
+            reader: (&file).take(len),
+            hash: Sha256::new(),
         };
-        let mut head = read(u64::from(PRELUDE_BYTES), true, &mut hash)?;
+        let mut head = stream.keep(u64::from(PRELUDE_BYTES))?;
         let header_len = u64::try_from(Header::len(&head)?).map_err(|_| SetError::Truncated)?;
-        head.extend(read(
-            header_len.saturating_sub(u64::from(PRELUDE_BYTES)),
-            true,
-            &mut hash,
-        )?);
+        head.extend(stream.keep(header_len.saturating_sub(u64::from(PRELUDE_BYTES)))?);
         let header = Header::parse(&head, len)?;
         let mut kept: Vec<([u8; 4], Vec<u8>)> = Vec::new();
         let mut glyf = (0, 0);
         for &(tag, offset, length) in &header.sections {
-            match tag {
-                GLYF => {
-                    let mut index = read(u64::from(TABLE_HEAD_BYTES).min(length), true, &mut hash)?;
-                    let n = index_len(&index)?;
-                    if n > length {
-                        return Err(SetError::Truncated);
-                    }
-                    index.extend(read(
-                        n.saturating_sub(u64::from(TABLE_HEAD_BYTES)),
-                        true,
-                        &mut hash,
-                    )?);
-                    read(length.saturating_sub(n), false, &mut hash)?;
-                    kept.push((tag, index));
-                    glyf = (offset, length);
-                }
-                META | STRK | CMAP | POLY => {
-                    if tag == META && length > u64::from(SET_META_BYTES_MAX) {
-                        return Err(SetError::Bound("SET_META_BYTES_MAX"));
-                    }
-                    kept.push((tag, read(length, true, &mut hash)?));
-                }
-                // a section a later minor version added: hashed and skipped
-                _ => {
-                    read(length, false, &mut hash)?;
-                }
+            if tag == GLYF {
+                glyf = (offset, length);
             }
+            kept.push((tag, stream.section(tag, length)?));
         }
-        let found = hash.finish();
+        let found = stream.hash.finish();
         if found != expected {
             return Err(SetError::FileHash { expected, found });
         }
@@ -883,5 +974,25 @@ impl Strike {
         let info = self.info;
         let cells = if wide { 2 } else { 1 };
         glyph_bytes(info.format.code(), info.cell.width, info.cell.height, cells).map(u64::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bounds::{SET_RECORD_BYTES_MAX, SET_STRIKES_MAX};
+
+    // The map a set can make the reader hold: 36 bytes a run, a run and
+    // the glyph span it may bring in, so at most 9 MiB at SET_RUNS_MAX, and
+    // CMAP's bytes while they are read, at most 16,777,352 (the crate's
+    // README, Bounds)
+    #[test]
+    fn the_map_stays_within_its_figures() {
+        let per_run = size_of::<Run>() + size_of::<Span>();
+        assert_eq!(per_run, 36);
+        let runs = usize::try_from(SET_RUNS_MAX).unwrap_or(usize::MAX);
+        assert_eq!(per_run * runs, 9 << 20);
+        let cmap = 8 + 4 * SET_STRIKES_MAX + SET_RUNS_MAX * SET_RECORD_BYTES_MAX;
+        assert_eq!(cmap, 16_777_352);
     }
 }
