@@ -3,7 +3,7 @@
 # T3PKG disc mounted at $1, before init starts the inittab's terminals:
 # unpacks vtium's install tree (tree.tar) over the root, and installs the
 # variant's config, its test fonts, the scenario screens and t3-console,
-# which the inittab runs on tty2, and builds its font sets.
+# which the inittab runs on tty2, and its frits.
 set -eu
 disc=$1
 tar -xpf "$disc"/tree.tar -C / --no-overwrite-dir --keep-directory-symlink
@@ -13,14 +13,11 @@ install -Dm644 "$disc"/kmscon.conf /etc/kmscon/kmscon.conf
 if [ -d "$disc"/fonts ]; then
     install -Dm644 -t /usr/local/share/tier3-fonts "$disc"/fonts/*
 fi
-# A variant drawing a PSF font draws the set built from it (ADR-1200 D9):
-# its frits are built into the store before init starts the consoles, as a
-# package hook builds them, and each set's line goes to the serial console.
+# A variant drawing a PSF font installs its frits, whose glyphs the helper
+# generates at run time (ADR-1301 D2); nothing is built before init starts
+# the consoles.
 if [ -d "$disc"/frits ]; then
     install -Dm644 -t /etc/vtium/fonts "$disc"/frits/*.vtfrit
-    for frit in "$disc"/frits/*.vtfrit; do
-        vtium-vitrify create "$(basename "$frit" .vtfrit)" > /dev/ttyS0
-    done
 fi
 # A power variant's kernel settings, such as kernel.ctrl-alt-del for the
 # hard reboot, set before the console starts.

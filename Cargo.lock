@@ -567,6 +567,7 @@ dependencies = [
  "vtium-font",
  "vtium-render",
  "vtium-term",
+ "vtium-vitrify",
 ]
 
 [[package]]
