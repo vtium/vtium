@@ -120,8 +120,9 @@ fn columns(span: usize, width: usize) -> usize {
 }
 
 /// The rows the logical line `rows`, trimmed, takes at `width`. A line
-/// whose text fits is counted from its length; only a longer one is walked
-/// cell by cell, since a wide character may move.
+/// whose text fits, or that holds no wide character, is counted from its
+/// length; only a longer one with a wide character in it is laid out cell
+/// by cell, since a wide character may move.
 pub(crate) fn rows_at<'a, I>(rows: I, width: usize) -> usize
 where
     I: Iterator<Item = &'a Line> + Clone,
@@ -133,6 +134,10 @@ where
         .fold(0usize, usize::saturating_add);
     if len <= width || rows.clone().any(|l| !rewraps(l)) {
         return 1;
+    }
+    let wide = |c: &Cell| c.width() == Width::Wide;
+    if width >= 2 && !rows.clone().any(|l| text(l).iter().any(wide)) {
+        return len.div_ceil(width);
     }
     let (mut count, mut col) = (1usize, 0usize);
     for line in rows {
@@ -611,7 +616,12 @@ mod tests {
             for width in 1..12 {
                 let counted = rows_at(rows.iter(), width);
                 let made = rewrap(rows.clone(), width, &mut []);
-                assert_eq!(counted, made.len(), "{:?} at {width}", rows.iter().map(text_of).collect::<Vec<_>>());
+                assert_eq!(
+                    counted,
+                    made.len(),
+                    "{:?} at {width}",
+                    rows.iter().map(text_of).collect::<Vec<_>>()
+                );
                 assert!(made.iter().all(|l| l.len() <= width));
             }
         }
@@ -625,7 +635,10 @@ mod tests {
         assert_eq!(texts, ["abc_", "Wd"]);
         assert!(out[0].flags().contains(LineFlags::WRAPPED));
         assert!(!out[1].flags().contains(LineFlags::WRAPPED));
-        assert_eq!((out[0].id(), out[1].id()), (LineId::new(1), LineId::new(100)));
+        assert_eq!(
+            (out[0].id(), out[1].id()),
+            (LineId::new(1), LineId::new(100))
+        );
         // Rejoined, the pad goes.
         let out = rewrap(out, 8, &mut []);
         assert_eq!(out.iter().map(text_of).collect::<Vec<_>>(), ["abcWd"]);
@@ -647,7 +660,10 @@ mod tests {
         assert_eq!(places[0], Place::at(0, 3));
         assert_eq!(places[1], Place::at(0, 4));
         assert_eq!(places[2], Place::at(0, 7));
-        assert_eq!((places[3].row, places[3].col, places[3].after), (0, 5, false));
+        assert_eq!(
+            (places[3].row, places[3].col, places[3].after),
+            (0, 5, false)
+        );
     }
 
     // A row of double size, or one written with mode 2028 reset, joins

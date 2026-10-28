@@ -1120,7 +1120,13 @@ mod tests {
     #[test]
     fn shrinking_cuts_a_wide_character_and_ends_the_wrap() {
         let mut line = Line::new(LineId::new(1), 4);
-        line.write(1, Glyph::Cluster(FAMILY), Width::Wide, &Style::DEFAULT, None);
+        line.write(
+            1,
+            Glyph::Cluster(FAMILY),
+            Width::Wide,
+            &Style::DEFAULT,
+            None,
+        );
         line.write(2, Glyph::Empty, Width::WideTail, &Style::DEFAULT, None);
         line.flags_mut().insert(LineFlags::WRAPPED);
         line.resize(2);

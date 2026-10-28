@@ -591,3 +591,59 @@ fn rewrapping_through_several_widths_equals_rewrapping_once() {
         );
     }
 }
+
+/// The scrollback's heap, its rows rewrapped.
+fn scrollback_heap(t: &mut Terminal) -> usize {
+    t.screen_mut().rewrap_scrollback();
+    t.screen().scrollback().map(Line::heap_bytes).sum()
+}
+
+// "Cost" (vtium/vtium#41's gate): the time a resize takes with a
+// 100,000-row scrollback 170 cells wide, the screen and its margin at once
+// and then the rest of the scrollback, and the scrollback's heap before
+// and after: full rows wrapped in pairs, one logical line spanning the
+// scrollback, a shell's short lines, and a style a cell. Run with `cargo
+// test --release -p vtium-term --test reflow reflow_cost -- --ignored
+// --nocapture`; the figures go to the crate's README.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn reflow_cost() {
+    use std::time::Instant;
+    let shapes: [(&str, String, usize); 4] = [
+        ("wrapped pairs", format!("{}\r\n", "a".repeat(340)), 100_000),
+        ("one logical line", "a".repeat(170), 100_000),
+        ("shell lines", format!("{}\r\n", "a".repeat(40)), 100_000),
+        (
+            "a style a cell",
+            format!("{}\r\n", "\x1b[38;2;1;2;3ma".repeat(340)),
+            10_000,
+        ),
+    ];
+    for (name, unit, rows) in shapes {
+        let mut t = with_scrollback(170, 48, rows, b"");
+        let per = if name == "shell lines" || name == "one logical line" {
+            1
+        } else {
+            2
+        };
+        t.input(unit.repeat((rows + 48) / per).as_bytes());
+        let before = scrollback_heap(&mut t);
+        for cols in [169, 170, 100] {
+            let at = Instant::now();
+            t.resize(cols, 48);
+            let resize = at.elapsed();
+            let at = Instant::now();
+            t.screen_mut().rewrap_scrollback();
+            let rest = at.elapsed();
+            let n = t.screen().scrollback().len();
+            eprintln!(
+                "{name}: to {cols} columns, {n} rows: the resize {resize:?}, the rest {rest:?}, {:.1} ns a cell in all",
+                (resize + rest).as_nanos() as f64 / (n * 170) as f64
+            );
+        }
+        eprintln!(
+            "{name}: heap {before} bytes before, {} after",
+            scrollback_heap(&mut t)
+        );
+    }
+}
