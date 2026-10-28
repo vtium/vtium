@@ -542,7 +542,6 @@ struct Landing {
 
 #[cfg(test)]
 #[expect(
-    clippy::unwrap_used,
     clippy::indexing_slicing,
     clippy::arithmetic_side_effects,
     reason = "a test fails by panicking"

@@ -629,6 +629,10 @@ fn scrollback_heap(t: &mut Terminal) -> usize {
 // --nocapture`; the figures go to the crate's README.
 #[test]
 #[ignore = "a measurement, not a check"]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a measurement reads the clock; nothing it reads reaches the screen"
+)]
 fn reflow_cost() {
     use std::time::Instant;
     let shapes: [(&str, String, usize); 4] = [
