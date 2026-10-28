@@ -28,7 +28,9 @@
 //!   last going and the next after none count too, as a display change,
 //!   which wakes nothing while the VT is not ours; another hotplug or a
 //!   re-take never counts. The seat's clock drives the blank's countdown
-//!   ([`App::next_wake`]).
+//!   ([`App::next_wake`]). A signal from outside the session
+//!   ([`crate::blank`]) blanks at once, or wakes as a program's
+//!   `CSI 13 ]` does, at the turn's end.
 //! - **The child.** It first starts once a display is set up, on the
 //!   grid's size ([`respawn::first_start_due`]); when it exits the respawn
 //!   policy starts it again or ends vtium.

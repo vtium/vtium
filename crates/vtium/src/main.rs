@@ -25,7 +25,7 @@ use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty};
 
 fn help() -> String {
     let mut out = String::from(
-        "Usage: vtium [OPTION]... [--login -- COMMAND...]\n       vtium check-config [OPTION]...   check the configuration, apply nothing\n\n",
+        "Usage: vtium [OPTION]... [--login -- COMMAND...]\n       vtium check-config [OPTION]...   check the configuration, apply nothing\n       vtium blank --vt N               blank the displays of the vtium on VT N now\n       vtium wake --vt N                wake the displays of the vtium on VT N\n\n",
     );
     for k in &KEYS {
         let arg = match k.kind {
