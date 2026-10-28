@@ -1,7 +1,8 @@
 //! Finding and reading a frit's sources, as the invoking user, before
 //! anything is parsed (ADR-1200 D1, D8, D14): kbd names resolved as
-//! `setfont` resolves them, files, vconsole.conf with the kernel's command
-//! line over it, the kernel's own font, and the built-in sets. Each source
+//! `setfont` resolves them, outline families found among the installed
+//! fonts, files, vconsole.conf with the kernel's command line over it, the
+//! kernel's own font, and the built-in sets. Each source
 //! becomes the bytes the parser is handed and the SHA-256 of each, from
 //! which the build key is made.
 
@@ -13,6 +14,7 @@ use vtium_platform::vt::font::{ConsoleFont, ConsoleTty};
 use crate::build::Font;
 use crate::child::Request;
 use crate::frit::{Origin, Source};
+use crate::outline::{OUTLINE_BYTES_MAX, OutlineRequest, family_key as outline_key};
 
 /// The kbd data directories the build names, in the order they are
 /// searched: kbd's own, Debian's console-setup and the Red Hat family's.
@@ -26,6 +28,15 @@ pub const UNIMAP_SUFFIXES: [&str; 3] = ["", ".uni", ".sfm"];
 /// The compressions it tries after each, in order (`kbdfile.c`).
 pub const COMPRESSED: [&str; 5] = ["", ".gz", ".bz2", ".xz", ".zst"];
 
+/// The directories installed outline fonts are found in, as fontconfig's
+/// default configuration names them for the system; `create` run as a
+/// user also searches that user's own (`Host::font_dirs`).
+pub const FONT_DIRS: [&str; 2] = ["/usr/share/fonts", "/usr/local/share/fonts"];
+/// The extensions an outline font file carries, case ignored.
+pub const OUTLINE_SUFFIXES: [&str; 4] = ["ttf", "otf", "ttc", "otc"];
+/// How deep under a font directory an outline family is looked for.
+pub const FONT_DEPTH_MAX: usize = 8;
+
 /// The most bytes vconsole.conf or the kernel's command line holds.
 pub(crate) const CONFIG_BYTES_MAX: u64 = 64 * 1024;
 
@@ -33,6 +44,8 @@ pub(crate) const CONFIG_BYTES_MAX: u64 = 64 * 1024;
 /// and the kernel's command line are, and the kernel's VT fonts.
 pub struct Host<'a> {
     pub kbd_dirs: Vec<PathBuf>,
+    /// Where installed outline fonts are found, in order.
+    pub font_dirs: Vec<PathBuf>,
     pub vconsole_conf: PathBuf,
     pub kernel_cmdline: PathBuf,
     pub consoles: &'a dyn Consoles,
@@ -64,6 +77,9 @@ impl Consoles for KernelConsoles {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Input {
     Font(Request),
+    /// An outline font, its cells and coverage filled in when the set's
+    /// cell is known.
+    Outline(OutlineRequest),
     Builtin(Font),
 }
 
@@ -332,6 +348,87 @@ fn find_family_capped(
     Ok(None)
 }
 
+/// Finds an outline font by family (`font:`) under `dirs`, as installed
+/// fonts are named: a TrueType or OpenType file or collection whose name,
+/// less its extension, is the family, or the family and `Regular`, with
+/// case, blanks, `-` and `_` ignored, the plain name first, then in the
+/// order the directories are given and by path. The parser checks the
+/// family the file's name table gives. A directory past
+/// `FAMILY_ENTRIES_MAX` entries fails the search; directories deeper than
+/// `FONT_DEPTH_MAX` and links to directories are not entered. A file
+/// found is read only if, its links resolved, it stays under `dirs`.
+pub fn find_outline_family(family: &str, dirs: &[PathBuf]) -> Result<Option<PathBuf>, String> {
+    let key = outline_key(family);
+    let regular = format!("{key}regular");
+    let mut found: Option<(u8, usize, PathBuf)> = None;
+    for (order, root) in dirs.iter().enumerate() {
+        let mut pending = vec![(root.clone(), 0usize)];
+        while let Some((dir, depth)) = pending.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for (n, entry) in entries.flatten().enumerate() {
+                if n >= FAMILY_ENTRIES_MAX {
+                    return Err(format!(
+                        "{} holds more than {FAMILY_ENTRIES_MAX} entries",
+                        dir.display()
+                    ));
+                }
+                let path = entry.path();
+                let Ok(kind) = entry.file_type() else {
+                    continue;
+                };
+                if kind.is_dir() {
+                    if depth < FONT_DEPTH_MAX {
+                        pending.push((path, depth.saturating_add(1)));
+                    }
+                    continue;
+                }
+                let (Some(stem), Some(ext)) = (
+                    path.file_stem().and_then(|s| s.to_str()),
+                    path.extension().and_then(|s| s.to_str()),
+                ) else {
+                    continue;
+                };
+                if !OUTLINE_SUFFIXES.iter().any(|s| s.eq_ignore_ascii_case(ext)) {
+                    continue;
+                }
+                let stem = outline_key(stem);
+                let rank = if stem == key {
+                    0
+                } else if stem == regular {
+                    1
+                } else {
+                    continue;
+                };
+                let better = found
+                    .as_ref()
+                    .is_none_or(|(r, o, p)| (rank, order, &path) < (*r, *o, p));
+                if better && is_file(&path) {
+                    found = Some((rank, order, path));
+                }
+            }
+        }
+    }
+    found
+        .map(|(_, _, path)| {
+            let real =
+                std::fs::canonicalize(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let inside = dirs
+                .iter()
+                .any(|d| std::fs::canonicalize(d).is_ok_and(|root| real.starts_with(root)));
+            if inside {
+                Ok(real)
+            } else {
+                Err(format!(
+                    "{} leaves the font directories through a link",
+                    path.display()
+                ))
+            }
+        })
+        .transpose()
+}
+
 /// `path`, found by name under `<data>/<sub>/`, resolved through its links
 /// and refused unless it stays under that directory of one of
 /// `data_dirs`, so a link out of kbd's directories reads nothing.
@@ -401,16 +498,33 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, SourceError
             read_bounded(&find_font(name)?, limit)?,
             source.unimap.clone(),
         ),
-        Origin::Font(family) => {
-            let path = find_family(family, &host.kbd_dirs)?.ok_or_else(|| {
-                missing(format!(
-                    "no font of family {family}: kbd console fonts are matched by name in {}, \
-                     outline and BDF families once vtium/vtium#23 reads them",
-                    dirs()
-                ))
-            })?;
-            let path = contained(&path, &host.kbd_dirs, "consolefonts")?;
-            (read_bounded(&path, limit)?, source.unimap.clone())
+        Origin::Font(family) => match find_family(family, &host.kbd_dirs)? {
+            Some(path) => {
+                let path = contained(&path, &host.kbd_dirs, "consolefonts")?;
+                (read_bounded(&path, limit)?, source.unimap.clone())
+            }
+            None => {
+                let path = find_outline_family(family, &host.font_dirs)?.ok_or_else(|| {
+                    let fonts: Vec<String> = host
+                        .font_dirs
+                        .iter()
+                        .map(|d| d.display().to_string())
+                        .collect();
+                    missing(format!(
+                        "no font of family {family}: no kbd console font of that name in {}, \
+                         and no outline font named for it in {}",
+                        dirs(),
+                        fonts.join(", ")
+                    ))
+                })?;
+                return outline(source, read_bounded(&path, OUTLINE_BYTES_MAX)?, family);
+            }
+        },
+        Origin::Outline(path) if !path.exists() => {
+            return Err(missing(format!("{}: not on this machine", path.display())));
+        }
+        Origin::Outline(path) => {
+            return outline(source, read_bounded(path, OUTLINE_BYTES_MAX)?, "");
         }
         Origin::File(path) if !path.exists() => {
             return Err(missing(format!("{}: not on this machine", path.display())));
@@ -458,6 +572,35 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, SourceError
             font,
             unimap,
             def_uni,
+        }),
+    })
+}
+
+/// An outline font's bytes, read for `source`, as the parser's input: the
+/// family the parser is to find in it, the cells and coverage filled in
+/// once the set's cell is known.
+fn outline(source: &Source, font: Vec<u8>, family: &str) -> Result<Resolved, SourceError> {
+    let sha256 = Sha256::digest(&font);
+    if let Some(want) = source.sha256.filter(|&want| want != sha256) {
+        let why = format!(
+            "the font here has SHA-256 {}, not the frit's {}",
+            sha256_hex(&sha256),
+            sha256_hex(&want)
+        );
+        return Err(SourceError::Missing(match &source.package {
+            Some(package) => format!("{why}; package {package} installs it"),
+            None => why,
+        }));
+    }
+    Ok(Resolved {
+        sha256,
+        unimap_sha256: None,
+        def_uni_sha256: None,
+        input: Input::Outline(OutlineRequest {
+            font: font.into(),
+            family: family.to_owned(),
+            cells: Vec::new(),
+            cover: Vec::new(),
         }),
     })
 }
@@ -621,6 +764,7 @@ mod tests {
     fn host<'a>(t: &Tree, consoles: &'a dyn Consoles) -> Host<'a> {
         Host {
             kbd_dirs: vec![t.0.join("kbd")],
+            font_dirs: vec![t.0.join("fonts")],
             vconsole_conf: t.0.join("vconsole.conf"),
             kernel_cmdline: t.0.join("cmdline"),
             consoles,
@@ -778,6 +922,89 @@ mod tests {
         );
         assert_eq!(found("ter-v16"), None);
         assert_eq!(found("Terminus"), None);
+    }
+
+    #[test]
+    fn an_outline_family_is_found_among_installed_fonts() {
+        let t = Tree::new("outline-family");
+        t.file("a/TTF/JetBrainsMono-Bold.ttf", b"x");
+        t.file("a/TTF/JetBrainsMono-Regular.ttf", b"x");
+        t.file("a/noto/NotoColorEmoji.ttf", b"x");
+        t.file("a/noto/NotoColorEmoji.txt", b"x");
+        t.file("b/SymbolsNerdFontMono-Regular.TTF", b"x");
+        t.file("b/deep/1/2/3/4/5/6/7/8/9/Hidden.ttf", b"x");
+        t.file("b/NotoColorEmoji.ttf", b"x");
+        let dirs = [t.0.join("a"), t.0.join("b")];
+        let found = |family: &str| {
+            find_outline_family(family, &dirs).unwrap().map(|p| {
+                p.strip_prefix(fs::canonicalize(&t.0).unwrap())
+                    .unwrap()
+                    .display()
+                    .to_string()
+            })
+        };
+        assert_eq!(
+            found("JetBrains Mono").as_deref(),
+            Some("a/TTF/JetBrainsMono-Regular.ttf")
+        );
+        // the first directory given wins
+        assert_eq!(
+            found("noto color emoji").as_deref(),
+            Some("a/noto/NotoColorEmoji.ttf")
+        );
+        assert_eq!(
+            found("Symbols Nerd Font Mono").as_deref(),
+            Some("b/SymbolsNerdFontMono-Regular.TTF")
+        );
+        // a style other than regular, a family's prefix, too deep
+        assert_eq!(
+            found("JetBrains Mono Bold").as_deref(),
+            Some("a/TTF/JetBrainsMono-Bold.ttf")
+        );
+        assert_eq!(found("JetBrains"), None);
+        assert_eq!(found("Hidden"), None);
+    }
+
+    #[test]
+    fn an_outline_font_linked_out_of_the_font_directories_is_refused() {
+        let t = Tree::new("outline-link");
+        let outside = t.file("outside/Secret.ttf", b"x");
+        fs::create_dir_all(t.0.join("fonts")).unwrap();
+        std::os::unix::fs::symlink(&outside, t.0.join("fonts/Secret.ttf")).unwrap();
+        let e = find_outline_family("Secret", &[t.0.join("fonts")]).unwrap_err();
+        assert!(e.contains("leaves the font directories"), "{e}");
+    }
+
+    #[test]
+    fn a_font_source_takes_an_outline_family_when_kbd_has_none() {
+        let t = Tree::new("outline-resolve");
+        t.file("fonts/Test-Regular.otf", b"outline bytes");
+        let consoles = Graphics;
+        let h = host(&t, &consoles);
+        let r = resolve(&source("font:Test", Origin::Font("Test".into()), None), &h).unwrap();
+        let Input::Outline(req) = &r.input else {
+            panic!("not an outline: {:?}", r.input);
+        };
+        assert_eq!(
+            (&req.font[..], req.family.as_str()),
+            (&b"outline bytes"[..], "Test")
+        );
+        assert_eq!(r.sha256, Sha256::digest(b"outline bytes"));
+        let e = resolve(
+            &source("font:Absent", Origin::Font("Absent".into()), None),
+            &h,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(e, SourceError::Missing(ref why) if why.contains("no outline font")),
+            "{e}"
+        );
+        let path = t.0.join("fonts/Test-Regular.otf");
+        let r = resolve(&source("outline:", Origin::Outline(path), None), &h).unwrap();
+        assert!(matches!(&r.input, Input::Outline(req) if req.family.is_empty()));
+        let gone = t.0.join("fonts/Gone.ttf");
+        let e = resolve(&source("outline:", Origin::Outline(gone), None), &h).unwrap_err();
+        assert!(matches!(e, SourceError::Missing(_)), "{e}");
     }
 
     #[test]

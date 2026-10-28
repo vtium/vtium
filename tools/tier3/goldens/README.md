@@ -4,10 +4,10 @@ The goldens of the small displays (vtium/vtium#75), which the C reference never 
 
 | Golden | What it shows |
 |---|---|
-| `2d-320x240-psf8/small-console.png` | 320x240, 8x8 cells, 40 by 30. The ruler ending `40` in the last column; `bin` and `etc` bold blue, `run.sh` bold green, `notes.txt`, `lib.so` bold cyan; the eight background colors and the eight bright ones, four cells each; the six color names in their colors; `bold`, `faint` in grey, `under` underlined, `reverse` reversed and `struck` struck; a three-column box of sprite lines around `cpu`, `mem`, `load` and `12%`, `48M`, `0.08`; Latin-1; `double`, `curly`, `dotted` and `dashed` under their lines in each cell's bottom row, the double and curl drawn as the single line (vtium/vtium#119); a bar of 16 green full blocks and 16 light shades, then `50%`. |
+| `2d-320x240-psf8/small-console.png` | 320x240, 8x8 cells, 40 by 30. The ruler ending `40` in the last column; `bin` and `etc` bold blue, `run.sh` bold green, `notes.txt`, `lib.so` bold cyan; the eight background colors and the eight bright ones, four cells each; the six color names in their colors; `bold`, `faint` in grey, `under` underlined, `reverse` reversed and `struck` struck; a three-column box of sprite lines around `cpu`, `mem`, `load` and `12%`, `48M`, `0.08`; Latin-1; `double`, `curly`, `dotted` and `dashed` under their lines in each cell's bottom row, the double and curl drawn as the single line (vtium/vtium#119) and each dash from its cell's left edge for five of its eight pixels; a bar of 16 green full blocks and 16 light shades, then `50%`. |
 | `2d-320x240-psf8/sgr.png` | The `sgr` screen wrapped at 40 columns: the `fgNN` and `bgNN` labels in their colors over three rows each, the styled words over two, the 256-color cube as six bands of two rows, and the 24-bit ramp over two rows. |
 | `2d-320x240-psf8/boxdraw.png` | The `boxdraw` screen: a light box with a divider around its two text rows, a double box of two cells, a rounded box, shades, quadrants and eighths, all sprites at 8x8. |
-| `2d-320x240-psf8/underline-styles.png` | The `underline-styles` screen wrapped at 40 columns: each style's label and its underlined text, the lower rows wrapping, the colored, bold, reversed and blue-background lines, and `?` for each wide character. The double and curly lines draw as the single line in each cell's bottom row (vtium/vtium#119). |
+| `2d-320x240-psf8/underline-styles.png` | The `underline-styles` screen wrapped at 40 columns: each style's label and its underlined text, the lower rows wrapping, the colored, bold, reversed and blue-background lines, and `?` for each wide character. The double and curly lines draw as the single line in each cell's bottom row (vtium/vtium#119), and each dash runs from its cell's left edge for five of its eight pixels. |
 | `2d-320x240-psf8/underline-colour.png` | The `underline-colour` screen wrapped at 40 columns: each row's white text over a line in its SGR 58 color, red, sky blue or yellow, the curly ones drawn as the single line; green text over a magenta line; a green line that turns red after SGR 59; and no line for 58 alone. (vtium/vtium#119) |
 | `2d-320x240-psf8/strike.png` | The `strike` screen wrapped at 40 columns: a line through the middle of each struck run, in white, red and bold, over an underline and a red line, in reverse, across the `?` of the wide characters, and stopping at SGR 29. (vtium/vtium#119) |
 | `2d-320x240-psf8/wide-margin.png` | The `wide-margin` screen at its real edge, column 40: rulers ending in the last column; case 1's `?` in the last two columns; cases 2, 3 and 5 wrapped whole to the next row; case 4's dashes ending one column short of the edge, its `?` in the last two. |
@@ -20,3 +20,13 @@ The goldens of the small displays (vtium/vtium#75), which the C reference never 
 | `2d-640x480-psf16/strike.png` | The `strike` screen at 80 columns, every line on its own row. (vtium/vtium#119) |
 | `2d-640x480-psf16/wide-margin.png` | The `wide-margin` screen at column 80, its cases as at 320x240. |
 | `2d-640x480-psf16/cjk.png` | The `cjk` screen at 8x16. |
+
+The goldens of the guest without systemd (vtium/vtium#104, `../README.md`, The guest without systemd) are vtium's captures from `make tier3-nosystemd` on the branch that added it, each pixel for pixel the reviewed `2d-640x480-psf16` golden of the same screen, as the same display, configuration and font draw it under either init. They stay in `../provisional.tsv` until the operator reviews them.
+
+| Golden | What it shows |
+|---|---|
+| `sysvinit-640x480/sgr.png` | The `sgr` screen at 80 columns, drawn by the console the inittab started on tty2, with the udev daemon running. |
+| `sysvinit-640x480/cjk.png` | The `cjk` screen at 8x16, the same console. |
+| `sysvinit-no-udev/sgr.png` | The `sgr` screen, with no udev daemon: the card and the keyboard found in sysfs alone. |
+| `sysvinit-no-udev/cjk.png` | The `cjk` screen, with no udev daemon. |
+| `sysvinit-two-vts/cjk.png` | The `cjk` screen, drawn by tty2's console with a second console started on tty3 at the boot (vtium/vtium#139). |

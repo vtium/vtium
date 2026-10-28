@@ -13,11 +13,11 @@ use rustix::process::geteuid;
 use vtium_font::set::{ManifestRow, Set, Store, VERSION, builtin};
 use vtium_font::{SET_BYTES_MAX, sha256_hex};
 
-use crate::build::{Font, Part, assemble, build_key};
+use crate::build::build_key;
 use crate::child::Parser;
 use crate::frit::{Frit, RESERVED, valid_name};
 use crate::sources::{
-    Consoles, Host, Input, KBD_DIRS, KernelConsoles, Resolved, SourceError, resolve,
+    Consoles, FONT_DIRS, Host, KBD_DIRS, KernelConsoles, Resolved, SourceError, resolve,
 };
 use crate::store::{StoreWriter, default_frits, default_store, manifest, write_atomic};
 
@@ -41,8 +41,10 @@ Options:
   --store DIR           a store the invoking user owns, in place of the system's
   --frits DIR           the frits directory, in place of the system's
   --kbd-dir DIR         a kbd data directory, in place of the build's list (repeatable)
+  --font-dir DIR        an outline font directory, in place of the build's list (repeatable)
   --vconsole-conf FILE  vconsole.conf, in place of /etc/vconsole.conf
   --kernel-cmdline FILE the kernel command line, in place of /proc/cmdline
+  --no-banner           no banner at a terminal (NO_COLOR also turns it off)
   --help, --version
 ";
 
@@ -52,6 +54,7 @@ struct Options {
     store: Option<PathBuf>,
     frits: Option<PathBuf>,
     kbd_dirs: Vec<PathBuf>,
+    font_dirs: Vec<PathBuf>,
     vconsole_conf: Option<PathBuf>,
     kernel_cmdline: Option<PathBuf>,
     force: bool,
@@ -101,12 +104,15 @@ fn parse_args(args: &[OsString]) -> Result<Options, Usage> {
             "--store" => o.store = Some(value("--store")?.into()),
             "--frits" => o.frits = Some(value("--frits")?.into()),
             "--kbd-dir" => o.kbd_dirs.push(value("--kbd-dir")?.into()),
+            "--font-dir" => o.font_dirs.push(value("--font-dir")?.into()),
             "--vconsole-conf" => o.vconsole_conf = Some(value("--vconsole-conf")?.into()),
             "--kernel-cmdline" => o.kernel_cmdline = Some(value("--kernel-cmdline")?.into()),
             "--out" => o.out = Some(value("--out")?.into()),
             "--force" => o.force = true,
             "--all" => o.all = true,
             "--json" => o.json = true,
+            // The banner reads it before the command line runs.
+            crate::banner::OFF => {}
             "--kbd" => {
                 let name = value("--kbd")?;
                 shortcut(&mut o, Shortcut::Kbd(name))?;
@@ -256,6 +262,11 @@ impl Cli<'_> {
                 KBD_DIRS.iter().map(PathBuf::from).collect()
             } else {
                 self.o.kbd_dirs.clone()
+            },
+            font_dirs: if self.o.font_dirs.is_empty() {
+                default_font_dirs()
+            } else {
+                self.o.font_dirs.clone()
             },
             vconsole_conf: self
                 .o
@@ -625,25 +636,22 @@ fn read_sources(frit: &Frit, host: &Host<'_>) -> Result<Read, String> {
 
 /// Parses each source found in the child and assembles the set's bytes.
 fn parse_and_assemble(frit: &Frit, read: &Read, parser: &Parser) -> Result<Vec<u8>, String> {
-    let mut parts = Vec::new();
-    let mut missing = Vec::new();
-    for (source, resolved) in frit.sources.iter().zip(&read.resolved) {
-        let Some(resolved) = resolved else {
-            missing.push(source);
-            continue;
-        };
-        let font = match &resolved.input {
-            Input::Font(request) => parser.parse(request).map(Font::from_glyphs),
-            Input::Builtin(font) => Ok(font.clone()),
-        }
-        .map_err(|e| format!("source={}: {e}", source.spelling))?;
-        parts.push(Part {
-            source,
-            resolved,
-            font,
-        });
+    crate::build::parse_and_assemble(frit, &read.resolved, &read.key, parser)
+}
+
+/// The directories installed outline fonts are found in: the system's,
+/// and for a user who is not root, that user's own, as fontconfig's
+/// default configuration adds `$XDG_DATA_HOME/fonts`.
+fn default_font_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = FONT_DIRS.iter().map(PathBuf::from).collect();
+    if !geteuid().is_root() {
+        let data = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .filter(|d| d.is_absolute())
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")));
+        dirs.extend(data.map(|d| d.join("fonts")));
     }
-    assemble(frit, &parts, &missing, &read.key)
+    dirs
 }
 
 /// Writes each of `frit`'s warnings to `err`.

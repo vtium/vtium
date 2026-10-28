@@ -13,6 +13,7 @@
 //! glyphs, the performance profile's budgets, and glyphs stored at 8 bits
 //! and at their drawn size. Every one must draw the same bytes.
 
+use vtium_font::set::SetFace;
 use vtium_font::{Cell, Face, Font, Glyph, Psf, Style as FontStyle, Unifont};
 use vtium_render::{
     Budgets, Canvas, Config, DecoColor, DecorationColors, DrawState, Orientation, Profile,
@@ -35,6 +36,10 @@ pub enum FontKind {
     /// A PSF font `tools/testfont` writes, read through vtium-font's PSF
     /// loader at its own size.
     Psf(TestFont),
+    /// The vitrified set [`crate::colorset`] builds, unifont's ASCII in a
+    /// 1-bit strike and color glyphs in an RGBA strike at 8x16, drawn for
+    /// cells `height` pixels high (vtium/vtium#23).
+    ColorSet { height: u32 },
 }
 
 /// The PSF fonts the small displays draw with (vtium/vtium#75).
@@ -211,6 +216,11 @@ pub fn draw(screen: &Screen) -> Result<Image, String> {
         FontKind::Psf(font) => {
             let psf = Psf::parse(&font.bytes()?).map_err(|e| format!("{font:?}: {e}"))?;
             draw_with(screen, || Font::new(psf.clone()))
+        }
+        FontKind::ColorSet { height } => {
+            let face = SetFace::new(crate::colorset::set()?, height)
+                .ok_or("the color set has no strike")?;
+            draw_with(screen, || Font::new(face.clone()))
         }
     }
 }
@@ -412,6 +422,35 @@ mod tests {
         let image = draw(&screen).unwrap();
         let green = image.rgb().chunks(3).any(|p| p == [0, 0xff, 0]);
         assert!(green, "the underline did not take index 196's new color");
+    }
+    // The color glyph screen at twice its cell, where the cache stores a
+    // glyph at the set's size or at its drawn size by configuration: every
+    // configuration draws the same bytes, and in the first three rows,
+    // which hold no decoration, each pixel is the 16-pixel drawing's
+    // doubled. A decoration is drawn for the scaled cell, not doubled.
+    #[test]
+    fn the_color_set_draws_alike_at_twice_its_cell() {
+        let case = crate::screens::CASES
+            .iter()
+            .find(|c| c.screen.name == "emoji-rgba")
+            .expect("the emoji-rgba screen");
+        let one = draw(&case.screen).unwrap();
+        let two = draw(&Screen {
+            font: FontKind::ColorSet { height: 32 },
+            ..case.screen
+        })
+        .unwrap();
+        assert_eq!(
+            (two.width(), two.height()),
+            (2 * one.width(), 2 * one.height())
+        );
+        let w = one.width() as usize;
+        let undecorated = 2 * w * 2 * 48;
+        for (i, p) in two.rgb().chunks(3).take(undecorated).enumerate() {
+            let (x, y) = (i % (2 * w), i / (2 * w));
+            let at = ((y / 2) * w + x / 2) * 3;
+            assert_eq!(p, &one.rgb()[at..at + 3], "{x},{y}");
+        }
     }
     // A PSF test font draws through vtium-font's PSF loader at its own
     // cell: an 8x8 cell for the 8x8 font, where unifont's would be 8x16,

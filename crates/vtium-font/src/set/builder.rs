@@ -85,6 +85,12 @@ impl StrikeBuilder {
         self.map.push((u32::from(c), glyph));
     }
 
+    /// Whether no codepoint is mapped yet: a strike the writer would
+    /// write no glyph for.
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
     fn raw(&self) -> Result<RawStrike, WriteError> {
         let narrow = |v: u32| u16::try_from(v).map_err(|_| WriteError("a metric past u16"));
         let mut style = 0;

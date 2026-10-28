@@ -11,7 +11,7 @@ import time
 import t3_bench
 import t3_pointer
 import t3_power
-from t3_common import BASE, GUEST, RUNDIR, rel
+from t3_common import BASE, BASE_SYSVINIT, GUEST, GUEST_SYSVINIT, RUNDIR, rel
 from t3_evaluate import (BENCHMARKS, CASES, IMAGE_SCREENS, KEYED, KEYS_AFTER, SCREENS,
                          SMALL_SCREENS, VTIUM_GOLDEN, cases, evaluate)
 from t3_qemu import Qemu, make_iso, not_blank, wait_stable
@@ -165,6 +165,61 @@ VARIANTS.update({
 POWER_VARIANTS = ["power-reboot", "power-reboot-hard", "power-off", "power-suspend-off",
                   "power-suspend-logind"]
 
+# The guest without systemd (guest-sysvinit/, "guest": "sysvinit"): Debian
+# with sysvinit as PID 1, on the minspec machine, judging docs/systemd.md's
+# column for a host without systemd. Its inittab runs vtium on tty2 from the
+# boot, where it ran a getty, and nothing spawns a console on a switch; tty3
+# keeps its getty, but for a variant with "two_vts", whose guest runs a
+# second vtium there from the boot, as an inittab does for each VT it runs
+# vtium on. Its udev daemon runs unless the variant says "udev": False,
+# whose guest stops it and removes its database before vtium starts. The
+# drawing variants draw at 640x480 in the 8x16 test font, cjk last for
+# vt-restore, judged by vtium's own goldens. sysvinit-two-vts is
+# vtium/vtium#139's check: the two consoles race for DRM master at the
+# boot, so it stays out of make tier3-nosystemd's run until that lands. The power variants press one
+# key each, as each ends the VM: grab-reboot, whose SIGINT runs the
+# inittab's ctrlaltdel entry; grab-reboot with kernel.ctrl-alt-del at 1,
+# the kernel's own restart; and grab-power-off, whose SIGRTMIN+4 sysvinit
+# takes as a power-off.
+SYSVINIT = {
+    "guest": "sysvinit",
+    "device": "virtio-vga,xres=640,yres=480,edid=on",
+    "display": "none",
+    "conf": "kmscon-small-8x16.conf",
+    "renderer": "bbulk",
+    "cpus": 1,
+    "memory_mb": 512,
+    "images": False,
+    "fonts": True,
+    "screens": ["sgr", "cjk"],
+    "goldens": VTIUM_GOLDEN,
+}
+VARIANTS.update({
+    "sysvinit-640x480": SYSVINIT,
+    "sysvinit-no-udev": dict(SYSVINIT, udev=False),
+    "sysvinit-two-vts": dict(SYSVINIT, two_vts=True, screens=["cjk"]),
+    "sysvinit-reboot": dict(POWER, guest="sysvinit", power=["reboot-sysvinit"]),
+    "sysvinit-restart": dict(POWER, guest="sysvinit", power=["reboot-hard"],
+                             sysctl="kernel.ctrl-alt-del = 1\n"),
+    "sysvinit-power-off": dict(POWER, guest="sysvinit", power=["power-off-sysvinit"]),
+})
+SYSVINIT_VARIANTS = ["sysvinit-640x480", "sysvinit-no-udev", "sysvinit-reboot",
+                     "sysvinit-restart", "sysvinit-power-off"]
+
+# Each guest's base image, the make target that provisions it, the console
+# lines its boot ends with before the driver presses Ctrl+Alt+F2, and the
+# line that shows the switch took, which no boot logs: under systemd, logind
+# up and the login prompts reached, then the console the switch spawns
+# logging its VT; under sysvinit, the console the inittab started on tty2
+# logging its VT, then its display set up once the VT is shown.
+GUESTS = {
+    "arch": {"base": BASE, "image": "tier3-image",
+             "boot": ["Started User Login Management", "Reached target Login Prompts"],
+             "shown": "vt: using tty /dev/tty2"},
+    "sysvinit": {"base": BASE_SYSVINIT, "image": "tier3-image-nosystemd",
+                 "boot": ["vt: using tty /dev/tty2"], "shown": "text renderer ["},
+}
+
 # What `t3.py run` runs when no variant is named, in the order workers take
 # them: with JOBS=2 the longest, 2d-7680x2160, starts at once, the potato
 # and then 2d-7680x2160-font32 follow 2d-1280x800 as workers free, and
@@ -176,6 +231,18 @@ DEFAULT_VARIANTS = ["2d-1280x800", "2d-7680x2160", "2d-1366x768-potato",
 # Seconds a screen may take to draw; a benchmark scrolls for longer.
 SCREEN_TIMEOUT = 60
 BENCH_TIMEOUT = 300
+
+
+def guest_of(variant):
+    """The guest `variant` boots (GUESTS)."""
+    return GUESTS[VARIANTS[variant].get("guest", "arch")]
+
+
+def base_of(variant):
+    """(the base image `variant` boots, the make target that provisions
+    it)."""
+    guest = guest_of(variant)
+    return guest["base"], guest["image"]
 
 
 def uses_virgl(variant):
@@ -223,28 +290,52 @@ def evaluate_variant(variant, caps, meta, log):
 
 
 def check_install(line, impl):
-    """The guest's account of what it installed (guest/setup's
-    TIER3-INSTALL-OK line), as metadata. Raises when the guest holds a
-    kmscon, libtsm or vtium package, which the base image never installs, or
-    unpacked a tree other than the run's: either would let another build's
-    results stand for this one's."""
-    m = re.search(r"TIER3-INSTALL-OK packages: (.*?); tree: (\S+)", line)
+    """The guest's account of what it installed (the TIER3-INSTALL-OK line
+    of guest/setup or guest-sysvinit/setup), as metadata: the tree, and any
+    other field the guest reports, such as guest-sysvinit's init, systemd
+    and udev. Raises when the guest holds a kmscon, libtsm or vtium
+    package, which the base image never installs, or unpacked a tree other
+    than the run's: either would let another build's results stand for
+    this one's."""
+    m = re.search(r"TIER3-INSTALL-OK packages: (.*?);((?: \w+: [^;]*;)*) tree: (\S+)", line)
     if not m:
         raise RuntimeError("cannot read the installed tree from %r" % line)
     if m.group(1).strip():
         raise RuntimeError("the guest has packages installed that are not the run's tree: %s"
                            % m.group(1).strip())
-    if m.group(2) != impl["tree_sha256"]:
+    if m.group(3) != impl["tree_sha256"]:
         raise RuntimeError("the guest installed tree %s, the run's is %s"
-                           % (m.group(2), impl["tree_sha256"]))
-    return {"tree": m.group(2)}
+                           % (m.group(3), impl["tree_sha256"]))
+    return dict(re.findall(r" (\w+): ([^;]*);", m.group(2)), tree=m.group(3))
+
+
+def check_guest(variant, installed):
+    """Raises when the guest's account (check_install) shows it is not the
+    guest `variant` names: under sysvinit, PID 1 must be init, systemd's
+    /run/systemd/system must be absent, and a udev daemon must run, or none
+    in a variant without udev."""
+    v = VARIANTS[variant]
+    if v.get("guest") != "sysvinit":
+        return
+    if installed.get("init", "").split()[:1] != ["init"] or installed.get("systemd") != "no":
+        raise RuntimeError("the guest's PID 1 is %r and systemd's directory %s; the variant "
+                           "runs sysvinit" % (installed.get("init"),
+                                              "exists" if installed.get("systemd") == "yes"
+                                              else "is not reported"))
+    udev = installed.get("udev")
+    if udev is None or (udev == "none") == v.get("udev", True):
+        raise RuntimeError("the guest's udev daemon is %r; the variant runs %s" % (
+            udev, "one" if v.get("udev", True) else "none"))
 
 
 def build_disc(variant, work, impl):
     """The T3PKG disc: the tree as tree.tar, the variant's config, the
-    screens, guest/setup, the variant's sysctl settings if it has any,
-    vtium built with its features if it names any, the test fonts if it
-    draws with them, and a `pointer` file if it reads the cursor plane."""
+    screens, its guest's setup, and t3-console on the guest without
+    systemd, the variant's sysctl settings if it has any, vtium built with
+    its features if it names any, the test fonts if it draws with them, a
+    `pointer` file if it reads the cursor plane, a `no-udev` file if it
+    runs without a udev daemon, and a `two-vts` file if it runs a second
+    vtium on tty3 from the boot."""
     disc = os.path.join(work, "disc")
     shutil.rmtree(disc, ignore_errors=True)
     os.makedirs(disc)
@@ -253,7 +344,15 @@ def build_disc(variant, work, impl):
                 os.path.join(disc, "kmscon.conf"))
     shutil.copytree(os.path.join(GUEST, "screens"), os.path.join(disc, "screens"))
     shutil.copy(os.path.join(GUEST, "t3"), disc)
-    shutil.copy(os.path.join(GUEST, "setup"), disc)
+    if VARIANTS[variant].get("guest") == "sysvinit":
+        shutil.copy(os.path.join(GUEST_SYSVINIT, "setup"), disc)
+        shutil.copy(os.path.join(GUEST_SYSVINIT, "t3-console"), disc)
+    else:
+        shutil.copy(os.path.join(GUEST, "setup"), disc)
+    if not VARIANTS[variant].get("udev", True):
+        open(os.path.join(disc, "no-udev"), "w").close()
+    if VARIANTS[variant].get("two_vts"):
+        open(os.path.join(disc, "two-vts"), "w").close()
     if "sysctl" in VARIANTS[variant]:
         with open(os.path.join(disc, "sysctl.conf"), "w") as f:
             f.write(VARIANTS[variant]["sysctl"])
@@ -418,8 +517,9 @@ def run_variant(variant, timing, impl, log):
     iso = build_disc(variant, work, impl)
     disk = os.path.join(work, "run.qcow2")
     subprocess.run(["qemu-img", "create", "-q", "-f", "qcow2", "-F", "qcow2",
-                    "-b", BASE, disk], check=True)
+                    "-b", base_of(variant)[0], disk], check=True)
     v = VARIANTS[variant]
+    guest = guest_of(variant)
     vm = Qemu(work, [(disk, "qcow2", False), (iso, "raw", True)],
               v["device"], log, display=v["display"],
               capture=v.get("capture", "screendump"), cpus=v["cpus"], memory_mb=v["memory_mb"],
@@ -429,18 +529,17 @@ def run_variant(variant, timing, impl, log):
         line = vm.wait_serial("TIER3-INSTALL-OK", timeout=180)
         log(line)
         installed = check_install(line, impl)
+        check_guest(variant, installed)
         phase("install")
-        # The VT switch spawns the console only once logind is up and the
-        # boot has reached its login prompts; systemd reports both on the
-        # console.
-        vm.wait_serial("Started User Login Management", timeout=120)
-        vm.wait_serial("Reached target Login Prompts", timeout=120)
+        for marker in guest["boot"]:
+            vm.wait_serial(marker, timeout=120)
         phase("boot")
-        # tty1 runs getty; switching to tty2 makes logind spawn autovt@tty2,
-        # which is kmsconvt@tty2. Nothing starts it earlier: a boot without
-        # the keypress has no console on tty2.
+        # tty1 runs getty. Under systemd, switching to tty2 makes logind
+        # spawn autovt@tty2, which is kmsconvt@tty2, and nothing starts it
+        # earlier: a boot without the keypress has no console on tty2.
+        # Under sysvinit, the console the inittab started on tty2 takes it.
         vm.keys("ctrl", "alt", "f2")
-        vm.wait_serial("vt: using tty /dev/tty2", timeout=60)
+        vm.wait_serial(guest["shown"], timeout=60)
         tmp = os.path.join(work, "wait.ppm")
         prompt = wait_stable(vm, tmp, settle=2.0, timeout=90, want=not_blank)
         phase("console")
@@ -486,7 +585,7 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
     wait_stable(vm, tmp, want=lambda img: img.data != prompt.data)
     vm.type("tester\n")
     try:
-        vm.wait_event("T3-LOGIN", timeout=20)
+        line = vm.wait_event("T3-LOGIN", timeout=20)
     except RuntimeError:
         # PAM discards typed-ahead input when it turns echo off for the
         # password, so a password typed before the prompt is lost. Typing
@@ -494,7 +593,8 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
         # and every screen clears before it draws.
         log("no login yet; typing the password again")
         vm.type("tester\n")
-        vm.wait_event("T3-LOGIN", timeout=60)
+        line = vm.wait_event("T3-LOGIN", timeout=60)
+    check_login(line)
     last = wait_stable(vm, tmp)
     phase("login")
     for name in screens_of(variant):
@@ -529,15 +629,17 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
             phase(case)
         for chord in KEYS_AFTER.get(name, []) if v.get("images", True) and not refused else []:
             vm.keys(*chord)
-    # VT switch away and back. vt-switch: logind starts a second console
-    # on tty3, which must draw a screen (its login prompt). vt-restore:
+    # VT switch away and back. vt-switch: tty3, where logind starts a
+    # second console at the switch, or the inittab a second console or a
+    # getty at the boot, must show a screen (its login prompt). vt-restore:
     # back on tty2, the screen must be exactly as it was left. A switch
     # that does not visibly happen fails vt-switch, so vt-restore cannot
     # pass alone without testing anything.
     vm.keys("ctrl", "alt", "f3")
     path = os.path.join(work, "vt-switch.ppm")
     try:
-        vm.wait_serial("vt: using tty /dev/tty3", timeout=60)
+        if v.get("guest") != "sysvinit" or v.get("two_vts"):
+            vm.wait_serial("vt: using tty /dev/tty3", timeout=60)
         wait_stable(vm, path, settle=2.0, timeout=60,
                     want=lambda img: not_blank(img) and img.data != last.data)
         caps["vt-switch"] = path
@@ -556,6 +658,15 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
     if v.get("pointer"):
         check_pointer(variant, vm, work, caps, errors, log)
         phase(t3_pointer.CASE)
+
+
+def check_login(line):
+    """Raises unless the login shell reported (T3-LOGIN, guest/setup) a
+    pty: vtium's session is on one, and a login on a VT's own tty is a
+    getty's, whose screens the kernel's console draws, as when the
+    console was not on the VT the keys reached."""
+    if not re.search(r"T3-LOGIN /dev/pts/\d+$", line.strip()):
+        raise RuntimeError("the login was not vtium's: %r, not a pty" % line.strip())
 
 
 def check_pointer(variant, vm, work, caps, errors, log):
