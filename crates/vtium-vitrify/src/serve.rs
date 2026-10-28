@@ -616,18 +616,12 @@ fn failed(out: &mut dyn Write, why: &str) -> io::Result<()> {
     write_frame(out, FRAME_FAILED, why.as_bytes())
 }
 
-/// Serves requests read from `input` until it ends, or until `idle` passes
-/// with none, writing the answers to `out`. Returns the exit status: 0 at
-/// the input's end or the idle exit, 1 on a malformed request or a write
-/// that fails.
-pub fn serve(
-    input: impl Read + Send + 'static,
-    out: &mut dyn Write,
-    paths: &Paths,
-    idle: Duration,
-) -> u8 {
-    // the requests are read on a thread of their own, so the wait for the
-    // next one has a deadline
+/// The requests read from `input` on a thread of their own, so the wait for
+/// the next one has a deadline; the thread ends with the input, or at the
+/// first malformed request.
+type Requests = mpsc::Receiver<Result<Option<ServeRequest>, String>>;
+
+fn read_requests(input: impl Read + Send + 'static) -> Requests {
     let (tx, rx) = mpsc::sync_channel(1);
     std::thread::spawn(move || {
         let mut input = input;
@@ -639,6 +633,23 @@ pub fn serve(
             }
         }
     });
+    rx
+}
+
+/// Serves requests read from `input` until it ends, or until `idle` passes
+/// with none, writing the answers to `out`. Returns the exit status: 0 at
+/// the input's end or the idle exit, 1 on a malformed request or a write
+/// that fails.
+pub fn serve(
+    input: impl Read + Send + 'static,
+    out: &mut dyn Write,
+    paths: &Paths,
+    idle: Duration,
+) -> u8 {
+    answer_requests(&read_requests(input), out, paths, idle)
+}
+
+fn answer_requests(rx: &Requests, out: &mut dyn Write, paths: &Paths, idle: Duration) -> u8 {
     let mut engines: BTreeMap<PathBuf, Result<Engine, String>> = BTreeMap::new();
     let mut console: Option<ConsoleFont> = None;
     loop {
@@ -668,11 +679,10 @@ pub fn serve(
     }
 }
 
-/// The sandbox the helper sets on itself before it reads anything: the
-/// parser's, with a CPU limit over the helper's life.
-fn sandbox() -> Result<(), String> {
-    rustix::thread::set_no_new_privs(true)
-        .map_err(|e| format!("the helper cannot set no-new-privileges: {e}"))?;
+/// The limits the helper sets on itself before it reads anything: the
+/// parser's, with a CPU limit over the helper's life. With no process
+/// left to start, it starts no thread either, so its reader starts first.
+fn limits() -> Result<(), String> {
     for (resource, limit) in [
         (Resource::As, PARSER_MEMORY),
         (Resource::Cpu, HELPER_SECONDS),
@@ -692,17 +702,26 @@ fn sandbox() -> Result<(), String> {
     Ok(())
 }
 
-/// `vtium-vitrify serve`: the sandbox, then [`serve`] on stdin and stdout
-/// for [`HELPER_IDLE_MS`]. A failure to sandbox is written as a failed
-/// frame, so the console logs it.
+/// `vtium-vitrify serve`: no-new-privileges, the requests' reader, the
+/// limits, then the requests on stdin answered on stdout until
+/// [`HELPER_IDLE_MS`] passes with none. A failure to sandbox is written as
+/// a failed frame, so the console logs it.
 pub fn command(paths: &Paths) -> u8 {
     let mut out = io::stdout().lock();
-    if let Err(why) = sandbox() {
+    if let Err(e) = rustix::thread::set_no_new_privs(true) {
+        let _ = failed(
+            &mut out,
+            &format!("the helper cannot set no-new-privileges: {e}"),
+        );
+        return 1;
+    }
+    let requests = read_requests(io::stdin());
+    if let Err(why) = limits() {
         let _ = failed(&mut out, &why);
         return 1;
     }
-    serve(
-        io::stdin(),
+    answer_requests(
+        &requests,
         &mut out,
         paths,
         Duration::from_millis(HELPER_IDLE_MS),
