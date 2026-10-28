@@ -16,22 +16,22 @@
 //! helper sent there, one [`BATCH`] at a time; between batches the helper
 //! takes any waiting request, so a request waits at most one batch. A stop
 //! ends a cell's fill, as when the console's store is full or no display
-//! draws at the cell. The helper exits once it has no request and no fill
-//! for [`HELPER_IDLE_MS`], or when the console closes its end and its work
-//! is done.
+//! draws at the cell, and forgets what the helper sent there. The helper
+//! exits once it has no request and no fill for [`HELPER_IDLE_MS`], or
+//! when the console closes its end and its work is done.
 //!
 //! ```text
 //! request  magic "VTVSREQ2", kind u32 (1 ask, 2 fill, 3 stop), frit
-//!          name length u32, the name (UTF-8), frit text length u32, the
-//!          text (UTF-8), cell width u32, cell height u32, capabilities
-//!          length u32, the capabilities (reserved for the display's, ADR-1301
-//!          D1 and D3: always 0 bytes, and refused otherwise), codepoint
-//!          count u32, each codepoint u32 (an ask's wanted, a fill's
-//!          first), held range count u32, each range's first and last
-//!          codepoint u32 (what the console holds at the cell, for a fill),
-//!          console font flag u32 (0 none, 1 one): width u32, height u32,
-//!          glyph count u32, data length u32, the data, map count u32, each
-//!          (codepoint u16, glyph u16)
+//!          name length u32, the name (ADR-1200 D1's characters), frit
+//!          text length u32, the text (UTF-8), cell width u32, cell height
+//!          u32, capabilities length u32, the capabilities (reserved for the
+//!          display's, ADR-1301 D1 and D3: always 0 bytes, and refused
+//!          otherwise), codepoint count u32, each codepoint u32 (an ask's
+//!          wanted, a fill's first), held range count u32, each range's
+//!          first and last codepoint u32 (what the console holds at the
+//!          cell, for a fill), console font flag u32 (0 none, 1 one):
+//!          width u32, height u32, glyph count u32, data length u32, the
+//!          data, map count u32, each (codepoint u16, glyph u16)
 //! answer   frames: kind u32, length u32, then the payload; kind 1 an
 //!          ask's glyphs and 4 a fill's, each a vitrified set of one cell's
 //!          glyphs; kind 2 the oldest ask answered (no payload); kind 5 a
@@ -71,7 +71,7 @@ use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, Un
 
 use crate::build::Font;
 use crate::child::PARSER_MEMORY;
-use crate::frit::{Cover, FRIT_BYTES_MAX, Frit, Source};
+use crate::frit::{Cover, FRIT_BYTES_MAX, Frit, Source, valid_name};
 use crate::outline::{OutlineRequest, family_key, rasterise};
 use crate::sources::{Consoles, FONT_DIRS, Host, Input, KBD_DIRS, resolve};
 
@@ -184,11 +184,15 @@ impl<R: Read> Fields<'_, R> {
         Ok(n)
     }
 
+    fn exact(&mut self, out: &mut [u8]) -> Result<(), String> {
+        self.0
+            .read_exact(out)
+            .map_err(|_| "a request cut short".to_owned())
+    }
+
     fn bytes(&mut self, n: usize) -> Result<Vec<u8>, String> {
         let mut out = vec![0u8; n];
-        self.0
-            .read_exact(&mut out)
-            .map_err(|_| "a request cut short".to_owned())?;
+        self.exact(&mut out)?;
         Ok(out)
     }
 }
@@ -234,11 +238,12 @@ impl ServeRequest {
 
     /// Reads one request from `r`: `None` at the end of the input between
     /// requests. Every field is checked: the kind one of three, the frit's
-    /// name UTF-8 with no control character and its text UTF-8, each
-    /// inside its bound, the cell inside [`CELL_SIDE_MAX`], the reserved
-    /// capabilities empty, each codepoint a scalar value, each held range
-    /// in order and inside Unicode, the kernel's font inside the kernel's
-    /// own bounds with its data exactly as long as its shape.
+    /// name a frit name (ADR-1200 D1), checked before it is allocated, and
+    /// its text UTF-8, each inside its bound, the cell inside
+    /// [`CELL_SIDE_MAX`], the reserved capabilities empty, each codepoint a
+    /// scalar value, each held range in order and inside Unicode, the
+    /// kernel's font inside the kernel's own bounds with its data exactly
+    /// as long as its shape.
     pub fn read(r: &mut impl Read) -> Result<Option<ServeRequest>, String> {
         let mut magic = [0u8; 8];
         let (head, rest) = magic.split_at_mut(1);
@@ -258,10 +263,14 @@ impl ServeRequest {
             return Err("an unknown request kind".to_owned());
         }
         let n = f.count(NAME_BYTES_MAX, "a frit's name")?;
-        let name = String::from_utf8(f.bytes(n)?).map_err(|_| "a frit's name that is not UTF-8")?;
-        if name.is_empty() || name.chars().any(char::is_control) {
-            return Err("a frit's name that is empty or holds a control character".to_owned());
-        }
+        let mut buf = [0u8; NAME_BYTES_MAX];
+        let raw = buf.get_mut(..n).unwrap_or_default();
+        f.exact(raw)?;
+        let name = std::str::from_utf8(raw)
+            .ok()
+            .filter(|name| valid_name(name))
+            .ok_or("a frit's name outside A-Z a-z 0-9 . _ + -")?
+            .to_owned();
         let n = f.count(FRIT_BYTES_MAX, "a frit's text")?;
         let text = String::from_utf8(f.bytes(n)?).map_err(|_| "a frit's text that is not UTF-8")?;
         let cell = Cell {
@@ -873,7 +882,7 @@ impl Work<'_> {
     }
 
     /// Takes a request in: an ask waits its turn, a fill replaces the
-    /// cell's, a stop ends it.
+    /// cell's, a stop ends it and forgets what was sent at the cell.
     fn take(&mut self, request: ServeRequest, out: &mut dyn Write) -> io::Result<()> {
         if self.console.is_none() {
             self.console.clone_from(&request.console);
@@ -889,7 +898,11 @@ impl Work<'_> {
                 };
                 self.fills.push_back(fill);
             }
-            _ => self.fills.retain(|f| !same(f)),
+            _ => {
+                self.fills.retain(|f| !same(f));
+                self.sent
+                    .remove(&(request.frit, request.cell.width, request.cell.height));
+            }
         }
         Ok(())
     }
@@ -933,6 +946,7 @@ impl Work<'_> {
                 break;
             };
             fill.next = fill.next.saturating_add(1);
+            // D18's skip of what was sent holds only while the console holds the cell: its stop as it drops the cell forgets what was sent there
             if !sent.has(c) {
                 batch.push(c);
             }
@@ -1240,6 +1254,29 @@ mod tests {
         not_utf8[16] = 0xff;
         assert!(ServeRequest::read(&mut &not_utf8[..]).is_err());
         assert!(ServeRequest::read(&mut &good[..good.len() - 1]).is_err());
+    }
+
+    #[test]
+    fn a_frit_name_outside_d1s_set_is_refused() {
+        let named = |name: &str| {
+            ServeRequest {
+                frit: FritText {
+                    name: name.to_owned(),
+                    text: String::new(),
+                },
+                ..request(ASK, frit(""), &[])
+            }
+            .encode()
+        };
+        for name in ["a/b", "../a", ".a", "a b", "é", "a\u{7f}"] {
+            let e = ServeRequest::read(&mut &named(name)[..]).unwrap_err();
+            assert!(e.contains("a frit's name"), "{name:?}: {e}");
+        }
+        let fine = "Ter-v16n_1.2+x";
+        let read = ServeRequest::read(&mut &named(fine)[..]).unwrap().unwrap();
+        assert_eq!(read.frit.name, fine);
+        let longest = "a".repeat(NAME_BYTES_MAX);
+        assert!(ServeRequest::read(&mut &named(&longest)[..]).is_ok());
     }
 
     #[test]

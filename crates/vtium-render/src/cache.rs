@@ -619,6 +619,37 @@ mod tests {
     }
 
     #[test]
+    fn forgetting_a_combining_mark_drops_each_cluster_that_holds_it() {
+        let f = font();
+        let mut c = GlyphCache::new(Budgets::glyphs(8), Storage::default(), Orientation::Normal);
+        let texts = [
+            ['A'].as_slice(),
+            &['B'],
+            &['A', '\u{301}'],
+            &['B', '\u{301}'],
+            &['A', '\u{300}'],
+        ];
+        c.begin_frame();
+        for text in texts {
+            assert!(c.get(&f, text, Width::Narrow, Style::default()).is_some());
+        }
+        assert_eq!(c.take_counts().misses, 5);
+        c.forget(&['\u{301}']);
+        c.begin_frame();
+        let mut misses = Vec::new();
+        for text in texts {
+            assert!(c.get(&f, text, Width::Narrow, Style::default()).is_some());
+            misses.push(c.take_counts());
+        }
+        let miss = CacheCounts {
+            misses: 1,
+            uncached: 0,
+        };
+        let hit = CacheCounts::default();
+        assert_eq!(misses, [hit, hit, miss, miss, hit]);
+    }
+
+    #[test]
     fn a_full_pool_evicts_only_glyphs_older_than_the_frame() {
         let f = font();
         let mut c = GlyphCache::new(Budgets::glyphs(2), Storage::default(), Orientation::Normal);

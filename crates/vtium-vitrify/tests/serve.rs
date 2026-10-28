@@ -12,7 +12,10 @@ use std::time::Duration;
 
 use vtium_font::set::{Set, SetFace};
 use vtium_font::{Cell, Face};
-use vtium_vitrify::serve::{ASK, FRAME_DONE, FRAME_GLYPHS, FritText, Paths, ServeRequest, serve};
+use vtium_vitrify::serve::{
+    ASK, FILL, FRAME_DONE, FRAME_FAILED, FRAME_FILLED, FRAME_GLYPHS, FritText, Paths, STOP,
+    ServeRequest, serve,
+};
 
 /// The frames in `bytes`, kind and payload.
 fn frames(mut bytes: &[u8]) -> Vec<(u32, Vec<u8>)> {
@@ -136,4 +139,72 @@ fn a_source_that_fails_as_it_draws_is_left_out_and_the_rest_answer() {
     assert_eq!(kinds, [FRAME_GLYPHS, FRAME_DONE], "{frames:?}");
     let set = Arc::new(Set::from_bytes(frames[0].1.clone()).unwrap());
     assert!(SetFace::new(set, 16).unwrap().has_glyph('A'));
+}
+
+/// Reads frames from `r` up to and including the first of `last`.
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+fn frames_until(r: &mut impl Read, last: &[u32]) -> Vec<(u32, Vec<u8>)> {
+    let mut out = Vec::new();
+    loop {
+        let mut head = [0u8; 8];
+        r.read_exact(&mut head).unwrap();
+        let [k0, k1, k2, k3, n0, n1, n2, n3] = head;
+        let kind = u32::from_le_bytes([k0, k1, k2, k3]);
+        let mut payload = vec![0u8; u32::from_le_bytes([n0, n1, n2, n3]) as usize];
+        r.read_exact(&mut payload).unwrap();
+        out.push((kind, payload));
+        if last.contains(&kind) {
+            return out;
+        }
+    }
+}
+
+// a zoom away and back inside the helper's idle interval: the stop the
+// console sends as it drops the cell's glyphs makes the helper send them
+// again, so the fill back at the cell draws the frit, not a failure
+#[test]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+fn a_cell_stopped_and_filled_again_is_filled_again() {
+    let request = |kind| ServeRequest {
+        kind,
+        frit: FritText {
+            name: "t".to_owned(),
+            text: "source=builtin:unscii-8\n".to_owned(),
+        },
+        cell: Cell {
+            width: 8,
+            height: 16,
+        },
+        codepoints: vec![0x41],
+        held: Vec::new(),
+        console: None,
+    };
+    let mut child = Command::new(env!("CARGO_BIN_EXE_vtium-vitrify"))
+        .arg("serve")
+        .env_clear()
+        .current_dir("/")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+    let ends = [FRAME_FILLED, FRAME_FAILED];
+    stdin.write_all(&request(FILL).encode()).unwrap();
+    let first = frames_until(&mut stdout, &ends);
+    assert_eq!(first.last().map(|f| f.0), Some(FRAME_FILLED));
+    // the zoom away, then back with nothing held
+    stdin.write_all(&request(STOP).encode()).unwrap();
+    stdin.write_all(&request(FILL).encode()).unwrap();
+    let again = frames_until(&mut stdout, &ends);
+    drop(stdin);
+    assert!(child.wait().unwrap().success());
+    let kinds = |f: &[(u32, Vec<u8>)]| f.iter().map(|f| f.0).collect::<Vec<_>>();
+    assert_eq!(kinds(&again), kinds(&first), "{:?}", again.last());
+    let a = |f: &[(u32, Vec<u8>)]| {
+        let set = Arc::new(Set::from_bytes(f[0].1.clone()).unwrap());
+        SetFace::new(set, 16).unwrap().has_glyph('A')
+    };
+    assert!(a(&first) && a(&again));
 }

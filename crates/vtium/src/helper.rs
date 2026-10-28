@@ -624,19 +624,24 @@ impl Helper {
     }
 
     /// Forgets every cell but `cells`, as no display draws at them: their
-    /// fills stop, the frames already on their way for them are dropped,
-    /// and their glyphs leave the store.
+    /// glyphs leave the store, and a running helper is told to stop each,
+    /// whatever its fill, so it ends the fill and sends the cell's glyphs
+    /// again when it is filled again; the frames already on their way for
+    /// them are dropped.
     pub fn retain(&mut self, cells: &[Cell], now: Instant) {
         let gone: Vec<Cell> = self
             .cells
             .iter()
             .filter(|c| !cells.contains(&c.cell))
-            .filter(|c| c.fill == Fill::Active)
             .map(|c| c.cell)
             .collect();
-        for cell in gone {
-            self.send(STOP, cell, &[], &[], now);
-            self.stopped.push(cell);
+        if self.running.is_some() {
+            for cell in gone {
+                self.send(STOP, cell, &[], &[], now);
+                if !self.stopped.contains(&cell) {
+                    self.stopped.push(cell);
+                }
+            }
         }
         self.cells.retain(|c| cells.contains(&c.cell));
         self.store.borrow_mut().retain(cells);
@@ -1305,8 +1310,10 @@ mod tests {
         s.until_gone(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(s.helper.restarts, 0);
-        // the cell asked for again, as after its glyphs were dropped
+        // the cell asked for again, as after its glyphs were dropped; with
+        // no helper running, the drop starts none
         s.helper.retain(&[], now);
+        assert!(s.helper.running.is_none());
         s.helper.ask(CELL, &['A'], now);
         assert_eq!(s.run(now).len(), 1);
         assert_eq!(s.helper.failed(), None);
@@ -1400,6 +1407,21 @@ mod tests {
                 "not asked",
             ),
             (
+                "fillcell",
+                frame_bytes(
+                    FRAME_FILL,
+                    &set(
+                        Cell {
+                            width: 8,
+                            height: 8,
+                        },
+                        &['A'],
+                    ),
+                ),
+                true,
+                "not asked",
+            ),
+            (
                 "failed",
                 frame_bytes(FRAME_FAILED, b"no source of the frit is here"),
                 false,
@@ -1445,6 +1467,73 @@ mod tests {
         assert_eq!(s.helper.failed(), None);
         assert!(!s.held('A'));
         assert!(!s.helper.busy());
+    }
+
+    /// The bytes of the stand-ins' request of `kind` at the cell, naming
+    /// nothing.
+    fn request_bytes(kind: u32) -> usize {
+        encode(
+            &frit("source=builtin:unscii-8\n"),
+            None,
+            kind,
+            CELL,
+            &[],
+            &[],
+        )
+        .len()
+    }
+
+    // a zoom away from a cell whose fill stopped at the store's limit: the
+    // frames already on their way for it are dropped, and the helper stays
+    #[test]
+    fn a_late_frame_for_a_stopped_cell_no_display_draws_is_dropped() {
+        let a = set(CELL, &['A']);
+        let script = format!(
+            "head -c {} >/dev/null; cat \"$1\"; head -c {} >/dev/null; cat \"$1.late\"; cat >/dev/null",
+            request_bytes(FILL),
+            request_bytes(STOP)
+        );
+        let mut s = StandIn::limited("stoppedlate", &script, &frame_bytes(FRAME_FILL, &a), 1);
+        std::fs::write(
+            s.dir.join("answer.late"),
+            frame_bytes(FRAME_FILL, &set(CELL, &['B'])),
+        )
+        .unwrap();
+        let now = t0();
+        s.helper.fill(CELL, &[], now);
+        // A past the store's limit: dropped, and the fill stopped
+        s.woke.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(s.helper.poll(now).is_empty());
+        assert_eq!(s.helper.failed(), None);
+        s.helper.retain(&[], now);
+        // B, sent before the stop reached the helper
+        s.woke.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(s.helper.poll(now).is_empty());
+        assert_eq!(s.helper.failed(), None);
+    }
+
+    // the helper skips what it sent at a cell only while the console holds
+    // the cell: one dropped whose fill is done is stopped too, so a fill back
+    // at it is drawn again
+    #[test]
+    fn a_cell_dropped_after_its_fill_is_stopped() {
+        let mut fixture = frame_bytes(FRAME_FILL, &set(CELL, &['A']));
+        fixture.extend(filled(CELL));
+        let script = format!(
+            "head -c {} >/dev/null; cat \"$1\"; head -c {} >\"$1.stop\"",
+            request_bytes(FILL),
+            request_bytes(STOP)
+        );
+        let mut s = StandIn::new("donestop", &script, &fixture);
+        let now = t0();
+        s.helper.fill(CELL, &[], now);
+        assert_eq!(s.run(now).len(), 1);
+        assert!(!s.helper.busy());
+        s.helper.retain(&[], now);
+        s.until_gone(now);
+        assert_eq!(s.helper.failed(), None);
+        let stop = encode(&s.helper.frit, None, STOP, CELL, &[], &[]);
+        assert_eq!(std::fs::read(s.dir.join("answer.stop")).unwrap(), stop);
     }
 
     #[test]
