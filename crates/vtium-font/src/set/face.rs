@@ -63,9 +63,15 @@ impl SetFace {
     }
 }
 
-/// `d` scaled by `scale`, as the glyphs are: each row a band `scale`
-/// rows tall.
-pub(crate) fn scale_decorations(d: Decorations, scale: u32) -> Decorations {
+/// The decorations `d` of a strike `height` tall, drawn at `scale`. A
+/// strike whose lines are [`Decorations::for_height`] of its height, as
+/// every bitmap source gives, takes `for_height` of the scaled height, the
+/// lines the bitmap faces draw at that size; any other strike's lines
+/// scale as its glyphs do, each row a band `scale` rows tall.
+pub(crate) fn scale_decorations(d: Decorations, height: u32, scale: u32) -> Decorations {
+    if d == Decorations::for_height(height) {
+        return Decorations::for_height(height.saturating_mul(scale));
+    }
     Decorations {
         underline: d.underline.saturating_mul(scale),
         underline_thickness: d.underline_thickness.saturating_mul(scale),
@@ -113,7 +119,7 @@ impl Face for SetFace {
     fn decorations(&self) -> Decorations {
         self.set
             .decorations(self.cell)
-            .map(|d| scale_decorations(d, self.scale))
+            .map(|d| scale_decorations(d, self.cell.height, self.scale))
             .unwrap_or_else(|| Decorations::for_height(self.cell().height))
     }
 

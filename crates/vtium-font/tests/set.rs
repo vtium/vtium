@@ -384,6 +384,7 @@ fn psf_fixtures_draw_alike_through_their_sets() {
                 assert_eq!(s.coverage(range), p.coverage(range), "{name} {range}");
             }
             assert_eq!(s.sprite_policy(), p.sprite_policy(), "{name}");
+            assert_eq!(s.decorations(), p.decorations(), "{name} x{scale}");
             let mut drawn = 0;
             for c in (0..=0x10_ffffu32).filter_map(char::from_u32) {
                 assert_eq!(s.has_glyph(c), p.has_glyph(c), "{name} {c:?}");
@@ -753,4 +754,47 @@ fn inconsistent_tables_are_refused() {
         refused(with_section(&set, b"STRK", |s| s[8 + 1] = 3)),
         SetError::UnknownFormat(3)
     ));
+}
+
+// A strike with a bitmap face's lines keeps the lines a bitmap face draws
+// at the scaled height; a strike with lines of its own scales them with
+// its glyphs
+#[test]
+fn decorations_scale_as_the_strike_draws() {
+    let cell = Cell {
+        width: 8,
+        height: 8,
+    };
+    let own = Decorations {
+        underline: 6,
+        underline_thickness: 2,
+        strike: 3,
+        strike_thickness: 1,
+    };
+    for (decorations, at_3) in [
+        (Decorations::for_height(8), Decorations::for_height(24)),
+        (
+            own,
+            Decorations {
+                underline: 18,
+                underline_thickness: 6,
+                strike: 9,
+                strike_thickness: 3,
+            },
+        ),
+    ] {
+        let mut s =
+            StrikeBuilder::new(PixelFormat::Bits, cell, Style::default()).decorations(decorations);
+        let g = s.glyph(Width::Narrow, vec![0; 8]);
+        s.map('x', g);
+        let set = Arc::new(read(
+            SetBuilder::new("lines").strike(s).write().expect("writes"),
+        ));
+        let face = SetFace::new(set.clone(), 8).expect("a face");
+        assert_eq!(face.decorations(), decorations);
+        let face = SetFace::new(set, 24).expect("a face");
+        assert_eq!(face.decorations(), at_3);
+    }
+    // the bitmap face's lines at 8x2 are not the 8-pixel lines doubled
+    assert_ne!(Decorations::for_height(16).underline_thickness, 2);
 }

@@ -1,7 +1,8 @@
 //! The set reader (ADR-1200 D2, D3, D13): a set's header and every section
 //! but its glyph chunks read and checked once, and each chunk read, checked
-//! against its own hash, inflated and expanded to the in-memory form the
-//! first time a glyph is drawn from it.
+//! against its own hash and inflated the first time a glyph is drawn from
+//! it, then kept as stored; a 1-bit glyph is expanded to an 8-bit mask
+//! as it is drawn.
 
 use std::fmt;
 use std::fs::File;
@@ -24,7 +25,7 @@ use crate::sprite::Range;
 
 mod parse;
 
-use parse::{expand, parse_cmap, parse_index, parse_meta, parse_poly, parse_strikes};
+use parse::{parse_cmap, parse_index, parse_meta, parse_poly, parse_strikes};
 
 /// Why a set was refused, or a chunk of it.
 #[derive(Debug)]
@@ -100,7 +101,7 @@ impl From<io::Error> for SetError {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PixelFormat {
     /// A bit a pixel, rows padded to a byte, expanded to an 8-bit mask
-    /// when its chunk is loaded. Bitmap fonts.
+    /// as each glyph is drawn. Bitmap fonts.
     Bits,
     /// A byte of coverage a pixel. Outline fonts.
     R8,
@@ -125,14 +126,6 @@ impl PixelFormat {
             other => Err(SetError::UnknownFormat(other)),
         }
     }
-
-    /// Bytes a pixel in memory: a 1-bit strike is expanded to a byte.
-    fn memory_bytes(self) -> u32 {
-        match self {
-            PixelFormat::Bits | PixelFormat::R8 => 1,
-            PixelFormat::Rgba => 4,
-        }
-    }
 }
 
 /// One strike's description: what `STRK` holds for it.
@@ -155,15 +148,14 @@ struct Run {
     glyph: u32,
 }
 
-/// A run that brought glyphs into the strike: where they lie, as stored
-/// and in memory.
+/// A run that brought glyphs into the strike: where they lie in its glyph
+/// bytes.
 #[derive(Clone, Copy, Debug)]
 struct Span {
     glyph: u32,
     len: u32,
     wide: bool,
     stored: u64,
-    memory: u64,
 }
 
 struct Strike {
@@ -178,7 +170,7 @@ struct Strike {
 }
 
 /// A chunk's index entry, with where it starts in its strike's glyph
-/// bytes, as stored and in memory.
+/// bytes.
 struct Chunk {
     offset: u64,
     stored: u32,
@@ -187,7 +179,6 @@ struct Chunk {
     sha256: [u8; 32],
     strike: usize,
     start: u64,
-    memory: u64,
 }
 
 /// Where the chunks' bytes are.
@@ -651,8 +642,7 @@ impl Set {
         (0..self.chunks.len()).try_for_each(|i| self.decode(i).map(drop))
     }
 
-    /// Chunk `i` read, checked, inflated and, for a 1-bit strike, expanded
-    /// to a byte a pixel.
+    /// Chunk `i` read, checked and inflated.
     fn decode(&self, i: usize) -> Result<Box<[u8]>, SetError> {
         let chunk = self
             .chunks
@@ -690,14 +680,7 @@ impl Set {
         } else {
             bytes
         };
-        let strike = self
-            .strikes
-            .get(chunk.strike)
-            .ok_or(SetError::Malformed("no such strike"))?;
-        if strike.info.format != PixelFormat::Bits {
-            return Ok(bytes.into_boxed_slice());
-        }
-        expand(strike, chunk, &bytes).ok_or(SetError::Malformed("a chunk that does not expand"))
+        Ok(bytes.into_boxed_slice())
     }
 
     /// Chunk `i` in memory, read the first time it is asked for.
@@ -783,42 +766,61 @@ impl Set {
         self.draw_index(strike, 0, style.bold, scale)
     }
 
+    /// Glyph `glyph` of `strike` drawn at `scale`, a 1-bit glyph expanded
+    /// to a mask of 0 and 255 (ADR-1200 D13), bold widened when `widen`
+    /// asks: a pixel set when it or its left neighbour in the same cell is,
+    /// as vtium-font's bitmap faces widen.
     fn draw_index(&self, strike: &Strike, glyph: u32, widen: bool, scale: u32) -> Option<Glyph> {
         let at = strike.locate(&self.chunks, glyph)?;
         let chunk = self.chunk(at.chunk)?;
-        let start = usize_of(at.memory).ok()?;
+        let start = usize_of(at.offset).ok()?;
         let info = strike.info;
         let cells = if at.wide { 2 } else { 1 };
         let w = info.cell.width.checked_mul(cells)?;
         let h = info.cell.height;
-        let bpp = info.format.memory_bytes();
-        let len = usize_of(w.checked_mul(h)?.checked_mul(bpp)?).ok()?;
+        let len = usize_of(strike.size(at.wide)?).ok()?;
         let src = chunk.get(start..start.checked_add(len)?)?;
+        let row = len.checked_div(usize_of(h).ok()?)?;
         let scale = scale.max(1);
-        let (format, widen) = match info.format {
-            PixelFormat::Rgba => (Format::Rgba, false),
-            _ => (Format::Mask, widen),
-        };
         let out_w = w.checked_mul(scale)?;
         let out_h = h.checked_mul(scale)?;
-        let row = usize_of(w.checked_mul(bpp)?).ok()?;
-        let px = usize_of(bpp).ok()?;
-        let mut pixels =
-            Vec::with_capacity(len.saturating_mul(usize_of(scale).ok()?.saturating_pow(2)));
+        let format = match info.format {
+            PixelFormat::Rgba => Format::Rgba,
+            PixelFormat::Bits | PixelFormat::R8 => Format::Mask,
+        };
+        // the pixel at `x` of `line` in the strike's format, as mask or RGBA
+        // bytes
+        let pixel = |line: &[u8], x: u32| -> Option<[u8; 4]> {
+            let x = usize_of(x).ok()?;
+            match info.format {
+                PixelFormat::Bits => {
+                    let byte = line.get(x / 8)?;
+                    let on = byte >> 7usize.saturating_sub(x % 8) & 1 != 0;
+                    Some([if on { 0xff } else { 0 }; 4])
+                }
+                PixelFormat::R8 => Some([*line.get(x)?; 4]),
+                PixelFormat::Rgba => line.get(x.checked_mul(4)?..)?.first_chunk().copied(),
+            }
+        };
+        let bpp = usize_of(format.bytes_per_pixel()).ok()?;
+        let mut pixels = Vec::with_capacity(
+            usize_of(out_w.saturating_mul(out_h))
+                .ok()?
+                .saturating_mul(bpp),
+        );
         for y in 0..out_h {
-            let sy = y.checked_div(scale)?;
-            let line = src.get(usize_of(sy).ok()?.checked_mul(row)?..)?;
+            let sy = usize_of(y.checked_div(scale)?).ok()?;
+            let line = src.get(sy.checked_mul(row)?..)?.get(..row)?;
             for x in 0..out_w {
                 let sx = x.checked_div(scale)?;
-                let at = usize_of(sx).ok()?.checked_mul(px)?;
-                let p = line.get(at..at.checked_add(px)?)?;
-                if widen && sx.checked_rem(info.cell.width)? != 0 {
-                    // bold: a pixel set when it or its left neighbour in
-                    // the same cell is, as vtium-font's bitmap faces widen
-                    let left = line.get(at.checked_sub(1)?)?;
-                    pixels.push((*p.first()?).max(*left));
+                let p = pixel(line, sx)?;
+                if format == Format::Mask {
+                    let left = (widen && sx.checked_rem(info.cell.width)? != 0)
+                        .then(|| pixel(line, sx.checked_sub(1)?))
+                        .flatten();
+                    pixels.push(left.map_or(p[0], |l| p[0].max(l[0])));
                 } else {
-                    pixels.extend_from_slice(p);
+                    pixels.extend_from_slice(&p);
                 }
             }
         }
@@ -827,10 +829,10 @@ impl Set {
     }
 }
 
-/// Where a glyph lies: its chunk and its offset in the chunk in memory.
+/// Where a glyph lies: its chunk and its offset in the chunk.
 struct Located {
     chunk: usize,
-    memory: u64,
+    offset: u64,
     wide: bool,
 }
 
@@ -863,31 +865,23 @@ impl Strike {
         if k >= u64::from(span.len) {
             return None;
         }
-        let (stored, memory) = self.sizes(span.wide)?;
-        let at = span.stored.checked_add(k.checked_mul(stored)?)?;
+        let size = self.size(span.wide)?;
+        let at = span.stored.checked_add(k.checked_mul(size)?)?;
         let (first, end) = self.chunks;
         let mine = chunks.get(first..end)?;
         let c = mine.partition_point(|c| c.start <= at).checked_sub(1)?;
         let chunk = mine.get(c)?;
-        let in_memory = span.memory.checked_add(k.checked_mul(memory)?)?;
         Some(Located {
             chunk: first.checked_add(c)?,
-            memory: in_memory.checked_sub(chunk.memory)?,
+            offset: at.checked_sub(chunk.start)?,
             wide: span.wide,
         })
     }
 
-    /// A glyph's bytes as stored and in memory.
-    fn sizes(&self, wide: bool) -> Option<(u64, u64)> {
+    /// A glyph's bytes as stored, one cell or two wide.
+    fn size(&self, wide: bool) -> Option<u64> {
         let info = self.info;
         let cells = if wide { 2 } else { 1 };
-        let stored = glyph_bytes(info.format.code(), info.cell.width, info.cell.height, cells)?;
-        let memory = info
-            .cell
-            .width
-            .checked_mul(cells)?
-            .checked_mul(info.cell.height)?
-            .checked_mul(info.format.memory_bytes())?;
-        Some((u64::from(stored), u64::from(memory)))
+        glyph_bytes(info.format.code(), info.cell.width, info.cell.height, cells).map(u64::from)
     }
 }

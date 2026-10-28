@@ -153,7 +153,7 @@ pub(super) fn parse_cmap(bytes: &[u8], strikes: &mut [Strike]) -> Result<(), Set
         }
         let mut runs: Vec<Run> = Vec::new();
         let mut spans: Vec<Span> = Vec::new();
-        let (mut next, mut stored, mut memory) = (0u32, 0u64, 0u64);
+        let (mut next, mut stored) = (0u32, 0u64);
         for _ in 0..n {
             let mut r = c.record(size)?;
             let (first, len, glyph, flags) = (r.u32()?, r.u32()?, r.u32()?, r.u32()?);
@@ -176,7 +176,7 @@ pub(super) fn parse_cmap(bytes: &[u8], strikes: &mut [Strike]) -> Result<(), Set
             {
                 return Err(SetError::Malformed("runs out of order or overlapping"));
             }
-            let (glyph_stored, glyph_memory) = strike.sizes(wide).ok_or(SetError::Truncated)?;
+            let glyph_stored = strike.size(wide).ok_or(SetError::Truncated)?;
             if glyph_stored > u64::from(SET_CHUNK_BYTES) {
                 return Err(SetError::Bound("SET_CHUNK_BYTES"));
             }
@@ -186,10 +186,8 @@ pub(super) fn parse_cmap(bytes: &[u8], strikes: &mut [Strike]) -> Result<(), Set
                     len,
                     wide,
                     stored,
-                    memory,
                 });
                 stored = add(stored, mul(u64::from(len), glyph_stored)?)?;
-                memory = add(memory, mul(u64::from(len), glyph_memory)?)?;
                 next = next
                     .checked_add(len)
                     .ok_or(SetError::Bound("SET_GLYPHS_MAX"))?;
@@ -321,7 +319,6 @@ pub(super) fn parse_index(
             sha256,
             strike: 0,
             start: 0,
-            memory: 0,
         });
     }
     c.end()?;
@@ -333,15 +330,14 @@ pub(super) fn parse_index(
         let first = next;
         let mut pos = 0u64;
         while pos < strike.stored {
-            let memory = strike
-                .boundary(pos)
-                .ok_or(SetError::Malformed("a chunk that splits a glyph"))?;
+            if !strike.boundary(pos) {
+                return Err(SetError::Malformed("a chunk that splits a glyph"));
+            }
             let chunk = chunks
                 .get_mut(next)
                 .ok_or(SetError::Malformed("fewer chunk bytes than glyph bytes"))?;
             chunk.strike = i;
             chunk.start = pos;
-            chunk.memory = memory;
             pos = add(pos, u64::from(chunk.decoded))?;
             next = next.saturating_add(1);
         }
@@ -357,49 +353,22 @@ pub(super) fn parse_index(
 }
 
 impl Strike {
-    /// The memory offset of the glyph starting at stored offset `pos`, or
-    /// `None` when no glyph starts there.
-    fn boundary(&self, pos: u64) -> Option<u64> {
-        let i = self
+    /// Whether a glyph starts at offset `pos` of the strike's glyph bytes.
+    fn boundary(&self, pos: u64) -> bool {
+        let Some(span) = self
             .spans
             .partition_point(|s| s.stored <= pos)
-            .checked_sub(1)?;
-        let span = self.spans.get(i)?;
-        let (stored, memory) = self.sizes(span.wide)?;
-        let rel = pos.checked_sub(span.stored)?;
-        let k = rel.checked_div(stored)?;
-        if rel.checked_rem(stored)? != 0 || k >= u64::from(span.len) {
-            return None;
-        }
-        span.memory.checked_add(k.checked_mul(memory)?)
+            .checked_sub(1)
+            .and_then(|i| self.spans.get(i))
+        else {
+            return false;
+        };
+        let (Some(size), Some(rel)) = (self.size(span.wide), pos.checked_sub(span.stored)) else {
+            return false;
+        };
+        rel.checked_rem(size) == Some(0)
+            && rel
+                .checked_div(size)
+                .is_some_and(|k| k < u64::from(span.len))
     }
-}
-
-/// A 1-bit chunk's glyphs expanded to a byte a pixel, 0 or 255: the
-/// in-memory form every strike is drawn from (ADR-1200 D13).
-pub(super) fn expand(strike: &Strike, chunk: &Chunk, bytes: &[u8]) -> Option<Box<[u8]>> {
-    let cell = strike.info.cell;
-    let mut out = Vec::new();
-    let mut pos = 0usize;
-    while pos < bytes.len() {
-        let at = chunk.start.checked_add(u64::try_from(pos).ok()?)?;
-        let i = strike
-            .spans
-            .partition_point(|s| s.stored <= at)
-            .checked_sub(1)?;
-        let wide = strike.spans.get(i)?.wide;
-        let w = cell.width.checked_mul(if wide { 2 } else { 1 })?;
-        let row = usize::try_from(w.div_ceil(8)).ok()?;
-        let len = row.checked_mul(usize::try_from(cell.height).ok()?)?;
-        let glyph = bytes.get(pos..pos.checked_add(len)?)?;
-        for line in glyph.chunks_exact(row) {
-            for x in 0..w {
-                let byte = line.get(usize::try_from(x / 8).ok()?)?;
-                let bit = byte >> 7u32.saturating_sub(x % 8) & 1;
-                out.push(if bit != 0 { 0xff } else { 0 });
-            }
-        }
-        pos = pos.checked_add(len)?;
-    }
-    Some(out.into_boxed_slice())
 }

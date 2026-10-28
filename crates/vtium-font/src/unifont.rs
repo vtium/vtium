@@ -6,9 +6,9 @@
 //! `data/OFL-1.1.txt`). `build.rs` packs them into a vitrified set, the
 //! built-in set ADR-1200 D7 names `unifont`: one 1-bit strike of 8x16
 //! cells, its glyph chunks of at most 16 KiB each deflated. A chunk is
-//! inflated and expanded to a byte a pixel the first time a glyph is drawn
-//! from it, and kept for the life of the process, so the binary carries the
-//! compressed font and memory holds only the chunks in use. The set is
+//! inflated the first time a glyph is drawn from it and kept 1-bit for the
+//! life of the process, each glyph expanded as it is drawn, so the binary
+//! carries the compressed font and memory holds only the chunks in use. The set is
 //! trusted by construction, so its chunks are not hashed again. The C
 //! reference inflated the whole font, 3.7 MB, when it loaded
 //! (font_unifont.c:203-245).
