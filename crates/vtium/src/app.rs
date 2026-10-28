@@ -642,7 +642,7 @@ impl App {
     fn switch_font(&mut self, name: &str) {
         self.choose_font();
         let same = match self.chosen() {
-            Chosen::Frit { frit, .. } => frit.name == name,
+            Chosen::Frit { name: now, .. } => now == name,
             Chosen::Builtin(Some(n)) => *n == name,
             Chosen::Builtin(None) => false,
         };

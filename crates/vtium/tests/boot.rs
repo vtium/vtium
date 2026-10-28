@@ -3701,7 +3701,9 @@ fn a_kbd_name_no_frit_bears_is_generated_as_a_one_source_frit() {
 
 // ADR-1200 D9: a path under `font-engine=psf` is a one-source frit with a
 // file: source, and vconsole's font, the kernel command line's over
-// vconsole.conf's, one with the vconsole source
+// vconsole.conf's, one with the vconsole source; a name outside D1's
+// characters, as a path is, goes to the helper as `generated`, a name it
+// takes, and the font keeps the name it was given
 #[test]
 fn a_path_or_vconsoles_font_is_generated_as_a_one_source_frit() {
     let path = "/usr/share/kbd/consolefonts/ter-v12n.psf.gz";
@@ -3713,7 +3715,7 @@ fn a_path_or_vconsoles_font_is_generated_as_a_one_source_frit() {
     assert_eq!(h.app.font_name(), path);
     assert_eq!(
         recorded(&mut h, &fonts, 1),
-        [pair(path, &format!("source=file:{path}\n"))]
+        [pair("generated", &format!("source=file:{path}\n"))]
     );
     let _ = std::fs::remove_dir_all(&fonts.frits);
     let mut fonts = recording("vconsole");
@@ -3776,7 +3778,7 @@ fn a_family_is_generated_as_a_one_source_frit() {
     assert_eq!(h.app.font_name(), "DejaVu Sans Mono");
     assert_eq!(
         recorded(&mut h, &fonts, 1),
-        [pair("DejaVu Sans Mono", "source=font:DejaVu Sans Mono\n")]
+        [pair("generated", "source=font:DejaVu Sans Mono\n")]
     );
     let _ = std::fs::remove_dir_all(&fonts.frits);
 }

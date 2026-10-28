@@ -147,17 +147,26 @@ pub fn default_frits() -> PathBuf {
     PathBuf::from(option_env!("VTIUM_FONT_FRITS").unwrap_or("/etc/vtium/fonts"))
 }
 
-/// The frit `name` names in `frits`: `NAME.vtfrit`, a regular file, for a
-/// name of 1 to 64 characters of `A-Z a-z 0-9 . _ + -` not starting with
-/// `.` (ADR-1200 D1), so no name reaches outside the directory.
-pub fn frit(frits: &Path, name: &str) -> Option<PathBuf> {
-    let valid = (1..=64).contains(&name.len())
+/// Whether `name` is a frit's name (ADR-1200 D1): 1 to 64 characters of
+/// `A-Z a-z 0-9 . _ + -`, not starting with `.`.
+fn frit_name(name: &str) -> bool {
+    (1..=64).contains(&name.len())
         && !name.starts_with('.')
         && name
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'));
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'))
+}
+
+/// The name a frit made on the fly goes to the helper by when the name it
+/// was given is not a frit's name, as a path or a family is: the helper
+/// refuses a request naming any other (ADR-1200 D1).
+pub const GENERATED: &str = "generated";
+
+/// The frit `name` names in `frits`: `NAME.vtfrit`, a regular file, for a
+/// frit's name, so no name reaches outside the directory.
+pub fn frit(frits: &Path, name: &str) -> Option<PathBuf> {
     let path = frits.join(format!("{name}.vtfrit"));
-    (valid && std::fs::metadata(&path).is_ok_and(|m| m.is_file())).then_some(path)
+    (frit_name(name) && std::fs::metadata(&path).is_ok_and(|m| m.is_file())).then_some(path)
 }
 
 /// The smallest and largest side of a frit's `cell=`, vtium-vitrify's
@@ -505,6 +514,9 @@ pub enum Chosen {
     /// states, else the display's (#145): drawn in the built-in font, each
     /// character the helper has sent drawn from `generated` in its place.
     Frit {
+        /// The name the font goes by, as it was given.
+        name: String,
+        /// The frit as the helper is handed it, under a frit's name.
         frit: FritText,
         /// `cell=`, unless `font-size` is configured.
         cell: Option<Cell>,
@@ -527,12 +539,17 @@ pub struct Rung {
 impl Chosen {
     /// The frit `frit`, its cell and size read from its text before the
     /// first frame (#145), unless `sized`, a configured `font-size`, wins
-    /// over them (ADR-1200 D16, D17). The error is why they cannot be
-    /// read.
-    pub fn frit(frit: FritText, sized: bool) -> Result<Chosen, String> {
+    /// over them (ADR-1200 D16, D17). A name that is not a frit's goes to
+    /// the helper as [`GENERATED`]. The error is why they cannot be read.
+    pub fn frit(mut frit: FritText, sized: bool) -> Result<Chosen, String> {
         let cell = frit_cell(&frit.text)?;
         let size = frit_size(&frit.text)?;
+        let name = frit.name.clone();
+        if !frit_name(&name) {
+            GENERATED.clone_into(&mut frit.name);
+        }
         Ok(Chosen::Frit {
+            name,
             outline: frit_outline(&frit.text),
             frit,
             cell: cell.filter(|_| !sized),
@@ -571,7 +588,7 @@ impl Chosen {
     /// frit's, else the built-in's.
     pub fn name(&self, height: u32, locale: &str) -> &str {
         match self {
-            Chosen::Frit { frit, .. } => &frit.name,
+            Chosen::Frit { name, .. } => name,
             Chosen::Builtin(_) => self.builtin_at(height, locale),
         }
     }
