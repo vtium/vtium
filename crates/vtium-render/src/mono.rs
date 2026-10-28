@@ -81,6 +81,16 @@ impl Ink {
         }
     }
 
+    /// The colors of a cell on background `bg` whose lit state vtium sets,
+    /// as [`marked`] gives it.
+    pub(crate) fn with_state(depth: Depth, bg: Rgb, lit: bool) -> Ink {
+        Ink {
+            mapped: depth.one_bit(),
+            bg,
+            bg_lit: lit,
+        }
+    }
+
     pub(crate) fn bg(&self) -> Rgb {
         if self.mapped {
             ink(self.bg_lit)
@@ -106,6 +116,24 @@ impl Ink {
 /// screen's state, lit for a light default background.
 pub(crate) fn border(depth: Depth, bg: Rgb) -> Rgb {
     if depth.one_bit() { ink(light(bg)) } else { bg }
+}
+
+/// Whether a cell of background `bg` and foreground `fg`, after reverse
+/// video, draws its background lit at 1 bit (the operator's decision,
+/// 2026-10-28): by its background's luma, and for reverse video (SGR 7)
+/// the opposite of what it draws unreversed, whose background is `fg`, so
+/// a reversed cell always differs from the same cell unreversed. The
+/// renderer inverts this again for the selection and a block cursor,
+/// which vtium draws to mark state whatever their colors.
+pub(crate) fn marked(bg: Rgb, fg: Rgb, inverse: bool) -> bool {
+    if inverse { !light(fg) } else { light(bg) }
+}
+
+/// A color that shows on background `bg` at 1 bit, whatever `bg` is: its
+/// complement, which differs from it, so a line cursor's ink is never its
+/// cell's background.
+pub(crate) fn ink_on(bg: Rgb) -> Rgb {
+    Rgb::new(!bg.r, !bg.g, !bg.b)
 }
 
 /// Whether the background `c` is light: its BT.601 luma at least 128, the

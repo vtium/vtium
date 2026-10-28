@@ -407,38 +407,97 @@ fn dim_text_at_1_bit_is_plain_lit_text() {
     assert_eq!(got[0], got[1]);
 }
 
-// the selection's cells are lit by their background's luma, inverted or
-// in its own colors (OSC 17 and 19)
+// the operator's decision (2026-10-28): what vtium draws to mark state,
+// the selection and the cursor, inverts the cell's lit state at 1 bit,
+// whatever its colors, on either theme
 #[test]
-fn the_selection_at_1_bit_is_lit_by_its_background() {
+fn the_selection_at_1_bit_inverts_the_cell() {
     use std::ops::Range;
     use vtium_term::Special;
-    let bg = rgb(BG);
-    let mut s = Screen::new(3, 1, rgb("c0c0c0"), bg);
-    s.text(0, 0, "HHH", style(rgb("c0c0c0"), bg));
-    let frame = s
-        .frame(Age::NEVER)
-        .with_selection(vec![Range { start: 1, end: 2 }]);
-    let plain = lit_cells(&s, &frame, 3, None);
-    assert_eq!(plain[1], 128 - plain[0], "{plain:?}");
-    assert_eq!(plain[2], plain[0]);
-    // in its own colors: a light background flips, a dark one does not
-    s.palette
-        .set_special(Special::SelectionBg, Some(rgb("ffff00")));
-    s.palette
-        .set_special(Special::SelectionFg, Some(rgb("0000ff")));
-    let frame = s
-        .frame(Age::NEVER)
-        .with_selection(vec![Range { start: 1, end: 2 }]);
-    assert_eq!(lit_cells(&s, &frame, 3, None), plain);
-    s.palette
-        .set_special(Special::SelectionBg, Some(rgb("0000ff")));
-    s.palette
-        .set_special(Special::SelectionFg, Some(rgb("ffff00")));
-    let frame = s
-        .frame(Age::NEVER)
-        .with_selection(vec![Range { start: 1, end: 2 }]);
-    assert_eq!(lit_cells(&s, &frame, 3, None), [plain[0]; 3]);
+    for (theme_bg, theme_fg) in [("101010", "c0c0c0"), ("f0f0f0", "202020")] {
+        let (bg, fg) = (rgb(theme_bg), rgb(theme_fg));
+        let mut s = Screen::new(3, 1, fg, bg);
+        s.text(0, 0, "HHH", style(fg, bg));
+        let sel = || vec![Range { start: 1, end: 2 }];
+        let plain = lit_cells(&s, &s.frame(Age::NEVER), 3, None);
+        assert_eq!(plain[2], plain[0], "{theme_bg}");
+        let inverted = lit_cells(&s, &s.frame(Age::NEVER).with_selection(sel()), 3, None);
+        assert_eq!(
+            inverted[1],
+            128 - plain[0],
+            "inverted, {theme_bg}: {inverted:?}"
+        );
+        for (sel_bg, sel_fg) in [
+            ("0000ff", "ffff00"),
+            ("ffff00", "0000ff"),
+            (theme_bg, theme_fg),
+        ] {
+            s.palette
+                .set_special(Special::SelectionBg, Some(rgb(sel_bg)));
+            s.palette
+                .set_special(Special::SelectionFg, Some(rgb(sel_fg)));
+            let got = lit_cells(&s, &s.frame(Age::NEVER).with_selection(sel()), 3, None);
+            assert_eq!(got[1], 128 - plain[0], "{sel_bg} on {theme_bg}: {got:?}");
+            assert_eq!((got[0], got[2]), (plain[0], plain[2]));
+        }
+    }
+}
+
+// reverse video inverts the cell it would draw unreversed, so dark blue
+// text on the dark default background, reversed, still shows
+#[test]
+fn reverse_video_at_1_bit_inverts_the_cell() {
+    for (theme_bg, theme_fg, ink) in [
+        ("101010", "c0c0c0", "000040"),
+        ("f0f0f0", "202020", "ffffc0"),
+    ] {
+        let (bg, fg) = (rgb(theme_bg), rgb(theme_fg));
+        let mut s = Screen::new(2, 1, fg, bg);
+        s.text(0, 0, "H", style(rgb(ink), bg));
+        let mut rev = style(rgb(ink), bg);
+        rev.attrs = Attrs::INVERSE;
+        s.text(1, 0, "H", rev);
+        let got = lit_cells(&s, &s.frame(Age::NEVER), 2, None);
+        assert_eq!(got[1], 128 - got[0], "{ink} on {theme_bg}: {got:?}");
+    }
+}
+
+// a block cursor inverts its cell, whatever its color
+#[test]
+fn a_block_cursor_at_1_bit_inverts_its_cell() {
+    use vtium_term::{Cursor, CursorShape};
+    for (theme_bg, theme_fg) in [("101010", "c0c0c0"), ("f0f0f0", "202020")] {
+        let (bg, fg) = (rgb(theme_bg), rgb(theme_fg));
+        for color in [
+            None,
+            Some(rgb(theme_bg)),
+            Some(rgb("000080")),
+            Some(rgb("ffff80")),
+        ] {
+            let mut s = Screen::new(2, 1, fg, bg);
+            s.text(0, 0, "HH", style(fg, bg));
+            s.cursor = Cursor {
+                row: 0,
+                col: 1,
+                visible: true,
+                shape: CursorShape::Block,
+                color,
+                ..Cursor::default()
+            };
+            let (w, h) = (20, 20);
+            let mut r = Renderer::new(unifont(), w, h, one());
+            let mut c = Canvas::new(w, h, 0x12_3456);
+            let state = DrawState {
+                background: bg,
+                cursor_on: true,
+                ..DrawState::default()
+            };
+            r.draw(&s.frame(Age::NEVER), &mut c, 0, &state);
+            bits_only(&c);
+            let (a, b) = (lit(&c, 0, 0), lit(&c, 1, 0));
+            assert_eq!(b, 128 - a, "{color:?} on {theme_bg}: {a} {b}");
+        }
+    }
 }
 
 // the pointer's outline is cut to black and its fill stays white, over a

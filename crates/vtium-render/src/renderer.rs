@@ -320,6 +320,9 @@ struct Pass<'p, 'f> {
     cursor: Cursor,
     /// Where the cursor draws, when it shows.
     at: Option<(usize, usize)>,
+    /// At 1 bit, the frame without its selection, whose cells say what a
+    /// selected cell draws unselected.
+    plain: Option<Frame<'f>>,
 }
 
 /// A cell's place: its column, row and the cells it draws over.
@@ -338,6 +341,9 @@ struct Paint {
     underline: Option<(Kind, Rgb)>,
     strike: Option<Rgb>,
     text: Option<(usize, usize, FontWidth, Style)>,
+    /// At 1 bit, whether the background is lit, where vtium marks the cell
+    /// (`mono::marked`).
+    lit: Option<bool>,
 }
 
 /// Where the pointer's arrow draws and the cells it changes.
@@ -689,6 +695,8 @@ impl<F: Face> Renderer<F> {
             state,
             cursor,
             at,
+            plain: (self.config.depth == Depth::One)
+                .then(|| frame.clone().with_selection(Vec::new())),
         };
         let mut drawn = 0u32;
         for row in 0..g.rows {
@@ -758,11 +766,28 @@ impl<F: Face> Renderer<F> {
                 },
                 is_cursor.then_some(&p.cursor),
                 off,
+                Self::one_bit_lit(p, &fc, row, here),
             );
         }
         self.widen_to_span(p, row);
         self.compose.draw(&self.font, self.layout.strip(), target);
         count
+    }
+
+    /// At 1 bit, whether `fc`, at `col` in `row`, draws its background lit
+    /// (`mono::marked`): the selection inverts what the cell draws
+    /// unselected. `None` at any other depth.
+    fn one_bit_lit(p: &Pass<'_, '_>, fc: &FrameCell<'_>, row: usize, col: usize) -> Option<bool> {
+        let plain = p.plain.as_ref()?;
+        let natural =
+            |c: &FrameCell<'_>| mono::marked(c.bg, c.fg, c.attrs.contains(Attrs::INVERSE));
+        Some(if fc.selected {
+            !plain
+                .cell(row, col)
+                .map_or_else(|| natural(fc), |c| natural(&c))
+        } else {
+            natural(fc)
+        })
     }
 
     /// The jobs for one cell: its own, and for a bar cursor on a wide cell,
@@ -774,6 +799,7 @@ impl<F: Face> Renderer<F> {
         at: Place,
         cursor: Option<&Cursor>,
         off: bool,
+        lit: Option<bool>,
     ) {
         let force = self.config.decorations.force;
         let (deco_ul, deco_strike) = self.deco;
@@ -782,11 +808,21 @@ impl<F: Face> Renderer<F> {
         let mut underline = fc.attrs.underline();
         let mut ul_cursor = false;
         let mut bar = false;
+        let mut cell_lit = lit;
+        // at 1 bit a mark's text always shows: the selection's and a block
+        // cursor's ink is never their background
+        if lit.is_some() && fc.selected {
+            fg = mono::ink_on(bg);
+        }
         match cursor.map(|c| (c.shape, c.color)) {
             Some((CursorShape::Block, color)) => {
                 core::mem::swap(&mut fg, &mut bg);
                 if let Some(c) = color {
                     bg = c;
+                }
+                cell_lit = lit.map(|l| !l);
+                if lit.is_some() {
+                    fg = mono::ink_on(bg);
                 }
             }
             Some((CursorShape::Underline, _)) => {
@@ -799,7 +835,13 @@ impl<F: Face> Renderer<F> {
             Some((CursorShape::Bar, _)) => bar = true,
             None => {}
         }
-        let cursor_color = cursor.and_then(|c| c.color);
+        // at 1 bit a line cursor is the cell's ink, whatever its color
+        let cursor_color = match lit {
+            Some(_) if !matches!(cursor.map(|c| c.shape), Some(CursorShape::Block)) => {
+                cursor.map(|_| mono::ink_on(bg))
+            }
+            _ => cursor.and_then(|c| c.color),
+        };
         let ul_color = if ul_cursor {
             cursor_color.unwrap_or(fg)
         } else {
@@ -871,6 +913,7 @@ impl<F: Face> Renderer<F> {
                 underline,
                 strike,
                 text: None,
+                lit,
             };
             let job = self.job(g, tail, 1, paint);
             self.compose.jobs.push(job);
@@ -884,6 +927,7 @@ impl<F: Face> Renderer<F> {
             underline,
             strike,
             text,
+            lit: cell_lit,
         };
         let job = self.job(g, at, glyph_cells, paint);
         self.compose.jobs.push(job);
@@ -892,7 +936,10 @@ impl<F: Face> Renderer<F> {
     fn job(&self, g: &Grid, at: Place, glyph_cells: usize, paint: Paint) -> Job {
         let l = &self.layout;
         let depth = self.config.depth;
-        let ink = Ink::new(depth, paint.bg);
+        let ink = match paint.lit {
+            Some(lit) => Ink::with_state(depth, paint.bg, lit),
+            None => Ink::new(depth, paint.bg),
+        };
         Job {
             posx: at.col,
             ncells: at.ncells,
@@ -951,6 +998,7 @@ impl<F: Face> Renderer<F> {
                 },
                 is_cursor.then_some(&p.cursor),
                 off,
+                Self::one_bit_lit(p, &fc, row, here),
             );
         }
         self.compose.jobs.sort_by_key(|j| j.posx);
