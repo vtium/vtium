@@ -175,6 +175,10 @@ impl Parser {
 
     /// Runs the parser on `request` and checks what it gives back.
     pub fn parse(&self, request: &Request) -> Result<Glyphs, String> {
+        // a descriptor this process inherited without close-on-exec, one
+        // root opened among them, would otherwise reach the parser
+        vtium_platform::cloexec_above_stdio()
+            .map_err(|e| format!("cannot keep this process's descriptors from the parser: {e}"))?;
         let mut command = Command::new(&self.program);
         command
             .args(&self.args)
@@ -314,6 +318,7 @@ fn parser_main() -> Result<(), String> {
 )]
 mod tests {
     use super::*;
+    use std::os::fd::AsRawFd;
 
     #[test]
     fn a_request_reads_back() {
@@ -420,14 +425,20 @@ mod tests {
 
     #[test]
     fn the_parser_holds_only_its_pipes() {
-        let _held = std::fs::File::open("/proc/self/exe").unwrap();
+        // dup's copy is not close-on-exec, as a descriptor the invoking
+        // process passes down is not
+        let null = std::fs::File::open("/dev/null").unwrap();
+        let held = rustix::io::dup(&null).unwrap();
         let e = stand_in("cat >/dev/null; ls /proc/self/fd >&2; exit 1")
             .parse(&Request::default())
             .expect_err("reports");
         // ls opens one descriptor of its own to read the directory
         let fds: Vec<&str> = e.lines().collect();
+        let held = held.as_raw_fd().to_string();
         assert!(
-            fds.len() <= 4 && ["0", "1", "2"].iter().all(|f| fds.contains(f)),
+            fds.len() <= 4
+                && ["0", "1", "2"].iter().all(|f| fds.contains(f))
+                && !fds.contains(&held.as_str()),
             "{fds:?}"
         );
     }
