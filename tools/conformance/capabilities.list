@@ -58,7 +58,7 @@ focus-1004                    works   -     DEC-1004                       focus
 
 # strings vtium does not take yet
 osc-8-hyperlink               missing #40   osc.8                          placeholder in the probes: OSC 8 hyperlinks
-osc-52-clipboard              missing #110  osc.52.write                   placeholder in the probes: OSC 52 copy
+osc-52-clipboard              works   -     osc.52.write                   OSC 52 sets the clipboard, which the host takes once: vtium's probe
 osc-133-marks                 missing #40   osc.133                        placeholder in the probes: OSC 133 prompt marks
 
 # images: working in a build with images and failing, as a missing probe

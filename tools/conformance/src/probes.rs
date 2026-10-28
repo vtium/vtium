@@ -81,6 +81,11 @@ impl Probe {
     pub fn is_placeholder(&self) -> bool {
         self.placeholder.is_some()
     }
+
+    /// The file the probe was read from.
+    pub fn file(&self) -> &str {
+        self.at.rsplit_once(':').map_or(&self.at, |(file, _)| file)
+    }
 }
 
 /// The bytes of a `"..."` string written with `\e`, `\r`, `\n`, `\t`,

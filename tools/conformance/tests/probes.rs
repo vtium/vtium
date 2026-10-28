@@ -15,7 +15,8 @@ fn read(path: &str) -> String {
 }
 
 fn spec() -> Spec {
-    Spec::read(&read("corpus/INTERFACE.md")).unwrap_or_else(|e| panic!("{e}"))
+    Spec::read(&[&read("corpus/INTERFACE.md"), &read("INTERFACE-vtium.md")])
+        .unwrap_or_else(|e| panic!("{e}"))
 }
 
 fn cap(name: &str, status: &str, issue: &str) -> Capability {
@@ -55,11 +56,14 @@ fn the_probe_files_read_and_their_expectations_check() {
     probes::check_list(&caps).unwrap_or_else(|e| panic!("{e}"));
     let copied = probes::read("probes.replay", &read("probes/probes.replay"), &spec)
         .unwrap_or_else(|e| panic!("{e}"));
-    for probe in &copied {
+    let ours = probes::read("vtium.replay", &read("probes/vtium.replay"), &spec)
+        .unwrap_or_else(|e| panic!("{e}"));
+    let all = probes::merge(copied, ours).unwrap_or_else(|e| panic!("{e}"));
+    for probe in &all {
         let missing = caps
             .iter()
             .any(|c| c.name == probe.name && c.status == "missing");
-        probes::check_expectations("probes.replay", probe, &spec, missing)
+        probes::check_expectations(probe.file(), probe, &spec, missing)
             .unwrap_or_else(|e| panic!("{e}"));
     }
 }

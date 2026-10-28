@@ -1,6 +1,6 @@
 # conformance
 
-Tier 1 for vtium. `vtium-replay` meets the replay interface, `corpus/INTERFACE.md` (interface 1.0), over `vtium-parse` and `vtium-term`. `conformance` replays every case of the corpus through it and judges each against its golden, and runs the capability probes through it, each judged by vtium's capability list. The goldens are the judge: every difference from a golden is a listed departure, a listed pending case, or a failure.
+Tier 1 for vtium. `vtium-replay` meets the replay interface, interface 1.1: `corpus/INTERFACE.md`, interface 1.0, with vtium's additions in `INTERFACE-vtium.md`, over `vtium-parse` and `vtium-term`. `conformance` replays every case of the corpus through it and judges each against its golden, and runs the capability probes through it, each judged by vtium's capability list. The goldens are the judge: every difference from a golden is a listed departure, a listed pending case, or a failure.
 
 The corpus, its goldens, the interface and the probe file were made by the C reference and copied here at the commits `provenance.tsv` names (The copies). Nothing here reads a checkout of the C repositories or runs their code.
 
@@ -21,7 +21,7 @@ make conformance-issues   # every issue the lists name is open (gh)
 | `src/replay.rs` | The replay: the reference host's settings, the feed between cuts, the test commands and the head of each block. |
 | `src/command.rs` | The test commands of interface 1, each value checked against its form and range. |
 | `src/view.rs` | The screen and frame views, from vtium-term's lines and frame. |
-| `src/spec.rs` | The interface's `describe` and `grammar` blocks, and the check of a line against the grammar. |
+| `src/spec.rs` | The interface's `describe` and `grammar` blocks, over 1.0 and vtium's additions, and the check of a line against the grammar. |
 | `src/runner.rs` | The corpus, the masking and the verdict on each case. |
 | `src/runner/lists.rs` | Reading `expected.tsv`, and its checks. |
 | `src/runner/provenance.rs` | Reading `provenance.tsv`, and the check of each copy against it. |
@@ -32,7 +32,9 @@ make conformance-issues   # every issue the lists name is open (gh)
 | `src/coverage.rs` | `COVERAGE.md`, generated from `capabilities.list` and ADR-1000's tables, and its test. |
 | `src/bin/conformance.rs` | The runner's commands and its report. |
 | `corpus/` | The copied corpus: `INTERFACE.md`, `cases.list`, `cases/` with each case's stream, cuts and fixtures, and the goldens, `golden/` for the screen view and `golden-frame/` for the frame view. |
+| `INTERFACE-vtium.md` | vtium's additions to the interface: the `clipboard` command and feature, and the line it prints. |
 | `probes/probes.replay` | The copied capability probes. |
+| `probes/vtium.replay` | vtium's own probes. |
 | `provenance.tsv` | Each copied file: its path here, the repository, commit and path it came from, and its SHA-256. |
 | `expected.tsv` | The cases whose output differs from the golden, each with the departure that lists it or the issue that owes it. |
 | `expected/screen/`, `expected/frame/` | vtium's expected output for each listed departure, by view. |
@@ -49,7 +51,7 @@ Every run, and `the_copies_match_their_provenance` in `cargo test`, checks each 
 
 ## The replay
 
-`vtium-replay` offers the screen and frame views, and the commands and features interface 1 makes mandatory: `attrs-extended`, `view-frame`, `sync`, `identify`, `input`, `focus`, `palette` and `query`. vtium is built without images, so it lacks `images`, `sixel`, `kitty-graphics` and `image-host`, and the commands that need them exit 2 as the interface asks; the draw2 view is optional (the operator's decision of 2026-10-26) and absent; and it declines `damage-exact`, so the runner masks the changed counts on both sides.
+`vtium-replay` offers the screen and frame views, and the commands and features interface 1.1 makes mandatory: `attrs-extended`, `view-frame`, `sync`, `identify`, `input`, `focus`, `palette`, `query` and vtium's `clipboard`. vtium is built without images, so it lacks `images`, `sixel`, `kitty-graphics` and `image-host`, and the commands that need them exit 2 as the interface asks; the draw2 view is optional (the operator's decision of 2026-10-26) and absent; and it declines `damage-exact`, so the runner masks the changed counts on both sides.
 
 The reference host is a scrollback of 0 lines (`sb-max` raises it, up to `SB_SIZE_MAX`), the cell size 8 by 16, the cursor blinking, mode 2026 presented, BackSpace sending 0x08, XTVERSION's text `tsm-replay`, an empty XTGETTCAP table, and the `legacy` palette, which is vtium-term's default. Each `termcap` fixture is checked against the interface's bounds before vtium-term's `Termcap` takes it.
 
@@ -88,7 +90,7 @@ Before any case runs, the runner checks `--describe` against INTERFACE.md's `des
 - a probe the list does not name, or a name in the list no probe defines, fails the run;
 - a probe that names a fixture is skipped, printed as `skip`, since vtium has none yet: `xtgettcap` reads the termcap fixture the C reference's build compiled with `tic`, which joins with vtium's terminfo entry (#21).
 
-A probe of `vtium.replay` takes the place of a placeholder of the same name in the copied file, and of nothing else. The C reference's runner, kmscon's `tests/capabilities/run.py`, also ran its terminfo and font probes; vtium's join when it has a terminfo entry (#21) and outline fonts (#23).
+A probe of `vtium.replay` takes the place of a placeholder of the same name in the copied file, and of nothing else: `osc-52-clipboard` replaces the C reference's placeholder, which failed whatever the terminal did, since the C reference dropped OSC 52 and interface 1.0 had no way to see a clipboard (#110). The C reference's runner, kmscon's `tests/capabilities/run.py`, also ran its terminfo and font probes; vtium's join when it has a terminfo entry (#21) and outline fonts (#23).
 
 A stanza opens with `probe NAME`, builds a byte stream and the cuts of the interface's command line, and judges the blocks the replay prints at the cuts. A line starting with `#` is a comment.
 

@@ -1,8 +1,9 @@
 #![forbid(unsafe_code)]
 //! vtium's side of tier 1.
 //!
-//! `vtium-replay` meets the replay interface, `corpus/INTERFACE.md`
-//! (interface 1.0), over `vtium-term`: a byte stream and the test commands
+//! `vtium-replay` meets the replay interface, interface 1.1:
+//! `corpus/INTERFACE.md` with vtium's additions in `INTERFACE-vtium.md`,
+//! over `vtium-term`: a byte stream and the test commands
 //! in it go in, and the screen or frame view comes out as text.
 //! `conformance` replays every case of the corpus and judges each against
 //! its golden, expecting vtium's own output for exactly the cases
@@ -46,8 +47,9 @@ pub(crate) fn internal(message: impl Into<String>) -> Failure {
 }
 
 /// What `--describe` prints: the interface, the views, the features and
-/// the commands vtium offers, in INTERFACE.md's order. vtium is built
-/// without images and without the draw2 view, and declines `damage-exact`.
+/// the commands vtium offers, in the order of the interface's describe
+/// blocks. vtium is built without images and without the draw2 view, and
+/// declines `damage-exact`.
 pub fn describe() -> String {
     let features = [
         "attrs-extended",
@@ -58,8 +60,9 @@ pub fn describe() -> String {
         "focus",
         "palette",
         "query",
+        "clipboard",
     ];
-    let mut out = String::from("interface 1.0\nview screen\nview frame\n");
+    let mut out = String::from("interface 1.1\nview screen\nview frame\n");
     for f in features {
         out.push_str("feature ");
         out.push_str(f);

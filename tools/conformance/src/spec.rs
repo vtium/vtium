@@ -19,7 +19,7 @@ struct Form {
     reserved: Regex,
 }
 
-/// The interface's `describe` and `grammar` blocks.
+/// The interface's `describe` and `grammar` blocks, over its versions.
 #[derive(Clone, Debug)]
 pub struct Spec {
     /// The describe block's lines, `interface MAJOR.MINOR` first.
@@ -50,16 +50,48 @@ pub fn whole(pattern: &str) -> Result<Regex, String> {
     Regex::new(&format!(r"\A(?:{pattern})\z")).map_err(|e| e.to_string())
 }
 
+/// The grammar's fragments: each define with the reserved keys empty and
+/// with them allowed, and each reserved fragment.
+#[derive(Default)]
+struct Fragments {
+    defines: BTreeMap<String, (String, String)>,
+    reserved: BTreeMap<String, String>,
+}
+
 impl Spec {
-    /// Reads the blocks from the interface's text.
-    pub fn read(text: &str) -> Result<Self, String> {
-        let describe = fenced(text, "describe").ok_or("the interface has no describe block")?;
-        let major = describe
-            .first()
-            .and_then(|l| l.strip_prefix("interface "))
+    /// Reads the blocks of the interface's documents, each a later version
+    /// of the one before: a later describe block's version line replaces
+    /// the earlier one, and its view, feature and command lines follow the
+    /// earlier lines of the same kind; a later grammar block's lines join
+    /// the earlier ones, using their fragments.
+    pub fn read(texts: &[&str]) -> Result<Self, String> {
+        let mut version = None;
+        let mut kinds: [Vec<&str>; 3] = Default::default();
+        for text in texts {
+            let block = fenced(text, "describe").ok_or("an interface has no describe block")?;
+            let (first, rest) = block
+                .split_first()
+                .filter(|(l, _)| l.starts_with("interface "))
+                .ok_or("a describe block does not start with interface MAJOR.MINOR")?;
+            version = Some(*first);
+            for line in rest {
+                let at = ["view ", "feature ", "command "]
+                    .iter()
+                    .position(|p| line.starts_with(p))
+                    .ok_or_else(|| format!("describe line {line:?}"))?;
+                kinds[at].push(line);
+            }
+        }
+        let version = version.ok_or("no interface")?;
+        let major = version
+            .strip_prefix("interface ")
             .and_then(|v| v.split('.').next())
-            .ok_or("the describe block does not start with interface MAJOR.MINOR")?
+            .unwrap_or_default()
             .to_owned();
+        let describe: Vec<String> = std::iter::once(version)
+            .chain(kinds.iter().flatten().copied())
+            .map(str::to_owned)
+            .collect();
         let words = |prefix: &str| -> Vec<Vec<String>> {
             describe
                 .iter()
@@ -79,20 +111,21 @@ impl Spec {
             })
             .collect();
         let mut spec = Self {
-            describe: describe.iter().map(|l| (*l).to_owned()).collect(),
+            describe,
             major,
             features,
             commands,
             lines: BTreeMap::new(),
         };
-        spec.read_grammar(&fenced(text, "grammar").ok_or("the interface has no grammar block")?)?;
+        let mut fragments = Fragments::default();
+        for text in texts {
+            let block = fenced(text, "grammar").ok_or("an interface has no grammar block")?;
+            spec.read_grammar(&block, &mut fragments)?;
+        }
         Ok(spec)
     }
 
-    fn read_grammar(&mut self, block: &[&str]) -> Result<(), String> {
-        // each define with the reserved keys empty, and with them allowed
-        let mut defines: BTreeMap<String, (String, String)> = BTreeMap::new();
-        let mut reserved: BTreeMap<String, String> = BTreeMap::new();
+    fn read_grammar(&mut self, block: &[&str], f: &mut Fragments) -> Result<(), String> {
         for line in block {
             let Some((word, rest)) = line.split_once(' ') else {
                 continue;
@@ -103,11 +136,11 @@ impl Spec {
                         .split_once(' ')
                         .ok_or_else(|| format!("grammar line {line:?}"))?;
                     if word == "reserved" {
-                        reserved.insert(name.to_owned(), regex.to_owned());
+                        f.reserved.insert(name.to_owned(), regex.to_owned());
                     } else {
-                        let plain = expand(regex, false, &defines, &reserved)?;
-                        let with = expand(regex, true, &defines, &reserved)?;
-                        defines.insert(name.to_owned(), (plain, with));
+                        let plain = expand(regex, false, f)?;
+                        let with = expand(regex, true, f)?;
+                        f.defines.insert(name.to_owned(), (plain, with));
                     }
                 }
                 "line" => {
@@ -120,8 +153,8 @@ impl Spec {
                     let views = if views == "*" { ALL_VIEWS } else { views };
                     let form = Form {
                         views: views.split(',').map(str::to_owned).collect(),
-                        plain: whole(&expand(regex, false, &defines, &reserved)?)?,
-                        reserved: whole(&expand(regex, true, &defines, &reserved)?)?,
+                        plain: whole(&expand(regex, false, f)?)?,
+                        reserved: whole(&expand(regex, true, f)?)?,
                     };
                     self.lines.entry(kind.to_owned()).or_default().push(form);
                 }
@@ -151,12 +184,7 @@ impl Spec {
 /// `regex` with each `{NAME}` replaced by `(?:FRAGMENT)`: a reserved
 /// fragment empty unless `with_reserved`. A brace that names no upper-case
 /// fragment, as in `{6}`, stays.
-fn expand(
-    regex: &str,
-    with_reserved: bool,
-    defines: &BTreeMap<String, (String, String)>,
-    reserved: &BTreeMap<String, String>,
-) -> Result<String, String> {
+fn expand(regex: &str, with_reserved: bool, f: &Fragments) -> Result<String, String> {
     let mut out = String::with_capacity(regex.len());
     let mut rest = regex;
     while let Some(at) = rest.find('{') {
@@ -170,7 +198,7 @@ fn expand(
         });
         match name {
             Some(name) => {
-                let fragment = match (reserved.get(name), defines.get(name)) {
+                let fragment = match (f.reserved.get(name), f.defines.get(name)) {
                     (Some(r), _) if with_reserved => r.as_str(),
                     (Some(_), _) => "",
                     (None, Some((plain, with))) => {
@@ -220,7 +248,7 @@ line reply * reply (?:[0-9a-f]{2})+
 ";
 
     fn spec() -> Spec {
-        Spec::read(SPEC).unwrap_or_else(|e| panic!("{e}"))
+        Spec::read(&[SPEC]).unwrap_or_else(|e| panic!("{e}"))
     }
 
     #[test]
@@ -258,6 +286,30 @@ line reply * reply (?:[0-9a-f]{2})+
     #[test]
     fn a_fragment_the_grammar_lacks_is_refused() {
         let bad = SPEC.replace("{N}-{N}", "{N}-{M}");
-        assert!(Spec::read(&bad).is_err());
+        assert!(Spec::read(&[&bad]).is_err());
+    }
+
+    #[test]
+    fn a_later_version_adds_its_lines_after_each_kind_and_its_grammar() {
+        let later = "```describe\ninterface 1.1\nfeature clip\ncommand clip clip\n```\n\n```grammar\nline test * test clip {N}\n```\n";
+        let s = Spec::read(&[SPEC, later]).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            s.describe,
+            [
+                "interface 1.1",
+                "view screen",
+                "feature sync",
+                "feature clip",
+                "command resize",
+                "command sync sync",
+                "command clip clip"
+            ]
+        );
+        assert_eq!(s.commands.get("clip"), Some(&Some("clip".to_owned())));
+        assert!(s.parses("test clip 12", "frame", false));
+        assert!(
+            s.parses("size 4x2", "frame", false),
+            "the earlier lines stay"
+        );
     }
 }

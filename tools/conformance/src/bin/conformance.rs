@@ -15,6 +15,8 @@ const TOOL: &str = env!("CARGO_MANIFEST_DIR");
 /// The corpus and the probes, each file copied with a row in
 /// `provenance.tsv`; vtium's own probes sit beside the copied file.
 const CORPUS: &str = "corpus";
+/// The interface's documents, each a later version of the one before.
+const INTERFACE: [&str; 2] = ["corpus/INTERFACE.md", "INTERFACE-vtium.md"];
 const PROBES: [&str; 2] = ["probes/probes.replay", "probes/vtium.replay"];
 /// The directories every file of which is a copy.
 const COPIED: [&str; 1] = ["tools/conformance/corpus"];
@@ -96,6 +98,15 @@ fn corpus() -> Result<Corpus, String> {
     Corpus::open(&Path::new(TOOL).join(CORPUS))
 }
 
+/// The interface: 1.0 as the corpus holds it, and vtium's additions.
+fn spec() -> Result<Spec, String> {
+    let texts = INTERFACE
+        .iter()
+        .map(|file| read(&Path::new(TOOL).join(file)))
+        .collect::<Result<Vec<_>, _>>()?;
+    Spec::read(&texts.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
 /// The listed expectations, each departure's entry checked against the
 /// file that lists it.
 fn expectations(
@@ -122,30 +133,23 @@ fn expectations(
     Ok(all)
 }
 
-/// vtium-replay's `--describe` against the interface's `describe` block:
-/// the same major version, its lines in the block's order, and every
-/// feature interface 1 makes mandatory.
-fn check_describe(interface: &str) -> Result<(), String> {
-    let block = interface
-        .split("```describe\n")
-        .nth(1)
-        .and_then(|rest| rest.split("```").next())
-        .ok_or("INTERFACE.md has no describe block")?;
+/// vtium-replay's `--describe` against the interface's `describe` blocks:
+/// the same major version, its lines in the blocks' order, and every
+/// feature the interface makes mandatory.
+fn check_describe(spec: &Spec) -> Result<(), String> {
     let ours = vtium_conformance::describe();
-    let major = |text: &str| {
-        text.lines()
-            .next()
-            .and_then(|l| l.strip_prefix("interface "))
-            .and_then(|v| v.split('.').next().map(str::to_owned))
-    };
-    if major(block) != major(&ours) {
+    let major = ours
+        .lines()
+        .next()
+        .and_then(|l| l.strip_prefix("interface "))
+        .and_then(|v| v.split('.').next());
+    if major != Some(spec.major.as_str()) {
         return Err(format!(
-            "the interface is {:?}, vtium-replay {:?}",
-            major(block),
-            major(&ours)
+            "the interface is {:?}, vtium-replay {major:?}",
+            spec.major
         ));
     }
-    let mut theirs = block.lines().skip(1);
+    let mut theirs = spec.describe.iter().skip(1);
     for line in ours.lines().skip(1) {
         if !theirs.any(|l| l == line) {
             return Err(format!(
@@ -153,9 +157,11 @@ fn check_describe(interface: &str) -> Result<(), String> {
             ));
         }
     }
-    for line in block.lines().filter_map(|l| l.strip_prefix("feature ")) {
-        if !OPTIONAL.contains(&line) && !ours.lines().any(|l| l == format!("feature {line}")) {
-            return Err(format!("--describe lacks the mandatory feature {line}"));
+    for feature in &spec.features {
+        if !OPTIONAL.contains(&feature.as_str())
+            && !ours.lines().any(|l| l == format!("feature {feature}"))
+        {
+            return Err(format!("--describe lacks the mandatory feature {feature}"));
         }
     }
     Ok(())
@@ -165,7 +171,7 @@ fn run(o: &Options) -> Result<bool, String> {
     let copies = copies()?;
     let corpus = corpus()?;
     let expected = expectations(&corpus, &o.without)?;
-    check_describe(&read(&corpus.root.join("INTERFACE.md"))?)?;
+    check_describe(&spec()?)?;
     println!(
         "conformance: {} cases, copied from libtsm {}; {} copies match provenance.tsv",
         corpus.cases.len(),
@@ -297,7 +303,7 @@ fn expect(o: &Options) -> Result<bool, String> {
 /// that disagrees with the list each fail the run.
 fn probes() -> Result<bool, String> {
     copies()?;
-    let spec = Spec::read(&read(&corpus()?.root.join("INTERFACE.md"))?)?;
+    let spec = spec()?;
     let caps = vtium_conformance::coverage::capabilities(&read(
         &Path::new(TOOL).join("capabilities.list"),
     )?)?;
@@ -315,8 +321,7 @@ fn probes() -> Result<bool, String> {
         let missing = caps
             .iter()
             .any(|c| c.name == probe.name && c.status == "missing");
-        let file = probe.at.split(':').next().unwrap_or_default();
-        probes::check_expectations(file, probe, &spec, missing)?;
+        probes::check_expectations(probe.file(), probe, &spec, missing)?;
     }
     let replay = Replay::new(&spec, &vtium_conformance::describe())?;
     let mut failures = 0usize;
