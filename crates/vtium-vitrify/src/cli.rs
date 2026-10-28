@@ -43,6 +43,7 @@ Options:
   --kbd-dir DIR         a kbd data directory, in place of the build's list (repeatable)
   --vconsole-conf FILE  vconsole.conf, in place of /etc/vconsole.conf
   --kernel-cmdline FILE the kernel command line, in place of /proc/cmdline
+  --no-banner           no banner at a terminal (NO_COLOR also turns it off)
   --help, --version
 ";
 
@@ -107,6 +108,8 @@ fn parse_args(args: &[OsString]) -> Result<Options, Usage> {
             "--force" => o.force = true,
             "--all" => o.all = true,
             "--json" => o.json = true,
+            // The banner reads it before the command line runs.
+            crate::banner::OFF => {}
             "--kbd" => {
                 let name = value("--kbd")?;
                 shortcut(&mut o, Shortcut::Kbd(name))?;
