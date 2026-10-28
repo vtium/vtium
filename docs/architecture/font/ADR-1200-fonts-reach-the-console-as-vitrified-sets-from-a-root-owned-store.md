@@ -111,6 +111,9 @@ considered:
     said: "The recipe carries an explicit compress setting, compress=yes or no, defaulting to yes, with the matching #121 template field and builder choice. With yes, create deflates 8-bit and color strikes and leaves 1-bit raw; with no, every strike is stored raw."
     via: Claude Code session, 2026-10-28, relayed by the team lead
     covers: [compressed chunks]
+  - operator: aaronsb
+    said: "lets accept it"
+    via: Claude Code session, 2026-10-28, after reading the revised record at 497b6aa
 observable:
   - "`cargo tree -p vtium -e normal` on the default build lists no bzip2, xz, zstd or outline-font crate, and the minspec binary stays under its budget"
   - "`vtium-vitrify create --all` run twice on unchanged inputs reports every set `current` the second time, and a set rebuilt from the same inputs has the same SHA-256"
@@ -118,7 +121,7 @@ observable:
   - "A set whose bytes differ from its manifest row, or a store file not owned by root, is refused: vtium draws its built-in font and logs the set, the reason and the `vtium-vitrify` command to run"
   - "A font that makes the parser panic fails that source in `create`'s child process; `create` reports it `failed`, builds the other sets and exits 1"
   - "Tier 2 draws a vitrified PSF set's screens equal, pixel for pixel, to the goldens in vtium's own tree for the same PSF"
-status: proposed
+status: accepted
 date: 2026-10-28
 deciders:
   - aaronsb
