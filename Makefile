@@ -4,11 +4,15 @@
 
 .DEFAULT_GOAL := help
 
+# The x86_64 build links against the bookworm sysroot (below), so the binaries
+# a release ships need at most glibc 2.36.
+X86_TARGET := x86_64-unknown-linux-gnu
+
 # The binary the VT review runs. It runs as root, so it is named in this file
 # or on make's command line (make vt-demo VTIUM_BIN=PATH), never taken from a
 # stale export in the shell. The default is the minspec build, which the vt
 # targets build first; another binary is run as it is.
-VTIUM_MINSPEC := $(or $(CARGO_TARGET_DIR),target)/minspec/vtium
+VTIUM_MINSPEC := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/minspec/vtium
 VT_GOALS := vt-demo vt-login vt-check vt-shell
 ifneq ($(filter $(VT_GOALS),$(MAKECMDGOALS)),)
 ifneq ($(filter environment%,$(origin VTIUM_BIN)),)
@@ -38,23 +42,45 @@ define check-relr
 readelf -d $(1) | grep -q '(RELR)' || { echo "$(1) carries no DT_RELR: the minspec link lost -z pack-relative-relocs" >&2; exit 1; }
 endef
 
+# vtium/vtium#143: a shipped binary needs at most glibc GLIBC_FLOOR, the
+# release Debian 12 carries. check-glibc FILE reads the highest GLIBC_ version
+# FILE requires and fails above the floor.
+GLIBC_FLOOR := 2.36
+define check-glibc
+top=$$(readelf -V $(1) | grep -o 'GLIBC_[0-9][0-9.]*' | sort -Vu | tail -n1); \
+echo "$(1): highest required $${top:-no GLIBC_ version}"; \
+[ "$$(printf '%s\nGLIBC_$(GLIBC_FLOOR)\n' "$$top" | sort -V | tail -n1)" = GLIBC_$(GLIBC_FLOOR) ] || { echo "$(1) needs $$top, over the floor GLIBC_$(GLIBC_FLOOR)" >&2; exit 1; }
+endef
+
+# The x86_64 builds link through tools/arm's wrappers against the bookworm
+# sysroot, as the ARM targets do; the wrappers are named for these targets
+# alone, so the default build and cargo test use the host's toolchain.
+ARM_WRAP := $(CURDIR)/tools/arm
+minspec install-tree: export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = $(ARM_WRAP)/$(X86_TARGET)-cc
+minspec install-tree: export PKG_CONFIG_x86_64_unknown_linux_gnu = $(ARM_WRAP)/$(X86_TARGET)-pkg-config
+
 .PHONY: minspec
-minspec: ## Build the minspec binary, target/minspec/vtium
-	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium -- $(RELR_LINK)
+minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/minspec/vtium (needs clang)
+	tools/arm/sysroot fetch amd64
+	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) -- $(RELR_LINK)
 	$(call check-relr,$(VTIUM_MINSPEC))
+	$(call check-glibc,$(VTIUM_MINSPEC))
 
 # vtium as a system installs it, staged under DESTDIR: the minspec binary,
 # vtium-vitrify, the VT unit, the compiled terminfo entry and the example
 # configuration. Tier 3 installs this tree in its guest.
 DESTDIR ?= target/install-tree
 VTIUM_INSTALL := crates/vtium/install
+VTIUM_VITRIFY := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/release/vtium-vitrify
 
 .PHONY: install-tree
 install-tree: minspec ## Stage vtium's install tree under DESTDIR (default target/install-tree; needs tic)
 	install -Dm755 $(VTIUM_MINSPEC) $(DESTDIR)/usr/bin/vtium
 	$(call check-relr,$(DESTDIR)/usr/bin/vtium)
-	cargo build --release -p vtium-vitrify
-	install -Dm755 $(or $(CARGO_TARGET_DIR),target)/release/vtium-vitrify $(DESTDIR)/usr/bin/vtium-vitrify
+	$(call check-glibc,$(DESTDIR)/usr/bin/vtium)
+	cargo build --release -p vtium-vitrify --target $(X86_TARGET)
+	install -Dm755 $(VTIUM_VITRIFY) $(DESTDIR)/usr/bin/vtium-vitrify
+	$(call check-glibc,$(DESTDIR)/usr/bin/vtium-vitrify)
 	install -Dm644 $(VTIUM_INSTALL)/kmsconvt@.service $(DESTDIR)/usr/lib/systemd/system/kmsconvt@.service
 	install -dm755 $(DESTDIR)/usr/share/terminfo
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/kmscon.ti
@@ -68,7 +94,6 @@ install-tree: minspec ## Stage vtium's install tree under DESTDIR (default targe
 # an ARM machine uses its own toolchain.
 ARM_TARGETS      ?= aarch64-unknown-linux-gnu armv7-unknown-linux-gnueabihf
 ARM_TEST_TARGETS ?= aarch64-unknown-linux-gnu
-ARM_WRAP         := $(CURDIR)/tools/arm
 arm arm-test: export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = $(ARM_WRAP)/aarch64-unknown-linux-gnu-cc
 arm arm-test: export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER = $(ARM_WRAP)/aarch64-unknown-linux-gnu-run
 arm arm-test: export PKG_CONFIG_aarch64_unknown_linux_gnu = $(ARM_WRAP)/aarch64-unknown-linux-gnu-pkg-config
@@ -86,6 +111,7 @@ arm: arm-sysroot ## Build the minspec profile for each ARM target, target/TRIPLE
 	for t in $(ARM_TARGETS); do \
 		VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $$t -- $(RELR_LINK) || exit 1; \
 		$(call check-relr,$(or $(CARGO_TARGET_DIR),target)/$$t/minspec/vtium) || exit 1; \
+		$(call check-glibc,$(or $(CARGO_TARGET_DIR),target)/$$t/minspec/vtium) || exit 1; \
 	done
 
 .PHONY: arm-test
