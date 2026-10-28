@@ -12,6 +12,7 @@
 
 pub mod command;
 pub mod coverage;
+pub mod generate;
 pub mod interface;
 pub mod probes;
 #[cfg(feature = "record")]

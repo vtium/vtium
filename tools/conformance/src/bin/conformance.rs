@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use vtium_conformance::generate::{self, Inputs};
 use vtium_conformance::interface;
 use vtium_conformance::probes::{self, Outcome, Replay};
 use vtium_conformance::runner::lists::{self, Expected};
@@ -20,7 +21,11 @@ const CORPUS: &str = "corpus";
 const INTERFACE: [&str; 2] = ["corpus/INTERFACE.md", "INTERFACE-vtium.md"];
 const PROBES: [&str; 2] = ["probes/probes.replay", "probes/vtium.replay"];
 /// The directories every file of which is a copy, but for vtium's own.
-const COPIED: [&str; 2] = ["tools/conformance/corpus", "tools/conformance/probes"];
+const COPIED: [&str; 3] = [
+    "tools/conformance/corpus",
+    "tools/conformance/probes",
+    "tools/conformance/generator",
+];
 const OWN: [&str; 1] = ["tools/conformance/probes/vtium.replay"];
 /// The build features the capability list names: vtium is built without
 /// images until vtium-image lands (#48, #49).
@@ -38,6 +43,7 @@ const OPTIONAL: [&str; 6] = [
 
 const USAGE: &str = "usage: conformance [run] [--without CASE]... [--seed N] [--rounds N]
        conformance expect VIEW CASE...
+       conformance generate DIR
        conformance interface
        conformance probes
        conformance issues
@@ -339,6 +345,21 @@ fn expect(o: &Options) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Writes every synthetic case under the directory named, from the
+/// generator's recipes and its inputs under `generator/`, and prints the
+/// lines `cases.list` takes.
+fn write_cases(o: &Options) -> Result<bool, String> {
+    let [dir] = &o.rest[..] else {
+        return Err(USAGE.to_owned());
+    };
+    let inputs = Inputs::read(&Path::new(TOOL).join("generator"))?;
+    print!(
+        "{}",
+        generate::write(Path::new(dir), &generate::cases(&inputs))?
+    );
+    Ok(true)
+}
+
 /// The capability probes, each judged against `capabilities.list`: a
 /// probe the list does not name, a name no probe defines, and a verdict
 /// that disagrees with the list each fail the run.
@@ -518,6 +539,7 @@ fn main() -> ExitCode {
         match command.as_str() {
             "run" if o.rest.is_empty() => run(&o),
             "expect" => expect(&o),
+            "generate" => write_cases(&o),
             "interface" if o.rest.is_empty() => interface(),
             "probes" if o.rest.is_empty() => probes(),
             "issues" if o.rest.is_empty() => issues(),

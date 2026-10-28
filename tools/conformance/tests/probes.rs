@@ -45,7 +45,11 @@ fn the_copies_match_their_provenance() {
     let faults = provenance::check(
         &root,
         &copies,
-        &["tools/conformance/corpus", "tools/conformance/probes"],
+        &[
+            "tools/conformance/corpus",
+            "tools/conformance/probes",
+            "tools/conformance/generator",
+        ],
         &["tools/conformance/probes/vtium.replay"],
     );
     assert_eq!(faults, Vec::<String>::new());
