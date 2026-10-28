@@ -2,7 +2,7 @@
 
 Tier 3 for vtium: vtium's install tree, installed in a pinned Arch Linux guest under QEMU/KVM and started by systemd on a VT, as a system would run it, with a real kernel VT and a virtio-gpu KMS device. A script logs in over the emulated keyboard, draws fixed screens, captures each one and compares it with its golden. The exit status is the verdict. The harness is also the way to put any test content on a real VT: a screen is a shell script in `guest/screens/`.
 
-The goldens are the C reference's, copied into `c-goldens/` from the kmscon fork's `fork/tier3/golden`, but for the small displays, which the C reference never drew: their goldens are vtium's own, in `goldens/`. The harness itself came from the C fork's `fork/tier3` at c631dbab, which is frozen; it lives and changes here. Nothing in tier 3 reads a kmscon or libtsm checkout or runs their code.
+The goldens are the C reference's, copied into `c-goldens/` from the kmscon fork's `fork/tier3/golden`, but for the small displays, which the C reference never drew: their goldens are vtium's own, in `goldens/`. The harness itself came from the C fork's `fork/tier3` at c631dbab, which is frozen; it lives and changes here. No run or self-test of tier 3 reads a kmscon or libtsm checkout or runs their code; `make tier3-provenance` reads a kmscon checkout, for review only (The copies).
 
 ## Running it
 

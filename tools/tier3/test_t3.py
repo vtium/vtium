@@ -739,6 +739,46 @@ class ProvenanceTest(unittest.TestCase):
                      "tools/tier3/t3img.py"):
             self.assertIn(name, copied)
 
+    def planted(self):
+        """Rows for a planted root whose goldens directory c holds two
+        goldens 2d-potato-min's cases compare with."""
+        return t3_common.read_provenance(self.table({"c/2d-potato-min/sgr.png": "sgr",
+                                                     "c/2d-potato-min/cjk.png": "cjk"}))
+
+    def test_preflight(self):
+        # The checks a run makes before it builds or boots anything: clean
+        # on the planted root, then a changed golden and a stray file.
+        rows = self.planted()
+        self.assertEqual(t3.preflight(LOG, rows, self.root, self.copied), [])
+        write_tree(self.root, {"c/2d-potato-min/sgr.png": "moved",
+                               "c/2d-potato-min/stray.png": "no row"})
+        stray = t3_common.rel(os.path.join(self.copied, "2d-potato-min", "stray.png"))
+        self.assertEqual(sorted(t3.preflight(LOG, rows, self.root, self.copied)),
+                         sorted(["c/2d-potato-min/sgr.png differs from kmscon %s:"
+                                 "fork/c/2d-potato-min/sgr.png (provenance.tsv:2)"
+                                 % self.COMMIT[:12],
+                                 "c/2d-potato-min/stray.png has no row in provenance.tsv",
+                                 "%s is a golden no case draws" % stray]))
+
+    def test_run_refuses_a_bad_tree(self):
+        # run() makes those checks under the run lock and refuses before the
+        # tree is built.
+        rows = self.planted()
+        write_tree(self.root, {"c/2d-potato-min/sgr.png": "moved"})
+        args = argparse.Namespace(variants=["2d-potato-min"], tree=None,
+                                  tree_target="install-tree", jobs=1, deadline=1)
+        base = os.path.join(self.root, "base.qcow2")
+        write_tree(self.root, {"base.qcow2": ""})
+        with mock.patch.object(t3, "BASE", base), \
+                mock.patch.object(t3_runner, "raise_on_sigterm", lambda log: None), \
+                mock.patch.object(t3_runner, "run_lock", contextlib.nullcontext), \
+                mock.patch.object(t3_common, "read_provenance", lambda: rows), \
+                mock.patch.object(t3_common, "ROOT", self.root), \
+                mock.patch.object(t3_common, "GOLDEN", self.copied), \
+                mock.patch.object(t3, "build_tree", side_effect=AssertionError("built")):
+            with self.assertRaisesRegex(SystemExit, "c/2d-potato-min/sgr.png differs"):
+                t3.run(args, LOG)
+
     def git(self, repo, *args):
         return subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t",
                                "-c", "commit.gpgsign=false"] + list(args),

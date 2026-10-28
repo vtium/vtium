@@ -157,20 +157,33 @@ def _provision(args, log, base):
 
 # --- a run ------------------------------------------------------------------
 
+def preflight(log, rows=None, root=None, golden=None):
+    """Every reason the judges cannot judge a run, checked before anything is
+    built or booted: a copy out of step with provenance.tsv (`rows`, read
+    when None) or a file under the C reference's goldens (`golden`, default
+    GOLDEN) without a row, paths from `root` (default ROOT); a departure
+    naming a case no variant draws; and a golden of the C reference's or of
+    vtium's that no case compares with."""
+    rows = t3_common.read_provenance() if rows is None else rows
+    root = root or t3_common.ROOT
+    golden = golden or t3_common.GOLDEN
+    log("goldens: %s, copied from kmscon %s"
+        % (rel(golden), t3_common.golden_commit(rows, os.path.relpath(golden, root))))
+    errors = t3_common.check_copies(rows, root, golden)
+    errors += t3_evaluate.check_departures(t3_evaluate.DEPARTURES, t3_scenario.variant_cases)
+    errors += t3_evaluate.check_goldens(t3_scenario.c_golden_cases(), golden)
+    errors += t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
+                                        t3_evaluate.VTIUM_GOLDEN, t3_evaluate.PROVISIONAL)
+    return errors
+
+
 def run(args, log):
     if not os.path.exists(BASE):
         raise SystemExit("no base image at %s; run `make tier3-image`" % rel(BASE))
     variants = args.variants or t3_scenario.DEFAULT_VARIANTS
     t3_runner.raise_on_sigterm(log)
     with t3_runner.run_lock():
-        copies = t3_common.read_provenance()
-        log("goldens: %s, copied from kmscon %s"
-            % (rel(t3_common.GOLDEN), t3_common.golden_commit(copies)))
-        errors = t3_common.check_copies(copies)
-        errors += t3_evaluate.check_departures(t3_evaluate.DEPARTURES, t3_scenario.variant_cases)
-        errors += t3_evaluate.check_goldens(t3_scenario.c_golden_cases(), t3_common.GOLDEN)
-        errors += t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
-                                            t3_evaluate.VTIUM_GOLDEN, t3_evaluate.PROVISIONAL)
+        errors = preflight(log)
         if errors:
             raise SystemExit("\n".join(errors))
         tree = args.tree or TREE
