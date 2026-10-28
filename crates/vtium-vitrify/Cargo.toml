@@ -3,8 +3,7 @@ name = "vtium-vitrify"
 description = "Builds vitrified font sets for vtium from frits, and keeps the root-owned store"
 version.workspace = true
 edition.workspace = true
-# ruzstd 0.9 needs 1.87; the console's crates keep the workspace's 1.85
-rust-version = "1.87"
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
@@ -28,7 +27,7 @@ rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"
 # Rust with no C compiled, in this binary only; the README says why each.
 bzip2 = "=0.6.1"
 lzma-rust2 = { version = "=0.24.0", default-features = false, features = ["std", "xz"] }
-ruzstd = "=0.9.1"
+ruzstd = "=0.8.2"
 
 [dev-dependencies]
 # The xz encoder, for the tests' fixtures only.

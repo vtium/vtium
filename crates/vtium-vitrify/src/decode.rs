@@ -74,13 +74,35 @@ pub fn decompress(bytes: &[u8]) -> Result<(Vec<u8>, Compression), String> {
         Compression::Gzip => gunzip(bytes, limit),
         Compression::Bzip2 => read_bounded(bzip2::read::MultiBzDecoder::new(bytes), limit),
         Compression::Xz => read_bounded(lzma_rust2::XzReader::new(bytes, true), limit),
-        Compression::Zstd => ruzstd::decoding::StreamingDecoder::new(bytes)
-            .map_err(|e| e.to_string())
-            .and_then(|d| read_bounded(d, limit)),
+        Compression::Zstd => unzstd(bytes, limit),
         Compression::Plain => Ok(bytes.to_vec()),
     };
     out.map(|b| (b, kind))
         .map_err(|e| format!("{}: {e}", kind.name()))
+}
+
+/// A zstd stream's frames decoded and joined, each frame's checksum
+/// compared with the bytes it decoded to when the frame carries one, as
+/// `zstd -d` does; `ruzstd` computes the checksum and leaves the
+/// comparison to its caller.
+fn unzstd(mut input: &[u8], limit: usize) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    while !input.is_empty() {
+        let mut decoder =
+            ruzstd::decoding::StreamingDecoder::new(&mut input).map_err(|e| e.to_string())?;
+        let frame = read_bounded(&mut decoder, limit.saturating_sub(out.len()))?;
+        let frame_decoder = decoder.into_frame_decoder();
+        if !frame_decoder.is_finished() {
+            return Err("a frame cut short".to_owned());
+        }
+        if let Some(want) = frame_decoder.get_checksum_from_data() {
+            if frame_decoder.get_calculated_checksum() != Some(want) {
+                return Err("a frame's checksum does not match its data".to_owned());
+            }
+        }
+        out.extend_from_slice(&frame);
+    }
+    Ok(out)
 }
 
 /// What `reader` decodes, refused past `limit` bytes.
@@ -494,6 +516,20 @@ pub(crate) mod tests {
             bad[at] ^= 0x55;
             assert!(decompress(&bad).is_err(), "{name}: a flipped byte decoded");
         }
+    }
+
+    #[test]
+    fn a_zstd_frame_whose_checksum_differs_is_refused() {
+        let plain = psf2(8, 16, 64, None);
+        let mut bad = zstd(&plain);
+        let last = bad.len() - 1;
+        bad[last] ^= 1;
+        let e = decompress(&bad).expect_err("checksum");
+        assert!(e.contains("checksum"), "{e}");
+        // two frames back to back decode as one stream, as zstd -d reads them
+        let mut two = zstd(&plain[..100]);
+        two.extend(zstd(&plain[100..]));
+        assert_eq!(decompress(&two).expect("two frames").0, plain);
     }
 
     #[test]

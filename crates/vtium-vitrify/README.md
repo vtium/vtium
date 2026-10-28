@@ -37,7 +37,7 @@ The store is `/var/lib/vtium/fonts` and the frits are in `/etc/vtium/fonts`, eac
 
 One `key=value` a line, blanks around key and value dropped, `#` to the line's end a comment, as kmscon.conf reads; unlike kmscon.conf, an unknown key, a malformed line, a value with a control character or a key this build does not build yet refuses the whole frit, naming the file and line. This slice reads `name=`, `source=` (`font:`, `kbd:`, `file:`, `vconsole`, `console:VT`, `builtin:`), `package=`, `sha256=`, `unimap=`, `cover=` (`ascii`, `latin-1`, `U+XXXX` and `U+XXXX-U+YYYY`), `style=regular`, `compress=` and `license=`.
 
-A frit is meant to travel, so a source names a font each machine finds for itself:
+A frit is meant to travel, so a source names a font each machine finds for itself. The `font:` form below is provisional: its syntax is the operator's to choose, and may be renamed before the first release (vtium/vtium#121).
 
 ```ini
 source=font:Terminus 16      # a family, matched on the machine that builds the set
@@ -73,7 +73,7 @@ Each is pure Rust, compiles no C and has no build script, and only this binary l
 | gzip | `miniz_oxide` 0.8.9 | MIT, Zlib or Apache-2.0 | Already in every vtium build for the sets' deflated chunks; vitrify frames gzip around it. |
 | bzip2 | `bzip2` 0.6.1, on `libbz2-rs-sys` 0.2.5 | MIT or Apache-2.0; `libbz2-rs-sys` under libbzip2's BSD-style licence | Trifecta Tech Foundation's Rust port of libbzip2, the default backend of the most used bzip2 crate, maintained (0.2.5, May 2026), `build = false`; its one C file is a header no build compiles. `bzip2-rs`, decoder only, has had no release since 2021. |
 | xz | `lzma-rust2` 0.24.0, features `std` and `xz` | Apache-2.0 | Maintained (October 2026), verifies the stream's check, and with no default features adds only `sha2` and its RustCrypto crates (MIT or Apache-2.0). `lzma-rs` has had no release since January 2023; `xz2` and `liblzma` compile liblzma's C. |
-| zstd | `ruzstd` 0.9.1, default features | MIT | The pure-Rust zstd decoder, maintained (October 2026); `hash` adds `twox-hash` (MIT) to verify each frame's checksum. `zstd` binds the C library. It needs Rust 1.87, so this crate's `rust-version` is 1.87 while the console's stay at the workspace's 1.85. |
+| zstd | `ruzstd` 0.8.2, default features | MIT | The pure-Rust zstd decoder (November 2025), `build = false`; `hash` adds `twox-hash` (MIT) to compute each frame's checksum, which vitrify compares with the frame's own, as `ruzstd` leaves that to its caller. 0.8.2 builds on the workspace's Rust 1.85; 0.9 needs 1.87. `zstd` binds the C library. |
 
 The tests' xz fixtures take `lzma-rust2`'s encoder as a dev-dependency; bzip2 and zstd fixtures use the encoders the decoding crates carry.
 
