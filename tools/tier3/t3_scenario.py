@@ -200,6 +200,12 @@ def vtium_golden_cases():
     return {v: variant_cases(v) for v in VARIANTS if VARIANTS[v].get("goldens")}
 
 
+def c_golden_cases():
+    """{variant: its cases} for every variant judged by the C reference's
+    goldens."""
+    return {v: variant_cases(v) for v in VARIANTS if not VARIANTS[v].get("goldens")}
+
+
 def evaluate_variant(variant, caps, meta, log):
     """The report entries of `variant`'s cases from their captures, judged
     by the C reference's goldens or, for a variant naming them, vtium's."""

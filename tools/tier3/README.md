@@ -2,21 +2,22 @@
 
 Tier 3 for vtium: vtium's install tree, installed in a pinned Arch Linux guest under QEMU/KVM and started by systemd on a VT, as a system would run it, with a real kernel VT and a virtio-gpu KMS device. A script logs in over the emulated keyboard, draws fixed screens, captures each one and compares it with its golden. The exit status is the verdict. The harness is also the way to put any test content on a real VT: a screen is a shell script in `guest/screens/`.
 
-The goldens are the C reference's, at the kmscon commit `pin.tsv` names, read from a kmscon checkout beside this one as tier 2's are, but for the small displays, which the C reference never drew: their goldens are vtium's own, in `goldens/`. The harness itself came from the C fork's `fork/tier3` at c631dbab, which is frozen; it lives and changes here.
+The goldens are the C reference's, copied into `c-goldens/` from the kmscon fork's `fork/tier3/golden`, but for the small displays, which the C reference never drew: their goldens are vtium's own, in `goldens/`. The harness itself came from the C fork's `fork/tier3` at c631dbab, which is frozen; it lives and changes here. No run or self-test of tier 3 reads a kmscon or libtsm checkout or runs their code; `make tier3-provenance` reads a kmscon checkout, for review only (The copies).
 
 ## Running it
 
 ```sh
-make tier3-image             # fetch, verify and provision the guest image, or reuse one built from the same inputs
+make tier3-image             # fetch, verify and provision the guest image, unless the cache holds one built from the same inputs
 make tier3-minimal           # the install tree, then the minspec variants: 1 vCPU, 512 MB, unifont, a PSF font, 320x240 and 640x480
 make tier3                   # the install tree, then every variant; VARIANTS="..." for some
 make tier3-run VARIANTS=2d-potato-min   # the last run's tree, or TREE=DIR, without building
 make tier3 JOBS=2            # up to two variants at once, each in its own VM
 make install-tree DESTDIR=D  # vtium's install tree alone
+make tier3-provenance        # each copy against its source in a kmscon checkout (KMSCON=DIR); a review step, not a gate
 make test-tools              # the harness's self-tests, with no guest
 ```
 
-`KMSCON=DIR` names the kmscon checkout the goldens are read from (default `../kmscon`), `T3_IMAGES=DIR` the guest image cache (default `$XDG_CACHE_HOME/vtium/tier3/images`), and `T3_REUSE=DIR` a directory whose images are reused read-only (default `$(KMSCON)/fork/vm/images`). `make install-tree` takes the binary from `CARGO_TARGET_DIR` when it is set. The report is `target/tier3/report.json`, and each variant's captures, serial log and event log are in `target/tier3/run/<variant>/`.
+`T3_IMAGES=DIR` names the guest image cache (default `$XDG_CACHE_HOME/vtium/tier3/images`). `make install-tree` takes the binary from `CARGO_TARGET_DIR` when it is set. The report is `target/tier3/report.json`, and each variant's captures, serial log and event log are in `target/tier3/run/<variant>/`.
 
 Host needs: `qemu-system-x86_64` with `/dev/kvm`, `qemu-img`, `xorriso`, `gpg`, `curl`, `tic`, `git` and Python 3.12 or later, standard library only. Everything runs as the invoking user; nothing needs root. QEMU runs headless, one VM per variant with the vCPUs and memory the variant names, and the driver stops every VM it starts by the PID it started. The GL variant also needs the host's render node (`T3_RENDERNODE`, default `/dev/dri/renderD128`); no variant opens a card node.
 
@@ -28,11 +29,11 @@ Host needs: `qemu-system-x86_64` with `/dev/kvm`, `qemu-img`, `xorriso`, `gpg`, 
 | Image SHA-256 | `08754e28d91b1680086c6211ef4df13559e766fff7cdb4006489b14b5d281f08` |
 | Image signature | detached `.sig` by the arch-boxes key, primary fingerprint `1B9A16984A4E8CB448712D2AE0B78BF4326C6F8F`, fetched from `keyserver.ubuntu.com` into a keyring beside the images (`fetch-image.sh`); the fingerprint pin is the trust anchor |
 | Guest packages | Arch Linux Archive snapshot `2026/10/20`; provisioning runs `pacman -Syyuu` against it, so the guest matches the snapshot exactly |
-| Goldens | `fork/tier3/golden` at the kmscon commit in `pin.tsv` |
+| Goldens | `c-goldens/`, copied from `fork/tier3/golden` at the kmscon commit `provenance.tsv` names |
 
 The image pins live in the Makefile, and the guest's package list in `guest/user-data.in`. The guest installs the scenario's programs (`chafa`, `libsixel`, `mpv`, `tmux`), the fonts (`ttf-dejavu`, `wqy-microhei`, `noto-fonts-emoji`) and the C reference's runtime dependencies. vtium needs only libc, libudev, libxkbcommon and libgcc_s, which the base image has.
 
-Provisioning downloads the guest's packages (about 330 MiB) and keeps no cache, so it is done once per set of inputs. The base image is `target/tier3/vm/images/base-<digest>.qcow2`, named by a digest of the guest files it is built from (`BASE_INPUTS` in `t3_common.py`), the pristine image and the archive date, and `target/tier3/vm/base.qcow2` links to it. `target/tier3/vm/images` is a link to `T3_IMAGES`, a cache every vtium checkout shares, where the locks, the signature and its keyring, and every base image vtium provisions live. When `T3_REUSE` holds the pristine image (checked against its SHA-256) or a base image built from the same inputs, the cache links to it there and only reads it: tier 3 writes nothing into another checkout. The base inputs are the fork's byte for byte, so the cache links the fork's `base-a801c98304d282ae.qcow2` (`BaseImageTest.test_shared_base` holds them to it); a change to any of them provisions a new image in the cache, about a 1,145 MiB file.
+`target/tier3/vm/images` is a link to `T3_IMAGES`, a cache every vtium checkout shares. `fetch-image.sh` fetches the pristine image into its `pristine/`, with the signature and the keyring that checks it. Provisioning builds the base image into its `base/` as `<digest>.qcow2`, named by a digest of the guest files it is built from (`BASE_INPUTS` in `t3_common.py`), the pristine image and the archive date, with the lock that keeps two checkouts from building it at once beside it; `target/tier3/vm/base.qcow2` links to it. Provisioning downloads the guest's packages (about 330 MiB) and keeps no cache, so it is done once per set of inputs, and each set's image is a file of about 1.1 GiB; `BaseImageTest.test_pinned_base` holds the pinned inputs to `a801c98304d282ae.qcow2`. Every image tier 3 reads is one these scripts fetched or built: anything else in the cache, such as the links into the kmscon checkout's `fork/vm/images` that the harness kept at the top of the cache until vtium/vtium#111, is neither read nor changed, and can be removed once no checkout runs that harness.
 
 ## The install tree
 
@@ -61,7 +62,7 @@ The guest must hold no kmscon, libtsm or vtium package, and `setup` reports the 
 ## How a run works
 
 1. `make tier3-image` provisions the base once: a qcow2 overlay on the pristine image, booted with a cloud-init seed disc (`guest/user-data.in`). Cloud-init creates the user `tester` (password `tester`, prompt `$ `, no MOTD), installs the packages, links `autovt@.service` to `kmsconvt@.service`, enables the boot hook `tier3-install.service`, disables itself and powers off.
-2. The run takes the run lock (`target/tier3/lock`), extracts the pinned goldens afresh through `git archive` into `target/tier3/kmscon-<commit>/`, so the checkout's branch and working tree never reach the judge, and builds the tree.
+2. The run takes the run lock (`target/tier3/lock`), checks every copy against `provenance.tsv`, and builds the tree.
 3. Each variant boots a throwaway overlay of the base with a second disc labelled `T3PKG`: `tree.tar`, the variant's configuration, the screen scripts, `guest/t3` and `guest/setup`. The boot hook runs `setup`, which unpacks the tree, routes the console's log to the serial console, and makes the second serial port (ttyS1) the event port: the login shell and each screen script write a line there. Changing anything on the disc never needs a new base image.
 4. The driver (`t3.py`, with QEMU in `t3_qemu.py`) talks QMP on a unix socket. It waits for `TIER3-INSTALL-OK`, systemd's `Started User Login Management` and `Reached target Login Prompts`, then presses Ctrl+Alt+F2: logind starts `autovt@tty2`, which is vtium. It waits for `vt: using tty /dev/tty2` and a drawn login prompt, logs in, and waits for the login shell's line on the event port. Then it types `t3 NAME` for each screen in `SCREENS` (`t3_evaluate.py`). `t3` clears the screen and the scrollback (ED 3), so every screen starts with empty scrollback. After each, the driver waits for the screen script's line on the event port, then captures until two captures a second apart are identical and differ from the screen before. A screen can be followed by key chords (`KEYED`), each a case of its own, captured once the screen has changed; a key that changes nothing fails its case. An image screen that reports images not offered drew no picture for its keys, so they are not pressed: its keyed cases fail with the refusal, and the screens after it still run.
 5. VT switch: Ctrl+Alt+F3, then Ctrl+Alt+F2. `vt-switch` passes when the second instance on tty3 draws a screen that is neither blank nor the one just left. `vt-restore` then requires the tty2 screen to equal the last screen's golden (`cjk`) exactly.
@@ -111,7 +112,7 @@ Three findings from the C reference's runs shaped this table. At 7680x2160 each 
 
 ## Goldens, tolerances and masks
 
-Goldens are `golden/<variant>/<screen>.png` in the pinned kmscon commit, full resolution and lossless. A keyed case's golden is named after the case; `photo-scrollforward` and `vt-restore` are compared with another screen's (`SAME_AS`). Comparison is exact unless a sidecar `<screen>.tol` sits beside the golden, holding `max_delta=`, `max_pixels=` and `mask=x0,y0,x1,y1` lines (end-exclusive); `#` starts a comment, and a malformed sidecar fails its case.
+The C reference's goldens are `c-goldens/<variant>/<screen>.png`, full resolution and lossless. A keyed case's golden is named after the case; `photo-scrollforward` and `vt-restore` are compared with another screen's (`SAME_AS`). Comparison is exact unless a sidecar `<screen>.tol` sits beside the golden, holding `max_delta=`, `max_pixels=` and `mask=x0,y0,x1,y1` lines (end-exclusive); `#` starts a comment, and a malformed sidecar fails its case.
 
 | Status | Meaning | Gate |
 |---|---|---|
@@ -124,14 +125,18 @@ Goldens are `golden/<variant>/<screen>.png` in the pinned kmscon commit, full re
 
 `departures.tsv` lists the cases whose difference from their golden a departure explains: a line names variants and screens (each pair a case), the README that lists the departure under `## Departures`, its bold title exactly as written there, and the rectangles, end-exclusive and covering whole cells, its difference must lie in. Today it holds one: the "no sixel" line of the ten image screens in the two minspec variants quotes the DA1 reply, where vtium sends `CSI ? 62 ; 22 c` and the C golden shows `?60;1;6;9;15c` (row 1, columns 25 to 60). A run refuses to start when a line names a case no variant draws, a check without a golden, or a title its README does not list. A rectangle covers whole cells, so a defect in a listed cell is not seen until the line goes or its rectangles shrink.
 
-The run exits 1 on any `fail` or `missing`, or a binary over the budget. Nothing here writes a golden. The C reference's are read at the pin, and moving the pin is a change to the judge, in a commit of its own with the report before and after. vtium's own are `goldens/<variant>/<screen>.png`, for the variants that name them (`"goldens"` in `t3_scenario.py`): captures of vtium's, each added in a commit of its own that lists it and what it shows, as `goldens/README.md` does (kmscon `ADR-304` §6). Each stays in `provisional.tsv`, as `VARIANT/SCREEN` and why, until the operator has reviewed it; removing its row makes it judge. A run refuses to start when a golden or sidecar under `goldens/` is one no case compares with, or `provisional.tsv` lists a golden that does not exist. <!-- adr-cite-ignore: kmscon's record -->
+The run exits 1 on any `fail` or `missing`, or a binary over the budget. Nothing here writes a golden. vtium's own are `goldens/<variant>/<screen>.png`, for the variants that name them (`"goldens"` in `t3_scenario.py`): captures of vtium's, each added in a commit of its own that lists it and what it shows, as `goldens/README.md` does (kmscon `ADR-304` §6). Each stays in `provisional.tsv`, as `VARIANT/SCREEN` and why, until the operator has reviewed it; removing its row makes it judge. A run refuses to start when a golden or sidecar under `goldens/` or `c-goldens/` is one no case compares with, or `provisional.tsv` lists a golden that does not exist. <!-- adr-cite-ignore: kmscon's record -->
+
+## The copies
+
+`provenance.tsv` lists every file tier 3 copied from the C reference, byte for byte, one row each in `tools/conformance/provenance.tsv`'s form: `PATH REPO COMMIT SOURCE SHA256`. They are the 223 goldens of the seven variants the C reference drew, every one a case compares with (12.8 MB, most of it the two 7680x2160 variants'), copied from `fork/tier3/golden` at kmscon `b1f7a7c5`, and the harness files whose output those goldens judge, unchanged from the same commit: the screen scripts and their pictures, the five configurations of those variants, the guest files the base image is built from, and `t3img.py`. Those 47 files stay byte-identical with their sources, the C reference's spelling ("colour") included; vtium's spelling applies only to the files of `tools/tier3` that have no row. A harness file that vtium changes leaves the list in the same commit, and the commit says which goldens no longer judge exactly what the C reference drew. Every run, and `ProvenanceTest` in `make test-tools`, checks each row's file against its SHA-256 and every file under `c-goldens/` for a row; a run with any copy out of step refuses to start. A golden changes only in a commit of its own that lists each moved value, as CONTRIBUTING.md asks, and that commit changes its row too. Nothing in a run ties a row to its source, so a change to `provenance.tsv` is verified at review with `make tier3-provenance` (`KMSCON=DIR`, default `../kmscon`): it reads each row's source from the checkout with `git cat-file`, read-only, and fails on a source whose SHA-256 differs from the row's or that the checkout lacks. It is not a gate.
 
 ## Report
 
 `target/tier3/report.json`, one case per variant and screen:
 
 - `run_id` is fresh for every run, so a comparison can tell two runs from one run saved twice.
-- `tools` names vtium's commit (`+dirty` with uncommitted changes), the guest image, its SHA-256 and the archive snapshot, which the Makefile passes, and under `goldens` the kmscon commit and repository from `pin.tsv`. A field the driver ran without is `null`.
+- `tools` names vtium's commit (`+dirty` with uncommitted changes), the guest image, its SHA-256 and the archive snapshot, which the Makefile passes, and under `goldens` the kmscon commit the C reference's goldens were copied from and the `provenance.tsv` that lists them. A field the driver ran without is `null`.
 - `build` names the tree and its `tree_sha256`, `binary_bytes` and `installed_bytes` (the regular files it installs), `budget` (the binary's budget and whether it is met), and `consoles`, each `NAME REVISION` the variants' consoles logged.
 - Each case carries `status`, `departure` (the title, for a case `departures.tsv` lists), `description` (the header comment of its screen's script with its `# look-for:` lines, or its entry in `CHECKS`), `wrong` (its `# wrong-looks-like:` lines), `text` (the lines its script prints, colors removed, or `null`; see `guest/screens/README.md`), `golden`, `actual`, `diff` and their thumbnails as PNGs, `tolerance`, and `stats` (`pixels`, at most 16 `bbox` regions, `max_delta`).
 - Under `variants`, each variant records `installed` (the tree the guest reported), `displays` (the console's `Display` lines), its QEMU `device`, `config`, `cell`, `cpus` and `memory_mb`, `bench` (each benchmark screen's figures), `rss_kb` (the console's VmRSS after each screen, the largest across its processes), `resident` (after the first screen, and the peak with the screen it followed), `startup_ms` (from the Revision line to the first `Display` line), `console`, `timing` (seconds to the end of each phase) and any `error`.
@@ -148,19 +153,19 @@ The figures are measured on a guest: a vCPU preempted by the host still counts a
 
 ## Self-tests
 
-`make test-tools` runs `test_t3img.py` (image I/O and the masked compare) and `test_t3.py`: the captions and screen text, the tree and its budget, the guest's account of its install, the pin and the goldens' extraction from a scratch repository, the base image's inputs, each variant's machine, the console lines the driver reads, the QEMU command line, the benchmark figures and verdicts, and the serial reader. `SixelGoldenTest` reads the pinned goldens and is skipped, saying so, where no kmscon checkout holds the pinned commit, as in CI's `test-tools` job.
+`make test-tools` runs `test_t3img.py` (image I/O and the masked compare) and `test_t3.py`: the captions and screen text, the tree and its budget, the guest's account of its install, the copies against `provenance.tsv`, where provisioning fetches and builds the images, the base image's inputs, each variant's machine, the console lines the driver reads, the QEMU command line, the benchmark figures and verdicts, and the serial reader. `SixelGoldenTest` reads the colors and cells of the copied sixel goldens.
 
 ## What changed from the fork's harness
 
 The fork's harness judged the C reference's packages and could run a vtium build in their place. Here it judges vtium's install tree alone:
 
 - **The build:** `make install-tree` in place of the C reference's `make pkg` and `pkg-minimal` in the docker dev image. The package path (`pacman -U`, `--pkg-dir`, `--pkg-name`), the libtsm commit checks, the image-helper probe in `setup`, `upstream.mk`'s comparison runs (`--compare-only`) and the stand-in tree are gone. A minspec variant needs no build of its own: the configuration selects the font.
-- **The goldens:** the C reference's read from the pinned kmscon commit, not a directory in this tree, and vtium's own for the small displays in `goldens/`; the harness writes neither: `tier3-bless` is gone.
-- **The paths:** `target/tier3/` for the work directories, the report, the lock, the tree, the extracted goldens and the VM directory, whose `images` links to vtium's image cache, `T3_IMAGES`. The fork's own images are reused from `T3_REUSE` read-only.
+- **The goldens:** the C reference's copied into `c-goldens/` with their provenance, and vtium's own for the small displays in `goldens/`; the harness writes neither: `tier3-bless` is gone.
+- **The paths:** `target/tier3/` for the work directories, the report, the lock, the tree and the VM directory, whose `images` links to vtium's image cache, `T3_IMAGES`, from which tier 3 reads only the images vtium's scripts fetched and built.
 - **The size:** the binary against 2.50 MiB, failing the run past it, in place of the main package's size against 1.77 MiB, which was reported and not judged.
 - **The console:** a run fails unless the console logs itself as vtium.
 - **Departures:** `departures.tsv` turns a difference a listed departure explains into `departure`, as tier 1 and tier 2 do; the fork's harness had no such list.
-- **The image:** `make tier3-image` fetches and verifies the pristine image with `fetch-image.sh` when neither the cache nor `T3_REUSE` holds it; the fork had no rule that ran it.
+- **The image:** `make tier3-image` fetches and verifies the pristine image with `fetch-image.sh` when the cache lacks it; the fork had no rule that ran it.
 - `tier3-gl` and `tier3-selftest` are folded into `make tier3 VARIANTS=gl-1280x800` and `make test-tools`.
 
-The C reference's account of its own runs, the gate seen red against its code and the GL variant's black screen among them, stays in `fork/tier3/README.md` at the pinned commit.
+The C reference's account of its own runs, the gate seen red against its code and the GL variant's black screen among them, stays in `fork/tier3/README.md` at kmscon `b1f7a7c5`.
