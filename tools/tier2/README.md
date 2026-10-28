@@ -19,6 +19,7 @@ make tier2-provenance            # the copies against their sources (KMSCON=../k
 |---|---|
 | `src/screens.rs` | The screens, with where each one's golden lives. |
 | `src/draw.rs` | Drawing a screen: the terminal, the frames, the two buffers, and the configurations that must draw the same bytes. |
+| `src/colorset.rs` | The vitrified set `emoji-rgba` draws with, built in memory. |
 | `src/ppm.rs` | Reading and writing binary PPM, refusing what it cannot judge. |
 | `src/tol.rs` | Tolerance sidecars and their masks. |
 | `src/compare.rs` | The comparison, its verdict, its regions and the diff image. |
@@ -50,8 +51,9 @@ vtium's own screens carry the harness work the C reference had queued, drawn in 
 | `small-320x240` | minspec's display floor, a 320x240 display in an 8x8 PSF2 font as 40 by 30 cells: a shell session with a line that wraps, sprites, colors, decorations plain and in color, characters the font lacks, and text in the last column and row (vtium/vtium#75, #119) |
 | `small-640x480` | A 640x480 display in an 8x16 PSF1 font as 80 by 30 cells, where everything vtium supports is usable: the same parts at 80 columns, with more styles and color ramps (vtium/vtium#75, #119) |
 | `ascii-unifont`, `bold-unifont`, `palette-unifont`, `inverse-unifont`, `cjk-unifont`, `box-unifont`, `underline-unifont`, `strike-unifont`, `deco-config-unifont`, `deco-force-unifont`, `combining-unifont`, `mosaic-unifont`, `emoji-unifont` | The C reference's text screens of the same names, byte for byte, in unifont, so tier 2 sees text rendering before outline fonts land; `deco-config` and `deco-force` set `underline-color=196`, `strike-color=#00c0ff` and, for `deco-force`, `force-decoration-colors` |
+| `emoji-rgba` | Color glyphs from a premultiplied RGBA strike beside a 1-bit text strike at one cell: between letters and in bold, on colored backgrounds, reversed, under each underline and strike, the heart in its narrow presentation, an emoji the set lacks, and one wrapped from the last column (vtium/vtium#23) |
 
-The two `small-` screens draw with the PSF fonts `tools/testfont` writes, read through vtium-font's PSF loader; no font file of the system's reaches tier 2. Each screen sets its own size, display and orientation (aaronsb/kmscon#10). Each is drawn with the default configuration and again with a cache of no glyphs, with the performance profile and with glyphs stored at 8 bits and at their drawn size, which ADR-1300 says change speed and never pixels: a drawing that differs is an error. A screen with a second part is drawn as four frames into two buffers, whose ages follow the swaps; both must hold the same picture at the end, and the picture a fresh renderer draws.
+The two `small-` screens draw with the PSF fonts `tools/testfont` writes, read through vtium-font's PSF loader, and `emoji-rgba` with a vitrified set `src/colorset.rs` builds in memory and reads as the store's sets are read: unifont's printable ASCII as a 1-bit strike, and a grin, a rocket and a heart as a premultiplied RGBA strike at the same 8x16 cell, each two cells wide with edges of partial alpha; no font file of the system's reaches tier 2. Each screen sets its own size, display and orientation (aaronsb/kmscon#10). Each is drawn with the default configuration and again with a cache of no glyphs, with the performance profile and with glyphs stored at 8 bits and at their drawn size, which ADR-1300 says change speed and never pixels: a drawing that differs is an error. A screen with a second part is drawn as four frames into two buffers, whose ages follow the swaps; both must hold the same picture at the end, and the picture a fresh renderer draws.
 
 ## The judge
 
