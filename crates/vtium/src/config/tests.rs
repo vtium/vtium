@@ -1160,14 +1160,14 @@ fn pointer_char_takes_one_character() {
     let l = main_file("pointer-char=✛\n");
     assert_eq!(l.reports, []);
     assert_eq!(l.config.char(&POINTER_CHAR), Some('✛'));
-    for bad in ["", "ab", "\u{7f}"] {
+    for bad in ["", "ab", "\u{7f}", " ", "\u{3000}", "\u{a0}"] {
         let l = load_with(&[&format!("--pointer-char={bad}")], None, &[]);
         assert_eq!(
             problems(&l),
             [&Problem::BadValue {
                 key: "pointer-char",
                 value: bad.into(),
-                why: "one character is needed, not a control character",
+                why: "one character is needed, not a control character or a space",
             }],
             "{bad:?}"
         );

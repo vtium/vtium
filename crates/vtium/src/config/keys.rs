@@ -41,7 +41,7 @@ pub enum Kind {
     /// Keys a grab takes: chords such as `<Ctrl><Alt>Delete`, separated by
     /// commas ([`crate::grab::parse`]). Empty, it takes none.
     Grab,
-    /// One character, no control character.
+    /// One character, no control character or space.
     Char,
     /// A decoration's color: `fg`, the cell's foreground; a palette index
     /// from 0 to 255, which follows the palette a program changes; or
@@ -741,7 +741,7 @@ pub const POINTER_CHAR: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium-render",
-    what: "Draw the pointer as this character's glyph from the font, one cell wide, on the cell under the pointer, white with a dark outline as the arrow is. Unset, the pointer is the arrow.",
+    what: "Draw the pointer as this character's glyph from the font, one cell wide, on the cell under the pointer, white with a dark outline as the arrow is. Unset, or a character the font lacks or whose glyph is blank, the pointer is the arrow.",
     cite: "the operator on vtium/vtium#102",
 };
 

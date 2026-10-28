@@ -88,6 +88,11 @@ impl Arrow {
         Arrow::filled(gw, gh, thk, covered, (thk, thk)).turned(orientation)
     }
 
+    /// Whether it fills any pixel: a blank glyph's image fills none.
+    pub(crate) fn covers(&self) -> bool {
+        self.pixels.contains(&FILL)
+    }
+
     /// Every pixel, row by row.
     pub fn pixels(&self) -> &[u32] {
         &self.pixels

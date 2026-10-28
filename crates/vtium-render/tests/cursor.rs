@@ -234,3 +234,23 @@ fn a_glyph_pointer_sits_on_the_cell_under_the_pointer() {
     assert_eq!(r.arrow(), &image);
     assert_eq!(r.pointer_at((23, 15)), Some((16, 0)));
 }
+
+// A character the font lacks would draw a fallback (the missing box, U+FFFD,
+// '?'), and a blank one would light nothing: either keeps the arrow.
+#[test]
+fn a_glyph_pointer_the_font_cannot_show_keeps_the_arrow() {
+    let arrow = Arrow::new(16, Orientation::Normal);
+    for c in ['\u{10FFFD}', ' ', '\u{3000}', '\u{a0}'] {
+        let config = Config {
+            pointer: PointerShape::Glyph(c),
+            ..Config::default()
+        };
+        let r = Renderer::new(unifont(), 48, 16, config);
+        assert_eq!(r.arrow(), &arrow, "{c:?}");
+    }
+    let config = Config {
+        pointer: PointerShape::Glyph('+'),
+        ..Config::default()
+    };
+    assert_ne!(Renderer::new(unifont(), 48, 16, config).arrow(), &arrow);
+}

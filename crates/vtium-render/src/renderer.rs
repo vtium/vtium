@@ -368,16 +368,19 @@ pub struct Renderer<F> {
 }
 
 /// The pointer's image for cells `cell_height` tall: the arrow, or the
-/// glyph `config.pointer` names, the arrow where the font draws none.
+/// glyph `config.pointer` names. The arrow stands in for a character the
+/// font lacks, which would draw as a fallback (the missing box, U+FFFD or
+/// `?`), and for a blank one, whose glyph covers no pixel.
 fn pointer_image<F: Face>(font: &Font<F>, cell_height: u32, config: Config) -> Arrow {
     match config.pointer {
-        PointerShape::Arrow => None,
-        PointerShape::Glyph(c) => font.glyph(&[c], FontWidth::Narrow, Style::default()),
+        PointerShape::Glyph(c) if font.has_glyph(c) => {
+            font.glyph(&[c], FontWidth::Narrow, Style::default())
+        }
+        _ => None,
     }
-    .map_or_else(
-        || Arrow::new(cell_height, config.orientation),
-        |g| Arrow::glyph(&g, config.orientation),
-    )
+    .map(|g| Arrow::glyph(&g, config.orientation))
+    .filter(Arrow::covers)
+    .unwrap_or_else(|| Arrow::new(cell_height, config.orientation))
 }
 
 /// How many cells a cell `width` wide, after a cell `before` wide, draws

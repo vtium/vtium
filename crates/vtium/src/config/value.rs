@@ -167,7 +167,9 @@ pub(super) fn parse(
         Kind::Char => {
             let mut chars = text.chars();
             match (chars.next(), chars.next()) {
-                (Some(c), None) if !c.is_control() => Some(Value::Text(text.to_owned())),
+                (Some(c), None) if !c.is_control() && !c.is_whitespace() => {
+                    Some(Value::Text(text.to_owned()))
+                }
                 _ => {
                     let value = text.to_owned();
                     reports.push(
@@ -175,7 +177,7 @@ pub(super) fn parse(
                         Problem::BadValue {
                             key: key.name,
                             value,
-                            why: "one character is needed, not a control character",
+                            why: "one character is needed, not a control character or a space",
                         },
                     );
                     None

@@ -42,7 +42,7 @@ fn bound(k: &Key) -> String {
             "{TEXT_MAX} bytes; modifiers Shift, Lock, Control, Alt, Logo; keys as xkb names them"
         ),
         Kind::DecoColor => "an index 0 to 255, or six hex digits".to_owned(),
-        Kind::Char => "one character, no control character".to_owned(),
+        Kind::Char => "one character, no control character or space".to_owned(),
     }
 }
 
