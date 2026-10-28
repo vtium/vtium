@@ -238,7 +238,7 @@ vtium's own unit runs no `create`. A distribution's package (AUR, deb, rpm and t
 
 ### A direction, not decided
 
-Later work may find the fonts installed on a machine that match chosen profiles and build more sets from them. The operator named this as a direction on 2026-10-28; it is filed as an issue and decided in its own record.
+Later work may find the fonts installed on a machine that match chosen profiles and build more sets from them. The operator named this as a direction on 2026-10-28; it is vtium/vtium#117, decided in its own record.
 
 ## Consequences
 
