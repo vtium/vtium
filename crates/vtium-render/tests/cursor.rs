@@ -8,15 +8,19 @@
 mod common;
 
 use common::{Screen, arrow_over, rgb, style, unifont};
-use vtium_render::{Arrow, Canvas, Config, DrawState, Orientation, Renderer};
+use vtium_render::{Arrow, Canvas, Config, DrawState, Orientation, PointerShape, Renderer};
 use vtium_term::{Age, CursorShape, Rgb, Style, UnderlineStyle};
 
 const FG: &str = "e0e0e0";
 const BG: &str = "203040";
 
 fn draw(s: &Screen, cursor_on: bool, pointer: Option<(u32, u32)>) -> Canvas {
+    draw_with(s, cursor_on, pointer, Config::default())
+}
+
+fn draw_with(s: &Screen, cursor_on: bool, pointer: Option<(u32, u32)>, config: Config) -> Canvas {
     let (w, h) = (s.cols as u32 * 8, s.rows as u32 * 16);
-    let mut r = Renderer::new(unifont(), w, h, Config::default());
+    let mut r = Renderer::new(unifont(), w, h, config);
     let mut c = Canvas::new(w, h, 0);
     let st = DrawState {
         cursor_on,
@@ -171,4 +175,62 @@ fn the_pointer_is_an_arrow_over_the_cells() {
     // the tip's fill is white, whatever is under it
     let with = draw(&s, false, Some((20, 9)));
     assert_eq!(with.pixel(20, 10), Some(0xff_ff_ff));
+}
+
+// `pointer-char`: the glyph drawn as the pointer, filled and outlined as
+// the arrow is, on the cell under the pointer wherever in the cell the
+// pointer is; the cursor plane takes it at the same place.
+#[test]
+fn a_glyph_pointer_sits_on_the_cell_under_the_pointer() {
+    let st = style(rgb(FG), rgb(BG));
+    let s = screen(st, 0, CursorShape::Block, None);
+    let without = draw(&s, false, None);
+    let config = Config {
+        pointer: PointerShape::Glyph('+'),
+        ..Config::default()
+    };
+    let glyph = unifont()
+        .glyph(
+            &['+'],
+            vtium_font::Width::Narrow,
+            vtium_font::Style::default(),
+        )
+        .unwrap();
+    let image = Arrow::glyph(&glyph, Orientation::Normal);
+    let (iw, ih) = (image.width(), image.height());
+    assert_eq!((iw, ih, image.hot()), (10, 18, (1, 1)));
+    let at = |x: u32, y: u32| image.pixels()[(y * iw + x) as usize];
+    let with = draw_with(&s, false, Some((20, 9)), config);
+    // cell 2 starts at 16,0, the image's corner one pixel up and left
+    let (ax, ay) = (15_i64, -1_i64);
+    let mut lit = 0;
+    for y in 0..16_u32 {
+        for x in 0..48_u32 {
+            let under = without.pixel(x, y).unwrap();
+            let (ix, iy) = (i64::from(x) - ax, i64::from(y) - ay);
+            let inside = (0..i64::from(iw)).contains(&ix) && (0..i64::from(ih)).contains(&iy);
+            let want = match inside.then(|| at(ix as u32, iy as u32)) {
+                Some(src) if src != 0 => {
+                    lit += 1;
+                    arrow_over(under, src)
+                }
+                _ => under,
+            };
+            assert_eq!(with.pixel(x, y).unwrap(), want, "at {x},{y}");
+        }
+    }
+    assert!(lit > 1, "the glyph shows");
+    // anywhere in the cell, the same frame
+    assert!(draw_with(&s, false, Some((23, 15)), config) == with);
+    // the cursor plane's place is the cell's corner too
+    let (w, h) = (48, 16);
+    let mut r = Renderer::new(unifont(), w, h, config);
+    r.draw(
+        &s.frame(Age::NEVER),
+        &mut Canvas::new(w, h, 0),
+        0,
+        &DrawState::default(),
+    );
+    assert_eq!(r.arrow(), &image);
+    assert_eq!(r.pointer_at((23, 15)), Some((16, 0)));
 }
