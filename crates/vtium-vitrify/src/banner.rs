@@ -5,8 +5,9 @@
 //!
 //! It shows only when stdin and stdout are both terminals, and never with
 //! [`OFF`], `--json`, `--version`, a non-empty `NO_COLOR`, a dpkg
-//! maintainer script's environment, or a `TERM` that is unset, `dumb` or a
-//! monochrome VT. It follows the color depth the environment reports
+//! maintainer script's environment, a Chinese, Japanese or Korean locale,
+//! or a `TERM` that is unset, `dumb`, a monochrome VT or a terminfo name's
+//! monochrome form (`-m`, `-mono`). It follows the color depth the environment reports
 //! ([`Depth`]), and takes the narrow form below [`Form::Wide`]'s width. It
 //! is static: no motion, and nothing waits on it.
 //!
@@ -88,11 +89,24 @@ pub fn plan(
     if set("NO_COLOR").is_some() || set("DPKG_MAINTSCRIPT_NAME").is_some() {
         return None;
     }
+    // The block elements are East Asian Ambiguous: a terminal set up for
+    // Chinese, Japanese or Korean draws them two columns wide, and the art
+    // would no longer fit. The locale is LC_ALL's, else LC_CTYPE's, else
+    // LANG's.
+    let locale = ["LC_ALL", "LC_CTYPE", "LANG"].into_iter().find_map(set);
+    let language = locale.as_ref().map(|l| l.to_string_lossy());
+    let language = language
+        .as_deref()
+        .and_then(|l| l.split(['_', '.', '@']).next());
+    if matches!(language, Some("zh" | "ja" | "ko")) {
+        return None;
+    }
     let term = set("TERM")?.to_string_lossy().into_owned();
     let monochrome_vt = term
         .strip_prefix("vt")
         .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()));
-    if term == "dumb" || monochrome_vt {
+    let monochrome = term.ends_with("-m") || term.ends_with("-mono");
+    if term == "dumb" || monochrome_vt || monochrome {
         return None;
     }
     let linux = term == "linux" || term.starts_with("linux-");
@@ -877,6 +891,17 @@ mod tests {
         out
     }
 
+    /// The columns `text` takes outside a CJK locale. Every character the
+    /// banner prints takes one there; any other fails the test, since its
+    /// width is not counted here.
+    fn columns(text: &str) -> usize {
+        for c in text.chars() {
+            let narrow = c.is_ascii_graphic() || c == ' ' || ('\u{2580}'..='\u{259f}').contains(&c);
+            assert!(narrow, "{c:?} in {text:?}");
+        }
+        text.chars().count()
+    }
+
     /// Every SGR parameter list `text` sends.
     fn sgrs(text: &str) -> Vec<String> {
         text.split("\x1b[")
@@ -954,10 +979,36 @@ mod tests {
 
     #[test]
     fn hidden_without_a_color_terminal() {
-        for term in ["", "dumb", "vt100", "vt220"] {
+        for term in ["", "dumb", "vt100", "vt220", "linux-m", "xterm-mono"] {
             assert_eq!(plan_for(&[], TTY, &[("TERM", term)]), None, "{term:?}");
         }
         assert_eq!(plan_for(&[], TTY, &[]), None);
+    }
+
+    #[test]
+    fn hidden_in_a_cjk_locale() {
+        let term = ("TERM", "xterm-256color");
+        for locale in [
+            &[("LANG", "ja_JP.UTF-8")][..],
+            &[("LANG", "zh_CN.UTF-8")],
+            &[("LANG", "ko_KR.UTF-8")],
+            &[("LANG", "en_US.UTF-8"), ("LC_CTYPE", "zh_TW.UTF-8")],
+            &[("LANG", "en_US.UTF-8"), ("LC_ALL", "ja_JP.UTF-8")],
+            &[("LC_ALL", ""), ("LC_CTYPE", "ko_KR.UTF-8")],
+        ] {
+            let vars: Vec<_> = locale.iter().copied().chain([term]).collect();
+            assert_eq!(plan_for(&[], TTY, &vars), None, "{locale:?}");
+        }
+        // LC_ALL overrides LC_CTYPE, which overrides LANG.
+        for locale in [
+            &[("LANG", "en_US.UTF-8")][..],
+            &[("LANG", "ja_JP.UTF-8"), ("LC_CTYPE", "C.UTF-8")],
+            &[("LC_CTYPE", "zh_CN.UTF-8"), ("LC_ALL", "de_DE.UTF-8")],
+            &[("LANG", "kok_IN.UTF-8")],
+        ] {
+            let vars: Vec<_> = locale.iter().copied().chain([term]).collect();
+            assert!(plan_for(&[], TTY, &vars).is_some(), "{locale:?}");
+        }
     }
 
     #[test]
@@ -1031,8 +1082,17 @@ mod tests {
             let text = render(plan);
             let limit = usize::from(plan.form.columns());
             for line in text.lines() {
-                let width = visible(line).chars().count();
+                let width = columns(&visible(line));
                 assert!(width <= limit, "{plan:?}: {width} > {limit}: {line:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn every_colored_line_ends_with_a_reset() {
+        for plan in every_plan() {
+            for line in render(plan).lines().filter(|l| l.contains('\x1b')) {
+                assert!(line.ends_with("\x1b[0m"), "{plan:?}: {line:?}");
             }
         }
     }
