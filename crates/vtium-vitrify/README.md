@@ -15,8 +15,10 @@ The program that builds vitrified font sets for vtium (ADR-1200), its own binary
 | `src/glyphs.rs` | The bounded glyph form the parser answers with, and its check. |
 | `src/build.rs` | The set from its sources: the cell, the fallbacks fitted into it, the sprite policy, the provenance and the build key. |
 | `src/store.rs` | Writing the store: the lock, files synced and renamed, the manifest, unreferenced sets removed. |
+| `src/serve.rs` | `serve`: the helper the console starts to generate a frit's glyphs at run time, its request, its framed answers and its idle exit. |
 | `src/switch.rs` | `set`: OSC 50 and its query on the controlling terminal, the reply read in raw mode within its wait. |
 | `tests/cli.rs` | The commands run as the invoking user against a store in a test directory, with fonts, a kbd tree and frits generated in the test. |
+| `tests/serve.rs` | `serve` run as the console runs it, under its own sandbox. |
 | `tests/switch.rs` | `set` on a real pty in raw mode, answered by vtium-term's terminal, and its refusals before the terminal is touched. |
 | `tests/outline.rs`, `tests/common/ttf.rs` | Outline rasterising on a TrueType font with COLR color glyphs written in the test. |
 | `frits/` | The frits vtium ships: `minspec-16` and `minspec-8`, minspec's curated sets, and `proof`, vtium/vtium#23's desktop set. |
@@ -102,6 +104,10 @@ The tests' xz fixtures take `lzma-rust2`'s encoder as a dev-dependency; bzip2 an
 ## The parser
 
 `create` and `create --out` read each source as the invoking user and run `vtium-vitrify --parse` for each font: an empty environment, `/` as its directory, its three pipes and no other descriptor. Run as root, the parent starts it as `nobody` from `/etc/passwd`, its supplementary groups dropped, and refuses to build when there is no such account. The parent kills the parser through a pidfd past 60 s by the wall clock, reads its stderr on a thread of its own, and so never hangs holding the store's lock. The parser sets no-new-privileges, an address space of 512 MiB, 30 s of CPU, no file writes, no processes and no core, refuses to run as root, reads its request, parses, and answers with the glyph form, which the parent checks field by field against the PSF bounds before it trusts it. A parser that fails, faults, passes a limit or answers malformed fails that source; `create` reports the set `failed` and goes on.
+
+## The helper
+
+`vtium-vitrify serve` is the helper the console starts on its first need for a frit's glyphs (ADR-1201 D1). It sets no-new-privileges, starts the thread that reads its requests, then sets the parser's limits with 300 s of CPU over its life, refuses to run as root, and answers each request on stdin with framed answers on stdout: the frit's glyphs at the cell asked for as vitrified sets of one strike each, the codepoints the request names first, then the rest of the frit's coverage 1,024 codepoints a batch, then done, or one failure with its reason. It reads the frit and its fonts itself, as the account the console started it as, parses bitmap fonts and rasterises outline ones in its own process, and fills the console's cell: an outline font drawn at that cell, a bitmap font scaled by the largest whole factor that fits and placed on the cell's bottom row. A frit's `console:` source takes the kernel's font the console read at start and handed over. Each request is bounded before anything is allocated for it: the frit's path at 4,096 bytes, the cell inside `CELL_SIDE_MAX`, 32,000 first codepoints, each a scalar value, and the kernel's font inside the kernel's own bounds. A frame's payload is at most 16 MiB, a batch past it cut in two. It exits after `HELPER_IDLE_MS`, 60,000 ms, with no request, or when the console closes its end.
 
 ## Departures
 
