@@ -58,6 +58,7 @@ mod bounds;
 mod channel;
 pub mod display;
 pub mod event_loop;
+mod fds;
 pub mod input;
 mod ioctl;
 #[cfg(feature = "logind")]
@@ -75,3 +76,4 @@ pub use bounds::{
     WAKE_RETRY_MS,
 };
 pub use calloop;
+pub use fds::cloexec_above_stdio;
