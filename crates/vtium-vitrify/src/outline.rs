@@ -368,7 +368,7 @@ pub use raster::rasterise;
 /// The child's side: swash, on bytes no one has checked. A panic here ends
 /// the child, which fails the source and nothing else (ADR-1200 D14).
 mod raster {
-    use super::{LICENSE_MAX, Outline, OutlineRequest, Placed, Strike, family_key};
+    use super::{LICENSE_MAX, Outline, SET_CHUNK_BYTES, OutlineRequest, Placed, Strike, family_key};
     use swash::scale::image::{Content, Image};
     use swash::scale::{Render, ScaleContext, Source, StrikeWith};
     use swash::zeno::{Mask, Origin, Placement};
@@ -598,7 +598,11 @@ mod raster {
                     Some(&(_, i)) => i,
                     None => {
                         let advance = advances.advance_width(g);
-                        let Some(placed) = place(&mut drawer, g, advance, &cell) else {
+                        // a glyph larger than a set's chunk cannot be stored:
+                        // a color glyph two cells wide past about 64 pixels
+                        let Some(placed) = place(&mut drawer, g, advance, &cell)
+                            .filter(|p| p.pixels.len() <= SET_CHUNK_BYTES as usize)
+                        else {
                             continue;
                         };
                         let i = u32::try_from(glyphs.len()).map_err(|_| "too many glyphs")?;
