@@ -12,13 +12,15 @@
 //! newly needed, and is answered whole, ahead of any fill. A fill fills a
 //! cell's coverage in order: the codepoints it names (the screen's), then
 //! printable Latin and box drawing ([`LATIN_AND_BOX`]), then the rest of
-//! the frit's coverage, skipping what the console holds and what this
-//! helper sent there, one [`BATCH`] at a time; between batches the helper
-//! takes any waiting request, so a request waits at most one batch. A stop
-//! ends a cell's fill, as when the console's store is full or no display
-//! draws at the cell, and forgets what the helper sent there. The helper
-//! exits once it has no request and no fill for [`HELPER_IDLE_MS`], or
-//! when the console closes its end and its work is done.
+//! the frit's coverage, skipping what the console holds, one [`BATCH`] at
+//! a time; between batches the helper takes any waiting request, so a
+//! request waits at most one batch. A stop ends a cell's fill, as when the
+//! console's store is full or no display draws at the cell. The helper
+//! keeps what it sent only for the request that sent it, so it sends a
+//! glyph once within one ask or one fill; the console's store is the one
+//! record of what the console holds (ADR-1200 D18). The helper exits once
+//! it has no request and no fill for [`HELPER_IDLE_MS`], or when the
+//! console closes its end and its work is done.
 //!
 //! ```text
 //! request  magic "VTVSREQ2", kind u32 (1 ask, 2 fill, 3 stop), frit
@@ -732,15 +734,13 @@ impl Bits {
 }
 
 /// Draws `want` at `cell` and writes it as frames of `kind`, a set that
-/// passes [`FRAME_BYTES_MAX`] cut in two; the codepoints written are
-/// marked in `sent`. Returns whether any glyph went, or the engine's
+/// passes [`FRAME_BYTES_MAX`] cut in two. Returns whether any glyph went, or the engine's
 /// failure; only a write that fails is the outer error.
 fn send_glyphs(
     engine: &Engine,
     cell: Cell,
     want: &[u32],
     kind: u32,
-    sent: &mut Bits,
     out: &mut dyn Write,
 ) -> io::Result<Result<bool, String>> {
     let mut queue: VecDeque<&[u32]> = VecDeque::from([want]);
@@ -759,9 +759,6 @@ fn send_glyphs(
             Ok(Some(set)) if set.len() > FRAME_BYTES_MAX as usize => {}
             Ok(Some(set)) => {
                 write_frame(out, kind, &set)?;
-                for &c in want {
-                    sent.set(c);
-                }
                 any = true;
             }
             Err(why) => return Ok(Err(why)),
@@ -770,7 +767,8 @@ fn send_glyphs(
     Ok(Ok(any))
 }
 
-/// A cell's fill: its codepoints in the order drawn, and how far it is.
+/// A cell's fill: its codepoints in the order drawn, each once, and how
+/// far it is.
 struct Fill {
     frit: FritText,
     cell: Cell,
@@ -863,8 +861,6 @@ struct Work<'p> {
     console: Option<ConsoleFont>,
     asks: VecDeque<ServeRequest>,
     fills: VecDeque<Fill>,
-    /// What this helper sent at each frit and cell.
-    sent: BTreeMap<(FritText, u32, u32), Bits>,
 }
 
 impl Work<'_> {
@@ -875,14 +871,8 @@ impl Work<'_> {
             .or_insert_with(|| Engine::load(frit, paths, console))
     }
 
-    fn sent(&mut self, frit: &FritText, cell: Cell) -> &mut Bits {
-        self.sent
-            .entry((frit.clone(), cell.width, cell.height))
-            .or_insert_with(Bits::new)
-    }
-
     /// Takes a request in: an ask waits its turn, a fill replaces the
-    /// cell's, a stop ends it and forgets what was sent at the cell.
+    /// cell's, a stop ends it.
     fn take(&mut self, request: ServeRequest, out: &mut dyn Write) -> io::Result<()> {
         if self.console.is_none() {
             self.console.clone_from(&request.console);
@@ -898,11 +888,7 @@ impl Work<'_> {
                 };
                 self.fills.push_back(fill);
             }
-            _ => {
-                self.fills.retain(|f| !same(f));
-                self.sent
-                    .remove(&(request.frit, request.cell.width, request.cell.height));
-            }
+            _ => self.fills.retain(|f| !same(f)),
         }
         Ok(())
     }
@@ -913,12 +899,11 @@ impl Work<'_> {
         want.sort_unstable();
         want.dedup();
         let cell = request.cell;
-        let mut sent = std::mem::replace(self.sent(&request.frit, cell), Bits(Vec::new()));
         let mut result = Ok(());
         match self.engine(&request.frit) {
             Ok(engine) => {
                 for w in want.chunks(BATCH) {
-                    if let Err(why) = send_glyphs(engine, cell, w, FRAME_GLYPHS, &mut sent, out)? {
+                    if let Err(why) = send_glyphs(engine, cell, w, FRAME_GLYPHS, out)? {
                         result = Err(why);
                         break;
                     }
@@ -926,7 +911,6 @@ impl Work<'_> {
             }
             Err(why) => result = Err(why.clone()),
         }
-        *self.sent(&request.frit, cell) = sent;
         match result {
             Ok(()) => write_frame(out, FRAME_DONE, &[]),
             Err(why) => failed(out, &why),
@@ -939,24 +923,14 @@ impl Work<'_> {
         let Some(mut fill) = self.fills.pop_front() else {
             return Ok(());
         };
-        let mut sent = std::mem::replace(self.sent(&fill.frit, fill.cell), Bits(Vec::new()));
-        let mut batch = Vec::with_capacity(BATCH);
-        while batch.len() < BATCH {
-            let Some(&c) = fill.order.get(fill.next) else {
-                break;
-            };
-            fill.next = fill.next.saturating_add(1);
-            // D18's skip of what was sent holds only while the console holds the cell: its stop as it drops the cell forgets what was sent there
-            if !sent.has(c) {
-                batch.push(c);
-            }
-        }
+        let end = fill.next.saturating_add(BATCH).min(fill.order.len());
+        let mut batch = fill.order.get(fill.next..end).unwrap_or_default().to_vec();
+        fill.next = end;
         batch.sort_unstable();
         let drawn = match self.engine(&fill.frit) {
-            Ok(engine) => send_glyphs(engine, fill.cell, &batch, FRAME_FILL, &mut sent, out)?,
+            Ok(engine) => send_glyphs(engine, fill.cell, &batch, FRAME_FILL, out)?,
             Err(why) => Err(why.clone()),
         };
-        *self.sent(&fill.frit, fill.cell) = sent;
         match drawn {
             Err(why) => return failed(out, &why),
             Ok(any) => fill.any |= any,
@@ -986,7 +960,6 @@ fn answer_requests(rx: &Requests, out: &mut dyn Write, paths: &Paths, idle: Dura
         console: None,
         asks: VecDeque::new(),
         fills: VecDeque::new(),
-        sent: BTreeMap::new(),
     };
     let mut ended = false;
     loop {
@@ -1338,9 +1311,16 @@ mod tests {
         assert_eq!(kinds[asked + 1], FRAME_DONE);
         assert!(kinds.iter().filter(|&&k| k == FRAME_FILL).count() > 10);
         assert_eq!(kinds.last(), Some(&FRAME_FILLED));
-        // the fill skips what the ask sent
+        // the ask and the fill are two requests: each sends 中 once, and
+        // the console drops the fill's
         let faces = faces(&frames);
-        assert_eq!(faces.iter().filter(|f| f.1.has_glyph('中')).count(), 1);
+        let sent = |kind| {
+            faces
+                .iter()
+                .filter(|f| f.0 == kind && f.1.has_glyph('中'))
+                .count()
+        };
+        assert_eq!((sent(FRAME_GLYPHS), sent(FRAME_FILL)), (1, 1));
     }
 
     #[test]
@@ -1353,7 +1333,6 @@ mod tests {
             console: None,
             asks: VecDeque::new(),
             fills: VecDeque::new(),
-            sent: BTreeMap::new(),
         };
         let mut out = Vec::new();
         work.take(request(FILL, frit.clone(), &[]), &mut out)

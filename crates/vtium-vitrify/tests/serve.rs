@@ -13,8 +13,8 @@ use std::time::Duration;
 use vtium_font::set::{Set, SetFace};
 use vtium_font::{Cell, Face};
 use vtium_vitrify::serve::{
-    ASK, FILL, FRAME_DONE, FRAME_FAILED, FRAME_FILLED, FRAME_GLYPHS, FritText, Paths, STOP,
-    ServeRequest, serve,
+    ASK, FILL, FRAME_DONE, FRAME_FAILED, FRAME_FILL, FRAME_FILLED, FRAME_GLYPHS, FritText, Paths,
+    STOP, ServeRequest, serve,
 };
 
 /// The frames in `bytes`, kind and payload.
@@ -207,4 +207,70 @@ fn a_cell_stopped_and_filled_again_is_filled_again() {
         SetFace::new(set, 16).unwrap().has_glyph('A')
     };
     assert!(a(&first) && a(&again));
+}
+
+/// Each codepoint the fill frames among `frames` hold, with how many
+/// frames hold it.
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+fn filled(frames: &[(u32, Vec<u8>)]) -> std::collections::BTreeMap<char, usize> {
+    let faces: Vec<SetFace> = frames
+        .iter()
+        .filter(|f| f.0 == FRAME_FILL)
+        .map(|f| SetFace::new(Arc::new(Set::from_bytes(f.1.clone()).unwrap()), 16).unwrap())
+        .collect();
+    let mut held = std::collections::BTreeMap::new();
+    for c in (0..0x2_0000).filter_map(char::from_u32) {
+        let n = faces.iter().filter(|f| f.has_glyph(c)).count();
+        if n > 0 {
+            held.insert(c, n);
+        }
+    }
+    held
+}
+
+// D18: the helper skips repeats within one request only; the console's
+// store is the one record of what it holds, so a second fill of a cell
+// sends its coverage in full again, each glyph once
+#[test]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+fn each_fill_sends_the_cells_coverage_in_full_once() {
+    let fill = ServeRequest {
+        kind: FILL,
+        frit: FritText {
+            name: "t".to_owned(),
+            text: "source=builtin:unscii-8\n".to_owned(),
+        },
+        cell: Cell {
+            width: 8,
+            height: 16,
+        },
+        codepoints: vec![0x41],
+        held: Vec::new(),
+        console: None,
+    };
+    let mut child = Command::new(env!("CARGO_BIN_EXE_vtium-vitrify"))
+        .arg("serve")
+        .env_clear()
+        .current_dir("/")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+    let ends = [FRAME_FILLED, FRAME_FAILED];
+    stdin.write_all(&fill.encode()).unwrap();
+    let first = frames_until(&mut stdout, &ends);
+    stdin.write_all(&fill.encode()).unwrap();
+    let again = frames_until(&mut stdout, &ends);
+    drop(stdin);
+    assert!(child.wait().unwrap().success());
+    for frames in [&first, &again] {
+        assert_eq!(frames.last().map(|f| f.0), Some(FRAME_FILLED));
+    }
+    let (first, again) = (filled(&first), filled(&again));
+    assert!(first.len() > 100, "{}", first.len());
+    assert!(first.values().all(|&n| n == 1));
+    assert_eq!(again, first);
 }
