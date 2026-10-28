@@ -135,8 +135,7 @@ where
     if len <= width || rows.clone().any(|l| !rewraps(l)) {
         return 1;
     }
-    let wide = |c: &Cell| c.width() == Width::Wide;
-    if width >= 2 && !rows.clone().any(|l| text(l).iter().any(wide)) {
+    if width >= 2 && !rows.clone().any(Line::holds_wide) {
         return len.div_ceil(width);
     }
     let (mut count, mut col) = (1usize, 0usize);

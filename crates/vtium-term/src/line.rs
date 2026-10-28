@@ -208,10 +208,15 @@ pub struct Line {
     flags: LineFlags,
     /// The style index of the cells past the line's end.
     fill: u16,
+    /// The line may hold a wide character: set by any write of one, and
+    /// made exact when the line is trimmed, so a rewrap's count reads the
+    /// lengths of lines without one (ADR-1003, "Cost").
+    wide: bool,
 }
 
 // The Vec and the Box are four pointer-sized words, so a Line is 48 bytes
-// on 64-bit targets and 32 on armv7; the fill takes 2 of the padding.
+// on 64-bit targets and 32 on armv7; the fill and the wide mark take 3
+// bytes of the padding.
 #[cfg(target_pointer_width = "64")]
 const _: () = assert!(size_of::<Line>() == 48);
 #[cfg(target_pointer_width = "32")]
@@ -226,6 +231,7 @@ impl Line {
             id,
             flags: LineFlags::empty(),
             fill: 0,
+            wide: false,
         }
     }
 
@@ -237,6 +243,7 @@ impl Line {
             id,
             flags,
             fill: 0,
+            wide: false,
         }
     }
 
@@ -261,6 +268,12 @@ impl Line {
         {
             *last = Cell::new(Content::Empty, Width::Narrow, last.style(), last.link());
         }
+    }
+
+    /// Whether the line may hold a wide character; false only when it
+    /// holds none.
+    pub(crate) fn holds_wide(&self) -> bool {
+        self.wide
     }
 
     /// The style of the cells past the line's end.
@@ -360,6 +373,7 @@ impl Line {
         if let Some(cell) = self.cells.get_mut(col) {
             *cell = Cell::new(content, width, style, link);
         }
+        self.wide |= width == Width::Wide;
         true
     }
 
@@ -489,6 +503,7 @@ impl Line {
             self.cells.truncate(text.max(keep));
             self.fill = fill.0;
         }
+        self.wide = self.cells.iter().any(|c| c.width() == Width::Wide);
         self.cells.shrink_to_fit();
         self.compact();
         self.shrink_tables();
@@ -553,6 +568,7 @@ impl Line {
         };
         if self.cells.len() < COLUMNS_MAX {
             self.cells.push(Cell::new(content, width, style, link));
+            self.wide |= width == Width::Wide;
         }
     }
 
