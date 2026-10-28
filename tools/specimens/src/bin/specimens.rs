@@ -1,30 +1,37 @@
-//! specimens: draw the demonstration set, judge it, or print the card.
+//! specimens: draw the demonstration set, judge it, fetch its fonts, or
+//! print the card.
 //!
 //! ```text
-//! specimens draw [--review DIR]
-//! specimens check
+//! specimens draw [--vitrify PATH] [--review DIR]
+//! specimens check [--vitrify PATH]
+//! specimens fetch-fonts
 //! specimens card PROFILE [PAGE]
 //! ```
 //!
 //! `draw` writes `docs/specimens/` from the profile table, and with
-//! `--review` copies each built profile's collage, or its one screen, to
+//! `--review` copies each drawn profile's collage, or its one screen, to
 //! `DIR/PROFILE.png`. `check` draws the same files and compares them with
-//! what is committed, the simulated renders' faults reported apart; it exits 0 when all match, 1 when one does not and 2
-//! when it cannot run. `card` writes a page of the card's bytes to
-//! standard output, for `cat` on a VT of that size.
+//! what is committed; it exits 0 when no accepted profile moved, 1 when
+//! one did, and 2 when it cannot run. Both build the desktop set with the
+//! vtium-vitrify at `--vitrify` from the fonts `fetch-fonts` keeps in the
+//! cache, and skip the outline profiles, saying why, without them. `card`
+//! writes a page of the card's bytes to standard output, for `cat` on a VT
+//! of that size.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use vtium_specimens::profiles::profile;
-use vtium_specimens::{card, check, docs, draw, png};
+use vtium_specimens::draw::Sources;
+use vtium_specimens::profiles::{PROFILES, profile};
+use vtium_specimens::{card, check, docs, draw, fonts, png};
 
 const HERE: &str = env!("CARGO_MANIFEST_DIR");
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: specimens draw [--review DIR]\n       specimens check\n       specimens card PROFILE [PAGE]"
+        "usage: specimens draw [--vitrify PATH] [--review DIR]\n       specimens check [--vitrify PATH]\n       \
+         specimens fetch-fonts\n       specimens card PROFILE [PAGE]"
     );
     ExitCode::from(2)
 }
@@ -33,60 +40,121 @@ fn specimens_dir() -> PathBuf {
     Path::new(HERE).join("../../docs/specimens")
 }
 
+/// The options after a command: `--vitrify PATH` and `--review DIR`.
+#[derive(Default)]
+struct Options {
+    vitrify: Option<PathBuf>,
+    review: Option<PathBuf>,
+}
+
+fn options(args: &[String]) -> Option<Options> {
+    let mut o = Options::default();
+    let mut it = args.iter();
+    while let Some(flag) = it.next() {
+        let value = PathBuf::from(it.next()?);
+        match flag.as_str() {
+            "--vitrify" if o.vitrify.is_none() => o.vitrify = Some(value),
+            "--review" if o.review.is_none() => o.review = Some(value),
+            _ => return None,
+        }
+    }
+    Some(o)
+}
+
+fn sources(o: &Options) -> Sources {
+    Sources {
+        desktop: fonts::desktop(o.vitrify.as_deref(), &fonts::cache_dir()),
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    match args.as_slice() {
-        ["draw"] => draw_all(None),
-        ["draw", "--review", dir] => draw_all(Some(Path::new(dir))),
-        ["check"] => match check::check(&specimens_dir()) {
-            Ok(faults) if faults.is_empty() => {
-                println!("specimens: every file matches its drawing");
-                ExitCode::SUCCESS
-            }
-            Ok(faults) => {
-                for f in &faults.goldens {
-                    eprintln!("specimens: {f}");
-                }
-                for f in &faults.simulations {
-                    eprintln!("specimens: simulation stale: {f}");
-                }
-                eprintln!(
-                    "specimens: {} faults in the specimens, {} in the simulations; `make specimens` redraws them",
-                    faults.goldens.len(),
-                    faults.simulations.len()
+    let Some((command, rest)) = args.split_first() else {
+        return usage();
+    };
+    match (command.as_str(), rest) {
+        ("draw", rest) => match options(rest) {
+            Some(o) => draw_all(&o),
+            None => usage(),
+        },
+        ("check", rest) => match options(rest) {
+            Some(o) if o.review.is_none() => check_all(&o),
+            _ => usage(),
+        },
+        ("fetch-fonts", []) => match fonts::fetch(&fonts::cache_dir()) {
+            Ok(()) => {
+                println!(
+                    "specimens: the pinned fonts are in {}",
+                    fonts::cache_dir().display()
                 );
-                ExitCode::FAILURE
+                ExitCode::SUCCESS
             }
             Err(e) => {
                 eprintln!("specimens: {e}");
-                ExitCode::from(2)
+                ExitCode::FAILURE
             }
         },
-        ["card", name] => print_card(name, "1"),
-        ["card", name, page] => print_card(name, page),
+        ("card", [name]) => print_card(name, "1"),
+        ("card", [name, page]) => print_card(name, page),
         _ => usage(),
     }
 }
 
-fn draw_all(review: Option<&Path>) -> ExitCode {
-    let dir = specimens_dir();
-    match check::write(&dir) {
-        Ok(files) => println!("specimens: wrote {} files", files.len()),
+fn check_all(o: &Options) -> ExitCode {
+    let faults = match check::check(&specimens_dir(), &sources(o)) {
+        Ok(f) => f,
         Err(e) => {
             eprintln!("specimens: {e}");
             return ExitCode::from(2);
         }
+    };
+    for s in &faults.skipped {
+        println!("specimens: skipped {s}");
     }
-    let Some(review) = review else {
+    for d in &faults.drift {
+        println!("specimens: drift in a provisional profile: {d}");
+    }
+    for f in &faults.goldens {
+        eprintln!("specimens: {f}");
+    }
+    for f in &faults.simulations {
+        eprintln!("specimens: simulation stale: {f}");
+    }
+    if faults.failed() {
+        eprintln!(
+            "specimens: {} faults in accepted specimens, {} in simulations; `make specimens` redraws them",
+            faults.goldens.len(),
+            faults.simulations.len()
+        );
+        ExitCode::FAILURE
+    } else {
+        println!("specimens: every accepted profile matches its drawing");
+        ExitCode::SUCCESS
+    }
+}
+
+fn draw_all(o: &Options) -> ExitCode {
+    let sources = sources(o);
+    let drawn = match check::write(&specimens_dir(), &sources) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("specimens: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    println!("specimens: wrote {} files", drawn.files.len());
+    for (p, why) in &drawn.skipped {
+        println!("specimens: skipped {}: {why}", p.name);
+    }
+    let Some(review) = &o.review else {
         return ExitCode::SUCCESS;
     };
     if let Err(e) = std::fs::create_dir_all(review) {
         eprintln!("specimens: {}: {e}", review.display());
         return ExitCode::from(2);
     }
-    for p in vtium_specimens::profiles::PROFILES {
-        let Ok(screens) = draw::screens(p) else {
+    for p in PROFILES {
+        let Ok(screens) = draw::screens(p, &sources) else {
             continue;
         };
         let img = if screens.len() == 1 {
@@ -113,7 +181,7 @@ fn print_card(name: &str, page: &str) -> ExitCode {
         eprintln!("specimens: no profile {name}");
         return ExitCode::from(2);
     };
-    let layout = match draw::font(p).and_then(|f| draw::layout(p, &f)) {
+    let layout = match p.layout() {
         Ok(l) => l,
         Err(e) => {
             eprintln!("specimens: {e}");

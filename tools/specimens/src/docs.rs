@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::card;
-use crate::draw::{self, Image};
+use crate::draw::{self, Image, Sources};
 use crate::profiles::{Glyphs, PROFILES, Profile};
 
 /// A file's contents: an image, judged by its pixels, or text, judged by
@@ -29,11 +29,10 @@ pub fn provisional(dir: &Path) -> Result<Vec<String>, String> {
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
     {
         let name = line.split('\t').next().unwrap_or_default();
-        match PROFILES.iter().find(|p| p.name == name) {
-            Some(p) if matches!(p.glyphs, Glyphs::Builtin { .. }) => names.push(name.to_owned()),
-            Some(_) => return Err(format!("provisional.tsv: {name} is pending, not drawn")),
-            None => return Err(format!("provisional.tsv: no profile {name}")),
+        if PROFILES.iter().all(|p| p.name != name) {
+            return Err(format!("provisional.tsv: no profile {name}"));
         }
+        names.push(name.to_owned());
     }
     Ok(names)
 }
@@ -56,13 +55,6 @@ pub fn preview(pages: usize) -> &'static str {
     }
 }
 
-fn issues(list: &[u32]) -> String {
-    list.iter()
-        .map(|i| format!("#{i}"))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
 /// The directory under `docs/specimens/` simulated renders go in: they
 /// show a panel's conversion and judge nothing of vtium's drawing.
 pub const SIMULATED: &str = "simulated";
@@ -75,102 +67,110 @@ pub fn dir(p: &Profile) -> String {
     }
 }
 
-/// Every file under `docs/specimens/`, by its path there, but
-/// `provisional.tsv`, which the operator keeps.
-pub fn files(provisional: &[String]) -> Result<BTreeMap<String, Content>, String> {
-    let mut out = BTreeMap::new();
+/// What `docs/specimens/` holds, by each file's path there, but
+/// `provisional.tsv`, which the operator keeps; and the profiles whose
+/// screens could not be drawn here, each with why, whose images are
+/// neither drawn nor judged.
+#[derive(Debug)]
+pub struct Drawn {
+    pub files: BTreeMap<String, Content>,
+    pub skipped: Vec<(&'static Profile, String)>,
+}
+
+/// Every file under `docs/specimens/`. Its text comes from the profile
+/// table alone, so it is the same whether a profile is drawn or skipped.
+pub fn files(provisional: &[String], sources: &Sources) -> Result<Drawn, String> {
+    let mut files = BTreeMap::new();
+    let mut skipped = Vec::new();
     let (mut rows, mut simulated) = (Vec::new(), Vec::new());
     for p in PROFILES {
-        let Glyphs::Builtin { set, .. } = p.glyphs else {
-            rows.push(row(p, None, false));
-            continue;
-        };
         let d = dir(p);
-        let screens = draw::screens(p)?;
-        let font = draw::font(p)?;
-        let layout = draw::layout(p, &font)?;
-        let cell = font.cell();
-        let names = screen_names(screens.len());
-        if screens.len() > 1 {
-            out.insert(
-                format!("{d}/collage.png"),
-                Content::Png(draw::collage(&screens)),
-            );
+        let pages = p.layout()?.pages;
+        let names = screen_names(pages);
+        match draw::skipped(p, sources) {
+            Some(why) => skipped.push((p, why.to_owned())),
+            None => {
+                let screens = draw::screens(p, sources)?;
+                if screens.len() > 1 {
+                    files.insert(
+                        format!("{d}/collage.png"),
+                        Content::Png(draw::collage(&screens)),
+                    );
+                }
+                for (name, img) in names.iter().zip(screens) {
+                    files.insert(format!("{d}/{name}"), Content::Png(img));
+                }
+            }
         }
-        let pending = provisional.iter().any(|n| n == p.name);
-        let facts = Facts {
-            cell: format!("{}x{}", cell.width, cell.height),
-            grid: format!("{}x{}", layout.cols, layout.rows),
-            set,
-            screens: screens.len(),
-        };
-        out.insert(
+        files.insert(
             format!("{d}/README.md"),
-            Content::Text(profile_readme(p, &facts, &names)),
+            Content::Text(profile_readme(p, &names)?),
         );
-        out.insert(format!("{d}/vtium.conf"), Content::Text(p.conf.to_owned()));
-        for (name, img) in names.into_iter().zip(screens) {
-            out.insert(format!("{d}/{name}"), Content::Png(img));
-        }
-        let r = row(p, Some(&facts), pending);
+        files.insert(format!("{d}/vtium.conf"), Content::Text(p.conf.to_owned()));
+        let r = row(p, provisional.iter().any(|n| n == p.name))?;
         match p.panel {
             Some(_) => simulated.push(r),
             None => rows.push(r),
         }
     }
-    out.insert(
+    files.insert(
         "README.md".to_owned(),
         Content::Text(index(&rows, &simulated)),
     );
-    Ok(out)
+    Ok(Drawn { files, skipped })
 }
 
-/// What a built profile draws: its cell, grid, set and screens.
-struct Facts {
-    cell: String,
-    grid: String,
-    set: &'static str,
-    screens: usize,
-}
-
-fn row(p: &Profile, facts: Option<&Facts>, provisional: bool) -> String {
-    match (facts, p.glyphs) {
-        (Some(f), _) => {
-            let status = match (p.panel, provisional) {
-                (Some(_), _) => "simulation",
-                (None, true) => "provisional",
-                (None, false) => "reviewed",
-            };
-            let shot = preview(f.screens);
-            format!(
-                "| [{name}]({d}/) | {} | {} | {} | `{}` | {} | {status} | [<img src=\"{d}/{shot}\" width=\"160\">]({d}/{shot}) |",
-                p.depth,
-                f.cell,
-                f.grid,
-                f.set,
-                f.screens,
-                name = p.name,
-                d = dir(p),
-            )
+/// The profile's font, as its README's table names it.
+fn font_cell(p: &Profile) -> String {
+    match p.glyphs {
+        Glyphs::Builtin { set, .. } => format!("`{set}`, built in"),
+        Glyphs::Desktop { .. } => {
+            "`desktop`, built from [`desktop.vtfrit`](../../../tools/specimens/frits/desktop.vtfrit)"
+                .to_owned()
         }
-        (None, Glyphs::Pending { font, issues: list }) => format!(
-            "| {} | {} | | | {font} | | pending {} | |",
-            p.name,
-            p.depth,
-            issues(list)
-        ),
-        (None, Glyphs::Builtin { .. }) => unreachable!("a built profile is drawn"),
     }
 }
 
-fn profile_readme(p: &Profile, f: &Facts, names: &[String]) -> String {
-    let arrayed = if f.screens == 1 {
+fn row(p: &Profile, provisional: bool) -> Result<String, String> {
+    let l = p.layout()?;
+    let status = match (p.panel, provisional) {
+        (Some(_), true) => "simulation, provisional",
+        (Some(_), false) => "simulation",
+        (None, true) => "provisional",
+        (None, false) => "accepted",
+    };
+    let shot = preview(l.pages);
+    Ok(format!(
+        "| [{name}]({d}/) | {} | {}x{} | {}x{} | `{}` | {} | {status} | [<img src=\"{d}/{shot}\" width=\"160\">]({d}/{shot}) |",
+        p.depth,
+        p.cell.0,
+        p.cell.1,
+        l.cols,
+        l.rows,
+        p.glyphs.set(),
+        l.pages,
+        name = p.name,
+        d = dir(p),
+    ))
+}
+
+fn profile_readme(p: &Profile, names: &[String]) -> Result<String, String> {
+    let l = p.layout()?;
+    let arrayed = if l.pages == 1 {
         "the whole card on one screen".to_owned()
     } else {
         format!(
             "the card on {} screens, shown together in the collage",
-            f.screens
+            l.pages
         )
+    };
+    let source = match p.glyphs {
+        Glyphs::Builtin { .. } => {
+            "The console chooses this set by itself once #126 and #118's rule land; the screens here draw vtium-font's built-in set directly."
+        }
+        Glyphs::Desktop { .. } => {
+            "The console loads a set by name from #126. The screens here draw the set vtium-vitrify builds from the frit and the pinned fonts `make specimens-fonts` fetches (`tools/specimens/README.md`); where those fonts are absent the check skips this profile and says so."
+        }
     };
     let images = names
         .iter()
@@ -187,33 +187,34 @@ fn profile_readme(p: &Profile, f: &Facts, names: &[String]) -> String {
         ),
         None => (p.name.to_owned(), String::new()),
     };
-    format!(
+    Ok(format!(
         "# {title}\n\n\
          {simulation}\
          {summary}: {width}x{height}, {depth}, drawn in `{set}` at {cell}, {grid} cells, {arrayed}.\n\n\
          ![{name}]({preview})\n\n\
          | Display | Class | Cell | Grid | Font | Screens |\n\
          |---|---|---|---|---|---|\n\
-         | {width}x{height}, {depth} | {class} | {cell} | {grid} | `{set}`, built in | {images} |\n\n\
+         | {width}x{height}, {depth} | {class} | {cell} | {grid} | {font} | {images} |\n\n\
          ## Why this font\n\n\
          {why}\n\n\
          ## Configuration\n\n\
          [vtium.conf](vtium.conf):\n\n\
          ```ini\n{conf}```\n\n\
-         The console chooses this set by itself once #126 and #118's rule land; the screens here draw vtium-font's built-in set directly.\n",
+         {source}\n",
         name = p.name,
         summary = p.summary,
         width = p.width,
         height = p.height,
         depth = p.depth,
         class = p.class,
-        set = f.set,
-        cell = f.cell,
-        grid = f.grid,
-        preview = preview(f.screens),
+        set = p.glyphs.set(),
+        cell = format!("{}x{}", p.cell.0, p.cell.1),
+        grid = format!("{}x{}", l.cols, l.rows),
+        font = font_cell(p),
+        preview = preview(l.pages),
         why = p.why,
         conf = p.conf,
-    )
+    ))
 }
 
 fn index(rows: &[String], simulated: &[String]) -> String {
@@ -229,18 +230,18 @@ fn index(rows: &[String], simulated: &[String]) -> String {
          | Profile | Depth | Cell | Grid | Font | Screens | Status | Preview |\n\
          |---|---|---|---|---|---|---|---|\n\
          {rows}\n\n\
-         A pending profile waits on the issues it names. A provisional one is drawn and judged, and waits on the operator's review; `provisional.tsv` lists them.\n\n\
+         A provisional profile waits on the operator's review, and `provisional.tsv` lists it: a drawing that moves it is reported as drift and fails nothing. An accepted profile fails on a moved pixel.\n\n\
          ## Gray panels, simulated\n\n\
-         vtium draws a gray panel exactly as a color display, and the panel's driver converts each pixel (#135). These renders take vtium's color drawing through that conversion, as Linux v7.3's drivers make it, to show what such a panel shows. They are simulations, not vtium's output, and judge nothing.\n\n\
+         vtium draws a gray panel exactly as a color display, and the panel's driver converts each pixel (#135). These renders take vtium's color drawing through that conversion, as Linux v7.3's drivers make it, to show what such a panel shows. They are simulations, not vtium's output, and judge nothing of vtium's drawing; a stale one is reported as its own kind of fault.\n\n\
          | Profile | Depth | Cell | Grid | Font | Screens | Status | Preview |\n\
          |---|---|---|---|---|---|---|---|\n\
          {simulated}\n\n\
          ## The card\n\n\
-         The card is one byte stream of vtium's own, written by `tools/specimens`, in four blocks of 40x30 cells. A block is one 320x240 screen at 8x8, and a page holds as many blocks as its grid fits, centered:\n\n\
+         The card is one byte stream of vtium's own, written by `tools/specimens`, in blocks of 40x30 cells. A block is one 320x240 screen at 8x8, and a page holds as many blocks as its grid fits, centered:\n\n\
          {titles}\n\n\
          `tools/specimens/README.md` lists what the card leaves out and why.\n\n\
          ## Drawing and judging\n\n\
-         `make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and fail on any difference from what is committed: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A stale or stray simulation is reported as its own kind of fault, apart from the specimens that judge vtium. A change that moves a specimen fails until the moved files are committed, each in a commit of its own that lists what moved.\n",
+         `make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and compare them with what is committed: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A difference in an accepted profile fails; one in a provisional profile is drift, reported and not failed; a stale simulation is reported as its own kind of fault. The outline profiles are drawn only where vtium-vitrify and the pinned fonts are at hand, as `make specimens` gives them; elsewhere the check skips them and says why. A branch that moves specimens regenerates them in their own commit, listing what moved, and a conflict here is resolved by running `make specimens` again.\n",
         rows = rows.join("\n"),
         simulated = simulated.join("\n"),
     )

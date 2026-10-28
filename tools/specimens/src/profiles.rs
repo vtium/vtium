@@ -1,6 +1,8 @@
 //! The display profiles: for each, the display, the font vtium draws on it,
 //! the grid that gives, and how the card's blocks are arrayed on it.
 
+use vtium_render::Depth;
+
 use crate::card::{BLOCK_COLS, BLOCK_ROWS, BLOCKS};
 
 /// What a profile draws its text with.
@@ -8,12 +10,26 @@ use crate::card::{BLOCK_COLS, BLOCK_ROWS, BLOCKS};
 pub enum Glyphs {
     /// A set built into vtium (ADR-1200 D7), drawn at `height` pixels.
     Builtin { set: &'static str, height: u32 },
-    /// A font no merged code draws yet: its description, and the issues
-    /// it waits on.
-    Pending {
-        font: &'static str,
-        issues: &'static [u32],
-    },
+    /// The desktop set, `frits/desktop.vtfrit` built by vtium-vitrify from
+    /// the pinned outline fonts of [`crate::fonts`], drawn at `height`.
+    Desktop { height: u32 },
+}
+
+impl Glyphs {
+    /// The set's name, as `font-name` and the card's header give it.
+    pub fn set(self) -> &'static str {
+        match self {
+            Glyphs::Builtin { set, .. } => set,
+            Glyphs::Desktop { .. } => "desktop",
+        }
+    }
+
+    /// The cell height asked of the set.
+    pub fn height(self) -> u32 {
+        match self {
+            Glyphs::Builtin { height, .. } | Glyphs::Desktop { height } => height,
+        }
+    }
 }
 
 /// One display profile.
@@ -28,7 +44,11 @@ pub struct Profile {
     /// The display class it falls in, by the display-capabilities record's
     /// table (vtium/vtium#136).
     pub class: &'static str,
+    /// How vtium-render draws it: `display-depth`.
+    pub display: Depth,
     pub glyphs: Glyphs,
+    /// The cell the set draws at that height, which the drawing must give.
+    pub cell: (u32, u32),
     /// What it is, one line, for the tables.
     pub summary: &'static str,
     /// Why this font and size is the best choice on this display.
@@ -145,9 +165,15 @@ impl Layout {
 
 const UNSCII_WHY: &str = "ADR-1200 D7 draws the built-in Unscii-8 for cells under 16 pixels high, and #118's rule has `font-size=0` take a set's smallest height when 16-pixel cells would leave fewer than 80x25 of them, so vtium draws this display in 8x8 cells with no font keys at all. It is the most text the display holds at a cell a person can still read, and it costs no disk: D11 builds nothing beyond the built-ins for an English machine at this size. Unscii-8 holds no CJK or Hangul, nor the emoji and private-use symbols, so those draw as the missing glyph, U+25A1, until #141's per-character fallback draws them from unifont; in a zh, ja or ko locale D7 draws unifont at 16 pixels instead.";
 
-const UNIFONT_WHY: &str = "16-pixel cells leave at least 80x25 here, so #118's rule keeps `font-size=0`'s 16 pixels, and ADR-1200 D7 draws the built-in unifont from 16 pixels: 8x16 cells for Latin, Greek and Cyrillic and 16x16 for CJK and Hangul, which it covers whole, with nothing built. The size the display wants is under 24 pixels, the smallest outline size D11 builds, so a default machine holds no outline set for it. Emoji draw as unifont's monochrome glyphs where it has one, and Nerd Font symbols as the missing glyph until #23 and #64 draw them from an outline font.";
+const UNIFONT_WHY: &str = "16-pixel cells leave at least 80x25 here, so #118's rule keeps `font-size=0`'s 16 pixels, and ADR-1200 D7 draws the built-in unifont from 16 pixels: 8x16 cells for Latin, Greek and Cyrillic and 16x16 for CJK and Hangul, which it covers whole, with nothing built. The size the display wants is under 24 pixels, the smallest outline size D11 builds, so a default machine holds no outline set for it. Emoji draw as unifont's monochrome glyphs where it has one, and Nerd Font symbols as the missing glyph; the outline profiles draw both from the desktop set.";
 
 const GRAY_WHY: &str = "vtium draws a gray panel exactly as a color display and lets the panel's driver convert each pixel (#135): the screens here are the color profile's drawing taken through the driver's arithmetic, a simulation of what the panel shows, not vtium's output. The font is the color profile's at this size, for the same reasons; a gray panel's few levels keep the bitmap glyphs crisp, and the card's gray bands show which levels survive the conversion.";
+
+const ONE_BIT_WHY: &str = "A 1-bit panel lights a pixel or does not, so a bitmap font, 1-bit already, draws on it exactly: the built-in Unscii-8 at 8x8 gives the same 40x30 cells as the color profile, for the reasons that profile gives. vtium-render maps each cell's colors to lit or unlit by the cell, never by brightness, with polarity from the default background, and cuts every coverage at half (#135): colors show only where a cell's background differs from the default, dim draws as plain text, and the shades draw as ordered patterns.";
+
+const DESKTOP_WHY: &str = "ADR-1200 D11 builds one outline size for the display the package hook sees, snapped down to 24, 32 or 48 pixels, with unifont filling the outline font's gaps. The desktop set holds two of them, 24 and 32, from JetBrains Mono for text, Symbols Nerd Font Mono for the private-use symbols and Noto Color Emoji for emoji, with the built-in unifont last; `font-size=0` picks the strike, the largest whole multiple of a strike's height under the size it asks (ADR-1200 D9). Outline glyphs draw antialiased at this size. A set maps single codepoints, so ZWJ sequences, flags and keycaps draw as their parts until #144 shapes them, and the scripts that need shaping draw unshaped.";
+
+const DESKTOP_CONF: &str = "# The desktop set: tools/specimens/frits/desktop.vtfrit in\n# /etc/vtium/fonts, built with `vtium-vitrify create desktop`. vtium\n# loads a set by name from #126. font-size=0 picks the strike.\nfont-name=desktop\nfont-size=0\n";
 
 /// Every profile, smallest display first.
 pub const PROFILES: &[Profile] = &[
@@ -157,13 +183,15 @@ pub const PROFILES: &[Profile] = &[
         height: 240,
         depth: "1-bit",
         class: "1-bit",
-        glyphs: Glyphs::Pending {
-            font: "Unscii-8, 8x8",
-            issues: &[135],
+        display: Depth::One,
+        glyphs: Glyphs::Builtin {
+            set: "unscii-8",
+            height: 8,
         },
+        cell: (8, 8),
         summary: "A 1-bit 320x240 panel, such as an SSD130x OLED or a memory LCD",
-        why: "A 1-bit panel lights a pixel or does not, so a bitmap font drawn whole fits it exactly, and Unscii-8 at 8x8 gives the same 40x30 cells as the color profile. #135 maps each cell's colors to lit or unlit.",
-        conf: "",
+        why: ONE_BIT_WHY,
+        conf: "# A panel the platform does not report as 1-bit takes the key.\ndisplay-depth=1\nfont-size=0\n",
         panel: None,
     },
     Profile {
@@ -172,10 +200,12 @@ pub const PROFILES: &[Profile] = &[
         height: 240,
         depth: "24-bit color",
         class: "small color LCD",
+        display: Depth::Color,
         glyphs: Glyphs::Builtin {
             set: "unscii-8",
             height: 8,
         },
+        cell: (8, 8),
         summary: "minspec's display floor, a 320x240 SPI panel",
         why: UNSCII_WHY,
         conf: "# vtium's defaults: font-size=0 picks 8 pixels here (#118), which\n# draws the built-in Unscii-8 (ADR-1200 D7).\nfont-size=0\n",
@@ -187,10 +217,12 @@ pub const PROFILES: &[Profile] = &[
         height: 240,
         depth: "gray4, simulated",
         class: "gray panel",
+        display: Depth::Color,
         glyphs: Glyphs::Builtin {
             set: "unscii-8",
             height: 8,
         },
+        cell: (8, 8),
         summary: "A 320x240 panel of 4 gray levels, as st7586 drives",
         why: GRAY_WHY,
         conf: "# vtium's defaults: font-size=0 picks 8 pixels here (#118), which\n# draws the built-in Unscii-8 (ADR-1200 D7). The panel converts.\nfont-size=0\n",
@@ -202,10 +234,12 @@ pub const PROFILES: &[Profile] = &[
         height: 240,
         depth: "gray16, simulated",
         class: "gray panel",
+        display: Depth::Color,
         glyphs: Glyphs::Builtin {
             set: "unscii-8",
             height: 8,
         },
+        cell: (8, 8),
         summary: "A 320x240 panel of 16 gray levels, as the SSD132x panels take",
         why: GRAY_WHY,
         conf: "# vtium's defaults: font-size=0 picks 8 pixels here (#118), which\n# draws the built-in Unscii-8 (ADR-1200 D7). The panel converts.\nfont-size=0\n",
@@ -217,10 +251,12 @@ pub const PROFILES: &[Profile] = &[
         height: 480,
         depth: "gray16, simulated",
         class: "gray panel",
+        display: Depth::Color,
         glyphs: Glyphs::Builtin {
             set: "unifont",
             height: 16,
         },
+        cell: (8, 16),
         summary: "A 640x480 panel of 16 gray levels, as the SSD132x panels take",
         why: GRAY_WHY,
         conf: "# vtium's defaults: font-size=0 picks 16 pixels here, which draws\n# the built-in unifont (ADR-1200 D7). The panel converts.\nfont-size=0\n",
@@ -232,10 +268,12 @@ pub const PROFILES: &[Profile] = &[
         height: 320,
         depth: "24-bit color",
         class: "small color LCD",
+        display: Depth::Color,
         glyphs: Glyphs::Builtin {
             set: "unscii-8",
             height: 8,
         },
+        cell: (8, 8),
         summary: "A 480x320 SPI panel, 3.5 inches",
         why: UNSCII_WHY,
         conf: "# vtium's defaults: font-size=0 picks 8 pixels here (#118), which\n# draws the built-in Unscii-8 (ADR-1200 D7).\nfont-size=0\n",
@@ -247,10 +285,12 @@ pub const PROFILES: &[Profile] = &[
         height: 480,
         depth: "24-bit color",
         class: "small color LCD",
+        display: Depth::Color,
         glyphs: Glyphs::Builtin {
             set: "unifont",
             height: 16,
         },
+        cell: (8, 16),
         summary: "VGA, the smallest display with 80 columns of 16-pixel text",
         why: UNIFONT_WHY,
         conf: "# vtium's defaults: font-size=0 picks 16 pixels here, which draws\n# the built-in unifont (ADR-1200 D7).\nfont-size=0\n",
@@ -262,10 +302,12 @@ pub const PROFILES: &[Profile] = &[
         height: 480,
         depth: "24-bit color",
         class: "small color LCD",
+        display: Depth::Color,
         glyphs: Glyphs::Builtin {
             set: "unifont",
             height: 16,
         },
+        cell: (8, 16),
         summary: "A 7-inch panel, as on the Raspberry Pi touch display",
         why: UNIFONT_WHY,
         conf: "# vtium's defaults: font-size=0 picks 16 pixels here, which draws\n# the built-in unifont (ADR-1200 D7).\nfont-size=0\n",
@@ -277,12 +319,14 @@ pub const PROFILES: &[Profile] = &[
         height: 768,
         depth: "24-bit color",
         class: "order unknown",
+        display: Depth::Color,
         glyphs: Glyphs::Builtin {
             set: "unifont",
             height: 16,
         },
+        cell: (8, 16),
         summary: "A common laptop panel",
-        why: "`font-size=0` asks 19 pixels here, and a bitmap set draws at the largest whole multiple of its cell that fits (ADR-1200 D9), so the built-in unifont (D7) draws at 16 pixels, 170x48 cells, and the whole card fits one page. 19 pixels is under 24, the smallest outline size D11 builds, so a default machine holds no outline set for this display. Emoji draw as unifont's monochrome glyphs where it has one, and Nerd Font symbols as the missing glyph until #23 and #64 draw them from an outline font.",
+        why: "`font-size=0` asks 19 pixels here, and a bitmap set draws at the largest whole multiple of its cell that fits (ADR-1200 D9), so the built-in unifont (D7) draws at 16 pixels, 170x48 cells. 19 pixels is under 24, the smallest outline size D11 builds, so a default machine holds no outline set for this display. Emoji draw as unifont's monochrome glyphs where it has one, and Nerd Font symbols as the missing glyph; the outline profiles draw both from the desktop set.",
         conf: "# vtium's defaults: font-size=0 asks 19 pixels here, and unifont\n# draws at 16, its largest whole multiple that fits (ADR-1200 D9).\nfont-size=0\n",
         panel: None,
     },
@@ -292,13 +336,12 @@ pub const PROFILES: &[Profile] = &[
         height: 1080,
         depth: "24-bit color",
         class: "order unknown",
-        glyphs: Glyphs::Pending {
-            font: "an outline font at 24 pixels",
-            issues: &[23, 126, 141],
-        },
+        display: Depth::Color,
+        glyphs: Glyphs::Desktop { height: 24 },
+        cell: (11, 24),
         summary: "A full HD monitor",
-        why: "ADR-1200 D11 builds one outline size for the display the package hook sees, snapped down to 24, 32 or 48 pixels: 1920x1080 gives 24, a grid of 160x45, with unifont filling the outline font's gaps.",
-        conf: "",
+        why: DESKTOP_WHY,
+        conf: DESKTOP_CONF,
         panel: None,
     },
     Profile {
@@ -307,16 +350,29 @@ pub const PROFILES: &[Profile] = &[
         height: 1440,
         depth: "24-bit color",
         class: "order unknown",
-        glyphs: Glyphs::Pending {
-            font: "an outline font at 32 pixels",
-            issues: &[23, 126, 141],
-        },
+        display: Depth::Color,
+        glyphs: Glyphs::Desktop { height: 32 },
+        cell: (14, 32),
         summary: "A QHD monitor",
-        why: "ADR-1200 D11 snaps the size this display wants down to 32 pixels, a grid of 160x45, with unifont filling the outline font's gaps.",
-        conf: "",
+        why: DESKTOP_WHY,
+        conf: DESKTOP_CONF,
         panel: None,
     },
 ];
+
+impl Profile {
+    /// The layout of the card on this profile's display in its cells.
+    pub fn layout(&self) -> Result<Layout, String> {
+        let cols = (self.width / self.cell.0) as usize;
+        let rows = (self.height / self.cell.1) as usize;
+        Layout::new(cols, rows).ok_or_else(|| {
+            format!(
+                "{}: a grid of {cols}x{rows} holds no block of {BLOCK_COLS}x{BLOCK_ROWS}",
+                self.name
+            )
+        })
+    }
+}
 
 /// The profile named `name`.
 pub fn profile(name: &str) -> Option<&'static Profile> {
@@ -330,14 +386,15 @@ mod tests {
     #[test]
     fn the_blocks_are_centered_and_paged() {
         let l = Layout::new(40, 30).unwrap();
-        assert_eq!((l.across, l.down, l.top, l.left, l.pages), (1, 1, 0, 0, 4));
+        assert_eq!((l.across, l.down, l.top, l.left, l.pages), (1, 1, 0, 0, 5));
         let l = Layout::new(60, 40).unwrap();
-        assert_eq!((l.top, l.left, l.pages), (5, 10, 4));
+        assert_eq!((l.top, l.left, l.pages), (5, 10, 5));
         let l = Layout::new(80, 30).unwrap();
-        assert_eq!(l.pages, 2);
+        assert_eq!(l.pages, 3);
         assert_eq!(l.blocks(1).collect::<Vec<_>>(), vec![(2, 0, 0), (3, 0, 40)]);
+        assert_eq!(l.blocks(2).collect::<Vec<_>>(), vec![(4, 0, 0)]);
         let l = Layout::new(170, 48).unwrap();
-        assert_eq!((l.top, l.left, l.pages), (9, 5, 1));
+        assert_eq!((l.top, l.left, l.pages), (9, 5, 2));
         assert_eq!(
             l.blocks(0).map(|b| b.2).collect::<Vec<_>>(),
             [5, 45, 85, 125]
@@ -373,11 +430,10 @@ mod tests {
     }
 
     #[test]
-    fn every_profile_has_a_unique_name_and_a_conf_when_built() {
+    fn every_profile_has_a_unique_name_and_a_conf() {
         for (i, p) in PROFILES.iter().enumerate() {
             assert!(PROFILES[..i].iter().all(|q| q.name != p.name), "{}", p.name);
-            let built = matches!(p.glyphs, Glyphs::Builtin { .. });
-            assert_eq!(built, !p.conf.is_empty(), "{}", p.name);
+            assert!(p.conf.ends_with("font-size=0\n"), "{}", p.name);
         }
     }
 }

@@ -1,19 +1,22 @@
 //! Writing the specimens, and judging what is committed against them.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::docs::{self, Content};
+use crate::docs::{self, Content, Drawn};
+use crate::draw::Sources;
 use crate::png;
+use crate::profiles::{PROFILES, Profile};
 
 /// Writes every file `docs::files` draws under `dir`, and removes each
-/// file there it does not draw but `provisional.tsv`.
-pub fn write(dir: &Path) -> Result<Vec<String>, String> {
-    let files = docs::files(&docs::provisional(dir)?)?;
-    for stray in strays(dir, &files)? {
+/// file there it does not draw but `provisional.tsv` and a skipped
+/// profile's images. Returns the files written and the profiles skipped,
+/// each with why.
+pub fn write(dir: &Path, sources: &Sources) -> Result<Drawn, String> {
+    let drawn = docs::files(&docs::provisional(dir)?, sources)?;
+    for stray in strays(dir, &drawn)? {
         std::fs::remove_file(dir.join(&stray)).map_err(|e| format!("{stray}: {e}"))?;
     }
-    for (name, content) in &files {
+    for (name, content) in &drawn.files {
         let path = dir.join(name);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
@@ -24,25 +27,34 @@ pub fn write(dir: &Path) -> Result<Vec<String>, String> {
         };
         std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
     }
-    Ok(files.into_keys().collect())
+    Ok(drawn)
 }
 
-/// What `check` finds, in two kinds: faults of the specimens, the goldens
-/// that judge vtium's drawing, and faults of the simulated renders, which
-/// show a panel's conversion and judge nothing.
+/// What `check` finds. A difference in an accepted profile fails, in
+/// `goldens` or, for a simulated render, in `simulations`, kept apart from
+/// the goldens that judge vtium's drawing. A difference in a provisional
+/// profile is `drift`: reported, failing nothing (the operator,
+/// 2026-10-28). A profile whose screens could not be drawn here is
+/// `skipped`, with why.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Faults {
     pub goldens: Vec<String>,
     pub simulations: Vec<String>,
+    pub drift: Vec<String>,
+    pub skipped: Vec<String>,
 }
 
 impl Faults {
-    pub fn is_empty(&self) -> bool {
-        self.goldens.is_empty() && self.simulations.is_empty()
+    /// Whether the check fails.
+    pub fn failed(&self) -> bool {
+        !self.goldens.is_empty() || !self.simulations.is_empty()
     }
 
-    fn push(&mut self, name: &str, fault: String) {
-        if simulated(name) {
+    fn push(&mut self, name: &str, provisional: &[String], fault: String) {
+        let provisional = owner(name).is_some_and(|p| provisional.iter().any(|n| n == p.name));
+        if provisional {
+            self.drift.push(fault);
+        } else if simulated(name) {
             self.simulations.push(fault);
         } else {
             self.goldens.push(fault);
@@ -50,19 +62,34 @@ impl Faults {
     }
 }
 
+/// The profile whose directory holds `name`.
+fn owner(name: &str) -> Option<&'static Profile> {
+    PROFILES
+        .iter()
+        .find(|p| Path::new(name).starts_with(docs::dir(p)))
+}
+
 /// Each fault of `dir` against what `docs::files` draws: a file missing,
 /// differing, unreadable, or there and not drawn, each in its kind.
-pub fn check(dir: &Path) -> Result<Faults, String> {
-    let files = docs::files(&docs::provisional(dir)?)?;
+pub fn check(dir: &Path, sources: &Sources) -> Result<Faults, String> {
+    let provisional = docs::provisional(dir)?;
+    let drawn = docs::files(&provisional, sources)?;
     let mut faults = Faults::default();
-    for stray in strays(dir, &files)? {
-        faults.push(&stray, format!("{stray}: not drawn by the profile table"));
+    for (p, why) in &drawn.skipped {
+        faults.skipped.push(format!("{}: {why}", p.name));
     }
-    for (name, want) in &files {
+    for stray in strays(dir, &drawn)? {
+        faults.push(
+            &stray,
+            &provisional,
+            format!("{stray}: not drawn by the profile table"),
+        );
+    }
+    for (name, want) in &drawn.files {
         let bytes = match std::fs::read(dir.join(name)) {
             Ok(b) => b,
             Err(e) => {
-                faults.push(name, format!("{name}: {e}"));
+                faults.push(name, &provisional, format!("{name}: {e}"));
                 continue;
             }
         };
@@ -89,21 +116,31 @@ pub fn check(dir: &Path) -> Result<Faults, String> {
             },
         };
         if let Some(f) = fault {
-            faults.push(name, f);
+            faults.push(name, &provisional, f);
         }
     }
     faults.goldens.sort();
     faults.simulations.sort();
+    faults.drift.sort();
     Ok(faults)
 }
 
-/// The files under `dir` that `files` does not hold, but `provisional.tsv`.
-fn strays(dir: &Path, files: &BTreeMap<String, Content>) -> Result<Vec<String>, String> {
+/// The files under `dir` that `drawn` does not hold, but `provisional.tsv`
+/// and the images of a profile skipped here, which are neither drawn nor
+/// judged.
+fn strays(dir: &Path, drawn: &Drawn) -> Result<Vec<String>, String> {
     let mut found = Vec::new();
     walk(dir, dir, &mut found)?;
+    let skipped_image = |f: &str| {
+        f.ends_with(".png")
+            && drawn
+                .skipped
+                .iter()
+                .any(|(p, _)| Path::new(f).parent() == Some(Path::new(&docs::dir(p))))
+    };
     Ok(found
         .into_iter()
-        .filter(|f| f != "provisional.tsv" && !files.contains_key(f))
+        .filter(|f| f != "provisional.tsv" && !drawn.files.contains_key(f) && !skipped_image(f))
         .collect())
 }
 
@@ -132,32 +169,44 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    /// A fresh copy of the specimens in a directory of this test's own.
-    fn drawn(name: &str) -> std::path::PathBuf {
+    /// The sources a test draws with: no desktop set, so the outline
+    /// profiles are skipped.
+    fn sources() -> Sources {
+        Sources {
+            desktop: Err("not built in this test".to_owned()),
+        }
+    }
+
+    /// A fresh drawing of the specimens in a directory of this test's own,
+    /// with `provisional` as its provisional.tsv.
+    fn drawn(name: &str, provisional: &str) -> std::path::PathBuf {
         let dir =
             std::env::temp_dir().join(format!("vtium-specimens-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let here =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/specimens/provisional.tsv");
-        std::fs::copy(here, dir.join("provisional.tsv")).unwrap();
-        write(&dir).unwrap();
+        std::fs::write(dir.join("provisional.tsv"), provisional).unwrap();
+        write(&dir, &sources()).unwrap();
         dir
+    }
+
+    /// Flips one pixel of the PNG at `path`.
+    fn plant(path: &Path) {
+        let mut img = png::decode(&std::fs::read(path).unwrap()).unwrap();
+        img.rgb[0] ^= 0xff;
+        std::fs::write(path, png::encode(&img)).unwrap();
     }
 
     // A simulated render that is stale, missing or stray is a fault of its
     // own kind, apart from the goldens that judge vtium's drawing.
     #[test]
     fn a_stale_or_stray_simulation_is_its_own_fault() {
-        let dir = drawn("sim");
-        assert_eq!(check(&dir).unwrap(), Faults::default());
+        let dir = drawn("sim", "");
+        let clean = check(&dir, &sources()).unwrap();
+        assert!(!clean.failed(), "{clean:?}");
         let sim = dir.join("simulated/320x240-gray4");
-        let png = sim.join("screen-1.png");
-        let mut img = png::decode(&std::fs::read(&png).unwrap()).unwrap();
-        img.rgb[0] ^= 0xff;
-        std::fs::write(&png, png::encode(&img)).unwrap();
+        plant(&sim.join("screen-1.png"));
         std::fs::write(sim.join("extra.png"), b"").unwrap();
-        let faults = check(&dir).unwrap();
+        let faults = check(&dir, &sources()).unwrap();
         assert!(faults.goldens.is_empty(), "{:?}", faults.goldens);
         assert_eq!(
             faults.simulations,
@@ -169,12 +218,56 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    // A moved pixel fails an accepted profile, and is drift in a
+    // provisional one, which fails nothing (the operator, 2026-10-28).
+    #[test]
+    fn a_provisional_profile_drifts_and_an_accepted_one_fails() {
+        let dir = drawn("drift", "640x480\tunder review\n");
+        plant(&dir.join("640x480/screen-1.png"));
+        plant(&dir.join("800x480/screen-1.png"));
+        let faults = check(&dir, &sources()).unwrap();
+        assert_eq!(
+            faults.drift,
+            ["640x480/screen-1.png: 1 pixels differ from the drawing"]
+        );
+        assert_eq!(
+            faults.goldens,
+            ["800x480/screen-1.png: 1 pixels differ from the drawing"]
+        );
+        assert!(faults.failed());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // A profile whose set is not at hand is skipped and says why; its
+    // committed images are neither judged nor strays, and its text still is.
+    #[test]
+    fn a_profile_not_drawn_here_is_skipped_with_why() {
+        let dir = drawn("skip", "");
+        std::fs::write(dir.join("1920x1080/screen-1.png"), b"anything").unwrap();
+        let faults = check(&dir, &sources()).unwrap();
+        assert_eq!(
+            faults.skipped,
+            [
+                "1920x1080: not built in this test",
+                "2560x1440: not built in this test"
+            ]
+        );
+        assert!(!faults.failed(), "{faults:?}");
+        std::fs::write(dir.join("1920x1080/vtium.conf"), b"").unwrap();
+        let faults = check(&dir, &sources()).unwrap();
+        assert_eq!(
+            faults.goldens,
+            ["1920x1080/vtium.conf: differs from what the profile table writes"]
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     // A directory symbolic link back up the tree is listed, not walked.
     #[test]
     fn a_symlink_loop_is_not_walked() {
-        let dir = drawn("loop");
+        let dir = drawn("loop", "");
         std::os::unix::fs::symlink(&dir, dir.join("320x240/loop")).unwrap();
-        let faults = check(&dir).unwrap();
+        let faults = check(&dir, &sources()).unwrap();
         assert_eq!(
             faults.goldens,
             ["320x240/loop: not drawn by the profile table"]
