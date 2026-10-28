@@ -152,6 +152,34 @@ pub fn has(c: char) -> bool {
     Range::of(c).is_some()
 }
 
+/// A shade, U+2591 to U+2593, as a `width` by `height` sprite for a 1-bit
+/// display (vtium/vtium#135): an ordered 2x2 pattern a quarter, half or
+/// three quarters lit, its first pixel in each 2x2 the top left, so cells
+/// whose sides are even join without a seam. [`draw`]'s shades are even
+/// coverage, which a 1-bit display cuts at half to empty or solid. `None`
+/// for any other character or a size [`Glyph::mask`] refuses.
+pub fn shade_one_bit(c: char, width: u32, height: u32) -> Option<Glyph> {
+    // the 2x2 ordered dither's thresholds, top left, top right, bottom
+    // left, bottom right
+    const ORDER: [u32; 4] = [0, 2, 3, 1];
+    let lit = match c {
+        '\u{2591}' => 1,
+        '\u{2592}' => 2,
+        '\u{2593}' => 3,
+        _ => return None,
+    };
+    let mut buf = Glyph::mask(width, height)?;
+    for y in 0..height {
+        for x in 0..width {
+            let i = usize::try_from((y & 1) << 1 | x & 1).unwrap_or(0);
+            if ORDER.get(i).is_some_and(|&t| t < lit) {
+                buf.fill(x, y, x.saturating_add(1), y.saturating_add(1), 0xff);
+            }
+        }
+    }
+    Some(buf)
+}
+
 /// `c` as a `width` by `height` sprite with light lines `thickness` pixels
 /// wide (heavy lines twice that; 0 draws 1), or `None` for a character it
 /// does not draw, a side of 0, a size past [`Glyph::mask`]'s bound, or a
