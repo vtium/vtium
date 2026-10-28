@@ -1209,6 +1209,46 @@ fn sb_memory_is_fenced_from_1_mib_to_1_gib() {
             }]
         );
     }
+    for (asked, used) in [
+        ("512K", 1 << 20),
+        ("1024k", 1 << 20),
+        ("6M", 6 << 20),
+        ("6m", 6 << 20),
+        ("1G", 1 << 30),
+    ] {
+        let l = main_file(&format!("sb-memory={asked}\n"));
+        assert_eq!(l.config.number(&SB_MEMORY), Some(used), "{asked}");
+        assert_eq!(l.reports.len(), usize::from(asked == "512K"), "{asked}");
+    }
+    let l = main_file("sb-memory=2G\n");
+    assert_eq!(l.config.number(&SB_MEMORY), Some(1 << 30));
+    assert_eq!(
+        problems(&l),
+        [&Problem::Clamped {
+            key: "sb-memory",
+            value: "2G".into(),
+            used: 1 << 30
+        }]
+    );
+    for bad in ["M", "6T", "6MB", "-6M", "6 M", "0x6M"] {
+        let l = main_file(&format!("sb-memory={bad}\n"));
+        assert_eq!(
+            problems(&l),
+            [&Problem::NotANumber {
+                key: "sb-memory",
+                value: bad.into()
+            }],
+            "{bad}"
+        );
+    }
+    // A key counted in anything else takes no suffix.
+    assert_eq!(
+        problems(&main_file("sb-size=2K\n")),
+        [&Problem::NotANumber {
+            key: "sb-size",
+            value: "2K".into()
+        }]
+    );
     assert_eq!(
         problems(&main_file("sb-memory=0\n"))
             .first()

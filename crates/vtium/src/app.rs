@@ -286,14 +286,9 @@ impl App {
             config.number(&keys::SB_SIZE_CAP).map(to_usize),
         );
         terminal.screen_mut().set_scrollback_max(lines);
-        let asked = config
-            .number(&keys::SB_MEMORY)
-            .map_or(vtium_term::SB_MEMORY_DEFAULT, to_usize);
-        let (bytes, warning) = sb_memory(asked, physical_memory());
-        if let Some(w) = warning {
-            crate::warn::warn(w);
-        }
-        terminal.screen_mut().set_scrollback_memory(bytes);
+        terminal
+            .screen_mut()
+            .set_scrollback_memory(crate::config::budget::sb_memory(&config));
         terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
         terminal.set_palette(config.palette());
         if let Ok(table) = crate::termcap::termcap() {
@@ -1747,17 +1742,6 @@ fn to_u32(n: u64) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
-/// The scrollback's byte budget for `sb-memory`'s `asked` on a machine
-/// with `ram` bytes, at most a quarter of `ram`, and the warning when that
-/// lowers it.
-fn sb_memory(asked: usize, ram: u64) -> (usize, Option<String>) {
-    let used = vtium_term::sb_memory(asked, ram);
-    let warning = (used != asked).then(|| {
-        format!("sb-memory={asked} is more than a quarter of the machine's memory, {used} used")
-    });
-    (used, warning)
-}
-
 /// The machine's memory in bytes, from `/proc/meminfo`; 0 when unread,
 /// which takes the smallest scrollback cap.
 fn physical_memory() -> u64 {
@@ -1826,29 +1810,6 @@ pub fn open_video(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // vtium/vtium#131: a quarter of the machine's memory caps `sb-memory`,
-    // with one warning naming the key, the value asked and the value used.
-    #[test]
-    fn a_quarter_of_the_memory_caps_sb_memory_with_a_warning() {
-        let ram = 512 << 20;
-        assert_eq!(
-            sb_memory(vtium_term::SB_MEMORY_DEFAULT, ram),
-            (vtium_term::SB_MEMORY_DEFAULT, None)
-        );
-        assert_eq!(sb_memory(128 << 20, ram), (128 << 20, None));
-        assert_eq!(
-            sb_memory(1 << 30, ram),
-            (
-                128 << 20,
-                Some(
-                    "sb-memory=1073741824 is more than a quarter of the machine's memory, 134217728 used"
-                        .to_owned()
-                )
-            )
-        );
-        assert_eq!(sb_memory(1 << 30, 8 << 30), (1 << 30, None));
-    }
 
     #[test]
     fn a_wheel_event_is_one_report_a_zoom_or_a_scroll_whatever_its_steps() {

@@ -46,6 +46,7 @@ fn semantics_under(config: &Config, systemd: bool) -> Vec<String> {
 pub fn warnings(loaded: &Loaded) -> Vec<String> {
     let mut out: Vec<String> = loaded.reports.iter().map(ToString::to_string).collect();
     out.extend(semantics(&loaded.config));
+    out.extend(crate::config::budget::sb_memory_warning(&loaded.config));
     out
 }
 

@@ -248,7 +248,7 @@ pub const SB_MEMORY: Key = Key {
     default: Default::Number(SB_MEMORY_DEFAULT as u64),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "The most bytes the scrollback holds, at most a quarter of the machine's memory; its oldest lines go past it, as past `sb-size`. The default keeps the worst scrollback a program can write inside the 16 MiB minspec peak.",
+    what: "The most bytes the scrollback holds, or KiB, MiB or GiB with `K`, `M` or `G` (`6M`), at most a quarter of the machine's memory; its oldest lines go past it, as past `sb-size`. The default keeps the worst scrollback a program can write inside the 16 MiB minspec peak.",
     cite: "vtium/vtium#131; ADR-1001, \"Memory\"",
 };
 

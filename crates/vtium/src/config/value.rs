@@ -56,8 +56,15 @@ pub(super) fn parse(
 ) -> Option<Value> {
     match key.kind {
         Kind::Number { word, .. } if word == Some(text) => Some(Value::Text(text.to_owned())),
-        Kind::Number { min, max, .. } => {
-            if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+        Kind::Number { min, max, unit, .. } => {
+            // A byte count may end in K, M or G, powers of 1024.
+            let (digits, scale) = match text.as_bytes().last() {
+                Some(b'K' | b'k') if unit == "bytes" => (&text[..text.len() - 1], 1 << 10),
+                Some(b'M' | b'm') if unit == "bytes" => (&text[..text.len() - 1], 1 << 20),
+                Some(b'G' | b'g') if unit == "bytes" => (&text[..text.len() - 1], 1 << 30),
+                _ => (text, 1),
+            };
+            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
                 let value = text.to_owned();
                 reports.push(
                     origin.clone(),
@@ -69,7 +76,10 @@ pub(super) fn parse(
                 return None;
             }
             // All digits: too large to parse is past any bound.
-            let n = text.parse::<u64>().unwrap_or(u64::MAX);
+            let n = digits
+                .parse::<u64>()
+                .unwrap_or(u64::MAX)
+                .saturating_mul(scale);
             let used = n.clamp(min, max);
             if used != n {
                 let value = text.to_owned();

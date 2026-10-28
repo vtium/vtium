@@ -12,6 +12,7 @@
 //! of a file are read, a line holds at most [`LINE_MAX`] bytes, a text
 //! value [`TEXT_MAX`], and at most [`REPORTS_MAX`] reports are kept.
 
+pub mod budget;
 mod cmdline;
 #[cfg(test)]
 mod doc;
