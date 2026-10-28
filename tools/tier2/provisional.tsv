@@ -1,5 +1,3 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
-small-320x240	vtium's own drawing (#75), awaiting the operator's review
-small-640x480	vtium's own drawing (#75), awaiting the operator's review
