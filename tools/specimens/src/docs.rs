@@ -63,8 +63,8 @@ fn issues(list: &[u32]) -> String {
         .join(", ")
 }
 
-/// The directory under `docs/specimens/` simulated renders go in, which
-/// judge nothing.
+/// The directory under `docs/specimens/` simulated renders go in: they
+/// show a panel's conversion and judge nothing of vtium's drawing.
 pub const SIMULATED: &str = "simulated";
 
 /// A profile's directory under `docs/specimens/`.
@@ -181,7 +181,7 @@ fn profile_readme(p: &Profile, f: &Facts, names: &[String]) -> String {
         Some(panel) => (
             format!("{} (simulated)", p.name),
             format!(
-                "**A simulation of the panel's conversion, not vtium's output.** vtium draws this display as color; these screens are that drawing taken through the conversion the panel's Linux driver makes (v7.3): each pixel to gray8 by BT.601 luma, `(77r + 150g + 29b) / 256` (`drivers/gpu/drm/drm_format_internal.h:39-47`), then to the panel's levels as {}. Each level is drawn as the gray it is on a panel whose levels are evenly spaced. They judge nothing: `make specimens-check` leaves `simulated/` out.\n\n",
+                "**A simulation of the panel's conversion, not vtium's output.** vtium draws this display as color; these screens are that drawing taken through the conversion the panel's Linux driver makes (v7.3): each pixel to gray8 by BT.601 luma, `(77r + 150g + 29b) / 256` (`drivers/gpu/drm/drm_format_internal.h:39-47`), then to the panel's levels as {}. Each level is drawn as the gray it is on a panel whose levels are evenly spaced. They judge nothing: `make specimens-check` reports a stale one apart from the specimens that judge vtium.\n\n",
                 panel.driver()
             ),
         ),
@@ -240,7 +240,7 @@ fn index(rows: &[String], simulated: &[String]) -> String {
          {titles}\n\n\
          `tools/specimens/README.md` lists what the card leaves out and why.\n\n\
          ## Drawing and judging\n\n\
-         `make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and fail on any difference from what is committed, `simulated/` aside: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A change that moves a specimen fails until the moved files are committed, each in a commit of its own that lists what moved.\n",
+         `make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and fail on any difference from what is committed: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A stale or stray simulation is reported as its own kind of fault, apart from the specimens that judge vtium. A change that moves a specimen fails until the moved files are committed, each in a commit of its own that lists what moved.\n",
         rows = rows.join("\n"),
         simulated = simulated.join("\n"),
     )

@@ -40,6 +40,14 @@ pub struct Profile {
     pub panel: Option<Panel>,
 }
 
+/// An XRGB8888 pixel's gray8, BT.601 luma in the kernel's integers:
+/// `(77r + 150g + 29b) / 256` (Linux v7.3,
+/// `drivers/gpu/drm/drm_format_internal.h:39-47`).
+pub fn gray8(rgb: [u8; 3]) -> u8 {
+    let [r, g, b] = rgb.map(u32::from);
+    ((77 * r + 150 * g + 29 * b) / 256) as u8
+}
+
 /// A gray panel's conversion, as its Linux driver makes it from the
 /// XRGB8888 framebuffer vtium draws (Linux v7.3). Each pixel goes to gray8
 /// by BT.601 luma, `(77r + 150g + 29b) / 256`
@@ -80,9 +88,7 @@ impl Panel {
     /// `rgb`, one pixel, as the panel shows it: its level drawn as the gray
     /// that level is on a panel whose levels are evenly spaced.
     pub fn show(self, rgb: [u8; 3]) -> u8 {
-        let [r, g, b] = rgb.map(u32::from);
-        let gray8 = (77 * r + 150 * g + 29 * b) / 256;
-        let level = gray8 >> (8 - self.bits());
+        let level = u32::from(gray8(rgb)) >> (8 - self.bits());
         let top = (1 << self.bits()) - 1;
         (level * 255 / top) as u8
     }
@@ -343,6 +349,17 @@ mod tests {
     // BT.601 luma by the kernel's integers, then the panel's top bits:
     // pure red is gray8 76 (19635 / 256), level 1 of 4 and 4 of 16; pure
     // green 149, level 9 of 16.
+    // The kernel's own figures for gray8 before any panel quantizes it:
+    // pure red, green and blue at 255 (drm_format_internal.h:39-47).
+    #[test]
+    fn gray8_is_the_kernel_s_bt601_luma() {
+        assert_eq!(gray8([255, 0, 0]), 76);
+        assert_eq!(gray8([0, 255, 0]), 149);
+        assert_eq!(gray8([0, 0, 255]), 28);
+        assert_eq!(gray8([255, 255, 255]), 255);
+        assert_eq!(gray8([0, 0, 0]), 0);
+    }
+
     #[test]
     fn a_gray_panel_keeps_the_top_bits_of_bt601_luma() {
         assert_eq!(Panel::St7586.show([255, 0, 0]), 85);

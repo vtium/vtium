@@ -154,7 +154,7 @@ fn text(b: &mut Block<'_>, p: &Profile, l: &Layout) {
 /// The attributes vtium draws, each on a line with its SGR.
 fn attributes(b: &mut Block<'_>) {
     const SAMPLE: &str = "Sphinx of black quartz";
-    let lines: [(&str, &str); 10] = [
+    let lines: [(&str, &str); 9] = [
         ("plain", ""),
         ("1 bold", "1"),
         ("2 dim", "2"),
@@ -162,13 +162,19 @@ fn attributes(b: &mut Block<'_>) {
         ("7 reverse", "7"),
         ("8 conceal", "8"),
         ("9 strike", "9"),
-        ("1;3", "1;3"),
         ("1;2", "1;2"),
         ("1;7;9", "1;7;9"),
     ];
     for (i, (label, params)) in lines.iter().enumerate() {
         b.put(1 + i, 0, &format!("{label:<10}{}{SAMPLE}", sgr(params)));
     }
+    // the resets, one a word: italic, underline and strike go in turn, then
+    // bold, blink and conceal together
+    b.put(
+        10,
+        0,
+        "22-29 off \x1b[1;3;4;5;8;9mSph\x1b[23minx\x1b[24m of\x1b[29m black\x1b[22;25;28m quartz",
+    );
     b.put(11, 0, "\x1b[2mUnderline styles, SGR 4:n");
     let styles = ["single", "double", "curly", "dotted", "dashed"];
     for (i, style) in styles.iter().enumerate() {
@@ -198,8 +204,13 @@ fn attributes(b: &mut Block<'_>) {
     );
     b.put(25, 0, "\x1b[36;9;4;58;5;226mcyan struck, yellow underline");
     b.put(26, 0, "\x1b[7;4;58;5;201mreversed, magenta underline");
-    b.put(27, 0, "\x1b[2;4;33mdim yellow, underlined");
-    b.put(28, 0, "\x1b[1;4:2;38;2;255;160;0mbold orange, doubled");
+    // SGR 59 puts the underline back in the text's color
+    b.put(27, 0, "\x1b[2;4;33;58;5;196;59mdim yellow, underlined");
+    b.put(
+        28,
+        0,
+        "\x1b[1;21;38;2;255;160;0mbold orange, SGR 21 doubled",
+    );
 }
 
 /// The 16 colors, the 256-color palette, 24-bit color, and the grays a

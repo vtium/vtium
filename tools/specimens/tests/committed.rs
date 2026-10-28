@@ -9,7 +9,8 @@ fn every_committed_specimen_matches_its_drawing() {
     let faults = vtium_specimens::check::check(&dir).unwrap();
     assert!(
         faults.is_empty(),
-        "{}\n`make specimens` redraws them",
-        faults.join("\n")
+        "specimens: {:?}\nsimulations: {:?}\n`make specimens` redraws them",
+        faults.goldens,
+        faults.simulations
     );
 }

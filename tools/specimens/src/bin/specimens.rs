@@ -9,7 +9,7 @@
 //! `draw` writes `docs/specimens/` from the profile table, and with
 //! `--review` copies each built profile's collage, or its one screen, to
 //! `DIR/PROFILE.png`. `check` draws the same files and compares them with
-//! what is committed; it exits 0 when all match, 1 when one does not and 2
+//! what is committed, the simulated renders' faults reported apart; it exits 0 when all match, 1 when one does not and 2
 //! when it cannot run. `card` writes a page of the card's bytes to
 //! standard output, for `cat` on a VT of that size.
 
@@ -45,12 +45,16 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
             Ok(faults) => {
-                for f in &faults {
+                for f in &faults.goldens {
                     eprintln!("specimens: {f}");
                 }
+                for f in &faults.simulations {
+                    eprintln!("specimens: simulation stale: {f}");
+                }
                 eprintln!(
-                    "specimens: {} faults; `make specimens` redraws them",
-                    faults.len()
+                    "specimens: {} faults in the specimens, {} in the simulations; `make specimens` redraws them",
+                    faults.goldens.len(),
+                    faults.simulations.len()
                 );
                 ExitCode::FAILURE
             }
