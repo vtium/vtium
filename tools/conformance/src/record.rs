@@ -119,6 +119,43 @@ pub fn env(home: &Path) -> Vec<(&'static str, String)> {
     ]
 }
 
+/// A fresh directory of this process's own, removed when dropped: created
+/// with `create_dir`, mode 0700, under a name no other process holds, so
+/// nothing already at a predictable path is reused or removed.
+pub struct Scratch(PathBuf);
+
+impl Scratch {
+    /// A new directory under `parent` named `<prefix>-<pid>-<n>`, the
+    /// first `n` whose directory does not exist yet.
+    pub fn new(parent: &Path, prefix: &str) -> std::io::Result<Self> {
+        use std::os::unix::fs::DirBuilderExt;
+        let mut builder = std::fs::DirBuilder::new();
+        builder.mode(0o700);
+        for n in 0..1000_u32 {
+            let path = parent.join(format!("{prefix}-{}-{n}", std::process::id()));
+            match builder.create(&path) {
+                Ok(()) => return Ok(Self(path)),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!("no free {prefix} directory in {}", parent.display()),
+        ))
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// Writes the files the programs open under `home`/demo, every one dated
 /// [`STAMP`], and returns the directory, where the program starts.
 pub fn demo_files(home: &Path) -> std::io::Result<PathBuf> {
@@ -300,10 +337,9 @@ mod tests {
 
     #[test]
     fn the_demo_files_hold_what_the_programs_open() {
-        let home = std::env::temp_dir().join(format!("vtium-record-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
-        std::fs::create_dir_all(&home).unwrap();
-        let root = demo_files(&home).unwrap();
+        let scratch = Scratch::new(&std::env::temp_dir(), "vtium-record-test").unwrap();
+        let home = scratch.path();
+        let root = demo_files(home).unwrap();
         assert_eq!(root, home.join("demo"));
         let main = std::fs::read_to_string(root.join("src/main.c")).unwrap();
         assert!(main.starts_with("#include <stdio.h>\n\n/* A small file"));
@@ -340,6 +376,23 @@ mod tests {
                 path.display()
             );
         }
-        std::fs::remove_dir_all(&home).unwrap();
+        let kept = home.to_owned();
+        drop(scratch);
+        assert!(!kept.exists(), "the scratch directory is removed");
+    }
+
+    #[test]
+    fn a_scratch_directory_is_never_one_that_exists() {
+        let parent = Scratch::new(&std::env::temp_dir(), "vtium-record-parent").unwrap();
+        let taken = parent.path().join(format!("s-{}-0", std::process::id()));
+        std::fs::create_dir(&taken).unwrap();
+        std::fs::write(taken.join("keep"), "x").unwrap();
+        let scratch = Scratch::new(parent.path(), "s").unwrap();
+        assert_ne!(scratch.path(), taken);
+        drop(scratch);
+        assert!(
+            taken.join("keep").exists(),
+            "an existing directory is left alone"
+        );
     }
 }

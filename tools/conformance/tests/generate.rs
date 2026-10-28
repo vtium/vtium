@@ -104,3 +104,17 @@ fn the_generator_refuses_inputs_it_lacks() {
     let why = got.err().unwrap_or_default();
     assert!(why.contains("recorded/icat-detect.bin"), "{why}");
 }
+
+#[test]
+fn the_generator_writes_into_an_empty_directory_only() {
+    let dir = std::env::temp_dir().join(format!("vtium-generate-write-{}", std::process::id()));
+    std::fs::create_dir(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+    let inputs = Inputs::read(&Path::new(TOOL).join("generator")).unwrap_or_else(|e| panic!("{e}"));
+    let cases = generate::cases(&inputs);
+    let first = generate::write(&dir, &cases);
+    let again = generate::write(&dir, &cases);
+    std::fs::remove_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(first.map(|list| list.lines().count()), Ok(160));
+    let why = again.err().unwrap_or_default();
+    assert!(why.contains("is not empty"), "{why}");
+}

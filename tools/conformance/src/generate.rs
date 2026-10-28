@@ -216,14 +216,22 @@ pub fn cases(inputs: &Inputs) -> Vec<Generated> {
     out
 }
 
-/// Writes each case under `dir`: `<name>.bin`, `<name>.cuts` for a case
-/// with cuts, and its fixtures in `<name>.files/`. Returns the lines
-/// `cases.list` takes, `<name> <cols> <rows>`.
+/// Writes each case under `dir`, which is empty or new: `<name>.bin`,
+/// `<name>.cuts` for a case with cuts, and its fixtures in
+/// `<name>.files/`. Returns the lines `cases.list` takes,
+/// `<name> <cols> <rows>`.
 pub fn write(dir: &Path, cases: &[Generated]) -> Result<String, String> {
     let put = |path: &Path, data: &[u8]| {
         std::fs::write(path, data).map_err(|e| format!("{}: {e}", path.display()))
     };
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let mut entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    if entries.next().is_some() {
+        return Err(format!(
+            "{} is not empty; the cases are written into an empty directory",
+            dir.display()
+        ));
+    }
     let mut list = String::new();
     for case in cases {
         put(&dir.join(format!("{}.bin", case.name)), &case.stream)?;
