@@ -218,6 +218,12 @@ tier3: tier3-image ## Tier 3: build the install tree, then run every variant, or
 tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: unifont, a PSF font, and the 320x240 and 640x480 displays
 	$(T3_RUN) --tree-target install-tree $(or $(VARIANTS),2d-potato-min 2d-potato-min-psf 2d-320x240-psf8 2d-640x480-psf16)
 
+# Each row of tools/tier3/provenance.tsv against its source in a kmscon
+# checkout, read with git; a review step when the copies change, never a gate.
+.PHONY: tier3-provenance
+tier3-provenance: ## Check tools/tier3's copies against their sources with git (KMSCON=DIR)
+	$(T3_PY) $(T3_DIR)/t3.py provenance --kmscon $(KMSCON)
+
 .PHONY: tier3-run
 tier3-run: ## Tier 3 on a tree built already: the last run's, or TREE=DIR (VARIANTS=, JOBS= as for tier3)
 	$(T3_RUN) $(if $(TREE),--tree $(TREE)) $(VARIANTS)

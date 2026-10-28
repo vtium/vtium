@@ -23,6 +23,9 @@ worker process.
     t3.py run --tree-target TARGET        build the tree first, with make TARGET
                                           DESTDIR=target/tier3/install, under the run lock
     t3.py run --tree DIR                  install the tree at DIR, built already
+    t3.py provenance --kmscon DIR         check each row of provenance.tsv against its
+                                          source in the kmscon checkout DIR, read with
+                                          git; a review step, never a gate
 
 Paths are relative to the repository root, which is two levels above this file.
 """
@@ -30,6 +33,7 @@ Paths are relative to the repository root, which is two levels above this file.
 import argparse
 import base64
 import fcntl
+import hashlib
 import os
 import shutil
 import signal
@@ -269,6 +273,28 @@ def summary(impl, metas):
     return "\n".join(lines)
 
 
+def verify_provenance(args, log, rows=None):
+    """Each row of provenance.tsv (or `rows`) against its source, read from
+    the kmscon checkout args.kmscon with git cat-file and never written. 1
+    when any source's SHA-256 differs from its row's or cannot be read."""
+    rows = rows or t3_common.read_provenance()
+    faults = []
+    for r in rows:
+        blob = subprocess.run(["git", "-C", args.kmscon, "cat-file", "blob",
+                               "%s:%s" % (r["commit"], r["source"])], capture_output=True)
+        if blob.returncode:
+            faults.append("provenance.tsv:%d: %s %s:%s: %s"
+                          % (r["line"], args.kmscon, r["commit"][:12], r["source"],
+                             blob.stderr.decode().strip()))
+        elif hashlib.sha256(blob.stdout).hexdigest() != r["sha256"]:
+            faults.append("provenance.tsv:%d: %s %s:%s has another SHA-256 than the row's"
+                          % (r["line"], args.kmscon, r["commit"][:12], r["source"]))
+    for f in faults:
+        print(f)
+    print("provenance: %d rows, %d match their sources" % (len(rows), len(rows) - len(faults)))
+    return 1 if faults else 0
+
+
 def main(argv=None):
     log = Logger()
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
@@ -281,6 +307,9 @@ def main(argv=None):
     p.add_argument("--key", required=True, help="the fingerprint of the key that signs it")
     p.add_argument("--images", default=IMAGES, metavar="DIR",
                    help="the image cache target/tier3/vm/images links to (default %s)" % IMAGES)
+    v = sub.add_parser("provenance")
+    v.add_argument("--kmscon", required=True, metavar="DIR",
+                   help="a kmscon checkout holding the commits provenance.tsv names")
     r = sub.add_parser("run")
     r.add_argument("--jobs", type=int, default=1, metavar="N",
                    help="run up to N variants at once (default 1)")
@@ -304,7 +333,8 @@ def main(argv=None):
         ap.error("--jobs must be at least 1")
     if getattr(args, "tree", None) and args.tree_target:
         ap.error("--tree names a tree built already; --tree-target builds %s" % rel(TREE))
-    return {"provision": provision, "run": run}[args.cmd](args, log)
+    return {"provision": provision, "provenance": verify_provenance,
+            "run": run}[args.cmd](args, log)
 
 
 if __name__ == "__main__":

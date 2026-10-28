@@ -733,11 +733,47 @@ class ProvenanceTest(unittest.TestCase):
         wanted = {t3_evaluate.golden_for(v, c)[0] for v, cases in cases_of.items()
                   for c in cases if t3_evaluate.golden_for(v, c)[0]}
         self.assertEqual(sorted(p for p in wanted if not os.path.exists(p)), [])
-        # the screens and the guest's base inputs, as well as the goldens
+        # the goldens and t3img.py; the screens and guest files are vtium's own
         copied = {r["path"] for r in rows}
-        for name in ("tools/tier3/guest/screens/sgr.sh", "tools/tier3/guest/user-data.in",
-                     "tools/tier3/t3img.py"):
-            self.assertIn(name, copied)
+        self.assertEqual(copied - {"tools/tier3/t3img.py"},
+                         {p for p in copied if p.startswith("tools/tier3/c-goldens/")})
+        self.assertIn("tools/tier3/t3img.py", copied)
+
+    def git(self, repo, *args):
+        return subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t",
+                               "-c", "commit.gpgsign=false"] + list(args),
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def test_verify_against_sources(self):
+        # make tier3-provenance: each row's source read from a kmscon
+        # checkout with git, at the row's commit, whatever its working tree
+        # holds; a source that differs or is missing is reported, and the
+        # exit status is 1.
+        repo = os.path.join(self.root, "kmscon")
+        os.makedirs(repo)
+        self.git(repo, "init", "-q")
+        write_tree(repo, {"fork/a.png": "a", "fork/b.png": "b"})
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "copies")
+        commit = self.git(repo, "rev-parse", "HEAD")
+        write_tree(repo, {"fork/a.png": "working tree"})
+        sha = lambda text: hashlib.sha256(text.encode()).hexdigest()
+        path = os.path.join(self.root, "provenance.tsv")
+        with open(path, "w") as f:
+            for name, digest in (("a.png", sha("a")), ("b.png", sha("not b")),
+                                 ("gone.png", sha("x"))):
+                f.write("\t".join(("c/" + name, "kmscon", commit, "fork/" + name, digest))
+                        + "\n")
+        args = argparse.Namespace(kmscon=repo)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(t3.verify_provenance(args, LOG, t3_common.read_provenance(path)), 1)
+        lines = out.getvalue().splitlines()
+        self.assertEqual(len(lines), 3)
+        self.assertIn("provenance.tsv:2: %s %s:fork/b.png has another SHA-256" % (repo, commit[:12]),
+                      lines[0])
+        self.assertIn("provenance.tsv:3: %s %s:fork/gone.png: " % (repo, commit[:12]), lines[1])
+        self.assertEqual(lines[2], "provenance: 3 rows, 1 match their sources")
 
 
 class DeparturesTest(unittest.TestCase):
@@ -1079,7 +1115,7 @@ class BaseImageTest(unittest.TestCase):
             make = dict(re.findall(r"^(T3_IMAGE_VER|T3_ARCHIVE)\s*:=\s*(\S+)", f.read(), re.M))
         image = "Arch-Linux-x86_64-cloudimg-%s.qcow2" % make["T3_IMAGE_VER"]
         self.assertEqual(os.path.basename(t3_common.base_image(image, make["T3_ARCHIVE"])),
-                         "a801c98304d282ae.qcow2")
+                         "d6e3c1d0789c6e7b.qcow2")
 
 
 class VariantTest(unittest.TestCase):
