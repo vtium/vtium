@@ -60,7 +60,7 @@ use vtium_platform::pty::{Erase, Pty, Size};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
 use vtium_platform::vt::{Switch, Vt, VtEvent};
 use vtium_render::{
-    Config as RenderConfig, DecorationColors, DrawState, Orientation, PointerShape, Profile,
+    Config as RenderConfig, DecorationColors, Depth, DrawState, Orientation, PointerShape, Profile,
 };
 use vtium_term::{
     BlankRequest, BlankTimeout, Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal,
@@ -576,7 +576,10 @@ impl App {
             font,
             size,
             refresh,
-            self.render_config(),
+            RenderConfig {
+                depth: depth(&self.config, video.levels(id)),
+                ..self.render_config()
+            },
             self.measure(),
         );
         if self.config.switch(&keys::SOFT_CURSOR) {
@@ -1837,9 +1840,46 @@ pub fn open_video(
     Ok(())
 }
 
+/// A display's depth: `display-depth`, else, at `auto`, the levels the
+/// device says it shows.
+fn depth(config: &Config, levels: Option<u8>) -> Depth {
+    match config.text(&keys::DISPLAY_DEPTH) {
+        Some("1") => Depth::One,
+        Some("gray4") => Depth::Gray(4),
+        Some("gray16") => Depth::Gray(16),
+        Some("color") => Depth::Color,
+        _ => match levels {
+            None => Depth::Color,
+            Some(2) => Depth::One,
+            Some(n) => Depth::Gray(n),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_depth_overrides_what_the_device_says() {
+        let config = |args: &[&str]| {
+            let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+            crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None)).config
+        };
+        for (args, levels, want) in [
+            (&[][..], None, Depth::Color),
+            (&[][..], Some(2), Depth::One),
+            (&[][..], Some(16), Depth::Gray(16)),
+            (&["--display-depth=auto"][..], Some(4), Depth::Gray(4)),
+            (&["--display-depth=1"][..], None, Depth::One),
+            (&["--display-depth=1"][..], Some(16), Depth::One),
+            (&["--display-depth=gray4"][..], Some(2), Depth::Gray(4)),
+            (&["--display-depth=gray16"][..], None, Depth::Gray(16)),
+            (&["--display-depth=color"][..], Some(2), Depth::Color),
+        ] {
+            assert_eq!(depth(&config(args), levels), want, "{args:?} {levels:?}");
+        }
+    }
 
     #[test]
     fn a_wheel_event_is_one_report_a_zoom_or_a_scroll_whatever_its_steps() {

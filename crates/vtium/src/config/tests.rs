@@ -137,6 +137,7 @@ fn defaults() {
     assert_eq!(c.text(&FONT_NAME), Some("monospace"));
     assert_eq!(c.text(&RENDER_TIMER), Some("none"));
     assert_eq!(c.text(&GLYPH_CACHE), None);
+    assert_eq!(c.text(&DISPLAY_DEPTH), Some("auto"));
     assert_eq!(c.command(&LOGIN), None);
     for (key, on) in [
         (&SWITCHVT, true),

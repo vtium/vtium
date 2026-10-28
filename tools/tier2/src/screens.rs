@@ -12,7 +12,7 @@
 //! (vtium/vtium#23), and last the small displays in the PSF fonts
 //! `tools/testfont` writes (vtium/vtium#75).
 
-use vtium_render::Orientation;
+use vtium_render::{Depth, Orientation};
 use vtium_term::WidthMethod;
 
 use crate::draw::{DecoSpec, Decorations, FontKind, Screen, TestFont};
@@ -362,6 +362,19 @@ const fn edges(name: &'static str, orientation: Orientation) -> Case {
 }
 
 /// Every case, in the order the report lists them.
+/// A light theme set by OSC 10 and 11, for a 1-bit display: default
+/// text, a red word, colored and reversed cells, decorations and sprites
+/// (vtium/vtium#135).
+const LIGHT: &[u8] = concat!(
+    "\x1b]10;rgb:20/20/20\x1b\\\x1b]11;rgb:f0/f0/f0\x1b\\",
+    "default text on a light background\r\n",
+    "\x1b[31mred\x1b[0m \x1b[44mon blue\x1b[0m \x1b[7mreversed\x1b[0m\r\n",
+    "\x1b[4munder\x1b[0m \x1b[9mstruck\x1b[0m \x1b[4:3mcurly\x1b[0m \x1b[4:4mdots\x1b[0m\r\n",
+    "\x1b[47mon grey\x1b[0m \x1b[40mon black\x1b[0m \x1b[30;107mblack on white\x1b[0m\r\n",
+    "\u{2591}\u{2592}\u{2593}\u{2588} \u{2500}\u{2500}\u{252c}\u{2500}\u{2500} \u{2502}ok\u{2502}",
+)
+.as_bytes();
+
 pub const CASES: &[Case] = &[
     Case {
         screen: Screen {
@@ -682,6 +695,80 @@ pub const CASES: &[Case] = &[
                 SMALL_80,
                 80,
                 30,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            display: Some((320, 240)),
+            font: FontKind::Psf(TestFont::Small8x8),
+            depth: Depth::One,
+            ..Screen::new(
+                "small-320x240-1bit",
+                "small-320x240 on a 1-bit display (vtium/vtium#135). Correct: only black and white pixels; text on the default background lit whatever its color, the dark blue and red included; the reversed title and status line and every colored background lit with their glyphs unlit; a foreground equal to its background, as black on the black background block, invisible; every underline, strike and sprite lit like the text in its cell; the border unlit.",
+                SMALL_40,
+                40,
+                30,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            display: Some((640, 480)),
+            font: FontKind::Psf(TestFont::Small8x16),
+            depth: Depth::One,
+            ..Screen::new(
+                "small-640x480-1bit",
+                "small-640x480 on a 1-bit display (vtium/vtium#135). Correct: as small-320x240-1bit, at 80 columns; the dim word drawn as plain lit text; the 256-color and 24-bit ramps a run of lit cells, each block whose background differs from the default background's color lit.",
+                SMALL_80,
+                80,
+                30,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            depth: Depth::One,
+            ..Screen::new(
+                "palette-unifont-1bit",
+                "palette-unifont on a 1-bit display (vtium/vtium#135). Correct: the background blocks lit but the one in the default background's color; every letter pair lit, black ones included, on the default background; the ramps lit cell by cell.",
+                PALETTE,
+                48,
+                10,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            depth: Depth::One,
+            ..Screen::new(
+                "underline-unifont-1bit",
+                "underline-unifont on a 1-bit display (vtium/vtium#135). Correct: every underline style lit, in the text color or in an SGR 58 color alike; on the colored background and in reverse, the cell lit with its glyph and underline unlit; the curl's coverage cut at half.",
+                UNDERLINE,
+                48,
+                10,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            depth: Depth::One,
+            ..Screen::new(
+                "light-theme-1bit",
+                "A light theme, OSC 11's #f0f0f0 behind OSC 10's #202020, on a 1-bit display (vtium/vtium#135). Correct: the screen and border lit, as a light default background lights a mono panel; default and red text unlit on it; the blue, reversed, grey and black cells unlit with their letters lit, each flipping from the screen; `black on white`, whose bright white differs from the default background, unlit with its letters lit; the underlines, strike and box lines unlit like the text; the shades as patterns.",
+                LIGHT,
+                40,
+                5,
             )
         },
         source: Source::Vtium,

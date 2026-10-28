@@ -309,6 +309,50 @@ impl Kms for Card {
         flip_events(buf.get(..n).unwrap_or_default(), flipped);
         Ok(())
     }
+
+    /// The driver's name from `DRM_IOCTL_VERSION`, and the properties of
+    /// the device's device-tree node in sysfs, found by the node's device
+    /// number.
+    fn levels(&self) -> Option<u8> {
+        let mut name = Vec::new();
+        if let Err(e) = drm_ffi::get_version(self.raw(), Some(&mut name), None, None) {
+            log::debug!("cannot read the card's driver: {e}");
+            return None;
+        }
+        let driver = String::from_utf8_lossy(
+            &name
+                .iter()
+                .map(|&c| c.to_ne_bytes()[0])
+                .collect::<Vec<u8>>(),
+        )
+        .into_owned();
+        let node = rustix::fs::fstat(self.raw()).ok().map(|st| {
+            let dev = st.st_rdev;
+            std::path::PathBuf::from(format!(
+                "/sys/dev/char/{}:{}/device/of_node",
+                rustix::fs::major(dev),
+                rustix::fs::minor(dev)
+            ))
+        });
+        let read = |property: &str| std::fs::read(node.as_ref()?.join(property)).ok();
+        let levels = super::depth::levels(&driver, read);
+        if let Some(n) = levels {
+            let compatible = read("compatible")
+                .map(|c| {
+                    String::from_utf8_lossy(&c)
+                        .replace('\0', " ")
+                        .trim()
+                        .to_owned()
+                })
+                .unwrap_or_default();
+            log::info!(
+                "the card's driver {driver}, device-tree node {} (compatible {compatible:?}), drives a panel of {n} levels",
+                node.as_ref()
+                    .map_or_else(|| "unknown".into(), |p| p.display().to_string())
+            );
+        }
+        levels
+    }
 }
 
 /// Adds the CRTC of each flip completed in `events`, the bytes a read of
@@ -468,6 +512,8 @@ mod tests {
         // to primary nodes.
         let e = card.resources().expect_err("GETRESOURCES on a render node");
         assert_eq!(e.raw_os_error(), Some(Errno::ACCESS.raw_os_error()));
+        // a render node's driver is a GPU's, never a 1-bit or gray panel's
+        assert_eq!(card.levels(), None);
         let mut flipped = Vec::new();
         card.read_events(&mut flipped).expect("read no events");
         assert!(flipped.is_empty());

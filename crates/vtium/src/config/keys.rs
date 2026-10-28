@@ -920,6 +920,17 @@ pub const GLYPH_CACHE: Key = Key {
     cite: "ADR-1300; vtium/vtium#16",
 };
 
+pub const DISPLAY_DEPTH: Key = Key {
+    name: "display-depth",
+    short: None,
+    kind: Kind::Choice(&["auto", "1", "gray4", "gray16", "color"]),
+    default: Default::Text("auto"),
+    scope: Scope::Anywhere,
+    reader: "vtium-render",
+    what: "Each display's depth. `1` draws it in black and white, each cell lit or unlit by its colors, never by their brightness; `gray4` and `gray16` record a gray panel of 4 or 16 levels, drawn as color, which the panel converts; `color` draws its colors; `auto` takes the levels the display says it shows: an fbdev device at 1 bit, or a DRM panel whose driver vtium-platform lists.",
+    cite: "the operator on vtium/vtium#135",
+};
+
 pub const RENDER_TIMER: Key = Key {
     name: "render-timer",
     short: None,
@@ -976,7 +987,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 75] = [
+pub const KEYS: [Key; 76] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1051,6 +1062,7 @@ pub const KEYS: [Key; 75] = [
     GLYPH_SOURCE_LEGACY,
     MISSING,
     GLYPH_CACHE,
+    DISPLAY_DEPTH,
     RENDER_TIMER,
 ];
 

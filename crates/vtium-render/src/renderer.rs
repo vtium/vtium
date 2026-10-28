@@ -13,6 +13,7 @@ use crate::cache::{Budgets, GlyphCache, Profile, Storage};
 use crate::compose::{Area, Composer, Job, int};
 use crate::damage::Cells;
 use crate::deco::{Kind, Sprites};
+use crate::mono::{self, Depth, Fallback, Ink, Threshold};
 use crate::target::{Orientation, Rect, Target};
 
 /// The bar cursor: U+258F, LEFT ONE EIGHTH BLOCK, a sprite.
@@ -96,6 +97,9 @@ pub struct Config {
     pub decorations: DecorationColors,
     pub blink: TextBlink,
     pub pointer: PointerShape,
+    /// The display's depth: at [`Depth::One`] it is drawn in black and
+    /// white (`src/mono.rs`).
+    pub depth: Depth,
 }
 
 impl Default for Config {
@@ -109,6 +113,7 @@ impl Default for Config {
             decorations: DecorationColors::default(),
             blink: TextBlink::default(),
             pointer: PointerShape::default(),
+            depth: Depth::default(),
         }
     }
 }
@@ -361,6 +366,8 @@ pub struct Renderer<F> {
     pointer: Option<Pointer>,
     /// The line a run under the pointer is blended in.
     pointer_line: Vec<u32>,
+    /// The line a run is thresholded in, on a 1-bit display.
+    mono_line: Vec<u32>,
     /// The configured underline and strike colors through the frame being
     /// drawn's palette; `None` follows the foreground.
     deco: (Option<Rgb>, Option<Rgb>),
@@ -416,6 +423,10 @@ impl<F: Face> Renderer<F> {
     /// A renderer drawing with `font` on a display `width` by `height`
     /// pixels.
     pub fn new(font: Font<F>, width: u32, height: u32, config: Config) -> Renderer<F> {
+        let config = Config {
+            blink: mono::blink(config.depth, config.blink),
+            ..config
+        };
         let cell = font.cell();
         let (cw, ch) = (cell.width.max(1), cell.height.max(1));
         let (across, down) = if config.orientation.turned() {
@@ -435,11 +446,18 @@ impl<F: Face> Renderer<F> {
             &font.decorations(),
             config.orientation,
             config.storage.bits,
+            config.depth == Depth::One,
         );
         let arrow = pointer_image(&font, ch, config);
         Renderer {
             compose: Composer::new(
-                GlyphCache::new(budgets, config.storage, config.orientation),
+                GlyphCache::new(budgets, config.storage, config.orientation).with_fallback(
+                    Fallback::new(
+                        config.depth,
+                        font.cell(),
+                        font.decorations().underline_thickness,
+                    ),
+                ),
                 sprites,
             ),
             font,
@@ -461,12 +479,18 @@ impl<F: Face> Renderer<F> {
             arrow,
             pointer: None,
             pointer_line: Vec::new(),
+            mono_line: Vec::new(),
             deco: (None, None),
         }
     }
 
     pub fn font(&self) -> &Font<F> {
         &self.font
+    }
+
+    /// The display's depth this renderer draws at.
+    pub fn depth(&self) -> Depth {
+        self.config.depth
     }
 
     /// The pointer's arrow at this renderer's cell size and orientation,
@@ -564,7 +588,9 @@ impl<F: Face> Renderer<F> {
         };
         let arrow = core::mem::take(&mut self.arrow);
         let mut line = core::mem::take(&mut self.pointer_line);
-        let mut out = Over::new(target, pointer.map(|p| (&arrow, p.at)), &mut line);
+        let mut mono_line = core::mem::take(&mut self.mono_line);
+        let mut target = Threshold::new(target, self.config.depth, &mut mono_line);
+        let mut out = Over::new(&mut target, pointer.map(|p| (&arrow, p.at)), &mut line);
         let all = Rect {
             x: 0,
             y: 0,
@@ -573,11 +599,13 @@ impl<F: Face> Renderer<F> {
         };
         let whole_border = [all];
         for r in if full { &whole_border[..] } else { &border[..] } {
-            self.fill_border(&grid, &mut out, state.background, *r);
+            let bg = mono::border(self.config.depth, state.background);
+            self.fill_border(&grid, &mut out, bg, *r);
         }
         let cells = self.draw_cells(&grid, frame, &mut out, state);
         self.arrow = arrow;
         self.pointer_line = line;
+        self.mono_line = mono_line;
         let layout = self.layout;
         let whole = full.then_some(Rect {
             x: 0,
@@ -863,6 +891,8 @@ impl<F: Face> Renderer<F> {
 
     fn job(&self, g: &Grid, at: Place, glyph_cells: usize, paint: Paint) -> Job {
         let l = &self.layout;
+        let depth = self.config.depth;
+        let ink = Ink::new(depth, paint.bg, self.background.unwrap_or_default());
         Job {
             posx: at.col,
             ncells: at.ncells,
@@ -872,11 +902,12 @@ impl<F: Face> Renderer<F> {
                 l.cells_area(g, at.col, at.row, 1),
                 l.cells_area(g, at.col.saturating_add(1), at.row, 1),
             ],
-            fg: paint.fg,
-            bg: paint.bg,
-            underline: paint.underline,
-            strike: paint.strike,
+            fg: ink.fg(paint.fg),
+            bg: ink.bg(),
+            underline: paint.underline.map(|(k, c)| (k, ink.fg(c))),
+            strike: paint.strike.map(|c| ink.fg(c)),
             text: paint.text,
+            silhouette: depth == Depth::One,
         }
     }
 
