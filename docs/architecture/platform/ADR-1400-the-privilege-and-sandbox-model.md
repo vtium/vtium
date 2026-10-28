@@ -130,7 +130,7 @@ The kernel conditions named in this table (the tty's owner or `CAP_SYS_TTY_CONFI
 
 The helper follows kmscon ADR-103's flow, carried into Rust by #31:
 
-- **a separate process,** one per session, started on the first request and stopped at the session's end, a user change, a larger `max_bytes` or a failure, with the next request starting a new one;
+- **a separate process,** one per session, started on the first request and stopped after an idle interval (ADR-1301 D2), at the session's end, a user change, a larger `max_bytes` or a failure, with the next request starting a new one; *edited 2026-10-28:* the operator decided the idle exit, and this read "started on the first request and stopped at the session's end";
 - **the child's setup,** in the C reference's order: credentials resolved before the fork; `setsid`; the signal mask cleared; fds 0-2 on `/dev/null`, the socket on fd 3, every other descriptor closed; the memory limit; `setgroups`, `setresgid` and `setresuid`, read back; the ambient capabilities cleared, then `PR_SET_NO_NEW_PRIVS`; `chdir /`, and `execve` with `TMPDIR` as the only environment;
 - **the IPC checks:** fixed-size requests and replies, sealed memfds both ways, every field checked by the host, the seals before the size, and the result mapped read-only;
 - **the timeout:** 2,000 ms with input paused, after which the helper is killed and the reply is `FAILED`;
@@ -186,7 +186,7 @@ vtium's units match the C reference's, with getty parity and no hardening direct
 - **The helper controls #31 does not yet list** become its gates, each with a test: from D2, `setsid`, the ids read back, the ambient capabilities cleared, `TMPDIR` as the only environment, the credentials resolved before the fork, the restart rules, and the seals checked before the size.
 - **`t=s` unlinks:** any program writing to the pty can make the helper unlink any shared-memory object the session's user owns, once it is read (aaronsb/kmscon#153). #31 accepts this on the record or narrows which names are unlinked, and tests its choice.
 - **OSC 50 font paths** go through the helper (#44), as the C reference planned and never built.
-  - *Note (2026-10-28):* ADR-1200 changes what OSC 50 reaches: it switches only among vitrified sets already built into the root-owned store, behind `allow-font-ops`, and never names a font path, so no path goes through the helper for it. ADR-1200's D15 reuses this helper for another job: on a build that isn't minspec, it rasterises a size a set lacks, as the session's user in this sandbox, and hands back glyph chunks the main process checks for bounds and dimensions only, as it does decoded images (vtium/vtium#123).
+  - *Note (2026-10-28):* ADR-1200 changes what OSC 50 reaches: it switches only among vitrified sets already built into the root-owned store, behind `allow-font-ops`, and never names a font path, so no path goes through the helper for it. ADR-1200's D15 reuses this helper for another job: on any build, it generates glyphs no built set holds from the frit, as the session's user in this sandbox, and hands back glyph chunks the main process checks for bounds and dimensions only, as it does decoded images (vtium/vtium#123). The helper exits after an idle interval (ADR-1301 D2, D2 above). *Edited 2026-10-28:* the operator reversed ADR-1200's ban on generating at run time on minspec; this read "on a build that isn't minspec, it rasterises a size a set lacks".
 
 ## Consequences
 
