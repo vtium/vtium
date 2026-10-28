@@ -63,6 +63,7 @@ pub const ANSWER_MS: u64 = 10_000;
 pub const REQUEST_MS: u64 = 60_000;
 /// How many times a boot starts the helper again after it crashed,
 /// reached its CPU limit, hung, or exited with work outstanding.
+// Each start re-randomizes the helper's address layout, so an unbounded count would let an exploit retry until its guess lands (the operator, 2026-10-28).
 pub const RESTARTS_MAX: u32 = 3;
 /// The most bytes one frame's payload holds, the helper's
 /// `FRAME_BYTES_MAX`.
