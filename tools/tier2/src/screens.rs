@@ -769,6 +769,13 @@ pub const CASES: &[Case] = &[
                 LIGHT,
                 40,
                 5,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
             font: FontKind::Set {
                 font: TestFont::Small8x8,
                 fill: Some("unscii-8"),
