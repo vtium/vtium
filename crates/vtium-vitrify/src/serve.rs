@@ -1,29 +1,44 @@
-//! The helper's serve mode (ADR-1301 D2): `vtium-vitrify
-//! serve`, which the console starts on its first need for glyphs and
-//! which generates them from a frit at run time. It sets the parser's
-//! sandbox on itself (no-new-privileges, the memory and file limits, no
-//! children, refused as root), reads the frit and its fonts as the account
-//! the console started it as, and answers each request with the frit's
-//! glyphs at the cell asked for: the codepoints the request names first,
-//! then the rest of the frit's coverage, a batch at a time, in the strike
-//! chunk format the console already reads. It exits after
-//! [`HELPER_IDLE_MS`] with no request, or when the console closes its end.
+//! The helper's serve mode (ADR-1301 D2): `vtium-vitrify serve`, which
+//! the console starts on its first need for glyphs and which generates
+//! them from a frit at run time. It sets the parser's sandbox on itself
+//! (no-new-privileges, the memory and file limits, no children, refused as
+//! root), reads the frit and its fonts as the account the console started
+//! it as, and answers in the strike chunk format the console already reads.
+//!
+//! The console sends three requests (the operator's fill model,
+//! 2026-10-28). An ask names codepoints at a cell, those on the screen or
+//! newly needed, and is answered whole, ahead of any fill. A fill fills a
+//! cell's coverage in order: the codepoints it names (the screen's), then
+//! printable Latin and box drawing ([`LATIN_AND_BOX`]), then the rest of
+//! the frit's coverage, skipping what the console holds and what this
+//! helper sent there, one [`BATCH`] at a time; between batches the helper
+//! takes any waiting request, so a request waits at most one batch. A stop
+//! ends a cell's fill, as when the console's store is full or no display
+//! draws at the cell. The helper exits once it has no request and no fill
+//! for [`HELPER_IDLE_MS`], or when the console closes its end and its work
+//! is done.
 //!
 //! ```text
-//! request  magic "VTVSREQ1", frit path length u32, the path (UTF-8,
-//!          absolute), cell width u32, cell height u32, first count u32,
-//!          each codepoint u32, console font flag u32 (0 none, 1 one):
+//! request  magic "VTVSREQ1", kind u32 (1 ask, 2 fill, 3 stop), frit path
+//!          length u32, the path (UTF-8, absolute), cell width u32, cell
+//!          height u32, codepoint count u32, each codepoint u32 (an ask's
+//!          wanted, a fill's first), held range count u32, each range's
+//!          first and last codepoint u32 (what the console holds at the
+//!          cell, for a fill), console font flag u32 (0 none, 1 one):
 //!          width u32, height u32, glyph count u32, data length u32, the
 //!          data, map count u32, each (codepoint u16, glyph u16)
-//! answer   frames: kind u32, length u32, then the payload; kind 1 a
-//!          vitrified set of one cell's glyphs, kind 2 the request done
-//!          (no payload), kind 3 the request failed (UTF-8 reason)
+//! answer   frames: kind u32, length u32, then the payload; kind 1 an
+//!          ask's glyphs and 4 a fill's, each a vitrified set of one cell's
+//!          glyphs; kind 2 the oldest ask answered (no payload); kind 5 a
+//!          cell's fill done (its width u32 and height u32); kind 3 a
+//!          failure (UTF-8 reason)
 //! ```
 //!
 //! Little-endian throughout. The console checks every frame before it
 //! trusts it: the length against [`FRAME_BYTES_MAX`] before it allocates,
-//! a set through vtium-font's reader, and every strike at the cell it
-//! asked for. No codepoint is in two batches of one request.
+//! a set through vtium-font's reader, every strike at the cell asked for,
+//! an ask's glyphs among those it asked for, and a fill's among those it
+//! does not hold.
 //!
 //! The kernel's font reaches a frit's `console:` source only as the bytes
 //! the console read from its own VT at start and handed over
@@ -40,7 +55,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::mpsc::{self, RecvTimeoutError, TryRecvError};
 use std::time::Duration;
 
 use rustix::process::{Resource, Rlimit, geteuid, setrlimit};
@@ -65,12 +80,28 @@ pub const HELPER_IDLE_MS: u64 = 60_000;
 pub const HELPER_SECONDS: u64 = 300;
 
 pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ1";
-/// A frame of glyphs: a vitrified set.
+/// A frame of an ask's glyphs: a vitrified set.
 pub const FRAME_GLYPHS: u32 = 1;
-/// The request is answered whole.
+/// The oldest ask is answered whole.
 pub const FRAME_DONE: u32 = 2;
-/// The request failed: the reason, as UTF-8.
+/// The helper failed: the reason, as UTF-8.
 pub const FRAME_FAILED: u32 = 3;
+/// A frame of a fill's glyphs: a vitrified set.
+pub const FRAME_FILL: u32 = 4;
+/// A cell's fill is done: its width and height.
+pub const FRAME_FILLED: u32 = 5;
+/// An ask: the codepoints named, answered whole.
+pub const ASK: u32 = 1;
+/// A fill: the cell's coverage, in order, around the asks.
+pub const FILL: u32 = 2;
+/// The end of a cell's fill.
+pub const STOP: u32 = 3;
+/// What a fill draws after the screen's codepoints: printable Latin
+/// (Basic Latin, Latin-1 and Latin Extended-A), then box drawing, block
+/// elements and shades.
+pub const LATIN_AND_BOX: [Cover; 3] = [(0x21, 0x7e), (0xa1, 0x17f), (0x2500, 0x259f)];
+/// The most ranges a fill's held codepoints take.
+pub const HELD_RANGES_MAX: usize = 65_536;
 /// The most bytes a frame's payload holds; a batch past it is cut in two
 /// until it fits.
 pub const FRAME_BYTES_MAX: u32 = 16 << 20;
@@ -84,14 +115,19 @@ pub const FIRST_MAX: usize = 32_000;
 /// How many codepoints of the rest go in one batch.
 pub const BATCH: usize = 1024;
 
-/// What the console asks for.
+/// What the console sends.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ServeRequest {
+    /// [`ASK`], [`FILL`] or [`STOP`].
+    pub kind: u32,
     /// The frit, by its absolute path.
     pub frit: PathBuf,
     pub cell: Cell,
-    /// The codepoints drawn first: those on the screen.
-    pub first: Vec<u32>,
+    /// An ask's codepoints, or the codepoints a fill draws first: those on
+    /// the screen.
+    pub codepoints: Vec<u32>,
+    /// What the console holds at the cell, for a fill, as ranges.
+    pub held: Vec<Cover>,
     /// The kernel's font, read by the console from its VT at start.
     pub console: Option<ConsoleFont>,
 }
@@ -145,14 +181,20 @@ impl<R: Read> Fields<'_, R> {
 impl ServeRequest {
     pub fn encode(&self) -> Vec<u8> {
         let mut out = REQUEST_MAGIC.to_vec();
+        put32(&mut out, self.kind);
         let path = self.frit.to_string_lossy();
         put32(&mut out, len32(path.len()));
         out.extend_from_slice(path.as_bytes());
         put32(&mut out, self.cell.width);
         put32(&mut out, self.cell.height);
-        put32(&mut out, len32(self.first.len()));
-        for &c in &self.first {
+        put32(&mut out, len32(self.codepoints.len()));
+        for &c in &self.codepoints {
             put32(&mut out, c);
+        }
+        put32(&mut out, len32(self.held.len()));
+        for &(a, b) in &self.held {
+            put32(&mut out, a);
+            put32(&mut out, b);
         }
         match &self.console {
             None => put32(&mut out, 0),
@@ -173,8 +215,9 @@ impl ServeRequest {
     }
 
     /// Reads one request from `r`: `None` at the end of the input between
-    /// requests. Every field is checked: the path absolute UTF-8, the cell
-    /// inside [`CELL_SIDE_MAX`], each codepoint a scalar value, the
+    /// requests. Every field is checked: the kind one of three, the path
+    /// absolute UTF-8, the cell inside [`CELL_SIDE_MAX`], each codepoint a
+    /// scalar value, each held range in order and inside Unicode, the
     /// kernel's font inside the kernel's own bounds with its data exactly
     /// as long as its shape.
     pub fn read(r: &mut impl Read) -> Result<Option<ServeRequest>, String> {
@@ -191,6 +234,10 @@ impl ServeRequest {
             return Err("not a serve request".to_owned());
         }
         let mut f = Fields(r);
+        let kind = f.u32()?;
+        if !matches!(kind, ASK | FILL | STOP) {
+            return Err("an unknown request kind".to_owned());
+        }
         let n = f.count(PATH_BYTES_MAX, "a frit's path")?;
         let path = String::from_utf8(f.bytes(n)?).map_err(|_| "a path that is not UTF-8")?;
         if !path.starts_with('/') {
@@ -204,14 +251,23 @@ impl ServeRequest {
         {
             return Err("a cell past CELL_SIDE_MAX".to_owned());
         }
-        let n = f.count(FIRST_MAX, "the codepoints asked for first")?;
-        let mut first = Vec::with_capacity(n);
+        let n = f.count(FIRST_MAX, "the codepoints asked for")?;
+        let mut codepoints = Vec::with_capacity(n);
         for _ in 0..n {
             let c = f.u32()?;
             if char::from_u32(c).is_none() {
                 return Err("a codepoint that is not a Unicode scalar value".to_owned());
             }
-            first.push(c);
+            codepoints.push(c);
+        }
+        let n = f.count(HELD_RANGES_MAX, "the ranges held")?;
+        let mut held = Vec::with_capacity(n);
+        for _ in 0..n {
+            let (a, b) = (f.u32()?, f.u32()?);
+            if a > b || b > 0x10_ffff {
+                return Err("a held range out of order or past Unicode".to_owned());
+            }
+            held.push((a, b));
         }
         let console = match f.u32()? {
             0 => None,
@@ -246,9 +302,11 @@ impl ServeRequest {
             _ => return Err("an unknown console font flag".to_owned()),
         };
         Ok(Some(ServeRequest {
+            kind,
             frit: PathBuf::from(path),
             cell,
-            first,
+            codepoints,
+            held,
             console,
         }))
     }
@@ -597,30 +655,46 @@ impl Engine {
     }
 }
 
-/// Answers `request` with `engine`'s glyphs: the codepoints it names
-/// first, then the rest of the coverage a batch at a time, then done; or,
-/// when no source gives a glyph at the cell, a failure naming why. A
-/// batch whose set passes [`FRAME_BYTES_MAX`] is cut in two. Only a write
-/// that fails is the error: the console is gone.
-fn answer(engine: &Engine, request: &ServeRequest, out: &mut dyn Write) -> io::Result<()> {
-    let mut first: Vec<u32> = request.first.clone();
-    first.sort_unstable();
-    first.dedup();
-    let rest: Vec<u32> = engine
-        .coverage()
-        .iter()
-        .copied()
-        .filter(|c| first.binary_search(c).is_err())
-        .collect();
-    let mut queue: VecDeque<&[u32]> = std::iter::once(&first[..])
-        .chain(rest.chunks(BATCH))
-        .collect();
-    let mut sent = false;
+/// One bit for each Unicode codepoint.
+struct Bits(Vec<u64>);
+
+impl Bits {
+    fn new() -> Bits {
+        Bits(vec![0; 0x11_0000 / 64])
+    }
+
+    fn has(&self, c: u32) -> bool {
+        self.0
+            .get((c / 64) as usize)
+            .is_some_and(|w| w & (1 << (c % 64)) != 0)
+    }
+
+    fn set(&mut self, c: u32) {
+        if let Some(w) = self.0.get_mut((c / 64) as usize) {
+            *w |= 1 << (c % 64);
+        }
+    }
+}
+
+/// Draws `want` at `cell` and writes it as frames of `kind`, a set that
+/// passes [`FRAME_BYTES_MAX`] cut in two; the codepoints written are
+/// marked in `sent`. Returns whether any glyph went, or the engine's
+/// failure; only a write that fails is the outer error.
+fn send_glyphs(
+    engine: &Engine,
+    cell: Cell,
+    want: &[u32],
+    kind: u32,
+    sent: &mut Bits,
+    out: &mut dyn Write,
+) -> io::Result<Result<bool, String>> {
+    let mut queue: VecDeque<&[u32]> = VecDeque::from([want]);
+    let mut any = false;
     while let Some(want) = queue.pop_front() {
         if want.is_empty() {
             continue;
         }
-        match engine.draw(request.cell, want) {
+        match engine.draw(cell, want) {
             Ok(None) => {}
             Ok(Some(set)) if set.len() > FRAME_BYTES_MAX as usize && want.len() > 1 => {
                 let (a, b) = want.split_at(want.len() / 2);
@@ -629,16 +703,59 @@ fn answer(engine: &Engine, request: &ServeRequest, out: &mut dyn Write) -> io::R
             }
             Ok(Some(set)) if set.len() > FRAME_BYTES_MAX as usize => {}
             Ok(Some(set)) => {
-                write_frame(out, FRAME_GLYPHS, &set)?;
-                sent = true;
+                write_frame(out, kind, &set)?;
+                for &c in want {
+                    sent.set(c);
+                }
+                any = true;
             }
-            Err(why) => return failed(out, &why),
+            Err(why) => return Ok(Err(why)),
         }
     }
-    if !sent {
-        return failed(out, &engine.none_at(request.cell));
+    Ok(Ok(any))
+}
+
+/// A cell's fill: its codepoints in the order drawn, and how far it is.
+struct Fill {
+    frit: PathBuf,
+    cell: Cell,
+    order: Vec<u32>,
+    next: usize,
+    /// It began with glyphs held, or has sent some.
+    any: bool,
+}
+
+impl Fill {
+    /// `request`'s fill: its codepoints, then [`LATIN_AND_BOX`], then the
+    /// rest of the coverage, each once, those the console holds left out.
+    fn new(engine: &Engine, request: &ServeRequest) -> Fill {
+        let mut seen = Bits::new();
+        for &(a, b) in &request.held {
+            (a..=b).for_each(|c| seen.set(c));
+        }
+        let covered = |c: &u32| engine.coverage().binary_search(c).is_ok();
+        let latin = LATIN_AND_BOX.iter().flat_map(|&(a, b)| a..=b);
+        let mut order = Vec::new();
+        for c in request
+            .codepoints
+            .iter()
+            .copied()
+            .chain(latin)
+            .chain(engine.coverage().iter().copied())
+        {
+            if covered(&c) && !seen.has(c) {
+                seen.set(c);
+                order.push(c);
+            }
+        }
+        Fill {
+            frit: request.frit.clone(),
+            cell: request.cell,
+            order,
+            next: 0,
+            any: !request.held.is_empty(),
+        }
     }
-    write_frame(out, FRAME_DONE, &[])
 }
 
 fn failed(out: &mut dyn Write, why: &str) -> io::Result<()> {
@@ -669,10 +786,10 @@ fn read_requests(input: impl Read + Send + 'static) -> Requests {
     rx
 }
 
-/// Serves requests read from `input` until it ends, or until `idle` passes
-/// with none, writing the answers to `out`. Returns the exit status: 0 at
-/// the input's end or the idle exit, 1 on a malformed request or a write
-/// that fails.
+/// Serves requests read from `input` until it ends and its work is done,
+/// or until `idle` passes with no request and no fill, writing the
+/// answers to `out`. Returns the exit status: 0 at the input's end or the
+/// idle exit, 1 on a malformed request or a write that fails.
 pub fn serve(
     input: impl Read + Send + 'static,
     out: &mut dyn Write,
@@ -682,29 +799,168 @@ pub fn serve(
     answer_requests(&read_requests(input), out, paths, idle)
 }
 
-fn answer_requests(rx: &Requests, out: &mut dyn Write, paths: &Paths, idle: Duration) -> u8 {
-    let mut engines: BTreeMap<PathBuf, Result<Engine, String>> = BTreeMap::new();
-    let mut console: Option<ConsoleFont> = None;
-    loop {
-        let request = match rx.recv_timeout(idle) {
-            Ok(Ok(Some(r))) => r,
-            Ok(Ok(None)) | Err(RecvTimeoutError::Disconnected | RecvTimeoutError::Timeout) => {
-                return 0;
-            }
-            Ok(Err(why)) => {
-                let _ = failed(out, &format!("a malformed request: {why}"));
-                return 1;
-            }
-        };
-        if console.is_none() {
-            console.clone_from(&request.console);
+/// The helper's work: the asks waiting, in order, and the fills.
+struct Work<'p> {
+    paths: &'p Paths,
+    engines: BTreeMap<PathBuf, Result<Engine, String>>,
+    console: Option<ConsoleFont>,
+    asks: VecDeque<ServeRequest>,
+    fills: VecDeque<Fill>,
+    /// What this helper sent at each frit and cell.
+    sent: BTreeMap<(PathBuf, u32, u32), Bits>,
+}
+
+impl Work<'_> {
+    fn engine(&mut self, frit: &Path) -> &Result<Engine, String> {
+        let (paths, console) = (self.paths, self.console.clone());
+        self.engines
+            .entry(frit.to_owned())
+            .or_insert_with(|| Engine::load(frit, paths, console))
+    }
+
+    fn sent(&mut self, frit: &Path, cell: Cell) -> &mut Bits {
+        self.sent
+            .entry((frit.to_owned(), cell.width, cell.height))
+            .or_insert_with(Bits::new)
+    }
+
+    /// Takes a request in: an ask waits its turn, a fill replaces the
+    /// cell's, a stop ends it.
+    fn take(&mut self, request: ServeRequest, out: &mut dyn Write) -> io::Result<()> {
+        if self.console.is_none() {
+            self.console.clone_from(&request.console);
         }
-        let engine = engines
-            .entry(request.frit.clone())
-            .or_insert_with(|| Engine::load(&request.frit, paths, console.clone()));
-        let wrote = match engine {
-            Ok(engine) => answer(engine, &request, out),
-            Err(why) => failed(out, why),
+        let same = |f: &Fill| f.frit == request.frit && f.cell == request.cell;
+        match request.kind {
+            ASK => self.asks.push_back(request),
+            FILL => {
+                self.fills.retain(|f| !same(f));
+                let fill = match self.engine(&request.frit) {
+                    Ok(engine) => Fill::new(engine, &request),
+                    Err(why) => return failed(out, &why.clone()),
+                };
+                self.fills.push_back(fill);
+            }
+            _ => self.fills.retain(|f| !same(f)),
+        }
+        Ok(())
+    }
+
+    /// Answers the oldest ask whole, then done; or the engine's failure.
+    fn ask(&mut self, request: &ServeRequest, out: &mut dyn Write) -> io::Result<()> {
+        let mut want = request.codepoints.clone();
+        want.sort_unstable();
+        want.dedup();
+        let cell = request.cell;
+        let mut sent = std::mem::replace(self.sent(&request.frit, cell), Bits(Vec::new()));
+        let mut result = Ok(());
+        match self.engine(&request.frit) {
+            Ok(engine) => {
+                for w in want.chunks(BATCH) {
+                    if let Err(why) = send_glyphs(engine, cell, w, FRAME_GLYPHS, &mut sent, out)? {
+                        result = Err(why);
+                        break;
+                    }
+                }
+            }
+            Err(why) => result = Err(why.clone()),
+        }
+        *self.sent(&request.frit, cell) = sent;
+        match result {
+            Ok(()) => write_frame(out, FRAME_DONE, &[]),
+            Err(why) => failed(out, &why),
+        }
+    }
+
+    /// Draws the next batch of the first fill, which then goes to the back;
+    /// a fill at its end is done, or fails when it never had a glyph.
+    fn fill(&mut self, out: &mut dyn Write) -> io::Result<()> {
+        let Some(mut fill) = self.fills.pop_front() else {
+            return Ok(());
+        };
+        let mut sent = std::mem::replace(self.sent(&fill.frit, fill.cell), Bits(Vec::new()));
+        let mut batch = Vec::with_capacity(BATCH);
+        while batch.len() < BATCH {
+            let Some(&c) = fill.order.get(fill.next) else {
+                break;
+            };
+            fill.next = fill.next.saturating_add(1);
+            if !sent.has(c) {
+                batch.push(c);
+            }
+        }
+        batch.sort_unstable();
+        let drawn = match self.engine(&fill.frit) {
+            Ok(engine) => send_glyphs(engine, fill.cell, &batch, FRAME_FILL, &mut sent, out)?,
+            Err(why) => Err(why.clone()),
+        };
+        *self.sent(&fill.frit, fill.cell) = sent;
+        match drawn {
+            Err(why) => return failed(out, &why),
+            Ok(any) => fill.any |= any,
+        }
+        if fill.next < fill.order.len() {
+            self.fills.push_back(fill);
+            return Ok(());
+        }
+        if !fill.any {
+            let why = match self.engine(&fill.frit) {
+                Ok(engine) => engine.none_at(fill.cell),
+                Err(why) => why.clone(),
+            };
+            return failed(out, &why);
+        }
+        let mut cell = Vec::with_capacity(8);
+        put32(&mut cell, fill.cell.width);
+        put32(&mut cell, fill.cell.height);
+        write_frame(out, FRAME_FILLED, &cell)
+    }
+}
+
+fn answer_requests(rx: &Requests, out: &mut dyn Write, paths: &Paths, idle: Duration) -> u8 {
+    let mut work = Work {
+        paths,
+        engines: BTreeMap::new(),
+        console: None,
+        asks: VecDeque::new(),
+        fills: VecDeque::new(),
+        sent: BTreeMap::new(),
+    };
+    let mut ended = false;
+    loop {
+        // every request waiting, before the next batch; with nothing to do,
+        // the next request or the idle exit
+        loop {
+            let idle_now = work.asks.is_empty() && work.fills.is_empty();
+            let next = if ended {
+                break;
+            } else if idle_now {
+                rx.recv_timeout(idle)
+            } else {
+                rx.try_recv().map_err(|e| match e {
+                    TryRecvError::Empty => RecvTimeoutError::Timeout,
+                    TryRecvError::Disconnected => RecvTimeoutError::Disconnected,
+                })
+            };
+            match next {
+                Ok(Ok(Some(r))) => {
+                    if work.take(r, out).is_err() {
+                        return 1;
+                    }
+                }
+                Ok(Ok(None)) | Err(RecvTimeoutError::Disconnected) => ended = true,
+                Err(RecvTimeoutError::Timeout) if idle_now => return 0,
+                Err(RecvTimeoutError::Timeout) => break,
+                Ok(Err(why)) => {
+                    let _ = failed(out, &format!("a malformed request: {why}"));
+                    return 1;
+                }
+            }
+        }
+        let wrote = match work.asks.pop_front() {
+            Some(ask) => work.ask(&ask, out),
+            None if !work.fills.is_empty() => work.fill(out),
+            None => return 0,
         };
         if wrote.is_err() {
             return 1;
@@ -811,21 +1067,54 @@ mod tests {
         }
     }
 
-    fn request(frit: PathBuf, first: &[char]) -> ServeRequest {
+    const CELL: Cell = Cell {
+        width: 8,
+        height: 16,
+    };
+
+    fn request(kind: u32, frit: PathBuf, codepoints: &[char]) -> ServeRequest {
         ServeRequest {
+            kind,
             frit,
-            cell: Cell {
-                width: 8,
-                height: 16,
-            },
-            first: first.iter().map(|&c| u32::from(c)).collect(),
+            cell: CELL,
+            codepoints: codepoints.iter().map(|&c| u32::from(c)).collect(),
+            held: Vec::new(),
             console: None,
         }
+    }
+
+    fn run(input: &[ServeRequest]) -> Vec<(u32, Vec<u8>)> {
+        let bytes: Vec<u8> = input.iter().flat_map(ServeRequest::encode).collect();
+        let mut out = Vec::new();
+        assert_eq!(
+            serve(
+                std::io::Cursor::new(bytes),
+                &mut out,
+                &Paths::default(),
+                Duration::from_secs(5)
+            ),
+            0
+        );
+        frames(&out)
+    }
+
+    /// Each glyph frame's set as a face at the 8x16 cell, with its kind.
+    fn faces(frames: &[(u32, Vec<u8>)]) -> Vec<(u32, SetFace)> {
+        frames
+            .iter()
+            .filter(|f| matches!(f.0, FRAME_GLYPHS | FRAME_FILL))
+            .map(|f| {
+                let set = Arc::new(Set::from_bytes(f.1.clone()).unwrap());
+                assert_eq!(set.cells(), vec![CELL]);
+                (f.0, SetFace::new(set, 16).unwrap())
+            })
+            .collect()
     }
 
     #[test]
     fn a_request_reads_back() {
         let r = ServeRequest {
+            held: vec![(0x41, 0x5a), (0x4e00, 0x4e00)],
             console: Some(ConsoleFont {
                 width: 8,
                 height: 2,
@@ -836,7 +1125,11 @@ mod tests {
                     fontpos: 1,
                 }],
             }),
-            ..request(PathBuf::from("/etc/vtium/fonts/a.vtfrit"), &['A', '中'])
+            ..request(
+                FILL,
+                PathBuf::from("/etc/vtium/fonts/a.vtfrit"),
+                &['A', '中'],
+            )
         };
         let bytes = r.encode();
         assert_eq!(ServeRequest::read(&mut &bytes[..]), Ok(Some(r)));
@@ -845,14 +1138,16 @@ mod tests {
 
     #[test]
     fn a_malformed_request_is_refused_before_allocation() {
-        let good = request(PathBuf::from("/a.vtfrit"), &['A']).encode();
+        let good = request(ASK, PathBuf::from("/a.vtfrit"), &['A']).encode();
         // the path's length past its bound, then nothing: refused on the
         // count, before a buffer of that size is made
         let mut huge = REQUEST_MAGIC.to_vec();
+        huge.extend_from_slice(&ASK.to_le_bytes());
         huge.extend_from_slice(&u32::MAX.to_le_bytes());
         let e = ServeRequest::read(&mut &huge[..]).unwrap_err();
         assert!(e.contains("past its bound"), "{e}");
         let mut many = REQUEST_MAGIC.to_vec();
+        many.extend_from_slice(&ASK.to_le_bytes());
         many.extend_from_slice(&9u32.to_le_bytes());
         many.extend_from_slice(b"/a.vtfrit");
         many.extend_from_slice(&8u32.to_le_bytes());
@@ -860,123 +1155,159 @@ mod tests {
         many.extend_from_slice(&u32::MAX.to_le_bytes());
         let e = ServeRequest::read(&mut &many[..]).unwrap_err();
         assert!(e.contains("past its bound"), "{e}");
-        for (at, value) in [(21, 0u32), (25, CELL_SIDE_MAX + 1)] {
+        // the kind, the cell's width and height, the codepoint, the held
+        // count
+        for (at, value) in [
+            (8, 9u32),
+            (25, 0),
+            (29, CELL_SIDE_MAX + 1),
+            (37, 0xd800),
+            (41, u32::MAX),
+        ] {
             let mut bad = good.clone();
             bad[at..at + 4].copy_from_slice(&value.to_le_bytes());
             assert!(ServeRequest::read(&mut &bad[..]).is_err(), "{at}");
         }
-        let mut surrogate = good.clone();
-        surrogate[33..37].copy_from_slice(&0xd800u32.to_le_bytes());
-        assert!(ServeRequest::read(&mut &surrogate[..]).is_err());
-        let relative = request(PathBuf::from("a.vtfrit"), &[]).encode();
+        let backwards = ServeRequest {
+            held: vec![(0x42, 0x41)],
+            ..request(FILL, PathBuf::from("/a.vtfrit"), &[])
+        };
+        assert!(ServeRequest::read(&mut &backwards.encode()[..]).is_err());
+        let relative = request(ASK, PathBuf::from("a.vtfrit"), &[]).encode();
         assert!(ServeRequest::read(&mut &relative[..]).is_err());
         assert!(ServeRequest::read(&mut &good[..good.len() - 1]).is_err());
     }
 
     #[test]
-    fn the_first_codepoints_come_first_then_the_rest_once_then_done() {
-        let d = Dir::new("order");
+    fn an_ask_is_answered_whole_with_only_what_it_names() {
+        let d = Dir::new("ask");
         let frit = d.frit("source=builtin:unscii-8\n");
-        let mut out = Vec::new();
-        let input = request(frit, &['Z', 'A']).encode();
+        let frames = run(&[request(ASK, frit, &['Z', 'A', '\u{10fffd}'])]);
         assert_eq!(
-            serve(
-                std::io::Cursor::new(input),
-                &mut out,
-                &Paths::default(),
-                Duration::from_secs(5)
-            ),
-            0
+            frames.iter().map(|f| f.0).collect::<Vec<_>>(),
+            [FRAME_GLYPHS, FRAME_DONE]
         );
-        let frames = frames(&out);
-        assert_eq!(frames.last().map(|f| f.0), Some(FRAME_DONE));
-        let sets: Vec<Arc<Set>> = frames
-            .iter()
-            .filter(|f| f.0 == FRAME_GLYPHS)
-            .map(|f| Arc::new(Set::from_bytes(f.1.clone()).unwrap()))
-            .collect();
-        assert!(sets.len() > 1, "{}", sets.len());
-        let faces: Vec<SetFace> = sets
-            .iter()
-            .map(|s| SetFace::new(Arc::clone(s), 16).unwrap())
-            .collect();
-        // the first holds what was asked for first and nothing else
-        let has = |f: &SetFace, c| f.has_glyph(c);
-        assert!(has(&faces[0], 'A') && has(&faces[0], 'Z') && !has(&faces[0], 'B'));
-        // every set is at the cell asked for, and no codepoint is in two
-        for s in &sets {
-            assert_eq!(
-                s.cells(),
-                vec![Cell {
-                    width: 8,
-                    height: 16
-                }]
-            );
-        }
-        for c in ['A', 'B', 'é', '█'] {
-            let n = faces.iter().filter(|f| has(f, c)).count();
-            assert_eq!(n, 1, "{c}");
-        }
-        // Unscii-8's 8x8 sits on the bottom half of an 8x16 cell, scaled
-        // by 1
-        let a = faces[0].draw(&['A'], Style::default()).unwrap();
+        let faces = faces(&frames);
+        let f = &faces[0].1;
+        assert!(f.has_glyph('A') && f.has_glyph('Z') && !f.has_glyph('B'));
+        // Unscii-8's 8x8 sits on the bottom half of an 8x16 cell
+        let a = f.draw(&['A'], Style::default()).unwrap();
         assert_eq!((a.width(), a.height()), (8, 16));
         assert!((0..8).all(|y| (0..8).all(|x| a.pixel(x, y).unwrap()[0] == 0)));
     }
 
     #[test]
-    fn a_frit_with_no_source_here_fails_the_request_and_the_helper_serves_on() {
+    fn a_fill_draws_the_screen_then_latin_and_box_then_the_rest_once() {
+        let d = Dir::new("fill");
+        let frit = d.frit("source=builtin:unscii-8\n");
+        let fill = ServeRequest {
+            held: vec![(0x42, 0x42)],
+            ..request(FILL, frit, &['α'])
+        };
+        let frames = run(&[fill]);
+        assert_eq!(frames.last().map(|f| f.0), Some(FRAME_FILLED));
+        assert_eq!(frames.last().unwrap().1, [8, 0, 0, 0, 16, 0, 0, 0]);
+        let faces = faces(&frames);
+        assert!(faces.len() > 1, "{}", faces.len());
+        assert!(faces.iter().all(|f| f.0 == FRAME_FILL));
+        let first = &faces[0].1;
+        // the screen's α, then Latin and box drawing, then the rest in
+        // codepoint order: Unscii-8's last, U+1FBF9, comes later
+        for c in ['α', 'A', 'é', '─', '█'] {
+            assert!(first.has_glyph(c), "{c}");
+        }
+        assert!(!first.has_glyph('\u{1fbf9}'));
+        // every glyph once, and none the console holds
+        for c in ['A', 'α', 'β', '─', '\u{1fbf9}'] {
+            assert_eq!(faces.iter().filter(|f| f.1.has_glyph(c)).count(), 1, "{c}");
+        }
+        assert!(faces.iter().all(|f| !f.1.has_glyph('B')));
+    }
+
+    #[test]
+    fn an_ask_waits_at_most_one_batch_of_a_fill() {
+        // unifont's coverage is some sixty batches; an ask sent behind the
+        // fill is answered after at most one of them
+        let d = Dir::new("preempt");
+        let frit = d.frit("source=builtin:unifont\n");
+        let frames = run(&[
+            request(FILL, frit.clone(), &[]),
+            request(ASK, frit, &['中']),
+        ]);
+        let kinds: Vec<u32> = frames.iter().map(|f| f.0).collect();
+        let asked = kinds.iter().position(|&k| k == FRAME_GLYPHS).unwrap();
+        assert!(asked <= 1, "{:?}", &kinds[..asked + 1]);
+        assert_eq!(kinds[asked + 1], FRAME_DONE);
+        assert!(kinds.iter().filter(|&&k| k == FRAME_FILL).count() > 10);
+        assert_eq!(kinds.last(), Some(&FRAME_FILLED));
+        // the fill skips what the ask sent
+        let faces = faces(&frames);
+        assert_eq!(faces.iter().filter(|f| f.1.has_glyph('中')).count(), 1);
+    }
+
+    #[test]
+    fn a_stop_ends_its_cells_fill_and_a_fill_replaces_it() {
+        let d = Dir::new("stop");
+        let frit = d.frit("source=builtin:unscii-8\n");
+        let paths = Paths::default();
+        let mut work = Work {
+            paths: &paths,
+            engines: BTreeMap::new(),
+            console: None,
+            asks: VecDeque::new(),
+            fills: VecDeque::new(),
+            sent: BTreeMap::new(),
+        };
+        let mut out = Vec::new();
+        work.take(request(FILL, frit.clone(), &[]), &mut out)
+            .unwrap();
+        work.take(request(FILL, frit.clone(), &['α']), &mut out)
+            .unwrap();
+        assert_eq!(work.fills.len(), 1);
+        assert_eq!(work.fills[0].order[0], u32::from('α'));
+        work.take(request(STOP, frit, &[]), &mut out).unwrap();
+        assert!(work.fills.is_empty());
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn a_frit_with_no_source_here_fails_each_request() {
         let d = Dir::new("missing");
         let frit = d.frit("source=file:/nonexistent/x.psf\n");
-        let mut input = request(frit.clone(), &['A']).encode();
-        input.extend(request(frit, &['B']).encode());
-        let mut out = Vec::new();
-        assert_eq!(
-            serve(
-                std::io::Cursor::new(input),
-                &mut out,
-                &Paths::default(),
-                Duration::from_secs(5)
-            ),
-            0
-        );
-        let frames = frames(&out);
+        let frames = run(&[
+            request(ASK, frit.clone(), &['A']),
+            request(FILL, frit, &['B']),
+        ]);
         assert_eq!(frames.len(), 2);
         assert!(frames.iter().all(|f| f.0 == FRAME_FAILED));
         assert!(String::from_utf8_lossy(&frames[0].1).contains("not on this machine"));
     }
 
     #[test]
-    fn a_request_no_source_can_fill_fails_naming_why() {
-        // unifont's 8x16 does not fit a 4x8 cell: no glyph, and the reason
+    fn a_fill_no_source_can_draw_fails_naming_why() {
+        // unifont's 8x16 does not fit a 4x8 cell: an ask is answered with
+        // nothing, and a fill fails with the reason
         let d = Dir::new("nofit");
         let frit = d.frit("source=builtin:unifont\n");
-        let r = ServeRequest {
-            cell: Cell {
-                width: 4,
-                height: 8,
-            },
-            ..request(frit, &['A'])
+        let small = Cell {
+            width: 4,
+            height: 8,
         };
-        let mut out = Vec::new();
+        let frames = run(&[
+            ServeRequest {
+                cell: small,
+                ..request(ASK, frit.clone(), &['A'])
+            },
+            ServeRequest {
+                cell: small,
+                ..request(FILL, frit, &['A'])
+            },
+        ]);
         assert_eq!(
-            serve(
-                std::io::Cursor::new(r.encode()),
-                &mut out,
-                &Paths::default(),
-                Duration::from_secs(5)
-            ),
-            0
+            frames.iter().map(|f| f.0).collect::<Vec<_>>(),
+            [FRAME_DONE, FRAME_FAILED]
         );
-        let frames = frames(&out);
-        assert_eq!(
-            frames.len(),
-            1,
-            "{:?}",
-            frames.iter().map(|f| f.0).collect::<Vec<_>>()
-        );
-        assert_eq!(frames[0].0, FRAME_FAILED);
-        let why = String::from_utf8_lossy(&frames[0].1);
+        let why = String::from_utf8_lossy(&frames[1].1);
         assert!(why.contains("no glyph at 4x8"), "{why}");
         assert!(why.contains("8x16"), "{why}");
     }

@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 
 use vtium_font::Cell;
-use vtium_vitrify::serve::{FRAME_DONE, FRAME_GLYPHS, ServeRequest};
+use vtium_vitrify::serve::{ASK, FRAME_DONE, FRAME_GLYPHS, ServeRequest};
 
 #[test]
 #[expect(
@@ -19,12 +19,14 @@ fn the_helper_answers_under_its_sandbox_and_exits_when_the_console_closes() {
     let frit = dir.join("t.vtfrit");
     std::fs::write(&frit, "source=builtin:unscii-8\n").unwrap();
     let request = ServeRequest {
+        kind: ASK,
         frit: frit.clone(),
         cell: Cell {
             width: 8,
             height: 16,
         },
-        first: vec![0x41],
+        codepoints: vec![0x41],
+        held: Vec::new(),
         console: None,
     };
     let mut child = Command::new(env!("CARGO_BIN_EXE_vtium-vitrify"))
