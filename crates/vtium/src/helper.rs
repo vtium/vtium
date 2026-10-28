@@ -42,7 +42,7 @@ use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command as Process, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -73,7 +73,7 @@ pub const REASON_BYTES_MAX: u32 = 4096;
 /// The most codepoints one request names, the helper's `FIRST_MAX`.
 pub const FIRST_MAX: usize = 32_000;
 
-const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ1";
+const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ2";
 const ASK: u32 = 1;
 const FILL: u32 = 2;
 const STOP: u32 = 3;
@@ -141,10 +141,38 @@ fn len32(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
-/// One request's bytes: `kind` at `cell` for the frit at `frit`, naming
-/// `codepoints` (cut at [`FIRST_MAX`]) and `held`, with the kernel's font.
+/// A frit as the console hands it to the helper: its name and its text,
+/// read from its file or made on the fly (ADR-1200 D9), so the helper
+/// needs no file for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FritText {
+    pub name: String,
+    pub text: String,
+}
+
+impl FritText {
+    /// The frit at `path`, named for its file less `.vtfrit`.
+    pub fn read(path: &Path) -> Result<FritText, String> {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n.strip_suffix(".vtfrit").unwrap_or(n))
+            .filter(|n| !n.is_empty())
+            .ok_or_else(|| format!("{} names no frit", path.display()))?;
+        let text = crate::font::frit_text(path)
+            .map_err(|why| format!("cannot read {}: {why}", path.display()))?;
+        Ok(FritText {
+            name: name.to_owned(),
+            text,
+        })
+    }
+}
+
+/// One request's bytes: `kind` at `cell` for `frit`, naming `codepoints`
+/// (cut at [`FIRST_MAX`]) and `held`, with the kernel's font. The display's
+/// capabilities are reserved, and sent empty.
 fn encode(
-    frit: &std::path::Path,
+    frit: &FritText,
     console: Option<&ConsoleFont>,
     kind: u32,
     cell: Cell,
@@ -153,11 +181,13 @@ fn encode(
 ) -> Vec<u8> {
     let mut out = REQUEST_MAGIC.to_vec();
     put32(&mut out, kind);
-    let path = frit.to_string_lossy();
-    put32(&mut out, len32(path.len()));
-    out.extend_from_slice(path.as_bytes());
+    for field in [&frit.name, &frit.text] {
+        put32(&mut out, len32(field.len()));
+        out.extend_from_slice(field.as_bytes());
+    }
     put32(&mut out, cell.width);
     put32(&mut out, cell.height);
+    put32(&mut out, 0);
     let codepoints = codepoints.get(..FIRST_MAX).unwrap_or(codepoints);
     put32(&mut out, len32(codepoints.len()));
     for &c in codepoints {
@@ -462,12 +492,16 @@ pub struct Helper {
     command: Command,
     /// Wakes the loop: called by the reader thread after each frame.
     wake: Arc<dyn Fn() + Send + Sync>,
-    frit: PathBuf,
+    frit: FritText,
     console: Option<ConsoleFont>,
     store: Shared,
     limit: u64,
     running: Option<Running>,
     cells: Vec<CellState>,
+    /// Cells no display draws whose fill was stopped while it ran: the
+    /// frames already on their way for them are dropped, until the
+    /// helper ends that fill or exits.
+    stopped: Vec<Cell>,
     asks: VecDeque<Ask>,
     /// When the next answer is due, while work is outstanding.
     due: Option<Instant>,
@@ -482,15 +516,15 @@ pub struct Helper {
 }
 
 impl Helper {
-    /// The helper `command` starts for the frit at `frit`, handing it the
-    /// kernel's `console` font, whose glyphs go into `store` up to `limit`
-    /// bytes; its reader calls `wake` after each answer, in a vtium
-    /// started at `epoch`.
+    /// The helper `command` starts for `frit`, handing it the kernel's
+    /// `console` font, whose glyphs go into `store` up to `limit` bytes;
+    /// its reader calls `wake` after each answer, in a vtium started at
+    /// `epoch`.
     pub fn new(
         command: Command,
         wake: Arc<dyn Fn() + Send + Sync>,
         epoch: Instant,
-        frit: PathBuf,
+        frit: FritText,
         console: Option<ConsoleFont>,
         store: Shared,
         limit: u64,
@@ -505,6 +539,7 @@ impl Helper {
             epoch,
             running: None,
             cells: Vec::new(),
+            stopped: Vec::new(),
             asks: VecDeque::new(),
             due: None,
             restarts: 0,
@@ -556,6 +591,7 @@ impl Helper {
         state.started = Some(now);
         state.first_glyphs = None;
         let (codepoints, held) = (state.first.clone(), state.held.ranges());
+        self.stopped.retain(|&c| c != cell);
         self.send(FILL, cell, &codepoints, &held, now);
     }
 
@@ -588,7 +624,8 @@ impl Helper {
     }
 
     /// Forgets every cell but `cells`, as no display draws at them: their
-    /// fills stop and their glyphs leave the store.
+    /// fills stop, the frames already on their way for them are dropped,
+    /// and their glyphs leave the store.
     pub fn retain(&mut self, cells: &[Cell], now: Instant) {
         let gone: Vec<Cell> = self
             .cells
@@ -599,6 +636,7 @@ impl Helper {
             .collect();
         for cell in gone {
             self.send(STOP, cell, &[], &[], now);
+            self.stopped.push(cell);
         }
         self.cells.retain(|c| cells.contains(&c.cell));
         self.store.borrow_mut().retain(cells);
@@ -727,8 +765,10 @@ impl Helper {
         }
     }
 
-    /// Ends the helper's process, if it runs; its reader reaps it.
+    /// Ends the helper's process, if it runs; its reader reaps it, and
+    /// nothing it sent is taken.
     fn stop(&mut self) {
+        self.stopped.clear();
         if let Some(fd) = self.running.take().and_then(|r| r.pidfd) {
             let _ = pidfd_send_signal(&fd, Signal::KILL);
         }
@@ -852,6 +892,9 @@ impl Helper {
             return Err(not_asked());
         }
         if fill {
+            if self.stopped.contains(&cell) {
+                return Ok(None);
+            }
             let state = self
                 .cells
                 .iter()
@@ -881,13 +924,21 @@ impl Helper {
                     return Err("the helper answered a glyph the ask did not name".to_owned());
                 }
             }
-            if !self.cells.iter().any(|c| c.cell == cell) {
+            let Some(state) = self.cells.iter_mut().find(|c| c.cell == cell) else {
                 // no display draws at the cell any more
+                return Ok(None);
+            };
+            if bytes > self.limit {
+                // the store cannot take it whole: dropped, and its glyphs
+                // asked for again when the screen shows them
+                for c in codepoints(&runs).flatten() {
+                    state.pending.put(c, false);
+                }
                 return Ok(None);
             }
             while self.store.borrow().bytes().saturating_add(bytes) > self.limit {
                 let Some((at, gone)) = self.store.borrow_mut().evict() else {
-                    return Ok(None);
+                    break;
                 };
                 if let Some(state) = self.cells.iter_mut().find(|c| c.cell == at) {
                     for c in codepoints(&gone).flatten() {
@@ -948,6 +999,10 @@ impl Helper {
     /// A cell's fill is done: logged with its timings, or refused when the
     /// cell holds no glyph.
     fn filled(&mut self, cell: Cell, now: Instant) -> Result<(), String> {
+        if let Some(i) = self.stopped.iter().position(|&c| c == cell) {
+            self.stopped.remove(i);
+            return Ok(());
+        }
         let epoch = self.epoch;
         let state = self
             .cells
@@ -984,6 +1039,7 @@ impl Helper {
     /// again, made now when work is outstanding.
     fn closed(&mut self, status: Option<ExitStatus>, now: Instant) {
         self.running = None;
+        self.stopped.clear();
         let clean = status.is_some_and(|s| s.success());
         let why = match status.and_then(|s| s.signal()) {
             Some(SIGXCPU | 9) => "reached its CPU limit".to_owned(),
@@ -1031,7 +1087,6 @@ fn after(t: Instant, d: Duration) -> Instant {
 )]
 mod tests {
     use super::*;
-    use std::path::Path;
     use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
     use vtium_font::{Face, Style, Width};
 
@@ -1109,7 +1164,7 @@ mod tests {
                     command,
                     wake,
                     t0(),
-                    PathBuf::from("/etc/vtium/fonts/t.vtfrit"),
+                    frit("source=builtin:unscii-8\n"),
                     None,
                     Shared::default(),
                     limit,
@@ -1163,17 +1218,48 @@ mod tests {
         Instant::now()
     }
 
+    /// The frit `t` of `text`.
+    fn frit(text: &str) -> FritText {
+        FritText {
+            name: "t".to_owned(),
+            text: text.to_owned(),
+        }
+    }
+
     #[test]
     fn a_request_is_the_helpers_format() {
-        let bytes = encode(Path::new("/a"), None, ASK, CELL, &[0x41], &[(0x42, 0x43)]);
-        let mut want = b"VTVSREQ1".to_vec();
+        let bytes = encode(&frit("x=y\n"), None, ASK, CELL, &[0x41], &[(0x42, 0x43)]);
+        let mut want = b"VTVSREQ2".to_vec();
         want.extend_from_slice(&ASK.to_le_bytes());
-        want.extend_from_slice(&2u32.to_le_bytes());
-        want.extend_from_slice(b"/a");
-        for v in [8u32, 16, 1, 0x41, 1, 0x42, 0x43, 0] {
+        want.extend_from_slice(&1u32.to_le_bytes());
+        want.extend_from_slice(b"t");
+        want.extend_from_slice(&4u32.to_le_bytes());
+        want.extend_from_slice(b"x=y\n");
+        // the cell, the reserved capabilities, the codepoint, the held
+        // range, no console font
+        for v in [8u32, 16, 0, 1, 0x41, 1, 0x42, 0x43, 0] {
             want.extend_from_slice(&v.to_le_bytes());
         }
         assert_eq!(bytes, want);
+    }
+
+    #[test]
+    fn a_frit_is_read_with_the_name_of_its_file() {
+        let dir = std::env::temp_dir().join(format!("vtium-helper-read-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ter-v16n.vtfrit");
+        std::fs::write(&path, "source=kbd:ter-v16n\n").unwrap();
+        let read = FritText::read(&path);
+        let gone = FritText::read(&dir.join("gone.vtfrit"));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            read,
+            Ok(FritText {
+                name: "ter-v16n".to_owned(),
+                text: "source=kbd:ter-v16n\n".to_owned(),
+            })
+        );
+        assert!(gone.unwrap_err().contains("gone.vtfrit"));
     }
 
     #[test]
@@ -1341,6 +1427,26 @@ mod tests {
         assert!(why.contains("did not name"), "{why}");
     }
 
+    // a zoom or a hotplug during a fill: the frames already on their way
+    // for the cell no display draws are dropped, and the helper stays
+    #[test]
+    fn a_fill_frame_for_a_cell_no_display_draws_is_dropped() {
+        let mut fixture = frame_bytes(FRAME_FILL, &set(CELL, &['A']));
+        fixture.extend(filled(CELL));
+        let mut s = StandIn::new("late", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.fill(CELL, &[], now);
+        s.helper.retain(&[], now);
+        // both frames read, then taken
+        for _ in 0..2 {
+            s.woke.recv_timeout(Duration::from_secs(10)).unwrap();
+        }
+        assert!(s.helper.poll(now).is_empty());
+        assert_eq!(s.helper.failed(), None);
+        assert!(!s.held('A'));
+        assert!(!s.helper.busy());
+    }
+
     #[test]
     fn a_fill_with_no_glyph_is_a_failure() {
         let (why, _) = given_up("none", ANSWERS, &filled(CELL), true);
@@ -1389,6 +1495,25 @@ mod tests {
         assert!(s.helper.store.borrow().bytes() <= limit);
         assert!(!s.helper.busy());
         // A, evicted, is asked for again when the screen shows it
+        s.helper.ask(CELL, &['A'], now);
+        assert!(s.helper.busy());
+    }
+
+    #[test]
+    fn an_asks_glyphs_the_store_cannot_take_are_asked_again() {
+        // one frame past the whole limit: dropped, and its glyph not left
+        // pending
+        let a = set(CELL, &['A']);
+        let limit = (a.len() as u64) / 2;
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &a);
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let mut s = StandIn::limited("toolarge", ANSWERS, &fixture, limit);
+        let now = t0();
+        s.helper.ask(CELL, &['A'], now);
+        assert!(s.run(now).is_empty());
+        assert_eq!(s.helper.failed(), None);
+        assert!(!s.held('A'));
+        assert!(!s.helper.busy());
         s.helper.ask(CELL, &['A'], now);
         assert!(s.helper.busy());
     }
@@ -1467,7 +1592,7 @@ mod tests {
             },
             Arc::new(|| {}),
             t0(),
-            PathBuf::from("/a"),
+            frit(""),
             None,
             Shared::default(),
             1 << 20,

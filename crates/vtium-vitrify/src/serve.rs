@@ -2,8 +2,10 @@
 //! the console starts on its first need for glyphs and which generates
 //! them from a frit at run time. It sets the parser's sandbox on itself
 //! (no-new-privileges, the memory and file limits, no children, refused as
-//! root), reads the frit and its fonts as the account the console started
-//! it as, and answers in the strike chunk format the console already reads.
+//! root), takes the frit's name and text from the console, so a frit made
+//! on the fly needs no file, reads the frit's fonts as the account the
+//! console started it as, and answers in the strike chunk format the
+//! console already reads.
 //!
 //! The console sends three requests (the operator's fill model,
 //! 2026-10-28). An ask names codepoints at a cell, those on the screen or
@@ -19,14 +21,17 @@
 //! is done.
 //!
 //! ```text
-//! request  magic "VTVSREQ1", kind u32 (1 ask, 2 fill, 3 stop), frit path
-//!          length u32, the path (UTF-8, absolute), cell width u32, cell
-//!          height u32, codepoint count u32, each codepoint u32 (an ask's
-//!          wanted, a fill's first), held range count u32, each range's
-//!          first and last codepoint u32 (what the console holds at the
-//!          cell, for a fill), console font flag u32 (0 none, 1 one):
-//!          width u32, height u32, glyph count u32, data length u32, the
-//!          data, map count u32, each (codepoint u16, glyph u16)
+//! request  magic "VTVSREQ2", kind u32 (1 ask, 2 fill, 3 stop), frit
+//!          name length u32, the name (UTF-8), frit text length u32, the
+//!          text (UTF-8), cell width u32, cell height u32, capabilities
+//!          length u32, the capabilities (reserved for the display's, ADR-1301
+//!          D1 and D3: always 0 bytes, and refused otherwise), codepoint
+//!          count u32, each codepoint u32 (an ask's wanted, a fill's
+//!          first), held range count u32, each range's first and last
+//!          codepoint u32 (what the console holds at the cell, for a fill),
+//!          console font flag u32 (0 none, 1 one): width u32, height u32,
+//!          glyph count u32, data length u32, the data, map count u32, each
+//!          (codepoint u16, glyph u16)
 //! answer   frames: kind u32, length u32, then the payload; kind 1 an
 //!          ask's glyphs and 4 a fill's, each a vitrified set of one cell's
 //!          glyphs; kind 2 the oldest ask answered (no payload); kind 5 a
@@ -51,6 +56,7 @@
 //! font whose cell does not fit gives nothing, and the console draws those
 //! characters in the built-in font.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -58,14 +64,14 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, RecvTimeoutError, TryRecvError};
 use std::time::Duration;
 
-use rustix::process::{Resource, Rlimit, geteuid, setrlimit};
+use rustix::process::{Resource, Rlimit, Uid, geteuid, setrlimit};
 use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
 use vtium_font::{CELL_SIDE_MAX, Cell, Style, Width};
 use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, UniPair};
 
 use crate::build::Font;
 use crate::child::PARSER_MEMORY;
-use crate::frit::{Cover, Frit, Source};
+use crate::frit::{Cover, FRIT_BYTES_MAX, Frit, Source};
 use crate::outline::{OutlineRequest, family_key, rasterise};
 use crate::sources::{Consoles, FONT_DIRS, Host, Input, KBD_DIRS, resolve};
 
@@ -79,7 +85,7 @@ pub const HELPER_IDLE_MS: u64 = 60_000;
 /// number of times a boot (the console's `RESTARTS_MAX`).
 pub const HELPER_SECONDS: u64 = 300;
 
-pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ1";
+pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ2";
 /// A frame of an ask's glyphs: a vitrified set.
 pub const FRAME_GLYPHS: u32 = 1;
 /// The oldest ask is answered whole.
@@ -107,21 +113,30 @@ pub const HELD_RANGES_MAX: usize = 65_536;
 pub const FRAME_BYTES_MAX: u32 = 16 << 20;
 /// The most bytes a failure's reason holds.
 pub const REASON_BYTES_MAX: usize = 4096;
-/// The most bytes a frit's path holds.
-pub const PATH_BYTES_MAX: usize = 4096;
+/// The most bytes a frit's name holds, a frit name's own bound
+/// (ADR-1200 D1).
+pub const NAME_BYTES_MAX: usize = 64;
 /// The most codepoints a request names first: a screen of 320 by 100
 /// cells, each different.
 pub const FIRST_MAX: usize = 32_000;
 /// How many codepoints of the rest go in one batch.
 pub const BATCH: usize = 1024;
 
+/// A frit as the console hands it over: its name, for the glyphs' set
+/// and for messages, and its text, read by the console or made on the fly
+/// (ADR-1200 D9).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FritText {
+    pub name: String,
+    pub text: String,
+}
+
 /// What the console sends.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ServeRequest {
     /// [`ASK`], [`FILL`] or [`STOP`].
     pub kind: u32,
-    /// The frit, by its absolute path.
-    pub frit: PathBuf,
+    pub frit: FritText,
     pub cell: Cell,
     /// An ask's codepoints, or the codepoints a fill draws first: those on
     /// the screen.
@@ -182,11 +197,14 @@ impl ServeRequest {
     pub fn encode(&self) -> Vec<u8> {
         let mut out = REQUEST_MAGIC.to_vec();
         put32(&mut out, self.kind);
-        let path = self.frit.to_string_lossy();
-        put32(&mut out, len32(path.len()));
-        out.extend_from_slice(path.as_bytes());
+        for field in [&self.frit.name, &self.frit.text] {
+            put32(&mut out, len32(field.len()));
+            out.extend_from_slice(field.as_bytes());
+        }
         put32(&mut out, self.cell.width);
         put32(&mut out, self.cell.height);
+        // the display's capabilities, reserved
+        put32(&mut out, 0);
         put32(&mut out, len32(self.codepoints.len()));
         for &c in &self.codepoints {
             put32(&mut out, c);
@@ -215,11 +233,12 @@ impl ServeRequest {
     }
 
     /// Reads one request from `r`: `None` at the end of the input between
-    /// requests. Every field is checked: the kind one of three, the path
-    /// absolute UTF-8, the cell inside [`CELL_SIDE_MAX`], each codepoint a
-    /// scalar value, each held range in order and inside Unicode, the
-    /// kernel's font inside the kernel's own bounds with its data exactly
-    /// as long as its shape.
+    /// requests. Every field is checked: the kind one of three, the frit's
+    /// name UTF-8 with no control character and its text UTF-8, each
+    /// inside its bound, the cell inside [`CELL_SIDE_MAX`], the reserved
+    /// capabilities empty, each codepoint a scalar value, each held range
+    /// in order and inside Unicode, the kernel's font inside the kernel's
+    /// own bounds with its data exactly as long as its shape.
     pub fn read(r: &mut impl Read) -> Result<Option<ServeRequest>, String> {
         let mut magic = [0u8; 8];
         let (head, rest) = magic.split_at_mut(1);
@@ -238,11 +257,13 @@ impl ServeRequest {
         if !matches!(kind, ASK | FILL | STOP) {
             return Err("an unknown request kind".to_owned());
         }
-        let n = f.count(PATH_BYTES_MAX, "a frit's path")?;
-        let path = String::from_utf8(f.bytes(n)?).map_err(|_| "a path that is not UTF-8")?;
-        if !path.starts_with('/') {
-            return Err("a frit's path that is not absolute".to_owned());
+        let n = f.count(NAME_BYTES_MAX, "a frit's name")?;
+        let name = String::from_utf8(f.bytes(n)?).map_err(|_| "a frit's name that is not UTF-8")?;
+        if name.is_empty() || name.chars().any(char::is_control) {
+            return Err("a frit's name that is empty or holds a control character".to_owned());
         }
+        let n = f.count(FRIT_BYTES_MAX, "a frit's text")?;
+        let text = String::from_utf8(f.bytes(n)?).map_err(|_| "a frit's text that is not UTF-8")?;
         let cell = Cell {
             width: f.u32()?,
             height: f.u32()?,
@@ -250,6 +271,9 @@ impl ServeRequest {
         if !(1..=CELL_SIDE_MAX).contains(&cell.width) || !(1..=CELL_SIDE_MAX).contains(&cell.height)
         {
             return Err("a cell past CELL_SIDE_MAX".to_owned());
+        }
+        if f.u32()? != 0 {
+            return Err("display capabilities this helper does not read".to_owned());
         }
         let n = f.count(FIRST_MAX, "the codepoints asked for")?;
         let mut codepoints = Vec::with_capacity(n);
@@ -303,7 +327,7 @@ impl ServeRequest {
         };
         Ok(Some(ServeRequest {
             kind,
-            frit: PathBuf::from(path),
+            frit: FritText { name, text },
             cell,
             codepoints,
             held,
@@ -371,6 +395,9 @@ pub struct Engine {
     sources: Vec<(Source, Loaded)>,
     /// Every codepoint some source gives, sorted.
     coverage: Vec<u32>,
+    /// The sources that failed as they drew, by their place in `sources`,
+    /// and why: left out for the engine's life (ADR-1200 D14).
+    failed: RefCell<BTreeMap<usize, String>>,
 }
 
 /// The codepoints `font` maps in the face of `family` (its first face for
@@ -452,15 +479,18 @@ fn place(glyph: &[u8], width: Width, from: Cell, cell: Cell, scale: u32) -> Vec<
 }
 
 impl Engine {
-    /// Reads the frit at `path` and each source it names, as this process's
+    /// Parses `frit` and reads each source it names, as this process's
     /// account; a source missing or unreadable is left out, and the frit
-    /// fails only when none is left.
+    /// fails only when none is left. Its messages name the frit by its
+    /// name.
     pub fn load(
-        path: &Path,
+        frit: &FritText,
         paths: &Paths,
         console: Option<ConsoleFont>,
     ) -> Result<Engine, String> {
-        let frit = Frit::load(path).map_err(|e| e.to_string())?;
+        let file = Path::new(&frit.name);
+        let frit =
+            Frit::parse(frit.text.as_bytes(), file, &frit.name).map_err(|e| e.to_string())?;
         let handed = Handed(console);
         let host = Host {
             kbd_dirs: paths.kbd_dirs.clone(),
@@ -497,7 +527,7 @@ impl Engine {
         }
         if sources.is_empty() {
             return Err(if why.is_empty() {
-                format!("{}: the frit names no source", path.display())
+                format!("{}: the frit names no source", file.display())
             } else {
                 why.join("; ")
             });
@@ -523,6 +553,7 @@ impl Engine {
             name,
             sources,
             coverage,
+            failed: RefCell::default(),
         })
     }
 
@@ -532,13 +563,18 @@ impl Engine {
     }
 
     /// Why no source gives a glyph at `cell`: each bitmap source whose own
-    /// cell does not fit it.
+    /// cell does not fit it, and each source that failed as it drew.
     pub fn none_at(&self, cell: Cell) -> String {
+        let failed = self.failed.borrow();
         let unfit: Vec<String> = self
             .sources
             .iter()
-            .filter_map(|(source, loaded)| match loaded {
-                Loaded::Bitmap(f) if f.cell.width > cell.width || f.cell.height > cell.height => {
+            .enumerate()
+            .filter_map(|(i, (source, loaded))| match (failed.get(&i), loaded) {
+                (Some(why), _) => Some(format!("source={}: {why}", source.spelling)),
+                (None, Loaded::Bitmap(f))
+                    if f.cell.width > cell.width || f.cell.height > cell.height =>
+                {
                     Some(format!(
                         "source={}: its {}x{} cell does not fit",
                         source.spelling, f.cell.width, f.cell.height
@@ -557,7 +593,8 @@ impl Engine {
 
     /// The glyphs at `cell` for `want`, sorted codepoints: each from the
     /// first source in the frit's order that gives it, as a vitrified set
-    /// of that one cell; `None` when no source gives any.
+    /// of that one cell; `None` when no source gives any. A source that
+    /// fails as it draws is left out, and the next one gives its glyphs.
     pub fn draw(&self, cell: Cell, want: &[u32]) -> Result<Option<Vec<u8>>, String> {
         let strike = |format| {
             StrikeBuilder::new(format, cell, Style::default())
@@ -570,7 +607,10 @@ impl Engine {
             strike(PixelFormat::Rgba),
         );
         let mut mapped: BTreeSet<u32> = BTreeSet::new();
-        for (source, loaded) in &self.sources {
+        for (i, (source, loaded)) in self.sources.iter().enumerate() {
+            if self.failed.borrow().contains_key(&i) {
+                continue;
+            }
             let left: Vec<u32> = want
                 .iter()
                 .copied()
@@ -614,7 +654,13 @@ impl Engine {
                         cells: vec![(cell.width, cell.height)],
                         cover: ranges(&left),
                     };
-                    let outline = rasterise(&request)?;
+                    let outline = match rasterise(&request) {
+                        Ok(outline) => outline,
+                        Err(why) => {
+                            self.failed.borrow_mut().insert(i, why);
+                            continue;
+                        }
+                    };
                     let Some(s) = outline.strikes.first() else {
                         continue;
                     };
@@ -717,7 +763,7 @@ fn send_glyphs(
 
 /// A cell's fill: its codepoints in the order drawn, and how far it is.
 struct Fill {
-    frit: PathBuf,
+    frit: FritText,
     cell: Cell,
     order: Vec<u32>,
     next: usize,
@@ -802,25 +848,27 @@ pub fn serve(
 /// The helper's work: the asks waiting, in order, and the fills.
 struct Work<'p> {
     paths: &'p Paths,
-    engines: BTreeMap<PathBuf, Result<Engine, String>>,
+    /// Each frit's engine, by its name and text, so a frit whose text
+    /// changes is read again.
+    engines: BTreeMap<FritText, Result<Engine, String>>,
     console: Option<ConsoleFont>,
     asks: VecDeque<ServeRequest>,
     fills: VecDeque<Fill>,
     /// What this helper sent at each frit and cell.
-    sent: BTreeMap<(PathBuf, u32, u32), Bits>,
+    sent: BTreeMap<(FritText, u32, u32), Bits>,
 }
 
 impl Work<'_> {
-    fn engine(&mut self, frit: &Path) -> &Result<Engine, String> {
+    fn engine(&mut self, frit: &FritText) -> &Result<Engine, String> {
         let (paths, console) = (self.paths, self.console.clone());
         self.engines
-            .entry(frit.to_owned())
+            .entry(frit.clone())
             .or_insert_with(|| Engine::load(frit, paths, console))
     }
 
-    fn sent(&mut self, frit: &Path, cell: Cell) -> &mut Bits {
+    fn sent(&mut self, frit: &FritText, cell: Cell) -> &mut Bits {
         self.sent
-            .entry((frit.to_owned(), cell.width, cell.height))
+            .entry((frit.clone(), cell.width, cell.height))
             .or_insert_with(Bits::new)
     }
 
@@ -985,7 +1033,12 @@ fn limits() -> Result<(), String> {
         };
         setrlimit(resource, limit).map_err(|e| format!("the helper cannot set its limits: {e}"))?;
     }
-    if geteuid().is_root() {
+    refuse_root(geteuid())
+}
+
+/// The helper never runs as root (ADR-1200 D15): `euid` root is refused.
+fn refuse_root(euid: Uid) -> Result<(), String> {
+    if euid.is_root() {
         return Err("the helper refuses to run as root".to_owned());
     }
     Ok(())
@@ -1041,29 +1094,11 @@ mod tests {
         out
     }
 
-    struct Dir(PathBuf);
-
-    impl Dir {
-        fn new(name: &str) -> Dir {
-            let d = std::env::temp_dir().join(format!(
-                "vtium-serve-{name}-{}-{:?}",
-                std::process::id(),
-                std::thread::current().id()
-            ));
-            let _ = std::fs::remove_dir_all(&d);
-            std::fs::create_dir_all(&d).unwrap();
-            Dir(d)
-        }
-        fn frit(&self, text: &str) -> PathBuf {
-            let p = self.0.join("t.vtfrit");
-            std::fs::write(&p, text).unwrap();
-            p
-        }
-    }
-
-    impl Drop for Dir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
+    /// The frit `t` of `text`, handed over with no file.
+    fn frit(text: &str) -> FritText {
+        FritText {
+            name: "t".to_owned(),
+            text: text.to_owned(),
         }
     }
 
@@ -1072,7 +1107,7 @@ mod tests {
         height: 16,
     };
 
-    fn request(kind: u32, frit: PathBuf, codepoints: &[char]) -> ServeRequest {
+    fn request(kind: u32, frit: FritText, codepoints: &[char]) -> ServeRequest {
         ServeRequest {
             kind,
             frit,
@@ -1125,11 +1160,7 @@ mod tests {
                     fontpos: 1,
                 }],
             }),
-            ..request(
-                FILL,
-                PathBuf::from("/etc/vtium/fonts/a.vtfrit"),
-                &['A', '中'],
-            )
+            ..request(FILL, frit("name=a\nsource=builtin:unifont\n"), &['A', '中'])
         };
         let bytes = r.encode();
         assert_eq!(ServeRequest::read(&mut &bytes[..]), Ok(Some(r)));
@@ -1138,29 +1169,48 @@ mod tests {
 
     #[test]
     fn a_malformed_request_is_refused_before_allocation() {
-        let good = request(ASK, PathBuf::from("/a.vtfrit"), &['A']).encode();
-        // the path's length past its bound, then nothing: refused on the
-        // count, before a buffer of that size is made
-        let mut huge = REQUEST_MAGIC.to_vec();
-        huge.extend_from_slice(&ASK.to_le_bytes());
-        huge.extend_from_slice(&u32::MAX.to_le_bytes());
-        let e = ServeRequest::read(&mut &huge[..]).unwrap_err();
-        assert!(e.contains("past its bound"), "{e}");
-        let mut many = REQUEST_MAGIC.to_vec();
-        many.extend_from_slice(&ASK.to_le_bytes());
-        many.extend_from_slice(&9u32.to_le_bytes());
-        many.extend_from_slice(b"/a.vtfrit");
-        many.extend_from_slice(&8u32.to_le_bytes());
-        many.extend_from_slice(&16u32.to_le_bytes());
-        many.extend_from_slice(&u32::MAX.to_le_bytes());
+        // the frit `a` with no text: its cell at 21, its capabilities at
+        // 29, its codepoint at 37
+        let a = FritText {
+            name: "a".to_owned(),
+            text: String::new(),
+        };
+        let good = request(ASK, a.clone(), &['A']).encode();
+        assert_eq!(ServeRequest::read(&mut &good[..]).unwrap().unwrap().frit, a);
+        // the name's and the text's lengths past their bounds, then
+        // nothing: refused on the count, before a buffer of that size is
+        // made
+        let head = |n: &[u32]| {
+            let mut b = REQUEST_MAGIC.to_vec();
+            b.extend_from_slice(&ASK.to_le_bytes());
+            for v in n {
+                b.extend_from_slice(&v.to_le_bytes());
+            }
+            b
+        };
+        for huge in [head(&[u32::MAX]), {
+            let mut b = head(&[1]);
+            b.push(b'a');
+            b.extend_from_slice(&u32::MAX.to_le_bytes());
+            b
+        }] {
+            let e = ServeRequest::read(&mut &huge[..]).unwrap_err();
+            assert!(e.contains("past its bound"), "{e}");
+        }
+        let mut many = head(&[1]);
+        many.push(b'a');
+        for v in [0u32, 8, 16, 0, u32::MAX] {
+            many.extend_from_slice(&v.to_le_bytes());
+        }
         let e = ServeRequest::read(&mut &many[..]).unwrap_err();
         assert!(e.contains("past its bound"), "{e}");
-        // the kind, the cell's width and height, the codepoint, the held
-        // count
+        // the kind, the cell's width and height, capabilities not yet
+        // read, the codepoint, the held count
         for (at, value) in [
             (8, 9u32),
-            (25, 0),
-            (29, CELL_SIDE_MAX + 1),
+            (21, 0),
+            (25, CELL_SIDE_MAX + 1),
+            (29, 1),
             (37, 0xd800),
             (41, u32::MAX),
         ] {
@@ -1170,18 +1220,31 @@ mod tests {
         }
         let backwards = ServeRequest {
             held: vec![(0x42, 0x41)],
-            ..request(FILL, PathBuf::from("/a.vtfrit"), &[])
+            ..request(FILL, a, &[])
         };
         assert!(ServeRequest::read(&mut &backwards.encode()[..]).is_err());
-        let relative = request(ASK, PathBuf::from("a.vtfrit"), &[]).encode();
-        assert!(ServeRequest::read(&mut &relative[..]).is_err());
+        for name in ["", "a\nb"] {
+            let named = ServeRequest {
+                frit: FritText {
+                    name: name.to_owned(),
+                    text: String::new(),
+                },
+                ..request(ASK, frit(""), &[])
+            };
+            assert!(
+                ServeRequest::read(&mut &named.encode()[..]).is_err(),
+                "{name:?}"
+            );
+        }
+        let mut not_utf8 = good.clone();
+        not_utf8[16] = 0xff;
+        assert!(ServeRequest::read(&mut &not_utf8[..]).is_err());
         assert!(ServeRequest::read(&mut &good[..good.len() - 1]).is_err());
     }
 
     #[test]
     fn an_ask_is_answered_whole_with_only_what_it_names() {
-        let d = Dir::new("ask");
-        let frit = d.frit("source=builtin:unscii-8\n");
+        let frit = frit("source=builtin:unscii-8\n");
         let frames = run(&[request(ASK, frit, &['Z', 'A', '\u{10fffd}'])]);
         assert_eq!(
             frames.iter().map(|f| f.0).collect::<Vec<_>>(),
@@ -1198,8 +1261,7 @@ mod tests {
 
     #[test]
     fn a_fill_draws_the_screen_then_latin_and_box_then_the_rest_once() {
-        let d = Dir::new("fill");
-        let frit = d.frit("source=builtin:unscii-8\n");
+        let frit = frit("source=builtin:unscii-8\n");
         let fill = ServeRequest {
             held: vec![(0x42, 0x42)],
             ..request(FILL, frit, &['α'])
@@ -1228,8 +1290,7 @@ mod tests {
     fn an_ask_waits_at_most_one_batch_of_a_fill() {
         // unifont's coverage is some sixty batches; an ask sent behind the
         // fill is answered after at most one of them
-        let d = Dir::new("preempt");
-        let frit = d.frit("source=builtin:unifont\n");
+        let frit = frit("source=builtin:unifont\n");
         let frames = run(&[
             request(FILL, frit.clone(), &[]),
             request(ASK, frit, &['中']),
@@ -1247,8 +1308,7 @@ mod tests {
 
     #[test]
     fn a_stop_ends_its_cells_fill_and_a_fill_replaces_it() {
-        let d = Dir::new("stop");
-        let frit = d.frit("source=builtin:unscii-8\n");
+        let frit = frit("source=builtin:unscii-8\n");
         let paths = Paths::default();
         let mut work = Work {
             paths: &paths,
@@ -1270,10 +1330,22 @@ mod tests {
         assert!(out.is_empty());
     }
 
+    // a frit is its name and its text: the same name with new text is read
+    // again
+    #[test]
+    fn a_frit_whose_text_changes_is_read_again() {
+        let frames = run(&[
+            request(ASK, frit("source=builtin:unscii-8\n"), &['中']),
+            request(ASK, frit("source=builtin:unifont\n"), &['中']),
+        ]);
+        let kinds: Vec<u32> = frames.iter().map(|f| f.0).collect();
+        // Unscii-8 lacks 中 and unifont has it
+        assert_eq!(kinds, [FRAME_DONE, FRAME_GLYPHS, FRAME_DONE]);
+    }
+
     #[test]
     fn a_frit_with_no_source_here_fails_each_request() {
-        let d = Dir::new("missing");
-        let frit = d.frit("source=file:/nonexistent/x.psf\n");
+        let frit = frit("source=file:/nonexistent/x.psf\n");
         let frames = run(&[
             request(ASK, frit.clone(), &['A']),
             request(FILL, frit, &['B']),
@@ -1287,8 +1359,7 @@ mod tests {
     fn a_fill_no_source_can_draw_fails_naming_why() {
         // unifont's 8x16 does not fit a 4x8 cell: an ask is answered with
         // nothing, and a fill fails with the reason
-        let d = Dir::new("nofit");
-        let frit = d.frit("source=builtin:unifont\n");
+        let frit = frit("source=builtin:unifont\n");
         let small = Cell {
             width: 4,
             height: 8,
@@ -1357,6 +1428,13 @@ mod tests {
             "{took:?}"
         );
         assert_eq!(HELPER_IDLE_MS, 60_000);
+    }
+
+    #[test]
+    fn the_helper_refuses_to_run_as_root() {
+        let why = refuse_root(Uid::ROOT).unwrap_err();
+        assert!(why.contains("refuses to run as root"), "{why}");
+        assert_eq!(refuse_root(Uid::from_raw(65534)), Ok(()));
     }
 
     #[test]
