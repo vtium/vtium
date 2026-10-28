@@ -56,6 +56,9 @@
 //! caps [`SB_SIZE_CAP_SMALL`], [`SB_SIZE_CAP_MEDIUM`] and
 //! [`SB_SIZE_CAP_LARGE`], which [`sb_size`] applies by the machine's
 //! memory unless the configuration sets a cap, at most [`SB_SIZE_MAX`];
+//! the scrollback's byte budget's fence, [`SB_MEMORY_MIN`] and
+//! [`SB_MEMORY_MAX`], which [`sb_memory`] applies with a quarter of the
+//! machine's memory;
 //! and the replies' [`REPLIES_PENDING_MAX`], [`VERSION_MAX`], [`TERMCAP_ENTRIES_MAX`],
 //! [`TERMCAP_NAME_MAX`], [`TERMCAP_VALUE_MAX`], [`XTGETTCAP_NAMES`] and
 //! [`XTGETTCAP_REPLY_MAX`]; OSC 52's [`CLIPBOARD_MAX`]; OSC 8's link
@@ -78,9 +81,10 @@ mod unicode;
 
 pub use bounds::{
     CLIPBOARD_MAX, CLUSTER_BYTES_PER_CELL, CLUSTER_MAX, COLOR_STACK_MAX, COLUMNS_MAX,
-    LINKS_BYTES_MAX, REPLIES_PENDING_MAX, ROWS_MAX, SB_SIZE_CAP_LARGE, SB_SIZE_CAP_MEDIUM,
-    SB_SIZE_CAP_SMALL, SB_SIZE_MAX, SGR_STACK_MAX, TERMCAP_ENTRIES_MAX, TERMCAP_NAME_MAX,
-    TERMCAP_VALUE_MAX, VERSION_MAX, XTGETTCAP_NAMES, XTGETTCAP_REPLY_MAX,
+    LINKS_BYTES_MAX, REPLIES_PENDING_MAX, ROWS_MAX, SB_MEMORY_MAX, SB_MEMORY_MIN,
+    SB_SIZE_CAP_LARGE, SB_SIZE_CAP_MEDIUM, SB_SIZE_CAP_SMALL, SB_SIZE_MAX, SGR_STACK_MAX,
+    TERMCAP_ENTRIES_MAX, TERMCAP_NAME_MAX, TERMCAP_VALUE_MAX, VERSION_MAX, XTGETTCAP_NAMES,
+    XTGETTCAP_REPLY_MAX,
 };
 pub use cell::{Cell, ClusterOffset, Content, LinkIndex, StyleIndex, Width};
 pub use damage::{Age, Damage};
@@ -88,7 +92,10 @@ pub use frame::{Cursor, CursorShape, Frame, FrameCell, Overlay, dim};
 pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId};
 pub use palette::{PALETTE_NAMES, Palette, Special};
 pub use screen::{Erase, Screen, WidthMethod};
-pub use scrollback::{SB_SIZE_DEFAULT, sb_size, sb_size_cap};
+pub use scrollback::{
+    MINSPEC_FIRST_SCREEN, MINSPEC_PEAK, SB_MEMORY_DEFAULT, SB_SIZE_DEFAULT, sb_memory,
+    sb_memory_cap, sb_size, sb_size_cap,
+};
 pub use style::{Attrs, Color, Rgb, Script, Style, UnderlineStyle};
 pub use termcap::{Termcap, TermcapError};
 pub use terminal::{

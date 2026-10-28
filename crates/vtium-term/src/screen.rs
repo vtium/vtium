@@ -467,6 +467,20 @@ impl Screen {
         self.damage.mark_all();
     }
 
+    /// Sets the most bytes the scrollback holds, `sb-memory`, which
+    /// [`sb_memory`](crate::sb_memory) fences; the oldest lines past it go.
+    /// A line that alone passes it does not enter.
+    pub fn set_scrollback_memory(&mut self, bytes: usize) {
+        self.scrollback.set_bytes_max(bytes);
+        self.damage.mark_all();
+    }
+
+    /// The bytes the scrollback's lines hold: each line's struct and its
+    /// heap, by capacity, counted against `sb-memory`.
+    pub fn scrollback_bytes(&self) -> usize {
+        self.scrollback.bytes()
+    }
+
     /// Empties the scrollback (ED 3).
     pub fn clear_scrollback(&mut self) {
         self.scrollback.clear();

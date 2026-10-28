@@ -156,7 +156,7 @@ impl Screen {
         if self.flags.alternate {
             return;
         }
-        let padded = self.scrollback.newest_mut().is_some_and(Line::unwrap);
+        let padded = self.scrollback.unwrap_newest();
         // The newest scrollback row is on the screen only while the view is
         // scrolled back.
         if padded && self.scrollback.offset() != 0 {

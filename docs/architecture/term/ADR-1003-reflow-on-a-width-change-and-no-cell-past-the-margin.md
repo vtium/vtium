@@ -162,6 +162,8 @@ A logical line's first row keeps its `LineId`. Each other row a rewrap makes tak
 
 > Note 2026-10-28 (vtium/vtium#41), corrected the same day: a rewrapped row may name more cluster bytes than its own cells' budget, by the pad columns a widening drops, an erased wide character's pad among them, and a last row's bytes on few cells. Across the scrollback and the screen the rows name at most twice the widest screen's budget a row and what a last row's few cells hold past 6 bytes each, `CLUSTER_MAX` bounding a cell: 3,012 bytes a row at 170 columns, 2.95 times the budget. ADR-1001's worst case grows to 7,560 bytes a row, 720.98 MiB at 100,000 rows from 531.01, and the default scrollback's worst case passes the minspec peak (ADR-1001's note). The rows of a logical line joined by a widening reach about 1.4 times the budget a row in the shapes `crates/vtium-term/tests/flood.rs` builds; the bound is what can be proved, and is not reached there.
 
+> Note 2026-10-28 (vtium/vtium#131): the scrollback also holds at most `sb-memory` bytes, each row costing what it holds, waiting or rewrapped, so the default scrollback's worst case is back inside the 16 MiB minspec peak (ADR-1001's note). A rewrap that the view or a drop reaches drops the oldest rows past the budget, as a new line does. Past the budget the rows dropped follow what the rows cost as held, so a lazy rewrap and an eager one may keep a different number of the oldest rows; inside it they agree.
+
 ### Cost: the screen at once, the rest on demand
 
 At once, as the resize happens:

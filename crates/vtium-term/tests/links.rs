@@ -6,7 +6,7 @@
 mod common;
 
 use common::{rows, scrollback, term};
-use vtium_term::{Age, LINKS_BYTES_MAX, LineFlags, LinkId, Palette, Screen, Terminal};
+use vtium_term::{Age, LINKS_BYTES_MAX, Line, LineFlags, LinkId, Palette, Screen, Terminal};
 
 /// `OSC 8 ; params ; uri ST`.
 fn osc8(params: &str, uri: &str) -> String {
@@ -225,6 +225,15 @@ fn a_flood_of_links_strips_the_oldest_scrollback_lines_first() {
     assert!(first > 0, "the oldest lines lost their links");
     assert!(linked[first..].iter().all(|&l| l), "only the oldest did");
     assert_eq!(scrollback(s).len(), 577, "the text stays");
+    let held: usize = s
+        .scrollback()
+        .map(|l| size_of::<Line>() + l.heap_bytes())
+        .sum();
+    assert_eq!(
+        s.scrollback_bytes(),
+        held,
+        "the byte count follows the strips"
+    );
 
     let mut chunked = with_scrollback(4, 24, 1000);
     for piece in bytes.chunks(97) {

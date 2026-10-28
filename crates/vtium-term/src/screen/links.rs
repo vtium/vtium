@@ -103,9 +103,9 @@ impl Screen {
             .fold(0, usize::saturating_add);
         let free = |live: usize| LINKS_BYTES_MAX.saturating_sub(live.saturating_add(cost));
         let mut stripped = false;
-        for line in self.scrollback.all_rows_mut() {
+        self.scrollback.rows_mut_while(|line| {
             if free(live) >= LINKS_BYTES_MAX / 4 {
-                break;
+                return false;
             }
             for &link in line.link_table() {
                 if let Some(r) = refs.get_mut(slot(link)) {
@@ -116,7 +116,8 @@ impl Screen {
                 }
             }
             stripped |= line.strip_links();
-        }
+            true
+        });
         stripped
     }
 
@@ -126,10 +127,13 @@ impl Screen {
         let keep: Vec<bool> = refs.iter().map(|&r| r > 0).collect();
         let map = self.links.retain(&keep);
         let rename = |link: LinkId| map.get(slot(link)).copied().flatten();
-        let lines = self.main.iter_mut().chain(&mut self.alt);
-        for line in lines.chain(self.scrollback.all_rows_mut()) {
+        for line in self.main.iter_mut().chain(&mut self.alt) {
             line.rename_links(rename);
         }
+        self.scrollback.rows_mut_while(|line| {
+            line.rename_links(rename);
+            true
+        });
         self.hover.link = self.hover.link.and_then(rename);
     }
 

@@ -300,3 +300,18 @@ pub fn rows(screen: &Screen) -> Vec<String> {
 pub fn scrollback(screen: &Screen) -> Vec<String> {
     screen.scrollback().map(line_text).collect()
 }
+
+/// The most cluster bytes a row of the scrollback and the screen names on
+/// average, for a widest screen of `widest` columns: twice the widest
+/// screen's budget a row, and the most a last row's few cells hold beyond
+/// `CLUSTER_BYTES_PER_CELL` each (`flood.rs` derives it).
+pub fn row_bound(widest: usize) -> usize {
+    use vtium_term::{CLUSTER_BYTES_PER_CELL, CLUSTER_MAX};
+    let budget = CLUSTER_BYTES_PER_CELL * widest;
+    let cluster_max = 1 + CLUSTER_MAX * 4;
+    let last = (1..=widest)
+        .map(|t| budget.min(cluster_max * t) - CLUSTER_BYTES_PER_CELL * t)
+        .max()
+        .unwrap_or(0);
+    2 * budget + last
+}
