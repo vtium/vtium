@@ -68,8 +68,8 @@ while IFS= read -r line || [ -n "$line" ]; do
 	text=${text//\{vt\}/$vt}
 	text=${text//\{desktop\}/$desktop}
 	# "Logo" was misread at the C reference's first guided pass; a guide names
-	# the key as the operator's keyboard does.
-	[[ ! ${text,,} =~ (^|[^[:alnum:]])logo([^[:alnum:]]|$) ]] ||
+	# the key as the operator's keyboard does. A command's words are not prose.
+	[ "$key" = run ] || [[ ! ${text,,} =~ (^|[^[:alnum:]])logo([^[:alnum:]]|$) ]] ||
 		die "$guide:$n: name the Super (Windows) key, not Logo"
 	s=$((${#titles[@]} - 1))
 	case $key in
@@ -195,14 +195,22 @@ shell() {
 }
 
 # A run: step's command, shown as at the shell step's prompt and run on this
-# terminal by a shell with no rc files. A key pressed while it runs is
-# dropped, so it never answers the step.
+# terminal by a shell with no rc files. A key pressed while it runs is neither
+# echoed onto the picture nor kept, so it never answers the step. Ctrl-C
+# stops the command, and Ctrl-\ the program it runs, as at a prompt: the trap
+# keeps them from ending the checks, and the command, which gets the default
+# actions, ends with its status.
 run() {
-	local status=0
+	local status=0 saved
 	note "  run: $1"
 	printf 'vtium-check$ %s\n' "$1"
+	trap : INT QUIT
+	saved=$(stty -g)
+	stty -echo
 	/bin/bash --noprofile --norc -c "$1" || status=$?
 	while read -r -s -n 1 -t 0.05 _; do :; done
+	stty "$saved"
+	trap - INT QUIT
 	[ "$status" -eq 0 ] || {
 		printf '\nThe command exited with status %s.\n' "$status"
 		note "  command exited with status $status"

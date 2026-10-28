@@ -82,7 +82,7 @@ A guide is `tools/vt/checks/NAME.guide`, lines of `key: text`; blank lines and l
 | `title:` | once, before the first step: the first screen's heading and the log's header |
 | `intro:` | a line for the first screen, before the first step |
 | `step:` | starts a step, with its title |
-| `run:` | the step's command, one line, shown under `Run:`. Enter runs it on the guide's terminal, vtium's VT, through `bash --noprofile --norc -c`, echoed after the prompt `vtium-check$ ` as a shell would show it, and the step asks once it ends; a status other than 0 is shown and logged. A key pressed while it runs is dropped, so it never answers the step. |
+| `run:` | the step's command, one line, shown under `Run:`. Enter runs it on the guide's terminal, vtium's VT, through `bash --noprofile --norc -c`, echoed after the prompt `vtium-check$ ` as a shell would show it, and the step asks once it ends; a status other than 0 is shown and logged. A key pressed while it runs is neither echoed onto the picture nor kept, so it never answers the step. Ctrl-C stops the command, and Ctrl-\ the program it runs at that moment, as at a prompt; the checks go on, and the step asks. |
 | `probe:` | the step's mode: `shell`, an interactive shell with the prompt `vtium-check$ `, or a mode of `checks/probe.py` (`probe.py --list`), which sets a terminal mode and prints each sequence the terminal sends, timed. A step has a `run:` or a `probe:`, not both, and one without either asks once Enter is pressed. |
 | `do:`, `expect:` | a line shown as typed under `Do:` or `Expect:`; each step needs an `expect:` line, and a `do:` or `run:` line |
 

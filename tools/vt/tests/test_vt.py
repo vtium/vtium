@@ -955,7 +955,8 @@ class Guide(Case):
         self.refused(self.check(ok, steps="2"), "'2' is not a step of this guide (1 to 1)")
         self.assertEqual(self.check(ok, steps="1").returncode, 0)
         # A step whose command is all it needs, with no do: line.
-        p = self.check("title: T\nstep: S\nrun: echo {vt}\nexpect: e\nstep: U\ndo: d\nexpect: e\n")
+        # The Logo rule reads the prose, not a command's words.
+        p = self.check("title: T\nstep: S\nrun: ls /usr/share/logo\nexpect: e\nstep: U\ndo: d\nexpect: e\n")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(p.stdout, "T: 2 steps\n   1  run          S\n   2  (no probe)   U\n")
 
@@ -1046,12 +1047,14 @@ class Guide(Case):
         ran = "printf 'ran %s on %s\\n' $((6 * 7)) \"$(tty)\"; sleep 2"
         write(guide, "title: Run guide\n"
                      f"step: Ran\nrun: {ran}\ndo: keep still\nexpect: ran 42\n"
-                     "step: Failed\nrun: echo VT {vt}; exit 3\nexpect: VT 6\n", 0o644)
+                     "step: Failed\nrun: echo VT {vt}; exit 3\nexpect: VT 6\n"
+                     "step: Stopped\nrun: echo started; sleep 30; echo not reached\nexpect: started\n"
+                     "step: Quit\nrun: echo begun; sleep 30\nexpect: begun\n", 0o644)
         g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
         g.wait_for(b"Press Enter to begin.")
         g.send(b"\r")
         # The step shows the command before it runs, under Run:.
-        g.wait_for(b"Step 1 of 2: Ran")
+        g.wait_for(b"Step 1 of 4: Ran")
         g.wait_for(b"Run:    " + ran.encode())
         g.wait_for(b"Do:     keep still")
         g.wait_for(b"Expect: ran 42")
@@ -1063,13 +1066,15 @@ class Guide(Case):
         g.wait_for(b"ran 42 on /dev/pts/")
         g.wait_for(b"\r\n")
         tty = g.seen.split(b"ran 42 on ")[1].split(b"\r\n")[0].decode()
-        # A key pressed while the command runs answers nothing.
-        g.send(b"y")
+        # A key pressed while the command runs is not drawn on the picture,
+        # and answers nothing.
+        g.send(b"yz")
         g.wait_for(b"[y]es [n]o [s]kip: ")
+        self.assertNotIn(b"yz", g.seen)
         g.send(b"n")
         g.wait_for(b"Note (Enter for none): ")
         g.send(b"\r")
-        g.wait_for(b"Step 2 of 2: Failed")
+        g.wait_for(b"Step 2 of 4: Failed")
         g.wait_for(b"Run:    echo VT 6; exit 3")
         g.wait_for(b"Press Enter to run it (")
         g.send(b"\r")
@@ -1079,15 +1084,42 @@ class Guide(Case):
         g.send(b"s")
         g.wait_for(b"Note (Enter for none): ")
         g.send(b"\r")
+        # Ctrl-C stops the command, and Ctrl-\ the program it runs, as at a
+        # prompt; the checks go on, the step asks with the status, and the
+        # keys echo again.
+        for k, title, out, key, status in ((3, "Stopped", b"started", b"\x03", 130),
+                                           (4, "Quit", b"begun", b"\x1c", 131)):
+            g.wait_for(f"Step {k} of 4: {title}".encode())
+            g.wait_for(b"Press Enter to run it (")
+            g.send(b"\r")
+            g.wait_for(out + b"\r\n")
+            # The key goes in once sleep runs: bash ignores Ctrl-\, so one
+            # sent between echo and sleep would reach no program.
+            end = time.monotonic() + 10
+            while subprocess.run(["pgrep", "-s", str(g.pid), "-x", "sleep"], capture_output=True).returncode:
+                self.assertLess(time.monotonic(), end, "sleep never started")
+                time.sleep(0.02)
+            g.send(key)
+            g.wait_for(f"The command exited with status {status}.".encode())
+            g.wait_for(b"[y]es [n]o [s]kip: ")
+            g.send(b"n")
+            g.wait_for(b"Note (Enter for none): ")
+            g.send(b"cut short\r")
+            g.wait_for(b"cut short")
+        self.assertNotIn(b"\r\nnot reached", g.seen)
         g.wait_for(b"Press Enter to end the run.")
         g.send(b"\r")
         self.assertEqual(g.finish(), 0)
         log = read(os.path.join(self.s.dir, "vt-check.log")).splitlines()
         self.assertRegex(log[0], r"^=== Run guide, \S+, guide " + guide + ", tty " + tty + ", steps all$")
-        self.assertEqual(log[1:8], ["-- step 1 of 2: Ran", "  run: " + ran, "  answer: no",
-                                    "-- step 2 of 2: Failed", "  run: echo VT 6; exit 3",
-                                    "  command exited with status 3", "  answer: skip"])
-        self.assertRegex(log[8], r"^=== done ")
+        self.assertEqual(log[1:16], ["-- step 1 of 4: Ran", "  run: " + ran, "  answer: no",
+                                     "-- step 2 of 4: Failed", "  run: echo VT 6; exit 3",
+                                     "  command exited with status 3", "  answer: skip",
+                                     "-- step 3 of 4: Stopped", "  run: echo started; sleep 30; echo not reached",
+                                     "  command exited with status 130", "  answer: no  note: cut short",
+                                     "-- step 4 of 4: Quit", "  run: echo begun; sleep 30",
+                                     "  command exited with status 131", "  answer: no  note: cut short"])
+        self.assertRegex(log[16], r"^=== done ")
 
 
 class Demo(Case):
