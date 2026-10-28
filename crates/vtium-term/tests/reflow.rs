@@ -842,3 +842,40 @@ fn reflow_cost() {
         );
     }
 }
+
+/// The time, the least of three runs, to lower the byte budget under a
+/// logical line of `rows` rows with no wide character, waiting after a
+/// narrowing, so that nearly all of it goes.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a scaling check reads the clock; nothing it reads reaches the screen"
+)]
+fn drop_time(rows: usize) -> std::time::Duration {
+    (0..3)
+        .map(|_| {
+            let mut t = Terminal::new(100, 4, 100_000);
+            t.screen_mut().set_scrollback_max(100_000);
+            t.screen_mut().set_scrollback_memory(1 << 30);
+            t.input("x".repeat(100 * rows).as_bytes());
+            t.screen_mut().resize(99, 4);
+            let start = std::time::Instant::now();
+            t.screen_mut().set_scrollback_memory(1 << 12);
+            let took = start.elapsed();
+            assert!(t.screen().scrollback_bytes() <= 1 << 12);
+            took
+        })
+        .min()
+        .unwrap()
+}
+
+// vtium/vtium#131's review: dropping past `sb-memory` from a waiting line
+// that breaks by length is linear in the rows dropped. Four times the rows
+// take about four times as long; a drop a row at a time took sixteen.
+#[test]
+fn dropping_past_the_byte_budget_is_linear() {
+    let (small, large) = (drop_time(2000), drop_time(8000));
+    assert!(
+        large < small * 8,
+        "2,000 rows {small:?}, 8,000 rows {large:?}"
+    );
+}

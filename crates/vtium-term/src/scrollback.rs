@@ -404,11 +404,49 @@ impl Scrollback {
         }
     }
 
-    /// Drops the oldest rows past `sb-memory`.
+    /// Drops the oldest rows past `sb-memory`, as many at once as
+    /// [`rows_to_free`](Self::rows_to_free) finds, so a long waiting line
+    /// is read once a drop and not once a row.
     fn enforce_bytes(&mut self) {
         while self.bytes > self.bytes_max && self.total() > 0 {
-            self.drop_oldest(1);
+            let n = self.rows_to_free(self.bytes.saturating_sub(self.bytes_max));
+            self.drop_oldest(n);
         }
+    }
+
+    /// How many of the oldest rows to drop to free `excess` bytes, at least
+    /// one, reading no further than the oldest logical line still waiting:
+    /// rows already rewrapped are counted by what each costs, and of a
+    /// waiting line that costs more than `excess`, its share of its rows.
+    fn rows_to_free(&self, excess: usize) -> usize {
+        let w = &self.waiting;
+        let enough = |rows: &mut dyn Iterator<Item = &Line>| {
+            let mut freed = 0usize;
+            let n = rows
+                .take_while(|row| {
+                    let more = freed < excess;
+                    freed = freed.saturating_add(cost(row));
+                    more
+                })
+                .count();
+            n.max(1)
+        };
+        if w.count == 0 {
+            return enough(&mut self.lines.iter());
+        }
+        if w.ready > 0 {
+            return enough(&mut w.rows.range(..w.ready));
+        }
+        let (len, rows) = w.oldest();
+        let held = charge(w.rows.range(..len));
+        if held <= excess {
+            return rows.max(1);
+        }
+        let share = u128::try_from(excess)
+            .unwrap_or(u128::MAX)
+            .saturating_mul(u128::try_from(rows).unwrap_or(u128::MAX))
+            .div_ceil(u128::try_from(held).unwrap_or(u128::MAX).max(1));
+        usize::try_from(share).unwrap_or(rows).clamp(1, rows.max(1))
     }
 
     /// Drops the `n` oldest rows. A waiting logical line dropped whole is
