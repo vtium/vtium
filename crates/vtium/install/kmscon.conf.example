@@ -218,5 +218,8 @@
 ## The glyph cache's budgets. Unset, `minspec`, or `performance` in a build with vtium-render's `performance-cache` feature.
 #glyph-cache=
 
+## Each display's depth. `1` draws it in black and white, each cell lit or unlit by its colors, never by their brightness; `color` draws its colors; `auto` draws at 1 bit a display that says it is 1-bit: an fbdev device at 1 bit, or a DRM panel whose driver vtium-platform lists.
+#display-depth=auto
+
 ## Measure each display's frames once a second, and write the figures to the log, draw them on screen, or both.
 #render-timer=none

@@ -58,7 +58,7 @@ use vtium_platform::pty::{Erase, Pty, Size};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
 use vtium_platform::vt::{Switch, Vt, VtEvent};
 use vtium_render::{
-    Config as RenderConfig, DecorationColors, DrawState, Orientation, PointerShape, Profile,
+    Config as RenderConfig, DecorationColors, Depth, DrawState, Orientation, PointerShape, Profile,
 };
 use vtium_term::{
     BlankRequest, BlankTimeout, Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal,
@@ -564,7 +564,10 @@ impl App {
             font,
             size,
             refresh,
-            self.render_config(),
+            RenderConfig {
+                depth: depth(&self.config, video.monochrome(id)),
+                ..self.render_config()
+            },
             self.measure(),
         );
         if self.config.switch(&keys::SOFT_CURSOR) {
@@ -1804,9 +1807,37 @@ pub fn open_video(
     Ok(())
 }
 
+/// A display's depth: `display-depth`, else, at `auto`, what the device
+/// says.
+fn depth(config: &Config, monochrome: bool) -> Depth {
+    match config.text(&keys::DISPLAY_DEPTH) {
+        Some("1") => Depth::One,
+        Some("color") => Depth::Color,
+        _ if monochrome => Depth::One,
+        _ => Depth::Color,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_depth_overrides_what_the_device_says() {
+        let config = |args: &[&str]| {
+            let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+            crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None)).config
+        };
+        for (args, mono, want) in [
+            (&[][..], false, Depth::Color),
+            (&[][..], true, Depth::One),
+            (&["--display-depth=auto"][..], true, Depth::One),
+            (&["--display-depth=1"][..], false, Depth::One),
+            (&["--display-depth=color"][..], true, Depth::Color),
+        ] {
+            assert_eq!(depth(&config(args), mono), want, "{args:?} {mono}");
+        }
+    }
 
     #[test]
     fn a_wheel_event_is_one_report_a_zoom_or_a_scroll_whatever_its_steps() {
