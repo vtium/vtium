@@ -89,9 +89,10 @@ fn text_placed_by_cursor_movement_does_not_move() {
 // rewraps around the saved cursor meanwhile.
 #[test]
 fn the_alternate_screen_is_cut_and_never_rewrapped() {
-    let mut t = term(
+    let mut t = with_scrollback(
         8,
         2,
+        100,
         b"abcdefghij\x1b[?1049h\x1b[44m\x1b[2J\x1b[m\x1b[HABCDEFGHIJ",
     );
     t.resize(4, 2);
