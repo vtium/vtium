@@ -37,7 +37,6 @@ use core::ops::Range;
 
 use super::Screen;
 use crate::cell::Width;
-use crate::line::LineFlags;
 use crate::style::{Attrs, Style};
 
 /// Which cells of a region an erase clears.
@@ -158,7 +157,7 @@ impl Screen {
             return;
         }
         if let Some(line) = self.scrollback.newest_mut() {
-            line.flags_mut().remove(LineFlags::WRAPPED);
+            line.unwrap();
         }
     }
 
@@ -167,7 +166,7 @@ impl Screen {
     pub(super) fn unwrap_rows(&mut self, rows: impl IntoIterator<Item = usize>) {
         for y in rows {
             if let Some(line) = self.line_mut(y) {
-                line.flags_mut().remove(LineFlags::WRAPPED);
+                line.unwrap();
             }
         }
     }
@@ -341,7 +340,7 @@ impl Screen {
             gone.into_iter()
                 .filter_map(|mut line| {
                     if below_top {
-                        line.flags_mut().remove(LineFlags::WRAPPED);
+                        line.unwrap();
                     }
                     self.scrollback.push(line)
                 })

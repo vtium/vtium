@@ -73,8 +73,8 @@ pub enum LineSize {
 }
 
 /// What a line records about itself in 16 bits: the reflow flag, the
-/// three shell-integration marks, the line size, and ten bits spare for
-/// bidirectional state (vtium/vtium#43).
+/// three shell-integration marks, the line size, the mark of mode 2028
+/// reset, and nine bits spare for bidirectional state (vtium/vtium#43).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LineFlags(u16);
 
@@ -90,8 +90,13 @@ impl LineFlags {
     pub const INPUT: Self = Self(1 << 2);
     /// OSC 133 C: the command's output starts on this line.
     pub const OUTPUT: Self = Self(1 << 3);
+    /// Written while mode 2028 was reset: a resize never rewraps the line,
+    /// and cuts it at a narrower margin (ADR-1003).
+    pub const FIXED: Self = Self(1 << 6);
+    /// The shell-integration marks.
+    pub const MARKS: Self = Self(Self::PROMPT.0 | Self::INPUT.0 | Self::OUTPUT.0);
 
-    const FLAGS: u16 = (1 << 4) - 1;
+    const FLAGS: u16 = ((1 << 4) - 1) | Self::FIXED.0;
     const SIZE_SHIFT: u16 = 4;
     const SIZE_MASK: u16 = 0b11 << Self::SIZE_SHIFT;
 
@@ -110,6 +115,11 @@ impl LineFlags {
 
     pub fn remove(&mut self, other: Self) {
         self.0 &= !(other.0 & Self::FLAGS);
+    }
+
+    /// The flags of `other` this one holds.
+    pub const fn intersection(self, other: Self) -> Self {
+        Self(self.0 & other.0 & Self::FLAGS)
     }
 
     pub const fn size(self) -> LineSize {
@@ -181,18 +191,27 @@ impl Tables {
 /// A row of cells.
 ///
 /// A line may hold fewer cells than the grid is wide: a line trimmed for
-/// the scrollback keeps no trailing blank cells. Every cell past its end
-/// reads as [`Cell::BLANK`], in the default style, whatever the pen.
+/// the scrollback keeps its text and drops its fill, the run of empty
+/// cells of one style that ended it at the margin, keeping the fill's
+/// style. Every cell past its end reads as an empty cell in that style,
+/// whatever the pen: the default style unless the program erased the
+/// line's end in a colour (ADR-1003).
+///
+/// A [`Width::Pad`] cell sits only in the last column of a wrapped line:
+/// an edit that ends the wrap, or moves the cell, makes it an empty narrow
+/// cell.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Line {
     cells: Vec<Cell>,
     tables: Option<Box<Tables>>,
     id: LineId,
     flags: LineFlags,
+    /// The style index of the cells past the line's end.
+    fill: u16,
 }
 
 // The Vec and the Box are four pointer-sized words, so a Line is 48 bytes
-// on 64-bit targets and 32 on armv7.
+// on 64-bit targets and 32 on armv7; the fill takes 2 of the padding.
 #[cfg(target_pointer_width = "64")]
 const _: () = assert!(size_of::<Line>() == 48);
 #[cfg(target_pointer_width = "32")]
@@ -206,6 +225,18 @@ impl Line {
             tables: None,
             id,
             flags: LineFlags::empty(),
+            fill: 0,
+        }
+    }
+
+    /// An empty line with room for `cols` cells, for a rewrap to fill.
+    pub(crate) fn with_capacity(id: LineId, flags: LineFlags, cols: usize) -> Self {
+        Self {
+            cells: Vec::with_capacity(cols.min(COLUMNS_MAX)),
+            tables: None,
+            id,
+            flags,
+            fill: 0,
         }
     }
 
@@ -221,6 +252,31 @@ impl Line {
         &mut self.flags
     }
 
+    /// Ends the line's wrap: its text no longer continues on the next
+    /// line. A pad in its last column becomes an empty narrow cell.
+    pub fn unwrap(&mut self) {
+        self.flags.remove(LineFlags::WRAPPED);
+        if let Some(last) = self.cells.last_mut()
+            && last.width() == Width::Pad
+        {
+            *last = Cell::new(Content::Empty, Width::Narrow, last.style(), last.link());
+        }
+    }
+
+    /// The style of the cells past the line's end.
+    pub fn fill(&self) -> Style {
+        self.style(self.fill_cell())
+    }
+
+    fn fill_cell(&self) -> Cell {
+        Cell::new(
+            Content::Empty,
+            Width::Narrow,
+            StyleIndex(self.fill),
+            LinkIndex(0),
+        )
+    }
+
     /// The cells the line stores.
     pub fn len(&self) -> usize {
         self.cells.len()
@@ -234,9 +290,13 @@ impl Line {
         &self.cells
     }
 
-    /// The cell at `col`, or [`Cell::BLANK`] past the line's end.
+    /// The cell at `col`, or past the line's end an empty cell in its
+    /// fill.
     pub fn cell(&self, col: usize) -> Cell {
-        self.cells.get(col).copied().unwrap_or(Cell::BLANK)
+        self.cells
+            .get(col)
+            .copied()
+            .unwrap_or_else(|| self.fill_cell())
     }
 
     /// The style `cell` names in this line's table.
@@ -364,6 +424,13 @@ impl Line {
         if let Some(cells) = self.cells.get_mut(end.saturating_sub(n)..end) {
             cells.fill(blank);
         }
+        // A pad that left the last column is an empty cell.
+        let moved = at..end.saturating_sub(n);
+        for cell in self.cells.get_mut(moved).unwrap_or_default() {
+            if cell.width() == Width::Pad {
+                *cell = Cell::new(Content::Empty, Width::Narrow, cell.style(), cell.link());
+            }
+        }
     }
 
     /// The bytes of the cluster arena the line's cells name, length bytes
@@ -375,31 +442,172 @@ impl Line {
     }
 
     /// Makes the line `cols` cells long, at most [`COLUMNS_MAX`]: cells
-    /// past the new end are dropped, and new cells are blank. Shrinking
-    /// compacts the tables, so they hold no more than the shorter line can
-    /// name.
+    /// past the new end are dropped, a wide character the new end cuts
+    /// becomes an empty cell, and new cells are empty in the line's fill.
+    /// Shrinking compacts the tables, so they hold no more than the shorter
+    /// line can name.
     pub fn resize(&mut self, cols: usize) {
         let cols = cols.min(COLUMNS_MAX);
         let shrinking = cols < self.cells.len();
-        self.cells.resize(cols, Cell::BLANK);
+        let fill = self.fill_cell();
+        self.cells.resize(cols, fill);
         if shrinking {
+            if let Some(last) = self.cells.last_mut()
+                && last.width() == Width::Wide
+            {
+                if let (Content::Cluster(ClusterOffset(o)), Some(t)) =
+                    (last.content(), self.tables.as_mut())
+                {
+                    t.live = t.live.saturating_sub(t.cluster_size(o));
+                }
+                *last = Cell::new(Content::Empty, Width::Narrow, last.style(), LinkIndex(0));
+            }
+            if self.flags.contains(LineFlags::WRAPPED) {
+                self.unwrap();
+            }
             self.cells.shrink_to_fit();
             self.compact();
             self.shrink_tables();
         }
     }
 
-    /// Readies the line for the scrollback: drops its trailing blank
-    /// cells, compacts its tables and gives back spare capacity.
+    /// Readies the line for the scrollback, as [`trim_to`](Self::trim_to)
+    /// with no cell to keep.
     pub fn trim(&mut self) {
-        let keep = self
-            .cells
-            .iter()
-            .rposition(|c| !c.is_blank())
-            .map_or(0, |i| i.saturating_add(1));
-        self.cells.truncate(keep);
+        self.trim_to(0);
+    }
+
+    /// Readies the line for the scrollback, or a rewrap, keeping at least
+    /// its first `keep` cells: a wrapped line keeps every cell, as all of
+    /// them are text; any other drops its fill, the run of empty, narrow,
+    /// unlinked cells of one style that ends it, and keeps that style as
+    /// the style of the cells past its end. It compacts its tables and
+    /// gives back spare capacity.
+    pub fn trim_to(&mut self, keep: usize) {
+        if !self.flags.contains(LineFlags::WRAPPED) {
+            let (text, fill) = self.text_and_fill();
+            self.cells.truncate(text.max(keep));
+            self.fill = fill.0;
+        }
         self.cells.shrink_to_fit();
         self.compact();
+        self.shrink_tables();
+    }
+
+    /// Where the line's text ends, and the style of its fill: the run of
+    /// empty, narrow, unlinked cells of one style that ends it, or the
+    /// line's own fill past its end. Text that reaches the end leaves the
+    /// default style.
+    fn text_and_fill(&self) -> (usize, StyleIndex) {
+        let fills = |c: &Cell, style: StyleIndex| {
+            c.content() == Content::Empty
+                && c.width() == Width::Narrow
+                && c.link() == LinkIndex(0)
+                && c.style() == style
+        };
+        let Some(&last) = self.cells.last() else {
+            return (0, StyleIndex(self.fill));
+        };
+        if !fills(&last, last.style()) {
+            return (self.cells.len(), StyleIndex(0));
+        }
+        let start = self
+            .cells
+            .iter()
+            .rposition(|c| !fills(c, last.style()))
+            .map_or(0, |i| i.saturating_add(1));
+        (start, last.style())
+    }
+
+    /// Paints the line to `cols` cells, the cells past its text in its
+    /// fill, as a rewrapped line takes its place on the screen.
+    pub(crate) fn paint(&mut self, cols: usize) {
+        let fill = self.fill_cell();
+        self.cells.resize(cols.min(COLUMNS_MAX), fill);
+    }
+
+    /// Appends `cell` of `src`, its style, link and cluster copied into
+    /// this line's tables through `map`, which holds the indices already
+    /// copied from `src` into this line; `width` replaces its width, and
+    /// `empty` its content. A cluster is copied whole, past this line's
+    /// own budget if need be: a rewrap keeps a logical line's clusters,
+    /// and a later write is held to the line's budget.
+    pub(crate) fn push_from(
+        &mut self,
+        src: &Line,
+        cell: Cell,
+        width: Width,
+        empty: bool,
+        map: &mut IndexMap,
+    ) {
+        let (style, link) = self.map_indices(src, cell.style(), cell.link(), map);
+        let content = match cell.content() {
+            _ if empty => Content::Empty,
+            Content::Cluster(ClusterOffset(o)) => src
+                .tables
+                .as_ref()
+                .and_then(|t| t.cluster(o))
+                .and_then(|s| self.copy_cluster(s))
+                .unwrap_or(Content::Empty),
+            other => other,
+        };
+        if self.cells.len() < COLUMNS_MAX {
+            self.cells.push(Cell::new(content, width, style, link));
+        }
+    }
+
+    /// Appends a pad in the background of `cell` of `src`, as printing
+    /// clears the column a wide character leaves (ADR-1003).
+    pub(crate) fn push_pad(&mut self, src: &Line, cell: Cell) {
+        let pad = Style {
+            bg: src.style(cell).bg,
+            ..Style::DEFAULT
+        };
+        let style = self.intern_style(&pad);
+        if self.cells.len() < COLUMNS_MAX {
+            self.cells
+                .push(Cell::new(Content::Empty, Width::Pad, style, LinkIndex(0)));
+        }
+    }
+
+    /// Sets the line's fill to the fill of `src`, copied through `map`.
+    pub(crate) fn set_fill_from(&mut self, src: &Line, map: &mut IndexMap) {
+        let (style, _) = self.map_indices(src, StyleIndex(src.fill), LinkIndex(0), map);
+        self.fill = style.0;
+    }
+
+    /// The indices in this line's tables of `style` and `link` of `src`.
+    fn map_indices(
+        &mut self,
+        src: &Line,
+        style: StyleIndex,
+        link: LinkIndex,
+        map: &mut IndexMap,
+    ) -> (StyleIndex, LinkIndex) {
+        let Some(from) = src.tables.as_ref().filter(|_| style.0 != 0 || link.0 != 0) else {
+            return (StyleIndex(0), LinkIndex(0));
+        };
+        map.fit(from);
+        let to = self.tables.get_or_insert_default();
+        let style = remap(&mut map.styles, style.0, &from.styles, &mut to.styles);
+        let link = remap(&mut map.links, link.0, &from.links, &mut to.links);
+        (StyleIndex(style), LinkIndex(link))
+    }
+
+    /// Stores the cluster `s` whole.
+    fn copy_cluster(&mut self, s: &str) -> Option<Content> {
+        let t = self.tables.get_or_insert_default();
+        let len = u8::try_from(s.len()).ok()?;
+        let offset = u32::try_from(t.clusters.len()).ok()?;
+        t.clusters.push(len);
+        t.clusters.extend_from_slice(s.as_bytes());
+        t.live = t.live.saturating_add(s.len()).saturating_add(1);
+        Some(Content::Cluster(ClusterOffset(offset)))
+    }
+
+    /// Gives back spare capacity, once a rewrap has filled the line.
+    pub(crate) fn shrink(&mut self) {
+        self.cells.shrink_to_fit();
         self.shrink_tables();
     }
 
@@ -473,6 +681,8 @@ impl Line {
             };
             *cell = Cell::new(content, cell.width(), StyleIndex(style), LinkIndex(link));
         }
+        let fill = remap(&mut styles, self.fill, &old.styles, &mut new.styles);
+        self.fill = fill;
         new.live = new.clusters.len();
         if !new.is_empty() {
             self.tables = Some(Box::new(new));
@@ -551,6 +761,32 @@ impl Line {
         t.clusters.extend_from_slice(bytes);
         t.live = t.live.saturating_add(end).saturating_add(1);
         Content::Cluster(ClusterOffset(offset))
+    }
+}
+
+/// The indices a rewrap has copied from one source line's tables into the
+/// line it builds: entry `i` holds the new index of old index `i + 1`, 0
+/// until copied. A rewrap clears it for each pair of lines.
+#[derive(Debug, Default)]
+pub(crate) struct IndexMap {
+    styles: Vec<u16>,
+    links: Vec<u16>,
+}
+
+impl IndexMap {
+    pub(crate) fn clear(&mut self) {
+        self.styles.clear();
+        self.links.clear();
+    }
+
+    /// Makes room for every index of `tables`.
+    fn fit(&mut self, tables: &Tables) {
+        if self.styles.len() < tables.styles.len() {
+            self.styles.resize(tables.styles.len(), 0);
+        }
+        if self.links.len() < tables.links.len() {
+            self.links.resize(tables.links.len(), 0);
+        }
     }
 }
 
@@ -827,6 +1063,73 @@ mod tests {
         assert!(line.cell(1).is_blank());
     }
 
+    // ADR-1003, "Logical lines": a line's fill is the run of empty cells
+    // of one style that ends it; empty cells before it stay as text, and
+    // cells past its end read in its style.
+    #[test]
+    fn trim_keeps_the_fill_as_the_style_past_the_end() {
+        let bce = Style {
+            bg: Color::Indexed(4),
+            ..Style::DEFAULT
+        };
+        let mut line = Line::new(LineId::new(1), 8);
+        line.write(0, Glyph::Char('a'), Width::Narrow, &Style::DEFAULT, None);
+        line.erase(3..8, &bce);
+        line.trim();
+        assert_eq!(line.len(), 3);
+        assert_eq!(line.fill(), bce);
+        assert_eq!(line.style(line.cell(6)), bce);
+        assert!(line.cell(1).is_blank());
+        // The fill survives compaction, and paints a widening.
+        line.resize(10);
+        assert_eq!(line.style(line.cell(9)), bce);
+        assert_eq!(line.cell(9).content(), Content::Empty);
+    }
+
+    // A wrapped line's cells are all text: trimming keeps them.
+    #[test]
+    fn trim_keeps_every_cell_of_a_wrapped_line() {
+        let mut line = Line::new(LineId::new(1), 6);
+        line.write(0, Glyph::Char('a'), Width::Narrow, &Style::DEFAULT, None);
+        line.flags_mut().insert(LineFlags::WRAPPED);
+        line.trim();
+        assert_eq!(line.len(), 6);
+        line.unwrap();
+        line.trim();
+        assert_eq!(line.len(), 1);
+    }
+
+    // A pad belongs only in the last column of a wrapped line.
+    #[test]
+    fn a_pad_that_leaves_the_end_of_a_wrapped_line_is_an_empty_cell() {
+        let pad = |line: &Line, col| line.cell(col).width() == Width::Pad;
+        let mut line = Line::new(LineId::new(1), 4);
+        line.write(3, Glyph::Empty, Width::Pad, &red(), None);
+        line.flags_mut().insert(LineFlags::WRAPPED);
+        let mut moved = line.clone();
+        moved.delete_cells(1, 1, 4, &Style::DEFAULT);
+        assert!(!pad(&moved, 2) && moved.cell(2).content() == Content::Empty);
+        assert_eq!(moved.style(moved.cell(2)), red());
+        line.unwrap();
+        assert!(!pad(&line, 3));
+        assert_eq!(line.style(line.cell(3)), red());
+    }
+
+    // A shrink cuts a wide character at the new end whole, and ends the
+    // wrap of a line whose text it cut.
+    #[test]
+    fn shrinking_cuts_a_wide_character_and_ends_the_wrap() {
+        let mut line = Line::new(LineId::new(1), 4);
+        line.write(1, Glyph::Cluster(FAMILY), Width::Wide, &Style::DEFAULT, None);
+        line.write(2, Glyph::Empty, Width::WideTail, &Style::DEFAULT, None);
+        line.flags_mut().insert(LineFlags::WRAPPED);
+        line.resize(2);
+        assert_eq!(line.cell(1).content(), Content::Empty);
+        assert_eq!(line.cell(1).width(), Width::Narrow);
+        assert_eq!(line.cluster_bytes(), 0);
+        assert!(!line.flags().contains(LineFlags::WRAPPED));
+    }
+
     #[test]
     fn erase_clips_to_the_line_and_gives_back_clusters() {
         let mut line = Line::new(LineId::new(1), 4);
@@ -962,7 +1265,9 @@ mod tests {
         let mut f = LineFlags::empty();
         f.insert(LineFlags::WRAPPED);
         f.insert(LineFlags::PROMPT);
+        f.insert(LineFlags::FIXED);
         f.set_size(LineSize::DoubleHeightBottom);
+        assert!(f.contains(LineFlags::FIXED));
         assert!(f.contains(LineFlags::WRAPPED));
         assert!(f.contains(LineFlags::PROMPT));
         assert!(!f.contains(LineFlags::OUTPUT));

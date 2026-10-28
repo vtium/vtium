@@ -338,7 +338,7 @@ impl FCell {
 fn frame_cell(c: &FrameCell<'_>, reverse: bool) -> FCell {
     FCell {
         width: match c.width {
-            Width::Narrow => 1,
+            Width::Narrow | Width::Pad => 1,
             Width::Wide => 2,
             Width::WideTail => 0,
         },
