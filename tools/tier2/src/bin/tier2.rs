@@ -2,43 +2,40 @@
 //! images.
 //!
 //! ```text
-//! tier2 run [--kmscon DIR] [--out DIR]
+//! tier2 run [--out DIR]
 //! tier2 render [--out DIR]
 //! tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]
-//! tier2 screens
+//! tier2 provenance [--kmscon DIR]
 //! ```
 //!
-//! `screens` prints vtium's unifont screens for the C reference's drawing
-//! program in `reference/`, one a line: the name, columns, rows, the
-//! display's width and height (0 for the grid's), the orientation, the
-//! width method, the bytes and the second part in hex (`-` for none), and
-//! the decoration colors: `-`, or `ul=`, `st=` and `force` between commas,
-//! a color `iN` for palette index N or `xRRGGBB`.
+//! `provenance` checks each copy of the C reference's files against its
+//! source in a kmscon checkout, read with `git show` and `git ls-tree` and
+//! nothing else, for a review of a change to the copies; no gate runs it.
 //!
 //! `run` exits 0 when every case passes, 1 when one does not and 2 when it
 //! refuses to run; `compare` exits 0 on pass or near, 1 on fail and 2 on
 //! an input it refuses.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode};
 
-use vtium_render::Orientation;
-use vtium_term::WidthMethod;
+use vtium_conformance::runner::provenance;
 use vtium_tier2::compare;
 use vtium_tier2::draw;
-use vtium_tier2::draw::{DecoSpec, FontKind};
 use vtium_tier2::ppm;
 use vtium_tier2::report::Status;
 use vtium_tier2::runner::{self, Run};
-use vtium_tier2::screens::{CASES, Source};
+use vtium_tier2::screens::CASES;
 use vtium_tier2::tol::Tolerance;
 
 const HERE: &str = env!("CARGO_MANIFEST_DIR");
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: tier2 run [--kmscon DIR] [--out DIR]\n       tier2 render [--out DIR]\n       \
-         tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]\n       tier2 screens"
+        "usage: tier2 run [--out DIR]\n       tier2 render [--out DIR]\n       \
+         tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]\n       \
+         tier2 provenance [--kmscon DIR]"
     );
     ExitCode::from(2)
 }
@@ -78,10 +75,31 @@ fn read(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// The rows of `provenance.tsv`, and the kmscon commit they all name.
+fn rows() -> Result<(Vec<provenance::Copy>, String), String> {
+    let copies = provenance::read(&read(&Path::new(HERE).join("provenance.tsv"))?)?;
+    let commit = provenance::commit(&copies, "kmscon")?.to_owned();
+    if copies.iter().any(|c| c.repo != "kmscon") {
+        return Err("provenance.tsv names a repository other than kmscon".to_owned());
+    }
+    Ok((copies, commit))
+}
+
+/// The kmscon commit the copies came from, once each copy is checked
+/// against its row of `provenance.tsv`.
+fn copies(root: &Path) -> Result<String, String> {
+    let (copies, commit) = rows()?;
+    let faults = provenance::check(root, &copies, &[runner::COPIED], &[]);
+    if faults.is_empty() {
+        Ok(commit)
+    } else {
+        Err(faults.join("\n"))
+    }
+}
+
 fn run(opts: &[(String, String)]) -> ExitCode {
     let here = Path::new(HERE);
     let root = here.join("../..");
-    let kmscon = opt(opts, "--kmscon").unwrap_or_else(|| root.join("../kmscon"));
     let out = opt(opts, "--out").unwrap_or_else(|| here.join("out"));
     let report = out.join("report.json");
     // a stale report never stands in for this run's
@@ -91,24 +109,19 @@ fn run(opts: &[(String, String)]) -> ExitCode {
         }
     }
     let lists = || -> Result<_, String> {
-        let pins = runner::pins(&read(&here.join("pin.tsv"))?)?;
-        let pin = pins
-            .into_iter()
-            .find(|p| p.name == "kmscon")
-            .ok_or("pin.tsv names no kmscon commit")?;
+        let commit = copies(&root)?;
         let departures = runner::departures(&read(&here.join("departures.tsv"))?)?;
         let pending = runner::pending(&read(&here.join("pending.tsv"))?)?;
         let provisional = runner::provisional(&read(&here.join("provisional.tsv"))?)?;
         let titles = runner::readme_departures(&read(&root.join("crates/vtium-render/README.md"))?);
-        let pinned = runner::extract(&kmscon, &pin, &out)?;
-        runner::check_ported(CASES, &read(&pinned.join(runner::SCREENS))?)?;
-        let goldens = pinned.join(runner::GOLDENS);
-        Ok((pin, departures, pending, provisional, titles, goldens))
+        runner::check_ported(CASES, &read(&here.join("reference/test_pixels.c"))?)?;
+        Ok((commit, departures, pending, provisional, titles))
     };
-    let (pin, departures, pending, provisional, titles, goldens) = match lists() {
+    let (commit, departures, pending, provisional, titles) = match lists() {
         Ok(x) => x,
         Err(e) => return refuse(e),
     };
+    let goldens = here.join("reference/goldens");
     let vtium_goldens = here.join("goldens");
     let r = Run {
         cases: CASES,
@@ -140,7 +153,7 @@ fn run(opts: &[(String, String)]) -> ExitCode {
         }
         println!("{line}");
     }
-    let tools = [("kmscon", pin.commit.clone())];
+    let tools = [("kmscon", commit)];
     if let Err(e) = runner::write_report(&report, &tools, &cases) {
         return refuse(e);
     }
@@ -234,52 +247,75 @@ fn compare_cmd(opts: &[(String, String)], files: &[String]) -> ExitCode {
     }
 }
 
-fn screens() -> ExitCode {
-    let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
-    for case in CASES {
-        let s = &case.screen;
-        if case.source != Source::Vtium || s.font != FontKind::Unifont {
-            continue;
-        }
-        let (w, h) = s.display.unwrap_or((0, 0));
-        let orientation = match s.orientation {
-            Orientation::Normal => "normal",
-            Orientation::Right => "right",
-            Orientation::UpsideDown => "upside-down",
-            Orientation::Left => "left",
-        };
-        let width = match s.width_method {
-            WidthMethod::Unicode => "unicode",
-            WidthMethod::Wcwidth => "wcwidth",
-        };
-        let spec = |d: DecoSpec| match d {
-            DecoSpec::Index(i) => format!("i{i}"),
-            DecoSpec::Rgb(r, g, b) => format!("x{r:02x}{g:02x}{b:02x}"),
-        };
-        let d = &s.decorations;
-        let deco: Vec<String> = [
-            d.underline.map(|u| format!("ul={}", spec(u))),
-            d.strike.map(|u| format!("st={}", spec(u))),
-            d.force.then(|| "force".to_owned()),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        println!(
-            "{}\t{}\t{}\t{w}\t{h}\t{orientation}\t{width}\t{}\t{}\t{}",
-            s.name,
-            s.cols,
-            s.rows,
-            hex(s.bytes),
-            s.next.map_or_else(|| "-".to_owned(), hex),
-            if deco.is_empty() {
-                "-".to_owned()
-            } else {
-                deco.join(",")
-            }
-        );
+/// `git -C DIR ARGS`'s output, or why it failed.
+fn git(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .map_err(|e| format!("git: {e}"))?;
+    if out.status.success() {
+        Ok(out.stdout)
+    } else {
+        Err(format!(
+            "git -C {} {}: {}",
+            dir.display(),
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
     }
-    ExitCode::SUCCESS
+}
+
+/// Each copy against its row of `provenance.tsv` and each row against its
+/// source, and the copied goldens with `pending.tsv` against the C
+/// reference's tier 2 goldens at the commit, the sources read from the
+/// checkout at `--kmscon`.
+fn provenance_cmd(opts: &[(String, String)]) -> ExitCode {
+    let here = Path::new(HERE);
+    let root = here.join("../..");
+    let kmscon = opt(opts, "--kmscon").unwrap_or_else(|| root.join("../kmscon"));
+    let result = || -> Result<(usize, Vec<String>), String> {
+        let (copies, commit) = rows()?;
+        let pending = runner::pending(&read(&here.join("pending.tsv"))?)?;
+        let mut faults = provenance::check(&root, &copies, &[runner::COPIED], &[]);
+        faults.extend(provenance::verify(&copies, |_, commit, path| {
+            git(&kmscon, &["show", &format!("{commit}:{path}")])
+        }));
+        let listing = git(
+            &kmscon,
+            &[
+                "ls-tree",
+                "--name-only",
+                &commit,
+                &format!("{}/", runner::GOLDENS),
+            ],
+        )?;
+        let at_pin: BTreeSet<String> = String::from_utf8_lossy(&listing)
+            .lines()
+            .filter_map(|l| l.rsplit('/').next().map(str::to_owned))
+            .collect();
+        let goldens = format!("{}/goldens/", runner::COPIED);
+        let copied: BTreeSet<String> = copies
+            .iter()
+            .filter_map(|c| c.path.strip_prefix(&goldens).map(str::to_owned))
+            .collect();
+        faults.extend(runner::check_pin(&at_pin, &copied, &pending));
+        Ok((copies.len(), faults))
+    };
+    let (rows, faults) = match result() {
+        Ok(x) => x,
+        Err(e) => return refuse(e),
+    };
+    for fault in &faults {
+        println!("FAIL {fault}");
+    }
+    println!("tier2 provenance: {rows} rows, {} fault(s)", faults.len());
+    if faults.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
 }
 
 fn main() -> ExitCode {
@@ -288,10 +324,10 @@ fn main() -> ExitCode {
         return usage();
     };
     let flags: &[&str] = match cmd.as_str() {
-        "run" => &["--kmscon", "--out"],
+        "run" => &["--out"],
         "render" => &["--out"],
         "compare" => &["--tol", "--diff"],
-        "screens" => &[],
+        "provenance" => &["--kmscon"],
         _ => return usage(),
     };
     let Some((opts, files)) = split(rest, flags) else {
@@ -301,7 +337,7 @@ fn main() -> ExitCode {
         "run" if files.is_empty() => run(&opts),
         "render" if files.is_empty() => render(&opts),
         "compare" => compare_cmd(&opts, &files),
-        "screens" if files.is_empty() => screens(),
+        "provenance" if files.is_empty() => provenance_cmd(&opts),
         _ => usage(),
     }
 }

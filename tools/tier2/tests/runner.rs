@@ -2,13 +2,14 @@
 //! each status the report gives, and the lists' checks before any case
 //! runs.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use vtium_tier2::draw::{self, Screen};
 use vtium_tier2::ppm::Image;
 use vtium_tier2::report::Status;
-use vtium_tier2::runner::{Departure, Pending, Run};
+use vtium_tier2::runner::{self, Departure, Pending, Run};
 use vtium_tier2::screens::{Case, Source};
 use vtium_tier2::tol::Rect;
 
@@ -74,7 +75,6 @@ impl Setup {
             fs::create_dir_all(d).unwrap();
         }
         put(&kmscon, "k-same", &golden(false));
-        put(&kmscon, "k-pending", &golden(false));
         put(&kmscon, "k-orphan", &golden(false));
         for n in ["v-same", "v-stale"] {
             put(&vtium, n, &golden(false));
@@ -227,12 +227,24 @@ fn lists_that_name_the_wrong_cases_are_refused() {
             .unwrap_err()
             .contains("which a screen draws")
     );
-    s.pending[0].golden = "k-nothing".to_owned();
+    s.pending[0].golden = "k-orphan".to_owned();
     assert!(
         s.run()
             .check_lists(&titles)
             .unwrap_err()
-            .contains("no golden")
+            .contains("which is copied")
+    );
+    s.pending[0].golden = "k-pending".to_owned();
+    let mut cases = CASES.to_vec();
+    cases.push(case("k-pending", Source::Vtium));
+    let run = Run {
+        cases: &cases,
+        ..s.run()
+    };
+    assert!(
+        run.check_lists(&titles)
+            .unwrap_err()
+            .contains("the C reference's name")
     );
     s.pending.clear();
     s.provisional = vec!["k-same".to_owned()];
@@ -292,4 +304,34 @@ fn a_sprites_only_screen_holding_a_combining_mark_is_refused() {
         let e = draw::draw(&sprites(bytes.as_bytes())).unwrap_err();
         assert!(e.contains("U+0301"), "{bytes:?}: {e}");
     }
+}
+
+#[test]
+fn every_golden_at_the_pin_is_copied_or_pending() {
+    let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<BTreeSet<_>>();
+    let pending = |g: &str| Pending {
+        golden: g.to_owned(),
+        issue: "vtium/vtium#24".to_owned(),
+        why: "outline-font text".to_owned(),
+    };
+    let at_pin = names(&["blocks.ppm", "blocks.tol", "ascii.ppm", "ascii.tol"]);
+    let copied = names(&["blocks.ppm", "blocks.tol"]);
+    assert_eq!(
+        runner::check_pin(&at_pin, &copied, &[pending("ascii")]),
+        Vec::<String>::new()
+    );
+    let faults = runner::check_pin(
+        &names(&["blocks.ppm", "blocks.tol", "ascii.ppm", "new.ppm"]),
+        &names(&["blocks.ppm", "gone.ppm"]),
+        &[pending("ascii"), pending("old")],
+    );
+    assert_eq!(
+        faults,
+        [
+            "blocks.tol is at the pin but neither copied nor pending",
+            "new.ppm is at the pin but neither copied nor pending",
+            "gone.ppm is copied but not at the pin",
+            "pending.tsv lists old, which the pin has no golden for",
+        ]
+    );
 }

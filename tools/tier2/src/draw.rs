@@ -99,7 +99,8 @@ pub struct Decorations {
 
 impl Decorations {
     /// The colors as the renderer takes them: an index resolved through
-    /// each frame's palette, as pixels.c resolves it on every frame.
+    /// each frame's palette, as the C reference resolved it on every frame
+    /// when it drew vtium's goldens.
     fn colors(&self) -> DecorationColors {
         let color = |spec: Option<DecoSpec>| match spec {
             None => DecoColor::Foreground,
@@ -386,8 +387,8 @@ fn draw_config<F: Face>(
 mod tests {
     use super::*;
 
-    // A decoration color that names an index follows the palette, as
-    // pixels.c resolved it on every frame: a second part that changes the
+    // A decoration color that names an index follows the palette, as the
+    // C reference resolved it on every frame: a second part that changes the
     // index with OSC 4 draws, where the renderer that took the color once
     // had the screen refused.
     #[test]
