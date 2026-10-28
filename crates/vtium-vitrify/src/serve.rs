@@ -16,9 +16,9 @@
 //! helper sent there, one [`BATCH`] at a time; between batches the helper
 //! takes any waiting request, so a request waits at most one batch. A stop
 //! ends a cell's fill, as when the console's store is full or no display
-//! draws at the cell. The helper exits once it has no request and no fill
-//! for [`HELPER_IDLE_MS`], or when the console closes its end and its work
-//! is done.
+//! draws at the cell, and forgets what the helper sent there. The helper
+//! exits once it has no request and no fill for [`HELPER_IDLE_MS`], or
+//! when the console closes its end and its work is done.
 //!
 //! ```text
 //! request  magic "VTVSREQ2", kind u32 (1 ask, 2 fill, 3 stop), frit
@@ -873,7 +873,7 @@ impl Work<'_> {
     }
 
     /// Takes a request in: an ask waits its turn, a fill replaces the
-    /// cell's, a stop ends it.
+    /// cell's, a stop ends it and forgets what was sent at the cell.
     fn take(&mut self, request: ServeRequest, out: &mut dyn Write) -> io::Result<()> {
         if self.console.is_none() {
             self.console.clone_from(&request.console);
@@ -889,7 +889,11 @@ impl Work<'_> {
                 };
                 self.fills.push_back(fill);
             }
-            _ => self.fills.retain(|f| !same(f)),
+            _ => {
+                self.fills.retain(|f| !same(f));
+                self.sent
+                    .remove(&(request.frit, request.cell.width, request.cell.height));
+            }
         }
         Ok(())
     }
@@ -933,6 +937,7 @@ impl Work<'_> {
                 break;
             };
             fill.next = fill.next.saturating_add(1);
+            // D18's skip of what was sent holds only while the console holds the cell: its stop as it drops the cell forgets what was sent there
             if !sent.has(c) {
                 batch.push(c);
             }
