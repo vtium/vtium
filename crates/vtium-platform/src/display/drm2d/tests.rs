@@ -1768,6 +1768,7 @@ fn virtio_gpu() -> FakeCard {
                 kind_id: 1,
                 connected: true,
                 modes: vec![mode(1366, 768, 60, true)],
+                mm: (0, 0),
                 encoder: 0,
                 encoders: vec![41],
             },
@@ -1915,4 +1916,34 @@ fn a_dumb_buffer_capability_that_cannot_be_read_is_named() {
         logs::at_least(Level::Warn),
         ["cannot read the card's dumb buffer capability: Input/output error (os error 5)"]
     );
+}
+
+/// One display at 2560x1440 whose connector reports `mm`.
+fn sized(mm: (u32, u32)) -> Drm2d<FakeCard> {
+    let card = FakeCard::new(&[(A, vec![mode(2560, 1440, 60, true)])]);
+    card.state().connectors.get_mut(&A).unwrap().mm = mm;
+    awake(Drm2d::with(card, ModePolicy::default()).unwrap())
+}
+
+#[test]
+fn the_density_comes_from_the_connectors_physical_size() {
+    // A 27-inch monitor.
+    let d = sized((597, 336)).density(DisplayId(A)).unwrap();
+    assert!(d.measured());
+    let (x, y) = d.dpi();
+    assert_eq!((x.round(), y.round()), (109.0, 109.0));
+}
+
+#[test]
+fn a_connector_with_no_physical_size_assumes_the_density() {
+    let v = sized((0, 0));
+    assert_eq!(v.density(DisplayId(A)), Some(Density::ASSUMED));
+    assert_eq!(v.density(DisplayId(B)), None);
+}
+
+#[test]
+fn a_connector_with_an_implausible_size_assumes_the_density() {
+    // A projector that reports 1 mm.
+    let v = sized((1, 1));
+    assert_eq!(v.density(DisplayId(A)), Some(Density::ASSUMED));
 }

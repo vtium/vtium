@@ -26,7 +26,7 @@ use rustix::io::Errno;
 
 use super::kms::{Connector, Encoder, Kms, Object, Request, Resources};
 use super::mode::{self, Mode, ModePolicy};
-use super::{Ages, Canvas, Damage, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
+use super::{Ages, Canvas, Damage, Density, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
 use output::{
     ARGB8888, Buffer, Cursor, Output, PLANE_CURSOR, PLANE_OVERLAY, PLANE_PRIMARY, Planes, Props,
     XRGB8888, clip_bytes, connector_name, dpms_value, invalid, mode_bytes, value,
@@ -216,6 +216,13 @@ impl<K: Kms> Drm2d<K> {
     /// for a color display.
     pub fn levels(&self, id: DisplayId) -> Option<u8> {
         self.levels.filter(|_| self.output(id).is_some())
+    }
+
+    /// The display's density, from its mode and the physical size its
+    /// connector reports, or [`Density::ASSUMED`] where it reports none or
+    /// one out of bounds.
+    pub fn density(&self, id: DisplayId) -> Option<Density> {
+        self.output(id).map(|o| Density::of(o.size(), o.mm))
     }
 
     /// The display's power state, `None` where its connector has none.
@@ -982,6 +989,7 @@ impl<K: Kms> Drm2d<K> {
             crtc,
             planes,
             mode: choice.current,
+            mm: conn.mm,
             choice,
             mode_blob: 0,
             buffers: Vec::new(),

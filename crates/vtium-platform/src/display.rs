@@ -23,6 +23,7 @@
 
 mod blank;
 mod card;
+mod density;
 mod depth;
 mod drm2d;
 #[cfg(test)]
@@ -33,6 +34,7 @@ mod mode;
 
 pub use blank::{Blank, DPMS_TIMEOUT};
 pub use card::Card;
+pub use density::{DPI_ASSUMED, DPI_MAX, DPI_MIN, Density};
 pub use drm2d::{CURSOR_MAX, Drm2d};
 pub use fbdev::{Fb, Fbdev};
 pub use mode::{Mode, ModeLookup, ModePolicy, Wanted};

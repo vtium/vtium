@@ -18,7 +18,7 @@ use calloop::timer::{TimeoutAction, Timer};
 use calloop::{LoopHandle, RegistrationToken};
 use rustix::fs::{Mode as FileMode, OFlags, open};
 
-use super::{Canvas, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
+use super::{Canvas, Density, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
 use crate::ioctl::{
     FB_ACTIVATE_FORCE, FB_ACTIVATE_NOW, FB_BLANK_NORMAL, FB_BLANK_POWERDOWN, FB_BLANK_UNBLANK,
     FB_NONSTD_REV_PIX_IN_B, FB_VISUAL_MONO01, FB_VISUAL_MONO10, FB_VISUAL_TRUECOLOR,
@@ -198,6 +198,8 @@ pub struct Fbdev<F: Framebuffer> {
     online: bool,
     announced: bool,
     size: (u32, u32),
+    /// The physical size in millimetres, 0 where the device has none.
+    mm: (u32, u32),
     rate_mhz: u32,
     /// The stand-in for a flip event: the refresh interval.
     interval: Duration,
@@ -232,6 +234,7 @@ impl<F: Framebuffer> Fbdev<F> {
             online: false,
             announced: false,
             size: (0, 0),
+            mm: (0, 0),
             rate_mhz: 0,
             interval: Duration::from_millis(15),
             dpms: None,
@@ -260,6 +263,13 @@ impl<F: Framebuffer> Fbdev<F> {
 
     pub fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
         (id == DISPLAY && self.online).then_some(self.rate_mhz)
+    }
+
+    /// The display's density, from its mode and the physical size the
+    /// device reports, or [`Density::ASSUMED`] where it reports none or one
+    /// out of bounds.
+    pub fn density(&self, id: DisplayId) -> Option<Density> {
+        (id == DISPLAY && self.online).then(|| Density::of(self.size, self.mm))
     }
 
     /// fbdev takes no damage clips.
@@ -589,6 +599,9 @@ impl<F: Framebuffer> Fbdev<F> {
             var.bits_per_pixel
         );
         self.size = (var.xres, var.yres);
+        // fbdev marks a size it does not know 0 or all ones; all ones gives
+        // a density under DPI_MIN, so both read as no size.
+        self.mm = (var.width, var.height);
         self.screen = Some(Screen {
             map,
             width: var.xres,
