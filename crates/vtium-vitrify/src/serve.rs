@@ -51,6 +51,7 @@
 //! font whose cell does not fit gives nothing, and the console draws those
 //! characters in the built-in font.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -58,7 +59,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, RecvTimeoutError, TryRecvError};
 use std::time::Duration;
 
-use rustix::process::{Resource, Rlimit, geteuid, setrlimit};
+use rustix::process::{Resource, Rlimit, Uid, geteuid, setrlimit};
 use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
 use vtium_font::{CELL_SIDE_MAX, Cell, Style, Width};
 use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, UniPair};
@@ -371,6 +372,9 @@ pub struct Engine {
     sources: Vec<(Source, Loaded)>,
     /// Every codepoint some source gives, sorted.
     coverage: Vec<u32>,
+    /// The sources that failed as they drew, by their place in `sources`,
+    /// and why: left out for the engine's life (ADR-1200 D14).
+    failed: RefCell<BTreeMap<usize, String>>,
 }
 
 /// The codepoints `font` maps in the face of `family` (its first face for
@@ -523,6 +527,7 @@ impl Engine {
             name,
             sources,
             coverage,
+            failed: RefCell::default(),
         })
     }
 
@@ -532,13 +537,18 @@ impl Engine {
     }
 
     /// Why no source gives a glyph at `cell`: each bitmap source whose own
-    /// cell does not fit it.
+    /// cell does not fit it, and each source that failed as it drew.
     pub fn none_at(&self, cell: Cell) -> String {
+        let failed = self.failed.borrow();
         let unfit: Vec<String> = self
             .sources
             .iter()
-            .filter_map(|(source, loaded)| match loaded {
-                Loaded::Bitmap(f) if f.cell.width > cell.width || f.cell.height > cell.height => {
+            .enumerate()
+            .filter_map(|(i, (source, loaded))| match (failed.get(&i), loaded) {
+                (Some(why), _) => Some(format!("source={}: {why}", source.spelling)),
+                (None, Loaded::Bitmap(f))
+                    if f.cell.width > cell.width || f.cell.height > cell.height =>
+                {
                     Some(format!(
                         "source={}: its {}x{} cell does not fit",
                         source.spelling, f.cell.width, f.cell.height
@@ -557,7 +567,8 @@ impl Engine {
 
     /// The glyphs at `cell` for `want`, sorted codepoints: each from the
     /// first source in the frit's order that gives it, as a vitrified set
-    /// of that one cell; `None` when no source gives any.
+    /// of that one cell; `None` when no source gives any. A source that
+    /// fails as it draws is left out, and the next one gives its glyphs.
     pub fn draw(&self, cell: Cell, want: &[u32]) -> Result<Option<Vec<u8>>, String> {
         let strike = |format| {
             StrikeBuilder::new(format, cell, Style::default())
@@ -570,7 +581,10 @@ impl Engine {
             strike(PixelFormat::Rgba),
         );
         let mut mapped: BTreeSet<u32> = BTreeSet::new();
-        for (source, loaded) in &self.sources {
+        for (i, (source, loaded)) in self.sources.iter().enumerate() {
+            if self.failed.borrow().contains_key(&i) {
+                continue;
+            }
             let left: Vec<u32> = want
                 .iter()
                 .copied()
@@ -614,7 +628,13 @@ impl Engine {
                         cells: vec![(cell.width, cell.height)],
                         cover: ranges(&left),
                     };
-                    let outline = rasterise(&request)?;
+                    let outline = match rasterise(&request) {
+                        Ok(outline) => outline,
+                        Err(why) => {
+                            self.failed.borrow_mut().insert(i, why);
+                            continue;
+                        }
+                    };
                     let Some(s) = outline.strikes.first() else {
                         continue;
                     };
@@ -985,7 +1005,12 @@ fn limits() -> Result<(), String> {
         };
         setrlimit(resource, limit).map_err(|e| format!("the helper cannot set its limits: {e}"))?;
     }
-    if geteuid().is_root() {
+    refuse_root(geteuid())
+}
+
+/// The helper never runs as root (ADR-1200 D15): `euid` root is refused.
+fn refuse_root(euid: Uid) -> Result<(), String> {
+    if euid.is_root() {
         return Err("the helper refuses to run as root".to_owned());
     }
     Ok(())
@@ -1357,6 +1382,13 @@ mod tests {
             "{took:?}"
         );
         assert_eq!(HELPER_IDLE_MS, 60_000);
+    }
+
+    #[test]
+    fn the_helper_refuses_to_run_as_root() {
+        let why = refuse_root(Uid::ROOT).unwrap_err();
+        assert!(why.contains("refuses to run as root"), "{why}");
+        assert_eq!(refuse_root(Uid::from_raw(65534)), Ok(()));
     }
 
     #[test]
