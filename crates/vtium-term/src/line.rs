@@ -195,7 +195,7 @@ impl Tables {
 /// cells of one style that ended it at the margin, keeping the fill's
 /// style. Every cell past its end reads as an empty cell in that style,
 /// whatever the pen: the default style unless the program erased the
-/// line's end in a colour (ADR-1003).
+/// line's end in a color (ADR-1003).
 ///
 /// A [`Width::Pad`] cell sits only in the last column of a wrapped line:
 /// an edit that ends the wrap, or moves the cell, makes it an empty narrow

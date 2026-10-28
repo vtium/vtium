@@ -239,7 +239,7 @@ fn rows_below_the_cursor_keep_their_number() {
 }
 
 // "The margin": a widening shows only text a rewrap brings back and the
-// line's fill, which is the colour an erase to the line's end left.
+// line's fill, which is the color an erase to the line's end left.
 #[test]
 fn a_widening_paints_the_lines_fill() {
     let mut t = term(4, 2, b"ab\x1b[44m\x1b[K\x1b[m\r\ncd");
@@ -250,7 +250,7 @@ fn a_widening_paints_the_lines_fill() {
     let line = s.line(1).unwrap();
     assert!(line.cells()[2..].iter().all(|c| c.is_blank()));
 
-    // A line erased in colour keeps its fill through the scrollback.
+    // A line erased in color keeps its fill through the scrollback.
     let mut t = with_scrollback(4, 1, 10, b"\x1b[44m\x1b[2Kab\x1b[m\r\nx");
     t.resize(8, 1);
     t.screen_mut().scroll_view_up(1);
@@ -375,7 +375,7 @@ fn mode_2028_marks_the_rows_a_resize_cuts() {
 }
 
 /// A stream of shell-like output: text, wide characters, clusters,
-/// newlines, erases in colour, and the cursor left on the last row.
+/// newlines, erases in color, and the cursor left on the last row.
 fn shell_stream(rng: &mut Rng, rows: usize) -> Vec<u8> {
     const PIECES: &[&str] = &[
         "a",
