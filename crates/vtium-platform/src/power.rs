@@ -4,6 +4,7 @@
 
 use std::cell::Cell;
 use std::io;
+use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::rc::Rc;
 
@@ -79,20 +80,40 @@ pub fn suspend() -> io::Result<Suspend> {
         }
         Err(e) => return Err(io::Error::other(e.to_string())),
     }
-    let child = shell("echo mem > /sys/power/state")
-        .stdin(Stdio::null())
-        .spawn()?;
+    let child = spawn(shell("echo mem > /sys/power/state").stdin(Stdio::null()))?;
     Ok(Suspend::Sysfs(child))
 }
 
+/// Starts `command` holding no descriptor of vtium's but its stdio:
+/// every descriptor vtium inherited is marked close-on-exec first. It is
+/// called from vtium's one thread only: a descriptor another thread opened
+/// between the marking and the fork would reach the shell.
+fn spawn(command: &mut Command) -> io::Result<Child> {
+    crate::fds::cloexec_before_spawn()?;
+    command.spawn()
+}
+
 /// `/bin/sh` running `script` with none of vtium's environment, the
-/// session's included, and a fixed `PATH`.
+/// session's included, a fixed `PATH`, and every signal at its default
+/// disposition and none blocked, as the pty's child starts: the loop
+/// blocks the signals it reads from its signalfd, a vtium started in the
+/// background ignores SIGINT and SIGQUIT, and an exec keeps both.
 fn shell(script: &str) -> Command {
     let mut command = Command::new("/bin/sh");
     command
         .args(["-c", script])
         .env_clear()
         .env("PATH", "/usr/bin:/bin");
+    #[expect(
+        unsafe_code,
+        reason = "the signal dispositions and mask can only be set for the child between fork and exec"
+    )]
+    // SAFETY: the hook runs in the forked child before exec, which has one
+    // thread and needs no handler or blocked signal, as default_signals
+    // requires; it makes only raw syscalls.
+    unsafe {
+        command.pre_exec(|| crate::pty::default_signals());
+    }
     command
 }
 
@@ -149,6 +170,91 @@ mod tests {
             .output()
             .expect("a shell");
         assert_eq!(String::from_utf8_lossy(&out.stdout), "||/usr/bin:/bin");
+    }
+
+    /// Set in the process [`the_sysfs_shell_holds_only_its_stdio_with_default_signals`] runs
+    /// itself in.
+    const ALONE: &str = "VTIUM_POWER_TEST_ALONE";
+
+    /// The signal set in `field` of a `/proc/<pid>/status`: bit n-1 is
+    /// signal n.
+    fn signals(status: &str, field: &str) -> u64 {
+        let hex = status
+            .lines()
+            .find_map(|l| l.strip_prefix(field))
+            .expect(field);
+        u64::from_str_radix(hex.trim(), 16).expect(field)
+    }
+
+    /// Runs in a process of its own with no other test, as vtium starts
+    /// the shell from its one thread: other tests' threads open
+    /// descriptors meanwhile, xkbcommon's keymap files without
+    /// close-on-exec among them. What this process passes down unmarked
+    /// reaches that one, as vtium's parent passes down to vtium, and the
+    /// signals it blocks and ignores are so in the thread that starts the
+    /// shell.
+    #[test]
+    fn the_sysfs_shell_holds_only_its_stdio_with_default_signals() {
+        const NAME: &str =
+            "power::tests::the_sysfs_shell_holds_only_its_stdio_with_default_signals";
+        if std::env::var_os(ALONE).is_none() {
+            // as vtium's loop blocks the signals it reads, and a vtium
+            // started in the background ignores SIGINT; env's
+            // --block-signal and --ignore-signal need coreutils 8.31 or
+            // later
+            let out = Command::new("env")
+                .args(["--block-signal=TERM,USR1", "--ignore-signal=INT"])
+                .arg(std::env::current_exe().expect("this binary"))
+                .args(["--exact", NAME, "--test-threads=1", "--nocapture"])
+                .env(ALONE, "1")
+                .output()
+                .expect("the test alone");
+            let text = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                out.status.success() && text.contains("test result: ok. 1 passed"),
+                "{text}{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            return;
+        }
+        // a descriptor without close-on-exec, numbered high so it is never
+        // the one ls opens
+        let null = std::fs::File::open("/dev/null").expect("/dev/null");
+        let held = rustix::io::fcntl_dupfd_cloexec(&null, 100).expect("dup");
+        rustix::io::fcntl_setfd(&held, rustix::io::FdFlags::empty()).expect("setfd");
+        // the signals this thread blocks, as vtium's loop blocks those it
+        // reads
+        let own = std::fs::read_to_string("/proc/thread-self/status").expect("status");
+        let blocked = signals(&own, "SigBlk:");
+        assert_ne!(blocked & (1 << (libc::SIGTERM - 1)), 0, "{blocked:x}");
+        let ignored = signals(&own, "SigIgn:");
+        assert_ne!(ignored & (1 << (libc::SIGINT - 1)), 0, "{ignored:x}");
+        let mut command = shell("ls /proc/self/fd; cat /proc/self/status >&2");
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let out = spawn(&mut command)
+            .expect("a shell")
+            .wait_with_output()
+            .expect("its output");
+        let status = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(
+            signals(&status, "SigBlk:"),
+            0,
+            "the shell's blocked signals"
+        );
+        assert_eq!(
+            signals(&status, "SigIgn:"),
+            0,
+            "the shell's ignored signals"
+        );
+        let listed = String::from_utf8_lossy(&out.stdout);
+        let fds: Vec<&str> = listed.lines().collect();
+        let held = std::os::fd::AsRawFd::as_raw_fd(&held).to_string();
+        assert!(!fds.contains(&held.as_str()), "{fds:?}");
+        // ls opens 3 to read the directory
+        assert_eq!(fds, ["0", "1", "2", "3"]);
     }
 
     /// The child is reaped from the loop at its exit, whatever its status,
