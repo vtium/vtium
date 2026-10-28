@@ -31,6 +31,15 @@ The goldens of the guest without systemd (vtium/vtium#104, `../README.md`, The g
 | `sysvinit-no-udev/cjk.png` | The `cjk` screen, with no udev daemon. |
 | `sysvinit-two-vts/cjk.png` | The `cjk` screen, drawn by tty2's console with a second console started on tty3 at the boot (vtium/vtium#139). |
 
+The goldens of the frit variants (vtium/vtium#145, `../README.md`, Variants) are vtium's captures from `make tier3-minimal` on the branch that added them: 640x480, 8x16 cells, 80 by 30, the font the frit `dejavu-mono` generated at run time by the helper (ADR-1201 D1). They stay in `../provisional.tsv` until the operator reviews them.
+
+| Golden | What it shows |
+|---|---|
+| `2d-640x480-frit/small-console.png` | The `small-console` screen once the helper's glyphs have arrived: its letters, digits and Latin-1 in DejaVu Sans Mono, antialiased, on unifont's 8x16 cells; the box lines, blocks and shades as the sprites. |
+| `2d-640x480-frit/cjk.png` | The `cjk` screen in the same frit: `Latin then CJK:`, `end`, `ASCII` and the bars in DejaVu Sans Mono, and the Chinese, Japanese and Korean characters, which the font lacks, in the built-in unifont (vtium/vtium#141). |
+| `2d-640x480-frit-held/small-console.png` | The `small-console` screen with a helper that never answers: the screen before the helper's first answer, all in the built-in unifont, pixel for pixel the reviewed `2d-640x480-psf16/small-console.png`. |
+| `2d-640x480-frit-held/cjk.png` | The `cjk` screen with a helper that never answers, all in the built-in unifont, pixel for pixel `2d-640x480-psf16/cjk.png`. |
+
 ## Recaptured with the sets (vtium/vtium#126)
 
 vtium draws only vitrified sets, so the small displays draw sets the guest builds before the console starts: the 8x8 test font with the built-in Unscii-8 after it, and the 8x16 one with unifont after it (`../guest/frits`). The sprites win over a fill font's glyphs, so box drawing, blocks, shades and Braille draw as before. Eight goldens moved, where a character the test font lacked, `?` before, now draws as Unscii-8's U+25A1, the missing glyph, at 8x8, since Unscii-8 holds none of them, and as unifont's glyph at 8x16. They were recaptured from `make tier3-minimal` and are listed in `../provisional.tsv` until the operator reviews them; the table's descriptions of those eight are the goldens before. The rows and columns that moved, counted from 1, with the pixels that differ:
