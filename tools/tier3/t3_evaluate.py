@@ -25,8 +25,10 @@ SCREENS = ["sgr", "colour-forms", "underline-styles", "underline-colour", "strik
            "photo-scroll", "mpv-sixel", "tmux-2x2", "tmux-3x3", "kitty", "kitty-photo", "kitty-files", "kitty-layers", "s1-scroll", "flood", "cjk"]
 # The screens of the small displays (vtium/vtium#75): small-console, written
 # for 40 columns, then screens of the list above that draw at any width,
+# with the colored underlines and strikes at small cells (vtium/vtium#119),
 # cjk last as there.
-SMALL_SCREENS = ["small-console", "sgr", "boxdraw", "underline-styles", "wide-margin", "cjk"]
+SMALL_SCREENS = ["small-console", "sgr", "boxdraw", "underline-styles", "underline-colour",
+                 "strike", "wide-margin", "cjk"]
 # Cases captured after a screen is drawn, by pressing keys: each is (screen,
 # case, the chords pressed before its capture), captured once the screen has
 # changed, so a key that changes nothing fails its case. After the last, the
