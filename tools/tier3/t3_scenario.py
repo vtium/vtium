@@ -109,7 +109,7 @@ VARIANTS = {
         "screens": SMALL_SCREENS,
         "goldens": VTIUM_GOLDEN,
     },
-    # A configured frit, generated at run time by the helper (ADR-1201 D1):
+    # A configured frit, generated at run time by the helper (ADR-1301 D2):
     # 640x480 on the minspec machine, its font the guest's DejaVu Sans Mono
     # named by a frit installed with no set built ("deferred_frits"). The
     # first draws the font once the helper's glyphs arrive; the second holds

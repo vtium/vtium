@@ -210,7 +210,7 @@ impl Cli<'_> {
         1
     }
 
-    /// `serve`: the helper the console starts (ADR-1201 D1), its kbd and
+    /// `serve`: the helper the console starts (ADR-1301 D2), its kbd and
     /// font directories and vconsole files as the options name them.
     fn serve(&mut self, rest: &[String]) -> u8 {
         if !rest.is_empty() {

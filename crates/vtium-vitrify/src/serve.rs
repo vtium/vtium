@@ -1,4 +1,4 @@
-//! The helper's serve mode (ADR-1201 D1, ADR-1301 D2): `vtium-vitrify
+//! The helper's serve mode (ADR-1301 D2): `vtium-vitrify
 //! serve`, which the console starts on its first need for glyphs and
 //! which generates them from a frit at run time. It sets the parser's
 //! sandbox on itself (no-new-privileges, the memory and file limits, no
@@ -26,8 +26,8 @@
 //! asked for. No codepoint is in two batches of one request.
 //!
 //! The kernel's font reaches a frit's `console:` source only as the bytes
-//! the console read from its own VT at start and handed over (ADR-1201
-//! D7): the helper opens no VT, and every `console:VT` takes that font.
+//! the console read from its own VT at start and handed over
+//! (vtium/vtium#145): the helper opens no VT, and every `console:VT` takes that font.
 //!
 //! The glyphs fill the console's cell, which the built-in font set: an
 //! outline font is drawn at that cell's height and width, and a bitmap

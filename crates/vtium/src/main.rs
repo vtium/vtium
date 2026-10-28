@@ -134,7 +134,7 @@ fn run_kernel(config: config::Config, start: Start, path: &Path) -> io::Result<i
 
 /// The kernel's font on the VT at `path`, read once at start while the
 /// VT is still in text mode, when `font-name` names a frit: the frit's
-/// `console:` source draws from it (ADR-1201 D7). A VT already in graphics
+/// `console:` source draws from it (vtium/vtium#145). A VT already in graphics
 /// mode, as when vtium starts again on it, gives none, logged at debug.
 fn kernel_font(config: &config::Config, path: &Path) -> Option<ConsoleFont> {
     let name = config.text(&keys::FONT_NAME)?;

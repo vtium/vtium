@@ -31,7 +31,7 @@ The goldens of the guest without systemd (vtium/vtium#104, `../README.md`, The g
 | `sysvinit-no-udev/cjk.png` | The `cjk` screen, with no udev daemon. |
 | `sysvinit-two-vts/cjk.png` | The `cjk` screen, drawn by tty2's console with a second console started on tty3 at the boot (vtium/vtium#139). |
 
-The goldens of the frit variants (vtium/vtium#145, `../README.md`, Variants) are vtium's captures from `make tier3-minimal` on the branch that added them: 640x480, 8x16 cells, 80 by 30, the font the frit `dejavu-mono` generated at run time by the helper (ADR-1201 D1). They stay in `../provisional.tsv` until the operator reviews them.
+The goldens of the frit variants (vtium/vtium#145, `../README.md`, Variants) are vtium's captures from `make tier3-minimal` on the branch that added them: 640x480, 8x16 cells, 80 by 30, the font the frit `dejavu-mono` generated at run time by the helper (ADR-1301 D2). They stay in `../provisional.tsv` until the operator reviews them.
 
 | Golden | What it shows |
 |---|---|

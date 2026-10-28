@@ -1,4 +1,4 @@
-//! Glyphs that change under a renderer (ADR-1201 D1): the deferred
+//! Glyphs that change under a renderer (ADR-1301 D2): the deferred
 //! pipeline's generated glyphs replace the built-in font's as they arrive,
 //! and [`Renderer::glyphs_changed`] redraws only the cells that show one,
 //! with no glyph the cache held from before.

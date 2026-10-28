@@ -2,7 +2,7 @@
 //! steps and the automatic size, with the lookup's fallback.
 //!
 //! A configured font that names a frit (`NAME.vtfrit` in the frits'
-//! directory) is generated at run time (ADR-1201 D1): the built-in font
+//! directory) is generated at run time (ADR-1301 D2): the built-in font
 //! for the cell size draws at once, and the helper's glyphs replace it,
 //! character by character, as they arrive ([`Chosen::Frit`],
 //! [`crate::deferred`], [`crate::helper`]). Any other configured font
@@ -349,7 +349,7 @@ pub enum Chosen {
     Builtin(Option<&'static str>),
     /// A set from the store.
     Set { name: String, set: Arc<Set> },
-    /// A frit, generated at run time (ADR-1201 D1): drawn as
+    /// A frit, generated at run time (ADR-1301 D2): drawn as
     /// `Builtin(None)` is, each character the helper has sent drawn from
     /// `generated` in its place.
     Frit {

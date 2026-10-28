@@ -1,4 +1,4 @@
-//! The deferred pipeline's glyphs (ADR-1201 D1): the per-boot memory
+//! The deferred pipeline's glyphs (ADR-1301 D2): the per-boot memory
 //! cache of what the helper generated, and the face that draws a cell from
 //! it, falling back per character to the built-in font (#141).
 //!

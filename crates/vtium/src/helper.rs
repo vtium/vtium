@@ -1,4 +1,4 @@
-//! The glyph helper's client (ADR-1201 D1, ADR-1301 D2): the console
+//! The glyph helper's client (ADR-1301 D2): the console
 //! starts `vtium-vitrify serve` on its first need for a frit's glyphs,
 //! asks it for one cell's glyphs at a time, the screen's codepoints first,
 //! and takes each answer as it arrives without ever waiting on it.
@@ -110,7 +110,7 @@ pub struct Request {
     pub cell: Cell,
     /// The codepoints the helper draws first.
     pub first: Vec<char>,
-    /// The kernel's font, read from the VT at start (ADR-1201 D7).
+    /// The kernel's font, read from the VT at start (vtium/vtium#145).
     pub console: Option<ConsoleFont>,
 }
 

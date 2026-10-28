@@ -489,7 +489,7 @@ impl<F: Face> Renderer<F> {
     }
 
     /// The font now draws each of `chars` differently, as when the deferred
-    /// pipeline's generated glyphs arrive (ADR-1201 D1): the cache drops
+    /// pipeline's generated glyphs arrive (ADR-1301 D2): the cache drops
     /// every glyph it holds, and the next frame draws again each cell that
     /// shows one of `chars`, alone or in a cluster. Every other cell keeps
     /// its pixels.

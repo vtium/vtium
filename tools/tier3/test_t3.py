@@ -426,7 +426,7 @@ class ImplementationTest(unittest.TestCase):
             self.assertIn('if [ -f "$disc"/pointer ]; then', f.read())
 
     def test_frit_variants(self):
-        # A configured frit generated at run time (ADR-1201 D1): two 640x480
+        # A configured frit generated at run time (ADR-1301 D2): two 640x480
         # variants on the minspec machine, in tier3-minimal, judged by
         # vtium's goldens; the disc carries the frit to be installed with no
         # set built, and the held variant's `helper-held`, on which

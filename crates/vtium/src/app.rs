@@ -240,14 +240,14 @@ pub struct App {
     /// OSC 50's refusals since its last switch: only the first is logged.
     font_refused: u64,
     /// The helper that generates a frit's glyphs, started on the first
-    /// need (ADR-1201 D1).
+    /// need (ADR-1301 D2).
     helper: Option<Helper>,
     /// The helper cannot start: logged once, and the built-in font draws.
     helper_refused: bool,
     /// The cells whose glyphs the helper was asked for.
     asked: Vec<vtium_font::Cell>,
     /// The kernel's font, read from the VT at start for a frit's
-    /// `console:` source (ADR-1201 D7).
+    /// `console:` source (vtium/vtium#145).
     console_font: Option<vtium_platform::vt::font::ConsoleFont>,
     /// The locale, which keeps the built-in Unscii-8 from a zh, ja or ko
     /// locale (ADR-1200 D7).
@@ -423,7 +423,7 @@ impl App {
     }
 
     /// The kernel's font, read from the VT while it was in text mode, for
-    /// a frit's `console:` source (ADR-1201 D7).
+    /// a frit's `console:` source (vtium/vtium#145).
     pub fn set_console_font(&mut self, font: vtium_platform::vt::font::ConsoleFont) {
         self.console_font = Some(font);
     }
@@ -555,7 +555,7 @@ impl App {
     }
 
     /// Chooses the font once, at the first display: a frit `font-name`
-    /// names, generated at run time (ADR-1201 D1); else the set the
+    /// names, generated at run time (ADR-1301 D2); else the set the
     /// configuration or vconsole names, from the store (ADR-1200 D9), else
     /// the built-ins, with one line naming the command that builds the set.
     fn choose_font(&mut self) {
@@ -847,7 +847,7 @@ impl App {
 
     /// While the font is a frit, asks the helper for the glyphs of each
     /// cell a display draws at and the helper was not asked for, the
-    /// screen's characters and ASCII first (ADR-1201 D1), and drops the
+    /// screen's characters and ASCII first (ADR-1301 D2), and drops the
     /// glyphs of cells no display draws at any more.
     fn ask_glyphs(&mut self) {
         let Some(Chosen::Frit {

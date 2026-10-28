@@ -3556,7 +3556,7 @@ fn solid(cell: &[u32]) -> bool {
     cell.iter().all(|&p| p == cell[0])
 }
 
-// ADR-1201 D1: a configured frit draws in the built-in font from the first
+// ADR-1301 D2: a configured frit draws in the built-in font from the first
 // frame, with no frame waiting on the helper, and the helper's glyphs
 // replace the built-in's in the cells that show them once they arrive.
 #[test]
@@ -3595,7 +3595,7 @@ fn a_frit_draws_the_built_in_font_first_and_the_helpers_glyphs_after() {
     let _ = std::fs::remove_dir_all(&fonts.frits);
 }
 
-// ADR-1201 D1: a helper that dies leaves the built-in font drawing, with
+// ADR-1301 D2: a helper that dies leaves the built-in font drawing, with
 // one log line however much the screen asks after.
 #[test]
 fn a_helper_that_dies_leaves_the_built_in_font_with_one_log_line() {

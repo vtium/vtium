@@ -27,7 +27,7 @@ if [ -d "$disc"/frits ]; then
     done
 fi
 # A variant whose font is a frit generated at run time installs it with no
-# set built (ADR-1201 D1). One that holds the helper replaces vtium-vitrify
+# set built (ADR-1301 D2). One that holds the helper replaces vtium-vitrify
 # with a program that never answers, so the screens show what the console
 # draws before any answer.
 if [ -d "$disc"/deferred-frits ]; then
