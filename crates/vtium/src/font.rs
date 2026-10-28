@@ -144,11 +144,28 @@ impl Default for Sources {
 /// its set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Came {
-    /// `font-name`.
+    /// `font-name`: a path, or a kbd font's name.
     Config,
+    /// `font-name` under `font-engine=freetype` or `pango`: an outline
+    /// font's family, which only a frit names.
+    Family,
     /// `vconsole.font=` on the kernel command line, or `FONT=` in
     /// vconsole.conf.
     Vconsole,
+}
+
+/// `word` quoted for a shell where it needs it: in single quotes, each
+/// quote in it closed, escaped and opened again.
+fn quote(word: &str) -> String {
+    let plain = !word.is_empty()
+        && word
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"/._+-=:,@".contains(&b));
+    if plain {
+        word.to_owned()
+    } else {
+        format!("'{}'", word.replace('\'', "'\\''"))
+    }
 }
 
 /// The font a name asks for, and where the name came from.
@@ -160,25 +177,31 @@ pub struct Wanted {
 
 impl Wanted {
     /// How a set built from the font is spelled as its frit's first
-    /// source, as `vtium-vitrify create` writes the one-source frit.
-    fn source(&self) -> String {
+    /// source, as `vtium-vitrify create` writes the one-source frit; none
+    /// for a family, whose frit names its file.
+    fn source(&self) -> Option<String> {
         match self.came {
-            Came::Vconsole => "vconsole".to_owned(),
-            Came::Config if self.name.starts_with('/') => format!("file:{}", self.name),
-            Came::Config => format!("kbd:{}", self.name),
+            Came::Vconsole => Some("vconsole".to_owned()),
+            Came::Config if self.name.starts_with('/') => Some(format!("file:{}", self.name)),
+            Came::Config => Some(format!("kbd:{}", self.name)),
+            Came::Family => None,
         }
     }
 
-    /// The command that builds the set, `--force` rebuilding one the
-    /// store holds.
+    /// How to build the set: the command, `--force` rebuilding one the
+    /// store holds, each word quoted for a shell.
     pub fn command(&self, force: bool) -> String {
         let force = if force { "--force " } else { "" };
+        let name = quote(&self.name);
         match self.came {
             Came::Vconsole => format!("sudo vtium-vitrify create {force}--vconsole"),
             Came::Config if self.name.starts_with('/') => {
-                format!("sudo vtium-vitrify create {force}--file {}", self.name)
+                format!("sudo vtium-vitrify create {force}--file {name}")
             }
-            Came::Config => format!("sudo vtium-vitrify create {force}--kbd {}", self.name),
+            Came::Config => format!("sudo vtium-vitrify create {force}--kbd {name}"),
+            Came::Family => format!(
+                "a frit naming the file of {name}, `source=outline:PATH` (outline sources come with vtium/vtium#23), built with sudo vtium-vitrify create {force}FRIT, and font-name set to the set's name"
+            ),
         }
     }
 }
@@ -231,7 +254,10 @@ pub fn wanted(config: &Config, vconsole_conf: &str, cmdline: &str) -> Option<Wan
     match config.text(&FONT_NAME) {
         Some(name) if named && !name.is_empty() => Some(Wanted {
             name: name.to_owned(),
-            came: Came::Config,
+            came: match config.text(&FONT_ENGINE) {
+                Some("freetype" | "pango") => Came::Family,
+                _ => Came::Config,
+            },
         }),
         _ => vconsole_font(vconsole_conf, cmdline).map(|name| Wanted {
             name,
@@ -250,26 +276,32 @@ pub fn load(sources: &Sources, wanted: &Wanted) -> Result<(String, Arc<Set>), (S
     let source = wanted.source();
     let row = manifest
         .row(&wanted.name)
-        .or_else(|| manifest.rows().iter().find(|r| r.source == source))
+        .or_else(|| {
+            manifest
+                .rows()
+                .iter()
+                .find(|r| Some(&r.source) == source.as_ref())
+        })
         .ok_or_else(|| ("the store holds no set built from it".to_owned(), false))?;
     let set = store.load_row(row).map_err(|e| (e.to_string(), true))?;
     Ok((row.name.clone(), set))
 }
 
 /// The set named `name` for OSC 50 (ADR-1200 D5): a built-in, or a set the
-/// store's manifest names, checked as D3 checks it.
+/// store's manifest names, checked as D3 checks it. The set keeps the name
+/// as the built-in or the manifest spells it, never the request's bytes.
 pub fn by_name(sources: &Sources, name: &str) -> Result<Chosen, String> {
-    if builtin(name).is_some() {
-        return Ok(Chosen::Builtin(Some(if name == "unifont" {
-            "unifont"
-        } else {
-            "unscii-8"
-        })));
+    if let Some(builtin) = ["unifont", "unscii-8"].into_iter().find(|b| *b == name) {
+        return Ok(Chosen::Builtin(Some(builtin)));
     }
     let store = Store::open(&sources.store, sources.uid).map_err(|e| e.to_string())?;
-    let set = store.load(name).map_err(|e| e.to_string())?;
+    let manifest = store.manifest().map_err(|e| e.to_string())?;
+    let row = manifest
+        .row(name)
+        .ok_or_else(|| "the store holds no set of that name".to_owned())?;
+    let set = store.load_row(row).map_err(|e| e.to_string())?;
     Ok(Chosen::Set {
-        name: name.to_owned(),
+        name: row.name.clone(),
         set,
     })
 }
@@ -570,20 +602,41 @@ mod tests {
         )
         .expect("named");
         assert_eq!((named.name.as_str(), named.came), (path, Came::Config));
-        assert_eq!(named.source(), format!("file:{path}"));
+        assert_eq!(named.source(), Some(format!("file:{path}")));
         assert_eq!(
             named.command(false),
             format!("sudo vtium-vitrify create --file {path}")
         );
         let kbd = wanted(&config(&["--font-name=Lat2-Terminus16"]), "", "").expect("named");
-        assert_eq!(kbd.source(), "kbd:Lat2-Terminus16");
+        assert_eq!(kbd.source().as_deref(), Some("kbd:Lat2-Terminus16"));
         assert_eq!(
             kbd.command(true),
             "sudo vtium-vitrify create --force --kbd Lat2-Terminus16"
         );
         let v = wanted(&config(&[]), conf, "").expect("vconsole");
-        assert_eq!(v.source(), "vconsole");
+        assert_eq!(v.source().as_deref(), Some("vconsole"));
         assert_eq!(v.command(false), "sudo vtium-vitrify create --vconsole");
+        // An outline font's family under freetype or pango: a frit names
+        // its file, and the suggestion quotes the family.
+        let family = wanted(
+            &config(&["--font-engine=pango", "--font-name=DejaVu Sans Mono"]),
+            "",
+            "",
+        )
+        .expect("named");
+        assert_eq!(family.came, Came::Family);
+        assert_eq!(family.source(), None);
+        let says = family.command(false);
+        assert!(says.contains("of 'DejaVu Sans Mono'"), "{says}");
+        assert!(says.contains("source=outline:PATH"), "{says}");
+        assert!(!says.contains("--kbd"), "{says}");
+        assert_eq!(quote("it's"), "'it'\\''s'");
+        assert_eq!(
+            wanted(&config(&["--font-name=/fonts/my font.psf"]), "", "")
+                .expect("named")
+                .command(false),
+            "sudo vtium-vitrify create --file '/fonts/my font.psf'"
+        );
         // `font-engine=unifont` or `8x16` draws the built-ins.
         for engine in ["unifont", "8x16"] {
             let c = config(&[&format!("--font-engine={engine}"), "--font-name=x"]);

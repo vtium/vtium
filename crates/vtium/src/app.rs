@@ -233,6 +233,8 @@ pub struct App {
     font_sources: font::Sources,
     /// The font changed: every display's renderer is rebuilt.
     refont: bool,
+    /// OSC 50's refusals since its last switch: only the first is logged.
+    font_refused: u64,
     /// The locale, which keeps the built-in Unscii-8 from a zh, ja or ko
     /// locale (ADR-1200 D7).
     locale: String,
@@ -356,6 +358,7 @@ impl App {
             font: None,
             font_sources: font::Sources::default(),
             refont: false,
+            font_refused: 0,
             locale: locale(&inherited),
             orientation: Orientation::Normal,
             config,
@@ -578,7 +581,9 @@ impl App {
 
     /// OSC 50 asked for the set `name` (ADR-1200 D5): a built set switches
     /// the live console as a zoom does, on a new grid; anything else
-    /// leaves the font, with a line saying why.
+    /// leaves the font. The first refusal since the last switch is logged
+    /// and the rest counted, so a program's flood of requests logs one
+    /// line.
     fn switch_font(&mut self, name: &str) {
         self.choose_font();
         let same = match self.chosen() {
@@ -589,28 +594,37 @@ impl App {
         if same {
             return;
         }
-        let new = match font::by_name(&self.font_sources, name) {
-            Ok(new) => new,
-            Err(why) => {
-                log::warn!(
-                    "OSC 50 asked for the font {name}: {why}; the font stays {}",
-                    self.font_name()
-                );
-                return;
+        let new = font::by_name(&self.font_sources, name).and_then(|new| {
+            let old = self.font.replace(new);
+            self.refont = true;
+            if self.relayout() {
+                return Ok(());
             }
-        };
-        let old = self.font.replace(new);
-        self.refont = true;
-        if self.relayout() {
-            log::info!("OSC 50: the font is now the set {name}");
-        } else {
-            log::warn!(
-                "OSC 50 asked for the font {name}, which draws nothing at {} pixels; the font stays",
-                self.font_size
-            );
             self.font = old;
             self.refont = true;
             self.relayout();
+            Err(format!("it draws nothing at {} pixels", self.font_size))
+        });
+        match new {
+            Ok(()) => {
+                let refused = std::mem::take(&mut self.font_refused);
+                if refused > 1 {
+                    log::info!(
+                        "OSC 50 was refused {} more times before this switch",
+                        refused.saturating_sub(1)
+                    );
+                }
+                log::info!("OSC 50: the font is now the set {}", self.font_name());
+            }
+            Err(why) => {
+                if self.font_refused == 0 {
+                    log::warn!(
+                        "OSC 50 asked for the font {name}: {why}; the font stays {}, and OSC 50's further refusals are counted until a switch",
+                        self.font_name()
+                    );
+                }
+                self.font_refused = self.font_refused.saturating_add(1);
+            }
         }
     }
 

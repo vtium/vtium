@@ -3202,8 +3202,18 @@ fn store(test: &str, sets: &[(&str, &str, Vec<u8>)], vconsole: &str) -> Sources 
     mode(&dir.join("manifest"), 0o644);
     let conf = base.join(format!("{test}.vconsole.conf"));
     fs::write(&conf, vconsole).expect("vconsole.conf");
+    let uid = fs::metadata(&dir).expect("stat").uid();
+    // The store's check refuses a directory under one others may write,
+    // such as a target directory under /tmp: these tests need a target
+    // directory whose ancestors only root or the invoking user may write.
+    if let Err(e) = vtium_font::set::Store::open(&dir, uid) {
+        panic!(
+            "the store's check refuses the tests' store {} ({e}): set CARGO_TARGET_DIR to a directory whose ancestors only root or uid {uid} may write",
+            dir.display()
+        );
+    }
     Sources {
-        uid: fs::metadata(&dir).expect("stat").uid(),
+        uid,
         store: dir,
         vconsole_conf: conf,
         kernel_cmdline: PathBuf::from("/dev/null"),
@@ -3266,25 +3276,9 @@ fn a_path_or_vconsoles_font_finds_the_set_built_from_it() {
 // check, draws the built-ins.
 #[test]
 fn a_font_with_no_set_or_a_refused_one_draws_the_builtins() {
-    let fonts = store("refused", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
-    for name in ["absent", "tiny"] {
-        if name == "tiny" {
-            // One byte of the set changed after the manifest's hash.
-            let file = std::fs::read_dir(&fonts.store)
-                .expect("the store")
-                .filter_map(Result::ok)
-                .map(|e| e.path())
-                .find(|p| p.extension().is_some_and(|x| x == "vtglass"))
-                .expect("the set");
-            let mut bytes = std::fs::read(&file).expect("read");
-            let last = bytes.len() - 1;
-            bytes[last] ^= 1;
-            std::fs::write(&file, bytes).expect("write");
-        }
-        let h = with_fonts(
-            &[&format!("--font-name={name}"), "--font-size=16"],
-            fonts.clone(),
-        );
+    let absent = store("absent", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
+    for (name, fonts) in [("absent", absent), ("tiny", tampered("refused"))] {
+        let h = with_fonts(&[&format!("--font-name={name}"), "--font-size=16"], fonts);
         assert_eq!(h.app.font_name(), "unifont", "{name}");
         assert_eq!(h.app.cells(), [(8, 16)], "{name}");
     }
@@ -3405,5 +3399,88 @@ fn a_query_after_osc_50_names_the_new_set() {
         h.app.screen_text().iter().any(|l| l.contains("]50;tiny")),
         "{:?}",
         h.app.screen_text()
+    );
+}
+
+/// The log lines this thread wrote since the last call.
+fn logged() -> Vec<String> {
+    use std::cell::RefCell;
+    use std::sync::Once;
+    thread_local! {
+        static LINES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    }
+    struct Capture;
+    impl log::Log for Capture {
+        fn enabled(&self, _: &log::Metadata<'_>) -> bool {
+            true
+        }
+        fn log(&self, record: &log::Record<'_>) {
+            LINES.with(|l| l.borrow_mut().push(record.args().to_string()));
+        }
+        fn flush(&self) {}
+    }
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        log::set_logger(&Capture).expect("the tests' logger");
+        log::set_max_level(log::LevelFilter::Info);
+    });
+    LINES.with(|l| std::mem::take(&mut *l.borrow_mut()))
+}
+
+/// The store `test` holding `tiny` with one byte of its set changed after
+/// the manifest's hash.
+fn tampered(test: &str) -> Sources {
+    let fonts = store(test, &[("tiny", "kbd:tiny", tiny("tiny"))], "");
+    let file = std::fs::read_dir(&fonts.store)
+        .expect("the store")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|x| x == "vtglass"))
+        .expect("the set");
+    let mut bytes = std::fs::read(&file).expect("read");
+    let last = bytes.len() - 1;
+    bytes[last] ^= 1;
+    std::fs::write(&file, bytes).expect("write");
+    fonts
+}
+
+// ADR-1200 D3, D5: OSC 50 naming a set the store's check refuses leaves the
+// font as it was.
+#[test]
+fn osc_50_leaves_the_font_for_a_set_that_fails_the_stores_check() {
+    let h = osc50(
+        &["--font-size=12"],
+        "\\033]50;tiny\\007",
+        tampered("osc50-tampered"),
+    );
+    assert_eq!(h.app.font_name(), "unscii-8");
+    assert_eq!(h.app.cells(), [(8, 8)]);
+}
+
+// A program's flood of refused OSC 50 requests logs one line, and the
+// switch that follows counts the rest.
+#[test]
+fn a_flood_of_refused_osc_50_requests_logs_one_line() {
+    let fonts = store("osc50-flood", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
+    logged();
+    let flood = "\\033]50;absent\\007\\033]50;other\\007".repeat(20);
+    let h = osc50(
+        &["--font-size=12"],
+        &format!("{flood}\\033]50;tiny\\007"),
+        fonts,
+    );
+    assert_eq!(h.app.font_name(), "tiny");
+    let lines = logged();
+    let refused: Vec<&String> = lines
+        .iter()
+        .filter(|l| l.starts_with("OSC 50 asked"))
+        .collect();
+    assert_eq!(refused.len(), 1, "{lines:?}");
+    assert!(refused[0].contains("absent"), "{refused:?}");
+    assert!(
+        lines
+            .iter()
+            .any(|l| l == "OSC 50 was refused 39 more times before this switch"),
+        "{lines:?}"
     );
 }
