@@ -3,7 +3,10 @@
 //! display, input device or tty, and reads only the configuration files,
 //! so it runs unprivileged (the operator's decision on vtium/vtium#21).
 
+use std::path::Path;
+
 use crate::config::{Config, Loaded, keys};
+use crate::font;
 
 /// The subcommand's name, which stands among the options.
 pub const SUBCOMMAND: &str = "check-config";
@@ -14,13 +17,34 @@ Reads the configuration as vtium would start with these options:\n\
 kmscon.conf and the seat's file in the configuration directory, then the\n\
 options. It prints each warning and exits 1 when there is any, 0 when\n\
 there is none. It only checks: it opens no VT, display or input device,\n\
-applies nothing, and reads nothing but the configuration files.\n";
+applies nothing, and reads nothing but the configuration files and the\n\
+frit font-name names.\n";
 
 /// What a value means beyond its own key, which the start reports too.
 pub fn semantics(config: &Config) -> Vec<String> {
     // Any user may read PID 1's status; `SigCgt` says what it catches.
     let status = std::fs::read_to_string("/proc/1/status").map_err(|e| e.to_string());
-    semantics_under(config, &status, vtium_platform::power::power_off_signal())
+    let mut out = semantics_under(config, &status, vtium_platform::power::power_off_signal());
+    out.extend(frit(config, &font::default_frits()));
+    out
+}
+
+/// What the frit `font-name` names in `frits` says of its cell, as
+/// [`font::frit_warnings`] reads it; nothing when the name is no frit's.
+fn frit(config: &Config, frits: &Path) -> Vec<String> {
+    let Some(wanted) = font::wanted(config, "", "").filter(|w| w.came == font::Came::Config) else {
+        return Vec::new();
+    };
+    let Some(path) = font::frit(frits, &wanted.name) else {
+        return Vec::new();
+    };
+    match font::frit_text(&path) {
+        Ok(text) => font::frit_warnings(&wanted.name, &text),
+        Err(why) => vec![format!(
+            "the frit {} cannot be read ({why}); vtium draws its built-in font",
+            wanted.name
+        )],
+    }
 }
 
 /// Whether PID 1 catches `signal`, from the text of `/proc/1/status`:
@@ -91,7 +115,6 @@ pub fn run(loaded: &Loaded) -> (Vec<String>, i32) {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
-    use std::path::Path;
 
     use super::*;
     use crate::config;
@@ -238,6 +261,41 @@ mod tests {
             power_off_warnings(unbound, &Err("x".to_owned())),
             [] as [&str; 0]
         );
+    }
+
+    // #145: a frit's cell that does not suit it, where no font need be
+    // parsed to tell
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn the_frit_font_name_names_is_checked() {
+        let dir = std::env::temp_dir().join(format!("vtium-check-frit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("small.vtfrit"),
+            "source=builtin:unifont\ncell=8x12\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("fine.vtfrit"),
+            "source=outline:/f.ttf\ncell=10x20\n",
+        )
+        .unwrap();
+        let config = |name: &str| {
+            let args: Vec<OsString> = [SUBCOMMAND, "--font-name", name]
+                .iter()
+                .map(OsString::from)
+                .collect();
+            config::load(&args, Some("seat0"), &mut |_: &Path| Ok(None)).config
+        };
+        assert_eq!(
+            frit(&config("small"), &dir),
+            [
+                "the frit small: line 1: source=builtin:unifont's 8x16 cell does not fit its 8x12 cell, so it gives nothing"
+            ]
+        );
+        assert!(frit(&config("fine"), &dir).is_empty());
+        assert!(frit(&config("ter-v16n"), &dir).is_empty(), "no frit");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
