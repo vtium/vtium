@@ -1,41 +1,8 @@
-//! The runner's lists: `pin.tsv`, the commits it judges against, and
-//! `expected.tsv`, the cases where vtium's output is expected to differ
-//! from the golden.
+//! The runner's list `expected.tsv`: the cases where vtium's output is
+//! expected to differ from the golden.
 
 use std::collections::BTreeMap;
 use std::path::Path;
-
-/// A repository the runner reads at a pinned commit.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Pin {
-    pub name: String,
-    pub commit: String,
-    pub url: String,
-}
-
-/// Reads `pin.tsv`: `NAME COMMIT URL` a line, `#` comments.
-pub fn pins(text: &str) -> Result<Vec<Pin>, String> {
-    rows(text)
-        .map(|(n, fields)| match fields[..] {
-            [name, commit, url]
-                if commit.len() == 40 && commit.bytes().all(|b| b.is_ascii_hexdigit()) =>
-            {
-                Ok(Pin {
-                    name: name.to_owned(),
-                    commit: commit.to_owned(),
-                    url: url.to_owned(),
-                })
-            }
-            _ => Err(format!("pin.tsv:{n}: want NAME, a 40-digit COMMIT and URL")),
-        })
-        .collect()
-}
-
-pub fn pin<'a>(pins: &'a [Pin], name: &str) -> Result<&'a Pin, String> {
-    pins.iter()
-        .find(|p| p.name == name)
-        .ok_or_else(|| format!("pin.tsv names no {name} commit"))
-}
 
 /// The non-comment lines of a TSV, numbered from 1, split at tabs.
 fn rows(text: &str) -> impl Iterator<Item = (usize, Vec<&str>)> {
@@ -303,18 +270,5 @@ mod tests {
             check_sources(&iface, readme("X. Y may list it as a departure.")),
             Ok(())
         );
-    }
-
-    #[test]
-    fn pins_need_a_whole_commit() {
-        let commit = "e".repeat(40);
-        assert_eq!(
-            pins(&format!(
-                "libtsm\t{commit}\thttps://example.org/libtsm.git\n"
-            ))
-            .map(|p| p.len()),
-            Ok(1)
-        );
-        assert!(pins("libtsm\teeaf293\thttps://example.org/libtsm.git\n").is_err());
     }
 }

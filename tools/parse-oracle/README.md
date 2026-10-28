@@ -2,7 +2,7 @@
 
 A differential between `vtium-parse` and the C reference's parser. The C reference's parser is taken by line range from a pinned libtsm commit and compiled into this tool. Both parsers play the same streams of events and write one trace in the same format, which the tool compares line by line. Every difference must be one of the departures `crates/vtium-parse/README.md` lists, and any other difference fails the run.
 
-The tool is its own cargo workspace. Building it needs gcc and the pinned libtsm commit, so the main workspace and CI never build it.
+The tool is its own cargo workspace. Building it needs gcc and the pinned libtsm commit, so the main workspace and CI never build it. It runs on request and is not one of the gates in AGENTS.md: vtium-parse's own tests and tier 1 judge the parser, and no gate runs the C reference's code (#111).
 
 ```
 cargo run --release --manifest-path tools/parse-oracle/Cargo.toml -- run       # the differential

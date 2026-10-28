@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use vtium_conformance::runner::lists::{Expectation, Expected};
-use vtium_conformance::runner::{Corpus, Verdict, excerpt, judge, mask};
+use vtium_conformance::runner::{Corpus, Verdict, judge, mask};
 use vtium_conformance::view::View;
 
 /// vtium's screen view of `ab` on a 4 by 1 screen, written out by hand.
@@ -188,24 +188,4 @@ fn the_fixture_directory_sits_beside_the_stream() {
         vtium_conformance::replay::Input::fixtures_for(Path::new("cases/host-identify.bin")),
         PathBuf::from("cases/host-identify.files")
     );
-}
-
-#[test]
-fn a_copy_is_its_lines_of_the_source_byte_for_byte() {
-    let source = "one\ntwo\nthree\nfour\n";
-    assert_eq!(excerpt(source, 2, 3, "two\nthree\n"), Ok(()));
-    let at = |copy: &str| excerpt(source, 2, 3, copy).err();
-    assert_eq!(
-        at("two\nthree!\n").as_deref(),
-        Some("line 2 of the copy is not line 3 of the source")
-    );
-    assert_eq!(
-        at("two\n").as_deref(),
-        Some("line 2 of the copy is not line 3 of the source")
-    );
-    assert_eq!(
-        at("two\nthree\nfour\n").as_deref(),
-        Some("line 3 of the copy is not line 4 of the source")
-    );
-    assert!(at("two\nthree").is_some(), "a missing line end");
 }

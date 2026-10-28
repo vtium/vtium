@@ -1,20 +1,26 @@
-//! Tier 1 for vtium: the C reference's conformance corpus, at the libtsm
-//! commit `pin.tsv` names, replayed through vtium and judged against its
-//! goldens; and the C reference's capability probes run through
-//! vtium-replay. The crate's README gives the commands.
+//! Tier 1 for vtium: the corpus, copied from the C reference, replayed
+//! through vtium and judged against its goldens; and the capability
+//! probes run through vtium-replay. The crate's README gives the commands.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use vtium_conformance::runner::lists::{self, Expected, Pin};
-use vtium_conformance::runner::{
-    self, Corpus, PALETTE_COPY, PALETTE_SOURCE, VIEWS, Verdict, chunking, source,
-};
+use vtium_conformance::probes::{self, Outcome, Replay};
+use vtium_conformance::runner::lists::{self, Expected};
+use vtium_conformance::runner::{self, Corpus, VIEWS, Verdict, chunking, provenance};
+use vtium_conformance::spec::Spec;
 
 const TOOL: &str = env!("CARGO_MANIFEST_DIR");
-const CONFORMANCE: &str = "test/conformance";
-const CAPABILITIES: &str = "tests/capabilities";
+/// The corpus and the probes, each file copied with a row in
+/// `provenance.tsv`; vtium's own probes sit beside the copied file.
+const CORPUS: &str = "corpus";
+const PROBES: [&str; 2] = ["probes/probes.replay", "probes/vtium.replay"];
+/// The directories every file of which is a copy.
+const COPIED: [&str; 1] = ["tools/conformance/corpus"];
+/// The build features the capability list names: vtium is built without
+/// images until vtium-image lands (#48, #49).
+const BUILD: [(&str, bool); 1] = [("images", false)];
 /// Features interface 1 lets an implementation without images, or
 /// without the draw2 view, leave out.
 const OPTIONAL: [&str; 6] = [
@@ -29,13 +35,9 @@ const OPTIONAL: [&str; 6] = [
 const USAGE: &str = "usage: conformance [run] [--without CASE]... [--seed N] [--rounds N]
        conformance expect VIEW CASE...
        conformance probes
-       conformance issues
-each takes [--libtsm DIR] [--kmscon DIR] [--out DIR]";
+       conformance issues";
 
 struct Options {
-    libtsm: PathBuf,
-    kmscon: PathBuf,
-    out: PathBuf,
     without: Vec<String>,
     seed: u64,
     rounds: usize,
@@ -43,11 +45,7 @@ struct Options {
 }
 
 fn options(args: &[String]) -> Result<Options, String> {
-    let root = repo_root();
     let mut o = Options {
-        libtsm: root.join("../libtsm"),
-        kmscon: root.join("../kmscon"),
-        out: Path::new(TOOL).join("out"),
         without: Vec::new(),
         // a CI run takes its own seed, so each run tries other cuts
         seed: std::env::var("GITHUB_RUN_ID")
@@ -65,9 +63,6 @@ fn options(args: &[String]) -> Result<Options, String> {
                 .ok_or_else(|| format!("{arg} needs a value"))
         };
         match arg.as_str() {
-            "--libtsm" => o.libtsm = PathBuf::from(value()?),
-            "--kmscon" => o.kmscon = PathBuf::from(value()?),
-            "--out" => o.out = PathBuf::from(value()?),
             "--without" => o.without.push(value()?),
             "--seed" => o.seed = value()?.parse().map_err(|_| "--seed takes a number")?,
             "--rounds" => o.rounds = value()?.parse().map_err(|_| "--rounds takes a number")?,
@@ -86,16 +81,19 @@ fn read(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-fn pins() -> Result<Vec<Pin>, String> {
-    lists::pins(&read(&Path::new(TOOL).join("pin.tsv"))?)
+/// The copies, each checked against its row of `provenance.tsv`.
+fn copies() -> Result<Vec<provenance::Copy>, String> {
+    let copies = provenance::read(&read(&Path::new(TOOL).join("provenance.tsv"))?)?;
+    let faults = provenance::check(&repo_root(), &copies, &COPIED);
+    if faults.is_empty() {
+        Ok(copies)
+    } else {
+        Err(faults.join("\n"))
+    }
 }
 
-/// The corpus at the pinned libtsm commit, extracted with the file that
-/// holds the palette tables.
-fn corpus(o: &Options, pins: &[Pin]) -> Result<Corpus, String> {
-    let pin = lists::pin(pins, "libtsm")?;
-    let dir = source::extract(&o.libtsm, pin, &[CONFORMANCE, PALETTE_SOURCE.0], &o.out)?;
-    Corpus::open(&dir.join(CONFORMANCE))
+fn corpus() -> Result<Corpus, String> {
+    Corpus::open(&Path::new(TOOL).join(CORPUS))
 }
 
 /// The listed expectations, each departure's entry checked against the
@@ -164,31 +162,17 @@ fn check_describe(interface: &str) -> Result<(), String> {
 }
 
 fn run(o: &Options) -> Result<bool, String> {
-    let pins = pins()?;
-    let corpus = corpus(o, &pins)?;
+    let copies = copies()?;
+    let corpus = corpus()?;
     let expected = expectations(&corpus, &o.without)?;
     check_describe(&read(&corpus.root.join("INTERFACE.md"))?)?;
-    let pin = lists::pin(&pins, "libtsm")?;
     println!(
-        "conformance: {} cases at libtsm {}",
+        "conformance: {} cases, copied from libtsm {}; {} copies match provenance.tsv",
         corpus.cases.len(),
-        pin.commit
+        provenance::commit(&copies, "libtsm")?,
+        copies.len()
     );
     let mut ok = true;
-    let (file, first, last) = PALETTE_SOURCE;
-    let tree = corpus.root.ancestors().nth(2).unwrap_or(&corpus.root);
-    match runner::excerpt(
-        &read(&tree.join(file))?,
-        first,
-        last,
-        &read(&repo_root().join(PALETTE_COPY))?,
-    ) {
-        Ok(()) => println!("palettes: {PALETTE_COPY} is {file}:{first}-{last}"),
-        Err(why) => {
-            ok = false;
-            println!("FAIL palettes {PALETTE_COPY}: {why}");
-        }
-    }
     for (view, name, golden_dir) in VIEWS {
         let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
         for case in &corpus.cases {
@@ -262,7 +246,7 @@ fn expect(o: &Options) -> Result<bool, String> {
         .iter()
         .find(|(_, n, _)| n == view)
         .ok_or_else(|| format!("no view {view}"))?;
-    let corpus = corpus(o, &pins()?)?;
+    let corpus = corpus()?;
     let rows = lists::expected_rows(&read(&Path::new(TOOL).join("expected.tsv"))?)?;
     for case in cases {
         let listed: Vec<_> = rows
@@ -308,43 +292,76 @@ fn expect(o: &Options) -> Result<bool, String> {
     Ok(true)
 }
 
-/// The capability probes: the C reference's `run.py` at the pinned kmscon
-/// commit, judging vtium's capability list through vtium-replay.
-fn probes(o: &Options) -> Result<bool, String> {
-    let pins = pins()?;
-    let corpus = corpus(o, &pins)?;
-    let kmscon = source::extract(
-        &o.kmscon,
-        lists::pin(&pins, "kmscon")?,
-        &[CAPABILITIES],
-        &o.out,
-    )?;
-    let caps = kmscon.join(CAPABILITIES);
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let replay = exe.with_file_name("vtium-replay");
-    if !replay.exists() {
-        return Err(format!(
-            "{} is not built: cargo build -p vtium-conformance --bins",
-            replay.display()
-        ));
+/// The capability probes, each judged against `capabilities.list`: a
+/// probe the list does not name, a name no probe defines, and a verdict
+/// that disagrees with the list each fail the run.
+fn probes() -> Result<bool, String> {
+    copies()?;
+    let spec = Spec::read(&read(&corpus()?.root.join("INTERFACE.md"))?)?;
+    let caps = vtium_conformance::coverage::capabilities(&read(
+        &Path::new(TOOL).join("capabilities.list"),
+    )?)?;
+    probes::check_list(&caps)?;
+    let mut all = Vec::new();
+    for file in PROBES {
+        let text = match std::fs::read_to_string(Path::new(TOOL).join(file)) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && !all.is_empty() => continue,
+            Err(e) => return Err(format!("{file}: {e}")),
+        };
+        all = probes::merge(all, probes::read(file, &text, &spec)?)?;
     }
-    let status = std::process::Command::new("python3")
-        .arg("-I")
-        .arg(caps.join("run.py"))
-        .arg("--list")
-        .arg(Path::new(TOOL).join("capabilities.list"))
-        // vtium is built without images until vtium-image lands (#48, #49)
-        .arg("--build")
-        .arg("images=false")
-        .arg("--replay")
-        .arg(&replay)
-        .arg("--probes")
-        .arg(caps.join("probes.replay"))
-        .arg("--spec")
-        .arg(corpus.root.join("INTERFACE.md"))
-        .status()
-        .map_err(|e| format!("python3: {e}"))?;
-    Ok(status.success())
+    for probe in &all {
+        let missing = caps
+            .iter()
+            .any(|c| c.name == probe.name && c.status == "missing");
+        let file = probe.at.split(':').next().unwrap_or_default();
+        probes::check_expectations(file, probe, &spec, missing)?;
+    }
+    let replay = Replay::new(&spec, &vtium_conformance::describe())?;
+    let mut failures = 0usize;
+    for probe in all
+        .iter()
+        .filter(|p| !caps.iter().any(|c| c.name == p.name))
+    {
+        println!(
+            "FAIL {}: a probe the list does not name; add it to capabilities.list",
+            probe.name
+        );
+        failures += 1;
+    }
+    for cap in &caps {
+        let Some(probe) = all.iter().find(|p| p.name == cap.name) else {
+            println!(
+                "FAIL {}: capabilities.list names a probe nothing defines",
+                cap.name
+            );
+            failures += 1;
+            continue;
+        };
+        if !probe.fixtures.is_empty() {
+            println!(
+                "skip {}: no fixture {}",
+                cap.name,
+                probe.fixtures.join(", ")
+            );
+            continue;
+        }
+        let outcome: Outcome = replay.run(probe);
+        let (line, agrees) = probes::verdict(cap, &outcome, &BUILD);
+        println!("{line}");
+        if !agrees {
+            failures += 1;
+        }
+    }
+    let count = |s: &str| caps.iter().filter(|c| c.status == s).count();
+    println!(
+        "{} probes: {} work, {} missing; {failures} disagree with the list",
+        caps.len(),
+        count("works"),
+        count("missing")
+    );
+    Ok(failures == 0)
 }
 
 /// Every issue the lists name as owing a case or a capability, checked
@@ -417,7 +434,7 @@ fn main() -> ExitCode {
         match command.as_str() {
             "run" if o.rest.is_empty() => run(&o),
             "expect" => expect(&o),
-            "probes" if o.rest.is_empty() => probes(&o),
+            "probes" if o.rest.is_empty() => probes(),
             "issues" if o.rest.is_empty() => issues(),
             _ => Err(USAGE.to_owned()),
         }

@@ -1,18 +1,21 @@
 #![forbid(unsafe_code)]
 //! vtium's side of tier 1.
 //!
-//! `vtium-replay` meets the C reference's replay interface, libtsm's
-//! `test/conformance/INTERFACE.md` (interface 1.0), over `vtium-term`: a
-//! byte stream and the test commands in it go in, and the screen or frame
-//! view comes out as text. `conformance` replays every case of the C
-//! reference's corpus at the commit `pin.tsv` names and judges each against
+//! `vtium-replay` meets the replay interface, `corpus/INTERFACE.md`
+//! (interface 1.0), over `vtium-term`: a byte stream and the test commands
+//! in it go in, and the screen or frame view comes out as text.
+//! `conformance` replays every case of the corpus and judges each against
 //! its golden, expecting vtium's own output for exactly the cases
-//! `expected.tsv` lists. The crate's README describes both.
+//! `expected.tsv` lists, and judges the capability probes against
+//! `capabilities.list`. The crate's README describes both.
 
 pub mod command;
 pub mod coverage;
+pub mod probes;
 pub mod replay;
 pub mod runner;
+pub mod sha256;
+pub mod spec;
 pub mod view;
 
 /// Why a replay printed no result: exit 2 for a usage failure, 3 for one

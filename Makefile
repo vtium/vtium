@@ -71,20 +71,20 @@ arm: arm-sysroot ## Build the minspec profile for each ARM target, target/TRIPLE
 arm-test: arm-sysroot ## Run the workspace's tests for each ARM target under qemu-user (ARM_TEST_TARGETS='...'; needs clang, qemu-user)
 	cargo test --workspace --all-features --no-fail-fast $(addprefix --target ,$(ARM_TEST_TARGETS))
 
-# Tier 1 against the C reference's goldens and probes, at the commits
-# tools/conformance/pin.tsv names, read from checkouts beside this one.
-LIBTSM ?= ../libtsm
-KMSCON ?= ../kmscon
-
+# Tier 1 and the capability probes, against the goldens and probes in
+# tools/conformance/, copied from the C reference (provenance.tsv).
 .PHONY: conformance
-conformance: ## Judge vtium against the C reference's goldens (LIBTSM=DIR)
+conformance: ## Judge vtium against tier 1's goldens
 	cargo build --release -p vtium-conformance --bins
-	target/release/conformance run --libtsm $(LIBTSM)
+	target/release/conformance run
 
 .PHONY: conformance-probes
-conformance-probes: ## Run the C reference's capability probes through vtium-replay (LIBTSM=DIR KMSCON=DIR)
+conformance-probes: ## Run the capability probes through vtium-replay
 	cargo build --release -p vtium-conformance --bins
-	target/release/conformance probes --libtsm $(LIBTSM) --kmscon $(KMSCON)
+	target/release/conformance probes
+
+# The parse oracle compiles the C reference's parser from a libtsm checkout.
+LIBTSM ?= ../libtsm
 
 .PHONY: parse-oracle
 parse-oracle: ## Compare vtium-parse with the C reference's parser at tools/parse-oracle/pin.tsv (LIBTSM=DIR; needs gcc)
