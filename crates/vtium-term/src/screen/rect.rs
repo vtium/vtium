@@ -166,9 +166,12 @@ impl Screen {
             line.erase(target.left..target.right.saturating_add(1), &Style::DEFAULT);
             for (x, sx) in (target.left..=target.right).zip(source.left..) {
                 let cell = from.cell(sx);
+                // A pad is copied as the empty cell it draws as, since it
+                // belongs only at the end of a wrapped row.
                 let cut = match cell.width() {
                     Width::Wide => x == target.right,
                     Width::WideTail => x == target.left,
+                    Width::Pad => true,
                     Width::Narrow => false,
                 };
                 let style = from.style(cell);

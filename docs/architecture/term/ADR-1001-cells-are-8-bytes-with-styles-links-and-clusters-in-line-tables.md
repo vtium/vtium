@@ -169,6 +169,8 @@ The C reference's figures are its measured totals, 10.3 MiB after the first scre
 
 Tier 3 measures the real figures from the first working build (kmscon ADR-304 §5).
 
+> Added 2026-10-28, after ADR-1003, and corrected the same day: a rewrap moves clusters with their cells, so a rewrapped row may name more than its own cells' budget. The scrollback and the screen name at most 3,012 cluster bytes a row at 170 columns, 2.95 times the 1,020 above (`crates/vtium-term/tests/flood.rs` derives it), so the worst case a row grows to 7,560 bytes: 7.21 MiB at 1,000 lines, 72.10 MiB at 10,000, 216.29 MiB at 30,000 and 720.98 MiB at 100,000. At the default 1,000 lines the worst case is about 17.3 MiB, 1.6 MiB over the 15.7 MiB minspec peak, where it was 0.3 MiB under; full shell lines are unchanged. `the_worst_default_scrollback_fits_the_minspec_peak` measures a line as written and does not see it.
+
 ## Consequences
 
 ### Positive

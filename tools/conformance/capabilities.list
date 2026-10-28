@@ -25,7 +25,7 @@ wide-at-margin                works   -     text.vs-width                  a wid
 rep                           works   -     text.rep                       REP repeats the last printed character, a wide one whole
 erase-colours-only            works   -     ctl.bce                        EL, SU, SD and RI blanks take the pen background only
 frame-age-per-caller          works   -     platform.multi-monitor         each frame-since caller keeps its own changes
-reflow                        missing #41   text.reflow                    a resize rewraps the lines a wrap made
+reflow                        works   -     text.reflow                    a resize rewraps the lines a wrap made
 bidi                          missing #43   text.bidi                      placeholder in the probes: no bidirectional reordering
 
 # modes and replies

@@ -25,13 +25,17 @@ pub enum Width {
     Wide,
     /// The second column of a wide cell, which draws nothing of its own.
     WideTail,
+    /// The last column of a wrapped row, left empty where a wide character
+    /// did not fit and moved whole to the next row (ADR-1003). It draws as
+    /// an empty cell, and a rewrap drops it.
+    Pad,
 }
 
 impl Width {
     /// The columns this cell advances the cursor by.
     pub const fn columns(self) -> u8 {
         match self {
-            Self::Narrow => 1,
+            Self::Narrow | Self::Pad => 1,
             Self::Wide => 2,
             Self::WideTail => 0,
         }
@@ -42,6 +46,7 @@ impl Width {
             Self::Narrow => 0,
             Self::Wide => 1,
             Self::WideTail => 2,
+            Self::Pad => 3,
         }
     }
 }
@@ -120,6 +125,7 @@ impl Cell {
         match (self.content & WIDTH_MASK) >> WIDTH_SHIFT {
             1 => Width::Wide,
             2 => Width::WideTail,
+            3 => Width::Pad,
             _ => Width::Narrow,
         }
     }
@@ -163,7 +169,7 @@ mod tests {
             Content::Cluster(ClusterOffset(VALUE_MASK)),
         ];
         for content in contents {
-            for width in [Width::Narrow, Width::Wide, Width::WideTail] {
+            for width in [Width::Narrow, Width::Wide, Width::WideTail, Width::Pad] {
                 let cell = Cell::new(content, width, StyleIndex(65535), LinkIndex(7));
                 assert_eq!(cell.content(), content);
                 assert_eq!(cell.width(), width);

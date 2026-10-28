@@ -9,7 +9,9 @@
 mod common;
 
 use common::{rows, scrollback, term};
-use vtium_term::{Attrs, Color, Glyph, Rgb, Screen, Style, Terminal, Width, WidthMethod};
+use vtium_term::{
+    Attrs, Color, Glyph, LineFlags, Rgb, Screen, Style, Terminal, Width, WidthMethod,
+};
 
 fn cursor(t: &Terminal) -> (usize, usize) {
     t.screen().cursor()
@@ -297,8 +299,9 @@ fn a_grapheme_cluster_takes_one_cell() {
 
 // VS16 makes an emoji-style base two cells wide; VS15 leaves a width as
 // it is, as in the C reference. A wide character with only the last column
-// left wraps whole, the cell it leaves cleared; without autowrap it is not
-// printed (the C reference's probes vs16-width and wide-at-margin).
+// left wraps whole, the cell it leaves a pad (ADR-1003); without autowrap
+// it is not printed (the C reference's probes vs16-width and
+// wide-at-margin).
 // covers: text.vs-width
 #[test]
 fn vs16_widens_and_a_wide_character_wraps_whole() {
@@ -312,10 +315,18 @@ fn vs16_widens_and_a_wide_character_wraps_whole() {
     let t = term(4, 2, "abc\u{2764}\u{FE0F}".as_bytes());
     assert_eq!(rows(t.screen()), ["abc", "\u{2764}\u{FE0F}"]);
     assert_eq!(cursor(&t), (2, 1));
+    assert_eq!(glyph(t.screen(), 0, 3), (String::new(), Width::Pad));
+    assert!(
+        t.screen()
+            .line(0)
+            .unwrap()
+            .flags()
+            .contains(LineFlags::WRAPPED)
+    );
     // A wide character at the last column wraps whole.
     let t = term(4, 2, "abc\u{4E2D}".as_bytes());
     assert_eq!(rows(t.screen()), ["abc", "\u{4E2D}"]);
-    assert!(t.screen().line(0).unwrap().cell(3).is_blank());
+    assert_eq!(glyph(t.screen(), 0, 3), (String::new(), Width::Pad));
     // Without autowrap it is not printed, and the cursor stays.
     let mut t = Terminal::new(4, 2, 0);
     t.screen_mut().set_auto_wrap(false);
@@ -581,12 +592,16 @@ fn resizing_moves_lines_through_the_scrollback() {
     t.screen_mut().resize(6, 3);
     assert_eq!(text(&t), ["2", "3", "4"]);
     assert_eq!(cursor(&t), (1, 2));
-    // Narrower and wider again: the cells past the edge come back.
+    // Narrower and wider again, the line rewraps (ADR-1003): the row
+    // below the cursor's row stays, the one after it goes below the
+    // screen, and widening refills the screen from the scrollback.
     t.input(b"\x1b[1;1Habcdef");
     t.screen_mut().resize(3, 3);
-    assert_eq!(text(&t), ["abc", "3", "4"]);
+    assert_eq!(text(&t), ["abc", "def", "3"]);
+    assert_eq!(cursor(&t), (3, 1));
     t.screen_mut().resize(6, 3);
-    assert_eq!(text(&t), ["abcdef", "3", "4"]);
+    assert_eq!(text(&t), ["1", "abcdef", "3"]);
+    assert_eq!(cursor(&t), (6, 1));
     // With nothing in the scrollback, it scrolls only as far as the
     // cursor needs, and the rows below come back when it grows.
     let mut t = term(4, 4, b"1\r\n2\x1b[H");
@@ -759,17 +774,17 @@ fn a_wrap_ends_where_its_next_row_is_gone() {
         );
     }
 
-    // After a narrowing resize a row's text runs past the margin, hidden,
-    // and it no longer continues: the copy would leave a hole in it.
-    let mut t = term(8, 3, b"abcdefghijkl");
-    t.screen_mut().resize(4, 3);
+    // After a narrowing resize the line rewraps (ADR-1003), and copies
+    // whole.
+    let mut t = term(8, 4, b"abcdefghijkl\r\n");
+    t.screen_mut().resize(4, 4);
     let s = t.screen_mut();
     s.select_line(0, 0);
-    assert_eq!(s.selection_text().as_deref(), Some("abcd\n"));
+    assert_eq!(s.selection_text().as_deref(), Some("abcdefghijkl\n"));
     s.select_word(3, 0);
-    assert_eq!(s.selection_text().as_deref(), Some("abcd"));
-    s.select_line(0, 1);
-    assert_eq!(s.selection_text().as_deref(), Some("ijkl\n"));
+    assert_eq!(s.selection_text().as_deref(), Some("abcdefghijkl"));
+    s.select_line(0, 2);
+    assert_eq!(s.selection_text().as_deref(), Some("abcdefghijkl\n"));
 
     // A word stops going back at a wrapped row with no text, as it stops
     // going forward.

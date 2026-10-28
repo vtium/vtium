@@ -2,7 +2,8 @@
 //! screen and in the scrollback, which the host drives.
 //!
 //! The selection holds each end by its line's [`LineId`] and a column, so
-//! it moves with its text as the screen scrolls. A line the screen discards
+//! it moves with its text as the screen scrolls, and a resize that rewraps
+//! the text carries each end to the cell now holding it (ADR-1003). A line the screen discards
 //! (IL, DL, SD, RI, a scroll on the alternate screen, a scroll with no
 //! room in the scrollback, the hidden rows a taller screen drops) takes the
 //! selection with it, so a copy never reaches into other text. Only an end
@@ -25,9 +26,9 @@ use crate::line::{Glyph, Line, LineFlags, LineId};
 
 /// One end of the selection: a column of a line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Anchor {
-    line: LineId,
-    x: usize,
+pub(super) struct Anchor {
+    pub(super) line: LineId,
+    pub(super) x: usize,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -49,6 +50,38 @@ impl Selection {
 
     pub(super) fn reset(&mut self) {
         *self = Self::default();
+    }
+
+    /// Where the selection started and its ends, while it is active.
+    pub(super) fn anchors(&self) -> Vec<Anchor> {
+        if !self.active {
+            return Vec::new();
+        }
+        let mut anchors: Vec<Anchor> = Vec::with_capacity(3);
+        for a in [self.begin, self.start, self.end].into_iter().flatten() {
+            if !anchors.contains(&a) {
+                anchors.push(a);
+            }
+        }
+        anchors
+    }
+
+    /// Moves each anchor of `moved` to where a rewrap carried it; one whose
+    /// cell went takes the selection with it.
+    pub(super) fn carry(&mut self, moved: &[(Anchor, Option<Anchor>)]) {
+        let mut gone = false;
+        for end in [&mut self.begin, &mut self.start, &mut self.end] {
+            let Some(a) = *end else {
+                continue;
+            };
+            if let Some(&(_, to)) = moved.iter().find(|(from, _)| *from == a) {
+                *end = to;
+                gone |= to.is_none();
+            }
+        }
+        if gone {
+            self.reset();
+        }
     }
 
     /// Whether an end of the selection, or where it started, is on one of
@@ -348,15 +381,12 @@ impl Screen {
     }
 
     /// Whether the line at `place` in reading order continues on the next:
-    /// it wrapped, its text ends inside the screen, and the next is not the
-    /// alternate screen's first row. Text past a narrower screen's margin
-    /// is hidden until reflow (vtium/vtium#41) rejoins it, so a copy that
-    /// went on to the next row would leave a hole in it.
+    /// it wrapped, and the next is not the alternate screen's first row.
     fn continues(&self, place: usize) -> bool {
         let next = place.saturating_add(1);
         let wrapped = self
             .line_at(place)
-            .is_some_and(|l| l.flags().contains(LineFlags::WRAPPED) && text_len(l) <= self.cols);
+            .is_some_and(|l| l.flags().contains(LineFlags::WRAPPED));
         wrapped
             && self.line_at(next).is_some()
             && !(self.flags.alternate && next == self.scrollback.len())
