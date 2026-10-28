@@ -79,10 +79,15 @@ pub fn suspend() -> io::Result<Suspend> {
         }
         Err(e) => return Err(io::Error::other(e.to_string())),
     }
-    let child = shell("echo mem > /sys/power/state")
-        .stdin(Stdio::null())
-        .spawn()?;
+    let child = spawn(shell("echo mem > /sys/power/state").stdin(Stdio::null()))?;
     Ok(Suspend::Sysfs(child))
+}
+
+/// Starts `command` holding no descriptor of vtium's but its stdio:
+/// every descriptor vtium inherited is marked close-on-exec first.
+fn spawn(command: &mut Command) -> io::Result<Child> {
+    crate::fds::cloexec_above_stdio()?;
+    command.spawn()
 }
 
 /// `/bin/sh` running `script` with none of vtium's environment, the
@@ -149,6 +154,32 @@ mod tests {
             .output()
             .expect("a shell");
         assert_eq!(String::from_utf8_lossy(&out.stdout), "||/usr/bin:/bin");
+    }
+
+    #[test]
+    fn the_sysfs_shell_holds_only_its_stdio() {
+        let _one = crate::fds::tests::one_at_a_time();
+        // a descriptor without close-on-exec, as one vtium's parent passes
+        // down may be, numbered high so it is never the one ls opens
+        let null = std::fs::File::open("/dev/null").expect("/dev/null");
+        let held = rustix::io::fcntl_dupfd_cloexec(&null, 100).expect("dup");
+        rustix::io::fcntl_setfd(&held, rustix::io::FdFlags::empty()).expect("setfd");
+        let mut command = shell("ls /proc/self/fd");
+        command.stdin(Stdio::null()).stdout(Stdio::piped());
+        let out = spawn(&mut command)
+            .expect("a shell")
+            .wait_with_output()
+            .expect("its output");
+        let listed = String::from_utf8_lossy(&out.stdout);
+        let fds: Vec<&str> = listed.lines().collect();
+        let held = std::os::fd::AsRawFd::as_raw_fd(&held).to_string();
+        // only the planted descriptor is looked for: other tests' threads
+        // open their own meanwhile, xkbcommon's keymap files without
+        // close-on-exec among them
+        assert!(
+            ["0", "1", "2"].iter().all(|f| fds.contains(f)) && !fds.contains(&held.as_str()),
+            "{fds:?}"
+        );
     }
 
     /// The child is reaped from the loop at its exit, whatever its status,

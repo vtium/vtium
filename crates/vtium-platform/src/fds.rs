@@ -72,17 +72,18 @@ fn cloexec_listed() -> io::Result<()> {
 
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use rustix::io::{FdFlags, dup, fcntl_getfd};
     use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
     use std::sync::{Mutex, MutexGuard};
 
-    /// Held by each test, so another test's marking cannot reach a
-    /// descriptor before its test sees it unmarked.
+    /// Held by each test that marks descriptors or plants one unmarked,
+    /// the spawns' tests in other modules included, so another test's
+    /// marking cannot reach a descriptor before its test sees it unmarked.
     static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
-    fn one_at_a_time() -> MutexGuard<'static, ()> {
+    pub(crate) fn one_at_a_time() -> MutexGuard<'static, ()> {
         ONE_AT_A_TIME
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
