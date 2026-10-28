@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use vtium_font::{PSF_BYTES_MAX, Sha256};
+use vtium_font::{PSF_BYTES_MAX, Sha256, sha256_hex};
 use vtium_platform::vt::font::{ConsoleFont, ConsoleTty};
 
 use crate::child::Request;
@@ -226,20 +226,96 @@ fn builtin_hash(name: &str) -> [u8; 32] {
     Sha256::digest(format!("builtin:{name}").as_bytes())
 }
 
-/// Reads `source` for the parser.
-pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, String> {
-    let limit = u64::from(PSF_BYTES_MAX);
-    let find_font = |name: &str| {
-        find(name, &host.kbd_dirs, "consolefonts", &FONT_SUFFIXES).ok_or_else(|| {
-            format!(
-                "no kbd font {name} in {}",
-                host.kbd_dirs
-                    .iter()
-                    .map(|d| d.join("consolefonts").display().to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
+/// Why a source gave no font.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SourceError {
+    /// The font is not on this machine, or holds other bytes than the
+    /// frit's `sha256=`: the set is built without it, with a warning.
+    Missing(String),
+    /// The source is there and cannot be read: the set fails.
+    Failed(String),
+}
+
+impl std::fmt::Display for SourceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SourceError::Missing(why) | SourceError::Failed(why) => f.write_str(why),
+        }
+    }
+}
+
+impl From<String> for SourceError {
+    fn from(why: String) -> SourceError {
+        SourceError::Failed(why)
+    }
+}
+
+/// Lowercase with blanks dropped, as fontconfig compares family names.
+fn family_key(name: &str) -> String {
+    name.chars()
+        .filter(|c| !c.is_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// `name` less the compression and then the font suffix kbd tries.
+fn font_stem(name: &str) -> &str {
+    let name = COMPRESSED
+        .iter()
+        .filter(|z| !z.is_empty())
+        .find_map(|z| name.strip_suffix(z))
+        .unwrap_or(name);
+    FONT_SUFFIXES
+        .iter()
+        .filter(|s| !s.is_empty())
+        .find_map(|s| name.strip_suffix(s))
+        .unwrap_or(name)
+}
+
+/// Finds a font by family (`font:`): a kbd console font whose name is the
+/// family as `setfont` would find it, else the first, in each data
+/// directory's sorted `consolefonts/` in turn, whose name less its
+/// suffixes equals the family with case and blanks ignored, as fontconfig
+/// compares families. Outline and BDF families are matched once those
+/// formats are read (vtium/vtium#23).
+pub fn find_family(family: &str, data_dirs: &[PathBuf]) -> Option<PathBuf> {
+    if let Some(p) = find(family, data_dirs, "consolefonts", &FONT_SUFFIXES) {
+        return Some(p);
+    }
+    let key = family_key(family);
+    data_dirs.iter().find_map(|d| {
+        let mut names: Vec<PathBuf> = std::fs::read_dir(d.join("consolefonts"))
+            .ok()?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| is_file(p))
+            .collect();
+        names.sort();
+        names.into_iter().find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| family_key(font_stem(n)) == key)
         })
+    })
+}
+
+/// Reads `source` for the parser.
+pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, SourceError> {
+    let limit = u64::from(PSF_BYTES_MAX);
+    let missing = |why: String| match &source.package {
+        Some(package) => SourceError::Missing(format!("{why}; package {package} installs it")),
+        None => SourceError::Missing(why),
+    };
+    let dirs = || {
+        host.kbd_dirs
+            .iter()
+            .map(|d| d.join("consolefonts").display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let find_font = |name: &str| {
+        find(name, &host.kbd_dirs, "consolefonts", &FONT_SUFFIXES)
+            .ok_or_else(|| missing(format!("no kbd font {name} in {}", dirs())))
     };
     let read_unimap = |name: &str| -> Result<Vec<u8>, String> {
         let path = find(name, &host.kbd_dirs, "unimaps", &UNIMAP_SUFFIXES)
@@ -264,12 +340,25 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, String> {
             read_bounded(&find_font(name)?, limit)?,
             source.unimap.clone(),
         ),
+        Origin::Font(family) => {
+            let path = find_family(family, &host.kbd_dirs).ok_or_else(|| {
+                missing(format!(
+                    "no font of family {family}: kbd console fonts are matched by name in {}, \
+                     outline and BDF families once vtium/vtium#23 reads them",
+                    dirs()
+                ))
+            })?;
+            (read_bounded(&path, limit)?, source.unimap.clone())
+        }
+        Origin::File(path) if !path.exists() => {
+            return Err(missing(format!("{}: not on this machine", path.display())));
+        }
         Origin::File(path) => (read_bounded(path, limit)?, source.unimap.clone()),
         Origin::Vconsole => {
             let conf = match read_bounded(&host.vconsole_conf, CONFIG_BYTES_MAX) {
                 Ok(b) => String::from_utf8_lossy(&b).into_owned(),
                 Err(_) if !host.vconsole_conf.exists() => String::new(),
-                Err(e) => return Err(e),
+                Err(e) => return Err(e.into()),
             };
             let cmdline = read_bounded(&host.kernel_cmdline, CONFIG_BYTES_MAX)
                 .map(|b| String::from_utf8_lossy(&b).into_owned())
@@ -289,10 +378,18 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, String> {
         }
         Origin::Console(vt) => (console_psf(&host.consoles.font(*vt)?), None),
     };
+    let sha256 = Sha256::digest(&font);
+    if let Some(want) = source.sha256.filter(|&want| want != sha256) {
+        return Err(missing(format!(
+            "the font here has SHA-256 {}, not the frit's {}",
+            sha256_hex(&sha256),
+            sha256_hex(&want)
+        )));
+    }
     let unimap = unimap_name.as_deref().map(read_unimap).transpose()?;
     let def_uni = if unimap.is_none() { def_uni()? } else { None };
     Ok(Resolved {
-        sha256: Sha256::digest(&font),
+        sha256,
         unimap_sha256: unimap.as_deref().map(Sha256::digest),
         def_uni_sha256: def_uni.as_deref().map(Sha256::digest),
         input: Input::Font(Request {
@@ -474,6 +571,9 @@ mod tests {
             origin,
             unimap: unimap.map(Into::into),
             cover: Vec::new(),
+            package: None,
+            sha256: None,
+            line: 1,
         }
     }
 
@@ -492,10 +592,24 @@ mod tests {
         assert_eq!(r.unimap_sha256, Some(Sha256::digest(b"0x41 U+0041\n")));
         // def.uni is not read when the frit names a unimap
         assert_eq!(r.def_uni_sha256, None);
+        // a font not here is missing, and the set is built without it
         let e = resolve(&source("kbd:g", Origin::Kbd("g".into()), None), &h).unwrap_err();
-        assert!(e.starts_with("no kbd font g in "), "{e}");
+        assert!(
+            matches!(&e, SourceError::Missing(w) if w.starts_with("no kbd font g in ")),
+            "{e:?}"
+        );
+        let e = resolve(
+            &source("file:/nope.psf", Origin::File("/nope.psf".into()), None),
+            &h,
+        )
+        .unwrap_err();
+        assert!(matches!(e, SourceError::Missing(_)), "{e:?}");
+        // a VT that cannot give its font fails the set
         let e = resolve(&source("console:3", Origin::Console(3), None), &h).unwrap_err();
-        assert!(e.contains("graphics mode"), "{e}");
+        assert!(
+            matches!(&e, SourceError::Failed(w) if w.contains("graphics mode")),
+            "{e:?}"
+        );
     }
 
     /// A stand-in kernel holding an 8x4 font of 256 glyphs for VT 3.
@@ -545,7 +659,52 @@ mod tests {
         assert_eq!(g.glyph(0xdb), Some(&[0xdbu8; 4][..]));
         // the kernel's answer for another VT names it
         let e = resolve(&source("console:4", Origin::Console(4), None), &h).unwrap_err();
-        assert_eq!(e, "VT 4: no such VT");
+        assert_eq!(e, SourceError::Failed("VT 4: no such VT".into()));
+    }
+
+    #[test]
+    fn a_family_matches_a_kbd_font_with_case_and_blanks_ignored() {
+        let t = Tree::new("family");
+        t.file("a/consolefonts/README", b"x");
+        t.file("a/consolefonts/Lat2-Terminus16.psfu.gz", b"x");
+        t.file("b/consolefonts/ter-v16n.psf.zst", b"x");
+        t.file("b/consolefonts/ter-v16b.psf.gz", b"x");
+        let dirs = [t.0.join("a"), t.0.join("b")];
+        let found = |family: &str| {
+            find_family(family, &dirs).map(|p| p.strip_prefix(&t.0).unwrap().display().to_string())
+        };
+        assert_eq!(
+            found("Lat2-Terminus16").as_deref(),
+            Some("a/consolefonts/Lat2-Terminus16.psfu.gz")
+        );
+        assert_eq!(
+            found("lat2-terminus 16").as_deref(),
+            Some("a/consolefonts/Lat2-Terminus16.psfu.gz")
+        );
+        assert_eq!(
+            found("TER-V16N").as_deref(),
+            Some("b/consolefonts/ter-v16n.psf.zst")
+        );
+        assert_eq!(found("ter-v16"), None);
+        assert_eq!(found("Terminus"), None);
+    }
+
+    #[test]
+    fn a_font_with_other_bytes_than_its_sha256_is_missing() {
+        let t = Tree::new("sha");
+        t.file("kbd/consolefonts/f.psf", b"font bytes");
+        let consoles = Graphics;
+        let h = host(&t, &consoles);
+        let mut s = source("font:F", Origin::Font("F".into()), None);
+        s.sha256 = Some(Sha256::digest(b"font bytes"));
+        assert!(resolve(&s, &h).is_ok());
+        s.sha256 = Some([0; 32]);
+        s.package = Some("f-fonts".into());
+        let e = resolve(&s, &h).unwrap_err();
+        assert!(
+            matches!(&e, SourceError::Missing(w) if w.contains("the font here has SHA-256") && w.ends_with("package f-fonts installs it")),
+            "{e:?}"
+        );
     }
 
     #[test]
@@ -557,7 +716,7 @@ mod tests {
         let consoles = Graphics;
         let h = host(&t, &consoles);
         let vc = source("vconsole", Origin::Vconsole, None);
-        let e = resolve(&vc, &h).unwrap_err();
+        let e = resolve(&vc, &h).unwrap_err().to_string();
         assert!(e.contains("names no FONT="), "{e}");
         t.file("vconsole.conf", b"FONT=ter-v16n\n");
         assert_eq!(resolve(&vc, &h).unwrap().sha256, Sha256::digest(b"ter"));

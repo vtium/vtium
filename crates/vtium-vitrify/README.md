@@ -35,13 +35,26 @@ The store is `/var/lib/vtium/fonts` and the frits are in `/etc/vtium/fonts`, eac
 
 ## Frits
 
-One `key=value` a line, blanks around key and value dropped, `#` to the line's end a comment, as kmscon.conf reads; unlike kmscon.conf, an unknown key, a malformed line, a value with a control character or a key this build does not build yet refuses the whole frit, naming the file and line. This slice reads `name=`, `source=` (`kbd:`, `file:`, `vconsole`, `console:VT`, `builtin:`), `unimap=`, `cover=` (`ascii`, `latin-1`, `U+XXXX` and `U+XXXX-U+YYYY`), `style=regular`, `compress=` and `license=`.
+One `key=value` a line, blanks around key and value dropped, `#` to the line's end a comment, as kmscon.conf reads; unlike kmscon.conf, an unknown key, a malformed line, a value with a control character or a key this build does not build yet refuses the whole frit, naming the file and line. This slice reads `name=`, `source=` (`font:`, `kbd:`, `file:`, `vconsole`, `console:VT`, `builtin:`), `package=`, `sha256=`, `unimap=`, `cover=` (`ascii`, `latin-1`, `U+XXXX` and `U+XXXX-U+YYYY`), `style=regular`, `compress=` and `license=`.
 
-A frit is meant to travel: `kbd:`, `vconsole`, `console:VT` and `builtin:` name a font each machine finds for itself. `file:` and an absolute `unimap=` name a path on the building machine, so `create` and `create --out` build them and warn, on stderr, with the frit's file and line, that the frit is not portable. A source that names a font by family and style, resolved on the target as fontconfig matches, with an optional package hint and hash, is the operator's direction of 2026-10-28 and not yet read: its syntax is undecided, and the fonts it matches are outline and BDF fonts, which later slices read.
+A frit is meant to travel, so a source names a font each machine finds for itself:
+
+```ini
+source=font:Terminus 16      # a family, matched on the machine that builds the set
+style=regular
+package=terminus-font        # optional: the package that installs it
+sha256=<64 hex digits>       # optional: the font file's SHA-256
+```
+
+`font:FAMILY` matches as fontconfig matches a family, with case and blanks ignored. kbd console fonts match it by name now: the font `setfont` would find by that name, else the first, in each data directory's sorted `consolefonts/`, whose name less its suffixes is the family. A PSF file outside kbd's directories carries no family in its header, so only `file:` names it. Outline and BDF families are matched once those formats are read (vtium/vtium#23). `package=` and `sha256=` follow a `font:`, `kbd:` or `file:` source.
+
+A source missing on the building machine, or whose bytes are not its `sha256=`, is left out: `create` warns on stderr with the frit's file and line, the reason and the package, builds the set from the sources found, and names the one left out in the set's provenance as `source-missing=`. The build key counts it as missing, so the set rebuilds when it appears. With every source missing, the set fails. A source that is there and cannot be read fails the set.
+
+`file:` and an absolute `unimap=` are allowed, and `create` and `create --out` warn that they name a path on this machine, so the frit is not portable.
 
 The first source sets the cell. Each later one fills only the codepoints the earlier ones lack, scaled by the largest whole factor at which its cell fits the strike's, on the strike's bottom row and centred across; one whose cell does not fit at factor 1 fills nothing. Bitmap sources give one 1-bit strike, stored raw under either `compress=`, as ADR-1200 D13 decides. The set's sprite policy is `SpritePolicy::default_for` its coverage, the policy the console gave a PSF font it read itself.
 
-The build key is the SHA-256 of the format version, the frit's bytes, and for each source in order the SHA-256 of the font's bytes as read, of its unimap and of kbd's `def.uni` when read. A built-in source's hash is its name's: its glyphs change only with the tool.
+The build key is the SHA-256 of the format version, the frit's bytes, and for each source in order the SHA-256 of the font's bytes as read, of its unimap and of kbd's `def.uni` when read, or a mark that the source was missing. A built-in source's hash is its name's: its glyphs change only with the tool.
 
 ## Sources
 

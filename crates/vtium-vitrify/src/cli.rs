@@ -13,10 +13,12 @@ use rustix::process::geteuid;
 use vtium_font::set::{ManifestRow, Set, Store, VERSION, builtin};
 use vtium_font::{SET_BYTES_MAX, sha256_hex};
 
-use crate::build::{Font, assemble, build_key};
+use crate::build::{Font, Part, assemble, build_key};
 use crate::child::Parser;
 use crate::frit::{Frit, RESERVED, valid_name};
-use crate::sources::{Consoles, Host, Input, KBD_DIRS, KernelConsoles, Resolved, resolve};
+use crate::sources::{
+    Consoles, Host, Input, KBD_DIRS, KernelConsoles, Resolved, SourceError, resolve,
+};
 use crate::store::{StoreWriter, default_frits, default_store, manifest, write_atomic};
 
 const USAGE: &str = "\
@@ -326,8 +328,9 @@ impl Cli<'_> {
         let built = Parser::new().and_then(|parser| {
             let frit = Frit::load(frit).map_err(|e| e.to_string())?;
             warn(&mut *self.err, &frit);
-            let (resolved, key) = read_sources(&frit, &host)?;
-            let bytes = parse_and_assemble(&frit, &resolved, &key, &parser)?;
+            let read = read_sources(&frit, &host)?;
+            warn_all(&mut *self.err, &read.warnings);
+            let bytes = parse_and_assemble(&frit, &read, &parser)?;
             write_atomic(out, &bytes).map_err(|e| format!("{}: {e}", out.display()))?;
             Ok(frit.name)
         });
@@ -543,42 +546,80 @@ fn font_name(spelling: &str) -> String {
     name
 }
 
-/// Reads every source of `frit` and makes its build key.
-fn read_sources(frit: &Frit, host: &Host<'_>) -> Result<(Vec<Resolved>, [u8; 32]), String> {
-    let resolved = frit
-        .sources
-        .iter()
-        .map(|s| resolve(s, host).map_err(|e| format!("source={}: {e}", s.spelling)))
-        .collect::<Result<Vec<_>, _>>()?;
-    let key = build_key(frit, &resolved);
-    Ok((resolved, key))
+/// Every source of `frit` read, `None` for one missing on this machine,
+/// the build key, and a warning for each one missing.
+struct Read {
+    resolved: Vec<Option<Resolved>>,
+    key: [u8; 32],
+    warnings: Vec<String>,
 }
 
-/// Parses each source in the child and assembles the set's bytes.
-fn parse_and_assemble(
-    frit: &Frit,
-    resolved: &[Resolved],
-    key: &[u8; 32],
-    parser: &Parser,
-) -> Result<Vec<u8>, String> {
-    let fonts = frit
-        .sources
-        .iter()
-        .zip(resolved)
-        .map(|(s, r)| {
-            match &r.input {
-                Input::Font(request) => parser.parse(request).map(Font::from_glyphs),
-                Input::Builtin(name) => Font::from_builtin(name),
+/// Reads every source of `frit` and makes its build key. A source missing
+/// on this machine is left out with a warning; a source that fails, or a
+/// frit with every source missing, fails the set.
+fn read_sources(frit: &Frit, host: &Host<'_>) -> Result<Read, String> {
+    let mut resolved = Vec::new();
+    let mut warnings = Vec::new();
+    for s in &frit.sources {
+        match resolve(s, host) {
+            Ok(r) => resolved.push(Some(r)),
+            Err(SourceError::Missing(why)) => {
+                warnings.push(format!(
+                    "{}:{}: source={} is left out: {why}",
+                    frit.file.display(),
+                    s.line,
+                    s.spelling
+                ));
+                resolved.push(None);
             }
-            .map_err(|e| format!("source={}: {e}", s.spelling))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    assemble(frit, &fonts, resolved, key)
+            Err(SourceError::Failed(why)) => return Err(format!("source={}: {why}", s.spelling)),
+        }
+    }
+    if resolved.iter().all(Option::is_none) {
+        return Err(format!(
+            "no source of the frit is on this machine: {}",
+            warnings.join("; ")
+        ));
+    }
+    let key = build_key(frit, &resolved);
+    Ok(Read {
+        resolved,
+        key,
+        warnings,
+    })
+}
+
+/// Parses each source found in the child and assembles the set's bytes.
+fn parse_and_assemble(frit: &Frit, read: &Read, parser: &Parser) -> Result<Vec<u8>, String> {
+    let mut parts = Vec::new();
+    let mut missing = Vec::new();
+    for (source, resolved) in frit.sources.iter().zip(&read.resolved) {
+        let Some(resolved) = resolved else {
+            missing.push(source);
+            continue;
+        };
+        let font = match &resolved.input {
+            Input::Font(request) => parser.parse(request).map(Font::from_glyphs),
+            Input::Builtin(name) => Font::from_builtin(name),
+        }
+        .map_err(|e| format!("source={}: {e}", source.spelling))?;
+        parts.push(Part {
+            source,
+            resolved,
+            font,
+        });
+    }
+    assemble(frit, &parts, &missing, &read.key)
 }
 
 /// Writes each of `frit`'s warnings to `err`.
 fn warn(err: &mut dyn Write, frit: &Frit) {
-    for w in &frit.warnings {
+    let lines: Vec<String> = frit.warnings.iter().map(ToString::to_string).collect();
+    warn_all(err, &lines);
+}
+
+fn warn_all(err: &mut dyn Write, warnings: &[String]) {
+    for w in warnings {
         let _ = writeln!(err, "vtium-vitrify: warning: {w}");
     }
 }
@@ -600,12 +641,14 @@ fn build_into(
     warn(err, &frit);
     let name = frit.name.clone();
     let built = (|| {
-        let (resolved, key) = read_sources(&frit, host)?;
+        let read = read_sources(&frit, host)?;
+        warn_all(err, &read.warnings);
+        let key = read.key;
         let manifest = writer.manifest()?;
         if !force && manifest.row(&name).is_some_and(|r| r.build_key == key) {
             return Ok(Outcome::Current);
         }
-        let bytes = parse_and_assemble(&frit, &resolved, &key, parser)?;
+        let bytes = parse_and_assemble(&frit, &read, parser)?;
         let set = Set::from_bytes(bytes.clone()).map_err(|e| e.to_string())?;
         let first = frit
             .sources
@@ -651,7 +694,7 @@ fn install_one(writer: &StoreWriter, file: &Path) -> (String, Outcome) {
         let key = set
             .meta_values("build-key")
             .next()
-            .and_then(parse_hex)
+            .and_then(crate::frit::parse_sha256)
             .ok_or_else(|| "its provenance holds no build-key".to_owned())?;
         let source = set
             .meta_values("source")
@@ -774,25 +817,6 @@ fn json(rows: &[ListRow]) -> String {
         })
         .collect();
     format!("[{}]\n", items.join(","))
-}
-
-/// 64 lower-case hex digits as the 32 bytes they spell.
-fn parse_hex(s: &str) -> Option<[u8; 32]> {
-    let digits = s.as_bytes();
-    if digits.len() != 64 {
-        return None;
-    }
-    let nibble = |b: u8| match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(b - b'a' + 10),
-        _ => None,
-    };
-    let mut out = [0u8; 32];
-    for (byte, pair) in out.iter_mut().zip(digits.chunks(2)) {
-        let [hi, lo] = pair else { return None };
-        *byte = nibble(*hi)? << 4 | nibble(*lo)?;
-    }
-    Some(out)
 }
 
 #[cfg(test)]

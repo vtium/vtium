@@ -130,8 +130,9 @@ fn place(glyph: &[u8], width: Width, from: Cell, cell: Cell, scale: u32) -> Vec<
 
 /// The build key (ADR-1200 D4): the SHA-256 of the format version, the
 /// frit's bytes and the SHA-256 of everything read for each source, in
-/// order, so a set rebuilds when any of them changes.
-pub fn build_key(frit: &Frit, sources: &[Resolved]) -> [u8; 32] {
+/// order, or that the source was missing, so a set rebuilds when any of
+/// them changes, a missing font that appears included.
+pub fn build_key(frit: &Frit, sources: &[Option<Resolved>]) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(b"vtium-vitrify build key\0");
     h.update(&VERSION.0.to_le_bytes());
@@ -139,6 +140,10 @@ pub fn build_key(frit: &Frit, sources: &[Resolved]) -> [u8; 32] {
     h.update(&(frit.text.len() as u64).to_le_bytes());
     h.update(frit.text.as_bytes());
     for s in sources {
+        let Some(s) = s else {
+            h.update(b"missing\0");
+            continue;
+        };
         h.update(&s.sha256);
         for extra in [s.unimap_sha256, s.def_uni_sha256] {
             match extra {
@@ -153,22 +158,33 @@ pub fn build_key(frit: &Frit, sources: &[Resolved]) -> [u8; 32] {
     h.finish()
 }
 
-/// The set `frit` describes, from its sources' fonts in order: its bytes.
+/// A source found and parsed: what it read, and its glyphs.
+pub struct Part<'a> {
+    pub source: &'a Source,
+    pub resolved: &'a Resolved,
+    pub font: Font,
+}
+
+/// The set `frit` describes, from the fonts of its sources found, in
+/// order, the first setting the cell: its bytes. The sources left out are
+/// named in the provenance.
 pub fn assemble(
     frit: &Frit,
-    fonts: &[Font],
-    resolved: &[Resolved],
+    parts: &[Part<'_>],
+    missing: &[&Source],
     key: &[u8; 32],
 ) -> Result<Vec<u8>, String> {
-    let main = fonts.first().ok_or("a frit with no source")?;
-    let cell = main.cell;
+    let main = parts
+        .first()
+        .ok_or("no source of the frit is on this machine")?;
+    let cell = main.font.cell;
     let mut strike = StrikeBuilder::new(PixelFormat::Bits, cell, Style::default());
     if !frit.compress {
         strike = strike.compress(false);
     }
     let mut mapped: BTreeMap<u32, ()> = BTreeMap::new();
-    for (font, source) in fonts.iter().zip(&frit.sources) {
-        fill(&mut strike, &mut mapped, font, source, cell);
+    for part in parts {
+        fill(&mut strike, &mut mapped, &part.font, part.source, cell);
     }
     if mapped.is_empty() {
         return Err("the sources give the set no glyph".to_owned());
@@ -183,14 +199,17 @@ pub fn assemble(
     for line in frit.text.lines() {
         set = set.meta("frit", line);
     }
-    for ((source, font), r) in frit.sources.iter().zip(fonts).zip(resolved) {
+    for part in parts {
         set = set
-            .meta("source", &source.spelling)
-            .meta("source-sha256", &sha256_hex(&r.sha256))
-            .meta("source-format", &font.format);
-        if let Some(sha) = r.unimap_sha256 {
+            .meta("source", &part.source.spelling)
+            .meta("source-sha256", &sha256_hex(&part.resolved.sha256))
+            .meta("source-format", &part.font.format);
+        if let Some(sha) = part.resolved.unimap_sha256 {
             set = set.meta("source-unimap-sha256", &sha256_hex(&sha));
         }
+    }
+    for source in missing {
+        set = set.meta("source-missing", &source.spelling);
     }
     if let Some(license) = &frit.license {
         set = set.meta("license", license);

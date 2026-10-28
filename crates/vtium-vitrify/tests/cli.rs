@@ -364,6 +364,116 @@ fn an_absolute_path_builds_with_a_warning_that_it_is_not_portable() {
 }
 
 #[test]
+fn a_font_named_by_family_resolves_and_a_missing_one_is_left_out() {
+    let w = World::new("family");
+    let font = fs::read(w.path("kbd/consolefonts/ter-v16n.psf.gz")).unwrap();
+    let sha = vtium_font::sha256_hex(&Sha256::digest(&font));
+    let out = w.path("out/f.vtglass");
+    let run = |text: &str| {
+        let r = w.frit("f", text);
+        w.run(&[
+            "create",
+            "--out",
+            out.to_str().unwrap(),
+            r.to_str().unwrap(),
+        ])
+    };
+    // the family matches the kbd font with case and blanks ignored
+    let o = run(&format!("source=font:Ter-V16N\nsha256={sha}\n"));
+    assert_eq!(
+        (status(&o), stdout(&o), stderr(&o)),
+        (0, "built\tf\n".to_owned(), String::new())
+    );
+    let set = Set::from_bytes(fs::read(&out).unwrap()).unwrap();
+    assert_eq!(set.meta_values("source-sha256").next(), Some(sha.as_str()));
+
+    // a family not on this machine is left out with a warning naming its
+    // package; the next source sets the cell
+    let o = run("source=font:Nonesuch Mono\npackage=nonesuch-fonts\nsource=kbd:ter-v16n\n");
+    assert_eq!(
+        (status(&o), stdout(&o)),
+        (0, "built\tf\n".to_owned()),
+        "{}",
+        stderr(&o)
+    );
+    let warning = stderr(&o);
+    assert!(
+        warning.contains(
+            "f.vtfrit:1: source=font:Nonesuch Mono is left out: no font of family Nonesuch Mono"
+        ),
+        "{warning}"
+    );
+    assert!(
+        warning.contains("package nonesuch-fonts installs it"),
+        "{warning}"
+    );
+    let set = Set::from_bytes(fs::read(&out).unwrap()).unwrap();
+    assert_eq!(
+        set.meta_values("source-missing").collect::<Vec<_>>(),
+        ["font:Nonesuch Mono"]
+    );
+    assert_eq!(
+        set.meta_values("source").collect::<Vec<_>>(),
+        ["kbd:ter-v16n"]
+    );
+    assert_eq!(
+        set.cells(),
+        [vtium_font::Cell {
+            width: 8,
+            height: 16
+        }]
+    );
+
+    // bytes other than the frit's sha256= are taken as missing
+    let o = run(&format!(
+        "source=kbd:ter-v16n\nsha256={}\nsource=builtin:unscii-8\n",
+        "0".repeat(64)
+    ));
+    assert_eq!(status(&o), 0);
+    assert!(
+        stderr(&o).contains("is left out: the font here has SHA-256"),
+        "{}",
+        stderr(&o)
+    );
+    let set = Set::from_bytes(fs::read(&out).unwrap()).unwrap();
+    assert_eq!(
+        set.cells(),
+        [vtium_font::Cell {
+            width: 8,
+            height: 8
+        }]
+    );
+
+    // with every source missing, the set fails
+    let o = run("source=font:Nonesuch\nsource=kbd:also-missing\n");
+    assert_eq!(status(&o), 1);
+    assert!(
+        stdout(&o).starts_with("failed\tf\tno source of the frit is on this machine"),
+        "{}",
+        stdout(&o)
+    );
+}
+
+#[test]
+fn a_missing_source_that_appears_rebuilds_the_set() {
+    let w = World::new("appears");
+    w.frit("m", "source=kbd:later\nsource=kbd:ter-v16n\n");
+    let o = w.run(&["create", "m"]);
+    assert_eq!((status(&o), stdout(&o)), (0, "built\tm\n".to_owned()));
+    assert_eq!(stdout(&w.run(&["create", "m"])), "current\tm\n");
+    fs::write(
+        w.path("kbd/consolefonts/later.psf"),
+        psf2(8, 16, 4, Some(&[(1, 'Q')])),
+    )
+    .unwrap();
+    let o = w.run(&["create", "m"]);
+    assert_eq!(
+        (stdout(&o), stderr(&o)),
+        ("built\tm\n".to_owned(), String::new())
+    );
+}
+
+#[test]
 fn a_kbd_font_in_each_compression_builds_the_same_glyphs() {
     let w = World::new("compressions");
     let plain = psf2(8, 16, 64, Some(&table()));

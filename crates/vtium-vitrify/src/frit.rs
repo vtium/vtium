@@ -45,6 +45,9 @@ impl std::error::Error for FritError {}
 pub enum Origin {
     /// A kbd console font by name, found as `setfont` finds it.
     Kbd(String),
+    /// A font by family, matched on the machine that builds the set, as
+    /// fontconfig matches a family: case and blanks ignored.
+    Font(String),
     /// A font file by its absolute path.
     File(PathBuf),
     /// `FONT=` and `FONT_UNIMAP=` from vconsole.conf and the kernel's
@@ -69,6 +72,14 @@ pub struct Source {
     pub unimap: Option<String>,
     /// `cover=`: empty for every glyph the source holds.
     pub cover: Vec<Cover>,
+    /// `package=`: the package that installs the font, named when the
+    /// font is missing.
+    pub package: Option<String>,
+    /// `sha256=`: the font file's SHA-256; a file with other bytes is
+    /// taken as missing.
+    pub sha256: Option<[u8; 32]>,
+    /// The `source=` line, from 1.
+    pub line: usize,
 }
 
 impl Source {
@@ -88,6 +99,8 @@ pub struct Frit {
     pub license: Option<String>,
     /// The frit's bytes, verbatim, for the provenance and the build key.
     pub text: String,
+    /// The file the frit was read from, for messages.
+    pub file: PathBuf,
     /// What builds but does not travel: each line that names a path on
     /// the building machine, which another machine may not have.
     pub warnings: Vec<FritError>,
@@ -201,6 +214,9 @@ impl Frit {
                         origin,
                         unimap: None,
                         cover: Vec::new(),
+                        package: None,
+                        sha256: None,
+                        line: n,
                     });
                 }
                 "unimap" => {
@@ -217,6 +233,29 @@ impl Frit {
                         warnings.push(not_portable(n, "unimap="));
                     }
                     source.unimap = Some(value.to_owned());
+                }
+                "package" | "sha256" => {
+                    let i = current(&mut sources)?;
+                    let source = sources.get_mut(i).ok_or_else(|| err(n, "no source"))?;
+                    if !matches!(
+                        source.origin,
+                        Origin::Kbd(_) | Origin::File(_) | Origin::Font(_)
+                    ) {
+                        return Err(err(
+                            n,
+                            &format!("{key}= is for a kbd:, file: or font: source"),
+                        ));
+                    }
+                    if key == "package" {
+                        once(source.package.is_some())?;
+                        source.package = Some(value.to_owned());
+                    } else {
+                        once(source.sha256.is_some())?;
+                        source.sha256 = Some(
+                            parse_sha256(value)
+                                .ok_or_else(|| err(n, "sha256= is 64 lower-case hex digits"))?,
+                        );
+                    }
                 }
                 "cover" => {
                     let i = current(&mut sources)?;
@@ -284,6 +323,7 @@ impl Frit {
             compress: compress.unwrap_or(true),
             license,
             text: text.to_owned(),
+            file: file.to_owned(),
             warnings,
         })
     }
@@ -296,10 +336,16 @@ fn origin(value: &str) -> Result<Origin, String> {
     }
     let Some((kind, rest)) = value.split_once(':') else {
         return Err(format!(
-            "source={value} is none of kbd:, file:, vconsole, console: or builtin:"
+            "source={value} is none of font:, kbd:, file:, vconsole, console: or builtin:"
         ));
     };
     match kind {
+        "font" => {
+            if rest.trim().is_empty() || rest.contains('/') {
+                return Err("font: takes a family name, with no /".to_owned());
+            }
+            Ok(Origin::Font(rest.to_owned()))
+        }
         "kbd" if !rest.is_empty() && !rest.contains('\0') => {
             if rest.split('/').any(|c| c == "..") {
                 return Err("a kbd: name holds ..".to_owned());
@@ -325,9 +371,28 @@ fn origin(value: &str) -> Result<Origin, String> {
             "{kind}: sources are not built yet (vtium/vtium#125's later slices)"
         )),
         _ => Err(format!(
-            "source={value} is none of kbd:, file:, vconsole, console: or builtin:"
+            "source={value} is none of font:, kbd:, file:, vconsole, console: or builtin:"
         )),
     }
+}
+
+/// 64 lower-case hex digits as the 32 bytes they spell.
+pub fn parse_sha256(s: &str) -> Option<[u8; 32]> {
+    let digits = s.as_bytes();
+    if digits.len() != 64 {
+        return None;
+    }
+    let nibble = |b: u8| match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        _ => None,
+    };
+    let mut out = [0u8; 32];
+    for (byte, pair) in out.iter_mut().zip(digits.chunks(2)) {
+        let [hi, lo] = pair else { return None };
+        *byte = (nibble(*hi)? << 4) | nibble(*lo)?;
+    }
+    Some(out)
 }
 
 /// A `cover=` value: `ascii`, `latin-1` or `U+XXXX-U+YYYY`.
@@ -395,6 +460,10 @@ mod tests {
              source=vconsole\n\
              source=console:3\n\
              source=builtin:unifont\n\
+             source=font:Terminus 16\n\
+             style=regular\n\
+             package=terminus-font\n\
+             sha256=00000000000000000000000000000000000000000000000000000000000000ff\n\
              compress=no\n\
              license=OFL-1.1\n",
         )
@@ -411,8 +480,14 @@ mod tests {
                 &Origin::Vconsole,
                 &Origin::Console(3),
                 &Origin::Builtin("unifont".into()),
+                &Origin::Font("Terminus 16".into()),
             ]
         );
+        let font = &r.sources[5];
+        assert_eq!(font.package.as_deref(), Some("terminus-font"));
+        let mut sha = [0u8; 32];
+        sha[31] = 0xff;
+        assert_eq!((font.sha256, font.line), (Some(sha), 12));
         assert_eq!(r.sources[0].unimap.as_deref(), Some("lat1u"));
         assert_eq!(r.sources[0].cover, [(0, 0x7f), (0x2500, 0x257f)]);
         assert!(r.sources[0].covers(0x41) && !r.sources[0].covers(0xe9));
@@ -450,6 +525,16 @@ mod tests {
             ("source=kbd:x\ncover=gbk\n", 2, "not built yet"),
             ("source=kbd:x\ncover=U+9FFF-U+4E00\n", 2, "none of"),
             ("source=kbd:x\ncover=U+41\n", 2, "none of"),
+            ("source=font: \n", 1, "family name"),
+            ("source=font:a/b\n", 1, "family name"),
+            ("package=x\n", 1, "before any source="),
+            (
+                "source=builtin:unifont\npackage=x\n",
+                2,
+                "kbd:, file: or font:",
+            ),
+            ("source=font:x\nsha256=ABC\n", 2, "64 lower-case hex"),
+            ("source=font:x\npackage=a\npackage=b\n", 3, "given twice"),
             ("source=kbd:x\nunimap=a/b\n", 2, "absolute path"),
             ("source=builtin:unifont\nunimap=x\n", 2, "its own map"),
             ("source=kbd:x\nlicense=\n", 2, "has no value"),
