@@ -3457,7 +3457,7 @@ fn osc_50_leaves_the_font_for_a_set_that_fails_the_stores_check() {
         "\\033]50;tiny\\007",
         tampered("osc50-tampered"),
     );
-    assert_eq!(h.app.font_name(), "unscii-8");
+    assert_eq!(h.app.font_name(), "unifont");
     assert_eq!(h.app.cells(), [(8, 8)]);
 }
 
@@ -3493,10 +3493,15 @@ fn a_flood_of_refused_osc_50_requests_logs_one_line() {
 /// answers each request with `answer` once `go` exists, then exits as at
 /// its idle interval; the sources and the go file.
 fn frit_fonts(name: &str, answer: &[u8], script: &str) -> (Sources, PathBuf) {
+    frit_fonts_of(name, "source=builtin:unifont\n", answer, script)
+}
+
+/// [`frit_fonts`] with the frit `frit`.
+fn frit_fonts_of(name: &str, frit: &str, answer: &[u8], script: &str) -> (Sources, PathBuf) {
     let dir = std::env::temp_dir().join(format!("vtium-boot-frit-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("the frits' directory");
-    std::fs::write(dir.join("t.vtfrit"), "source=builtin:unifont\n").expect("the frit");
+    std::fs::write(dir.join("t.vtfrit"), frit).expect("the frit");
     let fixture = dir.join("answer");
     std::fs::write(&fixture, answer).expect("the answer");
     let go = dir.join("go");
@@ -3623,5 +3628,94 @@ fn a_helper_that_dies_leaves_the_built_in_font_with_one_log_line() {
         .collect();
     assert_eq!(given_up.len(), 1, "{lines:?}");
     assert!(given_up[0].contains("signal 11"), "{given_up:?}");
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+/// The cell `cell` at column `col` of the top row, as the memory
+/// display's pixels.
+fn top_cell_of(m: &Memory, cell: vtium_font::Cell, col: u32) -> Vec<u32> {
+    (0..cell.height)
+        .flat_map(|y| (0..cell.width).map(move |x| (col * cell.width + x, y)))
+        .map(|(x, y)| {
+            let at = ((y * m.w + x) * 4) as usize;
+            m.pixels
+                .get(at..at + 4)
+                .map_or(0, |p| u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
+        })
+        .collect()
+}
+
+// #145: the frit states the cell; the built-in draws in it from the first
+// frame, at the multiple of it the size asks, the helper's glyphs arrive
+// at it, and only a zoom resizes the grid
+#[test]
+fn a_frits_stated_cell_is_the_grids_and_the_glyphs_never_move_it() {
+    let (equal, minus) = (0x3d, 0x2d);
+    let cell = vtium_font::Cell {
+        width: 10,
+        height: 20,
+    };
+    let (fonts, go) = frit_fonts_of(
+        "cell",
+        "source=builtin:unifont\ncell=10x20\n",
+        &solid_ascii(cell),
+        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+    );
+    let mut h = with_fonts(&["--font-name=t"], fonts.clone());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(10, 20)], (32, 8)));
+    h.type_str("AB");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| {
+            let a = top_cell_of(m, cell, 0);
+            a.iter().any(|&p| p != a[0])
+        }),
+        "the built-in font's A is drawn in the 10x20 cell"
+    );
+    std::fs::write(&go, b"").expect("the go file");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| solid(&top_cell_of(m, cell, 0))
+            && solid(&top_cell_of(m, cell, 1))),
+        "the helper's glyphs at 10x20 replace A and B"
+    );
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(10, 20)], (32, 8)));
+    h.app.input_event(key(Mods::CTRL, equal), now());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(20, 40)], (16, 4)));
+    h.app.input_event(key(Mods::CTRL, minus), now());
+    h.app.input_event(key(Mods::CTRL, minus), now());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(10, 20)], (32, 8)));
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// #145, vtium/vtium#118: with no stated cell, the display's; the 320x160
+// memory display is under the small-display floor, so Unscii-8's 8x8
+#[test]
+fn a_frit_with_no_stated_cell_takes_the_displays() {
+    let (fonts, _go) = frit_fonts_of("auto", "source=builtin:unifont\n", b"", "cat >/dev/null");
+    let h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 8)], (40, 20)));
+    let h = with_fonts(&["--font-name=t", "--font-size=19"], fonts.clone());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(10, 19)], (32, 8)));
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// #145: a frit whose cell= is unreadable is not drawn; the built-in font is
+#[test]
+fn a_frit_with_an_unreadable_cell_leaves_the_built_in_font() {
+    let (fonts, _go) = frit_fonts_of(
+        "bad",
+        "source=builtin:unifont\ncell=10\n",
+        b"",
+        "cat >/dev/null",
+    );
+    logged();
+    let h = with_fonts(&["--font-name=t"], fonts.clone());
+    assert_eq!(h.app.font_name(), "unifont");
+    let lines = logged();
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("the frit t is not drawn (line 2: cell=10 is not WIDTHxHEIGHT")),
+        "{lines:?}"
+    );
     let _ = std::fs::remove_dir_all(&fonts.frits);
 }

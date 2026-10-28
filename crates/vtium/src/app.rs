@@ -573,14 +573,27 @@ impl App {
             .filter(|w| w.came == font::Came::Config)
             .and_then(|w| Some((w.name.clone(), font::frit(&s.frits, &w.name)?)));
         if let Some((name, path)) = frit {
-            log::info!(
-                "the font is the frit {name}, drawn in the built-in font until its glyphs are generated"
-            );
-            self.font = Some(Chosen::Frit {
-                name,
-                path,
-                generated: crate::deferred::Shared::default(),
-            });
+            // The frit's cell is read as text before the first frame; its
+            // fonts are the helper's to parse (#145).
+            match font::frit_text(&path).and_then(|t| font::frit_cell(&t)) {
+                Ok(cell) => {
+                    log::info!(
+                        "the font is the frit {name}, drawn in the built-in font until its glyphs are generated"
+                    );
+                    self.font = Some(Chosen::Frit {
+                        name,
+                        path,
+                        cell,
+                        generated: crate::deferred::Shared::default(),
+                    });
+                }
+                Err(why) => {
+                    log::warn!(
+                        "the frit {name} is not drawn ({why}): vtium draws its built-in font"
+                    );
+                    self.font = Some(Chosen::Builtin(None));
+                }
+            }
             return;
         }
         let chosen = match wanted {
@@ -771,9 +784,9 @@ impl App {
         if self.auto_size {
             let w = sizes.iter().map(|s| s.0).min().unwrap_or(0);
             let h = sizes.iter().map(|s| s.1).min().unwrap_or(0);
-            let smallest = self.chosen().smallest(&self.locale);
-            self.font_size = font::auto_size(w, h, smallest);
+            self.font_size = self.chosen().auto_height(w, h, &self.locale);
         }
+        self.font_size = self.chosen().snap(self.font_size);
         let base = match font::select(self.font_size, self.has_font, |h| self.face(h)) {
             Ok((face, h)) => {
                 if !self.has_font {
