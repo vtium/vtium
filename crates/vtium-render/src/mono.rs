@@ -1,6 +1,8 @@
-//! 1-bit displays (vtium/vtium#135): each cell's colors map to lit or
-//! unlit by the cell, never by brightness, and every pixel's coverage is
-//! thresholded at half, so the display gets only pure black and white.
+//! 1-bit and gray displays (vtium/vtium#135): each cell's colors map to
+//! lit or unlit by the cell, never by brightness, and every pixel's
+//! coverage is cut to the display's levels: at half on a 1-bit display,
+//! so it gets only pure black and white, and to the nearest of a gray
+//! panel's levels, so a glyph's edges keep whole-pixel antialiasing.
 //!
 //! The mapping: the default background is unlit, and a cell whose
 //! background differs from it is lit; a color drawn on the cell, its
@@ -11,10 +13,18 @@
 //! is unlit like the default.
 //!
 //! Composed from black and white alone, a pixel is a gray whose level is
-//! its coverage, the glyph's or the sprite's; [`Threshold`] lights it at
-//! 128 and above, as the kernel's `drm_fb_xrgb8888_to_mono` lights a DRM
-//! mono panel from the same gray.
+//! its coverage, the glyph's or the sprite's; [`Quantize`] cuts it to the
+//! display's levels by the kernel's own rounding, so a DRM panel's
+//! conversion keeps each level exact: 1-bit at 128 and above, as
+//! `drm_fb_xrgb8888_to_mono` lights a mono panel.
+//!
+//! None of this asks where a glyph came from: a vitrified set's strike,
+//! the built-in unifont, a PSF file or a strike rasterised at run time
+//! (vtium/vtium#123) is coverage in a cell's colors like any other, and a
+//! color glyph from any of them takes [`Fallback`]'s bitmap or its
+//! silhouette.
 
+use vtium_font::{Cell, Face, Font, Format, Glyph, Style, Unifont, Width};
 use vtium_term::Rgb;
 
 use crate::blend::div255;
@@ -29,13 +39,24 @@ pub enum Depth {
     Color,
     /// One bit a pixel: lit or unlit.
     One,
+    /// A gray panel of this many levels, 4 or 16 on the panels vtium knows,
+    /// each a whole step from unlit to lit.
+    Gray(u8),
+}
+
+impl Depth {
+    /// The levels a pixel takes, `None` in color.
+    pub fn levels(self) -> Option<u32> {
+        match self {
+            Depth::Color => None,
+            Depth::One => Some(2),
+            Depth::Gray(n) => Some(u32::from(n).max(2)),
+        }
+    }
 }
 
 const LIT: Rgb = Rgb::new(255, 255, 255);
 const UNLIT: Rgb = Rgb::new(0, 0, 0);
-
-/// A pixel's coverage on a 1-bit display: [`Threshold`]'s cut.
-const HALF: u32 = 128;
 
 fn ink(lit: bool) -> Rgb {
     if lit { LIT } else { UNLIT }
@@ -44,7 +65,7 @@ fn ink(lit: bool) -> Rgb {
 /// One cell's colors at `depth`: the identity in color.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Ink {
-    one: bool,
+    mapped: bool,
     bg: Rgb,
     bg_lit: bool,
 }
@@ -54,19 +75,23 @@ impl Ink {
     /// background being `default_bg`.
     pub(crate) fn new(depth: Depth, bg: Rgb, default_bg: Rgb) -> Ink {
         Ink {
-            one: depth == Depth::One,
+            mapped: depth != Depth::Color,
             bg,
             bg_lit: bg != default_bg,
         }
     }
 
     pub(crate) fn bg(&self) -> Rgb {
-        if self.one { ink(self.bg_lit) } else { self.bg }
+        if self.mapped {
+            ink(self.bg_lit)
+        } else {
+            self.bg
+        }
     }
 
     /// A color drawn on the cell: its foreground or a decoration's.
     pub(crate) fn fg(&self, c: Rgb) -> Rgb {
-        if !self.one {
+        if !self.mapped {
             return c;
         }
         ink(if c == self.bg {
@@ -77,20 +102,22 @@ impl Ink {
     }
 }
 
-/// The border around the grid, in the default background: unlit at 1 bit.
+/// The border around the grid, in the default background: unlit on a
+/// 1-bit or gray display.
 pub(crate) fn border(depth: Depth, bg: Rgb) -> Rgb {
     match depth {
         Depth::Color => bg,
-        Depth::One => UNLIT,
+        Depth::One | Depth::Gray(_) => UNLIT,
     }
 }
 
-/// The text blink at `depth`. A 1-bit display cannot show `Partial`'s
-/// glyph halfway to its background, which would draw as the glyph itself
-/// and never blink, so its off phase hides the glyph as `Full` does.
+/// The text blink at `depth`. Off color, the cell's colors are lit or
+/// unlit, so `Partial`'s glyph halfway to its background would draw as the
+/// glyph itself and never blink: its off phase hides the glyph as `Full`
+/// does.
 pub(crate) fn blink(depth: Depth, blink: TextBlink) -> TextBlink {
     match (depth, blink.style) {
-        (Depth::One, BlinkStyle::Partial) => TextBlink {
+        (Depth::One | Depth::Gray(_), BlinkStyle::Partial) => TextBlink {
             style: BlinkStyle::Full,
             ..blink
         },
@@ -98,58 +125,101 @@ pub(crate) fn blink(depth: Depth, blink: TextBlink) -> TextBlink {
     }
 }
 
-/// A color glyph's premultiplied pixel at 1 bit: its coverage alone, in the
-/// cell's foreground `fg`, as a mask glyph draws. Its own colors would
-/// light the display by their brightness.
+/// A color glyph's premultiplied pixel off color: its coverage alone, in
+/// the cell's foreground `fg`, as a mask glyph draws. Its own colors would
+/// light the display by their brightness. It draws the color glyphs
+/// [`Fallback`] finds no bitmap for.
 pub(crate) fn silhouette(src: u32, fg: Rgb) -> u32 {
     let a = src >> 24;
     let t = |v: u8| div255(u32::from(v).wrapping_mul(a));
     a << 24 | t(fg.r) << 16 | t(fg.g) << 8 | t(fg.b)
 }
 
-/// Whether a composed pixel is lit: its gray, BT.601's luma of it as the
-/// kernel takes it, at least half.
-fn lit(px: u32) -> bool {
+/// A color glyph's stand-in off color (the operator's decision on
+/// vtium/vtium#135): the built-in unifont's bitmap of the same character,
+/// where unifont draws it and its cell, at a whole scale, is the font's.
+/// The set chose the character's glyph; only its pixels change.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Fallback {
+    unifont: Unifont,
+}
+
+impl Fallback {
+    /// The stand-in for a font of cell `cell` at `depth`: none in color, or
+    /// where unifont has no scale of that cell.
+    pub(crate) fn new(depth: Depth, cell: Cell) -> Option<Fallback> {
+        let unifont = Unifont::new(cell.height);
+        (depth != Depth::Color && unifont.cell() == cell).then_some(Fallback { unifont })
+    }
+
+    /// `glyph`'s stand-in when it is a color glyph unifont has a bitmap for.
+    pub(crate) fn glyph(
+        &self,
+        glyph: &Glyph,
+        text: &[char],
+        width: Width,
+        style: Style,
+    ) -> Option<Glyph> {
+        if glyph.format() != Format::Rgba || !self.unifont.has_glyph(*text.first()?) {
+            return None;
+        }
+        Font::new(self.unifont).glyph(text, width, style)
+    }
+}
+
+/// `v`, a byte, cut to the nearest of `levels` steps from 0 to 255, by
+/// the kernel's rounding: `drm_fb_gray8_to_gray2_line`'s
+/// `(v * 3 + 127) / 255` at 4 levels, which keeps a 1-bit cut at 128.
+fn quantize(v: u32, levels: u32) -> u32 {
+    let steps = levels.saturating_sub(1).max(1);
+    let q = v.wrapping_mul(steps).wrapping_add(127) / 255;
+    q.wrapping_mul(255).checked_div(steps).unwrap_or(0)
+}
+
+/// A composed pixel's gray at `levels`: BT.601's luma of it, as the kernel
+/// takes it, quantized.
+fn gray(px: u32, levels: u32) -> u32 {
     let (r, g, b) = (px >> 16 & 0xff, px >> 8 & 0xff, px & 0xff);
     let luma = r
         .wrapping_mul(77)
         .wrapping_add(g.wrapping_mul(150))
         .wrapping_add(b.wrapping_mul(29))
         >> 8;
-    luma >= HALF
+    let v = quantize(luma, levels);
+    v << 16 | v << 8 | v
 }
 
-/// A target that, at 1 bit, writes each pixel lit or unlit through `line`,
-/// and at color writes through unchanged.
-pub(crate) struct Threshold<'a, T: Target + ?Sized> {
+/// A target that, off color, writes each pixel at the display's levels
+/// through `line`, and in color writes through unchanged.
+pub(crate) struct Quantize<'a, T: Target + ?Sized> {
     target: &'a mut T,
-    one: bool,
+    levels: Option<u32>,
     line: &'a mut Vec<u32>,
 }
 
-impl<'a, T: Target + ?Sized> Threshold<'a, T> {
+impl<'a, T: Target + ?Sized> Quantize<'a, T> {
     pub(crate) fn new(target: &'a mut T, depth: Depth, line: &'a mut Vec<u32>) -> Self {
-        Threshold {
+        Quantize {
             target,
-            one: depth == Depth::One,
+            levels: depth.levels(),
             line,
         }
     }
 }
 
-impl<T: Target + ?Sized> Target for Threshold<'_, T> {
+impl<T: Target + ?Sized> Target for Quantize<'_, T> {
     fn write(&mut self, x: u32, y: u32, pixels: &[u32]) {
-        if !self.one {
+        let Some(levels) = self.levels else {
             return self.target.write(x, y, pixels);
-        }
+        };
         self.line.clear();
-        self.line
-            .extend(pixels.iter().map(|&p| if lit(p) { 0x00ff_ffff } else { 0 }));
+        self.line.extend(pixels.iter().map(|&p| gray(p, levels)));
         self.target.write(x, y, self.line);
     }
 }
 
 #[cfg(test)]
+#[expect(clippy::panic, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
     use crate::blend::{mask, over_bg, tint_over};
@@ -212,9 +282,13 @@ mod tests {
 
     /// Writes `pixels` through a 1-bit threshold and returns them.
     fn through(pixels: &[u32]) -> Vec<u32> {
+        through_at(pixels, Depth::One)
+    }
+
+    fn through_at(pixels: &[u32], depth: Depth) -> Vec<u32> {
         let mut c = crate::Canvas::new(u32::try_from(pixels.len()).unwrap_or(0), 1, 7);
         let mut line = Vec::new();
-        Threshold::new(&mut c, Depth::One, &mut line).write(0, 0, pixels);
+        Quantize::new(&mut c, depth, &mut line).write(0, 0, pixels);
         (0..pixels.len())
             .filter_map(|x| c.pixel(u32::try_from(x).ok()?, 0))
             .collect()
@@ -254,10 +328,102 @@ mod tests {
     fn color_writes_through() {
         let mut c = crate::Canvas::new(2, 1, 7);
         let mut line = Vec::new();
-        Threshold::new(&mut c, Depth::Color, &mut line).write(0, 0, &[0x12_3456, 0x80_8080]);
+        Quantize::new(&mut c, Depth::Color, &mut line).write(0, 0, &[0x12_3456, 0x80_8080]);
         assert_eq!(
             (c.pixel(0, 0), c.pixel(1, 0)),
             (Some(0x12_3456), Some(0x80_8080))
+        );
+    }
+
+    // the kernel's gray conversions keep each level: ssd130x's SSD132x
+    // takes the high nibble, st7586 the top two bits, and gray2
+    // `(v * 3 + 127) / 255`
+    #[test]
+    fn gray_coverage_takes_the_nearest_level_the_kernel_keeps() {
+        let ramp: Vec<u32> = (0..=255u8).map(|a| mask(LIT, UNLIT, a)).collect();
+        for (levels, step) in [(4u8, 85u32), (16, 17)] {
+            let out = through_at(&ramp, Depth::Gray(levels));
+            for (a, &p) in out.iter().enumerate() {
+                let v = p & 0xff;
+                assert_eq!(p, v << 16 | v << 8 | v, "gray");
+                assert_eq!(v % step, 0, "{a} at {levels} levels is {v}");
+                let a = u32::try_from(a).unwrap_or(0);
+                assert!(v.abs_diff(a) <= step / 2 + 1, "{a} is {v} at {levels}");
+                let q = v / step;
+                if levels == 16 {
+                    assert_eq!(v >> 4, q, "the high nibble");
+                } else {
+                    assert_eq!(v >> 6, q, "the top two bits");
+                    assert_eq!((v * 3 + 127) / 255, q, "gray2");
+                }
+            }
+        }
+        assert_eq!(
+            through_at(&[0x7f_7f7f, 0x80_8080], Depth::Gray(2)),
+            [0, 0xff_ffff]
+        );
+    }
+
+    #[test]
+    fn a_gray_display_maps_colors_as_a_1_bit_one_does() {
+        let ink = Ink::new(Depth::Gray(16), BLUE, BLACK);
+        assert_eq!((ink.fg(RED), ink.bg()), (UNLIT, LIT));
+        assert_eq!(border(Depth::Gray(4), GREY), UNLIT);
+        let partial = TextBlink {
+            style: BlinkStyle::Partial,
+            decorations: false,
+        };
+        assert_eq!(blink(Depth::Gray(4), partial).style, BlinkStyle::Full);
+    }
+
+    fn color_glyph() -> Glyph {
+        Glyph::rgba(8, 16).unwrap_or_else(|| panic!("an 8x16 glyph"))
+    }
+
+    // the operator's decision on vtium/vtium#135: a color glyph off color
+    // is the built-in unifont's bitmap where unifont has one at the cell
+    #[test]
+    fn a_color_glyph_falls_back_to_unifonts_bitmap() {
+        let cell = Cell {
+            width: 8,
+            height: 16,
+        };
+        let f = Fallback::new(Depth::One, cell).unwrap_or_else(|| panic!("unifont's cell"));
+        let g = f
+            .glyph(&color_glyph(), &['A'], Width::Narrow, Style::default())
+            .unwrap_or_else(|| panic!("unifont draws A"));
+        assert_ne!(g.format(), Format::Rgba);
+        let want = Font::new(Unifont::new(16)).glyph(&['A'], Width::Narrow, Style::default());
+        assert_eq!(Some(g), want);
+        // a glyph that is no color glyph stays
+        let mask = Glyph::mask(8, 16).unwrap_or_else(|| panic!("a mask"));
+        assert!(
+            f.glyph(&mask, &['A'], Width::Narrow, Style::default())
+                .is_none()
+        );
+        // a character unifont lacks keeps the color glyph, for its silhouette
+        let lacks = ['\u{378}', '\u{10fffd}', '\u{e0080}']
+            .into_iter()
+            .find(|&c| !Unifont::new(16).has_glyph(c))
+            .unwrap_or_else(|| panic!("a character unifont lacks"));
+        let kept = f.glyph(&color_glyph(), &[lacks], Width::Narrow, Style::default());
+        assert!(kept.is_none());
+        // no stand-in in color, or at a cell unifont has no scale of
+        assert!(Fallback::new(Depth::Color, cell).is_none());
+        let small = Cell {
+            width: 8,
+            height: 8,
+        };
+        assert!(Fallback::new(Depth::One, small).is_none());
+        assert!(
+            Fallback::new(
+                Depth::Gray(4),
+                Cell {
+                    width: 16,
+                    height: 32
+                }
+            )
+            .is_some()
         );
     }
 }

@@ -20,6 +20,11 @@
 //! its wave to fit, down to 2 rows peak to peak, and a double, or a curl
 //! that still does not fit, draws as the single line.
 //!
+//! On a 1-bit display the curl is a wave of whole pixels, the line's
+//! thickness in each column and joined from column to column, where its
+//! antialiased coverage cut at half would leave gaps (vtium/vtium#135).
+//! Every other sprite is whole pixels already.
+//!
 //! The dash is vtium's: the C reference's, over each cell's middle two
 //! thirds, lined up with each character at 8 pixels.
 
@@ -134,6 +139,37 @@ fn curly(s: &mut Sprite, m: &Decorations, amp: u32) {
     }
 }
 
+/// The curl in whole pixels, for a 1-bit display: in each column the
+/// line's `t` rows centred on the same sine as [`curly`]'s, kept in its
+/// band, and stretched to meet the previous column's where they would
+/// leave a gap.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the rows lie inside the curl's band"
+)]
+fn curly_bits(s: &mut Sprite, m: &Decorations, amp: u32) {
+    let (w, h, t) = (s.w, s.h, m.underline_thickness);
+    let band = amp.saturating_add(t);
+    let top = fit(m.underline, band, h);
+    let last = top.saturating_add(band).min(h).saturating_sub(t).max(top);
+    let mid = f64::from(top) + f64::from(band) / 2.0;
+    let k = 2.0 * core::f64::consts::PI / f64::from(w);
+    let half_amp = f64::from(amp) / 2.0;
+    let mut prev: Option<u32> = None;
+    for x in 0..w {
+        let yc = mid + half_amp * trig::sin(k * (f64::from(x) + 0.5));
+        let row = ((yc - f64::from(t) / 2.0 + 0.5).floor().max(0.0) as u32).clamp(top, last);
+        let (from, to) = match prev {
+            Some(p) if p > row.saturating_add(t) => (row, p),
+            Some(p) if row > p.saturating_add(t) => (p.saturating_add(t), row.saturating_add(t)),
+            _ => (row, row.saturating_add(t)),
+        };
+        s.fill_rows(x, x.saturating_add(1), from, to.saturating_sub(from));
+        prev = Some(row);
+    }
+}
+
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -190,7 +226,13 @@ impl Kind {
 }
 
 /// The `w` by `h` coverage of `kind`, from the font's lines `m`, row by row.
+#[cfg(test)]
 pub(crate) fn draw(kind: Kind, w: u32, h: u32, m: &Decorations) -> Vec<u8> {
+    draw_at(kind, w, h, m, false)
+}
+
+/// [`draw`], in whole pixels for a 1-bit display where `one_bit`.
+fn draw_at(kind: Kind, w: u32, h: u32, m: &Decorations, one_bit: bool) -> Vec<u8> {
     let mut s = Sprite::new(w, h);
     if w == 0 || h == 0 {
         return s.px;
@@ -202,6 +244,7 @@ pub(crate) fn draw(kind: Kind, w: u32, h: u32, m: &Decorations) -> Vec<u8> {
             s.fill_rows(0, w, top, t);
             s.fill_rows(0, w, top.saturating_add(t.saturating_mul(2)), t);
         }
+        (Kind::Curly, Some(amp)) if one_bit => curly_bits(&mut s, m, amp),
         (Kind::Curly, Some(amp)) => curly(&mut s, m, amp),
         (Kind::Single | Kind::Double | Kind::Curly, _) => s.fill_rows(0, w, m.underline, t),
         (Kind::Dotted, _) => dotted(&mut s, m),
@@ -218,10 +261,18 @@ pub(crate) struct Sprites {
 }
 
 impl Sprites {
-    pub(crate) fn new(w: u32, h: u32, m: &Decorations, o: Orientation, bits: bool) -> Sprites {
+    /// The sprites of a `w` by `h` cell, in whole pixels where `one_bit`.
+    pub(crate) fn new(
+        w: u32,
+        h: u32,
+        m: &Decorations,
+        o: Orientation,
+        bits: bool,
+        one_bit: bool,
+    ) -> Sprites {
         let sprites = Kind::ALL
             .iter()
-            .map(|&k| Stored::mask(&draw(k, w, h, m), w, h, o, bits))
+            .map(|&k| Stored::mask(&draw_at(k, w, h, m, one_bit), w, h, o, bits))
             .collect();
         Sprites { sprites }
     }
@@ -486,5 +537,71 @@ mod tests {
         let curl = draw(Kind::Curly, 16, 16, &own);
         assert_ne!(curl, single);
         assert_eq!(rows(&curl, 16), Some((12, 16)));
+    }
+
+    // vtium/vtium#135: on a 1-bit display the curl is whole pixels, the
+    // line's thickness in each column, every column joined to the next, in
+    // the band the antialiased curl takes
+    #[test]
+    fn a_1_bit_curl_is_a_joined_wave_of_whole_pixels() {
+        let mut waves = 0;
+        for h in 12..=48u32 {
+            let m = Decorations::for_height(h);
+            let t = m.underline_thickness;
+            for w in 4..=24u32 {
+                let px = draw_at(Kind::Curly, w, h, &m, true);
+                assert!(px.iter().all(|&p| p == 0 || p == 0xff), "{w}x{h}");
+                let aa = draw(Kind::Curly, w, h, &m);
+                let (top, end) = rows(&aa, w).unwrap();
+                let (btop, bend) = rows(&px, w).unwrap();
+                assert!(
+                    btop >= top && bend <= end,
+                    "{w}x{h}: {btop}..{bend} in {top}..{end}"
+                );
+                if curl_height(w, h, t).is_none() {
+                    assert_eq!(px, draw(Kind::Single, w, h, &m), "{w}x{h}");
+                    continue;
+                }
+                waves += 1;
+                let col = |x: u32| -> Vec<u32> {
+                    (0..h)
+                        .filter(|&y| px[(y * w + x) as usize] == 0xff)
+                        .collect()
+                };
+                let mut flat = true;
+                for x in 0..w {
+                    let c = col(x);
+                    assert!(u32::try_from(c.len()).unwrap() >= t, "{w}x{h} column {x}: {c:?}");
+                    assert!(
+                        c.windows(2).all(|p| p[1] == p[0] + 1),
+                        "{w}x{h} column {x} split"
+                    );
+                    if x > 0 {
+                        let p = col(x - 1);
+                        let touch = c[0] <= p[p.len() - 1] + 1 && p[0] <= c[c.len() - 1] + 1;
+                        assert!(touch, "{w}x{h}: columns {} and {x} part", x - 1);
+                        flat &= c == p;
+                    }
+                }
+                assert!(!flat, "{w}x{h} is no wave");
+            }
+        }
+        assert!(waves > 100, "{waves} waves");
+    }
+
+    #[test]
+    fn a_1_bit_display_changes_only_the_curl() {
+        for (w, h) in [(8, 8), (8, 16), (16, 16), (12, 24), (24, 48)] {
+            let m = Decorations::for_height(h);
+            for kind in Kind::ALL {
+                if kind != Kind::Curly {
+                    assert_eq!(
+                        draw_at(kind, w, h, &m, true),
+                        draw(kind, w, h, &m),
+                        "{kind:?}"
+                    );
+                }
+            }
+        }
     }
 }

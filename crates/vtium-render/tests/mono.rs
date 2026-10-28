@@ -154,3 +154,118 @@ fn a_renderer_reports_its_depth() {
     let r = Renderer::new(unifont(), 16, 16, Config::default());
     assert_eq!(r.depth(), Depth::Color);
 }
+
+/// A face of color glyphs: every character it has is an opaque red block.
+struct ColorFace;
+
+impl vtium_font::Face for ColorFace {
+    fn cell(&self) -> vtium_font::Cell {
+        vtium_font::Cell {
+            width: 8,
+            height: 16,
+        }
+    }
+    fn size_step(&self) -> u32 {
+        16
+    }
+    fn has_glyph(&self, c: char) -> bool {
+        c != ' '
+    }
+    fn draw(&self, _: &[char], _: vtium_font::Style) -> Option<vtium_font::Glyph> {
+        let px = [255, 0, 0, 255].repeat(8 * 16);
+        vtium_font::Glyph::from_pixels(8, 16, vtium_font::Format::Rgba, px)
+    }
+}
+
+/// A character unifont has no glyph for.
+fn lacks() -> char {
+    ['\u{10fffd}', '\u{e0080}', '\u{f0000}']
+        .into_iter()
+        .find(|&c| !vtium_font::Face::has_glyph(&vtium_font::Unifont::new(16), c))
+        .unwrap_or_else(|| panic!("a character unifont lacks"))
+}
+
+fn color_glyphs(depth: Depth) -> Canvas {
+    let mut s = Screen::new(2, 1, rgb("c0c0c0"), rgb(BG));
+    s.text(
+        0,
+        0,
+        &format!("A{}", lacks()),
+        style(rgb("c0c0c0"), rgb(BG)),
+    );
+    let mut r = Renderer::new(
+        vtium_font::Font::new(ColorFace),
+        16,
+        16,
+        Config {
+            depth,
+            ..Config::default()
+        },
+    );
+    let mut c = Canvas::new(16, 16, 0);
+    let state = DrawState {
+        background: s.palette.bg(),
+        ..DrawState::default()
+    };
+    r.draw(&s.frame(Age::NEVER), &mut c, 0, &state);
+    c
+}
+
+// the operator's decision on vtium/vtium#135: a color glyph on a 1-bit or
+// gray display is the built-in unifont's bitmap of the character, and where
+// unifont has none, its silhouette
+#[test]
+fn a_color_glyph_draws_as_unifonts_bitmap_or_its_silhouette() {
+    let mut u = Screen::new(1, 1, rgb("c0c0c0"), rgb(BG));
+    u.text(0, 0, "A", style(rgb("c0c0c0"), rgb(BG)));
+    let mut r = Renderer::new(unifont(), 8, 16, one());
+    let mut want = Canvas::new(8, 16, 0);
+    let state = DrawState {
+        background: u.palette.bg(),
+        ..DrawState::default()
+    };
+    r.draw(&u.frame(Age::NEVER), &mut want, 0, &state);
+    for depth in [Depth::One, Depth::Gray(4)] {
+        let c = color_glyphs(depth);
+        let a: Vec<Option<u32>> = (0..16)
+            .flat_map(|y| (0..8).map(move |x| (x, y)))
+            .map(|(x, y)| c.pixel(x, y))
+            .collect();
+        let b: Vec<Option<u32>> = (0..16)
+            .flat_map(|y| (0..8).map(move |x| (x, y)))
+            .map(|(x, y)| want.pixel(x, y))
+            .collect();
+        assert_eq!(a, b, "unifont's A at {depth:?}");
+        assert!((0..16).all(|y| (8..16).all(|x| c.pixel(x, y) == Some(WHITE))));
+    }
+    let color = color_glyphs(Depth::Color);
+    assert_eq!(color.pixel(0, 0), Some(0xff_0000));
+}
+
+// a gray panel takes the cells' lit and unlit colors and its levels for
+// coverage: a bitmap font draws crisp, as at 1 bit, and the curl's edges
+// take the levels between
+#[test]
+fn a_gray_display_draws_bitmaps_crisp_and_coverage_at_its_levels() {
+    let one = drawn(&screen(), one(), false);
+    let gray = drawn(
+        &screen(),
+        Config {
+            depth: Depth::Gray(4),
+            ..Config::default()
+        },
+        false,
+    );
+    for y in 0..gray.height() {
+        for x in 0..gray.width() {
+            let p = gray.pixel(x, y).unwrap();
+            let v = p & 0xff;
+            assert!(p == v * 0x01_0101 && v % 85 == 0, "{p:06x} at {x},{y}");
+        }
+    }
+    for row in [0, 2, 3] {
+        for col in 0..8 {
+            assert_eq!(lit(&gray, col, row), lit(&one, col, row), "{col},{row}");
+        }
+    }
+}
