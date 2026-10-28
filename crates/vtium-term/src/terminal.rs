@@ -8,13 +8,14 @@
 //! SGR through `sgr.rs`, the replies through `reply.rs`, the character
 //! sets through `charset.rs`, OSC 52 through `clipboard.rs`, the colour
 //! OSC strings through `color.rs`, the in-band reports through
-//! `inband.rs`, and the keys, the pointer, focus and pastes through
-//! `input.rs`.
+//! `inband.rs`, the Linux console's blank sequences through `blank.rs`,
+//! and the keys, the pointer, focus and pastes through `input.rs`.
 //!
 //! A control function is matched by its final byte, its private marker and
 //! its intermediates exactly, as `vtium-parse`'s README asks: `CSI ? 5 A`
 //! is not CUU.
 
+mod blank;
 mod charset;
 mod clipboard;
 mod color;
@@ -34,6 +35,7 @@ use crate::screen::{Erase, Screen, WidthMethod};
 use crate::style::Style;
 use crate::termcap::Termcap;
 
+pub use blank::{BlankRequest, BlankTimeout};
 pub use input::{Mods, MouseButton, MouseEvent};
 pub use modes::MouseTracking;
 pub use reply::VersionError;
@@ -200,6 +202,9 @@ struct State {
     dcs: Dcs,
     /// The cursor's blink interval, `CSI 16 ; Pn ]` (the Linux console's).
     cursor_blink_ms: Option<u32>,
+    /// What the Linux console's blank sequences asked, until the host
+    /// takes it.
+    blank: BlankRequest,
     /// The selection OSC 52 set last, until the host takes it.
     clipboard: Option<clipboard::Selection>,
     /// The text area and the visibility the in-band reports compare with.
@@ -244,6 +249,7 @@ impl Terminal {
             pause: false,
             dcs: Dcs::Ignored,
             cursor_blink_ms: None,
+            blank: BlankRequest::default(),
             clipboard: None,
             inband: Inband::new(cols, rows),
             sgr_stack: sgr::Stack::default(),
@@ -296,6 +302,13 @@ impl Terminal {
     /// drops it when its configuration turns copy-out off.
     pub fn take_clipboard_write(&mut self) -> Option<Vec<u8>> {
         self.state.clipboard.take().map(|s| s.0)
+    }
+
+    /// What a program asked of the screen blank with the Linux console's
+    /// sequences since the last call, if anything (`terminal/blank.rs`).
+    pub fn take_blank_request(&mut self) -> Option<BlankRequest> {
+        let request = core::mem::take(&mut self.state.blank);
+        (request != BlankRequest::default()).then_some(request)
     }
 
     /// DECSCUSR's style.
@@ -527,7 +540,8 @@ impl State {
 
     /// RIS: DECSTR's reset, the modes only RIS resets, every colour the
     /// program set, the SGR and colour stacks emptied, the screen and the
-    /// scrollback erased, and the cursor home.
+    /// scrollback erased, the cursor home, and the blank timeout the
+    /// host's again.
     fn hard_reset(&mut self) {
         self.soft_reset();
         self.reset_colors(true);
@@ -539,6 +553,7 @@ impl State {
             .set_attribute_extent(crate::screen::Extent::Stream);
         modes::reset(self, true);
         self.screen.move_to(0, 0);
+        self.reset_blank_timeout();
     }
 
     /// DECSCL, `CSI Pl ; Pc " p`: a soft reset, then 7-bit input for a
@@ -619,6 +634,7 @@ impl State {
                     self.cursor_blink_ms = Some(ms);
                 }
             }
+            b']' => self.console_blank(params),
             // DECLL: a console's LEDs are the keyboard's, and stay as the
             // user set them (ADR-1000, ctl.decll).
             _ => {}

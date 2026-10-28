@@ -90,6 +90,7 @@ pub use scrollback::{SB_SIZE_DEFAULT, sb_size, sb_size_cap};
 pub use style::{Attrs, Color, Rgb, Script, Style, UnderlineStyle};
 pub use termcap::{Termcap, TermcapError};
 pub use terminal::{
-    CursorStyle, Mods, MouseButton, MouseEvent, MouseTracking, Terminal, VersionError,
+    BlankRequest, BlankTimeout, CursorStyle, Mods, MouseButton, MouseEvent, MouseTracking,
+    Terminal, VersionError,
 };
 pub use unicode::UNICODE_VERSION;
