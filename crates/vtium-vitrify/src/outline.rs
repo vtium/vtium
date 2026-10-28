@@ -396,6 +396,8 @@ mod raster {
     use swash::scale::image::{Content, Image};
     use swash::scale::{Render, ScaleContext, Source, StrikeWith};
     use swash::zeno::{Mask, Origin, Placement};
+
+    use crate::resample::{self, METHOD};
     use swash::{FontDataRef, FontRef, StringId};
 
     /// The face `family` names in `data`, or its first face for an empty
@@ -434,15 +436,7 @@ mod raster {
         if color {
             let at = (y * w + x) * 4;
             match image.data.get(at..at + 4) {
-                Some(&[r, g, b, a]) => {
-                    if matches!(image.source, Source::ColorBitmap(_)) {
-                        // a PNG's colors are not premultiplied
-                        let m = |c: u8| ((u32::from(c) * u32::from(a) + 127) / 255) as u8;
-                        [m(r), m(g), m(b), a]
-                    } else {
-                        [r.min(a), g.min(a), b.min(a), a]
-                    }
-                }
+                Some(&[r, g, b, a]) => [r.min(a), g.min(a), b.min(a), a],
                 _ => [0; 4],
             }
         } else {
@@ -494,17 +488,20 @@ mod raster {
 
     impl Drawer<'_> {
         /// Glyph `g` at `ppem`: its color form if it has one, else its
-        /// outline as coverage.
-        fn draw(&mut self, g: u16, ppem: f32) -> Option<Image> {
+        /// outline as coverage. A color bitmap is scaled from its largest
+        /// strike to `ppem`, and further to fit `fit`, by this build's
+        /// [`METHOD`].
+        fn draw(&mut self, g: u16, ppem: f32, fit: (u32, u32)) -> Option<Image> {
             let mut scaler = self.context.builder(self.font).size(ppem).build();
             if scaler.has_color_outlines() {
                 if let Some(layers) = scaler.scale_color_outline(g) {
                     return Some(self.compose(&layers));
                 }
             }
-            let bitmap = [Source::ColorBitmap(StrikeWith::BestFit)];
-            if let Some(image) = Render::new(&bitmap).render(&mut scaler, g) {
-                return Some(image);
+            if scaler.has_color_bitmaps() {
+                if let Some(image) = self.bitmap(g, ppem, fit) {
+                    return Some(image);
+                }
             }
             let mut scaler = self
                 .context
@@ -513,6 +510,53 @@ mod raster {
                 .hint(true)
                 .build();
             Render::new(&[Source::Outline]).render(&mut scaler, g)
+        }
+
+        /// A color bitmap from the font's largest strike holding `g`, its
+        /// colors premultiplied, scaled to `ppem` or as far under as fits
+        /// `fit`, by [`METHOD`] (ADR-1200 D13; the operator's choice on
+        /// vtium/vtium#23).
+        fn bitmap(&mut self, g: u16, ppem: f32, fit: (u32, u32)) -> Option<Image> {
+            let strike = self.font.color_strikes().find_by_largest_ppem(g)?.ppem();
+            // a scaler of no size draws the strike as it is stored
+            let mut native = self.context.builder(self.font).build();
+            let image = native.scale_color_bitmap(g, StrikeWith::LargestSize)?;
+            let (w, h) = (image.placement.width, image.placement.height);
+            if strike == 0 || w == 0 || h == 0 {
+                return None;
+            }
+            let premultiplied = image
+                .data
+                .chunks_exact(4)
+                .flat_map(|p| match p {
+                    &[r, g, b, a] => {
+                        let m = |c: u8| ((u32::from(c) * u32::from(a) + 127) / 255) as u8;
+                        [m(r), m(g), m(b), a]
+                    }
+                    _ => [0; 4],
+                })
+                .collect();
+            let src = resample::Image {
+                width: w,
+                height: h,
+                pixels: premultiplied,
+            };
+            let s = (f64::from(ppem) / f64::from(strike))
+                .min(f64::from(fit.0) / f64::from(w))
+                .min(f64::from(fit.1) / f64::from(h));
+            let size = |n: u32| ((f64::from(n) * s).round() as u32).max(1);
+            let out = resample::resize(&src, size(w), size(h), METHOD);
+            Some(Image {
+                source: Source::ColorBitmap(StrikeWith::LargestSize),
+                content: Content::Color,
+                placement: Placement {
+                    left: (f64::from(image.placement.left) * s).round() as i32,
+                    top: (f64::from(image.placement.top) * s).round() as i32,
+                    width: out.width,
+                    height: out.height,
+                },
+                data: out.pixels,
+            })
         }
 
         /// A COLR glyph's layers, each filled in its palette color and
@@ -602,7 +646,9 @@ mod raster {
                     .map(|c| charmap.map(c))
                     .find(|&g| g != 0)
                     .map(|g| {
-                        let ink = drawer.draw(g, ppem).map_or(0, |i| i.placement.width);
+                        let ink = drawer
+                            .draw(g, ppem, (u32::MAX, u32::MAX))
+                            .map_or(0, |i| i.placement.width);
                         (advances.advance_width(g).round() as u32).max(ink)
                     })
                     .unwrap_or(h.div_ceil(2))
@@ -680,14 +726,15 @@ mod raster {
     /// it.
     fn place(drawer: &mut Drawer<'_>, g: u16, advance: f32, cell: &Cell) -> Option<Placed> {
         let h = cell.height;
-        let mut image = drawer.draw(g, cell.ppem)?;
-        let color = image.content == Content::Color;
         let wide = advance > cell.width as f32 * 1.5;
         let bw = cell.width * if wide { 2 } else { 1 };
+        let mut image = drawer.draw(g, cell.ppem, (bw, h))?;
+        let color = image.content == Content::Color;
         let (iw, ih) = (image.placement.width, image.placement.height);
         if color && (iw > bw || ih > h) && iw > 0 && ih > 0 {
+            // a COLR glyph, drawn again at the size that fits
             let fit = (bw as f32 / iw as f32).min(h as f32 / ih as f32);
-            image = drawer.draw(g, cell.ppem * fit)?;
+            image = drawer.draw(g, cell.ppem * fit, (bw, h))?;
         }
         let (iw, ih) = (image.placement.width as i32, image.placement.height as i32);
         let (bw_i, h_i, base) = (bw as i32, h as i32, cell.baseline as i32);

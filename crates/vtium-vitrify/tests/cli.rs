@@ -1077,6 +1077,11 @@ fn an_outline_font_with_color_glyphs_and_a_bitmap_fallback_builds_a_set() {
         set.meta_values("source-family").collect::<Vec<_>>(),
         ["Test Mono"]
     );
+    // the method color bitmaps are scaled with, which a rebuild repeats
+    assert_eq!(
+        set.meta_values("color-scale").collect::<Vec<_>>(),
+        [vtium_vitrify::resample::METHOD.name()]
+    );
     assert_eq!(
         set.meta_values("source-license").collect::<Vec<_>>(),
         ["Free for testing, no warranty."]

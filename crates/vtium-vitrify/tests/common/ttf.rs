@@ -45,6 +45,64 @@ pub struct Font {
     pub colr: Vec<(u16, Vec<(u16, u16)>)>,
     /// The palette, each entry red, green, blue and alpha.
     pub palette: Vec<[u8; 4]>,
+    /// A CBDT strike of color bitmaps, as Noto Color Emoji ships its
+    /// emoji: its pixels to the em, and each glyph's bitmap.
+    pub cbdt: Option<(u8, Vec<Bitmap>)>,
+}
+
+/// A CBDT glyph: its glyph, the bitmap's size, its left bearing, its top
+/// above the baseline, its advance, and its pixels, straight RGBA.
+#[derive(Clone)]
+pub struct Bitmap {
+    pub glyph: u16,
+    pub width: u8,
+    pub height: u8,
+    pub left: i8,
+    pub top: i8,
+    pub advance: u8,
+    pub rgba: Vec<u8>,
+}
+
+/// CRC-32, for PNG's chunks.
+fn crc32(bytes: &[u8]) -> u32 {
+    !bytes.iter().fold(!0u32, |crc, &b| {
+        (0..8).fold(crc ^ u32::from(b), |c, _| {
+            if c & 1 != 0 {
+                0xedb8_8320 ^ (c >> 1)
+            } else {
+                c >> 1
+            }
+        })
+    })
+}
+
+/// `rgba`, `w` by `h`, as a PNG of 8-bit RGBA.
+pub fn png(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
+    let mut raw = Vec::new();
+    for row in rgba.chunks((w * 4) as usize) {
+        raw.push(0);
+        raw.extend_from_slice(row);
+    }
+    let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+    let chunk = |out: &mut Vec<u8>, tag: &[u8; 4], data: &[u8]| {
+        out.extend((data.len() as u32).to_be_bytes());
+        let mut body = tag.to_vec();
+        body.extend_from_slice(data);
+        out.extend(&body);
+        out.extend(crc32(&body).to_be_bytes());
+    };
+    let mut ihdr = Vec::new();
+    ihdr.extend(w.to_be_bytes());
+    ihdr.extend(h.to_be_bytes());
+    ihdr.extend([8, 6, 0, 0, 0]);
+    chunk(&mut out, b"IHDR", &ihdr);
+    chunk(
+        &mut out,
+        b"IDAT",
+        &miniz_oxide::deflate::compress_to_vec_zlib(&raw, 6),
+    );
+    chunk(&mut out, b"IEND", &[]);
+    out
 }
 
 fn p16(out: &mut Vec<u8>, v: u16) {
@@ -206,6 +264,58 @@ impl Font {
         name.extend(data);
         tables.push((*b"name", name));
 
+        if let Some((ppem, bitmaps)) = &self.cbdt {
+            let first = bitmaps.iter().map(|b| b.glyph).min().unwrap_or(0);
+            let last = bitmaps.iter().map(|b| b.glyph).max().unwrap_or(0);
+            // CBDT: its version, then each glyph in format 17, small
+            // metrics and a PNG
+            let mut cbdt = Vec::new();
+            p16(&mut cbdt, 3);
+            p16(&mut cbdt, 0);
+            let mut offsets = Vec::new();
+            for g in first..=last {
+                offsets.push(cbdt.len() as u32);
+                if let Some(b) = bitmaps.iter().find(|b| b.glyph == g) {
+                    cbdt.extend([b.height, b.width, b.left as u8, b.top as u8, b.advance]);
+                    let data = png(u32::from(b.width), u32::from(b.height), &b.rgba);
+                    p32(&mut cbdt, data.len() as u32);
+                    cbdt.extend(data);
+                }
+            }
+            offsets.push(cbdt.len() as u32);
+            // CBLC: one size, one index subtable of format 1 over the
+            // glyphs first to last, its offsets from the start of CBDT
+            let mut sub = Vec::new();
+            p16(&mut sub, 1);
+            p16(&mut sub, 17);
+            p32(&mut sub, 0);
+            for o in &offsets {
+                p32(&mut sub, *o);
+            }
+            let mut cblc = Vec::new();
+            p16(&mut cblc, 3);
+            p16(&mut cblc, 0);
+            p32(&mut cblc, 1);
+            let array_at = 8 + 48;
+            p32(&mut cblc, array_at);
+            p32(&mut cblc, 8 + sub.len() as u32);
+            p32(&mut cblc, 1);
+            p32(&mut cblc, 0);
+            for _ in 0..2 {
+                // line metrics: ascender, descender, widthMax, then 9 more
+                cblc.extend([*ppem, 0, *ppem, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
+            }
+            p16(&mut cblc, first);
+            p16(&mut cblc, last);
+            cblc.extend([*ppem, *ppem, 32, 1]);
+            p16(&mut cblc, first);
+            p16(&mut cblc, last);
+            p32(&mut cblc, 8);
+            cblc.extend(sub);
+            tables.push((*b"CBDT", cbdt));
+            tables.push((*b"CBLC", cblc));
+        }
+
         if !self.colr.is_empty() {
             let mut colr = Vec::new();
             let layers: Vec<(u16, u16)> = self
@@ -306,5 +416,45 @@ pub fn test_mono() -> Font {
         ],
         colr: vec![(5, vec![(6, 0), (7, 1)])],
         palette: vec![[255, 0, 0, 255], [0, 0, 255, 128]],
+        cbdt: None,
+    }
+}
+
+/// `Test Emoji`: one CBDT glyph at 40 pixels to the em for U+1F525, a 36
+/// pixel square of an opaque red left half beside a clear right half,
+/// standing 30 pixels above the baseline, as Noto Color Emoji's 136 by
+/// 128 bitmaps at 109 stand.
+pub fn test_emoji() -> Font {
+    let mut rgba = Vec::new();
+    for _y in 0..36 {
+        for x in 0..36 {
+            rgba.extend(if x < 18 {
+                [255, 0, 0, 255]
+            } else {
+                [0, 0, 0, 0]
+            });
+        }
+    }
+    Font {
+        family: "Test Emoji".to_owned(),
+        upem: 1000,
+        ascent: 800,
+        descent: -200,
+        glyphs: vec![Glyph::empty(1200), Glyph::empty(1200)],
+        cmap: vec![(0x1f525, 1)],
+        colr: Vec::new(),
+        palette: Vec::new(),
+        cbdt: Some((
+            40,
+            vec![Bitmap {
+                glyph: 1,
+                width: 36,
+                height: 36,
+                left: 0,
+                top: 30,
+                advance: 48,
+                rgba,
+            }],
+        )),
     }
 }

@@ -182,6 +182,10 @@ fn build_key_for(frit: &Frit, sources: &[Option<Resolved>], tool: &str) -> [u8; 
     h.update(&VERSION.1.to_le_bytes());
     h.update(&(tool.len() as u64).to_le_bytes());
     h.update(tool.as_bytes());
+    // a tool built to scale color bitmaps another way builds other bytes
+    let scale = crate::resample::METHOD.name();
+    h.update(&(scale.len() as u64).to_le_bytes());
+    h.update(scale.as_bytes());
     h.update(&(frit.text.len() as u64).to_le_bytes());
     h.update(frit.text.as_bytes());
     for s in sources {
@@ -406,6 +410,9 @@ pub fn assemble(
     }
     for source in missing {
         set = set.meta("source-missing", &source.spelling);
+    }
+    if parts.iter().any(|p| matches!(p.parsed, Parsed::Outline(_))) {
+        set = set.meta("color-scale", crate::resample::METHOD.name());
     }
     if let Some(license) = &frit.license {
         set = set.meta("license", license);

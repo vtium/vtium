@@ -10,6 +10,7 @@ use std::path::Path;
 
 use vtium_vitrify::child::Parser;
 use vtium_vitrify::outline::{Outline, OutlineRequest, rasterise};
+use vtium_vitrify::resample::{self, METHOD};
 
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-vitrify");
 
@@ -195,4 +196,45 @@ fn the_parsers_child_rasterises() {
     bad.font = vec![0; 64].into();
     let e = parser.rasterise(&bad).expect_err("not a font");
     assert!(e.contains("not a TrueType or OpenType font"), "{e}");
+}
+
+// A color bitmap is scaled down by vitrify itself, in premultiplied color,
+// with the method this build chose (the operator's Lanczos and sharpen by
+// default), from the font's largest strike
+#[test]
+fn a_color_bitmap_is_scaled_from_its_strike_by_the_chosen_method() {
+    let req = OutlineRequest {
+        font: ttf::test_emoji().build().into(),
+        family: "Test Emoji".to_owned(),
+        cells: vec![(0, 10)],
+        cover: Vec::new(),
+    };
+    let o = rasterise(&req).expect("rasterised");
+    let s = &o.strikes[0];
+    // no W, M or 0: the cell is half as wide as it is tall
+    assert_eq!((s.width, s.height, s.baseline), (5, 10, 8));
+    let fire = glyph(&o, 0, 0x1f525);
+    assert!(fire.wide && fire.color);
+    // 36 pixels at 40 to the em, drawn at 9.5: 8.55, so 9 by 9, its top
+    // 30 * 0.2375 rows above the baseline: row 1
+    let native = resample::Image {
+        width: 36,
+        height: 36,
+        pixels: (0..36 * 36)
+            .flat_map(|i| {
+                if i % 36 < 18 {
+                    [255, 0, 0, 255]
+                } else {
+                    [0; 4]
+                }
+            })
+            .collect(),
+    };
+    let small = resample::resize(&native, 9, 9, METHOD);
+    let mut want = vec![0u8; 10 * 10 * 4];
+    for y in 0..9 {
+        let row = &small.pixels[y * 9 * 4..(y + 1) * 9 * 4];
+        want[((y + 1) * 10) * 4..((y + 1) * 10 + 9) * 4].copy_from_slice(row);
+    }
+    assert_eq!(fire.pixels, want);
 }
