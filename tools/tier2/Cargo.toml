@@ -20,3 +20,5 @@ workspace = true
 vtium-term.workspace = true
 vtium-font.workspace = true
 vtium-render.workspace = true
+# the small displays' PSF fonts, built in memory
+vtium-testfont = { path = "../testfont" }
