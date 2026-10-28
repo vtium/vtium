@@ -53,6 +53,15 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "Agreed: vtium draws its built-in set and logs the create command. The built-in set is the template vitrified set. A distribution package's hook (AUR, deb, rpm and the like) runs create to build at least the default set at install and upgrade. Later work may find installed fonts that match chosen profiles and build more sets, as a direction, not yet a decision."
+    via: Claude Code session, 2026-10-28, relayed by the team lead
+    covers: [who builds]
+  - operator: aaronsb
+    said: "allow-font-ops is on by default. The config file and docs/config.md describe the key in a comment: the reason it is on by default (xterm's convention, and that it can only switch among built sets), and what each state does."
+    via: Claude Code session, 2026-10-28, relayed by the team lead
+    covers: [font operations default]
 observable:
   - "`cargo tree -p vtium -e normal` on the default build lists no bzip2, xz, zstd or outline-font crate, and the minspec binary stays under its budget"
   - "`vtium-vitrify create --all` run twice on unchanged inputs reports every set `current` the second time, and a set rebuilt from the same inputs has the same SHA-256"
@@ -178,12 +187,14 @@ A minor version adds sections or fields a reader skips. A major version is a cha
 | `verify [NAME...]` | anyone | Runs the console's check (D3) on each set and reports it. |
 | `set NAME` | the session's user | D5. |
 
-The build key is the SHA-256 of the format version, the recipe's bytes and each source's SHA-256 in order, so a set rebuilds when its recipe, any source or the format changes. `create` is non-interactive: it never prompts, refuses to run without root by naming `sudo`, prints one line a set (`built`, `current` or `failed`, the name and the reason), and exits 0 when every set built or was current, 1 when any failed and 2 on a usage error. Scripts, package triggers, daemons and previewing front ends are built on these commands by others. #112's banner shows only at an interactive terminal.
+The build key is the SHA-256 of the format version, the recipe's bytes and each source's SHA-256 in order, so a set rebuilds when its recipe, any source or the format changes. `create` is non-interactive: it never prompts, refuses to run without root by naming `sudo`, prints one line a set (`built`, `current` or `failed`, the name and the reason), and exits 0 when every set built or was current, 1 when any failed and 2 on a usage error. Scripts, daemons and previewing front ends are built on these commands by others. #112's banner shows only at an interactive terminal.
+
+vtium's own unit runs no `create`. A distribution's package (AUR, deb, rpm and the like) carries a hook that runs `create` at install and upgrade to build at least the default set; `vtium-vitrify` is what that hook calls, and each distribution writes its own. Until a set is built, vtium draws its built-in set and logs the command (D9). (Added 2026-10-28: the operator's answer to the first probe.)
 
 ### D5: `vtium-vitrify set`, through OSC 50
 
 - `set NAME` checks NAME against `list`, failing early and naming `list`. It then writes `OSC 50 ; NAME ST` to its controlling terminal, asks `OSC 50 ; ? ST`, and reads the reply in raw mode for at most a second, restoring the terminal's mode after. It exits 0 when the reply names NAME, and otherwise says font operations are off or the terminal is not vtium.
-- vtium takes OSC 50 only with `allow-font-ops` on, a new kmscon.conf key that defaults on, as xterm's `allowFontOps` does. A `Pt` that is a set name, found in the manifest or among the built-ins, is checked as D3 checks it and switches the live console as zoom does: a new font, a new grid and a pty resize (#44). Anything else, a path, an X font name, a name not built or a set that fails its check, leaves the font as it was and logs why.
+- vtium takes OSC 50 only with `allow-font-ops` on, a new kmscon.conf key that defaults on, as xterm's `allowFontOps` does. The key's description in the key table, from which `kmscon.conf.example` and `docs/config.md` are generated, says why it is on by default (xterm's convention, and OSC 50 can only switch among built sets) and what each state does: on, OSC 50 switches among built sets and answers a query; off, vtium ignores OSC 50, the query included. (Added 2026-10-28: the operator's answer to the second probe.) A `Pt` that is a set name, found in the manifest or among the built-ins, is checked as D3 checks it and switches the live console as zoom does: a new font, a new grid and a pty resize (#44). Anything else, a path, an X font name, a name not built or a set that fails its check, leaves the font as it was and logs why.
 - `OSC 50 ; ?` replies `OSC 50 ; <name> ST` with the current set's name as the manifest or the built-in spells it, from vtium's own state, within the reply rule. xterm's `#` menu forms are #44's to map or ignore.
 - A switch changes the live console only. `font-name` in the configuration is what persists.
 - OSC 50 reaches no file but the store: ADR-1400's row that sends OSC 50 font paths through the image helper no longer applies, and that record takes a dated note citing this one.
@@ -198,6 +209,7 @@ The build key is the SHA-256 of the format version, the recipe's bytes and each 
 
 - **`unifont`:** GNU Unifont 17.0.03 under the SIL Open Font License 1.1, as vtium carries it today.
 - **`unscii-8`:** Unscii by Viznut, `unscii-8.hex` from <http://viznut.fi/unscii/unscii-8.hex>, SHA-256 `03094f7fbab7085cf6a6b624cee61e47e71ce5d0c2f308c2f4436afdc17f776c`, 3,190 glyphs, all 8x8. It is in the public domain: `unscii.txt` in `unscii-2.1-src.tar.gz` (<http://viznut.fi/unscii/unscii-2.1-src.tar.gz>, SHA-256 `4d1215d495e49d005ae70828ec1529e997049b9a7f152b9439d78c7e70c65b57`) says "Everything made by me (viznut) is in the Public Domain.", and only `unscii-16-full`, which vtium does not use, falls under the GPL. The `.hex` is a build output the tarball does not hold, so vtium pins the published file by hash, with its URL and `unscii.txt` beside it in vtium-font's `data/`. It is packed as unifont is; 19,836 bytes under gzip estimate its cost to the binary.
+- The built-in set is the template vitrified set: each built-in holds what D2's sections hold, glyphs, map, metrics, sprite policy and provenance, compiled into the binary, its glyph chunks deflated as unifont's are today to fit the binary's budget. `list` shows the built-ins beside the built sets. (Added 2026-10-28: the operator's answer to the first probe.)
 - Both are trusted by construction and never read from disk. vtium draws `unscii-8` for cells under 16 pixels high and `unifont` from 16, whenever no set is chosen or a chosen set fails.
 
 ### D8: the kernel's font
@@ -224,6 +236,10 @@ The build key is the SHA-256 of the format version, the recipe's bytes and each 
 - From the C reference: `font-engine=psf` with a path loads the set built from that path, and draws the built-in with a log line where none is built; the C reference read the file. Source: the operator's direction on vtium/vtium#3.
 - From `setfont`: a named font with no Unicode table and no unimap takes kbd's `def.uni`; `setfont` left the kernel's map in place, and a set has no kernel map to inherit.
 
+### A direction, not decided
+
+Later work may find the fonts installed on a machine that match chosen profiles and build more sets from them. The operator named this as a direction on 2026-10-28; it is filed as an issue and decided in its own record.
+
 ## Consequences
 
 ### Positive
@@ -236,7 +252,7 @@ The build key is the SHA-256 of the format version, the recipe's bytes and each 
 
 ### Negative
 
-- A machine where nobody runs `create` gets the built-in font, whatever vconsole.conf says.
+- A machine where no package hook and nobody has run `create` gets the built-in font, whatever vconsole.conf says.
 - A font the user owns needs root to reach the console.
 - Sizes other than the baked strikes and their whole multiples are unavailable: zoom steps through those heights.
 - A set on disk is uncompressed: a 10,000-glyph outline strike at 16x32 in 8-bit masks is about 5 MB (estimate).
@@ -253,7 +269,7 @@ The build key is the SHA-256 of the format version, the recipe's bytes and each 
 - **Fonts only compiled into the binary,** #3's first idea. Not taken: a user's font would need a rebuild, and each font costs the binary's budget.
 - **A per-user store, trusted for that user's session.** Rejected by the operator: `create` is a sudo command.
 - **A per-session socket for `set`.** Rejected by the operator in favour of OSC 50.
-- **`create` in the unit's `ExecStartPre=`,** the recommendation on #3. Not taken: the operator left building to whoever runs `create`. The first probe checks this.
+- **`create` in the unit's `ExecStartPre=`,** the recommendation on #3. Not taken: the operator left building to whoever runs `create`, and on 2026-10-28 placed the default build in the distribution package's hook.
 - **`create` as a `vtium` subcommand.** Rejected by the operator: the decoders and rasteriser would enter the console's binary.
 - **Sets compressed in chunks,** as the built-in unifont is. Smaller on disk; not taken, since the console would then decompress files from disk, and memory holds only the chunks in use either way.
 - **The whole set read into memory at load.** Simpler; not taken for its memory on large outline sets, where the chunk hashes allow reading on demand without trusting a later read.
