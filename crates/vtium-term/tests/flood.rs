@@ -7,12 +7,17 @@
 //! tables compact at. The budget is the width the line was written at: a
 //! line trimmed for the scrollback keeps the clusters its cells name, which
 //! may pass the budget of its fewer cells but never that of the widest
-//! screen.
+//! screen. A rewrap (ADR-1003) moves clusters with their cells and holds
+//! them to the logical line's budget as written: a written row of `w`
+//! columns names at most `CLUSTER_BYTES_PER_CELL * w` bytes on at least
+//! half its columns of text but its last, a pad taking at most one, so a
+//! logical line of `n` rows at most the widest screen wide names at most
+//! the budget of `2n + 1` rows of it.
 
 mod common;
 
 use common::Rng;
-use vtium_term::{CLUSTER_BYTES_PER_CELL, CLUSTER_MAX, Glyph, Line, Screen, Terminal};
+use vtium_term::{CLUSTER_BYTES_PER_CELL, CLUSTER_MAX, Glyph, Line, LineFlags, Screen, Terminal};
 
 /// The bytes the clusters a line's cells name take, length bytes included,
 /// counted from the cells.
@@ -38,28 +43,37 @@ fn heap_bound(len: usize) -> usize {
 }
 
 /// Checks every line of `screen`, written on screens at most `widest`
-/// columns wide.
+/// columns wide: each row's accounting, and each logical line's bytes and
+/// heap against the budget of `2n + 1` rows of the widest screen for its
+/// `n` rows.
 fn check(screen: &Screen, widest: usize, path: &str, step: usize) {
     let mut lines: Vec<&Line> = screen.scrollback().collect();
     lines.extend(screen.lines());
+    let (mut named, mut heap, mut rows) = (0, 0, 0);
     for (i, line) in lines.iter().enumerate() {
-        let named = named_bytes(line);
+        let bytes = named_bytes(line);
         assert_eq!(
-            named,
+            bytes,
             line.cluster_bytes(),
-            "{path}, step {step}, line {i}: the cells name {named} bytes, the line accounts {}",
+            "{path}, step {step}, line {i}: the cells name {bytes} bytes, the line accounts {}",
             line.cluster_bytes()
         );
-        let cells = line.len().max(widest);
+        named += bytes;
+        heap += line.heap_bytes();
+        rows += 1;
+        if line.flags().contains(LineFlags::WRAPPED) && i + 1 != lines.len() {
+            continue;
+        }
+        let cells = (2 * rows + 1) * line.len().max(widest);
         assert!(
             named <= cells * CLUSTER_BYTES_PER_CELL,
-            "{path}, step {step}, line {i}: {named} bytes over a budget of {cells} cells"
+            "{path}, step {step}, line {i}: {named} bytes in {rows} rows over a budget of {cells} cells"
         );
         assert!(
-            line.heap_bytes() <= heap_bound(cells),
-            "{path}, step {step}, line {i}: {} heap bytes",
-            line.heap_bytes()
+            heap <= heap_bound(cells) + rows * 256,
+            "{path}, step {step}, line {i}: {heap} heap bytes in {rows} rows"
         );
+        (named, heap, rows) = (0, 0, 0);
     }
 }
 

@@ -9,12 +9,16 @@
 //!
 //! A wide character takes two cells, the second a tail that draws nothing.
 //! One that has only the last column left wraps whole to the next line with
-//! autowrap, the cell it leaves cleared, as foot pads it; without autowrap
-//! it is not printed, as xterm does (Ghostty's notes, `Terminal.zig`,
+//! autowrap, the cell it leaves a pad in the character's background, as
+//! foot pads it and as a rewrap leaves it (ADR-1003); without autowrap it
+//! is not printed, as xterm does (Ghostty's notes, `Terminal.zig`,
 //! `print`). On a screen one column wide an empty cell is printed instead,
 //! as Ghostty does. A VS16 that widens a one-cell cluster takes the cell
-//! after it, or in the last column moves the cluster to the next line.
-//! Ghostty and foot are MIT-licensed.
+//! after it, or in the last column moves the cluster to the next line as a
+//! wide character wraps. Ghostty and foot are MIT-licensed.
+//!
+//! Each print marks the row it writes to as rewrapping at a resize or not,
+//! from mode 2028 (ADR-1003).
 
 use super::{Screen, Segment, WidthMethod};
 use crate::cell::Width;
@@ -68,8 +72,8 @@ impl Screen {
                 let (x, y) = (self.cursor_x, self.cursor_y);
                 self.split_wide(y, x);
                 self.split_wide(y, x.saturating_add(1));
-                self.erase_cells(y, x..x.saturating_add(1));
-                self.mark_wrapped(y, last);
+                let bg = self.pen.bg;
+                self.leave_pad(x, y, last, bg);
                 self.move_cursor(0, y.saturating_add(1));
             }
         }
@@ -121,13 +125,33 @@ impl Screen {
     /// when a wrap from it reaches another row: below `last`, or at the
     /// bottom margin, which scrolls. On the screen's last row below the
     /// region the wrap returns to the same row, whose text does not
-    /// continue.
-    fn mark_wrapped(&mut self, y: usize, last: usize) {
+    /// continue. Returns whether it marked the row.
+    fn mark_wrapped(&mut self, y: usize, last: usize) -> bool {
         if y >= last && last != self.bottom {
-            return;
+            return false;
         }
         if let Some(line) = self.line_mut(y) {
             line.flags_mut().insert(crate::LineFlags::WRAPPED);
+        }
+        true
+    }
+
+    /// A wide character leaves column `x`, the last, of row `y` for the
+    /// next row: the row wraps, and the column becomes a pad in the
+    /// background `bg`. Where the wrap returns to the same row, the column
+    /// is erased instead.
+    fn leave_pad(&mut self, x: usize, y: usize, last: usize, bg: crate::Color) {
+        if self.mark_wrapped(y, last) {
+            let pad = Style {
+                bg,
+                ..Style::DEFAULT
+            };
+            if let Some(line) = self.line_mut(y) {
+                line.write(x, Glyph::Empty, Width::Pad, &pad, None);
+            }
+            self.mark_cells(y, x..x.saturating_add(1));
+        } else {
+            self.erase_cells(y, x..x.saturating_add(1));
         }
     }
 
@@ -176,6 +200,7 @@ impl Screen {
             line.write(x, glyph, width, &style, link);
         }
         self.mark_cells(y, x..x.saturating_add(1));
+        self.mark_reflow(y);
         self.set_segment(x, y, state);
         if width == Width::Narrow && self.stored_width(x, y) == 2 {
             self.widen(x, y, state);
@@ -251,9 +276,9 @@ impl Screen {
         if !self.flags.auto_wrap || self.cols < 2 {
             return;
         }
-        self.erase_cells(y, x..next);
-        let mut y = y;
         let last = self.last_print_row(y);
+        self.leave_pad(x, y, last, style.bg);
+        let mut y = y;
         if y.saturating_add(1) > last {
             if last == self.bottom {
                 self.scroll_up(1);
@@ -344,6 +369,7 @@ impl Screen {
             }
         }
         self.mark_cells(y, x..end);
+        self.mark_reflow(y);
     }
 }
 

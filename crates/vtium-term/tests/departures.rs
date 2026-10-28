@@ -259,20 +259,37 @@ fn the_cluster_budget_cuts_a_cluster_on_a_one_column_line() {
 
 // The C reference's frame showed the columns a widening resize adds with a
 // white foreground and underline colour (the conformance case
-// query-frames). They are blank cells in the default style, whatever the
-// pen and the erased cells around them.
+// query-frames). They are empty cells in the line's fill: the default
+// style, or on the main screen the background the program erased the
+// line's end with (ADR-1003); the pen has no claim on them, and the
+// alternate screen's are default.
 #[test]
-fn columns_a_widening_resize_adds_are_blank_in_the_default_style() {
-    let mut t = term(4, 2, b"\x1b[31;44m\x1b[2Jab");
+fn columns_a_widening_resize_adds_take_the_lines_fill() {
+    let blue = Style {
+        bg: Color::Indexed(4),
+        ..Style::DEFAULT
+    };
+    let mut t = term(
+        4,
+        3,
+        b"\x1b[31;44m\x1b[2Jab\x1b[3;1H\x1b[m\x1b[2Kcd\x1b[1;37;41m",
+    );
+    t.screen_mut().resize(6, 3);
+    let lines = t.screen().lines();
+    for line in &lines[..2] {
+        for &cell in &line.cells()[4..] {
+            assert_eq!(cell.content(), vtium_term::Content::Empty);
+            assert_eq!(line.style(cell), blue);
+        }
+    }
+    let line = &lines[2];
+    assert_eq!(line.cells().len(), 6);
+    assert!(line.cells()[4..].iter().all(|c| c.is_blank()));
+
+    let mut t = term(4, 2, b"\x1b[?1049h\x1b[44m\x1b[2Jab");
     t.screen_mut().resize(6, 2);
     for line in t.screen().lines() {
-        let added = &line.cells()[4..];
-        assert_eq!(added.len(), 2);
-        for &cell in added {
-            assert!(cell.is_blank());
-            assert_eq!(line.style(cell), Style::DEFAULT);
-        }
-        // The erased cells keep the background the pen gave them.
-        assert_ne!(line.style(line.cells()[3]), Style::DEFAULT);
+        assert!(line.cells()[4..].iter().all(|c| c.is_blank()));
+        assert_eq!(line.style(line.cells()[3]), blue);
     }
 }

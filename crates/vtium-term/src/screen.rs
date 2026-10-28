@@ -15,10 +15,15 @@
 //! The cursor's column may equal the screen's width: the next printed
 //! character wraps first (the pending wrap). Every other position is
 //! inside the screen.
+//!
+//! A resize that changes the column count rewraps the main screen and its
+//! scrollback (`reflow.rs`, ADR-1003); no line keeps a cell past the right
+//! margin.
 
 mod edit;
 mod print;
 mod rect;
+pub(crate) mod reflow;
 mod selection;
 
 use core::ops::Range;
@@ -58,11 +63,13 @@ struct Flags {
     reverse: bool,
     cursor_hidden: bool,
     alternate: bool,
+    /// Mode 2028: printed rows rewrap at a resize.
+    reflow: bool,
 }
 
 impl Flags {
-    /// After a reset: autowrap on, as the terminal's reset leaves it, and
-    /// everything else off.
+    /// After a reset: autowrap and reflow on, as the terminal's reset
+    /// leaves them, and everything else off.
     const RESET: Self = Self {
         insert: false,
         auto_wrap: true,
@@ -70,6 +77,7 @@ impl Flags {
         reverse: false,
         cursor_hidden: false,
         alternate: false,
+        reflow: true,
     };
 }
 
@@ -89,9 +97,9 @@ struct Segment {
 pub struct Screen {
     cols: usize,
     rows: usize,
-    /// The main and alternate screens' lines. Each holds at least `rows`
-    /// lines: lines below the screen after it shrank keep their text and
-    /// come back when it grows again, as in the C reference.
+    /// The main and alternate screens' lines, each `cols` cells. Each holds
+    /// at least `rows` lines: lines below the screen after it shrank keep
+    /// their text and come back when it grows again, as in the C reference.
     main: Vec<Line>,
     alt: Vec<Line>,
     flags: Flags,
@@ -188,9 +196,19 @@ impl Screen {
         self.active().get(..self.rows).unwrap_or_default()
     }
 
-    /// The scrollback's lines, oldest first.
+    /// The scrollback's rows at the current width, oldest first. After a
+    /// resize that changed the width, the oldest rows may still wait to be
+    /// rewrapped, and are not among them until something reaches them, or
+    /// [`rewrap_scrollback`](Self::rewrap_scrollback).
     pub fn scrollback(&self) -> impl ExactSizeIterator<Item = &Line> + '_ {
         self.scrollback.lines()
+    }
+
+    /// Rewraps every scrollback row still waiting since the width changed:
+    /// the scrollback then holds the rows rewrapping it all at the resize
+    /// would have made.
+    pub fn rewrap_scrollback(&mut self) {
+        self.scrollback.rewrap_all();
     }
 
     /// How many lines the view is scrolled back: 0 shows the screen.
@@ -243,6 +261,29 @@ impl Screen {
 
     pub fn set_auto_wrap(&mut self, on: bool) {
         self.flags.auto_wrap = on;
+    }
+
+    /// Mode 2028: rows printed while it is set rewrap at a resize.
+    pub fn reflow(&self) -> bool {
+        self.flags.reflow
+    }
+
+    /// Sets mode 2028, which marks the cursor's row from it.
+    pub fn set_reflow(&mut self, on: bool) {
+        self.flags.reflow = on;
+        self.mark_reflow(self.cursor_y);
+    }
+
+    /// Marks row `y` as rewrapping at a resize or not, from mode 2028.
+    fn mark_reflow(&mut self, y: usize) {
+        let fixed = !self.flags.reflow;
+        if let Some(line) = self.line_mut(y) {
+            if fixed {
+                line.flags_mut().insert(crate::LineFlags::FIXED);
+            } else {
+                line.flags_mut().remove(crate::LineFlags::FIXED);
+            }
+        }
     }
 
     /// DECOM: cursor addressing is relative to the scroll region.
@@ -421,45 +462,55 @@ impl Screen {
         }
     }
 
+    /// Resizes the screen to `cols` by `rows`, as
+    /// [`resize_carrying`](Self::resize_carrying) does with no saved
+    /// cursor to carry.
+    pub fn resize(&mut self, cols: usize, rows: usize) {
+        self.resize_carrying(cols, rows, &mut (0, 0));
+    }
+
     /// Resizes the screen to `cols` by `rows`, each at least 1 and at most
     /// [`COLUMNS_MAX`] by [`ROWS_MAX`]. The margins go and the tab stops
-    /// return to every eighth column. A shorter main screen pushes its top
-    /// lines into the scrollback, keeping the cursor's line on the screen;
-    /// with nothing in the scrollback, or on the alternate screen, it
-    /// scrolls only as far as the cursor needs. A taller main screen pulls
-    /// lines back from the scrollback. Lines keep cells past a narrower
-    /// screen's edge, which come back when it widens. A host resizes
-    /// through [`Terminal::resize`](crate::Terminal::resize), which also
-    /// reports the resize to a program that set mode 2048.
-    pub fn resize(&mut self, cols: usize, rows: usize) {
+    /// return to every eighth column.
+    ///
+    /// A change in the column count rewraps the main screen and its
+    /// scrollback, keeping the cursor at its place in the text, and cuts
+    /// the alternate screen's lines at the new width (ADR-1003, `reflow`).
+    /// `saved` is the main screen's saved cursor, a column and a row, the
+    /// column the width while a wrap is pending: it is carried as the
+    /// cursor is, and while the alternate screen is shown the main screen
+    /// rewraps around it.
+    ///
+    /// Then a shorter main screen pushes its top lines into the scrollback,
+    /// keeping the cursor's line on the screen; with nothing in the
+    /// scrollback, or on the alternate screen, it scrolls only as far as
+    /// the cursor needs. A taller main screen pulls lines back from the
+    /// scrollback. A host resizes through
+    /// [`Terminal::resize`](crate::Terminal::resize), which carries the
+    /// saved cursor and reports the resize to a program that set mode
+    /// 2048.
+    pub fn resize_carrying(&mut self, cols: usize, rows: usize, saved: &mut (usize, usize)) {
         let cols = cols.clamp(1, COLUMNS_MAX);
         let rows = rows.clamp(1, ROWS_MAX);
         if (cols, rows) == (self.cols, self.rows) {
             return;
         }
-        let width = cols.max(self.cols);
+        self.segment = None;
+        if cols != self.cols {
+            self.rewrap(cols, saved);
+        }
         while self.main.len() < rows {
-            let line = self.new_line(width, &Style::DEFAULT);
+            let line = self.new_line(cols, &Style::DEFAULT);
             self.main.push(line);
-            let line = self.new_line(width, &Style::DEFAULT);
+        }
+        while self.alt.len() < rows {
+            let line = self.new_line(cols, &Style::DEFAULT);
             self.alt.push(line);
         }
-        if cols > self.cols {
-            for line in self.main.iter_mut().chain(self.alt.iter_mut()) {
-                if line.len() < cols {
-                    line.resize(cols);
-                }
-            }
-        }
-        self.segment = None;
         self.damage.resize(cols, rows);
         self.top = 0;
         self.bottom = self.rows.saturating_sub(1);
         self.tabs = default_tabs(cols);
-        self.cols = cols;
-        if self.cursor_x >= cols {
-            self.move_cursor(cols.saturating_sub(1), self.cursor_y);
-        }
         if rows < self.rows {
             if self.scrollback.is_empty() || self.flags.alternate {
                 if self.cursor_y >= rows {
@@ -473,7 +524,7 @@ impl Screen {
                 self.move_cursor(self.cursor_x, self.cursor_y.saturating_sub(diff));
             }
         } else if rows > self.rows && !self.flags.alternate {
-            let diff = rows.saturating_sub(self.rows).min(self.scrollback.len());
+            let diff = rows.saturating_sub(self.rows).min(self.scrollback.total());
             if diff > 0 {
                 self.rows = rows;
                 self.bottom = rows.saturating_sub(1);
@@ -490,16 +541,14 @@ impl Screen {
     }
 
     /// Replaces the top `n` lines with the newest `n` of the scrollback,
-    /// the newest at the bottom of them, widened to the screen.
+    /// the newest at the bottom of them, painted to the screen's width.
     fn pull_from_scrollback(&mut self, n: usize) {
         let cols = self.cols;
         for row in (0..n).rev() {
             let Some(mut line) = self.scrollback.pop_newest() else {
                 return;
             };
-            if line.len() < cols {
-                line.resize(cols);
-            }
+            line.resize(cols);
             // The line replaced is one `rotate_down` just made, which
             // holds no selection.
             if let Some(slot) = self.main.get_mut(row) {
