@@ -467,8 +467,8 @@ impl Screen {
     }
 
     /// Resizes the screen to `cols` by `rows`, as
-    /// [`resize_carrying`](Self::resize_carrying) does with no saved
-    /// cursor to carry.
+    /// [`resize_carrying`](Self::resize_carrying) does with the saved
+    /// cursor home, whose new place goes.
     pub fn resize(&mut self, cols: usize, rows: usize) {
         self.resize_carrying(cols, rows, &mut (0, 0));
     }

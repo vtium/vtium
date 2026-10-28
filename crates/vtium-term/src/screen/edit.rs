@@ -52,9 +52,8 @@ pub enum Erase {
 impl Screen {
     /// A wide character whose halves lie on both sides of the boundary
     /// before cell `x` of row `y` goes whole: an edit on one side would
-    /// leave half a character. The boundary may be the margin: a line keeps
-    /// its cells past it after the screen narrows, and a character there
-    /// keeps both halves until one side is edited.
+    /// leave half a character. At the margin there is nothing past the
+    /// boundary, since no line keeps a cell past it (ADR-1003).
     pub(super) fn split_wide(&mut self, y: usize, x: usize) {
         let Some(line) = self.line(y) else {
             return;

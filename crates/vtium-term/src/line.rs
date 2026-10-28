@@ -81,8 +81,8 @@ pub struct LineFlags(u16);
 impl LineFlags {
     /// The line's text continues on the next line: printing wrapped at the
     /// right margin. A line the program ended with a newline, or left by
-    /// moving the cursor, does not carry it. Reflow (vtium/vtium#41)
-    /// rejoins only lines that do.
+    /// moving the cursor, does not carry it. Reflow (ADR-1003) rejoins
+    /// only lines that do.
     pub const WRAPPED: Self = Self(1 << 0);
     /// OSC 133 A: a prompt starts on this line.
     pub const PROMPT: Self = Self(1 << 1);
