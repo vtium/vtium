@@ -187,6 +187,53 @@ def check_departures(departures, cases_of):
 
 DEPARTURES = read_departures()
 
+PROVISIONAL_FILE = os.path.join(HERE, "provisional.tsv")
+
+
+def read_provisional(path=PROVISIONAL_FILE):
+    """provisional.tsv as {golden "VARIANT/SCREEN": why}: vtium's goldens the
+    operator has not reviewed. A malformed line, or a golden listed twice, is
+    refused."""
+    out = {}
+    with open(path) as f:
+        for n, line in enumerate(f, 1):
+            if not line.strip() or line.startswith("#"):
+                continue
+            where = "%s:%d" % (rel(path), n)
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) != 2 or not all(fields) or fields[0].count("/") != 1:
+                raise SystemExit("%s: want VARIANT/SCREEN and WHY, separated by a tab" % where)
+            if fields[0] in out:
+                raise SystemExit("%s: %s is listed twice" % (where, fields[0]))
+            out[fields[0]] = fields[1]
+    return out
+
+
+PROVISIONAL = read_provisional()
+
+
+def check_vtium_goldens(cases_of, provisional, root=None):
+    """Every reason vtium's goldens under `root` (default VTIUM_GOLDEN)
+    cannot judge a run: a golden or sidecar no case of a variant naming them
+    compares with (`cases_of` maps each such variant to its cases), and a
+    provisional.tsv row for a golden that does not exist."""
+    root = root or VTIUM_GOLDEN
+    errors = []
+    for dirpath, _, names in os.walk(root):
+        for name in names:
+            path = os.path.join(dirpath, name)
+            stem, ext = os.path.splitext(os.path.relpath(path, root))
+            if ext not in (".png", ".tol"):
+                continue
+            variant, _, screen = stem.partition(os.sep)
+            used = {SAME_AS.get(c, c) for c in cases_of.get(variant, ())}
+            if screen not in used:
+                errors.append("%s is a golden no case draws" % rel(path))
+    for golden in provisional:
+        if not os.path.exists(os.path.join(root, golden + ".png")):
+            errors.append("provisional.tsv lists %s, which has no golden" % golden)
+    return sorted(errors)
+
 # Seconds a screen script may run on the host before its text is given up.
 SCREEN_TIMEOUT = 10
 
@@ -326,6 +373,11 @@ def evaluate(variant, case, ppm, meta, log, golden_root=None):
     departure = DEPARTURES.get(entry["name"])
     if departure:
         judge_departure(entry, departure, stats, points)
+    reviewed = "%s/%s" % (variant, SAME_AS.get(case, case))
+    if golden_root and reviewed in PROVISIONAL:
+        entry["note"] = ("provisional: not yet reviewed, so not judged; judged, it would be %s"
+                         % entry["status"])
+        entry["status"] = "provisional"
     figures = meta.get("bench", {}).get(case, {})
     if figures.get("error"):  # drawn, but not measured
         entry["status"], entry["error"] = "fail", figures["error"]

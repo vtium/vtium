@@ -118,12 +118,13 @@ Goldens are `golden/<variant>/<screen>.png` in the pinned kmscon commit, full re
 | `pass` | identical outside the masks | passes |
 | `near` | differs, within both limits of the case's sidecar | passes |
 | `departure` | differs only inside the rectangles `departures.tsv` gives for a departure a crate's README lists | passes |
+| `provisional` | compared with a golden of vtium's that `provisional.tsv` lists, not yet reviewed: the status it would get is noted | passes |
 | `fail` | differs beyond the tolerance, outside a departure's rectangles, listed as a departure and no longer different, or the case could not run | fails |
 | `missing` | no golden | fails |
 
 `departures.tsv` lists the cases whose difference from their golden a departure explains: a line names variants and screens (each pair a case), the README that lists the departure under `## Departures`, its bold title exactly as written there, and the rectangles, end-exclusive and covering whole cells, its difference must lie in. Today it holds one: the "no sixel" line of the ten image screens in the two minspec variants quotes the DA1 reply, where vtium sends `CSI ? 62 ; 22 c` and the C golden shows `?60;1;6;9;15c` (row 1, columns 25 to 60). A run refuses to start when a line names a case no variant draws, a check without a golden, or a title its README does not list. A rectangle covers whole cells, so a defect in a listed cell is not seen until the line goes or its rectangles shrink.
 
-The run exits 1 on any `fail` or `missing`, or a binary over the budget. Nothing here writes a golden. The C reference's are read at the pin, and moving the pin is a change to the judge, in a commit of its own with the report before and after. vtium's own are `goldens/<variant>/<screen>.png`, for the variants that name them (`"goldens"` in `t3_scenario.py`): reviewed captures of vtium's, each added in a commit of its own that lists it and what it shows, as `goldens/README.md` does (kmscon `ADR-304` §6). <!-- adr-cite-ignore: kmscon's record -->
+The run exits 1 on any `fail` or `missing`, or a binary over the budget. Nothing here writes a golden. The C reference's are read at the pin, and moving the pin is a change to the judge, in a commit of its own with the report before and after. vtium's own are `goldens/<variant>/<screen>.png`, for the variants that name them (`"goldens"` in `t3_scenario.py`): captures of vtium's, each added in a commit of its own that lists it and what it shows, as `goldens/README.md` does (kmscon `ADR-304` §6). Each stays in `provisional.tsv`, as `VARIANT/SCREEN` and why, until the operator has reviewed it; removing its row makes it judge. A run refuses to start when a golden or sidecar under `goldens/` is one no case compares with, or `provisional.tsv` lists a golden that does not exist. <!-- adr-cite-ignore: kmscon's record -->
 
 ## Report
 

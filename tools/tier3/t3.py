@@ -181,6 +181,8 @@ def run(args, log):
         golden = t3_common.extract_goldens(args.kmscon)
         log("goldens: %s" % rel(golden))
         errors = t3_evaluate.check_departures(t3_evaluate.DEPARTURES, t3_scenario.variant_cases)
+        errors += t3_evaluate.check_vtium_goldens(t3_scenario.vtium_golden_cases(),
+                                                  t3_evaluate.PROVISIONAL)
         if errors:
             raise SystemExit("\n".join(errors))
         tree = args.tree or TREE
@@ -200,9 +202,10 @@ def run(args, log):
     print("report: %s" % rel(REPORT))
     if interrupted is not None:
         return 130 if isinstance(interrupted, KeyboardInterrupt) else 128 + signal.SIGTERM
-    # "near" is a difference within the case's reviewed tolerance, and
-    # "departure" one a listed departure explains: both pass.
-    passed = all(c["status"] in ("pass", "near", "departure") for c in cases)
+    # "near" is a difference within the case's reviewed tolerance,
+    # "departure" one a listed departure explains, and "provisional" a case
+    # whose golden is not yet reviewed: all pass.
+    passed = all(c["status"] in ("pass", "near", "departure", "provisional") for c in cases)
     return 0 if passed and t3_impl.within_budget(impl) else 1
 
 
@@ -237,9 +240,15 @@ def build_features(variants, log):
     return out
 
 
+# What tools/testfont writes: the fonts, and unifont's licence and the
+# fonts' notice, which the OFL asks to travel with them onto the disc.
+FONT_FILES = ("vtium-test-8x8.psf", "vtium-test-8x16.psf", "OFL-1.1.txt", "NOTICE")
+
+
 def build_fonts(variants, log):
-    """The test fonts tools/testfont writes, in OUT/fonts afresh, when a
-    variant in `variants` draws with them; None otherwise."""
+    """The test fonts tools/testfont writes, with their licence and notice,
+    in OUT/fonts afresh, when a variant in `variants` draws with them; None
+    otherwise. A directory missing any of FONT_FILES is refused."""
     if not any(t3_scenario.VARIANTS[v].get("fonts") for v in variants):
         return None
     fonts = os.path.join(OUT, "fonts")
@@ -249,6 +258,9 @@ def build_fonts(variants, log):
                         fonts], cwd=ROOT)
     if r.returncode:
         raise SystemExit("writing the test fonts failed with exit code %d" % r.returncode)
+    lacking = [f for f in FONT_FILES if not os.path.isfile(os.path.join(fonts, f))]
+    if lacking:
+        raise SystemExit("tools/testfont wrote no %s" % ", ".join(lacking))
     return fonts
 
 

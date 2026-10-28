@@ -1,6 +1,6 @@
 # vtium's tier 3 goldens
 
-The goldens of the small displays (vtium/vtium#75), which the C reference never drew: vtium's captures from `make tier3-minimal` at 5d3bbb6, reviewed before they judge. Each variant draws `SMALL_SCREENS` with a test font from `tools/testfont` and a shell prompt and steady cursor after the screen; `vt-restore` is compared with `cjk.png`. The fonts hold no CJK, so every CJK character is drawn as `?` across its two cells, vtium's missing glyph in a font that lacks U+25A1.
+The goldens of the small displays (vtium/vtium#75), which the C reference never drew: vtium's captures from `make tier3-minimal` at 5d3bbb6. Only their author has reviewed them, so each is listed in `../provisional.tsv`: its cases are drawn and compared, and a difference is noted but does not fail the run, until the operator reviews the golden and its row goes. Each variant draws `SMALL_SCREENS` with a test font from `tools/testfont` and a shell prompt and steady cursor after the screen; `vt-restore` is compared with `cjk.png`. The fonts hold no CJK, so every CJK character is drawn as `?` across its two cells, vtium's missing glyph in a font that lacks U+25A1.
 
 | Golden | What it shows |
 |---|---|

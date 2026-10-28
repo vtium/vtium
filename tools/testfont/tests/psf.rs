@@ -8,7 +8,7 @@
 )]
 
 use vtium_font::{Face, Psf, Style, Unifont};
-use vtium_testfont::{Bitmap, GLYPHS, files, fold, repertoire, small8x8, small8x16};
+use vtium_testfont::{Bitmap, GLYPHS, NOTICE, OFL, files, fold, repertoire, small8x8, small8x16};
 
 /// Each glyph of `font` as the loader draws it, row bytes from its mask.
 fn drawn(psf: &Psf, c: char) -> Vec<u8> {
@@ -78,4 +78,22 @@ fn the_fold_keeps_capitals_and_descenders() {
 #[test]
 fn every_run_writes_the_same_bytes() {
     assert_eq!(files().unwrap(), files().unwrap());
+}
+
+// The fonts travel with unifont's licence and their notice, as the OFL
+// asks of a Modified Version.
+#[test]
+fn the_licence_and_notice_go_with_the_fonts() {
+    let names: Vec<&str> = files().unwrap().iter().map(|(n, _)| *n).collect();
+    assert_eq!(
+        names,
+        [
+            "vtium-test-8x8.psf",
+            "vtium-test-8x16.psf",
+            "OFL-1.1.txt",
+            "NOTICE"
+        ]
+    );
+    assert!(OFL.contains("SIL OPEN FONT LICENSE Version 1.1"));
+    assert!(NOTICE.contains("GNU Unifont") && NOTICE.contains("OFL-1.1.txt"));
 }

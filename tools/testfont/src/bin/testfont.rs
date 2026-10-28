@@ -5,7 +5,8 @@
 //! ```
 //!
 //! Writes `vtium-test-8x8.psf` (PSF2) and `vtium-test-8x16.psf` (PSF1),
-//! the same bytes on every run, and exits 0, or 2 on a usage or write error.
+//! the same bytes on every run, with unifont's licence (`OFL-1.1.txt`) and
+//! the fonts' `NOTICE`, and exits 0, or 2 on a usage or write error.
 
 use std::path::PathBuf;
 use std::process::ExitCode;

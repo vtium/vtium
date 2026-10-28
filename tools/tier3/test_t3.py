@@ -850,9 +850,112 @@ class DeparturesTest(unittest.TestCase):
         self.assertEqual((e["status"], "departure" in e), ("fail", False))
 
     def test_departure_passes_the_run(self):
-        # The run's verdict counts a departure as a pass.
+        # The run's verdict counts a departure and a provisional case as a pass.
         with open(os.path.join(t3_common.HERE, "t3.py")) as f:
-            self.assertIn('c["status"] in ("pass", "near", "departure")', f.read())
+            self.assertIn('c["status"] in ("pass", "near", "departure", "provisional")',
+                          f.read())
+
+
+class VtiumGoldenTest(unittest.TestCase):
+    """vtium's own goldens: the provisional list, and a golden no case draws."""
+
+    VARIANT = "2d-320x240-psf8"
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.root = os.path.join(self.dir.name, "goldens")
+        os.makedirs(os.path.join(self.root, self.VARIANT))
+
+    def golden(self, screen):
+        t3img.write_png(os.path.join(self.root, self.VARIANT, screen + ".png"),
+                        t3img.Image(8, 8, bytes(8 * 8 * 3)))
+
+    def tsv(self, text):
+        path = os.path.join(self.dir.name, "provisional.tsv")
+        with open(path, "w") as f:
+            f.write("# a comment\n" + text)
+        return path
+
+    def test_shipped(self):
+        # The list in the tree names each of vtium's twelve goldens, all of
+        # which a case draws.
+        prov = t3_evaluate.read_provisional()
+        want = ["%s/%s" % (v, s) for v in ("2d-320x240-psf8", "2d-640x480-psf16")
+                for s in t3_evaluate.SMALL_SCREENS]
+        self.assertEqual(sorted(prov), sorted(want))
+        self.assertEqual(t3_evaluate.check_vtium_goldens(t3_scenario.vtium_golden_cases(),
+                                                         prov), [])
+        with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
+            self.assertIn("provisional.tsv", f.read())
+
+    def test_refused(self):
+        for text, why in (("a/x\n", "want VARIANT/SCREEN and WHY"),
+                          ("ax\twhy\n", "want VARIANT/SCREEN and WHY"),
+                          ("a/x\t\n", "want VARIANT/SCREEN and WHY"),
+                          ("a/x\twhy\na/x\tagain\n", "a/x is listed twice")):
+            with self.subTest(text):
+                with self.assertRaisesRegex(SystemExit, re.escape(why)):
+                    t3_evaluate.read_provisional(self.tsv(text))
+
+    def test_stray_golden(self):
+        # A golden or sidecar no case compares with is reported, as is a
+        # provisional row without a golden; cjk serves vt-restore too.
+        for screen in ("small-console", "cjk", "gone"):
+            self.golden(screen)
+        with open(os.path.join(self.root, self.VARIANT, "gone.tol"), "w") as f:
+            f.write("max_delta=1\n")
+        os.makedirs(os.path.join(self.root, "no-such"))
+        t3img.write_png(os.path.join(self.root, "no-such", "sgr.png"),
+                        t3img.Image(8, 8, bytes(8 * 8 * 3)))
+        with open(os.path.join(self.root, "README.md"), "w") as f:
+            f.write("not a golden\n")
+        cases = {self.VARIANT: t3_scenario.variant_cases(self.VARIANT)}
+        errors = t3_evaluate.check_vtium_goldens(
+            cases, {"%s/small-console" % self.VARIANT: "x", "%s/sgr" % self.VARIANT: "x"},
+            self.root)
+        rels = [t3_common.rel(os.path.join(self.root, p)) for p in
+                ("%s/gone.png" % self.VARIANT, "%s/gone.tol" % self.VARIANT, "no-such/sgr.png")]
+        self.assertEqual(errors, sorted(["%s is a golden no case draws" % r for r in rels] +
+                                        ["provisional.tsv lists %s/sgr, which has no golden"
+                                         % self.VARIANT]))
+
+    def judged(self, case, differs, provisional):
+        """The entry for `case` of the variant, its golden black and its
+        capture differing in one pixel when `differs`, with `provisional`
+        as the provisional list."""
+        self.golden("cjk")
+        data = bytearray(8 * 8 * 3)
+        if differs:
+            data[0] = 200
+        cap = os.path.join(self.dir.name, "cap.png")
+        t3img.write_png(cap, t3img.Image(8, 8, bytes(data)))
+        with mock.patch.object(t3_evaluate, "RUNDIR", os.path.join(self.dir.name, "run")), \
+                mock.patch.object(t3_evaluate, "PROVISIONAL", provisional):
+            return t3_evaluate.evaluate(self.VARIANT, case, cap, {}, LOG, self.root)
+
+    def test_provisional(self):
+        listed = {"%s/cjk" % self.VARIANT: "unreviewed"}
+        # A drift on a provisional golden is noted and does not fail ...
+        e = self.judged("cjk", True, listed)
+        self.assertEqual(e["status"], "provisional")
+        self.assertIn("judged, it would be fail", e["note"])
+        # ... nor does it for vt-restore, which compares with the same golden.
+        self.assertEqual(self.judged("vt-restore", True, listed)["status"], "provisional")
+        e = self.judged("cjk", False, listed)
+        self.assertEqual((e["status"], e["note"][-16:]), ("provisional", "it would be pass"))
+        # With its row removed, the golden judges.
+        self.assertEqual(self.judged("cjk", True, {})["status"], "fail")
+        self.assertEqual(self.judged("cjk", False, {})["status"], "pass")
+        # The C reference's goldens are never provisional.
+        with mock.patch.object(t3_evaluate, "GOLDEN", self.root):
+            self.golden("cjk")
+            cap = os.path.join(self.dir.name, "cap.png")
+            t3img.write_png(cap, t3img.Image(8, 8, bytes([200]) + bytes(8 * 8 * 3 - 1)))
+            with mock.patch.object(t3_evaluate, "RUNDIR", os.path.join(self.dir.name, "run")), \
+                    mock.patch.object(t3_evaluate, "PROVISIONAL", listed):
+                e = t3_evaluate.evaluate(self.VARIANT, "cjk", cap, {}, LOG)
+        self.assertEqual(e["status"], "fail")
 
 
 class ProvisionTest(unittest.TestCase):

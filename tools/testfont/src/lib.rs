@@ -185,11 +185,29 @@ impl Bitmap {
     }
 }
 
-/// The fonts by file name, as `testfont` writes them and tier 3's guest
-/// reads them.
+/// The SIL Open Font License 1.1, under which unifont, and so these fonts,
+/// are distributed.
+pub const OFL: &str = include_str!("../../../crates/vtium-font/data/OFL-1.1.txt");
+
+/// The notice the OFL asks a Modified Version to carry: what the fonts are
+/// and whose work they derive from.
+pub const NOTICE: &str = "\
+vtium-test-8x8.psf and vtium-test-8x16.psf are Modified Versions of GNU
+Unifont 17.0.03, written by vtium's tools/testfont for its tests: printable
+ASCII, Latin-1 and a few signs, the 8x8 font folded to half height.
+
+GNU Unifont is the work of Roman Czyborra, Paul Hardy and the Unifont
+contributors (unifoundry.com), and is licensed under the SIL Open Font
+License 1.1, whose text is in OFL-1.1.txt beside this file.
+";
+
+/// The fonts by file name, with the licence and the notice, as `testfont`
+/// writes them and tier 3's guest reads them.
 pub fn files() -> Result<Vec<(&'static str, Vec<u8>)>, String> {
     Ok(vec![
         ("vtium-test-8x8.psf", small8x8()?.psf2()?),
         ("vtium-test-8x16.psf", small8x16()?.psf1()?),
+        ("OFL-1.1.txt", OFL.as_bytes().to_vec()),
+        ("NOTICE", NOTICE.as_bytes().to_vec()),
     ])
 }
