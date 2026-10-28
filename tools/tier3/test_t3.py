@@ -945,9 +945,10 @@ class VtiumGoldenTest(unittest.TestCase):
         return path
 
     def test_shipped(self):
-        # The operator accepted vtium's twelve small-display goldens on
-        # 2026-10-28, so the list in the tree names none; every golden it
-        # would name must be one a case draws.
+        # The operator accepted vtium's sixteen small-display goldens on
+        # 2026-10-28, the four vtium/vtium#119 adds in advance, so the list
+        # in the tree names none; every golden it would name must be one a
+        # case draws.
         prov = t3_evaluate.read_provisional()
         self.assertEqual(sorted(prov), [])
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
