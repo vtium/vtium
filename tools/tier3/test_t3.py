@@ -850,7 +850,9 @@ class DeparturesTest(unittest.TestCase):
         self.assertEqual(deps["2d-potato-min-psf/flood"],
                          {"readme": "crates/vtium-term/README.md", "title": self.TITLE,
                           "rects": [[203, 16, 491, 32]]})
-        self.assertEqual(len(deps), 20)
+        self.assertEqual(deps["2d-potato-min/underline-styles"]["rects"],
+                         [[123, 80, 251, 96], [123, 224, 339, 240]])
+        self.assertEqual(len(deps), 22)
 
     def test_read(self):
         path = self.tsv("a,b\tx,y\tR.md\tT\t0,0,8,16;8,0,16,16\n")
