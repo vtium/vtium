@@ -51,6 +51,9 @@ fn clock() -> Clock {
 fn main() -> ExitCode {
     vtium::logger::init(log::Level::Info);
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if let Some(status) = vtium::blank::subcommand(&args) {
+        return ExitCode::from(u8::try_from(status).unwrap_or(1));
+    }
     let loaded = config::load(&args, Some("seat0"), &mut config::read_file);
     if loaded.check {
         let (lines, status) = check::run(&loaded);
@@ -129,6 +132,7 @@ fn run(config: config::Config, start: Start, open: Open) -> io::Result<i32> {
     }
     // A write to a child gone returns an error in place of ending vtium.
     lp.on_signal(Signal::SIGPIPE, |_| {})?;
+    vtium::blank::listen(&lp.handle())?;
     let vt = open(&mut lp)?;
     let clock = clock();
     let mut app = App::new(

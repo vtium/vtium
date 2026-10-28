@@ -64,6 +64,7 @@ use vtium_term::{
     BlankRequest, BlankTimeout, Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal,
 };
 
+use crate::blank::Order;
 use crate::blink::{Blink, Timer};
 use crate::child::{self, Display as SessionDisplay, Place};
 use crate::config::keys;
@@ -244,6 +245,8 @@ pub struct App {
     program_blank: bool,
     /// `dpms-timeout`, which RIS returns the blank to.
     dpms_timeout: Option<Duration>,
+    /// A blank or wake sent by signal, taken at the turn's end.
+    order: Option<Order>,
     /// The selection buffer: what the user copied last, or OSC 52 set
     /// last, held for a paste.
     selection: Option<Vec<u8>>,
@@ -321,6 +324,7 @@ impl App {
             clipboard_write: config.switch(&keys::CLIPBOARD_WRITE),
             program_blank: config.switch(&keys::PROGRAM_BLANK),
             dpms_timeout: dpms,
+            order: None,
             selection: None,
             tracking: MouseTracking::Off,
             paste_keys: config.chords(&keys::GRAB_PASTE).to_vec(),
@@ -411,6 +415,12 @@ impl App {
     /// Asks vtium to end, as SIGTERM does.
     pub fn request_exit(&mut self, why: Exit) {
         self.exit.get_or_insert(why);
+    }
+
+    /// A blank or wake sent from outside the session ([`crate::blank`]),
+    /// taken at the turn's end; of several in one turn the last holds.
+    pub fn order(&mut self, order: Order) {
+        self.order = Some(order);
     }
 
     /// Why vtium ends, once the exit is done.
@@ -758,6 +768,19 @@ impl App {
         }
         if request.wake {
             self.wake(now);
+        }
+    }
+
+    /// A blank or wake from outside the session: the blank the timer runs,
+    /// at once, or the wake a program's `CSI 13 ]` gives.
+    fn outside_order(&mut self, order: Order, now: Instant) {
+        match order {
+            Order::Blank => {
+                if self.blank.blank_now() {
+                    self.blank_now(now);
+                }
+            }
+            Order::Wake => self.wake(now),
         }
     }
 
@@ -1437,6 +1460,9 @@ impl App {
             if self.program_blank {
                 self.blank_request(request, now);
             }
+        }
+        if let Some(order) = self.order.take() {
+            self.outside_order(order, now);
         }
         self.timers(now);
         if self.awake {
