@@ -571,7 +571,10 @@ mod tests {
                 let mut flat = true;
                 for x in 0..w {
                     let c = col(x);
-                    assert!(u32::try_from(c.len()).unwrap() >= t, "{w}x{h} column {x}: {c:?}");
+                    assert!(
+                        u32::try_from(c.len()).unwrap() >= t,
+                        "{w}x{h} column {x}: {c:?}"
+                    );
                     assert!(
                         c.windows(2).all(|p| p[1] == p[0] + 1),
                         "{w}x{h} column {x} split"
