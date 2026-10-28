@@ -1395,12 +1395,14 @@ impl App {
                 self.selection = Some(selection);
             }
         }
+        // After the exit, whose respawn's RIS returns the blank to
+        // `dpms-timeout` for the next session.
+        self.child_exited(now);
         if let Some(request) = self.term.terminal.take_blank_request() {
             if self.program_blank {
                 self.blank_request(request, now);
             }
         }
-        self.child_exited(now);
         self.timers(now);
         if self.awake {
             self.draw(now);
