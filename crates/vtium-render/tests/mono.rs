@@ -459,3 +459,61 @@ fn the_pointer_at_1_bit_is_white_in_a_black_outline() {
     bits_only(&c);
     assert!(lit(&c, 0, 1) > 0, "the arrow's fill over an unlit cell");
 }
+
+// the operator's decision (2026-10-28): at 1 bit polarity follows the
+// default background, light by the kernel's own cut, luma 128 and above.
+// A light theme lights the screen and leaves its default text unlit; a
+// colored background flips from the screen's polarity under either.
+#[test]
+fn a_light_theme_at_1_bit_is_dark_text_on_a_lit_screen() {
+    for (theme_bg, theme_fg, screen) in [("f0f0f0", "202020", 128), ("101010", "c0c0c0", 0)] {
+        let (bg, fg) = (rgb(theme_bg), rgb(theme_fg));
+        let mut s = Screen::new(4, 1, fg, bg);
+        // default text, red text, text on blue, and a blank default cell
+        s.text(0, 0, "H", style(fg, bg));
+        s.text(1, 0, "H", style(rgb("ff0000"), bg));
+        s.text(2, 0, "H", style(rgb("ffff00"), rgb("0000ff")));
+        s.text(3, 0, " ", style(fg, bg));
+        let c = drawn(&s, one(), false);
+        let blank = lit(&c, 3, 0);
+        assert_eq!(blank, screen, "the blank cell, {theme_bg}");
+        // the text is the screen's opposite: a glyph's pixels flip
+        let text = lit(&c, 0, 0);
+        assert!(
+            text.abs_diff(screen) > 10,
+            "default text, {theme_bg}: {text}"
+        );
+        assert_eq!(lit(&c, 1, 0), text, "red text, {theme_bg}");
+        // the colored cell flips from the screen
+        assert_eq!(lit(&c, 2, 0), 128 - text, "the blue cell, {theme_bg}");
+        // the border follows the default background
+        let border = c.pixel(0, 0);
+        assert_eq!(
+            border,
+            Some(if screen == 128 { WHITE } else { 0 }),
+            "{theme_bg}"
+        );
+    }
+}
+
+// in a light theme the pointer's fill is white on the lit screen, and its
+// outline the unlit black
+#[test]
+fn the_pointer_in_a_light_theme_keeps_its_black_outline() {
+    let (bg, fg) = (rgb("f0f0f0"), rgb("202020"));
+    let s = Screen::new(4, 2, fg, bg);
+    let mut r = Renderer::new(unifont(), 36, 36, one());
+    let mut c = Canvas::new(36, 36, 0x12_3456);
+    let state = DrawState {
+        background: bg,
+        pointer: Some((4, 4)),
+        ..DrawState::default()
+    };
+    r.draw(&s.frame(Age::NEVER), &mut c, 0, &state);
+    bits_only(&c);
+    let cell = lit(&c, 0, 0);
+    assert!(
+        cell > 0 && cell < 128,
+        "the outline darkens the lit cell: {cell}"
+    );
+}
