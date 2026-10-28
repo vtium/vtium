@@ -64,6 +64,8 @@ enum Scan {
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
 pub struct Drm2d<K: Kms> {
     card: K,
+    /// The levels of the 1-bit or gray panel the card drives.
+    levels: Option<u8>,
     /// No universal planes or no atomic commits: the legacy calls.
     legacy: bool,
     hotspot: bool,
@@ -120,8 +122,10 @@ impl<K: Kms> Drm2d<K> {
                 "the driver has no dumb buffers",
             ));
         }
+        let levels = card.levels();
         Ok(Drm2d {
             card,
+            levels,
             legacy,
             hotspot,
             master: false,
@@ -205,6 +209,13 @@ impl<K: Kms> Drm2d<K> {
     /// plane refused the image.
     pub fn hardware_cursor(&self, id: DisplayId) -> bool {
         self.output(id).is_some_and(|o| o.cursor.is_some())
+    }
+
+    /// The levels of the display, 2 for a 1-bit panel and 4 or 16 for a
+    /// gray one, which the card's driver says ([`super::depth`]); `None`
+    /// for a color display.
+    pub fn levels(&self, id: DisplayId) -> Option<u8> {
+        self.levels.filter(|_| self.output(id).is_some())
     }
 
     /// The display's power state, `None` where its connector has none.
@@ -670,13 +681,15 @@ impl<K: Kms> Drm2d<K> {
     /// Lets the displays go: blanks them, waits for the flips in flight
     /// (at most [`crate::FLIP_WAIT_MS`]), hides the cursor and overlay
     /// planes and drops DRM master. [`Event::Asleep`] tells when it is
-    /// done.
+    /// done. A card that never woke drops the master its open gave it, so
+    /// the vtium of the VT shown can take it (vtium/vtium#139).
     pub fn sleep(&mut self) {
         self.foreground = false;
         self.owed = false;
         self.retries = None;
         self.wake_failed = false;
         if !self.awake {
+            self.release_master();
             self.events.push(Event::Asleep);
             self.settle();
             return;

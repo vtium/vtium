@@ -25,6 +25,7 @@
 //! where vtium departs from the C reference and the bounds it sets.
 
 pub mod app;
+pub mod blank;
 pub mod blink;
 pub mod check;
 pub mod child;

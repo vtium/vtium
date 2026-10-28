@@ -6,21 +6,27 @@
 //!
 //! `cargo test -p vtium-term --test memory -- --nocapture` prints the table.
 
+mod common;
+
 use vtium_term::{
-    CLUSTER_MAX, Color, Damage, Glyph, LINKS_BYTES_MAX, Line, LineId, LinkId, Rgb,
-    SB_SIZE_CAP_LARGE, SB_SIZE_CAP_MEDIUM, SB_SIZE_CAP_SMALL, SB_SIZE_DEFAULT, Style, Width,
+    CLUSTER_BYTES_PER_CELL, CLUSTER_MAX, Color, Damage, Glyph, LINKS_BYTES_MAX, Line, LineId,
+    LinkId, MINSPEC_FIRST_SCREEN, MINSPEC_PEAK, Rgb, SB_MEMORY_DEFAULT, SB_SIZE_CAP_LARGE,
+    SB_SIZE_CAP_MEDIUM, SB_SIZE_CAP_SMALL, SB_SIZE_DEFAULT, Style, Width,
 };
 
 const COLS: usize = 170;
 const ROWS: usize = 48;
 const MIB: f64 = 1024.0 * 1024.0;
 
-/// The C reference's figures with unifont on the minspec machine, measured
+/// The C reference's figure with unifont on the minspec machine, measured
 /// (kmscon's README, "Minimal build"; 1 MiB is 1,024 KiB): resident after
-/// the first screen, and the peak once 500,000 lines had filled its
-/// 1,000-line scrollback.
+/// the first screen. Its peak, once 500,000 lines had filled its
+/// 1,000-line scrollback, was 15.7 MiB.
 const C_FIRST_SCREEN: f64 = 10.3 * MIB;
-const C_PEAK: f64 = 15.7 * MIB;
+
+/// The minspec peak vtium holds to: the operator's round figure
+/// (vtium/vtium#131).
+const PEAK: f64 = 16.0 * MIB;
 
 /// The C reference's cell was 32 bytes, its age included, and it allocated
 /// the main and the alternate screen (libtsm's tsm-screen.c:801-845). These
@@ -217,24 +223,43 @@ const FIGURES_64: [usize; 14] = [
     140_800_000, // plain, the larger caps
 ];
 
-// The worst case at the default scrollback, with the link store full,
-// stays inside the C reference's measured peak, taking the rest of vtium's
-// process at what the rest of the C reference's cost: its first screen
-// less its two screens (ADR-1002, "Link storage"). `tests/links.rs` holds
-// the store's heap at or under its charge.
+/// The most a row can cost: the worst line as written, and the cluster
+/// bytes a rewrap may move into a row past its own cells' budget
+/// (`tests/flood.rs`; ADR-1001's note of 2026-10-28).
+fn worst_row() -> usize {
+    line_bytes(&worst()) + common::row_bound(COLS) - CLUSTER_BYTES_PER_CELL * COLS
+}
+
+// The worst default scrollback, every row at the bound a rewrap allows and
+// the link store full, stays inside the minspec peak, taking the rest of
+// vtium's process at what the rest of the C reference's cost: its first
+// screen less its two screens (ADR-1002, "Link storage"). At the default
+// 1,000 lines such rows would pass it; `sb-memory`'s default, derived from
+// the first screen this test computes, drops the oldest of them
+// (`tests/flood.rs` holds the scrollback to it). `tests/links.rs` holds the
+// store's heap at or under its charge.
 #[test]
 fn the_worst_default_scrollback_fits_the_minspec_peak() {
     let rest = C_FIRST_SCREEN - C_SCREENS as f64;
     let first = rest + screens_bytes() as f64;
-    let peak = first + (SB_SIZE_DEFAULT * line_bytes(&worst()) + LINKS_BYTES_MAX) as f64;
+    let row = worst_row();
+    #[cfg(target_pointer_width = "64")]
+    assert_eq!(row, 7_560);
+    let scrollback = (SB_SIZE_DEFAULT * row).min(SB_MEMORY_DEFAULT);
+    let peak = first + (scrollback + LINKS_BYTES_MAX) as f64;
     println!(
-        "first screen about {:.2} MiB; worst peak at {SB_SIZE_DEFAULT} lines about {:.2} MiB, against {:.2} MiB",
+        "first screen about {:.2} MiB; a row at most {row} bytes; sb-memory {SB_MEMORY_DEFAULT} bytes, {} such rows; worst peak about {:.2} MiB, against {:.2} MiB",
         first / MIB,
+        SB_MEMORY_DEFAULT / row,
         peak / MIB,
-        C_PEAK / MIB
+        PEAK / MIB
     );
     assert!(first <= C_FIRST_SCREEN);
-    assert!(peak <= C_PEAK);
+    assert!(first <= MINSPEC_FIRST_SCREEN as f64);
+    assert_eq!(MINSPEC_PEAK as f64, PEAK);
+    assert!(peak <= PEAK);
+    // Full-width shell lines keep the default 1,000 lines inside it.
+    assert!(SB_SIZE_DEFAULT * line_bytes(&shell(COLS)) <= SB_MEMORY_DEFAULT);
 }
 
 // The C reference's 1,000 lines of 32-byte cells, derived from its layout.

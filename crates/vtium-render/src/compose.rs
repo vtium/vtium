@@ -61,6 +61,8 @@ pub(crate) struct Job {
     pub(crate) strike: Option<Rgb>,
     /// The glyph's text in the row's text buffer, its width and style.
     pub(crate) text: Option<(usize, usize, FontWidth, Style)>,
+    /// A color glyph draws as its silhouette, for a 1-bit display.
+    pub(crate) silhouette: bool,
 }
 
 impl Job {
@@ -247,6 +249,16 @@ fn glyph<'c, F: Face>(
     cache.get(font, chars, width, style)
 }
 
+/// A color glyph's line as its silhouette in the job's foreground, where
+/// the job asks for it.
+fn silhouette(job: &Job, src: &mut [u32]) {
+    if job.silhouette {
+        for s in src {
+            *s = crate::mono::silhouette(*s, job.fg);
+        }
+    }
+}
+
 /// One display line `y` of `job`, across its area, into `out`.
 fn cell_line(
     job: &Job,
@@ -273,6 +285,7 @@ fn cell_line(
             }
             Some(g) if g.is_rgba() => {
                 g.argb_line(gx, gy, src);
+                silhouette(job, src);
                 for (o, &s) in out.iter_mut().zip(src.iter()) {
                     *o = over_bg(job.bg, s);
                 }
@@ -303,6 +316,7 @@ fn cell_line(
     match glyph {
         Some(g) if g.is_rgba() => {
             g.argb_line(gx, gy, src);
+            silhouette(job, src);
             for (p, &s) in prem.iter_mut().zip(src.iter()) {
                 *p = argb_over(*p, s);
             }

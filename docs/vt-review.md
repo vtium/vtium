@@ -21,7 +21,7 @@ make vt-demo DRY_RUN=1                  # pick the VT and print every command; r
 make help                               # the targets
 ```
 
-Each target builds the minspec binary (`make minspec`, `target/minspec/vtium`), picks the first free VT of 5, 6, 4, 3 and 2 (or `VT=N`), runs `sudo -v`, prints the VT to switch to and the key back, and blocks until the run ends:
+Each target builds the minspec binary (`make minspec`, `target/x86_64-unknown-linux-gnu/minspec/vtium`), picks the first free VT of 5, 6, 4, 3 and 2 (or `VT=N`), runs `sudo -v`, prints the VT to switch to and the key back, and blocks until the run ends:
 
 ```
 ================================================================
@@ -41,7 +41,7 @@ When it ends, it prints a health check of vtium's log (its `panicked at` lines),
 
 The variables reach `tools/vt/vt.sh` through the environment, never as recipe text. The allowlist is written for the command line #21 gives vtium, the C reference's; vtium parses no arguments yet. `DEMO_ARGS` takes the options the C reference's review took: display, font, palette, text and input options, `--render-timer`, `--image-storage-limit` (`auto` or up to 4G) and `--sync-timeout`, each named in full in lower-case letters and dashes. `run-vt.sh` refuses the rest: the VT, seat and session options, `--login`, `--configdir`, `--oneshot`, the grabs, the options that name files, and any value in a word of its own, which vtium would take as the option's value or move into the login command that runs as root.
 
-By hand: `sudo tools/vt/run-vt.sh --bin=target/minspec/vtium [--login | --guide=FILE [--steps=LIST] | --shell [--transcript=FILE]] [N] [-- vtium-option...]`, and `tools/vt/run-vt.sh --bin=... --dry-run 5` without root.
+By hand: `sudo tools/vt/run-vt.sh --bin=target/x86_64-unknown-linux-gnu/minspec/vtium [--login | --guide=FILE [--steps=LIST] | --shell [--transcript=FILE]] [N] [-- vtium-option...]`, and `tools/vt/run-vt.sh --bin=... --dry-run 5` without root.
 
 ## What a run does
 

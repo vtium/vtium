@@ -12,9 +12,10 @@ authors.workspace = true
 workspace = true
 
 [features]
-# logind through sd-bus from libsystemd (ADR-1400's L2 layer): the power
-# keys' suspend. Off in the minspec build, which links no libsystemd.
-logind = []
+# logind through sd-bus from libsystemd or libelogind, which the build
+# script finds through pkg-config (ADR-1400's L2 layer): the power keys'
+# suspend. Off in the minspec build, which links neither.
+logind = ["dep:pkg-config"]
 
 [dependencies]
 calloop = { version = "0.14.4", features = ["signals"] }
@@ -26,6 +27,11 @@ log = "0.4"
 udev = "=0.9.3"
 xkbcommon = { version = "=0.9.0", default-features = false }
 rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "mm", "process", "pty", "runtime", "system", "termios"] }
+
+[build-dependencies]
+# Finds libsystemd or libelogind for the `logind` feature; already in the
+# build through libudev-sys.
+pkg-config = { version = "=0.3.34", optional = true }
 
 # One process, one thread: see the file's header.
 [[test]]

@@ -28,7 +28,9 @@
 //!   last going and the next after none count too, as a display change,
 //!   which wakes nothing while the VT is not ours; another hotplug or a
 //!   re-take never counts. The seat's clock drives the blank's countdown
-//!   ([`App::next_wake`]).
+//!   ([`App::next_wake`]). A signal from outside the session
+//!   ([`crate::blank`]) blanks at once, or wakes as a program's
+//!   `CSI 13 ]` does, at the turn's end.
 //! - **The child.** It first starts once a display is set up, on the
 //!   grid's size ([`respawn::first_start_due`]); when it exits the respawn
 //!   policy starts it again or ends vtium.
@@ -50,7 +52,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use vtium_font::{Face, Font, Psf, Unifont};
+use vtium_font::{Face, Font};
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::display::{Blank, DisplayId, Dpms, Event};
 use vtium_platform::input::{Button, InputEvent, KeyEvent, Mods as InputMods, PointerEvent};
@@ -58,17 +60,18 @@ use vtium_platform::pty::{Erase, Pty, Size};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
 use vtium_platform::vt::{Switch, Vt, VtEvent};
 use vtium_render::{
-    Config as RenderConfig, DecorationColors, DrawState, Orientation, PointerShape, Profile,
+    Config as RenderConfig, DecorationColors, Depth, DrawState, Orientation, PointerShape, Profile,
 };
 use vtium_term::{
     BlankRequest, BlankTimeout, Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal,
 };
 
+use crate::blank::Order;
 use crate::blink::{Blink, Timer};
 use crate::child::{self, Display as SessionDisplay, Place};
 use crate::config::keys;
 use crate::config::{Config, ModeSpec};
-use crate::font;
+use crate::font::{self, Chosen};
 use crate::grab::{self, Chord, Grab};
 use crate::layout::{self, Zoom};
 use crate::power::{self, Power, PowerKey};
@@ -227,6 +230,17 @@ pub struct App {
     step: u32,
     /// The base font's cell, the grid's and the pty's.
     cell: (u32, u32),
+    /// The font set, chosen at the first display and switched by OSC 50.
+    font: Option<Chosen>,
+    /// Where the font's sets come from.
+    font_sources: font::Sources,
+    /// The font changed: every display's renderer is rebuilt.
+    refont: bool,
+    /// OSC 50's refusals since its last switch: only the first is logged.
+    font_refused: u64,
+    /// The locale, which keeps the built-in Unscii-8 from a zh, ja or ko
+    /// locale (ADR-1200 D7).
+    locale: String,
     orientation: Orientation,
     grid: (usize, usize),
     exit: Option<Exit>,
@@ -244,6 +258,8 @@ pub struct App {
     program_blank: bool,
     /// `dpms-timeout`, which RIS returns the blank to.
     dpms_timeout: Option<Duration>,
+    /// A blank or wake sent by signal, taken at the turn's end.
+    order: Option<Order>,
     /// The selection buffer: what the user copied last, or OSC 52 set
     /// last, held for a paste.
     selection: Option<Vec<u8>>,
@@ -286,8 +302,12 @@ impl App {
             config.number(&keys::SB_SIZE_CAP).map(to_usize),
         );
         terminal.screen_mut().set_scrollback_max(lines);
+        terminal
+            .screen_mut()
+            .set_scrollback_memory(crate::config::budget::sb_memory(&config));
         terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
         terminal.set_palette(config.palette());
+        terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
         if let Ok(table) = crate::termcap::termcap() {
             terminal.set_termcap(table);
         }
@@ -321,6 +341,7 @@ impl App {
             clipboard_write: config.switch(&keys::CLIPBOARD_WRITE),
             program_blank: config.switch(&keys::PROGRAM_BLANK),
             dpms_timeout: dpms,
+            order: None,
             selection: None,
             tracking: MouseTracking::Off,
             paste_keys: config.chords(&keys::GRAB_PASTE).to_vec(),
@@ -343,6 +364,11 @@ impl App {
             has_font: false,
             step: 16,
             cell: (8, 16),
+            font: None,
+            font_sources: font::Sources::default(),
+            refont: false,
+            font_refused: 0,
+            locale: locale(&inherited),
             orientation: Orientation::Normal,
             config,
             handle,
@@ -374,6 +400,14 @@ impl App {
     /// for PID 1, logind and the kernel.
     pub fn set_power(&mut self, power: Box<dyn Power>) {
         self.power = power;
+    }
+
+    /// Reads the font's sets from `sources` in place of the system's store
+    /// and vconsole files: a test's stand-in. The font is chosen again at
+    /// the next display.
+    pub fn set_font_sources(&mut self, sources: font::Sources) {
+        self.font_sources = sources;
+        self.font = None;
     }
 
     /// The selection buffer: what the user copied last, or a program set
@@ -413,6 +447,12 @@ impl App {
         self.exit.get_or_insert(why);
     }
 
+    /// A blank or wake sent from outside the session ([`crate::blank`]),
+    /// taken at the turn's end; of several in one turn the last holds.
+    pub fn order(&mut self, order: Order) {
+        self.order = Some(order);
+    }
+
     /// Why vtium ends, once the exit is done.
     pub fn finished(&self) -> Option<Exit> {
         (self.leaving == Some(Leaving::Done))
@@ -420,12 +460,16 @@ impl App {
             .flatten()
     }
 
-    /// Adds a video device, asleep; the VT's acquire wakes it.
+    /// Adds a video device, woken while the VT is ours and else put to
+    /// sleep, which lets go of the DRM master a card's open took; the VT's
+    /// acquire wakes it (vtium/vtium#139).
     pub fn add_video(&mut self, node: PathBuf, mut video: Box<dyn Video>) {
         if self.awake {
             if let Err(e) = video.wake_up() {
                 log::warn!("cannot wake {}: {e}", node.display());
             }
+        } else {
+            video.sleep();
         }
         self.videos.insert(node, video);
     }
@@ -496,16 +540,110 @@ impl App {
         self.pty = Some(pty);
     }
 
-    /// A face at `height`, as the configuration names it.
-    fn face(&self, height: u32) -> Result<Box<dyn Face>, String> {
-        let name = self.config.text(&keys::FONT_NAME).unwrap_or_default();
-        match self.config.text(&keys::FONT_ENGINE) {
-            Some("psf") => {
-                let mut psf = Psf::load(name).map_err(|e| format!("{name}: {e}"))?;
-                psf.set_height(height);
-                Ok(Box::new(psf))
+    /// Chooses the font set once, at the first display (ADR-1200 D9): the
+    /// set the configuration or vconsole names, from the store, else the
+    /// built-ins, with one line naming the command that builds the set.
+    fn choose_font(&mut self) {
+        if self.font.is_some() {
+            return;
+        }
+        let s = &self.font_sources;
+        let wanted = font::wanted(
+            &self.config,
+            &font::read_text(&s.vconsole_conf),
+            &font::read_text(&s.kernel_cmdline),
+        );
+        let chosen = match wanted {
+            None => Chosen::Builtin(None),
+            Some(w) if vtium_font::set::builtin(&w.name).is_some() => {
+                font::by_name(s, &w.name).unwrap_or(Chosen::Builtin(None))
             }
-            _ => Ok(Box::new(Unifont::new(height))),
+            Some(w) => match font::load(s, &w) {
+                Ok((name, set)) => {
+                    log::info!("the font is the set {name}");
+                    Chosen::Set { name, set }
+                }
+                Err((why, held)) => {
+                    log::warn!(
+                        "the font {} is not drawn ({why}): vtium draws its built-in font; build the set with {}",
+                        w.name,
+                        w.command(held)
+                    );
+                    Chosen::Builtin(None)
+                }
+            },
+        };
+        self.font = Some(chosen);
+    }
+
+    /// The font set in use, the built-ins before one is chosen.
+    fn chosen(&self) -> &Chosen {
+        const BUILTIN: &Chosen = &Chosen::Builtin(None);
+        self.font.as_ref().unwrap_or(BUILTIN)
+    }
+
+    /// The name of the font set in use, as OSC 50's query reports it.
+    pub fn font_name(&self) -> &str {
+        self.chosen().name(self.font_size, &self.locale)
+    }
+
+    /// The font set's face at `height`.
+    fn face(&self, height: u32) -> Result<Box<dyn Face>, String> {
+        let chosen = self.chosen();
+        chosen.face(height, &self.locale).ok_or_else(|| {
+            format!(
+                "the set {} draws nothing at {height} pixels",
+                chosen.name(height, &self.locale)
+            )
+        })
+    }
+
+    /// OSC 50 asked for the set `name` (ADR-1200 D5): a built set switches
+    /// the live console as a zoom does, on a new grid; anything else
+    /// leaves the font. The first refusal since the last switch is logged
+    /// and the rest counted, so a program's flood of requests logs one
+    /// line.
+    fn switch_font(&mut self, name: &str) {
+        self.choose_font();
+        let same = match self.chosen() {
+            Chosen::Set { name: n, .. } => n == name,
+            Chosen::Builtin(Some(n)) => *n == name,
+            Chosen::Builtin(None) => false,
+        };
+        if same {
+            return;
+        }
+        let new = font::by_name(&self.font_sources, name).and_then(|new| {
+            let old = self.font.replace(new);
+            self.refont = true;
+            if self.relayout() {
+                return Ok(());
+            }
+            self.font = old;
+            self.refont = true;
+            self.relayout();
+            Err(format!("it draws nothing at {} pixels", self.font_size))
+        });
+        match new {
+            Ok(()) => {
+                let refused = std::mem::take(&mut self.font_refused);
+                if refused > 1 {
+                    log::info!(
+                        "OSC 50 was refused {} more times before this switch",
+                        refused.saturating_sub(1)
+                    );
+                }
+                log::info!("OSC 50: the font is now the set {}", self.font_name());
+            }
+            Err(why) => {
+                if self.font_refused == 0 {
+                    log::warn!(
+                        "OSC 50 asked for the font {name}: {why}; the font stays {}, and OSC 50's further refusals are counted until a switch",
+                        self.font_name()
+                    );
+                }
+                self.font_refused = self.font_refused.saturating_add(1);
+            }
         }
     }
 
@@ -554,6 +692,8 @@ impl App {
         };
         let refresh = video.refresh_mhz(id);
         let (backend, name) = (video.backend(), video.name(id));
+        let levels = video.levels(id);
+        self.choose_font();
         let Ok(face) = self.face(self.font_size.max(1)) else {
             log::error!("cannot load the font for display {name}");
             return;
@@ -564,7 +704,10 @@ impl App {
             font,
             size,
             refresh,
-            self.render_config(),
+            RenderConfig {
+                depth: depth(&self.config, levels),
+                ..self.render_config()
+            },
             self.measure(),
         );
         if self.config.switch(&keys::SOFT_CURSOR) {
@@ -594,10 +737,12 @@ impl App {
         if sizes.is_empty() {
             return true;
         }
+        self.choose_font();
         if self.auto_size {
             let w = sizes.iter().map(|s| s.0).min().unwrap_or(0);
             let h = sizes.iter().map(|s| s.1).min().unwrap_or(0);
-            self.font_size = font::auto_size(w, h);
+            let smallest = self.chosen().smallest(&self.locale);
+            self.font_size = font::auto_size(w, h, smallest);
         }
         let base = match font::select(self.font_size, self.has_font, |h| self.face(h)) {
             Ok((face, h)) => {
@@ -619,6 +764,8 @@ impl App {
             }
         };
         self.font_size = base;
+        let name = self.chosen().name(base, &self.locale).to_owned();
+        self.term.terminal.set_font_name(&name);
         let cell = |h: u32| {
             self.face(h).ok().map(|f| {
                 let c = f.cell();
@@ -633,11 +780,12 @@ impl App {
         let config = self.render_config();
         let heights: Vec<u32> = l.heights.clone();
         let keys: Vec<(PathBuf, DisplayId)> = self.views.keys().cloned().collect();
+        let refont = std::mem::take(&mut self.refont);
         for (key, height) in keys.into_iter().zip(heights) {
             let stale = self
                 .views
                 .get(&key)
-                .is_some_and(|v| v.height != height || v.orientation != self.orientation);
+                .is_some_and(|v| refont || v.height != height || v.orientation != self.orientation);
             if !stale {
                 continue;
             }
@@ -758,6 +906,24 @@ impl App {
         }
         if request.wake {
             self.wake(now);
+        }
+    }
+
+    /// A blank or wake from outside the session: the blank the timer runs,
+    /// at once, or the wake a program's `CSI 13 ]` gives. While the VT is
+    /// another's its displays are not vtium's to blank, and the blank is
+    /// dropped.
+    fn outside_order(&mut self, order: Order, now: Instant) {
+        match order {
+            Order::Blank if !self.vt.is_active() => {
+                log::debug!("the VT is another's: the blank sent is dropped");
+            }
+            Order::Blank => {
+                if self.blank.blank_now() {
+                    self.blank_now(now);
+                }
+            }
+            Order::Wake => self.wake(now),
         }
     }
 
@@ -1101,11 +1267,22 @@ impl App {
         self.draw_now = true;
     }
 
-    /// A zoom: the base height a size step larger or smaller, which ends
-    /// `font-size=0`'s following of the display. A height with no font
-    /// keeps the one in use.
+    /// A zoom: the base height the next of the set's strikes and their
+    /// whole multiples, larger or smaller, which ends `font-size=0`'s
+    /// following of the display (ADR-1200 D9). Below the smallest it
+    /// stops, with a line naming the set and its smallest height. A
+    /// height with no font keeps the one in use.
     fn zoom(&mut self, dir: Zoom) {
-        let Some(size) = layout::zoom(self.font_size, self.step, dir) else {
+        self.choose_font();
+        let chosen = self.chosen();
+        let Some(size) = font::zoom(&chosen.rungs(&self.locale), self.font_size, dir) else {
+            if dir == Zoom::Out {
+                let smallest = chosen.smallest(&self.locale);
+                log::info!(
+                    "the set {} draws no smaller than {smallest} pixels: zoom stops there",
+                    chosen.name(smallest, &self.locale)
+                );
+            }
             return;
         };
         let (old, auto) = (self.font_size, self.auto_size);
@@ -1430,6 +1607,10 @@ impl App {
                 self.selection = Some(selection);
             }
         }
+        // The terminal takes OSC 50 only under `allow-font-ops`.
+        if let Some(name) = self.term.terminal.take_font_request() {
+            self.switch_font(&name);
+        }
         // After the exit, whose respawn's RIS returns the blank to
         // `dpms-timeout` for the next session.
         self.child_exited(now);
@@ -1437,6 +1618,9 @@ impl App {
             if self.program_blank {
                 self.blank_request(request, now);
             }
+        }
+        if let Some(order) = self.order.take() {
+            self.outside_order(order, now);
         }
         self.timers(now);
         if self.awake {
@@ -1735,21 +1919,30 @@ fn to_usize(n: u64) -> usize {
     usize::try_from(n).unwrap_or(usize::MAX)
 }
 
+/// The locale in `env`, found as locale(7) says: the first of `LC_ALL`,
+/// `LC_CTYPE` and `LANG` set and not empty, else `C`.
+fn locale(env: &[(OsString, OsString)]) -> String {
+    ["LC_ALL", "LC_CTYPE", "LANG"]
+        .iter()
+        .find_map(|name| {
+            env.iter()
+                .rev()
+                .find(|(k, _)| k == name)
+                .and_then(|(_, v)| v.to_str())
+                .filter(|v| !v.is_empty())
+        })
+        .unwrap_or("C")
+        .to_owned()
+}
+
 fn to_u32(n: u64) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
-/// The machine's memory in bytes, from `/proc/meminfo`; 0 when unread,
-/// which takes the smallest scrollback cap.
+/// The machine's memory in bytes; 0 when unread, which takes the
+/// smallest scrollback cap.
 fn physical_memory() -> u64 {
-    std::fs::read_to_string("/proc/meminfo")
-        .ok()
-        .and_then(|text| {
-            let line = text.lines().find(|l| l.starts_with("MemTotal:"))?;
-            let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
-            kib.checked_mul(1024)
-        })
-        .unwrap_or(0)
+    crate::config::budget::physical_memory().unwrap_or(0)
 }
 
 /// Opens a device and wraps it as a video device in the loop, for
@@ -1804,9 +1997,46 @@ pub fn open_video(
     Ok(())
 }
 
+/// A display's depth: `display-depth`, else, at `auto`, the levels the
+/// device says it shows.
+fn depth(config: &Config, levels: Option<u8>) -> Depth {
+    match config.text(&keys::DISPLAY_DEPTH) {
+        Some("1") => Depth::One,
+        Some("gray4") => Depth::Gray(4),
+        Some("gray16") => Depth::Gray(16),
+        Some("color") => Depth::Color,
+        _ => match levels {
+            None => Depth::Color,
+            Some(2) => Depth::One,
+            Some(n) => Depth::Gray(n),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_depth_overrides_what_the_device_says() {
+        let config = |args: &[&str]| {
+            let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+            crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None)).config
+        };
+        for (args, levels, want) in [
+            (&[][..], None, Depth::Color),
+            (&[][..], Some(2), Depth::One),
+            (&[][..], Some(16), Depth::Gray(16)),
+            (&["--display-depth=auto"][..], Some(4), Depth::Gray(4)),
+            (&["--display-depth=1"][..], None, Depth::One),
+            (&["--display-depth=1"][..], Some(16), Depth::One),
+            (&["--display-depth=gray4"][..], Some(2), Depth::Gray(4)),
+            (&["--display-depth=gray16"][..], None, Depth::Gray(16)),
+            (&["--display-depth=color"][..], Some(2), Depth::Color),
+        ] {
+            assert_eq!(depth(&config(args), levels), want, "{args:?} {levels:?}");
+        }
+    }
 
     #[test]
     fn a_wheel_event_is_one_report_a_zoom_or_a_scroll_whatever_its_steps() {

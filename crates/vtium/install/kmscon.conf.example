@@ -32,6 +32,9 @@
 ## The most lines `sb-size` may ask for. Unset, it follows the machine's memory: 10,000 lines below 2 GiB, 30,000 from 2 GiB and 100,000 from 4 GiB.
 #sb-size-cap=
 
+## The most bytes the scrollback holds, or KiB, MiB or GiB with `K`, `M` or `G` (`6M`), at most a quarter of the machine's memory, or the default when `/proc/meminfo` cannot be read; its oldest lines go past it, as past `sb-size`. The default keeps the worst scrollback a program can write inside the 16 MiB minspec peak.
+#sb-memory=5963776
+
 ## Blink text with SGR 5 and a blinking cursor, every 500 ms; off, neither blinks.
 #blink
 
@@ -185,11 +188,14 @@
 ## The font source to use. Unset, each the build has, in this order.
 #font-engine=
 
-## The font's name, or with `font-engine=psf` the path of a PSF font.
+## The font: a set in the store, by its name or by its first source, so a kbd font's name, or with `font-engine=psf` a PSF font's path, finds the set `vtium-vitrify create --kbd` or `--file` built from it. Unset, vconsole's font; with none, or a name with no set built, vtium draws its built-in sets, and logs the `create` command that builds a named one.
 #font-name=monospace
 
 ## The font's height; 0 picks one from the display's size.
 #font-size=0
+
+## Let a program switch the font among the built sets with xterm's OSC 50 (`OSC 50 ; NAME ST`, as `vtium-vitrify set NAME` sends it) and ask which set is in use (`OSC 50 ; ? ST`). On by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the sets root built into the store and the built-in ones, never a file. A switch changes the live console only; `font-name` decides the font at the next start. Off, vtium ignores OSC 50, the query included.
+#allow-font-ops
 
 ## Where the six sprite ranges draw from: `font`, the font's glyphs; `sprites`, vtium's; `auto`, the font's where it has one. Unset, a named font's glyphs for each range it covers whole and the sprites for the rest; the built-in unifont draws the sprites.
 #glyph-source=
@@ -217,6 +223,9 @@
 
 ## The glyph cache's budgets. Unset, `minspec`, or `performance` in a build with vtium-render's `performance-cache` feature.
 #glyph-cache=
+
+## Each display's depth. `1` draws it in black and white, each cell lit or unlit by its colors, never by their brightness; `gray4` and `gray16` record a gray panel of 4 or 16 levels, drawn as color, which the panel converts; `color` draws its colors; `auto` takes the levels the display says it shows: an fbdev device at 1 bit, or a DRM panel whose driver vtium-platform lists.
+#display-depth=auto
 
 ## Measure each display's frames once a second, and write the figures to the log, draw them on screen, or both.
 #render-timer=none

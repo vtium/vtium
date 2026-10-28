@@ -19,7 +19,7 @@ Host needs: the targets' standard libraries (`rustup target add aarch64-unknown-
 
 | Piece | What it does |
 |---|---|
-| `sysroot fetch ARCH` | Downloads the packages `pin.tsv` names for a Debian architecture (`arm64`, `armhf`) into `VTIUM_ARM_SYSROOTS/debs`, and extracts them into `VTIUM_ARM_SYSROOTS/ARCH-ID`, where ID is a digest of the architecture's pin rows and of `sysroot` itself. A download enters `debs` only once its SHA-256 matches its pin, and each extraction reads a private copy it has checked again. Absolute symlinks are rewritten as relative ones inside the sysroot, and a member or link that would leave it stops the fetch. |
+| `sysroot fetch ARCH` | Downloads the packages `pin.tsv` names for a Debian architecture (`arm64`, `armhf`, and `amd64` for the x86_64 build) into `VTIUM_ARM_SYSROOTS/debs`, and extracts them into `VTIUM_ARM_SYSROOTS/ARCH-ID`, where ID is a digest of the architecture's pin rows and of `sysroot` itself. A download enters `debs` only once its SHA-256 matches its pin, and each extraction reads a private copy it has checked again. Absolute symlinks are rewritten as relative ones inside the sysroot, and a member or link that would leave it stops the fetch. |
 | `TRIPLE-cc` | The linker: the host's `clang --target` with the sysroot, linking through rustc's own `lld`. |
 | `TRIPLE-pkg-config` | pkg-config reading the sysroot's `.pc` files, so `libudev-sys` finds the target's libudev. |
 | `TRIPLE-run` | The test runner: the binary under `qemu-aarch64` or `qemu-arm`, its libraries from the sysroot. |
@@ -56,3 +56,7 @@ qemu-user runs vtium's code on an emulated CPU over the host's kernel, so it jud
 ## The musl targets
 
 They are not built. vtium links libudev and libxkbcommon, which Debian builds for glibc only, and the musl targets link statically by default; building them needs a musl sysroot from another distribution with static or musl-dynamic builds of both libraries.
+
+## The x86_64 build
+
+`make minspec` and `make install-tree` link vtium and vtium-vitrify for `x86_64-unknown-linux-gnu` through the same wrappers against the `amd64` sysroot, so neither binary requires more than glibc 2.36 (vtium/vtium#143). `x86_64-unknown-linux-gnu-run` runs a binary natively. Each build, and `make arm`, reads the binary's highest required `GLIBC_` version with `readelf -V` and fails above 2.36.

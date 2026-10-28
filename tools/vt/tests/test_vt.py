@@ -40,6 +40,9 @@ SCRIPT = next(os.path.join(d, "script") for d in ("/usr/sbin", "/usr/bin", "/sbi
 # Each call, one line: the command's name and its arguments.
 RECORD = 'printf "%s\\n" "${0##*/} $*" >>"$CALLS"\n'
 
+# The minspec target reads the stand-in binary's dynamic section for DT_RELR and its version needs for GLIBC_.
+READELF = "#!/bin/bash\n" + RECORD + 'echo " 0x0000000000000024 (RELR) 0x3238  Name: GLIBC_2.34"\n'
+
 SYSTEMCTL = "#!/bin/bash\n" + RECORD + """
 # is-active --quiet UNIT succeeds for the units in $ACTIVE_UNITS.
 if [ "$1" = is-active ]; then
@@ -166,6 +169,7 @@ class Stage:
         os.mkdir(self.standins)
         for name, text in (("systemctl", SYSTEMCTL), ("loginctl", LOGINCTL), ("setpriv", SETPRIV),
                            ("getent", GETENT), ("sudo", SUDO), ("cargo", "#!/bin/bash\n" + RECORD),
+                           ("readelf", READELF),
                            ("chvt", FORBIDDEN), ("fgconsole", FORBIDDEN)):
             write(os.path.join(self.standins, name), text)
         write(os.path.join(self.standins, "active"), "tty7\n", 0o644)
@@ -838,7 +842,7 @@ class Make(Case):
         # cargo "builds".
         p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual(self.s.calls_of("cargo"), ["build --profile minspec -p vtium"])
+        self.assertEqual(self.s.calls_of("cargo"), ["rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu -- -C link-arg=-Wl,-z,pack-relative-relocs"])
         self.assertIn(f"--bin={self.s.bin} ", p.stdout)
 
     def test_another_binary_is_run_as_it_is(self):

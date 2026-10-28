@@ -56,8 +56,18 @@ pub(super) fn parse(
 ) -> Option<Value> {
     match key.kind {
         Kind::Number { word, .. } if word == Some(text) => Some(Value::Text(text.to_owned())),
-        Kind::Number { min, max, .. } => {
-            if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+        Kind::Number { min, max, unit, .. } => {
+            // A byte count may end in K, M or G, powers of 1024.
+            let suffixed = |s: [char; 2], scale| {
+                text.strip_suffix(s)
+                    .filter(|_| unit == "bytes")
+                    .map(|d| (d, scale))
+            };
+            let (digits, scale) = suffixed(['K', 'k'], 1 << 10)
+                .or_else(|| suffixed(['M', 'm'], 1 << 20))
+                .or_else(|| suffixed(['G', 'g'], 1 << 30))
+                .unwrap_or((text, 1));
+            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
                 let value = text.to_owned();
                 reports.push(
                     origin.clone(),
@@ -69,7 +79,16 @@ pub(super) fn parse(
                 return None;
             }
             // All digits: too large to parse is past any bound.
-            let n = text.parse::<u64>().unwrap_or(u64::MAX);
+            let n = digits
+                .parse::<u64>()
+                .unwrap_or(u64::MAX)
+                .saturating_mul(scale);
+            // `sb-memory` is also at most what this machine allows.
+            let max = if key.name == keys::SB_MEMORY.name {
+                max.min(super::budget::sb_memory_cap())
+            } else {
+                max
+            };
             let used = n.clamp(min, max);
             if used != n {
                 let value = text.to_owned();

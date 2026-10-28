@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use vtium::app::{App, Exit};
 use vtium::config;
+use vtium::font::Sources;
 use vtium::start::Start;
 use vtium::video::Video;
 use vtium_platform::display::{Canvas, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
@@ -38,6 +39,7 @@ struct Memory {
     age: u32,
     unblanks: u32,
     wake_ups: u32,
+    sleeps: u32,
     /// Each DPMS state set, in order.
     dpms_sets: Vec<Dpms>,
     /// Each canvas lent's age, in order.
@@ -66,6 +68,7 @@ impl Memory {
             age: 0,
             unblanks: 0,
             wake_ups: 0,
+            sleeps: 0,
             dpms_sets: Vec::new(),
             ages: Vec::new(),
             refresh_mhz: 60_000,
@@ -132,6 +135,7 @@ impl Video for Memory {
         Ok(())
     }
     fn sleep(&mut self) {
+        self.sleeps += 1;
         self.awake = false;
         self.events.push(Event::Asleep);
     }
@@ -219,6 +223,17 @@ struct Harness {
     ahead: Rc<Cell<Duration>>,
 }
 
+/// No store and no vconsole font, so the seat draws its built-in sets
+/// whatever the machine running the tests holds.
+fn no_fonts() -> Sources {
+    Sources {
+        store: PathBuf::from("/nonexistent/vtium-test-store"),
+        uid: 0,
+        vconsole_conf: PathBuf::from("/dev/null"),
+        kernel_cmdline: PathBuf::from("/dev/null"),
+    }
+}
+
 #[expect(
     clippy::disallowed_methods,
     reason = "the harness runs the loop in real time"
@@ -248,8 +263,33 @@ impl Harness {
         Harness::boot(args, FakeVt::new(), None)
     }
 
+    /// The seat booted with `args`. The harness draws 16-pixel cells, the
+    /// size every test's grid is reckoned in, unless a test sets
+    /// `font-size`: at 320x160 the automatic size is the built-in
+    /// Unscii-8's 8 pixels (vtium/vtium#118), which its own tests check.
     fn boot<V: Vt + 'static>(args: &[&str], vt: V, video: Option<Box<dyn Video>>) -> Harness {
-        let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+        Harness::boot_with(args, vt, video, no_fonts())
+    }
+
+    /// The seat on the fake VT with `video`, reading its font's sets from
+    /// `fonts`.
+    fn fonts(args: &[&str], video: Memory, fonts: Sources) -> Harness {
+        Harness::boot_with(args, FakeVt::new(), Some(Box::new(video)), fonts)
+    }
+
+    fn boot_with<V: Vt + 'static>(
+        args: &[&str],
+        vt: V,
+        video: Option<Box<dyn Video>>,
+        fonts: Sources,
+    ) -> Harness {
+        let sized = args.iter().any(|a| a.starts_with("--font-size"));
+        let args: Vec<OsString> = (!sized)
+            .then_some("--font-size=16")
+            .into_iter()
+            .chain(args.iter().copied())
+            .map(OsString::from)
+            .collect();
         let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
         assert_eq!(loaded.reports, [], "the harness's command line");
         // What `main` takes before the seat; the seat's input is the
@@ -263,6 +303,7 @@ impl Harness {
             Rc::new(move || now() + ahead.get())
         };
         let mut app = App::new(loaded.config, Box::new(vt), lp.handle(), clock, env);
+        app.set_font_sources(fonts);
         if let Some(video) = video {
             app.add_video(PathBuf::from("/dev/mem0"), video);
         }
@@ -723,6 +764,46 @@ fn an_acquire_restarts_the_blanks_countdown() {
         h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::Off)),
         "blanked 3 s after the acquire"
     );
+}
+
+/// A device added while the VT is not shown, as a card plugged in then,
+/// is put to sleep, which lets a card's DRM master go, and the acquire
+/// wakes it; one added while the VT is shown is woken and never slept
+/// (vtium/vtium#139).
+#[test]
+fn a_device_added_while_the_vt_is_not_shown_sleeps_until_the_acquire() {
+    let mut h = Harness::with_vt(
+        &["--login", "--", "/bin/sh", "-c", "read x"],
+        ScriptedVt::default(),
+    );
+    assert!(h.until(SECOND, |a| a.vt.is_active()), "acquired");
+    let add = |h: &mut Harness, node: &str| {
+        h.app
+            .add_video(PathBuf::from(node), Box::new(Memory::default()));
+    };
+    let counts = |h: &mut Harness, node: &str| {
+        let m = h
+            .app
+            .videos
+            .get_mut(Path::new(node))
+            .and_then(|v| v.as_any().downcast_mut::<Memory>())
+            .expect("the device added");
+        (m.sleeps, m.wake_ups)
+    };
+    add(&mut h, "/dev/mem1");
+    assert_eq!(
+        counts(&mut h, "/dev/mem1"),
+        (0, 1),
+        "shown: woken, not slept"
+    );
+    h.scripted().events.push(VtEvent::Release);
+    assert!(h.until(SECOND, |a| !a.vt.is_active()), "released");
+    add(&mut h, "/dev/mem2");
+    assert_eq!(counts(&mut h, "/dev/mem2"), (1, 0), "not shown: slept");
+    h.scripted().active = true;
+    h.scripted().events.push(VtEvent::Acquired);
+    h.until(Duration::from_millis(200), |_| false);
+    assert_eq!(counts(&mut h, "/dev/mem2"), (1, 1), "woken by the acquire");
 }
 
 #[test]
@@ -2807,6 +2888,7 @@ fn held(args: &[&str], videos: Vec<Box<dyn Video>>, hold: Duration) -> Harness {
         clock,
         env,
     );
+    app.set_font_sources(no_fonts());
     for (n, video) in videos.into_iter().enumerate() {
         app.add_video(PathBuf::from(format!("/dev/mem{n}")), video);
     }
@@ -2827,7 +2909,7 @@ fn held(args: &[&str], videos: Vec<Box<dyn Video>>, hold: Duration) -> Harness {
 #[test]
 fn the_child_starts_on_the_first_displays_grid() {
     let mut h = held(
-        &["--login", "--", "/bin/sh", "-c", FIRST],
+        &["--font-size=16", "--login", "--", "/bin/sh", "-c", FIRST],
         vec![Box::new(Memory::default())],
         Duration::from_millis(500),
     );
@@ -3100,5 +3182,348 @@ fn a_zoom_reports_the_text_area_to_a_program_waiting_in_a_read() {
             .any(|l| l == "E[48;5;20;160;320t")),
         "the zoomed text area, with no other key: {:?}",
         h.app.screen_text()
+    );
+}
+
+/// A set of one 1-bit strike of 6x12 cells, `name`, holding the printable
+/// ASCII characters, each a box.
+fn tiny(name: &str) -> Vec<u8> {
+    use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
+    use vtium_font::{Cell, Style, Width};
+    let cell = Cell {
+        width: 6,
+        height: 12,
+    };
+    let mut strike = StrikeBuilder::new(PixelFormat::Bits, cell, Style::default());
+    let mut rows = vec![0b1111_1100];
+    rows.extend([0b1000_0100; 10]);
+    rows.push(0b1111_1100);
+    for c in ' '..='~' {
+        let g = strike.glyph(Width::Narrow, rows.clone());
+        strike.map(c, g);
+    }
+    SetBuilder::new(name).strike(strike).write().expect("a set")
+}
+
+/// A store for `test` under Cargo's temporary directory, holding each of
+/// `sets` (its name, its first source as spelled, and its bytes), with
+/// vconsole.conf beside it holding `vconsole`; the sources that read it.
+fn store(test: &str, sets: &[(&str, &str, Vec<u8>)], vconsole: &str) -> Sources {
+    use std::fs;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use vtium_font::set::{Manifest, ManifestRow, VERSION};
+    use vtium_font::{Cell, Sha256};
+    let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("vtium-font-stores");
+    let dir = base.join(test);
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("the store");
+    let mode = |p: &Path, m: u32| {
+        fs::set_permissions(p, fs::Permissions::from_mode(m)).expect("chmod");
+    };
+    mode(&base, 0o755);
+    mode(&dir, 0o755);
+    let mut rows = Vec::new();
+    for (name, source, bytes) in sets {
+        let row = ManifestRow {
+            name: (*name).to_owned(),
+            sha256: Sha256::digest(bytes),
+            build_key: Sha256::digest(name.as_bytes()),
+            version: VERSION,
+            cells: vec![Cell {
+                width: 6,
+                height: 12,
+            }],
+            source: (*source).to_owned(),
+        };
+        let file = dir.join(row.file_name());
+        fs::write(&file, bytes).expect("the set");
+        mode(&file, 0o644);
+        rows.push(row);
+    }
+    let manifest = Manifest::new(rows).expect("a manifest");
+    fs::write(dir.join("manifest"), manifest.to_tsv()).expect("the manifest");
+    mode(&dir.join("manifest"), 0o644);
+    let conf = base.join(format!("{test}.vconsole.conf"));
+    fs::write(&conf, vconsole).expect("vconsole.conf");
+    let uid = fs::metadata(&dir).expect("stat").uid();
+    // The store's check refuses a directory under one others may write,
+    // such as a target directory under /tmp: these tests need a target
+    // directory whose ancestors only root or the invoking user may write.
+    if let Err(e) = vtium_font::set::Store::open(&dir, uid) {
+        panic!(
+            "the store's check refuses the tests' store {} ({e}): set CARGO_TARGET_DIR to a directory whose ancestors only root or uid {uid} may write",
+            dir.display()
+        );
+    }
+    Sources {
+        uid,
+        store: dir,
+        vconsole_conf: conf,
+        kernel_cmdline: PathBuf::from("/dev/null"),
+    }
+}
+
+/// The seat with `args` and a session that waits, its sets from `fonts`.
+fn with_fonts(args: &[&str], fonts: Sources) -> Harness {
+    let args: Vec<&str> = args
+        .iter()
+        .copied()
+        .chain(["--login", "--", "/bin/sh", "-c", "read x"])
+        .collect();
+    Harness::fonts(&args, Memory::default(), fonts)
+}
+
+// ADR-1200 D9: the configured font names a set, loaded from the store and
+// drawn at its strike and its whole multiples.
+#[test]
+fn the_configured_font_is_a_set_from_the_store() {
+    let fonts = store("named", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
+    let h = with_fonts(&["--font-name=tiny", "--font-size=12"], fonts.clone());
+    assert_eq!(h.app.font_name(), "tiny");
+    assert_eq!(h.app.cells(), [(6, 12)]);
+    assert_eq!(h.app.grid(), (53, 13));
+    let h = with_fonts(&["--font-name=tiny", "--font-size=24"], fonts.clone());
+    assert_eq!(h.app.cells(), [(12, 24)]);
+    // With no size, the set's own height at 320x160 (vtium/vtium#118).
+    let h = with_fonts(&["--font-name=tiny", "--font-size=0"], fonts);
+    assert_eq!(h.app.cells(), [(6, 12)]);
+}
+
+// ADR-1200 D9: `font-engine=psf` with a path finds the set built from that
+// path, and vconsole's font names the set when the configuration does not.
+#[test]
+fn a_path_or_vconsoles_font_finds_the_set_built_from_it() {
+    let path = "/usr/share/kbd/consolefonts/ter-v12n.psf.gz";
+    let sets = [
+        ("ter-v12n", &*format!("file:{path}"), tiny("ter-v12n")),
+        ("console-font", "vconsole", tiny("console-font")),
+    ];
+    let fonts = store("by-source", &sets, "FONT=lat9w-12\n");
+    let h = with_fonts(
+        &[
+            "--font-engine=psf",
+            &format!("--font-name={path}"),
+            "--font-size=12",
+        ],
+        fonts.clone(),
+    );
+    assert_eq!(h.app.font_name(), "ter-v12n");
+    assert_eq!(h.app.cells(), [(6, 12)]);
+    // No set is named lat9w-12, so the one `create --vconsole` built.
+    let h = with_fonts(&["--font-size=12"], fonts);
+    assert_eq!(h.app.font_name(), "console-font");
+    assert_eq!(h.app.cells(), [(6, 12)]);
+}
+
+// ADR-1200 D3, D9: a font with no set, or a set that fails the store's
+// check, draws the built-ins.
+#[test]
+fn a_font_with_no_set_or_a_refused_one_draws_the_builtins() {
+    let absent = store("absent", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
+    for (name, fonts) in [("absent", absent), ("tiny", tampered("refused"))] {
+        let h = with_fonts(&[&format!("--font-name={name}"), "--font-size=16"], fonts);
+        assert_eq!(h.app.font_name(), "unifont", "{name}");
+        assert_eq!(h.app.cells(), [(8, 16)], "{name}");
+    }
+    // With no store at all.
+    let h = with_fonts(&["--font-name=tiny", "--font-size=16"], no_fonts());
+    assert_eq!(h.app.font_name(), "unifont");
+}
+
+// vtium/vtium#118: at 320x240 with no font size, the built-in Unscii-8
+// draws 40 by 30 cells of 8x8; at 640x480 unifont draws 80 by 30 of 8x16.
+#[test]
+fn a_320x240_display_draws_40_by_30_cells_of_8x8() {
+    for (size, grid, cell, name) in [
+        ((320, 240), (40, 30), (8, 8), "unscii-8"),
+        ((640, 480), (80, 30), (8, 16), "unifont"),
+    ] {
+        let h = Harness::fonts(
+            &["--font-size=0", "--login", "--", "/bin/sh", "-c", "read x"],
+            Memory::sized(size.0, size.1),
+            no_fonts(),
+        );
+        assert_eq!(h.app.grid(), grid, "{size:?}");
+        assert_eq!(h.app.cells(), [cell], "{size:?}");
+        assert_eq!(h.app.font_name(), name, "{size:?}");
+    }
+}
+
+// ADR-1200 D9: zoom steps through the set's strikes and their whole
+// multiples, and stops at the smallest.
+#[test]
+fn zoom_steps_through_the_strikes_and_stops_at_the_smallest() {
+    let (equal, minus) = (0x3d, 0x2d);
+    let fonts = store("zoom", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
+    let mut h = with_fonts(&["--font-name=tiny", "--font-size=12"], fonts);
+    let mut cells = Vec::new();
+    for k in [equal, equal, minus, minus, minus] {
+        h.app.input_event(key(Mods::CTRL, k), now());
+        cells.push(h.app.cells()[0]);
+    }
+    assert_eq!(cells, [(12, 24), (18, 36), (12, 24), (6, 12), (6, 12)]);
+    // The built-ins: Unscii-8's 8, then unifont's 16 and 32.
+    let mut h = with_fonts(&["--font-size=8"], no_fonts());
+    let mut cells = vec![h.app.cells()[0]];
+    for k in [equal, equal, minus, minus, minus] {
+        h.app.input_event(key(Mods::CTRL, k), now());
+        cells.push(h.app.cells()[0]);
+    }
+    assert_eq!(cells, [(8, 8), (8, 16), (16, 32), (8, 16), (8, 8), (8, 8)]);
+}
+
+/// The seat with `args` whose session writes `script` with printf, then
+/// `done`, and waits.
+fn osc50(args: &[&str], script: &str, fonts: Sources) -> Harness {
+    let command = format!("printf '{script}done'; read x");
+    let args: Vec<&str> = args
+        .iter()
+        .copied()
+        .chain(["--login", "--", "/bin/sh", "-c", &command])
+        .collect();
+    let mut h = Harness::fonts(&args, Memory::default(), fonts);
+    assert!(h.until(SECOND, |a| {
+        a.screen_text().iter().any(|l| l.ends_with("done"))
+    }));
+    h
+}
+
+// ADR-1200 D5: OSC 50 switches the live console among the built sets, as
+// a zoom does: a new font and a new grid.
+// covers: text.font-change
+#[test]
+fn osc_50_switches_among_the_built_sets() {
+    let fonts = store("osc50", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
+    let h = osc50(&["--font-size=12"], "\\033]50;tiny\\007", fonts.clone());
+    assert_eq!(h.app.font_name(), "tiny");
+    assert_eq!(h.app.cells(), [(6, 12)]);
+    assert_eq!(h.app.grid(), (53, 13));
+    // A built-in by name, which then keeps to its own sizes.
+    let mut h = osc50(&["--font-size=8"], "\\033]50;unifont\\007", fonts);
+    assert_eq!(h.app.font_name(), "unifont");
+    assert_eq!(h.app.cells(), [(8, 16)]);
+    h.app.input_event(key(Mods::CTRL, 0x2d), now());
+    assert_eq!(h.app.cells(), [(8, 16)], "no Unscii-8 below it");
+}
+
+// ADR-1200 D5: a name with no built set, or OSC 50 under
+// `no-allow-font-ops`, leaves the font as it was.
+#[test]
+fn osc_50_leaves_the_font_for_a_set_not_built_or_with_font_ops_off() {
+    let fonts = store("osc50-off", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
+    for (args, script) in [
+        (&["--font-size=12"][..], "\\033]50;absent\\007"),
+        (&["--font-size=12"][..], "\\033]50;/etc/passwd\\007"),
+        (
+            &["--font-size=12", "--no-allow-font-ops"][..],
+            "\\033]50;tiny\\007",
+        ),
+    ] {
+        let h = osc50(args, script, fonts.clone());
+        assert_eq!(h.app.font_name(), "unscii-8", "{args:?} {script}");
+        assert_eq!(h.app.cells(), [(8, 8)], "{args:?} {script}");
+    }
+}
+
+// ADR-1200 D5: `vtium-vitrify set` writes the set and then the query in
+// one write; the query's reply names the new set. The reply reaches the
+// shell's tty, whose echo shows it.
+#[test]
+fn a_query_after_osc_50_names_the_new_set() {
+    let fonts = store("osc50-query", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
+    let mut h = osc50(
+        &["--font-size=12"],
+        "\\033]50;tiny\\007\\033]50;?\\007",
+        fonts,
+    );
+    let echoed = |a: &App| a.screen_text().iter().any(|l| l.contains("]50;"));
+    assert!(h.until(SECOND, echoed), "{:?}", h.app.screen_text());
+    assert!(
+        h.app.screen_text().iter().any(|l| l.contains("]50;tiny")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// The log lines this thread wrote since the last call.
+fn logged() -> Vec<String> {
+    use std::cell::RefCell;
+    use std::sync::Once;
+    thread_local! {
+        static LINES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    }
+    struct Capture;
+    impl log::Log for Capture {
+        fn enabled(&self, _: &log::Metadata<'_>) -> bool {
+            true
+        }
+        fn log(&self, record: &log::Record<'_>) {
+            LINES.with(|l| l.borrow_mut().push(record.args().to_string()));
+        }
+        fn flush(&self) {}
+    }
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        log::set_logger(&Capture).expect("the tests' logger");
+        log::set_max_level(log::LevelFilter::Info);
+    });
+    LINES.with(|l| std::mem::take(&mut *l.borrow_mut()))
+}
+
+/// The store `test` holding `tiny` with one byte of its set changed after
+/// the manifest's hash.
+fn tampered(test: &str) -> Sources {
+    let fonts = store(test, &[("tiny", "kbd:tiny", tiny("tiny"))], "");
+    let file = std::fs::read_dir(&fonts.store)
+        .expect("the store")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|x| x == "vtglass"))
+        .expect("the set");
+    let mut bytes = std::fs::read(&file).expect("read");
+    let last = bytes.len() - 1;
+    bytes[last] ^= 1;
+    std::fs::write(&file, bytes).expect("write");
+    fonts
+}
+
+// ADR-1200 D3, D5: OSC 50 naming a set the store's check refuses leaves the
+// font as it was.
+#[test]
+fn osc_50_leaves_the_font_for_a_set_that_fails_the_stores_check() {
+    let h = osc50(
+        &["--font-size=12"],
+        "\\033]50;tiny\\007",
+        tampered("osc50-tampered"),
+    );
+    assert_eq!(h.app.font_name(), "unscii-8");
+    assert_eq!(h.app.cells(), [(8, 8)]);
+}
+
+// A program's flood of refused OSC 50 requests logs one line, and the
+// switch that follows counts the rest.
+#[test]
+fn a_flood_of_refused_osc_50_requests_logs_one_line() {
+    let fonts = store("osc50-flood", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
+    logged();
+    let flood = "\\033]50;absent\\007\\033]50;other\\007".repeat(20);
+    let h = osc50(
+        &["--font-size=12"],
+        &format!("{flood}\\033]50;tiny\\007"),
+        fonts,
+    );
+    assert_eq!(h.app.font_name(), "tiny");
+    let lines = logged();
+    let refused: Vec<&String> = lines
+        .iter()
+        .filter(|l| l.starts_with("OSC 50 asked"))
+        .collect();
+    assert_eq!(refused.len(), 1, "{lines:?}");
+    assert!(refused[0].contains("absent"), "{refused:?}");
+    assert!(
+        lines
+            .iter()
+            .any(|l| l == "OSC 50 was refused 39 more times before this switch"),
+        "{lines:?}"
     );
 }

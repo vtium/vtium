@@ -1,0 +1,4 @@
+# tier 3's 2d-640x480-psf16 set: tools/testfont's 8x16 PSF1 font, with the
+# built-in unifont filling the characters it lacks (ADR-1200 D1).
+source=file:/usr/local/share/tier3-fonts/vtium-test-8x16.psf
+source=builtin:unifont

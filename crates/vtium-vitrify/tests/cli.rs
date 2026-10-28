@@ -722,7 +722,7 @@ fn create_all_reports_each_set_and_fails_only_the_broken_one() {
         "broken",
         &format!("source=file:{}\n", w.path("broken.psf").display()),
     );
-    w.frit("typo", "source=kbd:ter-v16n\nsize=24\n");
+    w.frit("typo", "source=kbd:ter-v16n\ncp-size=8\n");
     let o = w.run(&["create", "--all"]);
     assert_eq!(status(&o), 1);
     let out = stdout(&o);
@@ -734,7 +734,7 @@ fn create_all_reports_each_set_and_fails_only_the_broken_one() {
     );
     assert_eq!(lines[1], "built\tgood");
     assert!(
-        lines[2].starts_with("failed\ttypo\t") && lines[2].contains(":2: size="),
+        lines[2].starts_with("failed\ttypo\t") && lines[2].contains(":2: cp-size="),
         "{out}"
     );
 }
@@ -863,19 +863,24 @@ fn the_parser_runs_without_new_privileges_and_within_its_limits() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let status_path = format!("/proc/{}/status", child.id());
-    let mut ready = false;
-    for _ in 0..1_000_000 {
-        if fs::read_to_string(&status_path).is_ok_and(|s| {
-            s.lines()
-                .any(|l| l.split_whitespace().eq(["NoNewPrivs:", "1"]))
-        }) {
-            ready = true;
-            break;
+    // The parser reads its request only once every limit is set, so the
+    // limits are read when a byte of it has left the pipe, unless the
+    // parser ended first.
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(&[0]).unwrap();
+    let read = loop {
+        if rustix::io::ioctl_fionread(&stdin).unwrap() == 0 {
+            break true;
         }
-    }
-    let limits = fs::read_to_string(format!("/proc/{}/limits", child.id())).unwrap();
-    drop(child.stdin.take());
+        if child.try_wait().unwrap().is_some() {
+            break false;
+        }
+        std::thread::yield_now();
+    };
+    let proc_status =
+        fs::read_to_string(format!("/proc/{}/status", child.id())).unwrap_or_default();
+    let limits = fs::read_to_string(format!("/proc/{}/limits", child.id())).unwrap_or_default();
+    drop(stdin);
     let mut err = String::new();
     child
         .stderr
@@ -885,7 +890,13 @@ fn the_parser_runs_without_new_privileges_and_within_its_limits() {
         .unwrap();
     let _ = child.stdout.take().unwrap().read_to_end(&mut Vec::new());
     assert!(!child.wait().unwrap().success());
-    assert!(ready, "NoNewPrivs never set");
+    assert!(read, "the parser never read its request");
+    assert!(
+        proc_status
+            .lines()
+            .any(|l| l.split_whitespace().eq(["NoNewPrivs:", "1"])),
+        "NoNewPrivs not set"
+    );
     let limit = |name: &str| {
         limits
             .lines()
@@ -1011,5 +1022,264 @@ fn a_kbd_name_does_not_follow_a_link_out_of_the_data_directory() {
         let text = stdout(&o) + &stderr(&o);
         assert!(text.contains("leaves"), "{source}: {text}");
         assert!(!text.contains(&sha), "{source}: {text}");
+    }
+}
+
+#[path = "common/ttf.rs"]
+mod ttf;
+
+/// `w` with the outline fixture installed under `fonts/` as a family's
+/// regular face, and `create --out` run on a frit of `text` with that as
+/// the font directory: the exit status, stdout and stderr, and the set.
+fn outline_set(w: &World, text: &str) -> (i32, String, String, Option<Arc<Set>>) {
+    fs::create_dir_all(w.path("fonts/test")).unwrap();
+    fs::write(
+        w.path("fonts/test/TestMono-Regular.ttf"),
+        ttf::test_mono().build(),
+    )
+    .unwrap();
+    let frit = w.frit("outline", text);
+    let out = w.path("out/outline.vtglass");
+    let _ = fs::remove_file(&out);
+    let fonts = w.path("fonts");
+    let o = w.run(&[
+        "--font-dir",
+        fonts.to_str().unwrap(),
+        "create",
+        "--out",
+        out.to_str().unwrap(),
+        frit.to_str().unwrap(),
+    ]);
+    let set = fs::read(&out)
+        .ok()
+        .map(|b| Arc::new(Set::from_bytes(b).expect("the set reads")));
+    (status(&o), stdout(&o), stderr(&o), set)
+}
+
+// covers: text.emoji
+#[test]
+fn an_outline_font_with_color_glyphs_and_a_bitmap_fallback_builds_a_set() {
+    let w = World::new("outline");
+    let (code, out, err, set) = outline_set(
+        &w,
+        "source=font:Test Mono\nsource=builtin:unifont\ncover=U+0042\nsize=10\nsize=20\nlicense=OFL-1.1\n",
+    );
+    assert_eq!(code, 0, "{out}{err}");
+    assert_eq!(out, "built\toutline\n");
+    let set = set.expect("a set");
+    set.check_chunks().expect("chunks");
+    let strikes: Vec<_> = set
+        .strikes()
+        .map(|s| (s.cell.width, s.cell.height, s.baseline, s.format))
+        .collect();
+    use vtium_font::set::PixelFormat::{Bits, R8, Rgba};
+    assert_eq!(
+        strikes,
+        // unifont's 8x16 cell fits only the 12x20 one
+        [
+            (6, 10, 8, R8),
+            (6, 10, 8, Rgba),
+            (12, 20, 16, Bits),
+            (12, 20, 16, R8),
+            (12, 20, 16, Rgba)
+        ]
+    );
+    assert_eq!(
+        set.meta_values("source-family").collect::<Vec<_>>(),
+        ["Test Mono"]
+    );
+    // the method color bitmaps are scaled with, which a rebuild repeats
+    assert_eq!(
+        set.meta_values("color-scale").collect::<Vec<_>>(),
+        [vtium_vitrify::resample::METHOD.name()]
+    );
+    assert_eq!(
+        set.meta_values("source-license").collect::<Vec<_>>(),
+        ["Free for testing, no warranty."]
+    );
+    assert_eq!(
+        set.meta_values("source-format").collect::<Vec<_>>(),
+        ["outline+color", "builtin:unifont"]
+    );
+    let face = SetFace::new(set, 20).expect("a face");
+    let a = face.draw(&['A'], Style::default()).expect("A");
+    assert_eq!(a.format(), vtium_font::Format::Mask);
+    assert!(a.pixels().iter().any(|&p| p > 0 && p < 255), "R8 coverage");
+    let smile = face
+        .draw(&['\u{1f600}'], Style::default())
+        .expect("a smile");
+    assert_eq!(
+        (smile.format(), smile.cells(), smile.width()),
+        (vtium_font::Format::Rgba, vtium_font::Width::Wide, 24)
+    );
+    // B from unifont's 8x16, its baseline (row 14) on the strike's (row
+    // 16), centred across: its lowest ink, unifont's row 13, on row 15
+    let b = face.draw(&['B'], Style::default()).expect("B");
+    assert_eq!(b.format(), vtium_font::Format::Mask);
+    let inked: Vec<usize> = b
+        .pixels()
+        .chunks(12)
+        .enumerate()
+        .filter(|(_, row)| row.iter().any(|&p| p != 0))
+        .map(|(y, _)| y)
+        .collect();
+    assert_eq!(inked.last(), Some(&15), "{inked:?}");
+    assert!(!face.has_glyph('C'), "unifont covers only B");
+}
+
+#[test]
+fn color_glyphs_fill_a_bitmap_fonts_cell() {
+    let w = World::new("outline-after-bitmap");
+    let (code, out, err, set) = outline_set(
+        &w,
+        "source=kbd:ter-v16n\nsource=font:Test Mono\ncover=U+1F600-U+1F64F\n",
+    );
+    assert_eq!(code, 0, "{out}{err}");
+    let set = set.expect("a set");
+    let formats: Vec<_> = set
+        .strikes()
+        .map(|s| (s.cell.width, s.cell.height, s.format))
+        .collect();
+    use vtium_font::set::PixelFormat::{Bits, Rgba};
+    assert_eq!(formats, [(8, 16, Bits), (8, 16, Rgba)]);
+    let face = SetFace::new(set, 16).expect("a face");
+    let smile = face
+        .draw(&['\u{1f600}'], Style::default())
+        .expect("a smile");
+    assert_eq!((smile.width(), smile.height()), (16, 16));
+    assert!(!face.has_glyph('\u{4e00}'), "outside cover=");
+}
+
+#[test]
+fn an_outline_font_first_needs_its_sizes_and_a_missing_one_is_left_out() {
+    let w = World::new("outline-sizes");
+    let (code, out, _, _) = outline_set(&w, "source=font:Test Mono\n");
+    assert_eq!(code, 1);
+    assert!(
+        out.starts_with("failed\toutline\t") && out.contains("size="),
+        "{out}"
+    );
+    let (code, out, _, _) = outline_set(&w, "source=kbd:ter-v16n\nsize=24\n");
+    assert_eq!(code, 1);
+    assert!(out.contains("first source is an outline font"), "{out}");
+    let (code, out, err, set) = outline_set(
+        &w,
+        "source=font:Noto Color Emoji\npackage=noto-fonts-emoji\nsource=font:Test Mono\nsize=10\n",
+    );
+    assert_eq!(code, 0, "{out}{err}");
+    assert_eq!(
+        out,
+        "built-partial\toutline\tleft out: font:Noto Color Emoji\n"
+    );
+    assert!(err.contains("noto-fonts-emoji"), "{err}");
+    assert_eq!(
+        set.expect("a set")
+            .meta_values("source-missing")
+            .collect::<Vec<_>>(),
+        ["font:Noto Color Emoji"]
+    );
+}
+
+/// Each shipped minspec frit, built here from stand-ins of the fonts it
+/// names: the outline fixture as `Noto Color Emoji`, its color square at
+/// U+23F3, U+2B50 and U+1F600, and as `Symbols Nerd Font Mono`, its bar
+/// at U+23FB, U+2B58 and U+E0B0. Each of those codepoints draws from the
+/// font the frit takes it from, not from the bitmap text font first.
+#[test]
+fn the_minspec_frits_take_each_chosen_symbol_from_its_font() {
+    for (frit, height) in [("minspec-16", 16), ("minspec-8", 8)] {
+        let w = World::new(&format!("shipped-{frit}"));
+        fs::create_dir_all(w.path("fonts")).unwrap();
+        let mut emoji = ttf::test_mono();
+        emoji.family = "Noto Color Emoji".to_owned();
+        emoji.cmap = vec![(0x23f3, 5), (0x2b50, 5), (0x1f600, 5)];
+        fs::write(w.path("fonts/NotoColorEmoji.ttf"), emoji.build()).unwrap();
+        let mut nerd = ttf::test_mono();
+        nerd.family = "Symbols Nerd Font Mono".to_owned();
+        nerd.cmap = vec![(0x23fb, 2), (0x2b58, 2), (0xe0b0, 2)];
+        nerd.colr.clear();
+        fs::write(
+            w.path("fonts/SymbolsNerdFontMono-Regular.ttf"),
+            nerd.build(),
+        )
+        .unwrap();
+        let path = format!("{}/frits/{frit}.vtfrit", env!("CARGO_MANIFEST_DIR"));
+        let out = w.path("out/set.vtglass");
+        let fonts = w.path("fonts");
+        let o = w.run(&[
+            "--font-dir",
+            fonts.to_str().unwrap(),
+            "create",
+            "--out",
+            out.to_str().unwrap(),
+            &path,
+        ]);
+        assert_eq!(status(&o), 0, "{frit}: {}{}", stdout(&o), stderr(&o));
+        let set = Arc::new(Set::from_bytes(fs::read(&out).unwrap()).unwrap());
+        let face = SetFace::new(set, height).expect("a face");
+        for c in ['\u{23f3}', '\u{2b50}', '\u{1f600}'] {
+            let g = face.draw_unscaled(&[c], Style::default()).expect("drawn");
+            assert_eq!(g.format(), vtium_font::Format::Rgba, "{frit} {c:?}");
+        }
+        for c in ['\u{23fb}', '\u{2b58}', '\u{e0b0}'] {
+            let g = face.draw_unscaled(&[c], Style::default()).expect("drawn");
+            // the bar's edges are partly covered: an outline, not a bitmap
+            assert!(
+                g.pixels().iter().any(|&p| p > 0 && p < 255),
+                "{frit} {c:?} is not the Nerd Font's"
+            );
+        }
+    }
+}
+
+/// The shipped proof frit, built from stand-ins of its three fonts, takes
+/// Nerd Fonts' private-use symbols but not Font Logos (U+F300-U+F385),
+/// which carries no licence grant.
+#[test]
+fn the_proof_frit_leaves_font_logos_out() {
+    let w = World::new("shipped-proof");
+    fs::create_dir_all(w.path("fonts")).unwrap();
+    let mut text = ttf::test_mono();
+    text.family = "JetBrains Mono".to_owned();
+    text.colr.clear();
+    fs::write(w.path("fonts/JetBrainsMono-Regular.ttf"), text.build()).unwrap();
+    let mut nerd = ttf::test_mono();
+    nerd.family = "Symbols Nerd Font Mono".to_owned();
+    nerd.cmap = vec![
+        (0xe0b0, 2),
+        (0xf2ff, 2),
+        (0xf300, 2),
+        (0xf385, 2),
+        (0xf386, 2),
+    ];
+    nerd.colr.clear();
+    fs::write(
+        w.path("fonts/SymbolsNerdFontMono-Regular.ttf"),
+        nerd.build(),
+    )
+    .unwrap();
+    let path = format!("{}/frits/proof.vtfrit", env!("CARGO_MANIFEST_DIR"));
+    let out = w.path("out/proof.vtglass");
+    let fonts = w.path("fonts");
+    let o = w.run(&[
+        "--font-dir",
+        fonts.to_str().unwrap(),
+        "create",
+        "--out",
+        out.to_str().unwrap(),
+        &path,
+    ]);
+    assert_eq!(status(&o), 0, "{}{}", stdout(&o), stderr(&o));
+    let set = Arc::new(Set::from_bytes(fs::read(&out).unwrap()).unwrap());
+    let face = SetFace::new(set, 16).expect("a face");
+    for (c, held) in [
+        (0xe0b0, true),
+        (0xf2ff, true),
+        (0xf300, false),
+        (0xf385, false),
+        (0xf386, true),
+    ] {
+        let c = char::from_u32(c).unwrap();
+        assert_eq!(face.has_glyph(c), held, "{c:?}");
     }
 }

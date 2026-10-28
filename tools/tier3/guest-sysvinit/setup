@@ -1,0 +1,65 @@
+#!/bin/sh
+# Per-run setup on the guest without systemd, run as root at boot from the
+# T3PKG disc mounted at $1, before init starts the inittab's terminals:
+# unpacks vtium's install tree (tree.tar) over the root, and installs the
+# variant's config, its test fonts, the scenario screens and t3-console,
+# which the inittab runs on tty2, and builds its font sets.
+set -eu
+disc=$1
+tar -xpf "$disc"/tree.tar -C / --no-overwrite-dir --keep-directory-symlink
+tree=$(sha256sum "$disc"/tree.tar | cut -d' ' -f1)
+install -Dm644 "$disc"/kmscon.conf /etc/kmscon/kmscon.conf
+# A variant drawing with the test fonts names them in its config.
+if [ -d "$disc"/fonts ]; then
+    install -Dm644 -t /usr/local/share/tier3-fonts "$disc"/fonts/*
+fi
+# A variant drawing a PSF font draws the set built from it (ADR-1200 D9):
+# its frits are built into the store before init starts the consoles, as a
+# package hook builds them, and each set's line goes to the serial console.
+if [ -d "$disc"/frits ]; then
+    install -Dm644 -t /etc/vtium/fonts "$disc"/frits/*.vtfrit
+    for frit in "$disc"/frits/*.vtfrit; do
+        vtium-vitrify create "$(basename "$frit" .vtfrit)" > /dev/ttyS0
+    done
+fi
+# A power variant's kernel settings, such as kernel.ctrl-alt-del for the
+# hard reboot, set before the console starts.
+if [ -f "$disc"/sysctl.conf ]; then
+    sysctl -q -p "$disc"/sysctl.conf
+fi
+install -m755 "$disc"/t3-console /usr/local/sbin/t3-console
+rm -rf /usr/local/share/tier3
+cp -r "$disc"/screens /usr/local/share/tier3
+install -m755 "$disc"/t3 /usr/local/bin/t3
+# ttyS1 is the harness's event port: the scenario reports a login and each
+# drawn screen there, and the driver waits for those lines.
+stty -F /dev/ttyS1 clocal
+chmod 0666 /dev/ttyS1
+echo 'echo "T3-LOGIN $(tty)" > /dev/ttyS1' > /etc/profile.d/tier3.sh
+# A variant with two consoles gives tty3 a second vtium in place of its
+# getty, as an inittab does for each VT it runs vtium on; init reads the
+# inittab again before it starts the runlevel's terminals.
+if [ -f "$disc"/two-vts ]; then
+    sed -i 's|^3:23:respawn:/sbin/getty 38400 tty3$|3:23:respawn:/usr/local/sbin/t3-console tty3|' \
+        /etc/inittab
+    grep -qx '3:23:respawn:/usr/local/sbin/t3-console tty3' /etc/inittab
+    telinit q
+fi
+# A variant without udev stops the udev daemon and removes its database
+# before vtium starts, so vtium finds its devices in sysfs alone.
+if [ -f "$disc"/no-udev ]; then
+    /etc/init.d/udev stop
+    rm -rf /run/udev
+fi
+# Any kmscon, libtsm or vtium package installed, which must be none; PID 1,
+# whether systemd's directory exists, and the udev daemons running, which
+# the driver holds to the variant; and the tree unpacked, so the log shows
+# which build drew the screens.
+systemd=no
+[ -d /run/systemd/system ] && systemd=yes
+echo "TIER3-INSTALL-OK packages: $(dpkg-query -W -f '${Package} ${Version}\n' |
+    grep -e kmscon -e libtsm -e vtium | tr '\n' ' ');" \
+    "init: $(cat /proc/1/comm) $(readlink /proc/1/exe);" \
+    "systemd: $systemd;" \
+    "udev: $(pidof systemd-udevd udevd || echo none);" \
+    "tree: $tree" > /dev/ttyS0

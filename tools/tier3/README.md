@@ -14,6 +14,8 @@ make tier3-run VARIANTS=2d-potato-min   # the last run's tree, or TREE=DIR, with
 make tier3 JOBS=2            # up to two variants at once, each in its own VM
 make install-tree DESTDIR=D  # vtium's install tree alone
 make tier3-provenance        # each copy against its source in a kmscon checkout (KMSCON=DIR); a review step, not a gate
+make tier3-image-nosystemd   # fetch, verify and provision the guest without systemd, unless the cache holds it
+make tier3-nosystemd         # the install tree, then the variants on the guest without systemd (The guest without systemd)
 make test-tools              # the harness's self-tests, with no guest
 ```
 
@@ -30,6 +32,8 @@ Host needs: `qemu-system-x86_64` with `/dev/kvm`, `qemu-img`, `xorriso`, `gpg`, 
 | Image signature | detached `.sig` by the arch-boxes key, primary fingerprint `1B9A16984A4E8CB448712D2AE0B78BF4326C6F8F`, fetched from `keyserver.ubuntu.com` into a keyring beside the images (`fetch-image.sh`); the fingerprint pin is the trust anchor |
 | Guest packages | Arch Linux Archive snapshot `2026/10/20`; provisioning runs `pacman -Syyuu` against it, so the guest matches the snapshot exactly |
 | Goldens | `c-goldens/`, copied from `fork/tier3/golden` at the kmscon commit `provenance.tsv` names |
+| Guest without systemd | `debian-13-generic-amd64-20261015-2632.qcow2` from `cloud.debian.org/images/cloud/trixie/20261015-2632/`, SHA-256 `1010eb3215be632548cfb6793b53bd8243064d8820b5106f2becfcd179099b2f`; Debian signs no cloud image, so the pin, taken from the image whose SHA-512 matched the build's `SHA512SUMS`, is the trust anchor (`fetch-debian.sh`) |
+| Its packages | `snapshot.debian.org` at `20261016T000000Z`, the archive and its security updates |
 
 The image pins live in the Makefile, and the guest's package list in `guest/user-data.in`. The guest installs the scenario's programs (`chafa`, `libsixel`, `mpv`, `tmux`), the fonts (`ttf-dejavu`, `wqy-microhei`, `noto-fonts-emoji`) and the C reference's runtime dependencies. vtium needs only libc, libudev, libxkbcommon and libgcc_s, which the base image has.
 
@@ -37,11 +41,11 @@ The image pins live in the Makefile, and the guest's package list in `guest/user
 
 ## The install tree
 
-`make install-tree DESTDIR=D` stages vtium as a system installs it. `make tier3` and `make tier3-minimal` build it into `target/tier3/install`, emptied first, under the run lock.
+`make install-tree DESTDIR=D` stages vtium as a system installs it, with vtium-vitrify beside it. `make tier3` and `make tier3-minimal` build it into `target/tier3/install`, emptied first, under the run lock.
 
 | Path | From |
 |---|---|
-| `/usr/bin/vtium` | the minspec binary, `target/minspec/vtium` |
+| `/usr/bin/vtium` | the minspec binary, `target/x86_64-unknown-linux-gnu/minspec/vtium` |
 | `/usr/lib/systemd/system/kmsconvt@.service` | `crates/vtium/install/kmsconvt@.service`: `vtium --vt=%I --no-switchvt` in place of getty, with getty's TTY settings and `OnFailure=getty@%i` (ADR-1400, D3) |
 | `/usr/share/terminfo/k/kmscon` | `crates/vtium/install/kmscon.ti`, compiled with `tic -x` |
 | `/etc/kmscon/kmscon.conf.example` | `crates/vtium/install/kmscon.conf.example` |
@@ -55,7 +59,7 @@ The tree goes on the run's disc as `tree.tar`, every entry owned by root, and `g
 | Configuration | `/etc/kmscon/kmscon.conf`, where `setup` installs the variant's `guest/kmscon*.conf`. |
 | Log | stdout and stderr, which `setup` routes to the journal and the serial console. The driver waits for `vt: using tty /dev/tty2`, and `/dev/tty3` after the VT switch; requires every `Display NAME with backend [...] text renderer [...]` line to name the variant's renderer; reads the benchmark figures from the `terminal: render-timer: ...` lines `render-timer=log` writes (`t3_bench.py`); and reads `cell size WxH` when present. |
 | Revision | `log: vtium Revision REV`, the first such line on the console. A run fails every case of a variant whose console logged no such line, or logged another name. |
-| Size | the binary at most 2,621,440 bytes (2.50 MiB), the operator's budget (`BINARY_BUDGET` in `t3_impl.py`), raised from 2.30 MiB on 2026-10-27 when vtium reached 2,400,640 bytes. A run whose binary is larger fails, whatever its cases; raising the budget is a decision recorded on vtium/vtium#22. |
+| Size | the binary at most 2,621,440 bytes (2.50 MiB), the operator's budget (`BINARY_BUDGET` in `t3_impl.py`), raised from 2.30 MiB on 2026-10-27 when vtium reached 2,400,640 bytes. The minspec link packs relative relocations (`-z pack-relative-relocs`, DT_RELR), which takes the binary from 2,627,808 to 2,561,720 bytes; `make minspec`, `make arm` and `make install-tree` fail on a binary with no DT_RELR. DT_RELR needs glibc 2.36 at run time (vtium/vtium#143's floor) and binutils 2.38 (or lld 15) at build. A run whose binary is larger than the budget fails, whatever its cases; raising the budget is a decision recorded on vtium/vtium#22. |
 
 The guest must hold no kmscon, libtsm or vtium package, and `setup` reports the digest of the `tree.tar` it unpacked, which must be the run's. The digest shows the guest unpacked this run's archive. What built the tree is the console's own account, its Revision line, which each variant records as `console`.
 
@@ -92,7 +96,7 @@ Each step waits for state the driver can observe: a line on the serial log or th
 
 `make tier3` runs the first five (`DEFAULT_VARIANTS`), whose goldens the C reference drew with DejaVu Sans Mono through FreeType and pango, and the GL one through its GPU renderer; vtium draws in software with unifont or PSF until its outline fonts land (vtium/vtium#23), so those variants judge how far vtium is from them. Until then every case of the four 2D variants fails but `vt-switch`: the text screens on the font, and the image screens and their keyed cases also on the pictures vtium does not yet draw (vtium/vtium#48, vtium/vtium#49). Every case of `gl-1280x800` fails on its renderer: the variant requires gltex, and vtium draws in software until its GPU path lands (vtium/vtium#33). `make tier3-minimal` runs the four minspec variants. The two potato ones draw every screen, and their goldens are the C reference's minimal build with the same font backends vtium has. Their image screens draw no picture (`"images": False`): each must report images not offered, and the keys that act on pictures are not sent.
 
-The two small displays are minspec's floor and the size at which everything vtium supports is usable (vtium/vtium#75, docs/architecture.md). They draw `SMALL_SCREENS` (`t3_evaluate.py`): `small-console`, written for 40 columns, then `sgr`, `boxdraw`, `underline-styles`, `underline-colour`, `strike`, `wide-margin` and `cjk`, so `vt-restore` compares with `cjk` as in every variant. Their fonts are `tools/testfont`'s, which the run writes into `target/tier3/fonts` and the disc carries to `/usr/local/share/tier3-fonts`, so no console font of the guest's reaches them. At 320x240 the default font size is 16, which would draw the 8x8 font doubled as 20 by 15 cells, so its configuration sets `font-size=8`.
+The two small displays are minspec's floor and the size at which everything vtium supports is usable (vtium/vtium#75, docs/architecture.md). They draw `SMALL_SCREENS` (`t3_evaluate.py`): `small-console`, written for 40 columns, then `sgr`, `boxdraw`, `underline-styles`, `underline-colour`, `strike`, `wide-margin` and `cjk`, so `vt-restore` compares with `cjk` as in every variant. Their fonts are `tools/testfont`'s, which the run writes into `target/tier3/fonts` and the disc carries to `/usr/local/share/tier3-fonts`, so no console font of the guest's reaches them. vtium draws only vitrified sets (ADR-1200), so each PSF variant names the frits in `guest/frits` that `guest/setup` builds into the guest's store with `vtium-vitrify create` before the console starts, as a distribution's package hook builds them: the small displays' test fonts each with a built-in set after it filling what the font lacks, Unscii-8 at 8x8 and unifont at 8x16, and kbd's default 8x16 alone for `2d-potato-min-psf`, whose goldens the C reference drew from that font. At 320x240 no font size is set: where 16-pixel cells would leave fewer than 80 by 25, the default size is the font's own, 8 (vtium/vtium#118).
 
 The power variants run only when named, as `make tier3 VARIANTS="power-reboot power-reboot-hard power-off power-suspend-off power-suspend-logind"`. Each presses the power keys (vtium/vtium#21) on the console's login prompt, in the order of its cases, and its cases are checks without a golden (`t3_power.py`). A case's capture is the screen before its key, and it passes when the console log after the key shows vtium's line for the key and then the action carried out, with no kernel panic, and a case that ends the VM passes only on QEMU's SHUTDOWN event for it: `guest-reset` for a reboot, `guest-shutdown` for a power-off.
 
@@ -111,6 +115,32 @@ After an S3 resume the guest does not power off, whichever path suspended it. Th
 
 Three findings from the C reference's runs shaped this table. At 7680x2160 each XRGB buffer is 63 MiB, and with QEMU's default `max_hostmem` (256 MiB) the second instance on tty3 fails to create its buffers; 1 GiB clears it. Once virgl owns the scanout, QMP `screendump` fails with "no surface", so the GL variant captures over VNC on a unix socket (raw RFB, `t3_qemu.py`). QEMU 11.1's `screendump` pads each PPM row to a multiple of 4 bytes while the header gives the width, so `t3img.read_ppm` drops the padding and refuses a body of any other size.
 
+## The guest without systemd
+
+`docs/systemd.md` lists what vtium does on a host whose PID 1 is not systemd; this guest judges that column. It is Debian 13 with sysvinit as PID 1, provisioned from the pins above by `make tier3-image-nosystemd` into the cache's `base/` as `sysvinit-<digest>.qcow2`, keyed by the files in `guest-sysvinit/` it is built from (`SYSVINIT_INPUTS`), and linked from `target/tier3/vm/base-sysvinit.qcow2`. Its one boot under systemd, with cloud-init, masks the image's apt timers and purges `unattended-upgrades` before its first fetch, so nothing newer than the snapshot is installed, then installs `sysvinit-core` and `sysv-rc` in place of `systemd-sysv` (and `libpam-systemd`), and `libxkbcommon0`, the one library of vtium's the image lacks; changes the inittab's `tty2` line from getty to `t3-console`; makes `/etc/rc.local`, which initscripts runs at the end of the runlevel, the boot hook; and powers off with `systemctl`, as sysvinit's `shutdown` is the one installed and systemd does not hear it. Alpine was ruled out because it is not glibc, and Devuan because it publishes no disk image for excalibur and no dated snapshot to pin its packages to.
+
+Each boot after that runs sysvinit. The boot hook finds the run's disc with `blkid`, with or without udev, and runs `guest-sysvinit/setup`, which installs the tree and the screens as `guest/setup` does, and `t3-console`, the inittab's line: `vtium --vt=ttyN --no-switchvt` as `docs/systemd.md` says an init runs it, its log stamped onto the serial console as systemd's journal stamps it, so the driver reads it the same. Its report line adds PID 1's name and path, whether `/run/systemd/system` exists and the udev daemons running, and the driver fails the variant unless PID 1 is `init`, the directory is absent and udev runs as the variant says. vtium starts on tty2 at the boot, while tty1's getty is shown, and waits there; tty3 keeps its getty, but in `sysvinit-two-vts`, whose setup gives tty3 a second vtium and has init read the inittab again. The driver presses Ctrl+Alt+F2 once tty2's console has logged its VT, and the run goes on as under systemd.
+
+On every guest the login must report a pty (`T3-LOGIN /dev/pts/N`): vtium's session runs on one, and a login on `/dev/ttyN` is a getty's, drawn by the kernel's console, as when the keys reached a VT vtium did not hold.
+
+| Variant | Machine | Cases |
+|---|---|---|
+| `sysvinit-640x480` | 1 vCPU, 512 MB, `virtio-vga` with EDID 640x480, `kmscon-small-8x16.conf` | `sgr` and `cjk` against vtium's goldens, `vt-switch` to tty3's getty, `vt-restore` |
+| `sysvinit-no-udev` | the same, with the udev daemon stopped and `/run/udev` removed before vtium starts | the same: vtium finds its card and its keyboard in sysfs alone, with no `ID_SEAT`, `ID_PATH` or hotplug; the boot's coldplug ran before the daemon stopped, so the device nodes are udev's |
+| `sysvinit-two-vts` | the same, with a second vtium on tty3 from the boot | `cjk`, `vt-switch` to tty3's vtium, `vt-restore` |
+| `sysvinit-reboot` | 1 vCPU, 512 MB, as the power variants, `kmscon-power.conf` | `reboot-sysvinit` |
+| `sysvinit-restart` | the same, `kernel.ctrl-alt-del` at 1 | `reboot-hard` |
+| `sysvinit-power-off` | the same | `power-off-sysvinit` |
+
+| Case | Key | Passes when the console shows |
+|---|---|---|
+| `reboot-sysvinit` | `grab-reboot`, `kernel.ctrl-alt-del` at 0 | vtium's line that it asks init, sysvinit's `INIT: Switching to runlevel: 6`, its scripts' `Will now restart.`, then the kernel's `reboot: Restarting system` and QEMU's `guest-reset`, with no target of systemd's |
+| `power-off-sysvinit` | `grab-power-off` | no warning at vtium's start, vtium's line that it asks init, `INIT: Switching to runlevel: 0`, `Will now halt.`, then `reboot: Power down` and QEMU's `guest-shutdown` |
+
+sysvinit catches `SIGRTMIN+4` as systemd does (its `init.c` sets a handler that starts the power-off), and vtium reads that from the `SigCgt` mask in `/proc/1/status`, so it gives no warning on either guest; `power-off-sysvinit` and `power-off` each fail on a warning before the key (any line starting `grab-power-off is bound`, `t3_power.POWER_OFF_WARNING`). An init that does not catch the signal is vtium/vtium#140's. The drawing variants' goldens are vtium's own, in `goldens/`, and provisional until the operator reviews them.
+
+`make tier3-nosystemd` runs the variants but `sysvinit-two-vts`, in a run beside `make tier3-minimal`'s: it needs the second base image, a qcow2 overlay of about 165 MiB on the 416 MiB pristine image it downloads, which a checkout that only runs the minspec variants need not build. `sysvinit-two-vts` is vtium/vtium#139's check: two vtiums started at the boot race for DRM master, and whichever opens the card second fails to draw, logs no display within 10 s and exits; when that is tty2's, the driver's login reaches tty1's getty, which fails the variant. It joins the run once #139 lands; until then `make tier3-nosystemd VARIANTS=sysvinit-two-vts` runs it. A run of any variant boots the base image of its guest (`t3_scenario.GUESTS`) and refuses to start without it, naming the target that builds it.
+
 ## Goldens, tolerances and masks
 
 The C reference's goldens are `c-goldens/<variant>/<screen>.png`, full resolution and lossless. A keyed case's golden is named after the case; `photo-scrollforward` and `vt-restore` are compared with another screen's (`SAME_AS`). Comparison is exact unless a sidecar `<screen>.tol` sits beside the golden, holding `max_delta=`, `max_pixels=` and `mask=x0,y0,x1,y1` lines (end-exclusive); `#` starts a comment, and a malformed sidecar fails its case.
@@ -124,7 +154,7 @@ The C reference's goldens are `c-goldens/<variant>/<screen>.png`, full resolutio
 | `fail` | differs beyond the tolerance, outside a departure's rectangles, listed as a departure and no longer different, or the case could not run | fails |
 | `missing` | no golden | fails |
 
-`departures.tsv` lists the cases whose difference from their golden a departure explains: a line names variants and screens (each pair a case), the README that lists the departure under `## Departures`, its bold title exactly as written there, and the rectangles, end-exclusive and covering whole cells, its difference must lie in. Today it holds one: the "no sixel" line of the ten image screens in the two minspec variants quotes the DA1 reply, where vtium sends `CSI ? 62 ; 22 c` and the C golden shows `?60;1;6;9;15c` (row 1, columns 25 to 60). A run refuses to start when a line names a case no variant draws, a check without a golden, or a title its README does not list. A rectangle covers whole cells, so a defect in a listed cell is not seen until the line goes or its rectangles shrink.
+`departures.tsv` lists the cases whose difference from their golden a departure explains: a line names variants and screens (each pair a case), the README that lists the departure under `## Departures`, its bold title exactly as written there, and the rectangles, end-exclusive and covering whole cells, its difference must lie in. Today it holds two. The "no sixel" line of the ten image screens in the two minspec variants quotes the DA1 reply, where vtium sends `CSI ? 62 ; 22 c` and the C golden shows `?60;1;6;9;15c` (row 1, columns 25 to 60). The two dashed lines of `underline-styles` in the same variants draw vtium's dash, from each cell's left edge for five eighths of it, where the C golden shows the C reference's over each cell's middle two thirds (rows 6 and 15, from column 16). A run refuses to start when a line names a case no variant draws, a check without a golden, or a title its README does not list. A rectangle covers whole cells, so a defect in a listed cell is not seen until the line goes or its rectangles shrink.
 
 The run exits 1 on any `fail` or `missing`, or a binary over the budget. Nothing here writes a golden. vtium's own are `goldens/<variant>/<screen>.png`, for the variants that name them (`"goldens"` in `t3_scenario.py`): captures of vtium's, each added in a commit of its own that lists it and what it shows, as `goldens/README.md` does (kmscon `ADR-304` §6). Each stays in `provisional.tsv`, as `VARIANT/SCREEN` and why, until the operator has reviewed it; removing its row makes it judge. A run refuses to start when a golden or sidecar under `goldens/` or `c-goldens/` is one no case compares with, or `provisional.tsv` lists a golden that does not exist. <!-- adr-cite-ignore: kmscon's record -->
 
@@ -154,7 +184,7 @@ The figures are measured on a guest: a vCPU preempted by the host still counts a
 
 ## Self-tests
 
-`make test-tools` runs `test_t3img.py` (image I/O and the masked compare) and `test_t3.py`: the captions and screen text, the tree and its budget, the guest's account of its install, the copies against `provenance.tsv`, where provisioning fetches and builds the images, the base image's inputs, each variant's machine, the console lines the driver reads, the QEMU command line, the benchmark figures and verdicts, and the serial reader. `SixelGoldenTest` reads the colors and cells of the copied sixel goldens.
+`make test-tools` runs `test_t3img.py` (image I/O and the masked compare) and `test_t3.py`: the captions and screen text, the tree and its budget, the guest's account of its install, the copies against `provenance.tsv`, where provisioning fetches and builds the images, the base image's inputs, each variant's machine, the console lines the driver reads, the QEMU command line, the benchmark figures and verdicts, the serial reader, and the guest without systemd's variants, disc, login and account of its init and udev. `SixelGoldenTest` reads the colors and cells of the copied sixel goldens.
 
 ## What changed from the fork's harness
 

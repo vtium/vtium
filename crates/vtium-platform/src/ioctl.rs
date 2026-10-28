@@ -30,8 +30,15 @@ const FBIOBLANK: Opcode = 0x4611;
 pub(crate) const FB_ACTIVATE_NOW: u32 = 0;
 /// `FB_ACTIVATE_FORCE`, `linux/fb.h`.
 pub(crate) const FB_ACTIVATE_FORCE: u32 = 128;
+/// `FB_VISUAL_MONO01`, `linux/fb.h`: 1 bit a pixel, a set bit black.
+pub(crate) const FB_VISUAL_MONO01: u32 = 0;
+/// `FB_VISUAL_MONO10`, `linux/fb.h`: 1 bit a pixel, a set bit white.
+pub(crate) const FB_VISUAL_MONO10: u32 = 1;
 /// `FB_VISUAL_TRUECOLOR`, `linux/fb.h`.
 pub(crate) const FB_VISUAL_TRUECOLOR: u32 = 2;
+/// `FB_NONSTD_REV_PIX_IN_B`, `linux/fb.h`: the order of the pixels in each
+/// byte is reversed.
+pub(crate) const FB_NONSTD_REV_PIX_IN_B: u32 = 2;
 /// `FB_BLANK_UNBLANK`, `linux/fb.h`: `VESA_NO_BLANKING`.
 pub(crate) const FB_BLANK_UNBLANK: u32 = 0;
 /// `FB_BLANK_NORMAL`, `linux/fb.h`: `VESA_NO_BLANKING + 1`.
@@ -636,6 +643,9 @@ mod tests {
             ("FB_ACTIVATE_NOW", FB_ACTIVATE_NOW),
             ("FB_ACTIVATE_FORCE", FB_ACTIVATE_FORCE),
             ("FB_VISUAL_TRUECOLOR", FB_VISUAL_TRUECOLOR),
+            ("FB_VISUAL_MONO01", FB_VISUAL_MONO01),
+            ("FB_VISUAL_MONO10", FB_VISUAL_MONO10),
+            ("FB_NONSTD_REV_PIX_IN_B", FB_NONSTD_REV_PIX_IN_B),
         ] {
             assert_eq!(define(&fb, name), ours, "{name}");
         }

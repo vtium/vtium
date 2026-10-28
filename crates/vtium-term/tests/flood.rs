@@ -38,8 +38,11 @@
 
 mod common;
 
-use common::Rng;
-use vtium_term::{CLUSTER_BYTES_PER_CELL, CLUSTER_MAX, Glyph, Line, LineFlags, Screen, Terminal};
+use common::{Rng, row_bound};
+use vtium_term::{
+    CLUSTER_BYTES_PER_CELL, CLUSTER_MAX, Glyph, Line, LineFlags, SB_MEMORY_DEFAULT,
+    SB_SIZE_CAP_SMALL, Screen, Terminal,
+};
 
 /// The bytes the clusters a line's cells name take, length bytes included,
 /// counted from the cells.
@@ -234,18 +237,6 @@ fn resizing_and_the_alternate_screen_keep_clusters_bounded() {
     }
 }
 
-/// The most a row of the scrollback and the screen names on average, for
-/// a widest screen of `widest` columns: see the module's notes.
-fn row_bound(widest: usize) -> usize {
-    let budget = CLUSTER_BYTES_PER_CELL * widest;
-    let cluster_max = 1 + CLUSTER_MAX * 4;
-    let last = (1..=widest)
-        .map(|t| budget.min(cluster_max * t) - CLUSTER_BYTES_PER_CELL * t)
-        .max()
-        .unwrap_or(0);
-    2 * budget + last
-}
-
 /// The scrollback's and the screen's rows name at most `row_bound` bytes
 /// a row; returns what they name a row on average, and the most one row
 /// names.
@@ -313,4 +304,71 @@ fn a_rewrap_names_at_most_the_derived_bound_a_row() {
     let line = format!("{}\r\n", format!("{heavy}\u{4E2D}\r\x1b[2X").repeat(30));
     let (_, most) = widened(2, 12, &line.repeat(4));
     assert_eq!(most, 2 * budget(12));
+}
+
+/// What the scrollback's rows hold, counted from the rows, its waiting
+/// rows rewrapped first on a copy.
+fn recount(t: &Terminal) -> usize {
+    let mut t = t.clone();
+    t.screen_mut().rewrap_scrollback();
+    let s = t.screen();
+    assert_eq!(
+        s.scrollback_bytes(),
+        s.scrollback()
+            .map(|l| size_of::<Line>() + l.heap_bytes())
+            .sum::<usize>()
+    );
+    s.scrollback().count()
+}
+
+// vtium/vtium#131: on the minspec grid at the minspec line cap, rows with
+// every cell its own colors and the line's cluster budget full drop the
+// oldest lines to stay inside the default `sb-memory`, checked after every
+// line, and narrowing and widening again keeps it; a shell's plain lines
+// keep at least 1,000 lines inside the same budget.
+#[test]
+fn the_byte_budget_drops_hostile_lines_and_keeps_a_thousand_plain_ones() {
+    let make = || {
+        let mut t = Terminal::new(170, 48, SB_SIZE_CAP_SMALL);
+        t.screen_mut().set_scrollback_max(SB_SIZE_CAP_SMALL);
+        t
+    };
+    let mut hostile = make();
+    let mut written = 0;
+    for n in 0..1500 {
+        let mut line = String::new();
+        for col in 0..170 {
+            let (c, r) = (col % 256, n % 256);
+            line.push_str(&format!(
+                "\x1b[38;2;{c};{r};0;48;2;0;{c};{r}me\u{301}\u{301}"
+            ));
+        }
+        line.push_str("\x1b[m\r\n");
+        hostile.input(line.as_bytes());
+        written += 1;
+        assert!(
+            hostile.screen().scrollback_bytes() <= SB_MEMORY_DEFAULT,
+            "line {n}"
+        );
+    }
+    let kept = recount(&hostile);
+    let held = written - 47;
+    assert!(kept < held, "{kept} of {held} kept");
+    // Only the oldest lines the budget needs go: one more would pass it.
+    let row = hostile.screen().scrollback_bytes() / kept;
+    assert!(hostile.screen().scrollback_bytes() + 2 * row > SB_MEMORY_DEFAULT);
+    for cols in [100, 170] {
+        hostile.screen_mut().resize(cols, 48);
+        assert!(hostile.screen().scrollback_bytes() <= SB_MEMORY_DEFAULT);
+        recount(&hostile);
+    }
+
+    let mut plain = make();
+    for n in 0..1500 {
+        let text = "x".repeat(140);
+        let line = format!("\x1b[32muser@host\x1b[m:\x1b[1;34m~/src\x1b[m$ {n} {text}\r\n");
+        plain.input(line.as_bytes());
+    }
+    assert_eq!(recount(&plain), 1500 - 47);
+    assert!(plain.screen().scrollback_bytes() <= SB_MEMORY_DEFAULT);
 }

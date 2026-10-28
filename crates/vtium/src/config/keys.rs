@@ -6,7 +6,7 @@
 //! fails when either differs, and `VTIUM_BLESS=1` rewrites them.
 
 use vtium_font::CELL_SIDE_MAX;
-use vtium_term::{SB_SIZE_DEFAULT, SB_SIZE_MAX};
+use vtium_term::{SB_MEMORY_DEFAULT, SB_MEMORY_MAX, SB_MEMORY_MIN, SB_SIZE_DEFAULT, SB_SIZE_MAX};
 
 /// The most bytes a text value or a `login` command holds.
 pub const TEXT_MAX: usize = 4095;
@@ -234,6 +234,22 @@ pub const SB_SIZE_CAP: Key = Key {
     reader: "vtium-term",
     what: "The most lines `sb-size` may ask for. Unset, it follows the machine's memory: 10,000 lines below 2 GiB, 30,000 from 2 GiB and 100,000 from 4 GiB.",
     cite: "ADR-1001, \"Scrollback size\"; the operator on vtium/vtium#21",
+};
+
+pub const SB_MEMORY: Key = Key {
+    name: "sb-memory",
+    short: None,
+    kind: Kind::Number {
+        min: SB_MEMORY_MIN as u64,
+        max: SB_MEMORY_MAX as u64,
+        unit: "bytes",
+        word: None,
+    },
+    default: Default::Number(SB_MEMORY_DEFAULT as u64),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "The most bytes the scrollback holds, or KiB, MiB or GiB with `K`, `M` or `G` (`6M`), at most a quarter of the machine's memory, or the default when `/proc/meminfo` cannot be read; its oldest lines go past it, as past `sb-size`. The default keeps the worst scrollback a program can write inside the 16 MiB minspec peak.",
+    cite: "vtium/vtium#131; ADR-1001, \"Memory\"",
 };
 
 pub const BLINK: Key = Key {
@@ -801,8 +817,8 @@ pub const FONT_NAME: Key = Key {
     default: Default::Text("monospace"),
     scope: Scope::Anywhere,
     reader: "vtium-font",
-    what: "The font's name, or with `font-engine=psf` the path of a PSF font.",
-    cite: "src/config.c:1424",
+    what: "The font: a set in the store, by its name or by its first source, so a kbd font's name, or with `font-engine=psf` a PSF font's path, finds the set `vtium-vitrify create --kbd` or `--file` built from it. Unset, vconsole's font; with none, or a name with no set built, vtium draws its built-in sets, and logs the `create` command that builds a named one.",
+    cite: "src/config.c:1424; ADR-1200 (D9); vtium/vtium#126",
 };
 
 pub const FONT_SIZE: Key = Key {
@@ -819,6 +835,17 @@ pub const FONT_SIZE: Key = Key {
     reader: "vtium-font",
     what: "The font's height; 0 picks one from the display's size.",
     cite: "src/config.c:1423; vtium-font's `CELL_SIDE_MAX`",
+};
+
+pub const ALLOW_FONT_OPS: Key = Key {
+    name: "allow-font-ops",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(true),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Let a program switch the font among the built sets with xterm's OSC 50 (`OSC 50 ; NAME ST`, as `vtium-vitrify set NAME` sends it) and ask which set is in use (`OSC 50 ; ? ST`). On by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the sets root built into the store and the built-in ones, never a file. A switch changes the live console only; `font-name` decides the font at the next start. Off, vtium ignores OSC 50, the query included.",
+    cite: "ADR-1200 (D5); vtium/vtium#126",
 };
 
 pub const GLYPH_SOURCE: Key = Key {
@@ -920,6 +947,17 @@ pub const GLYPH_CACHE: Key = Key {
     cite: "ADR-1300; vtium/vtium#16",
 };
 
+pub const DISPLAY_DEPTH: Key = Key {
+    name: "display-depth",
+    short: None,
+    kind: Kind::Choice(&["auto", "1", "gray4", "gray16", "color"]),
+    default: Default::Text("auto"),
+    scope: Scope::Anywhere,
+    reader: "vtium-render",
+    what: "Each display's depth. `1` draws it in black and white, each cell lit or unlit by its colors, never by their brightness; `gray4` and `gray16` record a gray panel of 4 or 16 levels, drawn as color, which the panel converts; `color` draws its colors; `auto` takes the levels the display says it shows: an fbdev device at 1 bit, or a DRM panel whose driver vtium-platform lists.",
+    cite: "the operator on vtium/vtium#135",
+};
+
 pub const RENDER_TIMER: Key = Key {
     name: "render-timer",
     short: None,
@@ -976,7 +1014,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 75] = [
+pub const KEYS: [Key; 78] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -989,6 +1027,7 @@ pub const KEYS: [Key; 75] = [
     BACKSPACE_DELETE,
     SB_SIZE,
     SB_SIZE_CAP,
+    SB_MEMORY,
     BLINK,
     BLINK_TEXT,
     BLINK_DECORATIONS,
@@ -1042,6 +1081,7 @@ pub const KEYS: [Key; 75] = [
     FONT_ENGINE,
     FONT_NAME,
     FONT_SIZE,
+    ALLOW_FONT_OPS,
     GLYPH_SOURCE,
     GLYPH_SOURCE_BOX,
     GLYPH_SOURCE_BLOCK,
@@ -1051,6 +1091,7 @@ pub const KEYS: [Key; 75] = [
     GLYPH_SOURCE_LEGACY,
     MISSING,
     GLYPH_CACHE,
+    DISPLAY_DEPTH,
     RENDER_TIMER,
 ];
 

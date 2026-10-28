@@ -137,6 +137,7 @@ fn defaults() {
     assert_eq!(c.text(&FONT_NAME), Some("monospace"));
     assert_eq!(c.text(&RENDER_TIMER), Some("none"));
     assert_eq!(c.text(&GLYPH_CACHE), None);
+    assert_eq!(c.text(&DISPLAY_DEPTH), Some("auto"));
     assert_eq!(c.command(&LOGIN), None);
     for (key, on) in [
         (&SWITCHVT, true),
@@ -1173,4 +1174,119 @@ fn pointer_char_takes_one_character() {
         );
         assert_eq!(l.config.char(&POINTER_CHAR), None);
     }
+}
+
+/// `sb-memory`: the scrollback's byte budget, fenced from 1 MiB to 1 GiB
+/// (vtium/vtium#131); a quarter of the machine's memory caps it at start.
+#[test]
+fn sb_memory_is_fenced_from_1_mib_to_1_gib() {
+    super::budget::set_test_memory(Some(8 << 30));
+    assert_eq!(
+        Config::default().number(&SB_MEMORY),
+        Some(vtium_term::SB_MEMORY_DEFAULT as u64)
+    );
+    for (asked, used) in [
+        ("1048576", 1 << 20),
+        ("6291456", 6 << 20),
+        ("1073741824", 1 << 30),
+    ] {
+        let l = main_file(&format!("sb-memory={asked}\n"));
+        assert_eq!(l.reports, [], "{asked}");
+        assert_eq!(l.config.number(&SB_MEMORY), Some(used));
+    }
+    for (asked, used) in [
+        ("0", 1 << 20),
+        ("1048575", 1 << 20),
+        ("1073741825", 1 << 30),
+        ("99999999999999999999999", 1 << 30),
+    ] {
+        let l = load_with(&[&format!("--sb-memory={asked}")], None, &[]);
+        assert_eq!(l.config.number(&SB_MEMORY), Some(used), "{asked}");
+        assert_eq!(
+            problems(&l),
+            [&Problem::Clamped {
+                key: "sb-memory",
+                value: asked.into(),
+                used
+            }]
+        );
+    }
+    for (asked, used) in [
+        ("512K", 1 << 20),
+        ("1024k", 1 << 20),
+        ("6M", 6 << 20),
+        ("6m", 6 << 20),
+        ("1G", 1 << 30),
+    ] {
+        let l = main_file(&format!("sb-memory={asked}\n"));
+        assert_eq!(l.config.number(&SB_MEMORY), Some(used), "{asked}");
+        assert_eq!(l.reports.len(), usize::from(asked == "512K"), "{asked}");
+    }
+    let l = main_file("sb-memory=2G\n");
+    assert_eq!(l.config.number(&SB_MEMORY), Some(1 << 30));
+    assert_eq!(
+        problems(&l),
+        [&Problem::Clamped {
+            key: "sb-memory",
+            value: "2G".into(),
+            used: 1 << 30
+        }]
+    );
+    for bad in ["M", "6T", "6MB", "-6M", "6 M", "0x6M"] {
+        let l = main_file(&format!("sb-memory={bad}\n"));
+        assert_eq!(
+            problems(&l),
+            [&Problem::NotANumber {
+                key: "sb-memory",
+                value: bad.into()
+            }],
+            "{bad}"
+        );
+    }
+    // A key counted in anything else takes no suffix.
+    assert_eq!(
+        problems(&main_file("sb-size=2K\n")),
+        [&Problem::NotANumber {
+            key: "sb-size",
+            value: "2K".into()
+        }]
+    );
+    assert_eq!(
+        problems(&main_file("sb-memory=0\n"))
+            .first()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("sb-memory=\"0\" is out of bounds, 1048576 used")
+    );
+}
+
+// On the 512 MB minspec machine a quarter of the memory caps `sb-memory`:
+// a value past it, or past 1 GiB, is reported once, naming the value
+// asked and the value used.
+#[test]
+fn sb_memory_past_the_machines_quarter_is_reported_once() {
+    super::budget::set_test_memory(Some(512 << 20));
+    for asked in ["200M", "2G"] {
+        let l = main_file(&format!("sb-memory={asked}\n"));
+        assert_eq!(l.config.number(&SB_MEMORY), Some(128 << 20), "{asked}");
+        assert_eq!(
+            problems(&l),
+            [&Problem::Clamped {
+                key: "sb-memory",
+                value: asked.into(),
+                used: 128 << 20
+            }]
+        );
+        assert_eq!(crate::check::warnings(&l).len(), 1, "{asked}");
+    }
+    let l = main_file("sb-memory=128M\n");
+    assert_eq!(l.reports, []);
+    // Unread, the memory holds `sb-memory` to its default.
+    super::budget::set_test_memory(None);
+    let l = main_file("sb-memory=6M\n");
+    assert_eq!(
+        l.config.number(&SB_MEMORY),
+        Some(vtium_term::SB_MEMORY_DEFAULT as u64)
+    );
+    assert_eq!(crate::check::warnings(&l).len(), 2);
 }

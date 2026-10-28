@@ -13,22 +13,36 @@ workspace = true
 
 [dependencies]
 # The set format, its writer and the store's check; the PSF reader; the
-# built-in sets a frit may name as sources.
-vtium-font.workspace = true
+# built-in sets a frit may name as sources. The PSF reader is behind
+# vtium-font's `psf` feature, which only this tool enables.
+vtium-font = { workspace = true, features = ["psf"] }
 # KDGETMODE, KDFONTOP and GIO_UNIMAP for the console: source (ADR-1200 D8).
 vtium-platform.workspace = true
 # gzip's deflate, for compressed fonts and unimaps; vtium-font already
 # builds this version.
 miniz_oxide = "0.8.9"
-# The store's lock, the parser's no-new-privileges and limits, and the
-# effective uid; vtium-platform already builds this version.
-rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "process", "thread"] }
+# The store's lock, the parser's no-new-privileges and limits, the
+# effective uid, `set`'s raw mode, and the terminal's width for the
+# banner; vtium-platform already builds this version with these features.
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "process", "termios", "thread"] }
 # The decoders kbd's other compressions need (ADR-1200 D6), each pure
 # Rust with no C compiled, in this binary only; the README says why each.
 bzip2 = "=0.6.1"
 lzma-rust2 = { version = "=0.24.0", default-features = false, features = ["std", "xz"] }
 ruzstd = "=0.8.2"
+# The outline rasteriser ADR-1200 D14 decided on: outlines with hinting,
+# embedded bitmaps and color (COLR and CBDT), pure Rust, run only in the
+# parser's child; MIT or Apache-2.0, as are skrifa, read-fonts, zeno and
+# yazi under it. The README says why this one.
+swash = "=0.2.10"
 
 [dev-dependencies]
+# A pty for `set`'s and the banner's tests; vtium-platform already builds
+# this version with these features.
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "process", "pty", "termios", "thread"] }
+# The console's terminal, answering `set` in its test.
+vtium-term.workspace = true
+# The tests read gzipped fonts back with the PSF loader.
+vtium-font = { workspace = true, features = ["psf", "gzip"] }
 # The xz encoder, for the tests' fixtures only.
 lzma-rust2 = { version = "=0.24.0", default-features = false, features = ["std", "xz", "encoder"] }

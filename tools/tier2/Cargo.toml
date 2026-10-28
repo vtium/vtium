@@ -18,8 +18,13 @@ workspace = true
 
 [dependencies]
 vtium-term.workspace = true
-vtium-font.workspace = true
+# the small displays draw their PSF fonts through the PSF loader, which the
+# console leaves out
+vtium-font = { workspace = true, features = ["psf"] }
 vtium-render.workspace = true
+# vitrifies the test PSF fonts as `vtium-vitrify create` does, for the
+# screens drawn from sets
+vtium-vitrify = { path = "../../crates/vtium-vitrify" }
 # the small displays' PSF fonts, built in memory
 vtium-testfont = { path = "../testfont" }
 # provenance.tsv's reading and checks, which tier 1's copies use too

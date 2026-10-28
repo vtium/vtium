@@ -46,7 +46,7 @@ const CLUSTER_BYTES: Bound = Bound {
     value: 6,
     what: "Bytes of grapheme clusters a line keeps, per cell of the width it was written at (a line trimmed for the scrollback keeps what its cells name): each cluster's codepoints in UTF-8 and a length byte, so a base and two combining marks a cell on average",
     past: "A cluster that would pass it keeps the longest run of its first codepoints that fits, and at least its first codepoint",
-    cite: "vtium's own: it holds the worst case of the default 1,000-line scrollback inside the minspec peak (ADR-1001, \"Memory\")",
+    cite: "vtium's own: it bounds the worst a row can cost, which `sb-memory`'s default holds inside the minspec peak (ADR-1001, \"Memory\")",
 };
 
 const SB_SMALL: Bound = Bound {
@@ -79,6 +79,22 @@ const SB_MAX: Bound = Bound {
     what: "Scrollback lines any cap may allow, the configured override included",
     past: "A configured cap is clamped to it",
     cite: "vtium's own: the largest of the operator's caps, where the worst case a program can write is 531 MiB (ADR-1001, \"Memory\"); the operator asked for the cap to be configurable (2026-10-26)",
+};
+
+const SB_MEMORY_MIN_BOUND: Bound = Bound {
+    name: "SB_MEMORY_MIN",
+    value: 1 << 20,
+    what: "The least byte budget `sb-memory` sets the scrollback",
+    past: "A smaller `sb-memory` is clamped up to it, with a warning",
+    cite: "The operator's fence, vtium/vtium#131 (2026-10-28): about 138 rows at the 7,560-byte worst case, a screen of hostile rows on a minspec display, and thousands of plain lines",
+};
+
+const SB_MEMORY_MAX_BOUND: Bound = Bound {
+    name: "SB_MEMORY_MAX",
+    value: 1 << 30,
+    what: "The most byte budget `sb-memory` may set the scrollback; a quarter of the machine's memory caps it lower, and never below `SB_MEMORY_MIN`",
+    past: "A larger `sb-memory` is clamped to the lesser of it and a quarter of the machine's memory, with a warning",
+    cite: "The operator's fence, vtium/vtium#131 (2026-10-28): 128 MiB on the 512 MB minspec board, scaled by memory as `sb_size_cap` scales lines",
 };
 
 const REPLIES_PENDING: Bound = Bound {
@@ -171,7 +187,7 @@ const LINKS_BYTES: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 19] = [
+pub(crate) const BOUNDS: [Bound; 21] = [
     COLUMNS,
     ROWS,
     CLUSTER,
@@ -180,6 +196,8 @@ pub(crate) const BOUNDS: [Bound; 19] = [
     SB_MEDIUM,
     SB_LARGE,
     SB_MAX,
+    SB_MEMORY_MIN_BOUND,
+    SB_MEMORY_MAX_BOUND,
     REPLIES_PENDING,
     VERSION,
     TERMCAP_ENTRIES,
@@ -238,6 +256,13 @@ pub const SB_SIZE_CAP_LARGE: usize = SB_LARGE.value;
 
 /// The most scrollback lines any cap allows, a configured one included.
 pub const SB_SIZE_MAX: usize = SB_MAX.value;
+
+/// The least byte budget `sb-memory` sets the scrollback.
+pub const SB_MEMORY_MIN: usize = SB_MEMORY_MIN_BOUND.value;
+
+/// The most byte budget `sb-memory` may set the scrollback, before a
+/// quarter of the machine's memory caps it.
+pub const SB_MEMORY_MAX: usize = SB_MEMORY_MAX_BOUND.value;
 
 /// The most bytes of replies held before the host takes them.
 pub const REPLIES_PENDING_MAX: usize = REPLIES_PENDING.value;

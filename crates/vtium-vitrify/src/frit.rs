@@ -15,6 +15,11 @@ pub const FRIT_BYTES_MAX: usize = 64 * 1024;
 pub const FRIT_LINE_MAX: usize = 4096;
 /// The most sources a frit names.
 pub const FRIT_SOURCES_MAX: usize = 16;
+/// The smallest and largest cell height `size=` names: from minspec's 8
+/// pixels to an 8K display's large sizes, as far as a glyph two cells
+/// wide still fits a set's 16 KiB chunk.
+pub const FRIT_SIZE_MIN: u32 = 6;
+pub const FRIT_SIZE_MAX: u32 = 96;
 
 /// Set names a frit may not take: the built-in sets'.
 pub const RESERVED: [&str; 2] = ["unifont", "unscii-8"];
@@ -48,8 +53,11 @@ pub enum Origin {
     /// A font by family, matched on the machine that builds the set, as
     /// fontconfig matches a family: case and blanks ignored.
     Font(String),
-    /// A font file by its absolute path.
+    /// A bitmap font file by its absolute path.
     File(PathBuf),
+    /// An outline font file, TrueType or OpenType or a collection of
+    /// them, by its absolute path.
+    Outline(PathBuf),
     /// `FONT=` and `FONT_UNIMAP=` from vconsole.conf and the kernel's
     /// command line.
     Vconsole,
@@ -96,6 +104,9 @@ pub struct Frit {
     pub sources: Vec<Source>,
     /// `compress=`: deflate the strikes that gain (ADR-1200 D13).
     pub compress: bool,
+    /// `size=`: the cell heights an outline font sets the cell at, one
+    /// strike each, in the frit's order.
+    pub sizes: Vec<u32>,
     pub license: Option<String>,
     /// The frit's bytes, verbatim, for the provenance and the build key.
     pub text: String,
@@ -148,6 +159,7 @@ impl Frit {
         let mut name = None;
         let mut sources: Vec<Source> = Vec::new();
         let mut compress = None;
+        let mut sizes: Vec<u32> = Vec::new();
         let mut license = None;
         let mut warnings = Vec::new();
         let not_portable = |line: usize, key: &str| FritError {
@@ -199,8 +211,10 @@ impl Frit {
                         return Err(err(n, "more sources than FRIT_SOURCES_MAX"));
                     }
                     let origin = origin(value).map_err(|why| err(n, &why))?;
-                    if matches!(origin, Origin::File(_)) {
-                        warnings.push(not_portable(n, "source=file:"));
+                    match origin {
+                        Origin::File(_) => warnings.push(not_portable(n, "source=file:")),
+                        Origin::Outline(_) => warnings.push(not_portable(n, "source=outline:")),
+                        _ => {}
                     }
                     sources.push(Source {
                         spelling: value.to_owned(),
@@ -216,7 +230,10 @@ impl Frit {
                     let i = current(&mut sources)?;
                     let source = sources.get_mut(i).ok_or_else(|| err(n, "no source"))?;
                     once(source.unimap.is_some())?;
-                    if matches!(source.origin, Origin::Builtin(_) | Origin::Console(_)) {
+                    if matches!(
+                        source.origin,
+                        Origin::Builtin(_) | Origin::Console(_) | Origin::Outline(_)
+                    ) {
                         return Err(err(n, "unimap= for a source that carries its own map"));
                     }
                     if value.contains('/') && !value.starts_with('/') {
@@ -232,11 +249,11 @@ impl Frit {
                     let source = sources.get_mut(i).ok_or_else(|| err(n, "no source"))?;
                     if !matches!(
                         source.origin,
-                        Origin::Kbd(_) | Origin::File(_) | Origin::Font(_)
+                        Origin::Kbd(_) | Origin::File(_) | Origin::Font(_) | Origin::Outline(_)
                     ) {
                         return Err(err(
                             n,
-                            &format!("{key}= is for a kbd:, file: or font: source"),
+                            &format!("{key}= is for a kbd:, file:, font: or outline: source"),
                         ));
                     }
                     if key == "package" {
@@ -278,12 +295,37 @@ impl Frit {
                     once(license.is_some())?;
                     license = Some(value.to_owned());
                 }
-                "size" | "cp-size" => {
+                "size" => {
+                    if sizes.len() >= crate::outline::OUTLINE_CELLS_MAX {
+                        return Err(err(
+                            n,
+                            &format!(
+                                "more than {} size= lines",
+                                crate::outline::OUTLINE_CELLS_MAX
+                            ),
+                        ));
+                    }
+                    let size = value
+                        .parse::<u32>()
+                        .ok()
+                        .filter(|h| (FRIT_SIZE_MIN..=FRIT_SIZE_MAX).contains(h) && !value.starts_with('0'))
+                        .ok_or_else(|| {
+                            err(
+                                n,
+                                &format!(
+                                    "size= is a cell height in pixels, {FRIT_SIZE_MIN} to {FRIT_SIZE_MAX}"
+                                ),
+                            )
+                        })?;
+                    if sizes.contains(&size) {
+                        return Err(err(n, &format!("size={size} given twice")));
+                    }
+                    sizes.push(size);
+                }
+                "cp-size" => {
                     return Err(err(
                         n,
-                        &format!(
-                            "{key}= is for outline and CPI sources, not built yet (vtium/vtium#125's later slices)"
-                        ),
+                        "cp-size= is for CPI sources, not built yet (vtium/vtium#125's later slices)",
                     ));
                 }
                 k if k == "glyph-source" || k.starts_with("glyph-source-") => {
@@ -314,6 +356,7 @@ impl Frit {
             name,
             sources,
             compress: compress.unwrap_or(true),
+            sizes,
             license,
             text: text.to_owned(),
             file: file.to_owned(),
@@ -329,7 +372,7 @@ fn origin(value: &str) -> Result<Origin, String> {
     }
     let Some((kind, rest)) = value.split_once(':') else {
         return Err(format!(
-            "source={value} is none of font:, kbd:, file:, vconsole, console: or builtin:"
+            "source={value} is none of font:, kbd:, file:, outline:, vconsole, console: or builtin:"
         ));
     };
     match kind {
@@ -345,12 +388,16 @@ fn origin(value: &str) -> Result<Origin, String> {
             }
             Ok(Origin::Kbd(rest.to_owned()))
         }
-        "file" => {
+        "file" | "outline" => {
             let path = PathBuf::from(rest);
             if !path.is_absolute() {
-                return Err("file: takes an absolute path".to_owned());
+                return Err(format!("{kind}: takes an absolute path"));
             }
-            Ok(Origin::File(path))
+            Ok(if kind == "file" {
+                Origin::File(path)
+            } else {
+                Origin::Outline(path)
+            })
         }
         "console" => rest
             .parse::<u16>()
@@ -360,11 +407,11 @@ fn origin(value: &str) -> Result<Origin, String> {
             .ok_or_else(|| "console: takes a VT's number, 1 to 63".to_owned()),
         "builtin" if RESERVED.contains(&rest) => Ok(Origin::Builtin(rest.to_owned())),
         "builtin" => Err("builtin: is unifont or unscii-8".to_owned()),
-        "bdf" | "outline" => Err(format!(
+        "bdf" => Err(format!(
             "{kind}: sources are not built yet (vtium/vtium#125's later slices)"
         )),
         _ => Err(format!(
-            "source={value} is none of font:, kbd:, file:, vconsole, console: or builtin:"
+            "source={value} is none of font:, kbd:, file:, outline:, vconsole, console: or builtin:"
         )),
     }
 }
@@ -457,8 +504,12 @@ mod tests {
              style=regular\n\
              package=terminus-font\n\
              sha256=00000000000000000000000000000000000000000000000000000000000000ff\n\
+             source=outline:/usr/share/fonts/noto/NotoColorEmoji.ttf\n\
+             cover=U+1F600-U+1F64F\n\
              compress=no\n\
-             license=OFL-1.1\n",
+             license=OFL-1.1\n\
+             size=16\n\
+             size=8\n",
         )
         .expect("parses");
         assert_eq!(r.name, "term-16");
@@ -474,6 +525,7 @@ mod tests {
                 &Origin::Console(3),
                 &Origin::Builtin("unifont".into()),
                 &Origin::Font("Terminus 16".into()),
+                &Origin::Outline("/usr/share/fonts/noto/NotoColorEmoji.ttf".into()),
             ]
         );
         let font = &r.sources[5];
@@ -481,6 +533,9 @@ mod tests {
         let mut sha = [0u8; 32];
         sha[31] = 0xff;
         assert_eq!((font.sha256, font.line), (Some(sha), 12));
+        assert_eq!(r.sources[6].cover, [(0x1f600, 0x1f64f)]);
+        assert_eq!(r.sizes, [16, 8]);
+        assert_eq!(r.warnings.len(), 2, "file: and outline: name paths here");
         assert_eq!(r.sources[0].unimap.as_deref(), Some("lat1u"));
         assert_eq!(r.sources[0].cover, [(0, 0x7f), (0x2500, 0x257f)]);
         assert!(r.sources[0].covers(0x41) && !r.sources[0].covers(0xe9));
@@ -508,10 +563,20 @@ mod tests {
             ("source=console:64\n", 1, "1 to 63"),
             ("source=builtin:terminus\n", 1, "unifont or unscii-8"),
             ("source=bdf:/x.bdf\n", 1, "not built yet"),
-            ("source=outline:/x.ttf\n", 1, "not built yet"),
+            ("source=outline:x.ttf\n", 1, "absolute path"),
+            ("source=outline:/x.ttf\nunimap=x\n", 2, "its own map"),
             ("source=x\n", 1, "none of"),
             ("source=kbd:../x\n", 1, ".."),
-            ("source=kbd:x\nsize=24\n", 2, "not built yet"),
+            ("source=kbd:x\nsize=0\n", 2, "cell height"),
+            ("source=kbd:x\nsize=97\n", 2, "cell height"),
+            ("source=kbd:x\nsize=016\n", 2, "cell height"),
+            ("source=kbd:x\nsize=16\nsize=16\n", 3, "given twice"),
+            (
+                "source=kbd:x\nsize=8\nsize=16\nsize=24\nsize=32\n",
+                5,
+                "more than 3",
+            ),
+            ("source=kbd:x\nlicense=a\nlicense=b\n", 3, "given twice"),
             ("source=kbd:x\ncp-size=8\n", 2, "not built yet"),
             ("source=kbd:x\nstyle=bold\n", 2, "not built yet"),
             ("source=kbd:x\nglyph-source=font\n", 2, "not built yet"),
@@ -524,7 +589,7 @@ mod tests {
             (
                 "source=builtin:unifont\npackage=x\n",
                 2,
-                "kbd:, file: or font:",
+                "kbd:, file:, font: or outline:",
             ),
             ("source=font:x\nsha256=ABC\n", 2, "64 lower-case hex"),
             ("source=font:x\npackage=a\npackage=b\n", 3, "given twice"),

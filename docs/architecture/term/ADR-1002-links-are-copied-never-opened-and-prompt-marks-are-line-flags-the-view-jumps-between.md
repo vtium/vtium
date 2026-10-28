@@ -63,7 +63,7 @@ OSC 8 attaches a URI to the cells printed while it is open; OSC 133 marks where 
 
 The C reference dropped both sequences: libtsm kept 127 bytes of an OSC string and handed OSC 8 and OSC 133 to kmscon, which took only its own two strings. Its probes for both are placeholders. ADR-1000 lists `osc.8` and `osc.133` as supported, at the `top` layer.
 
-The console shapes the choices. vtium runs on a VT with no desktop, no browser and no opener such as `xdg-open`; its main process holds root for life (ADR-1400). It has a pointer, keyboard grabs, and a selection buffer that the user's copies and OSC 52 fill and the middle button and Shift+Insert paste (vtium/vtium#91, #39). At minspec, ADR-1001's worst default scrollback leaves 0.34 MiB under the 15.7 MiB peak.
+The console shapes the choices. vtium runs on a VT with no desktop, no browser and no opener such as `xdg-open`; its main process holds root for life (ADR-1400). It has a pointer, keyboard grabs, and a selection buffer that the user's copies and OSC 52 fill and the middle button and Shift+Insert paste (vtium/vtium#91, #39). At minspec, ADR-1001's worst default scrollback, held to `sb-memory`'s default (vtium/vtium#131), stays inside the 16 MiB peak.
 
 What other terminals do, from their source at the commits the basis names:
 
@@ -95,7 +95,7 @@ What links cost, against ADR-1001's 48-byte line and 8-byte cell:
 | One link, on a line with no tables | nothing | 84 bytes: the 80-byte table block and 4 | as above |
 | A link per cell, 170 cells, ADR-1001's worst line | nothing | 680 bytes once trimmed, which ADR-1001's worst case counts | within 256 KiB in all |
 
-A `file://` URI of 50 bytes is charged 114, so the store holds about 2,300 such links. At the default 1,000 lines, ADR-1001's worst case with a full store comes to about 15.61 MiB, 0.09 MiB under the 15.7 MiB peak; at the 10,000-line cap the store adds its 0.25 MiB to 63.2 MiB.
+A `file://` URI of 50 bytes is charged 114, so the store holds about 2,300 such links. With a full store, ADR-1001's worst default scrollback, held to `sb-memory`'s default, comes to about 15.99 MiB against the 16 MiB peak; at the 10,000-line cap the store adds its 0.25 MiB to 63.2 MiB.
 
 | Option | Cost | Who does it | Verdict |
 |---|---|---|---|

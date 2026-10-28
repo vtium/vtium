@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{rows, term};
+use common::{rows, scrollback, term};
 use vtium_term::{Age, Color, Palette, Rgb, Style, Terminal};
 
 fn palette() -> Palette {
@@ -292,4 +292,35 @@ fn columns_a_widening_resize_adds_take_the_lines_fill() {
         assert!(line.cells()[4..].iter().all(|c| c.is_blank()));
         assert_eq!(line.style(line.cells()[3]), blue);
     }
+}
+
+// The scrollback holds at most `sb-memory` bytes as well as `sb-size`
+// lines: a budget a tenth of what 100 lines of a style a cell cost keeps a
+// tenth of them, newest last, where the C reference kept every line under
+// its line count.
+#[test]
+fn the_scrollback_drops_its_oldest_lines_past_its_byte_budget() {
+    let feed = |budget: Option<usize>| {
+        let mut t = Terminal::new(20, 2, 1000);
+        t.screen_mut().set_scrollback_max(1000);
+        if let Some(b) = budget {
+            t.screen_mut().set_scrollback_memory(b);
+        }
+        for n in 0..101 {
+            let line: String = (0..20)
+                .map(|c| format!("\x1b[38;5;{}m{}", c + n % 200, n % 10))
+                .collect();
+            t.input(format!("{line}\x1b[m\r\n").as_bytes());
+        }
+        t
+    };
+    let all = feed(None);
+    assert_eq!(all.screen().scrollback().count(), 100);
+    let tenth = all.screen().scrollback_bytes() / 10;
+    let kept = feed(Some(tenth));
+    let s = kept.screen();
+    assert!(s.scrollback_bytes() <= tenth);
+    let n = s.scrollback().count();
+    assert!((9..=10).contains(&n), "{n} lines kept");
+    assert_eq!(scrollback(s).last(), scrollback(all.screen()).last());
 }

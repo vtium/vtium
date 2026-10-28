@@ -249,17 +249,17 @@ pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
         return Err("an unknown sprite source");
     }
 
+    let key = |s: &RawStrike| (s.cell_height, s.cell_width, s.style, s.format);
     let mut order: Vec<&RawStrike> = set.strikes.iter().collect();
-    order.sort_by_key(|s| (s.cell_height, s.cell_width, s.style));
+    order.sort_by_key(|s| key(s));
     if order.is_empty() || u32_of(order.len())? > SET_STRIKES_MAX {
         return Err("no strikes, or more than SET_STRIKES_MAX");
     }
-    let key = |s: &RawStrike| (s.cell_height, s.cell_width, s.style);
     if order
         .windows(2)
         .any(|w| matches!(w, [a, b] if key(a) == key(b)))
     {
-        return Err("two strikes of one style and cell size");
+        return Err("two strikes of one style, cell size and format");
     }
     for s in &order {
         if !matches!(s.format, FORMAT_BITS | FORMAT_R8 | FORMAT_RGBA) {
@@ -281,6 +281,18 @@ pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
     }
 
     let laid: Vec<Laid> = order.iter().map(|s| lay_out(s)).collect::<Result<_, _>>()?;
+    // one cell's strikes, a pixel format each, map codepoints apart
+    let mut taken: Vec<((u16, u16, u8), u32)> = order
+        .iter()
+        .flat_map(|s| {
+            let k = (s.cell_height, s.cell_width, s.style);
+            s.map.iter().map(move |&(cp, _)| (k, cp))
+        })
+        .collect();
+    taken.sort_unstable();
+    if taken.windows(2).any(|w| matches!(w, [a, b] if a == b)) {
+        return Err("two strikes at a cell map one codepoint");
+    }
     let total_runs = laid
         .iter()
         .try_fold(0u32, |n, l| checked(n, u32_of(l.runs.len())?))?;

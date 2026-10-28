@@ -4,11 +4,15 @@
 
 .DEFAULT_GOAL := help
 
+# The x86_64 build links against the bookworm sysroot (below), so the binaries
+# a release ships need at most glibc 2.36.
+X86_TARGET := x86_64-unknown-linux-gnu
+
 # The binary the VT review runs. It runs as root, so it is named in this file
 # or on make's command line (make vt-demo VTIUM_BIN=PATH), never taken from a
 # stale export in the shell. The default is the minspec build, which the vt
 # targets build first; another binary is run as it is.
-VTIUM_MINSPEC := $(or $(CARGO_TARGET_DIR),target)/minspec/vtium
+VTIUM_MINSPEC := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/minspec/vtium
 VT_GOALS := vt-demo vt-login vt-check vt-shell
 ifneq ($(filter $(VT_GOALS),$(MAKECMDGOALS)),)
 ifneq ($(filter environment%,$(origin VTIUM_BIN)),)
@@ -25,19 +29,58 @@ vt_build := $(if $(filter $(VTIUM_MINSPEC),$(VTIUM_BIN)),minspec)
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*## " } /^[a-zA-Z0-9_-]+:.*## / { printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
+# The minspec console binary links with packed relative relocations
+# (DT_RELR), which saves 65,848 B (vtium/vtium#143's floor: glibc 2.36 reads
+# them; the linker needs binutils 2.38 or lld 15). cargo rustc hands the flag
+# to the vtium binary's link alone, so the default dev build, cargo test and
+# the other crates' links stay as they are.
+RELR_LINK := -C link-arg=-Wl,-z,pack-relative-relocs
+
+# check-relr FILE fails unless the dynamic section of FILE carries DT_RELR, so
+# the flag cannot drop silently.
+define check-relr
+readelf -d $(1) | grep -q '(RELR)' || { echo "$(1) carries no DT_RELR: the minspec link lost -z pack-relative-relocs" >&2; exit 1; }
+endef
+
+# vtium/vtium#143: a shipped binary needs at most glibc GLIBC_FLOOR, the
+# release Debian 12 carries. check-glibc FILE reads the highest GLIBC_ version
+# FILE requires and fails above the floor.
+GLIBC_FLOOR := 2.36
+define check-glibc
+top=$$(readelf -V $(1) | grep -o 'GLIBC_[0-9][0-9.]*' | sort -Vu | tail -n1); \
+echo "$(1): highest required $${top:-no GLIBC_ version}"; \
+[ "$$(printf '%s\nGLIBC_$(GLIBC_FLOOR)\n' "$$top" | sort -V | tail -n1)" = GLIBC_$(GLIBC_FLOOR) ] || { echo "$(1) needs $$top, over the floor GLIBC_$(GLIBC_FLOOR)" >&2; exit 1; }
+endef
+
+# The x86_64 builds link through tools/arm's wrappers against the bookworm
+# sysroot, as the ARM targets do; the wrappers are named for these targets
+# alone, so the default build and cargo test use the host's toolchain.
+ARM_WRAP := $(CURDIR)/tools/arm
+minspec install-tree: export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = $(ARM_WRAP)/$(X86_TARGET)-cc
+minspec install-tree: export PKG_CONFIG_x86_64_unknown_linux_gnu = $(ARM_WRAP)/$(X86_TARGET)-pkg-config
+
 .PHONY: minspec
-minspec: ## Build the minspec binary, target/minspec/vtium
-	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo build --profile minspec -p vtium
+minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/minspec/vtium (needs clang)
+	tools/arm/sysroot fetch amd64
+	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) -- $(RELR_LINK)
+	$(call check-relr,$(VTIUM_MINSPEC))
+	$(call check-glibc,$(VTIUM_MINSPEC))
 
 # vtium as a system installs it, staged under DESTDIR: the minspec binary,
-# the VT unit, the compiled terminfo entry and the example configuration.
-# Tier 3 installs this tree in its guest.
+# vtium-vitrify, the VT unit, the compiled terminfo entry and the example
+# configuration. Tier 3 installs this tree in its guest.
 DESTDIR ?= target/install-tree
 VTIUM_INSTALL := crates/vtium/install
+VTIUM_VITRIFY := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/release/vtium-vitrify
 
 .PHONY: install-tree
 install-tree: minspec ## Stage vtium's install tree under DESTDIR (default target/install-tree; needs tic)
 	install -Dm755 $(VTIUM_MINSPEC) $(DESTDIR)/usr/bin/vtium
+	$(call check-relr,$(DESTDIR)/usr/bin/vtium)
+	$(call check-glibc,$(DESTDIR)/usr/bin/vtium)
+	cargo build --release -p vtium-vitrify --target $(X86_TARGET)
+	install -Dm755 $(VTIUM_VITRIFY) $(DESTDIR)/usr/bin/vtium-vitrify
+	$(call check-glibc,$(DESTDIR)/usr/bin/vtium-vitrify)
 	install -Dm644 $(VTIUM_INSTALL)/kmsconvt@.service $(DESTDIR)/usr/lib/systemd/system/kmsconvt@.service
 	install -dm755 $(DESTDIR)/usr/share/terminfo
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/kmscon.ti
@@ -51,7 +94,6 @@ install-tree: minspec ## Stage vtium's install tree under DESTDIR (default targe
 # an ARM machine uses its own toolchain.
 ARM_TARGETS      ?= aarch64-unknown-linux-gnu armv7-unknown-linux-gnueabihf
 ARM_TEST_TARGETS ?= aarch64-unknown-linux-gnu
-ARM_WRAP         := $(CURDIR)/tools/arm
 arm arm-test: export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = $(ARM_WRAP)/aarch64-unknown-linux-gnu-cc
 arm arm-test: export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER = $(ARM_WRAP)/aarch64-unknown-linux-gnu-run
 arm arm-test: export PKG_CONFIG_aarch64_unknown_linux_gnu = $(ARM_WRAP)/aarch64-unknown-linux-gnu-pkg-config
@@ -66,6 +108,11 @@ arm-sysroot: ## Fetch and verify the Debian sysroots the ARM targets link agains
 .PHONY: arm
 arm: arm-sysroot ## Build the minspec profile for each ARM target, target/TRIPLE/minspec (ARM_TARGETS='...'; needs clang)
 	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo build --profile minspec $(addprefix --target ,$(ARM_TARGETS))
+	for t in $(ARM_TARGETS); do \
+		VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $$t -- $(RELR_LINK) || exit 1; \
+		$(call check-relr,$(or $(CARGO_TARGET_DIR),target)/$$t/minspec/vtium) || exit 1; \
+		$(call check-glibc,$(or $(CARGO_TARGET_DIR),target)/$$t/minspec/vtium) || exit 1; \
+	done
 
 .PHONY: arm-test
 arm-test: arm-sysroot ## Run the workspace's tests for each ARM target under qemu-user (ARM_TEST_TARGETS='...'; needs clang, qemu-user)
@@ -114,7 +161,7 @@ test-tools: ## Test the VT review tools and the tier 3 harness without a VT, sud
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I -B tools/tier3/test_t3img.py
 	python3 -I -B tools/tier3/test_t3.py
-	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/tier3-install tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
+	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 # The review targets block until the run ends, then print its answers. Their
 # variables reach tools/vt/vt.sh through the environment, unexpanded, never as
@@ -164,6 +211,23 @@ vt-check: $(vt_build) ## Run a guide's checks on a free VT; the operator answers
 tier2: ## Draw tier 2's screens and judge them against their goldens
 	cargo build --release -p vtium-tier2 --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/tier2 run
+
+# The demonstration set (vtium/vtium#142): the test card drawn for each
+# display profile into docs/specimens/, and judged against what is committed.
+# The outline profiles draw the set vtium-vitrify builds from the pinned fonts
+# specimens-fonts fetches into $XDG_CACHE_HOME/vtium/specimens/fonts.
+.PHONY: specimens specimens-check specimens-fonts
+specimens: ## Draw the test card for each display profile into docs/specimens (REVIEW=DIR copies each collage there)
+	cargo build --release -p vtium-specimens -p vtium-vitrify --bins
+	$(or $(CARGO_TARGET_DIR),target)/release/specimens draw --vitrify $(or $(CARGO_TARGET_DIR),target)/release/vtium-vitrify $(if $(REVIEW),--review $(REVIEW))
+
+specimens-check: ## Draw the specimens again: an accepted profile that moved fails, a provisional one reports drift
+	cargo build --release -p vtium-specimens -p vtium-vitrify --bins
+	$(or $(CARGO_TARGET_DIR),target)/release/specimens check --vitrify $(or $(CARGO_TARGET_DIR),target)/release/vtium-vitrify
+
+specimens-fonts: ## Fetch the outline profiles' pinned fonts into the cache, checking each SHA-256
+	cargo build --release -p vtium-specimens --bins
+	$(or $(CARGO_TARGET_DIR),target)/release/specimens fetch-fonts
 
 .PHONY: tier2-provenance
 tier2-provenance: ## Check tools/tier2's copies against their sources with git show (KMSCON=DIR)
@@ -230,3 +294,27 @@ tier3-provenance: ## Check tools/tier3's copies against their sources with git (
 .PHONY: tier3-run
 tier3-run: ## Tier 3 on a tree built already: the last run's, or TREE=DIR (VARIANTS=, JOBS= as for tier3)
 	$(T3_RUN) $(if $(TREE),--tree $(TREE)) $(VARIANTS)
+
+# Tier 3 on the guest without systemd (tools/tier3/README.md, docs/systemd.md):
+# Debian 13's generic cloud image, pinned by its build and SHA-256, with its
+# packages from snapshot.debian.org at a pinned time and sysvinit as PID 1.
+# Debian signs no cloud image; the SHA-256 is of the image whose SHA-512
+# matched the build's SHA512SUMS. Its base image is a second one, beside the
+# Arch guest's, so the run is beside tier3-minimal's.
+T3SV_IMAGE_VER    := 20261015-2632
+T3SV_IMAGE        := debian-13-generic-amd64-$(T3SV_IMAGE_VER).qcow2
+T3SV_IMAGE_URL    := https://cloud.debian.org/images/cloud/trixie/$(T3SV_IMAGE_VER)
+T3SV_IMAGE_SHA256 := 1010eb3215be632548cfb6793b53bd8243064d8820b5106f2becfcd179099b2f
+T3SV_SNAPSHOT     := 20261016T000000Z
+
+.PHONY: tier3-image-nosystemd
+tier3-image-nosystemd: ## Fetch, verify and provision tier 3's guest without systemd, unless the cache holds it (T3_IMAGES=DIR)
+	$(T3_PY) $(T3_DIR)/t3.py provision --guest sysvinit --image $(T3SV_IMAGE) \
+		--archive $(T3SV_SNAPSHOT) --url $(T3SV_IMAGE_URL) --sha256 $(T3SV_IMAGE_SHA256) \
+		--images $(T3_IMAGES)
+
+.PHONY: tier3-nosystemd
+tier3-nosystemd: tier3-image-nosystemd ## Tier 3 on the guest without systemd: vtium under sysvinit, without udev, and its power keys
+	T3_VTIUM_REV=$(T3_REV) T3_IMAGE=$(T3SV_IMAGE) T3_IMAGE_SHA256=$(T3SV_IMAGE_SHA256) \
+		T3_ARCHIVE=$(T3SV_SNAPSHOT) $(T3_PY) $(T3_DIR)/t3.py run --jobs $(JOBS) \
+		--deadline $(T3_DEADLINE) --tree-target install-tree $(or $(VARIANTS),sysvinit-640x480 sysvinit-no-udev sysvinit-reboot sysvinit-restart sysvinit-power-off)

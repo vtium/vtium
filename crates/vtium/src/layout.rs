@@ -1,6 +1,7 @@
 //! The grid and each display's font height, with several displays at
-//! different sizes, and the zoom and rotation steps
+//! different sizes, the zoom's direction and the rotation step
 //! (`src/terminal.c:961-1138, 1166-1203, 1325-1355` at kmscon b1f7a7c5).
+//! The heights a zoom steps through are the font's ([`crate::font::zoom`]).
 //!
 //! The grid is the smallest every display holds at the base font. A
 //! larger display then draws at the largest height that still holds that
@@ -76,15 +77,6 @@ fn to_usize(n: u32) -> usize {
 pub enum Zoom {
     In,
     Out,
-}
-
-/// The height a zoom asks for from `size`, a size `step` at a time; `None`
-/// past 150 in, or below 10 out.
-pub fn zoom(size: u32, step: u32, zoom: Zoom) -> Option<u32> {
-    match zoom {
-        Zoom::In => (size <= 150).then(|| size.saturating_add(step)),
-        Zoom::Out => size.checked_sub(step).filter(|&s| s >= 10 && size > step),
-    }
 }
 
 /// The orientation a quarter turn gives, clockwise when `cw`.
@@ -171,17 +163,6 @@ mod tests {
     fn no_display_holds_a_cell() {
         assert_eq!(layout(&[], false, 16, 16, bitmap), None);
         assert_eq!(layout(&[(4, 4)], false, 16, 16, bitmap), None);
-    }
-
-    #[test]
-    fn zoom_steps_within_its_limits() {
-        assert_eq!(zoom(16, 16, Zoom::In), Some(32));
-        assert_eq!(zoom(150, 1, Zoom::In), Some(151));
-        assert_eq!(zoom(151, 1, Zoom::In), None);
-        assert_eq!(zoom(32, 16, Zoom::Out), Some(16));
-        assert_eq!(zoom(16, 16, Zoom::Out), None);
-        assert_eq!(zoom(19, 9, Zoom::Out), Some(10));
-        assert_eq!(zoom(18, 9, Zoom::Out), None);
     }
 
     #[test]

@@ -2,3 +2,16 @@
 # golden under goldens/, and why. A case compared with a provisional golden
 # is drawn and compared, and its difference is noted but does not fail the
 # run; the row goes when the operator accepts the golden.
+sysvinit-640x480/sgr	vtium's capture on the guest without systemd (vtium/vtium#104), pixel for pixel the reviewed 2d-640x480-psf16 golden of the same screen; not yet reviewed
+sysvinit-640x480/cjk	the recaptured 2d-640x480-psf16 golden of the same screen, copied pixel for pixel (vtium/vtium#126: the guest without systemd draws the same set), not captured on that guest yet; not yet reviewed
+sysvinit-no-udev/sgr	vtium's capture on the guest without systemd (vtium/vtium#104), pixel for pixel the reviewed 2d-640x480-psf16 golden of the same screen; not yet reviewed
+sysvinit-no-udev/cjk	the recaptured 2d-640x480-psf16 golden of the same screen, copied pixel for pixel (vtium/vtium#126: the guest without systemd draws the same set), not captured on that guest yet; not yet reviewed
+sysvinit-two-vts/cjk	the recaptured 2d-640x480-psf16 golden of the same screen, copied pixel for pixel (vtium/vtium#126: the guest without systemd draws the same set), not captured on that guest yet; not yet reviewed
+2d-320x240-psf8/underline-styles	vtium/vtium#126: recaptured from the set of the 8x8 test font with Unscii-8 after it; a character neither holds draws as Unscii-8's missing glyph; awaits the operator's review
+2d-320x240-psf8/strike	vtium/vtium#126: recaptured from the set of the 8x8 test font with Unscii-8 after it; a character neither holds draws as Unscii-8's missing glyph; awaits the operator's review
+2d-320x240-psf8/wide-margin	vtium/vtium#126: recaptured from the set of the 8x8 test font with Unscii-8 after it; a character neither holds draws as Unscii-8's missing glyph; awaits the operator's review
+2d-320x240-psf8/cjk	vtium/vtium#126: recaptured from the set of the 8x8 test font with Unscii-8 after it; a character neither holds draws as Unscii-8's missing glyph; awaits the operator's review
+2d-640x480-psf16/underline-styles	vtium/vtium#126: recaptured from the set of the 8x16 test font with unifont after it, which draws the characters the font lacks; awaits the operator's review
+2d-640x480-psf16/strike	vtium/vtium#126: recaptured from the set of the 8x16 test font with unifont after it, which draws the characters the font lacks; awaits the operator's review
+2d-640x480-psf16/wide-margin	vtium/vtium#126: recaptured from the set of the 8x16 test font with unifont after it, which draws the characters the font lacks; awaits the operator's review
+2d-640x480-psf16/cjk	vtium/vtium#126: recaptured from the set of the 8x16 test font with unifont after it, which draws the characters the font lacks; awaits the operator's review

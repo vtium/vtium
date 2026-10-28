@@ -1,7 +1,8 @@
 #!/bin/sh
 # Per-run guest setup, run as root at boot from the T3PKG disc mounted at $1:
-# unpacks vtium's install tree (tree.tar) over the root, and installs the
-# variant's config, its test fonts and the scenario screens.
+# unpacks vtium's install tree (tree.tar) over the root, installs the
+# variant's config, its test fonts and the scenario screens, and builds its
+# font sets.
 set -eu
 disc=$1
 tar -xpf "$disc"/tree.tar -C / --no-overwrite-dir --keep-directory-symlink
@@ -15,6 +16,15 @@ install -Dm644 "$disc"/kmscon.conf /etc/kmscon/kmscon.conf
 # A variant drawing with the test fonts names them in its config.
 if [ -d "$disc"/fonts ]; then
     install -Dm644 -t /usr/local/share/tier3-fonts "$disc"/fonts/*
+fi
+# A variant drawing a PSF font draws the set built from it (ADR-1200 D9):
+# its frits are built into the store before the console starts, as a
+# package hook builds them, and each set's line goes to the serial console.
+if [ -d "$disc"/frits ]; then
+    install -Dm644 -t /etc/vtium/fonts "$disc"/frits/*.vtfrit
+    for frit in "$disc"/frits/*.vtfrit; do
+        vtium-vitrify create "$(basename "$frit" .vtfrit)" > /dev/ttyS0
+    done
 fi
 # The pointer variant's screens read the display's DRM atomic state as
 # tester (screens/pointer.sh), so debugfs is opened to them.

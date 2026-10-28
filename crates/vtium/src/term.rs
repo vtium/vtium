@@ -63,6 +63,11 @@ impl Term {
 
 impl Consumer for Term {
     fn output(&mut self, output: &[u8], replies: &mut Replies<'_>) -> usize {
+        // The output after an OSC 50 request waits for the turn that
+        // switches the font, so a query that follows names the new set.
+        if self.terminal.font_requested() {
+            return 0;
+        }
         let start = (self.clock)();
         let taken = self.terminal.input(output);
         let out = self.terminal.take_replies();
@@ -147,6 +152,10 @@ impl View {
     /// Draws with `font`, asked for at `height`, turned as `config` says,
     /// from here on: a new renderer, which draws the next frame whole.
     pub fn rebuild(&mut self, font: Font<Box<dyn Face>>, height: u32, config: RenderConfig) {
+        let config = RenderConfig {
+            depth: self.renderer.depth(),
+            ..config
+        };
         self.renderer = Renderer::new(font, self.size.0, self.size.1, config);
         self.height = height;
         self.orientation = config.orientation;
@@ -438,6 +447,21 @@ mod tests {
         draw(&mut term, &mut view, &mut video, None);
         assert_eq!(video.sent, None);
         assert_eq!(video.swaps, [1, 0, 0]);
+    }
+
+    // A zoom or a rotation keeps the display's depth, which the device
+    // gave when the view was made.
+    #[test]
+    fn a_new_renderer_keeps_the_displays_depth() {
+        let face: Box<dyn Face> = Box::new(Unifont::new(16));
+        let one = RenderConfig {
+            depth: vtium_render::Depth::One,
+            ..RenderConfig::default()
+        };
+        let mut view = View::new(ID, Font::new(face), SIZE, None, one, false);
+        let face: Box<dyn Face> = Box::new(Unifont::new(16));
+        view.rebuild(Font::new(face), 32, RenderConfig::default());
+        assert_eq!(view.renderer.depth(), vtium_render::Depth::One);
     }
 
     // A new renderer, as a zoom or a rotation makes, gives the plane its
