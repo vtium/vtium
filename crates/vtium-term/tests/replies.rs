@@ -291,6 +291,22 @@ fn decrqss_reports_settings_and_refuses_with_no_echo() {
     assert_eq!(reply(&mut t, b"\x1bP$qm\x18"), b"");
 }
 
+// ctlseqs and xterm, DECRQSS: DECSCA reports 1 while the pen protects and 0
+// otherwise; DECSACE reports 2 for the rectangle and 0 for the stream.
+// covers: query.decrqss
+#[test]
+fn decrqss_reports_decsca_and_decsace() {
+    let mut t = term(10, 6, b"");
+    assert_eq!(reply(&mut t, b"\x1bP$q\"q\x1b\\"), b"\x1bP1$r0\"q\x1b\\");
+    assert_eq!(reply(&mut t, b"\x1bP$q*x\x1b\\"), b"\x1bP1$r0*x\x1b\\");
+    t.input(b"\x1b[1\"q\x1b[2*x");
+    assert_eq!(reply(&mut t, b"\x1bP$q\"q\x1b\\"), b"\x1bP1$r1\"q\x1b\\");
+    assert_eq!(reply(&mut t, b"\x1bP$q*x\x1b\\"), b"\x1bP1$r2*x\x1b\\");
+    t.input(b"\x1b[2\"q\x1b[1*x");
+    assert_eq!(reply(&mut t, b"\x1bP$q\"q\x1b\\"), b"\x1bP1$r0\"q\x1b\\");
+    assert_eq!(reply(&mut t, b"\x1bP$q*x\x1b\\"), b"\x1bP1$r0*x\x1b\\");
+}
+
 // ctlseqs, SGR 58: the underline colour has no short form, so DECRQSS
 // reports every index, the first sixteen among them, as `58:5:Ps`.
 // covers: query.decrqss

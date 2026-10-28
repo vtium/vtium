@@ -61,6 +61,10 @@ pub(crate) enum Host {
     /// ([`Terminal::set_sync_enabled`](crate::Terminal::set_sync_enabled)),
     /// SM does nothing and DECRQM reports the row's fixed state.
     Draw,
+    /// It tells the terminal of a resize or a change of visibility
+    /// ([`Terminal::resize`](crate::Terminal::resize),
+    /// [`Terminal::set_visible`](crate::Terminal::set_visible)).
+    Notify,
 }
 
 /// The accessors of a supported row.
@@ -90,6 +94,9 @@ pub(crate) enum Mode {
     BracketedPaste,
     Sync,
     GraphemeWidth,
+    SchemeReport,
+    VisibilityReport,
+    ResizeReport,
 }
 
 /// One mode.
@@ -188,6 +195,9 @@ pub(crate) static MODES: &[Row] = &[
     row!(DEC, 2004, "BRPASTE", Supported, RESET, Soft, Paste, "BD BE PS PE", "ctlseqs, bracketed paste; a paste never carries its own end marker (ADR-1000)", &["modes.rs::bracketed_paste_brackets_a_paste"], Some(Mode::BracketedPaste)),
     row!(DEC, 2026, "SYNC", Supported, RESET, Soft, Draw, "Sync", "contour synchronized-output; offered while the host presents by it", &["modes.rs::mode_2026_holds_frames_while_the_host_offers_it"], Some(Mode::Sync)),
     row!(DEC, 2027, "GRAPHEME", Supported, Initial::Host("the host's width method"), Soft, Nothing, "", "contour unicode-core; RIS and DECSTR return it to the configured method", &["modes.rs::mode_2027_reports_and_resets_to_the_configured_method"], Some(Mode::GraphemeWidth)),
+    row!(DEC, 2031, "SCHEMEREPORT", Supported, RESET, Soft, Nothing, "", "contour color-palette-update-notifications; CSI ? 997 ; Ps n when the default background turns dark or light by its luma (ITU-R BT.601), as CSI ? 996 n answers", &["inband.rs::mode_2031_reports_a_change_of_scheme", "inband.rs::decstr_and_ris_reset_the_report_modes"], Some(Mode::SchemeReport)),
+    row!(DEC, 2033, "VISREPORT", Supported, RESET, Soft, Notify, "", "foot(7), rockorager's visibility reports; CSI ? 999 ; Ps n as it is set and on each change, a VT switch or a blank", &["inband.rs::mode_2033_reports_visibility_on_set_and_each_change", "inband.rs::decstr_and_ris_reset_the_report_modes"], Some(Mode::VisibilityReport)),
+    row!(DEC, 2048, "RESIZEREPORT", Supported, RESET, Soft, Notify, "", "rockorager's in-band resize notifications; CSI 48 ; rows ; cols ; height ; width t as it is set and after each resize, the text area in pixels 0 while the cell size is unknown", &["inband.rs::mode_2048_reports_the_text_area_on_set_and_each_resize", "inband.rs::decstr_and_ris_reset_the_report_modes"], Some(Mode::ResizeReport)),
 ];
 
 fn find(dec: bool, number: u32) -> Option<&'static Row> {
@@ -233,6 +243,9 @@ pub(super) struct Modes {
     focus: bool,
     bracketed_paste: bool,
     sync: bool,
+    scheme_report: bool,
+    visibility_report: bool,
+    resize_report: bool,
 }
 
 impl Modes {
@@ -247,6 +260,9 @@ impl Modes {
         focus: false,
         bracketed_paste: false,
         sync: false,
+        scheme_report: false,
+        visibility_report: false,
+        resize_report: false,
     };
 
     /// SRM: set, the default, sends with no local echo.
@@ -291,6 +307,21 @@ impl Modes {
     pub(super) fn synchronized(&self) -> bool {
         self.sync
     }
+
+    /// Mode 2031.
+    pub(super) fn scheme_report(&self) -> bool {
+        self.scheme_report
+    }
+
+    /// Mode 2033.
+    pub(super) fn visibility_report(&self) -> bool {
+        self.visibility_report
+    }
+
+    /// Mode 2048.
+    pub(super) fn resize_report(&self) -> bool {
+        self.resize_report
+    }
 }
 
 impl State {
@@ -323,6 +354,9 @@ impl State {
             Mode::BracketedPaste => m.bracketed_paste,
             Mode::Sync => m.sync,
             Mode::GraphemeWidth => s.width_method() == WidthMethod::Unicode,
+            Mode::SchemeReport => m.scheme_report,
+            Mode::VisibilityReport => m.visibility_report,
+            Mode::ResizeReport => m.resize_report,
         }
     }
 
@@ -382,6 +416,20 @@ impl State {
             } else {
                 WidthMethod::Wcwidth
             }),
+            Mode::SchemeReport => self.modes.scheme_report = on,
+            // Set, modes 2033 and 2048 report at once, set already or not.
+            Mode::VisibilityReport => {
+                self.modes.visibility_report = on;
+                if on {
+                    self.reply_visibility();
+                }
+            }
+            Mode::ResizeReport => {
+                self.modes.resize_report = on;
+                if on {
+                    self.report_size();
+                }
+            }
         }
     }
 
@@ -545,6 +593,7 @@ mod tests {
             Host::Input => "reports input",
             Host::Paste => "pastes",
             Host::Draw => "presents by it",
+            Host::Notify => "tells of changes",
         }
     }
 

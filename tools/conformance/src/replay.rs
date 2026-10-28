@@ -181,7 +181,7 @@ impl<'a> Replay<'a> {
     fn command(&mut self, cmd: Command) -> Result<(), Failure> {
         let t = &mut self.term;
         match cmd {
-            Command::Resize { cols, rows } => t.screen_mut().resize(cols, rows),
+            Command::Resize { cols, rows } => t.resize(cols, rows),
             Command::SbMax(n) => t.screen_mut().set_scrollback_max(lines(n)),
             Command::SbUp(n) => t.screen_mut().scroll_view_up(lines(n)),
             Command::SbDown(n) => t.screen_mut().scroll_view_down(lines(n)),

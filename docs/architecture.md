@@ -25,7 +25,7 @@ The machine minspec is judged against is a single-board computer that presents a
 - ARM cores, Cortex-A53 class or older, aarch64 and armv7;
 - 512 MB of memory or less;
 - a DRM dumb buffer to draw into, with no GPU vtium uses;
-- displays that may be small, down to SPI panels at 320x240 through tinydrm.
+- displays that may be small, down to SPI panels through tinydrm.
 
 The display floor is a 320x240 panel with an 8x8 font, a 40 by 30 grid. There vtium starts, draws and stays correct, and a shell, line editing and vim are usable; a program that needs 80 columns is not promised to fit. At 640x480 with an 8x16 font, 80 by 30, everything vtium supports is usable. The 8x8 font comes from a console font on the system for now (vtium/vtium#75).
 

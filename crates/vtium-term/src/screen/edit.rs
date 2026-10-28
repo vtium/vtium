@@ -25,7 +25,8 @@
 //! stays on the screen. An erase that clears the main screen's first row
 //! whole, and IL, DL and SD there, end the wrap of the scrollback's newest
 //! line, whose next row it was; xterm keeps that wrap, joining the line to
-//! whatever is printed there next.
+//! whatever is printed there next. The rectangle operations keep the same
+//! rule (`rect.rs`).
 //!
 //! [`Line::erase`]: crate::Line::erase
 //! [`Line::insert_cells`]: crate::Line::insert_cells
@@ -84,7 +85,7 @@ impl Screen {
     /// reading order; `which` says whether protected cells stay. Returns
     /// the rows it cleared whole. Clearing the screen's first row whole
     /// ends the wrap of the scrollback's newest line.
-    fn erase_region(
+    pub(super) fn erase_region(
         &mut self,
         from: (usize, usize),
         to: (usize, usize),
@@ -152,7 +153,7 @@ impl Screen {
 
     /// Ends the wrap of the scrollback's newest line, when the main
     /// screen's first row, its next row, is cleared or replaced.
-    fn unwrap_scrollback(&mut self) {
+    pub(super) fn unwrap_scrollback(&mut self) {
         if self.flags.alternate {
             return;
         }
@@ -163,7 +164,7 @@ impl Screen {
 
     /// Ends the wrap of each row of `rows`: their text no longer continues
     /// on the next row.
-    fn unwrap_rows(&mut self, rows: impl IntoIterator<Item = usize>) {
+    pub(super) fn unwrap_rows(&mut self, rows: impl IntoIterator<Item = usize>) {
         for y in rows {
             if let Some(line) = self.line_mut(y) {
                 line.flags_mut().remove(LineFlags::WRAPPED);

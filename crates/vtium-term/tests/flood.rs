@@ -149,6 +149,25 @@ fn scrolling_lines_and_regions_keeps_clusters_bounded() {
 }
 
 #[test]
+fn rectangles_copy_restyle_fill_and_erase_clusters_inside_the_budget() {
+    flood(
+        "DECCRA, DECCARA, DECRARA, DECFRA, DECERA, DECSERA",
+        &[
+            "\x1b[1;1;2;9;1;3;1;1$v",
+            "\x1b[3;2;4;9;1;1;1;1$v",
+            "\x1b[1;1;4;9;1;2;3$v",
+            "\x1b[2*x\x1b[1;1;4;9;1;44$r",
+            "\x1b[1;1;4;9;0;4:3$r",
+            "\x1b[*x\x1b[1;1;4;9;7$t",
+            "\x1b[120;2;2;3;4$x",
+            "\x1b[2;2;3;4$z",
+            "\x1b[1;3;4;5${",
+        ],
+        |_| {},
+    );
+}
+
+#[test]
 fn rep_and_wrapping_keep_clusters_bounded() {
     flood("REP", &["\x1b[5b", "\x1b[30b"], |_| {});
 }

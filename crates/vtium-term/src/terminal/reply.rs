@@ -12,6 +12,7 @@ use vtium_parse::{Params, StringEnd};
 
 use super::State;
 use crate::bounds::VERSION_MAX;
+use crate::screen::Extent;
 use crate::style::{Attrs, Color, Rgb, UnderlineStyle};
 
 macro_rules! queries {
@@ -69,6 +70,12 @@ queries! {
     Title,
     /// XTQMODKEYS, `CSI ? 4 m`.
     ModifyOtherKeys,
+    /// Mode 2048's report of the text area, as it is set and on a resize.
+    TextArea,
+    /// `CSI ? 998 n`, and mode 2033's reports.
+    Visibility,
+    /// `CSI ? 996 n`, and mode 2031's reports.
+    ColorScheme,
     /// XTREPORTCOLORS, `CSI # R`.
     ColorStack,
 }
@@ -240,8 +247,9 @@ impl State {
     }
 
     /// DECRQSS: the setting asked for, `DCS 1 $ r Pt ST`, for SGR, DECSTBM,
-    /// DECSCUSR and DECSCL; anything else, and a request longer than any of
-    /// these, the error form `DCS 0 $ r ST`, with no echo (ADR-1000).
+    /// DECSCUSR, DECSCL, DECSCA and DECSACE; anything else, and a request
+    /// longer than any of these, the error form `DCS 0 $ r ST`, with no
+    /// echo (ADR-1000).
     pub(super) fn reply_status(&mut self, request: Option<&[u8]>) {
         let setting = match request {
             Some(b"m") => Some(format!("{}m", self.pen_sgr())),
@@ -256,6 +264,15 @@ impl State {
             Some(b" q") => Some(format!("{} q", self.cursor_style.param())),
             // Pc 1: the replies stay 7-bit whatever DECSCL asked.
             Some(b"\"p") => Some(format!("{};1\"p", self.conformance)),
+            // DECSCA 1 or 0, and DECSACE 2 or 0, as xterm reports them.
+            Some(b"\"q") => {
+                let protected = self.screen.pen().attrs.contains(Attrs::PROTECTED);
+                Some(format!("{}\"q", u8::from(protected)))
+            }
+            Some(b"*x") => {
+                let rectangle = self.screen.attribute_extent() == Extent::Rectangle;
+                Some(format!("{}*x", if rectangle { 2 } else { 0 }))
+            }
             _ => None,
         };
         let reply = match setting {
@@ -439,7 +456,15 @@ mod tests {
                 let request = cat(&[b"\x1bP+q", &known, b";", &unknown, b"\x1b\\"]);
                 (request, vec![known, unknown], vec![])
             }
-            Query::Decrqss => (cat(&[b"\x1bP$q", &tok, b"\x1b\\"]), vec![tok], vec![]),
+            // Hostile text half the time, else a setting vtium reports.
+            Query::Decrqss => {
+                let known: [&[u8]; 6] = [b"m", b"r", b" q", b"\"p", b"\"q", b"*x"];
+                let pick = rng.next();
+                match known.get(usize::try_from(pick % 12).unwrap_or(0)) {
+                    Some(&setting) => (cat(&[b"\x1bP$q", setting, b"\x1b\\"]), vec![], vec![]),
+                    None => (cat(&[b"\x1bP$q", &tok, b"\x1b\\"]), vec![tok], vec![]),
+                }
+            }
             Query::PaletteColor => {
                 let n = rng.padded(1);
                 let request = cat(&[b"\x1b]4;", &n, b";?;", &tok, b";?\x07"]);
@@ -503,6 +528,18 @@ mod tests {
                 let n = rng.padded(4);
                 let request = cat(&[b"\x1b[>4;", &level, b"m\x1b[?", &n, b"m"]);
                 (request, vec![], vec![level, n])
+            }
+            Query::TextArea => {
+                let n = rng.padded(2048);
+                (cat(&[b"\x1b[?", &n, b"h"]), vec![], vec![n])
+            }
+            Query::Visibility => {
+                let n = rng.padded(998);
+                (cat(&[b"\x1b[?", &n, b"n"]), vec![], vec![n])
+            }
+            Query::ColorScheme => {
+                let n = rng.padded(996);
+                (cat(&[b"\x1b[?", &n, b"n"]), vec![], vec![n])
             }
             // Pushes and pops by padded numbers, then the report with a
             // padded parameter, which it ignores.
@@ -594,6 +631,9 @@ mod tests {
                 Query::WindowSize => (b"\x1b[14t", b"\x1b[4;80;80t"),
                 Query::Title => (b"\x1b[21t", b"\x1b]l\x1b\\"),
                 Query::ModifyOtherKeys => (b"\x1b[?4m", b"\x1b[>4;0m"),
+                Query::TextArea => (b"\x1b[?2048h", b"\x1b[48;5;10;80;80t"),
+                Query::Visibility => (b"\x1b[?998n", b"\x1b[?999;1n"),
+                Query::ColorScheme => (b"\x1b[?996n", b"\x1b[?997;1n"),
                 Query::ColorStack => (b"\x1b[#P\x1b[3#P\x1b[#R", b"\x1b[?3;3#Q"),
             };
             let mut t = fixture();
