@@ -40,7 +40,7 @@ impl std::error::Error for ManifestError {}
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ManifestRow {
     pub name: String,
-    /// The set file's SHA-256, which names it `<sha256>.glass`.
+    /// The set file's SHA-256, which names it `<sha256>.vtglass`.
     pub sha256: [u8; 32],
     pub build_key: [u8; 32],
     pub version: (u16, u16),
@@ -52,7 +52,7 @@ pub struct ManifestRow {
 impl ManifestRow {
     /// The set's file name in the store.
     pub fn file_name(&self) -> String {
-        format!("{}.glass", hex(&self.sha256))
+        format!("{}.vtglass", hex(&self.sha256))
     }
 }
 

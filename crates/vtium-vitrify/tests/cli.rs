@@ -227,7 +227,7 @@ fn draws_as(set: Arc<Set>, psf: &Psf, chars: &[char]) {
 fn create_out_builds_a_portable_set_that_draws_as_the_font() {
     let w = World::new("create-out");
     let recipe = w.recipe("ter", "source=kbd:ter-v16n\nlicense=OFL-1.1\n");
-    let out = w.path("out/ter.glass");
+    let out = w.path("out/ter.vtglass");
     let o = w.run(&[
         "create",
         "--out",
@@ -261,7 +261,7 @@ fn create_out_builds_a_portable_set_that_draws_as_the_font() {
     let chars: Vec<char> = table().iter().map(|&(_, c)| c).collect();
     draws_as(set, &psf, &chars);
     // the same recipe and sources give the same bytes
-    let again = w.path("out/again.glass");
+    let again = w.path("out/again.vtglass");
     assert_eq!(
         status(&w.run(&[
             "create",
@@ -280,7 +280,7 @@ fn a_font_without_a_table_takes_its_unimap_then_def_uni() {
     fs::write(w.path("fonts.psf"), psf1(8)).unwrap();
     fs::write(w.path("kbd/unimaps/mine.uni"), "0x61 U+0061\n").unwrap();
     let file = format!("source=file:{}\n", w.path("fonts.psf").display());
-    let out = w.path("out/a.glass");
+    let out = w.path("out/a.vtglass");
     let run = |text: &str| {
         let r = w.recipe("a", text);
         let o = w.run(&[
@@ -335,7 +335,7 @@ fn a_kbd_font_in_each_compression_builds_the_same_glyphs() {
         let font = w.path(&format!("kbd/consolefonts/z.psf.{ext}"));
         fs::write(&font, bytes).unwrap();
         let r = w.recipe("z", "source=kbd:z\n");
-        let out = w.path(&format!("out/z-{ext}.glass"));
+        let out = w.path(&format!("out/z-{ext}.vtglass"));
         let o = w.run(&[
             "create",
             "--out",
@@ -362,7 +362,7 @@ fn a_kbd_font_in_each_compression_builds_the_same_glyphs() {
 fn install_list_verify_and_remove_keep_the_store() {
     let w = World::new("store");
     let recipe = w.recipe("ter", "source=kbd:ter-v16n\n");
-    let file = w.path("out/ter.glass");
+    let file = w.path("out/ter.vtglass");
     assert_eq!(
         status(&w.run(&[
             "create",
@@ -383,7 +383,7 @@ fn install_list_verify_and_remove_keep_the_store() {
         stderr(&o)
     );
     assert_eq!(
-        fs::read(w.store().join(format!("{sha}.glass"))).unwrap(),
+        fs::read(w.store().join(format!("{sha}.vtglass"))).unwrap(),
         bytes
     );
     let manifest = fs::read_to_string(w.store().join("manifest")).unwrap();
@@ -433,7 +433,7 @@ fn install_list_verify_and_remove_keep_the_store() {
     assert!(stdout(&o).starts_with("failed\tnope\t"));
 
     // a byte changed in the store's copy fails the console's check
-    let stored = w.store().join(format!("{sha}.glass"));
+    let stored = w.store().join(format!("{sha}.vtglass"));
     let mut bad = bytes.clone();
     let last = bad.len() - 1;
     bad[last] ^= 1;
@@ -457,7 +457,7 @@ fn install_list_verify_and_remove_keep_the_store() {
 fn install_refuses_a_changed_set() {
     let w = World::new("install-refuses");
     let recipe = w.recipe("ter", "source=kbd:ter-v16n\ncompress=no\n");
-    let file = w.path("out/ter.glass");
+    let file = w.path("out/ter.vtglass");
     assert_eq!(
         status(&w.run(&[
             "create",
@@ -476,7 +476,7 @@ fn install_refuses_a_changed_set() {
     let mut major = bytes.clone();
     major[8] = 9;
     for (name, bad, why) in [("chunk", chunk, "sha-256"), ("major", major, "version")] {
-        let p = w.path(&format!("out/{name}.glass"));
+        let p = w.path(&format!("out/{name}.vtglass"));
         fs::write(&p, bad).unwrap();
         let o = w.run(&["install", p.to_str().unwrap()]);
         assert_eq!(status(&o), 1, "{name}");
@@ -536,7 +536,7 @@ fn create_builds_into_the_store_only_when_its_inputs_change() {
                 .unwrap()
                 .file_name()
                 .to_string_lossy()
-                .ends_with(".glass")
+                .ends_with(".vtglass")
         })
         .count();
     assert_eq!(sets, 1);
@@ -575,7 +575,7 @@ fn a_fallback_fills_what_the_first_source_lacks_on_its_baseline() {
         "mix",
         "source=kbd:ter-v16n\nsource=builtin:unscii-8\ncover=U+2580-U+259F\n",
     );
-    let out = w.path("out/mix.glass");
+    let out = w.path("out/mix.vtglass");
     let o = w.run(&[
         "create",
         "--out",
@@ -666,7 +666,7 @@ fn writing_the_system_store_needs_root() {
         return;
     }
     for args in [
-        &["install", "x.glass"][..],
+        &["install", "x.vtglass"][..],
         &["remove", "x"],
         &["create", "--all"],
     ] {

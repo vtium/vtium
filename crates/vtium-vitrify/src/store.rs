@@ -1,4 +1,4 @@
-//! Writing the store (ADR-1200 D3): `<sha256>.glass` sets, the manifest and
+//! Writing the store (ADR-1200 D3): `<sha256>.vtglass` sets, the manifest and
 //! a lock file in one directory. Every write holds the lock; a set goes in
 //! as a temporary file synced and renamed, then the manifest the same way,
 //! then the directory is synced and the set files no row names are
@@ -146,9 +146,9 @@ impl StoreWriter {
     }
 }
 
-/// Whether `name` is a set file's: 64 lower-case hex digits and `.glass`.
+/// Whether `name` is a set file's: 64 lower-case hex digits and `.vtglass`.
 fn is_set_file(name: &str) -> bool {
-    name.strip_suffix(".glass").is_some_and(|hex| {
+    name.strip_suffix(".vtglass").is_some_and(|hex| {
         hex.len() == 64
             && hex
                 .bytes()
@@ -173,12 +173,12 @@ mod tests {
 
     #[test]
     fn only_set_files_are_named_as_sets() {
-        assert!(is_set_file(&format!("{}.glass", "a".repeat(64))));
+        assert!(is_set_file(&format!("{}.vtglass", "a".repeat(64))));
         for name in [
             "manifest",
             "lock",
-            "x.glass",
-            &format!("{}.glass", "A".repeat(64)),
+            "x.vtglass",
+            &format!("{}.vtglass", "A".repeat(64)),
         ] {
             assert!(!is_set_file(name), "{name}");
         }
