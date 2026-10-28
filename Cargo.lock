@@ -421,6 +421,7 @@ version = "0.0.0"
 dependencies = [
  "miniz_oxide",
  "rustix",
+ "vtium-font",
 ]
 
 [[package]]
@@ -478,6 +479,7 @@ dependencies = [
  "vtium-render",
  "vtium-term",
  "vtium-testfont",
+ "vtium-vitrify",
 ]
 
 [[package]]

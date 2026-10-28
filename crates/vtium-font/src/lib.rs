@@ -17,8 +17,9 @@
 //!
 //! Loads fonts and draws glyph bitmaps for the renderer: vitrified sets
 //! ([`set`], ADR-1200), the form every font reaches the console in, and
-//! the root-owned store they are checked and loaded from; PSF fonts; the
-//! built-in unifont, itself a set; and the sprites that draw box
+//! the root-owned store they are checked and loaded from; PSF fonts, with
+//! the `psf` feature, which only vtium-vitrify enables, so the console
+//! parses no font file (ADR-1200 D6); the built-in unifont, itself a set; and the sprites that draw box
 //! drawing, block elements, Braille, sextants, octants and the rest of
 //! Symbols for Legacy Computing's block shapes to fill their cell.
 //! Outline fonts with shaping and fallback come later, behind a feature,
@@ -57,7 +58,7 @@
 //! # Bounds
 //!
 //! A font file or a set is parsed with every size bounded, and a malformed
-//! one is refused with a [`PsfError`] or a [`set::SetError`] rather than a
+//! one is refused with a `PsfError` or a [`set::SetError`] rather than a
 //! panic. Each bound is defined once in `src/bounds.rs` with its source and
 //! tabulated in the crate's README: [`PSF_GLYPHS_MAX`], [`PSF_WIDTH_MAX`],
 //! [`PSF_HEIGHT_MAX`], [`PSF_BYTES_MAX`], [`PSF_ENTRIES_MAX`],
@@ -74,6 +75,7 @@ mod glyph;
 mod gzip;
 mod hex;
 mod policy;
+#[cfg(feature = "psf")]
 mod psf;
 pub mod set;
 mod sha256;
@@ -90,6 +92,7 @@ pub use bounds::{
 pub use face::{Cell, Decorations, Face, Font, REPLACEMENT, Style, Width};
 pub use glyph::{Format, Glyph};
 pub use policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
+#[cfg(feature = "psf")]
 pub use psf::{Psf, PsfError};
 pub use sha256::{Sha256, hex as sha256_hex};
 #[cfg(feature = "unifont")]

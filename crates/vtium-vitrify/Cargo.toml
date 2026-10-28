@@ -13,8 +13,9 @@ workspace = true
 
 [dependencies]
 # The set format, its writer and the store's check; the PSF reader; the
-# built-in sets a frit may name as sources.
-vtium-font.workspace = true
+# built-in sets a frit may name as sources. The PSF reader is behind
+# vtium-font's `psf` feature, which only this tool enables.
+vtium-font = { workspace = true, features = ["psf"] }
 # KDGETMODE, KDFONTOP and GIO_UNIMAP for the console: source (ADR-1200 D8).
 vtium-platform.workspace = true
 # gzip's deflate, for compressed fonts and unimaps; vtium-font already

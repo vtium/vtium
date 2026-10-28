@@ -14,7 +14,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-vtium-font = { path = ".." }
+vtium-font = { path = "..", features = ["psf", "gzip"] }
 
 [[bin]]
 name = "psf"

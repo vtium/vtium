@@ -12,9 +12,12 @@ authors.workspace = true
 workspace = true
 
 [features]
-default = ["gzip", "unifont", "unscii"]
+default = ["unifont", "unscii"]
+# the PSF loader, `Psf`: vtium-vitrify reads PSF fonts with it, and the
+# console never parses a font file (ADR-1200 D6)
+psf = []
 # gzip-compressed PSF fonts, as the C reference's zlib option read them
-gzip = []
+gzip = ["psf"]
 # the built-in unifont, a vitrified set compiled in, inflated a chunk at a time
 unifont = []
 # the built-in Unscii-8 set, for cells under 16 pixels high (ADR-1200 D7)
@@ -28,6 +31,10 @@ miniz_oxide = "0.8.9"
 # opens the store's files relative to its directory with O_NOFOLLOW
 # (ADR-1200 D3); vtium-platform already links this version
 rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"] }
+
+[dev-dependencies]
+# the tests read the PSF fixtures with the features the console leaves out
+vtium-font = { path = ".", features = ["psf", "gzip"] }
 
 [build-dependencies]
 miniz_oxide = "0.8.9"

@@ -821,6 +821,17 @@ pub const FONT_SIZE: Key = Key {
     cite: "src/config.c:1423; vtium-font's `CELL_SIDE_MAX`",
 };
 
+pub const ALLOW_FONT_OPS: Key = Key {
+    name: "allow-font-ops",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(true),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Let a program switch the font among the built sets with xterm's OSC 50 (`OSC 50 ; NAME ST`, as `vtium-vitrify set NAME` sends it) and ask which set is in use (`OSC 50 ; ? ST`). On by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the sets root built into the store and the built-in ones, never a file. A switch changes the live console only; `font-name` decides the font at the next start. Off, vtium ignores OSC 50, the query included.",
+    cite: "ADR-1200 (D5); vtium/vtium#126",
+};
+
 pub const GLYPH_SOURCE: Key = Key {
     name: "glyph-source",
     short: None,
@@ -976,7 +987,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 75] = [
+pub const KEYS: [Key; 76] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1042,6 +1053,7 @@ pub const KEYS: [Key; 75] = [
     FONT_ENGINE,
     FONT_NAME,
     FONT_SIZE,
+    ALLOW_FONT_OPS,
     GLYPH_SOURCE,
     GLYPH_SOURCE_BOX,
     GLYPH_SOURCE_BLOCK,
