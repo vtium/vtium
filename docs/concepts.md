@@ -132,7 +132,7 @@ vtium reads the keyboard itself and passes keys to the session, apart from the k
 
 ### Blanking
 
-After a period with no key or pointer event, vtium turns its displays off, and the next key or pointer event turns them on; output alone never keeps them on. A program can set the timeout or wake the screen with the Linux console's own sequences, and cannot turn the screen off at once (vtium/vtium#79).
+After a period with no key or pointer event, vtium turns its displays off, and the next key or pointer event turns them on; output alone never keeps them on. A program can set the timeout or wake the screen with the Linux console's own sequences, and setting the timeout wakes the screen too, as on the Linux console; a program cannot turn the screen off at once (vtium/vtium#79).
 
 ## What VTium does not do
 
