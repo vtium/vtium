@@ -21,7 +21,8 @@ Ids:
     further words where the row is part of it (osc.8, osc.52.write,
     osc.9.4). Examples: sgr.dim, ctl.decstbm, query.xtgettcap, platform.pty.
 
-    An id never changes once committed. A row that moves to another group or
+    An id never changes once committed, apart from the one rename ADR-1000
+    records (#114). A row that moves to another group or
     is reworded keeps its id, and a removed row's id is not reused.
 
 Which tests carry a tag:
