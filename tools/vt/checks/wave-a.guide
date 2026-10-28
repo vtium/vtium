@@ -1,0 +1,50 @@
+# What Wave A changed that shows on a real VT: the blink styles (#81),
+# X11 color names in OSC color specs (#103), and a program waking the
+# blank (#79). Run it with partial blink and blinking decorations, so the
+# new behaviour is on screen:
+#
+#   make vt-check GUIDE=wave-a DEMO_ARGS='--blink-text=partial --blink-decorations'
+
+title: Wave A on a real display
+
+step: Partial blink dims instead of hiding
+probe: shell
+do: at the prompt type, all on one line:
+do: printf '\033[5mblink\033[0m \033[5;4mblink-under\033[0m \033[5;9;31mblink-red\033[0m steady\n'
+do: then Enter, and watch the line for a few seconds.
+expect: blink, blink-under and blink-red pulse between full and about half
+expect: brightness, never vanishing; the underline and the strike pulse
+expect: with their text; steady never changes; the cursor blinks as before.
+
+step: Partial blink stays smooth on this display
+do: look closely at the blinking words at your normal viewing distance.
+expect: the dimmed phase is an even, readable half-tone with no flicker,
+expect: banding or ghosting of the glyph edges.
+
+step: X11 color names set the colors
+probe: shell
+do: at the prompt type, all on one line:
+do: printf '\033]11;dark slate gray\a\033]10;Gold\a\033]4;1;Light Sea Green\a\033[31mindex one\033[0m\n'
+do: then Enter.
+expect: the background turns dark slate gray and the default text gold,
+expect: at once; "index one" is drawn light sea green.
+
+step: The colors return
+probe: shell
+do: at the prompt type: printf '\033]104\a\033]110\a\033]111\a'
+do: then Enter.
+expect: the background, the default text and color 1 return to their
+expect: configured colors, with nothing left of the previous step.
+
+step: A program wakes the blank
+probe: shell
+do: at the prompt type, all on one line:
+do: printf '\033[9;1]'; sleep 75; printf '\033[13]'
+do: then Enter, and touch no key or the pointer until the prompt is back.
+expect: the screen goes dark about a minute after Enter, and lights again
+expect: about 15 seconds later with no key pressed, this screen drawn
+expect: whole, then the prompt.
+
+step: Anything else
+do: look over the session as a whole.
+expect: nothing looks wrong: note anything that does, however small.
