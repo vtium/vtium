@@ -1,8 +1,10 @@
 //! [`Store`]: the console's check of the root-owned store (ADR-1200 D3).
 //!
-//! The store directory is opened with `O_DIRECTORY | O_NOFOLLOW`, and it
-//! and each of its parents must be owned by the expected owner or root and
-//! writable by neither group nor others. The manifest and each set are
+//! The store directory is opened a component at a time from `/`, each
+//! relative to the one before with `O_DIRECTORY | O_NOFOLLOW`, so no
+//! component is a symbolic link, and it and each of its parents, checked
+//! through the descriptors that opened them, must be owned by the expected
+//! owner or root and writable by neither group nor others. The manifest and each set are
 //! opened relative to that directory with `O_NOFOLLOW`, and each must be a
 //! regular file owned by the expected owner and writable by no one else. A
 //! set is read once, start to end, and its SHA-256 must be its manifest
@@ -15,7 +17,7 @@ use std::fs::{File, Metadata};
 use std::io::{self, Read};
 use std::os::fd::OwnedFd;
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use rustix::fs::{Mode, OFlags};
@@ -30,7 +32,7 @@ use crate::bounds::MANIFEST_BYTES_MAX;
 pub enum StoreError {
     /// The path could not be opened or read.
     Io { path: PathBuf, error: io::Error },
-    /// The store's path is not absolute.
+    /// The store's path is not absolute, or holds `..`.
     Relative(PathBuf),
     /// The path is a symbolic link.
     Symlink(PathBuf),
@@ -59,7 +61,11 @@ impl fmt::Display for StoreError {
         match self {
             StoreError::Io { path, error } => write!(f, "{}: {error}", path.display()),
             StoreError::Relative(p) => {
-                write!(f, "{}: the store's path is not absolute", p.display())
+                write!(
+                    f,
+                    "{}: the store's path is not absolute, or holds ..",
+                    p.display()
+                )
             }
             StoreError::Symlink(p) => write!(f, "{}: a symbolic link", p.display()),
             StoreError::NotDirectory(p) => write!(f, "{}: not a directory", p.display()),
@@ -142,34 +148,46 @@ fn check_owner(path: &Path, meta: &Metadata, owners: &[u32]) -> Result<(), Store
 }
 
 impl Store {
-    /// Opens the store at `path`, which must be absolute, expecting `uid`
-    /// to own it: 0 in the console.
+    /// Opens the store at `path`, which must be absolute and hold no
+    /// `..`, expecting `uid` to own it: 0 in the console. The path is
+    /// walked from `/` a directory at a time, each opened relative to the
+    /// one before with `O_DIRECTORY | O_NOFOLLOW`, so no component may be
+    /// a symbolic link, and each directory is checked through the
+    /// descriptor that opened it: every parent owned by `uid` or root and
+    /// writable by neither group nor others, and the store owned by `uid`.
     pub fn open(path: impl AsRef<Path>, uid: u32) -> Result<Store, StoreError> {
         let path = path.as_ref();
-        if !path.is_absolute() {
+        if !path.is_absolute() || path.components().any(|c| c == Component::ParentDir) {
             return Err(StoreError::Relative(path.to_owned()));
         }
         let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-        let dir = rustix::fs::open(path, flags, Mode::empty()).map_err(|e| {
-            // O_DIRECTORY meets the link itself, so a link to a directory
-            // fails as not one
-            if std::fs::symlink_metadata(path).is_ok_and(|m| m.is_symlink()) {
-                StoreError::Symlink(path.to_owned())
-            } else {
-                open_error(path, e.into())
-            }
-        })?;
-        let meta = File::from(dir.try_clone().map_err(|e| open_error(path, e))?)
-            .metadata()
-            .map_err(|e| open_error(path, e))?;
-        check_owner(path, &meta, &[uid])?;
-        for parent in path.ancestors().skip(1) {
-            let meta = std::fs::metadata(parent).map_err(|e| open_error(parent, e))?;
-            check_owner(parent, &meta, &[uid, 0])?;
+        let mut at = PathBuf::from("/");
+        let mut dir = rustix::fs::open("/", flags, Mode::empty())
+            .map(File::from)
+            .map_err(|e| open_error(&at, e.into()))?;
+        for component in path.components() {
+            let Component::Normal(name) = component else {
+                continue;
+            };
+            let meta = dir.metadata().map_err(|e| open_error(&at, e))?;
+            check_owner(&at, &meta, &[uid, 0])?;
+            at.push(name);
+            let next = rustix::fs::openat(&dir, name, flags, Mode::empty()).map_err(|e| {
+                // O_DIRECTORY meets a link itself, so a link to a
+                // directory fails as not one
+                if std::fs::symlink_metadata(&at).is_ok_and(|m| m.is_symlink()) {
+                    StoreError::Symlink(at.clone())
+                } else {
+                    open_error(&at, e.into())
+                }
+            })?;
+            dir = File::from(next);
         }
+        let meta = dir.metadata().map_err(|e| open_error(path, e))?;
+        check_owner(path, &meta, &[uid])?;
         Ok(Store {
             path: path.to_owned(),
-            dir,
+            dir: OwnedFd::from(dir),
             uid,
         })
     }
