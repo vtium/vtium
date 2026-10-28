@@ -245,6 +245,56 @@ impl Screen {
         self.damage.mark_all();
     }
 
+    /// Selects, as whole lines, the output of the command at view row `y`,
+    /// `x` any column of it: from the nearest line at or above it that
+    /// OSC 133 C marked to the line before the next prompt, or to the last
+    /// line written, the cursor's or the last before it that holds text
+    /// (ADR-1002, "What the marks are for"). A row inside no command's
+    /// output, a prompt's or its input's, selects nothing, nor does the
+    /// alternate screen. Returns whether it selected.
+    pub fn select_output(&mut self, x: usize, y: usize) -> bool {
+        let Some(anchor) = self.anchor(x, y).filter(|_| !self.flags.alternate) else {
+            return false;
+        };
+        let mut start = self.view_place(y);
+        loop {
+            let Some(flags) = self.line_at(start).map(Line::flags) else {
+                return false;
+            };
+            if flags.contains(LineFlags::OUTPUT) {
+                break;
+            }
+            if flags.contains(LineFlags::PROMPT) || flags.contains(LineFlags::INPUT) {
+                return false;
+            }
+            let Some(above) = start.checked_sub(1) else {
+                return false;
+            };
+            start = above;
+        }
+        let written = self.scrollback.len().saturating_add(self.cursor_y);
+        let mut end = start;
+        while end < written
+            && self
+                .line_at(end.saturating_add(1))
+                .is_some_and(|l| !l.flags().contains(LineFlags::PROMPT))
+        {
+            end = end.saturating_add(1);
+        }
+        while end > start && self.line_at(end).is_some_and(|l| text_len(l) == 0) {
+            end = end.saturating_sub(1);
+        }
+        self.selection = Selection {
+            active: true,
+            begin: Some(anchor),
+            start: self.anchor_at(start, 0),
+            end: self.anchor_at(end, self.cols.saturating_sub(1)),
+            line: true,
+        };
+        self.damage.mark_all();
+        true
+    }
+
     /// Whether anything is selected.
     pub fn has_selection(&self) -> bool {
         self.selection.active

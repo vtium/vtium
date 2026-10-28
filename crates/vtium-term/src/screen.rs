@@ -21,6 +21,8 @@
 //! margin.
 
 mod edit;
+mod links;
+mod marks;
 mod print;
 mod rect;
 pub(crate) mod reflow;
@@ -33,12 +35,14 @@ use crate::bounds::{COLUMNS_MAX, ROWS_MAX};
 use crate::damage::{Age, Damage};
 use crate::frame::{Cursor, CursorShape, Frame};
 use crate::line::{Line, LineId, LinkId};
+use crate::links::LinkStore;
 use crate::palette::Palette;
 use crate::scrollback::Scrollback;
 use crate::style::Style;
 use crate::unicode::Segmenter;
 
 pub use edit::Erase;
+use links::Hover;
 pub(crate) use rect::{Extent, Rect};
 use selection::Selection;
 
@@ -112,7 +116,12 @@ pub struct Screen {
     scrollback: Scrollback,
     damage: Damage,
     pen: Style,
+    /// The open OSC 8 link printed text takes.
     link: Option<LinkId>,
+    /// The links the lines' link tables name, on both screens and in the
+    /// scrollback.
+    links: LinkStore,
+    hover: Hover,
     next_id: u64,
     segment: Option<Segment>,
     /// The codepoint that started the last printed cell, which REP repeats.
@@ -149,6 +158,8 @@ impl Screen {
             damage: Damage::new(cols, rows),
             pen: Style::DEFAULT,
             link: None,
+            links: LinkStore::default(),
+            hover: Hover::default(),
             next_id: 0,
             segment: None,
             last_printed: None,
@@ -226,13 +237,10 @@ impl Screen {
         self.pen = pen;
     }
 
-    /// The hyperlink printed text takes (OSC 8, vtium/vtium#40).
+    /// The hyperlink printed text takes: the link OSC 8 opened
+    /// ([`set_hyperlink`](Self::set_hyperlink)).
     pub fn link(&self) -> Option<LinkId> {
         self.link
-    }
-
-    pub fn set_link(&mut self, link: Option<LinkId>) {
-        self.link = link;
     }
 
     /// The style erased, inserted and scrolled-in cells take: the pen's
@@ -335,17 +343,19 @@ impl Screen {
 
     /// Switches between the main and the alternate screen. Neither is
     /// cleared and the cursor stays: the modes that switch decide that.
-    /// The selection goes, the view returns to the screen, and everything
-    /// is marked.
+    /// The open link ends, the selection goes, the view returns to the
+    /// screen, and everything is marked.
     pub fn set_alternate(&mut self, on: bool) {
         if self.flags.alternate == on {
             return;
         }
         self.flags.alternate = on;
         self.segment = None;
+        self.close_link();
         self.selection.reset();
         self.scrollback.reset_view();
         self.damage.mark_all();
+        self.refresh_hover();
     }
 
     pub fn width_method(&self) -> WidthMethod {
@@ -397,7 +407,8 @@ impl Screen {
 
     /// The view, as the display that last drew at `since` reads it: the
     /// screen, or the scrollback and the screen while scrolled back, with
-    /// the cursor in the palette's cursor color and the selection.
+    /// the cursor in the palette's cursor color, the selection, the
+    /// hovered link and the overlay showing its URI.
     pub fn frame<'a>(&'a self, palette: &'a Palette, since: Age) -> Frame<'a> {
         let lines = self.view();
         let offset = self.scrollback.offset();
@@ -420,6 +431,12 @@ impl Screen {
             self.flags.reverse,
         )
         .with_selection(selected)
+        .with_hover(
+            self.hover.link,
+            self.hover
+                .overlay
+                .zip(self.hover.link.and_then(|l| self.link_uri(l))),
+        )
     }
 
     /// The lines the view shows, top to bottom: from the scrollback while
@@ -431,6 +448,16 @@ impl Screen {
             .chain(screen)
             .take(self.rows)
             .collect()
+    }
+
+    /// The line the view shows at row `y`.
+    fn view_line(&self, y: usize) -> Option<&Line> {
+        let screen = self.lines().iter();
+        self.scrollback
+            .in_view()
+            .chain(screen)
+            .take(self.rows)
+            .nth(y)
     }
 
     /// Sets how many lines the scrollback keeps, at most the cap the screen
@@ -450,12 +477,14 @@ impl Screen {
     pub fn scroll_view_up(&mut self, n: usize) {
         self.scrollback.view_up(n);
         self.damage.mark_all();
+        self.refresh_hover();
     }
 
     /// Scrolls the view `n` lines forward, towards the screen.
     pub fn scroll_view_down(&mut self, n: usize) {
         self.scrollback.view_down(n);
         self.damage.mark_all();
+        self.refresh_hover();
     }
 
     /// Returns the view to the screen.
@@ -463,6 +492,7 @@ impl Screen {
         if self.scrollback.offset() != 0 {
             self.scrollback.reset_view();
             self.damage.mark_all();
+            self.refresh_hover();
         }
     }
 
@@ -542,6 +572,7 @@ impl Screen {
         if self.cursor_y >= rows {
             self.move_cursor(self.cursor_x, rows.saturating_sub(1));
         }
+        self.refresh_hover();
     }
 
     /// Replaces the top `n` lines with the newest `n` of the scrollback,

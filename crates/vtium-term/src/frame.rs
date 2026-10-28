@@ -51,6 +51,18 @@ pub struct Cursor {
     pub color: Option<Rgb>,
 }
 
+/// The row that shows the hovered link's URI while Ctrl is held
+/// (ADR-1002, "Drawing"). It is no part of the screen: no cell, selection,
+/// copy or reply sees it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Overlay<'a> {
+    /// The view row it is drawn over: the bottom one, or the top one while the
+    /// pointer is on the bottom one.
+    pub row: usize,
+    /// The URI, printable ASCII.
+    pub uri: &'a str,
+}
+
 /// One cell of a frame, resolved for drawing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FrameCell<'a> {
@@ -72,6 +84,9 @@ pub struct FrameCell<'a> {
     /// below cell backgrounds shows through (libtsm#35).
     pub default_bg: bool,
     pub link: Option<LinkId>,
+    /// Part of the link under the pointer, which draws a dashed underline
+    /// in place of the cell's own underline style.
+    pub hovered: bool,
     /// Inside the selection, which draws inverted or in the selection
     /// colors.
     pub selected: bool,
@@ -90,6 +105,8 @@ pub struct Frame<'a> {
     reverse: bool,
     /// The selected columns of each row; a row past the list has none.
     selection: Vec<Range<usize>>,
+    hovered: Option<LinkId>,
+    overlay: Option<Overlay<'a>>,
 }
 
 impl<'a> Frame<'a> {
@@ -111,6 +128,8 @@ impl<'a> Frame<'a> {
             cursor,
             reverse,
             selection: Vec::new(),
+            hovered: None,
+            overlay: None,
         }
     }
 
@@ -119,6 +138,29 @@ impl<'a> Frame<'a> {
     pub fn with_selection(mut self, selection: Vec<Range<usize>>) -> Self {
         self.selection = selection;
         self
+    }
+
+    /// The frame with the link under the pointer, and the overlay row
+    /// showing a URI, a row and the URI.
+    pub fn with_hover(
+        mut self,
+        hovered: Option<LinkId>,
+        overlay: Option<(usize, &'a str)>,
+    ) -> Self {
+        self.hovered = hovered;
+        self.overlay = overlay.map(|(row, uri)| Overlay { row, uri });
+        self
+    }
+
+    /// The link under the pointer, whose visible cells are each
+    /// [`hovered`](FrameCell::hovered).
+    pub fn hovered(&self) -> Option<LinkId> {
+        self.hovered
+    }
+
+    /// The overlay row showing the hovered link's URI, while Ctrl is held.
+    pub fn overlay(&self) -> Option<Overlay<'a>> {
+        self.overlay
     }
 
     pub fn rows(&self) -> usize {
@@ -196,6 +238,7 @@ impl<'a> Frame<'a> {
         col: usize,
         c: Colors,
     ) -> FrameCell<'a> {
+        let link = line.link(cell);
         FrameCell {
             glyph: line.glyph(cell),
             width: cell.width(),
@@ -204,7 +247,8 @@ impl<'a> Frame<'a> {
             underline_color: c.underline_color,
             attrs: c.attrs,
             default_bg: c.default_bg,
-            link: line.link(cell),
+            link,
+            hovered: link.is_some() && link == self.hovered,
             selected: c.selected,
             changed: self.damage.changed(row, col, self.since),
         }

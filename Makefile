@@ -91,18 +91,16 @@ conformance-record: ## Record the corpus's programs into OUT=DIR, each <name>.bi
 	cargo build --release -p vtium-conformance --features record --bin conformance-record
 	$(or $(CARGO_TARGET_DIR),target)/release/conformance-record $(OUT) $(NAMES)
 
-# The parse oracle and the provenance check read libtsm and kmscon
-# checkouts; neither is a gate.
+# The provenance checks, conformance-provenance, tier2-provenance and
+# tier3-provenance, read libtsm and kmscon checkouts with git, read-only, to
+# review a change to the copies; none is a gate.
 LIBTSM ?= ../libtsm
+KMSCON ?= ../kmscon
 
 .PHONY: conformance-provenance
 conformance-provenance: ## Check each row of tools/conformance/provenance.tsv against its source with git show (LIBTSM=DIR KMSCON=DIR)
 	cargo build --release -p vtium-conformance --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/conformance provenance --libtsm $(LIBTSM) --kmscon $(KMSCON)
-
-.PHONY: parse-oracle
-parse-oracle: ## Compare vtium-parse with the C reference's parser at tools/parse-oracle/pin.tsv (LIBTSM=DIR; needs gcc)
-	LIBTSM=$(abspath $(LIBTSM)) cargo run --release --manifest-path tools/parse-oracle/Cargo.toml -- run
 
 .PHONY: conformance-issues
 conformance-issues: ## Check that every issue the conformance lists say owes a case or a capability is open (needs gh)
@@ -161,10 +159,7 @@ vt-check: $(vt_build) ## Run a guide's checks on a free VT; the operator answers
 	tools/vt/vt.sh
 
 # Tier 2 against vtium's goldens and the C reference's, copied into
-# tools/tier2/reference (provenance.tsv). tier2-provenance reads a kmscon
-# checkout and is not a gate.
-KMSCON ?= ../kmscon
-
+# tools/tier2/reference (provenance.tsv).
 .PHONY: tier2
 tier2: ## Draw tier 2's screens and judge them against their goldens
 	cargo build --release -p vtium-tier2 --bins
