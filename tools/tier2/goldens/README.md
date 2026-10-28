@@ -1,6 +1,6 @@
 # vtium's goldens
 
-The goldens of vtium's own tier 2 screens, which the C reference's tier 2 has none for. The C reference drew every one but the two `small-` goldens, which are vtium's own drawing of behaviour only vtium has (vtium/vtium#75): `../reference/draw.sh` at kmscon `b1f7a7c5df563f3378584db7298753848a7a9a13` and libtsm `3ec40dc7a185dea1cd7e1252d4215939af1977fb`, the commit that kmscon's `subprojects/libtsm.wrap` pins, through libtsm, bbulk with the unifont backend and drm2d's blend. Each stays in `../provisional.tsv` until the operator has reviewed it.
+The goldens of vtium's own tier 2 screens, which the C reference's tier 2 has none for. Each is reviewed vtium output that judges vtium. The C reference drew every one but the two `small-` goldens, with a program built from kmscon `b1f7a7c5df563f3378584db7298753848a7a9a13` and libtsm `3ec40dc7a185dea1cd7e1252d4215939af1977fb`, the commit that kmscon's `subprojects/libtsm.wrap` pinned, through libtsm, bbulk with the unifont backend and drm2d's blend; that program is retired (vtium/vtium#111). vtium drew the two `small-` goldens, behaviour only vtium has (vtium/vtium#75). A golden added here stays in `../provisional.tsv` until the operator has reviewed it.
 
 | Golden | What it shows |
 |---|---|

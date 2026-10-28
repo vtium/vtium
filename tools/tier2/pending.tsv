@@ -1,6 +1,8 @@
 # Goldens of the C reference's tier 2 that no screen draws yet: GOLDEN,
-# the issue that owes the screen, and why. Every golden at the pin is a
-# screen or a row here; a row whose golden a screen draws is refused.
+# the issue that owes the screen, and why. Every golden c-goldens.list gives
+# is copied and drawn by a screen, or a row here; a listed golden that is
+# neither is missing and fails the run. A row whose golden a screen draws or
+# is copied is refused. A screen that takes one up copies its golden.
 ascii	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
 bold	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
 box	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType

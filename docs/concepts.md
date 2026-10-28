@@ -176,7 +176,7 @@ vtium reads the keyboard itself and passes keys to the session, apart from the k
 
 ### Blanking
 
-After a period with no key or pointer event, vtium turns its displays off, and the next key or pointer event turns them on; output alone never keeps them on. A program can set the timeout or wake the screen with the Linux console's own sequences, and setting the timeout wakes the screen too, as on the Linux console. A setting, on by default, lets the administrator turn that program control off, and no program can turn the screen off at once (vtium/vtium#79).
+After a period with no key press or pointer action (a move, a button or the wheel), vtium turns its displays off, and the next one turns them on; output alone never keeps them on. A program can set the timeout or wake the screen with the Linux console's own sequences, and setting the timeout wakes the screen too, as on the Linux console. A setting, on by default, lets the administrator turn that program control off, and no program can turn the screen off at once (vtium/vtium#79).
 
 Blanking at once and waking from outside the session are proposed in vtium/vtium#116: root sends vtium a signal, or runs a vtium subcommand that finds the vtium on a given VT and signals it, so a script or a power daemon acts without writing to the session's terminal.
 
@@ -191,7 +191,7 @@ vtium is judged in tiers, each with its harness in vtium's tree; [AGENTS.md](../
 - **Tier 3, the VM:** vtium's install tree on a VT in a QEMU/KVM guest with a real display device, its screens captured and compared with goldens, with size and memory figures ([tools/tier3](../tools/tier3/README.md)).
 - **The VT review:** the maintainer judges a build by eye on a real VT, guided step by step ([vt-review.md](vt-review.md)).
 
-The goldens are the judge: a difference from one is a listed departure, a listed pending case, or a failure. Tier 1's corpus and goldens and the capability probes were made by the C reference and are copied into vtium's tree, each file with the commit it came from and its hash. Tier 2 and tier 3 read the C reference's goldens from a checkout of its repository at a pinned commit, beside vtium's own goldens for the screens the C reference never drew; moving them into vtium's tree is vtium/vtium#111. No gate runs the C reference's code: the parse oracle, which compiles the C reference's parser to compare with vtium's, runs only on request ([tools/parse-oracle](../tools/parse-oracle/README.md)).
+The goldens are the judge: a difference from one is a listed departure, a listed pending case, or a failure. Tier 1's corpus and goldens and the capability probes were made by the C reference and are copied into vtium's tree, each file with the commit it came from and its hash. Tier 2's goldens from the C reference are copied the same way, beside vtium's own reviewed goldens for the screens the C reference never drew. Tier 3 reads the C reference's goldens from a checkout of its repository at a pinned commit; moving them into vtium's tree is vtium/vtium#111. No gate runs the C reference's code: the parse oracle, which compiles the C reference's parser to compare with vtium's, runs only on request ([tools/parse-oracle](../tools/parse-oracle/README.md)).
 
 ## What VTium does not do
 
