@@ -23,12 +23,18 @@
 //! - Its heap is that budget's `heap_bound` and 256 bytes a row: each row
 //!   holds its tables' 80-byte struct and up to two style entries of 14
 //!   bytes past its cells' own, its fill's and a pad's.
-//! - Across the scrollback and the screen the rows name at most the budget
-//!   of `W + 1` columns a row. A widening joins rows written narrower,
-//!   each with at most one pad column of budget its text does not use,
-//!   and frees rows that new text fills; a narrowing spreads text over more
-//!   rows, the oldest past `sb-size` dropped. So the worst case ADR-1001
-//!   computes for a full-width row grows by one column's budget, 6 bytes.
+//! - Across the scrollback and the screen the rows name at most
+//!   `row_bound(W)` bytes a row on average. Every byte was written within a
+//!   row's budget: a wrapped row's beyond 6 bytes a cell of its text only
+//!   for a pad, and a pad needs a cell of text in its row, so pads add at
+//!   most 6 bytes a cell (more than the half the wide character after a
+//!   pad would allow, since that character may be erased); a logical
+//!   line's last row holds at most `min(6w, CLUSTER_BYTES_MAX * t)` on its
+//!   `t` cells, and there is at most one last row a row. So a row names at
+//!   most `12W` and the most a last row's few cells hold beyond 6 bytes
+//!   each: 3,012 bytes at the 170-column minspec grid, 2.95 times its
+//!   budget, where ADR-1001 took 1,020. The shapes below reach twice the
+//!   budget in a row and about 1.4 times it on average.
 
 mod common;
 
@@ -228,46 +234,83 @@ fn resizing_and_the_alternate_screen_keep_clusters_bounded() {
     }
 }
 
-/// The scrollback's and the screen's rows name at most the budget of one
-/// column more than the widest screen a row: see the module's notes.
-fn check_total(screen: &Screen, widest: usize, step: usize) {
+/// The most a row of the scrollback and the screen names on average, for
+/// a widest screen of `widest` columns: see the module's notes.
+fn row_bound(widest: usize) -> usize {
+    let budget = CLUSTER_BYTES_PER_CELL * widest;
+    let cluster_max = 1 + CLUSTER_MAX * 4;
+    let last = (1..=widest)
+        .map(|t| budget.min(cluster_max * t) - CLUSTER_BYTES_PER_CELL * t)
+        .max()
+        .unwrap_or(0);
+    2 * budget + last
+}
+
+/// The scrollback's and the screen's rows name at most `row_bound` bytes
+/// a row; returns what they name a row on average, and the most one row
+/// names.
+fn check_total(screen: &Screen, widest: usize, step: usize) -> (usize, usize) {
     let rows: Vec<&Line> = screen.scrollback().chain(screen.lines()).collect();
     let named: usize = rows.iter().map(|l| named_bytes(l)).sum();
-    let bound = CLUSTER_BYTES_PER_CELL * (widest + 1) * rows.len();
+    let bound = row_bound(widest) * rows.len();
     assert!(
         named <= bound,
         "step {step}: {named} bytes in {} rows, over {bound}",
         rows.len()
     );
+    let most = rows.iter().map(|l| named_bytes(l)).max().unwrap_or(0);
+    (named / rows.len().max(1), most)
 }
 
-// ADR-1003, "The scrollback's bound": rows printed narrow with a wide
-// character and a pad, widened, and the rows freed filled with full rows,
-// name more than the widest screen's budget a row, and no more than one
-// column's more.
+/// A terminal `narrow` columns wide fed `text`, widened to `widest` and
+/// the rows the widening freed filled with rows at the full budget; the
+/// bytes it names a row on average, and the most one row names.
+fn widened(narrow: usize, widest: usize, text: &str) -> (usize, usize) {
+    let mut t = Terminal::new(narrow, 4, 60);
+    t.screen_mut().set_scrollback_max(60);
+    t.input(text.as_bytes());
+    t.screen_mut().resize(widest, 4);
+    t.screen_mut().rewrap_scrollback();
+    let merged = t.screen().scrollback().len();
+    let full = "e\u{301}\u{301}".repeat(widest);
+    for _ in merged..60 {
+        t.input(format!("{full}\r\n").as_bytes());
+    }
+    check_total(t.screen(), widest, 0)
+}
+
+// ADR-1003, "The scrollback's bound": shapes that pass the widest screen's
+// budget a row once widened, each inside the bound the module's notes
+// derive. The pad a wide character leaves gives a row's budget to fewer
+// cells of text, more so where the wide character is erased after it; a
+// last row may hold its row's budget on a few cells.
 #[test]
-fn a_rewrap_names_at_most_one_column_more_a_row() {
-    let heavy = "e\u{301}\u{301}";
+fn a_rewrap_names_at_most_the_derived_bound_a_row() {
+    let budget = |w: usize| CLUSTER_BYTES_PER_CELL * w;
     for (narrow, widest) in [(3, 12), (2, 12), (5, 12), (3, 9), (11, 12), (7, 12)] {
         // A wide cluster that fills a row of `narrow` columns' budget.
         let marks = (CLUSTER_BYTES_PER_CELL * narrow - 4) / 2;
         let wide = format!("\u{4E2D}{}", "\u{301}".repeat(marks));
-        let mut t = Terminal::new(narrow, 4, 60);
-        t.screen_mut().set_scrollback_max(60);
-        t.input(wide.repeat(200).as_bytes());
-        t.input(b"\r\n");
-        t.screen_mut().resize(widest, 4);
-        t.screen_mut().rewrap_scrollback();
-        let merged = t.screen().scrollback().len();
-        for _ in merged..60 {
-            t.input(format!("{}\r\n", heavy.repeat(widest)).as_bytes());
-        }
-        check_total(t.screen(), widest, 0);
+        let (named, _) = widened(narrow, widest, &format!("{}\r\n", wide.repeat(200)));
         if (narrow, widest) == (3, 12) {
-            let s = t.screen();
-            let rows: Vec<&Line> = s.scrollback().chain(s.lines()).collect();
-            let named: usize = rows.iter().map(|l| named_bytes(l)).sum();
-            assert!(named > CLUSTER_BYTES_PER_CELL * widest * rows.len());
+            assert!(named > budget(widest));
         }
     }
+
+    // Logical lines of two rows printed 11 columns wide: a heavy wide
+    // character, four plain ones and a pad, then a last row of one heavy
+    // wide character. Widened to 12, each is one row of two rows' budget.
+    let heavy_wide = format!("\u{4E2D}{}", "\u{301}".repeat(30));
+    let line = format!("{heavy_wide}{}{heavy_wide}\r\n", "\u{4E2D}".repeat(4));
+    let (named, most) = widened(11, 12, &line.repeat(40));
+    assert!(named > budget(13), "{named} a row");
+    assert!(most > 2 * budget(11) - 10, "{most} in a row");
+
+    // Rows printed 2 columns wide of a heavy cell and a pad, the wide
+    // character after each erased: every row's budget on one cell of text,
+    // so a row widened to 12 names twice its budget.
+    let heavy = format!("e{}", "\u{301}".repeat(5));
+    let line = format!("{}\r\n", format!("{heavy}\u{4E2D}\r\x1b[2X").repeat(30));
+    let (_, most) = widened(2, 12, &line.repeat(4));
+    assert_eq!(most, 2 * budget(12));
 }
