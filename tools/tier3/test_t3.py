@@ -878,12 +878,11 @@ class VtiumGoldenTest(unittest.TestCase):
         return path
 
     def test_shipped(self):
-        # The list in the tree names each of vtium's twelve goldens, all of
-        # which a case draws.
+        # The operator accepted vtium's twelve small-display goldens on
+        # 2026-10-28, so the list in the tree names none; every golden it
+        # would name must be one a case draws.
         prov = t3_evaluate.read_provisional()
-        want = ["%s/%s" % (v, s) for v in ("2d-320x240-psf8", "2d-640x480-psf16")
-                for s in t3_evaluate.SMALL_SCREENS]
-        self.assertEqual(sorted(prov), sorted(want))
+        self.assertEqual(sorted(prov), [])
         self.assertEqual(t3_evaluate.check_vtium_goldens(t3_scenario.vtium_golden_cases(),
                                                          prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
