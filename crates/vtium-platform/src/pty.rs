@@ -115,6 +115,10 @@ impl Pty {
     /// session would inherit all three. The C reference emptied the mask
     /// and reset the signals below SIGSYS (pty.c:313-320); vtium resets
     /// every signal (see the crate README's Departures).
+    ///
+    /// The child holds no other descriptor of vtium's: every descriptor
+    /// vtium inherited is marked close-on-exec before the fork, as the C
+    /// reference's child did not (see the crate README's Departures).
     pub fn spawn(mut command: Command, size: Size, erase: Erase) -> io::Result<Pty> {
         let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)?;
         grantpt(&master)?;
@@ -172,6 +176,9 @@ impl Pty {
                 Ok(())
             });
         }
+        // Here and not in the hook: listing the descriptors where
+        // close_range cannot mark them allocates.
+        crate::fds::cloexec_above_stdio()?;
         let child = command.spawn()?;
         // The parent's copies of the slave go with the command, so the
         // master sees a hangup once the child's session closes it.
