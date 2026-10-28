@@ -70,6 +70,12 @@ queries! {
     Title,
     /// XTQMODKEYS, `CSI ? 4 m`.
     ModifyOtherKeys,
+    /// Mode 2048's report of the text area, as it is set and on a resize.
+    TextArea,
+    /// `CSI ? 998 n`, and mode 2033's reports.
+    Visibility,
+    /// `CSI ? 996 n`, and mode 2031's reports.
+    ColorScheme,
     /// XTREPORTCOLORS, `CSI # R`.
     ColorStack,
 }
@@ -523,6 +529,18 @@ mod tests {
                 let request = cat(&[b"\x1b[>4;", &level, b"m\x1b[?", &n, b"m"]);
                 (request, vec![], vec![level, n])
             }
+            Query::TextArea => {
+                let n = rng.padded(2048);
+                (cat(&[b"\x1b[?", &n, b"h"]), vec![], vec![n])
+            }
+            Query::Visibility => {
+                let n = rng.padded(998);
+                (cat(&[b"\x1b[?", &n, b"n"]), vec![], vec![n])
+            }
+            Query::ColorScheme => {
+                let n = rng.padded(996);
+                (cat(&[b"\x1b[?", &n, b"n"]), vec![], vec![n])
+            }
             // Pushes and pops by padded numbers, then the report with a
             // padded parameter, which it ignores.
             Query::ColorStack => {
@@ -613,6 +631,9 @@ mod tests {
                 Query::WindowSize => (b"\x1b[14t", b"\x1b[4;80;80t"),
                 Query::Title => (b"\x1b[21t", b"\x1b]l\x1b\\"),
                 Query::ModifyOtherKeys => (b"\x1b[?4m", b"\x1b[>4;0m"),
+                Query::TextArea => (b"\x1b[?2048h", b"\x1b[48;5;10;80;80t"),
+                Query::Visibility => (b"\x1b[?998n", b"\x1b[?999;1n"),
+                Query::ColorScheme => (b"\x1b[?996n", b"\x1b[?997;1n"),
                 Query::ColorStack => (b"\x1b[#P\x1b[3#P\x1b[#R", b"\x1b[?3;3#Q"),
             };
             let mut t = fixture();
