@@ -493,6 +493,7 @@ dependencies = [
  "ruzstd",
  "vtium-font",
  "vtium-platform",
+ "vtium-term",
 ]
 
 [[package]]

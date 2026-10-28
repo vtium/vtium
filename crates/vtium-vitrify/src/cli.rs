@@ -36,6 +36,7 @@ Commands:
   list [--json]                      list the store's sets and the built-ins
   verify [NAME...]                   run the console's check on the store's sets
   remove NAME...                     drop sets from the store; their frits stay (root)
+  set NAME                           switch the running console to a built set
 
 Options:
   --store DIR           a store the invoking user owns, in place of the system's
@@ -160,6 +161,7 @@ pub fn run(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         "list" => cli.list(&rest),
         "verify" => cli.verify(&rest),
         "remove" => cli.remove(&rest),
+        "set" => crate::switch::command(&rest, o.store.as_deref(), cli.out, cli.err),
         "" => cli.usage("no command"),
         other => cli.usage(&format!("unknown command {other}")),
     }

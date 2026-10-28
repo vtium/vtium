@@ -16,7 +16,8 @@
 //! unprivileged child process with [`decode`]'s decoders and hands back
 //! the bounded [`glyphs`] form; [`build`] lays the glyphs into a set; and
 //! [`store`] writes it into the root-owned store under its lock, or
-//! `create --out` into a portable file. [`cli`] is the command line.
+//! `create --out` into a portable file. [`switch`] switches the running
+//! console among the built sets. [`cli`] is the command line.
 
 pub mod build;
 pub mod child;
@@ -26,3 +27,4 @@ pub mod frit;
 pub mod glyphs;
 pub mod sources;
 pub mod store;
+pub mod switch;
