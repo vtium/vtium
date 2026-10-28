@@ -6,7 +6,10 @@
 //! built-ins, and the command fails naming `list` when it is not there.
 //! It then writes `OSC 50 ; NAME ST` and the query `OSC 50 ; ? ST` to
 //! `/dev/tty`, and reads the reply in raw mode for at most [`WAIT`],
-//! putting the terminal's mode back after. It prints `set NAME` and exits
+//! putting the terminal's mode back after. SIGTERM, SIGHUP, SIGINT and
+//! SIGQUIT are held while the terminal is raw, so one that comes then acts
+//! once the mode is back; input left unread, such as a reply that came
+//! late, is dropped first, so it never reaches the shell's prompt. It prints `set NAME` and exits
 //! 0 when the reply names NAME; otherwise it says what the console kept,
 //! or that no reply came: font operations are off (`allow-font-ops`), or
 //! the terminal is not vtium.
@@ -18,8 +21,11 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use rustix::process::geteuid;
-use rustix::termios::{OptionalActions, SpecialCodeIndex, Termios, tcgetattr, tcsetattr};
+use rustix::termios::{
+    OptionalActions, QueueSelector, SpecialCodeIndex, Termios, tcflush, tcgetattr, tcsetattr,
+};
 use vtium_font::set::{Store, builtin};
+use vtium_platform::calloop::signals::{Signal, Signals};
 
 use crate::frit::RESERVED;
 use crate::store::{default_store, manifest};
@@ -83,26 +89,42 @@ fn now() -> Instant {
 }
 
 /// A terminal in raw mode, each read waiting at most a tenth of a second,
-/// until it drops and the mode before is put back.
+/// until it drops: the input left unread is dropped and the mode before
+/// put back. Meanwhile the signals that end the command are held, and act
+/// once it has dropped.
 pub struct Raw<'a> {
     tty: &'a File,
     saved: Termios,
+    /// Released after `drop` puts the mode back, as a field.
+    _held: Signals,
 }
 
 impl<'a> Raw<'a> {
     pub fn new(tty: &'a File) -> io::Result<Raw<'a>> {
+        let held = Signals::new(&[
+            Signal::SIGTERM,
+            Signal::SIGHUP,
+            Signal::SIGINT,
+            Signal::SIGQUIT,
+        ])
+        .map_err(io::Error::other)?;
         let saved = tcgetattr(tty.as_fd())?;
         let mut raw = saved.clone();
         raw.make_raw();
         raw.special_codes[SpecialCodeIndex::VMIN] = 0;
         raw.special_codes[SpecialCodeIndex::VTIME] = 1;
         tcsetattr(tty.as_fd(), OptionalActions::Now, &raw)?;
-        Ok(Raw { tty, saved })
+        Ok(Raw {
+            tty,
+            saved,
+            _held: held,
+        })
     }
 }
 
 impl Drop for Raw<'_> {
     fn drop(&mut self) {
+        let _ = tcflush(self.tty.as_fd(), QueueSelector::IFlush);
         let _ = tcsetattr(self.tty.as_fd(), OptionalActions::Now, &self.saved);
     }
 }

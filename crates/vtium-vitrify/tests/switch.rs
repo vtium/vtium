@@ -141,3 +141,67 @@ fn a_name_list_does_not_give_fails_before_the_terminal_is_touched() {
     let (status, err) = cli(&["set", "a", "b"]);
     assert_eq!(status, 2, "{err}");
 }
+
+// Input left unread when raw mode ends, such as a reply that came late, is
+// dropped, so it never reaches the shell's prompt.
+#[test]
+fn input_left_unread_is_dropped_before_the_mode_is_back() {
+    let (mut master, slave) = pair();
+    {
+        let _raw = Raw::new(&slave).expect("raw mode");
+        master.write_all(b"late\x1b]50;tiny\x07\n").expect("write");
+        // the line discipline has taken the bytes once the slave can see them
+        let start = now();
+        while rustix::io::ioctl_fionread(&slave).expect("FIONREAD") == 0 {
+            assert!(now() - start < Duration::from_secs(2), "no input came");
+            std::thread::yield_now();
+        }
+    }
+    assert_eq!(rustix::io::ioctl_fionread(&slave).expect("FIONREAD"), 0);
+}
+
+// A SIGTERM while `set` waits for the reply acts once the terminal's mode
+// is back: the command ends by it, and the terminal is cooked again.
+#[test]
+fn a_sigterm_during_the_wait_ends_set_with_the_mode_back() {
+    use std::os::fd::AsFd;
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::{Command, Stdio};
+    let (mut master, slave) = pair();
+    let store = concat!(env!("CARGO_TARGET_TMPDIR"), "/vtium-vitrify-set-no-store");
+    // setsid --ctty makes the pty the command's controlling terminal, the
+    // /dev/tty set opens
+    let mut child = Command::new("setsid")
+        .args([
+            "--ctty",
+            env!("CARGO_BIN_EXE_vtium-vitrify"),
+            "--store",
+            store,
+        ])
+        .args(["set", "unifont"])
+        .stdin(Stdio::from(
+            slave.as_fd().try_clone_to_owned().expect("dup"),
+        ))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("setsid runs");
+    // the request and the query, then the signal while it waits
+    let mut got = Vec::new();
+    let mut buf = [0u8; 64];
+    while !got.windows(6).any(|w| w == b"\x1b]50;?") {
+        let n = master.read(&mut buf).expect("the request");
+        got.extend_from_slice(&buf[..n]);
+    }
+    let pid = rustix::process::Pid::from_raw(child.id() as i32).expect("a pid");
+    rustix::process::kill_process(pid, rustix::process::Signal::TERM).expect("kill");
+    let status = child.wait().expect("wait");
+    assert_eq!(status.signal(), Some(15), "{status:?}");
+    assert!(
+        tcgetattr(&slave)
+            .expect("tcgetattr")
+            .local_modes
+            .contains(LocalModes::ICANON | LocalModes::ECHO),
+        "the mode before is back"
+    );
+}
