@@ -372,6 +372,9 @@ pub struct Renderer<F> {
     /// drawn's palette; `None` follows the foreground.
     deco: (Option<Rgb>, Option<Rgb>),
     compose: Composer,
+    /// Characters the font draws differently since the last frame, sorted:
+    /// the cells showing one draw again ([`Renderer::glyphs_changed`]).
+    changed: Vec<char>,
 }
 
 /// The pointer's image for cells `cell_height` tall: the arrow, or the
@@ -481,7 +484,20 @@ impl<F: Face> Renderer<F> {
             pointer_line: Vec::new(),
             mono_line: Vec::new(),
             deco: (None, None),
+            changed: Vec::new(),
         }
+    }
+
+    /// The font now draws each of `chars` differently, as when the deferred
+    /// pipeline's generated glyphs arrive (ADR-1201 D1): the cache drops
+    /// every glyph it holds, and the next frame draws again each cell that
+    /// shows one of `chars`, alone or in a cluster. Every other cell keeps
+    /// its pixels.
+    pub fn glyphs_changed(&mut self, chars: &[char]) {
+        self.compose.cache.clear();
+        self.changed.extend_from_slice(chars);
+        self.changed.sort_unstable();
+        self.changed.dedup();
     }
 
     pub fn font(&self) -> &Font<F> {
@@ -603,6 +619,7 @@ impl<F: Face> Renderer<F> {
             self.fill_border(&grid, &mut out, bg, *r);
         }
         let cells = self.draw_cells(&grid, frame, &mut out, state);
+        self.changed.clear();
         self.arrow = arrow;
         self.pointer_line = line;
         self.mono_line = mono_line;
@@ -693,6 +710,7 @@ impl<F: Face> Renderer<F> {
         let mut drawn = 0u32;
         for row in 0..g.rows {
             let scan = self.cells.row_stale(row)
+                || !self.changed.is_empty()
                 || blink_toggled
                 || frame.row_changed(row)
                 || at.is_some_and(|(_, r)| r == row)
@@ -702,6 +720,17 @@ impl<F: Face> Renderer<F> {
             }
         }
         drawn
+    }
+
+    /// Whether `glyph` shows a character [`Renderer::glyphs_changed`] named.
+    fn shows_changed(&self, glyph: &Glyph<'_>) -> bool {
+        let changed = |c: char| self.changed.binary_search(&c).is_ok();
+        match *glyph {
+            _ if self.changed.is_empty() => false,
+            Glyph::Empty => false,
+            Glyph::Char(c) => changed(c),
+            Glyph::Cluster(text) => text.chars().any(changed),
+        }
     }
 
     /// Scans one row, updates what each cell last drew, and draws the cells
@@ -717,7 +746,7 @@ impl<F: Face> Renderer<F> {
             before = Some(fc.width);
             // a cell that joins or leaves a wide pair draws differently
             let role = u8::try_from(ncells).unwrap_or(1);
-            let mut changed = fc.changed;
+            let mut changed = fc.changed || self.shows_changed(&fc.glyph);
             if let Some(s) = self.cells.get_mut(here, row) {
                 changed |= core::mem::replace(&mut s.span, role) != role;
             }

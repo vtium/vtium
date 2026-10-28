@@ -240,6 +240,16 @@ impl GlyphCache {
         GlyphCache { fallback, ..self }
     }
 
+    /// Drops every glyph, as when the font draws differently.
+    pub(crate) fn clear(&mut self) {
+        self.slots = vec![NIL; 16];
+        self.entries.clear();
+        self.free.clear();
+        self.live = 0;
+        self.pools = [EMPTY_POOL; 4];
+        self.spare = None;
+    }
+
     /// Starts a drawn frame: glyphs used from now on are this frame's.
     pub(crate) fn begin_frame(&mut self) {
         self.frame = self.frame.wrapping_add(1);
