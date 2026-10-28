@@ -961,11 +961,15 @@ class VtiumGoldenTest(unittest.TestCase):
 
     def test_shipped(self):
         # The operator accepted vtium's sixteen small-display goldens on
-        # 2026-10-28, the four vtium/vtium#119 adds in advance, so the list
-        # in the tree names none; every golden it would name must be one a
-        # case draws.
+        # 2026-10-28, the four vtium/vtium#119 adds in advance; the twelve
+        # vtium/vtium#126 recaptured with the sets' fills wait for the
+        # operator's review. Every golden the list names must be one a case
+        # draws.
         prov = t3_evaluate.read_provisional()
-        self.assertEqual(sorted(prov), [])
+        moved = ["small-console", "boxdraw", "underline-styles", "strike", "wide-margin", "cjk"]
+        self.assertEqual(sorted(prov), sorted("%s/%s" % (v, s)
+                                              for v in ("2d-320x240-psf8", "2d-640x480-psf16")
+                                              for s in moved))
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
                                                    t3_evaluate.VTIUM_GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
