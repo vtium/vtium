@@ -7,12 +7,14 @@
 //! are re-baselined when the Rust font layer lands (vtium/vtium#24), as
 //! kmscon's ADR-304 §6 decides (adr-cite-ignore: kmscon's record).
 //! The screens after them are vtium's, drawn in unifont, for the harness
-//! work the C reference had queued (aaronsb/kmscon#8, #10, #70, #118, #122).
+//! work the C reference had queued (aaronsb/kmscon#8, #10, #70, #118, #122),
+//! and last the small displays in the PSF fonts `tools/testfont` writes
+//! (vtium/vtium#75).
 
 use vtium_render::Orientation;
 use vtium_term::WidthMethod;
 
-use crate::draw::{DecoSpec, Decorations, FontKind, Screen};
+use crate::draw::{DecoSpec, Decorations, FontKind, Screen, TestFont};
 
 /// Where a screen's golden lives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -245,6 +247,76 @@ const EMOJI: &[u8] = concat!(
     "🫨  missing\r\n",
     "\x1b[7;48H😀",
 ).as_bytes();
+
+/// The 320x240 floor (vtium/vtium#75): a full-width title, a shell session
+/// with a line that wraps, a box of sprites around styled words, the 16
+/// background and foreground colours, block, shade, Braille and sextant
+/// sprites, Latin-1 and punctuation the font holds, two characters it
+/// lacks, the underline styles, text ending in the last column, and an
+/// editor's status line across the last row.
+const SMALL_40: &[u8] = concat!(
+    "\x1b[7m 320x240, 8x8 PSF2 font: 40x30 cells    \x1b[0m\r\n",
+    "login: pi\r\n",
+    "\x1b[1;32mpi@sbc\x1b[0m:\x1b[1;34m~\x1b[0m$ ls\r\n",
+    "\x1b[1;34mbin\x1b[0m  \x1b[1;32mrun.sh\x1b[0m  notes.txt  \x1b[36mlib.so\x1b[0m\r\n",
+    "\x1b[1;32mpi@sbc\x1b[0m:\x1b[1;34m~\x1b[0m$ echo a line past 40 cells wraps\r\n",
+    "a line past 40 cells wraps\r\n",
+    "\r\n",
+    "┌──────────┬─────────┐\r\n",
+    "│ \x1b[1mbold\x1b[0m     │ \x1b[4munder\x1b[0m   │\r\n",
+    "├──────────┼─────────┤\r\n",
+    "│ \x1b[9mstruck\x1b[0m   │ \x1b[7mreverse\x1b[0m │\r\n",
+    "└──────────┴─────────┘\r\n",
+    "\x1b[40m  \x1b[41m  \x1b[42m  \x1b[43m  \x1b[44m  \x1b[45m  \x1b[46m  \x1b[47m  ",
+    "\x1b[100m  \x1b[101m  \x1b[102m  \x1b[103m  \x1b[104m  \x1b[105m  \x1b[106m  \x1b[107m  \x1b[0m\r\n",
+    "\x1b[30;47mAB\x1b[31;49mAB\x1b[32mAB\x1b[33mAB\x1b[34mAB\x1b[35mAB\x1b[36mAB\x1b[37mAB",
+    "\x1b[90mAB\x1b[91mAB\x1b[92mAB\x1b[93mAB\x1b[94mAB\x1b[95mAB\x1b[96mAB\x1b[97mAB\x1b[0m\r\n",
+    "░▒▓█ ▀▄▌▐ ▁▂▃▄▅▆▇█ ⠿⣿⡇ 🬗🬤🬗🬤\r\n",
+    "café naïve £5 ½ ¿¡ ©® «» ×÷ ÆØÅ\r\n",
+    "“quotes” – — … • € ←↑→↓\r\n",
+    "lacks: 中 wide, \u{2603} narrow\r\n",
+    "\x1b[4:3mcurly\x1b[0m \x1b[4:2mdouble\x1b[0m \x1b[4:4mdots\x1b[0m \x1b[4:5mdash\x1b[0m ",
+    "\x1b[4;58:5:196mred\x1b[0m\r\n",
+    "\x1b[1;32mpi@sbc\x1b[0m:\x1b[1;34m~\x1b[0m$ vi notes.txt",
+    "\x1b[28;31H\x1b[42mright edge\x1b[0m",
+    "\x1b[30;1H\x1b[7m\"notes.txt\" 3L, 42B            1,1   All\x1b[0m",
+)
+.as_bytes();
+
+/// The 640x480 display: the 320x240 screen's parts at 80 columns, with the
+/// 256-colour palette's ramps, and a line past 80 cells that wraps.
+const SMALL_80: &[u8] = concat!(
+    "\x1b[7m 640x480, 8x16 PSF1 font: 80x30 cells, where everything vtium supports is usable\x1b[0m\r\n",
+    "login: pi\r\n",
+    "\x1b[1;32mpi@sbc\x1b[0m:\x1b[1;34m~\x1b[0m$ ls -l\r\n",
+    "total 3\r\n",
+    "drwxr-xr-x 2 pi pi 4096 Oct 27 12:00 \x1b[1;34mbin\x1b[0m\r\n",
+    "-rwxr-xr-x 1 pi pi  210 Oct 27 12:00 \x1b[1;32mrun.sh\x1b[0m\r\n",
+    "-rw-r--r-- 1 pi pi   42 Oct 27 12:00 notes.txt\r\n",
+    "\x1b[1;32mpi@sbc\x1b[0m:\x1b[1;34m~\x1b[0m$ echo a line longer than eighty cells wraps to the next row, as a shell's does\r\n",
+    "a line longer than eighty cells wraps to the next row, as a shell's does\r\n",
+    "\r\n",
+    "┌────────────┬────────────┬────────────┬────────────┐ ╔══════╗ ┏━━━━━━┓ ╭──────╮\r\n",
+    "│ \x1b[1mbold\x1b[0m       │ \x1b[4munderline\x1b[0m  │ \x1b[9mstruck\x1b[0m     │ \x1b[7mreverse\x1b[0m    │ ║ \x1b[3mital\x1b[0m ║ ┃ \x1b[2mdim\x1b[0m  ┃ │ \x1b[5mblink\x1b[0m│\r\n",
+    "└────────────┴────────────┴────────────┴────────────┘ ╚══════╝ ┗━━━━━━┛ ╰──────╯\r\n",
+    "\x1b[40m  \x1b[41m  \x1b[42m  \x1b[43m  \x1b[44m  \x1b[45m  \x1b[46m  \x1b[47m  ",
+    "\x1b[100m  \x1b[101m  \x1b[102m  \x1b[103m  \x1b[104m  \x1b[105m  \x1b[106m  \x1b[107m  \x1b[0m ",
+    "\x1b[30;47mAB\x1b[31;49mAB\x1b[32mAB\x1b[33mAB\x1b[34mAB\x1b[35mAB\x1b[36mAB\x1b[37mAB",
+    "\x1b[90mAB\x1b[91mAB\x1b[92mAB\x1b[93mAB\x1b[94mAB\x1b[95mAB\x1b[96mAB\x1b[97mAB\x1b[0m\r\n",
+    "\x1b[48;5;16m  \x1b[48;5;52m  \x1b[48;5;88m  \x1b[48;5;124m  \x1b[48;5;160m  \x1b[48;5;196m  \x1b[48;5;202m  \x1b[48;5;214m  \x1b[48;5;226m  \x1b[48;5;154m  ",
+    "\x1b[48;5;46m  \x1b[48;5;48m  \x1b[48;5;51m  \x1b[48;5;27m  \x1b[48;5;21m  \x1b[48;5;129m  \x1b[48;5;232m  \x1b[48;5;244m  \x1b[48;5;255m  \x1b[0m ",
+    "\x1b[48;2;255;0;0m  \x1b[48;2;191;64;0m  \x1b[48;2;127;128;0m  \x1b[48;2;63;192;0m  \x1b[48;2;0;255;0m  \x1b[0m\r\n",
+    "░▒▓█ ▀▄▌▐ ▁▂▃▄▅▆▇█ ▏▎▍▌▋▊▉ ⠁⠃⠇⡇⣇⣧⣷⣿ 🬀🬁🬂🬃🬄🬅 ▖▗▘▝▙▛▜▟\r\n",
+    "café naïve £5 ½ ¿¡ ©® «» ×÷ ÆØÅ àéîõü ÀÉÎÕÜ ß µ ¶ § ° ±\r\n",
+    "“quotes” ‘single’ – en — em … • €12 ←↑→↓ \u{fffd}\r\n",
+    "the font lacks: 中文 wide, \u{2603}\u{266a} narrow, a\u{301} combined\r\n",
+    "\x1b[4mone\x1b[0m \x1b[4:2mdouble\x1b[0m \x1b[4:3mcurly\x1b[0m \x1b[4:4mdotted\x1b[0m \x1b[4:5mdashed\x1b[0m ",
+    "\x1b[4:3;58:5:196mred curl\x1b[0m \x1b[9;31mred strike\x1b[0m \x1b[1;4mbold under\x1b[0m\r\n",
+    "\x1b[1;32mpi@sbc\x1b[0m:\x1b[1;34m~\x1b[0m$ vi notes.txt",
+    "\x1b[28;71H\x1b[42mright edge\x1b[0m",
+    "\x1b[30;1H\x1b[7m\"notes.txt\" 3L, 42B                                            1,1           All\x1b[0m",
+)
+.as_bytes();
 
 /// The C reference's `deco-config` settings: `underline-color=196`,
 /// `strike-color=#00c0ff`.
@@ -548,5 +620,35 @@ pub const CASES: &[Case] = &[
         },
         source: Source::Vtium,
         ported: Some("emoji"),
+    },
+    Case {
+        screen: Screen {
+            display: Some((320, 240)),
+            font: FontKind::Psf(TestFont::Small8x8),
+            ..Screen::new(
+                "small-320x240",
+                "minspec's display floor (vtium/vtium#75): a 320x240 display drawn with an 8x8 PSF2 font as 40 by 30 cells. A reversed title across the first row; a shell session, its line past 40 cells wrapping to the next row; a box of sprites around bold, underlined, struck and reversed words; the 16 background colours and 16 foreground colours; shade, block, eighth, Braille and sextant sprites; Latin-1 and punctuation the font holds; a wide and a narrow character it lacks; the five underline styles and a red underline; `right edge` ending in the last column of row 28; an editor's status line reversed across the last row. Correct: every glyph and sprite inside its 8x8 cell, the box lines joined, the colours filling their cells, each lacking character drawn as the missing glyph, every decoration inside its cell, and nothing past the 40th column or the 30th row.",
+                SMALL_40,
+                40,
+                30,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            display: Some((640, 480)),
+            font: FontKind::Psf(TestFont::Small8x16),
+            ..Screen::new(
+                "small-640x480",
+                "A 640x480 display drawn with an 8x16 PSF1 font as 80 by 30 cells (vtium/vtium#75): the small-320x240 screen's parts at 80 columns, with `ls -l`, three boxes in light, double, heavy and rounded lines around bold, underlined, struck, reversed, italic, dim and blinking words, ramps through the 256-colour palette and in 24-bit colour, more sprites and Latin-1, a combining mark, and the decorations in colour. Correct: as small-320x240, at 80 columns: the italic word drawn upright, since the font has no italic, the dim word fainter, the blinking word drawn as text, and a combined character as its base letter.",
+                SMALL_80,
+                80,
+                30,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
     },
 ];
