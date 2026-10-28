@@ -655,4 +655,40 @@ pub const CASES: &[Case] = &[
         source: Source::Vtium,
         ported: None,
     },
+    Case {
+        screen: Screen {
+            display: Some((320, 240)),
+            font: FontKind::Set {
+                font: TestFont::Small8x8,
+                fill: Some("unscii-8"),
+            },
+            ..Screen::new(
+                "vitrified-320x240",
+                "The small-320x240 screen drawn from a set vitrified as `vtium-vitrify create` builds it (ADR-1200, vtium/vtium#126): the 8x8 PSF2 test font, with the built-in Unscii-8 filling the characters it lacks. Correct: as small-320x240 in the same 40 by 30 cells of 8x8, but where Unscii-8 fills: the box's lines and the shades, Braille and sextants drawn in Unscii-8's glyphs, since the set's coverage gives the font those ranges over the sprites; and `中` and the snowman, which neither font holds, drawn as Unscii-8's U+25A1, the missing glyph, where small-320x240 draws `?`.",
+                SMALL_40,
+                40,
+                30,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            display: Some((640, 480)),
+            font: FontKind::Set {
+                font: TestFont::Small8x16,
+                fill: Some("unifont"),
+            },
+            ..Screen::new(
+                "vitrified-640x480",
+                "The small-640x480 screen drawn from a set vitrified as `vtium-vitrify create` builds it (ADR-1200, vtium/vtium#126): the 8x16 PSF1 test font, with the built-in unifont filling the characters it lacks. Correct: as small-640x480 in the same 80 by 30 cells of 8x16, but where unifont fills: the light, double and rounded boxes' vertical lines, the shades and Braille drawn in unifont's glyphs, since the set's coverage gives the font those ranges over the sprites; and `中文` in unifont's two-cell glyphs and the snowman and the note in its one-cell glyphs, where small-640x480 draws `?`.",
+                SMALL_80,
+                80,
+                30,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
 ];
