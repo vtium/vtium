@@ -83,6 +83,14 @@ conformance-probes: ## Run the capability probes through vtium-replay
 	cargo build --release -p vtium-conformance --bins
 	target/release/conformance probes
 
+# Records real programs through a pty with this machine's bash, less, vim
+# and tmux; not a gate.
+.PHONY: conformance-record
+conformance-record: ## Record the corpus's programs into OUT=DIR, each <name>.bin and <name>.cuts (NAMES='prog-shell ...', default all)
+	$(if $(OUT),,$(error conformance-record needs OUT=DIR))
+	cargo build --release -p vtium-conformance --features record --bin conformance-record
+	target/release/conformance-record $(OUT) $(NAMES)
+
 # The parse oracle and the provenance check read libtsm and kmscon
 # checkouts; neither is a gate.
 LIBTSM ?= ../libtsm

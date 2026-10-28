@@ -14,6 +14,8 @@ pub mod command;
 pub mod coverage;
 pub mod interface;
 pub mod probes;
+#[cfg(feature = "record")]
+pub mod record;
 pub mod replay;
 pub mod runner;
 pub mod sha256;

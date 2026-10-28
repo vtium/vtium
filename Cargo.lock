@@ -300,6 +300,8 @@ name = "vtium-conformance"
 version = "0.0.0"
 dependencies = [
  "regex",
+ "rustix",
+ "vtium-platform",
  "vtium-term",
 ]
 
