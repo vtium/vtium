@@ -15,8 +15,10 @@
 )]
 //! Glyph sources.
 //!
-//! Loads fonts and draws glyph bitmaps for the renderer: PSF fonts and the
-//! built-in unifont for the minspec build, and the sprites that draw box
+//! Loads fonts and draws glyph bitmaps for the renderer: vitrified sets
+//! ([`set`], ADR-1200), the form every font reaches the console in, and
+//! the root-owned store they are checked and loaded from; PSF fonts; the
+//! built-in unifont, itself a set; and the sprites that draw box
 //! drawing, block elements, Braille, sextants, octants and the rest of
 //! Symbols for Legacy Computing's block shapes to fill their cell.
 //! Outline fonts with shaping and fallback come later, behind a feature,
@@ -54,12 +56,16 @@
 //!
 //! # Bounds
 //!
-//! A font file is parsed with every size bounded, and a malformed one is
-//! refused with a [`PsfError`] rather than a panic. Each bound is defined
-//! once in `src/bounds.rs` with its source and tabulated in the crate's
-//! README: [`PSF_GLYPHS_MAX`], [`PSF_WIDTH_MAX`], [`PSF_HEIGHT_MAX`],
-//! [`PSF_BYTES_MAX`], [`PSF_ENTRIES_MAX`], [`GZIP_BYTES_MAX`] and
-//! [`CELL_SIDE_MAX`].
+//! A font file or a set is parsed with every size bounded, and a malformed
+//! one is refused with a [`PsfError`] or a [`set::SetError`] rather than a
+//! panic. Each bound is defined once in `src/bounds.rs` with its source and
+//! tabulated in the crate's README: [`PSF_GLYPHS_MAX`], [`PSF_WIDTH_MAX`],
+//! [`PSF_HEIGHT_MAX`], [`PSF_BYTES_MAX`], [`PSF_ENTRIES_MAX`],
+//! [`GZIP_BYTES_MAX`], [`CELL_SIDE_MAX`], [`SET_BYTES_MAX`],
+//! [`SET_SECTIONS_MAX`], [`SET_META_BYTES_MAX`], [`SET_STRIKES_MAX`],
+//! [`SET_GLYPHS_MAX`], [`SET_RUNS_MAX`], [`SET_CHUNKS_MAX`],
+//! [`SET_CHUNK_BYTES`], [`SET_RECORD_BYTES_MAX`], [`MANIFEST_BYTES_MAX`] and
+//! [`MANIFEST_ROWS_MAX`].
 
 mod bounds;
 mod face;
@@ -69,17 +75,22 @@ mod gzip;
 mod hex;
 mod policy;
 mod psf;
+pub mod set;
+mod sha256;
 pub mod sprite;
 #[cfg(feature = "unifont")]
 mod unifont;
 
 pub use bounds::{
-    CELL_SIDE_MAX, GZIP_BYTES_MAX, PSF_BYTES_MAX, PSF_ENTRIES_MAX, PSF_GLYPHS_MAX, PSF_HEIGHT_MAX,
-    PSF_WIDTH_MAX,
+    CELL_SIDE_MAX, GZIP_BYTES_MAX, MANIFEST_BYTES_MAX, MANIFEST_ROWS_MAX, PSF_BYTES_MAX,
+    PSF_ENTRIES_MAX, PSF_GLYPHS_MAX, PSF_HEIGHT_MAX, PSF_WIDTH_MAX, SET_BYTES_MAX, SET_CHUNK_BYTES,
+    SET_CHUNKS_MAX, SET_GLYPHS_MAX, SET_META_BYTES_MAX, SET_RECORD_BYTES_MAX, SET_RUNS_MAX,
+    SET_SECTIONS_MAX, SET_STRIKES_MAX,
 };
 pub use face::{Cell, Decorations, Face, Font, REPLACEMENT, Style, Width};
 pub use glyph::{Format, Glyph};
 pub use policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
 pub use psf::{Psf, PsfError};
+pub use sha256::{Sha256, hex as sha256_hex};
 #[cfg(feature = "unifont")]
 pub use unifont::Unifont;

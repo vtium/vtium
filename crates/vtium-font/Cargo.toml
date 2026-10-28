@@ -14,16 +14,18 @@ workspace = true
 [features]
 default = ["gzip", "unifont"]
 # gzip-compressed PSF fonts, as the C reference's zlib option read them
-gzip = ["dep:miniz_oxide"]
-# the built-in unifont, compressed into the binary and inflated a chunk at a time
-unifont = ["dep:miniz_oxide"]
+gzip = []
+# the built-in unifont, a vitrified set compiled in, inflated a chunk at a time
+unifont = []
 
 [dependencies]
-miniz_oxide = { version = "0.8.9", optional = true }
+# inflates a vitrified set's deflated chunks in every build, the built-in
+# sets' among them, and gzipped PSF fonts (ADR-1200 D2); deflates the
+# chunks a set is written with
+miniz_oxide = "0.8.9"
+# opens the store's files relative to its directory with O_NOFOLLOW
+# (ADR-1200 D3); vtium-platform already links this version
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"] }
 
 [build-dependencies]
-miniz_oxide = "0.8.9"
-
-[dev-dependencies]
-# writes and reads the gzip fonts the tests craft
 miniz_oxide = "0.8.9"

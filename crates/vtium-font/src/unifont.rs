@@ -3,12 +3,14 @@
 //!
 //! The glyphs come from `data/unifont.hex` (GNU Unifont 17.0.03, the
 //! unifont-all build, under the SIL Open Font License 1.1 in
-//! `data/OFL-1.1.txt`). `build.rs` packs them in codepoint order into
-//! chunks of at most 16 KiB, each deflated on its own, and indexes them by
-//! runs of codepoints of one width. A chunk is inflated the first time a
-//! glyph is drawn from it and kept for the life of the process, so the
-//! binary carries the compressed font and memory holds only the chunks in
-//! use. The C reference inflated the whole font, 3.7 MB, when it loaded
+//! `data/OFL-1.1.txt`). `build.rs` packs them into a vitrified set, the
+//! built-in set ADR-1200 D7 names `unifont`: one 1-bit strike of 8x16
+//! cells, its glyph chunks of at most 16 KiB each deflated. A chunk is
+//! inflated and expanded to a byte a pixel the first time a glyph is drawn
+//! from it, and kept for the life of the process, so the binary carries the
+//! compressed font and memory holds only the chunks in use. The set is
+//! trusted by construction, so its chunks are not hashed again. The C
+//! reference inflated the whole font, 3.7 MB, when it loaded
 //! (font_unifont.c:203-245).
 //!
 //! The drawing follows the C reference's `font_unifont.c`, whose notice,
@@ -20,93 +22,26 @@
 use std::sync::OnceLock;
 
 use crate::bounds::CELL_SIDE_MAX;
-use crate::face::{Cell, Face, Style, Width};
+use crate::face::{Cell, Decorations, Face, Style};
 use crate::glyph::Glyph;
-use crate::policy::SpritePolicy;
+use crate::policy::{RangeCoverage, SpritePolicy};
+use crate::set::Set;
+use crate::sprite::Range;
 
-/// A run of codepoints of one width whose glyphs lie together.
-///
-/// Packed in 8 bytes, high bits first: the first codepoint in 21, the
-/// run's length in 17, whether its glyphs are wide in 1, and where the
-/// run's first glyph starts in the unpacked bytes in 25. `build.rs` checks
-/// each fits.
-struct Block(u64);
+static PACKED: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/unifont.glass"));
 
-impl Block {
-    const fn new(first: u32, len: u32, wide: bool, offset: u32) -> Block {
-        Block(
-            ((first as u64) << 43)
-                | ((len as u64) << 26)
-                | ((wide as u64) << 25)
-                | (offset as u64 & 0x1ff_ffff),
-        )
-    }
+/// The built-in set's one cell.
+const CELL: Cell = Cell {
+    width: 8,
+    height: 16,
+};
 
-    const fn first(&self) -> u32 {
-        (self.0 >> 43) as u32
-    }
-
-    const fn len(&self) -> u32 {
-        ((self.0 >> 26) & 0x1_ffff) as u32
-    }
-
-    const fn wide(&self) -> bool {
-        (self.0 >> 25) & 1 == 1
-    }
-
-    const fn offset(&self) -> u32 {
-        (self.0 & 0x1ff_ffff) as u32
-    }
-}
-
-/// Where a chunk starts, in the unpacked bytes and in the packed ones. The
-/// last is the end of both.
-struct Chunk {
-    raw: u32,
-    packed: u32,
-}
-
-impl Chunk {
-    const fn new(raw: u32, packed: u32) -> Chunk {
-        Chunk { raw, packed }
-    }
-}
-
-include!(concat!(env!("OUT_DIR"), "/unifont.rs"));
-
-static PACKED: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/unifont.z"));
-
-/// Each chunk once inflated; an empty one if it would not inflate.
-static INFLATED: [OnceLock<Box<[u8]>>; CHUNKS.len()] = [const { OnceLock::new() }; CHUNKS.len()];
-
-/// The bytes of the glyph whose unpacked bytes start at `offset`, `len`
-/// long. Chunks break only between glyphs.
-fn glyph_bytes(offset: u32, len: u32) -> Option<&'static [u8]> {
-    let i = CHUNKS.partition_point(|c| c.raw <= offset).checked_sub(1)?;
-    let (start, end) = (CHUNKS.get(i)?, CHUNKS.get(i.checked_add(1)?)?);
-    let chunk = INFLATED.get(i)?.get_or_init(|| {
-        let packed = usize::try_from(start.packed)
-            .ok()
-            .zip(usize::try_from(end.packed).ok())
-            .and_then(|(a, b)| PACKED.get(a..b));
-        let raw = usize::try_from(end.raw.saturating_sub(start.raw)).unwrap_or(0);
-        packed
-            .and_then(|p| miniz_oxide::inflate::decompress_to_vec_with_limit(p, raw).ok())
-            .unwrap_or_default()
-            .into_boxed_slice()
-    });
-    let at = usize::try_from(offset.checked_sub(start.raw)?).ok()?;
-    chunk.get(at..at.checked_add(usize::try_from(len).ok()?)?)
-}
-
-/// The block holding `code`.
-fn block(code: u32) -> Option<&'static Block> {
-    let i = BLOCKS
-        .partition_point(|b| b.first() <= code)
-        .checked_sub(1)?;
-    BLOCKS
-        .get(i)
-        .filter(|b| code.wrapping_sub(b.first()) < b.len())
+/// The built-in unifont set, read once; `None` only if the build packed a
+/// set its own reader refuses, which `tests::the_builtin_set_reads` holds
+/// against.
+pub(crate) fn set() -> Option<&'static Set> {
+    static SET: OnceLock<Option<Set>> = OnceLock::new();
+    SET.get_or_init(|| Set::from_static(PACKED).ok()).as_ref()
 }
 
 /// The built-in unifont, drawn at a whole multiple of 8x16.
@@ -149,35 +84,7 @@ impl Unifont {
 
     /// The glyph for `c` drawn at `scale`.
     fn render_at(&self, c: char, style: Style, scale: u32) -> Option<Glyph> {
-        let code = u32::from(c);
-        let b = block(code)?;
-        let cells: u32 = if b.wide() { 2 } else { 1 };
-        let size = cells.saturating_mul(16);
-        let offset = code
-            .checked_sub(b.first())?
-            .checked_mul(size)?
-            .checked_add(b.offset())?;
-        let data = glyph_bytes(offset, size)?;
-        let scale = scale.max(1);
-        let cell_w = scale.saturating_mul(8);
-        let mut out = Glyph::mask(cell_w.saturating_mul(cells), scale.saturating_mul(16))?;
-        let cell_w = usize::try_from(cell_w).ok()?;
-        for (i, row) in (0u32..).zip(out.rows_mut()) {
-            let src = i.checked_div(scale)?.saturating_mul(cells);
-            let src = usize::try_from(src).ok()?;
-            let src = data.get(src..)?;
-            for (half, byte) in row.chunks_exact_mut(cell_w).zip(src) {
-                let mut bits = *byte;
-                if style.bold {
-                    bits |= bits >> 1;
-                }
-                for (j, px) in (0u32..).zip(half.iter_mut()) {
-                    let bit = 7u32.saturating_sub(j.checked_div(scale).unwrap_or(0));
-                    *px = if bits >> bit & 1 != 0 { 0xff } else { 0 };
-                }
-            }
-        }
-        Some(out.with_cells(if b.wide() { Width::Wide } else { Width::Narrow }))
+        set()?.draw(CELL, c, style, scale)
     }
 }
 
@@ -194,13 +101,27 @@ impl Face for Unifont {
     }
 
     fn has_glyph(&self, c: char) -> bool {
-        block(u32::from(c)).is_some()
+        set().is_some_and(|s| s.has(CELL, c))
+    }
+
+    /// The set's own count, from its `POLY`.
+    fn coverage(&self, range: Range) -> RangeCoverage {
+        set()
+            .and_then(|s| s.coverage(CELL, range))
+            .unwrap_or_else(|| RangeCoverage::count(range, |c| self.has_glyph(c)))
     }
 
     /// The sprites, though unifont covers every range: the C reference
-    /// drew them over its unifont, and the goldens hold that look.
+    /// drew them over its unifont, and the goldens hold that look. The
+    /// built-in set carries this policy.
     fn sprite_policy(&self) -> SpritePolicy {
-        SpritePolicy::SPRITES
+        set().map_or(SpritePolicy::SPRITES, Set::policy)
+    }
+
+    /// The set's lines, which are those of a 16-pixel face with no metrics
+    /// of its own, scaled.
+    fn decorations(&self) -> Decorations {
+        Decorations::for_height(self.cell().height)
     }
 
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
@@ -224,29 +145,36 @@ impl Face for Unifont {
 )]
 mod tests {
     use super::*;
+    use crate::face::Width;
 
-    // Each run of the index is 8 bytes: 3,465 runs, 27,720 B.
+    // the built-in set reads back through the set reader, whole: its
+    // provenance, one strike, its policy and every chunk
     #[test]
-    fn a_block_is_eight_bytes() {
-        assert_eq!(std::mem::size_of::<Block>(), 8);
-        assert_eq!(std::mem::size_of_val(&BLOCKS), BLOCKS.len() * 8);
+    fn the_builtin_set_reads() {
+        let set = set().expect("the built-in unifont set");
+        assert_eq!(set.name(), "unifont");
+        assert_eq!(set.meta_values("license").collect::<Vec<_>>(), ["OFL-1.1"]);
+        let strikes: Vec<_> = set.strikes().collect();
+        assert_eq!(strikes.len(), 1);
+        assert_eq!(strikes[0].cell, CELL);
+        assert_eq!(set.policy(), SpritePolicy::SPRITES);
+        set.check_chunks().expect("every chunk decodes");
     }
 
-    // The last run holds the largest codepoint and offset the index keeps.
+    // the last codepoint unifont holds draws, and one past it does not
     #[test]
-    fn the_last_run_reads_back() {
-        let last = &BLOCKS[BLOCKS.len() - 1];
-        let code = last.first();
-        assert!(std::ptr::eq(
-            block(code).expect("its first codepoint"),
-            last
-        ));
-        assert!(code >> 16 == 15, "plane 15's last run");
-        assert!(last.offset() > 3_000_000, "past 3 MB of glyphs");
-        assert!(block(0x10FFFF).is_none());
+    fn the_last_glyph_reads_back() {
         let u = Unifont::new(16);
-        let c = char::from_u32(code).expect("a character");
-        assert!(u.render(c, Style::default()).is_some());
+        let last = (0..=0x10ffffu32)
+            .rev()
+            .filter_map(char::from_u32)
+            .find(|&c| u.has_glyph(c))
+            .expect("a glyph");
+        assert!(u32::from(last) >> 16 == 15, "plane 15's last glyph");
+        assert!(u.render(last, Style::default()).is_some());
         assert!(u.render('A', Style::default()).is_some());
+        assert!(!u.has_glyph('\u{10ffff}'));
+        let wide = u.render('\u{4e00}', Style::default()).expect("a CJK glyph");
+        assert_eq!((wide.width(), wide.cells()), (16, Width::Wide));
     }
 }

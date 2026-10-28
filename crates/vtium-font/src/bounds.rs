@@ -73,9 +73,116 @@ const CELL: Bound = Bound {
     cite: "vtium's own: the C reference scaled a bitmap font to any height it was asked for (font_psf.c:247-249, font_unifont.c:229-231). A cell of 2048 is taller than a 7680x2160 display's one row",
 };
 
+const SET_BYTES: Bound = Bound {
+    name: "SET_BYTES_MAX",
+    value: 1 << 30,
+    what: "Bytes a vitrified set file holds",
+    past: "The set is refused before its hash is trusted",
+    cite: "vtium's own, from ADR-1200's measured sets: Noto Sans Mono CJK unlimited at 48 pixels is about 100 MB a strike (D1), a full GBK set at 48 pixels 49.8 MB (D13), and a set holds at most three sizes (D11)",
+};
+
+const SET_SECTIONS: Bound = Bound {
+    name: "SET_SECTIONS_MAX",
+    value: 16,
+    what: "Sections a set's header lists",
+    past: "The set is refused",
+    cite: "vtium's own: format 1.0 writes five (ADR-1200 D2), and a minor version adds sections a reader skips",
+};
+
+const SET_META: Bound = Bound {
+    name: "SET_META_BYTES_MAX",
+    value: 1 << 20,
+    what: "Bytes of a set's `META` provenance",
+    past: "The set is refused",
+    cite: "vtium's own: the recipe verbatim and a line or three for each source (ADR-1200 D2)",
+};
+
+const SET_STRIKES: Bound = Bound {
+    name: "SET_STRIKES_MAX",
+    value: 32,
+    what: "Strikes a set holds",
+    past: "The set is refused",
+    cite: "vtium's own: a strike for each of four styles at up to three sizes (ADR-1200 D1, D11), and color strikes beside them",
+};
+
+const SET_GLYPHS: Bound = Bound {
+    name: "SET_GLYPHS_MAX",
+    value: 0x11_0000,
+    what: "Glyphs one strike holds",
+    past: "The set is refused",
+    cite: "One for each Unicode codepoint: a set maps single codepoints only (ADR-1200 D2, `CMAP`)",
+};
+
+const SET_RUNS: Bound = Bound {
+    name: "SET_RUNS_MAX",
+    value: 1 << 20,
+    what: "Runs of codepoints a set's `CMAP` holds, over every strike",
+    past: "The set is refused",
+    cite: "vtium's own: the built-in unifont is 3,465 runs, and the bound keeps the map under 16 MiB in memory",
+};
+
+const SET_CHUNKS: Bound = Bound {
+    name: "SET_CHUNKS_MAX",
+    value: 1 << 18,
+    what: "Glyph chunks a set's `GLYF` index lists",
+    past: "The set is refused",
+    cite: "vtium's own: `SET_BYTES_MAX` of raw chunks is 65,536 of them, and deflated ones are 1.5-4.7 times smaller (ADR-1200 D13)",
+};
+
+const SET_CHUNK: Bound = Bound {
+    name: "SET_CHUNK_BYTES",
+    value: 16 * 1024,
+    what: "Bytes a glyph chunk holds, as stored and decoded. No glyph is split across two, so a glyph is at most this",
+    past: "The set is refused; the writer starts a new chunk",
+    cite: "ADR-1200 D2: \"chunks of at most 16 KiB, no glyph split across two\", the built-in unifont's chunk size",
+};
+
+const SET_RECORD: Bound = Bound {
+    name: "SET_RECORD_BYTES_MAX",
+    value: 256,
+    what: "Bytes a record of a set's tables declares",
+    past: "The set is refused",
+    cite: "vtium's own: format 1.0's largest record is 52 bytes, and a minor version adds fields at a record's end (ADR-1200 D2)",
+};
+
+const MANIFEST_BYTES: Bound = Bound {
+    name: "MANIFEST_BYTES_MAX",
+    value: 1 << 20,
+    what: "Bytes the store's manifest holds",
+    past: "The store is refused",
+    cite: "vtium's own: a machine holds a few sets (ADR-1200 D11), and a row is under 400 bytes",
+};
+
+const MANIFEST_ROWS: Bound = Bound {
+    name: "MANIFEST_ROWS_MAX",
+    value: 4096,
+    what: "Sets the store's manifest lists",
+    past: "The store is refused",
+    cite: "vtium's own: a machine holds its locale's default and a couple of favorites (ADR-1200 D11)",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 7] = [GLYPHS, WIDTH, HEIGHT, BYTES, ENTRIES, GZIP, CELL];
+pub(crate) const BOUNDS: [Bound; 18] = [
+    GLYPHS,
+    WIDTH,
+    HEIGHT,
+    BYTES,
+    ENTRIES,
+    GZIP,
+    CELL,
+    SET_BYTES,
+    SET_SECTIONS,
+    SET_META,
+    SET_STRIKES,
+    SET_GLYPHS,
+    SET_RUNS,
+    SET_CHUNKS,
+    SET_CHUNK,
+    SET_RECORD,
+    MANIFEST_BYTES,
+    MANIFEST_ROWS,
+];
 
 /// Glyphs a PSF font holds; a font with more is refused.
 pub const PSF_GLYPHS_MAX: u32 = GLYPHS.value;
@@ -99,6 +206,41 @@ pub const GZIP_BYTES_MAX: u32 = GZIP.value;
 /// A cell's width or height in pixels. A font scales only as far as keeps
 /// its cell inside, and a glyph is at most two cells wide.
 pub const CELL_SIDE_MAX: u32 = CELL.value;
+
+/// Bytes a vitrified set file holds; a larger one is refused.
+pub const SET_BYTES_MAX: u32 = SET_BYTES.value;
+
+/// Sections a set's header lists; a set listing more is refused.
+pub const SET_SECTIONS_MAX: u32 = SET_SECTIONS.value;
+
+/// Bytes of a set's `META`; a larger one is refused.
+pub const SET_META_BYTES_MAX: u32 = SET_META.value;
+
+/// Strikes a set holds; a set with more is refused.
+pub const SET_STRIKES_MAX: u32 = SET_STRIKES.value;
+
+/// Glyphs one strike holds; a strike with more is refused.
+pub const SET_GLYPHS_MAX: u32 = SET_GLYPHS.value;
+
+/// Runs of codepoints a set's map holds over every strike; a set with
+/// more is refused.
+pub const SET_RUNS_MAX: u32 = SET_RUNS.value;
+
+/// Glyph chunks a set holds; a set with more is refused.
+pub const SET_CHUNKS_MAX: u32 = SET_CHUNKS.value;
+
+/// Bytes a glyph chunk holds, stored and decoded, and so the most a glyph
+/// takes in a set.
+pub const SET_CHUNK_BYTES: u32 = SET_CHUNK.value;
+
+/// Bytes a record of a set's tables declares; a larger one is refused.
+pub const SET_RECORD_BYTES_MAX: u32 = SET_RECORD.value;
+
+/// Bytes the store's manifest holds; a larger one is refused.
+pub const MANIFEST_BYTES_MAX: u32 = MANIFEST_BYTES.value;
+
+/// Sets the store's manifest lists; a manifest with more is refused.
+pub const MANIFEST_ROWS_MAX: u32 = MANIFEST_ROWS.value;
 
 #[cfg(test)]
 #[expect(
