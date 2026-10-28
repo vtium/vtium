@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use vtium_font::set::{Set, SetFace};
 use vtium_font::{Cell, Face};
-use vtium_vitrify::serve::{ASK, FRAME_DONE, FRAME_GLYPHS, Paths, ServeRequest, serve};
+use vtium_vitrify::serve::{ASK, FRAME_DONE, FRAME_GLYPHS, FritText, Paths, ServeRequest, serve};
 
 /// The frames in `bytes`, kind and payload.
 fn frames(mut bytes: &[u8]) -> Vec<(u32, Vec<u8>)> {
@@ -35,13 +35,12 @@ fn frames(mut bytes: &[u8]) -> Vec<(u32, Vec<u8>)> {
     reason = "a test fails by panicking"
 )]
 fn the_helper_answers_under_its_sandbox_and_exits_when_the_console_closes() {
-    let dir = std::env::temp_dir().join(format!("vtium-serve-bin-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let frit = dir.join("t.vtfrit");
-    std::fs::write(&frit, "source=builtin:unscii-8\n").unwrap();
     let request = ServeRequest {
         kind: ASK,
-        frit: frit.clone(),
+        frit: FritText {
+            name: "t".to_owned(),
+            text: "source=builtin:unscii-8\n".to_owned(),
+        },
         cell: Cell {
             width: 8,
             height: 16,
@@ -72,7 +71,6 @@ fn the_helper_answers_under_its_sandbox_and_exits_when_the_console_closes() {
         .unwrap()
         .read_to_string(&mut err)
         .unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(status.success(), "{status}: {err}");
     let mut kinds = Vec::new();
     let mut rest = &out[..];
@@ -107,18 +105,15 @@ fn a_source_that_fails_as_it_draws_is_left_out_and_the_rest_answer() {
         ..ttf::test_mono()
     };
     std::fs::write(&font, flat.build()).unwrap();
-    let frit = dir.join("t.vtfrit");
-    std::fs::write(
-        &frit,
-        format!(
-            "source=outline:{}\nsource=builtin:unscii-8\n",
-            font.display()
-        ),
-    )
-    .unwrap();
     let request = ServeRequest {
         kind: ASK,
-        frit,
+        frit: FritText {
+            name: "t".to_owned(),
+            text: format!(
+                "source=outline:{}\nsource=builtin:unscii-8\n",
+                font.display()
+            ),
+        },
         cell: Cell {
             width: 8,
             height: 16,
