@@ -1,8 +1,8 @@
 //! Real-time signals, `SIGRTMIN+n`: taken through a signalfd of their own
-//! in the loop, and sent to another process. calloop's signal source
-//! names the standard signals alone, and rustix sends a real-time signal
-//! only through an unsafe constructor whose contract forbids sending it,
-//! so both go through libc here. `SIGRTMIN` is libc's: 34 under glibc,
+//! in the loop, and sent to another process through its pidfd. calloop's
+//! signal source names the standard signals alone, and rustix sends a
+//! real-time signal only through an unsafe constructor whose contract
+//! forbids sending it, so both go through libc here. `SIGRTMIN` is libc's: 34 under glibc,
 //! which keeps the kernel's 32 and 33 for its threads.
 //!
 //! A signal taken here is blocked in the thread that makes the source, as
@@ -11,10 +11,11 @@
 
 use std::io;
 use std::mem::MaybeUninit;
-use std::os::fd::{FromRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
 use calloop::generic::Generic;
 use calloop::{EventSource, Interest, Mode, Poll, PostAction, Readiness, Token, TokenFactory};
+use rustix::process::{Pid, PidfdFlags, pidfd_open};
 
 /// `SIGRTMIN+offset`, or `None` past `SIGRTMAX`.
 fn number(offset: u8) -> Option<libc::c_int> {
@@ -142,26 +143,47 @@ impl EventSource for RtSignals {
     }
 }
 
-/// Sends process `pid` `SIGRTMIN+offset`. kill(2)'s rule decides who may:
-/// root, or a user whose real or effective id is the process's real or
-/// saved one.
-pub fn send(pid: u32, offset: u8) -> io::Result<()> {
-    let n = number(offset).ok_or_else(|| invalid(offset))?;
-    let pid = libc::pid_t::try_from(pid)
-        .ok()
-        .filter(|&p| p > 0)
-        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
-    #[expect(
-        unsafe_code,
-        reason = "rustix sends no real-time signal without an unsafe constructor whose contract forbids sending it"
-    )]
-    // SAFETY: kill(2) takes any pid and signal number and touches no
-    // memory of this process; an invalid one is an error it returns.
-    let sent = unsafe { libc::kill(pid, n) };
-    if sent == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
+/// A process held by its pidfd, so a signal reaches it, or no process,
+/// and never another that took its pid since.
+#[derive(Debug)]
+pub struct Process(OwnedFd);
+
+impl Process {
+    /// Holds process `pid` from here on.
+    pub fn open(pid: u32) -> io::Result<Process> {
+        let pid = i32::try_from(pid)
+            .ok()
+            .and_then(Pid::from_raw)
+            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+        Ok(Process(pidfd_open(pid, PidfdFlags::empty())?))
+    }
+
+    /// Sends the process `SIGRTMIN+offset`. kill(2)'s rule decides who
+    /// may: root, or a user whose real or effective id is the process's
+    /// real or saved one.
+    pub fn signal(&self, offset: u8) -> io::Result<()> {
+        let n = number(offset).ok_or_else(|| invalid(offset))?;
+        #[expect(
+            unsafe_code,
+            reason = "rustix sends no real-time signal without an unsafe constructor whose contract forbids sending it"
+        )]
+        // SAFETY: pidfd_send_signal(2) takes a pidfd this value owns, a
+        // signal number, no siginfo and no flags, and touches no memory of
+        // this process; an invalid one is an error it returns.
+        let sent = unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                self.0.as_raw_fd(),
+                n,
+                std::ptr::null::<libc::siginfo_t>(),
+                0u32,
+            )
+        };
+        if sent == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        }
     }
 }
 
@@ -217,10 +239,26 @@ mod tests {
         assert_eq!(seen, [1, 2]);
     }
 
+    /// A process held by its pidfd takes the signal; `SIGRTMIN+1` at its
+    /// default action ends the child the test started.
+    #[test]
+    fn a_signal_through_the_pidfd_reaches_the_process() {
+        use std::os::unix::process::ExitStatusExt;
+        let mut child = std::process::Command::new("sleep")
+            .arg("10")
+            .spawn()
+            .expect("a child");
+        let process = Process::open(child.id()).expect("its pidfd");
+        process.signal(1).expect("signalled");
+        let status = child.wait().expect("its exit");
+        assert_eq!(status.signal(), number(1));
+    }
+
     #[test]
     fn an_offset_past_sigrtmax_is_refused() {
         assert!(RtSignals::new(&[u8::MAX]).is_err());
-        assert!(send(std::process::id(), u8::MAX).is_err());
+        let me = Process::open(std::process::id()).expect("this process's pidfd");
+        assert!(me.signal(u8::MAX).is_err());
         assert!(raise(u8::MAX).is_err());
     }
 }
