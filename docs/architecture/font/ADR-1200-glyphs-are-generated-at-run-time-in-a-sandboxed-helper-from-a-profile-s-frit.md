@@ -199,6 +199,36 @@ considered:
   - operator: aaronsb
     said: "lets accept it"
     via: Claude Code session, 2026-10-28, after reading the revised record at 497b6aa
+  - operator: aaronsb
+    said: "A frit's `cell=` line is where the cell lives until profiles have a file of their own (#121, #136, #137). A profile file takes it over later."
+    via: the operator's answer in the team lead's session, 2026-10-28, accepting the team lead's recommendation
+    paraphrase: true
+    covers: [the cell's home]
+  - operator: aaronsb
+    said: "16 MiB is the store limit below 2 GiB, a 512 MB board included. Measured: the Latin fill used under 1 MB, and a full CJK cell at 8x16 is about 11 MB."
+    via: the operator's answer in the team lead's session, 2026-10-28, accepting the team lead's recommendation
+    paraphrase: true
+    covers: [the store's limit on minspec]
+  - operator: aaronsb
+    said: "After login, the helper runs as the session's user, never root. It can then read that user's fonts. `nobody` stays its account before login. This lands with #31."
+    via: the operator's answer in the team lead's session, 2026-10-28, accepting the team lead's recommendation
+    paraphrase: true
+  - operator: aaronsb
+    said: "An explicit `font-size` or `font-name` key wins over the profile, as an explicit key overrides a default elsewhere."
+    via: the operator's answer in the team lead's session, 2026-10-28, accepting the team lead's recommendation
+    paraphrase: true
+  - operator: aaronsb
+    said: "A zoom steps through the frit's pixel sizes, as the C reference's `increase_step` did. `size=` is the starting pixel height."
+    via: the operator's answer in the team lead's session, 2026-10-28, accepting the team lead's recommendation
+    paraphrase: true
+  - operator: aaronsb
+    said: "With no font named, vtium draws the built-in font. A per-locale frit can come later as a profile, so ADR-1301's \"else the locale's default frit\" goes."
+    via: the operator's answer in the team lead's session, 2026-10-28, accepting the team lead's recommendation
+    paraphrase: true
+  - operator: aaronsb
+    said: "A kbd name, a `font-engine=psf` path, or vconsole.conf's `FONT=` that no frit bears becomes a one-source frit made on the fly, so existing console setups keep working."
+    via: the operator's answer in the team lead's session, 2026-10-28, accepting the team lead's recommendation
+    paraphrase: true
 observable:
   - "On a cold start with a CJK frit, the first frame draws in the built-in font in the profile's cell, the frit's glyphs replace it as the helper sends them, no frame waits on the helper, and the grid's size never changes when they arrive"
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame (#149)"
@@ -221,8 +251,8 @@ related: []
 - **Trades away:** Every boot parses and rasterises its fonts again: a CJK frit's whole coverage took 265-276 ms in the 1-vCPU tier 3 guest, with the helper at 13.8 MB. The first frames after a start, a zoom or a hotplug draw in the built-in font. The console trusts the helper's glyphs only to be well-formed; no root-owned file is checked by hash. Glyphs cannot be built on one machine for another.
 - **One-way?** No. The pipeline lives in vtium and `vtium-vitrify` and changes in a session. Restoring a prerendered store once #145's last step removes its code is a project of several days.
 - **Probes:**
-  - *Not confident (the cell's home):* you decided that the profile states the cell. Profiles have no file of their own yet, so the pipeline built on `feat/deferred` reads the cell from a `cell=` line in the frit. Is the frit the right home for the cell until profiles have one?
-  - *Not confident (the store's limit on minspec):* the glyph store's limit follows the machine's memory as the scrollback's line cap does: 16 MiB below 2 GiB, 64 MiB from 2 GiB, 128 MiB from 4 GiB. On a 512 MB board that lets glyphs take as much memory again as the 16 MiB minspec peak the scrollback's budget is fitted inside. Keep 16 MiB there, or take a smaller share?
+  - *Not confident (the cell's home):* you decided that the profile states the cell. Profiles have no file of their own yet, so the pipeline built on `feat/deferred` reads the cell from a `cell=` line in the frit. Is the frit the right home for the cell until profiles have one? (Answered 2026-10-28; see `considered`.)
+  - *Not confident (the store's limit on minspec):* the glyph store's limit follows the machine's memory as the scrollback's line cap does: 16 MiB below 2 GiB, 64 MiB from 2 GiB, 128 MiB from 4 GiB. On a 512 MB board that lets glyphs take as much memory again as the 16 MiB minspec peak the scrollback's budget is fitted inside. Keep 16 MiB there, or take a smaller share? (Answered 2026-10-28; see `considered`.)
 - **Inversion:** Between "every glyph built ahead of time into a root-owned store", this record's first decision, and "the console loads its font before the first frame and rasterises in its root process", the C reference's flow. vtium generates at run time as the C reference did, in a sandboxed process instead of root, and draws the built-in font while it works instead of waiting.
 
 > Edited 2026-10-28: the operator replaced the prerendered store with run-time generation (vtium/vtium#145: "the prerendered store is replaced by deferred rendering"), and this record was rewritten in place to decide the glyph pipeline, with the draft ADR-1201 folded in. It was titled "Fonts reach the console as vitrified sets from a root-owned store", and its Summary decided that every font reached vtium as a vitrified set that `vtium-vitrify create` built into a root-owned store, checked by owner and SHA-256 when loaded, with generation at run time as a per-boot cache beside it. Its four probes, *Confident (who builds):*, *Not confident (font operations default):*, *Not confident (compressed chunks):* and *Not confident (4-bit outlines):*, were asked of that design and answered on 2026-10-28 (`considered`). The basis entries that quote the store's design stand as said; the design they describe is under Alternatives Considered. The earlier text is in git at 64745e2.
@@ -243,7 +273,8 @@ The figure follows a glyph from the profile to the frame: the profile's cell and
 
 - A profile is a display's capabilities, the four fields ADR-1301 D3 reads (depth, subpixel order with rotation folded in, density and resolution), named freely by its user, with the frit, the cell and the vtium options that suit that display, such as `font-antialias`, `display-depth` and `display-subpixel`. vtium ships example profiles with descriptive names, and #142's specimens are drawn per profile (`docs/specimens/`).
 - The console reads a profile's settings as text, as it reads its configuration, before its first frame.
-- Where profiles are kept, and the commands that write them, are #121's, #136's and #137's. Until then the cell is a frit's `cell=` line (D1, the first probe).
+- Where profiles are kept, and the commands that write them, are #121's, #136's and #137's. Until profiles have a file of their own, the cell is a frit's `cell=` line (D1), and a profile's file takes it over when it lands (the operator, 2026-10-28).
+- An explicit `font-size` or `font-name` in the configuration wins over the profile, as an explicit key overrides a default elsewhere (the operator, 2026-10-28): `font-size` over its cell (D17), `font-name` over its frit (D9).
 - The C reference had no profiles: its font came from kmscon.conf's `font-name`, `font-size` and `font-engine`.
 
 ### D1: the frit
@@ -259,7 +290,7 @@ A frit is a file `/etc/vtium/fonts/<name>.vtfrit`, the definition the helper dra
 | `cp-size=` | For a CPI source above it: `8`, `14` or `16`. |
 | `style=` | For the source above it: `regular`, the default, `bold`, `italic` or `bold-italic` (D21). |
 | `cell=` | `WIDTHxHEIGHT`, each side 6 to 96 pixels: the cell, until profiles have a home (D16). |
-| `size=` | Heights an outline source was rasterised at. How it relates to a zoom's steps is the fifth probe. |
+| `size=` | The starting pixel height, from which a zoom steps through the frit's pixel sizes (D17). |
 | `glyph-source=`, `glyph-source-<range>=` | The #85 sprite policy, with kmscon.conf's names and values. The configuration's keys override it. |
 | `license=` | An SPDX identifier. Optional. |
 
@@ -305,16 +336,16 @@ Each command is non-interactive where it writes, prints one line a result, and e
 
 > Edited 2026-10-28: D11 chose the sets a machine held and their sizes: per locale, one bitmap set scaled by whole factors and at most one outline size for the display, built by `create --default` from a package hook, with their disk costs. With nothing built ahead of time, that choice is retired, and its figures are under Alternatives Considered.
 
-With no font named, vtium draws the built-in font (D9). Whether vtium instead picks a shipped frit by locale, as ADR-1301 D2 expects, is the sixth probe.
+With no font named, vtium draws the built-in font (D9), and picks no frit by locale (the operator, 2026-10-28). A frit for a locale can come later as a profile.
 
 ### D17: the cell
 
 - **From the profile, before the first frame.** The console reads the profile's cell as text before it draws, so the grid has its size from the first frame, without blocking on the helper and without parsing a font.
 - **With no profile,** the cell comes from the display, by the automatic rule: at most 120 columns, taking a cell as half as wide as it is high, at least 40 rows, and never under 16 pixels. #118's small-display rule takes precedence: where 16-pixel cells would leave fewer than 80 by 25, the built-in font's smallest height is used, so 320x240 draws 40 by 30 cells of 8x8 and 480x320 60 by 40, and a zh, ja or ko locale stays at 16. The cell's width is the built-in font's at that height.
-- **A configured `font-size`** sets the height the automatic rule would pick, as before; when a profile also states a cell, which wins is the fourth probe.
+- **A configured `font-size`** sets the height the automatic rule would pick, as before, and wins over a profile's cell (D16).
 - **The grid resizes only on an explicit event:** a zoom, or a display hotplug while the cell is automatic. A resize sets the pty's size, which sends SIGWINCH, and redraws; the glyphs for the new cell are asked for, and the built-in font draws meanwhile. Glyphs arriving never move the cell.
 - **The helper generates for the cell and never moves it.** A frit that cannot fit the cell fails with a logged reason, and the built-in font keeps drawing. A profile whose cell does not suit its frit is linted by `vtium-vitrify` when it builds or checks the profile, and by `vtium check-config`.
-- A zoom moves the cell by a step; how large a step a frit's cell takes is the fifth probe.
+- **A zoom steps through the frit's pixel sizes,** as the C reference's zoom stepped by its font's `increase_step` (C notes), starting from the frit's `size=` (D1) (the operator, 2026-10-28).
 
 The C reference loaded its font before its first frame and took the font's cell; vtium has the same certainty from the profile without waiting on a font.
 
@@ -331,15 +362,15 @@ The C reference loaded its font before its first frame and took the font's cell;
 
 ### D9: the font at start, and its fallback
 
-- The font is the frit the profile names, or `font-name` from the command line or kmscon.conf (which wins when both are set is the fourth probe); unset, `vconsole.font=` from the kernel command line, then `FONT=` from `/etc/vconsole.conf`; unset, the built-in font.
-- A name is looked up as a frit under `/etc/vtium/fonts`. How a kbd name, a font path given with `font-engine=psf`, or vconsole.conf's `FONT=`, which the store resolved to a built set, reaches the helper when no frit bears its name is the seventh probe.
-- A name that matches no frit draws the built-in font and logs one line: the name and the reason. A console with no font named draws the built-in font and logs nothing.
+- The font is `font-name` from the command line or kmscon.conf, which wins over the profile (D16); unset, the frit the profile names; unset, `vconsole.font=` from the kernel command line, then `FONT=` from `/etc/vconsole.conf`; unset, the built-in font.
+- A name is looked up as a frit under `/etc/vtium/fonts`. A kbd name, a font path given with `font-engine=psf`, or vconsole.conf's `FONT=` that no frit bears becomes a one-source frit made on the fly, with a `kbd:`, `file:` or `vconsole` source (D1), so existing console setups keep working (the operator, 2026-10-28).
+- A name that is neither a frit nor a source the helper can read draws the built-in font and logs one line: the name and the reason. A console with no font named draws the built-in font and logs nothing.
 
 ### D15: the helper
 
 The helper is `vtium-vitrify serve`, a separate process the console starts, running the same reader, shaper and rasteriser `preview` runs (D14; ADR-1301 D1), so a frit draws the same wherever it is drawn.
 
-- **Sandboxed.** It runs with an empty environment in `/`, in its own process group, holding only its pipes, with no-new-privileges, under a memory limit and a CPU limit over its life, and never as root: as `nobody` whenever the console is root, the last account ADR-1400 D2 names before login, and it refuses to start as root. Which account it takes after login is the third probe. It reads the frit and its fonts itself, so a font must be readable by that account; the console's root process parses no font.
+- **Sandboxed.** It runs with an empty environment in `/`, in its own process group, holding only its pipes, with no-new-privileges, under a memory limit and a CPU limit over its life, and never as root: as `nobody` before login, the last account ADR-1400 D2 names there, and as the session's user after login, so it reads that user's fonts (the operator, 2026-10-28; the session's user lands with #31). It refuses to start as root. It reads the frit and its fonts itself, so a font must be readable by that account; the console's root process parses no font.
 - **Started on the first need, exited when idle.** The console starts it on its first ask or fill. It exits after `HELPER_IDLE_MS`, 60,000 ms, with no request and no fill, or when the console closes its end and its work is done; the next need starts a fresh one (ADR-1301 D2).
 - **Not persisted.** No state a hostile font plants survives the process, and its CPU and memory budgets reset with each start. A restart narrows the window; the console's checks and the sandbox are what contain a vulnerability.
 - **Restarted after a failure, a bounded number of times a boot.** One that crashes, reaches its CPU limit, gives no answer for `ANSWER_MS` (10,000 ms) while work is outstanding, leaves an ask unanswered for `REQUEST_MS` (60,000 ms), or exits with work outstanding is started again with its asks and fills sent again, at most `RESTARTS_MAX` times a boot. Each start re-randomizes its address layout, so an unbounded count would let an exploit retry until its guess lands. `RESTARTS_MAX` is 3.
@@ -373,7 +404,7 @@ The console, which opens its VT as root already, reads the kernel's font once at
 ### D19: the store
 
 - **Per boot, in memory.** Generated glyphs live in the console's memory for the boot, and nothing the console or the helper writes to disk holds a glyph. The store holds only the cells the displays draw at; a zoom away drops the old cell's glyphs.
-- **Its limit comes from the machine's memory,** the way the scrollback takes its own budget, with no new key or size decision: 16 MiB below 2 GiB, 64 MiB from 2 GiB and 128 MiB from 4 GiB, the tiers the scrollback's line cap takes (`store_limit` on `feat/deferred`, `sb_size_cap` in vtium-term). Whether 16 MiB suits a 512 MB board is the second probe.
+- **Its limit comes from the machine's memory,** the way the scrollback takes its own budget, with no new key or size decision: 16 MiB below 2 GiB, 64 MiB from 2 GiB and 128 MiB from 4 GiB, the tiers the scrollback's line cap takes (`store_limit` on `feat/deferred`, `sb_size_cap` in vtium-term). A 512 MB board takes 16 MiB (the operator, 2026-10-28): the Latin fill used under 1 MB, and a full CJK cell at 8x16 is about 11 MB (measured).
 - **Only an ask evicts,** the glyphs least recently shown first; the fill stops at the limit instead. An evicted glyph is asked for again when the screen shows it.
 - vtium keeps no prerendered or persistent glyph cache of any kind (Alternatives Considered).
 
@@ -440,19 +471,11 @@ The helper sends glyphs in the chunk format vtium-font reads, little-endian, eve
 
 - **D3, the trusted store,** and **D12, portable sets and the two ways to build them,** are retired with the prerendered store (Alternatives Considered).
 
-### Not decided
-
-These points are left to the operator; the first two are the Summary's probes.
-
-1. **The cell's home** until profiles have a file: the frit's `cell=` line, as the built pipeline reads it.
-2. **The store's limit on minspec:** 16 MiB on a 512 MB board.
-3. **The helper's account after login:** the helper on `feat/deferred` runs as `nobody` whenever the console is root, and refuses root; ADR-1400 D2 runs its image helper as the session's user after login, root included. Does the glyph helper stay `nobody` for the whole boot, reading only fonts `nobody` can read, or take the session's user after login, never root?
-4. **A profile against the configuration:** when a profile states a cell and a frit and the configuration also sets `font-size` or `font-name`, which wins?
-5. **Zoom with a frit:** how large one zoom step is for a frit's cell, and whether the frit's `size=` lines name the heights it steps through. The C reference took its font's own step.
-6. **The frit drawn when nothing names one:** the built-in font, or a frit vtium ships, chosen by locale, as ADR-1301 D2 expects?
-7. **Names that are not frits:** a kbd name, a font path given with `font-engine=psf`, and vconsole.conf's `FONT=` each reached the console through a set built from it. Does the console state a one-source frit for such a name (`kbd:`, `file:`, `vconsole`), or does it draw the built-in font and log the `vtium-vitrify new` command that would write a frit?
+### For the operator's check
 
 The restart cap of 3 (D15) and the batch of 1,024 codepoints (D18) are agent calls the operator has not yet looked at.
+
+> Edited 2026-10-28: the operator answered the seven points this section listed as not decided, each as the team lead recommended (`considered`), and each answer is folded into the decision that named it: the cell's home (D16), the store's limit on minspec (D19), the helper's account after login (D15), a profile against the configuration (D16, D17, D9), zoom with a frit (D1, D17), the frit drawn when nothing names one (D11), and names that are not frits (D9). The section was headed "Not decided" and asked each as an open question; the earlier text is in git at 4477806.
 
 ## Evidence: the deferred pipeline measured
 
