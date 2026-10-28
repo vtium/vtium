@@ -265,13 +265,16 @@ impl Line {
     }
 
     /// Ends the line's wrap: its text no longer continues on the next
-    /// line. A pad in its last column becomes an empty narrow cell.
-    pub fn unwrap(&mut self) {
+    /// line. A pad in its last column becomes an empty narrow cell, and
+    /// it returns whether one did, a change a frame draws.
+    pub fn unwrap(&mut self) -> bool {
         self.flags.remove(LineFlags::WRAPPED);
-        if let Some(last) = self.cells.last_mut()
-            && last.width() == Width::Pad
-        {
-            *last = Cell::new(Content::Empty, Width::Narrow, last.style(), last.link());
+        match self.cells.last_mut() {
+            Some(last) if last.width() == Width::Pad => {
+                *last = Cell::new(Content::Empty, Width::Narrow, last.style(), last.link());
+                true
+            }
+            _ => false,
         }
     }
 
