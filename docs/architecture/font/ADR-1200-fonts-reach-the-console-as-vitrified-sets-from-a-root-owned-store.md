@@ -54,6 +54,10 @@ basis:
     via: Claude Code session, 2026-10-28, the operator's decision relayed by the team lead in this revision's brief; the wording is the team lead's
   - operator: aaronsb
     level: directed
+    said: "The recipe carries an explicit compress setting, with a matching #121 template field and builder choice, and the default is to compress. With the default, create deflates the strikes that gain (8-bit and color) and leaves 1-bit raw; compress=no stores everything raw."
+    via: Claude Code session, 2026-10-28, the operator's decision relayed by the team lead; the wording is the team lead's
+  - operator: aaronsb
+    level: directed
     said: "**Fonts by kbd name.** `font-name=ter-v16n` resolves as kbd's `setfont` does"
     via: vtium/vtium#107's body, "The operator's decisions (2026-10-27)", posted from the operator's account, the wording agent-written; its routes are reshaped onto vitrify by this record
   - operator: aaronsb
@@ -179,6 +183,7 @@ A recipe is a file `/etc/vtium/fonts/<name>.recipe`, in kmscon.conf's line synta
 | `cp-size=` | For a CPI source above it: `8`, `14` or `16`. |
 | `style=` | For the source above it: `regular` (the default), `bold`, `italic` or `bold-italic`. A style with no source is drawn from the regular glyphs as vtium-font draws it today. |
 | `size=` | A cell height for outline sources, one strike each, repeatable at most three times, for one to three adjacent sizes. Unset, `create` on the target picks one from its display (D11); `create --out` and `install` have no display to read, so a recipe built for another machine names its sizes, and `create --out` refuses an outline recipe without them. |
+| `compress=` | `yes`, the default, or `no`. With `yes`, `create` deflates the strikes that gain, 8-bit and color, and leaves 1-bit strikes raw (D13); with `no`, every chunk is stored raw. #121's template carries it as a field and its builder offers it as a choice. (Added 2026-10-28, the operator's decision.) |
 | `glyph-source=`, `glyph-source-<range>=` | The #85 sprite policy, with kmscon.conf's names and values. The configuration's keys override it. |
 | `license=` | An SPDX identifier, recorded in the provenance. Optional. |
 
@@ -354,7 +359,7 @@ A zh_CN machine with its default and two favorites holds about 4 MB on a 320x240
 | Deflated R8 | 146 / 493 | 21-36 µs a 16 KiB chunk, once at load (about 0.5 ms on an A53, inferred) | exact | yields R8 |
 
 - BC4 loses up to 25/255 and the boards minspec targets lack it. SDF and MSDF cost 55 times R8 on the CPU and blur small sizes; SDF stays a possible later strike format for the GPU path alone, for smooth zoom. 4-bit is not taken: the operator kept outline strikes at 8-bit, since displays are good enough that the quantization would likely show.
-- `create` deflates 8-bit and color strikes by default and leaves 1-bit strikes raw. zlib on 16 KiB chunks gave 1.5-4.7 times on 8-bit and color strikes and 1.7-3.1 times on 1-bit CJK (measured); a full GBK set at 48 pixels falls from 49.8 MB to 11.5 MB, Noto Sans Mono CJK SC with GB2312 at 24 and 32 pixels from 11.7 MB to 4.0 MB, and Fusion Pixel 12, 1-bit, from 0.90 MB to 0.36 MB. A chunk costs 21-36 µs to inflate on x86 and about 0.5 ms on a Cortex-A53 (inferred), once, when it is loaded. 1-bit strikes gain least and are small already, so they stay raw, which keeps a bitmap console's chunks free of inflate work.
+- The recipe's `compress=` (D1) defaults to `yes`, the operator's decision, under which `create` deflates 8-bit and color strikes and leaves 1-bit strikes raw, as the operator agreed; `compress=no` stores every chunk raw. zlib on 16 KiB chunks gave 1.5-4.7 times on 8-bit and color strikes and 1.7-3.1 times on 1-bit CJK (measured); a full GBK set at 48 pixels falls from 49.8 MB to 11.5 MB, Noto Sans Mono CJK SC with GB2312 at 24 and 32 pixels from 11.7 MB to 4.0 MB, and Fusion Pixel 12, 1-bit, from 0.90 MB to 0.36 MB. A chunk costs 21-36 µs to inflate on x86 and about 0.5 ms on a Cortex-A53 (inferred), once, when it is loaded. 1-bit strikes gain least and are small already, so they stay raw, which keeps a bitmap console's chunks free of inflate work.
 
 ### D14: building safely, and the rasteriser
 
