@@ -76,15 +76,21 @@ impl Scheme {
 }
 
 impl Terminal {
-    /// Resizes the screen to `cols` by `rows`, as [`Screen::resize`]
-    /// does, after the host has set the cell size for it
+    /// Resizes the screen to `cols` by `rows`, as
+    /// [`Screen::resize_carrying`] does with the main screen's saved
+    /// cursor, after the host has set the cell size for it
     /// ([`set_cell_size`](Self::set_cell_size)); while mode 2048 is set, a
     /// text area that changed, in cells or pixels, is reported. The host
     /// calls it once a resize is complete, the pty's size included.
     ///
-    /// [`Screen::resize`]: crate::Screen::resize
+    /// [`Screen::resize_carrying`]: crate::Screen::resize_carrying
     pub fn resize(&mut self, cols: usize, rows: usize) {
-        self.state.screen.resize(cols, rows);
+        let state = &mut self.state;
+        if let Some(saved) = state.saved.first_mut() {
+            let mut at = (saved.x, saved.y);
+            state.screen.resize_carrying(cols, rows, &mut at);
+            (saved.x, saved.y) = at;
+        }
         let area = self.state.text_area();
         if area != self.state.inband.area {
             self.state.inband.area = area;
