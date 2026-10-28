@@ -50,22 +50,6 @@ basis:
     via: Claude Code session, 2026-10-28, the operator's decision relayed by the team lead in this revision's brief; the wording is the team lead's
   - operator: aaronsb
     level: directed
-    said: "Storage: R8 (8-bit coverage) for outline strikes and 1-bit for bitmap strikes, expanded at load; the same in-memory R8 serves the CPU path (SIMD, with a runtime AVX2 check on x86_64; NEON on aarch64) and a future GPU path (#33) as R8 textures. Record 4-bit, BC4 and SDF/MSDF as considered, with the report's numbers; SDF stays a possible later GPU-only strike format."
-    via: Claude Code session, 2026-10-28, the operator's decision relayed by the team lead in this revision's brief; the wording is the team lead's
-  - operator: aaronsb
-    level: directed
-    said: "The recipe gains: a key limiting a source to a character set or range; a BDF source with vitrify's own BDF reader; fallbacks whose cell fits inside the main cell, scaled by whole factors."
-    via: Claude Code session, 2026-10-28, the operator's decision relayed by the team lead in this revision's brief; the wording is the team lead's
-  - operator: aaronsb
-    level: directed
-    said: "Safety: create parses fonts in an unprivileged child process (swash panicked on a pixel font's OTB); swash is the rasteriser, named with the report's reasons."
-    via: Claude Code session, 2026-10-28, the operator's decision relayed by the team lead in this revision's brief; the wording is the team lead's
-  - operator: aaronsb
-    level: directed
-    said: "Built-ins: unifont and Unscii-8 only; Unscii-8 is never chosen for a zh/ja/ko locale; Fusion Pixel 12 is not built in (budget, and locale glyph forms)."
-    via: Claude Code session, 2026-10-28, the operator's decision relayed by the team lead in this revision's brief; the wording is the team lead's
-  - operator: aaronsb
-    level: directed
     said: "The tool: preview (#120) and new/template (#121) belong to it, as the user; sudo once at the end of new."
     via: Claude Code session, 2026-10-28, the operator's decision relayed by the team lead in this revision's brief; the wording is the team lead's
   - operator: aaronsb
@@ -76,7 +60,7 @@ basis:
     level: guided
     said: "Later it can serve as the metadata of a packaged font set (a \"vitrified font pack\")."
     via: vtium/vtium#85, "The operator's decisions (2026-10-27)", item 3, on the per-font sprite policy; posted from the operator's account, the wording agent-written
-  - evidence: "the console-font research of 2026-10-28 (prior art, per-locale sizes, disk cost, rasterisers, storage formats), compiled by the team lead from the font-research agent's measurements, each figure marked measured, sourced or inferred; the report and its data sit in the steering session's scratchpad (font-research/report.md, out/, bench/), uncommitted. Measured on a Ryzen 9 9950X3D on one core; Cortex-A53 figures are inferred by a stated factor"
+  - evidence: "the console-font research of 2026-10-28 (prior art, per-locale sizes, disk cost, rasterisers, storage formats), compiled by the team lead from the font-research agent's measurements, each figure marked measured, sourced or inferred; the report and its data sit in the steering session's scratchpad (font-research/report.md, out/, bench/), uncommitted. Measured on a Ryzen 9 9950X3D on one core; Cortex-A53 figures are inferred by a stated factor. It is the basis of the technical decisions on storage (D13), the recipe's cover=, bdf: sources and fitted fallbacks (D1), parsing in an unprivileged child with swash as the rasteriser (D14), and the built-ins (D7)"
   - upstream: "aaronsb/kmscon origin/main: with `font-engine=psf`, `font-name` was the path of a PSF font the C reference read and inflated at run time (src/font/font_psf.c; the fork's render ADR-103, 'A console font takes two settings'); the C reference made no KDFONTOP or GIO_UNIMAP call, resolved no kbd name and read no vconsole.conf"
   - upstream: "kbd (legionus/kbd master, read 2026-10-28; kbd 2.10.0 is the installed program): src/libkfont/setfont.c loads def.uni only for its default font, when that font has no Unicode table, and loads no map for a named font without one; the default font is the first of default, default8x16, default8x14 and default8x8 found; font lookup and suffixes as vtium/vtium#107 cites (src/libkfont/context.c, kbdfile.c)"
   - standard: "Linux 7.3 UAPI, include/uapi/linux/kd.h: KDFONTOP with KD_FONT_OP_GET and KD_FONT_OP_GET_TALL, and GIO_UNIMAP; the kernel refuses a font get on a VT outside text mode (drivers/tty/vt/vt.c, con_font_get, as vtium/vtium#107 cites)"
@@ -127,7 +111,7 @@ related: []
   - *Not confident (4-bit outlines):* outline strikes stay 8-bit. A 4-bit format would halve them (a zh_CN desktop package at 24, 32 and 48 pixels: 28.6 MB down to 14.3 MB) with at most 8/255 error a pixel, and the two have not yet been compared by eye. Stay at 8-bit until that comparison is made, yes or no?
 - **Inversion:** Between "the console reads whatever font file it is given" (the C reference's `font-engine=psf`, fontconfig and FreeType in the root process) and "fonts exist only compiled into the binary" (#3's first idea). The answer sits between: sets are built ahead of time from recipes, on the target or anywhere, the console trusts only what root put in its store and what it was compiled with, and every decoder and rasteriser stays out of the console.
 
-> Edited 2026-10-28: the operator's decisions on sizes, portable sets, storage, the recipe, safety, the built-ins and the tool, relayed by the team lead, revised the Summary. It read: "Decided: every font reaches vtium as a vitrified set: a file of glyph bitmaps laid out as vtium-render stores them, with its Unicode map, cell metrics, sprite policy and provenance. A separate binary, `vtium-vitrify`, run as root, reads a recipe and its sources (kbd fonts by name, PSF, raw and CPI files in any of four compressions, unimaps, vconsole.conf, the kernel's own font, and with #23 outline fonts) and writes sets into a root-owned store with a manifest of SHA-256 hashes. [...]" The trades, one-way answer and probes were extended to match; the first two probes stand as asked.
+> Edited 2026-10-28: the operator's direction on sizes, portable sets and the tool, relayed by the team lead, and the technical decisions on storage, the recipe, safe parsing and the built-ins that rest on the font research, revised the Summary. It read: "Decided: every font reaches vtium as a vitrified set: a file of glyph bitmaps laid out as vtium-render stores them, with its Unicode map, cell metrics, sprite policy and provenance. A separate binary, `vtium-vitrify`, run as root, reads a recipe and its sources (kbd fonts by name, PSF, raw and CPI files in any of four compressions, unimaps, vconsole.conf, the kernel's own font, and with #23 outline fonts) and writes sets into a root-owned store with a manifest of SHA-256 hashes. [...]" The trades, one-way answer and probes were extended to match; the first two probes stand as asked.
 
 ## Context
 
@@ -188,13 +172,13 @@ A recipe is a file `/etc/vtium/fonts/<name>.recipe`, in kmscon.conf's line synta
 | `glyph-source=`, `glyph-source-<range>=` | The #85 sprite policy, with kmscon.conf's names and values. The configuration's keys override it. |
 | `license=` | An SPDX identifier, recorded in the provenance. Optional. |
 
-> Edited 2026-10-28: the operator decided "fallbacks whose cell fits inside the main cell, scaled by whole factors", "a key limiting a source to a character set or range", and that "Recipes built for another machine name their sizes" with "each 1-3 adjacent sizes". `source=` read: "Repeatable, in order. The first source sets the cell; each later one fills only codepoints the earlier ones lack, and only where its cell equals the strike's or divides it by a whole factor, its glyphs then scaled up whole." `size=` read: "Repeatable: a cell height for outline sources, one strike each." `cover=` is new.
+> Edited 2026-10-28: the font research found that a fallback had to match the cell exactly, so Unifont could not fill a 14x32 cell, and that without a limit every glyph of a CJK font is baked; the fitted fallback and `cover=` follow from it. The operator decided that "Recipes built for another machine name their sizes" and that each set has "1-3 adjacent sizes". `source=` read: "Repeatable, in order. The first source sets the cell; each later one fills only codepoints the earlier ones lack, and only where its cell equals the strike's or divides it by a whole factor, its glyphs then scaled up whole." `size=` read: "Repeatable: a cell height for outline sources, one strike each." `cover=` is new.
 
 The source forms:
 
 - `kbd:<name>`: resolved as `setfont` resolves it, in the kbd data directories the build names (`/usr/share/kbd`, `/usr/share`, `/usr/lib/kbd`) or `--kbd-dir`.
 - `file:<absolute path>`: a PSF1, PSF2, CPI or raw font, plain or compressed with gzip, bzip2, xz or zstd.
-- `bdf:<absolute path>`: a BDF bitmap font, plain or compressed, read by `vtium-vitrify`'s own BDF reader. Pixel fonts such as Fusion Pixel ship BDF and OTB, and the outline rasteriser panicked on Fusion Pixel's OTB (D14). (Added 2026-10-28, the operator's decision.)
+- `bdf:<absolute path>`: a BDF bitmap font, plain or compressed, read by `vtium-vitrify`'s own BDF reader. Pixel fonts such as Fusion Pixel ship BDF and OTB, and the outline rasteriser panicked on Fusion Pixel's OTB (D14). (Added 2026-10-28, from the font research.)
 - `vconsole`: `FONT=` and `FONT_UNIMAP=` from `/etc/vconsole.conf`, with the kernel command line's `vconsole.font=` and `vconsole.font_unimap=` over them, as systemd-vconsole-setup reads them. `FONT=` is a kbd name or a path. `FONT_SCALE=` is recorded and leaves the glyphs at their own size, since the renderer scales by whole factors.
 - `console:<vt>`: the font the kernel holds for that VT (D8).
 - `builtin:unifont`, `builtin:unscii-8`: a built-in set as a later source, to fill codepoints.
@@ -224,11 +208,11 @@ A set is one file, little-endian throughout, nothing in it compressed:
 - **`POLY`:** the #85 sprite policy and the set's coverage of each sprite range, so the console warns of partial coverage without scanning.
 - **`GLYF`:** each strike's glyphs in run order, 1 or 2 cells wide at the strike's cell, in the strike's format; a 1-bit row is padded to a byte. The section is chunks of at most 16 KiB, no glyph split across two, with an index at its head giving each chunk's offset and SHA-256.
 
-> Edited 2026-10-28: the operator decided "Portability (fixed byte order, reproducible bytes, nothing machine-specific) is a requirement" and "R8 (8-bit coverage) for outline strikes and 1-bit for bitmap strikes". `META` read: "for each source its spelling, the path it resolved to, the SHA-256 of the bytes read and the format decoded"; the resolved path is a fact of the building machine and is no longer recorded. `STRK`'s formats read: "1-bit mask, 8-bit mask or premultiplied RGBA".
+> Edited 2026-10-28: the operator decided "Portability (fixed byte order, reproducible bytes, nothing machine-specific) is a requirement", and the font research's storage measurements (D13) settled R8 for outline strikes and 1-bit for bitmap strikes. `META` read: "for each source its spelling, the path it resolved to, the SHA-256 of the bytes read and the format decoded"; the resolved path is a fact of the building machine and is no longer recorded. `STRK`'s formats read: "1-bit mask, 8-bit mask or premultiplied RGBA".
 
 A bitmap source gives one strike at its own size; the renderer scales it by whole factors (ADR-1300, D2). An outline source gives one strike per size, always R8; color glyphs are RGBA strikes.
 
-> Edited 2026-10-28, the same decision. It read: "An outline source gives one strike per `size=`, 1-bit where every pixel is 0 or 255 and 8-bit otherwise".
+> Edited 2026-10-28, from the font research's storage measurements (D13). It read: "An outline source gives one strike per `size=`, 1-bit where every pixel is 0 or 255 and 8-bit otherwise".
 
 A set is portable and reproducible: every field has a fixed width and byte order, no field depends on the host's pointer size or byte order, no timestamp, host path or host name is written, and every table is sorted. The same recipe, source bytes and tool version give the same bytes on every host, so its SHA-256 names its content wherever it was built.
 
@@ -289,7 +273,7 @@ vtium's own unit runs no `create`. A distribution's package (AUR, deb, rpm and t
 - These two are the only built-ins. Both are trusted by construction and never read from disk. vtium draws `unscii-8` for cells under 16 pixels high and `unifont` from 16, whenever no set is chosen or a chosen set fails, except that `unscii-8` is never chosen in a zh, ja or ko locale (D11), since it holds no CJK; there `unifont` serves at 16 pixels and its whole multiples. On a 320x240 panel that gives 40x15, and unifont covers GB2312, GBK, Big5, JIS X 0208 and all 11,172 Hangul (measured), so a CJK board works with nothing built.
 - Fusion Pixel 12 is not built in: it is 362 KB compressed against the 192 KB the budget leaves, its GB2312 subset alone (175 KB) would fill that, and one compiled-in variant would give Japanese users Chinese glyph forms. Its locale variants are sets the package hook builds (D11).
 
-> Edited 2026-10-28: the operator decided "unifont and Unscii-8 only; Unscii-8 is never chosen for a zh/ja/ko locale; Fusion Pixel 12 is not built in (budget, and locale glyph forms)". It read: "Both are trusted by construction and never read from disk. vtium draws `unscii-8` for cells under 16 pixels high and `unifont` from 16, whenever no set is chosen or a chosen set fails."
+> Edited 2026-10-28, from the font research: Unscii-8 holds no CJK, and Fusion Pixel 12 would pass the budget and fix one locale's glyph forms. It read: "Both are trusted by construction and never read from disk. vtium draws `unscii-8` for cells under 16 pixels high and `unifont` from 16, whenever no set is chosen or a chosen set fails."
 
 ### D8: the kernel's font
 
@@ -363,7 +347,7 @@ A zh_CN machine with its default and two favorites holds about 4 MB on a 320x240
 - The outline rasteriser is swash, the only pure-Rust candidate with hinting, which matters most at 12-16 pixels, embedded bitmaps and color (CBDT and COLR). It takes 4.0, 4.6 and 8.5 µs a glyph at 12, 16 and 48 pixels, peaks at 22 MB, 21 MB of it the font file, and adds 600 KB (measured). ab_glyph is faster (2.2 µs, 111 KB) but has no hinting, bitmaps or color and cannot read pixel fonts; fontdue processes every glyph at load, 278 MB for Noto Sans Mono CJK, which rules it out on 512 MB (measured).
 - Pixel fonts are read by `vtium-vitrify`'s own BDF reader, never through swash.
 
-> Added 2026-10-28: D11 to D14 are the operator's decisions on sizes, portable sets, storage and safety, relayed by the team lead.
+> Added 2026-10-28: D11 and D12 carry the operator's direction on sizes and portable sets, relayed by the team lead; D13 and D14 are technical decisions resting on the font research.
 
 ### Where vtium departs
 
@@ -409,18 +393,18 @@ Later work may find the fonts installed on a machine that match chosen profiles 
 - **The console reads font files at run time,** as the C reference's `font-engine=psf` did and #107 planned. Rejected by the operator's direction: it puts every decoder and parser in the root process, facing files a user can name.
 - **Fonts only compiled into the binary,** #3's first idea. Not taken: a user's font would need a rebuild, and each font costs the binary's budget.
 - **A ladder of sizes per set.** Rejected by the operator: 861 MB for full GBK alone (measured), and no prior console ships one.
-- **Fusion Pixel 12 built in.** Rejected by the operator: it is twice the budget left, and one variant gives other locales the wrong glyph forms (D7).
+- **Fusion Pixel 12 built in.** Not taken: it is twice the budget left, and one variant gives other locales the wrong glyph forms (D7).
 - **A per-user store, trusted for that user's session.** Rejected by the operator: `create` into the store is a sudo command; `create --out` builds anywhere, and `install` is the way in.
 - **A per-session socket for `set`.** Rejected by the operator in favour of OSC 50.
 - **`create` in the unit's `ExecStartPre=`,** the recommendation on #3. Not taken: the operator left building to whoever runs `create`, and on 2026-10-28 placed the default build in the distribution package's hook.
 - **`create` as a `vtium` subcommand.** Rejected by the operator: the decoders and rasteriser would enter the console's binary.
 - **Building only off the target.** Rejected by the operator: the tool self-bootstraps, and a board builds its own default in seconds (D12).
-- **Parsing fonts in the root process.** Rejected by the operator: swash panicked on a pixel font's OTB (D14).
+- **Parsing fonts in the root process.** Not taken: swash panicked on a pixel font's OTB (D14).
 - **ab_glyph or fontdue as the rasteriser.** Not taken: ab_glyph has no hinting, embedded bitmaps or color and cannot read pixel fonts; fontdue needs 278 MB at load (D14).
 - **Sets compressed in chunks,** as the built-in unifont is: 2.2 to 4.7 times smaller for 8-bit and color strikes, about 0.5 ms a chunk once at load on an A53, and not worth it for 1-bit. Not taken for now: the console would decompress files from disk; the research recommends uncompressed, and the first open probe asks the operator.
 - **4-bit, BC4, SDF and MSDF strikes** (D13). Not taken: 4-bit's look is not yet compared (the second open probe), BC4 loses up to 25/255 and minspec's GPUs lack it, and SDF costs 55 times R8 on the CPU; SDF stays a possible later GPU-only strike format.
 
-> Edited 2026-10-28: the operator's decision on storage replaced an alternative that read: "Signed distance fields in place of bitmaps, a question on #3. Not taken: bitmaps at baked sizes need no shading at run time, and bitmap fonts gain nothing from a field." The compressed-chunk entry read: "Smaller on disk; not taken, since the console would then decompress files from disk, and memory holds only the chunks in use either way."
+> Edited 2026-10-28: the storage decision, resting on the font research, replaced an alternative that read: "Signed distance fields in place of bitmaps, a question on #3. Not taken: bitmaps at baked sizes need no shading at run time, and bitmap fonts gain nothing from a field." The compressed-chunk entry read: "Smaller on disk; not taken, since the console would then decompress files from disk, and memory holds only the chunks in use either way."
 
 - **The whole set read into memory at load.** Simpler; not taken for its memory on large outline sets, where the chunk hashes allow reading on demand without trusting a later read.
 - **Mapping the set into memory.** Not taken: `mmap` needs `unsafe` outside vtium-platform, and a file changed under the mapping changes glyphs after the check.
