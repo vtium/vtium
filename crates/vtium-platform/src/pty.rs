@@ -115,6 +115,12 @@ impl Pty {
     /// session would inherit all three. The C reference emptied the mask
     /// and reset the signals below SIGSYS (pty.c:313-320); vtium resets
     /// every signal (see the crate README's Departures).
+    ///
+    /// The child holds no other descriptor of vtium's: every descriptor
+    /// vtium inherited is marked close-on-exec before the fork, as the C
+    /// reference's child did not (see the crate README's Departures). It is
+    /// called from vtium's one thread only: a descriptor another thread
+    /// opened between the marking and the fork would reach the child.
     pub fn spawn(mut command: Command, size: Size, erase: Erase) -> io::Result<Pty> {
         let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)?;
         grantpt(&master)?;
@@ -143,35 +149,21 @@ impl Pty {
             reason = "the signal dispositions and mask, a new session and its controlling terminal can only be set between fork and exec"
         )]
         // SAFETY: the hook runs in the forked child before exec, so it
-        // makes only async-signal-safe calls: raw syscalls through rustix,
-        // rt_sigaction, rt_sigprocmask, setsid and the TIOCSCTTY ioctl,
-        // which allocate nothing and take no lock. The child has one
-        // thread, and nothing in it needs a handler or a blocked signal
-        // between here and exec, so rt_sigaction may set SIG_DFL on every
-        // signal, those libc reserves for its threads included, and
-        // rt_sigprocmask may set the empty mask. Each number passed to
-        // rt_sigaction is a signal from 1 to the kernel's last; SIGKILL
-        // and SIGSTOP, whose dispositions cannot change, are skipped.
-        // The dispositions go first, so a signal that arrives once the
-        // mask is empty takes its default action, as it would after exec.
+        // makes only async-signal-safe calls: default_signals's, setsid
+        // and the TIOCSCTTY ioctl, raw syscalls through rustix which
+        // allocate nothing and take no lock. The child has one thread,
+        // as default_signals requires.
         unsafe {
             command.pre_exec(move || {
-                let default = KernelSigaction {
-                    sa_handler_kernel: KERNEL_SIG_DFL,
-                    ..KernelSigaction::default()
-                };
-                for raw in 1..=KERNEL_SIGRTMAX {
-                    if raw == Signal::KILL.as_raw() || raw == Signal::STOP.as_raw() {
-                        continue;
-                    }
-                    kernel_sigaction(Signal::from_raw_unchecked(raw), Some(default.clone()))?;
-                }
-                kernel_sigprocmask(How::SETMASK, Some(&KernelSigSet::empty()))?;
+                default_signals()?;
                 setsid()?;
                 ioctl_tiocsctty(&ctty)?;
                 Ok(())
             });
         }
+        // Here and not in the hook: listing the descriptors where
+        // close_range cannot mark them allocates.
+        crate::fds::cloexec_before_spawn()?;
         let child = command.spawn()?;
         // The parent's copies of the slave go with the command, so the
         // master sees a hangup once the child's session closes it.
@@ -324,6 +316,47 @@ impl Pty {
     pub fn child_id(&self) -> Option<u32> {
         self.child.as_ref().map(Child::id)
     }
+}
+
+/// Sets every signal's disposition to its default and empties the mask,
+/// as a child starts in [`Pty::spawn`] and the suspend shell
+/// ([`crate::power`]). The dispositions go first, so a signal that arrives
+/// once the mask is empty takes its default action, as it would after
+/// exec.
+///
+/// # Safety
+///
+/// Called only in a forked child before exec, with one thread, where
+/// nothing needs a handler or a blocked signal. It makes only raw
+/// rt_sigaction and rt_sigprocmask syscalls, which allocate nothing and
+/// take no lock.
+#[expect(
+    unsafe_code,
+    reason = "setting SIG_DFL on every signal is sound only between fork and exec"
+)]
+pub(crate) unsafe fn default_signals() -> io::Result<()> {
+    let default = KernelSigaction {
+        sa_handler_kernel: KERNEL_SIG_DFL,
+        ..KernelSigaction::default()
+    };
+    for raw in 1..=KERNEL_SIGRTMAX {
+        if raw == Signal::KILL.as_raw() || raw == Signal::STOP.as_raw() {
+            continue;
+        }
+        // SAFETY: raw runs from 1 to the kernel's last signal, SIGKILL
+        // and SIGSTOP, whose dispositions cannot change, skipped; SIG_DFL
+        // on those libc reserves for its threads is sound in a child
+        // with one thread, as the caller promises.
+        unsafe {
+            kernel_sigaction(Signal::from_raw_unchecked(raw), Some(default.clone()))?;
+        }
+    }
+    // SAFETY: the empty mask, in a child that needs no blocked signal
+    // before exec, as the caller promises.
+    unsafe {
+        kernel_sigprocmask(How::SETMASK, Some(&KernelSigSet::empty()))?;
+    }
+    Ok(())
 }
 
 impl Drop for Pty {

@@ -1,6 +1,6 @@
 # The C reference's cell digests
 
-`tests/reference.rs` and the sprite test in `src/deco.rs` hold vtium-render to these: each line is an FNV-1a 64 digest of what the C reference's own code drew, and vtium must draw the same pixels, but for the doubles and curls the render crate's quarter-cell departure redraws, which must differ.
+`tests/reference.rs` and the sprite test in `src/deco.rs` hold vtium-render to these: each line is an FNV-1a 64 digest of what the C reference's own code drew, and vtium must draw the same pixels, but for the doubles and curls the render crate's quarter-cell departure redraws and the dashes its dash departure redraws, which must differ, and the `decorations` screen, which must be the C reference's but for its dashes.
 
 They were taken from aaronsb/kmscon at `b1f7a7c5df563f3378584db7298753848a7a9a13` and aaronsb/libtsm at its `origin/main` of the same day, built with gcc -O2 on x86-64. Tier 2's goldens (vtium/vtium#17) are the full judge; these are whole cells, drawn the way the C reference drew a cell on an unturned display with no picture over it.
 
