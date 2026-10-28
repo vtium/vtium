@@ -1,6 +1,6 @@
 # vtium-font
 
-vtium's glyph sources: font files and built-in fonts in, glyph bitmaps out. It loads PC Screen Fonts (PSF1 and PSF2, gzipped ones with the `gzip` feature), carries GNU Unifont built in (the `unifont` feature), and draws box drawing, block elements, Braille, sextants, octants and the rest of Symbols for Legacy Computing's block shapes as sprites that fill their cell. A `Font` puts a face and the sprites together, choosing between them for each sprite range by its `SpritePolicy`, and draws any cluster exactly into its cells. It forbids unsafe code. Every glyph is a `Glyph`, a coverage mask or premultiplied RGBA, and its bytes are the same on every host. Outline fonts (vtium/vtium#23) come later as another `Face`.
+vtium's glyph sources: font files, vitrified sets and built-in sets in, glyph bitmaps out. It reads and writes vitrified sets (ADR-1200), the portable files of ready glyphs every font reaches the console as, and checks the root-owned store they are loaded from; loads PC Screen Fonts (PSF1 and PSF2, gzipped ones with the `gzip` feature); carries GNU Unifont and Unscii-8 built in as sets (the `unifont` and `unscii` features); and draws box drawing, block elements, Braille, sextants, octants and the rest of Symbols for Legacy Computing's block shapes as sprites that fill their cell. A `Font` puts a face and the sprites together, choosing between them for each sprite range by its `SpritePolicy`, and draws any cluster exactly into its cells. It forbids unsafe code. Every glyph is a `Glyph`, a coverage mask or premultiplied RGBA, and its bytes are the same on every host. Outline fonts (vtium/vtium#23) come later as another `Face`.
 
 | Path | What it is |
 |---|---|
@@ -10,15 +10,27 @@ vtium's glyph sources: font files and built-in fonts in, glyph bitmaps out. It l
 | `src/glyph.rs` | `Glyph`, what every face and sprite draws: a coverage mask or premultiplied RGBA, with the cells it spans, bounded by `CELL_SIDE_MAX`. |
 | `src/psf.rs` | `Psf`: the PSF1 and PSF2 loader, its unicode table, and the glyph drawing, with the C reference's notice. |
 | `src/gzip.rs` | gzip (RFC 1952) framing and checks around `miniz_oxide`'s inflate, for gzipped PSF fonts. |
-| `src/unifont.rs` | `Unifont`: the built-in font, inflated a 16 KiB chunk at a time as glyphs are drawn from it. |
+| `src/set/mod.rs` | The vitrified set's public face: `Set`, `SetBuilder`, `SetFace`, `Store` and `Manifest`. |
+| `src/set/format.rs` | The set's layout: magic, version, section tags, every record's fields and codes. `build.rs` includes it. |
+| `src/set/write.rs` | The writer's core, plain numbers in and reproducible bytes out. `build.rs` includes it. |
+| `src/set/builder.rs` | `SetBuilder` and `StrikeBuilder`: a set described with vtium-font's types, for the tests and `vtium-vitrify`. |
+| `src/set/read.rs` | `Set`: the reader, each chunk read, checked and inflated the first time a glyph is drawn from it, a 1-bit glyph expanded as it is drawn. |
+| `src/set/read/parse.rs` | Each section's check against its bounds and the other sections. |
+| `src/set/builtin.rs` | The built-in sets, `unifont` and `unscii-8`, and the one ADR-1200 D7 draws for a cell height and locale. |
+| `src/set/face.rs` | `SetFace`: one cell size of a set drawn as a `Face`, and the strike a height picks (ADR-1200 D9). |
+| `src/set/store.rs` | `Store`: the store's check, ownership, modes, links and the whole-file hash. |
+| `src/set/manifest.rs` | `Manifest`: the store's TSV list of sets, parsed and written. |
+| `src/sha256.rs` | SHA-256 (FIPS 180-4), for sets, chunks and the manifest. `build.rs` includes it. |
+| `src/unifont.rs` | `Unifont`: the built-in unifont set, drawn at whole multiples of 8x16. |
 | `src/hex.rs` | The missing glyph `Missing::Hex` draws: the codepoint in 3x5 and 3x4 hex digits. |
 | `src/sprite.rs` | The sprites, ported from the C reference's `font_box.c` with its and Ghostty's notices, and `Range`, the six ranges they fall in. |
 | `src/sprite/legacy.rs` | The Symbols for Legacy Computing sprites the C reference left to the font, adapted from Ghostty's sprite font with its notice. |
+| `src/sprite/spans.rs` | Each sprite range's codepoints, which a set's writer counts its coverage over. `build.rs` includes it. |
 | `src/bounds.rs` | Every bound, with its value, what happens past it and its source: the one source for the constants and for the table below. |
-| `build.rs` | Packs `data/unifont.hex` into the chunks and index `src/unifont.rs` includes. |
-| `data/` | The unifont glyphs and their licence: see its README. |
+| `build.rs` | Packs `data/unifont.hex` and `data/unscii-8.hex` into the built-in sets with the set writer's own code. |
+| `data/` | The unifont and Unscii-8 glyphs and their licences: see its README. |
 | `tests/` | The integration tests, fixtures and C reference digests: see its README. |
-| `fuzz/` | The cargo-fuzz target for the PSF loader, its own workspace so CI does not build it: see its README. |
+| `fuzz/` | The cargo-fuzz targets for the PSF loader and the set reader, their own workspace so CI does not build them: see its README. |
 
 `cargo test -p vtium-font` runs every test. The bounds table below is generated from `src/bounds.rs`, and `readme_table_matches_bounds` fails when it drifts; `VTIUM_FONT_BLESS=1 cargo test -p vtium-font readme_table` rewrites it.
 
@@ -44,7 +56,7 @@ A sprite's curves and diagonals are supersampled with IEEE 754 `f64` addition, s
 
 ## Beyond the C reference
 
-- **The built-in unifont is inflated as it is used.** The binary carries the 3.7 MB of glyphs deflated in 16 KiB chunks (1.3 MB), and each chunk is inflated the first time a glyph is drawn from it, so text in a few scripts holds a few chunks. The C reference inflated the whole font into memory when it loaded (font_unifont.c:203-245).
+- **The built-in unifont is a vitrified set, inflated as it is used.** The binary carries the 3.7 MB of glyphs as a set (ADR-1200 D7) whose 16 KiB chunks are each deflated (1.28 MB), and each chunk is inflated the first time a glyph is drawn from it, so text in a few scripts holds a few chunks. The C reference inflated the whole font into memory when it loaded (font_unifont.c:203-245).
 - **The rest of Symbols for Legacy Computing's block shapes are sprites** (vtium/vtium#27, aaronsb/kmscon#92). The C reference drew them from the font, between its ascent and descent. vtium draws them to fill the cell, at every cell size, in the shapes the Unicode 18.0 code charts show:
   - U+1CEA0-U+1CEAF, the one quarter blocks: the Symbols for Legacy Computing Supplement chart, <https://www.unicode.org/charts/PDF/U1CC00.pdf>;
   - U+1FB3C-U+1FBAF, U+1FBBD-U+1FBBF and U+1FBCE-U+1FBEF, the smooth mosaics, triangles, eighth, third and quarter blocks (U+1FB82-U+1FB85 and U+1FBE4-U+1FBE7 among them), shades, fills, light diagonals and circles: the Symbols for Legacy Computing chart, <https://www.unicode.org/charts/PDF/U1FB00.pdf>.
@@ -63,6 +75,26 @@ A sprite's curves and diagonals are supersampled with IEEE 754 `f64` addition, s
   The design is 8x16 narrow and 16x16 wide, scaled by the largest whole factor the cell holds and centred, a narrow cell's margin in the text color; a cell smaller than the design draws U+25A1. `Font::glyph_unscaled` hands it over at its drawn size, as a sprite. `tests/missing.rs` holds it to literal masks.
 - **A cell is bounded.** A font scales by whole factors only as far as keeps its cell inside `CELL_SIDE_MAX`, and a sprite or glyph past it is not drawn (`CELL_SIDE_MAX` below). The C reference scaled to any height it was asked for.
 
+## Vitrified sets
+
+A vitrified set (ADR-1200 D2) is one file, little-endian throughout: the `VTGLASS\0` magic, a major and minor version, a section table, then `META` (the provenance as `key=value` lines), `STRK` (each strike's style, pixel format, cell, baseline, underline and strike lines, glyph count), `CMAP` (each strike's runs of codepoints), `POLY` (the sprite policy and each strike's coverage of each sprite range) and `GLYF` (an index of chunks, each with its offset, stored and decoded lengths, raw-or-deflated flag and SHA-256, then the chunks). `src/set/format.rs` lays out every field. Format 1.0 is what this build writes and reads; a set of another major version is refused with `SetError::UnknownMajor`, and a later minor version's sections and record fields are skipped.
+
+- **Writing.** `SetBuilder` takes a name, provenance lines, a sprite policy and `StrikeBuilder`s, each a style at one cell size in one pixel format (1-bit, R8 or premultiplied RGBA), its glyphs and the codepoints that draw them. The bytes depend only on these: strikes and runs are sorted, glyphs are numbered in the order the sorted map first reaches them, a glyph no codepoint maps is dropped, and chunks are deflated at one fixed level, so the same inputs give the same bytes on every host (`tests/set.rs` pins a set's SHA-256). Chunks hold at most `SET_CHUNK_BYTES` and never split a glyph; a strike's glyphs start a new chunk. By default a strike's chunks are deflated for R8 and RGBA and stored raw for 1-bit, as a recipe's `compress=yes` asks (ADR-1200 D13), and `StrikeBuilder::compress(false)` stores them raw.
+- **Reading.** `Set::from_bytes` checks a whole set in memory, as `vtium-vitrify install` checks a portable set, and `Set::check_chunks` reads, checks and decodes every chunk without keeping it. Every count and size is bounded, and every table is checked against the others before a glyph is drawn: runs sorted and apart, glyph counts, `POLY`'s coverage against `CMAP`, and the chunks against each strike's glyph bytes. A set from the store is held while it is read only as large as a valid set of the counts it declares: each table's head is read first, and a section longer than its counts and record sizes make it is refused. The map, a run and the glyph span it may bring in, takes 36 bytes a run, at most 9 MiB at `SET_RUNS_MAX`, and `CMAP`'s bytes at most 16,777,352 while they are checked. A chunk is read the first time a glyph is drawn from it, checked against its hash and inflated to exactly its decoded length, then kept as stored. A 1-bit glyph is expanded to a mask of 0 and 255 as it is drawn (ADR-1200 D13), as `Psf` expands its glyphs, so a 1-bit chunk costs its own 16 KiB at most. A chunk that fails draws its glyphs as missing ones, and `Set::fault` names it.
+- **The store.** `Store::open` walks the store's path from `/` a directory at a time, each opened relative to the one before with `O_DIRECTORY | O_NOFOLLOW`, so no component may be a symbolic link, and checks each through the descriptor that opened it; `Store::load` reads the manifest and the set relative to the store's directory with `O_NOFOLLOW`, checks each is a regular file of the expected owner writable by no one else, and streams the set once, hashing all of it and keeping all but its chunks, which it refuses unless the hash is the manifest row's. A FIFO in the store is opened without blocking and refused. The expected owner is a parameter, root in the console, so `tests/store.rs` runs as the invoking user.
+- **Drawing.** `SetFace` draws one cell size of a set: the tallest strike whose whole multiple is the height asked for, else the tallest under it scaled by the largest whole factor that fits, else the smallest at its own size (ADR-1200 D9). A style draws from its own strike; a codepoint it lacks, or a style with no strike, draws from the regular strike, bold widened as vtium-font's bitmap faces widen it, a pixel set when it or its left neighbour in the same cell is.
+
+The built-in sets (ADR-1200 D7) are `unifont`, an 8x16 strike compiled in with the `unifont` feature, and `unscii-8`, an 8x8 strike compiled in with the `unscii` feature, 15,550 B as a set. `set::builtin` gives either by name, and `set::builtin_name` the one D7 draws: `unscii-8` for cells under 16 pixels high and `unifont` from 16, and `unifont` in a zh, ja or ko locale, since Unscii-8 holds no CJK. Both draw the sprites for every sprite range.
+
+Choices the format leaves to this crate, each settled here:
+
+- A deflated chunk is stored deflated only when that makes it smaller; otherwise raw, with its flag clear.
+- A multi-line `META` value, such as the recipe, is one line of its key for each of its lines; `name` and `format` are written first by the builder.
+- `POLY` holds each strike's coverage, and the reader refuses a `POLY` whose coverage is not its strike's map's.
+- A strike drawn at a whole factor keeps the lines the bitmap faces draw: a strike whose decorations are `Decorations::for_height` of its height, as every bitmap source gives, takes `for_height` of the scaled height. A strike with lines of its own scales them with its glyphs.
+- A set face's last resort, drawn when the set holds neither U+25A1 nor `?`, is the regular strike's glyph 0, the glyph of the lowest codepoint it maps.
+- The store's parents may be owned by root or by the expected owner; in the console both are root.
+
 ## Glyph storage
 
 **What a draw returns.** Every draw allocates a new `Glyph`: its width, height, the cells it spans (1 or 2) and its pixels row by row, in one of two formats.
@@ -79,12 +111,13 @@ PSF, unifont and the sprites draw only masks. RGBA is for color faces (vtium/vti
 | Source | Kept in memory | Cost at minspec |
 |---|---|---|
 | `Psf` | The glyphs' 1-bit rows as one slice, count x height x ceil(width / 8) bytes, and, when the font has a unicode table, a codepoint table sorted for binary search, 8 bytes an entry. The file's other bytes are dropped after parsing. | kbd's `default8x16`: 4 KiB of glyphs and 282 entries (2.2 KiB). Terminus 16x32: 32 KiB and 627 entries (5 KiB). The largest font the bounds admit keeps up to 16 MiB of glyphs and 8.5 MiB of table, and parsing it holds the file's bytes as well, up to 16 MiB more. |
-| `Unifont` | Compiled into the binary, read-only: the 3.7 MB of glyphs deflated in 227 chunks of at most 16 KiB (1.28 MB), a block index of 3465 runs at 8 bytes each (27 KiB) and a chunk index (1.8 KiB). In memory: each chunk a glyph has been drawn from, inflated once on its first draw and kept for the life of the process, shared by every `Unifont`. A chunk is never dropped and never inflated twice. | ASCII and Latin-1 are chunk 0 and U+25A1, drawn for a missing character, is chunk 14, so plain text holds 16 to 32 KiB. Text with Latin Extended, Greek and Cyrillic adds chunk 1, and punctuation, arrows and maths chunks 12 and 13. The CJK ideographs U+4E00-U+9FFF span 42 chunks (about 670 KiB). All 227 hold 3,718,608 B (3.55 MiB), under the 3.58 MiB that the C reference's measured 15.7 MiB peak already held for its unifont, inflated whole from the moment it loaded. |
+| `Unifont` | Compiled into the binary, read-only: the built-in set, 1,351,327 B: the 3.7 MB of 1-bit glyphs deflated in 227 chunks of at most 16 KiB (1.28 MB), its map of 3465 runs at 16 bytes each (54 KiB) and its chunk index with each chunk's SHA-256 (12 KiB). In memory: the set's runs, glyph spans and chunk index, read once (about 145 KiB), and each chunk a glyph has been drawn from, inflated once on its first draw and kept 1-bit for the life of the process, shared by every `Unifont`. A chunk is never dropped and never inflated twice. | ASCII and Latin-1 are chunk 0 and U+25A1, drawn for a missing character, is chunk 14, so plain text holds 32,752 B. Text with Latin Extended, Greek and Cyrillic adds chunk 1, and punctuation, arrows and maths chunks 12 and 13. The CJK ideographs U+4E00-U+9FFF span 42 chunks (688,128 B). All 227 hold 3,718,608 B (3.55 MiB), under the 3.58 MiB that the C reference's measured 15.7 MiB peak already held for its unifont, inflated whole from the moment it loaded. |
+| `SetFace` | The set's runs, glyph spans and chunk index, and each chunk drawn from, decoded and kept as stored, at most `SET_CHUNK_BYTES` each. A set from the store keeps its file open and reads each chunk from it at its offset. | |
 | Sprites | Nothing: each is computed at the size asked for. | |
 
 Scale does not change what a source keeps, only what a draw returns: a font scaled to a cell of 2048 still keeps its 1-bit rows, and each draw returns a glyph of up to 8 MiB as a mask.
 
-**The drawn-glyph cache is vtium-render's** (vtium/vtium#16) and is not decided here. A draw costs an allocation and a bit-to-byte expansion, and for unifont an inflate only the first time a chunk is used, so the cache saves the expansion and the allocation and never repeats an inflate.
+**The drawn-glyph cache is vtium-render's** (vtium/vtium#16) and is not decided here. A draw costs an allocation, a bit-to-byte expansion for a 1-bit glyph, and for a set an inflate only the first time a chunk is used, so the cache saves the allocation and never repeats an inflate.
 
 ## Notes for vtium-render
 
@@ -97,11 +130,11 @@ Scale does not change what a source keeps, only what a draw returns: a font scal
 
 ## Licences
 
-The unifont glyphs in `data/unifont.hex` are GNU Unifont 17.0.03, dual-licensed under the SIL Open Font License 1.1 and the GNU GPL 2+ with the font embedding exception; vtium takes them under the OFL, whose text is `data/OFL-1.1.txt`. The test fixtures and their licences are listed in `tests/fixtures/README.md`. `miniz_oxide` (MIT, Zlib or Apache-2.0) inflates gzip fonts and the unifont chunks, and deflates the chunks at build time.
+The Unscii-8 glyphs in `data/unscii-8.hex` are Unscii 2.1 by Viznut, in the public domain (`data/unscii.txt`). The unifont glyphs in `data/unifont.hex` are GNU Unifont 17.0.03, dual-licensed under the SIL Open Font License 1.1 and the GNU GPL 2+ with the font embedding exception; vtium takes them under the OFL, whose text is `data/OFL-1.1.txt`. The test fixtures and their licences are listed in `tests/fixtures/README.md`. `miniz_oxide` (MIT, Zlib or Apache-2.0) inflates a set's chunks, the built-in sets' among them, and gzip fonts, in every build, and deflates a set's chunks when one is written. `rustix` (Apache-2.0 with the LLVM exception, Apache-2.0 or MIT), already in the console through vtium-platform, opens the store's files relative to its directory.
 
 ## Bounds
 
-A font file is untrusted input: its sizes are bounded, and a malformed one is refused with a `PsfError`, never a panic. Each refusal case has its own test in `tests/psf.rs`, and the fuzz target feeds the loader any bytes.
+A font file and a set are untrusted input: their sizes are bounded, and a malformed one is refused with a `PsfError` or a `SetError`, never a panic. Each refusal case has its own test in `tests/psf.rs`, `tests/set.rs` and `tests/store.rs`, and the fuzz targets feed the loader and the set reader any bytes.
 
 <!-- bounds table: generated from src/bounds.rs -->
 | Bound | Value | What it bounds | Past it | Source |
@@ -113,4 +146,15 @@ A font file is untrusted input: its sizes are bounded, and a malformed one is re
 | `PSF_ENTRIES_MAX` | 1114112 | Codepoints a PSF unicode table maps, before duplicates are merged | The font is refused | `PSF_MAX_ENTRIES`, font_psf.c:70-72, 78, 383-385: one entry for each Unicode codepoint |
 | `GZIP_BYTES_MAX` | 1048576 | Bytes a gzipped PSF file holds before it is decompressed. kbd's largest gzipped console font is 6 KiB | The font is refused before anything is decompressed | vtium's own: the inflater builds a Huffman table for each deflate block, about a microsecond, and a block can be 10 bits, so a 15 MiB file of empty blocks took 14 s to refuse. At 1 MiB the worst file takes about 1 s on the test machine. The C reference read through zlib, whose fixed tables are prebuilt |
 | `CELL_SIDE_MAX` | 2048 | A cell's width or height in pixels. A glyph is at most two cells wide | A font scales by the largest whole factor that keeps its cell inside; a sprite or glyph asked for past it is not drawn | vtium's own: the C reference scaled a bitmap font to any height it was asked for (font_psf.c:247-249, font_unifont.c:229-231). A cell of 2048 is taller than a 7680x2160 display's one row |
+| `SET_BYTES_MAX` | 1073741824 | Bytes a vitrified set file holds | The set is refused before its hash is trusted | vtium's own, from ADR-1200's measured sets: Noto Sans Mono CJK unlimited at 48 pixels is about 100 MB a strike (D1), a full GBK set at 48 pixels 49.8 MB (D13), and a set holds at most three sizes (D11) |
+| `SET_SECTIONS_MAX` | 16 | Sections a set's header lists | The set is refused | vtium's own: format 1.0 writes five (ADR-1200 D2), and a minor version adds sections a reader skips |
+| `SET_META_BYTES_MAX` | 1048576 | Bytes of a set's `META` provenance | The set is refused | vtium's own: the recipe verbatim and a line or three for each source (ADR-1200 D2) |
+| `SET_STRIKES_MAX` | 32 | Strikes a set holds | The set is refused | vtium's own: a strike for each of four styles at up to three sizes (ADR-1200 D1, D11), and color strikes beside them |
+| `SET_GLYPHS_MAX` | 1114112 | Glyphs one strike holds | The set is refused | One for each Unicode codepoint: a set maps single codepoints only (ADR-1200 D2, `CMAP`) |
+| `SET_RUNS_MAX` | 262144 | Runs of codepoints a set's `CMAP` holds, over every strike | The set is refused | vtium's own: the built-in unifont is 3,465 runs, and Noto Sans Mono CJK unlimited, about 44,000 glyphs (ADR-1200 D1), at most 44,000 a strike. A run and its glyph span take 36 bytes in memory, so the map holds at most 9 MiB, and its `CMAP` at most 16,777,352 bytes while it is read |
+| `SET_CHUNKS_MAX` | 262144 | Glyph chunks a set's `GLYF` index lists | The set is refused | vtium's own: `SET_BYTES_MAX` of raw chunks is 65,536 of them, and deflated ones are 1.5-4.7 times smaller (ADR-1200 D13) |
+| `SET_CHUNK_BYTES` | 16384 | Bytes a glyph chunk holds, as stored and decoded. No glyph is split across two, so a glyph is at most this | The set is refused; the writer starts a new chunk | ADR-1200 D2: "chunks of at most 16 KiB, no glyph split across two", the built-in unifont's chunk size |
+| `SET_RECORD_BYTES_MAX` | 64 | Bytes a record of a set's tables declares | The set is refused | vtium's own: format 1.0's largest record is 52 bytes, and a minor version adds fields at a record's end (ADR-1200 D2); it bounds what a table's counts can make the reader hold |
+| `MANIFEST_BYTES_MAX` | 1048576 | Bytes the store's manifest holds | The store is refused | vtium's own: a machine holds a few sets (ADR-1200 D11), and a row is under 400 bytes |
+| `MANIFEST_ROWS_MAX` | 4096 | Sets the store's manifest lists | The store is refused | vtium's own: a machine holds its locale's default and a couple of favorites (ADR-1200 D11) |
 <!-- end of bounds table -->

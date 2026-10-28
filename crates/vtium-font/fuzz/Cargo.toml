@@ -1,5 +1,7 @@
-# The PSF loader's fuzz target, run with cargo-fuzz on nightly:
+# The PSF loader's and the set reader's fuzz targets, run with cargo-fuzz
+# on nightly:
 #   cargo +nightly fuzz run psf
+#   cargo +nightly fuzz run set
 # Its own workspace, so the main workspace and CI do not build it.
 [package]
 name = "vtium-font-fuzz"
@@ -17,6 +19,13 @@ vtium-font = { path = ".." }
 [[bin]]
 name = "psf"
 path = "fuzz_targets/psf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "set"
+path = "fuzz_targets/set.rs"
 test = false
 doc = false
 bench = false

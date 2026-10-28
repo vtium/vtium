@@ -311,6 +311,7 @@ name = "vtium-font"
 version = "0.0.0"
 dependencies = [
  "miniz_oxide",
+ "rustix",
 ]
 
 [[package]]

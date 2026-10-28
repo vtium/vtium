@@ -368,6 +368,10 @@ fn check_unscaled<F: Face>(font: &Font<F>, chars: impl Iterator<Item = char>) ->
 #[test]
 fn a_bitmap_glyph_is_handed_over_at_scale_1() {
     for name in ["psf-test.psf", "ter-v16n.psf.gz", "ter-v22b.psf.gz"] {
+        // a build without gzip refuses the gzipped fixtures
+        if name.ends_with(".gz") && !cfg!(feature = "gzip") {
+            continue;
+        }
         let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
         let mut psf = Psf::load(&path).expect("loads");
         let (_, h) = psf.glyph_size();
