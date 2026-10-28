@@ -16,7 +16,6 @@
 //! lookup failed (`src/terminal.c:921-939` at kmscon b1f7a7c5,
 //! aaronsb/kmscon#63).
 
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -184,17 +183,14 @@ impl Wanted {
     }
 }
 
-/// The most bytes read of vconsole.conf or the kernel command line.
-const TEXT_MAX: u64 = 64 * 1024;
-
-/// `path`'s text, at most [`TEXT_MAX`] bytes; empty when it cannot be
-/// read.
+/// `path`'s text, read as a configuration file is, a regular file of at
+/// most `FILE_MAX` bytes; empty when there is none.
 pub fn read_text(path: &Path) -> String {
-    let mut text = String::new();
-    if let Ok(file) = std::fs::File::open(path) {
-        let _ = file.take(TEXT_MAX).read_to_string(&mut text);
-    }
-    text
+    crate::config::read_file(path)
+        .ok()
+        .flatten()
+        .map(|b| String::from_utf8_lossy(&b).into_owned())
+        .unwrap_or_default()
 }
 
 /// The font vconsole names, as systemd-vconsole-setup reads it: `FONT=` in
