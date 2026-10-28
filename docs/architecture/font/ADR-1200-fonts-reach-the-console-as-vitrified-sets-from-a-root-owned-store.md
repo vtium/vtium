@@ -66,6 +66,10 @@ basis:
     via: Claude Code session, 2026-10-28, the operator's decision relayed by the team lead; the wording is the team lead's
   - operator: aaronsb
     level: directed
+    said: "A build that isn't minspec may include a rasteriser for sizes a set lacks, but only unprivileged and sandboxed, in ADR-1400's L1 helper (the session's user, NoNewPrivs, its sandbox; #31). The minspec build never rasterises."
+    via: Claude Code session, 2026-10-28, the operator's decision relayed by the team lead, with the flow recorded in D15; the wording is the team lead's
+  - operator: aaronsb
+    level: directed
     said: "**Fonts by kbd name.** `font-name=ter-v16n` resolves as kbd's `setfont` does"
     via: vtium/vtium#107's body, "The operator's decisions (2026-10-27)", posted from the operator's account, the wording agent-written; its routes are reshaped onto vitrify by this record
   - operator: aaronsb
@@ -125,7 +129,7 @@ related: []
 
 ## Summary
 
-- **Decided:** every font reaches vtium as a vitrified set: a portable file of glyph bitmaps (1-bit for bitmap fonts, 8-bit coverage for outline fonts) with its Unicode map, cell metrics, sprite policy and provenance. A separate binary, `vtium-vitrify`, reads a recipe and its sources (kbd fonts by name, PSF, BDF, raw and CPI files in any of four compressions, unimaps, vconsole.conf, the kernel's own font, and outline fonts through swash), parsing them in an unprivileged child process. 8-bit and color strikes are stored deflated, decoded by the inflate the console already carries for unifont; no other decompressor enters the console. It builds a set into the root-owned store on the target, or as a portable file anywhere that `install` adds to a store. A machine holds a few sets, each one to three adjacent sizes: per locale, one bitmap set scaled by whole factors and at most one outline size for its display. The console loads a set only from the store, after checking ownership and SHA-256 hashes, or uses one of its two built-in sets, unifont and Unscii-8. `vtium-vitrify set` switches the live console among built sets through OSC 50; `preview` and `new` help the user choose and write a recipe.
+- **Decided:** every font reaches vtium as a vitrified set: a portable file of glyph bitmaps (1-bit for bitmap fonts, 8-bit coverage for outline fonts) with its Unicode map, cell metrics, sprite policy and provenance. A separate binary, `vtium-vitrify`, reads a recipe and its sources (kbd fonts by name, PSF, BDF, raw and CPI files in any of four compressions, unimaps, vconsole.conf, the kernel's own font, and outline fonts through swash), parsing them in an unprivileged child process. 8-bit and color strikes are stored deflated, decoded by the inflate the console already carries for unifont; no other decompressor enters the console. It builds a set into the root-owned store on the target, or as a portable file anywhere that `install` adds to a store. A machine holds a few sets, each one to three adjacent sizes: per locale, one bitmap set scaled by whole factors and at most one outline size for its display. The console loads a set only from the store, after checking ownership and SHA-256 hashes, or uses one of its two built-in sets, unifont and Unscii-8. Outside minspec, a size a set lacks may be rasterised in ADR-1400's unprivileged helper with the same code, into a per-boot cache; the minspec build never rasterises. `vtium-vitrify set` switches the live console among built sets through OSC 50; `preview` and `new` help the user choose and write a recipe.
 - **Trades away:** The console no longer reads font files: `font-engine=psf` with a path, which the C reference read at run time, draws the built-in font until a set is built for that path. A user cannot add a font without root. Fonts are drawn only at the sizes baked and their whole multiples, and zoom stops at a set's smallest size. 1-bit strikes stay uncompressed, and outline strikes stay 8-bit even where 4-bit would halve them.
 - **One-way?** No for vtium's own code. The set format becomes expensive to change once distributions ship prebuilt sets, since each needs a rebuilt package; a major format version lets `create --all` rebuild local sets. The recipe syntax becomes expensive to change after the first release, since administrators, packages and #121's templates write recipes.
 - **Probes:**
@@ -133,7 +137,7 @@ related: []
   - *Not confident (font operations default):* `allow-font-ops` is on by default, as xterm's is, so `vtium-vitrify set` works with no configuration, and any program writing to the console can also switch it to any other built set. (Answered 2026-10-28; see `considered`.)
   - *Not confident (compressed chunks):* sets stay uncompressed, as the research recommends, so the console never decompresses a file from disk. An optional per-set deflate of 8-bit and color strikes would make them 2.2 to 4.7 times smaller (a full GBK set at 48 pixels: 49.8 MB down to 11.5 MB) for about 0.5 ms a chunk on a Cortex-A53, once, at load. Keep the console free of decompression and pay the disk, yes or no? (Answered 2026-10-28; see `considered`.)
   - *Not confident (4-bit outlines):* outline strikes stay 8-bit. A 4-bit format would halve them (a zh_CN desktop package at 24, 32 and 48 pixels: 28.6 MB down to 14.3 MB) with at most 8/255 error a pixel, and the two have not yet been compared by eye. Stay at 8-bit until that comparison is made, yes or no? (Answered 2026-10-28; see `considered`.)
-- **Inversion:** Between "the console reads whatever font file it is given" (the C reference's `font-engine=psf`, fontconfig and FreeType in the root process) and "fonts exist only compiled into the binary" (#3's first idea). The answer sits between: sets are built ahead of time from recipes, on the target or anywhere, the console trusts only what root put in its store and what it was compiled with, and every decoder and rasteriser stays out of the console.
+- **Inversion:** Between "the console reads whatever font file it is given" (the C reference's `font-engine=psf`, fontconfig and FreeType in the root process) and "fonts exist only compiled into the binary" (#3's first idea). The answer sits between: sets are built ahead of time from recipes, on the target or anywhere, the console trusts only what root put in its store and what it was compiled with, and every decoder and rasteriser stays out of the console's root process.
 
 > Edited 2026-10-28: the operator's direction on sizes, portable sets and the tool, relayed by the team lead, and the technical decisions on storage, the recipe, safe parsing and the built-ins that rest on the font research, revised the Summary. It read: "Decided: every font reaches vtium as a vitrified set: a file of glyph bitmaps laid out as vtium-render stores them, with its Unicode map, cell metrics, sprite policy and provenance. A separate binary, `vtium-vitrify`, run as root, reads a recipe and its sources (kbd fonts by name, PSF, raw and CPI files in any of four compressions, unimaps, vconsole.conf, the kernel's own font, and with #23 outline fonts) and writes sets into a root-owned store with a manifest of SHA-256 hashes. [...]" The trades, one-way answer and probes were extended to match; the first two probes stand as asked.
 
@@ -294,7 +298,9 @@ vtium's own unit runs no `create`. A distribution's package (AUR, deb, rpm and t
 - The `vtium` binary holds the set reader, the store check, SHA-256 and the built-ins. Its inflate, already there for the built-in unifont's compiled-in chunks, also decodes a set's deflated chunks; it is the console's only decompressor.
 
 > Edited 2026-10-28: the operator's direction on #3 said the console "never decompresses"; the operator's answer on compressed chunks refines it to no decompressor the console does not already carry. This read: "Its inflate serves only the built-in unifont's compiled-in chunks, as today." vtium-font keeps `Psf` and its gzip framing behind a feature only `vtium-vitrify` enables, so the minspec binary loses its PSF path and gains no decoder or rasteriser.
-- The full build rasterises nothing at run time either: the rasteriser runs in `vtium-vitrify`. Shaping across cells, such as #23's optional ligatures, needs data a set does not yet carry, and stays #23's question.
+- The console's process rasterises nothing in any build. The minspec build never rasterises at all. A build that is not minspec may rasterise sizes a set lacks, only in ADR-1400's L1 helper, unprivileged and sandboxed, with `vtium-vitrify`'s own code (D15). Shaping across cells, such as #23's optional ligatures, needs data a set does not yet carry, and stays #23's question.
+
+> Edited 2026-10-28: the operator decided "A build that isn't minspec may include a rasteriser for sizes a set lacks, but only unprivileged and sandboxed, in ADR-1400's L1 helper" and "The minspec build never rasterises." It read: "The full build rasterises nothing at run time either: the rasteriser runs in `vtium-vitrify`. Shaping across cells, such as #23's optional ligatures, needs data a set does not yet carry, and stays #23's question."
 
 ### D7: the built-in sets
 
@@ -314,7 +320,7 @@ vtium's own unit runs no `create`. A distribution's package (AUR, deb, rpm and t
 
 - The font is `font-name` from the command line or kmscon.conf; unset, `vconsole.font=` from the kernel command line, then `FONT=` from `/etc/vconsole.conf`; unset, the built-in.
 - A name is looked up in the manifest by set name, then by first source as spelled, so `font-engine=psf` with `font-name=/usr/share/kbd/consolefonts/ter-v16n.psf.gz` finds the set built from that path, and `FONT=ter-v16n` finds the set `create --vconsole` built.
-- `font-size` picks the strike of that height, else one whose whole multiple is that height, else the tallest strike under it scaled by the largest whole factor that fits; `font-size=0` picks the height from the display as today. Zoom steps through the set's strike heights and their whole multiples; below the set's smallest strike it stops there and logs one line naming the set and its smallest size.
+- `font-size` picks the strike of that height, else one whose whole multiple is that height, else the tallest strike under it scaled by the largest whole factor that fits; `font-size=0` picks the height from the display as today. Zoom steps through the set's strike heights and their whole multiples; below the set's smallest strike it stops there and logs one line naming the set and its smallest size. In a build with D15's dynamic strikes, a zoom to another size above the smallest draws at once from a baked strike scaled and then from the helper's strike.
 - A name that matches no set, or a set refused by D3, draws the built-in and logs one line: the name, the reason and the command, `vtium-vitrify create --kbd NAME`, `--file PATH` or `--vconsole`, as the name came. A console with no font named draws the built-in and logs nothing.
 
 > Edited 2026-10-28: the operator decided "Zoom below a set's smallest size stops there with a log line." The sentence on zoom is new.
@@ -322,7 +328,7 @@ vtium's own unit runs no `create`. A distribution's package (AUR, deb, rpm and t
 ### D10: how it is judged
 
 - **vtium-font:** a set written and read back holds every field; every glyph of the four PSF fixtures drawn from its vitrified set equals the `Psf` draw, so the C reference's digests hold through vitrify; a set built twice is the same bytes; 1-bit strikes expand at load to the R8 the `Psf` draw gives; the reader refuses a whole-file hash mismatch, a chunk hash mismatch, a deflated chunk that decodes to any length but its index's, a store, manifest or set with the wrong owner or a group- or world-writable mode, a symbolic link, an unknown major version and each bound; a fuzz target for the reader.
-- **vtium-vitrify:** recipe parsing, each key and each refusal with its line; kbd lookup's order of directories and suffixes against a fixture tree; vconsole.conf and the kernel command line; each compression; PSF1, PSF2, CPI, raw fonts, BDF and unimaps; `cover=` against each named set's table; a fallback scaled to fit inside the strike's cell; one recipe built with `compress=yes` and with `compress=no` drawing every glyph of every strike identically from both sets; the rebuild rule (unchanged inputs are `current`; a changed recipe, source or format version is `built`); the same set bytes from x86_64 and from aarch64 under qemu-user; `install` refusing a set with a changed byte, a changed chunk or an unknown major version; a font that panics the parser failing only its source, in the child; the default sets D11 picks for each locale and display; `list`'s TSV and JSON read back; the refusal without root. Fixtures are generated in Rust in vtium's tree.
+- **vtium-vitrify:** recipe parsing, each key and each refusal with its line; kbd lookup's order of directories and suffixes against a fixture tree; vconsole.conf and the kernel command line; each compression; PSF1, PSF2, CPI, raw fonts, BDF and unimaps; `cover=` against each named set's table; a fallback scaled to fit inside the strike's cell; one recipe built with `compress=yes` and with `compress=no` drawing every glyph of every strike identically from both sets; `strike` mode's chunks for a size equal the chunks `create` builds at that size; the rebuild rule (unchanged inputs are `current`; a changed recipe, source or format version is `built`); the same set bytes from x86_64 and from aarch64 under qemu-user; `install` refusing a set with a changed byte, a changed chunk or an unknown major version; a font that panics the parser failing only its source, in the child; the default sets D11 picks for each locale and display; `list`'s TSV and JSON read back; the refusal without root. Fixtures are generated in Rust in vtium's tree.
 - **KDFONTOP and GIO_UNIMAP:** request numbers in vtium-platform; the live read only in tier 3's guest, never on the maintainer's desktop.
 - **Tier 2:** a vitrified PSF set's screens against goldens read from vtium's own tree (`tools/tier2/goldens`), never the fork's checkout (#111): new goldens are vtium's reviewed output, provisional until the operator reviews them, and the vtium-font test above ties the set's glyphs to the C reference's digests; `unscii-8` screens at 320x240 and 480x320 (#75) the same way; outline sets when #23 and #24 re-baseline the outline goldens vtium holds.
 - **Tier 3:** the minimal variant vitrifies its PSF in the guest before vtium starts, so its screens hold; `make vt-check` covers `vtium-vitrify set` switching sets live.
@@ -381,6 +387,20 @@ A zh_CN machine with its default and two favorites holds about 4 MB on a 320x240
 
 > Added 2026-10-28: D11 and D12 carry the operator's direction on sizes and portable sets, relayed by the team lead; D13 and D14 are technical decisions resting on the font research.
 
+### D15: dynamic strikes, outside minspec, in the helper
+
+A build that is not minspec may draw sizes a set lacks by rasterising them in ADR-1400's L1 helper: a separate process running as the session's user, with no-new-privileges and the helper's sandboxing (#31). The minspec build never rasterises and leaves the helper's rasteriser out. This is decided direction, built after #31's helper and after `create` and `set` land, as a new issue.
+
+1. At a zoom or `font-size` to a size the set lacks, above its smallest strike, the console draws at once from the nearest baked strike scaled by a whole factor (D9).
+2. It asks the helper for the new size, the glyphs visible on screen first.
+3. The helper runs `vtium-vitrify`'s own reader and rasteriser, the same code `create` runs (D14), so a dynamic strike draws what a built one would: a mode such as `vtium-vitrify strike` takes the set's recipe from its `META`, a size and code points, and writes glyph chunks in the set's chunk format (D2) to a pipe.
+4. The console checks each chunk's bounds and dimensions, as it checks decoded images from the helper, and swaps the glyphs in as they arrive. The chunks carry no store hash: they come from a process of the session's user, and the console trusts them only to be well-formed glyphs.
+5. Dynamic strikes live in a per-boot memory cache, never in the root store. Making a size permanent stays `create`'s job.
+
+The root process parses no font file either way. The source font must be readable by the session's user. A dynamic strike covers sizes only, within the set's `cover=`; code points outside it are a possible later extension. The helper's memory while rasterising, about 22 MB for a CJK font, mostly the font file read whole (measured on x86), is why minspec leaves it out. ADR-1400 takes a dated note that its L1 helper also serves dynamic strikes, beside its OSC 50 note (D5).
+
+> Added 2026-10-28: the operator's decision on rasterising outside minspec, replacing D6's ban on rasterising at run time.
+
 ### Where vtium departs
 
 - From the C reference: `font-engine=psf` with a path loads the set built from that path, and draws the built-in with a log line where none is built; the C reference read the file. Source: the operator's direction on vtium/vtium#3.
@@ -406,7 +426,7 @@ Later work may find the fonts installed on a machine that match chosen profiles 
 
 - A machine where no package hook and nobody has run `create` gets the built-in font, whatever vconsole.conf says.
 - A font the user owns needs root to reach the console.
-- Sizes other than the baked strikes and their whole multiples are unavailable, and zoom stops at a set's smallest size.
+- In the minspec build, sizes other than the baked strikes and their whole multiples are unavailable; in every build, zoom stops at a set's smallest size. A dynamic strike costs the helper about 22 MB for a CJK font while it runs.
 - Sets take disk: a zh_CN desktop with its default and two favorites holds about 33 MB before compression, and about 120 MB at 7680x2160, about 25 MB with deflated chunks (inferred).
 - An outline set pays an inflate per chunk when the chunk is loaded, about 0.5 ms on a Cortex-A53.
 - `tier3-minimal`'s guest gains a `create` step.
@@ -433,6 +453,11 @@ Later work may find the fonts installed on a machine that match chosen profiles 
 - **`create` as a `vtium` subcommand.** Rejected by the operator: the decoders and rasteriser would enter the console's binary.
 - **Building only off the target.** Rejected by the operator: the tool self-bootstraps, and a board builds its own default in seconds (D12).
 - **Parsing fonts in the root process.** Not taken: swash panicked on a pixel font's OTB (D14).
+- **No rasterising at run time in any build,** as this record first decided. Replaced by the operator: a build that is not minspec may rasterise missing sizes in the unprivileged helper (D15); the minspec build still never rasterises.
+- **Rasterising in the console's root process.** Not taken: a font file would be parsed as root, which D14's child process and D15's helper exist to avoid.
+
+> Edited 2026-10-28: the operator's decision on D15. These two alternatives are new; the record had held "The full build rasterises nothing at run time either" (D6).
+
 - **ab_glyph or fontdue as the rasteriser.** Not taken: ab_glyph has no hinting, embedded bitmaps or color and cannot read pixel fonts; fontdue needs 278 MB at load (D14).
 - **Sets wholly uncompressed,** as the research recommended. Not taken: the operator's concern was a new library in the console, and deflate needs none; uncompressed, a full GBK set at 48 pixels is 49.8 MB against 11.5 MB.
 - **Other compressions for sets,** such as zstd or xz. Rejected by the operator's rule: the console carries no decompressor but the inflate it has for unifont.
