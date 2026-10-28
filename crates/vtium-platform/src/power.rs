@@ -40,8 +40,8 @@ pub fn power_off_init() -> io::Result<()> {
     }
 }
 
-/// systemd's power-off signal, `SIGRTMIN+4`.
-fn power_off_signal() -> libc::c_int {
+/// The power-off signal, `SIGRTMIN+4` as this libc numbers it.
+pub fn power_off_signal() -> libc::c_int {
     libc::SIGRTMIN().saturating_add(4)
 }
 
