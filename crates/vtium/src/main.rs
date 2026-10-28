@@ -156,7 +156,6 @@ fn run(config: config::Config, start: Start, open: Open) -> io::Result<i32> {
         }
         Err(e) => log::warn!("cannot watch the seat's devices: {e}"),
     }
-    app.insert_blank();
 
     let started = if start.switch {
         app.vt.activate()
