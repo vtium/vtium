@@ -6,6 +6,7 @@ import re
 import subprocess
 
 import t3_bench
+import t3_pointer
 import t3_power
 import t3img
 from t3_common import GOLDEN, GUEST, HERE, ROOT, RUNDIR, rel
@@ -113,9 +114,10 @@ CHECKS = {
     "vt-restore": "Back on tty2 after Ctrl+Alt+F2, the %s screen redrawn by the first "
                   "instance. Correct: identical to the %s golden." % (SCREENS[-1], SCREENS[-1]),
     **t3_power.CHECKS,
+    **t3_pointer.CHECKS,
 }
 # The checks without a golden: each passes when its capture was taken.
-NO_GOLDEN = {"vt-switch", *t3_power.CHECKS}
+NO_GOLDEN = {"vt-switch", *t3_power.CHECKS, *t3_pointer.CHECKS}
 
 DEPARTURES_FILE = os.path.join(HERE, "departures.tsv")
 
