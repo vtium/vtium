@@ -12,7 +12,12 @@ use std::os::fd::RawFd;
 /// Linux 5.11) or a filter that refuses the call, through each descriptor
 /// `/proc/self/fd` lists. The descriptors stay open and usable here.
 pub fn cloexec_above_stdio() -> io::Result<()> {
-    close_range_cloexec().or_else(|_| cloexec_listed())
+    cloexec_after(close_range_cloexec)
+}
+
+/// `first`, or where it fails, the walk of `/proc/self/fd`.
+fn cloexec_after(first: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
+    first().or_else(|_| cloexec_listed())
 }
 
 fn close_range_cloexec() -> io::Result<()> {
@@ -111,17 +116,25 @@ mod tests {
         let _one = one_at_a_time();
         let fd = inherited();
         let before = stdio();
-        close_range_cloexec().unwrap();
+        if let Err(e) = close_range_cloexec() {
+            // a kernel before 5.11 refuses the flag, one before 5.9 the
+            // call, and a seccomp filter may refuse either
+            let refused = [libc::EINVAL, libc::ENOSYS, libc::EPERM].map(Some);
+            assert!(refused.contains(&e.raw_os_error()), "{e}");
+            println!("skipped: this kernel refuses close_range's CLOEXEC flag: {e}");
+            return;
+        }
         assert!(cloexec(fd.as_fd()));
         assert_eq!(stdio(), before);
     }
 
     #[test]
-    fn the_listing_marks_an_inherited_descriptor() {
+    fn a_refused_close_range_falls_back_to_the_listing() {
         let _one = one_at_a_time();
         let fd = inherited();
         let before = stdio();
-        cloexec_listed().unwrap();
+        // as a kernel before 5.11 answers the CLOEXEC flag
+        cloexec_after(|| Err(io::Error::from_raw_os_error(libc::EINVAL))).unwrap();
         assert!(cloexec(fd.as_fd()));
         assert_eq!(stdio(), before);
     }

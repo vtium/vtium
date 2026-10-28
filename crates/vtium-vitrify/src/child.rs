@@ -425,10 +425,12 @@ mod tests {
 
     #[test]
     fn the_parser_holds_only_its_pipes() {
-        // dup's copy is not close-on-exec, as a descriptor the invoking
-        // process passes down is not
+        // a descriptor without close-on-exec, as one the invoking process
+        // passes down may be, numbered high so it is never the one ls
+        // opens
         let null = std::fs::File::open("/dev/null").unwrap();
-        let held = rustix::io::dup(&null).unwrap();
+        let held = rustix::io::fcntl_dupfd_cloexec(&null, 100).unwrap();
+        rustix::io::fcntl_setfd(&held, rustix::io::FdFlags::empty()).unwrap();
         let e = stand_in("cat >/dev/null; ls /proc/self/fd >&2; exit 1")
             .parse(&Request::default())
             .expect_err("reports");
