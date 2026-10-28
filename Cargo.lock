@@ -301,6 +301,7 @@ version = "0.0.0"
 dependencies = [
  "regex",
  "rustix",
+ "vtium",
  "vtium-platform",
  "vtium-term",
 ]

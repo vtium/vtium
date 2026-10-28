@@ -33,3 +33,8 @@ record = ["dep:vtium-platform", "dep:rustix"]
 [[bin]]
 name = "conformance-record"
 required-features = ["record"]
+
+[dev-dependencies]
+# the XTGETTCAP table vtium answers from, which tests/termcap.rs holds the
+# xtgettcap probe's fixture to
+vtium = { path = "../../crates/vtium" }
