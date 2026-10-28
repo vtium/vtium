@@ -279,7 +279,7 @@ impl App {
         let timeout = Duration::from_millis(config.number(&keys::SYNC_TIMEOUT).unwrap_or(200));
         terminal.set_sync_enabled(!timeout.is_zero());
         let sync = Sync::new(timeout, terminal.sync_frames());
-        let blink = Blink::new(config.switch(&keys::BLINK));
+        let blink = Blink::configured(&config);
         let dpms = config
             .number(&keys::DPMS_TIMEOUT)
             .map(Duration::from_secs)
@@ -517,6 +517,7 @@ impl App {
         RenderConfig {
             profile,
             orientation: self.orientation,
+            blink: crate::blink::text_blink(&self.config),
             ..RenderConfig::default()
         }
     }
