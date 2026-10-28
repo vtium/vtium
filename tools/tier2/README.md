@@ -2,16 +2,18 @@
 
 Tier 2 for vtium: the renderer draws known screens into memory, and each is compared pixel for pixel with its golden (vtium/vtium#17). The bytes go through `vtium-term` and the frames through `vtium-render`, into a double-buffered display in memory, as the C reference's `tests/test_pixels.c` drove libtsm and bbulk. The goldens are the judge: a difference from a golden is a listed departure, or the case fails.
 
-The crate is a workspace member, so `cargo test --workspace` builds the tool and runs its self-tests, none of which needs a checkout of the C repositories. Reading the C reference's goldens does, so the run stays out of the default test run, in a Makefile target that CI's `tier2` job runs on every pull request and whose report and images it keeps:
+The crate is a workspace member, so `cargo test --workspace` builds the tool and runs its self-tests. Every file the run reads is in this tree: vtium's goldens in `goldens/`, and the C reference's files in `reference/`, copied byte for byte from kmscon with each one's source and SHA-256 in `provenance.tsv`. The run stays out of the default test run, in a Makefile target that CI's `tier2` job runs on every pull request and whose report and images it keeps:
 
 ```
-make tier2                       # every screen against its golden (KMSCON=../kmscon)
+make tier2                       # every screen against its golden
 target/release/tier2 render      # draw every screen into out/render, judging nothing
 target/release/tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]
-target/release/tier2 screens     # vtium's unifont screens, for reference/draw.sh
+make tier2-provenance            # the copies against their sources (KMSCON=../kmscon); not a gate
 ```
 
-`run` takes `--kmscon DIR` (default `../kmscon` beside this repository) and `--out DIR` (default `out/` here, which git ignores). It reads the pinned commit's goldens through `git archive` only, into `out/kmscon-<commit>/`, afresh on every run, so the checkout's branch and working tree never reach the judge; a checkout that lacks the commit is refused with the command that fetches it. It writes each drawn screen to `out/actual/`, each difference to `out/diff/`, and the report to `out/report.json`, deleting any earlier report first. It exits 0 when every case passes, 1 when one does not, and 2 when it refuses to run. `compare` exits 0 on pass or near, 1 on fail and 2 on an input it refuses. Nothing here writes a golden.
+`run` takes `--out DIR` (default `out/` here, which git ignores). It first checks each file under `reference/` against its row of `provenance.tsv`, and refuses to run when one differs, is gone, or has no row. It writes each drawn screen to `out/actual/`, each difference to `out/diff/`, and the report to `out/report.json`, deleting any earlier report first. It exits 0 when every case passes, 1 when one does not, and 2 when it refuses to run. `compare` exits 0 on pass or near, 1 on fail and 2 on an input it refuses. Nothing here writes a golden.
+
+`provenance` takes `--kmscon DIR` (default `../kmscon` beside this repository) and reads that checkout with `git show` and `git ls-tree` alone. It reports each copy that differs from its row, each row whose source at its commit does not hash to the row's SHA-256, each file of the C reference's `tests/goldens/tier2/` at that commit that is neither copied nor a golden `pending.tsv` lists or its sidecar, and each copy or pending golden the commit lacks. It runs when the copies or `pending.tsv` change, as `make conformance-provenance` does for tier 1's copies; no gate runs it, since no gate reads a fork checkout. It exits 0 with no fault, 1 with one, and 2 when it refuses.
 
 | Path | What it is |
 |---|---|
@@ -21,19 +23,19 @@ target/release/tier2 screens     # vtium's unifont screens, for reference/draw.s
 | `src/tol.rs` | Tolerance sidecars and their masks. |
 | `src/compare.rs` | The comparison, its verdict, its regions and the diff image. |
 | `src/report.rs` | The report's JSON. |
-| `src/runner.rs` | The lists, extracting the pinned goldens, and judging every case. |
+| `src/runner.rs` | The lists, the copies' checks, and judging every case. |
 | `src/bin/tier2.rs` | The commands. |
-| `pin.tsv` | The kmscon commit whose goldens judge vtium. |
+| `provenance.tsv` | Each file under `reference/`: `PATH REPO COMMIT SOURCE SHA256`, the path from the repository root, as tier 1's `tools/conformance/provenance.tsv` gives them. |
 | `pending.tsv` | Each golden of the C reference's that no screen draws yet, with the issue that owes it. |
 | `departures.tsv` | Each case whose difference from its golden a departure in the render crate's README explains, with where the difference may lie. |
 | `provisional.tsv` | vtium's goldens the operator has not reviewed. |
-| `goldens/` | The goldens of vtium's screens, drawn by the C reference or, for screens only vtium draws, by vtium: see its README. |
-| `reference/` | `draw.sh` and `pixels.c`, which draw vtium's unifont screens through the C reference's own pipeline. |
+| `goldens/` | The goldens of vtium's screens, reviewed vtium output: see its README. |
+| `reference/` | The C reference's files tier 2 reads, copied from kmscon: the goldens of the screens ported from it in `goldens/`, and `test_pixels.c`, whose screens the ported ones must carry byte for byte. |
 | `tests/` | The self-tests: each malformed input refused, and each verdict of the run. |
 
 ## The screens
 
-The C reference's tier 2 drew every screen with an outline font, DejaVu Sans Mono through FreeType, with Noto's CJK and color emoji fonts. vtium draws PSF and unifont until vtium/vtium#23, so a C golden judges vtium only where no outline glyph shows: `blocks` and `blocks-spaced`, which hold only box-drawing and block sprites and spaces. They are drawn in a face that holds the space alone, in the cell DejaVu Sans Mono gave (9x16 at 16 pixels; 12x28 at 22 pixels with 6 rows of spacing), and a screen drawn that way is refused if any cell holds a character that is not a sprite or a space. Every other C golden is listed in `pending.tsv`: its screens are re-baselined when the Rust font layer lands (kmscon `ADR-304` §6, vtium/vtium#24), <!-- adr-cite-ignore: kmscon's record --> and those with pictures wait for vtium/vtium#30 too. A golden the pin brings that is neither drawn nor listed is `missing`, and fails.
+The C reference's tier 2 drew every screen with an outline font, DejaVu Sans Mono through FreeType, with Noto's CJK and color emoji fonts. vtium draws PSF and unifont until vtium/vtium#23, so a C golden judges vtium only where no outline glyph shows: `blocks` and `blocks-spaced`, which hold only box-drawing and block sprites and spaces. They are drawn in a face that holds the space alone, in the cell DejaVu Sans Mono gave (9x16 at 16 pixels; 12x28 at 22 pixels with 6 rows of spacing), and a screen drawn that way is refused if any cell holds a character that is not a sprite or a space. Every other C golden is listed in `pending.tsv`: its screens are re-baselined when the Rust font layer lands (kmscon `ADR-304` §6, vtium/vtium#24), <!-- adr-cite-ignore: kmscon's record --> and those with pictures wait for vtium/vtium#30 too. A copied golden no screen draws is `missing`, and fails; a golden at the commit that is neither copied nor listed fails `make tier2-provenance`. A screen that takes up a pending golden copies it into `reference/goldens/` with its row in `provenance.tsv`, and its `pending.tsv` row goes.
 
 vtium's own screens carry the harness work the C reference had queued, drawn in unifont:
 
@@ -67,20 +69,22 @@ A case is compared with its golden exactly, outside any mask its sidecar gives. 
 
 A departure's rectangles cover whole cells, the cells where its difference shows, so any difference inside them passes as the departure: a defect in a listed cell, such as an underline lost from the cut `中` in `edges-left`, is not seen until that cell's departure row goes or its rectangles shrink.
 
-A screen ported from one of the C reference's carries its bytes exactly: `run` reads `tests/test_pixels.c` at the pin and refuses to run when a ported screen's bytes or second part differ from the C screen it names.
+A screen ported from one of the C reference's carries its bytes exactly: `run` reads the copy of `tests/test_pixels.c` and refuses to run when a ported screen's bytes or second part differ from the C screen it names.
 
-Each list is checked before any case runs: a pending golden the pin lacks or a screen draws, a departure whose case no screen draws or whose title the README does not list, a provisional golden no vtium screen draws, a vtium screen named as a C golden, and two screens of one name are each refused.
+Each list is checked before any case runs: a pending golden a screen draws or that is copied, a departure whose case no screen draws or whose title the README does not list, a provisional golden no vtium screen draws, a vtium screen named as a copied or pending C golden, and two screens of one name are each refused.
 
 Refused rather than judged (aaronsb/kmscon#10): a PPM that is not P6 with a maxval of 255, with a side of 0 or past 16384, or with a raster shorter or longer than its header says; a sidecar line that is not `key=value`, an unknown or repeated key, a value that is not a decimal number, a `max_delta` past 255, one limit at 0 with the other not, and a mask that is empty, inverted or reaches past the golden. A mask that hides no difference is noted in the report.
 
 ## vtium's goldens
 
-The C reference draws the goldens of vtium's screens, so their author is not their judge, except where the screen is behaviour only vtium has: the `small-` screens draw with fonts and sizes the C reference never drew, so their goldens are reviewed vtium output (kmscon `ADR-304` §6). <!-- adr-cite-ignore: kmscon's record --> `reference/draw.sh OUT` reads the kmscon commit `pin.tsv` names and the libtsm commit that commit's `subprojects/libtsm.wrap` pins through `git archive`, builds them in a temporary directory, and compiles `reference/pixels.c` against them: libtsm parses each screen's bytes, `kmscon_text_draw` reads the screen, bbulk draws it with the unifont backend and drm2d's blend writes the buffer, as `tests/test_pixels.c` drew with FreeType. The screens come from `tier2 screens`, which lists the unifont screens alone, so both sides draw the same bytes. A new golden lands in a commit of its own and stays in `provisional.tsv` until the operator has reviewed it.
+The goldens in `goldens/` are reviewed vtium output, kept byte for byte as the operator accepted them, which judge vtium as the copied goldens do; `goldens/README.md` gives who drew each and what it shows. No tool here draws a golden. A new screen's golden is vtium's output, lands in a commit of its own, and stays in `provisional.tsv` until the operator has reviewed it.
+
+Moving a golden is a change to the judge: it lands in a commit of its own, with each moved value listed. So does moving the copies to another kmscon commit, with the run's report before and after, and `make tier2-provenance` run on the new rows.
 
 ## Not yet
 
 - **PNG.** Tier 3's goldens are PNG, which tier 3's own `t3img.py` reads; tier 2's compare reads PPM only, and reading PNG is its next step should it judge a tier 3 golden.
 - **fbdev.** vtium draws fbdev's XRGB8888 framebuffer with the same renderer and the same pixels as drm2d; other layouts are converted by `vtium-platform`, whose tests hold the conversion (vtium/vtium#18).
 - **The C reference's other text screens in unifont.** `emoji-mono` would draw as `emoji-unifont` does, since neither side has a color font to turn off. `mosaic-spaced` and `emoji-spaced` set a cell taller than the font's line height, which vtium has no setting for. `osd` draws the render timer's figures over the screen, which `vtium-render` keeps (`RenderTimer::osd`) but does not draw.
-- **The picture screens** (`img-*`, `kitty-*`, `sixel-vte`) wait for pictures in the CPU compositor (vtium/vtium#30) and the sixel and kitty handlers (vtium/vtium#48, #49); `pixels.c` would place their pictures through libtsm's test calls, as `test_pixels.c` did.
+- **The picture screens** (`img-*`, `kitty-*`, `sixel-vte`) wait for pictures in the CPU compositor (vtium/vtium#30) and the sixel and kitty handlers (vtium/vtium#48, #49).
 - **The GPU path.** ADR-1300 asks tier 2 to draw each screen on the GPU path under llvmpipe as well (vtium/vtium#33).
