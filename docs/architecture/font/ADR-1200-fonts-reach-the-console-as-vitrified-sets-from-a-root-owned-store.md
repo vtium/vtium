@@ -95,6 +95,10 @@ considered:
     said: "The concern with compressed chunks is adding a library to the console, not disk or speed. The console already carries an inflate for the built-in unifont's chunks, so a set may mark chunks as deflated, decoded by that same inflate once at load. The console decompresses only with a decoder it already carries for another reason; no new decompressor enters it, and any format that would need one stays uncompressed."
     via: Claude Code session, 2026-10-28, relayed by the team lead
     covers: [compressed chunks]
+  - operator: Aaron Bockelie
+    said: "The recipe carries an explicit compress setting, compress=yes or no, defaulting to yes, with the matching #121 template field and builder choice. With yes, create deflates 8-bit and color strikes and leaves 1-bit raw; with no, every strike is stored raw."
+    via: Claude Code session, 2026-10-28, relayed by the team lead
+    covers: [compressed chunks]
 observable:
   - "`cargo tree -p vtium -e normal` on the default build lists no bzip2, xz, zstd or outline-font crate, and the minspec binary stays under its budget"
   - "`vtium-vitrify create --all` run twice on unchanged inputs reports every set `current` the second time, and a set rebuilt from the same inputs has the same SHA-256"
@@ -257,7 +261,7 @@ A minor version adds sections or fields a reader skips. A major version is a cha
 | `list [--json]` | anyone | Prints the manifest's rows and the built-ins as TSV with a header, or as a JSON array. |
 | `verify [NAME...]` | anyone | Runs the console's check (D3) on each set and reports it. |
 | `preview FONT...` | the user | Draws a sample of a font as a set would, with the same reading and rasterising code, and builds nothing (#120). |
-| `new FONT`, `new --template`, `new --from FILE` | the user, with `sudo` once at the end | The guided builder and its templates, which end in a recipe of D1's format; at the end it shows one command, run with `sudo`, that writes the recipe and runs `create` (#121). It never runs as root while it asks or previews. |
+| `new FONT`, `new --template`, `new --from FILE` | the user, with `sudo` once at the end | The guided builder and its templates, which end in a recipe of D1's format, `compress=` among its fields and the builder's choices; at the end it shows one command, run with `sudo`, that writes the recipe and runs `create` (#121). It never runs as root while it asks or previews. |
 | `set NAME` | the session's user | D5. |
 
 > Edited 2026-10-28: the operator decided the two build paths, and that "preview (#120) and new/template (#121) belong to it, as the user; sudo once at the end of new". The rows for `create --default`, `create --out`, `install`, `preview` and `new` are new, and `create` builds for the machine's own display.
