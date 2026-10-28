@@ -372,6 +372,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vtium-vitrify"
+version = "0.0.0"
+dependencies = [
+ "miniz_oxide",
+ "rustix",
+ "vtium-font",
+ "vtium-platform",
+]
+
+[[package]]
 name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
