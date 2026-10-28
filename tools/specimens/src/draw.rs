@@ -1,8 +1,10 @@
 //! Drawing a page: its bytes through `vtium-term`, one frame through
 //! `vtium-render` into a canvas in memory, as tier 2 draws its screens.
 
-use vtium_font::set::{SetFace, builtin};
-use vtium_font::{Face, Font};
+use std::sync::Arc;
+
+use vtium_font::Font;
+use vtium_font::set::{Set, SetFace, builtin};
 use vtium_render::{Canvas, Config, DrawState, Renderer};
 use vtium_term::{Age, Terminal, WidthMethod};
 
@@ -44,40 +46,32 @@ impl Image {
     }
 }
 
-/// The font `profile` draws with; an error for a pending profile.
-pub fn font(profile: &Profile) -> Result<Font<SetFace>, String> {
-    match profile.glyphs {
-        Glyphs::Builtin { set, height } => {
-            let s = builtin(set).ok_or_else(|| format!("no built-in set {set} in this build"))?;
-            let face =
-                SetFace::new(s, height).ok_or_else(|| format!("the set {set} has no strikes"))?;
-            Ok(Font::new(face))
-        }
-        Glyphs::Pending { issues, .. } => Err(format!(
-            "{} waits on {}",
-            profile.name,
-            issues
-                .iter()
-                .map(|i| format!("#{i}"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        )),
+/// What the profiles draw from beyond the built-in sets: the desktop set,
+/// or why it could not be built (`crate::fonts`).
+pub struct Sources {
+    pub desktop: Result<Arc<Set>, String>,
+}
+
+/// Why `profile` cannot be drawn here, if it cannot: the set it needs was
+/// not built. Such a profile is skipped, never failed.
+pub fn skipped<'a>(profile: &Profile, sources: &'a Sources) -> Option<&'a str> {
+    match (profile.glyphs, &sources.desktop) {
+        (Glyphs::Desktop { .. }, Err(why)) => Some(why),
+        _ => None,
     }
 }
 
-/// The layout of the card on `profile`'s display in `font`'s cells.
-pub fn layout<F: Face>(profile: &Profile, font: &Font<F>) -> Result<Layout, String> {
-    let cell = font.cell();
-    let cols = (profile.width / cell.width) as usize;
-    let rows = (profile.height / cell.height) as usize;
-    Layout::new(cols, rows).ok_or_else(|| {
-        format!(
-            "{}: a grid of {cols}x{rows} holds no block of {}x{}",
-            profile.name,
-            card::BLOCK_COLS,
-            card::BLOCK_ROWS
-        )
-    })
+/// The font `profile` draws with.
+pub fn font(profile: &Profile, sources: &Sources) -> Result<Font<SetFace>, String> {
+    let set = match profile.glyphs {
+        Glyphs::Builtin { set, .. } => {
+            builtin(set).ok_or_else(|| format!("no built-in set {set} in this build"))?
+        }
+        Glyphs::Desktop { .. } => sources.desktop.clone()?,
+    };
+    let face = SetFace::new(set, profile.glyphs.height())
+        .ok_or_else(|| format!("the set {} has no strikes", profile.glyphs.set()))?;
+    Ok(Font::new(face))
 }
 
 /// A terminal of `layout`'s grid that has taken `bytes`, as a host starts
@@ -99,19 +93,29 @@ pub fn terminal(layout: &Layout, bytes: &[u8]) -> Result<Terminal, String> {
 }
 
 /// Each page of the card on `profile`'s display.
-pub fn screens(profile: &Profile) -> Result<Vec<Image>, String> {
-    let probe = font(profile)?;
-    let layout = layout(profile, &probe)?;
+pub fn screens(profile: &Profile, sources: &Sources) -> Result<Vec<Image>, String> {
+    let cell = font(profile, sources)?.cell();
+    if (cell.width, cell.height) != profile.cell {
+        return Err(format!(
+            "{}: the set draws {}x{} cells, the table says {}x{}",
+            profile.name, cell.width, cell.height, profile.cell.0, profile.cell.1
+        ));
+    }
+    let layout = profile.layout()?;
     (0..layout.pages)
         .map(|page| {
             let bytes = card::page(profile, &layout, page);
             let term = terminal(&layout, &bytes)?;
             let mut canvas = Canvas::new(profile.width, profile.height, 0);
+            let config = Config {
+                depth: profile.display,
+                ..Config::default()
+            };
             let mut r = Renderer::new(
-                font(profile)?,
+                font(profile, sources)?,
                 profile.width,
                 profile.height,
-                Config::default(),
+                config,
             );
             let state = DrawState {
                 background: term.palette().bg(),
@@ -201,8 +205,7 @@ mod tests {
     #[test]
     fn every_block_draws_the_same_cells_on_every_page() {
         for p in PROFILES {
-            let Ok(f) = font(p) else { continue };
-            let l = layout(p, &f).unwrap();
+            let l = p.layout().unwrap();
             let alone = Layout::new(BLOCK_COLS, BLOCK_ROWS).unwrap();
             for page in 0..l.pages {
                 let placed = cells(&terminal(&l, &card::page(p, &l, page)).unwrap());
@@ -241,8 +244,7 @@ mod tests {
     #[test]
     fn the_wide_character_at_the_margin_wraps_whole() {
         for p in PROFILES {
-            let Ok(f) = font(p) else { continue };
-            let l = layout(p, &f).unwrap();
+            let l = p.layout().unwrap();
             let page = l.pages - 1;
             let (_, top, _) = l.blocks(page).last().unwrap();
             let grid = cells(&terminal(&l, &card::page(p, &l, page)).unwrap());

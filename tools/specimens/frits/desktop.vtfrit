@@ -1,0 +1,35 @@
+# desktop: the outline profiles' set (vtium/vtium#142), at the two sizes
+# ADR-1200 D11 gives a 1920x1080 and a 2560x1440 display: JetBrains Mono
+# for text, Symbols Nerd Font Mono for its private-use ranges, Noto Color
+# Emoji for emoji, and the built-in unifont filling every gap. Each font is
+# pinned by its SHA-256, the bytes `make specimens-fonts` fetches from the
+# URL tools/specimens/src/fonts.rs names; vtium ships the frit, never the
+# fonts.
+#
+# Licences: JetBrains Mono and Noto Color Emoji under the SIL OFL 1.1;
+# Symbols Nerd Font Mono under MIT for the patcher, each icon set under its
+# own (the proof frit lists them); unifont under the SIL OFL 1.1.
+
+name=desktop
+license=OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+# JetBrains Mono 2.304, fonts/ttf/JetBrainsMono-Regular.ttf.
+source=font:JetBrains Mono
+sha256=a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f
+
+# Nerd Fonts 3.4.0, SymbolsNerdFontMono-Regular.ttf, one cell wide, less
+# Font Logos (U+F300-U+F385), which carries no licence grant.
+source=font:Symbols Nerd Font Mono
+sha256=f0f624d9b474bea1662cf7e862d44aebe1ae1f6c7f9cb7a0ca5d0e5ac9561c60
+cover=U+E000-U+F2FF
+cover=U+F386-U+F8FF
+cover=U+F0001-U+F1AF0
+
+# Noto Color Emoji 2.051, fonts/NotoColorEmoji.ttf, CBDT bitmaps.
+source=font:Noto Color Emoji
+sha256=72a635cb3d2f3524c51620cdde406b217204e8a6a06c6a096ff8ed4b5fd6e27b
+
+source=builtin:unifont
+
+size=24
+size=32

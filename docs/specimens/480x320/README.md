@@ -1,12 +1,12 @@
 # 480x320
 
-A 480x320 SPI panel, 3.5 inches: 480x320, 24-bit color, drawn in `unscii-8` at 8x8, 60x40 cells, the card on 4 screens, shown together in the collage.
+A 480x320 SPI panel, 3.5 inches: 480x320, 24-bit color, drawn in `unscii-8` at 8x8, 60x40 cells, the card on 5 screens, shown together in the collage.
 
 ![480x320](collage.png)
 
 | Display | Class | Cell | Grid | Font | Screens |
 |---|---|---|---|---|---|
-| 480x320, 24-bit color | small color LCD | 8x8 | 60x40 | `unscii-8`, built in | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png), [screen-4.png](screen-4.png) |
+| 480x320, 24-bit color | small color LCD | 8x8 | 60x40 | `unscii-8`, built in | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png), [screen-4.png](screen-4.png), [screen-5.png](screen-5.png) |
 
 ## Why this font
 
