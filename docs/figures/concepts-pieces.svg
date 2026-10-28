@@ -22,7 +22,7 @@
 <text x="436" y="145" font-size="13" text-anchor="middle" fill="#1f2933">the console</text>
 <rect x="632" y="56" width="200" height="56" fill="#ffffff" stroke="#9aa5b1" stroke-width="1" stroke-dasharray="6 4"/>
 <text x="732" y="80" font-size="14" text-anchor="middle" fill="#1f2933">the store</text>
-<text x="732" y="100" font-size="13" text-anchor="middle" fill="#1f2933">recipes and sets</text>
+<text x="732" y="100" font-size="13" text-anchor="middle" fill="#1f2933">frits and sets</text>
 <rect x="632" y="168" width="200" height="56" fill="#ffffff" stroke="#9aa5b1" stroke-width="1" stroke-dasharray="6 4"/>
 <text x="732" y="192" font-size="14" text-anchor="middle" fill="#1f2933">vtium-vitrify</text>
 <text x="732" y="212" font-size="13" text-anchor="middle" fill="#1f2933">create, install</text>
@@ -51,7 +51,7 @@
 <text x="732" y="434" font-size="14" text-anchor="middle" fill="#1f2933">vtium-vitrify new</text>
 <text x="732" y="454" font-size="13" text-anchor="middle" fill="#1f2933">and its templates</text>
 <path d="M 632 438 L 600 438 L 600 196 L 630 196" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
-<text x="590" y="292" font-size="13" text-anchor="end" fill="#1f2933">a recipe,</text>
+<text x="590" y="292" font-size="13" text-anchor="end" fill="#1f2933">a frit,</text>
 <text x="590" y="310" font-size="13" text-anchor="end" fill="#1f2933">sudo once</text>
 <line x1="24" y1="536" x2="64" y2="536" stroke="#2f6fb0" stroke-width="2"/>
 <text x="76" y="541" font-size="13" fill="#1f2933">the only way from the session to vtium: bytes on the session's terminal</text>

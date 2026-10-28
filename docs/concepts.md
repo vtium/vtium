@@ -31,13 +31,13 @@ vtium is one console and a few programs and files around it. The table lists eac
 | `vtium` | The console: one process per VT, which owns that VT, its display and its input devices, and runs the session | root, started by init or logind | built | [ADR-1400](architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md), vtium/vtium#21 |
 | `vtium blank`, `vtium wake` | Blank or wake a VT's displays from outside its session | root | proposed | vtium/vtium#116 |
 | `vtium-vitrify preview` | Draws a sample of a font as a set would, building nothing | the user | proposed | vtium/vtium#120 |
-| `vtium-vitrify new` | The guided builder, and the templates it writes and reads, which end in a recipe | the user, with sudo once at the end | proposed | vtium/vtium#121 |
-| `vtium-vitrify create` | Builds a set from a recipe: into the store on the target, or as a portable file elsewhere | root or a package hook on the target; any user elsewhere | proposed | vtium/vtium#3 |
+| `vtium-vitrify new` | The guided builder, and the templates it writes and reads, which end in a frit | the user, with sudo once at the end | proposed | vtium/vtium#121 |
+| `vtium-vitrify create` | Builds a set from a frit: into the store on the target, or as a portable file elsewhere | root or a package hook on the target; any user elsewhere | proposed | vtium/vtium#3 |
 | `vtium-vitrify install` | Checks a portable set and adds it to the store | root or a package hook | proposed | vtium/vtium#3 |
 | `vtium-vitrify list`, `verify`, `remove` | Lists the built sets, runs the console's check on them, drops one | anyone; `remove` root | proposed | vtium/vtium#3 |
 | `vtium-vitrify set` | Switches the running console among built sets | the user, in the session | proposed | vtium/vtium#3 |
 | `vtium-clipboard`, also `vticlip` | Copies to the console's selection from a script or a pipe | the user, in the session | proposed; copy decided, paste open | vtium/vtium#113 |
-| The recipes and the store | Recipes that declare sets, and the built sets with a manifest of their hashes | written by root | proposed | vtium/vtium#3 |
+| The frits and the store | Frits that declare sets, and the built sets with a manifest of their hashes | written by root | proposed | vtium/vtium#3 |
 | The built-in sets | Unifont, and Unscii-8 for small displays, compiled into vtium as the fallback and the template every set follows | inside `vtium` | Unifont and Unscii-8 built in as sets; the console draws unifont, and choosing Unscii-8 for small cells waits for set selection | vtium/vtium#3 |
 | The configuration | One file, a file for the seat, and the command line | written by root, read by `vtium` | built | [config.md](config.md) |
 | The unit | systemd's service for vtium on a VT, in getty's place | started by logind | built | [systemd.md](systemd.md) |
@@ -69,13 +69,13 @@ flowchart LR
 
 The figure shows the suite in two bands, what runs as root above and what runs as the user who logged in below. The session reaches the console only through the pty, the kernel's pair of devices that lets one program act as the terminal of another; the font builder reaches root's side once, through sudo. Dashed pieces are proposed.
 
-![Two bands. Above, running as root: the kernel's devices (the VT, the display, keyboards and pointers) joined to vtium, the console; vtium-vitrify create and install writing font sets into the root-owned store, which gives vtium checked sets. Between the bands, the pty, joined to vtium by bytes both ways. Below, running as the user who logged in: vtium-vitrify set, vtium-clipboard, and shell and programs, each joined to the pty; and vtium-vitrify preview, and vtium-vitrify new with its templates, the second of which hands a recipe to create with sudo, once. Every vtium-vitrify piece, the store and vtium-clipboard are drawn dashed, as proposed.](figures/concepts-pieces.svg)
+![Two bands. Above, running as root: the kernel's devices (the VT, the display, keyboards and pointers) joined to vtium, the console; vtium-vitrify create and install writing font sets into the root-owned store, which gives vtium checked sets. Between the bands, the pty, joined to vtium by bytes both ways. Below, running as the user who logged in: vtium-vitrify set, vtium-clipboard, and shell and programs, each joined to the pty; and vtium-vitrify preview, and vtium-vitrify new with its templates, the second of which hands a frit to create with sudo, once. Every vtium-vitrify piece, the store and vtium-clipboard are drawn dashed, as proposed.](figures/concepts-pieces.svg)
 
 The console runs as root for its whole life, as the C reference did. Root lets it open the VT, take the display, read the keyboards and pointers directly, and start the system's login program, which authenticates the user and starts their shell with the user's rights. [ADR-1400](architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md) holds the privilege model, the image helper that decodes pictures as the session's user included.
 
 A program in the session reaches vtium only through the bytes it writes to its terminal. vtium's replies to those bytes are built from its own state and never echo what a program sent, so text a program prints cannot type into another program reading the replies ([architecture.md](architecture.md#determinism), "No reflection").
 
-Only root writes recipes and sets, because the console trusts only what root built. Everything before that runs as the user: previews, the builder's questions and templates. Switching among built sets and copying to the clipboard run in the session and speak to vtium through the terminal like any other program.
+Only root writes frits and sets, because the console trusts only what root built. Everything before that runs as the user: previews, the builder's questions and templates. Switching among built sets and copying to the clipboard run in the session and speak to vtium through the terminal like any other program.
 
 ## Deployment
 
@@ -116,7 +116,7 @@ flowchart LR
     P["preview<br>try many fonts<br>(the user)"] -.-> R
     W["new: the wizard<br>or a template<br>(the user)"] -.-> R
     H["by hand"] -.-> R
-    R["recipe<br>declares a set"] -.-> C["create<br>on the target<br>(root)"]
+    R["frit<br>declares a set"] -.-> C["create<br>on the target<br>(root)"]
     R -.-> O["create --out<br>elsewhere<br>(any user)"]
     O -.->|"a .vtglass file"| I["install<br>on the target<br>(root)"]
     C -.-> ST[("the store<br>root-owned")]
@@ -140,13 +140,13 @@ flowchart LR
 
 Someone choosing a font tries many and builds few. vtium-vitrify's preview command draws a sample of a font at the terminal's own cell size, with the same code a build uses, as a picture where the terminal shows pictures and as a text summary where it does not, and builds nothing. A machine then holds a few sets, each baked at a few sizes chosen for its display: per locale, a bitmap set scaled by whole factors and at most one smooth outline size (ADR-1200). On a build that isn't minspec, a size a set lacks can be drawn on demand by the sandboxed helper (vtium/vtium#123); the console itself never parses a font.
 
-### The recipe
+### The frit
 
-A set is declared as a **recipe**: a small text file naming the set's sources in order, later ones filling characters the earlier ones lack, with the sizes and fallbacks to build. Its sources can be console fonts, font files, the kernel's own font, and later outline fonts. A recipe is written in one of three ways, which give the same file: by hand; by vtium-vitrify's new command, a guided builder that asks about the target display, the sizes, the coverage and the fallbacks and previews each choice; or from a template that command writes, which reads back and writes out again with nothing lost, so a script or a package can make the builder's choices without its questions. Later, vtium-vitrify may find installed fonts that match chosen profiles and build sets for them without a recipe written for each (vtium/vtium#117, a direction not yet decided).
+A set is declared as a **frit**, named for the ground glass a glassmaker melts again: a small text file, `/etc/vtium/fonts/NAME.vtfrit`, naming the set's sources in order, later ones filling characters the earlier ones lack, with the sizes and fallbacks to build. Its sources can be console fonts, font files, the kernel's own font, and later outline fonts. A frit is written in one of three ways, which give the same file: by hand; by vtium-vitrify's new command, a guided builder that asks about the target display, the sizes, the coverage and the fallbacks and previews each choice; or from a template that command writes, which reads back and writes out again with nothing lost, so a script or a package can make the builder's choices without its questions. Later, vtium-vitrify may find installed fonts that match chosen profiles and build sets for them without a frit written for each (vtium/vtium#117, a direction not yet decided).
 
 ### Building and installing
 
-The create command builds a set from its recipe, in one of two ways. Built on the target, as root, the set goes straight into the machine's store, sized for its own display, a minspec board's small panel included, so a fresh install needs no other machine. Built elsewhere, by any user, `create --out` writes the set as a portable `.vtglass` file for hardware the builder cannot preview or does not have, such as an 8K desktop's large sizes built on a 320x240 machine; the install command, run as root on the target, checks the file and adds it to the store. The builder asks for sudo once, at the end, for a command it shows first, which writes the recipe and runs create. At an interactive terminal the tool opens with a small banner of its name in glass, and never in a script or a pipe (vtium/vtium#112).
+The create command builds a set from its frit, in one of two ways. Built on the target, as root, the set goes straight into the machine's store, sized for its own display, a minspec board's small panel included, so a fresh install needs no other machine. Built elsewhere, by any user, `create --out` writes the set as a portable `.vtglass` file for hardware the builder cannot preview or does not have, such as an 8K desktop's large sizes built on a 320x240 machine; the install command, run as root on the target, checks the file and adds it to the store. The builder asks for sudo once, at the end, for a command it shows first, which writes the frit and runs create. At an interactive terminal the tool opens with a small banner of its name in glass, and never in a script or a pipe (vtium/vtium#112).
 
 ### Loading, the fallback and switching
 
