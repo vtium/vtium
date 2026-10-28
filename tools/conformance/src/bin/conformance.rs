@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use vtium_conformance::interface;
 use vtium_conformance::probes::{self, Outcome, Replay};
 use vtium_conformance::runner::lists::{self, Expected};
 use vtium_conformance::runner::{self, Corpus, VIEWS, Verdict, chunking, provenance};
@@ -37,6 +38,7 @@ const OPTIONAL: [&str; 6] = [
 
 const USAGE: &str = "usage: conformance [run] [--without CASE]... [--seed N] [--rounds N]
        conformance expect VIEW CASE...
+       conformance interface
        conformance probes
        conformance issues
        conformance provenance [--libtsm DIR] [--kmscon DIR]";
@@ -106,13 +108,18 @@ fn corpus() -> Result<Corpus, String> {
     Corpus::open(&Path::new(TOOL).join(CORPUS))
 }
 
-/// The interface: 1.0 as the corpus holds it, and vtium's additions.
-fn spec() -> Result<Spec, String> {
-    let texts = INTERFACE
+/// The interface's documents: 1.0 as the corpus holds it, and vtium's
+/// additions.
+fn texts() -> Result<Vec<String>, String> {
+    INTERFACE
         .iter()
         .map(|file| read(&Path::new(TOOL).join(file)))
-        .collect::<Result<Vec<_>, _>>()?;
-    Spec::read(&texts.iter().map(String::as_str).collect::<Vec<_>>())
+        .collect()
+}
+
+/// The interface, read from its documents.
+fn spec() -> Result<Spec, String> {
+    Spec::read(&texts()?.iter().map(String::as_str).collect::<Vec<_>>())
 }
 
 /// The listed expectations, each departure's entry checked against the
@@ -175,18 +182,44 @@ fn check_describe(spec: &Spec) -> Result<(), String> {
     Ok(())
 }
 
+/// The interface check (`vtium_conformance::interface`): the goldens
+/// under the grammar, the worked examples, the palettes, the refusals and
+/// the grammar's controls. Prints each fault, or one line when all hold.
+fn check_interface(spec: &Spec, corpus: &Corpus) -> Result<bool, String> {
+    let texts = texts()?;
+    let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+    let check = interface::check(spec, &texts, corpus, &vtium_conformance::describe());
+    let faults = check.faults();
+    for fault in &faults {
+        println!("FAIL replay-interface: {fault}");
+    }
+    if faults.is_empty() {
+        println!("{}", check.summary());
+    }
+    Ok(faults.is_empty())
+}
+
+/// `--describe` and the interface check alone.
+fn interface() -> Result<bool, String> {
+    copies()?;
+    let spec = spec()?;
+    check_describe(&spec)?;
+    check_interface(&spec, &corpus()?)
+}
+
 fn run(o: &Options) -> Result<bool, String> {
     let copies = copies()?;
     let corpus = corpus()?;
     let expected = expectations(&corpus, &o.without)?;
-    check_describe(&spec()?)?;
+    let spec = spec()?;
+    check_describe(&spec)?;
     println!(
         "conformance: {} cases, copied from libtsm {}; {} copies match provenance.tsv",
         corpus.cases.len(),
         provenance::commit(&copies, "libtsm")?,
         copies.len()
     );
-    let mut ok = true;
+    let mut ok = check_interface(&spec, &corpus)?;
     for (view, name, golden_dir) in VIEWS {
         let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
         for case in &corpus.cases {
@@ -485,6 +518,7 @@ fn main() -> ExitCode {
         match command.as_str() {
             "run" if o.rest.is_empty() => run(&o),
             "expect" => expect(&o),
+            "interface" if o.rest.is_empty() => interface(),
             "probes" if o.rest.is_empty() => probes(),
             "issues" if o.rest.is_empty() => issues(),
             "provenance" if o.rest.is_empty() => verify_provenance(&o),

@@ -12,6 +12,7 @@
 
 pub mod command;
 pub mod coverage;
+pub mod interface;
 pub mod probes;
 pub mod replay;
 pub mod runner;

@@ -29,6 +29,8 @@ pub struct Spec {
     /// Each command and the feature it needs, if any.
     pub commands: BTreeMap<String, Option<String>>,
     lines: BTreeMap<String, Vec<Form>>,
+    /// Each view's `structure`: the order of the kinds of its lines.
+    structure: BTreeMap<String, Regex>,
 }
 
 /// The lines of the fenced block named `name`, or None.
@@ -116,6 +118,7 @@ impl Spec {
             features,
             commands,
             lines: BTreeMap::new(),
+            structure: BTreeMap::new(),
         };
         let mut fragments = Fragments::default();
         for text in texts {
@@ -158,6 +161,13 @@ impl Spec {
                     };
                     self.lines.entry(kind.to_owned()).or_default().push(form);
                 }
+                "structure" => {
+                    let (view, regex) = rest
+                        .split_once(' ')
+                        .ok_or_else(|| format!("grammar line {line:?}"))?;
+                    self.structure
+                        .insert(view.to_owned(), whole(&expand(regex, false, f)?)?);
+                }
                 _ => {}
             }
         }
@@ -178,6 +188,13 @@ impl Spec {
                     }
             })
         })
+    }
+
+    /// Whether `kinds`, the kind of each line of an output, each after a
+    /// space, are in the order the view's `structure` gives; None for a
+    /// view the grammar gives no structure.
+    pub fn structured(&self, view: &str, kinds: &str) -> Option<bool> {
+        self.structure.get(view).map(|s| s.is_match(kinds))
     }
 }
 
