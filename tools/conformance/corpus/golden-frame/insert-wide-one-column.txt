@@ -1,0 +1,9 @@
+size 1x3
+cursor 1,1
+flags INSERT_MODE|AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 3
+frame-cursor 0,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 |❤️|
+row 2 ||

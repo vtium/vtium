@@ -1060,3 +1060,43 @@ fn the_key_table_keeps_its_rules() {
         }
     }
 }
+
+#[test]
+fn blink_text_and_blink_decorations_take_their_values() {
+    let d = main_file("");
+    assert_eq!(d.config.text(&BLINK_TEXT), Some("full"));
+    assert!(!d.config.switch(&BLINK_DECORATIONS));
+    let l = load_with(
+        &["--blink-text=off"],
+        None,
+        &[(
+            "/etc/kmscon/kmscon.conf",
+            b"blink-text=partial\nblink-decorations\n",
+        )],
+    );
+    assert_eq!(l.config.text(&BLINK_TEXT), Some("off"));
+    assert!(l.config.switch(&BLINK_DECORATIONS));
+    assert_eq!(problems(&l), [] as [&Problem; 0]);
+    let l = main_file("blink-text=half\nblink-decorations=1\n");
+    assert_eq!(l.config.text(&BLINK_TEXT), Some("full"));
+    assert_eq!(
+        problems(&l),
+        [
+            &Problem::NotAChoice {
+                key: "blink-text",
+                value: "half".into()
+            },
+            &Problem::TakesNoValue("blink-decorations"),
+        ]
+    );
+}
+
+#[test]
+fn program_blank_is_on_until_turned_off() {
+    assert!(Config::default().switch(&PROGRAM_BLANK));
+    let l = main_file("no-program-blank\n");
+    assert!(!l.config.switch(&PROGRAM_BLANK));
+    assert!(problems(&l).is_empty());
+    let l = load_with(&["--no-program-blank"], None, &[]);
+    assert!(!l.config.switch(&PROGRAM_BLANK));
+}

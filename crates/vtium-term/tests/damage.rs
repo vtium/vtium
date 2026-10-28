@@ -213,6 +213,20 @@ fn change(t: &mut Terminal, rng: &mut Rng) -> String {
 #[test]
 fn a_frames_changed_set_covers_every_cell_that_differs() {
     for seed in 0..common::seeds(80) {
+        covers_every_change(seed);
+    }
+}
+
+// Seed 218 found an edit that ends a row's wrap, IL here, turning the pad
+// in its last column into an empty narrow cell unmarked (ADR-1003).
+#[test]
+fn an_ended_wrap_marks_the_pad_it_empties() {
+    covers_every_change(218);
+}
+
+/// Runs the property's 100 random changes from `seed`.
+fn covers_every_change(seed: u64) {
+    {
         let mut rng = Rng(seed);
         let mut t = Terminal::new(1 + rng.below(12), 1 + rng.below(8), 6);
         t.screen_mut().set_scrollback_max(rng.below(6));

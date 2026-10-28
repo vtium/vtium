@@ -1,0 +1,13 @@
+# vtium-term's X11 color name table generator, run by hand to move the pinned
+# rgb release (README.md). Its own workspace, so the main workspace and CI do
+# not build it.
+[package]
+name = "vtium-term-gen-color-names"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+
+[workspace]
+members = ["."]

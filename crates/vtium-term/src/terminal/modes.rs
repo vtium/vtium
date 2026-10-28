@@ -94,6 +94,7 @@ pub(crate) enum Mode {
     BracketedPaste,
     Sync,
     GraphemeWidth,
+    Reflow,
     SchemeReport,
     VisibilityReport,
     ResizeReport,
@@ -195,6 +196,7 @@ pub(crate) static MODES: &[Row] = &[
     row!(DEC, 2004, "BRPASTE", Supported, RESET, Soft, Paste, "BD BE PS PE", "ctlseqs, bracketed paste; a paste never carries its own end marker (ADR-1000)", &["modes.rs::bracketed_paste_brackets_a_paste"], Some(Mode::BracketedPaste)),
     row!(DEC, 2026, "SYNC", Supported, RESET, Soft, Draw, "Sync", "contour synchronized-output; offered while the host presents by it", &["modes.rs::mode_2026_holds_frames_while_the_host_offers_it"], Some(Mode::Sync)),
     row!(DEC, 2027, "GRAPHEME", Supported, Initial::Host("the host's width method"), Soft, Nothing, "", "contour unicode-core; RIS and DECSTR return it to the configured method", &["modes.rs::mode_2027_reports_and_resets_to_the_configured_method"], Some(Mode::GraphemeWidth)),
+    row!(DEC, 2028, "REFLOW", Supported, SET, Hard, Nothing, "", "contour line-reflow-mode; each print, and SM and RM on the cursor's row, mark a row as rewrapping at a width change or, reset, cut at a narrower margin (ADR-1003); RIS sets it", &["reflow.rs::mode_2028_marks_the_rows_a_resize_cuts"], Some(Mode::Reflow)),
     row!(DEC, 2031, "SCHEMEREPORT", Supported, RESET, Soft, Nothing, "", "contour color-palette-update-notifications; CSI ? 997 ; Ps n when the default background turns dark or light by its luma (ITU-R BT.601), as CSI ? 996 n answers", &["inband.rs::mode_2031_reports_a_change_of_scheme", "inband.rs::decstr_and_ris_reset_the_report_modes"], Some(Mode::SchemeReport)),
     row!(DEC, 2033, "VISREPORT", Supported, RESET, Soft, Notify, "", "foot(7), rockorager's visibility reports; CSI ? 999 ; Ps n as it is set and on each change, a VT switch or a blank", &["inband.rs::mode_2033_reports_visibility_on_set_and_each_change", "inband.rs::decstr_and_ris_reset_the_report_modes"], Some(Mode::VisibilityReport)),
     row!(DEC, 2048, "RESIZEREPORT", Supported, RESET, Soft, Notify, "", "rockorager's in-band resize notifications; CSI 48 ; rows ; cols ; height ; width t as it is set and after each resize, the text area in pixels 0 while the cell size is unknown", &["inband.rs::mode_2048_reports_the_text_area_on_set_and_each_resize", "inband.rs::decstr_and_ris_reset_the_report_modes"], Some(Mode::ResizeReport)),
@@ -354,6 +356,7 @@ impl State {
             Mode::BracketedPaste => m.bracketed_paste,
             Mode::Sync => m.sync,
             Mode::GraphemeWidth => s.width_method() == WidthMethod::Unicode,
+            Mode::Reflow => s.reflow(),
             Mode::SchemeReport => m.scheme_report,
             Mode::VisibilityReport => m.visibility_report,
             Mode::ResizeReport => m.resize_report,
@@ -416,6 +419,7 @@ impl State {
             } else {
                 WidthMethod::Wcwidth
             }),
+            Mode::Reflow => self.screen.set_reflow(on),
             Mode::SchemeReport => self.modes.scheme_report = on,
             // Set, modes 2033 and 2048 report at once, set already or not.
             Mode::VisibilityReport => {

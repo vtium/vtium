@@ -21,8 +21,9 @@ use crate::palette::{Palette, Special};
 use crate::style::{Attrs, Color, Rgb, Style};
 
 /// SGR 2's foreground: halfway from `fg` to `bg`, each channel the sum of
-/// the two halved (the C reference's `color_dim`).
-fn dim(fg: Rgb, bg: Rgb) -> Rgb {
+/// the two halved (the C reference's `color_dim`). The renderer dims
+/// blinking text with it too.
+pub fn dim(fg: Rgb, bg: Rgb) -> Rgb {
     let ch = |f: u8, b: u8| (f / 2).saturating_add(b / 2);
     Rgb::new(ch(fg.r, bg.r), ch(fg.g, bg.g), ch(fg.b, bg.b))
 }

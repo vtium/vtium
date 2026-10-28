@@ -55,7 +55,9 @@ use vtium_platform::pty::{Erase, Pty, Size};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
 use vtium_platform::vt::{Switch, Vt, VtEvent};
 use vtium_render::{Config as RenderConfig, DrawState, Orientation, Profile};
-use vtium_term::{Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal};
+use vtium_term::{
+    BlankRequest, BlankTimeout, Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal,
+};
 
 use crate::blink::{Blink, Timer};
 use crate::child::{self, Display as SessionDisplay, Place};
@@ -233,6 +235,10 @@ pub struct App {
     use_original: bool,
     /// `clipboard-write`: OSC 52's selection is taken.
     clipboard_write: bool,
+    /// `program-blank`: a program's blank sequences are taken.
+    program_blank: bool,
+    /// `dpms-timeout`, which RIS returns the blank to.
+    dpms_timeout: Option<Duration>,
     /// The selection buffer: what the user copied last, or OSC 52 set
     /// last, held for a paste.
     selection: Option<Vec<u8>>,
@@ -279,7 +285,7 @@ impl App {
         let timeout = Duration::from_millis(config.number(&keys::SYNC_TIMEOUT).unwrap_or(200));
         terminal.set_sync_enabled(!timeout.is_zero());
         let sync = Sync::new(timeout, terminal.sync_frames());
-        let blink = Blink::new(config.switch(&keys::BLINK));
+        let blink = Blink::configured(&config);
         let dpms = config
             .number(&keys::DPMS_TIMEOUT)
             .map(Duration::from_secs)
@@ -304,6 +310,8 @@ impl App {
         App {
             oneshot: config.switch(&keys::ONESHOT),
             clipboard_write: config.switch(&keys::CLIPBOARD_WRITE),
+            program_blank: config.switch(&keys::PROGRAM_BLANK),
+            dpms_timeout: dpms,
             selection: None,
             tracking: MouseTracking::Off,
             power_keys,
@@ -368,8 +376,8 @@ impl App {
         &self.config
     }
 
-    /// Puts the DPMS blank's timer in the loop.
-    pub fn insert_blank(&self) {
+    /// Puts the DPMS blank's timer in the loop, in place of the one there.
+    pub fn insert_blank(&mut self) {
         self.blank.insert(
             &self.handle,
             |app: &mut App| Some(&mut app.blank),
@@ -517,6 +525,7 @@ impl App {
         RenderConfig {
             profile,
             orientation: self.orientation,
+            blink: crate::blink::text_blink(&self.config),
             ..RenderConfig::default()
         }
     }
@@ -719,11 +728,30 @@ impl App {
         self.restart_blank(now);
     }
 
-    /// A display came after none, or the last went. It restarts the
-    /// blank's countdown and ends a blank in force, as the user's input
-    /// does for now (vtium/vtium#87 tells the two apart). While the VT is
-    /// not ours nothing is woken: the acquire sets every device up.
-    fn display_change(&mut self, now: Instant) {
+    /// What a program asked of the blank with the Linux console's
+    /// sequences, taken under `program-blank`: a timeout of minutes, or
+    /// `dpms-timeout` again after RIS, and a wake, which a key or pointer
+    /// event would give. A timeout lasts until changed (the operator's
+    /// decisions on vtium/vtium#79).
+    fn blank_request(&mut self, request: BlankRequest, now: Instant) {
+        let timeout = request.timeout.map(|t| match t {
+            BlankTimeout::Minutes(m) => Some(Duration::from_secs(60 * u64::from(m))),
+            BlankTimeout::Configured => self.dpms_timeout,
+        });
+        if let Some(timeout) = timeout {
+            if self.blank.set_timeout(timeout, now) {
+                self.insert_blank();
+            }
+        }
+        if request.wake {
+            self.wake(now);
+        }
+    }
+
+    /// The blank's countdown starts again and a blank in force ends. While
+    /// the VT is not ours nothing is woken: the acquire sets every device
+    /// up.
+    fn wake(&mut self, now: Instant) {
         if self.vt.is_active() {
             self.restart_blank(now);
         } else {
@@ -860,8 +888,9 @@ impl App {
     /// The first display came, the last went, or the next came. With none
     /// the session runs on at the grid it had, which no display resizes,
     /// and the blank does not run: the blank in force ends, and the
-    /// countdown starts afresh when a display comes. The next is drawn
-    /// whole, and resizes the grid when its own differs.
+    /// countdown starts afresh when a display comes, as at the user's
+    /// input for now (vtium/vtium#87 tells the two apart). The next is
+    /// drawn whole, and resizes the grid when its own differs.
     fn attachment(&mut self, now: Instant) {
         let attached = if self.views.is_empty() {
             match self.attached {
@@ -877,13 +906,13 @@ impl App {
                 log::warn!(
                     "the last display is gone: the session runs on at {cols}x{rows} until the next comes"
                 );
-                self.display_change(now);
+                self.wake(now);
             }
             (Attached::Gone, Attached::Yes) => {
                 log::info!("a display came: the session is drawn again at {cols}x{rows}");
-                self.display_change(now);
+                self.wake(now);
             }
-            (Attached::NotYet, Attached::Yes) => self.display_change(now),
+            (Attached::NotYet, Attached::Yes) => self.wake(now),
             _ => {}
         }
         self.attached = attached;
@@ -1367,7 +1396,14 @@ impl App {
                 self.selection = Some(selection);
             }
         }
+        // After the exit, whose respawn's RIS returns the blank to
+        // `dpms-timeout` for the next session.
         self.child_exited(now);
+        if let Some(request) = self.term.terminal.take_blank_request() {
+            if self.program_blank {
+                self.blank_request(request, now);
+            }
+        }
         self.timers(now);
         if self.awake {
             self.draw(now);

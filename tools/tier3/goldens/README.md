@@ -1,0 +1,18 @@
+# vtium's tier 3 goldens
+
+The goldens of the small displays (vtium/vtium#75), which the C reference never drew: vtium's captures from `make tier3-minimal` at 5d3bbb6. The operator reviewed and accepted them on 2026-10-28, so they judge; a golden of vtium's that nobody has reviewed yet goes in `../provisional.tsv` first. Each variant draws `SMALL_SCREENS` with a test font from `tools/testfont` and a shell prompt and steady cursor after the screen; `vt-restore` is compared with `cjk.png`. The fonts hold no CJK, so every CJK character is drawn as `?` across its two cells, vtium's missing glyph in a font that lacks U+25A1. When vtium loads fonts as vitrified sets with fallbacks (vtium/vtium#126), those cells change to the fallback's glyphs and these goldens move in their own commit.
+
+| Golden | What it shows |
+|---|---|
+| `2d-320x240-psf8/small-console.png` | 320x240, 8x8 cells, 40 by 30. The ruler ending `40` in the last column; `bin` and `etc` bold blue, `run.sh` bold green, `notes.txt`, `lib.so` bold cyan; the eight background colors and the eight bright ones, four cells each; the six color names in their colors; `bold`, `faint` in grey, `under` underlined, `reverse` reversed and `struck` struck; a three-column box of sprite lines around `cpu`, `mem`, `load` and `12%`, `48M`, `0.08`; Latin-1; `double`, `curly`, `dotted` and `dashed` under their lines, which at 8 pixels reach the letters' lower rows; a bar of 16 green full blocks and 16 light shades, then `50%`. |
+| `2d-320x240-psf8/sgr.png` | The `sgr` screen wrapped at 40 columns: the `fgNN` and `bgNN` labels in their colors over three rows each, the styled words over two, the 256-color cube as six bands of two rows, and the 24-bit ramp over two rows. |
+| `2d-320x240-psf8/boxdraw.png` | The `boxdraw` screen: a light box with a divider around its two text rows, a double box of two cells, a rounded box, shades, quadrants and eighths, all sprites at 8x8. |
+| `2d-320x240-psf8/underline-styles.png` | The `underline-styles` screen wrapped at 40 columns: each style's label and its underlined text, the lower rows wrapping, the colored, bold, reversed and blue-background lines, and `?` for each wide character. |
+| `2d-320x240-psf8/wide-margin.png` | The `wide-margin` screen at its real edge, column 40: rulers ending in the last column; case 1's `?` in the last two columns; cases 2, 3 and 5 wrapped whole to the next row; case 4's dashes ending one column short of the edge, its `?` in the last two. |
+| `2d-320x240-psf8/cjk.png` | The `cjk` screen: `Latin then CJK:` and `end` with four `?` between them, the Japanese and Korean rows as `?`, and the bars of the last two rows aligned. |
+| `2d-640x480-psf16/small-console.png` | 640x480, 8x16 cells, 80 by 30: the `small-console` screen in the left half, its ruler ending at column 40, the decorations below their letters. |
+| `2d-640x480-psf16/sgr.png` | The `sgr` screen at 80 columns: the labels over two rows each, the cube as six whole rows, and the ramp on one. |
+| `2d-640x480-psf16/boxdraw.png` | The `boxdraw` screen at 8x16. |
+| `2d-640x480-psf16/underline-styles.png` | The `underline-styles` screen at 80 columns, every line on its own row. |
+| `2d-640x480-psf16/wide-margin.png` | The `wide-margin` screen at column 80, its cases as at 320x240. |
+| `2d-640x480-psf16/cjk.png` | The `cjk` screen at 8x16. |

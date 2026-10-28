@@ -4,6 +4,8 @@ A terminal for the Linux virtual console, drawn straight to the display through 
 
 vtium is a Rust terminal inspired by [kmscon](https://github.com/kmscon/kmscon) and libtsm, by David Herrmann and their contributors (see [COPYING](COPYING)). It carries forward the work of the [aaronsb/kmscon](https://github.com/aaronsb/kmscon) fork, which added underline styles and colours, grapheme clusters, colour emoji, sixel and the kitty graphics protocol, a GPU path with a CPU fallback, and a minimal build for small machines. vtium is a separate project: it is not upstream kmscon and not its Rust conversion.
 
+[docs/concepts.md](docs/concepts.md) introduces vtium's concepts: its pieces, how it is installed and started, and how it is used.
+
 ## Status
 
 vtium's minspec slice runs on real hardware. On the maintainer's machine it draws a login shell on a 7680x2160 DisplayPort display through drm2d, with nano, vim, btop and mouse reporting. The C fork stays the reference implementation, and each part is judged against it ([docs/architecture.md](docs/architecture.md#how-it-is-judged)):

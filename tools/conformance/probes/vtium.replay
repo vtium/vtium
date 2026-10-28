@@ -1,0 +1,14 @@
+# vtium's own capability probes, in probes.replay's format (README.md, The
+# probes). A probe here takes the place of a placeholder of the same name
+# in the copied probes.replay.
+
+# OSC 52 copy: the host takes what a program set, once (#110; the
+# interface's clipboard command, INTERFACE-vtium.md)
+probe osc-52-clipboard
+size 8 1
+send "\e]52;c;aGVsbG8=\e\\"
+cmd clipboard
+cmd clipboard
+check
+want test clipboard 68656c6c6f
+want test clipboard none

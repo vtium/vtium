@@ -1,1 +1,3 @@
+# Before #111 the conformance tool extracted the C reference here; older
+# checkouts may still hold that output.
 out/

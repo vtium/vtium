@@ -1,6 +1,5 @@
-# vtium's capability list: NAME STATUS ISSUE ROWS NOTE, for the C reference's
-# run.py (tests/capabilities/README.md in aaronsb/kmscon), which reads
-# NAME STATUS ISSUE and takes the rest as the note.
+# vtium's capability list: NAME STATUS ISSUE ROWS NOTE, which
+# `conformance probes` judges each probe against (README.md, The probes).
 # works: the probe must pass. missing: it must fail, and ISSUE is the
 # vtium/vtium issue that owes the capability. A missing probe that starts
 # passing fails the run until it is set to works.
@@ -26,7 +25,7 @@ wide-at-margin                works   -     text.vs-width                  a wid
 rep                           works   -     text.rep                       REP repeats the last printed character, a wide one whole
 erase-colours-only            works   -     ctl.bce                        EL, SU, SD and RI blanks take the pen background only
 frame-age-per-caller          works   -     platform.multi-monitor         each frame-since caller keeps its own changes
-reflow                        missing #41   text.reflow                    a resize rewraps the lines a wrap made
+reflow                        works   -     text.reflow                    a resize rewraps the lines a wrap made
 bidi                          missing #43   text.bidi                      placeholder in the probes: no bidirectional reordering
 
 # modes and replies
@@ -37,7 +36,7 @@ da1-level                     works   -     query.da1                      DA1 r
 da2                           works   -     query.da2                      DA2 replies
 da3                           works   -     query.da3                      DA3 answers DECRPTUI, where the C reference answered DA1
 xtversion                     works   -     query.xtversion                XTVERSION replies with the host's text
-xtgettcap                     works   -     query.xtgettcap                XTGETTCAP answers from the table; run.py skips it without the kmscon.termcap fixture
+xtgettcap                     works   -     query.xtgettcap                XTGETTCAP answers from the table; skipped without the kmscon.termcap fixture
 osc-4-query                   works   -     colour.palette.query           OSC 4 queries a palette colour
 osc-4-set                     works   -     colour.palette.set             OSC 4 sets a palette colour
 osc-10-11-query               works   -     colour.dynamic.query           OSC 10 and 11 query the default colours
@@ -59,13 +58,13 @@ focus-1004                    works   -     DEC-1004                       focus
 
 # strings vtium does not take yet
 osc-8-hyperlink               missing #40   osc.8                          placeholder in the probes: OSC 8 hyperlinks
-osc-52-clipboard              missing #110  osc.52.write                   placeholder in the probes: OSC 52 copy
+osc-52-clipboard              works   -     osc.52.write                   OSC 52 sets the clipboard, which the host takes once: vtium's probe
 osc-133-marks                 missing #40   osc.133                        placeholder in the probes: OSC 133 prompt marks
 
 # images: working in a build with images and failing, as a missing probe
-# must, in one without. run.py names the build feature -Dimages; vtium's is
-# vtium-image (sixel #48, kitty graphics #49), and vtium builds without it
-# until it lands, so the runner passes --build images=false.
+# must, in one without. The list names the build feature -Dimages; vtium's
+# is vtium-image (sixel #48, kitty graphics #49), and vtium builds without it
+# until it lands.
 sixel                         works   -Dimages image.sixel,query.xtsmgraphics DA1 attribute 4, and XTSMGRAPHICS reads the register count (#48)
 kitty-graphics                works   -Dimages image.kitty                  a kitty a=q with an id gets OK (#49)
 mode-80                       works   -Dimages DEC-80                       DECRQM 80 (DECSDM) replies 1 or 2 while sixel is on (#48)

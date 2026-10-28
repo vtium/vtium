@@ -38,6 +38,8 @@ struct Memory {
     age: u32,
     unblanks: u32,
     wake_ups: u32,
+    /// Each DPMS state set, in order.
+    dpms_sets: Vec<Dpms>,
     /// Each canvas lent's age, in order.
     ages: Vec<u32>,
     refresh_mhz: u32,
@@ -64,6 +66,7 @@ impl Memory {
             age: 0,
             unblanks: 0,
             wake_ups: 0,
+            dpms_sets: Vec::new(),
             ages: Vec::new(),
             refresh_mhz: 60_000,
             refuses: false,
@@ -121,6 +124,7 @@ impl Video for Memory {
     }
     fn set_dpms(&mut self, _: DisplayId, dpms: Dpms) -> io::Result<()> {
         self.dpms = Some(dpms);
+        self.dpms_sets.push(dpms);
         if dpms == Dpms::On {
             self.age = 0;
             self.events.push(Event::Redraw(ID));
@@ -695,6 +699,145 @@ fn a_retakes_wake_up_landing_after_the_blank_leaves_it_dark() {
     h.type_str("a");
     assert_eq!(h.memory().unblanks, 1);
     assert_eq!(h.memory().dpms, Some(Dpms::On));
+}
+
+/// A seat that blanks after 1 s with no input, on the scripted VT, whose
+/// session runs `script` with `options` before the command.
+fn program_blank(options: &[&str], script: &str) -> Harness {
+    let mut args = vec!["--dpms-timeout=1"];
+    args.extend(options);
+    args.extend(["--login", "--", "/bin/sh", "-c", script]);
+    Harness::with_vt(&args, ScriptedVt::default())
+}
+
+const OFF: fn(&Memory) -> bool = |m| m.dpms == Some(Dpms::Off);
+
+// The Linux console's `CSI 13 ]` wakes the displays as a key does.
+// covers: ctl.linux-unblank
+#[test]
+fn a_programs_wake_ends_the_blank() {
+    let mut h = program_blank(&[], r"sleep 2; printf '\033[13]'; read x");
+    assert!(
+        h.until_memory(Duration::from_secs(2), OFF),
+        "blanked after dpms-timeout"
+    );
+    let unblanks = h.memory().unblanks;
+    assert!(
+        h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::On)),
+        "woken by the program"
+    );
+    assert_eq!(h.memory().unblanks, unblanks + 1);
+}
+
+// `CSI 9 ; 0 ]` turns the blank off until the program changes it or RIS
+// returns it to `dpms-timeout` (the operator's decisions on
+// vtium/vtium#79).
+// covers: ctl.linux-blank
+#[test]
+fn a_programs_timeout_holds_until_ris() {
+    let mut h = program_blank(&[], r"printf '\033[9;0]'; sleep 3; printf '\033c'; read x");
+    assert!(
+        !h.until_memory(Duration::from_millis(2500), OFF),
+        "lit under the program's 0"
+    );
+    assert!(
+        h.until_memory(Duration::from_secs(3), OFF),
+        "blanked by dpms-timeout after RIS"
+    );
+}
+
+// A session that turns the blank off and exits leaves the next session
+// `dpms-timeout`: the turn that starts it takes the RIS's request, so no
+// request waits for a later turn.
+#[test]
+fn a_respawned_session_blanks_after_dpms_timeout() {
+    let marker = std::env::temp_dir().join(format!("vtium-blank-respawn-{}", std::process::id()));
+    let _ = std::fs::remove_file(&marker);
+    let script = format!(
+        "if [ -e {m} ]; then read x; else : > {m}; printf '\\033[9;0]'; sleep 2.5; fi",
+        m = marker.display()
+    );
+    let mut h = program_blank(&[], &script);
+    let end = now() + Duration::from_secs(6);
+    let mut blanked = None;
+    while now() < end && blanked.is_none() {
+        let wait = h
+            .app
+            .next_wake(h.at())
+            .unwrap_or(Duration::from_millis(20))
+            .min(Duration::from_millis(20));
+        h.lp.dispatch(Some(wait), &mut h.app).expect("dispatch");
+        h.app.turn(h.at());
+        let left = h.app.term.terminal.take_blank_request();
+        assert_eq!(left, None, "a request left for a later turn");
+        if h.memory().dpms == Some(Dpms::Off) {
+            blanked = Some(now());
+        }
+    }
+    let _ = std::fs::remove_file(&marker);
+    assert!(
+        blanked.is_some(),
+        "the next session blanks after dpms-timeout"
+    );
+}
+
+// While the VT is another's, a program's wake touches no device and its
+// timeout is still taken: the VT released while blanked, the program sends
+// `CSI 9 ; 1 ]` and `CSI 13 ]` 2 s after its start.
+#[test]
+fn a_program_wakes_nothing_while_the_vt_is_anothers() {
+    let mut h = program_blank(&[], r"sleep 2; printf '\033[9;1]\033[13]'; read x");
+    assert!(
+        h.until_memory(Duration::from_millis(1800), OFF),
+        "blanked after dpms-timeout"
+    );
+    h.scripted().events.push(VtEvent::Release);
+    assert!(h.until(SECOND, |a| !a.vt.is_active()), "released");
+    let (unblanks, sets) = (h.memory().unblanks, h.memory().dpms_sets.len());
+    // Past the program's sequences at 2 s.
+    h.until(Duration::from_millis(1500), |_| false);
+    assert_eq!(h.memory().unblanks, unblanks, "no unblank");
+    assert_eq!(h.memory().dpms_sets[sets..], [], "no DPMS set");
+    let wake_ups = h.memory().wake_ups;
+    h.scripted().active = true;
+    h.scripted().events.push(VtEvent::Acquired);
+    assert!(
+        h.until_memory(SECOND, |m| m.wake_ups == wake_ups + 1
+            && m.dpms == Some(Dpms::On)),
+        "lit by the acquire"
+    );
+    // The program's minute was taken while the VT was another's.
+    assert!(
+        !h.until_memory(Duration::from_millis(1500), OFF),
+        "lit past dpms-timeout's second"
+    );
+}
+
+#[test]
+fn a_programs_timeout_is_in_minutes() {
+    let mut h = program_blank(&[], r"printf '\033[9;1]'; read x");
+    assert!(
+        !h.until_memory(Duration::from_millis(2500), OFF),
+        "a minute, not dpms-timeout's second"
+    );
+}
+
+#[test]
+fn under_no_program_blank_a_program_neither_times_nor_wakes_the_blank() {
+    let mut h = program_blank(
+        &["--no-program-blank"],
+        r"printf '\033[9;0]'; sleep 2; printf '\033[13]'; read x",
+    );
+    assert!(
+        h.until_memory(Duration::from_secs(2), OFF),
+        "blanked after dpms-timeout"
+    );
+    // Past the program's wake at 2 s.
+    h.until(Duration::from_secs(2), |_| false);
+    assert_eq!(h.memory().dpms, Some(Dpms::Off), "still dark");
+    assert_eq!(h.memory().unblanks, 0);
+    h.type_str("a");
+    assert_eq!(h.memory().dpms, Some(Dpms::On), "a key still wakes");
 }
 
 fn key(mods: Mods, keysym: u32) -> InputEvent {

@@ -13,7 +13,7 @@
 //! glyphs, the performance profile's budgets, and glyphs stored at 8 bits
 //! and at their drawn size. Every one must draw the same bytes.
 
-use vtium_font::{Cell, Face, Font, Glyph, Style as FontStyle, Unifont};
+use vtium_font::{Cell, Face, Font, Glyph, Psf, Style as FontStyle, Unifont};
 use vtium_render::{
     Budgets, Canvas, Config, DecoColor, DecorationColors, DrawState, Orientation, Profile,
     Renderer, Storage,
@@ -32,6 +32,28 @@ pub enum FontKind {
     /// the same in any font of that cell, so the C reference's golden
     /// judges it while vtium has no outline font (vtium/vtium#23).
     Sprites { width: u32, height: u32 },
+    /// A PSF font `tools/testfont` writes, read through vtium-font's PSF
+    /// loader at its own size.
+    Psf(TestFont),
+}
+
+/// The PSF fonts the small displays draw with (vtium/vtium#75).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TestFont {
+    /// `vtium-test-8x8.psf`, PSF2.
+    Small8x8,
+    /// `vtium-test-8x16.psf`, PSF1.
+    Small8x16,
+}
+
+impl TestFont {
+    /// The font's file, as `tools/testfont` writes it.
+    pub fn bytes(self) -> Result<Vec<u8>, String> {
+        match self {
+            TestFont::Small8x8 => vtium_testfont::small8x8()?.psf2(),
+            TestFont::Small8x16 => vtium_testfont::small8x16()?.psf1(),
+        }
+    }
 }
 
 /// A face with a cell and no glyphs but the space, under the sprites.
@@ -184,6 +206,10 @@ pub fn draw(screen: &Screen) -> Result<Image, String> {
         FontKind::Unifont => draw_with(screen, || Font::new(Unifont::new(16))),
         FontKind::Sprites { width, height } => {
             draw_with(screen, || Font::new(SpritesOnly(Cell { width, height })))
+        }
+        FontKind::Psf(font) => {
+            let psf = Psf::parse(&font.bytes()?).map_err(|e| format!("{font:?}: {e}"))?;
+            draw_with(screen, || Font::new(psf.clone()))
         }
     }
 }
@@ -386,5 +412,34 @@ mod tests {
         let image = draw(&screen).unwrap();
         let green = image.rgb().chunks(3).any(|p| p == [0, 0xff, 0]);
         assert!(green, "the underline did not take index 196's new colour");
+    }
+    // A PSF test font draws through vtium-font's PSF loader at its own
+    // cell: an 8x8 cell for the 8x8 font, where unifont's would be 8x16,
+    // and each glyph's rows as the font holds them.
+    #[test]
+    fn psf_test_fonts_draw_at_their_own_cell() {
+        for (font, height, glyphs) in [
+            (TestFont::Small8x8, 8, vtium_testfont::small8x8().unwrap()),
+            (
+                TestFont::Small8x16,
+                16,
+                vtium_testfont::small8x16().unwrap(),
+            ),
+        ] {
+            let screen = Screen {
+                font: FontKind::Psf(font),
+                ..Screen::new("psf", "a capital A", b"A", 1, 1)
+            };
+            let image = draw(&screen).unwrap();
+            assert_eq!((image.width(), image.height()), (8, height), "{font:?}");
+            let a = usize::from(b'A' - b' ');
+            for (y, want) in glyphs.glyphs[a].iter().enumerate() {
+                let row = &image.rgb()[y * 24..(y + 1) * 24];
+                let got = row
+                    .chunks(3)
+                    .fold(0u8, |b, p| (b << 1) | u8::from(p[0] > 0x80));
+                assert_eq!(got, *want, "{font:?} row {y}");
+            }
+        }
     }
 }

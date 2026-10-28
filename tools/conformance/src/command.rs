@@ -67,6 +67,7 @@ pub enum Command {
     Focus(bool),
     Palette(&'static str),
     FrameSince(u8),
+    Clipboard,
 }
 
 /// A command of interface 1: its name, the feature it needs (none for the
@@ -78,8 +79,10 @@ pub struct Spec {
     pub offered: bool,
 }
 
-/// Every command of interface 1, in INTERFACE.md's order. vtium is built
-/// without images, so it lacks the image commands and their features.
+/// Every command of interface 1.1, in the order of its describe blocks:
+/// INTERFACE.md's, then vtium's additions (INTERFACE-vtium.md). vtium is
+/// built without images, so it lacks the image commands and their
+/// features.
 pub const SPECS: &[Spec] = &[
     spec("resize", None, &["c", "r"], true),
     spec("sb-max", None, &["n"], true),
@@ -127,6 +130,7 @@ pub const SPECS: &[Spec] = &[
     spec("focus", Some("focus"), &["in"], true),
     spec("palette", Some("palette"), &["name"], true),
     spec("frame-since", Some("query"), &["caller"], true),
+    spec("clipboard", Some("clipboard"), &[], true),
 ];
 
 const fn spec(
@@ -290,6 +294,7 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
         "sb-reset" => Command::SbReset,
         "sync" => Command::Sync(f.flag("on", Some(true))?),
         "sync-frames" => Command::SyncFrames,
+        "clipboard" => Command::Clipboard,
         "version" => {
             let text = f.required("text")?;
             if text.len() > 64 {

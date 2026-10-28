@@ -10,6 +10,10 @@ import t3_power
 import t3img
 from t3_common import GOLDEN, GUEST, HERE, ROOT, RUNDIR, rel
 
+# vtium's own goldens, for variants whose screens the C reference never
+# drew: VTIUM_GOLDEN/VARIANT/SCREEN.png.
+VTIUM_GOLDEN = os.path.join(HERE, "goldens")
+
 # Screens drawn by `t3 NAME` in the guest (guest/screens/NAME.sh), in the
 # order of the C reference's VT demo (fork/demo/sections), then sixel-bound and
 # the benchmark scenarios, which have no demo page, except that cjk
@@ -19,6 +23,10 @@ SCREENS = ["sgr", "colour-forms", "underline-styles", "underline-colour", "strik
            "boxdraw", "blocks", "mosaic", "wide-margin", "combining", "emoji", "sync-hold", "sixel",
            "sixel-ramps", "sixel-article", "sixel-bound", "sixel-evict", "photos",
            "photo-scroll", "mpv-sixel", "tmux-2x2", "tmux-3x3", "kitty", "kitty-photo", "kitty-files", "kitty-layers", "s1-scroll", "flood", "cjk"]
+# The screens of the small displays (vtium/vtium#75): small-console, written
+# for 40 columns, then screens of the list above that draw at any width,
+# cjk last as there.
+SMALL_SCREENS = ["small-console", "sgr", "boxdraw", "underline-styles", "wide-margin", "cjk"]
 # Cases captured after a screen is drawn, by pressing keys: each is (screen,
 # case, the chords pressed before its capture), captured once the screen has
 # changed, so a key that changes nothing fails its case. After the last, the
@@ -66,12 +74,12 @@ def keyed(name):
     return [k for s, k, _ in KEYED if s == name]
 
 
-def cases():
-    """Every case of a variant's report: each screen and the keyed cases after
-    it, then the VT switch (a check without a golden) and the restore after
-    it."""
+def cases(screens=None):
+    """Every case of a variant's report: each of `screens` (default SCREENS)
+    and the keyed cases after it, then the VT switch (a check without a
+    golden) and the restore after it."""
     out = []
-    for name in SCREENS:
+    for name in SCREENS if screens is None else screens:
         out += [name] + keyed(name)
     return out + ["vt-switch", "vt-restore"]
 
@@ -179,6 +187,53 @@ def check_departures(departures, cases_of):
 
 DEPARTURES = read_departures()
 
+PROVISIONAL_FILE = os.path.join(HERE, "provisional.tsv")
+
+
+def read_provisional(path=PROVISIONAL_FILE):
+    """provisional.tsv as {golden "VARIANT/SCREEN": why}: vtium's goldens the
+    operator has not reviewed. A malformed line, or a golden listed twice, is
+    refused."""
+    out = {}
+    with open(path) as f:
+        for n, line in enumerate(f, 1):
+            if not line.strip() or line.startswith("#"):
+                continue
+            where = "%s:%d" % (rel(path), n)
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) != 2 or not all(fields) or fields[0].count("/") != 1:
+                raise SystemExit("%s: want VARIANT/SCREEN and WHY, separated by a tab" % where)
+            if fields[0] in out:
+                raise SystemExit("%s: %s is listed twice" % (where, fields[0]))
+            out[fields[0]] = fields[1]
+    return out
+
+
+PROVISIONAL = read_provisional()
+
+
+def check_vtium_goldens(cases_of, provisional, root=None):
+    """Every reason vtium's goldens under `root` (default VTIUM_GOLDEN)
+    cannot judge a run: a golden or sidecar no case of a variant naming them
+    compares with (`cases_of` maps each such variant to its cases), and a
+    provisional.tsv row for a golden that does not exist."""
+    root = root or VTIUM_GOLDEN
+    errors = []
+    for dirpath, _, names in os.walk(root):
+        for name in names:
+            path = os.path.join(dirpath, name)
+            stem, ext = os.path.splitext(os.path.relpath(path, root))
+            if ext not in (".png", ".tol"):
+                continue
+            variant, _, screen = stem.partition(os.sep)
+            used = {SAME_AS.get(c, c) for c in cases_of.get(variant, ())}
+            if screen not in used:
+                errors.append("%s is a golden no case draws" % rel(path))
+    for golden in provisional:
+        if not os.path.exists(os.path.join(root, golden + ".png")):
+            errors.append("provisional.tsv lists %s, which has no golden" % golden)
+    return sorted(errors)
+
 # Seconds a screen script may run on the host before its text is given up.
 SCREEN_TIMEOUT = 10
 
@@ -230,7 +285,7 @@ def screen_text(case, log):
     A script whose "# screen-text:" line begins "none" is not run: its
     printed lines are not its rows, as when it scrolls."""
     base = SAME_AS.get(case, case)
-    if base not in SCREENS:
+    if base not in SCREENS + SMALL_SCREENS:
         return None
     reason = " ".join(header(base)["screen-text"])
     if reason.startswith("none"):
@@ -251,14 +306,16 @@ def screen_text(case, log):
     return text.rstrip("\n").split("\n")
 
 
-def golden_for(variant, case):
-    """(golden, tolerance sidecar) paths for a case, or (None, None) for a
-    check without a golden (NO_GOLDEN)."""
+def golden_for(variant, case, root=None):
+    """(golden, tolerance sidecar) paths for a case under `root` (default
+    GOLDEN, the C reference's), or (None, None) for a check without a golden
+    (NO_GOLDEN)."""
     if case in NO_GOLDEN:
         return None, None
     base = SAME_AS.get(case, case)
-    return (os.path.join(GOLDEN, variant, base + ".png"),
-            os.path.join(GOLDEN, variant, base + ".tol"))
+    root = root or GOLDEN
+    return (os.path.join(root, variant, base + ".png"),
+            os.path.join(root, variant, base + ".tol"))
 
 
 def write_thumb(img, path):
@@ -266,9 +323,10 @@ def write_thumb(img, path):
     return rel(path)
 
 
-def evaluate(variant, case, ppm, meta, log):
-    """The report entry for one case, from its capture (or None)."""
-    golden, tolpath = golden_for(variant, case)
+def evaluate(variant, case, ppm, meta, log, golden_root=None):
+    """The report entry for one case, from its capture (or None), judged by
+    the golden under `golden_root` (golden_for)."""
+    golden, tolpath = golden_for(variant, case, golden_root)
     stem = os.path.join(RUNDIR, variant, case)
     description, wrong = describe(case)
     entry = {"name": "%s/%s" % (variant, case), "description": description,
@@ -315,6 +373,11 @@ def evaluate(variant, case, ppm, meta, log):
     departure = DEPARTURES.get(entry["name"])
     if departure:
         judge_departure(entry, departure, stats, points)
+    reviewed = "%s/%s" % (variant, SAME_AS.get(case, case))
+    if golden_root and reviewed in PROVISIONAL:
+        entry["note"] = ("provisional: not yet reviewed, so not judged; judged, it would be %s"
+                         % entry["status"])
+        entry["status"] = "provisional"
     figures = meta.get("bench", {}).get(case, {})
     if figures.get("error"):  # drawn, but not measured
         entry["status"], entry["error"] = "fail", figures["error"]

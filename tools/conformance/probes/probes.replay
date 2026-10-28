@@ -1,0 +1,507 @@
+# The terminal's capability probes, replayed through libtsm's replay interface
+# (INTERFACE.md): README.md, The replay probes, gives the form. run.py judges
+# each against capabilities.list. A missing probe holds what the feature would
+# print, written against INTERFACE.md and checked against its grammar.
+
+# --- SGR ---
+
+probe sgr-italic
+size 80 4
+send "\e[3mA\e[23mB"
+check
+want attr 0 0-0 italic
+
+probe sgr-truecolor
+size 80 4
+send "\e[38;2;1;2;3;48;2;4;5;6mA"
+check
+want attr 0 0-0 fg=#010203 bg=#040506
+
+# --- the fork's own features: regression guards against the pinned libtsm ---
+
+# colon sub-parameters (ADR-102): SGR reads them, any other sequence with them
+# is ignored whole, so C prints where the cursor was
+probe sgr-colon-subparams
+size 80 4
+needs attrs-extended
+send "\e[4:3mA\e[24m\e[38:2::1:2:3mB\e[m\e[3:1CC"
+check
+want attr 0 0-0 underline=curly
+want attr 0 1-1 fg=#010203
+want row 0 |ABC|
+
+probe sgr-underline-styles
+size 80 4
+needs attrs-extended
+send "\e[4:1mA\e[4:2mB\e[4:3mC\e[4:4mD\e[4:5mE\e[21mF\e[24mG"
+check
+want attr 0 0-0 underline
+want attr 0 1-1 underline=double
+want attr 0 2-2 underline=curly
+want attr 0 3-3 underline=dotted
+want attr 0 4-4 underline=dashed
+want attr 0 5-5 underline=double
+reject-re attr 0 6-.*
+
+# SGR 58/59; 4;58;5;196 sets an underline colour, never blink; 58:2::r:g:b is
+# the form kmscon.ti's Setulc sends
+probe sgr-underline-colour
+size 80 4
+needs attrs-extended
+send "\e[4;58;2;10;20;30mA\e[59mB\e[4;58;5;196mC\e[58:2::40:50:60mD"
+check
+want attr 0 0-0 underline ul=#0a141e
+want attr 0 1-1 underline
+want attr 0 2-2 underline ul=#ff0000
+want attr 0 3-3 underline ul=#28323c
+
+probe sgr-strike
+size 80 4
+needs attrs-extended
+send "\e[9mA\e[29mB"
+check
+want attr 0 0-0 strike
+
+probe sgr-blink
+size 80 4
+send "\e[5mA\e[25mB"
+check
+want attr 0 0-0 blink
+
+# colours are kept as written and resolved at draw time: text written under
+# one palette is drawn in the next. The C reference erased the screen when a
+# palette was chosen, so the text waits on the main screen while the palette
+# changes on the alternate one.
+probe palette-at-draw
+size 4 1
+view frame
+send "\e[31mA"
+check
+want cells 0 0-0 w=1 fg=#cd0000 bg=#000000 ul=#cd0000
+send "\e[?1049h"
+cmd palette;name=solarized
+send "\e[?1049l"
+check
+want palette solarized fg=#eee8d5 bg=#073642
+want cells 0 0-0 w=1 fg=#dc322f bg=#073642 ul=#dc322f
+
+# XTMODKEYS and XTQMODKEYS are not SGR 4
+probe modkeys-not-sgr
+size 80 4
+send "\e[>4;1mA\e[?4mB"
+check
+want row 0 |AB|
+reject-re attr 0 .*
+
+# grapheme clusters: one cell holds e and U+0301, so x is the second cell
+probe cluster
+size 80 4
+send "e\xcc\x81x"
+check
+want row 0 |éx|
+want cursor 2,0
+
+probe mode-2027
+size 80 4
+send "\e[?2027h\e[?2027$p"
+check
+reply "\e[?2027;1$y"
+send "\e[?2027l\e[?2027$p"
+check
+reply "\e[?2027;2$y"
+
+# VS16 widens a text-default emoji to two cells under mode 2027
+probe vs16-width
+size 80 4
+send "\e[?2027h\xe2\x9d\xa4\xef\xb8\x8fx"
+check
+want row 0 |❤️x|
+want cursor 3,0
+
+# a wide character that does not fit before the margin wraps whole
+probe wide-at-margin
+size 5 4
+send "abcd\xe4\xb8\xad"
+check
+want row 0 |abcd|
+want row 1 |中|
+
+# REP repeats the last printed character, a wide one whole
+probe rep
+size 80 4
+send "ab\e[3b\r\n\xe4\xb8\xad\e[2b"
+check
+want row 0 |abbbb|
+want row 1 |中中中|
+want cursor 6,1
+
+# erased cells take the pen's background only, for EL, SU, SD and RI; Y,
+# written before RI, shows that RI scrolled
+probe erase-colours-only
+size 80 4
+send "\e[1;4;9;44mX\e[K"
+check
+want attr 0 1-79 bg=4
+send "\e[S"
+check
+want attr 3 0-79 bg=4
+send "\e[T"
+check
+want attr 0 0-79 bg=4
+send "\e[H\e[0mY\e[1;4;9;44m\eM"
+check
+want row 1 |Y|
+want attr 0 0-79 bg=4
+
+# each display keeps its own frame age: one caller's frame does not hide a
+# change from another. The counts are informative unless damage-exact, so
+# the probe tells zero from nonzero only; the calls after the change share
+# a block, since printing one counted as a change in the C reference.
+probe frame-age-per-caller
+size 80 4
+cmd frame-since;caller=0
+cmd frame-since;caller=1
+check
+send "A"
+cmd frame-since;caller=0
+cmd frame-since;caller=0
+cmd frame-since;caller=1
+check
+want test frame-since 0 changed N
+want test frame-since 0 changed 0
+want test frame-since 1 changed N
+
+# ECMA-48 SGR 53 overline, 55 not overlined
+probe sgr-overline
+size 80 4
+send "\e[53mA\e[55mB"
+check
+want attr 0 0-0 overline
+
+# mintty: SGR 73 superscript, 74 subscript, 75 neither
+probe sgr-super-subscript
+size 80 4
+send "\e[73mA\e[74mB\e[75mC"
+check
+want attr 0 0-0 superscript
+want attr 0 1-1 subscript
+reject-re attr 0 2-.*
+
+# --- modes and reports ---
+
+# synchronized output, offered as kmscon offers it at sync-timeout above 0:
+# DECRQM replies 2, then 1 in a hold, and the end of a hold is counted. The
+# bounded call's stop at that end is libtsm's test_vte_modes.c.
+probe mode-2026-sync
+size 80 4
+cmd sync;on=1
+send "\e[?2026$p"
+cmd sync-frames
+check
+reply "\e[?2026;2$y"
+want test sync-frames 0
+send "\e[?2026hab\e[?2026lcd"
+cmd sync-frames
+check
+want test sync-frames 1
+send "\e[?2026h\e[?2026$p"
+check
+reply "\e[?2026;1$y"
+send "\e[?2026l\e[?2026$p"
+check
+reply "\e[?2026;2$y"
+
+# DECRQM for a DEC private mode (DECTCEM, set) and an ANSI mode (IRM, reset)
+probe decrqm
+size 80 4
+send "\e[?25$p"
+check
+reply "\e[?25;1$y"
+send "\e[4$p"
+check
+reply "\e[4;2$y"
+
+probe da1
+size 80 4
+send "\e[c"
+check
+reply-re "\e\\[\\?.*c"
+
+# DA1's first parameter is the conformance level: 61 (VT100) to 65 (VT510)
+probe da1-level
+size 80 4
+send "\e[c"
+check
+reply-re "\e\\[\\?6[1-5](;.*)?c"
+example "\e[?62;1;4c"
+
+probe da2
+size 80 4
+send "\e[>c"
+check
+reply-re "\e\\[>.*c"
+
+# DA3 (DECRPTUI): DCS ! | unit id ST
+probe da3
+size 80 4
+send "\e[=c"
+check
+reply-re "\eP!\\|.*\e\\\\"
+example "\eP!|00000000\e\\"
+
+# --- OSC colours ---
+
+probe osc-4-query
+size 80 4
+send "\e]4;1;?\e\\"
+check
+reply-re "\e]4;1;rgb:.*\e\\\\"
+
+probe osc-4-set
+size 80 4
+send "\e]4;1;rgb:12/34/56\e\\"
+check
+send "\e]4;1;?\e\\"
+check
+reply "\e]4;1;rgb:1212/3434/5656\e\\"
+
+probe osc-10-11-query
+size 80 4
+send "\e]10;?\e\\"
+check
+reply-re "\e]10;rgb:.*\e\\\\"
+send "\e]11;?\x07"
+check
+reply-re "\e]11;rgb:.*\x07"
+
+probe osc-10-11-set
+size 80 4
+send "\e]10;rgb:12/34/56\e\\\e]11;rgb:65/43/21\e\\"
+check
+send "\e]10;?\e\\"
+check
+reply "\e]10;rgb:1212/3434/5656\e\\"
+send "\e]11;?\e\\"
+check
+reply "\e]11;rgb:6565/4343/2121\e\\"
+
+probe osc-12-query
+size 80 4
+send "\e]12;?\e\\"
+check
+reply-re "\e]12;rgb:.*\e\\\\"
+example "\e]12;rgb:e5e5/e5e5/e5e5\e\\"
+
+# OSC 104 and 110 put back what OSC 4 and 10 changed, here to the reference
+# host's legacy palette; the sets must take first, so the probe never passes
+# on a terminal that cannot set
+probe osc-104-110-111-reset
+size 80 4
+send "\e]4;1;rgb:12/34/56\e\\\e]10;rgb:12/34/56\e\\\e]11;rgb:12/34/56\e\\"
+check
+send "\e]4;1;?\e\\\e]10;?\e\\\e]11;?\e\\"
+check
+reply "\e]4;1;rgb:1212/3434/5656\e\\\e]10;rgb:1212/3434/5656\e\\\e]11;rgb:1212/3434/5656\e\\"
+send "\e]104;1\e\\\e]110\e\\\e]111\e\\"
+check
+send "\e]4;1;?\e\\\e]10;?\e\\\e]11;?\e\\"
+check
+reply "\e]4;1;rgb:cdcd/0000/0000\e\\\e]10;rgb:e5e5/e5e5/e5e5\e\\\e]11;rgb:0000/0000/0000\e\\"
+
+# --- keyboard ---
+
+# kitty keyboard protocol: CSI ? u reports the current flags as CSI ? flags u
+probe kitty-keyboard
+size 80 4
+send "\e[?u"
+check
+reply-re "\e\\[\\?.*u"
+example "\e[?0u"
+
+# xterm modifyOtherKeys level 2: Ctrl+1 is sent as CSI 27 ; 5 ; 49 ~, and
+# XTQMODKEYS replies with the XTMODKEYS that sets the level
+probe modify-other-keys
+size 80 4
+send "\e[>4;2m"
+check
+cmd key;sym=31;ascii=31;unicode=31;mods=4
+check
+reply "\e[27;5;49~"
+send "\e[?4m"
+check
+reply "\e[>4;2m"
+
+# --- mouse and paste: an event at cell 2,3, pixel 20,30 ---
+
+# mode 1000 with the X10 encoding: CSI M, then button, column and row + 32
+probe mouse-1000
+size 80 4
+send "\e[?1000h"
+check
+cmd mouse;col=2;row=3;px=20;py=30;button=left;event=press
+check
+reply "\e[M #$"
+
+probe mouse-1006
+size 80 4
+send "\e[?1000h\e[?1006h"
+check
+cmd mouse;col=2;row=3;px=20;py=30;button=left;event=press
+check
+reply "\e[<0;3;4M"
+cmd mouse;col=2;row=3;px=20;py=30;button=left;event=release
+check
+reply "\e[<0;3;4m"
+
+# 1006 is an encoding, independent of which tracking mode came first
+probe mouse-1006-first
+size 80 4
+send "\e[?1006h\e[?1000h"
+check
+cmd mouse;col=2;row=3;px=20;py=30;button=left;event=press
+check
+reply "\e[<0;3;4M"
+
+# any-event tracking reports motion with no button (35) in SGR
+probe mouse-1003-sgr
+size 80 4
+send "\e[?1003h\e[?1006h"
+check
+cmd mouse;col=2;row=3;px=20;py=30;button=none;event=move
+check
+reply "\e[<35;3;4M"
+
+# any-event tracking in the X10 encoding: motion with no button is 32 + 35
+probe mouse-1003-x10
+size 80 4
+send "\e[?1003h"
+check
+cmd mouse;col=2;row=3;px=20;py=30;button=none;event=move
+check
+reply "\e[MC#$"
+
+# SGR-Pixels: pixels 20,30 counted from 1, as xterm counts them (libtsm#67)
+probe mouse-1016
+size 80 4
+send "\e[?1000h\e[?1016h"
+check
+cmd mouse;col=2;row=3;px=20;py=30;button=left;event=press
+check
+reply "\e[<0;21;31M"
+
+probe bracketed-paste
+size 80 4
+send "\e[?2004h"
+check
+cmd paste;hex=78
+check
+reply "\e[200~x\e[201~"
+
+# focus events, mode 1004: CSI I and CSI O for focus in and out while the
+# mode is set, and nothing before it is set or after it is reset
+probe focus-1004
+size 80 4
+cmd focus;in=1
+cmd focus;in=0
+send "\e[?1004h"
+check
+reply ""
+cmd focus;in=1
+check
+reply "\e[I"
+cmd focus;in=0
+check
+reply "\e[O"
+send "\e[?1004l"
+cmd focus;in=1
+cmd focus;in=0
+check
+reply ""
+
+# --- screen ---
+
+# a line wrapped at 10 columns becomes one line again at 20; the frame view
+# prints the screen at its size after the resize
+probe reflow
+size 10 4
+view frame
+send "abcdefghijklmno"
+cmd resize;c=20;r=4
+check
+want row 0 |abcdefghijklmno|
+
+# --- placeholders: no interface yet to observe the feature through ---
+
+probe osc-8-hyperlink
+placeholder cells carry no hyperlink, and OSC 8 is passed to kmscon, which drops it
+
+probe osc-52-clipboard
+placeholder kmscon's OSC handler drops OSC 52
+
+probe osc-133-marks
+placeholder kmscon's OSC handler drops OSC 133, and nothing records prompt marks
+
+probe bidi
+placeholder no bidirectional reordering anywhere in libtsm or kmscon
+
+# --- images (ADR-103) and identification: on in the reference host ---
+
+# DA1 carries attribute 4, and XTSMGRAPHICS reads the register count
+probe sixel
+size 80 24
+needs sixel
+send "\e[c"
+check
+reply-re "\e\\[\\?([0-9]+;)*4(;[0-9]+)*c"
+send "\e[?1;1S"
+check
+reply-re "\e\\[\\?1;0;.*"
+
+# a query with an id gets OK
+probe kitty-graphics
+size 80 24
+needs kitty-graphics
+send "\e_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\e\\"
+check
+reply "\e_Gi=31;OK\e\\"
+
+# DECRQM answers 1 or 2: the mode is offered
+probe mode-80
+size 80 24
+needs sixel
+send "\e[?80$p"
+check
+reply-re "\e\\[\\?80;[12]\\$y"
+
+probe mode-1070
+size 80 24
+needs sixel
+send "\e[?1070$p"
+check
+reply-re "\e\\[\\?1070;[12]\\$y"
+
+probe mode-8452
+size 80 24
+needs sixel
+send "\e[?8452$p"
+check
+reply-re "\e\\[\\?8452;[12]\\$y"
+
+# XTVERSION: DCS > | text ST, the text the host sets
+probe xtversion
+size 80 24
+cmd version;text=kmscon(probe)
+send "\e[>q"
+check
+reply "\eP>|kmscon(probe)\e\\"
+
+# XTGETTCAP from the table generated from kmscon.ti: TN is kmscon, and Smulx
+# comes back byte for byte as the entry has it, \E decoded and its % sequence
+# kept, in one reply
+probe xtgettcap
+size 80 24
+fixture kmscon.termcap
+cmd termcap;file=kmscon.termcap
+send "\eP+q544e;536d756c78\e\\"
+check
+reply "\eP1+r544e=6B6D73636F6E;536d756c78=1B5B343A25703125646D\e\\"

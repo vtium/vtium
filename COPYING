@@ -79,3 +79,10 @@ The geometry of vtium-font's sprites (crates/vtium-font/src/sprite.rs) is
 adapted from Ghostty's sprite font, by way of the C fork's font_box.c, under
 the MIT licence: Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors.
 The file carries the notice.
+
+X11's color names (crates/vtium-term/src/terminal/color/names.rs and
+crates/vtium-term/src/terminal/color/rgb.txt), the table OSC color strings
+read names from: the rgb.txt of X.Org's rgb-1.1.1, Copyright 1985, 1989, 1998
+The Open Group and Copyright (c) 1994, 2008, Oracle and/or its affiliates,
+under the MIT-style licences whose text is
+crates/vtium-term/gen-color-names/src/rgb-license.txt. names.rs carries the notice.

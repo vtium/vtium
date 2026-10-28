@@ -11,7 +11,8 @@ import time
 import t3_bench
 import t3_power
 from t3_common import BASE, GUEST, RUNDIR, rel
-from t3_evaluate import BENCHMARKS, CASES, IMAGE_SCREENS, KEYED, KEYS_AFTER, SCREENS, evaluate
+from t3_evaluate import (BENCHMARKS, CASES, IMAGE_SCREENS, KEYED, KEYS_AFTER, SCREENS,
+                         SMALL_SCREENS, VTIUM_GOLDEN, cases, evaluate)
 from t3_qemu import Qemu, make_iso, not_blank, wait_stable
 
 # Display variants. Each boots its own guest from the base image, with its
@@ -61,6 +62,35 @@ VARIANTS = {
         "cpus": 1,
         "memory_mb": 512,
         "images": False,
+    },
+    # The small displays (vtium/vtium#75) on the minspec machine: minspec's
+    # floor, 320x240 in an 8x8 PSF font as 40 by 30 cells, and 640x480 in an
+    # 8x16 one as 80 by 30, both fonts tools/testfont's ("fonts"). They draw
+    # SMALL_SCREENS ("screens"), and the C reference drew neither, so their
+    # goldens are vtium's own ("goldens": VTIUM_GOLDEN).
+    "2d-320x240-psf8": {
+        "device": "virtio-vga,xres=320,yres=240,edid=on",
+        "display": "none",
+        "conf": "kmscon-small-8x8.conf",
+        "renderer": "bbulk",
+        "cpus": 1,
+        "memory_mb": 512,
+        "images": False,
+        "fonts": True,
+        "screens": SMALL_SCREENS,
+        "goldens": VTIUM_GOLDEN,
+    },
+    "2d-640x480-psf16": {
+        "device": "virtio-vga,xres=640,yres=480,edid=on",
+        "display": "none",
+        "conf": "kmscon-small-8x16.conf",
+        "renderer": "bbulk",
+        "cpus": 1,
+        "memory_mb": 512,
+        "images": False,
+        "fonts": True,
+        "screens": SMALL_SCREENS,
+        "goldens": VTIUM_GOLDEN,
     },
     "2d-7680x2160": {
         # Each 7680x2160 XRGB buffer is 63 MiB; the console, two terminal
@@ -147,21 +177,35 @@ def uses_virgl(variant):
     return VARIANTS[variant]["device"].startswith("virtio-vga-gl")
 
 
+def screens_of(variant):
+    """The screens `variant` draws: its own list, or SCREENS."""
+    return VARIANTS[variant].get("screens", SCREENS)
+
+
 def variant_cases(variant):
     """The cases of `variant`'s report: a power variant's own; otherwise
-    every case, but for a variant without images the keyed cases of the
-    image screens, whose keys act on pictures."""
+    every case of its screens, but for a variant without images the keyed
+    cases of the image screens, whose keys act on pictures."""
     if "power" in VARIANTS[variant]:
         return list(VARIANTS[variant]["power"])
+    out = CASES if "screens" not in VARIANTS[variant] else cases(screens_of(variant))
     if VARIANTS[variant].get("images", True):
-        return CASES
+        return out
     skipped = {case for screen, case, _ in KEYED if screen in IMAGE_SCREENS}
-    return [c for c in CASES if c not in skipped]
+    return [c for c in out if c not in skipped]
+
+
+def vtium_golden_cases():
+    """{variant: its cases} for every variant judged by vtium's goldens."""
+    return {v: variant_cases(v) for v in VARIANTS if VARIANTS[v].get("goldens")}
 
 
 def evaluate_variant(variant, caps, meta, log):
-    """The report entries of `variant`'s cases from their captures."""
-    return [evaluate(variant, case, caps.get(case), meta, log) for case in variant_cases(variant)]
+    """The report entries of `variant`'s cases from their captures, judged
+    by the C reference's goldens or, for a variant naming them, vtium's."""
+    root = VARIANTS[variant].get("goldens")
+    return [evaluate(variant, case, caps.get(case), meta, log, root)
+            for case in variant_cases(variant)]
 
 
 def check_install(line, impl):
@@ -184,8 +228,9 @@ def check_install(line, impl):
 
 def build_disc(variant, work, impl):
     """The T3PKG disc: the tree as tree.tar, the variant's config, the
-    screens, guest/setup, the variant's sysctl settings if it has any, and
-    vtium built with its features if it names any."""
+    screens, guest/setup, the variant's sysctl settings if it has any,
+    vtium built with its features if it names any, and the test fonts if it
+    draws with them."""
     disc = os.path.join(work, "disc")
     shutil.rmtree(disc, ignore_errors=True)
     os.makedirs(disc)
@@ -200,6 +245,8 @@ def build_disc(variant, work, impl):
             f.write(VARIANTS[variant]["sysctl"])
     if "features" in VARIANTS[variant]:
         shutil.copy(impl["features"][VARIANTS[variant]["features"]], os.path.join(disc, "vtium"))
+    if VARIANTS[variant].get("fonts"):
+        shutil.copytree(impl["fonts"], os.path.join(disc, "fonts"))
     iso = os.path.join(work, "t3pkg.iso")
     make_iso(disc, "T3PKG", iso)
     return iso
@@ -287,12 +334,12 @@ def resident_kb(vm):
     return out
 
 
-def resident(rss_kb):
+def resident(rss_kb, screens=SCREENS):
     """The minspec memory figures from `resident_kb`: the resident set after
-    the first screen, and the peak over every screen with the screen it
+    the first of `screens`, and the peak over every screen with the screen it
     followed (s1-scroll, once its lines fill the scrollback, for the C
     reference's minimal build). VmRSS is in KiB; None where nothing was read."""
-    first = SCREENS[0]
+    first = screens[0]
     peak = max(rss_kb, key=rss_kb.get) if rss_kb else None
     return {"first_screen": first, "first_kib": rss_kb.get(first),
             "peak_kib": rss_kb.get(peak), "peak_screen": peak}
@@ -398,11 +445,11 @@ def run_variant(variant, timing, impl, log):
             "displays": displays, "errors": errors, "notes": notes, "device": v["device"], "config": conf,
             "cell": console_cell(vm.serial), "cpus": v["cpus"], "memory_mb": v["memory_mb"],
             "bench": bench_figures(vm, caps, conf, v.get("images", True)),
-            "rss_kb": rss, "resident": resident(rss),
+            "rss_kb": rss, "resident": resident(rss, screens_of(variant)),
             "startup_ms": console_startup_ms(vm.serial)}
     meta["console"] = console_revision(vm.serial)
     errors_all, drop = variant_errors(error, displays, v["renderer"], caps, rss,
-                                      meta["console"])
+                                      meta["console"], screens_of(variant))
     if drop:
         caps = {}
     if errors_all:
@@ -432,7 +479,7 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
         vm.wait_event("T3-LOGIN", timeout=60)
     last = wait_stable(vm, tmp)
     phase("login")
-    for name in SCREENS:
+    for name in screens_of(variant):
         vm.type("t3 %s\n" % name)
         vm.wait_event("T3-DONE %s" % name,
                       timeout=BENCH_TIMEOUT if name in BENCHMARKS else SCREEN_TIMEOUT)
@@ -535,7 +582,7 @@ def press_power_keys(vm, cases, work, caps, errors, notes, log, phase):
         phase(case)
 
 
-def variant_errors(error, displays, renderer, caps, rss, console):
+def variant_errors(error, displays, renderer, caps, rss, console, screens=SCREENS):
     """Every reason a variant failed, the scenario's own `error` first, and
     whether its captures must be dropped so every case fails: when a console
     drew with another renderer than the variant tests, the captures show the
@@ -547,7 +594,7 @@ def variant_errors(error, displays, renderer, caps, rss, console):
     if not displays or not all(want in d for d in displays):
         out.append("the console did not draw with %s: %s" % (renderer, displays))
         drop = True
-    unread = [s for s in SCREENS if s in caps and s not in rss]
+    unread = [s for s in screens if s in caps and s not in rss]
     if unread:
         out.append("no resident memory reading (T3-RSS) after %s" % ", ".join(unread))
         drop = True

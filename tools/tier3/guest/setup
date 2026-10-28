@@ -1,7 +1,7 @@
 #!/bin/sh
 # Per-run guest setup, run as root at boot from the T3PKG disc mounted at $1:
 # unpacks vtium's install tree (tree.tar) over the root, and installs the
-# variant's config and the scenario screens.
+# variant's config, its test fonts and the scenario screens.
 set -eu
 disc=$1
 tar -xpf "$disc"/tree.tar -C / --no-overwrite-dir --keep-directory-symlink
@@ -12,6 +12,10 @@ if [ -f "$disc"/vtium ]; then
     install -m755 "$disc"/vtium /usr/bin/vtium
 fi
 install -Dm644 "$disc"/kmscon.conf /etc/kmscon/kmscon.conf
+# A variant drawing with the test fonts names them in its config.
+if [ -d "$disc"/fonts ]; then
+    install -Dm644 -t /usr/local/share/tier3-fonts "$disc"/fonts/*
+fi
 # A power variant's kernel settings, such as kernel.ctrl-alt-del for the
 # hard reboot, set before the console starts.
 if [ -f "$disc"/sysctl.conf ]; then

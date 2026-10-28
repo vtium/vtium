@@ -85,7 +85,7 @@ A guide is `tools/vt/checks/NAME.guide`, lines of `key: text`; blank lines and l
 | `probe:` | the step's mode: `shell`, an interactive shell with the prompt `vtium-check$ `, or a mode of `checks/probe.py` (`probe.py --list`), which sets a terminal mode and prints each sequence the terminal sends, timed. A step without one asks once Enter is pressed. |
 | `do:`, `expect:` | a line shown as typed under `Do:` or `Expect:`; each step needs both |
 
-`{vt}` and `{desktop}` in the text are the run's VT and the desktop's. `guide.sh --check FILE` checks a guide without a terminal and lists its steps. `start.guide` checks that vtium starts and that a shell runs and echoes at its prompt; #21 adds the steps for what it wires in.
+`{vt}` and `{desktop}` in the text are the run's VT and the desktop's. `guide.sh --check FILE` checks a guide without a terminal and lists its steps. `start.guide` checks that vtium starts and that a shell runs and echoes at its prompt; #21 adds the steps for what it wires in. `blank.guide` checks that `setterm --blank` times the DPMS blank and that a program's `CSI 13 ]` wakes the displays (#79).
 
 The C reference's first guided run left lessons the guides keep:
 

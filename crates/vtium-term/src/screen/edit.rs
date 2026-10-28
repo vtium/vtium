@@ -37,7 +37,7 @@ use core::ops::Range;
 
 use super::Screen;
 use crate::cell::Width;
-use crate::line::LineFlags;
+use crate::line::Line;
 use crate::style::{Attrs, Style};
 
 /// Which cells of a region an erase clears.
@@ -53,9 +53,8 @@ pub enum Erase {
 impl Screen {
     /// A wide character whose halves lie on both sides of the boundary
     /// before cell `x` of row `y` goes whole: an edit on one side would
-    /// leave half a character. The boundary may be the margin: a line keeps
-    /// its cells past it after the screen narrows, and a character there
-    /// keeps both halves until one side is edited.
+    /// leave half a character. At the margin there is nothing past the
+    /// boundary, since no line keeps a cell past it (ADR-1003).
     pub(super) fn split_wide(&mut self, y: usize, x: usize) {
         let Some(line) = self.line(y) else {
             return;
@@ -157,8 +156,11 @@ impl Screen {
         if self.flags.alternate {
             return;
         }
-        if let Some(line) = self.scrollback.newest_mut() {
-            line.flags_mut().remove(LineFlags::WRAPPED);
+        let padded = self.scrollback.newest_mut().is_some_and(Line::unwrap);
+        // The newest scrollback row is on the screen only while the view is
+        // scrolled back.
+        if padded && self.scrollback.offset() != 0 {
+            self.damage.mark_all();
         }
     }
 
@@ -166,8 +168,9 @@ impl Screen {
     /// on the next row.
     pub(super) fn unwrap_rows(&mut self, rows: impl IntoIterator<Item = usize>) {
         for y in rows {
-            if let Some(line) = self.line_mut(y) {
-                line.flags_mut().remove(LineFlags::WRAPPED);
+            let cols = self.cols;
+            if self.line_mut(y).is_some_and(Line::unwrap) {
+                self.mark_cells(y, cols.saturating_sub(1)..cols);
             }
         }
     }
@@ -340,8 +343,9 @@ impl Screen {
             let below_top = rows.start > 0;
             gone.into_iter()
                 .filter_map(|mut line| {
+                    // The region's rows are marked below.
                     if below_top {
-                        line.flags_mut().remove(LineFlags::WRAPPED);
+                        line.unwrap();
                     }
                     self.scrollback.push(line)
                 })

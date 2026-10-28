@@ -80,6 +80,11 @@ class ScreenTextTest(unittest.TestCase):
             if name not in textless:
                 with self.subTest(name):
                     self.assertTrue(t3_evaluate.screen_text(name, LOG))
+        # small-console fits 40 columns, its ruler ending at the 40th
+        small = t3_evaluate.screen_text("small-console", LOG)
+        self.assertEqual(len(small[0]), 40)
+        self.assertTrue(small[0].endswith("40"))
+        self.assertLessEqual(max(len(line) for line in small), 40)
         # e and U+0301 between bars: one cell built from two code points.
         self.assertEqual(t3_evaluate.screen_text("combining", LOG)[1][27:31], "|e\u0301|")
 
@@ -432,6 +437,33 @@ class ImplementationTest(unittest.TestCase):
         with open(os.path.join(disc, "kmscon.conf")) as f:
             self.assertIn("render-timer=log", f.read())
 
+    def test_fonts_disc(self):
+        # A variant drawing with the test fonts carries them, which
+        # guest/setup installs where its config names them; others carry none.
+        impl = t3_impl.tree(self.tree, self.tar)
+        fonts = os.path.join(self.dir.name, "fonts")
+        os.mkdir(fonts)
+        for name in ("vtium-test-8x8.psf", "vtium-test-8x16.psf"):
+            with open(os.path.join(fonts, name), "w") as f:
+                f.write(name)
+        impl["fonts"] = fonts
+        disc = os.path.join(self.dir.name, "disc")
+        for variant, conf in (("2d-320x240-psf8", "vtium-test-8x8.psf"),
+                              ("2d-640x480-psf16", "vtium-test-8x16.psf")):
+            with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
+                t3_scenario.build_disc(variant, self.dir.name, impl)
+                self.assertEqual(sorted(os.listdir(os.path.join(disc, "fonts"))),
+                                 ["vtium-test-8x16.psf", "vtium-test-8x8.psf"])
+                with open(os.path.join(disc, "kmscon.conf")) as f:
+                    self.assertIn("font-name=/usr/local/share/tier3-fonts/%s\n" % conf,
+                                  f.read())
+        with mock.patch.object(t3_scenario, "make_iso"):
+            t3_scenario.build_disc("2d-potato-min", self.dir.name, impl)
+        self.assertNotIn("fonts", os.listdir(disc))
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            self.assertIn('install -Dm644 -t /usr/local/share/tier3-fonts "$disc"/fonts/*',
+                          f.read())
+
     def test_power_disc(self):
         # The hard reboot's disc carries its sysctl settings, which
         # guest/setup applies; the other power variants' carry none.
@@ -494,6 +526,10 @@ class ImplementationTest(unittest.TestCase):
         self.assertEqual(t3_scenario.resident({}), {"first_screen": "sgr", "first_kib": None,
                                                     "peak_kib": None, "peak_screen": None})
         self.assertEqual(t3_scenario.failure_meta("x")["resident"], t3_scenario.resident({}))
+        # a variant with screens of its own counts from its first
+        self.assertEqual(t3_scenario.resident({"small-console": 9000}, ["small-console", "cjk"]),
+                         {"first_screen": "small-console", "first_kib": 9000,
+                          "peak_kib": 9000, "peak_screen": "small-console"})
 
     def test_variant_errors(self):
         # The scenario's own error comes first and the renderer's after it, so
@@ -523,6 +559,11 @@ class ImplementationTest(unittest.TestCase):
                          (["the console that drew logged itself as kmscon v10, not vtium"],
                           True))
         self.assertEqual(errors(None, bbulk, caps, rss, None), ([none], True))
+        # a variant's own screens are the ones read
+        small = {"small-console": "a", "cjk": "b"}
+        self.assertEqual(t3_scenario.variant_errors(None, bbulk, "bbulk", small, {"cjk": 1},
+                                                    vtium, ["small-console", "cjk"]),
+                         (["no resident memory reading (T3-RSS) after small-console"], True))
 
     def test_console_revision(self):
         # The guest's own account of the console that ran: its log's
@@ -809,9 +850,111 @@ class DeparturesTest(unittest.TestCase):
         self.assertEqual((e["status"], "departure" in e), ("fail", False))
 
     def test_departure_passes_the_run(self):
-        # The run's verdict counts a departure as a pass.
+        # The run's verdict counts a departure and a provisional case as a pass.
         with open(os.path.join(t3_common.HERE, "t3.py")) as f:
-            self.assertIn('c["status"] in ("pass", "near", "departure")', f.read())
+            self.assertIn('c["status"] in ("pass", "near", "departure", "provisional")',
+                          f.read())
+
+
+class VtiumGoldenTest(unittest.TestCase):
+    """vtium's own goldens: the provisional list, and a golden no case draws."""
+
+    VARIANT = "2d-320x240-psf8"
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.root = os.path.join(self.dir.name, "goldens")
+        os.makedirs(os.path.join(self.root, self.VARIANT))
+
+    def golden(self, screen):
+        t3img.write_png(os.path.join(self.root, self.VARIANT, screen + ".png"),
+                        t3img.Image(8, 8, bytes(8 * 8 * 3)))
+
+    def tsv(self, text):
+        path = os.path.join(self.dir.name, "provisional.tsv")
+        with open(path, "w") as f:
+            f.write("# a comment\n" + text)
+        return path
+
+    def test_shipped(self):
+        # The operator accepted vtium's twelve small-display goldens on
+        # 2026-10-28, so the list in the tree names none; every golden it
+        # would name must be one a case draws.
+        prov = t3_evaluate.read_provisional()
+        self.assertEqual(sorted(prov), [])
+        self.assertEqual(t3_evaluate.check_vtium_goldens(t3_scenario.vtium_golden_cases(),
+                                                         prov), [])
+        with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
+            self.assertIn("provisional.tsv", f.read())
+
+    def test_refused(self):
+        for text, why in (("a/x\n", "want VARIANT/SCREEN and WHY"),
+                          ("ax\twhy\n", "want VARIANT/SCREEN and WHY"),
+                          ("a/x\t\n", "want VARIANT/SCREEN and WHY"),
+                          ("a/x\twhy\na/x\tagain\n", "a/x is listed twice")):
+            with self.subTest(text):
+                with self.assertRaisesRegex(SystemExit, re.escape(why)):
+                    t3_evaluate.read_provisional(self.tsv(text))
+
+    def test_stray_golden(self):
+        # A golden or sidecar no case compares with is reported, as is a
+        # provisional row without a golden; cjk serves vt-restore too.
+        for screen in ("small-console", "cjk", "gone"):
+            self.golden(screen)
+        with open(os.path.join(self.root, self.VARIANT, "gone.tol"), "w") as f:
+            f.write("max_delta=1\n")
+        os.makedirs(os.path.join(self.root, "no-such"))
+        t3img.write_png(os.path.join(self.root, "no-such", "sgr.png"),
+                        t3img.Image(8, 8, bytes(8 * 8 * 3)))
+        with open(os.path.join(self.root, "README.md"), "w") as f:
+            f.write("not a golden\n")
+        cases = {self.VARIANT: t3_scenario.variant_cases(self.VARIANT)}
+        errors = t3_evaluate.check_vtium_goldens(
+            cases, {"%s/small-console" % self.VARIANT: "x", "%s/sgr" % self.VARIANT: "x"},
+            self.root)
+        rels = [t3_common.rel(os.path.join(self.root, p)) for p in
+                ("%s/gone.png" % self.VARIANT, "%s/gone.tol" % self.VARIANT, "no-such/sgr.png")]
+        self.assertEqual(errors, sorted(["%s is a golden no case draws" % r for r in rels] +
+                                        ["provisional.tsv lists %s/sgr, which has no golden"
+                                         % self.VARIANT]))
+
+    def judged(self, case, differs, provisional):
+        """The entry for `case` of the variant, its golden black and its
+        capture differing in one pixel when `differs`, with `provisional`
+        as the provisional list."""
+        self.golden("cjk")
+        data = bytearray(8 * 8 * 3)
+        if differs:
+            data[0] = 200
+        cap = os.path.join(self.dir.name, "cap.png")
+        t3img.write_png(cap, t3img.Image(8, 8, bytes(data)))
+        with mock.patch.object(t3_evaluate, "RUNDIR", os.path.join(self.dir.name, "run")), \
+                mock.patch.object(t3_evaluate, "PROVISIONAL", provisional):
+            return t3_evaluate.evaluate(self.VARIANT, case, cap, {}, LOG, self.root)
+
+    def test_provisional(self):
+        listed = {"%s/cjk" % self.VARIANT: "unreviewed"}
+        # A drift on a provisional golden is noted and does not fail ...
+        e = self.judged("cjk", True, listed)
+        self.assertEqual(e["status"], "provisional")
+        self.assertIn("judged, it would be fail", e["note"])
+        # ... nor does it for vt-restore, which compares with the same golden.
+        self.assertEqual(self.judged("vt-restore", True, listed)["status"], "provisional")
+        e = self.judged("cjk", False, listed)
+        self.assertEqual((e["status"], e["note"][-16:]), ("provisional", "it would be pass"))
+        # With its row removed, the golden judges.
+        self.assertEqual(self.judged("cjk", True, {})["status"], "fail")
+        self.assertEqual(self.judged("cjk", False, {})["status"], "pass")
+        # The C reference's goldens are never provisional.
+        with mock.patch.object(t3_evaluate, "GOLDEN", self.root):
+            self.golden("cjk")
+            cap = os.path.join(self.dir.name, "cap.png")
+            t3img.write_png(cap, t3img.Image(8, 8, bytes([200]) + bytes(8 * 8 * 3 - 1)))
+            with mock.patch.object(t3_evaluate, "RUNDIR", os.path.join(self.dir.name, "run")), \
+                    mock.patch.object(t3_evaluate, "PROVISIONAL", listed):
+                e = t3_evaluate.evaluate(self.VARIANT, "cjk", cap, {}, LOG)
+        self.assertEqual(e["status"], "fail")
 
 
 class ProvisionTest(unittest.TestCase):
@@ -968,6 +1111,51 @@ class VariantTest(unittest.TestCase):
             self.assertEqual(t3_scenario.variant_cases(name), t3_evaluate.CASES)
         with open(os.path.join(t3_common.GUEST, "kmscon-minimal-psf.conf")) as f:
             self.assertIn("font-engine=psf\n", f.read())
+
+    def test_small_displays(self):
+        # The small displays (vtium/vtium#75) on the minspec machine: 320x240
+        # in the 8x8 test font, 640x480 in the 8x16 one, each drawing the
+        # small screens, judged by vtium's goldens, and in tier3-minimal.
+        potato = t3_scenario.VARIANTS["2d-potato-min-psf"]
+        with open(os.path.join(t3_common.ROOT, "Makefile")) as f:
+            minimal = re.search(r"^tier3-minimal:.*\n\t(.*)", f.read(), re.M).group(1)
+        for name, size, font in (("2d-320x240-psf8", "xres=320,yres=240", "vtium-test-8x8.psf"),
+                                 ("2d-640x480-psf16", "xres=640,yres=480",
+                                  "vtium-test-8x16.psf")):
+            with self.subTest(name):
+                v = t3_scenario.VARIANTS[name]
+                for key in ("cpus", "memory_mb", "renderer", "images"):
+                    self.assertEqual(v[key], potato[key])
+                self.assertIn(size, v["device"])
+                self.assertTrue(v["fonts"])
+                self.assertEqual(v["goldens"], t3_evaluate.VTIUM_GOLDEN)
+                self.assertEqual(t3_scenario.screens_of(name), t3_evaluate.SMALL_SCREENS)
+                self.assertNotIn(name, t3_scenario.DEFAULT_VARIANTS)
+                self.assertIn(name, minimal)
+                with open(os.path.join(t3_common.GUEST, v["conf"])) as f:
+                    conf = f.read()
+                self.assertIn("font-engine=psf\n", conf)
+                self.assertIn("/" + font + "\n", conf)
+                cases = t3_scenario.variant_cases(name)
+                self.assertEqual(cases, t3_evaluate.SMALL_SCREENS + ["vt-switch", "vt-restore"])
+                # every case judged by vtium's golden, the restore by cjk's
+                meta = t3_scenario.failure_meta("no boot")
+                entries = t3_scenario.evaluate_variant(name, {}, meta, LOG)
+                goldens = {e["name"].split("/", 1)[1]: e["golden"] for e in entries}
+                self.assertEqual(goldens["small-console"],
+                                 "tools/tier3/goldens/%s/small-console.png" % name)
+                self.assertEqual(goldens["vt-restore"], "tools/tier3/goldens/%s/cjk.png" % name)
+                self.assertIsNone(goldens["vt-switch"])
+        # the 8x8 font is drawn at its own size, not the 16 pixels the
+        # default size picks at 320x240
+        with open(os.path.join(t3_common.GUEST, "kmscon-small-8x8.conf")) as f:
+            self.assertIn("font-size=8\n", f.read())
+        # vt-restore compares with the last screen, cjk, as in SCREENS
+        self.assertEqual(t3_evaluate.SMALL_SCREENS[-1], t3_evaluate.SCREENS[-1])
+        # every other variant is judged by the C reference's goldens
+        entries = t3_scenario.evaluate_variant("2d-potato-min", {}, t3_scenario.failure_meta("x"),
+                                               LOG)
+        self.assertTrue(entries[0]["golden"].startswith("target/tier3/kmscon-"))
 
     def test_resident_memory(self):
         # guest/t3's T3-RSS lines: the largest VmRSS of the kmscon
