@@ -165,6 +165,17 @@ tier2: ## Draw tier 2's screens and judge them against their goldens
 	cargo build --release -p vtium-tier2 --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/tier2 run
 
+# The demonstration set (vtium/vtium#142): the test card drawn for each
+# display profile into docs/specimens/, and judged against what is committed.
+.PHONY: specimens specimens-check
+specimens: ## Draw the test card for each display profile into docs/specimens (REVIEW=DIR copies each collage there)
+	cargo build --release -p vtium-specimens --bins
+	$(or $(CARGO_TARGET_DIR),target)/release/specimens draw $(if $(REVIEW),--review $(REVIEW))
+
+specimens-check: ## Draw the specimens again and fail on any difference from docs/specimens
+	cargo build --release -p vtium-specimens --bins
+	$(or $(CARGO_TARGET_DIR),target)/release/specimens check
+
 .PHONY: tier2-provenance
 tier2-provenance: ## Check tools/tier2's copies against their sources with git show (KMSCON=DIR)
 	cargo build --release -p vtium-tier2 --bins

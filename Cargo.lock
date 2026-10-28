@@ -457,6 +457,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vtium-specimens"
+version = "0.0.0"
+dependencies = [
+ "miniz_oxide",
+ "vtium-font",
+ "vtium-render",
+ "vtium-term",
+]
+
+[[package]]
 name = "vtium-term"
 version = "0.0.0"
 dependencies = [
