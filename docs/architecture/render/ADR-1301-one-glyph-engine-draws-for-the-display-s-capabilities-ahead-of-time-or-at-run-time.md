@@ -185,7 +185,7 @@ One reader in vtium-platform serves the console, `vtium-vitrify create` and `new
 
 | Axis | Values | Read from | Overridden by |
 |---|---|---|---|
-| Depth | `1`; `gray-N`, N levels; `565`; `color` | fbdev: a visual of `FB_VISUAL_MONO01` or `FB_VISUAL_MONO10` is `1`; `grayscale` set to 1 at `bits_per_pixel` b is `gray-N` with N = 2^b; 16 bits of true color is `565`; more is `color`. DRM: a driver in #135's table of panel drivers takes the depth the table gives, `1`, `gray-4` or `gray-16`, and any other driver is `color`. | `display-depth` |
+| Depth | `1`; gray at N levels; 16-bit color (`565`); `color` | fbdev: a visual of `FB_VISUAL_MONO01` or `FB_VISUAL_MONO10` is `1`; a gray fbdev is refused until a real panel shows how to drive it; 16 bits of true color is `565`, drawn through fbdev's packing; more is `color`. DRM: a driver in #135's table of panel drivers takes the depth the table gives, `1`, gray at 4 or 16 levels, and any other driver is `color`. | `display-depth`: `auto`, `1`, `gray4`, `gray16` or `color` |
 | Subpixel | `rgb`, `bgr`, `vrgb`, `vbgr`, `none`, `unknown` | DRM: the connector's `subpixel`, in the kernel's numbering. fbdev: `unknown`. | `display-subpixel` |
 | Density | pixels per inch, or unknown | The mode's size over the connector's `mm_width` and `mm_height`; where those are 0, the physical size in the connector's EDID in sysfs; fbdev's `width` and `height` in mm. | `font-size`, which sets the cell the density would choose |
 | Rotation | normal, a quarter either way, half | vtium's own orientation, which the rotation steps set (`crates/vtium/src/layout.rs`) | |
@@ -193,9 +193,9 @@ One reader in vtium-platform serves the console, `vtium-vitrify create` and `new
 - `display-depth` takes `auto`, the default, or a depth from the table. `display-subpixel` takes `auto`, the default, or a value from the table but `unknown`. A key applies to every display of the seat; a key per display waits for a seat with mixed displays to need one.
 - The subpixel value is the panel's own order, as the connector reports it. vtium turns it by its rotation: a quarter turn makes a horizontal stripe vertical, and a half turn reverses its order. Every rule below reads the order after the turn.
 - #135's table lists the drivers of 1-bit panels, each with its source line in Linux. It gains the gray panels its sources already name, each with its levels: st7586's 2-bit gray, the SSD132x panels' 4-bit gray, and st7571's gray mode. The SSD1331's RGB332 is `565`'s class: a color panel of fewer bits than true color.
-- A 16-bit DRM panel behind a driver that converts XRGB8888 is not told apart: it reads as `color`. Whether a plane's format list tells it apart is to be confirmed by #136; until then `display-depth=565` names it. Read as `color`, such a panel loses only what its driver's conversion loses.
+- A 16-bit DRM panel behind a driver that converts XRGB8888 is not told apart: it reads as `color`. Whether a plane's format list tells it apart is to be confirmed by #136. Read as `color`, such a panel loses only what its driver's conversion loses, so `display-depth` has no `565` value.
 - Which DRM drivers fill the connector's `subpixel` is unchecked (vtium/vtium#23's comment of 2026-10-27), and no source vtium reads says a panel is PenTile, WOLED RGBW or QD-OLED. Such a panel is known only through `display-subpixel=none`.
-- A reading that fails leaves its axis at the safe end: depth `color`, subpixel `unknown`, density unknown. A display read as `1` or `gray-N` is logged once with the source that said so.
+- A reading that fails leaves its axis at the safe end: depth `color`, subpixel `unknown`, density unknown. A display read as `1` or gray is logged once with the source that said so: the driver's name and device-tree node, or the fbdev visual.
 
 ### D4: the options
 
@@ -217,7 +217,7 @@ The first class whose test holds is the display's class.
 | Class | Recognised by | Examples |
 |---|---|---|
 | 1-bit | depth `1` | SSD130x OLEDs, memory LCDs, e-paper, a mono fbdev |
-| Gray panel | depth `gray-N` | st7586, SSD132x, st7571 in its gray mode, a gray fbdev |
+| Gray panel | depth gray at 4 or 16 levels | st7586, SSD132x, st7571 in its gray mode, a gray fbdev |
 | Virtual or captured | a virtual GPU's driver, listed beside #135's table with its source; tier 2's in-memory canvas | QEMU, VNC, screenshots, the tier goldens |
 | Non-stripe | subpixel `none` | PenTile, WOLED RGBW, QD-OLED, a projector |
 | Small color LCD | depth `565` or `color`, a mode of at most 800x480 | the minspec class: 320x240 and 480x320 SPI panels, often mounted rotated |
