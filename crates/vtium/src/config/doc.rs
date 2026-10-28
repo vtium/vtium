@@ -19,6 +19,8 @@ fn kind(k: &Key) -> String {
         Kind::Rgb => "color, `r,g,b`".to_owned(),
         Kind::Mode => "mode, a line each".to_owned(),
         Kind::Grab => "chords, `<Mod>...key`, separated by commas".to_owned(),
+        Kind::DecoColor => "color, `fg`, a palette index or `#rrggbb`".to_owned(),
+        Kind::Char => "character".to_owned(),
     }
 }
 
@@ -39,6 +41,8 @@ fn bound(k: &Key) -> String {
         Kind::Grab => format!(
             "{TEXT_MAX} bytes; modifiers Shift, Lock, Control, Alt, Logo; keys as xkb names them"
         ),
+        Kind::DecoColor => "an index 0 to 255, or six hex digits".to_owned(),
+        Kind::Char => "one character, no control character or space".to_owned(),
     }
 }
 

@@ -631,6 +631,61 @@ fn a_touchpad_moves_the_pointer_by_the_fingers_motion() {
     assert_eq!(xs, [0, 20, 20, 20, 25, 10]);
 }
 
+// A button held across a VT switch is released on the other VT: the
+// devices' sleep lets it go, so the next move is no drag.
+#[test]
+fn sleep_lets_go_of_a_held_button() {
+    let (mut input, node, id) = with_device(fake::mouse());
+    feed(&mut input, &node, id, &[ev(EV_KEY, BTN_LEFT, 1)]);
+    pointers(&mut input);
+    input.sleep();
+    input.wake_up();
+    feed(&mut input, &node, id, &[ev(EV_REL, REL_X, 5)]);
+    assert_eq!(
+        pointers(&mut input),
+        [PointerEvent::Moved {
+            x: 5,
+            y: 0,
+            held: None
+        }]
+    );
+}
+
+// A finger on the touchpad across a VT switch: its first position after
+// the wake-up is the new origin, so the pointer goes on from where it is
+// rather than jumping by the finger's travel on the other VT.
+#[test]
+fn a_touchpads_finger_takes_its_origin_afresh_after_a_sleep() {
+    let (mut input, node, id) = with_device(fake::touch(false));
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[
+            ev(EV_KEY, BTN_TOUCH, 1),
+            ev(EV_ABS, ABS_X, 10),
+            ev(EV_ABS, ABS_X, 30),
+        ],
+    );
+    pointers(&mut input);
+    input.sleep();
+    input.wake_up();
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[ev(EV_ABS, ABS_X, 80), ev(EV_ABS, ABS_X, 90)],
+    );
+    let xs: Vec<i32> = pointers(&mut input)
+        .into_iter()
+        .filter_map(|p| match p {
+            PointerEvent::Moved { x, .. } => Some(x),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(xs, [20, 30]);
+}
+
 #[test]
 fn the_pointer_hides_after_its_timeout_without_a_frame() {
     let (mut input, node, id) = with_device(fake::mouse());
@@ -646,6 +701,73 @@ fn the_pointer_hides_after_its_timeout_without_a_frame() {
     assert_eq!(pointers(&mut input), [PointerEvent::Hide]);
     assert_eq!(input.hide(start + super::POINTER_HIDE * 2), None);
     assert!(pointers(&mut input).is_empty(), "hidden once");
+}
+
+// A keyboard's frames are no pointer events: typing neither ends a
+// pointer frame nor keeps the pointer from hiding.
+#[test]
+fn a_keyboards_frames_leave_the_pointers_hide_alone() {
+    let nodes = Nodes::default();
+    let mouse = nodes.add("/dev/input/event7", fake::mouse());
+    let keyboard = nodes.add("/dev/input/event0", fake::keyboard());
+    let mut input = Input::new(nodes, keymap(), InputConfig::default());
+    input.wake_up();
+    let m = input
+        .add(Path::new("/dev/input/event7"))
+        .unwrap_or_else(|| panic!("the pointer is taken"));
+    let k = input
+        .add(Path::new("/dev/input/event0"))
+        .unwrap_or_else(|| panic!("the keyboard is taken"));
+    let start = Instant::now();
+    mouse.borrow_mut().queue.push_back(ev(EV_SYN, 0, 0));
+    input.dispatch(m, start);
+    assert_eq!(pointers(&mut input), [PointerEvent::Sync]);
+    let half = start + super::POINTER_HIDE / 2;
+    keyboard.borrow_mut().queue.extend([
+        press(KEY_A),
+        ev(EV_SYN, 0, 0),
+        release(KEY_A),
+        ev(EV_SYN, 0, 0),
+    ]);
+    input.dispatch(k, half);
+    assert!(pointers(&mut input).is_empty(), "no pointer frame");
+    assert_eq!(input.hide(start + super::POINTER_HIDE), None);
+    assert_eq!(pointers(&mut input), [PointerEvent::Hide]);
+}
+
+#[test]
+fn the_pointers_hide_timeout_is_configured_and_0_never_hides() {
+    let five = Duration::from_secs(5);
+    for (hide, at) in [(Some(five), Some(five)), (None, None)] {
+        let nodes = Nodes::default();
+        let node = nodes.add("/dev/input/event7", fake::mouse());
+        let config = InputConfig::default().with_pointer_hide(hide);
+        let mut input = Input::new(nodes, keymap(), config);
+        input.wake_up();
+        let id = input
+            .add(Path::new("/dev/input/event7"))
+            .unwrap_or_else(|| panic!("the pointer is taken"));
+        let start = Instant::now();
+        node.borrow_mut().queue.push_back(ev(EV_SYN, 0, 0));
+        input.dispatch(id, start);
+        pointers(&mut input);
+        assert_eq!(
+            input.hide(start + five / 2),
+            at.map(|_| five / 2),
+            "{hide:?}"
+        );
+        assert_eq!(input.hide(start + super::POINTER_HIDE * 10), None);
+        let want: &[PointerEvent] = if at.is_some() {
+            &[PointerEvent::Hide]
+        } else {
+            &[]
+        };
+        assert_eq!(pointers(&mut input), want, "{hide:?}");
+    }
+    assert_eq!(
+        InputConfig::default().pointer_hide,
+        Some(super::POINTER_HIDE)
+    );
 }
 
 #[test]
@@ -673,4 +795,37 @@ fn the_built_in_keymap_compiles_and_a_broken_one_falls_back() {
     // The file and the names fail; the system's default or the built-in
     // keymap is taken.
     assert!(Keymap::new(&config).is_some());
+}
+
+// The hide timer in a real loop: a frame arms it, and its firing reports
+// the hide.
+#[test]
+fn the_hide_timer_fires_in_the_loop() {
+    struct Data {
+        input: Input<Nodes>,
+    }
+    let mut lp: calloop::EventLoop<'static, Data> =
+        calloop::EventLoop::try_new().unwrap_or_else(|e| panic!("a loop: {e}"));
+    let nodes = Nodes::default();
+    let node = nodes.add("/dev/input/event7", fake::mouse());
+    let config = InputConfig::default().with_pointer_hide(Some(Duration::from_millis(30)));
+    let mut input = Input::new(nodes, keymap(), config);
+    input.insert(&lp.handle(), |d: &mut Data| Some(&mut d.input));
+    input.wake_up();
+    let id = input
+        .add(Path::new("/dev/input/event7"))
+        .unwrap_or_else(|| panic!("the pointer is taken"));
+    let mut data = Data { input };
+    node.borrow_mut().queue.push_back(ev(EV_REL, REL_X, 3));
+    node.borrow_mut().queue.push_back(ev(EV_SYN, 0, 0));
+    data.input.dispatch(id, Instant::now());
+    pointers(&mut data.input);
+    let end = Instant::now() + Duration::from_secs(2);
+    let mut seen = Vec::new();
+    while seen.is_empty() && Instant::now() < end {
+        lp.dispatch(Some(Duration::from_millis(10)), &mut data)
+            .unwrap_or_else(|e| panic!("dispatch: {e}"));
+        seen = pointers(&mut data.input);
+    }
+    assert_eq!(seen, [PointerEvent::Hide]);
 }

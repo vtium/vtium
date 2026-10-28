@@ -267,7 +267,6 @@ impl Display {
     /// frame drew anything, as a display does.
     fn frame<F: Face>(&mut self, r: &mut Renderer<F>, term: &mut Terminal, since: &mut Age) {
         let state = DrawState {
-            foreground: term.palette().fg(),
             background: term.palette().bg(),
             ..DrawState::default()
         };

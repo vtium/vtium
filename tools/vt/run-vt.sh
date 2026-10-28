@@ -134,8 +134,8 @@ act() {
 # option with a value carries it in the same word: a separate word would be
 # taken as the value, or, as a stray word, moved to the end of argv, into the
 # login command that runs as root. Left out on purpose: the VT, seat and
-# session options, --login, --configdir, --oneshot, the grabs (one reboots),
-# and options naming files (asciicast, issue-path, xkb-keymap,
+# session options, --login, --configdir, --oneshot, the grabs but grab-paste
+# (one reboots), and options naming files (asciicast, issue-path, xkb-keymap,
 # xkb-compose-file).
 valued=" font-engine font-name font-size mode multi-monitor gpus term sb-size
 	palette palette-black palette-red palette-green palette-yellow palette-blue
@@ -144,10 +144,11 @@ valued=" font-engine font-name font-size mode multi-monitor gpus term sb-size
 	palette-light-magenta palette-light-cyan palette-white palette-foreground
 	palette-background underline-color strike-color grapheme-width xkb-model
 	xkb-layout xkb-variant xkb-options xkb-repeat-delay xkb-repeat-rate
-	dpms-timeout render-timer image-storage-limit sync-timeout blink-text "
+	dpms-timeout render-timer image-storage-limit sync-timeout blink-text
+	grab-paste pointer-hide-timeout pointer-char "
 switches=" drm hwaccel use-original-mode blink bell soft-cursor mouse
 	natural-scrolling force-decoration-colors backspace-delete verbose debug silent
-	blink-decorations program-blank "
+	blink-decorations program-blank pointer-hide-while-typing "
 declare -A unit_shift=([B]=0 [K]=10 [M]=20 [G]=30)
 valued=$(tr -s ' \t\n' ' ' <<<"$valued")
 switches=$(tr -s ' \t\n' ' ' <<<"$switches")

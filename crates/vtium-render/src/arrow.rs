@@ -1,5 +1,8 @@
 //! The pointer's image: an arrow a cell tall, white with a dark outline,
-//! its hotspot at the tip, turned with the display.
+//! its hotspot at the tip, turned with the display; or, under
+//! `pointer-char`, a glyph of the font in the same colors, its hotspot at
+//! its top left, which the renderer puts on the corner of the cell under the
+//! pointer.
 //!
 //! One image serves both ways of showing the pointer: the display's cursor
 //! plane takes it as it is, and the renderer blends it over the cells it
@@ -10,6 +13,7 @@
 //! pixel wide and one more for each 32 of its height, half the I-beam's,
 //! which outlined a stroke one pixel wide.
 
+use vtium_font::{Format, Glyph};
 use vtium_term::Rgb;
 
 use crate::blend::over_bg;
@@ -58,6 +62,37 @@ impl Arrow {
         Arrow::upright(cell_height).turned(orientation)
     }
 
+    /// `glyph` as the pointer on a display turned as `orientation` says:
+    /// each pixel it covers at least half filled, outlined as the arrow is
+    /// for the glyph's height, with its top left at the hotspot.
+    pub fn glyph(glyph: &Glyph, orientation: Orientation) -> Arrow {
+        let (gw, gh) = (i64::from(glyph.width()), i64::from(glyph.height()));
+        let thk = (gh.clamp(8, i64::from(POINTER_SIDE_MAX)) / 32).saturating_add(1);
+        let covered = |x: i64, y: i64| {
+            let (x, y) = (x.saturating_sub(thk), y.saturating_sub(thk));
+            if x < 0 || y < 0 || x >= gw || y >= gh {
+                return false;
+            }
+            let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
+                return false;
+            };
+            let at = match glyph.format() {
+                Format::Mask => 0,
+                Format::Rgba => 3,
+            };
+            glyph
+                .pixel(x, y)
+                .and_then(|p| p.get(at))
+                .is_some_and(|&c| c >= 128)
+        };
+        Arrow::filled(gw, gh, thk, covered, (thk, thk)).turned(orientation)
+    }
+
+    /// Whether it fills any pixel: a blank glyph's image fills none.
+    pub(crate) fn covers(&self) -> bool {
+        self.pixels.contains(&FILL)
+    }
+
     /// Every pixel, row by row.
     pub fn pixels(&self) -> &[u32] {
         &self.pixels
@@ -98,11 +133,28 @@ impl Arrow {
             .saturating_mul(shape_h)
             .saturating_add(UNITS.saturating_sub(1))
             / UNITS;
-        let w = shape_w.saturating_add(thk.saturating_mul(2)).min(side);
+        let w = shape_w.min(side.saturating_sub(thk.saturating_mul(2)));
         let inside = |x: i64, y: i64| {
             let (x, y) = (x.saturating_sub(thk), y.saturating_sub(thk));
             x >= 0 && y >= 0 && x < shape_w && y < shape_h && in_shape(x, y, shape_h)
         };
+        Arrow::filled(w, shape_h, thk, inside, (thk, thk))
+    }
+
+    /// A shape `w` by `h` with an outline `thk` wide all round: white
+    /// where `inside` holds, the outline where it holds within `thk`,
+    /// clear elsewhere, with the hotspot at `hot`.
+    fn filled(
+        w: i64,
+        h: i64,
+        thk: i64,
+        inside: impl Fn(i64, i64) -> bool,
+        hot: (i64, i64),
+    ) -> Arrow {
+        let (w, h) = (
+            w.saturating_add(thk.saturating_mul(2)),
+            h.saturating_add(thk.saturating_mul(2)),
+        );
         let near = |x: i64, y: i64| {
             (y.saturating_sub(thk)..=y.saturating_add(thk))
                 .any(|ny| (x.saturating_sub(thk)..=x.saturating_add(thk)).any(|nx| inside(nx, ny)))
@@ -124,7 +176,7 @@ impl Arrow {
             pixels,
             width: side(w),
             height: side(h),
-            hot: (side(thk), side(thk)),
+            hot: (side(hot.0), side(hot.1)),
         }
     }
 
@@ -247,8 +299,10 @@ fn in_shape(x: i64, y: i64, h: i64) -> bool {
 }
 
 #[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
+    use vtium_font::Format;
 
     /// The arrow as text: `#` fill, `o` outline, `.` clear.
     fn picture(a: &Arrow) -> Vec<String> {
@@ -292,6 +346,36 @@ mod tests {
         assert_eq!(picture(&a), want);
         // the tip is outlined
         assert_eq!(a.pixel(1, 1), OUTLINE);
+    }
+
+    // A glyph as the pointer: its covered pixels filled, outlined as the
+    // arrow is, its top left at the hotspot, so that it sits on its cell.
+    #[test]
+    fn a_glyph_is_filled_and_outlined_with_its_corner_at_the_hotspot() {
+        let pixels = [
+            [255, 0, 0, 0],
+            [255, 0, 0, 0],
+            [255, 0, 0, 0],
+            [255, 255, 255, 0],
+        ]
+        .concat();
+        let g = Glyph::from_pixels(4, 4, Format::Mask, pixels).expect("a glyph");
+        let a = Arrow::glyph(&g, Orientation::Normal);
+        assert_eq!((a.width(), a.height(), a.hot()), (6, 6, (1, 1)));
+        let want = [
+            "ooo...", //
+            "o#o...", //
+            "o#o...", //
+            "o#ooo.", //
+            "o###o.", //
+            "ooooo.",
+        ];
+        assert_eq!(picture(&a), want);
+        // turned with the display, as the arrow is
+        let r = Arrow::glyph(&g, Orientation::Right);
+        assert_eq!((r.width(), r.height()), (6, 6));
+        assert_eq!(r.pixel(5 - 1, 1), FILL);
+        assert_eq!(r.hot(), (4, 1));
     }
 
     #[test]

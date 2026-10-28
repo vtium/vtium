@@ -15,7 +15,6 @@ use vtium_term::{Age, Attrs, Rgb, Special, UnderlineStyle};
 
 fn state(s: &Screen) -> DrawState {
     DrawState {
-        foreground: s.palette.fg(),
         background: s.palette.bg(),
         ..DrawState::default()
     }

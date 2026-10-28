@@ -41,6 +41,12 @@ pub enum Kind {
     /// Keys a grab takes: chords such as `<Ctrl><Alt>Delete`, separated by
     /// commas ([`crate::grab::parse`]). Empty, it takes none.
     Grab,
+    /// One character, no control character or space.
+    Char,
+    /// A decoration's color: `fg`, the cell's foreground; a palette index
+    /// from 0 to 255, which follows the palette a program changes; or
+    /// `#rrggbb`.
+    DecoColor,
 }
 
 /// A key's value before any source sets it.
@@ -575,6 +581,39 @@ pub const PALETTE_BACKGROUND: Key = Key {
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
+pub const UNDERLINE_COLOR: Key = Key {
+    name: "underline-color",
+    short: None,
+    kind: Kind::DecoColor,
+    default: Default::Text("fg"),
+    scope: Scope::Anywhere,
+    reader: "vtium-render",
+    what: "The color every underline draws in, SGR 4 in each of its styles and SGR 21: `fg` draws it in the text's color, a palette index in that palette color, which follows a program's OSC 4, and `#rrggbb` in that color. A color a program sets with SGR 58 wins unless `force-decoration-colors` is on.",
+    cite: "src/config.c:263-265, 868-933, 1453-1454",
+};
+
+pub const STRIKE_COLOR: Key = Key {
+    name: "strike-color",
+    short: None,
+    kind: Kind::DecoColor,
+    default: Default::Text("fg"),
+    scope: Scope::Anywhere,
+    reader: "vtium-render",
+    what: "The color the strike, SGR 9, draws in, as `underline-color` takes it.",
+    cite: "src/config.c:266-267, 1455-1456",
+};
+
+pub const FORCE_DECORATION_COLORS: Key = Key {
+    name: "force-decoration-colors",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    reader: "vtium-render",
+    what: "`underline-color` wins over the underline color a program sets with SGR 58.",
+    cite: "src/config.c:268-270, 1457-1458",
+};
+
 pub const CLIPBOARD_WRITE: Key = Key {
     name: "clipboard-write",
     short: None,
@@ -582,7 +621,7 @@ pub const CLIPBOARD_WRITE: Key = Key {
     default: Default::Switch(true),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and Shift+Insert paste it.",
+    what: "Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and `grab-paste` paste it.",
     cite: "ADR-1000 (`osc.52.write`); vtium/vtium#39",
 };
 
@@ -693,6 +732,55 @@ pub const MOUSE: Key = Key {
     reader: "vtium-platform",
     what: "Take pointers: mice, touchpads and touchscreens.",
     cite: "src/config.c:1385",
+};
+
+pub const POINTER_CHAR: Key = Key {
+    name: "pointer-char",
+    short: None,
+    kind: Kind::Char,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-render",
+    what: "Draw the pointer as this character's glyph from the font, one cell wide, on the cell under the pointer, white with a dark outline as the arrow is. Unset, or a character the font lacks or whose glyph is blank, the pointer is the arrow.",
+    cite: "the operator on vtium/vtium#102",
+};
+
+pub const SOFT_CURSOR: Key = Key {
+    name: "soft-cursor",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Draw the pointer in software on every display, never on a display's cursor plane.",
+    cite: "src/config.c:151-152, 1387; src/terminal.c:1269-1270",
+};
+
+pub const POINTER_HIDE_TIMEOUT: Key = Key {
+    name: "pointer-hide-timeout",
+    short: None,
+    kind: Kind::Number {
+        min: 0,
+        max: 86_400,
+        unit: "s",
+        word: None,
+    },
+    default: Default::Number(20),
+    scope: Scope::Anywhere,
+    reader: "vtium-platform",
+    what: "Hide the pointer after this long with no pointer event, until it next moves; 0 never hides it.",
+    cite: "src/input/input_pointer.c:9-18, the C reference's fixed 20 s; the operator on vtium/vtium#102",
+};
+
+pub const POINTER_HIDE_WHILE_TYPING: Key = Key {
+    name: "pointer-hide-while-typing",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Hide the pointer at each key sent to the program, until it next moves. A key vtium takes, such as a grab, leaves it.",
+    cite: "the operator on vtium/vtium#102",
 };
 
 pub const FONT_ENGINE: Key = Key {
@@ -843,6 +931,17 @@ pub const RENDER_TIMER: Key = Key {
     cite: "src/config.c:972-1015, 1475",
 };
 
+pub const GRAB_PASTE: Key = Key {
+    name: "grab-paste",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Shift>Insert"),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Paste the selection buffer to the program, once a press, as the middle button does. A chord with Shift names the keysym Shift makes: `<Ctrl><Shift>V`, not `<Ctrl><Shift>v`. Empty, no key pastes.",
+    cite: "xterm's `Shift <KeyPress> Insert` translation; vtium/vtium#95",
+};
+
 pub const GRAB_REBOOT: Key = Key {
     name: "grab-reboot",
     short: None,
@@ -877,7 +976,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 67] = [
+pub const KEYS: [Key; 75] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -919,6 +1018,9 @@ pub const KEYS: [Key; 67] = [
     PALETTE_WHITE,
     PALETTE_FOREGROUND,
     PALETTE_BACKGROUND,
+    UNDERLINE_COLOR,
+    STRIKE_COLOR,
+    FORCE_DECORATION_COLORS,
     CLIPBOARD_WRITE,
     XKB_MODEL,
     XKB_LAYOUT,
@@ -929,6 +1031,11 @@ pub const KEYS: [Key; 67] = [
     XKB_REPEAT_DELAY,
     XKB_REPEAT_RATE,
     MOUSE,
+    SOFT_CURSOR,
+    POINTER_CHAR,
+    POINTER_HIDE_TIMEOUT,
+    POINTER_HIDE_WHILE_TYPING,
+    GRAB_PASTE,
     GRAB_REBOOT,
     GRAB_POWER_OFF,
     GRAB_SUSPEND,

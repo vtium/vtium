@@ -4,7 +4,8 @@ the caption and screen text a case's report carries (t3_evaluate.py), the
 colors and cells of the sixel goldens, the tree a run installs and the
 guest's account of it (t3_impl.py, t3_scenario.py), the machine each variant
 boots, the console lines the driver waits for and the QEMU command line
-(t3_qemu.py), the power cases' verdicts (t3_power.py), a benchmark screen's
+(t3_qemu.py), the power cases' verdicts (t3_power.py), the pointer case's
+reading of the cursor plane (t3_pointer.py), a benchmark screen's
 figures (t3_bench.py), and the copies against provenance.tsv, the image
 cache and the logger a worker process receives (t3_common.py).
 
@@ -31,6 +32,7 @@ import t3  # noqa: E402
 import t3_bench  # noqa: E402
 import t3_evaluate  # noqa: E402
 import t3_impl  # noqa: E402
+import t3_pointer  # noqa: E402
 import t3_power  # noqa: E402
 import t3_qemu  # noqa: E402
 import t3_runner  # noqa: E402
@@ -403,15 +405,20 @@ class ImplementationTest(unittest.TestCase):
         self.assertNotIn("pacman -U", text)
 
     def test_disc(self):
-        # The tree goes on the disc as tree.tar, with the variant's config.
+        # The tree goes on the disc as tree.tar, with the variant's config,
+        # and the pointer variant's carries the `pointer` file, on which
+        # guest/setup lets the screens read the DRM state.
         impl = t3_impl.tree(self.tree, self.tar)
-        with mock.patch.object(t3_scenario, "make_iso"):
-            t3_scenario.build_disc("2d-potato-min", self.dir.name, impl)
         disc = os.path.join(self.dir.name, "disc")
-        self.assertEqual(sorted(os.listdir(disc)),
-                         ["kmscon.conf", "screens", "setup", "t3", "tree.tar"])
-        with open(os.path.join(disc, "kmscon.conf")) as f:
-            self.assertIn("render-timer=log", f.read())
+        for variant, extra in (("2d-potato-min", ["pointer"]), ("2d-potato-min-psf", [])):
+            with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
+                t3_scenario.build_disc(variant, self.dir.name, impl)
+                self.assertEqual(sorted(os.listdir(disc)),
+                                 ["kmscon.conf"] + extra + ["screens", "setup", "t3", "tree.tar"])
+                with open(os.path.join(disc, "kmscon.conf")) as f:
+                    self.assertIn("render-timer=log", f.read())
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            self.assertIn('if [ -f "$disc"/pointer ]; then', f.read())
 
     def test_fonts_disc(self):
         # A variant drawing with the test fonts carries them, which
@@ -506,6 +513,9 @@ class ImplementationTest(unittest.TestCase):
         self.assertEqual(t3_scenario.resident({"small-console": 9000}, ["small-console", "cjk"]),
                          {"first_screen": "small-console", "first_kib": 9000,
                           "peak_kib": 9000, "peak_screen": "small-console"})
+        # the pointer case's readings, after the VT switch, are no screen
+        self.assertEqual(t3_scenario.resident({"sgr": 10547, "pointer": 20000})["peak_screen"],
+                         "sgr")
 
     def test_variant_errors(self):
         # The scenario's own error comes first and the renderer's after it, so
@@ -1576,6 +1586,94 @@ def timer_line(t, flips, frames, interval_ms=1000.0, cpu=(1.0, 1.0, 2.0, 3.0), d
             "damage_pct=%.2f skipped=%d skipped_cpu_ms=%.3f"
             % (before, t, pid, interval_ms, flips * 1000 / interval_ms, flips, frames, cpu[0],
                cpu[1], cpu[2], cpu[3], damage[0], damage[1], skipped[0], skipped[1]))
+
+
+class PointerTest(unittest.TestCase):
+    """The pointer case (t3_pointer.py): where the cursor plane goes, and
+    the guest's DRM state read and judged."""
+
+    # A DRM atomic state dump as the kernel prints it: the primary plane,
+    # the cursor plane showing a framebuffer, and a CRTC.
+    STATE = ("plane[31]: plane-0\n\tcrtc=crtc-0\n\tfb=40\n\t\tallocated by = vtium\n"
+             "\t\tsize=1366x768\n\tcrtc-pos=1366x768+0+0\n"
+             "\tsrc-pos=1366.000000x768.000000+0.000000+0.000000\n\trotation=1\n"
+             "plane[34]: plane-1\n\tcrtc=crtc-0\n\tfb=41\n\t\tsize=64x64\n"
+             "\tcrtc-pos=64x64+342-1\n"
+             "crtc[36]: crtc-0\n\tenable=1\n\tmode: \"1366x768\": 60\n")
+    HIDDEN = ("plane[31]: plane-0\n\tcrtc=crtc-0\n\tfb=40\n\tcrtc-pos=1366x768+0+0\n"
+              "plane[34]: plane-1\n\tcrtc=(null)\n\tfb=0\n\tcrtc-pos=0x0+0+0\n")
+    DISPLAY = (1366, 768)
+
+    def test_the_hotspot_follows_the_cell(self):
+        for cell_h, hot in ((1, 1), (8, 1), (16, 1), (31, 1), (32, 2), (64, 3), (200, 3)):
+            self.assertEqual(t3_pointer.hotspot(cell_h), hot, cell_h)
+
+    def test_the_corner_is_the_hotspot_from_the_pixel_pointed_at(self):
+        # 1366x768 in 8x16 cells: a grid of 1360x768 at 3,0.
+        cell = (8, 16)
+        self.assertEqual(t3_pointer.corner((0, 0), self.DISPLAY, cell), (2, -1))
+        # the far end of the axis is the grid's last pixel
+        self.assertEqual(t3_pointer.corner((t3_pointer.ABS_MAX,) * 2, self.DISPLAY, cell),
+                         (3 + 1359 - 1, 767 - 1))
+        # a quarter across and down, doubled by the mouse: 16384 * 1360 //
+        # 65535 is 340; and 3 of 65535 is the first pixel's, 49 the second's
+        self.assertEqual(t3_pointer.corner((0x2000, 0x2000), self.DISPLAY, cell),
+                         (3 + 340 - 1, 192 - 1))
+        self.assertEqual(t3_pointer.corner((24, 24), self.DISPLAY, cell), (3 + 0 - 1, 0 - 1))
+        self.assertEqual(t3_pointer.corner((25, 49), self.DISPLAY, cell), (3 + 1 - 1, 1 - 1))
+        # a 64-pixel cell: a hotspot of 3, the grid 1344x768 at 11,0
+        self.assertEqual(t3_pointer.corner((0, 0), self.DISPLAY, (32, 64)), (11 - 3, -3))
+
+    def test_the_planes_are_read_from_the_dump(self):
+        planes = t3_pointer.planes(self.STATE)
+        self.assertEqual([(p["name"], p["crtc"], p["fb"], p["pos"]) for p in planes],
+                         [("plane-0", "crtc-0", 40, (1366, 768, 0, 0)),
+                          ("plane-1", "crtc-0", 41, (64, 64, 342, -1))])
+        self.assertEqual([p["name"] for p in t3_pointer.shown(self.STATE, self.DISPLAY)],
+                         ["plane-1"])
+        self.assertEqual(t3_pointer.shown(self.HIDDEN, self.DISPLAY), [])
+
+    def test_a_reading_is_judged(self):
+        judge = t3_pointer.judge
+        self.assertIsNone(judge(self.STATE, self.DISPLAY, (342, -1)))
+        self.assertIn("is at (342, -1), not (343, -1)", judge(self.STATE, self.DISPLAY, (343, -1)))
+        self.assertIn("0 planes besides the primary", judge(self.HIDDEN, self.DISPLAY, (342, -1)))
+        two = self.STATE + "plane[35]: plane-2\n\tcrtc=crtc-0\n\tfb=42\n\tcrtc-pos=8x8+1+1\n"
+        self.assertIn("2 planes besides the primary", judge(two, self.DISPLAY, (342, -1)))
+        # hidden: no plane besides the primary shows a framebuffer
+        self.assertIsNone(judge(self.HIDDEN, self.DISPLAY, None))
+        self.assertIn("still shows framebuffer 41", judge(self.STATE, self.DISPLAY, None))
+
+    def test_the_dump_is_read_from_the_event_port_after_its_offset(self):
+        events = ("T3-PLANE-BEGIN\nold\nT3-PLANE-END\nT3-DONE pointer\n"
+                  "T3-PLANE-BEGIN\n" + self.STATE + "T3-PLANE-END\nT3-DONE pointer\n")
+        since = events.index("T3-DONE pointer\n") + 1
+        self.assertEqual(t3_pointer.dump(events, since), (self.STATE, None))
+        self.assertEqual(t3_pointer.dump(events, len(events)),
+                         (None, "the guest printed no DRM state"))
+        state, why = t3_pointer.dump("T3-PLANE-ERROR no state file\n")
+        self.assertIsNone(state)
+        self.assertIn("T3-PLANE-ERROR no state file", why)
+
+    def test_the_tablet_moves_with_absolute_events(self):
+        self.assertEqual(t3_pointer.move_events(1, 2),
+                         [{"type": "abs", "data": {"axis": "x", "value": 1}},
+                          {"type": "abs", "data": {"axis": "y", "value": 2}}])
+
+    def test_only_the_pointer_variant_has_the_case(self):
+        for name in t3_scenario.VARIANTS:
+            with self.subTest(name):
+                cases = t3_scenario.variant_cases(name)
+                if t3_scenario.VARIANTS[name].get("pointer"):
+                    self.assertEqual(cases[-1], t3_pointer.CASE)
+                else:
+                    self.assertNotIn(t3_pointer.CASE, cases)
+        self.assertEqual([n for n, v in t3_scenario.VARIANTS.items() if v.get("pointer")],
+                         ["2d-potato-min"])
+        self.assertIn(t3_pointer.CASE, t3_evaluate.NO_GOLDEN)
+        self.assertEqual(t3_evaluate.golden_for("2d-potato-min", t3_pointer.CASE), (None, None))
+        self.assertEqual(t3_evaluate.describe(t3_pointer.CASE),
+                         (t3_pointer.CHECKS[t3_pointer.CASE], None))
 
 
 class BenchTest(unittest.TestCase):

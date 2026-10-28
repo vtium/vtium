@@ -2,6 +2,9 @@
 
 use std::ffi::OsString;
 
+use vtium_render::DecoColor;
+use vtium_term::Rgb;
+
 use super::keys::{self, Key, Kind, TEXT_MAX};
 use super::{ModeSpec, Origin, Problem, Reports, Value};
 
@@ -10,7 +13,11 @@ pub(super) fn default(key: &Key) -> Option<Value> {
     match key.default {
         keys::Default::Switch(b) => Some(Value::Switch(b)),
         keys::Default::Number(n) => Some(Value::Number(n)),
-        keys::Default::Text(t) => Some(Value::Text(t.to_owned())),
+        keys::Default::Text(t) => match key.kind {
+            Kind::Grab => crate::grab::parse(t).ok().map(Value::Chords),
+            Kind::DecoColor => parse_deco_color(t).ok().map(Value::DecoColor),
+            _ => Some(Value::Text(t.to_owned())),
+        },
         keys::Default::Command(c) => Some(Value::Command(c.iter().map(OsString::from).collect())),
         keys::Default::Rgb(c) => Some(Value::Rgb(c)),
         keys::Default::Unset => None,
@@ -157,6 +164,41 @@ pub(super) fn parse(
                 }
             }
         }
+        Kind::Char => {
+            let mut chars = text.chars();
+            match (chars.next(), chars.next()) {
+                (Some(c), None) if !c.is_control() && !c.is_whitespace() => {
+                    Some(Value::Text(text.to_owned()))
+                }
+                _ => {
+                    let value = text.to_owned();
+                    reports.push(
+                        origin.clone(),
+                        Problem::BadValue {
+                            key: key.name,
+                            value,
+                            why: "one character is needed, not a control character or a space",
+                        },
+                    );
+                    None
+                }
+            }
+        }
+        Kind::DecoColor => match parse_deco_color(text) {
+            Ok(c) => Some(Value::DecoColor(c)),
+            Err(why) => {
+                let value = text.to_owned();
+                reports.push(
+                    origin.clone(),
+                    Problem::BadValue {
+                        key: key.name,
+                        value,
+                        why,
+                    },
+                );
+                None
+            }
+        },
         Kind::Switch => {
             reports.push(origin.clone(), Problem::TakesNoValue(key.name));
             None
@@ -180,6 +222,28 @@ pub(super) fn parse_rgb(text: &str) -> Result<[u8; 3], &'static str> {
         return Err("three values are needed, r,g,b");
     }
     Ok(out)
+}
+
+/// A decoration color: `fg`, a palette index of one to three decimal
+/// digits from 0 to 255, a leading 0 not octal, or `#rrggbb`
+/// (`src/config.c:868-933`).
+pub(super) fn parse_deco_color(text: &str) -> Result<DecoColor, &'static str> {
+    const WHY: &str = "expected fg, a palette index 0-255 or #rrggbb";
+    if text == "fg" {
+        return Ok(DecoColor::Foreground);
+    }
+    if let Some(hex) = text.strip_prefix('#') {
+        if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(WHY);
+        }
+        let v = u32::from_str_radix(hex, 16).map_err(|_| WHY)?;
+        let [_, r, g, b] = v.to_be_bytes();
+        return Ok(DecoColor::Rgb(Rgb::new(r, g, b)));
+    }
+    if text.is_empty() || text.len() > 3 || !text.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(WHY);
+    }
+    text.parse::<u8>().map(DecoColor::Indexed).map_err(|_| WHY)
 }
 
 /// The most bytes of a card's or a connector's name in a mode line, the

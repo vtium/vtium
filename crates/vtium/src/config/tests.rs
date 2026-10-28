@@ -1096,3 +1096,81 @@ fn program_blank_is_on_until_turned_off() {
     let l = load_with(&["--no-program-blank"], None, &[]);
     assert!(!l.config.switch(&PROGRAM_BLANK));
 }
+
+#[test]
+fn grab_paste_binds_shift_insert_until_set() {
+    let chord = |mods, keysym| crate::grab::Chord {
+        mods,
+        keysyms: vec![keysym],
+    };
+    assert_eq!(Config::default().chords(&GRAB_PASTE), [chord(1, 0xff63)]);
+    let l = main_file("grab-paste=<Ctrl><Shift>V,<Shift>Insert\n");
+    assert_eq!(l.reports, []);
+    assert_eq!(
+        l.config.chords(&GRAB_PASTE),
+        [chord(4 | 1, 0x56), chord(1, 0xff63)]
+    );
+    let l = main_file("grab-paste=\n");
+    assert_eq!(l.reports, []);
+    assert_eq!(l.config.chords(&GRAB_PASTE), []);
+}
+
+#[test]
+fn decoration_colors_read_as_the_c_reference_read_them() {
+    use vtium_render::DecoColor;
+    use vtium_term::Rgb;
+    let d = Config::default();
+    assert_eq!(d.deco_color(&UNDERLINE_COLOR), DecoColor::Foreground);
+    assert_eq!(d.deco_color(&STRIKE_COLOR), DecoColor::Foreground);
+    assert!(!d.switch(&FORCE_DECORATION_COLORS));
+    let l =
+        main_file("underline-color=#Ff8000 # orange\nstrike-color=007\nforce-decoration-colors\n");
+    assert_eq!(l.reports, []);
+    assert_eq!(
+        l.config.deco_color(&UNDERLINE_COLOR),
+        DecoColor::Rgb(Rgb::new(255, 128, 0))
+    );
+    // Decimal digits only: a leading 0 is not octal.
+    assert_eq!(l.config.deco_color(&STRIKE_COLOR), DecoColor::Indexed(7));
+    assert!(l.config.switch(&FORCE_DECORATION_COLORS));
+    for bad in [
+        "256", "1234", "", "#12345", "#1234567", "#12345g", "0x10", "-1", "FG", "1,2,3",
+    ] {
+        let l = load_with(
+            &[&format!("--underline-color={bad}"), "--strike-color=fg"],
+            None,
+            &[],
+        );
+        assert_eq!(
+            problems(&l),
+            [&Problem::BadValue {
+                key: "underline-color",
+                value: bad.into(),
+                why: "expected fg, a palette index 0-255 or #rrggbb",
+            }],
+            "{bad:?}"
+        );
+        assert_eq!(l.config.deco_color(&UNDERLINE_COLOR), DecoColor::Foreground);
+    }
+}
+
+#[test]
+fn pointer_char_takes_one_character() {
+    assert_eq!(Config::default().char(&POINTER_CHAR), None);
+    let l = main_file("pointer-char=✛\n");
+    assert_eq!(l.reports, []);
+    assert_eq!(l.config.char(&POINTER_CHAR), Some('✛'));
+    for bad in ["", "ab", "\u{7f}", " ", "\u{3000}", "\u{a0}"] {
+        let l = load_with(&[&format!("--pointer-char={bad}")], None, &[]);
+        assert_eq!(
+            problems(&l),
+            [&Problem::BadValue {
+                key: "pointer-char",
+                value: bad.into(),
+                why: "one character is needed, not a control character or a space",
+            }],
+            "{bad:?}"
+        );
+        assert_eq!(l.config.char(&POINTER_CHAR), None);
+    }
+}

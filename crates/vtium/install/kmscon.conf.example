@@ -119,7 +119,16 @@
 ## The default background with `palette=custom`.
 #palette-background=0,0,0
 
-## Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and Shift+Insert paste it.
+## The color every underline draws in, SGR 4 in each of its styles and SGR 21: `fg` draws it in the text's color, a palette index in that palette color, which follows a program's OSC 4, and `#rrggbb` in that color. A color a program sets with SGR 58 wins unless `force-decoration-colors` is on.
+#underline-color=fg
+
+## The color the strike, SGR 9, draws in, as `underline-color` takes it.
+#strike-color=fg
+
+## `underline-color` wins over the underline color a program sets with SGR 58.
+#no-force-decoration-colors
+
+## Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and `grab-paste` paste it.
 #clipboard-write
 
 ## The keyboard model, as xkeyboard-config names it.
@@ -148,6 +157,21 @@
 
 ## Take pointers: mice, touchpads and touchscreens.
 #mouse
+
+## Draw the pointer in software on every display, never on a display's cursor plane.
+#no-soft-cursor
+
+## Draw the pointer as this character's glyph from the font, one cell wide, on the cell under the pointer, white with a dark outline as the arrow is. Unset, or a character the font lacks or whose glyph is blank, the pointer is the arrow.
+#pointer-char=
+
+## Hide the pointer after this long with no pointer event, until it next moves; 0 never hides it.
+#pointer-hide-timeout=20
+
+## Hide the pointer at each key sent to the program, until it next moves. A key vtium takes, such as a grab, leaves it.
+#no-pointer-hide-while-typing
+
+## Paste the selection buffer to the program, once a press, as the middle button does. A chord with Shift names the keysym Shift makes: `<Ctrl><Shift>V`, not `<Ctrl><Shift>v`. Empty, no key pastes.
+#grab-paste=<Shift>Insert
 
 ## Reboot the machine. With `/proc/sys/kernel/ctrl-alt-del` at 0, init is asked, as for Ctrl+Alt+Del, so the services stop first; otherwise the kernel restarts at once. Unset, no key reboots.
 #grab-reboot=
