@@ -801,8 +801,8 @@ pub const FONT_NAME: Key = Key {
     default: Default::Text("monospace"),
     scope: Scope::Anywhere,
     reader: "vtium-font",
-    what: "The font's name, or with `font-engine=psf` the path of a PSF font.",
-    cite: "src/config.c:1424",
+    what: "The font: a set in the store, by its name or by its first source, so a kbd font's name, or with `font-engine=psf` a PSF font's path, finds the set `vtium-vitrify create --kbd` or `--file` built from it. Unset, vconsole's font; with none, or a name with no set built, vtium draws its built-in sets, and logs the `create` command that builds a named one.",
+    cite: "src/config.c:1424; ADR-1200 (D9); vtium/vtium#126",
 };
 
 pub const FONT_SIZE: Key = Key {

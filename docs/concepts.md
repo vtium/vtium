@@ -35,10 +35,10 @@ vtium is one console and a few programs and files around it. The table lists eac
 | `vtium-vitrify create` | Builds a set from a frit: into the store on the target, or as a portable file elsewhere | root or a package hook on the target; any user elsewhere | built, first slice: PSF sources | vtium/vtium#125 |
 | `vtium-vitrify install` | Checks a portable set and adds it to the store | root or a package hook | built, first slice: PSF sources | vtium/vtium#125 |
 | `vtium-vitrify list`, `verify`, `remove` | Lists the built sets, runs the console's check on them, drops one | anyone; `remove` root | built, first slice: PSF sources | vtium/vtium#125 |
-| `vtium-vitrify set` | Switches the running console among built sets | the user, in the session | proposed | vtium/vtium#3 |
+| `vtium-vitrify set` | Switches the running console among built sets | the user, in the session | built | vtium/vtium#126 |
 | `vtium-clipboard`, also `vticlip` | Copies to the console's selection from a script or a pipe | the user, in the session | proposed; copy decided, paste open | vtium/vtium#113 |
 | The frits and the store | Frits that declare sets, and the built sets with a manifest of their hashes | written by root | the store and its check built; frits built by vtium-vitrify's first slice (#125) | vtium/vtium#3 |
-| The built-in sets | Unifont, and Unscii-8 for small displays, compiled into vtium as the fallback and the template every set follows | inside `vtium` | Unifont and Unscii-8 built in as sets; the console draws unifont, and choosing Unscii-8 for small cells waits for set selection | vtium/vtium#3 |
+| The built-in sets | Unifont, and Unscii-8 for small displays, compiled into vtium as the fallback and the template every set follows | inside `vtium` | built: the console draws Unscii-8 for cells under 16 pixels and unifont from 16 | vtium/vtium#3, #126 |
 | The configuration | One file, a file for the seat, and the command line | written by root, read by `vtium` | built | [config.md](config.md) |
 | The unit | systemd's service for vtium on a VT, in getty's place | started by logind | built | [systemd.md](systemd.md) |
 | The terminfo entry | Tells programs in the session what vtium can do | read by the session's programs | built | [crates/vtium](../crates/vtium/README.md), vtium/vtium#21 |
@@ -105,35 +105,37 @@ The other VT's owner can be a desktop, a getty or another vtium.
 
 ## Fonts as vitrified sets
 
-This section describes the design ADR-1200 decides (accepted 2026-10-28, vtium/vtium#3), with the preview of vtium/vtium#120 and the guided builder of vtium/vtium#121. The set format, the console's reader, the store check and the built-in sets are built (vtium/vtium#124); vtium-vitrify (vtium/vtium#125) and set selection (vtium/vtium#126) are not yet, so vtium draws the built-in unifont set and reads PSF bitmap console fonts from a path.
+This section describes the design ADR-1200 decides (accepted 2026-10-28, vtium/vtium#3), with the preview of vtium/vtium#120 and the guided builder of vtium/vtium#121. The set format, the console's reader, the store check and the built-in sets (vtium/vtium#124), vtium-vitrify's first slice for PSF sources (vtium/vtium#125), and the console's set selection and switching (vtium/vtium#126) are built: vtium reads no font file, and draws a set from the store or its built-ins.
 
 In the design, fonts reach the console already prepared. A **vitrified set** is a font baked into one file of ready-to-draw glyph bitmaps at fixed cell sizes, with its map from Unicode characters to glyphs, its metrics and its provenance. The console only reads sets: it parses no font format and turns no outline into pixels, and a chunk a set stores deflated is inflated, with the inflate the console already carries, when that chunk is first drawn. A set is drawn at its baked sizes and whole multiples of them, and the console holds in memory only the chunks of glyphs it has drawn.
 
-The figure follows a set from choosing a font to the console. Each command is vtium-vitrify's. vtium and vtium-vitrify's `create`, `install`, `list`, `verify` and `remove` are built, for PSF sources; the rest is proposed and drawn dashed.
+The figure follows a set from choosing a font to the console. Each command is vtium-vitrify's. vtium and vtium-vitrify's `create`, `install`, `list`, `verify`, `remove` and `set` are built, for PSF sources; the rest is proposed and drawn dashed.
 
 ```mermaid
 flowchart LR
     P["preview<br>try many fonts<br>(the user)"] -.-> R
     W["new: the wizard<br>or a template<br>(the user)"] -.-> R
     H["by hand"] -.-> R
-    R["frit<br>declares a set"] -.-> C["create<br>on the target<br>(root)"]
-    R -.-> O["create --out<br>elsewhere<br>(any user)"]
-    O -.->|"a .vtglass file"| I["install<br>on the target<br>(root)"]
-    C -.-> ST[("the store<br>root-owned")]
-    I -.-> ST
-    ST -.->|"owner and hash<br>checked"| V["vtium"]
-    B["built-in sets<br>Unifont, Unscii-8"] -.->|"the fallback"| V
-    S["set<br>(the user,<br>in the session)"] -.->|"OSC 50"| V
-    classDef step fill:#2d7d9a,color:#ffffff,stroke:#94a3b8,stroke-dasharray:5 3
+    R["frit<br>declares a set"] --> C["create<br>on the target<br>(root)"]
+    R --> O["create --out<br>elsewhere<br>(any user)"]
+    O -->|"a .vtglass file"| I["install<br>on the target<br>(root)"]
+    C --> ST[("the store<br>root-owned")]
+    I --> ST
+    ST -->|"owner and hash<br>checked"| V["vtium"]
+    B["built-in sets<br>Unifont, Unscii-8"] -->|"the fallback"| V
+    S["set<br>(the user,<br>in the session)"] -->|"OSC 50"| V
+    classDef step fill:#2d7d9a,color:#ffffff,stroke:#94a3b8
     classDef core fill:#7c3aed,color:#ffffff,stroke:#94a3b8
-    classDef store fill:#2d8e5e,color:#ffffff,stroke:#94a3b8,stroke-dasharray:5 3
-    classDef input fill:#fbbf24,color:#1a1a1a,stroke:#94a3b8,stroke-dasharray:5 3
-    classDef user fill:#475569,color:#ffffff,stroke:#94a3b8,stroke-dasharray:5 3
+    classDef store fill:#2d8e5e,color:#ffffff,stroke:#94a3b8
+    classDef input fill:#fbbf24,color:#1a1a1a,stroke:#94a3b8
+    classDef user fill:#475569,color:#ffffff,stroke:#94a3b8
+    classDef proposed fill:#475569,color:#ffffff,stroke:#94a3b8,stroke-dasharray:5 3
     class C,O,I step
     class V core
     class ST,B store
     class R input
-    class P,W,H,S user
+    class S user
+    class P,W,H proposed
 ```
 
 ### Try many, build a few

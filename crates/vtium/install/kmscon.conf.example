@@ -185,7 +185,7 @@
 ## The font source to use. Unset, each the build has, in this order.
 #font-engine=
 
-## The font's name, or with `font-engine=psf` the path of a PSF font.
+## The font: a set in the store, by its name or by its first source, so a kbd font's name, or with `font-engine=psf` a PSF font's path, finds the set `vtium-vitrify create --kbd` or `--file` built from it. Unset, vconsole's font; with none, or a name with no set built, vtium draws its built-in sets, and logs the `create` command that builds a named one.
 #font-name=monospace
 
 ## The font's height; 0 picks one from the display's size.
