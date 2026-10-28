@@ -63,6 +63,11 @@ impl Term {
 
 impl Consumer for Term {
     fn output(&mut self, output: &[u8], replies: &mut Replies<'_>) -> usize {
+        // The output after an OSC 50 request waits for the turn that
+        // switches the font, so a query that follows names the new set.
+        if self.terminal.font_requested() {
+            return 0;
+        }
         let start = (self.clock)();
         let taken = self.terminal.input(output);
         let out = self.terminal.take_replies();

@@ -3387,3 +3387,23 @@ fn osc_50_leaves_the_font_for_a_set_not_built_or_with_font_ops_off() {
         assert_eq!(h.app.cells(), [(8, 8)], "{args:?} {script}");
     }
 }
+
+// ADR-1200 D5: `vtium-vitrify set` writes the set and then the query in
+// one write; the query's reply names the new set. The reply reaches the
+// shell's tty, whose echo shows it.
+#[test]
+fn a_query_after_osc_50_names_the_new_set() {
+    let fonts = store("osc50-query", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
+    let mut h = osc50(
+        &["--font-size=12"],
+        "\\033]50;tiny\\007\\033]50;?\\007",
+        fonts,
+    );
+    let echoed = |a: &App| a.screen_text().iter().any(|l| l.contains("]50;"));
+    assert!(h.until(SECOND, echoed), "{:?}", h.app.screen_text());
+    assert!(
+        h.app.screen_text().iter().any(|l| l.contains("]50;tiny")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}

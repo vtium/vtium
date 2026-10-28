@@ -8,7 +8,9 @@
 //!
 //! - `OSC 50 ; Pt ST`: Pt names a set, as `vtium-vitrify list` spells it.
 //!   A Pt that cannot be a set's name is ignored; ADR-1200 D1 allows 1 to
-//!   64 characters of `A-Z a-z 0-9 . _ + -`, not starting with `.`.
+//!   64 characters of `A-Z a-z 0-9 . _ + -`, not starting with `.`. The
+//!   input call returns after it, as after a synchronized update, so the
+//!   host takes the request before the next byte is parsed.
 //! - `OSC 50 ; ? ST`: the reply is `OSC 50 ; NAME ST`, the set in use as
 //!   the host named it, ended as the query was.
 //! - xterm's font menu, a Pt starting with `#`, is ignored: vtium has no
@@ -49,6 +51,9 @@ impl State {
             self.reply(Query::Font, reply.as_bytes());
         } else if is_set_name(pt) {
             self.font_request = core::str::from_utf8(pt).ok().map(str::to_owned);
+            // The input call returns here, so the host switches before
+            // the next byte, and a query that follows names the new set.
+            self.pause = true;
         }
     }
 }

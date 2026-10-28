@@ -373,7 +373,10 @@ pub fn zoom(rungs: &[Rung], size: u32, dir: Zoom) -> Option<u32> {
         Zoom::In if size > 150 => None,
         Zoom::In => heights
             .filter_map(|r| {
-                let next = size.checked_div(r.step)?.checked_add(1)?.checked_mul(r.step)?;
+                let next = size
+                    .checked_div(r.step)?
+                    .checked_add(1)?
+                    .checked_mul(r.step)?;
                 let next = next.max(r.min);
                 (next < r.end).then_some(next)
             })

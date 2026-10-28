@@ -583,7 +583,14 @@ mod tests {
                 let mut t = fixture();
                 t.state.answered.clear();
                 let p = probe(query, &mut rng);
-                t.input(&p.request);
+                // fed whole, as the host feeds what an input call left
+                let mut rest = p.request.as_slice();
+                while let Some((_, more)) = rest.split_at_checked(t.input(rest)) {
+                    if more.len() == rest.len() {
+                        break;
+                    }
+                    rest = more;
+                }
                 assert!(
                     t.state.answered.contains(&query),
                     "seed {seed}: {query:?}'s probe got no {query:?} reply"

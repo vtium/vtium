@@ -337,6 +337,11 @@ impl Terminal {
         ok
     }
 
+    /// A set asked for with OSC 50 waits for the host to take it.
+    pub fn font_requested(&self) -> bool {
+        self.state.font_request.is_some()
+    }
+
     /// The set a program asked for with OSC 50 since the last call, a name
     /// a set can take; a later request replaced an earlier one. The host
     /// switches to it when it is built, and names the set in use with
