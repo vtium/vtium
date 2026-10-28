@@ -32,7 +32,6 @@ The goldens of vtium's own tier 2 screens, which the C reference's tier 2 has no
 | `small-640x480-1bit.ppm` | `small-640x480` on a 1-bit display, as `small-320x240-1bit` at 80 columns: `dim` plain lit text; the 256-color and 24-bit ramps lit but the block in the default background's color; every underline and strike lit like its text. |
 | `palette-unifont-1bit.ppm` | `palette-unifont` on a 1-bit display: the background blocks lit but the one in the default background's color, every letter pair lit, and the ramps lit cell by cell. |
 | `underline-unifont-1bit.ppm` | `underline-unifont` on a 1-bit display: every underline lit, its SGR 58 color or not; the curl cut at half into a wave; `on blue` and `inverse` lit with their letters and underlines unlit. |
-| `underline-unifont-gray4.ppm` | `underline-unifont` on a gray panel of 4 levels: the cells lit and unlit as in `underline-unifont-1bit`, unifont's glyphs crisp, and the curl's edges in `0x555555` and `0xaaaaaa`. |
 
 `edges-upside-down` and `edges-left` differ from what vtium draws at the two cut wide glyphs only; `../departures.tsv` lists those cells under the render crate's departure.
 `underline-unifont` and `wide-deco-unifont` differ from what vtium draws at their dashed cells only, where the C reference drew each dash over the cell's middle two thirds; `../departures.tsv` lists those cells under the render crate's dash departure.
