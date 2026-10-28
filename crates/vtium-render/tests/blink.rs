@@ -47,7 +47,6 @@ fn draw_config(config: Config, s: &Screen, cursor_on: bool, blink_hidden: bool) 
     let st = DrawState {
         cursor_on,
         blink_hidden,
-        foreground: s.palette.fg(),
         background: s.palette.bg(),
         ..DrawState::default()
     };
@@ -380,7 +379,6 @@ fn phase_damage(b: TextBlink, s: &mut Screen) -> Vec<Rect> {
     let mut r = Renderer::new(unifont(), w, h, config);
     let mut c = Canvas::new(w, h, 0);
     let mut st = DrawState {
-        foreground: s.palette.fg(),
         background: s.palette.bg(),
         ..DrawState::default()
     };

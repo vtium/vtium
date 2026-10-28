@@ -18,7 +18,6 @@ const BG: &str = "101010";
 fn state(s: &Screen) -> DrawState {
     DrawState {
         cursor_on: true,
-        foreground: s.palette.fg(),
         background: s.palette.bg(),
         ..DrawState::default()
     }

@@ -30,7 +30,6 @@ fn what_is_drawn_does_not_depend_on_what_the_buffer_held() {
         }
         s.text(step, step % 3, "x中", st);
         let ds = DrawState {
-            foreground: s.palette.fg(),
             background: s.palette.bg(),
             ..DrawState::default()
         };
@@ -77,7 +76,6 @@ fn a_run_of_cells_is_written_a_line_at_a_time() {
     let mut s = Screen::new(30, 4, rgb("c0c0c0"), rgb("101010"));
     let mut r = Renderer::new(unifont(), w, h, Config::default());
     let ds = DrawState {
-        foreground: s.palette.fg(),
         background: s.palette.bg(),
         ..DrawState::default()
     };

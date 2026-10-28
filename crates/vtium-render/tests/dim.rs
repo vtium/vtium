@@ -26,7 +26,6 @@ fn draw(s: &Screen, cursor_on: bool) -> Canvas {
     let mut c = Canvas::new(w, h, 0);
     let st = DrawState {
         cursor_on,
-        foreground: s.palette.fg(),
         background: s.palette.bg(),
         ..DrawState::default()
     };

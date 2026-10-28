@@ -20,7 +20,6 @@ fn draw(s: &Screen, cursor_on: bool, pointer: Option<(u32, u32)>) -> Canvas {
     let mut c = Canvas::new(w, h, 0);
     let st = DrawState {
         cursor_on,
-        foreground: s.palette.fg(),
         background: s.palette.bg(),
         pointer,
         ..DrawState::default()

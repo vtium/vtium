@@ -108,8 +108,6 @@ pub struct DrawState {
     /// The text blink is in its off phase, which draws blinking text as
     /// [`Config::blink`] says.
     pub blink_hidden: bool,
-    /// The palette's default foreground.
-    pub foreground: Rgb,
     /// The palette's default background, around the grid.
     pub background: Rgb,
     /// The pointer's tip in the grid's pixels, unturned, for the renderer

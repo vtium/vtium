@@ -23,7 +23,6 @@ fn draw(s: &Screen, selection: Range<usize>) -> Canvas {
     let mut r = Renderer::new(unifont(), w, h, Config::default());
     let mut c = Canvas::new(w, h, 0);
     let st = DrawState {
-        foreground: s.palette.fg(),
         background: s.palette.bg(),
         ..DrawState::default()
     };

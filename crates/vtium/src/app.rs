@@ -1364,7 +1364,6 @@ impl App {
         DrawState {
             cursor_on: self.term.blink.cursor_shown(),
             blink_hidden: !self.term.blink.text_shown(),
-            foreground: palette.fg(),
             background: palette.bg(),
             pointer: self
                 .pointer

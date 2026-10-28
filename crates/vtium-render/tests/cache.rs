@@ -144,7 +144,6 @@ fn check(height: u32, frames: &[Screen]) -> u32 {
             let mut c = Canvas::new(w, h, 0);
             let st = DrawState {
                 cursor_on: true,
-                foreground: s.palette.fg(),
                 background: s.palette.bg(),
                 ..DrawState::default()
             };
