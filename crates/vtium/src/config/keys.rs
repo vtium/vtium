@@ -291,7 +291,7 @@ pub const DPMS_TIMEOUT: Key = Key {
     default: Default::Number(600),
     scope: Scope::Anywhere,
     reader: "vtium-platform",
-    what: "Turn the displays off after this long with no key or pointer event; 0 never does.",
+    what: "Turn the displays off after this long with no key press or pointer action (a move, a button or the wheel); 0 never does.",
     cite: "src/config.c:1388",
 };
 
@@ -302,7 +302,7 @@ pub const PROGRAM_BLANK: Key = Key {
     default: Default::Switch(true),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Let a program set the blank's timeout with the Linux console's `CSI 9 ; n ]` (n minutes, at most 60; 0 never blanks) and wake the displays with `CSI 13 ]`, as `setterm --blank` does under `TERM=linux`; RIS returns the timeout to `dpms-timeout`. Off, the sequences are ignored. A key or pointer event wakes the displays either way.",
+    what: "Let a program set the blank's timeout with the Linux console's `CSI 9 ; n ]` (n minutes, at most 60; 0 never blanks) and wake the displays with `CSI 13 ]`, as `setterm --blank` does under `TERM=linux`; RIS returns the timeout to `dpms-timeout`. Off, the sequences are ignored. A key press or pointer action wakes the displays either way.",
     cite: "ADR-1000 (`ctl.linux-blank`, `ctl.linux-unblank`); vtium/vtium#79",
 };
 
