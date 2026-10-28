@@ -350,12 +350,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "vtium-testfont"
+version = "0.0.0"
+dependencies = [
+ "vtium-font",
+]
+
+[[package]]
 name = "vtium-tier2"
 version = "0.0.0"
 dependencies = [
  "vtium-font",
  "vtium-render",
  "vtium-term",
+ "vtium-testfont",
 ]
 
 [[package]]

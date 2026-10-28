@@ -1,0 +1,19 @@
+# The test fonts tier 2 and tier 3 draw the small displays with: PSF1 and
+# PSF2 fonts, 8x16 and 8x8, built from vtium's unifont. A path dependency of
+# tools/tier2 inside the workspace, so a workspace member.
+[package]
+name = "vtium-testfont"
+description = "Writes the PSF1 and PSF2 test fonts of tier 2 and tier 3"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+vtium-font.workspace = true

@@ -27,7 +27,7 @@ target/release/tier2 screens     # vtium's unifont screens, for reference/draw.s
 | `pending.tsv` | Each golden of the C reference's that no screen draws yet, with the issue that owes it. |
 | `departures.tsv` | Each case whose difference from its golden a departure in the render crate's README explains, with where the difference may lie. |
 | `provisional.tsv` | vtium's goldens the operator has not reviewed. |
-| `goldens/` | The goldens of vtium's screens, drawn by the C reference: see its README. |
+| `goldens/` | The goldens of vtium's screens, drawn by the C reference or, for screens only vtium draws, by vtium: see its README. |
 | `reference/` | `draw.sh` and `pixels.c`, which draw vtium's unifont screens through the C reference's own pipeline. |
 | `tests/` | The self-tests: each malformed input refused, and each verdict of the run. |
 
@@ -44,9 +44,11 @@ vtium's own screens carry the harness work the C reference had queued, drawn in 
 | `vs16-unifont`, `vs16-wcwidth` | The C reference's `vs16` screen by the Unicode width method and by wcwidth (aaronsb/kmscon#122) |
 | `wide-deco-unifont` | The C reference's `wide-deco` screen, its caption saying the last-column character wraps (aaronsb/kmscon#70) |
 | `redraw-unifont` | Four frames into two buffers, which must end equal to each other and to a fresh draw (aaronsb/kmscon#8) |
+| `small-320x240` | minspec's display floor, a 320x240 display in an 8x8 PSF2 font as 40 by 30 cells: a shell session with a line that wraps, sprites, colors, decorations, characters the font lacks, and text in the last column and row (vtium/vtium#75) |
+| `small-640x480` | A 640x480 display in an 8x16 PSF1 font as 80 by 30 cells, where everything vtium supports is usable: the same parts at 80 columns, with more styles and color ramps (vtium/vtium#75) |
 | `ascii-unifont`, `bold-unifont`, `palette-unifont`, `inverse-unifont`, `cjk-unifont`, `box-unifont`, `underline-unifont`, `strike-unifont`, `deco-config-unifont`, `deco-force-unifont`, `combining-unifont`, `mosaic-unifont`, `emoji-unifont` | The C reference's text screens of the same names, byte for byte, in unifont, so tier 2 sees text rendering before outline fonts land; `deco-config` and `deco-force` set `underline-color=196`, `strike-color=#00c0ff` and, for `deco-force`, `force-decoration-colors` |
 
-Each screen sets its own size, display and orientation (aaronsb/kmscon#10). Each is drawn with the default configuration and again with a cache of no glyphs, with the performance profile and with glyphs stored at 8 bits and at their drawn size, which ADR-1300 says change speed and never pixels: a drawing that differs is an error. A screen with a second part is drawn as four frames into two buffers, whose ages follow the swaps; both must hold the same picture at the end, and the picture a fresh renderer draws.
+The two `small-` screens draw with the PSF fonts `tools/testfont` writes, read through vtium-font's PSF loader; no font file of the system's reaches tier 2. Each screen sets its own size, display and orientation (aaronsb/kmscon#10). Each is drawn with the default configuration and again with a cache of no glyphs, with the performance profile and with glyphs stored at 8 bits and at their drawn size, which ADR-1300 says change speed and never pixels: a drawing that differs is an error. A screen with a second part is drawn as four frames into two buffers, whose ages follow the swaps; both must hold the same picture at the end, and the picture a fresh renderer draws.
 
 ## The judge
 
@@ -73,7 +75,7 @@ Refused rather than judged (aaronsb/kmscon#10): a PPM that is not P6 with a maxv
 
 ## vtium's goldens
 
-The C reference draws the goldens of vtium's screens, so their author is not their judge. `reference/draw.sh OUT` reads the kmscon commit `pin.tsv` names and the libtsm commit that commit's `subprojects/libtsm.wrap` pins through `git archive`, builds them in a temporary directory, and compiles `reference/pixels.c` against them: libtsm parses each screen's bytes, `kmscon_text_draw` reads the screen, bbulk draws it with the unifont backend and drm2d's blend writes the buffer, as `tests/test_pixels.c` drew with FreeType. The screens come from `tier2 screens`, so both sides draw the same bytes. A new golden lands in a commit of its own and stays in `provisional.tsv` until the operator has reviewed it.
+The C reference draws the goldens of vtium's screens, so their author is not their judge, except where the screen is behaviour only vtium has: the `small-` screens draw with fonts and sizes the C reference never drew, so their goldens are reviewed vtium output (kmscon `ADR-304` §6). <!-- adr-cite-ignore: kmscon's record --> `reference/draw.sh OUT` reads the kmscon commit `pin.tsv` names and the libtsm commit that commit's `subprojects/libtsm.wrap` pins through `git archive`, builds them in a temporary directory, and compiles `reference/pixels.c` against them: libtsm parses each screen's bytes, `kmscon_text_draw` reads the screen, bbulk draws it with the unifont backend and drm2d's blend writes the buffer, as `tests/test_pixels.c` drew with FreeType. The screens come from `tier2 screens`, which lists the unifont screens alone, so both sides draw the same bytes. A new golden lands in a commit of its own and stays in `provisional.tsv` until the operator has reviewed it.
 
 ## Not yet
 
