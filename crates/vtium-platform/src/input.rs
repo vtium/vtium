@@ -580,7 +580,9 @@ impl<O: Open + 'static> Input<O> {
                     self.events.push(InputEvent::Pointer(p));
                 }
             }
-            EV_SYN => {
+            // A frame of a device with no pointer, a keyboard's, is no
+            // pointer event.
+            EV_SYN if probed.pointer.kind != pointer::Kind::None => {
                 self.events.push(InputEvent::Pointer(PointerEvent::Sync));
                 if let Some(after) = self.config.pointer_hide {
                     self.hide_at = now.checked_add(after);
