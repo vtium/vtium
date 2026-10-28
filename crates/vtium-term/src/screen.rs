@@ -18,6 +18,7 @@
 
 mod edit;
 mod print;
+mod rect;
 mod selection;
 
 use core::ops::Range;
@@ -33,6 +34,7 @@ use crate::style::Style;
 use crate::unicode::Segmenter;
 
 pub use edit::Erase;
+pub(crate) use rect::{Extent, Rect};
 use selection::Selection;
 
 /// How printed text is cut into cells: mode 2027.
@@ -111,6 +113,8 @@ pub struct Screen {
     selection: Selection,
     cursor_shape: CursorShape,
     cursor_blink: bool,
+    /// DECSACE's extent for DECCARA and DECRARA.
+    extent: Extent,
 }
 
 impl Screen {
@@ -144,6 +148,7 @@ impl Screen {
             selection: Selection::default(),
             cursor_shape: CursorShape::default(),
             cursor_blink: true,
+            extent: Extent::Stream,
         };
         for _ in 0..rows {
             let line = screen.new_line(cols, &Style::DEFAULT);
