@@ -2,10 +2,11 @@
 //!
 //! The display keeps the mode it is given, in one buffer: the
 //! framebuffer, mapped. A device whose pixels are XRGB8888 is drawn into
-//! directly; any other true-color layout of 16, 24 or 32 bits is drawn
-//! into an XRGB8888 copy in memory, converted into the device's layout
-//! where a swap's damage says. fbdev has no flip event, so a timer at the
-//! mode's refresh interval stands in for it.
+//! directly; any other true-color layout of 16, 24 or 32 bits, and a
+//! 1-bit device (vtium/vtium#135), is drawn into an XRGB8888 copy in
+//! memory, converted into the device's layout where a swap's damage says.
+//! fbdev has no flip event, so a timer at the mode's refresh interval
+//! stands in for it.
 
 use std::io;
 use std::marker::PhantomData;
@@ -20,8 +21,8 @@ use rustix::fs::{Mode as FileMode, OFlags, open};
 use super::{Canvas, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
 use crate::ioctl::{
     FB_ACTIVATE_FORCE, FB_ACTIVATE_NOW, FB_BLANK_NORMAL, FB_BLANK_POWERDOWN, FB_BLANK_UNBLANK,
-    FB_VISUAL_TRUECOLOR, FbFixScreeninfo, FbVarScreeninfo, fb_blank, fb_get_fix, fb_get_var,
-    fb_put_var,
+    FB_NONSTD_REV_PIX_IN_B, FB_VISUAL_MONO01, FB_VISUAL_MONO10, FB_VISUAL_TRUECOLOR,
+    FbFixScreeninfo, FbVarScreeninfo, fb_blank, fb_get_fix, fb_get_var, fb_put_var,
 };
 use crate::mmap::Mapping;
 
@@ -112,6 +113,58 @@ impl Layout {
     }
 }
 
+/// How the device holds a pixel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Packing {
+    TrueColor(Layout),
+    /// One bit a pixel, eight to a byte.
+    Mono {
+        /// A set bit is lit, white: `FB_VISUAL_MONO10`. `FB_VISUAL_MONO01`
+        /// sets the unlit bits.
+        set_lit: bool,
+        /// The first pixel of a byte is its most significant bit.
+        msb_first: bool,
+    },
+}
+
+impl Packing {
+    fn xrgb8888(&self) -> bool {
+        matches!(self, Packing::TrueColor(l) if l.xrgb8888())
+    }
+
+    /// A 1-bit device of `visual`, `None` for any other. The kernel's own
+    /// drawing puts the first pixel of a byte in its low bit on a
+    /// little-endian host and in its high bit on a big-endian one, and
+    /// `FB_NONSTD_REV_PIX_IN_B` reverses that (`fb_draw.h`'s
+    /// `fb_reverse_init`).
+    fn mono(var: &FbVarScreeninfo, visual: u32) -> Option<Packing> {
+        let set_lit = match visual {
+            FB_VISUAL_MONO10 => true,
+            FB_VISUAL_MONO01 => false,
+            _ => return None,
+        };
+        let reversed = var.nonstd & FB_NONSTD_REV_PIX_IN_B != 0;
+        (var.bits_per_pixel == 1).then_some(Packing::Mono {
+            set_lit,
+            msb_first: cfg!(target_endian = "big") != reversed,
+        })
+    }
+}
+
+/// Whether an XRGB8888 pixel is lit on a 1-bit display: its BT.601 luma
+/// at least half, as the kernel's `drm_fb_xrgb8888_to_mono` decides for a
+/// DRM panel, so both backends show a frame alike. The renderer draws a
+/// 1-bit display in pure black and white, which this keeps exact.
+fn lit(xrgb: u32) -> bool {
+    // at most 256 * 255, so nothing wraps
+    let (r, g, b) = (xrgb >> 16 & 0xff, xrgb >> 8 & 0xff, xrgb & 0xff);
+    let luma = r
+        .wrapping_mul(77)
+        .wrapping_add(g.wrapping_mul(150))
+        .wrapping_add(b.wrapping_mul(29));
+    luma >> 8 >= 128
+}
+
 /// The framebuffer, mapped while the device is awake.
 struct Screen<M> {
     map: M,
@@ -119,7 +172,7 @@ struct Screen<M> {
     height: u32,
     /// Bytes a line in the framebuffer.
     stride: usize,
-    layout: Layout,
+    packing: Packing,
     /// The XRGB8888 copy drawn into, where the layout is another.
     shadow: Option<Vec<u8>>,
     /// Nothing drawn since the framebuffer was cleared.
@@ -208,6 +261,16 @@ impl<F: Framebuffer> Fbdev<F> {
     /// fbdev has no cursor plane: the compositor draws the pointer.
     pub fn hardware_cursor(&self, _: DisplayId) -> bool {
         false
+    }
+
+    /// Whether the display is 1-bit: the device's visual is
+    /// `FB_VISUAL_MONO01` or `FB_VISUAL_MONO10`.
+    pub fn monochrome(&self, id: DisplayId) -> bool {
+        id == DISPLAY
+            && self
+                .screen
+                .as_ref()
+                .is_some_and(|s| matches!(s.packing, Packing::Mono { .. }))
     }
 
     /// Whether the last swap's stand-in flip event is pending.
@@ -438,7 +501,8 @@ impl<F: Framebuffer> Fbdev<F> {
     }
 
     /// Sets the device to its mode in one buffer, at 32, 24 or 16 bits of
-    /// true color, and maps it cleared.
+    /// true color, else at 1 bit where its visual is monochrome, and maps
+    /// it cleared.
     fn activate(&mut self) -> io::Result<()> {
         let mut var = self.dev.var()?;
         var.xoffset = 0;
@@ -469,19 +533,30 @@ impl<F: Framebuffer> Fbdev<F> {
             }
         }
         let unsupported = |what: String| io::Error::new(io::ErrorKind::Unsupported, what);
-        if ![32, 24, 16].contains(&var.bits_per_pixel) {
-            return Err(unsupported(format!(
-                "the framebuffer has {} bits a pixel, not 16, 24 or 32",
-                var.bits_per_pixel
-            )));
-        }
-        if fix.visual != FB_VISUAL_TRUECOLOR {
-            return Err(unsupported("the framebuffer is not true color".into()));
-        }
-        let channels = [var.red, var.green, var.blue].map(|c| (c.offset, c.length));
-        if channels.iter().any(|&(_, length)| length > 8) {
-            return Err(unsupported("the framebuffer's channels pass 8 bits".into()));
-        }
+        let packing = match Packing::mono(&var, fix.visual) {
+            Some(mono) => mono,
+            None => {
+                if ![32, 24, 16].contains(&var.bits_per_pixel) {
+                    return Err(unsupported(format!(
+                        "the framebuffer has {} bits a pixel, not 1, 16, 24 or 32",
+                        var.bits_per_pixel
+                    )));
+                }
+                if fix.visual != FB_VISUAL_TRUECOLOR {
+                    return Err(unsupported(
+                        "the framebuffer is neither true color nor 1-bit".into(),
+                    ));
+                }
+                let channels = [var.red, var.green, var.blue].map(|c| (c.offset, c.length));
+                if channels.iter().any(|&(_, length)| length > 8) {
+                    return Err(unsupported("the framebuffer's channels pass 8 bits".into()));
+                }
+                Packing::TrueColor(Layout {
+                    bytes: usize::try_from(var.bits_per_pixel / 8).unwrap_or(4),
+                    channels,
+                })
+            }
+        };
         self.rate_mhz = refresh_mhz(&var);
         self.interval = refresh_interval(self.rate_mhz);
         let height = usize::try_from(var.yres).map_err(|_| unsupported("height".into()))?;
@@ -489,11 +564,7 @@ impl<F: Framebuffer> Fbdev<F> {
         let len = stride.saturating_mul(height);
         let mut map = self.dev.map(len)?;
         map.as_mut().fill(0);
-        let layout = Layout {
-            bytes: usize::try_from(var.bits_per_pixel / 8).unwrap_or(4),
-            channels,
-        };
-        let shadow = (!layout.xrgb8888()).then(|| {
+        let shadow = (!packing.xrgb8888()).then(|| {
             let px = usize::try_from(var.xres)
                 .unwrap_or(0)
                 .saturating_mul(height);
@@ -511,7 +582,7 @@ impl<F: Framebuffer> Fbdev<F> {
             width: var.xres,
             height: var.yres,
             stride,
-            layout,
+            packing,
             shadow,
             fresh: true,
         });
@@ -528,10 +599,17 @@ impl<F: Framebuffer> Fbdev<F> {
 impl<M: AsMut<[u8]>> Screen<M> {
     /// Converts `r` from the copy into the framebuffer.
     fn convert(&mut self, r: Rect) {
+        match self.packing {
+            Packing::TrueColor(layout) => self.convert_true(r, layout),
+            Packing::Mono { set_lit, msb_first } => self.pack(r, set_lit, msb_first),
+        }
+    }
+
+    fn convert_true(&mut self, r: Rect, layout: Layout) {
         let Some(shadow) = &self.shadow else {
             return;
         };
-        let bytes = self.layout.bytes;
+        let bytes = layout.bytes;
         let width = usize::try_from(self.width).unwrap_or(0);
         let (x, w) = (
             usize::try_from(r.x).unwrap_or(0),
@@ -551,8 +629,50 @@ impl<M: AsMut<[u8]>> Screen<M> {
                 .chunks_exact_mut(bytes);
             for (px, out) in src.zip(dst).take(w) {
                 let xrgb = <[u8; 4]>::try_from(px).map_or(0, u32::from_ne_bytes);
-                let encoded = self.layout.encode(xrgb).to_le_bytes();
+                let encoded = layout.encode(xrgb).to_le_bytes();
                 out.copy_from_slice(encoded.get(..bytes).unwrap_or_default());
+            }
+        }
+    }
+
+    /// Packs `r` from the copy into the framebuffer at 1 bit a pixel, in
+    /// whole bytes: the pixels of a byte the damage only partly covers
+    /// come from the copy too, so the framebuffer is never read. Bits past
+    /// the line's last pixel are left clear.
+    fn pack(&mut self, r: Rect, set_lit: bool, msb_first: bool) {
+        let Some(shadow) = &self.shadow else {
+            return;
+        };
+        let width = usize::try_from(self.width).unwrap_or(0);
+        let first = usize::try_from(r.x).unwrap_or(0) / 8;
+        let end = usize::try_from(r.x.saturating_add(r.width))
+            .unwrap_or(0)
+            .min(width)
+            .div_ceil(8);
+        let map = self.map.as_mut();
+        for y in r.y..r.y.saturating_add(r.height) {
+            let y = usize::try_from(y).unwrap_or(0);
+            let line = y.saturating_mul(width).saturating_mul(4);
+            let row = y.saturating_mul(self.stride);
+            for byte in first..end {
+                let mut out = 0u8;
+                for bit in 0..8 {
+                    let x = byte.saturating_mul(8).saturating_add(bit);
+                    if x >= width {
+                        break;
+                    }
+                    let at = line.saturating_add(x.saturating_mul(4));
+                    let px = shadow
+                        .get(at..at.saturating_add(4))
+                        .and_then(|p| <[u8; 4]>::try_from(p).ok())
+                        .map_or(0, u32::from_ne_bytes);
+                    if lit(px) == set_lit {
+                        out |= if msb_first { 0x80 >> bit } else { 1 << bit };
+                    }
+                }
+                if let Some(b) = map.get_mut(row.saturating_add(byte)) {
+                    *b = out;
+                }
             }
         }
     }

@@ -11,7 +11,7 @@
 use std::cell::{Cell, RefCell};
 
 use super::*;
-use crate::ioctl::FbBitfield;
+use crate::ioctl::{FB_NONSTD_REV_PIX_IN_B, FB_VISUAL_MONO01, FB_VISUAL_MONO10, FbBitfield};
 
 /// A framebuffer in memory, 4x3. `put_var` takes the depths in `depths`
 /// and refuses the rest.
@@ -204,6 +204,87 @@ fn a_device_without_true_color_is_refused() {
     assert!(v.wake_up().is_err());
     assert!(v.canvas(DISPLAY).is_none());
     assert!(v.events().next().is_none());
+}
+
+/// A 1-bit device of `visual`, which takes no other depth: 4 pixels, in
+/// the low half of each line's first byte.
+fn mono(visual: u32, nonstd: u32) -> Fbdev<FakeFb> {
+    let mut fb = FakeFb::new(1);
+    fb.visual = visual;
+    fb.depths = vec![1];
+    fb.var.borrow_mut().nonstd = nonstd;
+    awake(fb)
+}
+
+/// Writes `pixels` to line `y` of the canvas, swaps `damage` and returns
+/// the first byte of each line of the framebuffer.
+fn packed(v: &mut Fbdev<FakeFb>, y: usize, pixels: [u32; 4], damage: Rect) -> [u8; 3] {
+    let canvas = v.canvas(DISPLAY).unwrap();
+    assert_eq!(canvas.stride, 16, "an XRGB8888 copy");
+    for (x, px) in pixels.iter().enumerate() {
+        let at = y * 16 + x * 4;
+        canvas.pixels[at..at + 4].copy_from_slice(&px.to_ne_bytes());
+    }
+    v.swap(DISPLAY, &[damage]).unwrap();
+    // Each line holds 4 bits of a byte, then 8 bytes of padding.
+    let m = map(v);
+    [m[0], m[8], m[16]]
+}
+
+const W: u32 = 0x00ff_ffff;
+
+#[test]
+fn a_1_bit_framebuffer_is_packed_where_damaged() {
+    let mut v = mono(FB_VISUAL_MONO10, 0);
+    assert!(v.monochrome(DISPLAY));
+    assert_eq!(v.size(DISPLAY), Some((4, 3)));
+    // the first pixel in the low bit, a set bit white
+    assert_eq!(packed(&mut v, 0, [W, 0, W, 0], WHOLE), [0x05, 0, 0]);
+    // damage inside a byte packs the whole byte from the copy
+    let one = Rect {
+        x: 3,
+        y: 1,
+        width: 1,
+        height: 1,
+    };
+    assert_eq!(packed(&mut v, 1, [W, W, 0, W], one), [0x05, 0x0b, 0]);
+    // undamaged lines stay as they were
+    let canvas = v.canvas(DISPLAY).unwrap();
+    canvas.pixels[32..36].copy_from_slice(&W.to_ne_bytes());
+    v.swap(DISPLAY, &[one]).unwrap();
+    assert_eq!(map(&mut v)[16], 0);
+}
+
+#[test]
+fn mono01_sets_the_unlit_bits() {
+    let mut v = mono(FB_VISUAL_MONO01, 0);
+    assert_eq!(packed(&mut v, 0, [W, 0, W, 0], WHOLE), [0x0a, 0x0f, 0x0f]);
+}
+
+#[test]
+fn reversed_pixels_put_the_first_in_the_high_bit() {
+    let mut v = mono(FB_VISUAL_MONO10, FB_NONSTD_REV_PIX_IN_B);
+    assert_eq!(packed(&mut v, 0, [W, 0, W, W], WHOLE), [0xb0, 0, 0]);
+}
+
+// drm_format_helper.c's threshold: BT.601's luma at least 128
+#[test]
+fn a_pixel_is_lit_by_its_luma_as_the_kernel_lights_it() {
+    let mut v = mono(FB_VISUAL_MONO10, 0);
+    let px = [0x0080_8080, 0x007f_7f7f, 0x00ff_0000, 0x0000_ff00];
+    assert_eq!(packed(&mut v, 0, px, WHOLE), [0x09, 0, 0]);
+}
+
+#[test]
+fn a_device_that_takes_true_color_is_not_1_bit() {
+    let v = awake(FakeFb::new(32));
+    assert!(!v.monochrome(DISPLAY));
+    let mut fb = FakeFb::new(8);
+    fb.visual = FB_VISUAL_MONO10;
+    fb.depths = vec![8];
+    let mut v = Fbdev::with(fb);
+    assert!(v.wake_up().is_err(), "8 bits of a 1-bit visual");
+    assert!(!v.monochrome(DISPLAY));
 }
 
 #[test]
