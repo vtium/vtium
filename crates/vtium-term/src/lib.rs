@@ -34,7 +34,7 @@
 //!   line size.
 //! - [`Damage`] keeps change ages by screen position, so cells and the
 //!   scrollback carry none.
-//! - A [`Frame`] is what a renderer reads: the visible lines with colours
+//! - A [`Frame`] is what a renderer reads: the visible lines with colors
 //!   resolved through the [`Palette`] at draw time, each cell marked
 //!   changed or not for the reading display, and the [`Cursor`].
 //!

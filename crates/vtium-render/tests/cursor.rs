@@ -1,6 +1,6 @@
 //! The cursor's shapes, as the C reference drew them (libtsm's
 //! `frame_cursor_cell`, kmscon's `bbulk_draw`): a block swaps the cell's
-//! colours, an underline toggles a single underline in the foreground, and
+//! colors, an underline toggles a single underline in the foreground, and
 //! a bar draws U+258F in place of the character. Each case is checked
 //! against the same screen without a cursor, styled to look as the cursor
 //! should.
@@ -52,7 +52,7 @@ fn swapped(st: Style) -> Style {
 
 // covers: cursor.style
 #[test]
-fn a_block_swaps_the_cells_colours() {
+fn a_block_swaps_the_cells_colors() {
     let st = style(rgb(FG), rgb(BG));
     let s = screen(st, 1, CursorShape::Block, None);
     let mut want = screen(st, 1, CursorShape::Block, None);
@@ -77,11 +77,11 @@ fn a_block_on_a_trailing_half_covers_the_wide_character() {
     assert!(draw(&s, true, None) == draw(&want, false, None));
 }
 
-// OSC 12 sets the block's colour; the character keeps the cell's
-// background as its colour.
+// OSC 12 sets the block's color; the character keeps the cell's
+// background as its color.
 // covers: cursor.color
 #[test]
-fn a_coloured_block_takes_its_colour() {
+fn a_colored_block_takes_its_color() {
     let st = style(rgb(FG), rgb(BG));
     let s = screen(st, 0, CursorShape::Block, Some(rgb("ff8000")));
     let mut want = screen(st, 0, CursorShape::Block, None);
@@ -125,7 +125,7 @@ fn a_bar_replaces_the_character_with_a_left_eighth_block() {
     want.put(3, 0, ' ', false, st);
     assert!(draw(&s, true, None) == draw(&want, false, None));
 
-    // in OSC 12's colour
+    // in OSC 12's color
     let s = screen(st, 0, CursorShape::Bar, Some(rgb("00ff00")));
     let mut want = screen(st, 0, CursorShape::Bar, None);
     want.put(0, 0, '▏', false, style(rgb("00ff00"), rgb(BG)));

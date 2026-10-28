@@ -3,7 +3,7 @@
 //!
 //! Each frame that draws something takes the next serial. Each cell keeps
 //! the serial of the frame that last changed what it shows, the renderer's
-//! own changes included: the cursor's place, shape and colour, the blink
+//! own changes included: the cursor's place, shape and color, the blink
 //! phase, a wide pairing, the pointer. A buffer lent at age n holds the
 //! frame n serials back, so it lacks exactly the cells whose stamp is
 //! newer; at age 0, or at an age older than the history, it lacks
@@ -29,7 +29,7 @@ const BORDER_AREAS: usize = 16;
 pub(crate) struct CellState {
     /// The serial of the frame that last changed what the cell shows.
     stamp: u64,
-    /// The cursor it drew: its shape and OSC 12's colour.
+    /// The cursor it drew: its shape and OSC 12's color.
     pub(crate) cursor: Option<(CursorShape, Option<Rgb>)>,
     /// It drew in the text blink's off phase.
     pub(crate) blink_off: bool,

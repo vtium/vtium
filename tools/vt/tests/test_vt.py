@@ -942,7 +942,7 @@ class Guide(Case):
                           (ok + "probe: nonesuch\n", "probe mode 'nonesuch' is not one of: shell focus"),
                           (ok + "probe: shell\nprobe: focus\n", "one probe per step"),
                           (ok + "intro: late\n", "intro lines go before the first step"),
-                          (ok + "colour: red\n", "unknown key 'colour'"),
+                          (ok + "color: red\n", "unknown key 'color'"),
                           (ok + "not a key line\n", "not a 'key: text' line")):
             with self.subTest(why=why):
                 p = self.check(text)

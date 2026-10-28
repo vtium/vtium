@@ -236,7 +236,7 @@ impl Screen {
     }
 
     /// The style erased, inserted and scrolled-in cells take: the pen's
-    /// background and nothing else of it (background colour erase). SGR 7
+    /// background and nothing else of it (background color erase). SGR 7
     /// is not applied: the cell takes the background as set.
     fn blank_style(&self) -> Style {
         Style {
@@ -300,8 +300,8 @@ impl Screen {
         self.flags.reverse
     }
 
-    /// Marks everything: a new palette recolours every cell.
-    pub(crate) fn recolour(&mut self) {
+    /// Marks everything: a new palette recolors every cell.
+    pub(crate) fn recolor(&mut self) {
         self.damage.mark_all();
     }
 
@@ -397,7 +397,7 @@ impl Screen {
 
     /// The view, as the display that last drew at `since` reads it: the
     /// screen, or the scrollback and the screen while scrolled back, with
-    /// the cursor in the palette's cursor colour and the selection.
+    /// the cursor in the palette's cursor color and the selection.
     pub fn frame<'a>(&'a self, palette: &'a Palette, since: Age) -> Frame<'a> {
         let lines = self.view();
         let offset = self.scrollback.offset();

@@ -189,7 +189,7 @@ class Tolerance(unittest.TestCase):
                                "masks": [[0, 780, 10, 800], [5, 5, 6, 6]]})
 
     def test_malformed_sidecar_is_an_error(self):
-        for text in ("max_delta\n", "colour=3\n", "mask=1,2,3\n", "mask=5,0,1,9\n"):
+        for text in ("max_delta\n", "color=3\n", "mask=1,2,3\n", "mask=5,0,1,9\n"):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 t3img.load_tol(self.write(text))
 

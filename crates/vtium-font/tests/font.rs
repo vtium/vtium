@@ -137,18 +137,18 @@ fn glyph_bounds() {
 fn rgba_must_be_premultiplied_and_the_right_length() {
     let px = vec![0x10, 0x20, 0x30, 0x80];
     assert!(Glyph::from_pixels(1, 1, Format::Rgba, px).is_some());
-    // a colour byte greater than its alpha is not premultiplied
+    // a color byte greater than its alpha is not premultiplied
     assert!(Glyph::from_pixels(1, 1, Format::Rgba, vec![0x90, 0, 0, 0x80]).is_none());
     assert!(Glyph::from_pixels(1, 1, Format::Rgba, vec![0; 3]).is_none());
     assert!(Glyph::from_pixels(1, 1, Format::Mask, vec![0; 4]).is_none());
     assert!(Glyph::from_pixels(1, 1, Format::Mask, vec![0x7f]).is_some());
 }
 
-/// A colour face: every character a 4x2 RGBA glyph whose pixel x, y is
+/// A color face: every character a 4x2 RGBA glyph whose pixel x, y is
 /// (x, y, 0, 0x80) premultiplied.
-struct Colour;
+struct Color;
 
-impl Colour {
+impl Color {
     fn glyph() -> Glyph {
         let px = (0..2u8)
             .flat_map(|y| (0..4u8).flat_map(move |x| [x, y, 0, 0x80]))
@@ -157,7 +157,7 @@ impl Colour {
     }
 }
 
-impl Face for Colour {
+impl Face for Color {
     fn cell(&self) -> Cell {
         Cell {
             width: 4,
@@ -171,17 +171,17 @@ impl Face for Colour {
         true
     }
     fn draw(&self, _: &[char], _: Style) -> Option<Glyph> {
-        Some(Colour::glyph())
+        Some(Color::glyph())
     }
 }
 
-// A colour glyph keeps its pixels and alpha through Font, boxed into its
+// A color glyph keeps its pixels and alpha through Font, boxed into its
 // cells as a mask would be, with the margins transparent.
 #[test]
-fn a_colour_glyph_keeps_its_pixels_and_alpha() {
-    let font = Font::new(Colour);
+fn a_color_glyph_keeps_its_pixels_and_alpha() {
+    let font = Font::new(Color);
     let narrow = font.glyph(&['x'], Width::Narrow, plain()).expect("drawn");
-    assert_eq!(narrow, Colour::glyph());
+    assert_eq!(narrow, Color::glyph());
     assert_eq!(
         (narrow.format(), narrow.cells()),
         (Format::Rgba, Width::Narrow)
@@ -205,7 +205,7 @@ fn a_colour_glyph_keeps_its_pixels_and_alpha() {
             );
         }
     }
-    // a sprite character from a colour face is still a mask sprite; the
+    // a sprite character from a color face is still a mask sprite; the
     // face holds every character, so its own default takes its glyphs
     let font = font.with_policy(SpritePolicy::SPRITES);
     let block = font

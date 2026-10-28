@@ -1081,7 +1081,7 @@ mod tests {
     }
 
     // libtsm#47: cells past a stored line's end were drawn with the pen,
-    // so an SGR under BCE recoloured them. They read as the blank cell in
+    // so an SGR under BCE recolored them. They read as the blank cell in
     // the default style.
     #[test]
     fn cells_past_the_end_read_blank_in_the_default_style() {
@@ -1096,7 +1096,7 @@ mod tests {
     }
 
     #[test]
-    fn trim_keeps_cells_erased_in_a_colour() {
+    fn trim_keeps_cells_erased_in_a_color() {
         let mut line = Line::new(LineId::new(1), 8);
         line.write(0, Glyph::Char('a'), Width::Narrow, &Style::DEFAULT, None);
         let bce = Style {

@@ -1,10 +1,10 @@
-//! What a cell looks like: its colours and attributes, kept unresolved.
+//! What a cell looks like: its colors and attributes, kept unresolved.
 //!
-//! A colour stays a reference (the default, a palette index or RGB) until
+//! A color stays a reference (the default, a palette index or RGB) until
 //! a frame resolves it through the palette at draw time, so a palette
-//! change recolours text already on the screen and in the scrollback.
+//! change recolors text already on the screen and in the scrollback.
 
-/// An RGB colour, 8 bits a channel.
+/// An RGB color, 8 bits a channel.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Rgb {
     pub r: u8,
@@ -18,16 +18,16 @@ impl Rgb {
     }
 }
 
-/// A colour as a program set it: resolved only when a frame is drawn.
+/// A color as a program set it: resolved only when a frame is drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Color {
     /// The default foreground or background, or for an underline, the
-    /// colour the configuration gives it (the foreground unless set).
+    /// color the configuration gives it (the foreground unless set).
     #[default]
     Default,
-    /// An entry of the 256-colour palette.
+    /// An entry of the 256-color palette.
     Indexed(u8),
-    /// A direct colour.
+    /// A direct color.
     Rgb(Rgb),
 }
 
@@ -152,7 +152,7 @@ pub struct Style {
     pub fg: Color,
     pub bg: Color,
     /// SGR 58 and 59. `Color::Default` follows the foreground, or the
-    /// configured underline colour.
+    /// configured underline color.
     pub underline_color: Color,
     pub attrs: Attrs,
 }

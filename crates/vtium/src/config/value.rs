@@ -164,7 +164,7 @@ pub(super) fn parse(
     }
 }
 
-/// A colour, `r,g,b`, each a whole number from 0 to 255
+/// A color, `r,g,b`, each a whole number from 0 to 255
 /// (`src/config.c:806-855`).
 pub(super) fn parse_rgb(text: &str) -> Result<[u8; 3], &'static str> {
     let mut out = [0_u8; 3];

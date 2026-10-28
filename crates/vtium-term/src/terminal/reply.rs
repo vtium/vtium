@@ -52,17 +52,17 @@ queries! {
     Xtgettcap,
     /// DECRQSS, `DCS $ q Pt ST`.
     Decrqss,
-    /// OSC 4's query of a palette colour.
+    /// OSC 4's query of a palette color.
     PaletteColor,
-    /// OSC 10's and 11's queries of the default colours.
+    /// OSC 10's and 11's queries of the default colors.
     DefaultColor,
-    /// OSC 12's query of the cursor colour.
+    /// OSC 12's query of the cursor color.
     CursorColor,
-    /// OSC 13's and 14's queries of the pointer's colours.
+    /// OSC 13's and 14's queries of the pointer's colors.
     PointerColor,
-    /// OSC 17's and 19's queries of the selection's colours.
+    /// OSC 17's and 19's queries of the selection's colors.
     SelectionColor,
-    /// OSC 21's queries, kitty's colour protocol.
+    /// OSC 21's queries, kitty's color protocol.
     KittyColor,
     /// XTWINOPS 14, 15, 16, 18 and 19: sizes.
     WindowSize,
@@ -115,7 +115,7 @@ pub(super) fn osc_end(end: StringEnd) -> &'static str {
     }
 }
 
-/// An X11 colour specification, `rgb:rrrr/gggg/bbbb`, each channel's byte
+/// An X11 color specification, `rgb:rrrr/gggg/bbbb`, each channel's byte
 /// written twice, as xterm answers.
 pub(super) fn xcolor(rgb: Rgb) -> String {
     format!(
@@ -124,9 +124,9 @@ pub(super) fn xcolor(rgb: Rgb) -> String {
     )
 }
 
-/// A colour as SGR sets it, for DECRQSS: `base` plus the index for the
-/// eight colours, `bright` plus it for the next eight, else `ext` with the
-/// colon forms. A `base` or `bright` of 0 is a colour with no short form.
+/// A color as SGR sets it, for DECRQSS: `base` plus the index for the
+/// eight colors, `bright` plus it for the next eight, else `ext` with the
+/// colon forms. A `base` or `bright` of 0 is a color with no short form.
 fn sgr_color(out: &mut String, color: Color, base: u8, bright: u8, ext: u8) {
     match color {
         Color::Default => {}
@@ -157,7 +157,7 @@ impl State {
         self.reply(Query::Decrqm, reply.as_bytes());
     }
 
-    /// DA1: a VT220 (62), one of xterm's defined levels, with ANSI colour
+    /// DA1: a VT220 (62), one of xterm's defined levels, with ANSI color
     /// (22). Attribute 4 joins it when sixel is built (vtium/vtium#48).
     pub(super) fn reply_da1(&mut self) {
         self.reply(Query::Da1, b"\x1b[?62;22c");
@@ -474,7 +474,7 @@ mod tests {
                 let request = cat(&[b"\x1b]10;?;", &tok, b"\x1b\\"]);
                 (request, vec![tok], vec![])
             }
-            // The number in the reply is the colour's, written again.
+            // The number in the reply is the color's, written again.
             Query::CursorColor => {
                 let n = rng.padded(12);
                 let request = cat(&[b"\x1b]", &n, b";?;", &tok, b"\x07"]);

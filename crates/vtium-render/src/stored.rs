@@ -278,7 +278,7 @@ impl Stored {
     }
 
     /// The coverage along drawn line `y` from drawn column `x0`, one byte
-    /// for each of `out`, 0 outside the glyph. A colour glyph's coverage
+    /// for each of `out`, 0 outside the glyph. A color glyph's coverage
     /// is its alpha.
     pub(crate) fn mask_line(&self, x0: i64, y: i64, out: &mut [u8]) {
         out.fill(0);
@@ -430,10 +430,10 @@ mod tests {
         );
     }
 
-    // the 1-bit line is the coverage line in two colours, at every offset
+    // the 1-bit line is the coverage line in two colors, at every offset
     // and scale, cut at either edge
     #[test]
-    fn a_bits_line_is_its_mask_line_in_two_colours() {
+    fn a_bits_line_is_its_mask_line_in_two_colors() {
         let g = glyph(11, 3, |x, y| if (x * 7 + y) % 3 == 0 { 255 } else { 0 });
         for scale in 1..=3 {
             let s = Stored::new(&g, scale, Orientation::Normal, true);
@@ -454,10 +454,10 @@ mod tests {
         }
     }
 
-    // the table follows each change of colour: the background alone, the
+    // the table follows each change of color: the background alone, the
     // foreground alone, both, and back
     #[test]
-    fn pens_follow_every_change_of_colour() {
+    fn pens_follow_every_change_of_color() {
         let mut pens = Pens::new((1, 2));
         for colors in [(1, 3), (4, 3), (5, 6), (5, 2), (1, 2)] {
             pens.set(colors);
@@ -471,7 +471,7 @@ mod tests {
     }
 
     // lines drawn into a buffer of longer lines are each the coverage line
-    // in two colours, and the pixels between them are left alone
+    // in two colors, and the pixels between them are left alone
     #[test]
     fn bits_rows_are_mask_lines_at_a_stride() {
         for gw in [8, 11] {
@@ -555,7 +555,7 @@ mod tests {
     }
 
     #[test]
-    fn a_colour_glyph_keeps_its_pixels() {
+    fn a_color_glyph_keeps_its_pixels() {
         let g = Glyph::from_pixels(1, 1, FontFormat::Rgba, vec![10, 20, 30, 40]).unwrap();
         let s = Stored::new(&g, 2, Orientation::Normal, true);
         assert!(s.is_rgba());

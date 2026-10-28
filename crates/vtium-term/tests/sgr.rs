@@ -1,6 +1,6 @@
 //! SGR, driven through the byte stream: each attribute set and cleared,
-//! the palette and extended colours in their semicolon and colon forms,
-//! the underline styles and colour, and the forms vtium ignores.
+//! the palette and extended colors in their semicolon and colon forms,
+//! the underline styles and color, and the forms vtium ignores.
 //!
 //! Each expected pen is the C reference's, or the specification's where
 //! vtium departs from it (the crate's README lists each departure).
@@ -114,11 +114,11 @@ fn sgr_21_double_underlines() {
     );
 }
 
-// kitty underlines: SGR 58 sets the underline colour in every form 38
+// kitty underlines: SGR 58 sets the underline color in every form 38
 // takes, and 59 returns it to the foreground's.
 // covers: sgr.underline-color
 #[test]
-fn sgr_58_and_59_set_the_underline_colour() {
+fn sgr_58_and_59_set_the_underline_color() {
     let rgb = |r, g, b| Color::Rgb(Rgb::new(r, g, b));
     assert_eq!(
         pen_after(b"\x1b[58;5;196m").underline_color,
@@ -142,11 +142,11 @@ fn sgr_58_and_59_set_the_underline_colour() {
     );
 }
 
-// ctlseqs: 30-37 and 40-47 the eight colours, 90-97 and 100-107 the
+// ctlseqs: 30-37 and 40-47 the eight colors, 90-97 and 100-107 the
 // bright eight, 39 and 49 the defaults.
 // covers: sgr.palette
 #[test]
-fn palette_colours_are_set_and_returned_to_the_default() {
+fn palette_colors_are_set_and_returned_to_the_default() {
     let p = pen_after(b"\x1b[31;42m");
     assert_eq!((p.fg, p.bg), (Color::Indexed(1), Color::Indexed(2)));
     let p = pen_after(b"\x1b[97;100m");
@@ -156,12 +156,12 @@ fn palette_colours_are_set_and_returned_to_the_default() {
 }
 
 // ctlseqs; ITU T.416: 38 and 48 with 5 and an index, or 2 and RGB, in the
-// semicolon form and the colon forms with and without a colour space. A
+// semicolon form and the colon forms with and without a color space. A
 // semicolon component keeps its low byte and an index past 255 is black,
 // as the C reference's goldens record; a colon form past 255 is refused.
 // covers: sgr.extended-color
 #[test]
-fn extended_colours_take_both_forms() {
+fn extended_colors_take_both_forms() {
     let rgb = |r, g, b| Color::Rgb(Rgb::new(r, g, b));
     assert_eq!(pen_after(b"\x1b[38;5;200m").fg, Color::Indexed(200));
     assert_eq!(pen_after(b"\x1b[48;2;1;2;3m").bg, rgb(1, 2, 3));
@@ -177,7 +177,7 @@ fn extended_colours_take_both_forms() {
     let p = pen_after(b"\x1b[38;5;3;1;48;2;4;5;6;3m");
     assert_eq!((p.fg, p.bg), (Color::Indexed(3), rgb(4, 5, 6)));
     assert!(p.attrs.contains(Attrs::BOLD) && p.attrs.contains(Attrs::ITALIC));
-    // A colour that is no form leaves the pen; the values after it are
+    // A color that is no form leaves the pen; the values after it are
     // read as attributes, as in the C reference.
     let p = pen_after(b"\x1b[38;5m");
     assert_eq!(p.fg, Color::Default);

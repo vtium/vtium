@@ -385,12 +385,12 @@ fn switches() {
 }
 
 #[test]
-fn comments_blanks_and_colours() {
+fn comments_blanks_and_colors() {
     let l = main_file(
         "  font-name =\tDejaVu Sans Mono  # the console's font\r\n\
          # a comment\n\
          \n\
-         term=#a0b1c2 # a colour is not a comment\n\
+         term=#a0b1c2 # a color is not a comment\n\
          sb-size=10#comment\n\
          hwaccel # on\n",
     );
@@ -654,17 +654,13 @@ fn custom_takes_the_palette_keys() {
     assert_eq!(l.reports, []);
     let p = l.config.palette();
     for i in 0..16u8 {
-        assert_eq!(
-            p.color(i),
-            vtium_term::Rgb::new(i, 100 + i, 7),
-            "colour {i}"
-        );
+        assert_eq!(p.color(i), vtium_term::Rgb::new(i, 100 + i, 7), "color {i}");
     }
     assert_eq!(p.fg(), vtium_term::Rgb::new(1, 2, 3));
     assert_eq!(p.bg(), vtium_term::Rgb::new(4, 5, 6));
     assert_eq!(p.color(16), vtium_term::Rgb::new(0, 0, 0));
     assert_eq!(p.color(232), vtium_term::Rgb::new(8, 8, 8));
-    // The keys colour nothing under another palette.
+    // The keys color nothing under another palette.
     let l = main_file("palette=nord\npalette-red=1,2,3\n");
     assert_eq!(Some(l.config.palette()), vtium_term::Palette::named("nord"));
 }
@@ -682,13 +678,13 @@ fn read_file_is_bounded() {
 }
 
 #[test]
-fn colours() {
+fn colors() {
     let l = main_file("palette=custom\npalette-red=10, 20,30\npalette-background=1,2,3\n");
     assert_eq!(l.reports, []);
     assert_eq!(l.config.text(&PALETTE), Some("custom"));
     assert_eq!(l.config.rgb(&PALETTE_RED), Some([10, 20, 30]));
     assert_eq!(l.config.rgb(&PALETTE_BACKGROUND), Some([1, 2, 3]));
-    // The C reference's default colours.
+    // The C reference's default colors.
     assert_eq!(l.config.rgb(&PALETTE_BLUE), Some([0, 0, 238]));
     assert_eq!(l.config.rgb(&PALETTE_FOREGROUND), Some([229, 229, 229]));
     let l =

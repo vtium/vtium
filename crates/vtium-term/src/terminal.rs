@@ -6,7 +6,7 @@
 //! The dispatch here carries the printing, the C0 and C1 controls, and the
 //! control functions. The modes go through the mode table (`modes.rs`),
 //! SGR through `sgr.rs`, the replies through `reply.rs`, the character
-//! sets through `charset.rs`, OSC 52 through `clipboard.rs`, the colour
+//! sets through `charset.rs`, OSC 52 through `clipboard.rs`, the color
 //! OSC strings through `color.rs`, the in-band reports through
 //! `inband.rs`, the Linux console's blank sequences through `blank.rs`,
 //! and the keys, the pointer, focus and pastes through `input.rs`.
@@ -146,7 +146,7 @@ struct HostSettings {
     cell: Option<(u32, u32)>,
     /// The display the grid fills, in pixels, once the host knows it.
     display: Option<(u32, u32)>,
-    /// The palette the host configured, which the colour resets return
+    /// The palette the host configured, which the color resets return
     /// to.
     palette: Palette,
 }
@@ -177,8 +177,8 @@ struct State {
     out: Vec<u8>,
     modes: Modes,
     host: HostSettings,
-    /// The configured palette with the colours the program set: what
-    /// frames draw through and the colour queries answer from.
+    /// The configured palette with the colors the program set: what
+    /// frames draw through and the color queries answer from.
     colors: Palette,
     cursor_style: CursorStyle,
     /// DECSC's slots, the main screen's and the alternate screen's, as
@@ -392,24 +392,24 @@ impl Terminal {
         self.state.host.display = Some((width, height));
     }
 
-    /// The palette frames draw through and the colour queries answer
-    /// from: the configured one with the colours the program set (OSC 4,
+    /// The palette frames draw through and the color queries answer
+    /// from: the configured one with the colors the program set (OSC 4,
     /// 10 to 19 and 21). The host draws the pointer in its
-    /// [`pointer`](Palette::pointer) colours.
+    /// [`pointer`](Palette::pointer) colors.
     pub fn palette(&self) -> &Palette {
         &self.state.colors
     }
 
     /// The palette the host configured: a named one or a custom one
-    /// ([`Palette::named`], [`Palette::custom`]). It replaces the colours
-    /// the program set, and is what the colour resets and RIS return to. A
-    /// palette that differs from the one drawn recolours every cell, so
+    /// ([`Palette::named`], [`Palette::custom`]). It replaces the colors
+    /// the program set, and is what the color resets and RIS return to. A
+    /// palette that differs from the one drawn recolors every cell, so
     /// every cell is marked changed, and may change mode 2031's scheme.
     pub fn set_palette(&mut self, palette: Palette) {
         let scheme = self.state.scheme();
         if self.state.colors != palette {
             self.state.colors = palette.clone();
-            self.state.screen.recolour();
+            self.state.screen.recolor();
         }
         self.state.host.palette = palette;
         self.state.report_scheme_change(scheme);
@@ -521,8 +521,8 @@ impl State {
 
     /// DECSTR, and the first half of RIS: the modes, the pen, the cursor
     /// style, the character sets, the saved cursors, the margins, the tab
-    /// stops and the 256 palette colours return to their initial state;
-    /// the text, the cursor and the colours OSC 10 to 19 set stay.
+    /// stops and the 256 palette colors return to their initial state;
+    /// the text, the cursor and the colors OSC 10 to 19 set stay.
     fn soft_reset(&mut self) {
         self.screen.reset();
         self.screen.set_pen(Style::DEFAULT);
@@ -538,8 +538,8 @@ impl State {
         self.reset_colors(false);
     }
 
-    /// RIS: DECSTR's reset, the modes only RIS resets, every colour the
-    /// program set, the SGR and colour stacks emptied, the screen and the
+    /// RIS: DECSTR's reset, the modes only RIS resets, every color the
+    /// program set, the SGR and color stacks emptied, the screen and the
     /// scrollback erased, the cursor home, and the blank timeout the
     /// host's again.
     fn hard_reset(&mut self) {

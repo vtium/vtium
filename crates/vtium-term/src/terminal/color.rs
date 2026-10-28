@@ -1,15 +1,15 @@
-//! The colour OSC strings: OSC 4 and 104 for the palette, OSC 10 to 19 and
+//! The color OSC strings: OSC 4 and 104 for the palette, OSC 10 to 19 and
 //! 110 to 119 for the defaults and the cursor, pointer and selection
-//! colours, as xterm's ctlseqs defines them, and OSC 21, kitty's colour
-//! protocol (`color-stack`); and the colour stack, which XTPUSHCOLORS,
+//! colors, as xterm's ctlseqs defines them, and OSC 21, kitty's color
+//! protocol (`color-stack`); and the color stack, which XTPUSHCOLORS,
 //! XTPOPCOLORS and XTREPORTCOLORS (`CSI Pm # P`, `Q` and `R`, ctlseqs)
 //! and kitty's OSC 30001 and 30101 (`color-stack`) share.
 //!
 //! A set changes the terminal's palette, the copy of the configured one
-//! that frames draw through; a reset returns a colour to the configured
-//! palette's. A string that changes any colour marks every cell changed,
+//! that frames draw through; a reset returns a color to the configured
+//! palette's. A string that changes any color marks every cell changed,
 //! as each may draw in it. Each query's reply follows the reply rule
-//! (`reply.rs`): a colour vtium holds, a number parsed and written again,
+//! (`reply.rs`): a color vtium holds, a number parsed and written again,
 //! and a key from a fixed table.
 
 use vtium_parse::{Params, StringEnd};
@@ -22,7 +22,7 @@ use crate::style::Rgb;
 
 mod names;
 
-/// A colour OSC 10 to 19 or a kitty key names, past the 256.
+/// A color OSC 10 to 19 or a kitty key names, past the 256.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Dynamic {
     Fg,
@@ -31,7 +31,7 @@ enum Dynamic {
 }
 
 impl Dynamic {
-    /// The colour OSC `number` names: none for Tektronix's 15, 16 and 18,
+    /// The color OSC `number` names: none for Tektronix's 15, 16 and 18,
     /// which vtium has no mode for, and none outside 10 to 19.
     fn osc(number: u32) -> Option<Self> {
         Some(match number {
@@ -46,7 +46,7 @@ impl Dynamic {
         })
     }
 
-    /// The query an OSC 10 to 19 `?` for the colour is.
+    /// The query an OSC 10 to 19 `?` for the color is.
     fn query(self) -> Query {
         match self {
             Self::Fg | Self::Bg => Query::DefaultColor,
@@ -64,7 +64,7 @@ enum Key {
     Dynamic(Dynamic),
 }
 
-/// kitty's names for the colours past the 256 that vtium has.
+/// kitty's names for the colors past the 256 that vtium has.
 const KEYS: [(&str, Dynamic); 5] = [
     ("foreground", Dynamic::Fg),
     ("background", Dynamic::Bg),
@@ -103,7 +103,7 @@ impl Key {
     }
 }
 
-/// The colour stack: [`COLOR_STACK_MAX`] entries, each empty or holding a
+/// The color stack: [`COLOR_STACK_MAX`] entries, each empty or holding a
 /// palette, and the current entry, the number of the one the next push
 /// stores into less one.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -218,7 +218,7 @@ fn trim(text: &[u8]) -> &[u8] {
 }
 
 impl State {
-    /// The colour OSC strings; false for a string that is not one.
+    /// The color OSC strings; false for a string that is not one.
     pub(super) fn osc_color(&mut self, data: &[u8], end: StringEnd) -> bool {
         let (number, rest) = match data.iter().position(|&b| b == b';') {
             Some(at) => (data.get(..at), data.get(at.saturating_add(1)..)),
@@ -246,13 +246,13 @@ impl State {
             _ => {}
         }
         if self.colors != before {
-            self.screen.recolour();
+            self.screen.recolor();
         }
         true
     }
 
     /// OSC 4: `index ; spec` pairs, each `?` answered with the palette's
-    /// colour and each spec vtium reads set; an index past 255 and a spec
+    /// color and each spec vtium reads set; an index past 255 and a spec
     /// it does not read are skipped. A pair that is not a number and a
     /// field stops the list, as in the C reference. Once the replies
     /// waiting for the host reach [`REPLIES_PENDING_MAX`], the list's
@@ -282,7 +282,7 @@ impl State {
         }
     }
 
-    /// OSC 10 to 19: each field the next colour from `first`, as xterm
+    /// OSC 10 to 19: each field the next color from `first`, as xterm
     /// takes them, each `?` answered and each spec vtium reads set.
     fn osc_dynamic(&mut self, first: u32, list: &[u8], end: StringEnd) {
         for (number, spec) in (first..=19).zip(list.split(|&b| b == b';')) {
@@ -345,7 +345,7 @@ impl State {
             stack.current = i;
             if self.colors != palette {
                 self.colors = palette;
-                self.screen.recolour();
+                self.screen.recolor();
             }
         }
     }
@@ -358,9 +358,9 @@ impl State {
         self.reply(Query::ColorStack, reply.as_bytes());
     }
 
-    /// The colour reset of DECSTR, the 256 returned to the configured
+    /// The color reset of DECSTR, the 256 returned to the configured
     /// palette's as xterm's soft reset returns them, and with `every`, for
-    /// RIS, every colour.
+    /// RIS, every color.
     pub(super) fn reset_colors(&mut self, every: bool) {
         let before = self.colors.clone();
         if every {
@@ -369,12 +369,12 @@ impl State {
             self.reset_palette(None);
         }
         if self.colors != before {
-            self.screen.recolour();
+            self.screen.recolor();
         }
     }
 
     /// OSC 104: each index listed returns to the configured palette's
-    /// colour, and none listed returns all 256; a field that is not an
+    /// color, and none listed returns all 256; a field that is not an
     /// index is skipped.
     fn reset_palette(&mut self, list: Option<&[u8]>) {
         let configured = &self.host.palette;
@@ -394,8 +394,8 @@ impl State {
         }
     }
 
-    /// OSC 21: `key=spec` sets, `key=?` queries, `key=` makes a colour
-    /// dynamic, which unsets a special colour and is refused for the
+    /// OSC 21: `key=spec` sets, `key=?` queries, `key=` makes a color
+    /// dynamic, which unsets a special color and is refused for the
     /// defaults and the 256, and a bare key resets. The queries are
     /// answered in one reply, in order; a key vtium does not know is
     /// skipped. Once the reply and the replies waiting for the host reach
@@ -454,8 +454,8 @@ impl State {
         }
     }
 
-    /// The colour as xterm answers it: an unset special colour as the
-    /// colour it draws in, the cursor's and the selection's background as
+    /// The color as xterm answers it: an unset special color as the
+    /// color it draws in, the cursor's and the selection's background as
     /// the foreground and the selection's foreground as the background.
     fn xterm_color(&self, d: Dynamic) -> Rgb {
         let c = &self.colors;
@@ -469,7 +469,7 @@ impl State {
         }
     }
 
-    /// The colour as kitty answers it: none for an unset special colour.
+    /// The color as kitty answers it: none for an unset special color.
     fn kitty_color(&self, d: Dynamic) -> Option<Rgb> {
         match d {
             Dynamic::Fg => Some(self.colors.fg()),
@@ -478,7 +478,7 @@ impl State {
         }
     }
 
-    /// Sets a colour; `None` unsets a special colour and leaves a default.
+    /// Sets a color; `None` unsets a special color and leaves a default.
     fn set_dynamic(&mut self, d: Dynamic, rgb: Option<Rgb>) {
         match (d, rgb) {
             (Dynamic::Fg, Some(rgb)) => self.colors.set_fg(rgb),
@@ -488,7 +488,7 @@ impl State {
         }
     }
 
-    /// Returns a colour to the configured palette's.
+    /// Returns a color to the configured palette's.
     fn reset_dynamic(&mut self, d: Dynamic) {
         let configured = &self.host.palette;
         match d {

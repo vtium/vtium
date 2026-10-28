@@ -4,10 +4,10 @@
 //!
 //! The design is 8x16 for a narrow cell and 16x16 for a wide one, scaled by
 //! the largest whole factor the cell holds and centred in it.
-//! - Narrow: the cell in the text colour with the digits cut out, two rows
+//! - Narrow: the cell in the text color with the digits cut out, two rows
 //!   of two 3x5 digits for a codepoint up to U+FFFF, three rows of two 3x4
 //!   digits, with lower-case b, c and d, past it.
-//! - Wide: a box outline with the digits inside in the text colour, 3x5,
+//! - Wide: a box outline with the digits inside in the text color, 3x5,
 //!   two rows of two up to U+FFFF and two rows of three past it.
 
 use crate::face::{Cell, Width};

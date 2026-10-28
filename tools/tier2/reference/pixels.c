@@ -35,7 +35,7 @@
  * UNIFONT_BLOB is what genunifont writes from font_unifont_data.hex. A
  * screen with a second part is drawn as four frames into two buffers, as
  * test_pixels.c drew one, and fails unless both buffers end equal. A
- * screen's decoration colours resolve through kmscon_conf_resolve_deco()
+ * screen's decoration colors resolve through kmscon_conf_resolve_deco()
  * on every frame, as kmscon's terminal resolved them.
  */
 
@@ -152,8 +152,8 @@ static long unhex(const char *hex, char *out, size_t size)
 	return (long)(n / 2);
 }
 
-/* a colour of the screens' decoration field, iN or xRRGGBB; 0 if it reads */
-static int deco_colour(const char *s, struct kmscon_conf_color *out)
+/* a color of the screens' decoration field, iN or xRRGGBB; 0 if it reads */
+static int deco_color(const char *s, struct kmscon_conf_color *out)
 {
 	unsigned int v;
 	char end;
@@ -179,9 +179,9 @@ static int deco_field(char *s, struct kmscon_conf_t *conf)
 	char *save = NULL;
 
 	for (char *t = strtok_r(s, ",", &save); t; t = strtok_r(NULL, ",", &save)) {
-		if (!strncmp(t, "ul=", 3) && !deco_colour(t + 3, &conf->underline_color))
+		if (!strncmp(t, "ul=", 3) && !deco_color(t + 3, &conf->underline_color))
 			continue;
-		if (!strncmp(t, "st=", 3) && !deco_colour(t + 3, &conf->strike_color))
+		if (!strncmp(t, "st=", 3) && !deco_color(t + 3, &conf->strike_color))
 			continue;
 		if (!strcmp(t, "force")) {
 			conf->force_decoration_colors = true;

@@ -197,7 +197,7 @@ fn a_depth_the_device_refuses_is_tried_down_to_16_bits() {
 }
 
 #[test]
-fn a_device_without_true_colour_is_refused() {
+fn a_device_without_true_color_is_refused() {
     let mut fb = FakeFb::new(32);
     fb.visual = 3;
     let mut v = Fbdev::with(fb);

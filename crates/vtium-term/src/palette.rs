@@ -1,25 +1,25 @@
-//! Palettes: the 256 colours and the default foreground and background a
+//! Palettes: the 256 colors and the default foreground and background a
 //! frame resolves cells through, and the palettes the configuration's
 //! `palette` key names (vtium/vtium#94).
 //!
-//! A palette sets the sixteen ANSI colours and the two defaults; colours
+//! A palette sets the sixteen ANSI colors and the two defaults; colors
 //! 16 to 255 are xterm's 6x6x6 cube (levels 0, 95, 135, 175, 215, 255)
 //! and grey ramp (8 to 238 in steps of 10) in every palette. The named
 //! tables are the C reference's (`src/tsm/tsm-vte.c:254-451` at libtsm
 //! eeaf2931), and `tests/palettes.rs` checks each against that source.
 //!
-//! A palette also holds the colours OSC 12 to 19 name: the cursor's, the
+//! A palette also holds the colors OSC 12 to 19 name: the cursor's, the
 //! pointer's and the selection's, each unset until a program or the host
 //! sets it, and drawn by its fallback while unset.
 //!
 //! A terminal holds the palette it was configured with and a copy the
 //! program changes with OSC 4, 10 to 19 and 21. Frames draw through the
-//! copy and the colour queries answer from it; OSC 104 to 119 return its
-//! colours to the configured palette's (vtium/vtium#38).
+//! copy and the color queries answer from it; OSC 104 to 119 return its
+//! colors to the configured palette's (vtium/vtium#38).
 
 use crate::style::{Color, Rgb};
 
-/// The 256-colour palette, the default colours, and the colours of the
+/// The 256-color palette, the default colors, and the colors of the
 /// cursor, the pointer and the selection.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Palette {
@@ -29,7 +29,7 @@ pub struct Palette {
     special: [Option<Rgb>; Special::ALL.len()],
 }
 
-/// The colours past the defaults that xterm's OSC 12 to 19 name. Each is
+/// The colors past the defaults that xterm's OSC 12 to 19 name. Each is
 /// unset in every named palette, and an unset one draws as its fallback.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Special {
@@ -61,7 +61,7 @@ impl Special {
     }
 }
 
-/// A named palette: its sixteen colours and its two defaults.
+/// A named palette: its sixteen colors and its two defaults.
 struct Named {
     name: &'static str,
     colors: [Rgb; 16],
@@ -304,7 +304,7 @@ impl Default for Palette {
 
 impl Palette {
     /// A palette of `colors` and the defaults, with every [`Special`]
-    /// colour unset.
+    /// color unset.
     pub fn new(colors: [Rgb; 256], fg: Rgb, bg: Rgb) -> Self {
         Self {
             colors,
@@ -322,7 +322,7 @@ impl Palette {
             .map(|n| Self::custom(n.colors, n.fg, n.bg))
     }
 
-    /// The sixteen colours and the defaults given, over the cube and the
+    /// The sixteen colors and the defaults given, over the cube and the
     /// grey ramp: `palette=custom`.
     pub fn custom(sixteen: [Rgb; 16], fg: Rgb, bg: Rgb) -> Self {
         const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
@@ -375,19 +375,19 @@ impl Palette {
         self.bg = rgb;
     }
 
-    /// The colour `which` names, `None` while unset.
+    /// The color `which` names, `None` while unset.
     pub fn special(&self, which: Special) -> Option<Rgb> {
         self.special.get(which.slot()).copied().flatten()
     }
 
-    /// Sets the colour `which` names, or with `None` unsets it.
+    /// Sets the color `which` names, or with `None` unsets it.
     pub fn set_special(&mut self, which: Special, rgb: Option<Rgb>) {
         if let Some(slot) = self.special.get_mut(which.slot()) {
             *slot = rgb;
         }
     }
 
-    /// The colour OSC 12 sets, `None` while the cursor draws inverted.
+    /// The color OSC 12 sets, `None` while the cursor draws inverted.
     pub fn cursor(&self) -> Option<Rgb> {
         self.special(Special::Cursor)
     }
@@ -400,7 +400,7 @@ impl Palette {
         )
     }
 
-    /// `color` in RGB, `default` for the default colour.
+    /// `color` in RGB, `default` for the default color.
     pub(crate) fn resolve(&self, color: Color, default: Rgb) -> Rgb {
         match color {
             Color::Default => default,

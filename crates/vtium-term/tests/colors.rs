@@ -1,6 +1,6 @@
-//! The colours a program sets, queries and resets: the palette (OSC 4 and
-//! 104), the defaults and the cursor, pointer and selection colours (OSC 10
-//! to 19 and 110 to 119), and kitty's colour protocol (OSC 21), driven
+//! The colors a program sets, queries and resets: the palette (OSC 4 and
+//! 104), the defaults and the cursor, pointer and selection colors (OSC 10
+//! to 19 and 110 to 119), and kitty's color protocol (OSC 21), driven
 //! through the byte stream.
 //!
 //! Each expected reply is xterm's (ctlseqs, "Operating System Commands")
@@ -19,7 +19,7 @@ fn reply(t: &mut Terminal, query: &[u8]) -> Vec<u8> {
     t.take_replies()
 }
 
-/// The colour OSC 4 sets index 1 to for `spec`, `None` when it sets
+/// The color OSC 4 sets index 1 to for `spec`, `None` when it sets
 /// nothing.
 fn parsed(spec: &str) -> Option<Rgb> {
     let mut t = term(4, 1, b"");
@@ -29,12 +29,12 @@ fn parsed(spec: &str) -> Option<Rgb> {
     (after != before).then_some(after)
 }
 
-// ctlseqs, OSC 4: `index ; spec` pairs set palette colours, each spec an
-// X11 colour specification; a query after a set answers the new colour,
-// and text already written in that colour recolours.
+// ctlseqs, OSC 4: `index ; spec` pairs set palette colors, each spec an
+// X11 color specification; a query after a set answers the new color,
+// and text already written in that color recolors.
 // covers: color.palette.set
 #[test]
-fn osc_4_sets_palette_colours() {
+fn osc_4_sets_palette_colors() {
     let mut t = term(4, 1, b"\x1b[31mx");
     t.input(b"\x1b]4;1;rgb:12/34/56;196;#abcdef\x07");
     assert_eq!(t.palette().color(1), Rgb::new(0x12, 0x34, 0x56));
@@ -62,7 +62,7 @@ fn osc_4_sets_palette_colours() {
 // digits a channel, scaled to the channel's range, and `#` with one to
 // four a channel, taken as its most significant bits, either case.
 #[test]
-fn colour_specs_are_read_as_x11_reads_them() {
+fn color_specs_are_read_as_x11_reads_them() {
     let rgb = |r, g, b| Some(Rgb::new(r, g, b));
     assert_eq!(parsed("rgb:12/34/56"), rgb(0x12, 0x34, 0x56));
     assert_eq!(parsed("rgb:f/8/0"), rgb(0xff, 0x88, 0x00));
@@ -154,10 +154,10 @@ fn color_names_set_the_defaults_and_kittys_keys() {
 }
 
 // ctlseqs, OSC 104: each index listed returns to the configured palette's
-// colour, and no index returns them all.
+// color, and no index returns them all.
 // covers: color.palette.set
 #[test]
-fn osc_104_resets_palette_colours_to_the_configured_palette() {
+fn osc_104_resets_palette_colors_to_the_configured_palette() {
     let nord = Palette::named("nord").unwrap();
     let mut t = term(4, 1, b"");
     t.set_palette(nord.clone());
@@ -175,8 +175,8 @@ fn osc_104_resets_palette_colours_to_the_configured_palette() {
 }
 
 // ctlseqs, OSC 10, 11 and 12: the default foreground and background and
-// the cursor colour, each set and queried; a list goes on to the next
-// number. The cursor colour unset answers the foreground, as xterm's
+// the cursor color, each set and queried; a list goes on to the next
+// number. The cursor color unset answers the foreground, as xterm's
 // cursorColor defaults to it.
 // covers: color.dynamic.set
 #[test]
@@ -205,14 +205,14 @@ fn osc_10_11_and_12_set_and_query() {
         .concat()
     );
     // a list from 11 sets 11 and 12, and a field vtium does not read
-    // leaves its colour
+    // leaves its color
     t.input(b"\x1b]11;#000001;#000002\x07\x1b]10;bright red;#000003\x07");
     assert_eq!(t.palette().fg(), Rgb::new(0x10, 0x20, 0x30));
     assert_eq!(t.palette().bg(), Rgb::new(0, 0, 3));
     assert_eq!(t.palette().cursor(), Some(Rgb::new(0, 0, 2)));
 }
 
-// ctlseqs, OSC 110, 111 and 112: each returns its colour to the
+// ctlseqs, OSC 110, 111 and 112: each returns its color to the
 // configured one; the cursor's is unset, drawing inverted.
 // covers: color.dynamic.set
 #[test]
@@ -234,7 +234,7 @@ fn osc_110_111_and_112_reset_to_the_configured_palette() {
 // pointer in `Palette::pointer`.
 // covers: color.pointer
 #[test]
-fn osc_13_and_14_set_query_and_reset_the_pointer_colours() {
+fn osc_13_and_14_set_query_and_reset_the_pointer_colors() {
     let mut t = term(4, 1, b"");
     assert_eq!(
         reply(&mut t, b"\x1b]13;?;?\x07"),
@@ -259,9 +259,9 @@ fn osc_13_and_14_set_query_and_reset_the_pointer_colours() {
     assert_eq!(t.palette(), &Palette::default());
 }
 
-/// The colours of the selected cell at column 0 and the plain one at
+/// The colors of the selected cell at column 0 and the plain one at
 /// column 1, of a terminal whose first cell is selected.
-fn selection_colours(t: &mut Terminal) -> ((Rgb, Rgb), (Rgb, Rgb)) {
+fn selection_colors(t: &mut Terminal) -> ((Rgb, Rgb), (Rgb, Rgb)) {
     t.screen_mut().select_start(0, 0);
     t.screen_mut().select_to(0, 0);
     let palette = t.palette().clone();
@@ -277,35 +277,35 @@ fn selection_colours(t: &mut Terminal) -> ((Rgb, Rgb), (Rgb, Rgb)) {
 // foreground over it; with both set, both. OSC 117 and 119 reset them.
 // covers: color.selection
 #[test]
-fn osc_17_and_19_colour_the_selection() {
+fn osc_17_and_19_color_the_selection() {
     let red = Rgb::new(0xcd, 0, 0);
     let bg = Rgb::new(0, 0, 0);
     let mut t = term(4, 1, b"\x1b[31mab");
-    assert_eq!(selection_colours(&mut t), ((bg, red), (red, bg)));
+    assert_eq!(selection_colors(&mut t), ((bg, red), (red, bg)));
     assert_eq!(
         reply(&mut t, b"\x1b]17;?\x07\x1b]19;?\x07"),
         b"\x1b]17;rgb:e5e5/e5e5/e5e5\x07\x1b]19;rgb:0000/0000/0000\x07"
     );
     let blue = Rgb::new(0, 0, 0xff);
     t.input(b"\x1b]17;#0000ff\x07");
-    assert_eq!(selection_colours(&mut t), ((red, blue), (red, bg)));
+    assert_eq!(selection_colors(&mut t), ((red, blue), (red, bg)));
     let green = Rgb::new(0, 0xff, 0);
     t.input(b"\x1b]19;#00ff00\x07");
-    assert_eq!(selection_colours(&mut t), ((green, blue), (red, bg)));
+    assert_eq!(selection_colors(&mut t), ((green, blue), (red, bg)));
     assert_eq!(
         reply(&mut t, b"\x1b]17;?;?;?\x07"),
         b"\x1b]17;rgb:0000/0000/ffff\x07\x1b]19;rgb:0000/ffff/0000\x07"
     );
     t.input(b"\x1b]117\x07");
-    assert_eq!(selection_colours(&mut t), ((green, red), (red, bg)));
+    assert_eq!(selection_colors(&mut t), ((green, red), (red, bg)));
     t.input(b"\x1b]119\x07");
-    assert_eq!(selection_colours(&mut t), ((bg, red), (red, bg)));
+    assert_eq!(selection_colors(&mut t), ((bg, red), (red, bg)));
 }
 
-// ctlseqs: OSC 15, 16 and 18 are Tektronix's colours, which vtium has no
+// ctlseqs: OSC 15, 16 and 18 are Tektronix's colors, which vtium has no
 // mode for; a list through them skips their fields.
 #[test]
-fn a_list_skips_the_tektronix_colours() {
+fn a_list_skips_the_tektronix_colors() {
     let mut t = term(4, 1, b"");
     assert_eq!(
         reply(&mut t, b"\x1b]14;?;?;?;?;?;?\x07"),
@@ -326,7 +326,7 @@ fn a_list_skips_the_tektronix_colours() {
 }
 
 // kitty's color-stack, OSC 21: `key=spec` sets, `key=?` queries in one
-// reply, `key=` makes a dynamic colour dynamic (unset), and a bare key
+// reply, `key=` makes a dynamic color dynamic (unset), and a bare key
 // resets it; spaces are ignored. A key vtium does not know is left out of
 // the reply, a departure from kitty, which names it in base64 under
 // `unknown` (the reply rule).
@@ -374,7 +374,7 @@ fn osc_21_sets_queries_and_resets_by_key() {
     assert_eq!(reply(&mut t, b"\x1b]21;visual_bell=?;256=?;x\x07"), b"");
 }
 
-// A colour a program sets recolours every cell drawn in it, so every cell
+// A color a program sets recolors every cell drawn in it, so every cell
 // is marked changed for a display that drew before it; a set that changes
 // nothing marks nothing.
 #[test]
@@ -412,13 +412,13 @@ fn a_set_marks_the_screen_changed() {
 }
 
 // xterm's ReallyReset (charproc.c, xterm 412) resets the OSC 4 palette on
-// DECSTR and RIS alike, and neither resets the colours OSC 10 to 19 set:
-// vtium's DECSTR follows it. vtium's RIS returns every colour to the
+// DECSTR and RIS alike, and neither resets the colors OSC 10 to 19 set:
+// vtium's DECSTR follows it. vtium's RIS returns every color to the
 // configured palette, a departure the crate's README lists: the C
-// reference's RIS also ended on the configured colours, and RIS returns
+// reference's RIS also ended on the configured colors, and RIS returns
 // the terminal to its initial state.
 #[test]
-fn decstr_resets_the_palette_and_ris_every_colour() {
+fn decstr_resets_the_palette_and_ris_every_color() {
     let nord = Palette::named("nord").unwrap();
     let mut t = term(4, 1, b"");
     t.set_palette(nord.clone());

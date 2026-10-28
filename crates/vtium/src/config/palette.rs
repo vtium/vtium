@@ -1,6 +1,6 @@
 //! The palette the `palette` key names (vtium/vtium#94): one of
-//! vtium-term's named palettes, or `custom`, whose sixteen colours and two
-//! defaults the `palette-<colour>` keys set (`src/config.c:1305-1324,
+//! vtium-term's named palettes, or `custom`, whose sixteen colors and two
+//! defaults the `palette-<color>` keys set (`src/config.c:1305-1324,
 //! 1427-1448` at kmscon b1f7a7c5).
 
 use vtium_term::{Palette, Rgb};
@@ -8,7 +8,7 @@ use vtium_term::{Palette, Rgb};
 use super::Config;
 use super::keys::{self, Key};
 
-/// The sixteen colours' keys, in palette order.
+/// The sixteen colors' keys, in palette order.
 const PALETTE_KEYS: [&Key; 16] = [
     &keys::PALETTE_BLACK,
     &keys::PALETTE_RED,

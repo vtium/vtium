@@ -117,7 +117,7 @@ KNOWN = {
     },
 }
 
-# CSI and OSC sequences, which systemd's coloured status lines carry.
+# CSI and OSC sequences, which systemd's colored status lines carry.
 _ESCAPES = re.compile(r"\x1b\[[0-9;?!]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 
 

@@ -28,7 +28,7 @@ pub enum Kind {
     Text,
     /// One of a fixed set of words.
     Choice(&'static [&'static str]),
-    /// A colour, `r,g,b`, each 0 to 255.
+    /// A color, `r,g,b`, each 0 to 255.
     Rgb,
     /// A display mode, `[GPU][CONNECTOR]WxH[@RATE]`. Each line adds one:
     /// the seat's file adds to the main file's, and the command line's
@@ -373,7 +373,7 @@ pub const PALETTE: Key = Key {
     default: Default::Text("legacy"),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "The sixteen colours and the default foreground and background: a named palette, or `custom`, which takes the `palette-*` keys. Colours 16 to 255 are xterm's in every palette.",
+    what: "The sixteen colors and the default foreground and background: a named palette, or `custom`, which takes the `palette-*` keys. Colors 16 to 255 are xterm's in every palette.",
     cite: "src/config.c:1427; libtsm src/tsm/tsm-vte.c:254-478",
 };
 
@@ -384,7 +384,7 @@ pub const PALETTE_BLACK: Key = Key {
     default: Default::Rgb([0, 0, 0]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 0 with `palette=custom`.",
+    what: "Color 0 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -395,7 +395,7 @@ pub const PALETTE_RED: Key = Key {
     default: Default::Rgb([205, 0, 0]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 1 with `palette=custom`.",
+    what: "Color 1 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -406,7 +406,7 @@ pub const PALETTE_GREEN: Key = Key {
     default: Default::Rgb([0, 205, 0]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 2 with `palette=custom`.",
+    what: "Color 2 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -417,7 +417,7 @@ pub const PALETTE_YELLOW: Key = Key {
     default: Default::Rgb([205, 205, 0]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 3 with `palette=custom`.",
+    what: "Color 3 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -428,7 +428,7 @@ pub const PALETTE_BLUE: Key = Key {
     default: Default::Rgb([0, 0, 238]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 4 with `palette=custom`.",
+    what: "Color 4 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -439,7 +439,7 @@ pub const PALETTE_MAGENTA: Key = Key {
     default: Default::Rgb([205, 0, 205]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 5 with `palette=custom`.",
+    what: "Color 5 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -450,7 +450,7 @@ pub const PALETTE_CYAN: Key = Key {
     default: Default::Rgb([0, 205, 205]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 6 with `palette=custom`.",
+    what: "Color 6 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -461,7 +461,7 @@ pub const PALETTE_LIGHT_GREY: Key = Key {
     default: Default::Rgb([229, 229, 229]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 7 with `palette=custom`.",
+    what: "Color 7 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -472,7 +472,7 @@ pub const PALETTE_DARK_GREY: Key = Key {
     default: Default::Rgb([127, 127, 127]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 8 with `palette=custom`.",
+    what: "Color 8 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -483,7 +483,7 @@ pub const PALETTE_LIGHT_RED: Key = Key {
     default: Default::Rgb([255, 0, 0]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 9 with `palette=custom`.",
+    what: "Color 9 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -494,7 +494,7 @@ pub const PALETTE_LIGHT_GREEN: Key = Key {
     default: Default::Rgb([0, 255, 0]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 10 with `palette=custom`.",
+    what: "Color 10 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -505,7 +505,7 @@ pub const PALETTE_LIGHT_YELLOW: Key = Key {
     default: Default::Rgb([255, 255, 0]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 11 with `palette=custom`.",
+    what: "Color 11 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -516,7 +516,7 @@ pub const PALETTE_LIGHT_BLUE: Key = Key {
     default: Default::Rgb([92, 92, 255]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 12 with `palette=custom`.",
+    what: "Color 12 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -527,7 +527,7 @@ pub const PALETTE_LIGHT_MAGENTA: Key = Key {
     default: Default::Rgb([255, 0, 255]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 13 with `palette=custom`.",
+    what: "Color 13 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -538,7 +538,7 @@ pub const PALETTE_LIGHT_CYAN: Key = Key {
     default: Default::Rgb([0, 255, 255]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 14 with `palette=custom`.",
+    what: "Color 14 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 
@@ -549,7 +549,7 @@ pub const PALETTE_WHITE: Key = Key {
     default: Default::Rgb([255, 255, 255]),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Colour 15 with `palette=custom`.",
+    what: "Color 15 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
 };
 

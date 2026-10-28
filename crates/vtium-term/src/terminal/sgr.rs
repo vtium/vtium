@@ -1,11 +1,11 @@
 //! SGR, `CSI Pm m`: the pen printed text takes.
 //!
-//! The forms are the C reference's. An index below 256 or an RGB colour
+//! The forms are the C reference's. An index below 256 or an RGB color
 //! comes from xterm's `38;5;n` and `38;2;r;g;b`, which always take
 //! exactly three values, and from ITU T.416's colon forms `38:5:n` and
-//! `38:2:cs:r:g:b`, where the colour space may be empty and the fields T.416
+//! `38:2:cs:r:g:b`, where the color space may be empty and the fields T.416
 //! puts after b are ignored. `38:2:r:g:b`, which programs send, is told
-//! apart from the colour-space form by its count of sub-parameters, as
+//! apart from the color-space form by its count of sub-parameters, as
 //! foot does (csi.c, MIT, Copyright (c) 2019 Daniel Eklöf). An index or
 //! component above 255 rejects a colon form; a semicolon form keeps a
 //! component's low byte and draws an index past 255 black, as the C
@@ -106,7 +106,7 @@ fn reset(pen: &mut Style) {
     }
 }
 
-/// A palette colour from a code in a run of eight.
+/// A palette color from a code in a run of eight.
 fn indexed(code: u32, first: u32, base: u32) -> Color {
     let index = code.saturating_sub(first).saturating_add(base);
     Color::Indexed(u8::try_from(index).unwrap_or(0))
@@ -132,7 +132,7 @@ fn underline(params: &Params, i: usize) -> Option<UnderlineStyle> {
     })
 }
 
-/// The colour SGR 38, 48 or 58 at parameter `i` selects, and how many
+/// The color SGR 38, 48 or 58 at parameter `i` selects, and how many
 /// parameters after `i` it used; `None` when it is none of the forms.
 fn color(params: &Params, i: usize) -> Option<(Color, usize)> {
     let mut buf = [0_u32; SUBPARAMS_MAX];
@@ -146,7 +146,7 @@ fn color(params: &Params, i: usize) -> Option<(Color, usize)> {
             return Some((Color::Indexed(u8::try_from(*index).ok()?), 0));
         }
         [2, rgb @ ..] if rgb.len() >= 3 => {
-            // r, g and b follow the colour space's slot when there is one.
+            // r, g and b follow the color space's slot when there is one.
             let rgb = if rgb.len() == 3 { rgb } else { rgb.get(1..)? };
             let [r, g, b] = [rgb.first()?, rgb.get(1)?, rgb.get(2)?].map(|&c| u8::try_from(c).ok());
             return Some((Color::Rgb(Rgb::new(r?, g?, b?)), 0));
@@ -253,7 +253,7 @@ impl Parts {
 
     /// `pen` with the parts named taken from `saved`. Every part is SGR's
     /// alone, and DECSCA's protection stays as `pen` has it. 4 and 21 both
-    /// name the underline, its style and its colour (SGR 58), which vtium
+    /// name the underline, its style and its color (SGR 58), which vtium
     /// holds as one; the overline and the script, which xterm's list does
     /// not name, return only with every part.
     fn restore(self, pen: Style, saved: Style) -> Style {

@@ -3,7 +3,7 @@
 //! vtium draws with exactly the same integers.
 //!
 //! A display pixel is `0x00RRGGBB`. The composing pixel is premultiplied
-//! `0xAARRGGBB`, its colours already multiplied by its alpha.
+//! `0xAARRGGBB`, its colors already multiplied by its alpha.
 //!
 //! Every input is a byte, so no sum or product here passes 255 * 255 +
 //! 255; the wrapping operations never wrap.
@@ -83,7 +83,7 @@ pub(crate) fn tint_over(p: u32, a: u8, c: Rgb) -> u32 {
     over(p, a, t(c.r), t(c.g), t(c.b))
 }
 
-/// The premultiplied colour pixel `src` over the premultiplied pixel `p`.
+/// The premultiplied color pixel `src` over the premultiplied pixel `p`.
 #[inline]
 pub(crate) fn argb_over(p: u32, src: u32) -> u32 {
     let a = src >> 24;

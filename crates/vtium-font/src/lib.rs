@@ -44,7 +44,7 @@
 //! face's glyphs and the sprites, and [`Font::coverage`] counts how much
 //! of each range the face holds.
 //! Every glyph is a [`Glyph`]: an 8-bit coverage mask, or premultiplied
-//! RGBA for a colour face. The bitmap faces and the sprites draw masks,
+//! RGBA for a color face. The bitmap faces and the sprites draw masks,
 //! and the same font, size and character give the same bytes on every
 //! host.
 //!

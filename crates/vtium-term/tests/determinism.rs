@@ -2,7 +2,7 @@
 //! after a byte stream does not depend on how the stream was split. Each
 //! stream is fed whole, cut at random points, and a byte at a time, and the
 //! screens (the cells, the scrollback, the cursor, the modes the screen
-//! holds, the damage), the palettes (the colours OSC 4, 10 to 19 and 21
+//! holds, the damage), the palettes (the colors OSC 4, 10 to 19 and 21
 //! set) and the reply bytes must be identical.
 //!
 //! The streams come from a grammar of what programs write

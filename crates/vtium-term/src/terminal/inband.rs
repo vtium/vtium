@@ -1,8 +1,8 @@
 //! The in-band reports a program opts into, so it hears of a change
 //! without polling: the text area's size (mode 2048, rockorager's in-band
 //! resize notifications), the console's visibility (mode 2033 and
-//! `CSI ? 998 n`, as foot(7) documents rockorager's spec) and its colour
-//! scheme (mode 2031 and `CSI ? 996 n`, contour's colour palette update
+//! `CSI ? 998 n`, as foot(7) documents rockorager's spec) and its color
+//! scheme (mode 2031 and `CSI ? 996 n`, contour's color palette update
 //! notifications).
 //!
 //! A report is sent while its mode is set and only on a change; modes 2048
@@ -51,7 +51,7 @@ impl Inband {
     }
 }
 
-/// The colour scheme, as `CSI ? 997 ; Ps n` numbers it.
+/// The color scheme, as `CSI ? 997 ; Ps n` numbers it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Scheme {
     Dark = 1,
@@ -161,7 +161,7 @@ impl State {
         self.reply(Query::ColorScheme, reply.as_bytes());
     }
 
-    /// After a change of colours: while mode 2031 is set, a scheme that
+    /// After a change of colors: while mode 2031 is set, a scheme that
     /// differs from `before` is reported.
     pub(super) fn report_scheme_change(&mut self, before: Scheme) {
         if self.modes.scheme_report() && self.scheme() != before {

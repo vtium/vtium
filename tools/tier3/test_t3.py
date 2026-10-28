@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Self-test for the parts of tier 3 that run on the host without a guest:
 the caption and screen text a case's report carries (t3_evaluate.py), the
-colours and cells of the sixel goldens (when the kmscon checkout holds the
+colors and cells of the sixel goldens (when the kmscon checkout holds the
 pinned commit), the tree a run installs and the guest's account of it
 (t3_impl.py, t3_scenario.py), the machine each variant boots, the console
 lines the driver waits for and the QEMU command line (t3_qemu.py), the
@@ -43,7 +43,7 @@ from t3_common import Logger  # noqa: E402
 LOG = Logger()
 
 SCRIPTS = {
-    "colours": r"printf '\033[1;31mred\033[0m plain\nnext\n'",
+    "colors": r"printf '\033[1;31mred\033[0m plain\nnext\n'",
     "fails": "echo partial; exit 3",
     "hangs": "sleep 5; echo late",
     "reads": 'read -r x; echo "got:$x"',
@@ -107,8 +107,8 @@ class ScreenTextTest(unittest.TestCase):
             finally:
                 t3_evaluate.GUEST, t3_evaluate.SCREENS, t3_evaluate.SCREEN_TIMEOUT = saved
 
-    def test_colours_removed(self):
-        self.assertEqual(self.text("colours"), ["red plain", "next"])
+    def test_colors_removed(self):
+        self.assertEqual(self.text("colors"), ["red plain", "next"])
 
     def test_failure_gives_none(self):
         self.assertIsNone(self.text("fails"))
@@ -235,7 +235,7 @@ def kmscon_holds_pin():
 @unittest.skipUnless(kmscon_holds_pin(), "no kmscon checkout with the pinned commit beside "
                                          "this one: the goldens cannot be read")
 class SixelGoldenTest(unittest.TestCase):
-    # The sixel page's colours (sixel.sh), as kmscon draws them: the bars,
+    # The sixel page's colors (sixel.sh), as kmscon draws them: the bars,
     # the seven discs and swatches, each beside its text twin, the ring
     # around its blue disc, and the grey band under the swatches.
     BARS = [(255, 0, 0), (255, 255, 0), (0, 255, 0), (0, 255, 255), (0, 0, 255),
@@ -282,9 +282,9 @@ class SixelGoldenTest(unittest.TestCase):
         return (lambda col, row: self.pixel(img, left + int(col * cw), top + int(row * ch)),
                 img.width // cw, cw, ch)
 
-    def test_colours_in_cells(self):
+    def test_colors_in_cells(self):
         # Every default variant's golden holds each picture in the cells the
-        # page puts it in, in its colours.
+        # page puts it in, in its colors.
         for variant in t3_scenario.DEFAULT_VARIANTS:
             with self.subTest(variant):
                 at, _, cw, ch = self.screen(variant, "sixel")
@@ -754,7 +754,7 @@ class DeparturesTest(unittest.TestCase):
     is a "departure", which passes; anything else about a listed case fails,
     and a list that names an unknown case or departure refuses the run."""
 
-    TITLE = "DA1 reports a VT220 with colour, `CSI ? 62 ; 22 c`."
+    TITLE = "DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`."
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -1307,7 +1307,7 @@ class PowerTest(unittest.TestCase):
     event."""
 
     # A console log as each action leaves it, systemd's status lines
-    # coloured as on the guest's serial console.
+    # colored as on the guest's serial console.
     OK = "[\x1b[0;32m  OK  \x1b[0m] "
     POWER_OFF = ["[ 9.1] vtium[404]: grab-power-off: asking init to power off",
                  OK + "Reached target Unmount All Filesystems.",

@@ -110,7 +110,7 @@ fn attrs(style: &Style, palette: &Palette) -> String {
     out
 }
 
-/// A colour code: the index below 16, else `#rrggbb`; none for the default.
+/// A color code: the index below 16, else `#rrggbb`; none for the default.
 fn color_code(color: Color, palette: &Palette) -> Option<String> {
     match color {
         Color::Default => None,
@@ -331,8 +331,8 @@ impl FCell {
     }
 }
 
-/// vtium-term's frame cell in the frame view's terms: the colours as the
-/// frame resolved them, the underline colour following the foreground
+/// vtium-term's frame cell in the frame view's terms: the colors as the
+/// frame resolved them, the underline color following the foreground
 /// unless SGR 58 set it, and inverse when reverse video, the cell's own
 /// inverse and the selection leave it inverted.
 fn frame_cell(c: &FrameCell<'_>, reverse: bool) -> FCell {
@@ -354,7 +354,7 @@ fn frame_cell(c: &FrameCell<'_>, reverse: bool) -> FCell {
 
 /// The cell under the cursor as the cursor draws it: an underline cursor
 /// toggles the underline, a bar leaves the cell, and a block swaps the
-/// colours, the underline colour following the new foreground unless set.
+/// colors, the underline color following the new foreground unless set.
 fn cursor_cell(cell: &FCell, style: CursorStyle) -> String {
     let mut c = cell.clone();
     match style {

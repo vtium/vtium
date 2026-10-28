@@ -1,9 +1,9 @@
 #!/bin/bash
-# The SGR attributes and palette colours of the minspec slice (#12).
-# look-for: Sixteen colour names, each in its own colour, then each on its own
+# The SGR attributes and palette colors of the minspec slice (#12).
+# look-for: Sixteen color names, each in its own color, then each on its own
 # look-for: background; bold, dim, italic, underlined, blinking, inverse and
 # look-for: struck words, each drawn as it names itself; the last line plain.
-# wrong-looks-like: A name in the wrong colour or the default one, a word with
+# wrong-looks-like: A name in the wrong color or the default one, a word with
 # wrong-looks-like: no attribute or another's, or any style running past its
 # wrong-looks-like: word into the plain text after it.
 names=(black red green yellow blue magenta cyan white)

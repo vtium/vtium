@@ -62,55 +62,55 @@
 ## A display's mode, `WxH[@RATE]`, for every display, `[CONNECTOR]WxH` for one connector, or `GPU[CONNECTOR]WxH` for one on one card, its udev `ID_PATH`. A key per line; the most specific match wins. Unset, the panel's preferred mode. It turns `use-original-mode` off.
 #mode=
 
-## The sixteen colours and the default foreground and background: a named palette, or `custom`, which takes the `palette-*` keys. Colours 16 to 255 are xterm's in every palette.
+## The sixteen colors and the default foreground and background: a named palette, or `custom`, which takes the `palette-*` keys. Colors 16 to 255 are xterm's in every palette.
 #palette=legacy
 
-## Colour 0 with `palette=custom`.
+## Color 0 with `palette=custom`.
 #palette-black=0,0,0
 
-## Colour 1 with `palette=custom`.
+## Color 1 with `palette=custom`.
 #palette-red=205,0,0
 
-## Colour 2 with `palette=custom`.
+## Color 2 with `palette=custom`.
 #palette-green=0,205,0
 
-## Colour 3 with `palette=custom`.
+## Color 3 with `palette=custom`.
 #palette-yellow=205,205,0
 
-## Colour 4 with `palette=custom`.
+## Color 4 with `palette=custom`.
 #palette-blue=0,0,238
 
-## Colour 5 with `palette=custom`.
+## Color 5 with `palette=custom`.
 #palette-magenta=205,0,205
 
-## Colour 6 with `palette=custom`.
+## Color 6 with `palette=custom`.
 #palette-cyan=0,205,205
 
-## Colour 7 with `palette=custom`.
+## Color 7 with `palette=custom`.
 #palette-light-grey=229,229,229
 
-## Colour 8 with `palette=custom`.
+## Color 8 with `palette=custom`.
 #palette-dark-grey=127,127,127
 
-## Colour 9 with `palette=custom`.
+## Color 9 with `palette=custom`.
 #palette-light-red=255,0,0
 
-## Colour 10 with `palette=custom`.
+## Color 10 with `palette=custom`.
 #palette-light-green=0,255,0
 
-## Colour 11 with `palette=custom`.
+## Color 11 with `palette=custom`.
 #palette-light-yellow=255,255,0
 
-## Colour 12 with `palette=custom`.
+## Color 12 with `palette=custom`.
 #palette-light-blue=92,92,255
 
-## Colour 13 with `palette=custom`.
+## Color 13 with `palette=custom`.
 #palette-light-magenta=255,0,255
 
-## Colour 14 with `palette=custom`.
+## Color 14 with `palette=custom`.
 #palette-light-cyan=0,255,255
 
-## Colour 15 with `palette=custom`.
+## Color 15 with `palette=custom`.
 #palette-white=255,255,255
 
 ## The default foreground with `palette=custom`.
