@@ -50,6 +50,8 @@
 //! - [`power`]: the reboot, power-off and suspend requests the power keys
 //!   make of PID 1, logind and the kernel; with the `logind` feature,
 //!   [`logind`] reaches logind through sd-bus.
+//! - [`rt_signal`]: `SIGRTMIN+n`, read through a signalfd of its own as a
+//!   loop source and sent to another process.
 //!
 //! Each bound is defined once in `src/bounds.rs` and tabulated in the
 //! crate's README.
@@ -67,6 +69,7 @@ mod mmap;
 pub mod power;
 pub mod pty;
 mod queue;
+pub mod rt_signal;
 pub mod udev;
 pub mod vt;
 
