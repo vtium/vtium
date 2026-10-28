@@ -845,18 +845,14 @@ impl App {
         chars
     }
 
-    /// While the font is a frit, asks the helper for the glyphs of each
-    /// cell a display draws at and the helper was not asked for, the
-    /// screen's characters and ASCII first (ADR-1301 D2), and drops the
-    /// glyphs of cells no display draws at any more.
+    /// While the font is a frit, fills each cell a display draws at and
+    /// that was not filled yet, the screen's characters first, and asks for
+    /// the screen's characters there; drops the glyphs of cells no display
+    /// draws at any more (ADR-1301 D2, the operator's fill model).
     fn ask_glyphs(&mut self) {
-        let Some(Chosen::Frit {
-            path, generated, ..
-        }) = &self.font
-        else {
+        if !matches!(self.font, Some(Chosen::Frit { .. })) {
             return;
-        };
-        let (path, generated) = (path.clone(), Rc::clone(generated));
+        }
         let mut cells: Vec<vtium_font::Cell> = self
             .views
             .values()
@@ -864,9 +860,9 @@ impl App {
             .collect();
         cells.sort_unstable_by_key(|c| (c.height, c.width));
         cells.dedup();
-        generated.borrow_mut().retain(&cells);
+        let now = (self.clock)();
         if let Some(helper) = &mut self.helper {
-            helper.retain(&cells);
+            helper.retain(&cells, now);
         }
         self.asked.retain(|c| cells.contains(c));
         let new: Vec<vtium_font::Cell> = cells
@@ -876,32 +872,49 @@ impl App {
         if new.is_empty() {
             return;
         }
-        let mut first = self.visible_chars();
-        first.extend((0x21u8..0x7f).map(char::from));
-        first.sort_unstable();
-        first.dedup();
-        let console = self.console_font.clone();
-        let now = (self.clock)();
+        let visible = self.visible_chars();
         let Some(helper) = self.helper() else {
             return;
         };
         for &cell in &new {
-            helper.request(
-                helper::Request {
-                    frit: path.clone(),
-                    cell,
-                    first: first.clone(),
-                    console: console.clone(),
-                },
-                now,
-            );
+            helper.ask(cell, &visible, now);
+            helper.fill(cell, &visible, now);
         }
         self.asked.extend(new);
     }
 
+    /// While the font is a frit and the screen changed, asks for each
+    /// character it shows that the store does not hold, and marks the sets
+    /// that hold the others as used.
+    fn ask_visible(&mut self, now: Instant) {
+        let Some(Chosen::Frit { generated, .. }) = &self.font else {
+            return;
+        };
+        let generated = Rc::clone(generated);
+        if self.helper.is_none() {
+            return;
+        }
+        let visible = self.visible_chars();
+        let cells = self.asked.clone();
+        for cell in cells {
+            generated.borrow_mut().touch(cell, &visible);
+            if let Some(helper) = &mut self.helper {
+                helper.ask(cell, &visible, now);
+            }
+        }
+    }
+
     /// The helper, started on the first need with a wake-up into the loop
-    /// for its answers; `None`, logged once, when it cannot be.
+    /// for its answers and the store its glyphs go into; `None`, logged
+    /// once, when it cannot be.
     fn helper(&mut self) -> Option<&mut Helper> {
+        let Some(Chosen::Frit {
+            path, generated, ..
+        }) = &self.font
+        else {
+            return None;
+        };
+        let (path, generated) = (path.clone(), Rc::clone(generated));
         if self.helper.is_none() && !self.helper_refused {
             let command = self
                 .font_sources
@@ -927,6 +940,10 @@ impl App {
                             }
                         }),
                         self.epoch,
+                        path,
+                        self.console_font.clone(),
+                        generated,
+                        crate::deferred::store_limit(physical_memory()),
                     ));
                 }
                 Err(why) => {
@@ -940,10 +957,12 @@ impl App {
         self.helper.as_mut()
     }
 
-    /// Takes the helper's answers: each set of glyphs joins the per-boot
-    /// cache, and each display at its cell redraws the cells that show one
-    /// of them.
+    /// Takes the helper's answers: each display at a set's cell redraws
+    /// the cells that show one of its characters.
     fn helper_turn(&mut self, now: Instant) {
+        if self.term.changed {
+            self.ask_visible(now);
+        }
         let Some(helper) = &mut self.helper else {
             return;
         };
@@ -951,18 +970,8 @@ impl App {
         if answers.is_empty() {
             return;
         }
-        let Some(Chosen::Frit { generated, .. }) = &self.font else {
-            return;
-        };
-        let generated = Rc::clone(generated);
         let visible = self.visible_chars();
-        for Answer::Glyphs { cell, set } in answers {
-            if !self.asked.contains(&cell) {
-                continue;
-            }
-            let Some(face) = generated.borrow_mut().add(cell, set) else {
-                continue;
-            };
+        for Answer { cell, face } in answers {
             let changed: Vec<char> = visible
                 .iter()
                 .copied()

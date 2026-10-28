@@ -1,35 +1,43 @@
-//! The glyph helper's client (ADR-1301 D2): the console
-//! starts `vtium-vitrify serve` on its first need for a frit's glyphs,
-//! asks it for one cell's glyphs at a time, the screen's codepoints first,
-//! and takes each answer as it arrives without ever waiting on it.
+//! The glyph helper's client (ADR-1301 D2): the console starts
+//! `vtium-vitrify serve` on its first need for a frit's glyphs, and takes
+//! each answer as it arrives without ever waiting on it.
+//!
+//! It asks under the operator's fill model (2026-10-28). An ask names the
+//! characters a cell shows that the store does not hold, has not been told
+//! the frit lacks, and has not already asked for; the helper answers it
+//! ahead of anything else. A fill fills a cell's coverage while nothing is
+//! asked: the screen's characters, then printable Latin and box drawing,
+//! then the rest, a batch at a time, a waiting ask answered before the
+//! next batch. The fill stops at the store's limit ([`crate::deferred`]),
+//! so speculative glyphs never churn the store; only an ask past the limit
+//! evicts, the sets least recently on the screen first, and an evicted
+//! glyph is asked for again when the screen shows it.
 //!
 //! The helper runs with an empty environment in `/`, in its own process
 //! group, holding only its pipes, as `nobody` when the console is root
 //! (ADR-1400 D2's last account before login), and sandboxes itself. A
 //! thread writes the requests and another reads the answers, so neither
 //! a slow nor a hung helper stalls the loop; the reader wakes the loop
-//! after each answer; the reader also reaps the helper as it exits. Each
-//! frame is checked before it is trusted: its length against
-//! [`FRAME_BYTES_MAX`] before anything is allocated, a set through
-//! vtium-font's reader, which bounds every field, every strike at the cell
-//! asked for, regular in style, no codepoint the cell holds already, and
-//! the cell's frames inside [`CELL_BYTES_MAX`].
+//! after each answer, and reaps the helper as it exits. Each frame is
+//! checked before it is trusted: its length against [`FRAME_BYTES_MAX`]
+//! before anything is allocated, a set through vtium-font's reader, which
+//! bounds every field, every strike at a cell asked for and regular in
+//! style, an ask's glyphs among those it asked for and not yet sent, and a
+//! fill's among those the cell does not hold.
 //!
-//! A helper that crashes, panics, fails a request, answers what is not a
-//! frame, answers a request with no glyph, gives no answer for
-//! [`ANSWER_MS`], or leaves a request unfinished for [`REQUEST_MS`] is
-//! ended, and the console logs one line and asks it nothing more: the
-//! built-in font goes on drawing what the helper has not sent. A helper
-//! that exits 0 between requests left at its idle interval, and the next
-//! request starts another; one that left as a request went out, before
-//! answering it, is started again for it, once. One its CPU limit ended is
-//! replaced at the next request, the request it was answering dropped, at
-//! most [`RESTARTS_MAX`] times a boot.
+//! A helper that answers what is not a frame, what was not asked, or a
+//! failure is given up for the boot, logged once, and the built-in font
+//! goes on drawing what it has not sent. One that crashes, reaches its CPU
+//! limit, gives no answer for [`ANSWER_MS`], leaves an ask unanswered for
+//! [`REQUEST_MS`], or exits with work outstanding is started again, its
+//! asks and fills sent again, at most [`RESTARTS_MAX`] times a boot. One
+//! that exits 0 with nothing outstanding left at its idle interval, and
+//! the next need starts another.
 //!
 //! The wire format is `vtium-vitrify`'s serve mode's (`serve.rs`), whose
 //! constants this module repeats.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
@@ -42,31 +50,40 @@ use std::time::{Duration, Instant};
 
 use rustix::process::{Pid, PidfdFlags, Signal, pidfd_open, pidfd_send_signal};
 use vtium_font::Cell;
-use vtium_font::set::Set;
+use vtium_font::set::{Set, SetFace};
 use vtium_platform::vt::font::ConsoleFont;
 
-/// How long the helper may take for each answer, a frame or the request's
-/// end, before it is ended: a CJK frit's first batch on a Cortex-A53 takes
-/// about a second.
+use crate::deferred::Shared;
+
+/// How long the helper may take for each answer while work is
+/// outstanding: a CJK frit's first batch on a Cortex-A53 takes about a
+/// second.
 pub const ANSWER_MS: u64 = 10_000;
-/// How long one request may take whole, however often its frames come.
+/// How long one ask may take whole, however often frames come.
 pub const REQUEST_MS: u64 = 60_000;
-/// The most bytes of glyphs one cell's frames hold.
-pub const CELL_BYTES_MAX: u64 = 64 << 20;
-/// How many times a boot replaces a helper its CPU limit ended.
+/// How many times a boot starts the helper again after it crashed,
+/// reached its CPU limit, hung, or exited with work outstanding.
 pub const RESTARTS_MAX: u32 = 3;
 /// The most bytes one frame's payload holds, the helper's
 /// `FRAME_BYTES_MAX`.
 pub const FRAME_BYTES_MAX: u32 = 16 << 20;
 /// The most bytes of a failure's reason kept.
 pub const REASON_BYTES_MAX: u32 = 4096;
-/// The most codepoints a request names first, the helper's `FIRST_MAX`.
+/// The most codepoints one request names, the helper's `FIRST_MAX`.
 pub const FIRST_MAX: usize = 32_000;
 
 const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ1";
+const ASK: u32 = 1;
+const FILL: u32 = 2;
+const STOP: u32 = 3;
 const FRAME_GLYPHS: u32 = 1;
 const FRAME_DONE: u32 = 2;
 const FRAME_FAILED: u32 = 3;
+const FRAME_FILL: u32 = 4;
+const FRAME_FILLED: u32 = 5;
+
+/// `SIGXCPU`, which an exhausted `RLIMIT_CPU` sends.
+const SIGXCPU: i32 = 24;
 
 /// The helper's program, set at build time with `VTIUM_VITRIFY`.
 pub fn default_program() -> PathBuf {
@@ -96,9 +113,9 @@ pub struct Command {
 }
 
 impl Command {
-    /// `vtium-vitrify serve`, as `nobody` when the console is root; `None`
-    /// as root with no `nobody` in `/etc/passwd`, since the helper never
-    /// runs as root.
+    /// `vtium-vitrify serve`, as `nobody` when the console is root; an
+    /// error as root with no `nobody` in `/etc/passwd`, since the helper
+    /// never runs as root.
     pub fn system() -> Result<Command, String> {
         let account = if rustix::process::geteuid().is_root() {
             let passwd = std::fs::read_to_string("/etc/passwd")
@@ -115,18 +132,6 @@ impl Command {
     }
 }
 
-/// One cell's glyphs, asked of the helper.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Request {
-    /// The frit, by its absolute path.
-    pub frit: PathBuf,
-    pub cell: Cell,
-    /// The codepoints the helper draws first.
-    pub first: Vec<char>,
-    /// The kernel's font, read from the VT at start (vtium/vtium#145).
-    pub console: Option<ConsoleFont>,
-}
-
 fn put32(out: &mut Vec<u8>, v: u32) {
     out.extend_from_slice(&v.to_le_bytes());
 }
@@ -135,50 +140,66 @@ fn len32(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
-impl Request {
-    /// The request's bytes, its first codepoints cut at [`FIRST_MAX`].
-    pub fn encode(&self) -> Vec<u8> {
-        let mut out = REQUEST_MAGIC.to_vec();
-        let path = self.frit.to_string_lossy();
-        put32(&mut out, len32(path.len()));
-        out.extend_from_slice(path.as_bytes());
-        put32(&mut out, self.cell.width);
-        put32(&mut out, self.cell.height);
-        let first = self.first.get(..FIRST_MAX).unwrap_or(&self.first);
-        put32(&mut out, len32(first.len()));
-        for &c in first {
-            put32(&mut out, u32::from(c));
-        }
-        match &self.console {
-            None => put32(&mut out, 0),
-            Some(f) => {
-                put32(&mut out, 1);
-                for v in [f.width, f.height, f.charcount, len32(f.data.len())] {
-                    put32(&mut out, v);
-                }
-                out.extend_from_slice(&f.data);
-                put32(&mut out, len32(f.unimap.len()));
-                for p in &f.unimap {
-                    out.extend_from_slice(&p.unicode.to_le_bytes());
-                    out.extend_from_slice(&p.fontpos.to_le_bytes());
-                }
+/// One request's bytes: `kind` at `cell` for the frit at `frit`, naming
+/// `codepoints` (cut at [`FIRST_MAX`]) and `held`, with the kernel's font.
+fn encode(
+    frit: &std::path::Path,
+    console: Option<&ConsoleFont>,
+    kind: u32,
+    cell: Cell,
+    codepoints: &[u32],
+    held: &[(u32, u32)],
+) -> Vec<u8> {
+    let mut out = REQUEST_MAGIC.to_vec();
+    put32(&mut out, kind);
+    let path = frit.to_string_lossy();
+    put32(&mut out, len32(path.len()));
+    out.extend_from_slice(path.as_bytes());
+    put32(&mut out, cell.width);
+    put32(&mut out, cell.height);
+    let codepoints = codepoints.get(..FIRST_MAX).unwrap_or(codepoints);
+    put32(&mut out, len32(codepoints.len()));
+    for &c in codepoints {
+        put32(&mut out, c);
+    }
+    put32(&mut out, len32(held.len()));
+    for &(a, b) in held {
+        put32(&mut out, a);
+        put32(&mut out, b);
+    }
+    match console {
+        None => put32(&mut out, 0),
+        Some(f) => {
+            put32(&mut out, 1);
+            for v in [f.width, f.height, f.charcount, len32(f.data.len())] {
+                put32(&mut out, v);
+            }
+            out.extend_from_slice(&f.data);
+            put32(&mut out, len32(f.unimap.len()));
+            for p in &f.unimap {
+                out.extend_from_slice(&p.unicode.to_le_bytes());
+                out.extend_from_slice(&p.fontpos.to_le_bytes());
             }
         }
-        out
     }
+    out
 }
 
 /// What the reader thread saw.
 #[derive(Debug)]
 enum Event {
-    /// A set and the codepoints it maps, as `(first, count)` runs, with
-    /// the bytes its frame took.
+    /// A set, an ask's or a fill's, the codepoints it maps as `(first,
+    /// count)` runs, and the bytes its frame took.
     Glyphs {
+        fill: bool,
         set: Arc<Set>,
         runs: Vec<(u32, u32)>,
         bytes: u64,
     },
+    /// The oldest ask is answered.
     Done,
+    /// A cell's fill is done.
+    Filled(Cell),
     Failed(String),
     /// Bytes that are not a frame, or a set its reader refused.
     Malformed(String),
@@ -278,8 +299,9 @@ fn frame(r: &mut impl Read) -> Option<Event> {
         Err(why) => return Some(Event::Malformed(why)),
     };
     let max = match kind {
-        FRAME_GLYPHS => FRAME_BYTES_MAX,
+        FRAME_GLYPHS | FRAME_FILL => FRAME_BYTES_MAX,
         FRAME_DONE => 0,
+        FRAME_FILLED => 8,
         FRAME_FAILED => REASON_BYTES_MAX,
         other => return Some(Event::Malformed(format!("a frame of unknown kind {other}"))),
     };
@@ -293,10 +315,11 @@ fn frame(r: &mut impl Read) -> Option<Event> {
         return Some(Event::Malformed("a frame cut short".to_owned()));
     }
     Some(match kind {
-        FRAME_GLYPHS => match mapped_runs(&payload) {
+        FRAME_GLYPHS | FRAME_FILL => match mapped_runs(&payload) {
             Err(why) => Event::Malformed(why),
             Ok(runs) => match Set::from_bytes(payload) {
                 Ok(set) => Event::Glyphs {
+                    fill: kind == FRAME_FILL,
                     set: Arc::new(set),
                     runs,
                     bytes: u64::from(len),
@@ -305,15 +328,23 @@ fn frame(r: &mut impl Read) -> Option<Event> {
             },
         },
         FRAME_DONE => Event::Done,
+        FRAME_FILLED => match *payload.as_slice() {
+            [w0, w1, w2, w3, h0, h1, h2, h3] => Event::Filled(Cell {
+                width: u32::from_le_bytes([w0, w1, w2, w3]),
+                height: u32::from_le_bytes([h0, h1, h2, h3]),
+            }),
+            _ => Event::Malformed("a fill's end without its cell".to_owned()),
+        },
         _ => Event::Failed(String::from_utf8_lossy(&payload).into_owned()),
     })
 }
 
-/// An answer the console takes.
+/// An answer the console takes: glyphs now in the store at `cell`, drawn
+/// through `face`.
 #[derive(Debug)]
-pub enum Answer {
-    /// Glyphs at `cell`, checked.
-    Glyphs { cell: Cell, set: Arc<Set> },
+pub struct Answer {
+    pub cell: Cell,
+    pub face: SetFace,
 }
 
 /// The helper's process: its pidfd, which ends it, the writer's queue and
@@ -324,100 +355,162 @@ struct Running {
     events: mpsc::Receiver<Event>,
 }
 
-/// The request the helper is answering.
-struct InFlight {
-    request: Request,
-    /// When it was asked, and when its first glyphs came.
-    asked: Instant,
-    first: Option<Instant>,
-    /// When the next answer is due.
-    due: Instant,
-    /// When the request must be answered whole.
-    end: Instant,
-    /// Sent again to a helper started for it once already.
-    resent: bool,
-}
-
-/// What the helper has sent at one cell this boot: a bit for each
-/// codepoint, and the bytes of its frames.
-struct Held {
-    cell: Cell,
-    bits: Vec<u64>,
-    bytes: u64,
-}
-
 /// One bit for each Unicode codepoint.
-const CODEPOINT_WORDS: usize = 0x11_0000 / 64;
+struct Bits(Vec<u64>);
 
-impl Held {
-    fn new(cell: Cell) -> Held {
-        Held {
-            cell,
-            bits: vec![0; CODEPOINT_WORDS],
-            bytes: 0,
-        }
+impl Bits {
+    fn new() -> Bits {
+        Bits(vec![0; 0x11_0000 / 64])
     }
 
-    /// Marks each codepoint of `runs`; false when one is past Unicode or
-    /// already held.
-    fn mark(&mut self, runs: &[(u32, u32)]) -> bool {
-        for &(first, n) in runs {
-            for c in (0..n).map(|i| first.checked_add(i)) {
-                let Some(c) = c else {
-                    return false;
-                };
-                let (word, bit) = ((c / 64) as usize, c % 64);
-                let Some(w) = self.bits.get_mut(word) else {
-                    return false;
-                };
-                if *w & (1 << bit) != 0 {
-                    return false;
-                }
-                *w |= 1 << bit;
+    fn has(&self, c: u32) -> bool {
+        self.0
+            .get((c / 64) as usize)
+            .is_some_and(|w| w & (1 << (c % 64)) != 0)
+    }
+
+    fn put(&mut self, c: u32, on: bool) {
+        if let Some(w) = self.0.get_mut((c / 64) as usize) {
+            if on {
+                *w |= 1 << (c % 64);
+            } else {
+                *w &= !(1 << (c % 64));
             }
         }
-        true
+    }
+
+    /// The codepoints set, as ranges.
+    fn ranges(&self) -> Vec<(u32, u32)> {
+        let mut out: Vec<(u32, u32)> = Vec::new();
+        for (i, &w) in self.0.iter().enumerate() {
+            if w == 0 {
+                continue;
+            }
+            let base = u32::try_from(i).unwrap_or(0).saturating_mul(64);
+            for b in (0..64).filter(|b| w & (1 << b) != 0) {
+                let c = base.saturating_add(b);
+                match out.last_mut() {
+                    Some((_, last)) if last.checked_add(1) == Some(c) => *last = c,
+                    _ => out.push((c, c)),
+                }
+            }
+        }
+        out
     }
 }
 
-/// The helper as the console sees it: started on the first request,
-/// fed one request at a time, replaced at the next request when its CPU
-/// limit ended it, at most [`RESTARTS_MAX`] times a boot, and otherwise
-/// given up for this boot at its first failure.
+/// Each codepoint of `runs`, `None` past `u32`.
+fn codepoints(runs: &[(u32, u32)]) -> impl Iterator<Item = Option<u32>> + '_ {
+    runs.iter()
+        .flat_map(|&(first, n)| (0..n).map(move |i| first.checked_add(i)))
+}
+
+/// Where a cell's fill stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Fill {
+    /// Never started.
+    None,
+    Active,
+    /// Ended at the store's limit or by a display gone; frames already on
+    /// their way are dropped.
+    Stopped,
+    Done,
+}
+
+/// What the console knows of one cell: the codepoints the store holds,
+/// those the frit lacks, those asked for and not yet answered, and its
+/// fill.
+struct CellState {
+    cell: Cell,
+    held: Bits,
+    absent: Bits,
+    pending: Bits,
+    fill: Fill,
+    /// The fill's first codepoints, sent again with a restart.
+    first: Vec<u32>,
+    /// When the fill was asked for, and when its first glyphs came.
+    started: Option<Instant>,
+    first_glyphs: Option<Instant>,
+}
+
+impl CellState {
+    fn new(cell: Cell) -> CellState {
+        CellState {
+            cell,
+            held: Bits::new(),
+            absent: Bits::new(),
+            pending: Bits::new(),
+            fill: Fill::None,
+            first: Vec::new(),
+            started: None,
+            first_glyphs: None,
+        }
+    }
+}
+
+/// An ask the helper has not answered whole: its cell, the codepoints it
+/// has yet to send, and when it was sent.
+struct Ask {
+    cell: Cell,
+    want: BTreeSet<u32>,
+    sent: Instant,
+}
+
+/// The helper as the console sees it.
 pub struct Helper {
     command: Command,
     /// Wakes the loop: called by the reader thread after each frame.
     wake: Arc<dyn Fn() + Send + Sync>,
+    frit: PathBuf,
+    console: Option<ConsoleFont>,
+    store: Shared,
+    limit: u64,
     running: Option<Running>,
-    queue: VecDeque<Request>,
-    in_flight: Option<InFlight>,
-    held: Vec<Held>,
+    cells: Vec<CellState>,
+    asks: VecDeque<Ask>,
+    /// When the next answer is due, while work is outstanding.
+    due: Option<Instant>,
     restarts: u32,
+    /// The store reached its limit: logged once.
+    full: bool,
     failed: Option<String>,
     answer: Duration,
     request: Duration,
-    cell_bytes: u64,
-    /// When vtium started, for the line each answered request logs.
+    /// When vtium started, for the line each fill logs.
     epoch: Instant,
 }
 
 impl Helper {
-    /// The helper `command` starts, whose reader calls `wake` after each
-    /// answer, in a vtium started at `epoch`.
-    pub fn new(command: Command, wake: Arc<dyn Fn() + Send + Sync>, epoch: Instant) -> Helper {
+    /// The helper `command` starts for the frit at `frit`, handing it the
+    /// kernel's `console` font, whose glyphs go into `store` up to `limit`
+    /// bytes; its reader calls `wake` after each answer, in a vtium
+    /// started at `epoch`.
+    pub fn new(
+        command: Command,
+        wake: Arc<dyn Fn() + Send + Sync>,
+        epoch: Instant,
+        frit: PathBuf,
+        console: Option<ConsoleFont>,
+        store: Shared,
+        limit: u64,
+    ) -> Helper {
         Helper {
             command,
             wake,
+            frit,
+            console,
+            store,
+            limit,
             epoch,
             running: None,
-            queue: VecDeque::new(),
-            in_flight: None,
-            held: Vec::new(),
+            cells: Vec::new(),
+            asks: VecDeque::new(),
+            due: None,
             restarts: 0,
+            full: false,
             failed: None,
             answer: Duration::from_millis(ANSWER_MS),
             request: Duration::from_millis(REQUEST_MS),
-            cell_bytes: CELL_BYTES_MAX,
         }
     }
 
@@ -427,67 +520,121 @@ impl Helper {
     }
 
     /// When [`Helper::poll`] must next run: the next answer due, or the
-    /// request's end, whichever comes first.
+    /// oldest ask's end, whichever comes first.
     pub fn deadline(&self) -> Option<Instant> {
-        self.in_flight.as_ref().map(|f| f.due.min(f.end))
+        let ask = self.asks.front().map(|a| after(a.sent, self.request));
+        match (self.due, ask) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
-    /// Whether a request is queued or answering.
+    /// Whether an ask or a fill is outstanding.
     pub fn busy(&self) -> bool {
-        self.in_flight.is_some() || !self.queue.is_empty()
+        !self.asks.is_empty() || self.cells.iter().any(|c| c.fill == Fill::Active)
     }
 
-    /// Forgets what was sent at every cell but `cells`, as the console
-    /// drops those glyphs, so a cell asked for again starts afresh.
-    pub fn retain(&mut self, cells: &[Cell]) {
-        self.held.retain(|h| cells.contains(&h.cell));
+    /// What the console knows of `cell`, made on first use.
+    fn state(&mut self, cell: Cell) -> Option<&mut CellState> {
+        if !self.cells.iter().any(|c| c.cell == cell) {
+            self.cells.push(CellState::new(cell));
+        }
+        self.cells.iter_mut().find(|c| c.cell == cell)
     }
 
-    /// Asks for `request`, after those already asked.
-    pub fn request(&mut self, request: Request, now: Instant) {
+    /// Fills `cell`'s coverage, `first` first, while nothing is asked.
+    pub fn fill(&mut self, cell: Cell, first: &[char], now: Instant) {
         if self.failed.is_some() {
             return;
         }
-        self.queue.push_back(request);
-        self.next(now);
-    }
-
-    /// Sends the next queued request when none is answering, starting the
-    /// helper first when it is not running.
-    fn next(&mut self, now: Instant) {
-        if self.in_flight.is_some() || self.failed.is_some() {
-            return;
-        }
-        let Some(request) = self.queue.pop_front() else {
+        let Some(state) = self.state(cell) else {
             return;
         };
-        self.send(
-            InFlight {
-                request,
-                asked: now,
-                first: None,
-                due: now,
-                end: after(now, self.request),
-                resent: false,
-            },
-            now,
-        );
+        state.fill = Fill::Active;
+        state.first = first.iter().map(|&c| u32::from(c)).collect();
+        state.started = Some(now);
+        state.first_glyphs = None;
+        let (codepoints, held) = (state.first.clone(), state.held.ranges());
+        self.send(FILL, cell, &codepoints, &held, now);
     }
 
-    fn send(&mut self, mut flight: InFlight, now: Instant) {
+    /// Asks for each of `chars` at `cell` that the store does not hold,
+    /// the frit is not known to lack and no ask has named.
+    pub fn ask(&mut self, cell: Cell, chars: &[char], now: Instant) {
+        if self.failed.is_some() {
+            return;
+        }
+        let Some(state) = self.state(cell) else {
+            return;
+        };
+        let mut want = BTreeSet::new();
+        for c in chars.iter().map(|&c| u32::from(c)) {
+            if !state.held.has(c) && !state.absent.has(c) && !state.pending.has(c) {
+                state.pending.put(c, true);
+                want.insert(c);
+            }
+        }
+        if want.is_empty() {
+            return;
+        }
+        let codepoints: Vec<u32> = want.iter().copied().collect();
+        self.asks.push_back(Ask {
+            cell,
+            want,
+            sent: now,
+        });
+        self.send(ASK, cell, &codepoints, &[], now);
+    }
+
+    /// Forgets every cell but `cells`, as no display draws at them: their
+    /// fills stop and their glyphs leave the store.
+    pub fn retain(&mut self, cells: &[Cell], now: Instant) {
+        let gone: Vec<Cell> = self
+            .cells
+            .iter()
+            .filter(|c| !cells.contains(&c.cell))
+            .filter(|c| c.fill == Fill::Active)
+            .map(|c| c.cell)
+            .collect();
+        for cell in gone {
+            self.send(STOP, cell, &[], &[], now);
+        }
+        self.cells.retain(|c| cells.contains(&c.cell));
+        self.store.borrow_mut().retain(cells);
+    }
+
+    /// Sends one request, starting the helper first when it is not
+    /// running.
+    fn send(
+        &mut self,
+        kind: u32,
+        cell: Cell,
+        codepoints: &[u32],
+        held: &[(u32, u32)],
+        now: Instant,
+    ) {
         if self.running.is_none() {
             match self.start() {
                 Ok(r) => self.running = Some(r),
                 Err(why) => return self.fail(&why),
             }
         }
+        let bytes = encode(
+            &self.frit,
+            self.console.as_ref(),
+            kind,
+            cell,
+            codepoints,
+            held,
+        );
         if let Some(r) = &self.running {
             // a send fails only once the writer is gone, which the reader
             // reports as the helper closing
-            let _ = r.requests.send(flight.request.encode());
+            let _ = r.requests.send(bytes);
         }
-        flight.due = after(now, self.answer);
-        self.in_flight = Some(flight);
+        if self.busy() {
+            self.due.get_or_insert(after(now, self.answer));
+        }
     }
 
     fn start(&self) -> Result<Running, String> {
@@ -560,11 +707,17 @@ impl Helper {
         })
     }
 
-    /// Gives the helper up: ends it, drops what was asked and logs `why`
-    /// once.
+    /// Gives the helper up for the boot: ends it, drops what was asked
+    /// and logs `why` once.
     fn fail(&mut self, why: &str) {
         self.stop();
-        self.queue.clear();
+        self.asks.clear();
+        for c in &mut self.cells {
+            if c.fill == Fill::Active {
+                c.fill = Fill::Stopped;
+            }
+        }
+        self.due = None;
         if self.failed.is_none() {
             log::warn!(
                 "the font's glyphs are not generated ({why}): vtium draws its built-in font for them"
@@ -575,175 +728,285 @@ impl Helper {
 
     /// Ends the helper's process, if it runs; its reader reaps it.
     fn stop(&mut self) {
-        self.in_flight = None;
         if let Some(fd) = self.running.take().and_then(|r| r.pidfd) {
             let _ = pidfd_send_signal(&fd, Signal::KILL);
         }
     }
 
-    /// Takes what the helper has sent since the last call, and gives the
-    /// helper up when its answer or its request is past due.
+    /// Starts the helper again after `why`, its asks and fills sent again,
+    /// or gives it up past [`RESTARTS_MAX`].
+    fn restart(&mut self, why: &str, now: Instant) {
+        self.stop();
+        if self.restarts >= RESTARTS_MAX {
+            return self.fail(&format!(
+                "{why}, after {RESTARTS_MAX} starts again this boot"
+            ));
+        }
+        self.restarts = self.restarts.saturating_add(1);
+        log::warn!(
+            "the glyph helper {why}: it is started again ({} of {RESTARTS_MAX} this boot)",
+            self.restarts
+        );
+        self.due = None;
+        let asks: Vec<(Cell, Vec<u32>)> = self
+            .asks
+            .iter_mut()
+            .map(|a| {
+                a.sent = now;
+                (a.cell, a.want.iter().copied().collect())
+            })
+            .collect();
+        for (cell, want) in asks {
+            self.send(ASK, cell, &want, &[], now);
+        }
+        let fills: Vec<Cell> = self
+            .cells
+            .iter()
+            .filter(|c| c.fill == Fill::Active)
+            .map(|c| c.cell)
+            .collect();
+        for cell in fills {
+            let Some(state) = self.cells.iter().find(|c| c.cell == cell) else {
+                continue;
+            };
+            let (first, held) = (state.first.clone(), state.held.ranges());
+            self.send(FILL, cell, &first, &held, now);
+        }
+    }
+
+    /// Takes what the helper has sent since the last call; ends and starts
+    /// again a helper whose answer or ask is past due.
     pub fn poll(&mut self, now: Instant) -> Vec<Answer> {
         let mut out = Vec::new();
-        loop {
+        while self.failed.is_none() {
             let Some(event) = self.running.as_ref().and_then(|r| r.events.try_recv().ok()) else {
                 break;
             };
-            match event {
-                Event::Glyphs { set, runs, bytes } => match self.glyphs(&set, &runs, bytes, now) {
-                    Ok(cell) => out.push(Answer::Glyphs { cell, set }),
-                    Err(why) => {
-                        self.fail(why);
-                        break;
-                    }
-                },
-                Event::Done => {
-                    let Some(flight) = self.in_flight.take() else {
-                        self.fail("the helper answered what was not asked");
-                        break;
-                    };
-                    if flight.first.is_none() {
-                        let c = flight.request.cell;
-                        self.fail(&format!(
-                            "the helper answered no glyph at {}x{}",
-                            c.width, c.height
-                        ));
-                        break;
-                    }
-                    self.done(&flight, now);
-                    self.next(now);
-                }
-                Event::Failed(why) => {
-                    self.fail(&format!("the helper failed: {}", why.trim()));
-                    break;
-                }
-                Event::Malformed(why) => {
-                    self.fail(&format!("the helper's answer was refused: {why}"));
-                    break;
-                }
+            let result = match event {
+                Event::Glyphs {
+                    fill,
+                    set,
+                    runs,
+                    bytes,
+                } => self
+                    .glyphs(fill, &set, runs, bytes, now)
+                    .map(|a| out.extend(a)),
+                Event::Done => self.done(),
+                Event::Filled(cell) => self.filled(cell, now),
+                Event::Failed(why) => Err(format!("the helper failed: {}", why.trim())),
+                Event::Malformed(why) => Err(format!("the helper's answer was refused: {why}")),
                 Event::Closed(status) => {
                     self.closed(status, now);
                     break;
                 }
+            };
+            if let Err(why) = result {
+                self.fail(&why);
+                break;
             }
+            self.due = self.busy().then(|| after(now, self.answer));
         }
-        match &self.in_flight {
-            Some(f) if f.end <= now => self.fail(&format!(
-                "the helper did not finish a request within {} s and was ended",
-                self.request.as_secs()
-            )),
-            Some(f) if f.due <= now => self.fail(&format!(
-                "the helper gave no answer within {} s and was ended",
-                self.answer.as_secs()
-            )),
-            _ => {}
+        if self.failed.is_none() {
+            if self
+                .asks
+                .front()
+                .is_some_and(|a| after(a.sent, self.request) <= now)
+            {
+                self.restart(
+                    &format!("left an ask unanswered for {} s", self.request.as_secs()),
+                    now,
+                );
+            } else if self.due.is_some_and(|d| d <= now) {
+                self.restart(
+                    &format!("gave no answer for {} s", self.answer.as_secs()),
+                    now,
+                );
+            }
         }
         out
     }
 
-    /// Checks a frame of glyphs against the request answering: every
-    /// strike at the cell asked for and regular, no codepoint the cell
-    /// holds already, and the cell's bytes inside its budget.
+    /// Takes a frame of glyphs, or refuses it: an ask's must be at the
+    /// oldest ask's cell and among the codepoints it has yet to send; a
+    /// fill's at a cell filling and among those it does not hold. An ask's
+    /// past the store's limit evicts the sets least recently on the
+    /// screen; a fill's past it is dropped and the fill stopped.
     fn glyphs(
         &mut self,
-        set: &Set,
-        runs: &[(u32, u32)],
+        fill: bool,
+        set: &Arc<Set>,
+        runs: Vec<(u32, u32)>,
         bytes: u64,
         now: Instant,
-    ) -> Result<Cell, &'static str> {
-        let flight = self
-            .in_flight
-            .as_mut()
-            .ok_or("the helper answered what was not asked")?;
-        let cell = flight.request.cell;
-        let fits = set.cells() == [cell]
-            && set
-                .strikes()
-                .all(|s| s.style == vtium_font::Style::default());
-        if !fits {
-            return Err("the helper answered glyphs at a cell not asked for");
+    ) -> Result<Option<Answer>, String> {
+        let not_asked = || "the helper answered what was not asked".to_owned();
+        let cells = set.cells();
+        let &[cell] = cells.as_slice() else {
+            return Err(not_asked());
+        };
+        if !set
+            .strikes()
+            .all(|s| s.style == vtium_font::Style::default())
+        {
+            return Err(not_asked());
         }
-        let held = match self.held.iter().position(|h| h.cell == cell) {
-            Some(i) => self.held.get_mut(i),
-            None => {
-                self.held.push(Held::new(cell));
-                self.held.last_mut()
+        if fill {
+            let state = self
+                .cells
+                .iter()
+                .find(|c| c.cell == cell)
+                .ok_or_else(not_asked)?;
+            match state.fill {
+                Fill::Active => {}
+                Fill::Stopped | Fill::Done => return Ok(None),
+                Fill::None => return Err(not_asked()),
+            }
+            for c in codepoints(&runs) {
+                if c.is_none_or(|c| state.held.has(c)) {
+                    return Err("the helper's fill repeats a glyph the console holds".to_owned());
+                }
+            }
+            if self.store.borrow().bytes().saturating_add(bytes) > self.limit {
+                self.store_full(cell, now);
+                return Ok(None);
+            }
+        } else {
+            let ask = self.asks.front_mut().ok_or_else(not_asked)?;
+            if ask.cell != cell {
+                return Err(not_asked());
+            }
+            for c in codepoints(&runs) {
+                if !c.is_some_and(|c| ask.want.remove(&c)) {
+                    return Err("the helper answered a glyph the ask did not name".to_owned());
+                }
+            }
+            if !self.cells.iter().any(|c| c.cell == cell) {
+                // no display draws at the cell any more
+                return Ok(None);
+            }
+            while self.store.borrow().bytes().saturating_add(bytes) > self.limit {
+                let Some((at, gone)) = self.store.borrow_mut().evict() else {
+                    return Ok(None);
+                };
+                if let Some(state) = self.cells.iter_mut().find(|c| c.cell == at) {
+                    for c in codepoints(&gone).flatten() {
+                        state.held.put(c, false);
+                    }
+                }
             }
         }
-        .ok_or("the helper answered what was not asked")?;
-        held.bytes = held.bytes.saturating_add(bytes);
-        if held.bytes > self.cell_bytes {
-            return Err("the helper's glyphs at one cell passed their byte budget");
+        let face = self
+            .store
+            .borrow_mut()
+            .add(cell, Arc::clone(set), runs.clone(), bytes)
+            .ok_or_else(not_asked)?;
+        if let Some(state) = self.state(cell) {
+            for c in codepoints(&runs).flatten() {
+                state.held.put(c, true);
+                state.pending.put(c, false);
+            }
+            if fill {
+                state.first_glyphs.get_or_insert(now);
+            }
         }
-        if !held.mark(runs) {
-            return Err("the helper's glyphs repeat a codepoint it sent");
-        }
-        flight.due = after(now, self.answer);
-        flight.first.get_or_insert(now);
-        Ok(cell)
+        Ok(Some(Answer { cell, face }))
     }
 
-    /// Logs a request answered whole: when it was asked after vtium
-    /// started, and how long its first glyphs and the last took.
-    fn done(&self, flight: &InFlight, now: Instant) {
+    /// The store is full while `cell` fills: the fill stops there, logged
+    /// once a boot.
+    fn store_full(&mut self, cell: Cell, now: Instant) {
+        if let Some(state) = self.state(cell) {
+            state.fill = Fill::Stopped;
+        }
+        self.send(STOP, cell, &[], &[], now);
+        if !self.full {
+            self.full = true;
+            log::info!(
+                "the glyph store is full at {} KiB: the font's other glyphs are generated as the screen shows them",
+                self.limit / 1024
+            );
+        }
+    }
+
+    /// The oldest ask is answered whole: what it did not send, the frit
+    /// lacks.
+    fn done(&mut self) -> Result<(), String> {
+        let ask = self
+            .asks
+            .pop_front()
+            .ok_or_else(|| "the helper answered an ask not made".to_owned())?;
+        if let Some(state) = self.cells.iter_mut().find(|c| c.cell == ask.cell) {
+            for &c in &ask.want {
+                state.pending.put(c, false);
+                state.absent.put(c, true);
+            }
+        }
+        Ok(())
+    }
+
+    /// A cell's fill is done: logged with its timings, or refused when the
+    /// cell holds no glyph.
+    fn filled(&mut self, cell: Cell, now: Instant) -> Result<(), String> {
+        let epoch = self.epoch;
+        let state = self
+            .cells
+            .iter_mut()
+            .find(|c| c.cell == cell)
+            .ok_or_else(|| "the helper ended a fill not asked for".to_owned())?;
+        if state.fill != Fill::Active {
+            return Ok(());
+        }
+        if state.held.ranges().is_empty() {
+            return Err(format!(
+                "the helper answered no glyph at {}x{}",
+                cell.width, cell.height
+            ));
+        }
+        state.fill = Fill::Done;
         let ms = |d: Duration| d.as_millis();
-        let cell = flight.request.cell;
-        let since = |t: Instant| ms(t.saturating_duration_since(flight.asked));
+        let started = state.started.unwrap_or(now);
+        let since = |t: Instant| ms(t.saturating_duration_since(started));
         log::info!(
             "the font's glyphs at {}x{} are generated: asked {} ms after vtium started, the first in {} ms, the last in {} ms",
             cell.width,
             cell.height,
-            ms(flight.asked.saturating_duration_since(self.epoch)),
-            flight.first.map_or(0, since),
+            ms(started.saturating_duration_since(epoch)),
+            state.first_glyphs.map_or(0, since),
             since(now)
         );
+        Ok(())
     }
 
-    /// The helper closed its end and was reaped. An exit 0 is its idle
-    /// exit: the request it left unread, if any, goes to another, once. An
-    /// end by its CPU limit (`SIGXCPU`, or `SIGKILL` past the hard limit)
-    /// replaces it at the next request, the one it was answering dropped,
-    /// at most [`RESTARTS_MAX`] times a boot. Anything else gives it up.
+    /// The helper closed its end and was reaped. With nothing outstanding,
+    /// an exit 0 is its idle exit and the next need starts another; any
+    /// other end, or an exit with work outstanding, counts as a start
+    /// again, made now when work is outstanding.
     fn closed(&mut self, status: Option<ExitStatus>, now: Instant) {
         self.running = None;
         let clean = status.is_some_and(|s| s.success());
-        let signal = status.and_then(|s| s.signal());
-        let cpu = matches!(signal, Some(SIGXCPU | SIGKILL));
-        match self.in_flight.take() {
-            None if clean => self.next(now),
-            Some(flight) if clean && !flight.resent && flight.first.is_none() => self.send(
-                InFlight {
-                    resent: true,
-                    ..flight
-                },
-                now,
-            ),
-            flight if cpu && self.restarts < RESTARTS_MAX => {
-                self.restarts = self.restarts.saturating_add(1);
-                if let Some(f) = flight {
-                    let c = f.request.cell;
-                    log::warn!(
-                        "the helper reached its CPU limit at {}x{}: the characters it had not sent there draw in the built-in font",
-                        c.width,
-                        c.height
-                    );
-                }
-                self.next(now);
+        let why = match status.and_then(|s| s.signal()) {
+            Some(SIGXCPU | 9) => "reached its CPU limit".to_owned(),
+            Some(sig) => format!("was ended by signal {sig}"),
+            None => match status {
+                Some(s) => format!("exited ({s})"),
+                None => "exited".to_owned(),
+            },
+        };
+        if self.busy() {
+            return self.restart(&why, now);
+        }
+        self.due = None;
+        if !clean {
+            if self.restarts >= RESTARTS_MAX {
+                return self.fail(&format!(
+                    "the helper {why}, after {RESTARTS_MAX} starts again this boot"
+                ));
             }
-            _ => {
-                let why = match signal {
-                    Some(_) if cpu => format!(
-                        "the helper reached its CPU limit {} times",
-                        self.restarts.saturating_add(1)
-                    ),
-                    Some(sig) => format!("the helper was ended by signal {sig}"),
-                    None => match status {
-                        Some(s) => format!("the helper exited: {s}"),
-                        None => "the helper exited".to_owned(),
-                    },
-                };
-                self.fail(&why);
-            }
+            self.restarts = self.restarts.saturating_add(1);
+            log::warn!(
+                "the glyph helper {why}: the next need starts it again ({} of {RESTARTS_MAX} this boot)",
+                self.restarts
+            );
         }
     }
 }
@@ -753,10 +1016,6 @@ impl Drop for Helper {
         self.stop();
     }
 }
-
-/// `SIGXCPU` and `SIGKILL`, the signals an exhausted `RLIMIT_CPU` sends.
-const SIGXCPU: i32 = 24;
-const SIGKILL: i32 = 9;
 
 fn after(t: Instant, d: Duration) -> Instant {
     t.checked_add(d).unwrap_or(t)
@@ -773,21 +1032,23 @@ mod tests {
     use super::*;
     use std::path::Path;
     use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
-    use vtium_font::{Style, Width};
+    use vtium_font::{Face, Style, Width};
 
     const CELL: Cell = Cell {
         width: 8,
         height: 16,
     };
 
-    /// A set of one glyph, `c` solid, at `cell`.
-    fn set(cell: Cell, c: char) -> Vec<u8> {
+    /// A set of `chars`, each solid, at `cell`.
+    fn set(cell: Cell, chars: &[char]) -> Vec<u8> {
         let mut s = StrikeBuilder::new(PixelFormat::R8, cell, Style::default());
         let g = s.glyph(
             Width::Narrow,
             vec![255; (cell.width * cell.height) as usize],
         );
-        s.map(c, g);
+        for &c in chars {
+            s.map(c, g);
+        }
         SetBuilder::new("t").strike(s).write().unwrap()
     }
 
@@ -798,6 +1059,12 @@ mod tests {
         out
     }
 
+    fn filled(cell: Cell) -> Vec<u8> {
+        let mut c = cell.width.to_le_bytes().to_vec();
+        c.extend_from_slice(&cell.height.to_le_bytes());
+        frame_bytes(FRAME_FILLED, &c)
+    }
+
     /// A helper whose answers are `script`, run by the shell after it
     /// writes `fixture` where the script finds it as `$1`.
     struct StandIn {
@@ -806,8 +1073,15 @@ mod tests {
         dir: PathBuf,
     }
 
+    /// Reads the request, then answers with the fixture and waits.
+    const ANSWERS: &str = "cat >/dev/null & cat \"$1\"; wait";
+
     impl StandIn {
         fn new(name: &str, script: &str, fixture: &[u8]) -> StandIn {
+            StandIn::limited(name, script, fixture, 64 << 20)
+        }
+
+        fn limited(name: &str, script: &str, fixture: &[u8], limit: u64) -> StandIn {
             let dir =
                 std::env::temp_dir().join(format!("vtium-helper-{name}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
@@ -830,26 +1104,23 @@ mod tests {
                 let _ = tx.lock().map(|t| t.send(()));
             });
             StandIn {
-                helper: Helper::new(command, wake, t0()),
+                helper: Helper::new(
+                    command,
+                    wake,
+                    t0(),
+                    PathBuf::from("/etc/vtium/fonts/t.vtfrit"),
+                    None,
+                    Shared::default(),
+                    limit,
+                ),
                 woke,
                 dir,
             }
         }
 
-        fn ask(&mut self, now: Instant) {
-            self.helper.request(
-                Request {
-                    frit: PathBuf::from("/etc/vtium/fonts/t.vtfrit"),
-                    cell: CELL,
-                    first: vec!['A'],
-                    console: None,
-                },
-                now,
-            );
-        }
-
         /// Polls as the loop does, each time the reader wakes it, until the
-        /// helper is idle or given up; the answers taken.
+        /// helper has nothing outstanding, has gone, or is given up; the
+        /// answers taken.
         fn run(&mut self, now: Instant) -> Vec<Answer> {
             let mut out = Vec::new();
             for _ in 0..50 {
@@ -860,6 +1131,22 @@ mod tests {
                 let _ = self.woke.recv_timeout(Duration::from_secs(10));
             }
             out
+        }
+
+        /// Polls until the helper's process is gone.
+        fn until_gone(&mut self, now: Instant) {
+            while self.helper.running.is_some()
+                && self.woke.recv_timeout(Duration::from_secs(10)).is_ok()
+            {
+                let _ = self.helper.poll(now);
+            }
+        }
+
+        fn held(&self, c: char) -> bool {
+            self.helper
+                .cells
+                .iter()
+                .any(|s| s.cell == CELL && s.held.has(u32::from(c)))
         }
     }
 
@@ -877,118 +1164,186 @@ mod tests {
 
     #[test]
     fn a_request_is_the_helpers_format() {
-        let bytes = Request {
-            frit: PathBuf::from("/a"),
-            cell: CELL,
-            first: vec!['A'],
-            console: None,
-        }
-        .encode();
+        let bytes = encode(Path::new("/a"), None, ASK, CELL, &[0x41], &[(0x42, 0x43)]);
         let mut want = b"VTVSREQ1".to_vec();
+        want.extend_from_slice(&ASK.to_le_bytes());
         want.extend_from_slice(&2u32.to_le_bytes());
         want.extend_from_slice(b"/a");
-        for v in [8u32, 16, 1, 0x41, 0] {
+        for v in [8u32, 16, 1, 0x41, 1, 0x42, 0x43, 0] {
             want.extend_from_slice(&v.to_le_bytes());
         }
         assert_eq!(bytes, want);
     }
 
     #[test]
-    fn glyphs_at_the_cell_asked_for_are_taken() {
-        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, 'A'));
+    fn an_asks_glyphs_are_taken_and_then_served_from_the_store() {
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, &['A']));
         fixture.extend(frame_bytes(FRAME_DONE, &[]));
-        let mut s = StandIn::new("good", "cat >/dev/null & cat \"$1\"; wait", &fixture);
+        let mut s = StandIn::new("ask", ANSWERS, &fixture);
         let now = t0();
-        s.ask(now);
+        s.helper.ask(CELL, &['A', 'B'], now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 1);
-        let Answer::Glyphs { cell, set } = &answers[0];
-        assert_eq!(*cell, CELL);
-        assert_eq!(set.cells(), vec![CELL]);
+        assert_eq!(answers[0].cell, CELL);
+        assert!(answers[0].face.has_glyph('A'));
+        assert!(s.held('A'));
+        // A is held and B is known lacking: nothing more is asked
+        s.helper.ask(CELL, &['A', 'B'], now);
+        assert!(!s.helper.busy());
+    }
+
+    #[test]
+    fn a_fill_fills_until_its_end() {
+        let mut fixture = frame_bytes(FRAME_FILL, &set(CELL, &['A']));
+        fixture.extend(frame_bytes(FRAME_FILL, &set(CELL, &['B'])));
+        fixture.extend(filled(CELL));
+        let mut s = StandIn::new("fill", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.fill(CELL, &[], now);
+        assert_eq!(s.run(now).len(), 2);
+        assert_eq!(s.helper.failed(), None);
+        assert!(s.held('A') && s.held('B'));
         assert!(!s.helper.busy());
     }
 
     #[test]
     fn a_helper_that_exits_at_its_idle_interval_is_started_again() {
-        // it answers, then exits 0 as at its idle interval; the next
-        // request starts it again
-        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, 'A'));
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, &['A']));
         fixture.extend(frame_bytes(FRAME_DONE, &[]));
         let mut s = StandIn::new("idle", "head -c 1 >/dev/null; cat \"$1\"", &fixture);
         let now = t0();
-        s.ask(now);
+        s.helper.ask(CELL, &['A'], now);
         assert_eq!(s.run(now).len(), 1);
-        // the exit is seen, and is no failure
-        let _ = s.woke.recv_timeout(Duration::from_secs(10));
-        assert!(s.helper.poll(now).is_empty());
+        s.until_gone(now);
         assert_eq!(s.helper.failed(), None);
+        assert_eq!(s.helper.restarts, 0);
         // the cell asked for again, as after its glyphs were dropped
-        s.helper.retain(&[]);
-        s.ask(now);
+        s.helper.retain(&[], now);
+        s.helper.ask(CELL, &['A'], now);
         assert_eq!(s.run(now).len(), 1);
         assert_eq!(s.helper.failed(), None);
     }
 
-    fn given_up(name: &str, script: &str, fixture: &[u8]) -> String {
+    #[test]
+    fn a_helper_that_closes_before_it_exits_is_no_failure() {
+        // its output closes, then it lingers before exiting 0: reaped, not
+        // ended
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, &['A']));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let mut s = StandIn::new(
+            "linger",
+            "head -c 1 >/dev/null; cat \"$1\"; exec 1>&-; sleep 0.3; exit 0",
+            &fixture,
+        );
+        let now = t0();
+        s.helper.ask(CELL, &['A'], now);
+        assert_eq!(s.run(now).len(), 1);
+        s.until_gone(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(s.helper.restarts, 0);
+    }
+
+    fn given_up(name: &str, script: &str, fixture: &[u8], fill: bool) -> (String, u32) {
         let mut s = StandIn::new(name, script, fixture);
         let now = t0();
-        s.ask(now);
-        let answers = s.run(now);
-        assert!(answers.is_empty(), "{answers:?}");
+        if fill {
+            s.helper.fill(CELL, &[], now);
+        } else {
+            s.helper.ask(CELL, &['A'], now);
+        }
+        let _ = s.run(now);
         let why = s.helper.failed().unwrap().to_owned();
         // given up: nothing more is asked
-        s.ask(now);
+        s.helper.ask(CELL, &['Z'], now);
         assert!(!s.helper.busy());
-        why
+        (why, s.helper.restarts)
     }
 
     #[test]
-    fn a_helper_that_dies_is_given_up() {
-        let why = given_up("dies", "kill -SEGV $$", b"");
-        assert_eq!(why, "the helper was ended by signal 11");
-        let why = given_up("exits", "cat >/dev/null & exit 3", b"");
+    fn a_helper_that_crashes_is_started_again_a_bounded_number_of_times() {
+        let (why, restarts) = given_up("dies", "kill -SEGV $$", b"", false);
+        assert!(why.contains("signal 11"), "{why}");
+        assert_eq!(restarts, RESTARTS_MAX);
+        let (why, restarts) = given_up("exits", "cat >/dev/null & exit 3", b"", false);
         assert!(why.contains("exit status: 3"), "{why}");
+        assert_eq!(restarts, RESTARTS_MAX);
     }
 
     #[test]
-    fn garbage_is_refused() {
-        let why = given_up(
-            "garbage",
-            "cat >/dev/null & cat \"$1\"; wait",
-            b"VTVOUTL1 not a frame",
-        );
-        assert!(why.contains("refused"), "{why}");
-        // a set its reader refuses
-        let why = given_up(
-            "badset",
-            "cat >/dev/null & cat \"$1\"; wait",
-            &frame_bytes(FRAME_GLYPHS, b"VTGLASS\0junk"),
-        );
-        assert!(why.contains("cannot read"), "{why}");
-        // glyphs at another cell than asked for
-        let why = given_up(
-            "cell",
-            "cat >/dev/null & cat \"$1\"; wait",
-            &frame_bytes(
-                FRAME_GLYPHS,
-                &set(
-                    Cell {
-                        width: 8,
-                        height: 8,
-                    },
-                    'A',
-                ),
+    fn garbage_gives_the_helper_up_at_once() {
+        for (name, fixture, fill, says) in [
+            (
+                "garbage",
+                b"VTVOUTL1 not a frame".to_vec(),
+                false,
+                "refused",
             ),
-        );
-        assert!(why.contains("cell not asked for"), "{why}");
-        // a failure the helper reports
-        let why = given_up(
-            "failed",
-            "cat >/dev/null & cat \"$1\"; wait",
-            &frame_bytes(FRAME_FAILED, b"no source of the frit is here"),
-        );
-        assert!(why.contains("no source of the frit is here"), "{why}");
+            (
+                "badset",
+                frame_bytes(FRAME_GLYPHS, b"VTGLASS\0junk"),
+                false,
+                "cannot read",
+            ),
+            (
+                "cell",
+                frame_bytes(
+                    FRAME_GLYPHS,
+                    &set(
+                        Cell {
+                            width: 8,
+                            height: 8,
+                        },
+                        &['A'],
+                    ),
+                ),
+                false,
+                "not asked",
+            ),
+            (
+                "unasked",
+                frame_bytes(FRAME_GLYPHS, &set(CELL, &['A', 'B'])),
+                false,
+                "did not name",
+            ),
+            (
+                "nofill",
+                frame_bytes(FRAME_FILL, &set(CELL, &['A'])),
+                false,
+                "not asked",
+            ),
+            (
+                "failed",
+                frame_bytes(FRAME_FAILED, b"no source of the frit is here"),
+                false,
+                "no source of the frit is here",
+            ),
+        ] {
+            let (why, restarts) = given_up(name, ANSWERS, &fixture, fill);
+            assert!(why.contains(says), "{name}: {why}");
+            assert_eq!(restarts, 0, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_fill_that_repeats_a_glyph_is_refused() {
+        // the same set over and over, as a stand-in that floods: given up
+        // at the second, however long the flood
+        let a = frame_bytes(FRAME_FILL, &set(CELL, &['A']));
+        let flood: Vec<u8> = a.iter().copied().cycle().take(a.len() * 20_000).collect();
+        let (why, _) = given_up("flood", ANSWERS, &flood, true);
+        assert!(why.contains("repeats"), "{why}");
+        // an ask's glyph sent twice
+        let mut twice = frame_bytes(FRAME_GLYPHS, &set(CELL, &['A']));
+        twice.extend(frame_bytes(FRAME_GLYPHS, &set(CELL, &['A'])));
+        let (why, _) = given_up("twice", ANSWERS, &twice, false);
+        assert!(why.contains("did not name"), "{why}");
+    }
+
+    #[test]
+    fn a_fill_with_no_glyph_is_a_failure() {
+        let (why, _) = given_up("none", ANSWERS, &filled(CELL), true);
+        assert!(why.contains("no glyph"), "{why}");
     }
 
     #[test]
@@ -1004,119 +1359,79 @@ mod tests {
         let mut done = FRAME_DONE.to_le_bytes().to_vec();
         done.extend_from_slice(&1u32.to_le_bytes());
         assert!(matches!(frame(&mut &done[..]), Some(Event::Malformed(_))));
-        let why = given_up("huge", "cat >/dev/null & cat \"$1\"; wait", &huge);
+        let (why, _) = given_up("huge", ANSWERS, &huge, false);
         assert!(why.contains("past its kind's"), "{why}");
     }
 
     #[test]
-    fn a_helper_that_hangs_is_ended_at_its_deadline() {
-        let mut s = StandIn::new("hangs", "exec sleep 30", b"");
+    fn a_fill_stops_at_the_stores_limit_and_an_ask_past_it_evicts() {
+        let a = set(CELL, &['A']);
+        let limit = (a.len() as u64) * 3 / 2;
+        let mut fixture = frame_bytes(FRAME_FILL, &a);
+        fixture.extend(frame_bytes(FRAME_FILL, &set(CELL, &['B'])));
+        fixture.extend(frame_bytes(FRAME_FILL, &set(CELL, &['C'])));
+        fixture.extend(frame_bytes(FRAME_GLYPHS, &set(CELL, &['D'])));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let mut s = StandIn::limited("limit", ANSWERS, &fixture, limit);
         let now = t0();
-        s.ask(now);
-        assert!(s.helper.poll(now).is_empty());
+        s.helper.fill(CELL, &[], now);
+        s.helper.ask(CELL, &['D'], now);
+        let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
+        // the fill took A and stopped; the ask's D evicted A
+        assert_eq!(answers.len(), 2);
+        assert!(!s.held('A') && !s.held('B') && !s.held('C') && s.held('D'));
+        assert!(s.helper.store.borrow().bytes() <= limit);
+        assert!(!s.helper.busy());
+        // A, evicted, is asked for again when the screen shows it
+        s.helper.ask(CELL, &['A'], now);
+        assert!(s.helper.busy());
+    }
+
+    #[test]
+    fn a_helper_that_hangs_is_started_again_then_given_up() {
+        let mut s = StandIn::new("hangs", "exec sleep 30", b"");
+        let mut now = t0();
+        s.helper.ask(CELL, &['A'], now);
+        assert!(s.helper.poll(now).is_empty());
         assert_eq!(
             s.helper.deadline(),
             Some(after(now, Duration::from_millis(ANSWER_MS)))
         );
-        let late = after(now, Duration::from_millis(ANSWER_MS));
-        assert!(s.helper.poll(late).is_empty());
+        for _ in 0..=RESTARTS_MAX {
+            now = after(now, Duration::from_millis(ANSWER_MS));
+            assert!(s.helper.poll(now).is_empty());
+        }
         let why = s.helper.failed().unwrap();
-        assert!(why.contains("no answer within 10 s"), "{why}");
+        assert!(why.contains("gave no answer for 10 s"), "{why}");
         assert!(s.helper.running.is_none());
     }
 
     #[test]
-    fn a_frame_that_repeats_a_codepoint_is_refused() {
-        // the same set over and over, as a stand-in that floods: given up at
-        // the second, however long the flood
-        let a = frame_bytes(FRAME_GLYPHS, &set(CELL, 'A'));
-        let flood: Vec<u8> = a.iter().copied().cycle().take(a.len() * 20_000).collect();
-        let mut s = StandIn::new("flood", "cat >/dev/null & cat \"$1\"; wait", &flood);
-        let now = t0();
-        s.ask(now);
-        assert_eq!(s.run(now).len(), 1);
-        let why = s.helper.failed().unwrap();
-        assert!(why.contains("repeat"), "{why}");
-    }
-
-    #[test]
-    fn glyphs_past_a_cells_byte_budget_are_refused() {
-        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, 'A'));
-        fixture.extend(frame_bytes(FRAME_GLYPHS, &set(CELL, 'B')));
-        fixture.extend(frame_bytes(FRAME_DONE, &[]));
-        let mut s = StandIn::new("budget", "cat >/dev/null & cat \"$1\"; wait", &fixture);
-        s.helper.cell_bytes = (fixture.len() / 2) as u64;
-        let now = t0();
-        s.ask(now);
-        assert_eq!(s.run(now).len(), 1);
-        let why = s.helper.failed().unwrap();
-        assert!(why.contains("budget"), "{why}");
-    }
-
-    #[test]
-    fn a_request_has_one_deadline_however_often_frames_come() {
-        // a frame now and then keeps the answer due, but not the request's
-        // end
+    fn an_ask_has_one_deadline_however_often_frames_come() {
+        // a fill's frame keeps the answer due, but not the ask's end
         let mut s = StandIn::new(
             "deadline",
             "cat >/dev/null & cat \"$1\"; exec sleep 30",
-            &frame_bytes(FRAME_GLYPHS, &set(CELL, 'A')),
+            &frame_bytes(FRAME_FILL, &set(CELL, &['B'])),
         );
         let now = t0();
-        s.ask(now);
+        s.helper.fill(CELL, &[], now);
+        s.helper.ask(CELL, &['A'], now);
         let _ = s.woke.recv_timeout(Duration::from_secs(10));
-        let late = after(now, Duration::from_millis(REQUEST_MS));
         let nearly = after(now, Duration::from_millis(REQUEST_MS - 1));
-        // the frame came at `nearly`'s doorstep: the answer is due 10 s on,
-        // the request at REQUEST_MS
+        let late = after(now, Duration::from_millis(REQUEST_MS));
         assert_eq!(s.helper.poll(nearly).len(), 1);
-        assert_eq!(s.helper.failed(), None);
         assert_eq!(s.helper.deadline(), Some(late));
         assert!(s.helper.poll(late).is_empty());
-        let why = s.helper.failed().unwrap();
-        assert!(why.contains("did not finish"), "{why}");
-    }
-
-    #[test]
-    fn a_request_answered_with_no_glyph_is_a_failure() {
-        let why = given_up(
-            "none",
-            "cat >/dev/null & cat \"$1\"; wait",
-            &frame_bytes(FRAME_DONE, &[]),
-        );
-        assert!(why.contains("no glyph"), "{why}");
-    }
-
-    #[test]
-    fn a_helper_that_closes_before_it_exits_is_no_failure() {
-        // its output closes, then it lingers before exiting 0: reaped, not
-        // ended, and the next request starts another
-        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, 'A'));
-        fixture.extend(frame_bytes(FRAME_DONE, &[]));
-        let mut s = StandIn::new(
-            "linger",
-            "head -c 1 >/dev/null; cat \"$1\"; exec 1>&-; sleep 0.3; exit 0",
-            &fixture,
-        );
-        let now = t0();
-        s.ask(now);
-        assert_eq!(s.run(now).len(), 1);
-        while s.helper.running.is_some() && s.woke.recv_timeout(Duration::from_secs(10)).is_ok() {
-            assert!(s.helper.poll(now).is_empty());
-        }
-        assert_eq!(s.helper.failed(), None);
-        s.helper.retain(&[]);
-        s.ask(now);
-        assert_eq!(s.run(now).len(), 1);
-        assert_eq!(s.helper.failed(), None);
+        assert_eq!(s.helper.restarts, 1);
     }
 
     #[test]
     fn a_helper_ended_by_its_cpu_limit_is_replaced_a_bounded_number_of_times() {
-        // each helper answers its request, then the kernel ends it for its
-        // CPU time: the next request starts another, up to RESTARTS_MAX
-        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, 'A'));
+        // each helper answers its ask, then the kernel ends it for its CPU
+        // time: the next need starts another, up to RESTARTS_MAX
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, &['A']));
         fixture.extend(frame_bytes(FRAME_DONE, &[]));
         let mut s = StandIn::new(
             "cpu",
@@ -1125,13 +1440,10 @@ mod tests {
         );
         let now = t0();
         for round in 0..=RESTARTS_MAX {
-            s.helper.retain(&[]);
-            s.ask(now);
+            s.helper.retain(&[], now);
+            s.helper.ask(CELL, &['A'], now);
             assert_eq!(s.run(now).len(), 1, "round {round}");
-            while s.helper.running.is_some() && s.woke.recv_timeout(Duration::from_secs(10)).is_ok()
-            {
-                let _ = s.helper.poll(now);
-            }
+            s.until_gone(now);
             if round < RESTARTS_MAX {
                 assert_eq!(s.helper.failed(), None, "round {round}");
             }
@@ -1150,17 +1462,31 @@ mod tests {
             },
             Arc::new(|| {}),
             t0(),
+            PathBuf::from("/a"),
+            None,
+            Shared::default(),
+            1 << 20,
         );
-        h.request(
-            Request {
-                frit: PathBuf::from("/a"),
-                cell: CELL,
-                first: Vec::new(),
-                console: None,
-            },
-            t0(),
-        );
+        h.ask(CELL, &['A'], t0());
         assert!(h.failed().unwrap().contains("cannot start"));
+    }
+
+    #[test]
+    fn held_codepoints_read_back_as_ranges() {
+        let mut b = Bits::new();
+        for c in [0x41, 0x42, 0x43, 0x45, 0x10_ffff] {
+            b.put(c, true);
+        }
+        b.put(0x42, false);
+        assert_eq!(
+            b.ranges(),
+            vec![
+                (0x41, 0x41),
+                (0x43, 0x43),
+                (0x45, 0x45),
+                (0x10_ffff, 0x10_ffff)
+            ]
+        );
     }
 
     #[test]

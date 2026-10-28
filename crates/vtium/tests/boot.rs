@@ -3517,8 +3517,8 @@ fn frit_fonts(name: &str, answer: &[u8], script: &str) -> (Sources, PathBuf) {
     (fonts, go)
 }
 
-/// One cell's glyphs as the helper sends them: every printable ASCII
-/// character a solid block, then the request's end.
+/// One cell's fill as the helper sends it: every printable ASCII character
+/// a solid block, then the fill's end.
 fn solid_ascii(cell: vtium_font::Cell) -> Vec<u8> {
     use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
     let mut s = StrikeBuilder::new(PixelFormat::R8, cell, vtium_font::Style::default());
@@ -3530,11 +3530,14 @@ fn solid_ascii(cell: vtium_font::Cell) -> Vec<u8> {
         s.map(c, g);
     }
     let set = SetBuilder::new("t").strike(s).write().expect("a set");
-    let mut out = 1u32.to_le_bytes().to_vec();
+    // a fill's frame, then the fill's end
+    let mut out = 4u32.to_le_bytes().to_vec();
     out.extend((set.len() as u32).to_le_bytes());
     out.extend(set);
-    out.extend(2u32.to_le_bytes());
-    out.extend(0u32.to_le_bytes());
+    out.extend(5u32.to_le_bytes());
+    out.extend(8u32.to_le_bytes());
+    out.extend(cell.width.to_le_bytes());
+    out.extend(cell.height.to_le_bytes());
     out
 }
 
