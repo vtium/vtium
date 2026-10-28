@@ -938,7 +938,7 @@ pub const GRAB_PASTE: Key = Key {
     default: Default::Text("<Shift>Insert"),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Paste the selection buffer to the program, once a press, as the middle button does. Empty, no key pastes.",
+    what: "Paste the selection buffer to the program, once a press, as the middle button does. A chord with Shift names the keysym Shift makes: `<Ctrl><Shift>V`, not `<Ctrl><Shift>v`. Empty, no key pastes.",
     cite: "xterm's `Shift <KeyPress> Insert` translation; vtium/vtium#95",
 };
 

@@ -1104,11 +1104,11 @@ fn grab_paste_binds_shift_insert_until_set() {
         keysyms: vec![keysym],
     };
     assert_eq!(Config::default().chords(&GRAB_PASTE), [chord(1, 0xff63)]);
-    let l = main_file("grab-paste=<Ctrl><Shift>v,<Shift>Insert\n");
+    let l = main_file("grab-paste=<Ctrl><Shift>V,<Shift>Insert\n");
     assert_eq!(l.reports, []);
     assert_eq!(
         l.config.chords(&GRAB_PASTE),
-        [chord(4 | 1, 0x76), chord(1, 0xff63)]
+        [chord(4 | 1, 0x56), chord(1, 0xff63)]
     );
     let l = main_file("grab-paste=\n");
     assert_eq!(l.reports, []);

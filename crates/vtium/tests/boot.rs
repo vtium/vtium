@@ -1640,6 +1640,36 @@ fn typing_hides_the_pointer_under_pointer_hide_while_typing() {
     }
 }
 
+/// A chord with Shift names the keysym Shift makes, as the C reference
+/// matched grabs: Ctrl+Shift+v makes `V`, so `<Ctrl><Shift>V` binds it and
+/// `<Ctrl><Shift>v` never fires.
+#[test]
+fn a_shift_chord_names_the_shifted_keysym() {
+    let script = "stty raw -echo; printf '\\033]52;c;cGFzdGVk\\a\\033[?2004hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x";
+    let ctrl_shift_v = InputEvent::Key(KeyEvent {
+        keycode: 0,
+        ascii: u32::from('v'),
+        mods: Mods::CTRL.union(Mods::SHIFT),
+        keysyms: vec![u32::from('V')],
+        codepoints: vec![Some('V')],
+        repeat: false,
+    });
+    for (chord, pasted) in [("<Ctrl><Shift>V", true), ("<Ctrl><Shift>v", false)] {
+        let arg = format!("--grab-paste={chord}");
+        let mut h = Harness::new(&[&arg, "--login", "--", "/bin/sh", "-c", script]);
+        assert!(h.until(SECOND, |a| shows(a, "ready")));
+        h.app.input_event(ctrl_shift_v.clone(), now());
+        h.type_str("q");
+        let want = if pasted { "[E[200~pastedE[201~]" } else { "[]" };
+        assert!(
+            h.until(SECOND, |a| shows(a, want)),
+            "{chord}: {:?}",
+            h.app.screen_text()
+        );
+    }
+}
+
 /// A press in the strip past the grid's last cell selects from that cell,
 /// so a new selection never extends the one before it.
 // covers: clipboard.selection

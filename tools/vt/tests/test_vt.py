@@ -423,7 +423,7 @@ class RunVt(Case):
         opts = ["--font-name=Monoid Nerd Font Mono", "--font-size=30", "--mode=7680x2160",
                 "--no-use-original-mode", "--hwaccel", "--image-storage-limit=4G",
                 "--image-storage-limit=auto", "--sync-timeout=500", "--dpms-timeout=15",
-                "--grab-paste=<Ctrl><Shift>v", "--pointer-hide-timeout=5",
+                "--grab-paste=<Ctrl><Shift>V", "--pointer-hide-timeout=5",
                 "--pointer-hide-while-typing", "--no-pointer-hide-while-typing",
                 "--pointer-char=+"]
         p = self.run_vt("--dry-run", "8", "--", *opts)

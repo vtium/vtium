@@ -170,7 +170,7 @@
 ## Hide the pointer at each key sent to the program, until it next moves. A key vtium takes, such as a grab, leaves it.
 #no-pointer-hide-while-typing
 
-## Paste the selection buffer to the program, once a press, as the middle button does. Empty, no key pastes.
+## Paste the selection buffer to the program, once a press, as the middle button does. A chord with Shift names the keysym Shift makes: `<Ctrl><Shift>V`, not `<Ctrl><Shift>v`. Empty, no key pastes.
 #grab-paste=<Shift>Insert
 
 ## Reboot the machine. With `/proc/sys/kernel/ctrl-alt-del` at 0, init is asked, as for Ctrl+Alt+Del, so the services stop first; otherwise the kernel restarts at once. Unset, no key reboots.
