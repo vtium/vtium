@@ -1602,6 +1602,43 @@ fn grab_paste_binds_the_paste() {
     );
 }
 
+impl Memory {
+    /// Whether the pixel at `x`, `y` is white, the arrow's fill.
+    fn white_at(&self, x: u32, y: u32) -> bool {
+        let at = ((y * self.w + x) * 4) as usize;
+        self.pixels.get(at..at + 3) == Some(&[255, 255, 255][..])
+    }
+}
+
+/// Under `pointer-hide-while-typing` a key the program is sent hides the
+/// pointer until it next moves; off, as by default, typing leaves it.
+#[test]
+fn typing_hides_the_pointer_under_pointer_hide_while_typing() {
+    for hides in [true, false] {
+        let mut args = vec!["--login", "--", "/bin/sh", "-c", "stty -echo; read x"];
+        if hides {
+            args.insert(0, "--pointer-hide-while-typing");
+        }
+        let mut h = Harness::new(&args);
+        h.until(Duration::from_millis(200), |_| false);
+        // The arrow's tip is at the pointer, its fill a pixel below it.
+        h.point([over(10, 5, None)], Mods::empty());
+        let (x, y) = (10 * 8 + 4, 5 * 16 + 8 + 1);
+        assert!(h.until_memory(SECOND, |m| m.white_at(x, y)), "shown");
+        h.type_str("a");
+        let hidden = h.until_memory(Duration::from_millis(500), |m| !m.white_at(x, y));
+        assert_eq!(hidden, hides, "typing hides it: {hides}");
+        // A key the program is not sent, a grab's, leaves it.
+        h.point([over(10, 5, None)], Mods::empty());
+        assert!(h.until_memory(SECOND, |m| m.white_at(x, y)), "shown again");
+        h.app.input_event(key(Mods::SHIFT, 0xff52), now());
+        assert!(
+            !h.until_memory(Duration::from_millis(300), |m| !m.white_at(x, y)),
+            "a grab leaves it"
+        );
+    }
+}
+
 /// A press in the strip past the grid's last cell selects from that cell,
 /// so a new selection never extends the one before it.
 // covers: clipboard.selection

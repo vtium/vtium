@@ -158,6 +158,12 @@
 ## Take pointers: mice, touchpads and touchscreens.
 #mouse
 
+## Hide the pointer after this long with no pointer event, until it next moves; 0 never hides it.
+#pointer-hide-timeout=20
+
+## Hide the pointer at each key sent to the program, until it next moves. A key vtium takes, such as a grab, leaves it.
+#no-pointer-hide-while-typing
+
 ## Paste the selection buffer to the program, once a press, as the middle button does. Empty, no key pastes.
 #grab-paste=<Shift>Insert
 

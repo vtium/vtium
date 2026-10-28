@@ -732,6 +732,33 @@ pub const MOUSE: Key = Key {
     cite: "src/config.c:1385",
 };
 
+pub const POINTER_HIDE_TIMEOUT: Key = Key {
+    name: "pointer-hide-timeout",
+    short: None,
+    kind: Kind::Number {
+        min: 0,
+        max: 86_400,
+        unit: "s",
+        word: None,
+    },
+    default: Default::Number(20),
+    scope: Scope::Anywhere,
+    reader: "vtium-platform",
+    what: "Hide the pointer after this long with no pointer event, until it next moves; 0 never hides it.",
+    cite: "src/input/input_pointer.c:9-18, the C reference's fixed 20 s; the operator on vtium/vtium#102",
+};
+
+pub const POINTER_HIDE_WHILE_TYPING: Key = Key {
+    name: "pointer-hide-while-typing",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Hide the pointer at each key sent to the program, until it next moves. A key vtium takes, such as a grab, leaves it.",
+    cite: "the operator on vtium/vtium#102",
+};
+
 pub const FONT_ENGINE: Key = Key {
     name: "font-engine",
     short: None,
@@ -925,7 +952,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 71] = [
+pub const KEYS: [Key; 73] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -980,6 +1007,8 @@ pub const KEYS: [Key; 71] = [
     XKB_REPEAT_DELAY,
     XKB_REPEAT_RATE,
     MOUSE,
+    POINTER_HIDE_TIMEOUT,
+    POINTER_HIDE_WHILE_TYPING,
     GRAB_PASTE,
     GRAB_REBOOT,
     GRAB_POWER_OFF,

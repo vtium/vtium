@@ -250,6 +250,8 @@ pub struct App {
     tracking: MouseTracking,
     /// The keys `grab-paste` binds.
     paste_keys: Vec<Chord>,
+    /// `pointer-hide-while-typing`.
+    hide_while_typing: bool,
     /// The power keys the configuration binds, and what they act through.
     power_keys: Vec<(PowerKey, Vec<Chord>)>,
     power: Box<dyn Power>,
@@ -320,6 +322,7 @@ impl App {
             selection: None,
             tracking: MouseTracking::Off,
             paste_keys: config.chords(&keys::GRAB_PASTE).to_vec(),
+            hide_while_typing: config.switch(&keys::POINTER_HIDE_WHILE_TYPING),
             power_keys,
             power: Box::new(power::System),
             sleeping: Rc::default(),
@@ -1072,6 +1075,9 @@ impl App {
         if self.term.terminal.key(keysym, key.ascii, mods, unicode) {
             self.send_user_bytes();
             self.term.terminal.screen_mut().reset_view();
+            if self.hide_while_typing {
+                self.pointer.visible = false;
+            }
         }
         let rate = self
             .term

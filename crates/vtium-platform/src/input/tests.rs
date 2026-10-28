@@ -669,6 +669,41 @@ fn the_pointer_hides_after_its_timeout_without_a_frame() {
 }
 
 #[test]
+fn the_pointers_hide_timeout_is_configured_and_0_never_hides() {
+    let five = Duration::from_secs(5);
+    for (hide, at) in [(Some(five), Some(five)), (None, None)] {
+        let nodes = Nodes::default();
+        let node = nodes.add("/dev/input/event7", fake::mouse());
+        let config = InputConfig::default().with_pointer_hide(hide);
+        let mut input = Input::new(nodes, keymap(), config);
+        input.wake_up();
+        let id = input
+            .add(Path::new("/dev/input/event7"))
+            .unwrap_or_else(|| panic!("the pointer is taken"));
+        let start = Instant::now();
+        node.borrow_mut().queue.push_back(ev(EV_SYN, 0, 0));
+        input.dispatch(id, start);
+        pointers(&mut input);
+        assert_eq!(
+            input.hide(start + five / 2),
+            at.map(|_| five / 2),
+            "{hide:?}"
+        );
+        assert_eq!(input.hide(start + super::POINTER_HIDE * 10), None);
+        let want: &[PointerEvent] = if at.is_some() {
+            &[PointerEvent::Hide]
+        } else {
+            &[]
+        };
+        assert_eq!(pointers(&mut input), want, "{hide:?}");
+    }
+    assert_eq!(
+        InputConfig::default().pointer_hide,
+        Some(super::POINTER_HIDE)
+    );
+}
+
+#[test]
 fn the_locale_comes_from_the_environment_as_locale_7_says() {
     // The test process's own environment: only check the fallback order's
     // result is one of the variables or C.

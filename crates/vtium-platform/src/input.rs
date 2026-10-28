@@ -126,7 +126,8 @@ pub enum InputEvent {
     Pointer(PointerEvent),
 }
 
-/// The pointer hides after this long without a frame (input_pointer.c:9-18).
+/// The pointer hides after this long without a frame, unless the
+/// configuration says otherwise (input_pointer.c:9-18).
 pub const POINTER_HIDE: Duration = Duration::from_secs(20);
 
 /// The repeat and the pointer, as the configuration sets them.
@@ -138,6 +139,9 @@ pub struct InputConfig {
     pub repeat_rate: Duration,
     /// `mouse`: take pointers.
     pub mouse: bool,
+    /// `pointer-hide-timeout`: the pointer hides after this long without
+    /// a frame; `None` never hides it.
+    pub pointer_hide: Option<Duration>,
 }
 
 impl Default for InputConfig {
@@ -160,6 +164,16 @@ impl InputConfig {
             repeat_delay: Duration::from_millis(ms(repeat_delay_ms, 250).into()),
             repeat_rate: Duration::from_millis(ms(repeat_rate_ms, 50).into()),
             mouse,
+            pointer_hide: Some(POINTER_HIDE),
+        }
+    }
+
+    /// This configuration with the pointer hiding after `hide`, or never.
+    #[must_use]
+    pub const fn with_pointer_hide(self, hide: Option<Duration>) -> InputConfig {
+        InputConfig {
+            pointer_hide: hide,
+            ..self
         }
     }
 }
@@ -214,7 +228,8 @@ trait Link {
     fn watch(&self, id: DeviceId, fd: OwnedFd) -> Option<RegistrationToken>;
     fn unwatch(&self, token: RegistrationToken);
     fn repeat(&self, id: DeviceId, serial: u64, delay: Duration, rate: Duration);
-    fn hide(&self);
+    /// Arms the pointer's hide timer, `after` from now, if it is not.
+    fn hide(&self, after: Duration);
 }
 
 /// Every keyboard and pointer of the seat.
@@ -228,8 +243,8 @@ pub struct Input<O: Open = Direct> {
     devices: Vec<Device<O::Device>>,
     next_id: u64,
     pointer_max: (i32, i32),
-    /// When the pointer hides, while a frame arrived in the last
-    /// [`POINTER_HIDE`].
+    /// When the pointer hides, while a frame arrived within its hide
+    /// timeout.
     hide_at: Option<Instant>,
     events: Vec<InputEvent>,
     link: Option<Box<dyn Link>>,
@@ -567,9 +582,11 @@ impl<O: Open + 'static> Input<O> {
             }
             EV_SYN => {
                 self.events.push(InputEvent::Pointer(PointerEvent::Sync));
-                self.hide_at = now.checked_add(POINTER_HIDE);
-                if let Some(link) = &self.link {
-                    link.hide();
+                if let Some(after) = self.config.pointer_hide {
+                    self.hide_at = now.checked_add(after);
+                    if let Some(link) = &self.link {
+                        link.hide(after);
+                    }
                 }
             }
             _ => {}
@@ -722,15 +739,15 @@ where
         }
     }
 
-    fn hide(&self) {
+    fn hide(&self, after: Duration) {
         if self.hide_armed.replace(true) {
             return;
         }
         let access = self.access.clone();
         let armed = std::rc::Rc::clone(&self.hide_armed);
-        let inserted = self.handle.insert_source(
-            Timer::from_duration(POINTER_HIDE),
-            move |_, _, data| {
+        let inserted = self
+            .handle
+            .insert_source(Timer::from_duration(after), move |_, _, data| {
                 #[expect(
                     clippy::disallowed_methods,
                     reason = "the pointer's hide timer is one of the timers vtium-platform holds"
@@ -743,8 +760,7 @@ where
                         TimeoutAction::Drop
                     }
                 }
-            },
-        );
+            });
         if let Err(e) = inserted {
             self.hide_armed.set(false);
             log::warn!(target: "input", "cannot arm the pointer's hide timer: {}", e.error);
