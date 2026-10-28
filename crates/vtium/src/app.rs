@@ -63,7 +63,8 @@ use vtium_render::{
     Config as RenderConfig, DecorationColors, Depth, DrawState, Orientation, PointerShape, Profile,
 };
 use vtium_term::{
-    BlankRequest, BlankTimeout, Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal,
+    Age, BlankRequest, BlankTimeout, Content, Glyph, Mods, MouseButton, MouseEvent, MouseTracking,
+    Terminal,
 };
 
 use crate::blank::Order;
@@ -845,14 +846,23 @@ impl App {
         true
     }
 
-    /// The characters on the screen, sorted, each once.
+    /// The characters the displays show, sorted, each once: read from the
+    /// view each buffer draws, scrolled back or not, every character of a
+    /// cluster among them (#149).
     fn visible_chars(&self) -> Vec<char> {
-        let mut chars: Vec<char> = self
-            .screen_text()
-            .iter()
-            .flat_map(|line| line.chars())
-            .filter(|c| !c.is_whitespace())
-            .collect();
+        let palette = self.term.terminal.palette();
+        let frame = self.term.terminal.screen().frame(palette, Age::NEVER);
+        let mut chars: Vec<char> = Vec::new();
+        for row in 0..frame.rows() {
+            for cell in frame.cells(row) {
+                match cell.glyph {
+                    Glyph::Char(c) => chars.push(c),
+                    Glyph::Cluster(text) => chars.extend(text.chars()),
+                    Glyph::Empty => {}
+                }
+            }
+        }
+        chars.retain(|c| !c.is_whitespace());
         chars.sort_unstable();
         chars.dedup();
         chars
@@ -983,19 +993,30 @@ impl App {
         if answers.is_empty() {
             return;
         }
+        // Arrival is damage, as program output is: the answers since the
+        // last turn merge into one set per cell, which the next frame draws
+        // once, and only the cells showing their characters draw.
         let visible = self.visible_chars();
+        let mut damage: Vec<(vtium_font::Cell, Vec<char>)> = Vec::new();
         for Answer { cell, face } in answers {
-            let changed: Vec<char> = visible
-                .iter()
-                .copied()
-                .filter(|&c| face.has_glyph(c))
-                .collect();
+            let shown = visible.iter().copied().filter(|&c| face.has_glyph(c));
+            match damage.iter_mut().find(|(at, _)| *at == cell) {
+                Some((_, chars)) => chars.extend(shown),
+                None => damage.push((cell, shown.collect())),
+            }
+        }
+        for (cell, mut chars) in damage {
+            chars.sort_unstable();
+            chars.dedup();
+            if chars.is_empty() {
+                continue;
+            }
             for v in self.views.values_mut() {
                 if v.renderer.font().cell() == cell {
-                    v.renderer.glyphs_changed(&changed);
+                    v.renderer.glyphs_changed(&chars);
                 }
             }
-            self.draw_now |= !changed.is_empty();
+            self.draw_now = true;
         }
     }
 

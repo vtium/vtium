@@ -3719,3 +3719,95 @@ fn a_frit_with_an_unreadable_cell_leaves_the_built_in_font() {
     );
     let _ = std::fs::remove_dir_all(&fonts.frits);
 }
+
+/// The seat with the frit `t`, whose helper answers every printable ASCII
+/// character as a solid block once `go` exists, its session running
+/// `script`; the harness, the sources and the go file.
+fn frit_session(name: &str, script: &str) -> (Harness, Sources, PathBuf) {
+    let cell = vtium_font::Cell {
+        width: 8,
+        height: 16,
+    };
+    let (fonts, go) = frit_fonts(
+        name,
+        &solid_ascii(cell),
+        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+    );
+    let h = Harness::fonts(
+        &[
+            "--font-name=t",
+            "--no-blink",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            script,
+        ],
+        Memory::default(),
+        fonts.clone(),
+    );
+    (h, fonts, go)
+}
+
+// #149: the glyphs that land damage the cells each buffer shows, a
+// cluster's included
+#[test]
+fn a_cluster_cell_draws_the_helpers_glyph_once_it_lands() {
+    let (mut h, fonts, go) = frit_session("cluster", "printf 'e\\314\\201'; read x");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| !solid(&top_cell(m, 0))),
+        "the built-in font's e with its accent"
+    );
+    h.until(Duration::from_millis(300), |_| false);
+    std::fs::write(&go, b"").expect("the go file");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| solid(&top_cell(m, 0))),
+        "the helper's e draws in the cluster's cell"
+    );
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// #149: a scrolled-back view's cells take the glyphs too
+#[test]
+fn a_scrolled_back_cell_draws_the_helpers_glyph_once_it_lands() {
+    let (mut h, fonts, go) = frit_session(
+        "scrolled",
+        "echo A; i=0; while [ $i -lt 12 ]; do printf '\\303\\251\\n'; i=$((i+1)); done; printf '\\303\\251\\303\\251'; read x",
+    );
+    // the live screen shows only é, which the helper does not send
+    assert!(h.until(SECOND, |a| {
+        a.screen_text().iter().any(|l| l == "\u{e9}\u{e9}")
+    }));
+    h.point(
+        [PointerEvent::Wheel(1), PointerEvent::Wheel(1)],
+        Mods::empty(),
+    );
+    assert_eq!(h.app.term.terminal.screen().scrolled_back(), 4);
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| !solid(&top_cell(m, 0))),
+        "the built-in font's A, scrolled back"
+    );
+    // the scroll's own redraw is done before the glyphs land
+    h.until(Duration::from_millis(300), |_| false);
+    std::fs::write(&go, b"").expect("the go file");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| solid(&top_cell(m, 0))),
+        "the helper's A draws in the scrolled-back view"
+    );
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// The operator's damage decision (2026-10-28): a fill of characters no
+// buffer shows starts no draw pass, and swaps no frame
+#[test]
+fn glyphs_no_buffer_shows_start_no_draw() {
+    let (mut h, fonts, go) = frit_session("unseen", "read x");
+    assert!(h.until_memory(Duration::from_secs(10), |m| m.frames > 0));
+    h.until(Duration::from_millis(200), |_| false);
+    let (frames, passes) = (h.memory().frames, h.memory().ages.len());
+    std::fs::write(&go, b"").expect("the go file");
+    // the helper answers and exits; the screen shows none of its glyphs
+    h.until(Duration::from_millis(1000), |_| false);
+    assert_eq!((h.memory().frames, h.memory().ages.len()), (frames, passes));
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}

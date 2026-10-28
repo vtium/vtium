@@ -1379,8 +1379,12 @@ mod tests {
         s.helper.ask(CELL, &['D'], now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
-        // the fill took A and stopped; the ask's D evicted A
+        // the fill took A and stopped; the ask's D evicted A, and the
+        // eviction is no answer, so it damages nothing
         assert_eq!(answers.len(), 2);
+        let holds = |a: &Answer, c| a.face.has_glyph(c);
+        assert!(holds(&answers[0], 'A') && !holds(&answers[0], 'D'));
+        assert!(holds(&answers[1], 'D') && !holds(&answers[1], 'A'));
         assert!(!s.held('A') && !s.held('B') && !s.held('C') && s.held('D'));
         assert!(s.helper.store.borrow().bytes() <= limit);
         assert!(!s.helper.busy());
