@@ -121,3 +121,55 @@ pub fn gunzip(mut bytes: &[u8]) -> Option<Vec<u8>> {
     }
     Some(out)
 }
+
+/// A section's tag and bytes.
+pub type Section = ([u8; 4], Vec<u8>);
+
+/// A vitrified set's sections, in order, as the format lays them out:
+/// the tests take a set apart, change a section and put it back together
+/// to craft the refusals.
+pub fn sections(set: &[u8]) -> (u16, u16, Vec<Section>) {
+    let u16_at = |i: usize| u16::from_le_bytes([set[i], set[i + 1]]);
+    let u32_at = |i: usize| u32::from_le_bytes(set[i..i + 4].try_into().unwrap());
+    let u64_at = |i: usize| u64::from_le_bytes(set[i..i + 8].try_into().unwrap());
+    let count = u32_at(12) as usize;
+    let mut out = Vec::new();
+    for s in 0..count {
+        let at = 16 + 20 * s;
+        let tag: [u8; 4] = set[at..at + 4].try_into().unwrap();
+        let (offset, len) = (u64_at(at + 4) as usize, u64_at(at + 12) as usize);
+        out.push((tag, set[offset..offset + len].to_vec()));
+    }
+    (u16_at(8), u16_at(10), out)
+}
+
+/// A set put back together from its versions and sections, each section
+/// placed after the header in the order given.
+pub fn assemble(major: u16, minor: u16, sections: &[Section]) -> Vec<u8> {
+    let mut out = b"VTGLASS\0".to_vec();
+    out.extend(major.to_le_bytes());
+    out.extend(minor.to_le_bytes());
+    out.extend((sections.len() as u32).to_le_bytes());
+    let mut at = (16 + 20 * sections.len()) as u64;
+    for (tag, bytes) in sections {
+        out.extend(tag);
+        out.extend(at.to_le_bytes());
+        out.extend((bytes.len() as u64).to_le_bytes());
+        at += bytes.len() as u64;
+    }
+    for (_, bytes) in sections {
+        out.extend(bytes);
+    }
+    out
+}
+
+/// `set` with section `tag`'s bytes changed by `f`.
+pub fn with_section(set: &[u8], tag: &[u8; 4], f: impl FnOnce(&mut Vec<u8>)) -> Vec<u8> {
+    let (major, minor, mut secs) = sections(set);
+    let s = secs
+        .iter_mut()
+        .find(|(t, _)| t == tag)
+        .expect("the section");
+    f(&mut s.1);
+    assemble(major, minor, &secs)
+}

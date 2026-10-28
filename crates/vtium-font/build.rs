@@ -1,40 +1,110 @@
-//! Packs `data/unifont.hex` into the built-in unifont when the `unifont`
-//! feature is on: the glyph bytes in codepoint order, cut into chunks of at
-//! most `CHUNK_BYTES` on glyph boundaries and each deflated on its own, so
-//! the font inflates only the chunks it draws from. `src/unifont.rs`
-//! includes the generated index from `OUT_DIR/unifont.rs` and the chunks
-//! from `OUT_DIR/unifont.z`.
+//! Packs the built-in sets (ADR-1200 D7): `data/unifont.hex` into
+//! `OUT_DIR/unifont.glass` with the `unifont` feature, and
+//! `data/unscii-8.hex` into `OUT_DIR/unscii-8.glass` with the `unscii`
+//! feature. Each is a vitrified set (ADR-1200 D2) written by the set
+//! writer's own code, which this script includes, its 1-bit glyph chunks
+//! each deflated so the binary carries the font compressed.
 //!
-//! The hex file is trusted input, checked into the repository: a malformed
-//! line stops the build.
+//! The hex files are trusted input, checked into the repository: a
+//! malformed line stops the build.
 
-use std::fmt::Write as _;
+#[allow(dead_code)]
+#[path = "src/bounds.rs"]
+mod bounds;
+#[allow(dead_code)]
+#[path = "src/sha256.rs"]
+mod sha256;
+#[allow(dead_code)]
+#[path = "src/set"]
+mod set {
+    pub mod format;
+    pub mod write;
+}
+#[allow(dead_code)]
+#[path = "src/sprite"]
+mod sprite {
+    pub mod spans;
+}
+
 use std::path::PathBuf;
 
-/// The most glyph bytes one chunk holds, before deflating.
-const CHUNK_BYTES: usize = 16 * 1024;
+use set::format::{FORMAT_BITS, MAJOR, MINOR, SOURCE_SPRITES};
+use set::write::{RawSet, RawStrike, encode};
+
+/// A built-in set to pack: its hex file, in the `codepoint:bits` form
+/// unifont's tools write, and what its one strike and provenance hold.
+struct Builtin {
+    name: &'static str,
+    feature: &'static str,
+    hex: &'static str,
+    width: u16,
+    height: u16,
+    baseline: u16,
+    source: &'static str,
+    license: &'static str,
+}
+
+const BUILTINS: [Builtin; 2] = [
+    // Unifont's glyphs stand on row 14 of 16, two rows of descent
+    Builtin {
+        name: "unifont",
+        feature: "CARGO_FEATURE_UNIFONT",
+        hex: "data/unifont.hex",
+        width: 8,
+        height: 16,
+        baseline: 14,
+        source: "GNU Unifont 17.0.03, unifont-all",
+        license: "OFL-1.1",
+    },
+    // Unscii-8's stand on row 7 of 8, one row of descent
+    Builtin {
+        name: "unscii-8",
+        feature: "CARGO_FEATURE_UNSCII",
+        hex: "data/unscii-8.hex",
+        width: 8,
+        height: 8,
+        baseline: 7,
+        source: "Unscii 2.1, unscii-8.hex",
+        license: "public domain",
+    },
+];
 
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
-    println!("cargo::rerun-if-changed=data/unifont.hex");
-    if std::env::var_os("CARGO_FEATURE_UNIFONT").is_none() {
-        return;
+    for f in [
+        "src/bounds.rs",
+        "src/sha256.rs",
+        "src/set/format.rs",
+        "src/set/write.rs",
+        "src/sprite/spans.rs",
+    ] {
+        println!("cargo::rerun-if-changed={f}");
     }
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
-    let hex = std::fs::read_to_string("data/unifont.hex").expect("read data/unifont.hex");
+    for b in &BUILTINS {
+        println!("cargo::rerun-if-changed={}", b.hex);
+        if std::env::var_os(b.feature).is_some() {
+            let bytes = pack(b);
+            std::fs::write(out.join(format!("{}.glass", b.name)), bytes).expect("write a set");
+        }
+    }
+}
 
-    // (first codepoint, glyph count, wide, offset of the first glyph's bytes)
-    let mut blocks: Vec<(u32, u32, bool, usize)> = Vec::new();
-    let mut raw = Vec::new();
-    // (offset of the chunk's glyph bytes, offset of its deflated bytes)
-    let mut chunks = vec![(0usize, 0usize)];
-    let mut packed = Vec::new();
-    let mut chunk_start = 0;
+/// The built-in set `b`, as bytes.
+fn pack(b: &Builtin) -> Vec<u8> {
+    let hex = std::fs::read(b.hex).unwrap_or_else(|e| panic!("read {}: {e}", b.hex));
+    let source_sha = sha256::hex(&sha256::Sha256::digest(&hex));
+    let hex = String::from_utf8(hex).expect("a hex file is UTF-8");
+    // a narrow glyph's hex digits: two a byte, a byte a row up to 8 pixels
+    let narrow = usize::from(b.width.div_ceil(8)) * usize::from(b.height) * 2;
+
+    let mut glyphs = Vec::new();
+    let mut map = Vec::new();
     let mut last = None;
     for (n, line) in hex.lines().enumerate() {
         let (cp, bits) = line
             .split_once(':')
-            .unwrap_or_else(|| panic!("data/unifont.hex:{}: no ':'", n + 1));
+            .unwrap_or_else(|| panic!("{}:{}: no ':'", b.hex, n + 1));
         let cp = u32::from_str_radix(cp, 16).expect("a hex codepoint");
         assert!(
             char::from_u32(cp).is_some(),
@@ -43,51 +113,54 @@ fn main() {
         assert!(last < Some(cp), "U+{cp:04X} out of order");
         last = Some(cp);
         let wide = match bits.len() {
-            32 => false,
-            64 => true,
-            len => panic!("data/unifont.hex:{}: {len} hex digits", n + 1),
+            len if len == narrow => false,
+            len if len == 2 * narrow => true,
+            len => panic!("{}:{}: {len} hex digits", b.hex, n + 1),
         };
         let glyph: Vec<u8> = (0..bits.len())
             .step_by(2)
             .map(|i| u8::from_str_radix(&bits[i..i + 2], 16).expect("hex digits"))
             .collect();
+        map.push((cp, u32::try_from(glyphs.len()).expect("glyphs fit u32")));
+        glyphs.push((wide, glyph));
+    }
 
-        if raw.len() + glyph.len() - chunk_start > CHUNK_BYTES {
-            packed.extend(miniz_oxide::deflate::compress_to_vec(
-                &raw[chunk_start..],
-                9,
-            ));
-            chunk_start = raw.len();
-            chunks.push((chunk_start, packed.len()));
-        }
-        match blocks.last_mut() {
-            Some((first, len, w, _)) if *w == wide && *first + *len == cp => *len += 1,
-            _ => blocks.push((cp, 1, wide, raw.len())),
-        }
-        raw.extend(glyph);
-    }
-    packed.extend(miniz_oxide::deflate::compress_to_vec(
-        &raw[chunk_start..],
-        9,
-    ));
-    chunks.push((raw.len(), packed.len()));
-
-    let mut rs = String::from("// Generated by build.rs from data/unifont.hex.\n");
-    writeln!(rs, "static BLOCKS: [Block; {}] = [", blocks.len()).unwrap();
-    for (first, len, wide, offset) in &blocks {
-        // Block packs these in 21, 17 and 25 bits (src/unifont.rs).
-        assert!(
-            *first < 1 << 21 && *len < 1 << 17 && *offset < 1 << 25,
-            "a block that does not pack"
-        );
-        writeln!(rs, "    Block::new({first:#x}, {len}, {wide}, {offset}),").unwrap();
-    }
-    writeln!(rs, "];").unwrap();
-    writeln!(rs, "static CHUNKS: [Chunk; {}] = [", chunks.len()).unwrap();
-    for (raw, packed) in &chunks {
-        writeln!(rs, "    Chunk::new({raw}, {packed}),").unwrap();
-    }
-    writeln!(rs, "];").unwrap();
-    std::fs::write(out.join("unifont.rs"), rs).expect("write unifont.rs");
-    std::fs::write(out.join("unifont.z"), packed).expect("write unifont.z");
+    // the lines vtium-font gives a face with no metrics of its own
+    // (Decorations::for_height), so a scaled strike keeps them
+    let h = b.height;
+    let thick = (h / 16).clamp(1, (h / 4).max(1));
+    let strike = RawStrike {
+        style: 0,
+        format: FORMAT_BITS,
+        cell_width: b.width,
+        cell_height: h,
+        baseline: b.baseline,
+        underline: h - thick,
+        underline_thickness: thick,
+        strike: (h / 2).min(h - thick),
+        strike_thickness: thick,
+        // built in, the chunks are deflated to fit the binary's budget
+        // (ADR-1200 D7)
+        compress: true,
+        glyphs,
+        map,
+    };
+    let meta = [
+        ("name", b.name.to_owned()),
+        ("format", format!("{MAJOR}.{MINOR}")),
+        ("tool", format!("vtium-font {}", env!("CARGO_PKG_VERSION"))),
+        ("source", b.source.to_owned()),
+        ("source-sha256", source_sha),
+        ("source-format", "unifont-hex".to_owned()),
+        ("license", b.license.to_owned()),
+    ];
+    let set = RawSet {
+        meta: meta.into_iter().map(|(k, v)| (k.to_owned(), v)).collect(),
+        // the sprites for every range, as the C reference drew over its
+        // unifont and the goldens hold; Unscii-8, which has no C reference
+        // behind it, draws them the same
+        policy: [SOURCE_SPRITES; 6],
+        strikes: vec![strike],
+    };
+    encode(&set).unwrap_or_else(|e| panic!("the built-in {} set: {e}", b.name))
 }
