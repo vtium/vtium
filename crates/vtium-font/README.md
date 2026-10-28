@@ -57,10 +57,10 @@ A sprite's curves and diagonals are supersampled with IEEE 754 `f64` addition, s
 
   `Font::coverage` counts the characters of each range the face holds, 874 in all, through `Face::coverage`, which asks `Face::has_glyph` of each; a face that reads a character map can override it. `Coverage::partial` names the ranges a face covers only partly, for the operator's warning. `Font::new` takes the face's own `Face::sprite_policy`, and `Font::with_policy` sets another; the default is listed under Departures. `tests/policy.rs` holds each source to stand-in faces that cover a range fully, partly and not at all.
 - **A character the face lacks can draw its codepoint** (vtium/vtium#85). `Missing::Replacement`, the configuration's `missing = box` and the default, draws U+25A1, `?` or the face's last resort, as the C reference did. `Missing::Hex`, `missing = hex`, draws the codepoint in hex digits, in the layout and digit shapes the operator approved on vtium/vtium#85. Every pair of digits differs by at least two pixels, so a program can read the codepoint back:
-  - a narrow cell is the text colour with the digits cut out, two rows of two 3x5 digits up to U+FFFF and three rows of two 3x4 digits past it, b, c and d in lower case;
+  - a narrow cell is the text color with the digits cut out, two rows of two 3x5 digits up to U+FFFF and three rows of two 3x4 digits past it, b, c and d in lower case;
   - a wide cell is a box outline with 3x5 digits inside, two rows of two or of three.
 
-  The design is 8x16 narrow and 16x16 wide, scaled by the largest whole factor the cell holds and centred, a narrow cell's margin in the text colour; a cell smaller than the design draws U+25A1. `Font::glyph_unscaled` hands it over at its drawn size, as a sprite. `tests/missing.rs` holds it to literal masks.
+  The design is 8x16 narrow and 16x16 wide, scaled by the largest whole factor the cell holds and centred, a narrow cell's margin in the text color; a cell smaller than the design draws U+25A1. `Font::glyph_unscaled` hands it over at its drawn size, as a sprite. `tests/missing.rs` holds it to literal masks.
 - **A cell is bounded.** A font scales by whole factors only as far as keeps its cell inside `CELL_SIDE_MAX`, and a sprite or glyph past it is not drawn (`CELL_SIDE_MAX` below). The C reference scaled to any height it was asked for.
 
 ## Glyph storage
@@ -69,10 +69,10 @@ A sprite's curves and diagonals are supersampled with IEEE 754 `f64` addition, s
 
 | Format | Bytes a pixel | Holds | A narrow 8x16 cell | Two cells at `CELL_SIDE_MAX` (4096x2048) |
 |---|---|---|---|---|
-| `Format::Mask` | 1 | Coverage, 0 to 255; the renderer blends it in the cell's colours | 128 B | 8 MiB |
-| `Format::Rgba` | 4 | Red, green, blue and alpha, the colours premultiplied by alpha | 512 B | 32 MiB |
+| `Format::Mask` | 1 | Coverage, 0 to 255; the renderer blends it in the cell's colors | 128 B | 8 MiB |
+| `Format::Rgba` | 4 | Red, green, blue and alpha, the colors premultiplied by alpha | 512 B | 32 MiB |
 
-PSF, unifont and the sprites draw only masks. RGBA is for colour faces (vtium/vtium#23, #24).
+PSF, unifont and the sprites draw only masks. RGBA is for color faces (vtium/vtium#23, #24).
 
 **What each source keeps.**
 
@@ -88,7 +88,7 @@ Scale does not change what a source keeps, only what a draw returns: a font scal
 
 ## Notes for vtium-render
 
-- Ask `Font::glyph` for every cell's glyph: it draws the sprites, the face and the fallbacks, and boxes the result to exactly the cells asked for, marked with that cell count. Check its `format()`: a mask is blended in the cell's colours, RGBA is composited as it is. It returns `None` only for an empty cluster or a face that can draw nothing at all.
+- Ask `Font::glyph` for every cell's glyph: it draws the sprites, the face and the fallbacks, and boxes the result to exactly the cells asked for, marked with that cell count. Check its `format()`: a mask is blended in the cell's colors, RGBA is composited as it is. It returns `None` only for an empty cluster or a face that can draw nothing at all.
 - A sprite's thickness is the face's underline thickness (`Font::decorations`), as in the C reference, so lines and underlines match.
 - Bold is drawn into the glyph; italic is not, as in the C reference's bitmap fonts. Overhang is vtium/vtium#26.
 - A glyph's bytes depend only on the font, the size, the style and the character, so a cache may key on those. A `Font`'s policy is fixed when it is built, so a new policy is a new `Font`.

@@ -24,7 +24,7 @@ _Escape protocols and the screen model - parser, modes, cells, scrollback_
 | [ADR-1003](./term/ADR-1003-reflow-on-a-width-change-and-no-cell-past-the-margin.md) | Reflow on a width change, and no cell past the margin | accepted |
 
 ## Font
-_Font loading, glyph rasterisation, colour glyphs and fallback_
+_Font loading, glyph rasterisation, color glyphs and fallback_
 
 | ADR | Title | Status |
 |-----|-------|--------|

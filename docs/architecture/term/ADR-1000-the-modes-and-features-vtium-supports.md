@@ -116,7 +116,7 @@ Every reply follows the reply rule (docs/architecture.md, "Determinism"): it is 
 - **ENQ answers an empty answerback.** The C reference answered ACK (0x06); vtium lists this as a departure.
 - **Focus (1004) and visibility (2033) reports are allowed:** a program opts in, and what they reveal is that the user switched VTs.
 - **setBackground and setForeground**, kmscon's private OSC strings (`kmscon/src/terminal.c:863` in the C reference), hand the display back and take it again. No DEC or ECMA specification defines them. vtium keeps them behind a configuration key, on by default, as the C reference behaved (#36).
-- **OSC 21** takes kitty's colour-protocol meaning, which Ghostty shares, not xterm's DECSWT title. A query for a key vtium does not know is left out of the reply. kitty answers it with `unknown=` and the key's name in base64, which carries request bytes, so vtium lists this as a departure from kitty.
+- **OSC 21** takes kitty's color-protocol meaning, which Ghostty shares, not xterm's DECSWT title. A query for a key vtium does not know is left out of the reply. kitty answers it with `unknown=` and the key's name in base64, which carries request bytes, so vtium lists this as a departure from kitty.
 - **Bidirectional modes** (BDSM, DCSM, DECRLM, DECRLCM) have no row until #43 decides vtium's bidi model.
 - **LNM (ANSI 20) stays supported**, as xterm and the C reference have it, though ECMA-48's 5th edition withdraws it.
 
@@ -151,7 +151,7 @@ Each row proves its coverage by the contract of vtium/vtium#67, whose columns an
 
 ### Neutral
 
-- Eleven issues carry the new rows: vtium/vtium#54 (modes and controls beyond the C reference), #55 (left and right margins), #56 (rectangular areas and protection), #57 (in-band reports), #58 (SGR and colour stacks), #59 (pointer shapes), #60 (kitty text sizing), #61 (double-width and double-height lines), #62 (iTerm2 inline images), #63 (a static image at the login prompt) and #64 (font merging), with #65 for VT52. #37, #38 and #23 are widened for SGR 6 and 8, the pointer, selection and kitty colours, and ligatures as an option.
+- Eleven issues carry the new rows: vtium/vtium#54 (modes and controls beyond the C reference), #55 (left and right margins), #56 (rectangular areas and protection), #57 (in-band reports), #58 (SGR and colour stacks), #59 (pointer shapes), #60 (kitty text sizing), #61 (double-width and double-height lines), #62 (iTerm2 inline images), #63 (a static image at the login prompt) and #64 (font merging), with #65 for VT52. #37, #38 and #23 are widened for SGR 6 and 8, the pointer, selection and kitty colors, and ligatures as an option.
 - The departures list (#14) gains ENQ's empty answerback, DA1's conformance level (one of xterm's in place of the C reference's 60), and, as a departure from kitty, OSC 21's omission of unknown keys.
 
 ## Alternatives Considered
