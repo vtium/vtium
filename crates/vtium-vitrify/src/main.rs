@@ -13,6 +13,7 @@ fn main() -> ExitCode {
     {
         return ExitCode::from(vtium_vitrify::child::run_parser());
     }
+    vtium_vitrify::banner::show(&args, &mut std::io::stdout());
     let status = vtium_vitrify::cli::run(&args, &mut std::io::stdout(), &mut std::io::stderr());
     ExitCode::from(status)
 }
