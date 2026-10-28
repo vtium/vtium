@@ -368,7 +368,9 @@ pub use raster::rasterise;
 /// The child's side: swash, on bytes no one has checked. A panic here ends
 /// the child, which fails the source and nothing else (ADR-1200 D14).
 mod raster {
-    use super::{LICENSE_MAX, Outline, SET_CHUNK_BYTES, OutlineRequest, Placed, Strike, family_key};
+    use super::{
+        LICENSE_MAX, Outline, OutlineRequest, Placed, SET_CHUNK_BYTES, Strike, family_key,
+    };
     use swash::scale::image::{Content, Image};
     use swash::scale::{Render, ScaleContext, Source, StrikeWith};
     use swash::zeno::{Mask, Origin, Placement};
