@@ -1825,6 +1825,18 @@ class SysvinitTest(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(t3_common.GUEST_SYSVINIT, name)))
         self.assertEqual(t3.guest_of("sysvinit")["inputs"], t3_common.SYSVINIT_INPUTS)
 
+    def test_pinned_base(self):
+        # The pinned image, snapshot and guest files name one base image; a
+        # change to any of them provisions a new one, about 0.4 GiB
+        # downloaded and a file of about 1 GiB.
+        with open(os.path.join(t3_common.ROOT, "Makefile")) as f:
+            make = dict(re.findall(r"^(T3SV_IMAGE_VER|T3SV_SNAPSHOT)\s*:=\s*(\S+)", f.read(),
+                                   re.M))
+        image = "debian-13-generic-amd64-%s.qcow2" % make["T3SV_IMAGE_VER"]
+        base = t3_common.base_image(image, make["T3SV_SNAPSHOT"], t3_common.GUEST_SYSVINIT,
+                                    t3_common.SYSVINIT_INPUTS, "sysvinit-")
+        self.assertEqual(os.path.basename(base), "sysvinit-2b2fbd269ea5b0f8.qcow2")
+
     def test_run_needs_its_base(self):
         # A run naming a variant of the guest without systemd refuses
         # without that guest's base image, naming the target that builds it.
