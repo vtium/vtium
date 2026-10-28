@@ -1,0 +1,4 @@
+# tier 3's 2d-640x480-frit set: the guest's DejaVu Sans Mono, generated at
+# run time on the console's cells (ADR-1201 D1); the built-in unifont draws
+# what it lacks (#141).
+source=outline:/usr/share/fonts/TTF/DejaVuSansMono.ttf

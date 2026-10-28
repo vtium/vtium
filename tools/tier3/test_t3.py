@@ -425,6 +425,42 @@ class ImplementationTest(unittest.TestCase):
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             self.assertIn('if [ -f "$disc"/pointer ]; then', f.read())
 
+    def test_frit_variants(self):
+        # A configured frit generated at run time (ADR-1201 D1): two 640x480
+        # variants on the minspec machine, in tier3-minimal, judged by
+        # vtium's goldens; the disc carries the frit to be installed with no
+        # set built, and the held variant's `helper-held`, on which
+        # guest/setup puts a helper that never answers in place.
+        small = t3_scenario.VARIANTS["2d-640x480-psf16"]
+        with open(os.path.join(t3_common.ROOT, "Makefile")) as f:
+            minimal = re.search(r"^tier3-minimal:.*\n\t(.*)", f.read(), re.M).group(1)
+        impl = t3_impl.tree(self.tree, self.tar)
+        disc = os.path.join(self.dir.name, "disc")
+        for name, held in (("2d-640x480-frit", False), ("2d-640x480-frit-held", True)):
+            with self.subTest(name), mock.patch.object(t3_scenario, "make_iso"):
+                v = t3_scenario.VARIANTS[name]
+                for key in ("device", "cpus", "memory_mb", "renderer", "images", "goldens"):
+                    self.assertEqual(v[key], small[key])
+                self.assertIn(name, minimal)
+                self.assertNotIn("frits", v)
+                self.assertEqual(t3_scenario.screens_of(name), ["small-console", "cjk"])
+                with open(os.path.join(t3_common.GUEST, v["conf"])) as f:
+                    font = re.search(r"^font-name=(.*)$", f.read(), re.M).group(1)
+                self.assertEqual(v["deferred_frits"], [font + ".vtfrit"])
+                with open(os.path.join(t3_common.GUEST, "frits", font + ".vtfrit")) as f:
+                    self.assertIn("source=outline:/usr/share/fonts/TTF/DejaVuSansMono.ttf\n",
+                                  f.read())
+                t3_scenario.build_disc(name, self.dir.name, impl)
+                self.assertEqual(sorted(os.listdir(disc)),
+                                 sorted(["kmscon.conf", "screens", "setup", "t3", "tree.tar",
+                                         "deferred-frits"] + (["helper-held"] if held else [])))
+                self.assertEqual(os.listdir(os.path.join(disc, "deferred-frits")),
+                                 [font + ".vtfrit"])
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            setup = f.read()
+        self.assertIn('if [ -d "$disc"/deferred-frits ]; then', setup)
+        self.assertIn('if [ -f "$disc"/helper-held ]; then', setup)
+
     def test_fonts_disc(self):
         # A variant drawing with the test fonts carries them, which
         # guest/setup installs where its config names them; others carry none.
