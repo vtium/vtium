@@ -715,4 +715,18 @@ pub const CASES: &[Case] = &[
         source: Source::Vtium,
         ported: None,
     },
+    Case {
+        screen: Screen {
+            depth: Depth::Gray(4),
+            ..Screen::new(
+                "underline-unifont-gray4",
+                "underline-unifont on a gray panel of 4 levels (vtium/vtium#135). Correct: the cells lit and unlit as in underline-unifont-1bit, unifont's glyphs crisp, and the curl's edges in the panel's two grays between black and white.",
+                UNDERLINE,
+                48,
+                10,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
 ];
