@@ -82,6 +82,14 @@ impl Pointer {
         }
     }
 
+    /// The device closed, as the devices sleep: a button or a finger
+    /// down now may come up while it is closed, so neither is held when
+    /// it opens again.
+    pub(crate) fn let_go(&mut self) {
+        self.held = None;
+        self.touching = false;
+    }
+
     fn moved(&self) -> PointerEvent {
         PointerEvent::Moved {
             x: self.x,

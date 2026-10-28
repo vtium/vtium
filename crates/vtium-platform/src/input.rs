@@ -448,13 +448,17 @@ impl<O: Open + 'static> Input<O> {
         true
     }
 
-    /// Closes a device, keeping it to open again (input.c:193-203).
+    /// Closes a device, keeping it to open again (input.c:193-203), with
+    /// its pointer's buttons let go.
     fn close(&mut self, id: DeviceId) {
         let Some(device) = self.devices.iter_mut().find(|d| d.id == id) else {
             return;
         };
-        if let Some(keyboard) = device.probed.as_mut().and_then(|p| p.keyboard.as_mut()) {
-            keyboard.stop_repeat();
+        if let Some(probed) = device.probed.as_mut() {
+            if let Some(keyboard) = probed.keyboard.as_mut() {
+                keyboard.stop_repeat();
+            }
+            probed.pointer.let_go();
         }
         if let (Some(token), Some(link)) = (device.watch.take(), &self.link) {
             link.unwatch(token);

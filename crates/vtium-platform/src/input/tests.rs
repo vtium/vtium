@@ -631,6 +631,26 @@ fn a_touchpad_moves_the_pointer_by_the_fingers_motion() {
     assert_eq!(xs, [0, 20, 20, 20, 25, 10]);
 }
 
+// A button held across a VT switch is released on the other VT: the
+// devices' sleep lets it go, so the next move is no drag.
+#[test]
+fn sleep_lets_go_of_a_held_button() {
+    let (mut input, node, id) = with_device(fake::mouse());
+    feed(&mut input, &node, id, &[ev(EV_KEY, BTN_LEFT, 1)]);
+    pointers(&mut input);
+    input.sleep();
+    input.wake_up();
+    feed(&mut input, &node, id, &[ev(EV_REL, REL_X, 5)]);
+    assert_eq!(
+        pointers(&mut input),
+        [PointerEvent::Moved {
+            x: 5,
+            y: 0,
+            held: None
+        }]
+    );
+}
+
 #[test]
 fn the_pointer_hides_after_its_timeout_without_a_frame() {
     let (mut input, node, id) = with_device(fake::mouse());
