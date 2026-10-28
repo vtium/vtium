@@ -32,7 +32,7 @@ fn parsed(spec: &str) -> Option<Rgb> {
 // ctlseqs, OSC 4: `index ; spec` pairs set palette colours, each spec an
 // X11 colour specification; a query after a set answers the new colour,
 // and text already written in that colour recolours.
-// covers: colour.palette.set
+// covers: color.palette.set
 #[test]
 fn osc_4_sets_palette_colours() {
     let mut t = term(4, 1, b"\x1b[31mx");
@@ -98,7 +98,7 @@ fn colour_specs_are_read_as_x11_reads_them() {
 
 // X11's color names, which XParseColor looks up in rgb.txt: in any case
 // and with any spaces, the numbered variants and both spellings of grey.
-// covers: colour.names
+// covers: color.names
 #[test]
 fn color_names_are_read_from_x11s_table() {
     let rgb = |r, g, b| Some(Rgb::new(r, g, b));
@@ -136,7 +136,7 @@ fn color_names_are_read_from_x11s_table() {
 
 // ctlseqs, OSC 10 and kitty's OSC 21: a color name sets the defaults and
 // a palette color as an `rgb:` spec does.
-// covers: colour.names
+// covers: color.names
 #[test]
 fn color_names_set_the_defaults_and_kittys_keys() {
     let mut t = term(4, 1, b"");
@@ -155,7 +155,7 @@ fn color_names_set_the_defaults_and_kittys_keys() {
 
 // ctlseqs, OSC 104: each index listed returns to the configured palette's
 // colour, and no index returns them all.
-// covers: colour.palette.set
+// covers: color.palette.set
 #[test]
 fn osc_104_resets_palette_colours_to_the_configured_palette() {
     let nord = Palette::named("nord").unwrap();
@@ -178,7 +178,7 @@ fn osc_104_resets_palette_colours_to_the_configured_palette() {
 // the cursor colour, each set and queried; a list goes on to the next
 // number. The cursor colour unset answers the foreground, as xterm's
 // cursorColor defaults to it.
-// covers: colour.dynamic.set
+// covers: color.dynamic.set
 #[test]
 fn osc_10_11_and_12_set_and_query() {
     let mut t = term(4, 1, b"");
@@ -214,7 +214,7 @@ fn osc_10_11_and_12_set_and_query() {
 
 // ctlseqs, OSC 110, 111 and 112: each returns its colour to the
 // configured one; the cursor's is unset, drawing inverted.
-// covers: colour.dynamic.set
+// covers: color.dynamic.set
 #[test]
 fn osc_110_111_and_112_reset_to_the_configured_palette() {
     let vga = Palette::named("vga").unwrap();
@@ -232,7 +232,7 @@ fn osc_110_111_and_112_reset_to_the_configured_palette() {
 // ctlseqs, OSC 13 and 14: the pointer's foreground and background, unset
 // following the defaults; OSC 113 and 114 reset them. The host draws the
 // pointer in `Palette::pointer`.
-// covers: colour.pointer
+// covers: color.pointer
 #[test]
 fn osc_13_and_14_set_query_and_reset_the_pointer_colours() {
     let mut t = term(4, 1, b"");
@@ -275,7 +275,7 @@ fn selection_colours(t: &mut Terminal) -> ((Rgb, Rgb), (Rgb, Rgb)) {
 // ctlseqs, OSC 17 and 19: the selection's background and foreground.
 // Unset, a selected cell draws inverted; with a background set, its own
 // foreground over it; with both set, both. OSC 117 and 119 reset them.
-// covers: colour.selection
+// covers: color.selection
 #[test]
 fn osc_17_and_19_colour_the_selection() {
     let red = Rgb::new(0xcd, 0, 0);
@@ -330,7 +330,7 @@ fn a_list_skips_the_tektronix_colours() {
 // resets it; spaces are ignored. A key vtium does not know is left out of
 // the reply, a departure from kitty, which names it in base64 under
 // `unknown` (the reply rule).
-// covers: colour.kitty-protocol
+// covers: color.kitty-protocol
 #[test]
 fn osc_21_sets_queries_and_resets_by_key() {
     let mut t = term(4, 1, b"");

@@ -337,7 +337,7 @@ fn decrqss_reports_a_direct_underline_colour_in_the_colon_form() {
 
 // ctlseqs, OSC 4: each `index ; ?` pair answers with the palette's colour,
 // ended as the query was; an index past 255 is left out.
-// covers: colour.palette.query
+// covers: color.palette.query
 #[test]
 fn osc_4_reports_palette_colours() {
     let mut t = term(8, 2, b"");
@@ -354,7 +354,7 @@ fn osc_4_reports_palette_colours() {
 
 // ctlseqs, OSC 10 and 11: the default foreground and background; a list
 // after 10 goes on to 11.
-// covers: colour.dynamic.query
+// covers: color.dynamic.query
 #[test]
 fn osc_10_and_11_report_the_default_colours() {
     let mut t = term(8, 2, b"");
@@ -668,8 +668,8 @@ fn control_strings_vtium_does_not_take_change_nothing() {
 // wide-gamut space, XTQALLOWED and its kin, the working directory,
 // notifications and progress, iTerm2's and the applications' own strings,
 // the log file, and kitty's clipboard, file transfer and drag and drop.
-// covers: window.title, window.xprop, colour.special, colour.tektronix
-// covers: colour.wide-gamut, query.xtqallowed, text.contour-fonts, osc.7
+// covers: window.title, window.xprop, color.special, color.tektronix
+// covers: color.wide-gamut, query.xtqallowed, text.contour-fonts, osc.7
 // covers: osc.notify, osc.9.4, osc.1337, osc.app-specific, osc.46
 // covers: osc.5522, osc.5113, osc.72
 #[test]

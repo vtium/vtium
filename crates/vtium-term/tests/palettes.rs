@@ -98,7 +98,7 @@ fn eighteen(p: &Palette) -> [Option<Rgb>; 18] {
     out
 }
 
-// covers: colour.palette.named
+// covers: color.palette.named
 #[test]
 fn each_named_palette_is_the_c_references_table() {
     let tables = c_tables();
@@ -128,7 +128,7 @@ fn each_named_palette_is_the_c_references_table() {
     }
 }
 
-// covers: colour.palette.named
+// covers: color.palette.named
 #[test]
 fn every_palette_shares_the_cube_and_the_grey_ramp() {
     // xterm's 256 colours (the C reference's tsm-render.c:54-66).
@@ -176,7 +176,7 @@ fn only_the_names_vtium_holds_are_palettes() {
     }
 }
 
-// covers: colour.palette.named
+// covers: color.palette.named
 #[test]
 fn a_custom_palette_takes_its_sixteen_and_its_defaults_over_the_cube() {
     let mut sixteen = [Rgb::default(); 16];

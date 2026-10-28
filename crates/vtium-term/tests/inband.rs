@@ -159,7 +159,7 @@ fn a_colour_stack_pop_reports_a_change_of_scheme() {
 // is dark and `2` while it is light, whatever mode 2031 holds. Dark is a
 // luma below half, Y = 0.299 R + 0.587 G + 0.114 B on the stored channels
 // (ITU-R BT.601), the rule neovim applies to OSC 11's answer.
-// covers: colour.scheme-report
+// covers: color.scheme-report
 #[test]
 fn the_scheme_query_answers_by_the_backgrounds_luma() {
     let mut t = term(10, 5, b"");

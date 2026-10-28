@@ -14,7 +14,7 @@ Ids:
     A mode's id is its kind and number: ANSI-4, DEC-2026.
 
     A feature's id is lowercase words joined by dots, the first naming the
-    family: sgr, colour, cursor, text, ctl, query, window, input, clipboard,
+    family: sgr, color, cursor, text, ctl, query, window, input, clipboard,
     osc, dcs, image or platform. A word holds a-z, 0-9 and inner hyphens.
     The osc family belongs to the group "Clipboard, shell integration and
     other OSC": there a row about one numbered OSC is osc.<number>, with
@@ -81,7 +81,7 @@ TABLES = [
     ROOT / 'docs/architecture/term/ADR-1000-features.tsv',
 ]
 
-FAMILIES = {'sgr', 'colour', 'cursor', 'text', 'ctl', 'query', 'window', 'input',
+FAMILIES = {'sgr', 'color', 'cursor', 'text', 'ctl', 'query', 'window', 'input',
             'clipboard', 'osc', 'dcs', 'image', 'platform'}
 OSC_GROUP = 'Clipboard, shell integration and other OSC'
 

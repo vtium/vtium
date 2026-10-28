@@ -162,7 +162,7 @@ fn coloured() -> Terminal {
 // colours and the dynamic ones, the defaults and the cursor's, pointer's
 // and selection's colours, and the pop restores them all and recolours
 // every cell.
-// covers: colour.stack
+// covers: color.stack
 #[test]
 fn xtpushcolors_and_xtpopcolors_restore_the_palette() {
     let mut t = coloured();
@@ -188,7 +188,7 @@ fn xtpushcolors_and_xtpopcolors_restore_the_palette() {
 
 // ctlseqs, XTREPORTCOLORS: `CSI ? Pu ; Ps # Q`, the current entry and the
 // palettes stored, the form XTPOPCOLORS takes.
-// covers: colour.stack
+// covers: color.stack
 #[test]
 fn xtreportcolors_reports_the_entry_and_the_palettes_stored() {
     let mut t = term(4, 1, b"");
@@ -236,7 +236,7 @@ fn a_colour_stack_entry_is_stored_and_restored_by_number() {
 // ctlseqs, XTPUSHCOLORS: entries 1 through 10. A push with the stack full
 // keeps nothing and moves nothing, as in xterm; a pop of an empty stack
 // does nothing.
-// covers: colour.stack
+// covers: color.stack
 #[test]
 fn a_push_past_the_colour_bound_keeps_nothing() {
     assert_eq!(COLOR_STACK_MAX, 10);
@@ -270,7 +270,7 @@ fn a_push_past_the_colour_bound_keeps_nothing() {
 // kitty, `color-stack`: OSC 30001 pushes the colours and OSC 30101 pops
 // them, ended by BEL or ST. They push and pop the stack XTPUSHCOLORS and
 // XTPOPCOLORS do.
-// covers: colour.stack
+// covers: color.stack
 #[test]
 fn osc_30001_and_30101_push_and_pop_the_colours() {
     let mut t = coloured();

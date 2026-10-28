@@ -683,7 +683,7 @@ fn a_cursor_shape_change_at_rest_redraws_its_cell() {
 }
 
 // OSC 12 with the cursor still: the cell under it redraws in the colour
-// covers: cursor.colour
+// covers: cursor.color
 #[test]
 fn a_cursor_colour_change_at_rest_redraws_its_cell() {
     let mut s = prompt();

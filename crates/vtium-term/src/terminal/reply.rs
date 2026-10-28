@@ -562,9 +562,9 @@ mod tests {
     // that holds neither the token nor any 4 bytes of the injected text,
     // and a number only re-encoded.
     // covers: query.decrqm, query.da1, query.da2, query.da3, query.dsr, query.xtversion,
-    // covers: query.xtgettcap, query.decrqss, colour.palette.query, colour.dynamic.query,
-    // covers: colour.dynamic.set, colour.pointer, colour.selection, colour.kitty-protocol,
-    // covers: window.size-report, window.title-report, input.modify-other-keys, colour.stack
+    // covers: query.xtgettcap, query.decrqss, color.palette.query, color.dynamic.query,
+    // covers: color.dynamic.set, color.pointer, color.selection, color.kitty-protocol,
+    // covers: window.size-report, window.title-report, input.modify-other-keys, color.stack
     #[test]
     fn no_reply_carries_the_requests_bytes() {
         for seed in 0..200 {

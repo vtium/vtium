@@ -116,7 +116,7 @@ fn sgr_21_double_underlines() {
 
 // kitty underlines: SGR 58 sets the underline colour in every form 38
 // takes, and 59 returns it to the foreground's.
-// covers: sgr.underline-colour
+// covers: sgr.underline-color
 #[test]
 fn sgr_58_and_59_set_the_underline_colour() {
     let rgb = |r, g, b| Color::Rgb(Rgb::new(r, g, b));
@@ -159,7 +159,7 @@ fn palette_colours_are_set_and_returned_to_the_default() {
 // semicolon form and the colon forms with and without a colour space. A
 // semicolon component keeps its low byte and an index past 255 is black,
 // as the C reference's goldens record; a colon form past 255 is refused.
-// covers: sgr.extended-colour
+// covers: sgr.extended-color
 #[test]
 fn extended_colours_take_both_forms() {
     let rgb = |r, g, b| Color::Rgb(Rgb::new(r, g, b));

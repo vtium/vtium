@@ -79,7 +79,7 @@ fn a_block_on_a_trailing_half_covers_the_wide_character() {
 
 // OSC 12 sets the block's colour; the character keeps the cell's
 // background as its colour.
-// covers: cursor.colour
+// covers: cursor.color
 #[test]
 fn a_coloured_block_takes_its_colour() {
     let st = style(rgb(FG), rgb(BG));

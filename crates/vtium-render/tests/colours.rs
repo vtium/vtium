@@ -35,7 +35,7 @@ fn colours(c: &Canvas, col: u32) -> Vec<u32> {
 
 // ctlseqs, OSC 17 and 19: the selected cells draw on the selection's
 // background in its foreground; the cells around them keep theirs.
-// covers: colour.selection
+// covers: color.selection
 #[test]
 fn the_selection_draws_in_its_colours() {
     let plain = style(rgb("ff8040"), rgb("21a0c3"));

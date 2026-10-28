@@ -561,7 +561,7 @@ fn reports_read_as_lines() {
     );
 }
 
-// covers: colour.palette.named
+// covers: color.palette.named
 #[test]
 fn palette_names_a_palette_vtium_term_holds() {
     let mut choices = match PALETTE.kind {
@@ -618,7 +618,7 @@ fn a_palette_vtium_does_not_hold_is_reported_and_leaves_the_value_below() {
     assert_eq!(Some(l.config.palette()), vtium_term::Palette::named("vga"));
 }
 
-// covers: colour.palette.named
+// covers: color.palette.named
 #[test]
 fn custom_takes_the_palette_keys() {
     // Unset, they hold the C reference's defaults, which are legacy's.
