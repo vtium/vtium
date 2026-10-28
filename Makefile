@@ -160,12 +160,12 @@ KMSCON ?= ../kmscon
 .PHONY: tier2
 tier2: ## Draw tier 2's screens and judge them against their goldens
 	cargo build --release -p vtium-tier2 --bins
-	target/release/tier2 run
+	$(or $(CARGO_TARGET_DIR),target)/release/tier2 run
 
 .PHONY: tier2-provenance
 tier2-provenance: ## Check tools/tier2's copies against their sources with git show (KMSCON=DIR)
 	cargo build --release -p vtium-tier2 --bins
-	target/release/tier2 provenance --kmscon $(KMSCON)
+	$(or $(CARGO_TARGET_DIR),target)/release/tier2 provenance --kmscon $(KMSCON)
 
 # Tier 3: vtium's install tree in a QEMU/KVM guest with a real kernel VT and
 # KMS device, its screens captured and compared with the C reference's
