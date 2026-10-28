@@ -1096,3 +1096,21 @@ fn program_blank_is_on_until_turned_off() {
     let l = load_with(&["--no-program-blank"], None, &[]);
     assert!(!l.config.switch(&PROGRAM_BLANK));
 }
+
+#[test]
+fn grab_paste_binds_shift_insert_until_set() {
+    let chord = |mods, keysym| crate::grab::Chord {
+        mods,
+        keysyms: vec![keysym],
+    };
+    assert_eq!(Config::default().chords(&GRAB_PASTE), [chord(1, 0xff63)]);
+    let l = main_file("grab-paste=<Ctrl><Shift>v,<Shift>Insert\n");
+    assert_eq!(l.reports, []);
+    assert_eq!(
+        l.config.chords(&GRAB_PASTE),
+        [chord(4 | 1, 0x76), chord(1, 0xff63)]
+    );
+    let l = main_file("grab-paste=\n");
+    assert_eq!(l.reports, []);
+    assert_eq!(l.config.chords(&GRAB_PASTE), []);
+}

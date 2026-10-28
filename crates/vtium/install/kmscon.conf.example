@@ -119,7 +119,7 @@
 ## The default background with `palette=custom`.
 #palette-background=0,0,0
 
-## Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and Shift+Insert paste it.
+## Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and `grab-paste` paste it.
 #clipboard-write
 
 ## The keyboard model, as xkeyboard-config names it.
@@ -148,6 +148,9 @@
 
 ## Take pointers: mice, touchpads and touchscreens.
 #mouse
+
+## Paste the selection buffer to the program, once a press, as the middle button does. Empty, no key pastes.
+#grab-paste=<Shift>Insert
 
 ## Reboot the machine. With `/proc/sys/kernel/ctrl-alt-del` at 0, init is asked, as for Ctrl+Alt+Del, so the services stop first; otherwise the kernel restarts at once. Unset, no key reboots.
 #grab-reboot=

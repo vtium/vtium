@@ -1425,6 +1425,117 @@ fn shift_selects_and_pastes_while_the_program_tracks_the_pointer() {
     );
 }
 
+/// With Shift held the wheel scrolls vtium's scrollback while the program
+/// tracks the pointer, as xterm's Shift override covers the wheel too;
+/// without it the wheel is reported.
+// covers: input.shift-override
+#[test]
+fn shift_and_the_wheel_scroll_back_while_the_program_tracks_the_pointer() {
+    let mut h = Harness::new(&[
+        "--font-size=16",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "i=0; while [ $i -lt 40 ]; do echo line$i; i=$((i+1)); done; \
+         stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
+         awk 'BEGIN{RS=\"q\"}{n=gsub(/</,\"\");printf \"reports=%d\\r\\n\",n;exit}'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| {
+        a.screen_text().iter().any(|l| l.ends_with("ready"))
+    }));
+    let back = |h: &Harness| h.app.term.terminal.screen().scrolled_back();
+    h.point([PointerEvent::Wheel(1)], Mods::SHIFT);
+    assert_eq!(back(&h), 3);
+    h.point([PointerEvent::Wheel(-1)], Mods::SHIFT);
+    assert_eq!(back(&h), 0);
+    h.point([PointerEvent::Wheel(1)], Mods::empty());
+    assert_eq!(back(&h), 0);
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| a
+            .screen_text()
+            .iter()
+            .any(|l| l.ends_with("reports=1"))),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// A drag whose press was reported stays reported when Shift is pressed
+/// during it: the button keeps the side its press chose.
+// covers: input.shift-override
+#[test]
+fn shift_pressed_during_a_reported_drag_changes_nothing() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty raw -echo; printf '\\033[?1002h\\033[?1006hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    h.point(
+        [over(0, 0, None), press(Button::Left, false)],
+        Mods::empty(),
+    );
+    h.point([over(4, 0, Some(Button::Left))], Mods::SHIFT);
+    h.point([release(Button::Left)], Mods::empty());
+    assert_eq!(h.app.term.terminal.screen().selection_text(), None);
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(a, "E[<0;1;1ME[<36;5;1ME[<0;5;1m")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// `grab-paste` binds the paste to the chords it names, in place of
+/// Shift+Insert, and empty to none, so Shift+Insert reaches the program.
+// covers: clipboard.paste
+#[test]
+fn grab_paste_binds_the_paste() {
+    let script = "stty raw -echo; printf '\\033]52;c;cGFzdGVk\\a\\033[?2004hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x";
+    let shift_insert = key(Mods::SHIFT, 0xff63);
+    let alt_p = InputEvent::Key(KeyEvent {
+        keycode: 0,
+        ascii: u32::from('p'),
+        mods: Mods::ALT,
+        keysyms: vec![u32::from('p')],
+        codepoints: vec![Some('p')],
+        repeat: false,
+    });
+    let mut h = Harness::new(&[
+        "--grab-paste=<Alt>p",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        script,
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    assert_eq!(h.app.selection(), Some(&b"pasted"[..]));
+    h.app.input_event(alt_p, now());
+    h.app.input_event(shift_insert.clone(), now());
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(a, "E[200~pastedE[201~E[2~")),
+        "{:?}",
+        h.app.screen_text()
+    );
+    let mut h = Harness::new(&["--grab-paste=", "--login", "--", "/bin/sh", "-c", script]);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    h.app.input_event(shift_insert, now());
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(a, "E[2~")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
 /// A press in the strip past the grid's last cell selects from that cell,
 /// so a new selection never extends the one before it.
 // covers: clipboard.selection

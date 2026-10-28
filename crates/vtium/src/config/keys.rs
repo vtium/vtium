@@ -582,7 +582,7 @@ pub const CLIPBOARD_WRITE: Key = Key {
     default: Default::Switch(true),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and Shift+Insert paste it.",
+    what: "Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and `grab-paste` paste it.",
     cite: "ADR-1000 (`osc.52.write`); vtium/vtium#39",
 };
 
@@ -843,6 +843,17 @@ pub const RENDER_TIMER: Key = Key {
     cite: "src/config.c:972-1015, 1475",
 };
 
+pub const GRAB_PASTE: Key = Key {
+    name: "grab-paste",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Shift>Insert"),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Paste the selection buffer to the program, once a press, as the middle button does. Empty, no key pastes.",
+    cite: "xterm's `Shift <KeyPress> Insert` translation; vtium/vtium#95",
+};
+
 pub const GRAB_REBOOT: Key = Key {
     name: "grab-reboot",
     short: None,
@@ -877,7 +888,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 67] = [
+pub const KEYS: [Key; 68] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -929,6 +940,7 @@ pub const KEYS: [Key; 67] = [
     XKB_REPEAT_DELAY,
     XKB_REPEAT_RATE,
     MOUSE,
+    GRAB_PASTE,
     GRAB_REBOOT,
     GRAB_POWER_OFF,
     GRAB_SUSPEND,

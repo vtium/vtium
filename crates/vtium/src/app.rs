@@ -17,8 +17,9 @@
 //!   then DECARM's drop of a repeat, then the encoder. A key draws at once
 //!   and holds the cursor's blink.
 //! - **The pointer.** While the program tracks it, its events are
-//!   reported, but those made with Shift held, as xterm's are. The others
-//!   select, copy and paste ([`App::pointer_event`]).
+//!   reported, but a button pressed, a move without a button and the
+//!   wheel with Shift held, as xterm's are. The others select, copy,
+//!   paste and scroll ([`App::pointer_event`]).
 //! - **The blank.** Each key press and pointer action (a move, a button
 //!   or the wheel) goes to every device's `input`, which retries a failed
 //!   wake-up, and to [`Blank::input`]; a device's `Awake` goes to
@@ -247,6 +248,8 @@ pub struct App {
     /// The mouse tracking the program asked for, last seen: a change
     /// clears the selection.
     tracking: MouseTracking,
+    /// The keys `grab-paste` binds.
+    paste_keys: Vec<Chord>,
     /// The power keys the configuration binds, and what they act through.
     power_keys: Vec<(PowerKey, Vec<Chord>)>,
     power: Box<dyn Power>,
@@ -316,6 +319,7 @@ impl App {
             dpms_timeout: dpms,
             selection: None,
             tracking: MouseTracking::Off,
+            paste_keys: config.chords(&keys::GRAB_PASTE).to_vec(),
             power_keys,
             power: Box::new(power::System),
             sleeping: Rc::default(),
@@ -1018,9 +1022,18 @@ impl App {
             }
             return;
         }
-        let screen = self.term.terminal.screen_mut();
-        screen.clear_selection();
-        if let Some(g) = grab::grab(key.mods.bits(), &key.keysyms) {
+        self.term.terminal.screen_mut().clear_selection();
+        if grab::matches(&self.paste_keys, bits, &key.keysyms) {
+            // One paste a press, however long the key repeats.
+            if !key.repeat {
+                self.paste();
+                self.send_user_bytes();
+            }
+            self.draw_now = true;
+            return;
+        }
+        if let Some(g) = grab::grab(bits, &key.keysyms) {
+            let screen = self.term.terminal.screen_mut();
             let page = self.grid.1.saturating_sub(1).max(1);
             match g {
                 Grab::ScrollUp => screen.scroll_view_up(1),
@@ -1039,12 +1052,6 @@ impl App {
                     self.orientation = layout::rotate(self.orientation, g == Grab::RotateCw);
                     self.relayout();
                 }
-                // One paste a press, however long the key repeats.
-                Grab::Paste if !key.repeat => {
-                    self.paste();
-                    self.send_user_bytes();
-                }
-                Grab::Paste => {}
             }
             self.draw_now = true;
             return;
@@ -1100,9 +1107,10 @@ impl App {
     }
 
     /// A pointer event: reported to a program that tracks the pointer,
-    /// unless Shift is held, as xterm's `ShiftOverride` lets it select and
-    /// paste (`button.c`); otherwise it selects, copies and pastes. A
-    /// button keeps to the side its press took until its release.
+    /// unless Shift is held, as xterm's `ShiftOverride` lets it select,
+    /// paste and scroll (`button.c`); otherwise it selects, copies, pastes
+    /// and scrolls. A button keeps to the side its press took until its
+    /// release, whatever Shift does meanwhile.
     fn pointer(&mut self, event: PointerEvent, mods: Mods) {
         let tracking = self.term.terminal.mouse_tracking() != MouseTracking::Off;
         let shift = mods.contains(Mods::SHIFT);
@@ -1122,7 +1130,13 @@ impl App {
                 if let Some(drag) = &mut self.pointer.drag {
                     drag.moved |= (col, row) != drag.from;
                     self.term.terminal.screen_mut().select_to(col, row);
-                } else if tracking && !shift && !(held.is_some() && self.pointer.ours) {
+                } else if tracking
+                    && if held.is_some() {
+                        !self.pointer.ours
+                    } else {
+                        !shift
+                    }
+                {
                     let button = held.map_or(MouseButton::None, mouse_button);
                     self.report_pointer(button, MouseEvent::Move, mods);
                 }
@@ -1149,7 +1163,7 @@ impl App {
             }
             PointerEvent::Wheel(steps) => {
                 let ctrl = mods.contains(Mods::CTRL);
-                match wheel(steps, tracking, ctrl) {
+                match wheel(steps, tracking && !shift, ctrl) {
                     Wheel::Report(button) => self.report_pointer(button, MouseEvent::Press, mods),
                     Wheel::Zoom(dir) => self.zoom(dir),
                     Wheel::Scroll { up: true } => {

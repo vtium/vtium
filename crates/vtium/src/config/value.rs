@@ -10,6 +10,9 @@ pub(super) fn default(key: &Key) -> Option<Value> {
     match key.default {
         keys::Default::Switch(b) => Some(Value::Switch(b)),
         keys::Default::Number(n) => Some(Value::Number(n)),
+        keys::Default::Text(t) if key.kind == Kind::Grab => {
+            crate::grab::parse(t).ok().map(Value::Chords)
+        }
         keys::Default::Text(t) => Some(Value::Text(t.to_owned())),
         keys::Default::Command(c) => Some(Value::Command(c.iter().map(OsString::from).collect())),
         keys::Default::Rgb(c) => Some(Value::Rgb(c)),
