@@ -65,6 +65,7 @@ mod cache;
 mod compose;
 mod damage;
 mod deco;
+mod mono;
 mod renderer;
 mod stored;
 mod target;
@@ -74,6 +75,7 @@ mod trig;
 pub use arrow::Arrow;
 pub use bounds::{POINTER_SIDE_MAX, POOL_BYTES_PERFORMANCE, RENDER_TIMER_SAMPLES, ROW_SCRATCH_MAX};
 pub use cache::{Budgets, CacheCounts, Profile, Storage};
+pub use mono::Depth;
 pub use renderer::{
     BlinkStyle, Config, DecoColor, DecorationColors, DrawState, Drawn, PointerShape, Renderer,
     Stats, TextBlink,
