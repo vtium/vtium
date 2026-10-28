@@ -29,7 +29,7 @@ The program that builds vitrified font sets for vtium (ADR-1200), its own binary
 | `verify [NAME...]` | anyone | The console's check of each set, every chunk read. |
 | `remove NAME...` | root | Drops each set's row and file; its frit stays. |
 
-Each build or install prints one line a set, tab-separated: `built`, `current`, `installed`, `removed`, `verified` or `failed`, the name, and for a failure the reason. The exit status is 0 when every set succeeded or was current, 1 when any failed, and 2 on a usage error. A command that writes the system's store refuses without root, naming `sudo`, and exits 1.
+Each build or install prints one line a set, tab-separated: `built`, `current`, `installed`, `removed`, `verified` or `failed`, the name, and for a failure the reason. A set built, or current, with sources left out as missing reports `built-partial` or `current-partial`, the name, and `left out: ` with those sources as the frit spelled them, comma-separated, so a package hook sees the set is not the frit's whole. The exit status is 0 when every set succeeded or was current, 1 when any failed, and 2 on a usage error. A command that writes the system's store refuses without root, naming `sudo`, and exits 1.
 
 The store is `/var/lib/vtium/fonts` and the frits are in `/etc/vtium/fonts`, each changed at build time with `VTIUM_FONT_STORE` and `VTIUM_FONT_FRITS`. `--store DIR` names a store the invoking user owns in place of the system's, for tests and for staging; the console reads only the system's. `--frits DIR`, `--kbd-dir DIR` (repeatable), `--vconsole-conf FILE` and `--kernel-cmdline FILE` replace the other paths the host gives.
 
@@ -48,17 +48,17 @@ sha256=<64 hex digits>       # optional: the font file's SHA-256
 
 `font:FAMILY` matches as fontconfig matches a family, with case and blanks ignored. kbd console fonts match it by name now: the font `setfont` would find by that name, else the first, in each data directory's sorted `consolefonts/`, whose name less its suffixes is the family. A PSF file outside kbd's directories carries no family in its header, so only `file:` names it. Outline and BDF families are matched once those formats are read (vtium/vtium#23). `package=` and `sha256=` follow a `font:`, `kbd:` or `file:` source.
 
-A source missing on the building machine, or whose bytes are not its `sha256=`, is left out: `create` warns on stderr with the frit's file and line, the reason and the package, builds the set from the sources found, and names the one left out in the set's provenance as `source-missing=`. The build key counts it as missing, so the set rebuilds when it appears. With every source missing, the set fails. A source that is there and cannot be read fails the set.
+A source missing on the building machine, or whose bytes are not its `sha256=`, is left out: `create` warns on stderr with the frit's file and line, the reason and the package, builds the set from the sources found, and names the one left out in the set's provenance as `source-missing=` and on its stdout line as `built-partial`. The manifest row's source is the first source found, as the set's provenance and `install` give it. The build key counts it as missing, so the set rebuilds when it appears. With every source missing, the set fails. A source that is there and cannot be read fails the set.
 
 `file:` and an absolute `unimap=` are allowed, and `create` and `create --out` warn that they name a path on this machine, so the frit is not portable.
 
 The first source sets the cell. Each later one fills only the codepoints the earlier ones lack, scaled by the largest whole factor at which its cell fits the strike's, on the strike's bottom row and centred across; one whose cell does not fit at factor 1 fills nothing. Bitmap sources give one 1-bit strike, stored raw under either `compress=`, as ADR-1200 D13 decides. The set's sprite policy is `SpritePolicy::default_for` its coverage, the policy the console gave a PSF font it read itself.
 
-The build key is the SHA-256 of the format version, the frit's bytes, and for each source in order the SHA-256 of the font's bytes as read, of its unimap and of kbd's `def.uni` when read, or a mark that the source was missing. A built-in source's hash is its name's: its glyphs change only with the tool.
+The build key is the SHA-256 of the set format's version, this tool's version, the frit's bytes, and for each source in order the SHA-256 of the font's bytes as read, of its unimap and of kbd's `def.uni` when read, or a mark that the source was missing. A built-in source is hashed by its glyphs as read (`Font::digest`), since vtium-font gives the built-in sets' bytes to no other crate, so a tool whose built-in changed rebuilds the sets that take it.
 
 ## Sources
 
-- **kbd names** resolve as `setfont` resolves them (kbd's `src/libkbdfile/kbdfile.c`, `src/libkfont/context.c`): in `consolefonts/` of each data directory in turn (`/usr/share/kbd`, `/usr/share`, `/usr/lib/kbd`, or `--kbd-dir`), the name followed by the first of `""`, `.psfu`, `.psf`, `.cp` and `.fnt` for which a file exists, plain before `.gz`, `.bz2`, `.xz` and `.zst`; a name with a `/` looks in the subdirectory its first component names, and an absolute path is taken as given, then with each suffix. Unimaps resolve the same way under `unimaps/` with `""`, `.uni` and `.sfm`.
+- **kbd names** resolve as `setfont` resolves them (kbd's `src/libkbdfile/kbdfile.c`, `src/libkfont/context.c`): in `consolefonts/` of each data directory in turn (`/usr/share/kbd`, `/usr/share`, `/usr/lib/kbd`, or `--kbd-dir`), the name followed by the first of `""`, `.psfu`, `.psf`, `.cp` and `.fnt` for which a file exists, plain before `.gz`, `.bz2`, `.xz` and `.zst`; a name with a `/` looks in the subdirectory its first component names, and an absolute path is taken as given, then with each suffix. Unimaps resolve the same way under `unimaps/` with `""`, `.uni` and `.sfm`. A font or unimap found by name is resolved through its links and read only if it stays under the `consolefonts/` or `unimaps/` of a data directory; a link out of them fails the set, and nothing is read from or hashed outside. A `font:` family's scan fails past `FAMILY_ENTRIES_MAX` entries in one directory.
 - **A font's map** is the frit's `unimap=` when given, else the font's own table, else kbd's `def.uni`; a font with none is refused, naming `unimap=`.
 - **vconsole** reads `FONT=` and `FONT_UNIMAP=` from vconsole.conf, with the kernel command line's `vconsole.font=` and `vconsole.font_unimap=` over them, as systemd-vconsole-setup reads them (`src/vconsole/vconsole-setup.c`). With no `FONT=`, systemd ran no `setfont` and the kernel kept its font, so the source is refused and names `console:VT`. `FONT_MAP=` maps the kernel's 8-bit translation and sets no glyph, so it is not read.
 - **console:VT** opens `/dev/tty<VT>` read-only as root, checks with `KDGETMODE` that it is in text mode, reads its font with `KD_FONT_OP_GET_TALL`, or `KD_FONT_OP_GET` on a kernel without it, and its map with `GIO_UNIMAP`, and hands the parser a PSF2 of them.
@@ -66,7 +66,7 @@ The build key is the SHA-256 of the format version, the frit's bytes, and for ea
 
 ## Decoders
 
-Each is pure Rust, compiles no C and has no build script, and only this binary links it; `cargo tree -p vtium -e normal` lists none of them and the minspec binary's size does not move. The operator approved them on 2026-10-28.
+Each is pure Rust, compiles no C and has no build script, and only this binary links it; `cargo tree -p vtium -e normal` lists none of them, so they add nothing to the minspec binary. The operator approved them on 2026-10-28.
 
 | Format | Crate | Licence | Why this one |
 |---|---|---|---|
@@ -79,7 +79,7 @@ The tests' xz fixtures take `lzma-rust2`'s encoder as a dev-dependency; bzip2 an
 
 ## The parser
 
-`create` and `create --out` read each source as the invoking user and run `vtium-vitrify --parse` for each font: an empty environment, `/` as its directory, its three pipes and no other descriptor. Run as root, the parent starts it as `nobody` from `/etc/passwd`, its supplementary groups dropped, and refuses to build when there is no such account. The parser sets no-new-privileges, an address space of 512 MiB, 30 s of CPU, no file writes, no processes and no core, refuses to run as root, reads its request, parses, and answers with the glyph form, which the parent checks field by field against the PSF bounds before it trusts it. A parser that fails, faults, passes a limit or answers malformed fails that source; `create` reports the set `failed` and goes on.
+`create` and `create --out` read each source as the invoking user and run `vtium-vitrify --parse` for each font: an empty environment, `/` as its directory, its three pipes and no other descriptor. Run as root, the parent starts it as `nobody` from `/etc/passwd`, its supplementary groups dropped, and refuses to build when there is no such account. The parent kills the parser through a pidfd past 60 s by the wall clock, reads its stderr on a thread of its own, and so never hangs holding the store's lock. The parser sets no-new-privileges, an address space of 512 MiB, 30 s of CPU, no file writes, no processes and no core, refuses to run as root, reads its request, parses, and answers with the glyph form, which the parent checks field by field against the PSF bounds before it trusts it. A parser that fails, faults, passes a limit or answers malformed fails that source; `create` reports the set `failed` and goes on.
 
 ## Departures
 
@@ -96,6 +96,8 @@ The tests' xz fixtures take `lzma-rust2`'s encoder as a dev-dependency; bzip2 an
 
 ## Bounds
 
+A frit, a set given to `install` and every source file are opened once, never blocking on a FIFO, refused unless that descriptor is a regular file, and read no further than their bound.
+
 | Bound | Value | Past it |
 |---|---|---|
 | `FRIT_BYTES_MAX` | 64 KiB | The frit is refused |
@@ -107,4 +109,6 @@ The tests' xz fixtures take `lzma-rust2`'s encoder as a dev-dependency; bzip2 an
 | vconsole.conf, the kernel command line | 64 KiB | The source is refused |
 | `GLYPHS_BYTES_MAX` | the largest PSF's glyphs and a map of every codepoint | The parser's answer is refused |
 | `PARSER_MEMORY`, `PARSER_SECONDS` | 512 MiB, 30 s | The kernel ends the parser; the source fails |
+| `PARSER_WALL_SECONDS` | 60 s | The parent kills the parser; the source fails |
+| `FAMILY_ENTRIES_MAX` | 65536 | A `font:` scan of a directory past it fails the set |
 | A console font | 32 pixels wide, 64 high, 512 glyphs | The source is refused |

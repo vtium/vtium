@@ -92,6 +92,29 @@ impl Font {
     }
 }
 
+impl Font {
+    /// The SHA-256 of the glyphs as read: the cell, then each glyph's
+    /// width and rows, then each codepoint and its glyph. A built-in
+    /// source is hashed this way, so a build whose built-in changed
+    /// rebuilds the sets that take it.
+    pub fn digest(&self) -> [u8; 32] {
+        let mut h = Sha256::new();
+        h.update(&self.cell.width.to_le_bytes());
+        h.update(&self.cell.height.to_le_bytes());
+        h.update(&(self.glyphs.len() as u64).to_le_bytes());
+        for (width, bits) in &self.glyphs {
+            h.update(&[u8::from(*width == Width::Wide)]);
+            h.update(&(bits.len() as u64).to_le_bytes());
+            h.update(bits);
+        }
+        for (c, g) in &self.map {
+            h.update(&c.to_le_bytes());
+            h.update(&g.to_le_bytes());
+        }
+        h.finish()
+    }
+}
+
 fn bit(bits: &[u8], row: usize, x: u32, y: u32) -> bool {
     let at = (y as usize)
         .saturating_mul(row)
@@ -129,14 +152,22 @@ fn place(glyph: &[u8], width: Width, from: Cell, cell: Cell, scale: u32) -> Vec<
 }
 
 /// The build key (ADR-1200 D4): the SHA-256 of the format version, the
-/// frit's bytes and the SHA-256 of everything read for each source, in
-/// order, or that the source was missing, so a set rebuilds when any of
-/// them changes, a missing font that appears included.
+/// tool's version, the frit's bytes and the SHA-256 of everything read for
+/// each source, in order, or that the source was missing, so a set
+/// rebuilds when any of them changes, a missing font that appears and a
+/// tool that builds differently included.
 pub fn build_key(frit: &Frit, sources: &[Option<Resolved>]) -> [u8; 32] {
+    build_key_for(frit, sources, env!("CARGO_PKG_VERSION"))
+}
+
+/// [`build_key`] for the tool at version `tool`.
+fn build_key_for(frit: &Frit, sources: &[Option<Resolved>], tool: &str) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(b"vtium-vitrify build key\0");
     h.update(&VERSION.0.to_le_bytes());
     h.update(&VERSION.1.to_le_bytes());
+    h.update(&(tool.len() as u64).to_le_bytes());
+    h.update(tool.as_bytes());
     h.update(&(frit.text.len() as u64).to_le_bytes());
     h.update(frit.text.as_bytes());
     for s in sources {
@@ -257,6 +288,7 @@ fn fill(
 #[cfg(test)]
 #[expect(
     clippy::expect_used,
+    clippy::unwrap_used,
     clippy::indexing_slicing,
     reason = "a test fails by panicking"
 )]
@@ -281,6 +313,21 @@ mod tests {
         let wide = place(&[0x80, 0x00], Width::Wide, from, cell, 2);
         assert_eq!(wide.len(), 2 * 6);
         assert_eq!(&wide[4..8], &[0b0011_0000, 0, 0b0011_0000, 0]);
+    }
+
+    #[test]
+    fn the_build_key_holds_the_tool_version() {
+        let frit =
+            crate::frit::Frit::parse(b"source=kbd:x\n", std::path::Path::new("/f.vtfrit"), "f")
+                .unwrap();
+        assert_ne!(
+            build_key_for(&frit, &[], "0.0.0"),
+            build_key_for(&frit, &[], "0.0.1")
+        );
+        assert_eq!(
+            build_key(&frit, &[]),
+            build_key_for(&frit, &[], env!("CARGO_PKG_VERSION"))
+        );
     }
 
     #[test]

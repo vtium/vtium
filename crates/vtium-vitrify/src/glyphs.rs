@@ -198,6 +198,11 @@ mod tests {
         let mut wide = good.clone();
         wide[8..12].copy_from_slice(&33u32.to_le_bytes());
         cases.push((wide, "PSF bounds"));
+        for count in [0, PSF_GLYPHS_MAX + 1] {
+            let mut bad = good.clone();
+            bad[16..20].copy_from_slice(&count.to_le_bytes());
+            cases.push((bad, "PSF bounds"));
+        }
         let mut glyph = good.clone();
         let at = good.len() - 4;
         glyph[at..].copy_from_slice(&2u32.to_le_bytes());

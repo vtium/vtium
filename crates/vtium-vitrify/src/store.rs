@@ -30,14 +30,22 @@ pub fn manifest(store: &Store) -> Result<Manifest, StoreError> {
 }
 
 /// Writes `bytes` to `path` through a temporary file beside it, synced and
-/// renamed over it, then syncs the directory.
+/// renamed over it, then syncs the directory. A temporary file of the same
+/// name was left by a process of the same pid that died, and is replaced.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let dir = path.parent().unwrap_or(Path::new("."));
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
+    match fs::remove_file(&tmp) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+        _ => {}
+    }
     let written = (|| {
         let mut file = OpenOptions::new()
             .write(true)
@@ -138,7 +146,9 @@ impl StoreWriter {
         let entries = fs::read_dir(self.path()).map_err(|e| e.to_string())?;
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if is_set_file(&name) && !keep.contains(&name) {
+            // under the lock, a temporary file is one a writer that died left
+            let stale = name.starts_with('.') && name.ends_with(".tmp");
+            if (is_set_file(&name) && !keep.contains(&name)) || stale {
                 let _ = fs::remove_file(entry.path());
             }
         }
@@ -168,8 +178,24 @@ pub fn default_frits() -> PathBuf {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stale_temporary_file_of_this_pid_is_replaced() {
+        let dir = PathBuf::from(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../target/tmp/vitrify-store-stale"
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let stale = dir.join(format!(".x.vtglass.{}.tmp", std::process::id()));
+        fs::write(&stale, b"left by a process that died").unwrap();
+        write_atomic(&dir.join("x.vtglass"), b"new").unwrap();
+        assert_eq!(fs::read(dir.join("x.vtglass")).unwrap(), b"new");
+        assert!(!stale.exists());
+    }
 
     #[test]
     fn only_set_files_are_named_as_sets() {

@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use vtium_font::{PSF_BYTES_MAX, Sha256, sha256_hex};
 use vtium_platform::vt::font::{ConsoleFont, ConsoleTty};
 
+use crate::build::Font;
 use crate::child::Request;
 use crate::frit::{Origin, Source};
 
@@ -26,7 +27,7 @@ pub const UNIMAP_SUFFIXES: [&str; 3] = ["", ".uni", ".sfm"];
 pub const COMPRESSED: [&str; 5] = ["", ".gz", ".bz2", ".xz", ".zst"];
 
 /// The most bytes vconsole.conf or the kernel's command line holds.
-const CONFIG_BYTES_MAX: u64 = 64 * 1024;
+pub(crate) const CONFIG_BYTES_MAX: u64 = 64 * 1024;
 
 /// What the host gives a build: where kbd's data is, where vconsole.conf
 /// and the kernel's command line are, and the kernel's VT fonts.
@@ -58,39 +59,54 @@ impl Consoles for KernelConsoles {
     }
 }
 
-/// A source read: what the parser is to be given, or a built-in set.
+/// A source read: what the parser is to be given, or a built-in set's
+/// glyphs, which the tool holds and parses nothing for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Input {
     Font(Request),
-    Builtin(String),
+    Builtin(Font),
 }
 
 /// A source ready to parse, and the SHA-256s of what was read for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Resolved {
     pub input: Input,
-    /// The font's bytes as read; for a built-in, its name's.
+    /// The font's bytes as read; for a built-in, its glyphs'
+    /// ([`Font::digest`]).
     pub sha256: [u8; 32],
     /// The unimap's and def.uni's, when read.
     pub unimap_sha256: Option<[u8; 32]>,
     pub def_uni_sha256: Option<[u8; 32]>,
 }
 
-/// Reads at most `PSF_BYTES_MAX` bytes of `path`.
-fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
+/// Reads `path`, at most `limit` bytes: opened once, without blocking on
+/// a FIFO and never as a controlling terminal, and refused unless that
+/// descriptor is a regular file. The error leaves the path to the caller.
+pub(crate) fn read_regular(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
     use std::io::Read;
-    let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    use std::os::unix::fs::OpenOptionsExt;
+    let flags = rustix::fs::OFlags::NONBLOCK | rustix::fs::OFlags::NOCTTY;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(flags.bits() as i32)
+        .open(path)
+        .map_err(|e| e.to_string())?;
     if !file.metadata().is_ok_and(|m| m.is_file()) {
-        return Err(format!("{}: not a regular file", path.display()));
+        return Err("not a regular file".to_owned());
     }
     let mut bytes = Vec::new();
     file.take(limit.saturating_add(1))
         .read_to_end(&mut bytes)
-        .map_err(|e| format!("{}: {e}", path.display()))?;
+        .map_err(|e| e.to_string())?;
     if bytes.len() as u64 > limit {
-        return Err(format!("{}: larger than {limit} bytes", path.display()));
+        return Err(format!("larger than {limit} bytes"));
     }
     Ok(bytes)
+}
+
+/// [`read_regular`], its error naming `path`.
+fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
+    read_regular(path, limit).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 fn is_file(path: &Path) -> bool {
@@ -220,12 +236,6 @@ pub fn console_psf(font: &ConsoleFont) -> Vec<u8> {
     out
 }
 
-/// The SHA-256 of a built-in set's name: its glyphs are the tool's own,
-/// and change only with it.
-fn builtin_hash(name: &str) -> [u8; 32] {
-    Sha256::digest(format!("builtin:{name}").as_bytes())
-}
-
 /// Why a source gave no font.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceError {
@@ -272,31 +282,72 @@ fn font_stem(name: &str) -> &str {
         .unwrap_or(name)
 }
 
+/// The most entries a `consolefonts/` directory holds for a family's
+/// scan: Arch's kbd ships about 300 fonts.
+pub const FAMILY_ENTRIES_MAX: usize = 65536;
+
 /// Finds a font by family (`font:`): a kbd console font whose name is the
 /// family as `setfont` would find it, else the first, in each data
 /// directory's sorted `consolefonts/` in turn, whose name less its
 /// suffixes equals the family with case and blanks ignored, as fontconfig
 /// compares families. Outline and BDF families are matched once those
-/// formats are read (vtium/vtium#23).
-pub fn find_family(family: &str, data_dirs: &[PathBuf]) -> Option<PathBuf> {
+/// formats are read (vtium/vtium#23). A directory past
+/// `FAMILY_ENTRIES_MAX` entries fails the search.
+pub fn find_family(family: &str, data_dirs: &[PathBuf]) -> Result<Option<PathBuf>, String> {
+    find_family_capped(family, data_dirs, FAMILY_ENTRIES_MAX)
+}
+
+fn find_family_capped(
+    family: &str,
+    data_dirs: &[PathBuf],
+    cap: usize,
+) -> Result<Option<PathBuf>, String> {
     if let Some(p) = find(family, data_dirs, "consolefonts", &FONT_SUFFIXES) {
-        return Some(p);
+        return Ok(Some(p));
     }
     let key = family_key(family);
-    data_dirs.iter().find_map(|d| {
-        let mut names: Vec<PathBuf> = std::fs::read_dir(d.join("consolefonts"))
-            .ok()?
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| is_file(p))
-            .collect();
+    for d in data_dirs {
+        let dir = d.join("consolefonts");
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut names = Vec::new();
+        for entry in entries.flatten() {
+            if names.len() >= cap {
+                return Err(format!("{} holds more than {cap} entries", dir.display()));
+            }
+            names.push(entry.path());
+        }
         names.sort();
-        names.into_iter().find(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| family_key(font_stem(n)) == key)
-        })
-    })
+        let found = names.into_iter().find(|p| {
+            is_file(p)
+                && p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| family_key(font_stem(n)) == key)
+        });
+        if found.is_some() {
+            return Ok(found);
+        }
+    }
+    Ok(None)
+}
+
+/// `path`, found by name under `<data>/<sub>/`, resolved through its links
+/// and refused unless it stays under that directory of one of
+/// `data_dirs`, so a link out of kbd's directories reads nothing.
+fn contained(path: &Path, data_dirs: &[PathBuf], sub: &str) -> Result<PathBuf, String> {
+    let real = std::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let inside = data_dirs
+        .iter()
+        .any(|d| std::fs::canonicalize(d.join(sub)).is_ok_and(|root| real.starts_with(root)));
+    if inside {
+        Ok(real)
+    } else {
+        Err(format!(
+            "{} leaves the kbd data directories through a link",
+            path.display()
+        ))
+    }
 }
 
 /// Reads `source` for the parser.
@@ -313,25 +364,35 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, SourceError
             .collect::<Vec<_>>()
             .join(", ")
     };
-    let find_font = |name: &str| {
-        find(name, &host.kbd_dirs, "consolefonts", &FONT_SUFFIXES)
-            .ok_or_else(|| missing(format!("no kbd font {name} in {}", dirs())))
+    // a name found in kbd's directories is read only from inside them
+    let inside = |name: &str, path: PathBuf, sub: &str| {
+        if name.starts_with('/') {
+            Ok(path)
+        } else {
+            contained(&path, &host.kbd_dirs, sub)
+        }
+    };
+    let find_font = |name: &str| -> Result<PathBuf, SourceError> {
+        let path = find(name, &host.kbd_dirs, "consolefonts", &FONT_SUFFIXES)
+            .ok_or_else(|| missing(format!("no kbd font {name} in {}", dirs())))?;
+        Ok(inside(name, path, "consolefonts")?)
     };
     let read_unimap = |name: &str| -> Result<Vec<u8>, String> {
         let path = find(name, &host.kbd_dirs, "unimaps", &UNIMAP_SUFFIXES)
             .ok_or_else(|| format!("no kbd unimap {name}"))?;
-        read_bounded(&path, limit)
+        read_bounded(&inside(name, path, "unimaps")?, limit)
     };
     let def_uni = || {
         find("def.uni", &host.kbd_dirs, "unimaps", &UNIMAP_SUFFIXES)
-            .map(|p| read_bounded(&p, limit))
+            .map(|p| read_bounded(&contained(&p, &host.kbd_dirs, "unimaps")?, limit))
             .transpose()
     };
     let (font, unimap_name) = match &source.origin {
         Origin::Builtin(name) => {
+            let font = Font::from_builtin(name)?;
             return Ok(Resolved {
-                input: Input::Builtin(name.clone()),
-                sha256: builtin_hash(name),
+                sha256: font.digest(),
+                input: Input::Builtin(font),
                 unimap_sha256: None,
                 def_uni_sha256: None,
             });
@@ -341,13 +402,14 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, SourceError
             source.unimap.clone(),
         ),
         Origin::Font(family) => {
-            let path = find_family(family, &host.kbd_dirs).ok_or_else(|| {
+            let path = find_family(family, &host.kbd_dirs)?.ok_or_else(|| {
                 missing(format!(
                     "no font of family {family}: kbd console fonts are matched by name in {}, \
                      outline and BDF families once vtium/vtium#23 reads them",
                     dirs()
                 ))
             })?;
+            let path = contained(&path, &host.kbd_dirs, "consolefonts")?;
             (read_bounded(&path, limit)?, source.unimap.clone())
         }
         Origin::File(path) if !path.exists() => {
@@ -663,6 +725,33 @@ mod tests {
     }
 
     #[test]
+    fn a_builtin_is_hashed_by_its_glyphs() {
+        let t = Tree::new("builtin");
+        let consoles = Graphics;
+        let h = host(&t, &consoles);
+        let r = resolve(
+            &source("builtin:unscii-8", Origin::Builtin("unscii-8".into()), None),
+            &h,
+        )
+        .unwrap();
+        let font = crate::build::Font::from_builtin("unscii-8").unwrap();
+        assert_ne!(r.sha256, Sha256::digest(b"builtin:unscii-8"));
+        assert_eq!(r.sha256, font.digest());
+        assert_eq!(r.input, Input::Builtin(font));
+    }
+
+    #[test]
+    fn a_family_scan_past_its_entry_cap_fails() {
+        let t = Tree::new("cap");
+        for i in 0..4 {
+            t.file(&format!("a/consolefonts/f{i}.psf"), b"x");
+        }
+        let dirs = [t.0.join("a")];
+        assert!(find_family_capped("f3", &dirs, 4).unwrap().is_some());
+        assert!(find_family_capped("F 3", &dirs, 3).is_err());
+    }
+
+    #[test]
     fn a_family_matches_a_kbd_font_with_case_and_blanks_ignored() {
         let t = Tree::new("family");
         t.file("a/consolefonts/README", b"x");
@@ -671,7 +760,9 @@ mod tests {
         t.file("b/consolefonts/ter-v16b.psf.gz", b"x");
         let dirs = [t.0.join("a"), t.0.join("b")];
         let found = |family: &str| {
-            find_family(family, &dirs).map(|p| p.strip_prefix(&t.0).unwrap().display().to_string())
+            find_family(family, &dirs)
+                .unwrap()
+                .map(|p| p.strip_prefix(&t.0).unwrap().display().to_string())
         };
         assert_eq!(
             found("Lat2-Terminus16").as_deref(),

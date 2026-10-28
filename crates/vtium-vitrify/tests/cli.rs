@@ -392,7 +392,10 @@ fn a_font_named_by_family_resolves_and_a_missing_one_is_left_out() {
     let o = run("source=font:Nonesuch Mono\npackage=nonesuch-fonts\nsource=kbd:ter-v16n\n");
     assert_eq!(
         (status(&o), stdout(&o)),
-        (0, "built\tf\n".to_owned()),
+        (
+            0,
+            "built-partial\tf\tleft out: font:Nonesuch Mono\n".to_owned()
+        ),
         "{}",
         stderr(&o)
     );
@@ -459,8 +462,17 @@ fn a_missing_source_that_appears_rebuilds_the_set() {
     let w = World::new("appears");
     w.frit("m", "source=kbd:later\nsource=kbd:ter-v16n\n");
     let o = w.run(&["create", "m"]);
-    assert_eq!((status(&o), stdout(&o)), (0, "built\tm\n".to_owned()));
-    assert_eq!(stdout(&w.run(&["create", "m"])), "current\tm\n");
+    assert_eq!(
+        (status(&o), stdout(&o)),
+        (0, "built-partial\tm\tleft out: kbd:later\n".to_owned())
+    );
+    assert_eq!(
+        stdout(&w.run(&["create", "m"])),
+        "current-partial\tm\tleft out: kbd:later\n"
+    );
+    // the manifest names the first source found, as install would
+    let manifest = fs::read_to_string(w.store().join("manifest")).unwrap();
+    assert!(manifest.ends_with("\tkbd:ter-v16n\n"), "{manifest}");
     fs::write(
         w.path("kbd/consolefonts/later.psf"),
         psf2(8, 16, 4, Some(&[(1, 'Q')])),
@@ -894,4 +906,110 @@ fn the_parser_runs_without_new_privileges_and_within_its_limits() {
     // an empty request is refused, not parsed
     assert!(err.contains("malformed parse request"), "{err}");
     let _ = std::io::stdout().flush();
+}
+
+/// Runs `cmd`, killing it past ten seconds: `None` when it had to be.
+fn bounded(mut cmd: Command) -> Option<Output> {
+    let child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || tx.send(child.wait_with_output().unwrap()));
+    match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+        Ok(o) => Some(o),
+        Err(_) => {
+            let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
+            None
+        }
+    }
+}
+
+#[test]
+fn create_out_writes_a_relative_path() {
+    let w = World::new("relative-out");
+    let frit = w.frit("lat", "source=kbd:ter-v16n\n");
+    let mut cmd = Command::new(BIN);
+    cmd.current_dir(w.path("out"))
+        .arg("--kbd-dir")
+        .arg(w.path("kbd"))
+        .args(["create", "--out", "lat.vtglass"])
+        .arg(&frit);
+    let o = cmd.output().unwrap();
+    assert_eq!(
+        (status(&o), stdout(&o)),
+        (0, "built\tlat\n".to_owned()),
+        "{}",
+        stderr(&o)
+    );
+    assert!(w.path("out/lat.vtglass").is_file());
+}
+
+#[test]
+fn a_fifo_is_refused_without_blocking() {
+    let w = World::new("fifo");
+    for name in ["frits/pipe.vtfrit", "out/pipe.vtglass"] {
+        let st = Command::new("mkfifo").arg(w.path(name)).status().unwrap();
+        assert!(st.success());
+    }
+    let mut install = Command::new(BIN);
+    install
+        .arg("--store")
+        .arg(w.store())
+        .arg("install")
+        .arg(w.path("out/pipe.vtglass"));
+    let o = bounded(install).expect("install returns");
+    assert_eq!(status(&o), 1);
+    assert!(stdout(&o).contains("not a regular file"), "{}", stdout(&o));
+    let mut create = Command::new(BIN);
+    create
+        .args(["create", "--out"])
+        .arg(w.path("out/x.vtglass"))
+        .arg(w.path("frits/pipe.vtfrit"));
+    let o = bounded(create).expect("create returns");
+    assert_eq!(status(&o), 1);
+    assert!(stdout(&o).contains("not a regular file"), "{}", stdout(&o));
+}
+
+#[test]
+fn a_kbd_name_does_not_follow_a_link_out_of_the_data_directory() {
+    let w = World::new("links");
+    let font = gzip(&psf2(8, 16, 64, Some(&table())));
+    fs::write(w.path("secret.psf.gz"), &font).unwrap();
+    std::os::unix::fs::symlink(
+        w.path("secret.psf.gz"),
+        w.path("kbd/consolefonts/out.psf.gz"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink("ter-v16n.psf.gz", w.path("kbd/consolefonts/in.psf.gz")).unwrap();
+    let out = w.path("out/l.vtglass");
+    let run = |text: &str| {
+        let r = w.frit("l", text);
+        w.run(&[
+            "create",
+            "--out",
+            out.to_str().unwrap(),
+            r.to_str().unwrap(),
+        ])
+    };
+    // a link inside the directory is followed
+    let o = run("source=kbd:in\n");
+    assert_eq!(
+        (status(&o), stdout(&o)),
+        (0, "built\tl\n".to_owned()),
+        "{}",
+        stderr(&o)
+    );
+    // a link out of it is not, by kbd name or by family, and its hash is not told
+    let sha = vtium_font::sha256_hex(&Sha256::digest(&font));
+    for source in ["kbd:out", "font:OUT"] {
+        let o = run(&format!("source={source}\nsha256={}\n", "0".repeat(64)));
+        assert_eq!(status(&o), 1, "{source}");
+        let text = stdout(&o) + &stderr(&o);
+        assert!(text.contains("leaves"), "{source}: {text}");
+        assert!(!text.contains(&sha), "{source}: {text}");
+    }
 }

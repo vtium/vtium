@@ -14,7 +14,11 @@ use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use rustix::process::{Resource, Rlimit, geteuid, setrlimit};
+use std::time::Duration;
+
+use rustix::process::{
+    Pid, PidfdFlags, Resource, Rlimit, Signal, geteuid, pidfd_open, pidfd_send_signal, setrlimit,
+};
 
 use crate::decode;
 use crate::glyphs::{GLYPHS_BYTES_MAX, Glyphs};
@@ -27,6 +31,10 @@ pub const PARSE_ARG: &str = "--parse";
 pub const PARSER_MEMORY: u64 = 512 << 20;
 /// The parser's CPU time, in seconds: the kernel ends it past this.
 pub const PARSER_SECONDS: u64 = 30;
+/// How long the parser may take by the wall clock: past it, the parser is
+/// killed and its source fails, so `create` never hangs holding the
+/// store's lock. Twice its CPU time, for a loaded machine.
+pub const PARSER_WALL_SECONDS: u64 = 2 * PARSER_SECONDS;
 /// The most bytes of the parser's message on failure the parent keeps.
 const MESSAGE_MAX: u64 = 4096;
 
@@ -120,6 +128,9 @@ pub struct Parser {
     args: Vec<OsString>,
     /// The account to run as: set when the parent is root.
     account: Option<(u32, u32)>,
+    /// How long the parser may take, by the wall clock, before it is
+    /// killed.
+    deadline: Duration,
 }
 
 impl Parser {
@@ -142,6 +153,7 @@ impl Parser {
             program,
             args: vec![PARSE_ARG.into()],
             account,
+            deadline: Duration::from_secs(PARSER_WALL_SECONDS),
         })
     }
 
@@ -151,7 +163,14 @@ impl Parser {
             program: program.to_owned(),
             args: args.iter().map(OsString::from).collect(),
             account: None,
+            deadline: Duration::from_secs(PARSER_WALL_SECONDS),
         }
+    }
+
+    /// This parser with another wall-clock deadline.
+    pub fn deadline(mut self, deadline: Duration) -> Parser {
+        self.deadline = deadline;
+        self
     }
 
     /// Runs the parser on `request` and checks what it gives back.
@@ -171,25 +190,52 @@ impl Parser {
         let mut child = command
             .spawn()
             .map_err(|e| format!("cannot start the parser: {e}"))?;
-        // the parser reads all its input before it writes, so the input
-        // goes first; a parser that dies early closes its end
-        let wrote = child
-            .stdin
-            .take()
-            .map(|mut stdin| stdin.write_all(&request.encode()));
-        let mut out = Vec::new();
-        let read = child.stdout.take().map(|stdout| {
-            stdout
-                .take(GLYPHS_BYTES_MAX as u64 + 1)
-                .read_to_end(&mut out)
+        // a pidfd names this child alone, even after it is reaped
+        let pidfd = i32::try_from(child.id())
+            .ok()
+            .and_then(Pid::from_raw)
+            .map(|pid| pidfd_open(pid, PidfdFlags::empty()));
+        let (stdin, stdout, stderr) =
+            (child.stdin.take(), child.stdout.take(), child.stderr.take());
+        // stderr is read on its own thread, so a parser that fills it
+        // cannot stall the read of stdout
+        let message = std::thread::spawn(move || {
+            let mut message = String::new();
+            if let Some(stderr) = stderr {
+                let _ = stderr.take(MESSAGE_MAX).read_to_string(&mut message);
+            }
+            message
         });
-        let mut message = String::new();
-        if let Some(stderr) = child.stderr.take() {
-            let _ = stderr.take(MESSAGE_MAX).read_to_string(&mut message);
-        }
-        let status = child
-            .wait()
-            .map_err(|e| format!("cannot wait for the parser: {e}"))?;
+        // the input, the answer and the exit on another, so the deadline
+        // is kept however the parser behaves; the parser reads all its
+        // input before it writes, and one that dies early closes its end
+        let request = request.encode();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let wrote = stdin.map(|mut stdin| stdin.write_all(&request));
+            let mut out = Vec::new();
+            let read = stdout.map(|stdout| {
+                stdout
+                    .take(GLYPHS_BYTES_MAX as u64 + 1)
+                    .read_to_end(&mut out)
+            });
+            let _ = tx.send((wrote, read, out, child.wait()));
+        });
+        let (wrote, read, out, status) = match rx.recv_timeout(self.deadline) {
+            Ok(done) => done,
+            Err(_) => {
+                if let Some(Ok(fd)) = &pidfd {
+                    let _ = pidfd_send_signal(fd, Signal::KILL);
+                }
+                // the thread reaps it once its pipes close
+                return Err(format!(
+                    "the parser took longer than {} s and was ended",
+                    self.deadline.as_secs_f32()
+                ));
+            }
+        };
+        let status = status.map_err(|e| format!("cannot wait for the parser: {e}"))?;
+        let message = message.join().unwrap_or_default();
         let message = message.trim();
         if let Some(signal) = status.signal() {
             return Err(format!("the parser was ended by signal {signal}"));
@@ -342,6 +388,24 @@ mod tests {
             })
             .expect_err("refused");
         assert!(e.contains("refused") || e.contains("write"), "{e}");
+    }
+
+    #[test]
+    fn a_parser_past_its_deadline_is_ended() {
+        let e = stand_in("sleep 30")
+            .deadline(std::time::Duration::from_millis(300))
+            .parse(&Request::default())
+            .expect_err("ended");
+        assert!(e.contains("longer than"), "{e}");
+    }
+
+    #[test]
+    fn a_parser_that_floods_stderr_does_not_hang_the_parent() {
+        let e = stand_in("cat >/dev/null; head -c 1000000 /dev/zero | tr '\\0' x >&2; exit 1")
+            .deadline(std::time::Duration::from_secs(10))
+            .parse(&Request::default())
+            .expect_err("failed");
+        assert!(e.starts_with("xxxx") && e.len() <= 4096, "{}", e.len());
     }
 
     #[test]

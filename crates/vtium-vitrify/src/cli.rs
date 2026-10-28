@@ -175,6 +175,9 @@ struct Cli<'a> {
 enum Outcome {
     Built,
     Current,
+    /// Built, or current, with these sources left out as missing.
+    BuiltPartial(Vec<String>),
+    CurrentPartial(Vec<String>),
     Installed,
     Removed,
     Verified,
@@ -205,6 +208,15 @@ impl Cli<'_> {
             Outcome::Installed => "installed",
             Outcome::Removed => "removed",
             Outcome::Verified => "verified",
+            Outcome::BuiltPartial(left) | Outcome::CurrentPartial(left) => {
+                let word = if matches!(outcome, Outcome::BuiltPartial(_)) {
+                    "built-partial"
+                } else {
+                    "current-partial"
+                };
+                let _ = writeln!(self.out, "{word}\t{name}\tleft out: {}", left.join(", "));
+                return true;
+            }
             Outcome::Failed(why) => {
                 let _ = writeln!(self.out, "failed\t{name}\t{why}");
                 return false;
@@ -332,10 +344,10 @@ impl Cli<'_> {
             warn_all(&mut *self.err, &read.warnings);
             let bytes = parse_and_assemble(&frit, &read, &parser)?;
             write_atomic(out, &bytes).map_err(|e| format!("{}: {e}", out.display()))?;
-            Ok(frit.name)
+            Ok((frit.name.clone(), read.outcome(&frit, false)))
         });
         match built {
-            Ok(name) => u8::from(!self.report(&name, Outcome::Built)),
+            Ok((name, outcome)) => u8::from(!self.report(&name, outcome)),
             Err(why) => {
                 let name = frit_name(frit);
                 u8::from(!self.report(&name, Outcome::Failed(why)))
@@ -360,8 +372,12 @@ impl Cli<'_> {
             Shortcut::Vconsole => {
                 let consoles = KernelConsoles;
                 let host = self.host(&consoles);
-                let conf = std::fs::read_to_string(&host.vconsole_conf).unwrap_or_default();
-                let cmdline = std::fs::read_to_string(&host.kernel_cmdline).unwrap_or_default();
+                let text = |path: &Path| {
+                    crate::sources::read_regular(path, crate::sources::CONFIG_BYTES_MAX)
+                        .map(|b| String::from_utf8_lossy(&b).into_owned())
+                        .unwrap_or_default()
+                };
+                let (conf, cmdline) = (text(&host.vconsole_conf), text(&host.kernel_cmdline));
                 let font = crate::sources::vconsole(&conf, &cmdline)
                     .0
                     .ok_or("vconsole.conf names no FONT=")?;
@@ -375,18 +391,16 @@ impl Cli<'_> {
         let text = format!("source={source}\n");
         let dir = self.frits_dir();
         let path = dir.join(format!("{name}.vtfrit"));
-        match std::fs::read(&path) {
-            Ok(old) if old == text.as_bytes() => return Ok(path),
-            Ok(_) => {
-                return Err(format!(
-                    "{} holds a different frit: build it by name, or remove it first",
-                    path.display()
-                ));
+        if std::fs::symlink_metadata(&path).is_ok() {
+            let old = crate::sources::read_regular(&path, crate::frit::FRIT_BYTES_MAX as u64)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            if old == text.as_bytes() {
+                return Ok(path);
             }
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                return Err(format!("{}: {e}", path.display()));
-            }
-            Err(_) => {}
+            return Err(format!(
+                "{} holds a different frit: build it by name, or remove it first",
+                path.display()
+            ));
         }
         std::fs::DirBuilder::new()
             .recursive(true)
@@ -554,6 +568,26 @@ struct Read {
     warnings: Vec<String>,
 }
 
+impl Read {
+    /// What a build from these sources reports: `current` when the store
+    /// already held it, partial when a source was left out.
+    fn outcome(&self, frit: &Frit, current: bool) -> Outcome {
+        let left: Vec<String> = frit
+            .sources
+            .iter()
+            .zip(&self.resolved)
+            .filter(|(_, r)| r.is_none())
+            .map(|(s, _)| s.spelling.clone())
+            .collect();
+        match (current, left.is_empty()) {
+            (false, true) => Outcome::Built,
+            (true, true) => Outcome::Current,
+            (false, false) => Outcome::BuiltPartial(left),
+            (true, false) => Outcome::CurrentPartial(left),
+        }
+    }
+}
+
 /// Reads every source of `frit` and makes its build key. A source missing
 /// on this machine is left out with a warning; a source that fails, or a
 /// frit with every source missing, fails the set.
@@ -600,7 +634,7 @@ fn parse_and_assemble(frit: &Frit, read: &Read, parser: &Parser) -> Result<Vec<u
         };
         let font = match &resolved.input {
             Input::Font(request) => parser.parse(request).map(Font::from_glyphs),
-            Input::Builtin(name) => Font::from_builtin(name),
+            Input::Builtin(font) => Ok(font.clone()),
         }
         .map_err(|e| format!("source={}: {e}", source.spelling))?;
         parts.push(Part {
@@ -646,17 +680,20 @@ fn build_into(
         let key = read.key;
         let manifest = writer.manifest()?;
         if !force && manifest.row(&name).is_some_and(|r| r.build_key == key) {
-            return Ok(Outcome::Current);
+            return Ok(read.outcome(&frit, true));
         }
         let bytes = parse_and_assemble(&frit, &read, parser)?;
         let set = Set::from_bytes(bytes.clone()).map_err(|e| e.to_string())?;
+        // the first source found, as the set's provenance names it first
+        // and `install` reads it from there
         let first = frit
             .sources
-            .first()
-            .map(|s| s.spelling.clone())
+            .iter()
+            .zip(&read.resolved)
+            .find_map(|(s, r)| r.as_ref().map(|_| s.spelling.clone()))
             .unwrap_or_default();
         writer.put(row_for(&set, key, first), &bytes)?;
-        Ok(Outcome::Built)
+        Ok(read.outcome(&frit, false))
     })();
     (name, built.unwrap_or_else(Outcome::Failed))
 }
@@ -680,11 +717,7 @@ fn row_for(set: &Set, build_key: [u8; 32], source: String) -> ManifestRow {
 fn install_one(writer: &StoreWriter, file: &Path) -> (String, Outcome) {
     let label = file.display().to_string();
     let checked = (|| {
-        let len = std::fs::metadata(file).map_err(|e| e.to_string())?.len();
-        if len > u64::from(SET_BYTES_MAX) {
-            return Err("larger than SET_BYTES_MAX".to_owned());
-        }
-        let bytes = std::fs::read(file).map_err(|e| e.to_string())?;
+        let bytes = crate::sources::read_regular(file, u64::from(SET_BYTES_MAX))?;
         let set = Set::from_bytes(bytes.clone()).map_err(|e| e.to_string())?;
         set.check_chunks().map_err(|e| e.to_string())?;
         let name = set.name().to_owned();

@@ -124,14 +124,7 @@ impl Frit {
             line: 0,
             why,
         };
-        let meta = std::fs::metadata(path).map_err(|e| err(e.to_string()))?;
-        if !meta.is_file() {
-            return Err(err("not a regular file".to_owned()));
-        }
-        if meta.len() > FRIT_BYTES_MAX as u64 {
-            return Err(err(format!("larger than {FRIT_BYTES_MAX} bytes")));
-        }
-        let bytes = std::fs::read(path).map_err(|e| err(e.to_string()))?;
+        let bytes = crate::sources::read_regular(path, FRIT_BYTES_MAX as u64).map_err(err)?;
         let stem = path
             .file_name()
             .and_then(|n| n.to_str())
