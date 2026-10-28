@@ -1,0 +1,24 @@
+# The demonstration set: vtium's test card, drawn by the renderer in memory
+# for each display profile into docs/specimens/, and judged against what is
+# committed there (vtium/vtium#142).
+[package]
+name = "vtium-specimens"
+description = "The test card drawn per display profile, and its check"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+vtium-term.workspace = true
+vtium-font.workspace = true
+vtium-render.workspace = true
+# deflates the PNGs written and inflates the ones checked; vtium-font
+# already links this version
+miniz_oxide = "0.8.9"
