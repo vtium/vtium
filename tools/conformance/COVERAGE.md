@@ -24,7 +24,7 @@ Each capability the C reference's probes judge, the ADR-1000 rows its probe cove
 | `rep` | works | `text.rep` | `crates/vtium-term/tests/screen.rs::rep_repeats_the_last_printed_base` |  |
 | `erase-colours-only` | works | `ctl.bce` | `crates/vtium-term/tests/screen.rs::erasing_takes_only_the_pens_background` |  |
 | `frame-age-per-caller` | works | `platform.multi-monitor` |  | no test for `platform.multi-monitor` |
-| `reflow` | works | `text.reflow` |  | no test for `text.reflow` |
+| `reflow` | works | `text.reflow` | `crates/vtium-term/tests/reflow.rs::a_wrapped_line_rejoins_when_the_screen_widens` |  |
 | `bidi` | missing | `text.bidi` |  | missing, #43; no test for `text.bidi` |
 | `mode-2026-sync` | works | `DEC-2026` | `crates/vtium-term/tests/modes.rs::mode_2026_holds_frames_while_the_host_offers_it` |  |
 | `decrqm` | works | `query.decrqm` | `crates/vtium-term/src/terminal/reply.rs::no_reply_carries_the_requests_bytes` |  |
