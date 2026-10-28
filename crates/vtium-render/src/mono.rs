@@ -5,13 +5,16 @@
 //! itself (the operator's decision, 2026-10-28), but for a color glyph,
 //! which takes [`Fallback`]'s bitmap there too.
 //!
-//! The mapping: the default background is unlit, and a cell whose
-//! background differs from it is lit; a color drawn on the cell, its
-//! foreground or a decoration's, is the background's opposite, and the
+//! The mapping: polarity follows the default background (the operator's
+//! decision, 2026-10-28). A dark one, its luma under the kernel's cut of
+//! 128, leaves the screen unlit; a light one lights it, so a light theme
+//! draws dark text on a lit screen. A cell whose background differs from
+//! the default flips from the screen's state; a color drawn on the cell,
+//! its foreground or a decoration's, is the background's opposite, and the
 //! background's own state where it equals the background, so a foreground
 //! equal to its background stays invisible as it is on a color display.
 //! Colors compare by value: a cell set to the default background's color
-//! is unlit like the default.
+//! takes the screen's state like the default.
 //!
 //! Composed from black and white alone, a pixel is a gray whose level is
 //! its coverage, the glyph's or the sprite's; [`Threshold`] lights it at
@@ -29,7 +32,7 @@ use vtium_font::sprite;
 use vtium_font::{Cell, Face, Font, Format, Glyph, Style, Unifont, Width};
 use vtium_term::Rgb;
 
-use crate::blend::div255;
+use crate::blend::{div255, pixel};
 use crate::renderer::{BlinkStyle, TextBlink};
 use crate::target::Target;
 
@@ -75,7 +78,7 @@ impl Ink {
         Ink {
             mapped: depth.one_bit(),
             bg,
-            bg_lit: bg != default_bg,
+            bg_lit: (bg != default_bg) != light(default_bg),
         }
     }
 
@@ -100,9 +103,17 @@ impl Ink {
     }
 }
 
-/// The border around the grid, in the default background: unlit at 1 bit.
+/// The border around the grid, in the default background: at 1 bit, the
+/// screen's state, lit for a light default background.
 pub(crate) fn border(depth: Depth, bg: Rgb) -> Rgb {
-    if depth.one_bit() { UNLIT } else { bg }
+    if depth.one_bit() { ink(light(bg)) } else { bg }
+}
+
+/// Whether the default background `c` is light: its BT.601 luma at least
+/// 128, the cut the kernel lights a mono panel's pixel at, so the screen
+/// takes the state the panel would give the color.
+fn light(c: Rgb) -> bool {
+    lit(pixel(c))
 }
 
 /// The text blink at `depth`. At 1 bit the cell's colors are lit or
@@ -272,12 +283,20 @@ mod tests {
         }
     }
 
-    // a light default background is off too: its text is lit
+    // a light default background lights the screen and leaves its text
+    // unlit; a colored cell flips from the screen; the cut is luma 128
     #[test]
-    fn the_default_background_is_unlit_whatever_its_color() {
+    fn a_light_default_background_lights_the_screen() {
         let ink = Ink::new(Depth::One, LIT, LIT);
-        assert_eq!((ink.fg(BLACK), ink.bg()), (LIT, UNLIT));
-        assert_eq!(border(Depth::One, LIT), UNLIT);
+        assert_eq!((ink.fg(BLACK), ink.bg()), (UNLIT, LIT));
+        assert_eq!(border(Depth::One, LIT), LIT);
+        let ink = Ink::new(Depth::One, BLUE, LIT);
+        assert_eq!((ink.fg(LIT), ink.bg()), (LIT, UNLIT));
+        // luma 128 is light, 127 dark
+        let (l, d) = (Rgb::new(128, 128, 128), Rgb::new(127, 127, 127));
+        assert_eq!(border(Depth::One, l), LIT);
+        assert_eq!(border(Depth::One, d), UNLIT);
+        assert_eq!(Ink::new(Depth::One, d, d).bg(), UNLIT);
     }
 
     #[test]
