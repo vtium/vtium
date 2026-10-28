@@ -5,7 +5,7 @@
 //! tree, as tier 3 pins its guest images: `$XDG_CACHE_HOME/vtium/specimens/fonts`.
 //! The desktop set is built from them by vtium-vitrify itself, `create
 //! --out` on `frits/desktop.vtfrit` with the cache as its only font
-//! directory, into a directory of the run's own, and read back with
+//! directory, into a directory the run creates beside the cache, and read back with
 //! vtium-font's set reader. A profile whose set cannot be built, for want
 //! of the tool or of a font, is skipped, and says why.
 
@@ -106,8 +106,11 @@ pub fn desktop(vitrify: Option<&Path>, fonts: &Path) -> Result<Arc<Set>, String>
             "{why}; `make specimens-fonts` fetches the pinned fonts"
         ));
     }
-    let dir = std::env::temp_dir().join(format!("vtium-specimens-set-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    // beside the font cache, in a directory this run creates itself: an
+    // existing one, whoever made it, is refused rather than written into
+    let parent = fonts.parent().unwrap_or(fonts);
+    let dir = parent.join(format!("build-{}", std::process::id()));
+    std::fs::create_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let built = build(vitrify, fonts, &dir);
     let _ = std::fs::remove_dir_all(&dir);
     built
@@ -154,6 +157,21 @@ mod tests {
             .collect();
         let table: Vec<&str> = FONTS.iter().map(|f| f.sha256).collect();
         assert_eq!(pins, table);
+    }
+
+    // A cache holding a font of other bytes builds no set, before
+    // vtium-vitrify is run: the profiles drawn from it go undrawn.
+    #[test]
+    fn a_changed_font_in_the_cache_builds_no_set() {
+        let dir =
+            std::env::temp_dir().join(format!("vtium-specimens-cache-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in &FONTS {
+            std::fs::write(dir.join(f.file), b"not the font").unwrap();
+        }
+        let why = desktop(Some(Path::new("/nonexistent/vtium-vitrify")), &dir).unwrap_err();
+        assert!(why.contains("has SHA-256"), "{why}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

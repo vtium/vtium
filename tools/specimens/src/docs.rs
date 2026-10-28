@@ -46,6 +46,16 @@ fn screen_names(pages: usize) -> Vec<String> {
     }
 }
 
+/// Every image a profile of `pages` screens has: its screens, and its
+/// collage when it has several.
+pub fn image_names(pages: usize) -> Vec<String> {
+    let mut names = screen_names(pages);
+    if pages > 1 {
+        names.push("collage.png".to_owned());
+    }
+    names
+}
+
 /// The image that shows a profile whole: its collage, or its one screen.
 pub fn preview(pages: usize) -> &'static str {
     if pages == 1 {
@@ -169,7 +179,7 @@ fn profile_readme(p: &Profile, names: &[String]) -> Result<String, String> {
             "The console chooses this set by itself once #126 and #118's rule land; the screens here draw vtium-font's built-in set directly."
         }
         Glyphs::Desktop { .. } => {
-            "The console loads a set by name from #126. The screens here draw the set vtium-vitrify builds from the frit and the pinned fonts `make specimens-fonts` fetches (`tools/specimens/README.md`); where those fonts are absent the check skips this profile and says so."
+            "The console loads a set by name from #126. The screens here draw the set vtium-vitrify builds from the frit and the pinned fonts `make specimens-fonts` fetches (`tools/specimens/README.md`); where those fonts are absent the check skips this profile while it is provisional, and fails it once accepted."
         }
     };
     let images = names
@@ -241,7 +251,7 @@ fn index(rows: &[String], simulated: &[String]) -> String {
          {titles}\n\n\
          `tools/specimens/README.md` lists what the card leaves out and why.\n\n\
          ## Drawing and judging\n\n\
-         `make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and compare them with what is committed: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A difference in an accepted profile fails; one in a provisional profile is drift, reported and not failed; a stale simulation is reported as its own kind of fault. The outline profiles are drawn only where vtium-vitrify and the pinned fonts are at hand, as `make specimens` gives them; elsewhere the check skips them and says why. A branch that moves specimens regenerates them in their own commit, listing what moved, and a conflict here is resolved by running `make specimens` again.\n",
+         `make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and compare them with what is committed: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A difference in an accepted profile fails; one in a provisional profile is drift, reported and not failed; a stale simulation is reported as its own kind of fault. The outline profiles are drawn only where vtium-vitrify and the pinned fonts are at hand, as `make specimens-fonts` and `make specimens` give them; elsewhere a provisional one is skipped with why, and an accepted one fails. A branch that moves specimens regenerates them in their own commit, listing what moved; `provisional.tsv` is the only file here written by hand, and a conflict in the rest resolves by `make specimens-fonts && make specimens`.\n",
         rows = rows.join("\n"),
         simulated = simulated.join("\n"),
     )

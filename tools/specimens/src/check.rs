@@ -75,8 +75,16 @@ pub fn check(dir: &Path, sources: &Sources) -> Result<Faults, String> {
     let provisional = docs::provisional(dir)?;
     let drawn = docs::files(&provisional, sources)?;
     let mut faults = Faults::default();
+    // a skip never hides an accepted profile's regression: only a
+    // provisional profile may go undrawn
     for (p, why) in &drawn.skipped {
-        faults.skipped.push(format!("{}: {why}", p.name));
+        if provisional.iter().any(|n| n == p.name) {
+            faults.skipped.push(format!("{}: {why}", p.name));
+        } else {
+            faults
+                .goldens
+                .push(format!("{}: accepted, and not drawn here: {why}", p.name));
+        }
     }
     for stray in strays(dir, &drawn)? {
         faults.push(
@@ -126,17 +134,20 @@ pub fn check(dir: &Path, sources: &Sources) -> Result<Faults, String> {
 }
 
 /// The files under `dir` that `drawn` does not hold, but `provisional.tsv`
-/// and the images of a profile skipped here, which are neither drawn nor
-/// judged.
+/// and the screens and collage of a profile skipped here, which are
+/// neither drawn nor judged.
 fn strays(dir: &Path, drawn: &Drawn) -> Result<Vec<String>, String> {
     let mut found = Vec::new();
     walk(dir, dir, &mut found)?;
     let skipped_image = |f: &str| {
-        f.ends_with(".png")
-            && drawn
-                .skipped
-                .iter()
-                .any(|(p, _)| Path::new(f).parent() == Some(Path::new(&docs::dir(p))))
+        drawn.skipped.iter().any(|(p, _)| {
+            let d = docs::dir(p);
+            p.layout().is_ok_and(|l| {
+                docs::image_names(l.pages)
+                    .iter()
+                    .any(|n| f == format!("{d}/{n}"))
+            })
+        })
     };
     Ok(found
         .into_iter()
@@ -177,6 +188,10 @@ mod tests {
         }
     }
 
+    /// The outline profiles as provisional, so a test that does not draw
+    /// them may skip them.
+    const OUTLINE: &str = "1920x1080\tnew\n2560x1440\tnew\n";
+
     /// A fresh drawing of the specimens in a directory of this test's own,
     /// with `provisional` as its provisional.tsv.
     fn drawn(name: &str, provisional: &str) -> std::path::PathBuf {
@@ -200,7 +215,7 @@ mod tests {
     // own kind, apart from the goldens that judge vtium's drawing.
     #[test]
     fn a_stale_or_stray_simulation_is_its_own_fault() {
-        let dir = drawn("sim", "");
+        let dir = drawn("sim", OUTLINE);
         let clean = check(&dir, &sources()).unwrap();
         assert!(!clean.failed(), "{clean:?}");
         let sim = dir.join("simulated/320x240-gray4");
@@ -222,7 +237,7 @@ mod tests {
     // provisional one, which fails nothing (the operator, 2026-10-28).
     #[test]
     fn a_provisional_profile_drifts_and_an_accepted_one_fails() {
-        let dir = drawn("drift", "640x480\tunder review\n");
+        let dir = drawn("drift", &format!("{OUTLINE}640x480\tunder review\n"));
         plant(&dir.join("640x480/screen-1.png"));
         plant(&dir.join("800x480/screen-1.png"));
         let faults = check(&dir, &sources()).unwrap();
@@ -238,12 +253,16 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    // A profile whose set is not at hand is skipped and says why; its
-    // committed images are neither judged nor strays, and its text still is.
+    // A provisional profile whose set is not at hand is skipped and says
+    // why; its committed screens and collage are neither judged nor
+    // strays, any other file there is, and its text is judged still.
     #[test]
-    fn a_profile_not_drawn_here_is_skipped_with_why() {
-        let dir = drawn("skip", "");
+    fn a_provisional_profile_not_drawn_here_is_skipped_with_why() {
+        let dir = drawn("skip", OUTLINE);
         std::fs::write(dir.join("1920x1080/screen-1.png"), b"anything").unwrap();
+        std::fs::write(dir.join("1920x1080/collage.png"), b"anything").unwrap();
+        std::fs::write(dir.join("1920x1080/extra.png"), b"anything").unwrap();
+        std::fs::write(dir.join("1920x1080/screen-3.png"), b"anything").unwrap();
         let faults = check(&dir, &sources()).unwrap();
         assert_eq!(
             faults.skipped,
@@ -252,20 +271,45 @@ mod tests {
                 "2560x1440: not built in this test"
             ]
         );
+        assert_eq!(
+            faults.drift,
+            [
+                "1920x1080/extra.png: not drawn by the profile table",
+                "1920x1080/screen-3.png: not drawn by the profile table",
+            ]
+        );
         assert!(!faults.failed(), "{faults:?}");
         std::fs::write(dir.join("1920x1080/vtium.conf"), b"").unwrap();
         let faults = check(&dir, &sources()).unwrap();
+        assert!(
+            faults.drift.contains(
+                &"1920x1080/vtium.conf: differs from what the profile table writes".to_owned()
+            ),
+            "{:?}",
+            faults.drift
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // An accepted profile that cannot be drawn here fails with why: a skip
+    // never hides an accepted profile's regression.
+    #[test]
+    fn an_accepted_profile_not_drawn_here_fails() {
+        let dir = drawn("skip-accepted", "2560x1440\tnew\n");
+        let faults = check(&dir, &sources()).unwrap();
+        assert_eq!(faults.skipped, ["2560x1440: not built in this test"]);
         assert_eq!(
             faults.goldens,
-            ["1920x1080/vtium.conf: differs from what the profile table writes"]
+            ["1920x1080: accepted, and not drawn here: not built in this test"]
         );
+        assert!(faults.failed());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
     // A directory symbolic link back up the tree is listed, not walked.
     #[test]
     fn a_symlink_loop_is_not_walked() {
-        let dir = drawn("loop", "");
+        let dir = drawn("loop", OUTLINE);
         std::os::unix::fs::symlink(&dir, dir.join("320x240/loop")).unwrap();
         let faults = check(&dir, &sources()).unwrap();
         assert_eq!(
