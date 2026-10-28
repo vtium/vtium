@@ -1,27 +1,31 @@
 //! Text blink: in the off phase a blinking cell, SGR 5 or 6, draws as
 //! `blink-text` and `blink-decorations` say, except under the cursor, which
-//! shows it. By default it draws as a blank cell in its own colours, its
-//! underline and strike kept. Every expected colour is a literal.
+//! shows it. By default it draws as a blank cell in its own colors, its
+//! underline and strike kept. Every expected color is a literal. FG and BG
+//! are odd in every channel, so a mix that rounds draws a different color.
 
 mod common;
 
 use std::collections::BTreeSet;
 
 use common::{Screen, rgb, style, unifont};
-use vtium_render::{BlinkStyle, Canvas, Config, DrawState, Rect, Renderer, TextBlink};
+use vtium_render::{
+    BlinkStyle, Canvas, Config, DecoColor, DecorationColors, DrawState, Rect, Renderer, TextBlink,
+};
 use vtium_term::{Age, Attrs, Color, CursorShape, Style, UnderlineStyle};
 
-const FG: &str = "e0e0e0";
-const BG: &str = "203040";
-const FG_PX: u32 = 0xe0_e0_e0;
-const BG_PX: u32 = 0x20_30_40;
-/// SGR 2's mix of FG and BG: e0/2 + 20/2, e0/2 + 30/2, e0/2 + 40/2.
+const FG: &str = "e1e1e1";
+const BG: &str = "213141";
+const FG_PX: u32 = 0xe1_e1_e1;
+const BG_PX: u32 = 0x21_31_41;
+/// SGR 2's mix of FG and BG: e1/2 + 21/2, e1/2 + 31/2, e1/2 + 41/2. A
+/// rounded mean, (e1 + 21) / 2, would give 81 in red.
 const DIM: u32 = 0x80_88_90;
-/// DIM mixed with BG again: 80/2 + 20/2, 88/2 + 30/2, 90/2 + 40/2.
+/// DIM mixed with BG again: 80/2 + 21/2, 88/2 + 31/2, 90/2 + 41/2.
 const DIM2: u32 = 0x50_5c_68;
 const GREEN: &str = "00ff00";
 const GREEN_PX: u32 = 0x00_ff_00;
-/// GREEN mixed with BG: 00/2 + 20/2, ff/2 + 30/2, 00/2 + 40/2.
+/// GREEN mixed with BG: 00/2 + 21/2, ff/2 + 31/2, 00/2 + 41/2.
 const GREEN_DIM: u32 = 0x10_97_20;
 
 fn draw(s: &Screen, cursor_on: bool, blink_hidden: bool) -> Canvas {
@@ -29,11 +33,15 @@ fn draw(s: &Screen, cursor_on: bool, blink_hidden: bool) -> Canvas {
 }
 
 fn draw_with(blink: TextBlink, s: &Screen, cursor_on: bool, blink_hidden: bool) -> Canvas {
-    let (w, h) = (s.cols as u32 * 8, s.rows as u32 * 16);
     let config = Config {
         blink,
         ..Config::default()
     };
+    draw_config(config, s, cursor_on, blink_hidden)
+}
+
+fn draw_config(config: Config, s: &Screen, cursor_on: bool, blink_hidden: bool) -> Canvas {
+    let (w, h) = (s.cols as u32 * 8, s.rows as u32 * 16);
     let mut r = Renderer::new(unifont(), w, h, config);
     let mut c = Canvas::new(w, h, 0);
     let st = DrawState {
@@ -104,7 +112,7 @@ fn blinking_text_hides_as_blank_cells_but_under_the_cursor() {
     );
     let hidden = draw(&s, true, true);
     assert!(hidden == draw(&blank, false, false), "hidden");
-    let bg = 0x20_30_40;
+    let bg = BG_PX;
     for col in [0, 2, 3] {
         for y in 0..16 {
             for x in col * 8..col * 8 + 8 {
@@ -143,16 +151,16 @@ fn cell(c: &Canvas, col: u32) -> Vec<u32> {
         .collect()
 }
 
-/// The cell at `col` holds exactly the colours `want`.
+/// The cell at `col` holds exactly the colors `want`.
 fn holds(c: &Canvas, col: u32, want: &[u32], what: &str) {
     let got: BTreeSet<u32> = cell(c, col).into_iter().collect();
     let want: BTreeSet<u32> = want.iter().copied().collect();
     assert_eq!(got, want, "{what}, column {col}: {got:x?}");
 }
 
-/// Which of the cell at `col`'s pixels are in `colour`.
-fn lit(c: &Canvas, col: u32, colour: u32) -> Vec<bool> {
-    cell(c, col).into_iter().map(|p| p == colour).collect()
+/// Which of the cell at `col`'s pixels are in `color`.
+fn lit(c: &Canvas, col: u32, color: u32) -> Vec<bool> {
+    cell(c, col).into_iter().map(|p| p == color).collect()
 }
 
 /// Five cells: a blinking x; one underlined and struck; one underlined in
@@ -268,8 +276,8 @@ fn blink_text_full_hides_the_glyph_and_the_decorations_as_asked() {
 
 // blink-text=partial: the off phase draws the glyph halfway to its
 // background, as SGR 2 does, over dim text too. With the decorations
-// steady they keep their colours; with them blinking they dim with it,
-// SGR 58's colour included.
+// steady they keep their colors; with them blinking they dim with it,
+// SGR 58's color included.
 // covers: sgr.blink.style, sgr.blink.decorations
 #[test]
 fn blink_text_partial_dims_the_glyph_and_the_decorations_as_asked() {
@@ -316,7 +324,7 @@ fn blink_text_partial_dims_the_glyph_and_the_decorations_as_asked() {
     );
     holds(&blinking, 3, &[BG_PX, DIM2], "partial, dim");
     holds(&blinking, 4, &[BG_PX, FG_PX], "steady text");
-    // SGR 2 draws the same cells, given the colours it leaves exact
+    // SGR 2 draws the same cells, given the colors it leaves exact
     let plain = style(rgb(FG), rgb(BG));
     let dim = |mut st: Style| {
         st.attrs.insert(Attrs::DIM);
@@ -327,7 +335,7 @@ fn blink_text_partial_dims_the_glyph_and_the_decorations_as_asked() {
     deco.attrs.insert(Attrs::STRIKE);
     let mut green = dim(plain);
     green.attrs.set_underline(UnderlineStyle::Single);
-    green.underline_color = Color::Rgb(vtium_term::Rgb::new(0x10, 0x97, 0x20));
+    green.underline_color = Color::Rgb(rgb("109720"));
     let mut sgr2 = Screen::new(5, 1, rgb("c0c0c0"), rgb("101010"));
     sgr2.put(0, 0, 'x', false, dim(plain));
     sgr2.put(1, 0, 'x', false, deco);
@@ -398,4 +406,46 @@ fn blink_text_off_redraws_nothing_at_a_phase_change() {
     };
     assert_eq!(phase_damage(FULL, &mut s), [blinking]);
     assert_eq!(phase_damage(PARTIAL, &mut s), [blinking]);
+}
+
+// The configured underline and strike colors dim with blinking text under
+// partial with the decorations blinking, and stay with them steady.
+// covers: sgr.blink.decorations
+#[test]
+fn partial_blink_dims_the_configured_decoration_colors() {
+    let mut deco = blink(style(rgb(FG), rgb(BG)));
+    deco.attrs.set_underline(UnderlineStyle::Single);
+    deco.attrs.insert(Attrs::STRIKE);
+    let mut s = Screen::new(1, 1, rgb("c0c0c0"), rgb("101010"));
+    s.put(0, 0, 'x', false, deco);
+    let config = |decorations| Config {
+        blink: TextBlink {
+            style: BlinkStyle::Partial,
+            decorations,
+        },
+        decorations: DecorationColors {
+            underline: DecoColor::Rgb(rgb(GREEN)),
+            strike: DecoColor::Rgb(rgb("ff0101")),
+            force: false,
+        },
+        ..Config::default()
+    };
+    // ff/2 + 21/2, 01/2 + 31/2, 01/2 + 41/2
+    let red_dim = 0x8f_18_20;
+    let on = draw_config(config(true), &s, false, false);
+    holds(&on, 0, &[BG_PX, FG_PX, GREEN_PX, 0xff_01_01], "on");
+    let blinking = draw_config(config(true), &s, false, true);
+    holds(
+        &blinking,
+        0,
+        &[BG_PX, DIM, GREEN_DIM, red_dim],
+        "decorations blinking",
+    );
+    let steady = draw_config(config(false), &s, false, true);
+    holds(
+        &steady,
+        0,
+        &[BG_PX, DIM, GREEN_PX, 0xff_01_01],
+        "decorations steady",
+    );
 }

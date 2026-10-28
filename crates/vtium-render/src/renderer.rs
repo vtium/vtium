@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 
 use vtium_font::{Face, Font, Style, Width as FontWidth};
-use vtium_term::{Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, Palette, Rgb, Width};
+use vtium_term::{Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, Palette, Rgb, Width, dim};
 
 use crate::arrow::{Arrow, Over};
 use crate::blend::pixel;
@@ -383,13 +383,6 @@ fn next_width(frame: &Frame<'_>, row: usize, col: usize, cols: usize) -> Option<
 fn blink_off(fc: &FrameCell<'_>, is_cursor: bool, state: &DrawState, blink: TextBlink) -> bool {
     let blinks = fc.attrs.contains(Attrs::BLINK) || fc.attrs.contains(Attrs::RAPID_BLINK);
     !is_cursor && blinks && state.blink_hidden && blink.style != BlinkStyle::Off
-}
-
-/// SGR 2's colour: halfway from `fg` to `bg`, each channel the sum of the
-/// two halved, as `vtium-term`'s frame dims a foreground.
-fn dim(fg: Rgb, bg: Rgb) -> Rgb {
-    let ch = |f: u8, b: u8| (f / 2).saturating_add(b / 2);
-    Rgb::new(ch(fg.r, bg.r), ch(fg.g, bg.g), ch(fg.b, bg.b))
 }
 
 impl<F: Face> Renderer<F> {

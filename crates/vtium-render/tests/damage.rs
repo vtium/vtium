@@ -545,11 +545,15 @@ fn run_with(buffers: usize, config: Config) {
                 Rgb::new(rand(256) as u8, 200, 100),
                 Rgb::new(0, rand(256) as u8, 40),
             );
-            match rand(6) {
-                0 => st.attrs.insert(Attrs::BLINK),
-                1 => st.attrs.set_underline(vtium_term::UnderlineStyle::Curly),
-                2 => st.attrs.insert(Attrs::STRIKE),
-                _ => {}
+            // blinking cells carry decorations too, for each blink option
+            if rand(3) == 0 {
+                st.attrs.insert(Attrs::BLINK);
+            }
+            if rand(3) == 0 {
+                st.attrs.set_underline(vtium_term::UnderlineStyle::Curly);
+            }
+            if rand(3) == 0 {
+                st.attrs.insert(Attrs::STRIKE);
             }
             let wide = rand(5) == 0 && col + 1 < cols;
             let c = if wide {
