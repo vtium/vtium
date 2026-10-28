@@ -133,7 +133,7 @@ observable:
   - "A frit asking for subpixel strikes with a 1-bit target is refused by `vtium-vitrify create`, naming the rule"
   - "A frit drawn at run time and the same frit built by `create` for the same display give the same strike bytes, on a minspec build and a full one"
   - "`vtium check-config` with `display-depth=1` and a set whose color glyphs were dithered prints that rule's warning"
-status: proposed
+status: accepted
 date: 2026-10-28
 deciders:
   - aaronsb
