@@ -38,4 +38,4 @@ The card is one byte stream of vtium's own, written by `tools/specimens`, in fou
 
 ## Drawing and judging
 
-`make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and fail on any difference from what is committed, `simulated/` aside: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A change that moves a specimen fails until the moved files are committed, each in a commit of its own that lists what moved.
+`make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and fail on any difference from what is committed: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A stale or stray simulation is reported as its own kind of fault, apart from the specimens that judge vtium. A change that moves a specimen fails until the moved files are committed, each in a commit of its own that lists what moved.
