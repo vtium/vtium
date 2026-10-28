@@ -21,9 +21,9 @@ vtium draws a gray panel exactly as a color display, and the panel's driver conv
 
 | Profile | Depth | Cell | Grid | Font | Screens | Status | Preview |
 |---|---|---|---|---|---|---|---|
-| [320x240-gray4](simulated/320x240-gray4/) | gray4, simulated | 8x8 | 40x30 | `unscii-8` | 5 | simulation, provisional | [<img src="simulated/320x240-gray4/collage.png" width="160">](simulated/320x240-gray4/collage.png) |
-| [320x240-gray16](simulated/320x240-gray16/) | gray16, simulated | 8x8 | 40x30 | `unscii-8` | 5 | simulation, provisional | [<img src="simulated/320x240-gray16/collage.png" width="160">](simulated/320x240-gray16/collage.png) |
-| [640x480-gray16](simulated/640x480-gray16/) | gray16, simulated | 8x16 | 80x30 | `unifont` | 3 | simulation, provisional | [<img src="simulated/640x480-gray16/collage.png" width="160">](simulated/640x480-gray16/collage.png) |
+| [320x240-gray4](simulated/320x240-gray4/) | gray4, simulated | 8x8 | 40x30 | `unscii-8` | 5 | simulation | [<img src="simulated/320x240-gray4/collage.png" width="160">](simulated/320x240-gray4/collage.png) |
+| [320x240-gray16](simulated/320x240-gray16/) | gray16, simulated | 8x8 | 40x30 | `unscii-8` | 5 | simulation | [<img src="simulated/320x240-gray16/collage.png" width="160">](simulated/320x240-gray16/collage.png) |
+| [640x480-gray16](simulated/640x480-gray16/) | gray16, simulated | 8x16 | 80x30 | `unifont` | 3 | simulation | [<img src="simulated/640x480-gray16/collage.png" width="160">](simulated/640x480-gray16/collage.png) |
 
 ## The card
 
@@ -39,4 +39,4 @@ The card is one byte stream of vtium's own, written by `tools/specimens`, in blo
 
 ## Drawing and judging
 
-`make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and compare them with what is committed: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A difference in an accepted profile fails; one in a provisional profile is drift, reported and not failed; a stale simulation is reported as its own kind of fault. The outline profiles are drawn only where vtium-vitrify and the pinned fonts are at hand, as `make specimens` gives them; elsewhere the check skips them and says why. A branch that moves specimens regenerates them in their own commit, listing what moved, and a conflict here is resolved by running `make specimens` again.
+`make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and compare them with what is committed: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A difference in an accepted profile fails; one in a provisional profile is drift, reported and not failed; a stale simulation is reported as its own kind of fault. The outline profiles are drawn only where vtium-vitrify and the pinned fonts are at hand, as `make specimens-fonts` and `make specimens` give them; elsewhere a provisional one is skipped with why, and an accepted one fails. A branch that moves specimens regenerates them in their own commit, listing what moved; `provisional.tsv` is the only file here written by hand, and a conflict in the rest resolves by `make specimens-fonts && make specimens`.

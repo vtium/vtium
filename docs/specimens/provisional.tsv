@@ -1,7 +1,7 @@
 # The specimens the operator has not reviewed: PROFILE and why. A
-# provisional profile that moves is reported as drift and fails nothing; a
-# row goes when the operator accepts the profile, which then fails on a
-# moved pixel.
+# provisional profile that moves is reported as drift and fails nothing,
+# and may go undrawn where its set cannot be built; a row goes when the
+# operator accepts the profile, which then fails on a moved pixel.
 320x240	new with #142
 480x320	new with #142
 640x480	new with #142
@@ -10,6 +10,3 @@
 320x240-1bit	new with #142, #135
 1920x1080	new with #142, #23
 2560x1440	new with #142, #23
-320x240-gray4	simulation, new with #142
-320x240-gray16	simulation, new with #142
-640x480-gray16	simulation, new with #142

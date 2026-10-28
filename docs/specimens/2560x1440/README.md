@@ -24,4 +24,4 @@ font-name=desktop
 font-size=0
 ```
 
-The console loads a set by name from #126. The screens here draw the set vtium-vitrify builds from the frit and the pinned fonts `make specimens-fonts` fetches (`tools/specimens/README.md`); where those fonts are absent the check skips this profile and says so.
+The console loads a set by name from #126. The screens here draw the set vtium-vitrify builds from the frit and the pinned fonts `make specimens-fonts` fetches (`tools/specimens/README.md`); where those fonts are absent the check skips this profile while it is provisional, and fails it once accepted.
