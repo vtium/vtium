@@ -774,9 +774,14 @@ impl App {
     }
 
     /// A blank or wake from outside the session: the blank the timer runs,
-    /// at once, or the wake a program's `CSI 13 ]` gives.
+    /// at once, or the wake a program's `CSI 13 ]` gives. While the VT is
+    /// another's its displays are not vtium's to blank, and the blank is
+    /// dropped.
     fn outside_order(&mut self, order: Order, now: Instant) {
         match order {
+            Order::Blank if !self.vt.is_active() => {
+                log::debug!("the VT is another's: the blank sent is dropped");
+            }
             Order::Blank => {
                 if self.blank.blank_now() {
                     self.blank_now(now);

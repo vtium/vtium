@@ -20,7 +20,7 @@ use vtium_platform::display::{Canvas, DisplayId, Dpms, Event, Rect, SwapError, S
 use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{InputEvent, KeyEvent, Mods};
 use vtium_platform::rt_signal;
-use vtium_platform::vt::FakeVt;
+use vtium_platform::vt::{Switch, Vt, VtEvent};
 
 const W: u32 = 320;
 const H: u32 = 160;
@@ -34,6 +34,8 @@ struct Memory {
     awake: bool,
     dpms: Option<Dpms>,
     unblanks: u32,
+    /// Each DPMS state set, in order.
+    dpms_sets: Vec<Dpms>,
 }
 
 impl Video for Memory {
@@ -43,8 +45,14 @@ impl Video for Memory {
     fn events(&mut self) -> Vec<Event> {
         std::mem::take(&mut self.events)
     }
+    /// The display stays listed while the device sleeps, as a DRM card's
+    /// outputs do; it takes no state then.
     fn displays(&self) -> Vec<DisplayId> {
-        if self.awake { vec![ID] } else { Vec::new() }
+        if self.pixels.is_empty() {
+            Vec::new()
+        } else {
+            vec![ID]
+        }
     }
     fn name(&self, _: DisplayId) -> String {
         "MEM-1".into()
@@ -78,6 +86,10 @@ impl Video for Memory {
         false
     }
     fn set_dpms(&mut self, _: DisplayId, dpms: Dpms) -> io::Result<()> {
+        self.dpms_sets.push(dpms);
+        if !self.awake {
+            return Err(io::Error::other("the device sleeps"));
+        }
         self.dpms = Some(dpms);
         if dpms == Dpms::On {
             self.events.push(Event::Redraw(ID));
@@ -116,6 +128,53 @@ impl Video for Memory {
     }
 }
 
+/// A VT the test drives: it raises what the test queues and the switches
+/// it is asked for.
+#[derive(Default)]
+struct ScriptedVt {
+    events: Vec<VtEvent>,
+    active: bool,
+}
+
+impl Vt for ScriptedVt {
+    fn events(&mut self) -> std::vec::Drain<'_, VtEvent> {
+        self.events.drain(..)
+    }
+    fn acknowledge_release(&mut self) -> io::Result<()> {
+        self.active = false;
+        Ok(())
+    }
+    fn refuse_release(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn activate(&mut self) -> io::Result<Switch> {
+        if !self.active {
+            self.active = true;
+            self.events.push(VtEvent::Acquired);
+        }
+        Ok(Switch::Pending)
+    }
+    fn leave(&mut self) -> io::Result<Switch> {
+        Ok(Switch::Done)
+    }
+    fn wait(&mut self) -> io::Result<Switch> {
+        Ok(Switch::Done)
+    }
+    fn is_active(&self) -> bool {
+        self.active
+    }
+    fn key(&mut self, _: &KeyEvent) -> bool {
+        false
+    }
+    fn restore(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn bell(&mut self) {}
+    fn number(&self) -> Option<u16> {
+        None
+    }
+}
+
 struct Harness {
     lp: Loop<App>,
     app: App,
@@ -149,7 +208,7 @@ impl Harness {
         };
         let mut app = App::new(
             loaded.config,
-            Box::new(FakeVt::new()),
+            Box::new(ScriptedVt::default()),
             lp.handle(),
             clock,
             env,
@@ -180,9 +239,14 @@ impl Harness {
     /// Turns the loop as `main` does until the device satisfies `done`,
     /// at most 3 s.
     fn until(&mut self, done: impl Fn(&Memory) -> bool) -> bool {
-        let end = now() + Duration::from_secs(3);
+        self.turn_until(Duration::from_secs(3), |h| done(h.memory()))
+    }
+
+    /// Turns the loop as `main` does until `done` holds, at most `limit`.
+    fn turn_until(&mut self, limit: Duration, done: impl Fn(&mut Harness) -> bool) -> bool {
+        let end = now() + limit;
         loop {
-            if done(self.memory()) {
+            if done(self) {
                 return true;
             }
             if now() > end {
@@ -198,6 +262,12 @@ impl Harness {
                 .expect("dispatch");
             self.app.turn(self.at());
         }
+    }
+
+    /// Moves the seat's clock ahead by `by`, as if that long passed with
+    /// nothing to do.
+    fn skip(&mut self, by: Duration) {
+        self.ahead.set(self.ahead.get() + by);
     }
 
     /// Raises `order`'s signal in this thread, where the loop reads it.
@@ -281,4 +351,53 @@ fn a_wake_while_lit_and_a_blank_while_blanked_change_nothing() {
     h.signal(Order::Wake);
     assert!(h.until(ON));
     assert_eq!(h.memory().unblanks, 1);
+}
+
+/// A wake while lit restarts the countdown from the signal, as a
+/// program's `CSI 13 ]` does (vtium/vtium#79).
+#[test]
+fn a_wake_while_lit_restarts_the_countdown() {
+    let mut h = Harness::new(&["--dpms-timeout=60"]);
+    h.skip(Duration::from_secs(30));
+    let sent = h.at();
+    h.signal(Order::Wake);
+    let restarted = |h: &mut Harness| {
+        h.app
+            .blank
+            .deadline()
+            .is_some_and(|d| d >= sent + Duration::from_secs(60))
+    };
+    assert!(
+        h.turn_until(Duration::from_secs(3), restarted),
+        "the countdown runs from the wake, not from the start"
+    );
+    assert!(h.app.blank.deadline() <= Some(h.at() + Duration::from_secs(60)));
+    assert_eq!(h.memory().unblanks, 0, "nothing was blanked");
+}
+
+/// While the VT is another's, its displays are not vtium's to blank: a
+/// blank sent then reaches no device, and the VT's return finds them lit.
+#[test]
+fn a_blank_while_the_vt_is_released_reaches_no_device() {
+    let mut h = Harness::new(&[]);
+    h.app
+        .vt
+        .get::<ScriptedVt>()
+        .expect("the scripted VT")
+        .events
+        .push(VtEvent::Release);
+    assert!(
+        h.turn_until(Duration::from_secs(3), |h| !h.app.vt.is_active()),
+        "released"
+    );
+    h.memory().dpms_sets.clear();
+    h.signal(Order::Blank);
+    h.turn_until(Duration::from_millis(300), |_| false);
+    assert_eq!(h.memory().dpms_sets, [], "no DPMS state reached the device");
+    h.app.vt.activate().expect("the VT");
+    assert!(
+        h.until(|m| m.awake && m.dpms == Some(Dpms::On)),
+        "lit on return"
+    );
+    assert_eq!(h.memory().unblanks, 0);
 }
