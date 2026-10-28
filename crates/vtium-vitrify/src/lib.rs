@@ -29,6 +29,7 @@ pub mod frit;
 pub mod glyphs;
 pub mod outline;
 pub mod resample;
+pub mod serve;
 pub mod sources;
 pub mod store;
 pub mod switch;
