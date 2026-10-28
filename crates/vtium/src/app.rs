@@ -580,7 +580,7 @@ impl App {
             self.font = Some(Chosen::Builtin(None));
             return;
         };
-        if let Ok(builtin @ Chosen::Builtin(_)) = font::by_name(s, &wanted.name) {
+        if let Some(builtin) = font::builtin_named(&wanted.name) {
             self.font = Some(builtin);
             return;
         }

@@ -440,12 +440,20 @@ pub fn frit_named(frits: &Path, wanted: &Wanted) -> Result<FritText, String> {
     })
 }
 
+/// The built-in font `name` names, as its own name spells it.
+pub fn builtin_named(name: &str) -> Option<Chosen> {
+    ["unifont", "unscii-8"]
+        .into_iter()
+        .find(|b| *b == name)
+        .map(|b| Chosen::Builtin(Some(b)))
+}
+
 /// The font named `name` for OSC 50 (ADR-1200 D5): a built-in, or a frit
 /// in the frits' directory. The font keeps the name as the built-in or
 /// the frit's file spells it, never the request's bytes.
 pub fn by_name(sources: &Sources, name: &str) -> Result<Chosen, String> {
-    if let Some(builtin) = ["unifont", "unscii-8"].into_iter().find(|b| *b == name) {
-        return Ok(Chosen::Builtin(Some(builtin)));
+    if let Some(builtin) = builtin_named(name) {
+        return Ok(builtin);
     }
     let path = frit(&sources.frits, name).ok_or("no frit is named so")?;
     Chosen::frit(FritText::read(&path)?, false)

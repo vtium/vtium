@@ -3411,16 +3411,21 @@ fn a_helper_that_dies_leaves_the_built_in_font_with_one_log_line() {
             .first()
             .is_some_and(|l| l.starts_with("AB"))
     }));
+    // given up after its starts again, however long a loaded machine
+    // takes to start a shell four times; then no second line
+    let given = |l: &String| l.starts_with("the font's glyphs are not generated");
+    let mut lines = Vec::new();
+    h.until(Duration::from_secs(10), |_| {
+        lines.extend(logged());
+        lines.iter().any(given)
+    });
     h.until(Duration::from_millis(300), |_| false);
+    lines.extend(logged());
     assert!(
         h.until_memory(Duration::from_secs(10), |m| !solid(&top_cell(m, 0))),
         "A is the built-in font's"
     );
-    let lines = logged();
-    let given_up: Vec<&String> = lines
-        .iter()
-        .filter(|l| l.starts_with("the font's glyphs are not generated"))
-        .collect();
+    let given_up: Vec<&String> = lines.iter().filter(|l| given(l)).collect();
     assert_eq!(given_up.len(), 1, "{lines:?}");
     assert!(given_up[0].contains("signal 11"), "{given_up:?}");
     let _ = std::fs::remove_dir_all(&fonts.frits);
