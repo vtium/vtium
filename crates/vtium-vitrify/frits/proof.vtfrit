@@ -7,9 +7,17 @@
 # provenance names each outline font's own licence string:
 # - JetBrains Mono: SIL OFL 1.1.
 # - Symbols Nerd Font Mono: MIT for the patcher, each icon set under its
-#   own (Font Awesome and Codicons CC-BY-4.0, which asks for attribution,
-#   Material Design Icons Apache-2.0, the rest MIT or OFL-1.1). The set
-#   names its sources, which carries that attribution.
+#   own, as Nerd Fonts' license audit lists them. Font Logos (U+F300-U+F385)
+#   carries no licence grant and is left out.
+#
+# Attribution, which CC-BY-4.0 asks of the sets this frit takes; the set
+# carries this frit in its provenance, and with it these lines:
+# - Font Awesome by Fonticons, Inc. (https://fontawesome.com), icons under
+#   CC-BY-4.0, through Nerd Fonts (U+ED00-U+F2FF).
+# - Codicons by Microsoft Corporation (https://github.com/microsoft/vscode-codicons),
+#   CC-BY-4.0, through Nerd Fonts (U+EA60-U+EC84).
+# - Material Design Icons by Pictogrammers (https://pictogrammers.com),
+#   Apache-2.0, through Nerd Fonts (U+F0001-U+F1AF0).
 # - Noto Color Emoji: SIL OFL 1.1.
 
 name=proof
@@ -22,10 +30,11 @@ source=font:JetBrains Mono
 package=ttf-jetbrains-mono
 
 # Nerd Fonts' symbols, one cell wide: their private-use ranges, the Basic
-# Multilingual Plane's and Material Design's.
+# Multilingual Plane's around Font Logos, and Material Design's.
 source=font:Symbols Nerd Font Mono
 package=ttf-nerd-fonts-symbols-mono
-cover=U+E000-U+F8FF
+cover=U+E000-U+F2FF
+cover=U+F386-U+F8FF
 cover=U+F0001-U+F1AF0
 
 # Every emoji Noto Color Emoji maps, two cells wide. Written against

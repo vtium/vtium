@@ -12,7 +12,7 @@
 # - unscii-8: public domain (Unscii by Viznut), built into vtium.
 # - Symbols Nerd Font Mono (Nerd Fonts' symbols-only font): MIT for the
 #   patcher; each icon set under its own licence, listed at each range.
-#   Font Logos (U+F300-U+F381) carries no licence grant and is left out.
+#   Font Logos (U+F300-U+F385) carries no licence grant and is left out.
 #   Font Awesome and Codicons are CC-BY-4.0 and Material Design Icons
 #   Apache-2.0: not needed at minspec, so left out here, not refused.
 # - Noto Color Emoji: SIL OFL 1.1, redistributable in a derived set.
@@ -22,13 +22,20 @@ name=minspec-8
 license=OFL-1.1 AND MIT
 
 # Text: unscii-8 first, sets the 8x8 cell. It holds 1-bit emoji and
-# symbols of its own; the color and Nerd Fonts ranges below are kept
-# out of it here so they draw in color, and it fills what they lack last.
+# symbols of its own; the Misc Symbols, Dingbats and emoji blocks and each
+# codepoint the color and Nerd Fonts sources below take are kept out of
+# it here, so those draw from them, and it fills what they lack last.
 source=builtin:unscii-8
-cover=U+0000-U+25FF        # text, box drawing, blocks, shapes
-cover=U+27C0-U+E09F        # math, arrows, CJK, Hangul, up to the Powerline range
+cover=U+0000-U+23F2        # text, punctuation, symbols, up to the hourglass
+cover=U+23F4-U+23FA        # up to the IEC power symbols
+cover=U+23FF-U+25FF        # box drawing, blocks, shapes
+cover=U+27C0-U+2B4F        # math and arrows, up to the star
+cover=U+2B51-U+2B57        # up to the IEC power symbol at U+2B58
+cover=U+2B59-U+E09F        # CJK, Hangul, up to the Powerline range
 cover=U+E0D8-U+E5F9        # the private use the symbols below leave free
-cover=U+F8FF-U+1F2FF       # presentation forms, ancient scripts, enclosed alphanumerics
+cover=U+E6BC-U+E6FF
+cover=U+E959-U+F3FF
+cover=U+F534-U+1F2FF       # presentation forms, ancient scripts, enclosed alphanumerics
 cover=U+1FB00-U+10FFFF     # Symbols for Legacy Computing and beyond
 
 # Nerd Fonts' symbols, one cell wide (the Mono build), for prompts and
@@ -43,8 +50,8 @@ cover=U+E0A3               # Powerline Extra (MIT): column number
 cover=U+E0B4-U+E0C8        # Powerline Extra (MIT): round, slant, flame separators
 cover=U+E0CA               # Powerline Extra (MIT)
 cover=U+E0CC-U+E0D7        # Powerline Extra (MIT): pixel, hexagon, lego separators
-cover=U+E5FA-U+E6B7        # Seti-UI (MIT): file type icons eza, lsd and yazi draw
-cover=U+E700-U+E8EF        # Devicons (MIT): language and tool logos
+cover=U+E5FA-U+E6BB        # Seti-UI (MIT): file type icons eza, lsd and yazi draw
+cover=U+E700-U+E958        # Devicons (MIT): language and tool logos
 cover=U+F400-U+F533        # Octicons (MIT): git status in prompts
 cover=U+23FB-U+23FE        # IEC Power Symbols (MIT)
 cover=U+2B58               # IEC Power Symbols (MIT)

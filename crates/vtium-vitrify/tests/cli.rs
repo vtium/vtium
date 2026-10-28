@@ -1168,3 +1168,107 @@ fn an_outline_font_first_needs_its_sizes_and_a_missing_one_is_left_out() {
         ["font:Noto Color Emoji"]
     );
 }
+
+/// Each shipped minspec frit, built here from stand-ins of the fonts it
+/// names: the outline fixture as `Noto Color Emoji`, its color square at
+/// U+23F3, U+2B50 and U+1F600, and as `Symbols Nerd Font Mono`, its bar
+/// at U+23FB, U+2B58 and U+E0B0. Each of those codepoints draws from the
+/// font the frit takes it from, not from the bitmap text font first.
+#[test]
+fn the_minspec_frits_take_each_chosen_symbol_from_its_font() {
+    for (frit, height) in [("minspec-16", 16), ("minspec-8", 8)] {
+        let w = World::new(&format!("shipped-{frit}"));
+        fs::create_dir_all(w.path("fonts")).unwrap();
+        let mut emoji = ttf::test_mono();
+        emoji.family = "Noto Color Emoji".to_owned();
+        emoji.cmap = vec![(0x23f3, 5), (0x2b50, 5), (0x1f600, 5)];
+        fs::write(w.path("fonts/NotoColorEmoji.ttf"), emoji.build()).unwrap();
+        let mut nerd = ttf::test_mono();
+        nerd.family = "Symbols Nerd Font Mono".to_owned();
+        nerd.cmap = vec![(0x23fb, 2), (0x2b58, 2), (0xe0b0, 2)];
+        nerd.colr.clear();
+        fs::write(
+            w.path("fonts/SymbolsNerdFontMono-Regular.ttf"),
+            nerd.build(),
+        )
+        .unwrap();
+        let path = format!("{}/frits/{frit}.vtfrit", env!("CARGO_MANIFEST_DIR"));
+        let out = w.path("out/set.vtglass");
+        let fonts = w.path("fonts");
+        let o = w.run(&[
+            "--font-dir",
+            fonts.to_str().unwrap(),
+            "create",
+            "--out",
+            out.to_str().unwrap(),
+            &path,
+        ]);
+        assert_eq!(status(&o), 0, "{frit}: {}{}", stdout(&o), stderr(&o));
+        let set = Arc::new(Set::from_bytes(fs::read(&out).unwrap()).unwrap());
+        let face = SetFace::new(set, height).expect("a face");
+        for c in ['\u{23f3}', '\u{2b50}', '\u{1f600}'] {
+            let g = face.draw_unscaled(&[c], Style::default()).expect("drawn");
+            assert_eq!(g.format(), vtium_font::Format::Rgba, "{frit} {c:?}");
+        }
+        for c in ['\u{23fb}', '\u{2b58}', '\u{e0b0}'] {
+            let g = face.draw_unscaled(&[c], Style::default()).expect("drawn");
+            // the bar's edges are partly covered: an outline, not a bitmap
+            assert!(
+                g.pixels().iter().any(|&p| p > 0 && p < 255),
+                "{frit} {c:?} is not the Nerd Font's"
+            );
+        }
+    }
+}
+
+/// The shipped proof frit, built from stand-ins of its three fonts, takes
+/// Nerd Fonts' private-use symbols but not Font Logos (U+F300-U+F385),
+/// which carries no licence grant.
+#[test]
+fn the_proof_frit_leaves_font_logos_out() {
+    let w = World::new("shipped-proof");
+    fs::create_dir_all(w.path("fonts")).unwrap();
+    let mut text = ttf::test_mono();
+    text.family = "JetBrains Mono".to_owned();
+    text.colr.clear();
+    fs::write(w.path("fonts/JetBrainsMono-Regular.ttf"), text.build()).unwrap();
+    let mut nerd = ttf::test_mono();
+    nerd.family = "Symbols Nerd Font Mono".to_owned();
+    nerd.cmap = vec![
+        (0xe0b0, 2),
+        (0xf2ff, 2),
+        (0xf300, 2),
+        (0xf385, 2),
+        (0xf386, 2),
+    ];
+    nerd.colr.clear();
+    fs::write(
+        w.path("fonts/SymbolsNerdFontMono-Regular.ttf"),
+        nerd.build(),
+    )
+    .unwrap();
+    let path = format!("{}/frits/proof.vtfrit", env!("CARGO_MANIFEST_DIR"));
+    let out = w.path("out/proof.vtglass");
+    let fonts = w.path("fonts");
+    let o = w.run(&[
+        "--font-dir",
+        fonts.to_str().unwrap(),
+        "create",
+        "--out",
+        out.to_str().unwrap(),
+        &path,
+    ]);
+    assert_eq!(status(&o), 0, "{}{}", stdout(&o), stderr(&o));
+    let set = Arc::new(Set::from_bytes(fs::read(&out).unwrap()).unwrap());
+    let face = SetFace::new(set, 16).expect("a face");
+    for (c, held) in [
+        (0xe0b0, true),
+        (0xf2ff, true),
+        (0xf300, false),
+        (0xf385, false),
+        (0xf386, true),
+    ] {
+        let c = char::from_u32(c).unwrap();
+        assert_eq!(face.has_glyph(c), held, "{c:?}");
+    }
+}
