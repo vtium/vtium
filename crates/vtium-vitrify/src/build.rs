@@ -359,7 +359,7 @@ pub fn assemble(
     let mut coverage = None;
     for (i, &(cell, baseline)) in cells(frit, &main.parsed)?.iter().enumerate() {
         let mut strikes = Strikes::new(cell, baseline, frit.compress);
-        for part in parts {
+        for (j, part) in parts.iter().enumerate() {
             match &part.parsed {
                 Parsed::Bitmap(font) => fill(&mut strikes, font, part.source, cell, baseline),
                 Parsed::Outline(o) => {
@@ -368,6 +368,18 @@ pub fn assemble(
                     }
                 }
             }
+            // The sprite policy is the first font's: the sprites win over
+            // a fill font's glyphs, so a set draws a range from its glyphs
+            // only where its first font covers the range whole (the
+            // operator's decision, 2026-10-28).
+            if j == 0 {
+                let mapped = &strikes.mapped;
+                coverage.get_or_insert_with(|| {
+                    Coverage::new(|range: Range| {
+                        RangeCoverage::count(range, |c| mapped.contains(&u32::from(c)))
+                    })
+                });
+            }
         }
         if strikes.mapped.is_empty() {
             return Err(format!(
@@ -375,12 +387,6 @@ pub fn assemble(
                 cell.width, cell.height
             ));
         }
-        let mapped = &strikes.mapped;
-        coverage.get_or_insert_with(|| {
-            Coverage::new(|range: Range| {
-                RangeCoverage::count(range, |c| mapped.contains(&u32::from(c)))
-            })
-        });
         for strike in [strikes.bits, strikes.r8, strikes.rgba] {
             if !strike.is_empty() {
                 set = set.strike(strike);
@@ -501,6 +507,64 @@ fn fill(strikes: &mut Strikes, font: &Font, source: &Source, cell: Cell, baselin
 )]
 mod tests {
     use super::*;
+
+    // The operator's decision (2026-10-28): the sprites win over a fill
+    // font's glyphs, so a set whose first font lacks box drawing, blocks,
+    // shades and Braille draws those ranges as sprites with a built-in
+    // after it, as it does alone.
+    #[test]
+    fn a_fills_glyphs_leave_the_sprite_policy_the_first_fonts() {
+        use crate::sources::{Input, Resolved};
+        use vtium_font::sprite::Range;
+        // an 8x8 font holding `A` alone
+        let main = Font::from_glyphs(Glyphs {
+            width: 8,
+            height: 8,
+            count: 1,
+            bits: vec![0xff; 8],
+            map: vec![(0x41, 0)],
+            format: "psf2".into(),
+        });
+        let unscii = Font::from_builtin("unscii-8").expect("unscii-8");
+        let policy = |text: &[u8], fonts: Vec<Font>| {
+            let frit = Frit::parse(text, std::path::Path::new("/t.vtfrit"), "t").unwrap();
+            let resolved: Vec<Resolved> = fonts
+                .iter()
+                .map(|f| Resolved {
+                    input: Input::Builtin(f.clone()),
+                    sha256: f.digest(),
+                    unimap_sha256: None,
+                    def_uni_sha256: None,
+                })
+                .collect();
+            let parts: Vec<Part<'_>> = frit
+                .sources
+                .iter()
+                .zip(&resolved)
+                .zip(fonts)
+                .map(|((source, resolved), f)| Part {
+                    source,
+                    resolved,
+                    parsed: Parsed::Bitmap(f),
+                })
+                .collect();
+            let bytes = assemble(&frit, &parts, &[], &[0; 32]).unwrap();
+            vtium_font::set::Set::from_bytes(bytes).unwrap().policy()
+        };
+        let alone = policy(b"source=file:/a.psf\n", vec![main.clone()]);
+        let filled = policy(
+            b"source=file:/a.psf\nsource=builtin:unscii-8\n",
+            vec![main, unscii],
+        );
+        assert_eq!(filled, alone);
+        for range in [Range::BoxDrawing, Range::BlockElements, Range::Braille] {
+            assert_eq!(
+                filled.source(range),
+                vtium_font::Source::Sprites,
+                "{range:?}"
+            );
+        }
+    }
 
     #[test]
     fn a_smaller_glyph_is_scaled_onto_the_baseline_and_centred() {

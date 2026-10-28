@@ -42,5 +42,7 @@ swash = "=0.2.10"
 rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "process", "pty", "termios", "thread"] }
 # The console's terminal, answering `set` in its test.
 vtium-term.workspace = true
+# The tests read gzipped fonts back with the PSF loader.
+vtium-font = { workspace = true, features = ["psf", "gzip"] }
 # The xz encoder, for the tests' fixtures only.
 lzma-rust2 = { version = "=0.24.0", default-features = false, features = ["std", "xz", "encoder"] }
