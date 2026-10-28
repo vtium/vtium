@@ -5,16 +5,16 @@
 //! itself (the operator's decision, 2026-10-28), but for a color glyph,
 //! which takes [`Fallback`]'s bitmap there too.
 //!
-//! The mapping: polarity follows the default background (the operator's
-//! decision, 2026-10-28). A dark one, its luma under the kernel's cut of
-//! 128, leaves the screen unlit; a light one lights it, so a light theme
-//! draws dark text on a lit screen. A cell whose background differs from
-//! the default flips from the screen's state; a color drawn on the cell,
-//! its foreground or a decoration's, is the background's opposite, and the
-//! background's own state where it equals the background, so a foreground
-//! equal to its background stays invisible as it is on a color display.
-//! Colors compare by value: a cell set to the default background's color
-//! takes the screen's state like the default.
+//! The mapping: a cell's background is lit where it is light, its BT.601
+//! luma at least the kernel's cut of 128, and unlit where it is dark (the
+//! operator's decisions, 2026-10-28). The default background sets the
+//! screen and the border, so a light theme draws dark text on a lit
+//! screen; a background on the default's side draws like the default, and
+//! one on the other side flips. A color drawn on the cell, its foreground
+//! or a decoration's, is the background's opposite, even where both fall on
+//! one side, and the background's own state only where it equals the
+//! background, so a foreground equal to its background stays invisible as
+//! it is on a color display.
 //!
 //! Composed from black and white alone, a pixel is a gray whose level is
 //! its coverage, the glyph's or the sprite's; [`Threshold`] lights it at
@@ -72,13 +72,22 @@ pub(crate) struct Ink {
 }
 
 impl Ink {
-    /// The colors of a cell on background `bg`, the palette's default
-    /// background being `default_bg`.
-    pub(crate) fn new(depth: Depth, bg: Rgb, default_bg: Rgb) -> Ink {
+    /// The colors of a cell on background `bg`, lit where `bg` is light.
+    pub(crate) fn new(depth: Depth, bg: Rgb) -> Ink {
         Ink {
             mapped: depth.one_bit(),
             bg,
-            bg_lit: (bg != default_bg) != light(default_bg),
+            bg_lit: light(bg),
+        }
+    }
+
+    /// The colors of a cell on background `bg` whose lit state vtium sets,
+    /// as [`marked`] gives it.
+    pub(crate) fn with_state(depth: Depth, bg: Rgb, lit: bool) -> Ink {
+        Ink {
+            mapped: depth.one_bit(),
+            bg,
+            bg_lit: lit,
         }
     }
 
@@ -109,9 +118,27 @@ pub(crate) fn border(depth: Depth, bg: Rgb) -> Rgb {
     if depth.one_bit() { ink(light(bg)) } else { bg }
 }
 
-/// Whether the default background `c` is light: its BT.601 luma at least
-/// 128, the cut the kernel lights a mono panel's pixel at, so the screen
-/// takes the state the panel would give the color.
+/// Whether a cell of background `bg` and foreground `fg`, after reverse
+/// video, draws its background lit at 1 bit (the operator's decision,
+/// 2026-10-28): by its background's luma, and for reverse video (SGR 7)
+/// the opposite of what it draws unreversed, whose background is `fg`, so
+/// a reversed cell always differs from the same cell unreversed. The
+/// renderer inverts this again for the selection and a block cursor,
+/// which vtium draws to mark state whatever their colors.
+pub(crate) fn marked(bg: Rgb, fg: Rgb, inverse: bool) -> bool {
+    if inverse { !light(fg) } else { light(bg) }
+}
+
+/// A color that shows on background `bg` at 1 bit, whatever `bg` is: its
+/// complement, which differs from it, so a line cursor's ink is never its
+/// cell's background.
+pub(crate) fn ink_on(bg: Rgb) -> Rgb {
+    Rgb::new(!bg.r, !bg.g, !bg.b)
+}
+
+/// Whether the background `c` is light: its BT.601 luma at least 128, the
+/// cut the kernel lights a mono panel's pixel at, so a cell takes the state
+/// the panel would give its color.
 fn light(c: Rgb) -> bool {
     lit(pixel(c))
 }
@@ -254,54 +281,60 @@ mod tests {
     const GREY: Rgb = Rgb::new(200, 200, 200);
     const BLUE: Rgb = Rgb::new(0, 0, 238);
 
-    // vtium/vtium#135: the default background is off; text on it is on,
-    // whatever its brightness, pure red's 30% included
+    // vtium/vtium#135: a dark background is unlit and its text lit,
+    // whatever the text's brightness, pure red's 30% and blue's included
     #[test]
-    fn text_on_the_default_background_is_lit() {
-        let ink = Ink::new(Depth::One, BLACK, BLACK);
+    fn text_on_a_dark_background_is_lit() {
+        let ink = Ink::new(Depth::One, BLACK);
         assert_eq!(ink.bg(), UNLIT);
         for fg in [GREY, RED, BLUE, Rgb::new(1, 1, 1)] {
             assert_eq!(ink.fg(fg), LIT, "{fg:?}");
         }
     }
 
-    // a background other than the default, reverse video and the
-    // selection included, is lit with its glyph unlit
+    // the operator's decision (2026-10-28): a background is lit by the
+    // same cut as the default, luma 128 and above, and its text is the
+    // opposite, even where both fall on one side
     #[test]
-    fn a_cell_off_the_default_background_is_lit_with_its_glyph_unlit() {
-        for (fg, bg) in [(BLACK, GREY), (GREY, BLUE), (BLUE, RED), (RED, LIT)] {
-            let ink = Ink::new(Depth::One, bg, BLACK);
-            assert_eq!((ink.fg(fg), ink.bg()), (UNLIT, LIT), "{fg:?} on {bg:?}");
+    fn a_background_is_lit_by_its_luma_and_its_text_is_the_opposite() {
+        for (fg, bg, lit) in [
+            (BLACK, GREY, true),
+            (BLACK, LIT, true),
+            (GREY, LIT, true),
+            (GREY, BLUE, false),
+            (BLUE, RED, false),
+            (Rgb::new(0, 0, 64), BLUE, false),
+        ] {
+            let ink = Ink::new(Depth::One, bg);
+            assert_eq!(
+                (ink.fg(fg), ink.bg()),
+                (ink_of(!lit), ink_of(lit)),
+                "{fg:?} on {bg:?}"
+            );
         }
+        // luma 128 is light, 127 dark
+        let (l, d) = (Rgb::new(128, 128, 128), Rgb::new(127, 127, 127));
+        assert_eq!(Ink::new(Depth::One, l).bg(), LIT);
+        assert_eq!(Ink::new(Depth::One, d).bg(), UNLIT);
+        assert_eq!(border(Depth::One, l), LIT);
+        assert_eq!(border(Depth::One, d), UNLIT);
+    }
+
+    fn ink_of(lit: bool) -> Rgb {
+        if lit { LIT } else { UNLIT }
     }
 
     #[test]
     fn a_foreground_equal_to_its_background_stays_invisible() {
-        for bg in [BLACK, RED] {
-            let ink = Ink::new(Depth::One, bg, BLACK);
+        for bg in [BLACK, RED, GREY, LIT] {
+            let ink = Ink::new(Depth::One, bg);
             assert_eq!(ink.fg(bg), ink.bg(), "{bg:?}");
         }
     }
 
-    // a light default background lights the screen and leaves its text
-    // unlit; a colored cell flips from the screen; the cut is luma 128
-    #[test]
-    fn a_light_default_background_lights_the_screen() {
-        let ink = Ink::new(Depth::One, LIT, LIT);
-        assert_eq!((ink.fg(BLACK), ink.bg()), (UNLIT, LIT));
-        assert_eq!(border(Depth::One, LIT), LIT);
-        let ink = Ink::new(Depth::One, BLUE, LIT);
-        assert_eq!((ink.fg(LIT), ink.bg()), (LIT, UNLIT));
-        // luma 128 is light, 127 dark
-        let (l, d) = (Rgb::new(128, 128, 128), Rgb::new(127, 127, 127));
-        assert_eq!(border(Depth::One, l), LIT);
-        assert_eq!(border(Depth::One, d), UNLIT);
-        assert_eq!(Ink::new(Depth::One, d, d).bg(), UNLIT);
-    }
-
     #[test]
     fn color_maps_nothing() {
-        let ink = Ink::new(Depth::Color, BLUE, BLACK);
+        let ink = Ink::new(Depth::Color, BLUE);
         assert_eq!((ink.fg(RED), ink.bg()), (RED, BLUE));
         assert_eq!(border(Depth::Color, GREY), GREY);
         let partial = TextBlink {
@@ -372,7 +405,7 @@ mod tests {
     // color, and converts the frame itself
     #[test]
     fn a_gray_display_draws_as_color() {
-        let ink = Ink::new(Depth::Gray(16), BLUE, BLACK);
+        let ink = Ink::new(Depth::Gray(16), BLUE);
         assert_eq!((ink.fg(RED), ink.bg()), (RED, BLUE));
         assert_eq!(border(Depth::Gray(4), GREY), GREY);
         let partial = TextBlink {
