@@ -1,10 +1,15 @@
 //! The font: which set vtium draws, its faces at each height, its zoom
 //! steps and the automatic size, with the lookup's fallback.
 //!
-//! The font is a vitrified set (ADR-1200). At start the configured font
-//! names one, which is loaded from the root-owned store after the store's
-//! check, or vtium draws its built-in sets and logs the command that
-//! would build the missing one ([`wanted`], [`load`], D9). The built-ins
+//! A configured font that names a frit (`NAME.vtfrit` in the frits'
+//! directory) is generated at run time (ADR-1201 D1): the built-in font
+//! for the cell size draws at once, and the helper's glyphs replace it,
+//! character by character, as they arrive ([`Chosen::Frit`],
+//! [`crate::deferred`], [`crate::helper`]). Any other configured font
+//! names a vitrified set (ADR-1200), which is loaded from the root-owned
+//! store after the store's check, or vtium draws its built-in sets and
+//! logs the command that would build the missing one ([`wanted`],
+//! [`load`], D9). The built-ins
 //! are Unscii-8 for cells under 16 pixels and unifont from 16, but in a
 //! zh, ja or ko locale, which Unscii-8 does not cover (D7). OSC 50
 //! switches among the built sets while vtium runs (D5).
@@ -17,6 +22,7 @@
 //! aaronsb/kmscon#63).
 
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use vtium_font::set::{Set, SetFace, Store, builtin, builtin_name};
@@ -29,6 +35,8 @@ use crate::config::keys::{
     MISSING,
 };
 use crate::config::{Config, Origin};
+use crate::deferred::{DeferredFace, Shared};
+use crate::helper;
 use crate::layout::Zoom;
 
 /// Each sprite range and the key that sets its source alone.
@@ -117,23 +125,49 @@ pub fn default_store() -> PathBuf {
     PathBuf::from(option_env!("VTIUM_FONT_STORE").unwrap_or("/var/lib/vtium/fonts"))
 }
 
-/// Where vtium finds sets: the store and the owner its check expects,
-/// and the files that name the font when the configuration does not.
+/// The frits' directory, set at build time with `VTIUM_FONT_FRITS` as
+/// vtium-vitrify's is.
+pub fn default_frits() -> PathBuf {
+    PathBuf::from(option_env!("VTIUM_FONT_FRITS").unwrap_or("/etc/vtium/fonts"))
+}
+
+/// The frit `name` names in `frits`: `NAME.vtfrit`, a regular file, for a
+/// name of 1 to 64 characters of `A-Z a-z 0-9 . _ + -` not starting with
+/// `.` (ADR-1200 D1), so no name reaches outside the directory.
+pub fn frit(frits: &Path, name: &str) -> Option<PathBuf> {
+    let valid = (1..=64).contains(&name.len())
+        && !name.starts_with('.')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'));
+    let path = frits.join(format!("{name}.vtfrit"));
+    (valid && std::fs::metadata(&path).is_ok_and(|m| m.is_file())).then_some(path)
+}
+
+/// Where vtium finds sets and frits: the store and the owner its check
+/// expects, the frits' directory, the helper that generates a frit's
+/// glyphs, and the files that name the font when the configuration does
+/// not.
 #[derive(Clone, Debug)]
 pub struct Sources {
     pub store: PathBuf,
     pub uid: u32,
+    pub frits: PathBuf,
+    /// The helper; `None` for the system's, [`helper::Command::system`].
+    pub helper: Option<helper::Command>,
     pub vconsole_conf: PathBuf,
     pub kernel_cmdline: PathBuf,
 }
 
 impl Default for Sources {
-    /// The system's: the store owned by root, `/etc/vconsole.conf` and
-    /// `/proc/cmdline`.
+    /// The system's: the store owned by root, the frits' directory, the
+    /// installed helper, `/etc/vconsole.conf` and `/proc/cmdline`.
     fn default() -> Sources {
         Sources {
             store: default_store(),
             uid: 0,
+            frits: default_frits(),
+            helper: None,
             vconsole_conf: PathBuf::from("/etc/vconsole.conf"),
             kernel_cmdline: PathBuf::from("/proc/cmdline"),
         }
@@ -315,6 +349,14 @@ pub enum Chosen {
     Builtin(Option<&'static str>),
     /// A set from the store.
     Set { name: String, set: Arc<Set> },
+    /// A frit, generated at run time (ADR-1201 D1): drawn as
+    /// `Builtin(None)` is, each character the helper has sent drawn from
+    /// `generated` in its place.
+    Frit {
+        name: String,
+        path: PathBuf,
+        generated: Shared,
+    },
 }
 
 /// Heights `step` and its whole multiples, from `min` and under `end`.
@@ -330,7 +372,7 @@ impl Chosen {
     fn builtin_at(&self, height: u32, locale: &str) -> Option<&'static str> {
         match self {
             Chosen::Builtin(Some(name)) => Some(name),
-            Chosen::Builtin(None) => Some(builtin_name(height, locale)),
+            Chosen::Builtin(None) | Chosen::Frit { .. } => Some(builtin_name(height, locale)),
             Chosen::Set { .. } => None,
         }
     }
@@ -339,7 +381,7 @@ impl Chosen {
     /// and OSC 50 spell it.
     pub fn name(&self, height: u32, locale: &str) -> &str {
         match self {
-            Chosen::Set { name, .. } => name,
+            Chosen::Set { name, .. } | Chosen::Frit { name, .. } => name,
             _ => self.builtin_at(height, locale).unwrap_or("unifont"),
         }
     }
@@ -349,11 +391,15 @@ impl Chosen {
     /// largest whole factor that fits (ADR-1200 D9). The built-in unifont
     /// draws through its own face.
     pub fn face(&self, height: u32, locale: &str) -> Option<Box<dyn Face>> {
+        if let Chosen::Frit { generated, .. } = self {
+            let builtin = Chosen::Builtin(None).face(height, locale)?;
+            return Some(Box::new(DeferredFace::new(builtin, Rc::clone(generated))));
+        }
         let set = match (self, self.builtin_at(height, locale)) {
             (_, Some("unifont")) => return Some(Box::new(Unifont::new(height))),
             (_, Some(name)) => builtin(name)?,
             (Chosen::Set { set, .. }, None) => set.clone(),
-            (Chosen::Builtin(_), None) => return None,
+            (Chosen::Builtin(_) | Chosen::Frit { .. }, None) => return None,
         };
         SetFace::new(set, height).map(|f| Box::new(f) as Box<dyn Face>)
     }
@@ -371,15 +417,19 @@ impl Chosen {
             Chosen::Set { set, .. } => set.cells().iter().map(|c| all(c.height)).collect(),
             Chosen::Builtin(Some("unscii-8")) => vec![all(8)],
             Chosen::Builtin(Some(_)) => vec![all(16)],
-            Chosen::Builtin(None) if builtin_name(8, locale) == "unscii-8" => vec![
-                Rung {
-                    step: 8,
-                    min: 8,
-                    end: 16,
-                },
-                all(16),
-            ],
-            Chosen::Builtin(None) => vec![all(16)],
+            Chosen::Builtin(None) | Chosen::Frit { .. }
+                if builtin_name(8, locale) == "unscii-8" =>
+            {
+                vec![
+                    Rung {
+                        step: 8,
+                        min: 8,
+                        end: 16,
+                    },
+                    all(16),
+                ]
+            }
+            Chosen::Builtin(None) | Chosen::Frit { .. } => vec![all(16)],
         }
     }
 

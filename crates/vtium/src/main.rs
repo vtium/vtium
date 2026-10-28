@@ -21,6 +21,7 @@ use vtium::term::Clock;
 use vtium_platform::event_loop::{Loop, Signal};
 use vtium_platform::input::locale;
 use vtium_platform::udev::Udev;
+use vtium_platform::vt::font::{ConsoleFont, ConsoleTty};
 use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty};
 
 fn help() -> String {
@@ -94,7 +95,12 @@ fn main() -> ExitCode {
         Some(path) => run_kernel(config, start, &path),
         None => {
             log::info!(target: "vt", "no VTs: using a fake VT");
-            run(config, start, Box::new(|_| Ok(Box::new(FakeVt::new()))))
+            run(
+                config,
+                start,
+                None,
+                Box::new(|_| Ok(Box::new(FakeVt::new()))),
+            )
         }
     };
     match status {
@@ -107,10 +113,12 @@ fn main() -> ExitCode {
 }
 
 fn run_kernel(config: config::Config, start: Start, path: &Path) -> io::Result<i32> {
+    let console = kernel_font(&config, path);
     let path = path.to_owned();
     run(
         config,
         start,
+        console,
         // The VT opens once the loop blocks its signals: `vtium blank`
         // finds a vtium by its open VT, and its signal at the default
         // disposition would end vtium.
@@ -124,12 +132,36 @@ fn run_kernel(config: config::Config, start: Start, path: &Path) -> io::Result<i
     )
 }
 
+/// The kernel's font on the VT at `path`, read once at start while the
+/// VT is still in text mode, when `font-name` names a frit: the frit's
+/// `console:` source draws from it (ADR-1201 D7). A VT already in graphics
+/// mode, as when vtium starts again on it, gives none, logged at debug.
+fn kernel_font(config: &config::Config, path: &Path) -> Option<ConsoleFont> {
+    let name = config.text(&keys::FONT_NAME)?;
+    vtium::font::frit(&vtium::font::default_frits(), name)?;
+    let read = ConsoleTty::open(path)
+        .map_err(|e| e.to_string())
+        .and_then(|tty| vtium_platform::vt::font::read(&tty).map_err(|e| e.to_string()));
+    match read {
+        Ok(font) => Some(font),
+        Err(e) => {
+            log::debug!("the kernel's font is not read from {}: {e}", path.display());
+            None
+        }
+    }
+}
+
 /// How the seat's VT is opened, in the loop it runs in.
 type Open = Box<dyn FnOnce(&mut Loop<App>) -> io::Result<Box<dyn SeatVt>>>;
 
 /// Runs the seat on the VT `open` gives, until it ends; returns the exit
 /// status. It is compiled once, whichever VT it runs on.
-fn run(config: config::Config, start: Start, open: Open) -> io::Result<i32> {
+fn run(
+    config: config::Config,
+    start: Start,
+    console: Option<ConsoleFont>,
+    open: Open,
+) -> io::Result<i32> {
     let mut lp: Loop<App> = Loop::new()?;
     for signal in [Signal::SIGTERM, Signal::SIGINT] {
         lp.on_signal(signal, |app: &mut App| app.request_exit(Exit::Signal))?;
@@ -146,6 +178,9 @@ fn run(config: config::Config, start: Start, open: Open) -> io::Result<i32> {
         clock.clone(),
         std::env::vars_os().collect(),
     );
+    if let Some(font) = console {
+        app.set_console_font(font);
+    }
 
     match start.input() {
         Some(mut input) => {

@@ -73,6 +73,7 @@ use crate::config::keys;
 use crate::config::{Config, ModeSpec};
 use crate::font::{self, Chosen};
 use crate::grab::{self, Chord, Grab};
+use crate::helper::{self, Answer, Helper};
 use crate::layout::{self, Zoom};
 use crate::power::{self, Power, PowerKey};
 use crate::respawn::{self, Next, Respawn};
@@ -238,6 +239,16 @@ pub struct App {
     refont: bool,
     /// OSC 50's refusals since its last switch: only the first is logged.
     font_refused: u64,
+    /// The helper that generates a frit's glyphs, started on the first
+    /// need (ADR-1201 D1).
+    helper: Option<Helper>,
+    /// The helper cannot start: logged once, and the built-in font draws.
+    helper_refused: bool,
+    /// The cells whose glyphs the helper was asked for.
+    asked: Vec<vtium_font::Cell>,
+    /// The kernel's font, read from the VT at start for a frit's
+    /// `console:` source (ADR-1201 D7).
+    console_font: Option<vtium_platform::vt::font::ConsoleFont>,
     /// The locale, which keeps the built-in Unscii-8 from a zh, ja or ko
     /// locale (ADR-1200 D7).
     locale: String,
@@ -365,6 +376,10 @@ impl App {
             font_sources: font::Sources::default(),
             refont: false,
             font_refused: 0,
+            helper: None,
+            helper_refused: false,
+            asked: Vec::new(),
+            console_font: None,
             locale: locale(&inherited),
             orientation: Orientation::Normal,
             config,
@@ -405,6 +420,12 @@ impl App {
     pub fn set_font_sources(&mut self, sources: font::Sources) {
         self.font_sources = sources;
         self.font = None;
+    }
+
+    /// The kernel's font, read from the VT while it was in text mode, for
+    /// a frit's `console:` source (ADR-1201 D7).
+    pub fn set_console_font(&mut self, font: vtium_platform::vt::font::ConsoleFont) {
+        self.console_font = Some(font);
     }
 
     /// The selection buffer: what the user copied last, or a program set
@@ -533,9 +554,10 @@ impl App {
         self.pty = Some(pty);
     }
 
-    /// Chooses the font set once, at the first display (ADR-1200 D9): the
-    /// set the configuration or vconsole names, from the store, else the
-    /// built-ins, with one line naming the command that builds the set.
+    /// Chooses the font once, at the first display: a frit `font-name`
+    /// names, generated at run time (ADR-1201 D1); else the set the
+    /// configuration or vconsole names, from the store (ADR-1200 D9), else
+    /// the built-ins, with one line naming the command that builds the set.
     fn choose_font(&mut self) {
         if self.font.is_some() {
             return;
@@ -546,6 +568,21 @@ impl App {
             &font::read_text(&s.vconsole_conf),
             &font::read_text(&s.kernel_cmdline),
         );
+        let frit = wanted
+            .as_ref()
+            .filter(|w| w.came == font::Came::Config)
+            .and_then(|w| Some((w.name.clone(), font::frit(&s.frits, &w.name)?)));
+        if let Some((name, path)) = frit {
+            log::info!(
+                "the font is the frit {name}, drawn in the built-in font until its glyphs are generated"
+            );
+            self.font = Some(Chosen::Frit {
+                name,
+                path,
+                generated: crate::deferred::Shared::default(),
+            });
+            return;
+        }
         let chosen = match wanted {
             None => Chosen::Builtin(None),
             Some(w) if vtium_font::set::builtin(&w.name).is_some() => {
@@ -599,7 +636,7 @@ impl App {
     fn switch_font(&mut self, name: &str) {
         self.choose_font();
         let same = match self.chosen() {
-            Chosen::Set { name: n, .. } => n == name,
+            Chosen::Set { name: n, .. } | Chosen::Frit { name: n, .. } => n == name,
             Chosen::Builtin(Some(n)) => *n == name,
             Chosen::Builtin(None) => false,
         };
@@ -791,7 +828,149 @@ impl App {
             }
         }
         self.resize(l.grid);
+        self.ask_glyphs();
         true
+    }
+
+    /// The characters on the screen, sorted, each once.
+    fn visible_chars(&self) -> Vec<char> {
+        let mut chars: Vec<char> = self
+            .screen_text()
+            .iter()
+            .flat_map(|line| line.chars())
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        chars.sort_unstable();
+        chars.dedup();
+        chars
+    }
+
+    /// While the font is a frit, asks the helper for the glyphs of each
+    /// cell a display draws at and the helper was not asked for, the
+    /// screen's characters and ASCII first (ADR-1201 D1), and drops the
+    /// glyphs of cells no display draws at any more.
+    fn ask_glyphs(&mut self) {
+        let Some(Chosen::Frit {
+            path, generated, ..
+        }) = &self.font
+        else {
+            return;
+        };
+        let (path, generated) = (path.clone(), Rc::clone(generated));
+        let mut cells: Vec<vtium_font::Cell> = self
+            .views
+            .values()
+            .map(|v| v.renderer.font().cell())
+            .collect();
+        cells.sort_unstable_by_key(|c| (c.height, c.width));
+        cells.dedup();
+        generated.borrow_mut().retain(&cells);
+        self.asked.retain(|c| cells.contains(c));
+        let new: Vec<vtium_font::Cell> = cells
+            .into_iter()
+            .filter(|c| !self.asked.contains(c))
+            .collect();
+        if new.is_empty() {
+            return;
+        }
+        let mut first = self.visible_chars();
+        first.extend((0x21u8..0x7f).map(char::from));
+        first.sort_unstable();
+        first.dedup();
+        let console = self.console_font.clone();
+        let now = (self.clock)();
+        let Some(helper) = self.helper() else {
+            return;
+        };
+        for &cell in &new {
+            helper.request(
+                helper::Request {
+                    frit: path.clone(),
+                    cell,
+                    first: first.clone(),
+                    console: console.clone(),
+                },
+                now,
+            );
+        }
+        self.asked.extend(new);
+    }
+
+    /// The helper, started on the first need with a wake-up into the loop
+    /// for its answers; `None`, logged once, when it cannot be.
+    fn helper(&mut self) -> Option<&mut Helper> {
+        if self.helper.is_none() && !self.helper_refused {
+            let command = self
+                .font_sources
+                .helper
+                .clone()
+                .map_or_else(helper::Command::system, Ok);
+            let wake = vtium_platform::calloop::ping::make_ping()
+                .map_err(|e| format!("cannot make its wake-up: {e}"))
+                .and_then(|(ping, source)| {
+                    self.handle
+                        .insert_source(source, |(), (), _: &mut App| {})
+                        .map_err(|e| format!("cannot watch its wake-up: {e}"))?;
+                    Ok(ping)
+                });
+            match command.and_then(|c| wake.map(|w| (c, w))) {
+                Ok((command, ping)) => {
+                    let wake = std::sync::Mutex::new(ping);
+                    self.helper = Some(Helper::new(
+                        command,
+                        std::sync::Arc::new(move || {
+                            if let Ok(p) = wake.lock() {
+                                p.ping();
+                            }
+                        }),
+                    ));
+                }
+                Err(why) => {
+                    log::warn!(
+                        "the font's glyphs are not generated ({why}): vtium draws its built-in font"
+                    );
+                    self.helper_refused = true;
+                }
+            }
+        }
+        self.helper.as_mut()
+    }
+
+    /// Takes the helper's answers: each set of glyphs joins the per-boot
+    /// cache, and each display at its cell redraws the cells that show one
+    /// of them.
+    fn helper_turn(&mut self, now: Instant) {
+        let Some(helper) = &mut self.helper else {
+            return;
+        };
+        let answers = helper.poll(now);
+        if answers.is_empty() {
+            return;
+        }
+        let Some(Chosen::Frit { generated, .. }) = &self.font else {
+            return;
+        };
+        let generated = Rc::clone(generated);
+        let visible = self.visible_chars();
+        for Answer::Glyphs { cell, set } in answers {
+            if !self.asked.contains(&cell) {
+                continue;
+            }
+            let Some(face) = generated.borrow_mut().add(cell, set) else {
+                continue;
+            };
+            let changed: Vec<char> = visible
+                .iter()
+                .copied()
+                .filter(|&c| face.has_glyph(c))
+                .collect();
+            for v in self.views.values_mut() {
+                if v.renderer.font().cell() == cell {
+                    v.renderer.glyphs_changed(&changed);
+                }
+            }
+            self.draw_now |= !changed.is_empty();
+        }
     }
 
     /// The terminal and the pty at `grid`, the pointer within it.
@@ -1616,6 +1795,7 @@ impl App {
             self.outside_order(order, now);
         }
         self.timers(now);
+        self.helper_turn(now);
         if self.awake {
             self.draw(now);
         }
@@ -1778,6 +1958,7 @@ impl App {
         due.extend(self.term.sync.deadline());
         due.extend(self.blank.deadline());
         due.extend(self.views.values().filter_map(|v| v.wait.due()));
+        due.extend(self.helper.as_ref().and_then(Helper::deadline));
         if let Some(Leaving::Until(d)) = self.leaving {
             due.push(d);
         }

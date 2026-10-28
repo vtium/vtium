@@ -226,6 +226,8 @@ fn no_fonts() -> Sources {
     Sources {
         store: PathBuf::from("/nonexistent/vtium-test-store"),
         uid: 0,
+        frits: PathBuf::from("/nonexistent/vtium-test-frits"),
+        helper: None,
         vconsole_conf: PathBuf::from("/dev/null"),
         kernel_cmdline: PathBuf::from("/dev/null"),
     }
@@ -3215,6 +3217,8 @@ fn store(test: &str, sets: &[(&str, &str, Vec<u8>)], vconsole: &str) -> Sources 
     Sources {
         uid,
         store: dir,
+        frits: PathBuf::from("/nonexistent/vtium-test-frits"),
+        helper: None,
         vconsole_conf: conf,
         kernel_cmdline: PathBuf::from("/dev/null"),
     }
@@ -3483,4 +3487,138 @@ fn a_flood_of_refused_osc_50_requests_logs_one_line() {
             .any(|l| l == "OSC 50 was refused 39 more times before this switch"),
         "{lines:?}"
     );
+}
+
+/// A frit `t` in a directory of its own, and a stand-in helper that
+/// answers each request with `answer` once `go` exists, then exits as at
+/// its idle interval; the sources and the go file.
+fn frit_fonts(name: &str, answer: &[u8], script: &str) -> (Sources, PathBuf) {
+    let dir = std::env::temp_dir().join(format!("vtium-boot-frit-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the frits' directory");
+    std::fs::write(dir.join("t.vtfrit"), "source=builtin:unifont\n").expect("the frit");
+    let fixture = dir.join("answer");
+    std::fs::write(&fixture, answer).expect("the answer");
+    let go = dir.join("go");
+    let helper = vtium::helper::Command {
+        program: PathBuf::from("/bin/sh"),
+        args: ["-c", script, "helper"]
+            .into_iter()
+            .map(OsString::from)
+            .chain([fixture.into_os_string(), go.clone().into_os_string()])
+            .collect(),
+        account: None,
+    };
+    let fonts = Sources {
+        frits: dir,
+        helper: Some(helper),
+        ..no_fonts()
+    };
+    (fonts, go)
+}
+
+/// One cell's glyphs as the helper sends them: every printable ASCII
+/// character a solid block, then the request's end.
+fn solid_ascii(cell: vtium_font::Cell) -> Vec<u8> {
+    use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
+    let mut s = StrikeBuilder::new(PixelFormat::R8, cell, vtium_font::Style::default());
+    let g = s.glyph(
+        vtium_font::Width::Narrow,
+        vec![255; (cell.width * cell.height) as usize],
+    );
+    for c in (0x21u8..0x7f).map(char::from) {
+        s.map(c, g);
+    }
+    let set = SetBuilder::new("t").strike(s).write().expect("a set");
+    let mut out = 1u32.to_le_bytes().to_vec();
+    out.extend((set.len() as u32).to_le_bytes());
+    out.extend(set);
+    out.extend(2u32.to_le_bytes());
+    out.extend(0u32.to_le_bytes());
+    out
+}
+
+/// The 8x16 cell at column `col` of the top row, as the memory display's
+/// pixels: one value each.
+fn top_cell(m: &Memory, col: u32) -> Vec<u32> {
+    (0..16)
+        .flat_map(|y| (0..8).map(move |x| (col * 8 + x, y)))
+        .map(|(x, y)| {
+            let at = ((y * m.w + x) * 4) as usize;
+            m.pixels
+                .get(at..at + 4)
+                .map_or(0, |p| u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
+        })
+        .collect()
+}
+
+fn solid(cell: &[u32]) -> bool {
+    cell.iter().all(|&p| p == cell[0])
+}
+
+// ADR-1201 D1: a configured frit draws in the built-in font from the first
+// frame, with no frame waiting on the helper, and the helper's glyphs
+// replace the built-in's in the cells that show them once they arrive.
+#[test]
+fn a_frit_draws_the_built_in_font_first_and_the_helpers_glyphs_after() {
+    let cell = vtium_font::Cell {
+        width: 8,
+        height: 16,
+    };
+    let (fonts, go) = frit_fonts(
+        "swap",
+        &solid_ascii(cell),
+        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+    );
+    let mut h = with_fonts(&["--font-name=t"], fonts.clone());
+    assert_eq!(h.app.font_name(), "t");
+    h.type_str("AB");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| {
+            let a = top_cell(m, 0);
+            a.iter().any(|&p| p != a[0]) && !solid(&top_cell(m, 1))
+        }),
+        "the built-in font's AB is drawn before the helper answers"
+    );
+    let frames = h.memory().frames;
+    std::fs::write(&go, b"").expect("the go file");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| solid(&top_cell(m, 0))
+            && solid(&top_cell(m, 1))),
+        "the helper's glyphs replace A and B"
+    );
+    assert!(h.memory().frames > frames);
+    // a blank cell past the cursor stays the background
+    let m = h.memory();
+    let blank = top_cell(m, 3);
+    assert!(solid(&blank) && blank[0] != top_cell(m, 0)[0]);
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// ADR-1201 D1: a helper that dies leaves the built-in font drawing, with
+// one log line however much the screen asks after.
+#[test]
+fn a_helper_that_dies_leaves_the_built_in_font_with_one_log_line() {
+    let (fonts, _go) = frit_fonts("dies", b"", "kill -SEGV $$");
+    logged();
+    let mut h = with_fonts(&["--font-name=t"], fonts.clone());
+    h.type_str("AB");
+    assert!(h.until(Duration::from_secs(10), |app| {
+        app.screen_text()
+            .first()
+            .is_some_and(|l| l.starts_with("AB"))
+    }));
+    h.until(Duration::from_millis(300), |_| false);
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| !solid(&top_cell(m, 0))),
+        "A is the built-in font's"
+    );
+    let lines = logged();
+    let given_up: Vec<&String> = lines
+        .iter()
+        .filter(|l| l.starts_with("the font's glyphs are not generated"))
+        .collect();
+    assert_eq!(given_up.len(), 1, "{lines:?}");
+    assert!(given_up[0].contains("signal 11"), "{given_up:?}");
+    let _ = std::fs::remove_dir_all(&fonts.frits);
 }
