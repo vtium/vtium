@@ -863,19 +863,21 @@ fn the_parser_runs_without_new_privileges_and_within_its_limits() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let status_path = format!("/proc/{}/status", child.id());
-    let mut ready = false;
-    for _ in 0..1_000_000 {
-        if fs::read_to_string(&status_path).is_ok_and(|s| {
-            s.lines()
-                .any(|l| l.split_whitespace().eq(["NoNewPrivs:", "1"]))
-        }) {
-            ready = true;
+    // The parser reads its request only once every limit is set, so the
+    // limits are read when a byte of it has left the pipe.
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(&[0]).unwrap();
+    let mut read = false;
+    for _ in 0..10_000 {
+        if rustix::io::ioctl_fionread(&stdin).unwrap() == 0 {
+            read = true;
             break;
         }
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
+    let proc_status = fs::read_to_string(format!("/proc/{}/status", child.id())).unwrap();
     let limits = fs::read_to_string(format!("/proc/{}/limits", child.id())).unwrap();
-    drop(child.stdin.take());
+    drop(stdin);
     let mut err = String::new();
     child
         .stderr
@@ -885,7 +887,13 @@ fn the_parser_runs_without_new_privileges_and_within_its_limits() {
         .unwrap();
     let _ = child.stdout.take().unwrap().read_to_end(&mut Vec::new());
     assert!(!child.wait().unwrap().success());
-    assert!(ready, "NoNewPrivs never set");
+    assert!(read, "the parser never read its request");
+    assert!(
+        proc_status
+            .lines()
+            .any(|l| l.split_whitespace().eq(["NoNewPrivs:", "1"])),
+        "NoNewPrivs not set"
+    );
     let limit = |name: &str| {
         limits
             .lines()
