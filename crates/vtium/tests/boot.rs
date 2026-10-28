@@ -266,7 +266,6 @@ impl Harness {
         if let Some(video) = video {
             app.add_video(PathBuf::from("/dev/mem0"), video);
         }
-        app.insert_blank();
         app.vt.activate().expect("the fake VT");
         app.start();
         app.turn(now());
@@ -908,6 +907,68 @@ fn a_programs_timeout_blanks_past_the_pointers_hide_and_its_wake_ends_it() {
         "woken by the program at 4.3 s"
     );
     assert_eq!(h.memory().unblanks, unblanks + 1);
+}
+
+// The VT review's step on vtium/vtium#79 as it ran: `CSI 9 ; 1 ]`, the
+// pointer's hide 20 s later, the blank at the minute, and the program's
+// wake. The seat's clock skips the minute.
+// covers: ctl.linux-blank
+#[test]
+fn a_programs_minute_blanks_past_the_pointers_hide() {
+    let mut h = blank_in_two(r"printf '\033[9;1]ready'; sleep 2; printf '\033[13]'; read x");
+    assert!(
+        h.until(SECOND, |a| a
+            .screen_text()
+            .iter()
+            .any(|l| l.starts_with("ready"))),
+        "the program's minute taken"
+    );
+    h.skip(Duration::from_secs(20));
+    h.app.input_event(pointer(PointerEvent::Hide), h.at());
+    h.skip(Duration::from_secs(39));
+    h.until(Duration::from_millis(300), |_| false);
+    assert_eq!(h.memory().dpms, Some(Dpms::On), "lit at 59 s");
+    h.skip(Duration::from_secs(2));
+    assert!(h.until_memory(SECOND, OFF), "blanked at the minute");
+    let unblanks = h.memory().unblanks;
+    assert!(
+        h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::On)),
+        "woken by the program"
+    );
+    assert_eq!(h.memory().unblanks, unblanks + 1);
+}
+
+// `main`'s loop waits `next_wake` on the seat's clock: with nothing else
+// to time, that is the time left to the blank.
+#[test]
+fn the_loop_wakes_for_the_blank() {
+    let mut h = Harness::with_vt(
+        &[
+            "--no-blink",
+            "--dpms-timeout=60",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read x",
+        ],
+        ScriptedVt::default(),
+    );
+    assert!(
+        h.until_memory(SECOND, |m| m.frames > 0 && m.events.is_empty()),
+        "drawn"
+    );
+    let wake = h.app.next_wake(h.at());
+    assert!(
+        wake.is_some_and(|w| w > Duration::from_secs(55) && w <= Duration::from_secs(60)),
+        "the blank's minute ahead: {wake:?}"
+    );
+    h.skip(Duration::from_secs(45));
+    let wake = h.app.next_wake(h.at());
+    assert!(
+        wake.is_some_and(|w| w > Duration::from_secs(10) && w <= Duration::from_secs(15)),
+        "15 s left: {wake:?}"
+    );
 }
 
 fn key(mods: Mods, keysym: u32) -> InputEvent {
@@ -2371,7 +2432,6 @@ fn held(args: &[&str], videos: Vec<Box<dyn Video>>, hold: Duration) -> Harness {
     for (n, video) in videos.into_iter().enumerate() {
         app.add_video(PathBuf::from(format!("/dev/mem{n}")), video);
     }
-    app.insert_blank();
     app.vt.activate().expect("the fake VT");
     app.start();
     let end = now() + hold;

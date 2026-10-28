@@ -19,13 +19,15 @@
 //! - **The pointer.** While the program tracks it, its events are
 //!   reported, but those made with Shift held, as xterm's are. The others
 //!   select, copy and paste ([`App::pointer_event`]).
-//! - **The blank.** Each key and pointer event goes to every device's
-//!   `input`, which retries a failed wake-up, and to [`Blank::input`]; a
-//!   device's `Awake` goes to [`Blank::input`] too, but a re-take's, and
-//!   whenever it says the displays were blanked every device unblanks.
-//!   The first display, the last going and the next after none count
-//!   too, as a display change, which wakes nothing while the VT is not
-//!   ours; another hotplug or a re-take never counts.
+//! - **The blank.** Each key press and pointer action (a move, a button
+//!   or the wheel) goes to every device's `input`, which retries a failed
+//!   wake-up, and to [`Blank::input`]; a device's `Awake` goes to
+//!   [`Blank::input`] too, but a re-take's, and whenever it says the
+//!   displays were blanked every device unblanks. The first display, the
+//!   last going and the next after none count too, as a display change,
+//!   which wakes nothing while the VT is not ours; another hotplug or a
+//!   re-take never counts. The seat's clock drives the blank's countdown
+//!   ([`App::next_wake`]).
 //! - **The child.** It first starts once a display is set up, on the
 //!   grid's size ([`respawn::first_start_due`]); when it exits the respawn
 //!   policy starts it again or ends vtium.
@@ -376,15 +378,6 @@ impl App {
         &self.config
     }
 
-    /// Puts the DPMS blank's timer in the loop, in place of the one there.
-    pub fn insert_blank(&mut self) {
-        self.blank.insert(
-            &self.handle,
-            |app: &mut App| Some(&mut app.blank),
-            |app: &mut App| app.blank_now(),
-        );
-    }
-
     /// Starts the session's command at the end of the first turn
     /// [`respawn::first_start_due`] allows.
     pub fn start(&mut self) {
@@ -707,11 +700,11 @@ impl App {
         self.send_user_bytes();
     }
 
-    /// The blank's timer: every display powers down. With none, the
+    /// The blank is due: every display powers down. With none, the
     /// countdown starts again.
-    fn blank_now(&mut self) {
+    fn blank_now(&mut self, now: Instant) {
         if self.views.is_empty() {
-            self.blank.input((self.clock)());
+            self.blank.input(now);
             return;
         }
         for video in self.videos.values_mut() {
@@ -720,8 +713,9 @@ impl App {
         self.deactivate();
     }
 
-    /// The user's input: a key or pointer event, or a device's wake-up
-    /// but a re-take's, which follows the user's VT switch. It restarts
+    /// The user's input: a key press or a pointer action (a move, a
+    /// button or the wheel), or a device's wake-up but a re-take's, which
+    /// follows the user's VT switch. It restarts
     /// the blank's countdown, as a display change does for now; the idle
     /// lock (vtium/vtium#87) will count the user's input alone.
     fn user_input(&mut self, now: Instant) {
@@ -739,9 +733,7 @@ impl App {
             BlankTimeout::Configured => self.dpms_timeout,
         });
         if let Some(timeout) = timeout {
-            if self.blank.set_timeout(timeout, now) {
-                self.insert_blank();
-            }
+            self.blank.set_timeout(timeout, now);
         }
         if request.wake {
             self.wake(now);
@@ -957,7 +949,9 @@ impl App {
         }
     }
 
-    /// A key or pointer event from the input devices.
+    /// A key press or pointer event from the input devices. A key press
+    /// is the user's activity; a pointer event is when
+    /// [`App::pointer_event`] says so.
     pub fn input_event(&mut self, event: InputEvent, now: Instant) {
         match event {
             InputEvent::Key(key) => {
@@ -1452,6 +1446,9 @@ impl App {
                 }
             }
         }
+        if self.blank.fire(now) {
+            self.blank_now(now);
+        }
     }
 
     fn draw(&mut self, now: Instant) {
@@ -1569,6 +1566,7 @@ impl App {
         due.extend(self.timer_due);
         due.extend(self.wait.due());
         due.extend(self.term.sync.deadline());
+        due.extend(self.blank.deadline());
         due.extend(self.views.values().filter_map(|v| v.wait.due()));
         if let Some(Leaving::Until(d)) = self.leaving {
             due.push(d);
