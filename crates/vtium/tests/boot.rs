@@ -1949,6 +1949,32 @@ impl Video for Late {
     }
 }
 
+/// Under `pointer-char` the pointer is the glyph, on the cell under it:
+/// anywhere in a cell draws the same frame, and another cell another.
+#[test]
+fn pointer_char_draws_the_glyph_on_the_cell_under_the_pointer() {
+    let mut h = Harness::new(&[
+        "--pointer-char=+",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty -echo; read x",
+    ]);
+    h.until(Duration::from_millis(200), |_| false);
+    let frame = |h: &mut Harness, x: i32, y: i32| {
+        h.point([PointerEvent::Moved { x, y, held: None }], Mods::empty());
+        h.until(Duration::from_millis(100), |_| false);
+        h.memory().pixels.clone()
+    };
+    let (a, b) = (frame(&mut h, 81, 81), frame(&mut h, 87, 95));
+    let other = frame(&mut h, 89, 81);
+    assert!(a == b, "the same cell, the same frame");
+    assert!(a != other, "another cell, another frame");
+    // the glyph's middle is white: unifont's '+' crosses at 4,9 of its cell
+    assert!(h.memory().white_at(88 + 4, 80 + 9));
+}
+
 /// A device with a cursor plane: what was set up on it and where it shows.
 struct Planed {
     memory: Memory,

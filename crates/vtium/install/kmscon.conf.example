@@ -161,6 +161,9 @@
 ## Draw the pointer in software on every display, never on a display's cursor plane.
 #no-soft-cursor
 
+## Draw the pointer as this character's glyph from the font, one cell wide, on the cell under the pointer, white with a dark outline as the arrow is. Unset, the pointer is the arrow.
+#pointer-char=
+
 ## Hide the pointer after this long with no pointer event, until it next moves; 0 never hides it.
 #pointer-hide-timeout=20
 

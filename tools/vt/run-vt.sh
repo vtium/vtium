@@ -145,7 +145,7 @@ valued=" font-engine font-name font-size mode multi-monitor gpus term sb-size
 	palette-background underline-color strike-color grapheme-width xkb-model
 	xkb-layout xkb-variant xkb-options xkb-repeat-delay xkb-repeat-rate
 	dpms-timeout render-timer image-storage-limit sync-timeout blink-text
-	grab-paste pointer-hide-timeout "
+	grab-paste pointer-hide-timeout pointer-char "
 switches=" drm hwaccel use-original-mode blink bell soft-cursor mouse
 	natural-scrolling force-decoration-colors backspace-delete verbose debug silent
 	blink-decorations program-blank pointer-hide-while-typing "

@@ -164,6 +164,24 @@ pub(super) fn parse(
                 }
             }
         }
+        Kind::Char => {
+            let mut chars = text.chars();
+            match (chars.next(), chars.next()) {
+                (Some(c), None) if !c.is_control() => Some(Value::Text(text.to_owned())),
+                _ => {
+                    let value = text.to_owned();
+                    reports.push(
+                        origin.clone(),
+                        Problem::BadValue {
+                            key: key.name,
+                            value,
+                            why: "one character is needed, not a control character",
+                        },
+                    );
+                    None
+                }
+            }
+        }
         Kind::DecoColor => match parse_deco_color(text) {
             Ok(c) => Some(Value::DecoColor(c)),
             Err(why) => {

@@ -1153,3 +1153,24 @@ fn decoration_colors_read_as_the_c_reference_read_them() {
         assert_eq!(l.config.deco_color(&UNDERLINE_COLOR), DecoColor::Foreground);
     }
 }
+
+#[test]
+fn pointer_char_takes_one_character() {
+    assert_eq!(Config::default().char(&POINTER_CHAR), None);
+    let l = main_file("pointer-char=✛\n");
+    assert_eq!(l.reports, []);
+    assert_eq!(l.config.char(&POINTER_CHAR), Some('✛'));
+    for bad in ["", "ab", "\u{7f}"] {
+        let l = load_with(&[&format!("--pointer-char={bad}")], None, &[]);
+        assert_eq!(
+            problems(&l),
+            [&Problem::BadValue {
+                key: "pointer-char",
+                value: bad.into(),
+                why: "one character is needed, not a control character",
+            }],
+            "{bad:?}"
+        );
+        assert_eq!(l.config.char(&POINTER_CHAR), None);
+    }
+}

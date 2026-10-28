@@ -1,10 +1,11 @@
 //! Who draws the mouse pointer on a display: its cursor plane, or the
 //! renderer in software.
 //!
-//! The pointer is the renderer's arrow ([`Renderer::arrow`]), sized to the
-//! display's cells and turned with it. At the first draw that shows the
-//! pointer after the renderer changes (a set, a zoom, a rotation), the
-//! display's [`Pointer`] puts the new arrow on the display's cursor plane,
+//! The pointer is the renderer's arrow, or the glyph `pointer-char` names
+//! ([`Renderer::arrow`]), sized to the display's cells and turned with it.
+//! At the first draw that shows the pointer after the renderer changes (a
+//! set, a zoom, a rotation), the display's [`Pointer`] puts the new arrow
+//! on the display's cursor plane,
 //! as the C reference set its hardware cursor up again after each change
 //! (`src/terminal.c:303-338` at kmscon b1f7a7c5); a pointer that never
 //! shows, as with `mouse` off, sets no plane up. A display that takes the

@@ -41,6 +41,8 @@ pub enum Kind {
     /// Keys a grab takes: chords such as `<Ctrl><Alt>Delete`, separated by
     /// commas ([`crate::grab::parse`]). Empty, it takes none.
     Grab,
+    /// One character, no control character.
+    Char,
     /// A decoration's color: `fg`, the cell's foreground; a palette index
     /// from 0 to 255, which follows the palette a program changes; or
     /// `#rrggbb`.
@@ -732,6 +734,17 @@ pub const MOUSE: Key = Key {
     cite: "src/config.c:1385",
 };
 
+pub const POINTER_CHAR: Key = Key {
+    name: "pointer-char",
+    short: None,
+    kind: Kind::Char,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-render",
+    what: "Draw the pointer as this character's glyph from the font, one cell wide, on the cell under the pointer, white with a dark outline as the arrow is. Unset, the pointer is the arrow.",
+    cite: "the operator on vtium/vtium#102",
+};
+
 pub const SOFT_CURSOR: Key = Key {
     name: "soft-cursor",
     short: None,
@@ -963,7 +976,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 74] = [
+pub const KEYS: [Key; 75] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1019,6 +1032,7 @@ pub const KEYS: [Key; 74] = [
     XKB_REPEAT_RATE,
     MOUSE,
     SOFT_CURSOR,
+    POINTER_CHAR,
     POINTER_HIDE_TIMEOUT,
     POINTER_HIDE_WHILE_TYPING,
     GRAB_PASTE,

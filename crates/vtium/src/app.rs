@@ -57,7 +57,9 @@ use vtium_platform::input::{Button, InputEvent, KeyEvent, Mods as InputMods, Poi
 use vtium_platform::pty::{Erase, Pty, Size};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
 use vtium_platform::vt::{Switch, Vt, VtEvent};
-use vtium_render::{Config as RenderConfig, DecorationColors, DrawState, Orientation, Profile};
+use vtium_render::{
+    Config as RenderConfig, DecorationColors, DrawState, Orientation, PointerShape, Profile,
+};
 use vtium_term::{
     BlankRequest, BlankTimeout, Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal,
 };
@@ -531,6 +533,10 @@ impl App {
                 strike: self.config.deco_color(&keys::STRIKE_COLOR),
                 force: self.config.switch(&keys::FORCE_DECORATION_COLORS),
             },
+            pointer: self
+                .config
+                .char(&keys::POINTER_CHAR)
+                .map_or(PointerShape::Arrow, PointerShape::Glyph),
             ..RenderConfig::default()
         }
     }
