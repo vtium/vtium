@@ -118,7 +118,9 @@ impl Pty {
     ///
     /// The child holds no other descriptor of vtium's: every descriptor
     /// vtium inherited is marked close-on-exec before the fork, as the C
-    /// reference's child did not (see the crate README's Departures).
+    /// reference's child did not (see the crate README's Departures). It is
+    /// called from vtium's one thread only: a descriptor another thread
+    /// opened between the marking and the fork would reach the child.
     pub fn spawn(mut command: Command, size: Size, erase: Erase) -> io::Result<Pty> {
         let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)?;
         grantpt(&master)?;
@@ -178,7 +180,7 @@ impl Pty {
         }
         // Here and not in the hook: listing the descriptors where
         // close_range cannot mark them allocates.
-        crate::fds::cloexec_above_stdio()?;
+        crate::fds::cloexec_before_spawn()?;
         let child = command.spawn()?;
         // The parent's copies of the slave go with the command, so the
         // master sees a hangup once the child's session closes it.

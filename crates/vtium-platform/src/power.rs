@@ -84,9 +84,11 @@ pub fn suspend() -> io::Result<Suspend> {
 }
 
 /// Starts `command` holding no descriptor of vtium's but its stdio:
-/// every descriptor vtium inherited is marked close-on-exec first.
+/// every descriptor vtium inherited is marked close-on-exec first. It is
+/// called from vtium's one thread only: a descriptor another thread opened
+/// between the marking and the fork would reach the shell.
 fn spawn(command: &mut Command) -> io::Result<Child> {
-    crate::fds::cloexec_above_stdio()?;
+    crate::fds::cloexec_before_spawn()?;
     command.spawn()
 }
 
@@ -156,11 +158,34 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&out.stdout), "||/usr/bin:/bin");
     }
 
+    /// Set in the process [`the_sysfs_shell_holds_only_its_stdio`] runs
+    /// itself in.
+    const ALONE: &str = "VTIUM_POWER_TEST_ALONE";
+
+    /// Runs in a process of its own with no other test, as vtium starts
+    /// the shell from its one thread: other tests' threads open
+    /// descriptors meanwhile, xkbcommon's keymap files without
+    /// close-on-exec among them. What this process passes down unmarked
+    /// reaches that one, as vtium's parent passes down to vtium.
     #[test]
     fn the_sysfs_shell_holds_only_its_stdio() {
-        let _one = crate::fds::tests::one_at_a_time();
-        // a descriptor without close-on-exec, as one vtium's parent passes
-        // down may be, numbered high so it is never the one ls opens
+        const NAME: &str = "power::tests::the_sysfs_shell_holds_only_its_stdio";
+        if std::env::var_os(ALONE).is_none() {
+            let out = Command::new(std::env::current_exe().expect("this binary"))
+                .args(["--exact", NAME, "--test-threads=1", "--nocapture"])
+                .env(ALONE, "1")
+                .output()
+                .expect("the test alone");
+            let text = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                out.status.success() && text.contains("test result: ok. 1 passed"),
+                "{text}{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            return;
+        }
+        // a descriptor without close-on-exec, numbered high so it is never
+        // the one ls opens
         let null = std::fs::File::open("/dev/null").expect("/dev/null");
         let held = rustix::io::fcntl_dupfd_cloexec(&null, 100).expect("dup");
         rustix::io::fcntl_setfd(&held, rustix::io::FdFlags::empty()).expect("setfd");
@@ -173,13 +198,9 @@ mod tests {
         let listed = String::from_utf8_lossy(&out.stdout);
         let fds: Vec<&str> = listed.lines().collect();
         let held = std::os::fd::AsRawFd::as_raw_fd(&held).to_string();
-        // only the planted descriptor is looked for: other tests' threads
-        // open their own meanwhile, xkbcommon's keymap files without
-        // close-on-exec among them
-        assert!(
-            ["0", "1", "2"].iter().all(|f| fds.contains(f)) && !fds.contains(&held.as_str()),
-            "{fds:?}"
-        );
+        assert!(!fds.contains(&held.as_str()), "{fds:?}");
+        // ls opens 3 to read the directory
+        assert_eq!(fds, ["0", "1", "2", "3"]);
     }
 
     /// The child is reaped from the loop at its exit, whatever its status,

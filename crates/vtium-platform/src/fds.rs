@@ -15,6 +15,19 @@ pub fn cloexec_above_stdio() -> io::Result<()> {
     cloexec_after(close_range_cloexec)
 }
 
+/// [`cloexec_above_stdio`] before a child is started, its error naming
+/// the marking, so a spawn that fails on it says so.
+pub(crate) fn cloexec_before_spawn() -> io::Result<()> {
+    cloexec_above_stdio().map_err(named)
+}
+
+fn named(e: io::Error) -> io::Error {
+    io::Error::new(
+        e.kind(),
+        format!("cannot mark the inherited descriptors close-on-exec: {e}"),
+    )
+}
+
 /// `first`, or where it fails, the walk of `/proc/self/fd`.
 fn cloexec_after(first: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
     first().or_else(|_| cloexec_listed())
@@ -72,18 +85,17 @@ fn cloexec_listed() -> io::Result<()> {
 
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
-pub(crate) mod tests {
+mod tests {
     use super::*;
     use rustix::io::{FdFlags, dup, fcntl_getfd};
     use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
     use std::sync::{Mutex, MutexGuard};
 
-    /// Held by each test that marks descriptors or plants one unmarked,
-    /// the spawns' tests in other modules included, so another test's
-    /// marking cannot reach a descriptor before its test sees it unmarked.
+    /// Held by each test, so another test's marking cannot reach a
+    /// descriptor before its test sees it unmarked.
     static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
-    pub(crate) fn one_at_a_time() -> MutexGuard<'static, ()> {
+    fn one_at_a_time() -> MutexGuard<'static, ()> {
         ONE_AT_A_TIME
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -138,6 +150,17 @@ pub(crate) mod tests {
         cloexec_after(|| Err(io::Error::from_raw_os_error(libc::EINVAL))).unwrap();
         assert!(cloexec(fd.as_fd()));
         assert_eq!(stdio(), before);
+    }
+
+    #[test]
+    fn a_failed_marking_is_named() {
+        let e = named(io::Error::from_raw_os_error(libc::ENOENT));
+        assert!(
+            e.to_string()
+                .starts_with("cannot mark the inherited descriptors close-on-exec: "),
+            "{e}"
+        );
+        assert_eq!(e.kind(), io::ErrorKind::NotFound);
     }
 
     #[test]
