@@ -688,6 +688,63 @@ fn reflow_is_the_same_chunked_and_lazy_or_eager() {
     }
 }
 
+// vtium/vtium#131: the scrollback's byte count is what its rows hold,
+// waiting ones as they wait, and stays inside a budget small enough to
+// drop lines, through random streams, resizes, view moves and selections.
+// Past the budget the rows dropped follow what the rows cost as held, so
+// a lazy rewrap and an eager one may keep a different number of the
+// oldest; inside it they agree, as the test above holds.
+#[test]
+fn the_byte_budget_holds_through_resizes_and_its_count_is_exact() {
+    for seed in 0..common::seeds(100) {
+        let mut rng = Rng(seed ^ 0x0131);
+        let mut bytes = Vec::new();
+        for _ in 0..1 + rng.below(4) {
+            let rows_n = 1 + rng.below(5);
+            bytes.extend(shell_stream(&mut rng, rows_n));
+            let len = rng.below(40);
+            bytes.extend(common::grammar_stream(&mut rng, len));
+        }
+        let events: Vec<(usize, Event)> = (0..1 + rng.below(10))
+            .map(|_| (rng.below(bytes.len() + 1), event(&mut rng)))
+            .collect();
+        let budget = 1 + rng.below(8000);
+        let mut t = Terminal::new(1 + rng_cols(seed), 4, 100);
+        t.screen_mut().set_scrollback_max(60);
+        t.screen_mut().set_scrollback_memory(budget);
+        let mut stops: Vec<usize> = events.iter().map(|e| e.0).collect();
+        stops.extend((0..rng.below(20)).map(|_| rng.below(bytes.len() + 1)));
+        stops.push(bytes.len());
+        stops.sort_unstable();
+        stops.dedup();
+        let mut at = 0;
+        for stop in stops {
+            feed(&mut t, &bytes[at..stop], &[], &[], false);
+            at = stop;
+            let here: Vec<(usize, Event)> = events
+                .iter()
+                .filter(|e| e.0 == stop)
+                .map(|&(_, e)| (0, e))
+                .collect();
+            feed(&mut t, &[], &[], &here, false);
+            let s = t.screen();
+            assert!(
+                s.scrollback_bytes() <= budget,
+                "seed {seed}: {} bytes over {budget}",
+                s.scrollback_bytes()
+            );
+            let mut copy = t.clone();
+            copy.screen_mut().rewrap_scrollback();
+            let s = copy.screen();
+            let held: usize = s
+                .scrollback()
+                .map(|l| size_of::<Line>() + l.heap_bytes())
+                .sum();
+            assert_eq!(s.scrollback_bytes(), held, "seed {seed}");
+        }
+    }
+}
+
 fn rng_cols(seed: u64) -> usize {
     (seed as usize * 7) % 23
 }
