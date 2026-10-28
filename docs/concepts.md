@@ -37,7 +37,7 @@ vtium is one console and a few programs and files around it. The table lists eac
 | `vtium-vitrify list`, `verify`, `remove` | Lists the built sets, runs the console's check on them, drops one | anyone; `remove` root | proposed | vtium/vtium#3 |
 | `vtium-vitrify set` | Switches the running console among built sets | the user, in the session | proposed | vtium/vtium#3 |
 | `vtium-clipboard`, also `vticlip` | Copies to the console's selection from a script or a pipe | the user, in the session | proposed; copy decided, paste open | vtium/vtium#113 |
-| The frits and the store | Frits that declare sets, and the built sets with a manifest of their hashes | written by root | proposed | vtium/vtium#3 |
+| The frits and the store | Frits that declare sets, and the built sets with a manifest of their hashes | written by root | the store and its check built; frits wait for vtium-vitrify (#125) | vtium/vtium#3 |
 | The built-in sets | Unifont, and Unscii-8 for small displays, compiled into vtium as the fallback and the template every set follows | inside `vtium` | Unifont and Unscii-8 built in as sets; the console draws unifont, and choosing Unscii-8 for small cells waits for set selection | vtium/vtium#3 |
 | The configuration | One file, a file for the seat, and the command line | written by root, read by `vtium` | built | [config.md](config.md) |
 | The unit | systemd's service for vtium on a VT, in getty's place | started by logind | built | [systemd.md](systemd.md) |
