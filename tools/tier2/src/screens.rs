@@ -250,7 +250,7 @@ const EMOJI: &[u8] = concat!(
 
 /// The 320x240 floor (vtium/vtium#75): a full-width title, a shell session
 /// with a line that wraps, a box of sprites around styled words, the 16
-/// background and foreground colours, block, shade, Braille and sextant
+/// background and foreground colors, block, shade, Braille and sextant
 /// sprites, Latin-1 and punctuation the font holds, two characters it
 /// lacks, the underline styles, text ending in the last column, and an
 /// editor's status line across the last row.
@@ -284,7 +284,7 @@ const SMALL_40: &[u8] = concat!(
 .as_bytes();
 
 /// The 640x480 display: the 320x240 screen's parts at 80 columns, with the
-/// 256-colour palette's ramps, and a line past 80 cells that wraps.
+/// 256-color palette's ramps, and a line past 80 cells that wraps.
 const SMALL_80: &[u8] = concat!(
     "\x1b[7m 640x480, 8x16 PSF1 font: 80x30 cells, where everything vtium supports is usable\x1b[0m\r\n",
     "login: pi\r\n",
@@ -627,7 +627,7 @@ pub const CASES: &[Case] = &[
             font: FontKind::Psf(TestFont::Small8x8),
             ..Screen::new(
                 "small-320x240",
-                "minspec's display floor (vtium/vtium#75): a 320x240 display drawn with an 8x8 PSF2 font as 40 by 30 cells. A reversed title across the first row; a shell session, its line past 40 cells wrapping to the next row; a box of sprites around bold, underlined, struck and reversed words; the 16 background colours and 16 foreground colours; shade, block, eighth, Braille and sextant sprites; Latin-1 and punctuation the font holds; a wide and a narrow character it lacks; the five underline styles and a red underline; `right edge` ending in the last column of row 28; an editor's status line reversed across the last row. Correct: every glyph and sprite inside its 8x8 cell, the box lines joined, the colours filling their cells, each lacking character drawn as the missing glyph, every decoration inside its cell, and nothing past the 40th column or the 30th row.",
+                "minspec's display floor (vtium/vtium#75): a 320x240 display drawn with an 8x8 PSF2 font as 40 by 30 cells. A reversed title across the first row; a shell session, its line past 40 cells wrapping to the next row; a box of sprites around bold, underlined, struck and reversed words; the 16 background colors and 16 foreground colors; shade, block, eighth, Braille and sextant sprites; Latin-1 and punctuation the font holds; a wide and a narrow character it lacks; the five underline styles and a red underline; `right edge` ending in the last column of row 28; an editor's status line reversed across the last row. Correct: every glyph and sprite inside its 8x8 cell, the box lines joined, the colors filling their cells, each lacking character drawn as the missing glyph, every decoration inside its cell, and nothing past the 40th column or the 30th row.",
                 SMALL_40,
                 40,
                 30,
@@ -642,7 +642,7 @@ pub const CASES: &[Case] = &[
             font: FontKind::Psf(TestFont::Small8x16),
             ..Screen::new(
                 "small-640x480",
-                "A 640x480 display drawn with an 8x16 PSF1 font as 80 by 30 cells (vtium/vtium#75): the small-320x240 screen's parts at 80 columns, with `ls -l`, three boxes in light, double, heavy and rounded lines around bold, underlined, struck, reversed, italic, dim and blinking words, ramps through the 256-colour palette and in 24-bit colour, more sprites and Latin-1, a combining mark, and the decorations in colour. Correct: as small-320x240, at 80 columns: the italic word drawn upright, since the font has no italic, the dim word fainter, the blinking word drawn as text, and a combined character as its base letter.",
+                "A 640x480 display drawn with an 8x16 PSF1 font as 80 by 30 cells (vtium/vtium#75): the small-320x240 screen's parts at 80 columns, with `ls -l`, three boxes in light, double, heavy and rounded lines around bold, underlined, struck, reversed, italic, dim and blinking words, ramps through the 256-color palette and in 24-bit color, more sprites and Latin-1, a combining mark, and the decorations in color. Correct: as small-320x240, at 80 columns: the italic word drawn upright, since the font has no italic, the dim word fainter, the blinking word drawn as text, and a combined character as its base letter.",
                 SMALL_80,
                 80,
                 30,

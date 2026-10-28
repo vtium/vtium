@@ -1,5 +1,5 @@
 # A console on a small display, every line at most 40 columns: a ruler to
-# column 40, a listing in ls's colours, the 16 background colours, styled
+# column 40, a listing in ls's colors, the 16 background colors, styled
 # words, a box of sprite lines, Latin-1, the underline styles and a bar of
 # block sprites.
 # look-for: The ruler's 40 ends at the right edge of a 40-column screen.
