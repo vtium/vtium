@@ -211,6 +211,23 @@ fn the_saved_cursor_is_carried() {
     assert_eq!(rows(t.screen()), ["efgh", "ijkl", "mX"]);
 }
 
+// "The cursor and the saved cursors": modes 47 and 1047 save no cursor,
+// so while their alternate screen is shown the main screen rewraps around
+// the cursor, as it stood, in place of a slot nothing saved into.
+#[test]
+fn with_nothing_saved_the_main_screen_rewraps_around_the_cursor() {
+    for mode in ["47", "1047"] {
+        let mut t = term(
+            10,
+            3,
+            format!("one\r\ntwo\r\nabcdefghijklm\x1b[?{mode}h").as_bytes(),
+        );
+        t.resize(4, 3);
+        t.input(format!("\x1b[?{mode}l").as_bytes());
+        assert_eq!(rows(t.screen()), ["efgh", "ijkl", "m"], "mode {mode}");
+    }
+}
+
 // "The cursor and the saved cursors": a narrowing fills the blank rows
 // below the cursor first, then pushes rows from the top into the
 // scrollback; a widening refills the screen from the scrollback, newest

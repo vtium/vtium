@@ -76,20 +76,29 @@ impl Scheme {
 }
 
 impl Terminal {
-    /// Resizes the screen to `cols` by `rows`, as
+    /// Resizes the screen to `cols` by `rows`, after the host has set the
+    /// cell size for it ([`set_cell_size`](Self::set_cell_size)), as
     /// [`Screen::resize_carrying`] does with the main screen's saved
-    /// cursor, after the host has set the cell size for it
-    /// ([`set_cell_size`](Self::set_cell_size)); while mode 2048 is set, a
+    /// cursor; while the alternate screen is shown with nothing saved, as
+    /// modes 47 and 1047 leave it, the main screen rewraps around the
+    /// cursor instead. While mode 2048 is set, a
     /// text area that changed, in cells or pixels, is reported. The host
     /// calls it once a resize is complete, the pty's size included.
     ///
     /// [`Screen::resize_carrying`]: crate::Screen::resize_carrying
     pub fn resize(&mut self, cols: usize, rows: usize) {
         let state = &mut self.state;
-        if let Some(saved) = state.saved.first_mut() {
-            let mut at = (saved.x, saved.y);
-            state.screen.resize_carrying(cols, rows, &mut at);
-            (saved.x, saved.y) = at;
+        let alternate = state.screen.alternate();
+        match state.saved.first_mut() {
+            Some(saved) if saved.charsets.is_some() || !alternate => {
+                let mut at = (saved.x, saved.y);
+                state.screen.resize_carrying(cols, rows, &mut at);
+                (saved.x, saved.y) = at;
+            }
+            _ => {
+                let mut at = state.screen.cursor();
+                state.screen.resize_carrying(cols, rows, &mut at);
+            }
         }
         let area = self.state.text_area();
         if area != self.state.inband.area {
