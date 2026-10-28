@@ -32,9 +32,9 @@ vtium is one console and a few programs and files around it. The table lists eac
 | `vtium blank`, `vtium wake` | Blank or wake a VT's displays from outside its session, by signalling the vtium on that VT | root, or the user vtium runs as | built | vtium/vtium#116 |
 | `vtium-vitrify preview` | Draws a sample of a font as a set would, building nothing | the user | proposed | vtium/vtium#120 |
 | `vtium-vitrify new` | The guided builder, and the templates it writes and reads, which end in a frit | the user, with sudo once at the end | proposed | vtium/vtium#121 |
-| `vtium-vitrify create` | Builds a set from a frit: into the store on the target, or as a portable file elsewhere | root or a package hook on the target; any user elsewhere | built, first slice: PSF sources | vtium/vtium#125 |
-| `vtium-vitrify install` | Checks a portable set and adds it to the store | root or a package hook | built, first slice: PSF sources | vtium/vtium#125 |
-| `vtium-vitrify list`, `verify`, `remove` | Lists the built sets, runs the console's check on them, drops one | anyone; `remove` root | built, first slice: PSF sources | vtium/vtium#125 |
+| `vtium-vitrify create` | Builds a set from a frit: into the store on the target, or as a portable file elsewhere | root or a package hook on the target; any user elsewhere | built: PSF and kbd sources, and outline and color fonts rasterised in its sandboxed parser | vtium/vtium#125, #23 |
+| `vtium-vitrify install` | Checks a portable set and adds it to the store | root or a package hook | built | vtium/vtium#125 |
+| `vtium-vitrify list`, `verify`, `remove` | Lists the built sets, runs the console's check on them, drops one | anyone; `remove` root | built | vtium/vtium#125 |
 | `vtium-vitrify set` | Switches the running console among built sets | the user, in the session | proposed | vtium/vtium#3 |
 | `vtium-clipboard`, also `vticlip` | Copies to the console's selection from a script or a pipe | the user, in the session | proposed; copy decided, paste open | vtium/vtium#113 |
 | The frits and the store | Frits that declare sets, and the built sets with a manifest of their hashes | written by root | the store and its check built; frits built by vtium-vitrify's first slice (#125) | vtium/vtium#3 |
@@ -142,7 +142,7 @@ Someone choosing a font tries many and builds few. vtium-vitrify's preview comma
 
 ### The frit
 
-A set is declared as a **frit**, named for the ground glass a glassmaker melts again: a small text file, `/etc/vtium/fonts/NAME.vtfrit`, naming the set's sources in order, later ones filling characters the earlier ones lack, with the sizes and fallbacks to build. Its sources can be console fonts, font files, the kernel's own font, and later outline fonts. A frit is written in one of three ways, which give the same file: by hand; by vtium-vitrify's new command, a guided builder that asks about the target display, the sizes, the coverage and the fallbacks and previews each choice; or from a template that command writes, which reads back and writes out again with nothing lost, so a script or a package can make the builder's choices without its questions. Later, vtium-vitrify may find installed fonts that match chosen profiles and build sets for them without a frit written for each (vtium/vtium#117, a direction not yet decided).
+A set is declared as a **frit**, named for the ground glass a glassmaker melts again: a small text file, `/etc/vtium/fonts/NAME.vtfrit`, naming the set's sources in order, later ones filling characters the earlier ones lack, with the sizes and fallbacks to build. Its sources can be console fonts, font files, the kernel's own font, and outline fonts, color emoji among them, found among the fonts installed on the machine by their family. A frit is written in one of three ways, which give the same file: by hand; by vtium-vitrify's new command, a guided builder that asks about the target display, the sizes, the coverage and the fallbacks and previews each choice; or from a template that command writes, which reads back and writes out again with nothing lost, so a script or a package can make the builder's choices without its questions. Later, vtium-vitrify may find installed fonts that match chosen profiles and build sets for them without a frit written for each (vtium/vtium#117, a direction not yet decided).
 
 ### Building and installing
 

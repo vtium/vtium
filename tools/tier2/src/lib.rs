@@ -4,8 +4,10 @@
 //! [`screens`] holds the screens and where each one's golden lives,
 //! [`draw`] draws them through `vtium-term` and `vtium-render`, [`ppm`],
 //! [`tol`] and [`compare`] read and judge the images as tier 3 does, and
-//! [`runner`] runs them all and writes the [`report`].
+//! [`runner`] runs them all and writes the [`report`]. [`colorset`] builds
+//! the vitrified set the color glyph screen draws with.
 
+pub mod colorset;
 pub mod compare;
 pub mod cref;
 pub mod draw;

@@ -51,8 +51,8 @@ fn line(at: u16, thickness: u16, height: u32) -> Result<(u32, u32), SetError> {
 }
 
 /// `STRK`: each strike's style, format, cell, metrics and glyph count,
-/// sorted by cell height, width and style with no two alike, and a
-/// regular strike for every cell size.
+/// sorted by cell height, width, style and format with no two alike, and
+/// a regular strike for every cell size.
 pub(super) fn parse_strikes(bytes: &[u8]) -> Result<Vec<Strike>, SetError> {
     let mut c = Cursor(bytes);
     let (count, size) = c.table(SET_STRIKES_MAX, "SET_STRIKES_MAX", STRIKE_RECORD)?;
@@ -60,7 +60,7 @@ pub(super) fn parse_strikes(bytes: &[u8]) -> Result<Vec<Strike>, SetError> {
         return Err(SetError::Malformed("a set with no strikes"));
     }
     let mut strikes: Vec<Strike> = Vec::new();
-    let mut keys: Vec<(u16, u16, u8)> = Vec::new();
+    let mut keys: Vec<(u16, u16, u8, u8)> = Vec::new();
     for _ in 0..count {
         let mut r = c.record(size)?;
         let style = r.u8()?;
@@ -78,6 +78,7 @@ pub(super) fn parse_strikes(bytes: &[u8]) -> Result<Vec<Strike>, SetError> {
         if style & !(STYLE_BOLD | STYLE_ITALIC) != 0 {
             return Err(SetError::Malformed("an unknown style"));
         }
+        let code = format;
         let format = PixelFormat::from_code(format)?;
         let cell = Cell {
             width: u32::from(w),
@@ -97,7 +98,7 @@ pub(super) fn parse_strikes(bytes: &[u8]) -> Result<Vec<Strike>, SetError> {
         }
         let (underline, underline_thickness) = line(underline, underline_thickness, cell.height)?;
         let (strike, strike_thickness) = line(strike, strike_thickness, cell.height)?;
-        keys.push((h, w, style));
+        keys.push((h, w, style, code));
         strikes.push(Strike {
             info: StrikeInfo {
                 style: Style {
@@ -129,7 +130,10 @@ pub(super) fn parse_strikes(bytes: &[u8]) -> Result<Vec<Strike>, SetError> {
     if keys.windows(2).any(|w| matches!(w, [a, b] if a >= b)) {
         return Err(SetError::Malformed("strikes out of order or repeated"));
     }
-    if keys.iter().any(|&(h, w, _)| !keys.contains(&(h, w, 0))) {
+    if keys
+        .iter()
+        .any(|&(h, w, _, _)| !keys.iter().any(|k| (k.0, k.1, k.2) == (h, w, 0)))
+    {
         return Err(SetError::Malformed("a cell size with no regular strike"));
     }
     Ok(strikes)
@@ -218,7 +222,31 @@ pub(super) fn parse_cmap(bytes: &[u8], strikes: &mut [Strike]) -> Result<(), Set
         strike.spans = spans;
         strike.stored = stored;
     }
-    c.end()
+    c.end()?;
+    apart(strikes)
+}
+
+/// One cell's strikes of one style, a pixel format each, map codepoints
+/// apart, so a codepoint draws from one strike whichever is searched first.
+fn apart(strikes: &[Strike]) -> Result<(), SetError> {
+    let mut runs: Vec<(Cell, Style, u32, u32)> = Vec::new();
+    for s in strikes {
+        for r in &s.runs {
+            let last = r.first.saturating_add(r.len.saturating_sub(1));
+            runs.push((s.info.cell, s.info.style, r.first, last));
+        }
+    }
+    let key = |r: &(Cell, Style, u32, u32)| (r.0.height, r.0.width, r.1.bold, r.1.italic, r.2);
+    runs.sort_unstable_by_key(key);
+    let overlap = runs
+        .windows(2)
+        .any(|w| matches!(w, [a, b] if (a.0, a.1) == (b.0, b.1) && b.2 <= a.3));
+    if overlap {
+        return Err(SetError::Malformed(
+            "two strikes at a cell map one codepoint",
+        ));
+    }
+    Ok(())
 }
 
 /// Checks that glyphs `[glyph, glyph + len)`, brought in by earlier runs,

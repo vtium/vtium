@@ -24,6 +24,11 @@
 //!          then the chunks' bytes
 //! ```
 //!
+//! `STRK`'s strikes are sorted by cell height, width, style and format,
+//! no two alike, so one cell may hold a 1-bit, an R8 and an RGBA strike
+//! of each style, their codepoints apart, and every cell size has a
+//! regular strike.
+//!
 //! The sections follow the header in the order the table lists them, with
 //! no byte between them or after the last. A record size is at least the
 //! size this version writes; a reader of this major version reads the
