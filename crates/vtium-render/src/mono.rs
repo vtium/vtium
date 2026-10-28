@@ -152,11 +152,13 @@ impl Fallback {
         })
     }
 
-    /// `glyph`'s stand-in: unifont's bitmap for a color glyph unifont has,
-    /// and at 1 bit the pattern for a shade of partial coverage.
+    /// `glyph`'s stand-in, at the size `glyph` draws at `scale`: unifont's
+    /// bitmap for a color glyph unifont has, and at 1 bit the pattern for a
+    /// shade of partial coverage, drawn at that size so it is not scaled.
     pub(crate) fn glyph(
         &self,
         glyph: &Glyph,
+        scale: u32,
         text: &[char],
         width: Width,
         style: Style,
@@ -170,8 +172,12 @@ impl Fallback {
             Format::Mask => {
                 let partial = glyph.pixels().iter().any(|&p| p != 0 && p != 0xff);
                 let one = text.len() == 1;
+                let (w, h) = (
+                    glyph.width().saturating_mul(scale),
+                    glyph.height().saturating_mul(scale),
+                );
                 (self.one_bit && one && partial)
-                    .then(|| shade_one_bit(first, glyph.width(), glyph.height()))
+                    .then(|| shade_one_bit(first, w, h))
                     .flatten()
             }
         }
@@ -357,13 +363,13 @@ mod tests {
         };
         // the one gray exception: a color glyph takes unifont's bitmap
         let f = Fallback::new(Depth::Gray(4), cell).unwrap_or_else(|| panic!("a stand-in"));
-        let a = f.glyph(&color_glyph(), &['A'], Width::Narrow, Style::default());
+        let a = f.glyph(&color_glyph(), 1, &['A'], Width::Narrow, Style::default());
         assert!(a.is_some_and(|g| g.format() == Format::Mask));
         // and a shade keeps its coverage
         let shade = vtium_font::sprite::draw('\u{2591}', 8, 16, 1)
             .unwrap_or_else(|| panic!("the light shade"));
         assert!(
-            f.glyph(&shade, &['\u{2591}'], Width::Narrow, Style::default())
+            f.glyph(&shade, 1, &['\u{2591}'], Width::Narrow, Style::default())
                 .is_none()
         );
     }
@@ -381,7 +387,7 @@ mod tests {
         for (c, lit) in [('\u{2591}', 16), ('\u{2592}', 32), ('\u{2593}', 48)] {
             let even = vtium_font::sprite::draw(c, 8, 8, 1).unwrap_or_else(|| panic!("{c}"));
             let g = f
-                .glyph(&even, &[c], Width::Narrow, Style::default())
+                .glyph(&even, 1, &[c], Width::Narrow, Style::default())
                 .unwrap_or_else(|| panic!("{c}'s pattern"));
             assert_eq!(
                 g.pixels().iter().filter(|&&p| p == 0xff).count(),
@@ -390,13 +396,14 @@ mod tests {
             );
             assert!(g.pixels().iter().all(|&p| p == 0 || p == 0xff), "{c}");
             assert!(
-                f.glyph(&g, &[c], Width::Narrow, Style::default()).is_none(),
+                f.glyph(&g, 1, &[c], Width::Narrow, Style::default())
+                    .is_none(),
                 "{c}"
             );
         }
         let block = vtium_font::sprite::draw('\u{2588}', 8, 8, 1).unwrap_or_else(|| panic!("█"));
         assert!(
-            f.glyph(&block, &['\u{2588}'], Width::Narrow, Style::default())
+            f.glyph(&block, 1, &['\u{2588}'], Width::Narrow, Style::default())
                 .is_none()
         );
     }
@@ -415,7 +422,7 @@ mod tests {
         };
         let f = Fallback::new(Depth::One, cell).unwrap_or_else(|| panic!("unifont's cell"));
         let g = f
-            .glyph(&color_glyph(), &['A'], Width::Narrow, Style::default())
+            .glyph(&color_glyph(), 1, &['A'], Width::Narrow, Style::default())
             .unwrap_or_else(|| panic!("unifont draws A"));
         assert_ne!(g.format(), Format::Rgba);
         let want = Font::new(Unifont::new(16)).glyph(&['A'], Width::Narrow, Style::default());
@@ -423,7 +430,7 @@ mod tests {
         // a glyph that is no color glyph stays
         let mask = Glyph::mask(8, 16).unwrap_or_else(|| panic!("a mask"));
         assert!(
-            f.glyph(&mask, &['A'], Width::Narrow, Style::default())
+            f.glyph(&mask, 1, &['A'], Width::Narrow, Style::default())
                 .is_none()
         );
         // a character unifont lacks keeps the color glyph, for its silhouette
@@ -431,7 +438,7 @@ mod tests {
             .into_iter()
             .find(|&c| !Unifont::new(16).has_glyph(c))
             .unwrap_or_else(|| panic!("a character unifont lacks"));
-        let kept = f.glyph(&color_glyph(), &[lacks], Width::Narrow, Style::default());
+        let kept = f.glyph(&color_glyph(), 1, &[lacks], Width::Narrow, Style::default());
         assert!(kept.is_none());
         // no stand-in in color, nor unifont's at a cell it has no scale of
         assert!(Fallback::new(Depth::Color, cell).is_none());
@@ -442,7 +449,7 @@ mod tests {
         let f = Fallback::new(Depth::One, small).unwrap_or_else(|| panic!("a stand-in"));
         let g = Glyph::rgba(8, 8).unwrap_or_else(|| panic!("an 8x8 glyph"));
         assert!(
-            f.glyph(&g, &['A'], Width::Narrow, Style::default())
+            f.glyph(&g, 1, &['A'], Width::Narrow, Style::default())
                 .is_none()
         );
         assert!(

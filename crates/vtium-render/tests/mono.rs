@@ -312,3 +312,62 @@ fn shades_at_1_bit_are_patterns_that_join() {
         }
     }
 }
+
+/// A face at scale 2 whose shade is even partial coverage, as an
+/// antialiased strike's would be.
+struct Scaled;
+
+fn even_shade(w: u32, h: u32) -> vtium_font::Glyph {
+    let px = vec![0x40; (w * h) as usize];
+    vtium_font::Glyph::from_pixels(w, h, vtium_font::Format::Mask, px).unwrap()
+}
+
+impl vtium_font::Face for Scaled {
+    fn cell(&self) -> vtium_font::Cell {
+        vtium_font::Cell {
+            width: 16,
+            height: 32,
+        }
+    }
+    fn size_step(&self) -> u32 {
+        16
+    }
+    fn has_glyph(&self, _: char) -> bool {
+        true
+    }
+    fn draw(&self, _: &[char], _: vtium_font::Style) -> Option<vtium_font::Glyph> {
+        Some(even_shade(16, 32))
+    }
+    fn scale(&self) -> u32 {
+        2
+    }
+    fn draw_unscaled(&self, _: &[char], _: vtium_font::Style) -> Option<vtium_font::Glyph> {
+        Some(even_shade(8, 16))
+    }
+}
+
+// a face drawn at a whole scale stores its glyphs unscaled: a shade's
+// pattern fills the drawn cell, a quarter lit in each quarter of it
+#[test]
+fn a_scaled_shade_fills_its_cell_at_1_bit() {
+    use vtium_font::{Source, SpritePolicy};
+    let font = vtium_font::Font::new(Scaled).with_policy(SpritePolicy::all(Source::Font));
+    let bg = rgb("000000");
+    let mut s = Screen::new(1, 1, rgb("ffffff"), bg);
+    s.text(0, 0, "\u{2591}", style(rgb("ffffff"), bg));
+    let mut r = Renderer::new(font, 16, 32, one());
+    let mut c = Canvas::new(16, 32, 0);
+    let state = DrawState {
+        background: bg,
+        ..DrawState::default()
+    };
+    r.draw(&s.frame(Age::NEVER), &mut c, 0, &state);
+    let lit_in = |x0: u32, y0: u32| {
+        (y0..y0 + 16)
+            .flat_map(|y| (x0..x0 + 8).map(move |x| (x, y)))
+            .filter(|&(x, y)| c.pixel(x, y) == Some(WHITE))
+            .count()
+    };
+    let q = [lit_in(0, 0), lit_in(8, 0), lit_in(0, 16), lit_in(8, 16)];
+    assert_eq!(q, [32; 4]);
+}

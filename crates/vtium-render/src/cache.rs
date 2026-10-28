@@ -278,7 +278,7 @@ impl GlyphCache {
         };
         let (glyph, scale) = match self
             .fallback
-            .and_then(|f| f.glyph(&glyph, text, width, style))
+            .and_then(|f| f.glyph(&glyph, scale, text, width, style))
         {
             Some(bitmap) => (bitmap, 1),
             None => (glyph, scale),
