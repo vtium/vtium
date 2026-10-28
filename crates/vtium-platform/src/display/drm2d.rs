@@ -64,6 +64,8 @@ enum Scan {
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
 pub struct Drm2d<K: Kms> {
     card: K,
+    /// The card drives a 1-bit panel.
+    monochrome: bool,
     /// No universal planes or no atomic commits: the legacy calls.
     legacy: bool,
     hotspot: bool,
@@ -120,8 +122,13 @@ impl<K: Kms> Drm2d<K> {
                 "the driver has no dumb buffers",
             ));
         }
+        let monochrome = card.monochrome();
+        if monochrome {
+            log::info!("the card drives a 1-bit panel");
+        }
         Ok(Drm2d {
             card,
+            monochrome,
             legacy,
             hotspot,
             master: false,
@@ -205,6 +212,12 @@ impl<K: Kms> Drm2d<K> {
     /// plane refused the image.
     pub fn hardware_cursor(&self, id: DisplayId) -> bool {
         self.output(id).is_some_and(|o| o.cursor.is_some())
+    }
+
+    /// Whether the display is a 1-bit panel, which the card's driver says
+    /// ([`super::depth`]).
+    pub fn monochrome(&self, id: DisplayId) -> bool {
+        self.monochrome && self.output(id).is_some()
     }
 
     /// The display's power state, `None` where its connector has none.
