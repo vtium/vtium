@@ -224,6 +224,43 @@ impl Scrollback {
         self.lines.get(i)
     }
 
+    /// Every row, waiting and rewrapped, oldest first: what the link store
+    /// sweeps.
+    pub(crate) fn all_rows(&self) -> impl Iterator<Item = &Line> + '_ {
+        self.waiting.rows.iter().chain(self.lines.iter())
+    }
+
+    /// Every row, waiting and rewrapped, oldest first, to change in place.
+    pub(crate) fn all_rows_mut(&mut self) -> impl Iterator<Item = &mut Line> + '_ {
+        self.waiting.rows.iter_mut().chain(self.lines.iter_mut())
+    }
+
+    /// The nearest rewrapped row above row `top` whose line `is` picks,
+    /// rewrapping the waiting rows as the search reaches them; a view
+    /// stays on its row.
+    pub(crate) fn find_above(&mut self, top: usize, is: impl Fn(&Line) -> bool) -> Option<usize> {
+        let mut end = top.min(self.lines.len());
+        loop {
+            if let Some(i) = self.lines.range(..end).rposition(&is) {
+                return Some(i);
+            }
+            end = self.rewrap_newest();
+            if end == 0 {
+                return None;
+            }
+        }
+    }
+
+    /// The nearest rewrapped row below row `top` whose line `is` picks.
+    pub(crate) fn find_below(&self, top: usize, is: impl Fn(&Line) -> bool) -> Option<usize> {
+        let from = top.saturating_add(1);
+        let at = self
+            .lines
+            .range(from.min(self.lines.len())..)
+            .position(is)?;
+        Some(from.saturating_add(at))
+    }
+
     /// The newest row, the newest waiting line rewrapped first when no
     /// other is.
     pub(crate) fn newest_mut(&mut self) -> Option<&mut Line> {
