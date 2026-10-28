@@ -315,6 +315,55 @@ fn a_font_without_a_table_takes_its_unimap_then_def_uni() {
 }
 
 #[test]
+fn an_absolute_path_builds_with_a_warning_that_it_is_not_portable() {
+    let w = World::new("portable");
+    fs::write(w.path("fonts.psf"), psf2(8, 16, 64, Some(&table()))).unwrap();
+    fs::write(w.path("mine.uni"), "0x01 U+0041\n").unwrap();
+    let out = w.path("out/p.vtglass");
+    let run = |text: &str| {
+        let r = w.frit("p", text);
+        w.run(&[
+            "create",
+            "--out",
+            out.to_str().unwrap(),
+            r.to_str().unwrap(),
+        ])
+    };
+    let o = run(&format!(
+        "# a comment\nsource=file:{}\nunimap={}\n",
+        w.path("fonts.psf").display(),
+        w.path("mine.uni").display()
+    ));
+    assert_eq!((status(&o), stdout(&o)), (0, "built\tp\n".to_owned()));
+    let frit = w.path("frits/p.vtfrit").display().to_string();
+    assert_eq!(
+        stderr(&o),
+        format!(
+            "vtium-vitrify: warning: {frit}:2: source=file: names a path on this machine, so the frit is not portable\n\
+             vtium-vitrify: warning: {frit}:3: unimap= names a path on this machine, so the frit is not portable\n"
+        )
+    );
+    // a kbd name is found on whatever machine builds it: no warning
+    let o = run("source=kbd:ter-v16n\n");
+    assert_eq!((status(&o), stderr(&o)), (0, String::new()));
+    // create into the store warns too
+    let o = w.run(&["create", "p"]);
+    assert_eq!(status(&o), 0);
+    assert_eq!(stderr(&o), "");
+    w.frit(
+        "q",
+        &format!("source=file:{}\n", w.path("fonts.psf").display()),
+    );
+    let o = w.run(&["create", "q"]);
+    assert_eq!(status(&o), 0);
+    assert!(
+        stderr(&o).contains("q.vtfrit:1: source=file: names a path on this machine"),
+        "{}",
+        stderr(&o)
+    );
+}
+
+#[test]
 fn a_kbd_font_in_each_compression_builds_the_same_glyphs() {
     let w = World::new("compressions");
     let plain = psf2(8, 16, 64, Some(&table()));

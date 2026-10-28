@@ -88,6 +88,9 @@ pub struct Frit {
     pub license: Option<String>,
     /// The frit's bytes, verbatim, for the provenance and the build key.
     pub text: String,
+    /// What builds but does not travel: each line that names a path on
+    /// the building machine, which another machine may not have.
+    pub warnings: Vec<FritError>,
 }
 
 /// Whether `name` is a set name: 1 to 64 characters of `A-Z a-z 0-9 . _
@@ -140,6 +143,12 @@ impl Frit {
         let mut sources: Vec<Source> = Vec::new();
         let mut compress = None;
         let mut license = None;
+        let mut warnings = Vec::new();
+        let not_portable = |line: usize, key: &str| FritError {
+            file: file.to_owned(),
+            line,
+            why: format!("{key} names a path on this machine, so the frit is not portable"),
+        };
         for (line, n) in text.split('\n').zip(1usize..) {
             if line.len() > FRIT_LINE_MAX {
                 return Err(err(n, "longer than FRIT_LINE_MAX"));
@@ -184,6 +193,9 @@ impl Frit {
                         return Err(err(n, "more sources than FRIT_SOURCES_MAX"));
                     }
                     let origin = origin(value).map_err(|why| err(n, &why))?;
+                    if matches!(origin, Origin::File(_)) {
+                        warnings.push(not_portable(n, "source=file:"));
+                    }
                     sources.push(Source {
                         spelling: value.to_owned(),
                         origin,
@@ -200,6 +212,9 @@ impl Frit {
                     }
                     if value.contains('/') && !value.starts_with('/') {
                         return Err(err(n, "unimap= is a kbd unimap name or an absolute path"));
+                    }
+                    if value.starts_with('/') {
+                        warnings.push(not_portable(n, "unimap="));
                     }
                     source.unimap = Some(value.to_owned());
                 }
@@ -269,6 +284,7 @@ impl Frit {
             compress: compress.unwrap_or(true),
             license,
             text: text.to_owned(),
+            warnings,
         })
     }
 }

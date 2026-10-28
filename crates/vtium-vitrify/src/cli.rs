@@ -313,7 +313,8 @@ impl Cli<'_> {
         let host = self.host(&consoles);
         let mut ok = true;
         for target in targets {
-            let (name, outcome) = build_into(&writer, &target, &host, &parser, o.force);
+            let (name, outcome) =
+                build_into(&writer, &target, &host, &parser, o.force, &mut *self.err);
             ok &= self.report(&name, outcome);
         }
         u8::from(!ok)
@@ -324,6 +325,7 @@ impl Cli<'_> {
         let host = self.host(&consoles);
         let built = Parser::new().and_then(|parser| {
             let frit = Frit::load(frit).map_err(|e| e.to_string())?;
+            warn(&mut *self.err, &frit);
             let (resolved, key) = read_sources(&frit, &host)?;
             let bytes = parse_and_assemble(&frit, &resolved, &key, &parser)?;
             write_atomic(out, &bytes).map_err(|e| format!("{}: {e}", out.display()))?;
@@ -574,6 +576,13 @@ fn parse_and_assemble(
     assemble(frit, &fonts, resolved, key)
 }
 
+/// Writes each of `frit`'s warnings to `err`.
+fn warn(err: &mut dyn Write, frit: &Frit) {
+    for w in &frit.warnings {
+        let _ = writeln!(err, "vtium-vitrify: warning: {w}");
+    }
+}
+
 /// Builds the frit at `path` into the store, unless its build key is
 /// the manifest's already.
 fn build_into(
@@ -582,11 +591,13 @@ fn build_into(
     host: &Host<'_>,
     parser: &Parser,
     force: bool,
+    err: &mut dyn Write,
 ) -> (String, Outcome) {
     let frit = match Frit::load(path) {
         Ok(r) => r,
         Err(e) => return (frit_name(path), Outcome::Failed(e.to_string())),
     };
+    warn(err, &frit);
     let name = frit.name.clone();
     let built = (|| {
         let (resolved, key) = read_sources(&frit, host)?;
