@@ -7,7 +7,7 @@ use core::ops::Range;
 use std::collections::VecDeque;
 
 use crate::bounds::{SB_SIZE_CAP_LARGE, SB_SIZE_CAP_MEDIUM, SB_SIZE_CAP_SMALL, SB_SIZE_MAX};
-use crate::line::Line;
+use crate::line::{Line, LineFlags, LineId};
 use crate::screen::reflow;
 
 /// `sb-size` when the configuration does not set it, as the C reference's
@@ -133,6 +133,44 @@ impl Waiting {
     }
 }
 
+/// What a resize takes from the scrollback to rewrap at once.
+pub(crate) struct Taken {
+    /// The rows, oldest first.
+    pub(crate) rows: Vec<Line>,
+    /// Where the rewrapped row at index `i` is among them: at `i + a - b`,
+    /// for `(a, b)`.
+    pub(crate) offset: (usize, usize),
+    /// The first rows continue a line whose head still waits: their first
+    /// row takes a new id, and their marks go to the head.
+    pub(crate) continues: bool,
+}
+
+/// Splits the logical line starting at `start` of `rows` after `head`
+/// cells of its text, a row's text ending there or the row holding it cut
+/// in two. Returns the index of the first row after the split, and whether
+/// a cut row's second part was inserted, moving the rows after it on by
+/// one.
+fn split_line(rows: &mut VecDeque<Line>, start: usize, head: usize) -> (usize, bool) {
+    let mut cells = 0usize;
+    let mut at = start;
+    while let Some(row) = rows.get_mut(at) {
+        let len = reflow::text_len(row);
+        let past = head.saturating_sub(cells);
+        if past == 0 {
+            return (at, false);
+        }
+        if past < len {
+            let tail = row.split_text(past);
+            let next = at.saturating_add(1);
+            rows.insert(next, tail);
+            return (next, true);
+        }
+        cells = cells.saturating_add(len);
+        at = at.saturating_add(1);
+    }
+    (at, false)
+}
+
 /// The rows of the logical line that `rows` starts with.
 fn line_len<'a>(mut rows: impl Iterator<Item = &'a Line>) -> usize {
     let Some(mut prev) = rows.next() else {
@@ -252,6 +290,28 @@ impl Scrollback {
                     n = n.saturating_sub(rows);
                     continue;
                 }
+                if reflow::breaks_by_length(w.rows.range(..len)) {
+                    // The line's first `n` rows hold its first `n` widths
+                    // of text: they go unrewrapped. What is left starts
+                    // with the row the n-th id was reserved for, and its
+                    // marks went with the first row.
+                    let (at, _) = split_line(&mut w.rows, 0, n.saturating_mul(w.width));
+                    w.rows.drain(..at);
+                    let left = line_len(w.rows.iter());
+                    for row in w.rows.iter_mut().take(left) {
+                        row.flags_mut().remove(LineFlags::MARKS);
+                    }
+                    let skipped = u64::try_from(n).unwrap_or(u64::MAX);
+                    if let Some(first) = w.rows.front_mut() {
+                        first.set_id(LineId::new(
+                            w.ids.start.saturating_add(skipped).saturating_sub(1),
+                        ));
+                    }
+                    w.ids.start = w.ids.start.saturating_add(skipped).min(w.ids.end);
+                    w.count = w.count.saturating_sub(n);
+                    n = 0;
+                    continue;
+                }
                 let mut next_id = w.ids.start;
                 let mut made = Vec::with_capacity(rows);
                 reflow::rewrap_line(
@@ -324,72 +384,96 @@ impl Scrollback {
         while self.rewrap_newest() > 0 {}
     }
 
-    /// Takes the newest rows for a rewrap at `width`: whole logical lines,
-    /// newest first, until they take at least `margin` rows at `width` and
-    /// include the row at index `reach`. The rows left wait, with what was
-    /// waiting, counted at `width` and their ids reserved from `next_id`.
-    /// At a width of one column, where a wide character becomes an empty
-    /// cell, every row is taken, as one that waited would keep it. Returns
-    /// the rows taken, oldest first, and where the rewrapped row at index
-    /// `i` is among them: at `i + older - first`, as `(older, first)`.
+    /// Takes the newest rows for a rewrap at `width`, waiting and rewrapped
+    /// alike as one run: whole logical lines, newest first, until they take
+    /// at least `margin` rows at `width` and include the rewrapped row at
+    /// index `reach`. A line with no wide character breaks at multiples of
+    /// the width, so of a longer line only the newest rows needed are
+    /// taken, and its head waits. The rows left wait, counted at `width`
+    /// with their ids reserved from `next_id`. At a width of one column,
+    /// where a wide character becomes an empty cell, every row is taken, as
+    /// one that waited would keep it.
     pub(crate) fn take_for_reflow(
         &mut self,
         width: usize,
         margin: usize,
         reach: Option<usize>,
         next_id: &mut u64,
-    ) -> (Vec<Line>, (usize, usize)) {
+    ) -> Taken {
+        self.view = None;
         if width < 2 {
             let before = self.lines.len();
             self.rewrap_all();
             let older = self.lines.len().saturating_sub(before);
             let rows = mem::take(&mut self.lines);
-            self.view = None;
-            return (rows.into(), (older, 0));
+            return Taken {
+                rows: rows.into(),
+                offset: (older, 0),
+                continues: false,
+            };
         }
-        let mut split = self.lines.len();
+        let w = &mut self.waiting;
+        w.ready = 0;
+        let mut base = w.rows.len();
+        w.rows.extend(self.lines.drain(..));
+        let reach = reach.map(|r| base.saturating_add(r));
+        let mut from = w.rows.len();
         let mut taken = 0usize;
-        let mut older: VecDeque<Line> = VecDeque::new();
-        while taken < margin || reach.is_some_and(|r| r < split) {
-            if split > 0 {
-                let end = split;
-                split = split.saturating_sub(1);
-                while let (Some(before), Some(row)) = (
-                    split.checked_sub(1).and_then(|i| self.lines.get(i)),
-                    self.lines.get(split),
-                ) {
-                    if !reflow::joins(before, row) {
-                        break;
-                    }
-                    split = split.saturating_sub(1);
-                }
-                taken = taken.saturating_add(reflow::rows_at(self.lines.range(split..end), width));
-                continue;
+        let mut continues = false;
+        while from > 0 && (taken < margin || reach.is_some_and(|r| r < from)) {
+            let end = from;
+            let mut start = end.saturating_sub(1);
+            while start
+                .checked_sub(1)
+                .and_then(|i| w.rows.get(i))
+                .zip(w.rows.get(start))
+                .is_some_and(|(before, row)| reflow::joins(before, row))
+            {
+                start = start.saturating_sub(1);
             }
-            // Past the rewrapped rows, the newest waiting line.
-            let w = &mut self.waiting;
-            let (len, _) = w.newest();
-            if len == 0 {
+            let rows = reflow::rows_at(w.rows.range(start..end), width);
+            let need = if reach.is_some_and(|r| r < start) {
+                rows
+            } else {
+                let by_reach = reach.map_or(0, |r| {
+                    rows.saturating_sub(reflow::row_of(w.rows.range(start..r), width))
+                });
+                margin.saturating_sub(taken).max(by_reach)
+            };
+            if need < rows && reflow::breaks_by_length(w.rows.range(start..end)) {
+                let head = rows.saturating_sub(need).saturating_mul(width);
+                let (at, inserted) = split_line(&mut w.rows, start, head);
+                from = at;
+                base = base.saturating_add(usize::from(inserted));
+                continues = true;
                 break;
             }
-            let from = w.rows.len().saturating_sub(len);
-            taken = taken.saturating_add(reflow::rows_at(w.rows.range(from..), width));
-            w.ready = w.ready.min(from);
-            for row in w.rows.drain(from..).rev() {
-                older.push_front(row);
-            }
+            from = start;
+            taken = taken.saturating_add(rows);
         }
-        let rows = self.lines.split_off(split);
-        let rest = mem::take(&mut self.lines);
-        self.waiting.rows.extend(rest);
-        self.waiting.count(width, next_id);
-        if self.waiting.rows.is_empty() {
-            self.waiting = Waiting::default();
+        let rows: Vec<Line> = w.rows.drain(from..).collect();
+        w.count(width, next_id);
+        if w.rows.is_empty() {
+            *w = Waiting::default();
         }
-        self.view = None;
-        let before = older.len();
-        older.extend(rows);
-        (older.into(), (before, split))
+        Taken {
+            rows,
+            offset: (base, from),
+            continues,
+        }
+    }
+
+    /// Adds `marks` to the first row of the newest waiting line, the head
+    /// of a line whose newest rows a resize took.
+    pub(crate) fn mark_waiting_head(&mut self, marks: LineFlags) {
+        if marks == LineFlags::empty() {
+            return;
+        }
+        let (len, _) = self.waiting.newest();
+        let first = self.waiting.rows.len().saturating_sub(len);
+        if let Some(row) = self.waiting.rows.get_mut(first) {
+            row.flags_mut().insert(marks);
+        }
     }
 
     /// Sets the view's top to the rewrapped row at `i`, or the screen.

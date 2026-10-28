@@ -251,6 +251,11 @@ impl Line {
         self.id
     }
 
+    /// Gives the line the id of a row a rewrap made.
+    pub(crate) fn set_id(&mut self, id: LineId) {
+        self.id = id;
+    }
+
     pub fn flags(&self) -> LineFlags {
         self.flags
     }
@@ -619,6 +624,29 @@ impl Line {
         t.clusters.extend_from_slice(s.as_bytes());
         t.live = t.live.saturating_add(s.len()).saturating_add(1);
         Some(Content::Cluster(ClusterOffset(offset)))
+    }
+
+    /// Splits the line after its first `at` cells, for a rewrap that takes
+    /// a long logical line's newest rows and leaves its head waiting:
+    /// returns the cells from `at` on as a line with this one's id, flags
+    /// and fill, and keeps the cells before as a wrapped line with no fill.
+    pub(crate) fn split_text(&mut self, at: usize) -> Line {
+        let at = at.min(self.cells.len());
+        let mut tail =
+            Line::with_capacity(self.id, self.flags, self.cells.len().saturating_sub(at));
+        let mut map = IndexMap::default();
+        for &cell in self.cells.get(at..).unwrap_or_default() {
+            tail.push_from(self, cell, cell.width(), false, &mut map);
+        }
+        tail.set_fill_from(self, &mut map);
+        tail.shrink();
+        self.cells.truncate(at);
+        self.flags.insert(LineFlags::WRAPPED);
+        self.fill = 0;
+        self.cells.shrink_to_fit();
+        self.compact();
+        self.shrink_tables();
+        tail
     }
 
     /// Gives back spare capacity, once a rewrap has filled the line.

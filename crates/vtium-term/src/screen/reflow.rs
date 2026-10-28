@@ -103,6 +103,27 @@ fn text(line: &Line) -> &[Cell] {
     }
 }
 
+/// The cells of `line`, trimmed, that are text in its logical line.
+pub(crate) fn text_len(line: &Line) -> usize {
+    text(line).len()
+}
+
+/// Whether the logical line `rows` breaks at multiples of the width, as a
+/// line that rewraps and holds no wide character does.
+pub(crate) fn breaks_by_length<'a>(mut rows: impl Iterator<Item = &'a Line>) -> bool {
+    rows.all(|l| rewraps(l) && !l.holds_wide())
+}
+
+/// The row at `width` that the text after the rows `before` of a logical
+/// line that breaks by length starts on.
+pub(crate) fn row_of<'a>(before: impl Iterator<Item = &'a Line>, width: usize) -> usize {
+    before
+        .map(text_len)
+        .fold(0usize, usize::saturating_add)
+        .checked_div(width.max(1))
+        .unwrap_or(0)
+}
+
 /// The cells the cell at `i` of `text` moves with: a wide character and its
 /// tail are one unit of two.
 fn span(text: &[Cell], i: usize) -> usize {
@@ -275,10 +296,13 @@ pub(crate) fn rewrap_line(
             p.col = col;
         }
     }
+    // A row that wraps into one that does not rewrap has text to its end,
+    // and no fill.
     if src.flags().contains(LineFlags::WRAPPED) {
         cur.flags_mut().insert(LineFlags::WRAPPED);
+    } else {
+        cur.set_fill_from(&src, &mut map);
     }
-    cur.set_fill_from(&src, &mut map);
     cur.shrink();
     out.push(cur);
     out.len().saturating_sub(start)
@@ -286,13 +310,17 @@ pub(crate) fn rewrap_line(
 
 /// Rewraps `rows`, trimmed, oldest first, at `width`, each logical line
 /// through [`rewrap_line`]. `places` are rows of `rows` on entry and of the
-/// result on return.
+/// result on return. When the first rows `continue` a line whose head
+/// waits in the scrollback, their first row takes a new id and their marks
+/// are returned, for the head's first row.
 pub(crate) fn rewrap_rows(
     rows: Vec<Line>,
     width: usize,
     next_id: &mut u64,
     places: &mut [Place],
-) -> Vec<Line> {
+    continues: bool,
+) -> (Vec<Line>, LineFlags) {
+    let mut marks = LineFlags::empty();
     let mut out = Vec::with_capacity(rows.len());
     let mut moved = places.to_vec();
     let mut rows = rows.into_iter().enumerate().peekable();
@@ -320,7 +348,17 @@ pub(crate) fn rewrap_rows(
             })
             .collect();
         let base = out.len();
+        let first_id = (continues && base == 0).then(|| {
+            let id = LineId::new(*next_id);
+            *next_id = next_id.wrapping_add(1);
+            id
+        });
         rewrap_line(group.drain(..), width, next_id, &mut mine, &mut out);
+        if let (Some(id), Some(line)) = (first_id, out.get_mut(base)) {
+            line.set_id(id);
+            marks = line.flags().intersection(LineFlags::MARKS);
+            line.flags_mut().remove(LineFlags::MARKS);
+        }
         for (n, p) in which.into_iter().zip(mine) {
             if let Some(slot) = moved.get_mut(n) {
                 *slot = Place {
@@ -331,7 +369,7 @@ pub(crate) fn rewrap_rows(
         }
     }
     places.copy_from_slice(&moved);
-    out
+    (out, marks)
 }
 
 /// Whether `line`, trimmed, is a blank row a rewrap may remove below the
@@ -412,9 +450,12 @@ impl Screen {
             .filter_map(|a| self.scrollback.lines().position(|l| l.id() == a.line))
             .chain(view)
             .min();
-        let (mut run, (older, split)) =
-            self.scrollback
-                .take_for_reflow(cols, rows, reach, &mut self.next_id);
+        let taken = self
+            .scrollback
+            .take_for_reflow(cols, rows, reach, &mut self.next_id);
+        let (older, split) = taken.offset;
+        let continues = taken.continues;
+        let mut run = taken.rows;
         let sb = run.len();
         for (y, mut line) in mem::take(&mut self.main).into_iter().enumerate() {
             // The anchor's row runs at least to it, so its place in the
@@ -446,7 +487,8 @@ impl Screen {
                 .collect(),
         };
         let mut places = carried.places();
-        let mut out = rewrap_rows(run, cols, &mut self.next_id, &mut places);
+        let (mut out, marks) = rewrap_rows(run, cols, &mut self.next_id, &mut places, continues);
+        self.scrollback.mark_waiting_head(marks);
         carried.update(&places);
 
         // Ghostty's rule: the rows below the cursor keep their number, less
@@ -677,7 +719,7 @@ mod tests {
         let rows = vec![wide, fixed, row(3, "kl", true), marked];
         let mut next = 100;
         let mut places = [];
-        let out = rewrap_rows(rows, 3, &mut next, &mut places);
+        let (out, _) = rewrap_rows(rows, 3, &mut next, &mut places, false);
         let texts: Vec<String> = out.iter().map(text_of).collect();
         assert_eq!(texts, ["abc", "ghi", "klm", "n"]);
         assert!(out[2].flags().contains(LineFlags::OUTPUT));

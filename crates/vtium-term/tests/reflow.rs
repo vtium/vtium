@@ -639,6 +639,17 @@ fn reflow_is_the_same_chunked_and_lazy_or_eager() {
             let len = rng.below(40);
             bytes.extend(common::grammar_stream(&mut rng, len));
         }
+        // Long lines with no wide character, which a resize takes the
+        // newest rows of, and a drop past sb-size cuts by length.
+        if rng.below(2) == 0 {
+            for _ in 0..rng.below(4) {
+                let len = rng.below(400);
+                let line: String = (0..len)
+                    .map(|i| char::from(b'a' + (i % 26) as u8))
+                    .collect();
+                bytes.extend(format!("\x1b]133;A\x07{line}\r\n").into_bytes());
+            }
+        }
         let mut events: Vec<(usize, Event)> = (0..1 + rng.below(10))
             .map(|_| (rng.below(bytes.len() + 1), event(&mut rng)))
             .collect();
@@ -725,10 +736,15 @@ fn scrollback_heap(t: &mut Terminal) -> usize {
 )]
 fn reflow_cost() {
     use std::time::Instant;
-    let shapes: [(&str, String, usize); 4] = [
+    let shapes: [(&str, String, usize); 5] = [
         ("wrapped pairs", format!("{}\r\n", "a".repeat(340)), 100_000),
         ("one logical line", "a".repeat(170), 100_000),
         ("shell lines", format!("{}\r\n", "a".repeat(40)), 100_000),
+        (
+            "wrapped pairs, the view at the top",
+            format!("{}\r\n", "a".repeat(340)),
+            100_000,
+        ),
         (
             "a style a cell",
             format!("{}\r\n", "\x1b[38;2;1;2;3ma".repeat(340)),
@@ -745,6 +761,9 @@ fn reflow_cost() {
         t.input(unit.repeat((rows + 48) / per).as_bytes());
         let before = scrollback_heap(&mut t);
         for cols in [169, 170, 100] {
+            if name == "wrapped pairs, the view at the top" {
+                t.screen_mut().scroll_view_up(rows * 2);
+            }
             let at = Instant::now();
             t.resize(cols, 48);
             let resize = at.elapsed();
