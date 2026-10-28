@@ -9,6 +9,8 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use vtium_font::Cell;
+
 /// The most bytes a frit holds.
 pub const FRIT_BYTES_MAX: usize = 64 * 1024;
 /// The most bytes one line holds.
@@ -20,6 +22,10 @@ pub const FRIT_SOURCES_MAX: usize = 16;
 /// wide still fits a set's 16 KiB chunk.
 pub const FRIT_SIZE_MIN: u32 = 6;
 pub const FRIT_SIZE_MAX: u32 = 96;
+/// The smallest and largest side of the cell `cell=` states, the bounds
+/// `size=` takes.
+pub const FRIT_CELL_MIN: u32 = FRIT_SIZE_MIN;
+pub const FRIT_CELL_MAX: u32 = FRIT_SIZE_MAX;
 
 /// Set names a frit may not take: the built-in sets'.
 pub const RESERVED: [&str; 2] = ["unifont", "unscii-8"];
@@ -107,6 +113,9 @@ pub struct Frit {
     /// `size=`: the cell heights an outline font sets the cell at, one
     /// strike each, in the frit's order.
     pub sizes: Vec<u32>,
+    /// `cell=`: the cell the console draws in and the helper generates
+    /// for (#145), which the console reads before its first frame.
+    pub cell: Option<Cell>,
     pub license: Option<String>,
     /// The frit's bytes, verbatim, for the provenance and the build key.
     pub text: String,
@@ -160,6 +169,7 @@ impl Frit {
         let mut sources: Vec<Source> = Vec::new();
         let mut compress = None;
         let mut sizes: Vec<u32> = Vec::new();
+        let mut cell = None;
         let mut license = None;
         let mut warnings = Vec::new();
         let not_portable = |line: usize, key: &str| FritError {
@@ -322,6 +332,17 @@ impl Frit {
                     }
                     sizes.push(size);
                 }
+                "cell" => {
+                    once(cell.is_some())?;
+                    cell = Some(parse_cell(value).ok_or_else(|| {
+                        err(
+                            n,
+                            &format!(
+                                "cell= is WIDTHxHEIGHT in pixels, each {FRIT_CELL_MIN} to {FRIT_CELL_MAX}"
+                            ),
+                        )
+                    })?);
+                }
                 "cp-size" => {
                     return Err(err(
                         n,
@@ -357,12 +378,28 @@ impl Frit {
             sources,
             compress: compress.unwrap_or(true),
             sizes,
+            cell,
             license,
             text: text.to_owned(),
             file: file.to_owned(),
             warnings,
         })
     }
+}
+
+/// A `cell=` value, `WIDTHxHEIGHT` with each side in
+/// [`FRIT_CELL_MIN`]..=[`FRIT_CELL_MAX`].
+pub fn parse_cell(value: &str) -> Option<Cell> {
+    let (w, h) = value.split_once('x')?;
+    let side = |s: &str| {
+        s.parse::<u32>()
+            .ok()
+            .filter(|n| (FRIT_CELL_MIN..=FRIT_CELL_MAX).contains(n) && !s.starts_with(['0', '+']))
+    };
+    Some(Cell {
+        width: side(w)?,
+        height: side(h)?,
+    })
 }
 
 /// A `source=` value's origin.
@@ -509,7 +546,8 @@ mod tests {
              compress=no\n\
              license=OFL-1.1\n\
              size=16\n\
-             size=8\n",
+             size=8\n\
+             cell=10x20\n",
         )
         .expect("parses");
         assert_eq!(r.name, "term-16");
@@ -535,6 +573,13 @@ mod tests {
         assert_eq!((font.sha256, font.line), (Some(sha), 12));
         assert_eq!(r.sources[6].cover, [(0x1f600, 0x1f64f)]);
         assert_eq!(r.sizes, [16, 8]);
+        assert_eq!(
+            r.cell,
+            Some(Cell {
+                width: 10,
+                height: 20
+            })
+        );
         assert_eq!(r.warnings.len(), 2, "file: and outline: name paths here");
         assert_eq!(r.sources[0].unimap.as_deref(), Some("lat1u"));
         assert_eq!(r.sources[0].cover, [(0, 0x7f), (0x2500, 0x257f)]);
@@ -558,6 +603,11 @@ mod tests {
             ("cover=ascii\n", 1, "before any source="),
             ("source=kbd:x\ncompress=maybe\n", 2, "yes or no"),
             ("source=kbd:x\nname=a\nname=b\n", 3, "given twice"),
+            ("source=kbd:x\ncell=8x16\ncell=8x16\n", 3, "given twice"),
+            ("source=kbd:x\ncell=16\n", 2, "WIDTHxHEIGHT"),
+            ("source=kbd:x\ncell=5x16\n", 2, "WIDTHxHEIGHT"),
+            ("source=kbd:x\ncell=8x97\n", 2, "WIDTHxHEIGHT"),
+            ("source=kbd:x\ncell=08x16\n", 2, "WIDTHxHEIGHT"),
             ("source=file:relative.psf\n", 1, "absolute path"),
             ("source=console:0\n", 1, "1 to 63"),
             ("source=console:64\n", 1, "1 to 63"),

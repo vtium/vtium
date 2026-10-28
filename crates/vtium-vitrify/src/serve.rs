@@ -44,11 +44,11 @@
 //! the console read from its own VT at start and handed over
 //! (vtium/vtium#145): the helper opens no VT, and every `console:VT` takes that font.
 //!
-//! The glyphs fill the console's cell, which the built-in font set: an
-//! outline font is drawn at that cell's height and width, and a bitmap
-//! font is scaled by the largest whole factor that fits, centred across
-//! and on the cell's bottom row, as `create` places one; a bitmap font
-//! whose cell does not fit gives nothing, and the console draws those
+//! The glyphs are drawn at the cell a request names, the frit's, and
+//! never another (#145): an outline font at that cell's height and width,
+//! and a bitmap font scaled by the largest whole factor that fits, centred
+//! across and on the cell's bottom row, as `create` places one; a bitmap
+//! font whose cell does not fit gives nothing, and the console draws those
 //! characters in the built-in font.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
