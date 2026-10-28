@@ -123,9 +123,6 @@ impl<K: Kms> Drm2d<K> {
             ));
         }
         let levels = card.levels();
-        if let Some(n) = levels {
-            log::info!("the card drives a panel of {n} levels");
-        }
         Ok(Drm2d {
             card,
             levels,

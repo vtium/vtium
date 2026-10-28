@@ -25,8 +25,9 @@ enum Levels {
 const DRIVERS: [(&str, Levels); 6] = [
     // solomon/ssd130x.c:42 and :1687; the SSD130x family converts to 1 bit
     // (:943), the SSD132x family to gray8 whose high nibble it sends
-    // (:968, :807) and the SSD1331 to RGB332 (:196-216), told apart by
-    // compatible (ssd130x-i2c.c, ssd130x-spi.c)
+    // (:968, :807) and the SSD133x family, the SSD1331, to RGB332 (:991),
+    // the families told apart by compatible (:196-216; ssd130x-i2c.c,
+    // ssd130x-spi.c)
     (
         "ssd130x",
         Levels::Compatible(

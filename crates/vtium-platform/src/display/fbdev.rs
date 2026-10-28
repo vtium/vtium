@@ -128,6 +128,15 @@ enum Packing {
 }
 
 impl Packing {
+    /// The byte a cleared framebuffer holds: every pixel unlit, black,
+    /// which `FB_VISUAL_MONO01` writes as set bits.
+    fn clear(&self) -> u8 {
+        match self {
+            Packing::Mono { set_lit: false, .. } => 0xff,
+            _ => 0,
+        }
+    }
+
     fn xrgb8888(&self) -> bool {
         matches!(self, Packing::TrueColor(l) if l.xrgb8888())
     }
@@ -449,7 +458,8 @@ impl<F: Framebuffer> Fbdev<F> {
     /// so [`Event::Asleep`] follows at once.
     pub fn sleep(&mut self) {
         if let Some(mut s) = self.screen.take() {
-            s.map.as_mut().fill(0);
+            let clear = s.packing.clear();
+            s.map.as_mut().fill(clear);
         }
         self.awake = false;
         self.lent = false;
@@ -560,15 +570,20 @@ impl<F: Framebuffer> Fbdev<F> {
         let stride = usize::try_from(fix.line_length).map_err(|_| unsupported("stride".into()))?;
         let len = stride.saturating_mul(height);
         let mut map = self.dev.map(len)?;
-        map.as_mut().fill(0);
+        map.as_mut().fill(packing.clear());
         let shadow = (!packing.xrgb8888()).then(|| {
             let px = usize::try_from(var.xres)
                 .unwrap_or(0)
                 .saturating_mul(height);
             vec![0u8; px.saturating_mul(4)]
         });
+        let visual = match packing {
+            Packing::Mono { set_lit: true, .. } => ", FB_VISUAL_MONO10: a 1-bit display",
+            Packing::Mono { set_lit: false, .. } => ", FB_VISUAL_MONO01: a 1-bit display",
+            Packing::TrueColor(_) => "",
+        };
         log::info!(
-            "framebuffer at {}x{}, {} bits a pixel",
+            "framebuffer at {}x{}, {} bits a pixel{visual}",
             var.xres,
             var.yres,
             var.bits_per_pixel

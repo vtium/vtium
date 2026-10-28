@@ -255,6 +255,15 @@ fn a_1_bit_framebuffer_is_packed_where_damaged() {
     assert_eq!(map(&mut v)[16], 0);
 }
 
+// a cleared MONO01 framebuffer is black: its unlit bits are set
+#[test]
+fn a_1_bit_framebuffer_is_cleared_unlit() {
+    let mut v = mono(FB_VISUAL_MONO01, 0);
+    assert!(map(&mut v).iter().all(|&b| b == 0xff));
+    let mut v = mono(FB_VISUAL_MONO10, 0);
+    assert!(map(&mut v).iter().all(|&b| b == 0));
+}
+
 #[test]
 fn mono01_sets_the_unlit_bits() {
     let mut v = mono(FB_VISUAL_MONO01, 0);

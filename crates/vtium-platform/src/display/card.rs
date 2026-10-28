@@ -334,9 +334,24 @@ impl Kms for Card {
                 rustix::fs::minor(dev)
             ))
         });
-        super::depth::levels(&driver, |property| {
-            std::fs::read(node.as_ref()?.join(property)).ok()
-        })
+        let read = |property: &str| std::fs::read(node.as_ref()?.join(property)).ok();
+        let levels = super::depth::levels(&driver, read);
+        if let Some(n) = levels {
+            let compatible = read("compatible")
+                .map(|c| {
+                    String::from_utf8_lossy(&c)
+                        .replace('\0', " ")
+                        .trim()
+                        .to_owned()
+                })
+                .unwrap_or_default();
+            log::info!(
+                "the card's driver {driver}, device-tree node {} (compatible {compatible:?}), drives a panel of {n} levels",
+                node.as_ref()
+                    .map_or_else(|| "unknown".into(), |p| p.display().to_string())
+            );
+        }
+        levels
     }
 }
 
