@@ -24,9 +24,13 @@ macro_rules! tt {
     };
 }
 
+mod cursor;
 mod host;
 mod images;
 mod kitty;
+mod modes;
+mod queries;
+mod sgr;
 mod sixel;
 mod text;
 
@@ -189,11 +193,19 @@ impl Generated {
 /// again as `-nohook`, with the host removed and no fixtures, so its file
 /// media answer EBADF and its inline PNG and zlib EINVAL, with no request.
 pub fn cases(inputs: &Inputs) -> Vec<Generated> {
+    let [transmit, place, delete, kitty_host] = kitty::GROUPS;
     let all: Vec<Case> = [
+        sgr::CASES,
+        cursor::CASES,
         text::CASES,
+        modes::CASES,
+        queries::CASES,
         images::CASES,
         sixel::CASES,
-        kitty::CASES,
+        transmit,
+        place,
+        delete,
+        kitty_host,
         host::CASES,
     ]
     .concat();
