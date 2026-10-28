@@ -32,6 +32,9 @@
 ## The most lines `sb-size` may ask for. Unset, it follows the machine's memory: 10,000 lines below 2 GiB, 30,000 from 2 GiB and 100,000 from 4 GiB.
 #sb-size-cap=
 
+## The most bytes the scrollback holds, at most a quarter of the machine's memory; its oldest lines go past it, as past `sb-size`. The default keeps the worst scrollback a program can write inside the 16 MiB minspec peak.
+#sb-memory=5963776
+
 ## Blink text with SGR 5 and a blinking cursor, every 500 ms; off, neither blinks.
 #blink
 

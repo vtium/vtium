@@ -1174,3 +1174,46 @@ fn pointer_char_takes_one_character() {
         assert_eq!(l.config.char(&POINTER_CHAR), None);
     }
 }
+
+/// `sb-memory`: the scrollback's byte budget, fenced from 1 MiB to 1 GiB
+/// (vtium/vtium#131); a quarter of the machine's memory caps it at start.
+#[test]
+fn sb_memory_is_fenced_from_1_mib_to_1_gib() {
+    assert_eq!(
+        Config::default().number(&SB_MEMORY),
+        Some(vtium_term::SB_MEMORY_DEFAULT as u64)
+    );
+    for (asked, used) in [
+        ("1048576", 1 << 20),
+        ("6291456", 6 << 20),
+        ("1073741824", 1 << 30),
+    ] {
+        let l = main_file(&format!("sb-memory={asked}\n"));
+        assert_eq!(l.reports, [], "{asked}");
+        assert_eq!(l.config.number(&SB_MEMORY), Some(used));
+    }
+    for (asked, used) in [
+        ("0", 1 << 20),
+        ("1048575", 1 << 20),
+        ("1073741825", 1 << 30),
+        ("99999999999999999999999", 1 << 30),
+    ] {
+        let l = load_with(&[&format!("--sb-memory={asked}")], None, &[]);
+        assert_eq!(l.config.number(&SB_MEMORY), Some(used), "{asked}");
+        assert_eq!(
+            problems(&l),
+            [&Problem::Clamped {
+                key: "sb-memory",
+                value: asked.into(),
+                used
+            }]
+        );
+    }
+    assert_eq!(
+        problems(&main_file("sb-memory=0\n"))
+            .first()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("sb-memory=\"0\" is out of bounds, 1048576 used")
+    );
+}
