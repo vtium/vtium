@@ -57,7 +57,7 @@ observable:
   - "`cargo tree -p vtium -e normal` on the default build lists no bzip2, xz, zstd or outline-font crate, and the minspec binary stays under its budget"
   - "`vtium-vitrify create --all` run twice on unchanged inputs reports every set `current` the second time, and a set rebuilt from the same inputs has the same SHA-256"
   - "A set whose bytes differ from its manifest row, or a store file not owned by root, is refused: vtium draws its built-in font and logs the set, the reason and the `vtium-vitrify` command to run"
-  - "Tier 2 draws a vitrified PSF set's screens equal, pixel for pixel, to the C reference's draw of the same PSF file"
+  - "Tier 2 draws a vitrified PSF set's screens equal, pixel for pixel, to the goldens in vtium's own tree for the same PSF"
 status: proposed
 date: 2026-10-28
 deciders:
@@ -152,7 +152,7 @@ A set is one file, little-endian throughout, nothing in it compressed:
 - **`POLY`:** the #85 sprite policy and the set's coverage of each sprite range, so the console warns of partial coverage without scanning.
 - **`GLYF`:** each strike's glyphs in run order, 1 or 2 cells wide at the strike's cell, in the strike's format; a 1-bit row is padded to a byte, as vtium-render stores it. The section is chunks of at most 16 KiB, no glyph split across two, with an index at its head giving each chunk's offset and SHA-256.
 
-A bitmap source gives one strike at its own size; the renderer scales it by whole factors (ADR-1300, D2). An outline source gives one strike per `size=`, 1-bit where every pixel is 0 or 255 and 8-bit otherwise; colour glyphs are RGBA strikes.
+A bitmap source gives one strike at its own size; the renderer scales it by whole factors (ADR-1300, D2). An outline source gives one strike per `size=`, 1-bit where every pixel is 0 or 255 and 8-bit otherwise; color glyphs are RGBA strikes.
 
 A set is reproducible: no timestamp, and every table sorted, so the same recipe, source bytes and format version give the same bytes, and its SHA-256 names its content.
 
@@ -216,7 +216,7 @@ The build key is the SHA-256 of the format version, the recipe's bytes and each 
 - **vtium-font:** a set written and read back holds every field; every glyph of the four PSF fixtures drawn from its vitrified set equals the `Psf` draw, so the C reference's digests hold through vitrify; a set built twice is the same bytes; the reader refuses a whole-file hash mismatch, a chunk hash mismatch, a store, manifest or set with the wrong owner or a group- or world-writable mode, a symbolic link, an unknown major version and each bound; a fuzz target for the reader.
 - **vtium-vitrify:** recipe parsing, each key and each refusal with its line; kbd lookup's order of directories and suffixes against a fixture tree; vconsole.conf and the kernel command line; each compression; PSF1, PSF2, CPI, raw fonts and unimaps; the rebuild rule (unchanged inputs are `current`; a changed recipe, source or format version is `built`); `list`'s TSV and JSON read back; the refusal without root. Fixtures are generated in Rust in vtium's tree.
 - **KDFONTOP and GIO_UNIMAP:** request numbers in vtium-platform; the live read only in tier 3's guest, never on the maintainer's desktop.
-- **Tier 2:** a vitrified PSF set's screens against goldens the C reference draws from the same PSF with its PSF backend; `unscii-8` screens at 320x240 and 480x320 (#75), provisional until the operator reviews them; outline sets when #23 and #24 re-baseline the C reference's outline goldens.
+- **Tier 2:** a vitrified PSF set's screens against goldens read from vtium's own tree (`tools/tier2/goldens`), never the fork's checkout (#111): new goldens are vtium's reviewed output, provisional until the operator reviews them, and the vtium-font test above ties the set's glyphs to the C reference's digests; `unscii-8` screens at 320x240 and 480x320 (#75) the same way; outline sets when #23 and #24 re-baseline the outline goldens vtium holds.
 - **Tier 3:** the minimal variant vitrifies its PSF in the guest before vtium starts, so its screens hold; `make vt-check` covers `vtium-vitrify set` switching sets live.
 
 ### Where vtium departs
