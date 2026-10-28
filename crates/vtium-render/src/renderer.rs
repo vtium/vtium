@@ -892,7 +892,7 @@ impl<F: Face> Renderer<F> {
     fn job(&self, g: &Grid, at: Place, glyph_cells: usize, paint: Paint) -> Job {
         let l = &self.layout;
         let depth = self.config.depth;
-        let ink = Ink::new(depth, paint.bg, self.background.unwrap_or_default());
+        let ink = Ink::new(depth, paint.bg);
         Job {
             posx: at.col,
             ncells: at.ncells,
