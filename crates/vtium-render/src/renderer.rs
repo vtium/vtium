@@ -51,6 +51,28 @@ pub struct DecorationColors {
     pub force: bool,
 }
 
+/// How blinking text, SGR 5 and 6, draws in the blink's off phase:
+/// `blink-text`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BlinkStyle {
+    /// The glyph hides.
+    #[default]
+    Full,
+    /// The glyph draws halfway to its background, as SGR 2 draws it.
+    Partial,
+    /// The glyph stays: blinking text draws steady.
+    Off,
+}
+
+/// The text blink's options: `blink-text` and `blink-decorations`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TextBlink {
+    pub style: BlinkStyle,
+    /// The underline and the strike blink with the glyph: hidden with it
+    /// or dimmed with it. Otherwise they stay as the on phase draws them.
+    pub decorations: bool,
+}
+
 /// How a renderer draws, fixed for its life.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
@@ -61,6 +83,7 @@ pub struct Config {
     pub budgets: Option<Budgets>,
     pub storage: Storage,
     pub decorations: DecorationColors,
+    pub blink: TextBlink,
 }
 
 impl Default for Config {
@@ -72,6 +95,7 @@ impl Default for Config {
             budgets: None,
             storage: Storage::default(),
             decorations: DecorationColors::default(),
+            blink: TextBlink::default(),
         }
     }
 }
@@ -81,7 +105,8 @@ impl Default for Config {
 pub struct DrawState {
     /// The cursor's blink phase shows it.
     pub cursor_on: bool,
-    /// The text blink phase hides blinking text.
+    /// The text blink is in its off phase, which draws blinking text as
+    /// [`Config::blink`] says.
     pub blink_hidden: bool,
     /// The palette's default foreground.
     pub foreground: Rgb,
@@ -353,11 +378,18 @@ fn next_width(frame: &Frame<'_>, row: usize, col: usize, cols: usize) -> Option<
         .map(|fc| fc.width)
 }
 
-/// Whether `fc` is hidden by the text blink phase: blinking, not under
-/// the cursor, in the hidden phase.
-fn blink_hides(fc: &FrameCell<'_>, is_cursor: bool, state: &DrawState) -> bool {
+/// Whether `fc` draws in the text blink's off phase: blinking, not under
+/// the cursor, in the off phase, with `blink` not off.
+fn blink_off(fc: &FrameCell<'_>, is_cursor: bool, state: &DrawState, blink: TextBlink) -> bool {
     let blinks = fc.attrs.contains(Attrs::BLINK) || fc.attrs.contains(Attrs::RAPID_BLINK);
-    !is_cursor && blinks && state.blink_hidden
+    !is_cursor && blinks && state.blink_hidden && blink.style != BlinkStyle::Off
+}
+
+/// SGR 2's colour: halfway from `fg` to `bg`, each channel the sum of the
+/// two halved, as `vtium-term`'s frame dims a foreground.
+fn dim(fg: Rgb, bg: Rgb) -> Rgb {
+    let ch = |f: u8, b: u8| (f / 2).saturating_add(b / 2);
+    Rgb::new(ch(fg.r, bg.r), ch(fg.g, bg.g), ch(fg.b, bg.b))
 }
 
 impl<F: Face> Renderer<F> {
@@ -644,7 +676,7 @@ impl<F: Face> Renderer<F> {
                 continue;
             }
             let is_cursor = p.at == Some((here, row));
-            let hidden = blink_hides(&fc, is_cursor, p.state);
+            let off = blink_off(&fc, is_cursor, p.state, self.config.blink);
             if ncells == 2 {
                 let tail = here.saturating_add(1);
                 changed |= p.frame.cell(row, tail).is_some_and(|t| t.changed);
@@ -656,9 +688,9 @@ impl<F: Face> Renderer<F> {
                 continue;
             };
             let look = is_cursor.then_some((p.cursor.shape, p.cursor.color));
-            changed |= s.cursor != look || s.hidden != hidden;
+            changed |= s.cursor != look || s.blink_off != off;
             s.cursor = look;
-            s.hidden = hidden;
+            s.blink_off = off;
             if changed {
                 self.cells.stamp(here, row);
             }
@@ -676,7 +708,7 @@ impl<F: Face> Renderer<F> {
                     ncells,
                 },
                 is_cursor.then_some(&p.cursor),
-                hidden,
+                off,
             );
         }
         self.widen_to_span(p, row);
@@ -685,14 +717,14 @@ impl<F: Face> Renderer<F> {
     }
 
     /// The jobs for one cell: its own, and for a bar cursor on a wide cell,
-    /// its second half's.
+    /// its second half's. `off` draws it in the text blink's off phase.
     fn push_jobs(
         &mut self,
         g: &Grid,
         fc: &FrameCell<'_>,
         at: Place,
         cursor: Option<&Cursor>,
-        hidden: bool,
+        off: bool,
     ) {
         let force = self.config.decorations.force;
         let (deco_ul, deco_strike) = self.deco;
@@ -732,7 +764,25 @@ impl<F: Face> Renderer<F> {
             .attrs
             .contains(Attrs::STRIKE)
             .then_some(deco_strike.unwrap_or(fg));
-        let underline = Kind::underline(underline).map(|k| (k, ul_color));
+        let mut underline = Kind::underline(underline).map(|k| (k, ul_color));
+        let mut strike = strike;
+        let blink = self.config.blink;
+        let (hidden, dimmed) = match blink.style {
+            BlinkStyle::Full => (off, false),
+            BlinkStyle::Partial => (false, off),
+            BlinkStyle::Off => (false, false),
+        };
+        if off && blink.decorations {
+            if hidden {
+                (underline, strike) = (None, None);
+            } else if dimmed {
+                underline = underline.map(|(k, c)| (k, dim(c, bg)));
+                strike = strike.map(|c| dim(c, bg));
+            }
+        }
+        if dimmed {
+            fg = dim(fg, bg);
+        }
         let style = Style {
             bold: fc.attrs.contains(Attrs::BOLD),
             italic: fc.attrs.contains(Attrs::ITALIC),
@@ -837,7 +887,7 @@ impl<F: Face> Renderer<F> {
                 continue;
             }
             let is_cursor = p.at == Some((here, row));
-            let hidden = blink_hides(&fc, is_cursor, p.state);
+            let off = blink_off(&fc, is_cursor, p.state, self.config.blink);
             self.cells.mark_drawn(here, row, ncells);
             self.push_jobs(
                 g,
@@ -848,7 +898,7 @@ impl<F: Face> Renderer<F> {
                     ncells,
                 },
                 is_cursor.then_some(&p.cursor),
-                hidden,
+                off,
             );
         }
         self.compose.jobs.sort_by_key(|j| j.posx);

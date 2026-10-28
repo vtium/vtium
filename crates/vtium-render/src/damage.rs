@@ -31,7 +31,8 @@ pub(crate) struct CellState {
     stamp: u64,
     /// The cursor it drew: its shape and OSC 12's colour.
     pub(crate) cursor: Option<(CursorShape, Option<Rgb>)>,
-    pub(crate) hidden: bool,
+    /// It drew in the text blink's off phase.
+    pub(crate) blink_off: bool,
     /// The cells it drew over: 0 as a trailing half, 1 or 2.
     pub(crate) span: u8,
     /// Drawn on this frame: in its damage.
