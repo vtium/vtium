@@ -75,28 +75,6 @@ fn read(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// The rows of `provenance.tsv`, and the kmscon commit they all name.
-fn rows() -> Result<(Vec<provenance::Copy>, String), String> {
-    let copies = provenance::read(&read(&Path::new(HERE).join("provenance.tsv"))?)?;
-    let commit = provenance::commit(&copies, "kmscon")?.to_owned();
-    if copies.iter().any(|c| c.repo != "kmscon") {
-        return Err("provenance.tsv names a repository other than kmscon".to_owned());
-    }
-    Ok((copies, commit))
-}
-
-/// The kmscon commit the copies came from, once each copy is checked
-/// against its row of `provenance.tsv`.
-fn copies(root: &Path) -> Result<String, String> {
-    let (copies, commit) = rows()?;
-    let faults = provenance::check(root, &copies, &[runner::COPIED], &[]);
-    if faults.is_empty() {
-        Ok(commit)
-    } else {
-        Err(faults.join("\n"))
-    }
-}
-
 fn run(opts: &[(String, String)]) -> ExitCode {
     let here = Path::new(HERE);
     let root = here.join("../..");
@@ -108,16 +86,7 @@ fn run(opts: &[(String, String)]) -> ExitCode {
             return refuse(format!("{}: {e}", report.display()));
         }
     }
-    let lists = || -> Result<_, String> {
-        let commit = copies(&root)?;
-        let departures = runner::departures(&read(&here.join("departures.tsv"))?)?;
-        let pending = runner::pending(&read(&here.join("pending.tsv"))?)?;
-        let provisional = runner::provisional(&read(&here.join("provisional.tsv"))?)?;
-        let titles = runner::readme_departures(&read(&root.join("crates/vtium-render/README.md"))?);
-        runner::check_ported(CASES, &read(&here.join("reference/test_pixels.c"))?)?;
-        Ok((commit, departures, pending, provisional, titles))
-    };
-    let (commit, departures, pending, provisional, titles) = match lists() {
+    let lists = match runner::load(&root, CASES) {
         Ok(x) => x,
         Err(e) => return refuse(e),
     };
@@ -127,13 +96,14 @@ fn run(opts: &[(String, String)]) -> ExitCode {
         cases: CASES,
         kmscon_goldens: &goldens,
         vtium_goldens: &vtium_goldens,
-        departures: &departures,
-        pending: &pending,
-        provisional: &provisional,
+        departures: &lists.departures,
+        pending: &lists.pending,
+        provisional: &lists.provisional,
+        c_goldens: &lists.c_goldens,
         out: &out,
         root: &out,
     };
-    if let Err(e) = r.check_lists(&titles) {
+    if let Err(e) = r.check_lists(&lists.titles) {
         return refuse(e);
     }
     let cases = match r.cases() {
@@ -153,7 +123,7 @@ fn run(opts: &[(String, String)]) -> ExitCode {
         }
         println!("{line}");
     }
-    let tools = [("kmscon", commit)];
+    let tools = [("kmscon", lists.commit.clone())];
     if let Err(e) = runner::write_report(&report, &tools, &cases) {
         return refuse(e);
     }
@@ -276,8 +246,10 @@ fn provenance_cmd(opts: &[(String, String)]) -> ExitCode {
     let root = here.join("../..");
     let kmscon = opt(opts, "--kmscon").unwrap_or_else(|| root.join("../kmscon"));
     let result = || -> Result<(usize, Vec<String>), String> {
-        let (copies, commit) = rows()?;
-        let pending = runner::pending(&read(&here.join("pending.tsv"))?)?;
+        let (copies, commit) = runner::provenance_rows(&read(&here.join("provenance.tsv"))?)?;
+        let listed: BTreeSet<String> = runner::c_goldens(&read(&here.join("c-goldens.list"))?)?
+            .into_iter()
+            .collect();
         let mut faults = provenance::check(&root, &copies, &[runner::COPIED], &[]);
         faults.extend(provenance::verify(&copies, |_, commit, path| {
             git(&kmscon, &["show", &format!("{commit}:{path}")])
@@ -295,12 +267,7 @@ fn provenance_cmd(opts: &[(String, String)]) -> ExitCode {
             .lines()
             .filter_map(|l| l.rsplit('/').next().map(str::to_owned))
             .collect();
-        let goldens = format!("{}/goldens/", runner::COPIED);
-        let copied: BTreeSet<String> = copies
-            .iter()
-            .filter_map(|c| c.path.strip_prefix(&goldens).map(str::to_owned))
-            .collect();
-        faults.extend(runner::check_pin(&at_pin, &copied, &pending));
+        faults.extend(runner::check_pin(&at_pin, &listed));
         Ok((copies.len(), faults))
     };
     let (rows, faults) = match result() {

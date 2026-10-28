@@ -1,0 +1,40 @@
+# The files of the C reference's tests/goldens/tier2/ at the kmscon commit
+# provenance.tsv names, one a line. tier2 run requires each golden here to
+# be copied and drawn, or listed in pending.tsv; make tier2-provenance
+# checks this list against the commit with git ls-tree.
+ascii.ppm
+blocks-spaced.ppm
+blocks.ppm
+bold.ppm
+box.ppm
+cjk.ppm
+combining.ppm
+deco-config.ppm
+deco-force.ppm
+emoji-mono.ppm
+emoji-spaced.ppm
+emoji.ppm
+img-bands.ppm
+img-banner-bg.ppm
+img-banner-text.ppm
+img-ed2.ppm
+img-moves.ppm
+img-region.ppm
+img-rotated.ppm
+img-scale.ppm
+img-sixel.ppm
+inverse.ppm
+kitty-bands.ppm
+kitty-banner-bg.ppm
+kitty-banner-text.ppm
+kitty-text.ppm
+mosaic-spaced.ppm
+mosaic.ppm
+osd.ppm
+palette.ppm
+redraw.ppm
+sixel-vte.ppm
+strike.ppm
+underline.ppm
+vs16.ppm
+wide-deco.ppm
