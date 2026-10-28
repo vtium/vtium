@@ -651,6 +651,41 @@ fn sleep_lets_go_of_a_held_button() {
     );
 }
 
+// A finger on the touchpad across a VT switch: its first position after
+// the wake-up is the new origin, so the pointer goes on from where it is
+// rather than jumping by the finger's travel on the other VT.
+#[test]
+fn a_touchpads_finger_takes_its_origin_afresh_after_a_sleep() {
+    let (mut input, node, id) = with_device(fake::touch(false));
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[
+            ev(EV_KEY, BTN_TOUCH, 1),
+            ev(EV_ABS, ABS_X, 10),
+            ev(EV_ABS, ABS_X, 30),
+        ],
+    );
+    pointers(&mut input);
+    input.sleep();
+    input.wake_up();
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[ev(EV_ABS, ABS_X, 80), ev(EV_ABS, ABS_X, 90)],
+    );
+    let xs: Vec<i32> = pointers(&mut input)
+        .into_iter()
+        .filter_map(|p| match p {
+            PointerEvent::Moved { x, .. } => Some(x),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(xs, [20, 30]);
+}
+
 #[test]
 fn the_pointer_hides_after_its_timeout_without_a_frame() {
     let (mut input, node, id) = with_device(fake::mouse());
