@@ -4,13 +4,13 @@
 # wrong-looks-like: A colon row with default text and empty backgrounds, or
 # wrong-looks-like: a plain colon half of the last line: stock kmscon drops
 # wrong-looks-like: colon sequences.
-# Color selection with sub-parameters (CSI 38:5:n m, CSI 38:2::r:g:b m) beside
+# Colour selection with sub-parameters (CSI 38:5:n m, CSI 38:2::r:g:b m) beside
 # the semicolon forms. Upstream libtsm discards a whole SGR sequence holding a
-# colon, so there the colon rows show no color at all.
+# colon, so there the colon rows show no colour at all.
 idx='196 208 226 46 51 21 129 201'
 rgb='255:40:40 255:150:0 230:220:0 40:200:80 0:200:220 40:80:255 150:60:220 240:60:180'
 
-# One row of swatches: SGR <prefix><color>, with the color's parts joined by
+# One row of swatches: SGR <prefix><colour>, with the colour's parts joined by
 # <sep>.
 swatches() {
 	local label=$1 prefix=$2 set=$3 sep=$4 text=$5 c

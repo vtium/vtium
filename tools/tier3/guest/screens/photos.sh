@@ -3,12 +3,12 @@
 # look-for: One photograph twice side by side below the page's first line,
 # look-for: chafa left and libsixel (mpv) right, each named under it: a street
 # look-for: at sunset, the sky orange to blue. libsixel's copy has a fine grain
-# look-for: (mpv sends it in under 100 colors) and can end a few pixels above
+# look-for: (mpv sends it in under 100 colours) and can end a few pixels above
 # look-for: chafa's: mpv rounds its height to sixel's 6-pixel bands. Then what
 # look-for: img2sixel wrote.
-# wrong-looks-like: No pictures, a picture over the text or the names, colors
+# wrong-looks-like: No pictures, a picture over the text or the names, colours
 # wrong-looks-like: swapped or washed out, bands in chafa's sky, torn or
-# wrong-looks-like: shifted rows, a picture cut off, or one copy in colors
+# wrong-looks-like: shifted rows, a picture cut off, or one copy in colours
 # wrong-looks-like: unlike the other's beyond libsixel's grain.
 # screen-text: none, sixel pictures and cursor moves do not print as rows
 # ADR-103's acceptance scenario A1: a real photograph through two sixel

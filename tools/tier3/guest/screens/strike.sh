@@ -1,9 +1,9 @@
 #!/bin/bash
 # look-for: A line through the middle of each struck run, in the text's
-# look-for: color and across CJK; it stops at 29 and before the trailing
+# look-for: colour and across CJK; it stops at 29 and before the trailing
 # look-for: spaces.
 # wrong-looks-like: No strike anywhere (stock kmscon has no SGR 9), a
-# wrong-looks-like: strike off the middle or in another color, or one
+# wrong-looks-like: strike off the middle or in another colour, or one
 # wrong-looks-like: running on into the spaces.
 # Strikethrough, SGR 9 (set) and 29 (reset).
 row() {

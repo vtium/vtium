@@ -27,10 +27,10 @@ decrqm() {
 
 # Rows from..to of frame n, a row each 15 ms, from the cursor's row down.
 rows_of() {
-	local n=$1 from=$2 to=$3 y glyph color
-	if ((n % 2)); then glyph='▒' color=33; else glyph='█' color=34; fi
+	local n=$1 from=$2 to=$3 y glyph colour
+	if ((n % 2)); then glyph='▒' colour=33; else glyph='█' colour=34; fi
 	for ((y = from; y <= to; y++)); do
-		printf '\r\033[%sm frame %2d row %d ' "$color" "$n" "$y"
+		printf '\r\033[%sm frame %2d row %d ' "$colour" "$n" "$y"
 		printf "%.0s$glyph" {1..44}
 		printf '\033[0m\n'
 		sleep 0.015

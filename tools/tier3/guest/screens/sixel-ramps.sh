@@ -2,7 +2,7 @@
 # kit: sixel
 # look-for: Ramps of red, green, blue and grey from black to full, a hue sweep,
 # look-for: and skin tones and pastels, each sixel row above a row of text
-# look-for: cells in the same colors: every column matches the one under it.
+# look-for: cells in the same colours: every column matches the one under it.
 # look-for: Last, a dark blue ring over yellow-backed text, the text showing in
 # look-for: its hole and corners. Each caption says what right looks like.
 # wrong-looks-like: No pictures (stock kmscon has no sixel; the page says so), a
@@ -10,17 +10,17 @@
 # wrong-looks-like: path wrong; both shifted alike is the display), banding or
 # wrong-looks-like: dither in a ramp, or a box round the ring hiding the text.
 # screen-text: none, sixel pictures and cursor moves do not print as rows
-# Sixel pictures for comparing colors by eye, each above the same colors
+# Sixel pictures for comparing colours by eye, each above the same colours
 # drawn through the text path (SGR 48;2 on spaces), all made here at run time
 # in whole cells from the cell size the terminal reports (XTWINOPS 16). A
-# sixel color is three whole percents, so a ramp runs from 0% to 100% in
+# sixel colour is three whole percents, so a ramp runs from 0% to 100% in
 # equal whole-percent steps, one cell each: 101 steps of 1% when the screen
-# has the columns and the terminal the color registers (XTSMGRAPHICS), each
+# has the columns and the terminal the colour registers (XTSMGRAPHICS), each
 # step in a register of its own, fewer steps when not, which the page says.
 # The text row under a ramp takes the 8-bit value kmscon makes of each
 # percentage (p * 255 / 100, rounded), so the two rows match exactly. A
 # sixel step unlike its text cell is a kmscon fault; a pair shifted alike
-# is the display. The hue sweep runs once round the color wheel at full
+# is the display. The hue sweep runs once round the colour wheel at full
 # saturation. The swatches are five skin tones, light to dark, and five
 # pastels. The ring is drawn with transparent pixels (P2=1) over text in
 # red, green and blue on yellow, which shows through its hole and corners.
@@ -30,7 +30,7 @@ sixel_offered
 cell_size
 term_size
 
-# The color registers the terminal gives a picture, from XTSMGRAPHICS's
+# The colour registers the terminal gives a picture, from XTSMGRAPHICS's
 # reply ESC [ ? 1 ; 0 ; count S.
 IFS=';' read -r _ status regs <<<"$(ask "$esc[?1;1S" S)"
 if [[ $status != 0 || ! $regs =~ ^[0-9]+$ ]]; then
@@ -46,7 +46,7 @@ done
 step=$((100 / (n - 1)))
 
 # A sixel ramp one row tall, one cell per step: each argument is a step's
-# color (r,g,b percentages), in register 0 upward.
+# colour (r,g,b percentages), in register 0 upward.
 ramp() {
 	local s=$esc'Pq"1;1;'$(($# * cw))';'$ch i y c
 	i=0
@@ -64,7 +64,7 @@ ramp() {
 	printf '%s' "$s$esc\\"
 }
 
-# The same colors as text cells, $1 cells each.
+# The same colours as text cells, $1 cells each.
 twins() {
 	local c w=$1
 	shift

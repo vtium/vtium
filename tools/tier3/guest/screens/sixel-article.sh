@@ -9,7 +9,7 @@
 # wrong-looks-like: No pictures (stock kmscon has no sixel; the page says so),
 # wrong-looks-like: text under or through a picture, a ragged or overlong right
 # wrong-looks-like: edge, a style unlike the words that name it, or a sentence
-# wrong-looks-like: about a picture's size, place or colors that is not true.
+# wrong-looks-like: about a picture's size, place or colours that is not true.
 # screen-text: none, sixel pictures and cursor moves do not print as rows
 # A page of prose with two sixel pictures, as a blog post lays them out: one
 # on rows of its own between paragraphs, one floated left with a paragraph
@@ -18,10 +18,10 @@
 # each character's cells: two for a wide character or an emoji, none for a
 # combining mark or an escape sequence. The prose describes the page as it
 # is drawn: each styled phrase names its own style (bold, italic, faint,
-# the five underline styles, a colored underline, strike-through, reverse
-# video, 256-color and truecolor), and the sentences about each picture
+# the five underline styles, a coloured underline, strike-through, reverse
+# video, 256-colour and truecolour), and the sentences about each picture
 # give its size and place in cells and pixels, computed from the cell size
-# the terminal reports (XTWINOPS 16), and its colors. The pictures are made
+# the terminal reports (XTWINOPS 16), and its colours. The pictures are made
 # here at run time in whole cells: a landscape 40 cells by 6 rows (narrower
 # on a narrow screen) and a bar chart 12 cells by 5 rows. The last line is
 # the cell size the terminal reports.
@@ -89,8 +89,8 @@ isqrt() {
 	return 0
 }
 
-# An opaque sixel picture $1 by $2 pixels on color $3, of the layers in
-# rgb, top and end: layer k is color rgb[k] over rows top[k*w+x] to
+# An opaque sixel picture $1 by $2 pixels on colour $3, of the layers in
+# rgb, top and end: layer k is colour rgb[k] over rows top[k*w+x] to
 # end[k*w+x] of each column x, painted back to front, the last on top.
 paint() {
 	local w=$1 h=$2 s=$esc'Pq"1;1;'$1';'$2"#0;2;${3//,/;}" k x y lo hi m c prev n ymin ymax

@@ -4,7 +4,7 @@
 # look-for: orange to blue, the photograph's shape kept, then the reply
 # look-for: i=1;OK under it.
 # wrong-looks-like: No picture with i=1;OK (the helper decoded nothing), a
-# wrong-looks-like: reply other than OK, colors swapped or washed out, the
+# wrong-looks-like: reply other than OK, colours swapped or washed out, the
 # wrong-looks-like: picture stretched or over the text, or no reply at all.
 # screen-text: none, a kitty picture and cursor moves do not print as rows
 # The kitty graphics protocol's inline PNG (t=d, f=100, ADR-103 step 4c):

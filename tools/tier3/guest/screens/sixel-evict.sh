@@ -18,7 +18,7 @@
 # screen draws a scaled copy of each picture on it, and the copy for a
 # picture on screen may evict pictures in scrollback when that lets it fit.
 # N pictures (12, or more on a short screen), each a band the screen's width
-# in one color, fill image-storage-limit=auto as the terminal's size gives
+# in one colour, fill image-storage-limit=auto as the terminal's size gives
 # it, four frames in ARGB of its cells from 16 MiB to 192 MiB, to within a
 # picture's rounding, so a scaled copy fits only once the oldest picture,
 # picture 1, has gone. Each sits under its caption; the last starts below a
@@ -54,12 +54,12 @@ hrows=$(((h + ch - 1) / ch))
 # lines from the second-last picture to the last: more than a turned screen has rows
 gap=$((W / ch + 2))
 
-colors=(100,0,0 0,100,0 0,0,100 100,100,0 0,100,100 100,0,100
+colours=(100,0,0 0,100,0 0,0,100 100,100,0 0,100,100 100,0,100
 	100,50,0 50,0,100 0,100,50 100,0,50 50,100,0 0,50,100)
 for ((k = 1; k <= n; k++)); do
 	((k == n)) && printf '%*s' "$gap" '' | tr ' ' '\n'
 	printf 'picture %d of %d, %dx%d pixels\n' "$k" "$n" "$W" "$h"
-	swatch "$W" "$h" "${colors[(k - 1) % 12]}"
+	swatch "$W" "$h" "${colours[(k - 1) % 12]}"
 	printf '\n'
 	((k < n)) && printf '\n'
 done

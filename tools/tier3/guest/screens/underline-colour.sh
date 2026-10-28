@@ -1,11 +1,11 @@
 #!/bin/bash
-# look-for: Each underline in the color its line names while the text
+# look-for: Each underline in the colour its line names while the text
 # look-for: keeps its own; after 59 the line turns red with the text; 58
 # look-for: alone draws none.
-# wrong-looks-like: Underlines in the text's color or rows with none:
+# wrong-looks-like: Underlines in the text's colour or rows with none:
 # wrong-looks-like: stock kmscon ignores 58, drops the colon rows, and reads
 # wrong-looks-like: 58;2;0;160;255 as dim then reset, so that row is bare.
-# Underline color, SGR 58 (set) and 59 (reset), in the colon and semicolon
+# Underline colour, SGR 58 (set) and 59 (reset), in the colon and semicolon
 # forms. Upstream libtsm takes each number of 58;5;n and 58;2;r;g;b as an SGR
 # of its own: the 5 turns on blink (steady where blinking is off, as in tier
 # 3), and the 2 and 0 of 58;2;0;160;255 turn on faint and then

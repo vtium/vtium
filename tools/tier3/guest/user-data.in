@@ -30,7 +30,7 @@ write_files:
       # Runtime dependencies of kmscon-aaronsb and its modules, and the fonts
       # the scenario draws with: DejaVu Sans Mono for Latin and box drawing,
       # WenQuanYi Micro Hei as pango's fallback for CJK, Noto Color Emoji
-      # for color emoji.
+      # for colour emoji.
       pac -S --needed \
         bash dbus glib2 libdrm libxkbcommon systemd-libs zlib \
         pango freetype2 fontconfig harfbuzz libglvnd mesa \
