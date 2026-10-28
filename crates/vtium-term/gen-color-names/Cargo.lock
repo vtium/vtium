@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "vtium-term-gen-colour-names"
+name = "vtium-term-gen-color-names"
 version = "0.0.0"

@@ -135,10 +135,10 @@ impl Stack {
     }
 }
 
-/// An X11 colour specification, as XParseColor reads the three forms
+/// An X11 color specification, as XParseColor reads the three forms
 /// vtium takes: `rgb:r/g/b` with one to four hex digits a channel, each
 /// scaled to the channel's range; `#rgb` with one to four hex digits a
-/// channel, each the channel's most significant bits; and a colour name
+/// channel, each the channel's most significant bits; and a color name
 /// ([`named`]). The prefix and the digits are read in either case. Each
 /// channel keeps its top 8 bits.
 pub(super) fn parse_color(spec: &[u8]) -> Option<Rgb> {
@@ -164,8 +164,8 @@ pub(super) fn parse_color(spec: &[u8]) -> Option<Rgb> {
     Some(Rgb::new(next()?, next()?, next()?))
 }
 
-/// A colour name from X11's rgb.txt, read in any case and with any spaces,
-/// so `DarkSlateGray` and `dark slate gray` name one colour.
+/// A color name from X11's rgb.txt, read in any case and with any spaces,
+/// so `DarkSlateGray` and `dark slate gray` name one color.
 fn named(spec: &[u8]) -> Option<Rgb> {
     let mut key = [0u8; names::NAME_MAX];
     let mut len = 0usize;
@@ -528,9 +528,9 @@ mod tests {
 
     /// The table against the rgb.txt it was generated from: each line's
     /// name, as written, in capitals and with its spaces removed, reads as
-    /// the line's colour, and the table holds no name rgb.txt does not.
+    /// the line's color, and the table holds no name rgb.txt does not.
     #[test]
-    fn every_name_in_rgb_txt_reads_as_its_colour() {
+    fn every_name_in_rgb_txt_reads_as_its_color() {
         let text = include_str!("color/rgb.txt");
         let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
         assert_eq!(lines.len(), 782, "rgb.txt is not rgb-1.1.1's");

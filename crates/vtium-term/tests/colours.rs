@@ -96,11 +96,11 @@ fn colour_specs_are_read_as_x11_reads_them() {
     }
 }
 
-// X11's colour names, which XParseColor looks up in rgb.txt: in any case
+// X11's color names, which XParseColor looks up in rgb.txt: in any case
 // and with any spaces, the numbered variants and both spellings of grey.
 // covers: colour.names
 #[test]
-fn colour_names_are_read_from_x11s_table() {
+fn color_names_are_read_from_x11s_table() {
     let rgb = |r, g, b| Some(Rgb::new(r, g, b));
     assert_eq!(parsed("red"), rgb(255, 0, 0));
     assert_eq!(parsed("CornflowerBlue"), rgb(100, 149, 237));
@@ -134,11 +134,11 @@ fn colour_names_are_read_from_x11s_table() {
     }
 }
 
-// ctlseqs, OSC 10 and kitty's OSC 21: a colour name sets the defaults and
-// a palette colour as an `rgb:` spec does.
+// ctlseqs, OSC 10 and kitty's OSC 21: a color name sets the defaults and
+// a palette color as an `rgb:` spec does.
 // covers: colour.names
 #[test]
-fn colour_names_set_the_defaults_and_kittys_keys() {
+fn color_names_set_the_defaults_and_kittys_keys() {
     let mut t = term(4, 1, b"");
     t.input(b"\x1b]10;red\x07\x1b]11;navy blue;CornflowerBlue\x1b\\");
     assert_eq!(t.palette().fg(), Rgb::new(255, 0, 0));
