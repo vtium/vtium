@@ -16,8 +16,8 @@
 //! Glyph sources.
 //!
 //! Loads fonts and draws glyph bitmaps for the renderer: vitrified sets
-//! ([`set`], ADR-1200), the form every font reaches the console in, and
-//! the root-owned store they are checked and loaded from; PSF fonts, with
+//! ([`set`], ADR-1200), the form the helper's glyphs reach the console in;
+//! PSF fonts, with
 //! the `psf` feature, which only vtium-vitrify enables, so the console
 //! parses no font file (ADR-1200 D6); the built-in unifont, itself a set; and the sprites that draw box
 //! drawing, block elements, Braille, sextants, octants and the rest of
@@ -65,8 +65,7 @@
 //! [`GZIP_BYTES_MAX`], [`CELL_SIDE_MAX`], [`SET_BYTES_MAX`],
 //! [`SET_SECTIONS_MAX`], [`SET_META_BYTES_MAX`], [`SET_STRIKES_MAX`],
 //! [`SET_GLYPHS_MAX`], [`SET_RUNS_MAX`], [`SET_CHUNKS_MAX`],
-//! [`SET_CHUNK_BYTES`], [`SET_RECORD_BYTES_MAX`], [`MANIFEST_BYTES_MAX`] and
-//! [`MANIFEST_ROWS_MAX`].
+//! [`SET_CHUNK_BYTES`] and [`SET_RECORD_BYTES_MAX`].
 
 mod bounds;
 mod face;
@@ -84,10 +83,9 @@ pub mod sprite;
 mod unifont;
 
 pub use bounds::{
-    CELL_SIDE_MAX, GZIP_BYTES_MAX, MANIFEST_BYTES_MAX, MANIFEST_ROWS_MAX, PSF_BYTES_MAX,
-    PSF_ENTRIES_MAX, PSF_GLYPHS_MAX, PSF_HEIGHT_MAX, PSF_WIDTH_MAX, SET_BYTES_MAX, SET_CHUNK_BYTES,
-    SET_CHUNKS_MAX, SET_GLYPHS_MAX, SET_META_BYTES_MAX, SET_RECORD_BYTES_MAX, SET_RUNS_MAX,
-    SET_SECTIONS_MAX, SET_STRIKES_MAX,
+    CELL_SIDE_MAX, GZIP_BYTES_MAX, PSF_BYTES_MAX, PSF_ENTRIES_MAX, PSF_GLYPHS_MAX, PSF_HEIGHT_MAX,
+    PSF_WIDTH_MAX, SET_BYTES_MAX, SET_CHUNK_BYTES, SET_CHUNKS_MAX, SET_GLYPHS_MAX,
+    SET_META_BYTES_MAX, SET_RECORD_BYTES_MAX, SET_RUNS_MAX, SET_SECTIONS_MAX, SET_STRIKES_MAX,
 };
 pub use face::{Cell, Decorations, Face, Font, REPLACEMENT, Style, Width};
 pub use glyph::{Format, Glyph};

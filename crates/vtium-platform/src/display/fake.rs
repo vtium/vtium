@@ -128,6 +128,8 @@ pub(crate) struct State {
     pub(crate) dumb_errors: VecDeque<Errno>,
     /// The cursor plane's side the card reports; 0 reports 256.
     pub(crate) cursor_side: u64,
+    /// The card's directory in sysfs, a stand-in one; none by default.
+    pub(crate) sysfs: Option<std::path::PathBuf>,
     /// CRTCs no commit may drive, as past a bandwidth limit: a commit
     /// that names one is refused with EINVAL.
     pub(crate) refused: Vec<u32>,
@@ -258,6 +260,7 @@ impl FakeCard {
                         kind_id: u32::try_from(i).unwrap_or(0) + 1,
                         connected: true,
                         modes: modes.clone(),
+                        mm: (0, 0),
                         encoder: 0,
                         encoders: vec![encoder],
                     },
@@ -723,6 +726,10 @@ impl Kms for FakeCard {
         while watched.read(&mut drained).is_ok_and(|n| n > 0) {}
         flipped.append(&mut self.state.borrow_mut().completed);
         Ok(())
+    }
+
+    fn sysfs(&self) -> Option<std::path::PathBuf> {
+        self.state.borrow().sysfs.clone()
     }
 }
 

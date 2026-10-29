@@ -425,6 +425,42 @@ class ImplementationTest(unittest.TestCase):
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             self.assertIn('if [ -f "$disc"/pointer ]; then', f.read())
 
+    def test_frit_variants(self):
+        # A configured frit generated at run time (ADR-1301 D2): two 640x480
+        # variants on the minspec machine, in tier3-minimal, judged by
+        # vtium's goldens; the disc carries the frit to be installed with no
+        # set built, and the held variant's `helper-held`, on which
+        # guest/setup puts a helper that never answers in place.
+        small = t3_scenario.VARIANTS["2d-640x480-psf16"]
+        with open(os.path.join(t3_common.ROOT, "Makefile")) as f:
+            minimal = re.search(r"^tier3-minimal:.*\n\t(.*)", f.read(), re.M).group(1)
+        impl = t3_impl.tree(self.tree, self.tar)
+        disc = os.path.join(self.dir.name, "disc")
+        for name, held in (("2d-640x480-frit", False), ("2d-640x480-frit-held", True)):
+            with self.subTest(name), mock.patch.object(t3_scenario, "make_iso"):
+                v = t3_scenario.VARIANTS[name]
+                for key in ("device", "cpus", "memory_mb", "renderer", "images", "goldens"):
+                    self.assertEqual(v[key], small[key])
+                self.assertIn(name, minimal)
+                self.assertNotIn("frits", v)
+                self.assertEqual(t3_scenario.screens_of(name), ["small-console", "cjk"])
+                with open(os.path.join(t3_common.GUEST, v["conf"])) as f:
+                    font = re.search(r"^font-name=(.*)$", f.read(), re.M).group(1)
+                self.assertEqual(v["deferred_frits"], [font + ".vtfrit"])
+                with open(os.path.join(t3_common.GUEST, "frits", font + ".vtfrit")) as f:
+                    self.assertIn("source=outline:/usr/share/fonts/TTF/DejaVuSansMono.ttf\n",
+                                  f.read())
+                t3_scenario.build_disc(name, self.dir.name, impl)
+                self.assertEqual(sorted(os.listdir(disc)),
+                                 sorted(["kmscon.conf", "screens", "setup", "t3", "tree.tar",
+                                         "deferred-frits"] + (["helper-held"] if held else [])))
+                self.assertEqual(os.listdir(os.path.join(disc, "deferred-frits")),
+                                 [font + ".vtfrit"])
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            setup = f.read()
+        self.assertIn('if [ -d "$disc"/deferred-frits ]; then', setup)
+        self.assertIn('if [ -f "$disc"/helper-held ]; then', setup)
+
     def test_fonts_disc(self):
         # A variant drawing with the test fonts carries them, which
         # guest/setup installs where its config names them; others carry none.
@@ -853,18 +889,25 @@ class DeparturesTest(unittest.TestCase):
         deps = t3_evaluate.read_departures()
         self.assertEqual(t3_evaluate.check_departures(deps, t3_scenario.variant_cases), [])
         self.assertEqual(deps["2d-potato-min-psf/flood"],
-                         {"readme": "crates/vtium-term/README.md", "title": self.TITLE,
-                          "rects": [[203, 16, 491, 32]]})
-        self.assertEqual(deps["2d-potato-min/underline-styles"]["rects"],
+                         [{"readme": "crates/vtium-term/README.md", "title": self.TITLE,
+                           "rects": [[203, 16, 491, 32]]}])
+        self.assertEqual(deps["2d-potato-min/underline-styles"][0]["rects"],
                          [[123, 80, 251, 96], [123, 224, 339, 240]])
-        self.assertEqual(len(deps), 22)
+        self.assertEqual(len(deps), 28)
+        self.assertEqual([d["title"] for d in deps["2d-potato-min-psf/underline-styles"]],
+                         ["A dash runs from the cell's left edge for five eighths of it.",
+                          "A character the frit lacks draws in the built-in font."])
 
     def test_read(self):
         path = self.tsv("a,b\tx,y\tR.md\tT\t0,0,8,16;8,0,16,16\n")
         deps = t3_evaluate.read_departures(path)
         self.assertEqual(sorted(deps), ["a/x", "a/y", "b/x", "b/y"])
-        self.assertEqual(deps["b/y"], {"readme": "R.md", "title": "T",
-                                       "rects": [[0, 0, 8, 16], [8, 0, 16, 16]]})
+        self.assertEqual(deps["b/y"], [{"readme": "R.md", "title": "T",
+                                        "rects": [[0, 0, 8, 16], [8, 0, 16, 16]]}])
+        # a case under two departures, each a line of its own
+        path = self.tsv("a\tx\tR.md\tT\t0,0,8,16\na\tx\tR.md\tU\t8,0,16,16\n")
+        self.assertEqual([d["title"] for d in t3_evaluate.read_departures(path)["a/x"]],
+                         ["T", "U"])
 
     def test_refused(self):
         for text, why in (("a\tx\tR.md\tT\n", "want VARIANTS, SCREENS"),
@@ -872,7 +915,13 @@ class DeparturesTest(unittest.TestCase):
                           ("a\tx\tR.md\tT\t0,0,1\n", "a rectangle is"),
                           ("a\tx\tR.md\tT\t1,0,1,1\n", "a rectangle is"),
                           ("a\tx\tR.md\tT\tz,0,1,1\n", "a rectangle is"),
-                          ("a\tx,x\tR.md\tT\t0,0,1,1\n", "a/x is listed twice")):
+                          ("a\tx,x\tR.md\tT\t0,0,1,1\n", "a/x is listed twice"),
+                          ("a\tx\tR.md\tT\t0,0,1,1\na\tx\tR.md\tT\t1,0,2,1\n",
+                           "a/x is listed twice under 'T'"),
+                          # one pixel, 7,15, in a rectangle of each: it would
+                          # show both departures
+                          ("a\tx\tR.md\tT\t0,0,8,16\na\tx,y\tR.md\tU\t20,0,24,4;7,15,16,32\n",
+                           "a/x: a rectangle of 'U' overlaps one of 'T'")):
             with self.subTest(text):
                 with self.assertRaisesRegex(SystemExit, re.escape(why)):
                     t3_evaluate.read_departures(self.tsv(text))
@@ -882,12 +931,12 @@ class DeparturesTest(unittest.TestCase):
         with open(readme, "w") as f:
             f.write("## Departures\n\n- **Listed.** Why.\n\n## Other\n\n- **Elsewhere.** No.\n")
         dep = {"readme": readme, "title": "Listed.", "rects": [[0, 0, 1, 1]]}
-        deps = {"2d-potato-min/sixel": dep,
-                "2d-potato-min/photo-scrollback": dep,
-                "no-such/sgr": dep,
-                "2d-potato-min/vt-switch": dep,
-                "2d-potato-min/cjk": dict(dep, title="Elsewhere."),
-                "2d-potato-min/sgr": dict(dep, readme=readme + ".missing")}
+        deps = {"2d-potato-min/sixel": [dep],
+                "2d-potato-min/photo-scrollback": [dep],
+                "no-such/sgr": [dep],
+                "2d-potato-min/vt-switch": [dep],
+                "2d-potato-min/cjk": [dep, dict(dep, title="Elsewhere.")],
+                "2d-potato-min/sgr": [dict(dep, readme=readme + ".missing")]}
         errors = t3_evaluate.check_departures(deps, lambda v: t3_scenario.variant_cases(v)
                                               if v in t3_scenario.VARIANTS else [])
         self.assertEqual(len(errors), 5, errors)
@@ -898,10 +947,10 @@ class DeparturesTest(unittest.TestCase):
                     "2d-potato-min/sgr: [Errno 2]"):
             self.assertTrue(any(why in e for e in errors), (why, errors))
 
-    def judged(self, actual_pixels, listed=True, golden_pixels=()):
+    def judged(self, actual_pixels, listed=True, golden_pixels=(), also=()):
         """The entry for 2d-potato-min/sixel with a black 32x32 golden and a capture
         differing at `actual_pixels`, listed under a departure whose rectangle
-        is 8,0,24,16."""
+        is 8,0,24,16, and under `also`'s departures after it."""
         golden = os.path.join(self.dir.name, "golden")
         img = t3img.Image(32, 32, bytes(32 * 32 * 3))
         os.makedirs(os.path.join(golden, "2d-potato-min"), exist_ok=True)
@@ -912,7 +961,7 @@ class DeparturesTest(unittest.TestCase):
         cap = os.path.join(self.dir.name, "cap.png")
         t3img.write_png(cap, t3img.Image(32, 32, bytes(data)))
         dep = {"readme": "R.md", "title": "T", "rects": [[8, 0, 24, 16]]}
-        deps = {"2d-potato-min/sixel": dep} if listed else {}
+        deps = {"2d-potato-min/sixel": [dep, *also]} if listed else {}
         with mock.patch.object(t3_evaluate, "GOLDEN", golden), \
                 mock.patch.object(t3_evaluate, "RUNDIR", os.path.join(self.dir.name, "run")), \
                 mock.patch.object(t3_evaluate, "DEPARTURES", deps):
@@ -932,6 +981,18 @@ class DeparturesTest(unittest.TestCase):
                          ("fail", "listed under the departure 'T', which it no longer shows"))
         e = self.judged(inside, listed=False)
         self.assertEqual((e["status"], "departure" in e), ("fail", False))
+        # under two departures: the difference lies in their rectangles
+        # together, and each shows in its own
+        u = {"readme": "R.md", "title": "U", "rects": [[0, 16, 8, 32]]}
+        e = self.judged(inside + [(0, 16)], also=[u])
+        self.assertEqual((e["status"], e["departure"]), ("departure", "T; U"))
+        e = self.judged(inside + [(0, 16), (31, 31)], also=[u])
+        self.assertEqual((e["status"], e["error"]),
+                         ("fail", "1 differing pixel(s) outside the rectangles of the "
+                                  "departures 'T' and 'U'"))
+        e = self.judged(inside, also=[u])
+        self.assertEqual((e["status"], e["error"]),
+                         ("fail", "listed under the departure 'U', which it no longer shows"))
 
     def test_departure_passes_the_run(self):
         # The run's verdict counts a departure and a provisional case as a pass.
@@ -964,15 +1025,18 @@ class VtiumGoldenTest(unittest.TestCase):
     def test_shipped(self):
         # The operator accepted vtium's sixteen small-display goldens on
         # 2026-10-28, the four vtium/vtium#119 adds in advance, so the list
-        # in the tree names only the guest without systemd's (vtium/vtium#104)
-        # and those vtium/vtium#126 recaptured from the sets' fills; every
-        # golden it names must be one a case draws.
+        # in the tree names only the guest without systemd's (vtium/vtium#104),
+        # those vtium/vtium#126 recaptured from the sets' fills and the frit
+        # variants' (vtium/vtium#145); every golden it names must be one a
+        # case draws.
         prov = t3_evaluate.read_provisional()
         moved = ["%s/%s" % (v, s) for v in ("2d-320x240-psf8", "2d-640x480-psf16")
                  for s in ("underline-styles", "strike", "wide-margin", "cjk")]
+        frit = ["%s/%s" % (v, s) for v in ("2d-640x480-frit", "2d-640x480-frit-held")
+                for s in ("small-console", "cjk")]
         self.assertEqual(sorted(prov), sorted(["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
                                                "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
-                                               "sysvinit-two-vts/cjk"] + moved))
+                                               "sysvinit-two-vts/cjk"] + moved + frit))
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
                                                    t3_evaluate.VTIUM_GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:

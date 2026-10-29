@@ -21,6 +21,11 @@ from t3_qemu import Qemu, make_iso, not_blank, wait_stable
 # bbulk for the 2D variants, gltex on virgl for the GL one, which the C
 # reference drew with and vtium does not yet. Each draws every screen, the
 # image ones included (t3_evaluate.IMAGE_SCREENS).
+# The screens the frit variants draw: Latin text the frit's font holds, and
+# CJK it lacks, which the built-in unifont draws in its place (#141); cjk
+# last, as vt-restore compares with it.
+FRIT_SCREENS = ["small-console", "cjk"]
+
 VARIANTS = {
     "2d-1280x800": {
         "device": "virtio-vga,xres=1280,yres=800,edid=on",
@@ -102,6 +107,38 @@ VARIANTS = {
         "fonts": True,
         "frits": ["vtium-test-8x16.vtfrit"],
         "screens": SMALL_SCREENS,
+        "goldens": VTIUM_GOLDEN,
+    },
+    # A configured frit, generated at run time by the helper (ADR-1301 D2):
+    # 640x480 on the minspec machine, its font the guest's DejaVu Sans Mono
+    # named by a frit installed with no set built ("deferred_frits"). The
+    # first draws the font once the helper's glyphs arrive; the second holds
+    # the helper so it never answers ("helper": "held"), which shows what the
+    # screen draws before any answer, the built-in unifont, until the console
+    # gives the helper up. Their goldens are vtium's own.
+    "2d-640x480-frit": {
+        "device": "virtio-vga,xres=640,yres=480,edid=on",
+        "display": "none",
+        "conf": "kmscon-frit.conf",
+        "renderer": "bbulk",
+        "cpus": 1,
+        "memory_mb": 512,
+        "images": False,
+        "deferred_frits": ["dejavu-mono.vtfrit"],
+        "screens": FRIT_SCREENS,
+        "goldens": VTIUM_GOLDEN,
+    },
+    "2d-640x480-frit-held": {
+        "device": "virtio-vga,xres=640,yres=480,edid=on",
+        "display": "none",
+        "conf": "kmscon-frit.conf",
+        "renderer": "bbulk",
+        "cpus": 1,
+        "memory_mb": 512,
+        "images": False,
+        "deferred_frits": ["dejavu-mono.vtfrit"],
+        "helper": "held",
+        "screens": FRIT_SCREENS,
         "goldens": VTIUM_GOLDEN,
     },
     "2d-7680x2160": {
@@ -341,7 +378,9 @@ def build_disc(variant, work, impl):
     screens, its guest's setup, and t3-console on the guest without
     systemd, the variant's sysctl settings if it has any, vtium built with
     its features if it names any, the test fonts if it draws with them, the
-    frits it builds, a `pointer` file if it reads the cursor plane, a
+    frits it builds, the frits it installs to be generated at run time, a
+    `helper-held` file if its helper never answers, a `pointer` file if it
+    reads the cursor plane, a
     `no-udev` file if it runs without a udev daemon, and a `two-vts` file
     if it runs a second vtium on tty3 from the boot."""
     disc = os.path.join(work, "disc")
@@ -372,6 +411,13 @@ def build_disc(variant, work, impl):
         os.makedirs(os.path.join(disc, "frits"))
         for frit in VARIANTS[variant]["frits"]:
             shutil.copy(os.path.join(GUEST, "frits", frit), os.path.join(disc, "frits"))
+    if VARIANTS[variant].get("deferred_frits"):
+        os.makedirs(os.path.join(disc, "deferred-frits"))
+        for frit in VARIANTS[variant]["deferred_frits"]:
+            shutil.copy(os.path.join(GUEST, "frits", frit),
+                        os.path.join(disc, "deferred-frits"))
+    if VARIANTS[variant].get("helper") == "held":
+        open(os.path.join(disc, "helper-held"), "w").close()
     if VARIANTS[variant].get("pointer"):
         open(os.path.join(disc, "pointer"), "w").close()
     iso = os.path.join(work, "t3pkg.iso")

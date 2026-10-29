@@ -212,6 +212,8 @@ pub(super) struct Output<M> {
     pub(super) choice: Choice,
     /// The mode the display is set to, or is to be set to.
     pub(super) mode: Mode,
+    /// The connector's physical size in millimetres, 0 where it has none.
+    pub(super) mm: (u32, u32),
     pub(super) mode_blob: u32,
     pub(super) buffers: Vec<Buffer<M>>,
     pub(super) back: usize,

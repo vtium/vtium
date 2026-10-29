@@ -2,8 +2,8 @@
 //! print the card.
 //!
 //! ```text
-//! specimens draw [--vitrify PATH] [--review DIR]
-//! specimens check [--vitrify PATH]
+//! specimens draw [--review DIR]
+//! specimens check
 //! specimens fetch-fonts
 //! specimens card PROFILE [PAGE]
 //! ```
@@ -12,9 +12,11 @@
 //! `--review` copies each drawn profile's collage, or its one screen, to
 //! `DIR/PROFILE.png`. `check` draws the same files and compares them with
 //! what is committed; it exits 0 when no accepted profile moved, 1 when
-//! one did, and 2 when it cannot run. Both build the desktop set with the
-//! vtium-vitrify at `--vitrify` from the fonts `fetch-fonts` keeps in the
-//! cache, and skip the outline profiles, saying why, without them. `card`
+//! one did, and 2 when it cannot run. Both generate the desktop frit's
+//! glyphs through vtium-vitrify's engine from the fonts `fetch-fonts` keeps
+//! in the cache, and skip the outline profiles, saying why, without them.
+//! Both still take `--vitrify PATH`, which the Makefile passes, and ignore
+//! it. `card`
 //! writes a page of the card's bytes to standard output, for `cat` on a VT
 //! of that size.
 
@@ -22,15 +24,16 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use vtium_font::Cell;
 use vtium_specimens::draw::Sources;
-use vtium_specimens::profiles::{PROFILES, profile};
+use vtium_specimens::profiles::{Glyphs, PROFILES, profile};
 use vtium_specimens::{card, check, docs, draw, fonts, png};
 
 const HERE: &str = env!("CARGO_MANIFEST_DIR");
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: specimens draw [--vitrify PATH] [--review DIR]\n       specimens check [--vitrify PATH]\n       \
+        "usage: specimens draw [--review DIR]\n       specimens check\n       \
          specimens fetch-fonts\n       specimens card PROFILE [PAGE]"
     );
     ExitCode::from(2)
@@ -40,10 +43,11 @@ fn specimens_dir() -> PathBuf {
     Path::new(HERE).join("../../docs/specimens")
 }
 
-/// The options after a command: `--vitrify PATH` and `--review DIR`.
+/// The options after a command: `--review DIR`, and `--vitrify PATH`,
+/// taken once and ignored.
 #[derive(Default)]
 struct Options {
-    vitrify: Option<PathBuf>,
+    vitrify: bool,
     review: Option<PathBuf>,
 }
 
@@ -53,7 +57,7 @@ fn options(args: &[String]) -> Option<Options> {
     while let Some(flag) = it.next() {
         let value = PathBuf::from(it.next()?);
         match flag.as_str() {
-            "--vitrify" if o.vitrify.is_none() => o.vitrify = Some(value),
+            "--vitrify" if !o.vitrify => o.vitrify = true,
             "--review" if o.review.is_none() => o.review = Some(value),
             _ => return None,
         }
@@ -61,9 +65,17 @@ fn options(args: &[String]) -> Option<Options> {
     Some(o)
 }
 
-fn sources(o: &Options) -> Sources {
+fn sources() -> Sources {
+    let cells: Vec<Cell> = PROFILES
+        .iter()
+        .filter(|p| matches!(p.glyphs, Glyphs::Desktop { .. }))
+        .map(|p| Cell {
+            width: p.cell.0,
+            height: p.cell.1,
+        })
+        .collect();
     Sources {
-        desktop: fonts::desktop(o.vitrify.as_deref(), &fonts::cache_dir()),
+        desktop: fonts::desktop(&fonts::cache_dir(), &cells),
     }
 }
 
@@ -78,7 +90,7 @@ fn main() -> ExitCode {
             None => usage(),
         },
         ("check", rest) => match options(rest) {
-            Some(o) if o.review.is_none() => check_all(&o),
+            Some(o) if o.review.is_none() => check_all(),
             _ => usage(),
         },
         ("fetch-fonts", []) => match fonts::fetch(&fonts::cache_dir()) {
@@ -100,8 +112,8 @@ fn main() -> ExitCode {
     }
 }
 
-fn check_all(o: &Options) -> ExitCode {
-    let faults = match check::check(&specimens_dir(), &sources(o)) {
+fn check_all() -> ExitCode {
+    let faults = match check::check(&specimens_dir(), &sources()) {
         Ok(f) => f,
         Err(e) => {
             eprintln!("specimens: {e}");
@@ -134,7 +146,7 @@ fn check_all(o: &Options) -> ExitCode {
 }
 
 fn draw_all(o: &Options) -> ExitCode {
-    let sources = sources(o);
+    let sources = sources();
     let drawn = match check::write(&specimens_dir(), &sources) {
         Ok(d) => d,
         Err(e) => {

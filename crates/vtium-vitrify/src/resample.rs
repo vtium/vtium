@@ -15,9 +15,7 @@
 //!
 //! A build-time setting, not Cargo features: the methods exclude each
 //! other, and features are additive, so two crates of a workspace could
-//! turn on two at once. An unknown value fails the build. A set records
-//! the method in its `META` (`color-scale=`), and the method is part of
-//! the build key, so a tool built with another method rebuilds the set.
+//! turn on two at once. An unknown value fails the build.
 //!
 //! Every method works over premultiplied RGBA. Weights, sizes and
 //! placement are computed in f64 with IEEE basic operations alone

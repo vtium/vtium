@@ -240,6 +240,28 @@ impl GlyphCache {
         GlyphCache { fallback, ..self }
     }
 
+    /// Drops each glyph whose text, alone or in a cluster, holds one of
+    /// `chars`, which are sorted: the characters the font now draws
+    /// differently. Every other glyph stays.
+    pub(crate) fn forget(&mut self, chars: &[char]) {
+        if chars.is_empty() {
+            return;
+        }
+        // eviction frees an entry in place, so the indices ahead stand
+        for i in 0..self.entries.len() {
+            let Ok(i) = u32::try_from(i) else { break };
+            let holds = self.entry(i).is_some_and(|e| {
+                e.text
+                    .chars()
+                    .iter()
+                    .any(|c| chars.binary_search(c).is_ok())
+            });
+            if holds {
+                self.evict(i);
+            }
+        }
+    }
+
     /// Starts a drawn frame: glyphs used from now on are this frame's.
     pub(crate) fn begin_frame(&mut self) {
         self.frame = self.frame.wrapping_add(1);
@@ -568,6 +590,63 @@ mod tests {
                 .is_some()
         );
         assert_eq!(c.take_counts().misses, 3);
+    }
+
+    #[test]
+    fn forgetting_a_character_drops_each_glyph_whose_text_holds_it() {
+        let f = font();
+        let mut c = GlyphCache::new(Budgets::glyphs(8), Storage::default(), Orientation::Normal);
+        let cluster = |ch: char| [ch, '\u{301}'];
+        let texts = [['A'].as_slice(), &['B'], &cluster('A'), &cluster('B')];
+        c.begin_frame();
+        for text in texts {
+            assert!(c.get(&f, text, Width::Narrow, Style::default()).is_some());
+        }
+        assert_eq!(c.take_counts().misses, 4);
+        c.forget(&['A']);
+        c.begin_frame();
+        let mut misses = Vec::new();
+        for text in texts {
+            assert!(c.get(&f, text, Width::Narrow, Style::default()).is_some());
+            misses.push(c.take_counts());
+        }
+        let miss = CacheCounts {
+            misses: 1,
+            uncached: 0,
+        };
+        let hit = CacheCounts::default();
+        assert_eq!(misses, [miss, hit, miss, hit]);
+    }
+
+    #[test]
+    fn forgetting_a_combining_mark_drops_each_cluster_that_holds_it() {
+        let f = font();
+        let mut c = GlyphCache::new(Budgets::glyphs(8), Storage::default(), Orientation::Normal);
+        let texts = [
+            ['A'].as_slice(),
+            &['B'],
+            &['A', '\u{301}'],
+            &['B', '\u{301}'],
+            &['A', '\u{300}'],
+        ];
+        c.begin_frame();
+        for text in texts {
+            assert!(c.get(&f, text, Width::Narrow, Style::default()).is_some());
+        }
+        assert_eq!(c.take_counts().misses, 5);
+        c.forget(&['\u{301}']);
+        c.begin_frame();
+        let mut misses = Vec::new();
+        for text in texts {
+            assert!(c.get(&f, text, Width::Narrow, Style::default()).is_some());
+            misses.push(c.take_counts());
+        }
+        let miss = CacheCounts {
+            misses: 1,
+            uncached: 0,
+        };
+        let hit = CacheCounts::default();
+        assert_eq!(misses, [hit, hit, miss, miss, hit]);
     }
 
     #[test]

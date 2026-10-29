@@ -586,3 +586,33 @@ fn a_blanked_display_lends_no_canvas() {
     v.unblank().unwrap();
     assert!(v.events().next().is_none(), "on already");
 }
+
+/// A 320x240 device that reports `mm`.
+fn sized(mm: (u32, u32)) -> Fbdev<FakeFb> {
+    let fb = FakeFb::new(32);
+    {
+        let mut var = fb.var.borrow_mut();
+        (var.xres, var.yres) = (320, 240);
+        (var.width, var.height) = mm;
+    }
+    awake(fb)
+}
+
+#[test]
+fn the_density_comes_from_the_devices_physical_size() {
+    // A 3.5-inch panel.
+    let d = sized((71, 53)).density(DISPLAY).unwrap();
+    assert!(d.measured());
+    let (x, y) = d.dpi();
+    assert_eq!((x.round(), y.round()), (114.0, 115.0));
+}
+
+#[test]
+fn a_device_with_no_physical_size_assumes_the_density() {
+    // fbdev's unknown size is 0 or all ones.
+    for mm in [(0, 0), (u32::MAX, u32::MAX), (71, 0)] {
+        let v = sized(mm);
+        assert_eq!(v.density(DISPLAY), Some(Density::ASSUMED), "{mm:?}");
+    }
+    assert_eq!(Fbdev::with(FakeFb::new(32)).density(DISPLAY), None);
+}
