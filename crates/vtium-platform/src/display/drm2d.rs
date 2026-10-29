@@ -129,6 +129,9 @@ pub struct Drm2d<K: Kms> {
     /// The connected connectors the policy leaves dark, in the card's
     /// connector order.
     dark: Vec<Dark>,
+    /// A modeset could not set the dark connectors off beside the lit
+    /// displays, and that was logged as a warning.
+    dark_refused: bool,
     waiting: Option<Waiting>,
     /// A flip's event was lost, and that was logged as a warning.
     lost_flip: bool,
@@ -191,6 +194,7 @@ impl<K: Kms> Drm2d<K> {
             outputs: Vec::new(),
             identities: Vec::new(),
             dark: Vec::new(),
+            dark_refused: false,
             waiting: None,
             lost_flip: false,
             blanked: false,
@@ -1306,10 +1310,15 @@ impl<K: Kms> Drm2d<K> {
 
     /// The CRTC dark connector `d` is on, as another master left it.
     fn dark_crtc(&self, d: &Dark) -> Option<u32> {
+        self.connector_crtc(d.id)
+    }
+
+    /// The CRTC connector `id` is on, as the kernel reports it.
+    fn connector_crtc(&self, id: u32) -> Option<u32> {
         let conn = self
             .card
-            .connector(d.id)
-            .inspect_err(|e| log::debug!("connector {} is gone: {e}", d.id))
+            .connector(id)
+            .inspect_err(|e| log::debug!("connector {id} is gone: {e}"))
             .ok()?;
         let crtc = (conn.encoder != 0)
             .then(|| self.encoder(conn.encoder))
@@ -1320,9 +1329,12 @@ impl<K: Kms> Drm2d<K> {
 
     /// Adds to `req` what sets each dark connector off where another
     /// master left it on a CRTC, and returns the CRTCs it turns off, whose
-    /// planes [`Self::clear_planes`] takes down. A CRTC a display takes
-    /// only loses the connector; one that is not active shows nothing and
-    /// stays out of the commit, which asks no flip event of it
+    /// planes [`Self::clear_planes`] takes down and every connector on
+    /// which, one vtium neither binds nor darkens included, leaves it, as
+    /// the kernel turns off only a CRTC no connector is on
+    /// (`drm_atomic_helper_check_modeset`). A CRTC a display takes only
+    /// loses the connector; one that is not active shows nothing and stays
+    /// out of the commit, which asks no flip event of it
     /// (`drm_atomic_crtc_check`).
     fn prepare_dark(&self, req: &mut Request) -> Vec<u32> {
         let mut off = Vec::new();
@@ -1348,18 +1360,20 @@ impl<K: Kms> Drm2d<K> {
             };
             // Each part goes in whole, or not at all.
             let mut part = Request::default();
-            let set = self
-                .card
-                .properties(d.id, Object::Connector)
-                .and_then(|props| Props::new(&props).set(&mut part, d.id, "CRTC_ID", 0))
-                .and_then(|()| {
-                    let Some(props) = &crtc_props else {
-                        return Ok(());
-                    };
-                    let props = Props::new(props);
-                    props.set(&mut part, crtc, "MODE_ID", 0)?;
-                    props.set(&mut part, crtc, "ACTIVE", 0)
-                });
+            let set = self.unbind(&mut part, d.id).and_then(|()| {
+                let Some(props) = &crtc_props else {
+                    return Ok(());
+                };
+                let props = Props::new(props);
+                props.set(&mut part, crtc, "MODE_ID", 0)?;
+                props.set(&mut part, crtc, "ACTIVE", 0)?;
+                for other in self.card.resources()?.connectors {
+                    if other != d.id && self.connector_crtc(other) == Some(crtc) {
+                        self.unbind(&mut part, other)?;
+                    }
+                }
+                Ok(())
+            });
             match set {
                 Ok(()) => {
                     req.entries.extend(part.entries);
@@ -1371,6 +1385,12 @@ impl<K: Kms> Drm2d<K> {
             }
         }
         off
+    }
+
+    /// Adds to `part` what takes connector `id` off its CRTC.
+    fn unbind(&self, part: &mut Request, id: u32) -> io::Result<()> {
+        let props = self.card.properties(id, Object::Connector)?;
+        Props::new(&props).set(part, id, "CRTC_ID", 0)
     }
 
     /// Sets the dark connectors off while no display is online, taking
@@ -1482,25 +1502,47 @@ impl<K: Kms> Drm2d<K> {
     }
 
     /// An atomic modeset of every display, tried again with each display's
-    /// default mode where the test commit fails.
+    /// default mode where the test commit fails. Where it fails with the
+    /// dark connectors set off, it is tried without them first, so a dark
+    /// connector never costs the lit displays (ADR-1401 D9); the first
+    /// such failure is logged as a warning, later ones at debug level.
     fn atomic_modeset_or_default(&mut self) -> io::Result<()> {
-        match self.atomic_modeset() {
-            Err(Failure::Test(e)) if errno(&e) != Some(Errno::ACCESS) => {
-                log::warn!("retrying the modeset with each display's default mode");
-                let modes: Vec<Mode> = self.outputs.iter().map(|o| o.mode).collect();
-                for o in &mut self.outputs {
-                    o.mode = o.choice.default;
-                }
-                let retried = self.atomic_modeset();
-                if retried.is_err() {
-                    for (o, mode) in self.outputs.iter_mut().zip(modes) {
-                        o.mode = mode;
-                    }
-                }
-                retried.map_err(Failure::into_inner)
+        let refused = |set: &Result<(), Failure>| matches!(set, Err(Failure::Test(e)) if errno(e) != Some(Errno::ACCESS));
+        let mut dark = !self.dark.is_empty();
+        let mut set = self.atomic_modeset(dark);
+        if dark && refused(&set) {
+            let names: Vec<&str> = self
+                .dark
+                .iter()
+                .map(|d| d.identity.connector.as_str())
+                .collect();
+            let line = format!(
+                "cannot set {} off beside the lit displays; they stay as they are",
+                names.join(", ")
+            );
+            if std::mem::replace(&mut self.dark_refused, true) {
+                log::debug!("{line}");
+            } else {
+                log::warn!("{line}");
             }
-            set => set.map_err(Failure::into_inner),
+            dark = false;
+            set = self.atomic_modeset(false);
         }
+        if !refused(&set) {
+            return set.map_err(Failure::into_inner);
+        }
+        log::warn!("retrying the modeset with each display's default mode");
+        let modes: Vec<Mode> = self.outputs.iter().map(|o| o.mode).collect();
+        for o in &mut self.outputs {
+            o.mode = o.choice.default;
+        }
+        let retried = self.atomic_modeset(dark);
+        if retried.is_err() {
+            for (o, mode) in self.outputs.iter_mut().zip(modes) {
+                o.mode = mode;
+            }
+        }
+        retried.map_err(Failure::into_inner)
     }
 
     /// Announces each display online: new ones as added, and those whose
@@ -1624,9 +1666,13 @@ impl<K: Kms> Drm2d<K> {
 
     /// One atomic modeset of every display: tried first as a test-only
     /// commit, then committed without blocking, with a flip event.
-    fn atomic_modeset(&mut self) -> Result<(), Failure> {
+    fn atomic_modeset(&mut self, dark: bool) -> Result<(), Failure> {
         let mut req = Request::default();
-        let off = self.prepare_dark(&mut req);
+        let off = if dark {
+            self.prepare_dark(&mut req)
+        } else {
+            Vec::new()
+        };
         self.clear_planes(&mut req, &off);
         let mut staged = Vec::with_capacity(self.outputs.len());
         let mut outputs = std::mem::take(&mut self.outputs);

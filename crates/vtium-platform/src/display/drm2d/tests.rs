@@ -2262,3 +2262,70 @@ fn a_crtc_another_master_left_powered_down_is_not_lit_at_start() {
     assert!(lit(true, true));
     assert!(!lit(true, false), "legacy, DPMS off");
 }
+
+/// [`dark_card`] with connector 43, unplugged, still on B's CRTC as
+/// another master left it.
+fn shared_dark_card() -> FakeCard {
+    let card = dark_card();
+    {
+        let mut s = card.state();
+        s.listed.push(43);
+        s.dpms.insert(43, 0);
+        s.bound.insert(43, 101);
+        s.connectors.insert(
+            43,
+            Connector {
+                id: 43,
+                kind: 10,
+                kind_id: 1,
+                connected: false,
+                encoder: 201,
+                encoders: vec![201],
+                ..Connector::default()
+            },
+        );
+    }
+    card
+}
+
+// review-h1b: turning a dark connector's CRTC off unbinds every connector
+// on it, an unplugged one vtium neither binds nor darkens included, so the
+// commit passes the kernel's check and the lit display comes up.
+#[test]
+fn a_dark_crtc_is_turned_off_with_every_connector_on_it() {
+    let mut v = dark_on(shared_dark_card(), "HDMI-A-2");
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(
+        (c.get(B, "CRTC_ID"), c.get(43, "CRTC_ID")),
+        (Some(0), Some(0))
+    );
+    assert_eq!(c.get(101, "ACTIVE"), Some(0));
+    assert_eq!(v.card().state().active.get(&101), Some(&false));
+}
+
+// review-h1b: a dark rule never costs the lit displays. Where the commit
+// setting a dark connector off still fails, the modeset is tried again
+// without it, logged once, and the lit displays come up.
+#[test]
+fn a_dark_connector_that_cannot_be_set_off_leaves_the_lit_displays_up() {
+    logs::capture();
+    let card = dark_card();
+    card.state().refused.push(101);
+    let mut v = dark_on(card, "HDMI-A-2");
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(c.get(A, "CRTC_ID"), Some(100));
+    assert!(!c.mentions(B) && !c.mentions(101), "{c:?}");
+    assert_eq!(v.card().state().active.get(&101), Some(&true));
+    let warned = |logs: &[String]| logs.iter().filter(|l| l.contains("HDMI-A-2")).count();
+    assert_eq!(warned(&logs::at_least(Level::Warn)), 1);
+    // the next modeset that fails the same way logs nothing more
+    v.sleep();
+    flip(&mut v);
+    v.wake_up().unwrap();
+    assert_eq!(warned(&logs::at_least(Level::Warn)), 1);
+    assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(A)]);
+}
