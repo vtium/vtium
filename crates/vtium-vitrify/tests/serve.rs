@@ -13,8 +13,8 @@ use std::time::Duration;
 use vtium_font::set::{Set, SetFace};
 use vtium_font::{Cell, Face};
 use vtium_vitrify::serve::{
-    ASK, FILL, FRAME_DONE, FRAME_FAILED, FRAME_FILL, FRAME_FILLED, FRAME_GLYPHS, FritText, Paths,
-    STOP, ServeRequest, serve,
+    ASK, FILL, FRAME_DONE, FRAME_FAILED, FRAME_FILL, FRAME_FILLED, FRAME_GLYPHS, FRAME_NO_OWN_CELL,
+    FritText, OWN_CELL, Paths, STOP, ServeRequest, serve,
 };
 
 /// The frames in `bytes`, kind and payload.
@@ -273,4 +273,55 @@ fn each_fill_sends_the_cells_coverage_in_full_once() {
     assert!(first.len() > 100, "{}", first.len());
     assert!(first.values().all(|&n| n == 1));
     assert_eq!(again, first);
+}
+
+// the operator's decision on #145, 2026-10-28: an outline frit draws in
+// the automatic cell, so the helper refuses its cell query, alone or after
+// a bitmap source
+#[test]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+fn an_outline_frits_cell_query_is_refused() {
+    let dir = std::env::temp_dir().join(format!("vtium-serve-outline-cell-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let font = dir.join("mono.ttf");
+    std::fs::write(&font, ttf::test_mono().build()).unwrap();
+    let query = |text: String| ServeRequest {
+        kind: OWN_CELL,
+        frit: FritText {
+            name: "t".to_owned(),
+            text,
+        },
+        cell: Cell {
+            width: 0,
+            height: 0,
+        },
+        codepoints: Vec::new(),
+        held: Vec::new(),
+        console: None,
+    };
+    let outline = format!("source=outline:{}\n", font.display());
+    let requests = [
+        query(outline.clone()),
+        query(format!("source=builtin:unscii-8\n{outline}")),
+    ];
+    let bytes: Vec<u8> = requests.iter().flat_map(ServeRequest::encode).collect();
+    let mut out = Vec::new();
+    let status = serve(
+        std::io::Cursor::new(bytes),
+        &mut out,
+        &Paths::default(),
+        Duration::from_secs(5),
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(status, 0);
+    let frames = frames(&out);
+    assert_eq!(
+        frames.iter().map(|f| f.0).collect::<Vec<_>>(),
+        [FRAME_NO_OWN_CELL, FRAME_NO_OWN_CELL],
+        "{frames:?}"
+    );
+    for (_, why) in &frames {
+        let why = String::from_utf8_lossy(why);
+        assert!(why.contains("is an outline font"), "{why}");
+    }
 }
