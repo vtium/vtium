@@ -420,11 +420,12 @@ fn frame(r: &mut impl Read) -> Option<Event> {
 }
 
 /// An answer the console takes: glyphs now in the store at `cell`, drawn
-/// through `face`.
+/// through `face`, for `chars`, sorted.
 #[derive(Debug)]
 pub struct Answer {
     pub cell: Cell,
     pub face: SetFace,
+    pub chars: Vec<char>,
 }
 
 /// The helper's process: its pidfd, which ends it, the writer's queue and
@@ -1099,7 +1100,8 @@ impl Helper {
                 fresh = without_held()?;
             }
         };
-        let added: Vec<char> = fresh.chars().collect();
+        let mut added: Vec<char> = fresh.chars().collect();
+        added.sort_unstable();
         let Some(face) = self.store.borrow_mut().add(fresh) else {
             return Ok(None);
         };
@@ -1111,7 +1113,11 @@ impl Helper {
                 state.first_glyphs.get_or_insert(now);
             }
         }
-        Ok(Some(Answer { cell, face }))
+        Ok(Some(Answer {
+            cell,
+            face,
+            chars: added,
+        }))
     }
 
     /// The store is full while `cell` fills: the fill stops there, logged

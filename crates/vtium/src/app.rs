@@ -1068,8 +1068,10 @@ impl App {
         self.helper.as_mut()
     }
 
-    /// Takes the helper's answers: each display at a set's cell redraws
-    /// the cells that show one of its characters.
+    /// Takes the helper's answers: each display at a set's cell forgets
+    /// the glyphs it cached for the set's characters, so none draws the
+    /// built-in font once the frit sent it (ADR-1200 D7), and redraws the
+    /// cells that show one.
     fn helper_turn(&mut self, now: Instant) {
         if self.term.changed {
             self.ask_visible(now);
@@ -1085,26 +1087,26 @@ impl App {
         // last turn merge into one set per cell, which the next frame draws
         // once, and only the cells showing their characters draw.
         let visible = self.visible_chars();
-        let mut damage: Vec<(vtium_font::Cell, Vec<char>)> = Vec::new();
-        for Answer { cell, face } in answers {
-            let shown = visible.iter().copied().filter(|&c| face.has_glyph(c));
-            match damage.iter_mut().find(|(at, _)| *at == cell) {
-                Some((_, chars)) => chars.extend(shown),
-                None => damage.push((cell, shown.collect())),
+        let mut arrived: Vec<(vtium_font::Cell, Vec<char>)> = Vec::new();
+        for Answer { cell, chars, .. } in answers {
+            match arrived.iter_mut().find(|(at, _)| *at == cell) {
+                Some((_, all)) => all.extend(chars),
+                None => arrived.push((cell, chars)),
             }
         }
-        for (cell, mut chars) in damage {
-            chars.sort_unstable();
-            chars.dedup();
-            if chars.is_empty() {
-                continue;
-            }
+        for (cell, chars) in arrived {
+            let (shown, hidden): (Vec<char>, Vec<char>) = chars
+                .into_iter()
+                .partition(|c| visible.binary_search(c).is_ok());
             for v in self.views.values_mut() {
                 if v.renderer.font().cell() == cell {
-                    v.renderer.glyphs_changed(&chars);
+                    v.renderer.forget_glyphs(&hidden);
+                    if !shown.is_empty() {
+                        v.renderer.glyphs_changed(&shown);
+                    }
                 }
             }
-            self.draw_now = true;
+            self.draw_now |= !shown.is_empty();
         }
     }
 

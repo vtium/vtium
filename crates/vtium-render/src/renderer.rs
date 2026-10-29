@@ -414,6 +414,14 @@ fn span(width: Width, before: Option<Width>, next: impl FnOnce() -> Option<Width
     }
 }
 
+/// `chars` sorted, each once.
+fn sorted(chars: &[char]) -> Vec<char> {
+    let mut out = chars.to_vec();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
 /// The width of the cell after `col` in `row`, among the grid's `cols`.
 fn next_width(frame: &Frame<'_>, row: usize, col: usize, cols: usize) -> Option<Width> {
     let next = col.saturating_add(1);
@@ -503,13 +511,20 @@ impl<F: Face> Renderer<F> {
     /// D23). Every other glyph stays cached, and every other cell keeps its
     /// pixels.
     pub fn glyphs_changed(&mut self, chars: &[char]) {
-        let mut arrived = chars.to_vec();
-        arrived.sort_unstable();
-        arrived.dedup();
+        let arrived = sorted(chars);
         self.compose.cache.forget(&arrived);
         self.changed.extend_from_slice(&arrived);
         self.changed.sort_unstable();
         self.changed.dedup();
+    }
+
+    /// The font now draws each of `chars` differently, and no cell shows
+    /// one: the cache drops the glyphs whose text holds one, alone or in a
+    /// cluster, so a cell that shows one later draws the font's new glyph
+    /// (ADR-1200 D7), and no cell draws again now. Every other glyph stays
+    /// cached.
+    pub fn forget_glyphs(&mut self, chars: &[char]) {
+        self.compose.cache.forget(&sorted(chars));
     }
 
     pub fn font(&self) -> &Font<F> {
