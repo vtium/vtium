@@ -92,8 +92,10 @@ pub struct InputIdentity {
     pub id: Option<(u16, u16)>,
     /// The device's name, for `name`.
     pub name: Option<String>,
-    /// Its udev properties by name, for `udev:`; none without a udev
-    /// daemon.
+    /// Its udev properties by name, for `udev:`. Without a udev daemon
+    /// they are only the kernel's own, from the node's `uevent` (`MAJOR`,
+    /// `MINOR`, `DEVNAME`), which libudev still reads, and none that
+    /// udev's rules or hwdb set.
     pub properties: BTreeMap<String, String>,
 }
 
