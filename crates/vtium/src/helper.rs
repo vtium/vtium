@@ -24,7 +24,10 @@
 //! before anything is allocated, a set through vtium-font's reader, which
 //! bounds every field, every strike at a cell asked for and regular in
 //! style, an ask's glyphs among those it asked for and not yet sent, and a
-//! fill's among those the cell does not hold.
+//! fill's among those the cell does not hold. The helper says when it takes
+//! each stop, and a cell's fill frames before that belong to the fill
+//! stopped and are dropped, so a cell filled again at once takes only its
+//! new fill.
 //!
 //! A helper that answers what is not a frame, what was not asked, or a
 //! failure is given up for the boot, logged once, and the built-in font
@@ -97,6 +100,7 @@ const FRAME_FILL: u32 = 4;
 const FRAME_FILLED: u32 = 5;
 const FRAME_OWN_CELL: u32 = 6;
 const FRAME_NO_OWN_CELL: u32 = 7;
+const FRAME_STOPPED: u32 = 8;
 
 /// `SIGXCPU`, which an exhausted `RLIMIT_CPU` sends.
 const SIGXCPU: i32 = 24;
@@ -246,6 +250,9 @@ enum Event {
     Done,
     /// A cell's fill is done.
     Filled(Cell),
+    /// A stop at a cell is taken: the frames of the fill it ended are all
+    /// sent.
+    Stopped(Cell),
     /// The frit's own cell, a cell query's answer.
     OwnCell(Cell),
     /// The frit has no own cell: why.
@@ -351,7 +358,7 @@ fn frame(r: &mut impl Read) -> Option<Event> {
     let max = match kind {
         FRAME_GLYPHS | FRAME_FILL => FRAME_BYTES_MAX,
         FRAME_DONE => 0,
-        FRAME_FILLED | FRAME_OWN_CELL => 8,
+        FRAME_FILLED | FRAME_OWN_CELL | FRAME_STOPPED => 8,
         FRAME_FAILED | FRAME_NO_OWN_CELL => REASON_BYTES_MAX,
         other => return Some(Event::Malformed(format!("a frame of unknown kind {other}"))),
     };
@@ -378,11 +385,18 @@ fn frame(r: &mut impl Read) -> Option<Event> {
             },
         },
         FRAME_DONE => Event::Done,
-        FRAME_FILLED => match *payload.as_slice() {
-            [w0, w1, w2, w3, h0, h1, h2, h3] => Event::Filled(Cell {
-                width: u32::from_le_bytes([w0, w1, w2, w3]),
-                height: u32::from_le_bytes([h0, h1, h2, h3]),
-            }),
+        FRAME_FILLED | FRAME_STOPPED => match *payload.as_slice() {
+            [w0, w1, w2, w3, h0, h1, h2, h3] => {
+                let cell = Cell {
+                    width: u32::from_le_bytes([w0, w1, w2, w3]),
+                    height: u32::from_le_bytes([h0, h1, h2, h3]),
+                };
+                if kind == FRAME_FILLED {
+                    Event::Filled(cell)
+                } else {
+                    Event::Stopped(cell)
+                }
+            }
             _ => Event::Malformed("a fill's end without its cell".to_owned()),
         },
         FRAME_OWN_CELL => match *payload.as_slice() {
@@ -406,11 +420,12 @@ fn frame(r: &mut impl Read) -> Option<Event> {
 }
 
 /// An answer the console takes: glyphs now in the store at `cell`, drawn
-/// through `face`.
+/// through `face`, for `chars`, sorted.
 #[derive(Debug)]
 pub struct Answer {
     pub cell: Cell,
     pub face: SetFace,
+    pub chars: Vec<char>,
 }
 
 /// The helper's process: its pidfd, which ends it, the writer's queue and
@@ -477,8 +492,7 @@ enum Fill {
     /// Never started.
     None,
     Active,
-    /// Ended at the store's limit or by a display gone; frames already on
-    /// their way are dropped.
+    /// Ended at the store's limit or by a display gone.
     Stopped,
     Done,
 }
@@ -536,9 +550,9 @@ pub struct Helper {
     limit: u64,
     running: Option<Running>,
     cells: Vec<CellState>,
-    /// Cells no display draws whose fill was stopped while it ran: the
-    /// frames already on their way for them are dropped, until the
-    /// helper ends that fill or exits.
+    /// The cell of each stop sent that the helper has not yet taken: a
+    /// cell's fill frames are dropped while it has one, as they belong to
+    /// the fill stopped, however soon the cell is filled again.
     stopped: Vec<Cell>,
     asks: VecDeque<Ask>,
     /// A cell query is unanswered: its late answer is dropped.
@@ -637,7 +651,6 @@ impl Helper {
         state.started = Some(now);
         state.first_glyphs = None;
         let (codepoints, held) = (state.first.clone(), state.held.ranges());
-        self.stopped.retain(|&c| c != cell);
         self.send(FILL, cell, &codepoints, &held, now);
     }
 
@@ -709,9 +722,8 @@ impl Helper {
     }
 
     /// Forgets every cell but `cells`, as no display draws at them: their
-    /// glyphs leave the store, a running helper is told to stop each,
-    /// whatever its fill, and the frames already on their way for them are
-    /// dropped.
+    /// glyphs leave the store, and a running helper is told to stop each,
+    /// whatever its fill.
     pub fn retain(&mut self, cells: &[Cell], now: Instant) {
         let gone: Vec<Cell> = self
             .cells
@@ -721,14 +733,20 @@ impl Helper {
             .collect();
         if self.running.is_some() {
             for cell in gone {
-                self.send(STOP, cell, &[], &[], now);
-                if !self.stopped.contains(&cell) {
-                    self.stopped.push(cell);
-                }
+                self.stop_fill(cell, now);
             }
         }
         self.cells.retain(|c| cells.contains(&c.cell));
         self.store.borrow_mut().retain(cells);
+    }
+
+    /// Tells the helper to stop `cell`'s fill, and drops that cell's fill
+    /// frames until the helper says it took the stop.
+    fn stop_fill(&mut self, cell: Cell, now: Instant) {
+        self.send(STOP, cell, &[], &[], now);
+        if self.running.is_some() {
+            self.stopped.push(cell);
+        }
     }
 
     /// Sends one request, starting the helper first when it is not
@@ -928,6 +946,7 @@ impl Helper {
                     .map(|a| out.extend(a)),
                 Event::Done => self.done(),
                 Event::Filled(cell) => self.filled(cell, now),
+                Event::Stopped(cell) => self.stop_taken(cell),
                 // a cell query's answer after the console stopped waiting
                 Event::OwnCell(_) | Event::NoOwnCell(_) if self.querying => {
                     self.querying = false;
@@ -1081,7 +1100,8 @@ impl Helper {
                 fresh = without_held()?;
             }
         };
-        let added: Vec<char> = fresh.chars().collect();
+        let mut added: Vec<char> = fresh.chars().collect();
+        added.sort_unstable();
         let Some(face) = self.store.borrow_mut().add(fresh) else {
             return Ok(None);
         };
@@ -1093,7 +1113,11 @@ impl Helper {
                 state.first_glyphs.get_or_insert(now);
             }
         }
-        Ok(Some(Answer { cell, face }))
+        Ok(Some(Answer {
+            cell,
+            face,
+            chars: added,
+        }))
     }
 
     /// The store is full while `cell` fills: the fill stops there, logged
@@ -1102,7 +1126,7 @@ impl Helper {
         if let Some(state) = self.state(cell) {
             state.fill = Fill::Stopped;
         }
-        self.send(STOP, cell, &[], &[], now);
+        self.stop_fill(cell, now);
         if !self.full {
             self.full = true;
             log::info!(
@@ -1128,11 +1152,22 @@ impl Helper {
         Ok(())
     }
 
+    /// The helper took the oldest stop at `cell`: the frames after it are
+    /// the next fill's. One with no stop sent was not asked.
+    fn stop_taken(&mut self, cell: Cell) -> Result<(), String> {
+        let i = self
+            .stopped
+            .iter()
+            .position(|&c| c == cell)
+            .ok_or_else(|| "the helper took a stop not sent".to_owned())?;
+        self.stopped.remove(i);
+        Ok(())
+    }
+
     /// A cell's fill is done: logged with its timings, or refused when the
-    /// cell holds no glyph.
+    /// cell holds no glyph. The end of a fill stopped is dropped.
     fn filled(&mut self, cell: Cell, now: Instant) -> Result<(), String> {
-        if let Some(i) = self.stopped.iter().position(|&c| c == cell) {
-            self.stopped.remove(i);
+        if self.stopped.contains(&cell) {
             return Ok(());
         }
         let epoch = self.epoch;
@@ -1253,6 +1288,14 @@ mod tests {
         let mut c = cell.width.to_le_bytes().to_vec();
         c.extend_from_slice(&cell.height.to_le_bytes());
         frame_bytes(FRAME_FILLED, &c)
+    }
+
+    /// The helper's word that it took a stop at `cell`, as it answers
+    /// each.
+    fn stopped(cell: Cell) -> Vec<u8> {
+        let mut c = cell.width.to_le_bytes().to_vec();
+        c.extend_from_slice(&cell.height.to_le_bytes());
+        frame_bytes(FRAME_STOPPED, &c)
     }
 
     /// A helper whose answers are `script`, run by the shell after it
@@ -1757,18 +1800,75 @@ mod tests {
     fn a_fill_frame_for_a_cell_no_display_draws_is_dropped() {
         let mut fixture = frame_bytes(FRAME_FILL, &set(CELL, &['A']));
         fixture.extend(filled(CELL));
+        fixture.extend(stopped(CELL));
         let mut s = StandIn::new("late", ANSWERS, &fixture);
         let now = t0();
         s.helper.fill(CELL, &[], now);
         s.helper.retain(&[], now);
-        // both frames read, then taken
-        for _ in 0..2 {
+        // the three frames read, then taken
+        for _ in 0..3 {
             s.woke.recv_timeout(Duration::from_secs(10)).unwrap();
         }
         assert!(s.helper.poll(now).is_empty());
         assert_eq!(s.helper.failed(), None);
         assert!(!s.held('A'));
+        assert!(s.helper.stopped.is_empty());
         assert!(!s.helper.busy());
+    }
+
+    // D15, D17: a zoom away and back before the old fill's frames are
+    // taken; the frames before the helper took the stop are the old
+    // fill's and dropped, the new fill's are taken, and the helper stays
+    #[test]
+    fn a_cell_stopped_and_filled_again_takes_only_the_new_fill() {
+        let mut fixture = frame_bytes(FRAME_FILL, &set(CELL, &['A']));
+        fixture.extend(stopped(CELL));
+        fixture.extend(frame_bytes(FRAME_FILL, &set(CELL, &['A'])));
+        fixture.extend(filled(CELL));
+        let mut s = StandIn::new("zoomback", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.fill(CELL, &[], now);
+        s.helper.retain(&[], now);
+        s.helper.fill(CELL, &[], now);
+        let answers = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(answers.len(), 1);
+        assert!(s.held('A'));
+        assert!(s.helper.stopped.is_empty());
+        assert!(!s.helper.busy());
+    }
+
+    // the old fill's end, sent before the helper took the stop, leaves the
+    // new fill running, and the new fill's glyphs are taken
+    #[test]
+    fn a_stopped_fills_end_does_not_end_the_next_fill() {
+        let mut fixture = frame_bytes(FRAME_FILL, &set(CELL, &['A']));
+        fixture.extend(filled(CELL));
+        fixture.extend(stopped(CELL));
+        fixture.extend(frame_bytes(FRAME_FILL, &set(CELL, &['A'])));
+        fixture.extend(frame_bytes(FRAME_FILL, &set(CELL, &['B'])));
+        fixture.extend(filled(CELL));
+        let mut s = StandIn::new("zoombackend", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.fill(CELL, &[], now);
+        s.helper.retain(&[], now);
+        s.helper.fill(CELL, &[], now);
+        let answers = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(answers.len(), 2);
+        assert!(s.held('A') && s.held('B'));
+        assert!(!s.helper.busy());
+    }
+
+    // D15: the word that a stop was taken, with no stop sent, was not
+    // asked
+    #[test]
+    fn a_stop_taken_that_was_not_sent_gives_the_helper_up() {
+        let mut fixture = frame_bytes(FRAME_FILL, &set(CELL, &['A']));
+        fixture.extend(stopped(CELL));
+        let (why, restarts) = given_up("stopunsent", ANSWERS, &fixture, true);
+        assert!(why.contains("stop not sent"), "{why}");
+        assert_eq!(restarts, 0);
     }
 
     /// The bytes of the stand-ins' request of `kind` at the cell, naming
@@ -1791,16 +1891,17 @@ mod tests {
     fn a_late_frame_for_a_stopped_cell_no_display_draws_is_dropped() {
         let a = set(CELL, &['A']);
         let script = format!(
-            "head -c {} >/dev/null; cat \"$1\"; head -c {} >/dev/null; cat \"$1.late\"; cat >/dev/null",
+            "head -c {} >/dev/null; cat \"$1\"; head -c {stop} >/dev/null; cat \"$1.late\"; head -c {stop} >/dev/null; cat \"$1.stop\"; cat >/dev/null",
             request_bytes(FILL),
-            request_bytes(STOP)
+            stop = request_bytes(STOP)
         );
         let mut s = StandIn::limited("stoppedlate", &script, &frame_bytes(FRAME_FILL, &a), 1);
-        std::fs::write(
-            s.dir.join("answer.late"),
-            frame_bytes(FRAME_FILL, &set(CELL, &['B'])),
-        )
-        .unwrap();
+        // B, sent before the helper took the store's stop, then that stop
+        // taken; then the second stop taken
+        let mut late = frame_bytes(FRAME_FILL, &set(CELL, &['B']));
+        late.extend(stopped(CELL));
+        std::fs::write(s.dir.join("answer.late"), late).unwrap();
+        std::fs::write(s.dir.join("answer.stop"), stopped(CELL)).unwrap();
         let now = t0();
         s.helper.fill(CELL, &[], now);
         // A past the store's limit: dropped, and the fill stopped
@@ -1808,10 +1909,13 @@ mod tests {
         assert!(s.helper.poll(now).is_empty());
         assert_eq!(s.helper.failed(), None);
         s.helper.retain(&[], now);
-        // B, sent before the stop reached the helper
-        s.woke.recv_timeout(Duration::from_secs(10)).unwrap();
+        // B, then the two stops taken
+        for _ in 0..3 {
+            s.woke.recv_timeout(Duration::from_secs(10)).unwrap();
+        }
         assert!(s.helper.poll(now).is_empty());
         assert_eq!(s.helper.failed(), None);
+        assert!(s.helper.stopped.is_empty());
     }
 
     // a cell dropped whose fill is done is stopped too
@@ -1820,11 +1924,12 @@ mod tests {
         let mut fixture = frame_bytes(FRAME_FILL, &set(CELL, &['A']));
         fixture.extend(filled(CELL));
         let script = format!(
-            "head -c {} >/dev/null; cat \"$1\"; head -c {} >\"$1.stop\"",
+            "head -c {} >/dev/null; cat \"$1\"; head -c {} >\"$1.stop\"; cat \"$1.taken\"",
             request_bytes(FILL),
             request_bytes(STOP)
         );
         let mut s = StandIn::new("donestop", &script, &fixture);
+        std::fs::write(s.dir.join("answer.taken"), stopped(CELL)).unwrap();
         let now = t0();
         s.helper.fill(CELL, &[], now);
         assert_eq!(s.run(now).len(), 1);
@@ -1866,6 +1971,7 @@ mod tests {
         let mut fixture = frame_bytes(FRAME_FILL, &a);
         fixture.extend(frame_bytes(FRAME_FILL, &set(CELL, &['B'])));
         fixture.extend(frame_bytes(FRAME_FILL, &set(CELL, &['C'])));
+        fixture.extend(stopped(CELL));
         fixture.extend(frame_bytes(FRAME_GLYPHS, &set(CELL, &['D'])));
         fixture.extend(frame_bytes(FRAME_DONE, &[]));
         let mut s = StandIn::limited("limit", ANSWERS, &fixture, limit);
@@ -1882,6 +1988,7 @@ mod tests {
         assert!(holds(&answers[1], 'D') && !holds(&answers[1], 'A'));
         assert!(!s.held('A') && !s.held('B') && !s.held('C') && s.held('D'));
         assert!(s.helper.store.borrow().bytes() <= limit);
+        assert!(s.helper.stopped.is_empty());
         assert!(!s.helper.busy());
         // A, evicted, is asked for again when the screen shows it
         s.helper.ask(CELL, &['A'], now);

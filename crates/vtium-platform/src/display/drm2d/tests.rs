@@ -1941,6 +1941,47 @@ fn a_connector_with_no_physical_size_assumes_the_density() {
     assert_eq!(v.density(DisplayId(B)), None);
 }
 
+// ADR-1301 D3: a connector reporting 0 mm takes the size its EDID in
+// sysfs states, and with none there still assumes the density
+#[test]
+fn a_connector_with_no_physical_size_takes_its_edids_in_sysfs() {
+    let dir = std::env::temp_dir().join(format!("vtium-drm2d-edid-{}", std::process::id()));
+    let conn = dir.join(format!("card0-{}", output::connector_name(11, 1)));
+    std::fs::create_dir_all(&conn).unwrap();
+    // a 27-inch monitor's base block: 60 by 34 cm
+    let mut edid = vec![0u8; 128];
+    edid[..8].copy_from_slice(&[0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0]);
+    (edid[21], edid[22]) = (60, 34);
+    edid[127] = 0u8.wrapping_sub(edid.iter().fold(0u8, |s, &b| s.wrapping_add(b)));
+    std::fs::write(conn.join("edid"), &edid).unwrap();
+    let density = |mm, sysfs: Option<&std::path::Path>| {
+        let card = FakeCard::new(&[(A, vec![mode(2560, 1440, 60, true)])]);
+        {
+            let mut s = card.state();
+            let c = s.connectors.get_mut(&A).unwrap();
+            (c.kind, c.kind_id, c.mm) = (11, 1, mm);
+            s.sysfs = sysfs.map(std::path::Path::to_path_buf);
+        }
+        awake(Drm2d::with(card, ModePolicy::default()).unwrap())
+            .density(DisplayId(A))
+            .unwrap()
+    };
+    let (from_edid, one_side, measured, none) = (
+        density((0, 0), Some(&dir)),
+        density((597, 0), Some(&dir)),
+        density((299, 168), Some(&dir)),
+        density((0, 0), Some(&dir.join("gone"))),
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    let round = |d: Density| (d.dpi().0.round(), d.dpi().1.round());
+    assert!(from_edid.measured());
+    assert_eq!(round(from_edid), (108.0, 108.0));
+    assert_eq!(round(one_side), (108.0, 108.0));
+    // the connector's own size comes first: 13.6 inches across
+    assert_eq!(round(measured), (217.0, 218.0));
+    assert_eq!(none, Density::ASSUMED);
+}
+
 #[test]
 fn a_connector_with_an_implausible_size_assumes_the_density() {
     // A projector that reports 1 mm.

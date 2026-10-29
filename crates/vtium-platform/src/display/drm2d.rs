@@ -37,6 +37,22 @@ fn errno(e: &io::Error) -> Option<Errno> {
     e.raw_os_error().map(Errno::from_raw_os_error)
 }
 
+/// The physical size of connector `name`, `mm` as the connector reports
+/// it, or where it reports a side of 0, the size its EDID in sysfs states
+/// (ADR-1301 D3); `mm` where that states none either.
+fn physical_size(card: &impl Kms, name: &str, mm: (u32, u32)) -> (u32, u32) {
+    if mm.0 != 0 && mm.1 != 0 {
+        return mm;
+    }
+    let edid = card
+        .sysfs()
+        .and_then(|dir| super::density::sysfs_mm(&dir, name));
+    if let Some((w, h)) = edid {
+        log::info!("display {name} reports no physical size: its EDID in sysfs states {w}x{h} mm");
+    }
+    edid.unwrap_or(mm)
+}
+
 /// An operation that waits until no page flip is in flight.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Waiting {
@@ -983,13 +999,14 @@ impl<K: Kms> Drm2d<K> {
             choice.current.size().0,
             choice.current.size().1
         );
+        let mm = physical_size(&self.card, &name, conn.mm);
         Some(Output {
             id: DisplayId(conn.id),
             name,
             crtc,
             planes,
             mode: choice.current,
-            mm: conn.mm,
+            mm,
             choice,
             mode_blob: 0,
             buffers: Vec::new(),

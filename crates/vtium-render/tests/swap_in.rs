@@ -134,6 +134,36 @@ fn a_change_reaches_a_buffer_that_missed_it() {
 }
 
 #[test]
+fn a_glyph_forgotten_off_screen_draws_anew_when_shown() {
+    // ADR-1200 D7: an A drawn and cleared before its new glyph arrives is
+    // forgotten with no cell drawn again, and the A written later draws
+    // the new glyph
+    let swapped = Rc::new(Flag::new(false));
+    let font = Font::new(Swapping {
+        unifont: Unifont::new(16),
+        swapped: Rc::clone(&swapped),
+    });
+    let mut s = Screen::new(4, 1, rgb(FG), rgb(BG));
+    s.text(0, 0, "AB", style(rgb(FG), rgb(BG)));
+    let st = state(&s);
+    let mut r = Renderer::new(font, 32, 16, Config::default());
+    let mut c = Canvas::new(32, 16, 0);
+    r.draw(&s.frame(Age::NEVER), &mut c, 0, &st);
+    let since = s.damage.checkpoint();
+    s.text(0, 0, " ", style(rgb(FG), rgb(BG)));
+    r.draw(&s.frame(since), &mut c, 1, &st);
+    let since = s.damage.checkpoint();
+    swapped.set(true);
+    r.forget_glyphs(&['A']);
+    let damage = r.draw(&s.frame(since), &mut c, 1, &st).damage.to_vec();
+    assert!(damage.is_empty(), "{damage:?}");
+    s.text(2, 0, "A", style(rgb(FG), rgb(BG)));
+    r.draw(&s.frame(since), &mut c, 1, &st);
+    let a = cell_pixels(&c, 2);
+    assert!(a.iter().all(|&p| p == a[0]) && a[0] != c.pixel(31, 0).unwrap());
+}
+
+#[test]
 fn an_arrival_keeps_the_glyphs_it_did_not_change() {
     // ADR-1200 D23: an arrival reaches only what shows the arrived
     // characters, so the cache keeps every other glyph it drew

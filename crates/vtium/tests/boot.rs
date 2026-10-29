@@ -3421,6 +3421,55 @@ fn a_frit_draws_the_built_in_font_first_and_the_helpers_glyphs_after() {
     let _ = std::fs::remove_dir_all(&fonts.frits);
 }
 
+// ADR-1200 D7: the built-in font draws only what the frit has not yet
+// sent. A character drawn in the built-in font and cleared before its
+// glyph arrives draws the frit's glyph when the screen shows it again.
+#[test]
+fn a_glyph_that_arrives_off_screen_draws_when_shown_again() {
+    let cell = vtium_font::Cell {
+        width: 8,
+        height: 16,
+    };
+    let (fonts, go) = frit_fonts(
+        "offscreen",
+        &solid_ascii(cell),
+        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+    );
+    // A at the top left; then, at each Enter, the screen cleared with B
+    // beside where A was, and A drawn there again
+    let session = "stty -echo; printf A; read x; printf '\\033[H\\033[2J B'; read y; printf '\\033[HA'; read z";
+    let mut h = Harness::fonts(
+        &["--font-name=t", "--login", "--", "/bin/sh", "-c", session],
+        Memory::default(),
+        fonts.clone(),
+    );
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| !solid(&top_cell(m, 0))),
+        "the built-in font's A is drawn"
+    );
+    h.type_str("\r");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| solid(&top_cell(m, 0))
+            && !solid(&top_cell(m, 1))),
+        "A is cleared and the built-in font's B drawn"
+    );
+    let background = top_cell(h.memory(), 0)[0];
+    std::fs::write(&go, b"").expect("the go file");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| solid(&top_cell(m, 1))),
+        "the helper's glyphs, A's among them, arrive and replace B"
+    );
+    h.type_str("\r");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| {
+            let a = top_cell(m, 0);
+            solid(&a) && a[0] != background
+        }),
+        "A, shown again, draws the helper's glyph"
+    );
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
 // ADR-1301 D2: a helper that dies leaves the built-in font drawing, with
 // one log line however much the screen asks after.
 #[test]

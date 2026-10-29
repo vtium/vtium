@@ -917,7 +917,11 @@ class DeparturesTest(unittest.TestCase):
                           ("a\tx\tR.md\tT\tz,0,1,1\n", "a rectangle is"),
                           ("a\tx,x\tR.md\tT\t0,0,1,1\n", "a/x is listed twice"),
                           ("a\tx\tR.md\tT\t0,0,1,1\na\tx\tR.md\tT\t1,0,2,1\n",
-                           "a/x is listed twice under 'T'")):
+                           "a/x is listed twice under 'T'"),
+                          # one pixel, 7,15, in a rectangle of each: it would
+                          # show both departures
+                          ("a\tx\tR.md\tT\t0,0,8,16\na\tx,y\tR.md\tU\t20,0,24,4;7,15,16,32\n",
+                           "a/x: a rectangle of 'U' overlaps one of 'T'")):
             with self.subTest(text):
                 with self.assertRaisesRegex(SystemExit, re.escape(why)):
                     t3_evaluate.read_departures(self.tsv(text))
