@@ -64,8 +64,13 @@ pub struct Placement {
     pub placed: Vec<Placed>,
     /// Whether the display guard lit a display.
     pub never_dark: bool,
-    /// Whether the anti-lockout guard moved a keyboard.
+    /// Whether the anti-lockout guard acted: moved a keyboard, or the
+    /// focus.
     pub anti_lockout: bool,
+    /// The head holding the focus once the guards have run: a
+    /// [`Place::Head`] or [`Place::DefaultHead`], or `None` with no head
+    /// to rest on.
+    pub focus: Option<Place>,
 }
 
 /// Whether vtium opens an input (D9).
@@ -148,7 +153,16 @@ impl Config {
     /// Places every device of a set, then runs the guards over the result,
     /// as vtium does at start and after every device added or removed
     /// (D9): the display guard first, then the anti-lockout guard.
-    pub fn place(&self, devices: &[Identity]) -> Placement {
+    ///
+    /// `focus` is the head holding the focus, or `None` before the focus
+    /// has a head, when it starts where D5 starts it: on the head holding
+    /// the boot display, else the first head in the file with a lit
+    /// display. A device following the focus reaches a lit head only when
+    /// the focus's head is lit. When no keyboard reaches a lit head, the
+    /// anti-lockout guard sends every keyboard-class device to the focus
+    /// and moves the focus by the same rule as its start; otherwise the
+    /// focus stays where it is, lit or not.
+    pub fn place(&self, devices: &[Identity], focus: Option<Place>) -> Placement {
         let mut placed: Vec<Placed> = devices.iter().map(|d| self.walk(d)).collect();
         let lit_heads = |placed: &[Placed]| -> BTreeSet<Place> {
             devices
@@ -174,14 +188,21 @@ impl Config {
                 never_dark = true;
             }
         }
+        let lit = lit_heads(&placed);
+        // the boot display's head, else the first lit head in the file
+        let start = boot_display(devices)
+            .and_then(|i| placed.get(i))
+            .map(|p| p.place)
+            .filter(|place| lit.contains(place))
+            .or_else(|| lit.first().copied());
+        let mut focus = focus.or(start);
         let mut anti_lockout = false;
         if self.guards.anti_lockout {
-            let lit = lit_heads(&placed);
             let reaches = devices.iter().zip(&placed).any(|(d, p)| {
                 d.kind == Kind::Input
                     && d.counts_as_keyboard()
                     && match p.place {
-                        Place::Focus => !lit.is_empty(),
+                        Place::Focus => focus.is_some_and(|f| lit.contains(&f)),
                         place => lit.contains(&place),
                     }
             });
@@ -196,12 +217,17 @@ impl Config {
                         anti_lockout = true;
                     }
                 }
+                if start.is_some() && start != focus {
+                    focus = start;
+                    anti_lockout = true;
+                }
             }
         }
         Placement {
             placed,
             never_dark,
             anti_lockout,
+            focus,
         }
     }
 

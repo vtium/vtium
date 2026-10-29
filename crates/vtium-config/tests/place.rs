@@ -305,7 +305,7 @@ fn desk_and_panel() -> Vec<Identity> {
 fn the_display_guard_lights_the_boot_display_in_the_first_head() {
     let devices = desk_and_panel();
     let dark = "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay * -> dark\n";
-    let p = config(dark).place(&devices);
+    let p = config(dark).place(&devices, None);
     assert!(p.never_dark);
     assert_eq!(
         p.placed[0],
@@ -318,7 +318,7 @@ fn the_display_guard_lights_the_boot_display_in_the_first_head() {
 
     let mut lit = devices.clone();
     lit[1].lit_at_start = true;
-    let p = config(dark).place(&lit);
+    let p = config(dark).place(&lit, None);
     assert_eq!(
         p.placed[1].place,
         Place::Head(0),
@@ -328,14 +328,14 @@ fn the_display_guard_lights_the_boot_display_in_the_first_head() {
 
     let mut boot = devices.clone();
     boot[1].on_boot_card = true;
-    let p = config(dark).place(&boot);
+    let p = config(dark).place(&boot, None);
     assert_eq!(
         p.placed[1].place,
         Place::Head(0),
         "the kernel's first connector on the boot card"
     );
 
-    let p = config("version = 1\n").place(&devices);
+    let p = config("version = 1\n").place(&devices, None);
     assert_eq!(
         p.placed[0].place,
         Place::DefaultHead,
@@ -343,7 +343,7 @@ fn the_display_guard_lights_the_boot_display_in_the_first_head() {
     );
 
     let off = format!("{dark}[guards]\nnever-dark = off\n");
-    let p = config(&off).place(&devices);
+    let p = config(&off).place(&devices, None);
     assert!(!p.never_dark);
     assert_eq!(
         (p.placed[0].place, p.placed[1].place),
@@ -353,7 +353,7 @@ fn the_display_guard_lights_the_boot_display_in_the_first_head() {
     let p = config(
         "version = 1\n[head a]\n[rules]\ndisplay connector:*/HDMI-* -> a\ndisplay * -> dark\n",
     )
-    .place(&devices);
+    .place(&devices, None);
     assert!(
         !p.never_dark,
         "a display the rules light leaves the guard idle"
@@ -373,7 +373,7 @@ fn the_anti_lockout_guard_sends_every_keyboard_to_the_focus_while_none_reaches_a
     );
     devices.push(mouse);
     let stranded = "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay connector:*/DP-* -> desk\ndisplay * -> dark\ninput class:keyboard -> panel\ninput * -> desk\n";
-    let p = config(stranded).place(&devices);
+    let p = config(stranded).place(&devices, None);
     assert!(p.anti_lockout);
     assert_eq!(
         p.placed[2],
@@ -396,7 +396,7 @@ fn the_anti_lockout_guard_sends_every_keyboard_to_the_focus_while_none_reaches_a
     );
 
     let off = format!("{stranded}[guards]\nanti-lockout = off\n");
-    let p = config(&off).place(&devices);
+    let p = config(&off).place(&devices, None);
     assert!(!p.anti_lockout);
     assert_eq!(
         (p.placed[2].place, p.placed[3].place),
@@ -405,7 +405,7 @@ fn the_anti_lockout_guard_sends_every_keyboard_to_the_focus_while_none_reaches_a
 
     let ignored =
         "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> ignore\n";
-    let p = config(ignored).place(&devices);
+    let p = config(ignored).place(&devices, None);
     assert!(
         p.anti_lockout,
         "every keyboard ignored strands the lit head"
@@ -413,7 +413,7 @@ fn the_anti_lockout_guard_sends_every_keyboard_to_the_focus_while_none_reaches_a
     assert_eq!(p.placed[2].place, Place::Focus);
 
     let one_reaches = "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay connector:*/DP-* -> desk\ndisplay * -> dark\ninput path:pci-0000:15:00.0-usb-0:3.3 -> desk\ninput class:keyboard -> panel\n";
-    let p = config(one_reaches).place(&devices);
+    let p = config(one_reaches).place(&devices, None);
     assert!(
         !p.anti_lockout,
         "one keyboard reaching a lit head leaves the guard idle"
@@ -431,7 +431,7 @@ fn a_device_marked_a_token_or_a_numpad_does_not_count_as_a_keyboard() {
             .properties
             .insert("VTIUM_ROLE".into(), role.into());
         assert!(!devices[2].counts_as_keyboard());
-        let p = config(rules).place(&devices);
+        let p = config(rules).place(&devices, None);
         assert!(
             p.anti_lockout,
             "{role}: the head's only keyboard is marked, so none counts"
@@ -441,7 +441,7 @@ fn a_device_marked_a_token_or_a_numpad_does_not_count_as_a_keyboard() {
     devices[2]
         .properties
         .insert("VTIUM_ROLE".into(), "keyboard".into());
-    assert!(!config(rules).place(&devices).anti_lockout);
+    assert!(!config(rules).place(&devices, None).anti_lockout);
 }
 
 #[test]
@@ -581,5 +581,87 @@ fn the_kernel_command_lines_word_runs_the_builtin_configuration() {
     assert_eq!(
         heads_word("vtium.headsbuiltin xvtium.heads=builtin"),
         HeadsWord::File
+    );
+}
+
+#[test]
+fn the_anti_lockout_guard_moves_the_focus_off_a_head_whose_display_is_gone() {
+    // the panel's display is gone; desk is lit; every keyboard follows the
+    // focus, which rests on panel: no keyboard reaches a lit head
+    let mut devices = desk_and_panel();
+    devices.remove(1);
+    let c = config(
+        "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay connector:*/DP-* -> desk\ndisplay * -> panel\ninput class:keyboard -> focus\n",
+    );
+    let p = c.place(&devices, Some(Place::Head(1)));
+    assert!(
+        p.anti_lockout,
+        "the focus on an unlit head strands every keyboard"
+    );
+    assert_eq!(
+        p.focus,
+        Some(Place::Head(0)),
+        "the focus moves to the boot display's head"
+    );
+    assert_eq!(
+        (p.placed[1].place, p.placed[2].place),
+        (Place::Focus, Place::Focus)
+    );
+
+    // the first lit head in the file's order, when the boot display is in
+    // none: desk's display is not the boot card's
+    let mut off_boot = devices.clone();
+    off_boot[0].on_boot_card = false;
+    let three = config(
+        "version = 1\n[head side]\n[head desk]\n[head panel]\n[rules]\ndisplay connector:*/DP-* -> desk\ninput class:keyboard -> focus\n[guards]\nnever-dark = off\n",
+    );
+    let p = three.place(&off_boot, Some(Place::Head(2)));
+    assert_eq!(p.focus, Some(Place::Head(1)));
+
+    let off = config(
+        "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay connector:*/DP-* -> desk\ninput class:keyboard -> focus\n[guards]\nanti-lockout = off\n",
+    );
+    let p = off.place(&devices, Some(Place::Head(1)));
+    assert!(!p.anti_lockout);
+    assert_eq!(
+        p.focus,
+        Some(Place::Head(1)),
+        "with the guard off the focus stays"
+    );
+}
+
+#[test]
+fn a_keyboard_on_a_lit_head_leaves_the_guard_idle_and_the_focus_where_it_is() {
+    let devices = desk_and_panel();
+    // keyboard A types into desk, which is lit; keyboard B follows the
+    // focus on panel, whose display is dark
+    let c = config(
+        "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay connector:*/DP-* -> desk\ndisplay * -> dark\ninput path:pci-0000:15:00.0-usb-0:3.3 -> desk\ninput class:keyboard -> focus\n",
+    );
+    for focus in [Some(Place::Head(0)), Some(Place::Head(1))] {
+        let p = c.place(&devices, focus);
+        assert!(!p.anti_lockout, "{focus:?}");
+        assert_eq!(p.focus, focus, "the focus stays put, lit or not");
+        assert_eq!(p.placed[2].place, Place::Head(0));
+        assert_eq!(p.placed[3].place, Place::Focus);
+    }
+}
+
+#[test]
+fn with_no_focus_yet_it_starts_on_the_boot_displays_head() {
+    let devices = desk_and_panel();
+    let p = Config::builtin().place(&devices, None);
+    assert_eq!(p.focus, Some(Place::Head(0)));
+    assert!(
+        !p.anti_lockout,
+        "a boot with keyboards and a lit head needs no guard"
+    );
+    let c = config(
+        "version = 1\n[head side]\n[head desk]\n[rules]\ndisplay connector:*/DP-* -> desk\ndisplay * -> side\n",
+    );
+    assert_eq!(
+        c.place(&devices, None).focus,
+        Some(Place::Head(1)),
+        "the boot display's head over the file's first"
     );
 }

@@ -6,7 +6,7 @@
 //! orders exhaustive; the generator is seeded, and a failure prints its
 //! seed.
 
-use vtium_config::{Class, Config, Edid, Identity, Placed, UsbSerial, parse};
+use vtium_config::{Class, Config, Edid, Identity, Place, Placed, UsbSerial, parse};
 
 /// A small seeded generator (xorshift64*).
 struct Rng(u64);
@@ -170,14 +170,19 @@ fn orders(n: usize) -> Vec<Vec<usize>> {
     out
 }
 
-/// Where each device of `chosen` lands, by its index in `devices`, when
-/// they are reported in the order `chosen` gives.
-fn landing(config: &Config, devices: &[Identity], chosen: &[usize]) -> Vec<(usize, Placed)> {
+/// Where each device of `chosen` lands, by its index in `devices`, and
+/// where the focus lands, when they are reported in the order `chosen`
+/// gives.
+fn landing(
+    config: &Config,
+    devices: &[Identity],
+    chosen: &[usize],
+) -> (Vec<(usize, Placed)>, Option<Place>) {
     let set: Vec<Identity> = chosen.iter().map(|&i| devices[i].clone()).collect();
-    let placement = config.place(&set);
+    let placement = config.place(&set, None);
     let mut out: Vec<(usize, Placed)> = chosen.iter().copied().zip(placement.placed).collect();
     out.sort_by_key(|(i, _)| *i);
-    out
+    (out, placement.focus)
 }
 
 #[test]
