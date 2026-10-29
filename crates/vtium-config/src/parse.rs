@@ -10,7 +10,7 @@
 //! line, and no part of an invalid file applies.
 
 use crate::bounds::{
-    CONSOLES_MAX, FONT_SIZE_MAX, HEADS_MAX, LINE_MAX, NAME_MAX, RULES_MAX, TOKENS_MAX,
+    CONSOLES_MAX, ERRORS_MAX, FONT_SIZE_MAX, HEADS_MAX, LINE_MAX, NAME_MAX, RULES_MAX, TOKENS_MAX,
 };
 use crate::config::{Config, Guards, Head, OnLoss, Rule, Target};
 use crate::error::{Error, Note, Problem, Quoted, Rejected, Warning};
@@ -25,6 +25,10 @@ pub struct Parsed {
     pub warnings: Vec<Warning>,
     /// Findings it reports without counting them.
     pub notes: Vec<Note>,
+    /// Warnings past [`ERRORS_MAX`](crate::ERRORS_MAX), counted, not kept.
+    pub more_warnings: usize,
+    /// Notes past [`ERRORS_MAX`](crate::ERRORS_MAX), counted, not kept.
+    pub more_notes: usize,
 }
 
 /// Parses a head file's text; [`text`](crate::text) checks its bytes
@@ -91,6 +95,14 @@ fn good_name(name: &str) -> bool {
         && name
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'))
+}
+
+/// Keeps the first [`ERRORS_MAX`] of findings sorted by line, and returns
+/// how many it dropped.
+fn keep_first<T>(findings: &mut Vec<T>) -> usize {
+    let past = findings.len().saturating_sub(ERRORS_MAX);
+    findings.truncate(ERRORS_MAX);
+    past
 }
 
 /// `on` or `off`.
@@ -547,10 +559,14 @@ impl Parser {
                 *line
             }
         });
+        let more_warnings = keep_first(&mut warnings);
+        let more_notes = keep_first(&mut notes);
         Ok(Parsed {
             config,
             warnings,
             notes,
+            more_warnings,
+            more_notes,
         })
     }
 }

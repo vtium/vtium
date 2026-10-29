@@ -620,3 +620,20 @@ fn the_errors_kept_are_the_first_by_line() {
     assert_eq!(lines, sorted);
     assert_eq!(lines.last(), Some(&Some(vtium_config::ERRORS_MAX + 2)));
 }
+
+#[test]
+fn warnings_and_notes_past_the_bound_are_counted() {
+    use vtium_config::{ERRORS_MAX, Note, Warning};
+    let mut text = String::from("version = 1\n[head a]\n[rules]\ninput * -> a\n");
+    for i in 0..ERRORS_MAX + 3 {
+        // shadowed by line 4, and a weak match: one warning and one note
+        text.push_str(&format!("input name:k{i} -> a\n"));
+    }
+    let p = parse(&text).expect("valid");
+    assert_eq!(p.warnings.len(), ERRORS_MAX);
+    assert_eq!(p.more_warnings, 3);
+    assert_eq!(p.warnings[0], Warning::Shadowed { line: 5, by: 4 });
+    assert_eq!(p.notes.len(), ERRORS_MAX);
+    assert_eq!(p.more_notes, 3);
+    assert_eq!(p.notes[0], Note::WeakMatch { line: 5 });
+}
