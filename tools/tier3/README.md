@@ -50,7 +50,7 @@ The image pins live in the Makefile, and the guest's package list in `guest/user
 | `/usr/lib/systemd/system/kmsconvt@.service` | `crates/vtium/install/kmsconvt@.service`: `vtium --vt=%I --no-switchvt` in place of getty, with getty's TTY settings and `OnFailure=getty@%i` (ADR-1400, D3) |
 | `/usr/share/terminfo/k/kmscon` | `crates/vtium/install/kmscon.ti`, compiled with `tic -x` |
 | `/etc/kmscon/kmscon.conf.example` | `crates/vtium/install/kmscon.conf.example` |
-| `/usr/share/doc/vtium/examples/71-vtium-local.rules`, `/usr/share/doc/vtium/examples/vtium.hwdb` | `crates/vtium/install/examples/`: ADR-1401 D4's example udev rules and hwdb fragment, documentation an administrator copies into `/etc/udev` to use; the tree installs nothing under a udev directory |
+| `/usr/share/doc/vtium/examples/71-vtium-local.rules`, `/usr/share/doc/vtium/examples/vtium.hwdb` | `crates/vtium/install/examples/`: ADR-1401 D4's example udev rules and hwdb fragment, documentation an administrator copies into `/etc/udev` to use; a run refuses a tree holding anything under `/usr/lib/udev`, `/lib/udev` or `/etc/udev` |
 
 The tree goes on the run's disc as `tree.tar`, every entry owned by root, and `guest/setup` unpacks it over the guest's root through the guest's directory links. What the harness needs of the build:
 

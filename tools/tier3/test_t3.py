@@ -336,6 +336,31 @@ class ImplementationTest(unittest.TestCase):
         write_tree(self.tree, self.TREE)
         self.tar = os.path.join(self.dir.name, "out", "tree.tar")
 
+    def test_a_tree_installs_no_udev_file(self):
+        # vtium's udev material is examples alone (ADR-1401 D4): a tree with
+        # anything under a directory udev reads is refused, a link included.
+        for path in ("etc/udev/hwdb.d/vtium.hwdb", "usr/lib/udev/rules.d/70-vtium.rules",
+                     "lib/udev/hwdb.d/vtium.hwdb"):
+            with self.subTest(path), tempfile.TemporaryDirectory() as d:
+                tree = os.path.join(d, "tree")
+                write_tree(tree, self.TREE)
+                os.makedirs(os.path.dirname(os.path.join(tree, path)))
+                with open(os.path.join(tree, path), "w") as f:
+                    f.write("x")
+                udev = "/" + "/".join(path.split("/")[:3 if path.startswith("usr") else 2])
+                with self.assertRaisesRegex(SystemExit, "installs %s, where udev reads" % udev):
+                    t3_impl.tree(tree, os.path.join(d, "tree.tar"))
+        with tempfile.TemporaryDirectory() as d:
+            tree = os.path.join(d, "tree")
+            write_tree(tree, self.TREE)
+            os.makedirs(os.path.join(tree, "etc"))
+            os.symlink("/tmp", os.path.join(tree, "etc", "udev"))
+            with self.assertRaisesRegex(SystemExit, "installs /etc/udev, where udev reads"):
+                t3_impl.tree(tree, os.path.join(d, "tree.tar"))
+        # the examples under the documentation are fine
+        write_tree(self.tree, {"usr/share/doc/vtium/examples/vtium.hwdb": "x"})
+        t3_impl.tree(self.tree, self.tar)
+
     def test_tree(self):
         # The bytes of the regular files a tree installs; a link counts nothing.
         os.symlink("vtium", os.path.join(self.tree, "usr/bin/kmscon"))
@@ -2716,16 +2741,16 @@ class DevicesTest(unittest.TestCase):
             entries = [l.strip() for l in f if l.startswith("vtium:input:")]
         self.assertEqual(entries, ["vtium:input:b0003vBBBBp0001*", "vtium:input:b0003vAAAAp0002*"])
 
-    def test_the_examples_are_installed_as_documentation_alone(self):
-        # make install-tree puts both under /usr/share/doc/vtium/examples
-        # and installs nothing under a udev directory (ADR-1401 D4).
+    def test_the_examples_are_installed_as_documentation(self):
+        # make install-tree puts both under /usr/share/doc/vtium/examples;
+        # that the tree holds nothing where udev reads is t3_impl.tree's
+        # check, on the tree every run builds (ImplementationTest).
         r = subprocess.run(["make", "-n", "--no-print-directory", "install-tree", "DESTDIR=/D"],
                            cwd=t3_common.ROOT, capture_output=True, text=True, check=True)
         lines = [l for l in r.stdout.splitlines() if l.startswith(("install ", "tic "))]
         self.assertIn("install -Dm644 -t /D/usr/share/doc/vtium/examples "
                       "crates/vtium/install/examples/71-vtium-local.rules "
                       "crates/vtium/install/examples/vtium.hwdb", lines)
-        self.assertEqual([l for l in lines if "udev" in l.split("/D", 1)[-1].split()[0]], [])
 
     def test_keyboard_hotplug_helpers(self):
         self.assertEqual(t3_devices.key_events(["shift", "a"], True),
