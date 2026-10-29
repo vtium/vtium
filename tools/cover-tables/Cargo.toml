@@ -1,0 +1,24 @@
+# The generator of vtium-vitrify's named cover= sets (ADR-1200 D1): it
+# fetches Unicode's mapping files once and writes the range tables the
+# helper reads, with each file's provenance.
+[package]
+name = "vtium-cover-tables"
+description = "Generates vtium-vitrify's named cover= sets from Unicode's mapping files"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# the SHA-256 each fetched file is pinned by
+vtium-font.workspace = true
+
+[[bin]]
+name = "cover-tables"
+path = "src/main.rs"

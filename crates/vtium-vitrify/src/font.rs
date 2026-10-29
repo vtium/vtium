@@ -1,10 +1,11 @@
 //! A bitmap source's glyphs at its own cell (ADR-1200 D1), as the helper's
-//! engine draws them: a parsed PSF, CPI or raw font, or a built-in font.
+//! engine draws them: a parsed PSF or CPI font, a BDF font, or a built-in
+//! font.
 
 use std::collections::BTreeMap;
 
 use vtium_font::set::builtin;
-use vtium_font::{Cell, Face, Sha256, Style, Width};
+use vtium_font::{Cell, Face, Style, Width};
 
 use crate::glyphs::Glyphs;
 
@@ -89,29 +90,6 @@ impl Font {
             font.map.insert(u32::from(c), g);
         }
         Ok(font)
-    }
-}
-
-impl Font {
-    /// The SHA-256 of the glyphs as read: the cell, then each glyph's
-    /// width and rows, then each codepoint and its glyph, which a built-in
-    /// source's read carries as a font file's carries the file's.
-    pub fn digest(&self) -> [u8; 32] {
-        let mut h = Sha256::new();
-        h.update(&self.cell.width.to_le_bytes());
-        h.update(&self.cell.height.to_le_bytes());
-        h.update(&self.baseline.unwrap_or(u32::MAX).to_le_bytes());
-        h.update(&(self.glyphs.len() as u64).to_le_bytes());
-        for (width, bits) in &self.glyphs {
-            h.update(&[u8::from(*width == Width::Wide)]);
-            h.update(&(bits.len() as u64).to_le_bytes());
-            h.update(bits);
-        }
-        for (c, g) in &self.map {
-            h.update(&c.to_le_bytes());
-            h.update(&g.to_le_bytes());
-        }
-        h.finish()
     }
 }
 

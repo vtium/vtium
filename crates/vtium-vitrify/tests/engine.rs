@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use vtium_font::set::{PixelFormat, Set, SetFace};
-use vtium_font::{Cell, Face, Format, Psf, Sha256, Style, Width};
+use vtium_font::{Cell, Face, Format, Psf, Style, Width};
 use vtium_vitrify::serve::{Engine, FritText, Paths};
 
 /// A PSF2 font, `width` by `height`, glyph `g` drawn as its number's bits
@@ -220,41 +220,92 @@ fn a_font_without_a_table_takes_its_unimap_then_def_uni() {
     assert!(why.contains("unimap="), "{why}");
 }
 
+/// A 2x3 BDF font of `A`, its left column lit, and `中`, two cells wide
+/// with its right column lit.
+const BDF: &str = "STARTFONT 2.1\nFONTBOUNDINGBOX 4 3 0 0\nSTARTPROPERTIES 3\n\
+    FONT_ASCENT 3\nFONT_DESCENT 0\nCHARSET_REGISTRY \"ISO10646\"\nENDPROPERTIES\nCHARS 2\n\
+    STARTCHAR A\nENCODING 65\nDWIDTH 2 0\nBBX 1 3 0 0\nBITMAP\n80\n80\n80\nENDCHAR\n\
+    STARTCHAR uni4E2D\nENCODING 20013\nDWIDTH 4 0\nBBX 1 3 3 0\nBITMAP\n80\n80\n80\nENDCHAR\n\
+    ENDFONT\n";
+
+// ADR-1200 D1, D14: a bdf: source draws scaled by the largest whole factor
+// that fits the cell, a wide glyph across two cells
+#[test]
+fn a_bdf_font_draws_scaled_to_the_cell() {
+    let w = World::new("bdf");
+    fs::write(w.path("fonts/t.bdf.gz"), gzip(BDF.as_bytes())).expect("font");
+    let text = format!("source=bdf:{}\n", w.path("fonts/t.bdf.gz").display());
+    let face = SetFace::new(w.drawn(&text, cell(4, 7)), 7).expect("a face");
+    let a = face.draw_unscaled(&['A'], Style::default()).expect("A");
+    let lit = |g: &vtium_font::Glyph| -> Vec<String> {
+        g.pixels()
+            .chunks(g.width() as usize)
+            .map(|r| r.iter().map(|&p| if p > 0 { '#' } else { '.' }).collect())
+            .collect()
+    };
+    // factor 2 in 4x7: 4x6 on the bottom row
+    assert_eq!(
+        lit(&a),
+        ["....", "##..", "##..", "##..", "##..", "##..", "##.."]
+    );
+    let wide = face.draw_unscaled(&['中'], Style::default()).expect("中");
+    assert_eq!(wide.cells(), Width::Wide);
+    assert_eq!(lit(&wide)[6], "......##");
+}
+
+// ADR-1200 D1: cp-size= picks among a CPI font's three
+#[test]
+fn a_cpi_font_draws_at_its_cp_size() {
+    let w = World::new("cpi");
+    let mut cp = vec![0u8; 0x22];
+    cp[6] = 1;
+    cp[0x1e] = 3;
+    for h in [16u8, 14, 8] {
+        cp.extend_from_slice(&[h, 8, 0, 0, 0, 1]);
+        for g in 0..256u32 {
+            cp.extend(std::iter::repeat_n(
+                if g == 0x41 { h } else { 0 },
+                usize::from(h),
+            ));
+        }
+    }
+    fs::write(w.path("kbd/consolefonts/437.cp.gz"), gzip(&cp)).expect("font");
+    let why = w.engine("source=kbd:437\n").err().expect("refused");
+    assert!(why.contains("cp-size="), "{why}");
+    for h in [8u32, 14, 16] {
+        let set = w.drawn(&format!("source=kbd:437\ncp-size={h}\n"), cell(8, h));
+        let face = SetFace::new(set, h).expect("a face");
+        let a = face.draw_unscaled(&['A'], Style::default()).expect("A");
+        // def.uni maps glyph 0x41 to A; its rows are the height's bits
+        let row: Vec<u8> = (0..8)
+            .map(|x| if h & (0x80 >> x) != 0 { 255 } else { 0 })
+            .collect();
+        assert_eq!(a.pixels(), row.repeat(h as usize), "{h}");
+    }
+}
+
 #[test]
 fn a_font_named_by_family_resolves_and_a_missing_one_is_left_out() {
     let w = World::new("family");
     let font = fs::read(w.path("kbd/consolefonts/ter-v16n.psf.gz")).expect("the font");
-    let sha = vtium_font::sha256_hex(&Sha256::digest(&font));
     let psf = Psf::parse(&font).expect("the font parses");
     // the family matches the kbd font with case and blanks ignored
-    let set = w.drawn(
-        &format!("source=font:Ter-V16N\nsha256={sha}\n"),
-        cell(8, 16),
-    );
+    let set = w.drawn("source=font:Ter-V16N\n", cell(8, 16));
     draws_as(set, &psf, &chars());
     // a family not on this machine is left out, and the next source gives
     // the glyphs
     let set = w.drawn(
-        "source=font:Nonesuch Mono\npackage=nonesuch-fonts\nsource=kbd:ter-v16n\n",
+        "source=font:Nonesuch Mono\nsource=kbd:ter-v16n\n",
         cell(8, 16),
     );
     draws_as(set, &psf, &chars());
-    // bytes other than the frit's sha256= are taken as missing
+    // with every source missing, the frit fails, naming each
     let why = w
-        .engine(&format!("source=kbd:ter-v16n\nsha256={}\n", "0".repeat(64)))
-        .err()
-        .expect("refused");
-    assert!(why.contains("the font here has SHA-256"), "{why}");
-    // with every source missing, the frit fails, naming each and the
-    // package that installs it
-    let why = w
-        .engine("source=font:Nonesuch Mono\npackage=nonesuch-fonts\nsource=kbd:also-missing\n")
+        .engine("source=font:Nonesuch Mono\nsource=kbd:also-missing\n")
         .err()
         .expect("refused");
     assert!(
-        why.contains("no font of family Nonesuch Mono")
-            && why.contains("package nonesuch-fonts installs it")
-            && why.contains("source=kbd:also-missing"),
+        why.contains("no font of family Nonesuch Mono") && why.contains("source=kbd:also-missing"),
         "{why}"
     );
 }
@@ -356,15 +407,13 @@ fn a_kbd_name_does_not_follow_a_link_out_of_the_data_directory() {
     // a link inside the directory is followed
     let face = SetFace::new(w.drawn("source=kbd:in\n", cell(8, 16)), 16).expect("a face");
     assert!(face.has_glyph('A'));
-    // a link out of it is not, by kbd name or by family, and its hash is not told
-    let sha = vtium_font::sha256_hex(&Sha256::digest(&font));
+    // a link out of it is not, by kbd name or by family
     for source in ["kbd:out", "font:OUT"] {
         let why = w
-            .engine(&format!("source={source}\nsha256={}\n", "0".repeat(64)))
+            .engine(&format!("source={source}\n"))
             .err()
             .expect("refused");
         assert!(why.contains("leaves"), "{source}: {why}");
-        assert!(!why.contains(&sha), "{source}: {why}");
     }
 }
 

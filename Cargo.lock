@@ -518,6 +518,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vtium-cover-tables"
+version = "0.0.0"
+dependencies = [
+ "vtium-font",
+]
+
+[[package]]
 name = "vtium-font"
 version = "0.0.0"
 dependencies = [
