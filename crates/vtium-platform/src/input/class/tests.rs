@@ -2,7 +2,7 @@
 
 #![expect(clippy::panic, reason = "a test fails by panicking")]
 
-use super::{Bitmaps, Class, Classes, parse_bitmap};
+use super::{Bitmaps, Class, Classes, parse_bitmap, parse_words};
 use crate::ioctl::{KeyBits, bit_is_set};
 
 /// A device as sysfs and `udevadm info` showed it: `capabilities/ev`,
@@ -31,7 +31,8 @@ const fn dev(role: &'static str, [ev, key, rel, abs, props, tags]: [&'static str
 }
 
 /// Every event node of the operator's machine, read on 2026-10-29 from
-/// sysfs and `udevadm info` without privilege, under systemd 262's udev:
+/// sysfs by a 64-bit process and `udevadm info` without privilege, under
+/// systemd 262's udev:
 /// ADR-1401's Evidence devices and the rest of the machine.
 const MACHINE: &[Recorded] = &[
     dev(
@@ -305,7 +306,7 @@ fn a_device_udev_never_tagged_has_no_classes_from_properties() {
 #[test]
 fn a_sysfs_bitmap_reads_its_least_significant_word_last() {
     let mut key = KeyBits::default();
-    parse_bitmap("1 0 8000", &mut key);
+    parse_words("1 0 8000", &mut key, 64);
     assert!(bit_is_set(&key, 15));
     assert!(bit_is_set(&key, 128));
     assert!(!bit_is_set(&key, 0));
@@ -314,4 +315,27 @@ fn a_sysfs_bitmap_reads_its_least_significant_word_last() {
     assert_eq!(short, [0]);
     parse_bitmap("zz 3", &mut short);
     assert_eq!(short, [3]);
+}
+
+#[test]
+fn a_32_bit_reader_reads_the_kernels_32_bit_words() {
+    // One node read on Linux 7.2 by a 32-bit and a 64-bit process: the
+    // mouse, and keyboard A.
+    for (thirty_two, sixty_four) in [
+        ("ffff0000 0 0 0 0 0 0 0 0", "ffff0000 0 0 0 0"),
+        (
+            "3f 733fff 0 0 0 0 483ffff 17aff32d bfd44446 0 0 1 130ff3 8b17d007 ffff7bfa d941dfff ffbeffdf ffefffff ffffffff fffffffe",
+            "3f00733fff 0 0 483ffff17aff32d bfd4444600000000 1 130ff38b17d007 ffff7bfad941dfff ffbeffdfffefffff fffffffffffffffe",
+        ),
+    ] {
+        let mut narrow = KeyBits::default();
+        let mut wide = KeyBits::default();
+        parse_words(thirty_two, &mut narrow, 32);
+        parse_words(sixty_four, &mut wide, 64);
+        assert_eq!(narrow, wide, "{sixty_four}");
+    }
+    let mut mouse = KeyBits::default();
+    parse_words("ffff0000 0 0 0 0 0 0 0 0", &mut mouse, 32);
+    assert!((0x110..0x120).all(|code| bit_is_set(&mouse, code)));
+    assert!(!(0x90..0xa0).any(|code| bit_is_set(&mouse, code)));
 }

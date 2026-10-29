@@ -180,23 +180,23 @@ impl Bitmaps {
 }
 
 /// Fills `out` from a sysfs bitmap: hex words separated by spaces, the most
-/// significant first, each as wide as the kernel's `long`. The width is
-/// vtium's `usize`, as on the targets vtium builds for, unless a word is
-/// wider than 32 bits, which a 64-bit kernel under a 32-bit vtium shows.
-/// Bits past `out` and words that are not hex are dropped.
+/// significant first. Each word is as wide as the reading process's `long`,
+/// vtium's `usize`: the kernel prints a 32-bit process's bitmaps in 32-bit
+/// words whatever its own width, as measured on Linux 7.2 by a 32-bit and
+/// a 64-bit reader of one node. Bits past `out` and words that are not hex
+/// are dropped.
 pub(crate) fn parse_bitmap(text: &str, out: &mut [usize]) {
-    let words: Vec<u64> = text
+    parse_words(text, out, usize::BITS);
+}
+
+/// [`parse_bitmap`] with words `width` bits wide.
+fn parse_words(text: &str, out: &mut [usize], width: u32) {
+    let words = text
         .split_ascii_whitespace()
         .rev()
-        .map(|w| u64::from_str_radix(w, 16).unwrap_or(0))
-        .collect();
-    let width: u32 = if usize::BITS == 64 || words.iter().any(|&w| w > u64::from(u32::MAX)) {
-        64
-    } else {
-        32
-    };
-    for (index, word) in words.into_iter().enumerate() {
-        for bit in 0..width {
+        .map(|w| u64::from_str_radix(w, 16).unwrap_or(0));
+    for (index, word) in words.enumerate() {
+        for bit in 0..width.min(u64::BITS) {
             if word.checked_shr(bit).is_some_and(|w| w & 1 == 1) {
                 let at = usize::try_from(width)
                     .ok()
