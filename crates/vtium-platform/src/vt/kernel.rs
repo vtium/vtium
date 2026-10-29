@@ -783,7 +783,7 @@ impl<C: Console> Restore<C> {
 
 /// The VT a switch key names: Ctrl+Alt+F1 to F12, or XF86Switch_VT_1 to
 /// 12.
-fn switch_target(key: &KeyEvent) -> Option<u16> {
+pub(super) fn switch_target(key: &KeyEvent) -> Option<u16> {
     let sym = *key.keysyms.first()?;
     let ctrl_alt = key.mods.contains(Mods::CTRL) && key.mods.contains(Mods::ALT);
     let base = if ctrl_alt && (keysyms::KEY_F1..=keysyms::KEY_F12).contains(&sym) {
