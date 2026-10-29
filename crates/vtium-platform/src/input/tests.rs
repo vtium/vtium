@@ -1087,3 +1087,49 @@ fn a_repeat_comes_from_its_device_and_a_watched_ones_stays_for_the_rescue() {
         feed(&mut input, node, *id, &[release(KEY_A)]);
     }
 }
+
+/// A keyboard with a mouse's axes and buttons on the same node, as
+/// keyboard A's own node carries its wheels.
+fn keyboard_with_pointer() -> super::evdev::Bits {
+    let mut bits = fake::keyboard();
+    let mouse = fake::mouse();
+    for (word, extra) in bits.ev.iter_mut().zip(mouse.ev) {
+        *word |= extra;
+    }
+    if let (Some(key), Some(extra)) = (bits.key.as_mut(), mouse.key) {
+        for (word, extra) in key.iter_mut().zip(extra) {
+            *word |= extra;
+        }
+    }
+    bits.rel = mouse.rel;
+    bits
+}
+
+#[test]
+fn a_watched_device_sends_no_pointer_events_and_arms_no_hide() {
+    let (mut input, devices) = with_devices(&[(
+        "/dev/input/event0",
+        keyboard_with_pointer(),
+        Some(Disposition::Rescue),
+    )]);
+    let [(node, id)] = devices.as_slice() else {
+        panic!("one device");
+    };
+    feed(
+        &mut input,
+        node,
+        *id,
+        &[
+            ev(EV_REL, REL_X, 5),
+            ev(EV_KEY, BTN_LEFT, 1),
+            ev(EV_REL, REL_WHEEL, 1),
+            ev(EV_SYN, 0, 0),
+        ],
+    );
+    assert!(
+        input
+            .device_events()
+            .all(|d| !matches!(d.event, InputEvent::Pointer(_)))
+    );
+    assert_eq!(input.hide_at, None);
+}
