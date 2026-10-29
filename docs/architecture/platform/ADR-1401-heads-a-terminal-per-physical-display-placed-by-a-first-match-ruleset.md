@@ -69,6 +69,12 @@ basis:
     said: "vtium uses udev's input classes to define which input devices it takes; the allowlist is the shipped rules, keyboards and pointers to the focus and every other input ignored."
     via: "operator, in conversation with the team lead, 2026-10-29, following the rule the operator set earlier that day that vtium follows the system's convention; the wording is the team lead's"
     paraphrase: true
+  - operator: aaronsb
+    level: guided
+    said: "vtium supplies a set of usable udev rules."
+    via: "operator, in conversation with the team lead, 2026-10-29; the udev: match, the shipped hwdb and rules files and their property names are the team lead's shape"
+    paraphrase: true
+  - standard: "udev(7) and hwdb(7), systemd 262: rules and hwdb files in /usr/lib/udev/rules.d and /usr/lib/udev/hwdb.d, overridden by a file of the same name in /etc/udev/rules.d or /etc/udev/hwdb.d; ENV{} properties and IMPORT{builtin}=\"hwdb\" (external, not re-verified here)"
   - standard: "systemd 262 udev builtin input_id (src/udev/udev-builtin-input_id.c): ID_INPUT_KEYBOARD for a device with every key code 1 to 31, Escape through S; ID_INPUT_KEY for any key; ID_INPUT_MOUSE, _TOUCHPAD, _TOUCHSCREEN, _TRACKBALL, _POINTINGSTICK, _TABLET, _TABLET_PAD, _JOYSTICK, _ACCELEROMETER and _SWITCH; corrected through hwdb (hwdb(7), /usr/lib/udev/hwdb.d and /etc/udev/hwdb.d) (external, not re-verified here)"
   - standard: "sd-login(3) and logind's seats, systemd 262: a seat holds whole devices, and only seat0 has kernel VTs (external, not re-verified here)"
   - standard: "wayland-protocols staging/drm-lease/drm-lease-v1.xml, wp_drm_lease_device_v1: a compositor leases connectors, CRTCs and planes of its card to a client (external, not re-verified here)"
@@ -213,12 +219,14 @@ consoles = 2
 on-loss = hangup 30s
 
 [rules]
+input udev:VTIUM_IGNORE=1 -> ignore
 display edid:AAA:0x0001:LARGE00001 -> desk
 display edid:BBB:0x0002:SMALL00001 -> panel
 input path:pci-0000:15:00.0-usb-0:3.3 -> desk
 input path:pci-0000:15:00.0-usb-0:3.4.4 -> desk
 input path:pci-0000:15:00.0-usb-0:3.2 -> panel
 input path:pci-0000:15:00.0-usb-0:3.4.2 -> focus
+input udev:VTIUM_HEAD=panel -> panel
 display * -> desk
 input class:keyboard -> focus
 input class:mouse -> focus
@@ -240,7 +248,7 @@ The example's placement: two heads, each with its own display and keyboard, and 
 - **Targets.** A head's name. `focus`, for an input: it follows the focus chord (D5). `ignore`, for an input: vtium never opens it, but for a keyboard watched for the rescue key alone (D9). `dark`, for a display: vtium sets its connector off, so it shows nothing, a frame another master left included, and logs it.
 - **First match, alone.** Each device walks the rules top to bottom and takes the first that matches it. The walk reads only the device's own identity and the rules, never another device or the order devices were reported, so a hotplugged device lands where it would at start (D11's determinism row).
 - **No match.** A display goes dark, and the log names it with the rule line that would claim it, ready to paste. An input follows the focus.
-- **The shipped default** is one head, `[head console]` with the default profile, and the rules `display * -> console`, `input class:keyboard -> focus` and the same for `mouse`, `touchpad`, `touchscreen`, `trackball` and `pointingstick`, then `input * -> ignore`: one head mirroring every display, every keyboard and pointer typing into it, as vtium does today, and media keys, joysticks, tablets, switches and accelerometers left closed. The rules are the allowlist; there is no separate one. A user customises by adding rules above them: `input class:key -> focus` above the last line lets media keys through.
+- **The shipped default** is one head, `[head console]` with the default profile, and the rules `input udev:VTIUM_IGNORE=1 -> ignore`, `display * -> console`, `input class:keyboard -> focus` and the same for `mouse`, `touchpad`, `touchscreen`, `trackball` and `pointingstick`, then `input * -> ignore`: one head mirroring every display, every keyboard and pointer typing into it, as vtium does today, and media keys, joysticks, tablets, switches and accelerometers left closed, with any device an administrator marks `VTIUM_IGNORE=1` (D4). Tokens are not ignored by default: a console login may use an OTP, so a token follows the focus like any keyboard. The rules are the allowlist; there is no separate one. A user customises by adding rules above them: `input class:key -> focus` above the last line lets media keys through.
 - **Profiles say how a head looks** (font, size, colors) and name a frit (ADR-1200 D16, D1); the head file says where devices go. Keys in kmscon.conf apply to every head and win over its profile, as ADR-1200 D16 says of `font-size` and `font-name`.
 - **xorg.conf's failures, avoided by rule:** the file is optional; heads are self-contained, the only reference a profile's name; a rule matching no connected device is skipped with a log line, never an error; and a tool writes the file (D12).
 
@@ -287,8 +295,28 @@ stateDiagram-v2
 | `edid` | `MAKER:PRODUCT:SERIAL`: the PNP maker id, the product code in hex, the serial string, else the serial number | one monitor; copyable by an EDID emulator | strong |
 | `connector` | `CARD/CONNECTOR`, the card's udev `ID_PATH` as `mode=` names it and the kernel's connector name, globs allowed (`pci-0000:03:00.0/DP-*`) | a port of a GPU | strong |
 | `card` | the card's udev `ID_PATH`, a glob | every output of a GPU | strong |
+| `udev` | `NAME=VALUE`: any udev property of the device, a glob on the value (`udev:VTIUM_HEAD=panel`) | whatever the administrator's udev rules and hwdb say, as `ID_SEAT` and `uaccess` do | as strong as the rule that set it |
 
 - **The classes are udev's.** vtium reads the `ID_INPUT_*` tag udev set, so a hwdb correction (`/usr/lib/udev/hwdb.d`, `/etc/udev/hwdb.d`) applies to vtium as it does to libinput and the desktop. Without a udev daemon, vtium applies udev's `input_id` rule to the device's capability bitmaps itself, so a device's classes are the same either way. This follows the system's convention, the rule the operator set for vtium.
+- **`udev:` hands the rare cases to udev.** vtium's own keys cover the common cases; anything rarer is classified with udev's own rules and hwdb and matched with `udev:`, never with a new vtium key. Without a udev daemon a device has no properties, so `udev:` matches nothing; `vtium check-config` notes a rule that uses it on such a system.
+- **vtium's udev files,** package files in udev's vendor locations, each overridden by a file of the same name in `/etc/udev/rules.d` or `/etc/udev/hwdb.d`, as udev's convention has it:
+  - `/usr/lib/udev/hwdb.d/70-vtium.hwdb`, a small device database setting `VTIUM_ROLE=token` for known OTP and security tokens and `VTIUM_ROLE=numpad` for known numpad-only devices, by vendor and product; the list itself is the build's (probe 13).
+  - `/usr/lib/udev/rules.d/70-vtium.rules`, which imports that hwdb for input event nodes and does nothing else.
+  - Commented examples, in the template's comments and under `/usr/share/doc/vtium/examples/`.
+
+```text
+# 70-vtium.hwdb, illustrative entries
+vtium:input:b0003vBBBBp0001*
+ VTIUM_ROLE=token
+vtium:input:b0003vAAAAp0002*
+ VTIUM_ROLE=numpad
+
+# /etc/udev/rules.d/71-vtium-local.rules, the administrator's, illustrative
+SUBSYSTEM=="input", ENV{ID_PATH}=="pci-0000:15:00.0-usb-0:3.2*", ENV{VTIUM_HEAD}="panel"
+SUBSYSTEM=="input", ATTRS{name}=="Headphones (AVRCP)", ENV{VTIUM_IGNORE}="1"
+SUBSYSTEM=="input", ENV{ID_VENDOR_ID}=="aaaa", ENV{ID_MODEL_ID}=="0003", ENV{VTIUM_ROLE}="numpad"
+```
+
 - A card is named by its `ID_PATH`, never by `cardN`, whose number can change between boots on a machine with several GPUs.
 - A rule's tokens combine: `input path:... serial:...` binds that unit in that port, the strongest binding; `display connector:... edid:...` binds that monitor on that port.
 - One physical keyboard may be several input devices (keyboard B is three: its keys, its media keys and a pointer); a `path` or `serial` match takes every interface of that USB device.
@@ -323,7 +351,7 @@ One keyboard and two heads, before and after the focus chord:
 
 A machine with no configuration at all:
 
-![No configuration. On the left, /etc/vtium/heads.conf, absent at start and drawn dashed, and nothing is written: vtium holds the compiled-in configuration in memory, [head console], profile = default, [rules], display * -> console, input class:keyboard, mouse, touchpad, touchscreen, trackball and pointingstick -> focus, and input * -> ignore, which vtium-vitrify writes as a file when asked. In the middle, head console holds the large monitor, 7680x2160 at about 138 DPI on DP-8 of the discrete GPU, and the small panel, 800x480 at about 185 DPI on HDMI-A-2 of the integrated GPU, as one grid mirrored by the scaled rule. Below it, the focus rests on head console, and keyboard A, keyboard B, a numpad, an OTP token and a mouse, all of a keyboard or pointer class, reach it through the class rules, while media keys, drawn dashed, are left closed by input * -> ignore. On the right, the default chain: head console names its profile; profile default, compiled in when absent; frit default, compiled in when absent; and vconsole's font where set, else the built-in fonts, Unscii-8 and unifont. A legend marks vtium as root, a device, and absent; the caption says that with no file vtium behaves as it does today and writes no file.](figures/ADR-1401-no-configuration.svg)
+![No configuration. On the left, /etc/vtium/heads.conf, absent at start and drawn dashed, and nothing is written: vtium holds the compiled-in configuration in memory, [head console], profile = default, [rules], input udev:VTIUM_IGNORE=1 -> ignore, display * -> console, input class:keyboard, mouse, touchpad, touchscreen, trackball and pointingstick -> focus, and input * -> ignore, which vtium-vitrify writes as a file when asked. In the middle, head console holds the large monitor, 7680x2160 at about 138 DPI on DP-8 of the discrete GPU, and the small panel, 800x480 at about 185 DPI on HDMI-A-2 of the integrated GPU, as one grid mirrored by the scaled rule. Below it, the focus rests on head console, and keyboard A, keyboard B, a numpad, an OTP token and a mouse, all of a keyboard or pointer class, reach it through the class rules, while media keys, drawn dashed, are left closed by input * -> ignore. On the right, the default chain: head console names its profile; profile default, compiled in when absent; frit default, compiled in when absent; and vconsole's font where set, else the built-in fonts, Unscii-8 and unifont. A legend marks vtium as root, a device, and absent; the caption says that with no file vtium behaves as it does today and writes no file.](figures/ADR-1401-no-configuration.svg)
 
 ### D7: an invalid configuration
 
@@ -390,7 +418,7 @@ A boot with nothing attached, each device added after it, and the display remove
 
 ### D9: guards against lockout
 
-- **The classes are udev's** (D4). The anti-lockout guard counts `class:keyboard` as udev defines it, `ID_INPUT_KEYBOARD`, a device with every key code from Escape through S; a numpad and an OTP token pass as keyboards, and the rescue key covers that case. This replaces the record's own class of 26 letters and Enter, so vtium and the desktop agree on what a keyboard is.
+- **The classes are udev's** (D4). The anti-lockout guard counts `class:keyboard` as udev defines it, `ID_INPUT_KEYBOARD`, a device with every key code from Escape through S; a device marked `VTIUM_ROLE=token` or `VTIUM_ROLE=numpad`, by vtium's hwdb or the administrator's rules (D4), does not count, which closes the numpad gap for the devices it marks; an unmarked numpad or token still passes as a keyboard, and the rescue key covers that case. This replaces the record's own class of 26 letters and Enter, so vtium and the desktop agree on what a keyboard is.
 - **Layer 1, warnings.** `vtium check-config` and `vtium-vitrify check` warn of a head that claims only pointers while every keyboard is claimed elsewhere, of every keyboard ignored, and of a head whose only keyboard is one device; each names the device as reported.
 - **Layer 2, the anti-lockout guard (`anti-lockout`),** as pfSense keeps its administration port open: while no keyboard-class device reaches a head with a lit display, every keyboard-class device follows the focus, with a notice, until one does. It moves every stranded keyboard at once, so it chooses none and stays deterministic.
 - **The display guard (`never-dark`),** beside it: when the rules leave no display lit, the first head in the file takes the boot display, or the default head where the file has none. The boot display is the connector lit at start, else the first connected one in the kernel's order on the boot card (`boot_vga`, vtium-platform's primary card).
@@ -407,7 +435,7 @@ A boot with nothing attached, each device added after it, and the display remove
 
 Lockout and rescue, in two cases:
 
-![Lockout and rescue, in two rows. Row 1: every keyboard is claimed by a head with no lit display. Head panel, drawn dashed, has its small panel unplugged and a rule input * -> panel; keyboard A and keyboard B are claimed by it. The anti-lockout guard, in red, finds no keyboard-class device reaching a lit head, so every one follows the focus until one does, and head desk, with the large monitor lit, shows the notice that no keyboard reached a lit head and every keyboard follows the focus. The guard moves every stranded keyboard at once, choosing none, and lets go once a rule's keyboard reaches a lit head. Row 2: a head is left with only a numpad. Head desk, lit, has the rules input path:...3.4.1 -> desk and input path:...3.3 -> ignore; the numpad reaches it, and since udev tags it ID_INPUT_KEYBOARD it is of the keyboard class, so the guard does not act. Keyboard A, ignored by its rule, is opened only to watch for the rescue key. The rescue key, Ctrl-Alt-F&lt;n&gt; for vtium's own VT while it is shown, pressed on keyboard A, makes keyboard A follow the focus for the boot, with a notice, and heads.conf unchanged. A strip below names the switches: [guards] with anti-lockout, rescue-key and never-dark on by default, a head's rescue = off keeping its keyboards, each one off a note in check-config, and vtium.heads=builtin on the kernel command line running the compiled-in rules with every guard on. A legend marks vtium as root, a device, a guard or a notice, and a head with no lit display.](figures/ADR-1401-lockout.svg)
+![Lockout and rescue, in two rows. Row 1: every keyboard is claimed by a head with no lit display. Head panel, drawn dashed, has its small panel unplugged and a rule input * -> panel; keyboard A and keyboard B are claimed by it. The anti-lockout guard, in red, finds no keyboard-class device reaching a lit head, so every one follows the focus until one does, and head desk, with the large monitor lit, shows the notice that no keyboard reached a lit head and every keyboard follows the focus. The guard moves every stranded keyboard at once, choosing none, and lets go once a rule's keyboard reaches a lit head. Row 2: a head is left with only a numpad. Head desk, lit, has the rules input path:...3.4.1 -> desk and input path:...3.3 -> ignore; the numpad reaches it, and since udev tags it ID_INPUT_KEYBOARD and no hwdb entry or local rule marks it VTIUM_ROLE=numpad, it counts as a keyboard, so the guard does not act. Keyboard A, ignored by its rule, is opened only to watch for the rescue key. The rescue key, Ctrl-Alt-F&lt;n&gt; for vtium's own VT while it is shown, pressed on keyboard A, makes keyboard A follow the focus for the boot, with a notice, and heads.conf unchanged. A strip below names the switches: [guards] with anti-lockout, rescue-key and never-dark on by default, a head's rescue = off keeping its keyboards, each one off a note in check-config, and vtium.heads=builtin on the kernel command line running the compiled-in rules with every guard on. A legend marks vtium as root, a device, a guard or a notice, and a head with no lit display.](figures/ADR-1401-lockout.svg)
 
 The guards run after every device added or removed, and the rescue key from a running console:
 
@@ -454,6 +482,7 @@ flowchart TD
 - **Determinism row** (docs/architecture.md): a property test walks a generated set of devices through a generated ruleset in every order and at every hotplug point, and the placement of each device is the same.
 - The anti-lockout guard, the display guard and the rescue each have a boot test: every keyboard claimed by a head with no display types into the focus; an empty ruleset lights the boot display; the rescue moves a claimed keyboard and an ignored one and writes nothing.
 - A head losing its last display keeps its sessions under `nohup` and resumes them when a matching display returns, hangs them up at once under `hangup`, and under `hangup 30s` resumes them on a return within the time and hangs them up after it; a mirrored head losing one of two displays keeps them under every value.
+- **udev properties:** a `udev:` match takes a device by a stand-in property; the shipped rules ignore a device with `VTIUM_IGNORE=1`; the anti-lockout guard skips a device with `VTIUM_ROLE=token`; and in tier 3, `udevadm test` runs on the shipped rules in the guest.
 - **The classes:** every device of the Evidence table gets the same class from udev's tags and from vtium's own application of `input_id` to its bitmaps, and a hwdb correction changes the class vtium reads; with the shipped rules, keyboards and pointers reach the focus and a media-key device stays closed.
 - **The switches:** with `anti-lockout = off` a ruleset that strands every keyboard is left as it is; with `rescue-key = off` the rescue key moves nothing; with `never-dark = off` an empty ruleset leaves every display dark; a head with `rescue = off` keeps its keyboard through the rescue key while another head's moves; each guard that is off is a note in `check-config` and a line in the start's log.
 - **The escape:** with `vtium.heads=builtin` on the kernel command line, a head file that turns every guard off is ignored for that boot, and the compiled-in rules run with every guard on.
@@ -475,6 +504,7 @@ Hand-editing the head file, the profiles and the frits stays fully supported; th
 | `install DIR` | root | Checks, backs up the files it replaces beside them, replaces them atomically, and stages the trial. |
 | `new`, `preview` | the user | The frit builder and the preview already planned (#121, #120; vtium/vtium#3 tracks them). |
 
+- **A udev rule in place of a head-file line:** on request `setup` writes the rule that sets `VTIUM_HEAD`, `VTIUM_IGNORE` or `VTIUM_ROLE` for a device, into `/etc/udev/rules.d` under sudo or into the draft directory otherwise.
 - **The tool writes the first default configuration,** by `setup` or `template`, from the templates in the shared configuration crate that vtium's compiled-in configuration is parsed from; vtium itself writes none (D6).
 - **Packaging.** A native build (pacman, dpkg, rpm, Nix, or a source tree's `make install`) runs `vtium-vitrify`, built for the build machine, to write the templates into its staging tree, and marks them its own way (`backup=`, conffiles, `%config(noreplace)`). A cross-built image (Buildroot, Yocto, an ARM image built on x86) cannot run the target's tool, so the source tree also carries the generated templates as plain files, such as `dist/etc/vtium/`, which a test keeps byte-identical to what the tool writes (D11); every route ends in the bytes of the compiled-in configuration.
 - **One crate parses and evaluates the configuration,** and both binaries link it, so the verdict before install is the verdict at boot. Detection and setup live only in `vtium-vitrify`; `vtium`'s binary stays inside its size budget, and `vtium-vitrify` ships everywhere as the glyph helper `serve` (ADR-1200 D15).
@@ -537,8 +567,10 @@ The probes, in the order the record raises them:
 10. The kernel command-line parameter's name, `vtium.heads=builtin` here (D9).
 11. The shape of the guard switches, the team lead's: a `[guards]` section with `anti-lockout`, `rescue-key` and `never-dark`, and the per-head `rescue` (D9).
 12. Whether sessions should survive a vtium restart (D13), which would make a crash cost only the screens.
+13. Whether vtium keeps the hwdb's list of tokens and numpads itself or relies on administrators and the upstream hwdb, since a device database has an upkeep cost (D4).
+14. The property names, `VTIUM_ROLE`, `VTIUM_HEAD` and `VTIUM_IGNORE` (D4).
 
-Agent calls the operator has not yet looked at: the head file's syntax and the target `dark` setting the connector off (D3); naming cards by `ID_PATH` (D4); whether kmscon.conf's `mouse` key stays as a shorthand for the pointer rules or goes (D3, D4); the head file's template carrying its two rules live, and the command name `template` (D6, D12); `check-config`'s exit status for hardware-dependent findings (D7); the form of `on-loss`'s duration (D8); mode 1004's focus per head (D5); the overlay socket for root alone (D12); and that the blank stays the seat's, any head's activity waking every display.
+Agent calls the operator has not yet looked at: the shape of the `udev:` match and of vtium's udev files, the team lead's (D4); the head file's syntax and the target `dark` setting the connector off (D3); naming cards by `ID_PATH` (D4); whether kmscon.conf's `mouse` key stays as a shorthand for the pointer rules or goes (D3, D4); the head file's template carrying its two rules live, and the command name `template` (D6, D12); `check-config`'s exit status for hardware-dependent findings (D7); the form of `on-loss`'s duration (D8); mode 1004's focus per head (D5); the overlay socket for root alone (D12); and that the blank stays the seat's, any head's activity waking every display.
 
 ## Evidence: a machine with two displays
 
