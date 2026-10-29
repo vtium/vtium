@@ -365,6 +365,28 @@ fn the_display_guard_lights_the_boot_display_in_the_first_head() {
 }
 
 #[test]
+fn with_no_display_lit_at_start_and_none_on_the_boot_card_the_first_connected_one_lights() {
+    let mut later = monitor("pci-0000:05:00.0", "DP-1");
+    later.card_order = 2;
+    later.order = 0;
+    let mut first = monitor("pci-0000:00:02.0", "HDMI-A-2");
+    first.card_order = 1;
+    first.order = 3;
+    let mut second = monitor("pci-0000:00:02.0", "DP-2");
+    second.card_order = 1;
+    second.order = 5;
+    let devices = [later, first, second];
+    let p = config("version = 1\n[head a]\n[rules]\ndisplay * -> dark\n").place(&devices, None);
+    assert!(p.never_dark, "a connected display always lights");
+    let lit: Vec<Place> = p.placed.iter().map(|p| p.place).collect();
+    assert_eq!(
+        lit,
+        [Place::Dark, Place::Head(0), Place::Dark],
+        "the first card's first connector"
+    );
+}
+
+#[test]
 fn the_anti_lockout_guard_sends_every_keyboard_to_the_focus_while_none_reaches_a_lit_head() {
     let mut devices = desk_and_panel();
     let mouse = at_path(

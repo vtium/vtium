@@ -179,6 +179,10 @@ pub struct Identity {
     /// Whether a display is on the boot card (`boot_vga`); the display
     /// guard reads it, never a rule.
     pub on_boot_card: bool,
+    /// A display's card's place in the kernel's order of cards (its minor
+    /// number); the display guard reads it, never a rule, since a card's
+    /// number can change between boots.
+    pub card_order: u32,
     /// A display's place in its card's connector list, the kernel's order;
     /// the display guard reads it, never a rule.
     pub order: u32,
@@ -201,6 +205,7 @@ impl Identity {
             card: None,
             lit_at_start: false,
             on_boot_card: false,
+            card_order: 0,
             order: 0,
         }
     }

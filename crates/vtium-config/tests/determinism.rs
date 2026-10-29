@@ -48,6 +48,7 @@ fn display(rng: &mut Rng) -> Identity {
     let mut d = Identity::display();
     let card = rng.below(CARDS.len());
     d.card = Some(CARDS[card].to_owned());
+    d.card_order = card as u32;
     d.on_boot_card = card == 0;
     d.connector = Some(CONNECTORS[rng.below(CONNECTORS.len())].to_owned());
     d.order = rng.below(4) as u32;
@@ -195,9 +196,13 @@ fn each_device_lands_the_same_in_every_report_order() {
         let inputs = 1 + rng.below(3);
         let mut devices: Vec<Identity> = (0..displays).map(|_| display(&mut rng)).collect();
         devices.extend((0..inputs).map(|_| input(&mut rng)));
-        // a seed that draws no display lit at start and none on the boot
-        // card still has one on the boot card, so the display guard picks
-        devices[0].on_boot_card = true;
+        // in some sets no display is on the boot card, so the display
+        // guard falls back across the cards
+        if rng.chance() {
+            for d in &mut devices {
+                d.on_boot_card = false;
+            }
+        }
         let all: Vec<usize> = (0..devices.len()).collect();
         let want = landing(&config, &devices, &all);
         for order in orders(devices.len()) {

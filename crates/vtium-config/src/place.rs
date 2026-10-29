@@ -100,15 +100,18 @@ pub enum Lockout {
 }
 
 /// The order the display guard picks the boot display by: the boot card
-/// first, then the card, then the kernel's order of its connectors; the
-/// whole identity breaks a tie, so the order of the set never does.
+/// first, then the other cards in the kernel's order, then the kernel's
+/// order of each card's connectors; the whole identity breaks a tie, so
+/// the order of the set never does.
 fn boot_order(a: &Identity, b: &Identity) -> Ordering {
-    (!a.on_boot_card, &a.card, a.order, a).cmp(&(!b.on_boot_card, &b.card, b.order, b))
+    (!a.on_boot_card, a.card_order, a.order, a).cmp(&(!b.on_boot_card, b.card_order, b.order, b))
 }
 
 /// The boot display of `devices`, by its index: the connector lit at
 /// start, else the first connected one in the kernel's order on the boot
-/// card (D9).
+/// card (D9), else, the team lead's decision of 2026-10-29 so that a
+/// connected display always lights, the first connected one on the other
+/// cards in the kernel's order.
 pub(crate) fn boot_display(devices: &[Identity]) -> Option<usize> {
     let pick = |keep: fn(&Identity) -> bool| {
         devices
@@ -118,7 +121,8 @@ pub(crate) fn boot_display(devices: &[Identity]) -> Option<usize> {
             .min_by(|(_, a), (_, b)| boot_order(a, b))
             .map(|(i, _)| i)
     };
-    pick(|d| d.lit_at_start).or_else(|| pick(|d| d.on_boot_card))
+    // `boot_order` puts the boot card's connectors before every other card's
+    pick(|d| d.lit_at_start).or_else(|| pick(|_| true))
 }
 
 impl Config {
