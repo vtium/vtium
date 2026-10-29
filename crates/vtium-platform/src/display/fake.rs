@@ -258,6 +258,7 @@ impl FakeCard {
                         kind_id: u32::try_from(i).unwrap_or(0) + 1,
                         connected: true,
                         modes: modes.clone(),
+                        mm: (0, 0),
                         encoder: 0,
                         encoders: vec![encoder],
                     },

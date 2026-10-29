@@ -139,6 +139,7 @@ impl Kms for Card {
             kind_id: info.connector_type_id,
             connected: info.connection == CONNECTED,
             modes: modes.into_iter().map(Mode).collect(),
+            mm: (info.mm_width, info.mm_height),
             encoder: info.encoder_id,
             encoders,
         })
