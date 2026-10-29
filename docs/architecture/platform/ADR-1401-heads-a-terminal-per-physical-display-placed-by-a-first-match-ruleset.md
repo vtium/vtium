@@ -62,6 +62,12 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "A head key on-loss takes three values: nohup, the sessions keep running and come back when the head's display returns; hangup, SIGHUP at once, as a serial line losing carrier; and hangup with a duration, a grace period in which a return resumes them, then SIGHUP. nohup is the default on every head, the shipped wildcard head included, matching the kernel's VT console, whose session survives an unplugged monitor or keyboard (fbcon redraws on hotplug; hang-up on Unix belongs to lines: serial carrier, a removed USB serial tty, a dropped ssh connection). The trigger is a head losing its last display, so a mirrored head keeps its sessions while any display remains. The key is per head, not per rule, and replaces hangup-after. A head reattaches only to a display its rule matches, so it is never looser than the kernel console, which shows the session on any monitor."
+    via: operator, in conversation with the team lead, 2026-10-29; the wording is the team lead's
+    paraphrase: true
+    covers: [losing a display]
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and an unclaimed keyboard follows the focus chord"
@@ -85,7 +91,7 @@ related: []
 - **Trades away:** One process holds every display of the seat, so a fault in one head's session handling reaches every head. Several terminals share one kernel VT, which the C reference refused. The console takes on device routing, a ruleset parser and a notice of its own, and opens keyboards the rules ignore. Mirroring across heads with different densities, which today's single grid gives, needs a head that claims both displays.
 - **One-way?** Expensive once a release ships the head file: its syntax, its match keys and its targets become the format users' files are written in. Everything behind the file changes in a session.
 - **Probes:**
-  - *Not confident (losing a display):* when a head you set up for one monitor loses it, its sessions stay for 10 seconds and then hang up, as a line losing its carrier; the monitor coming back within the 10 seconds resumes them. The shipped one-head console keeps today's behaviour, running on with no display. Is a hang-up after a short wait what you want for a head whose monitor goes away?
+  - *Not confident (losing a display):* when a head you set up for one monitor loses it, its sessions stay for 10 seconds and then hang up, as a line losing its carrier; the monitor coming back within the 10 seconds resumes them. The shipped one-head console keeps today's behaviour, running on with no display. Is a hang-up after a short wait what you want for a head whose monitor goes away? (Answered 2026-10-29: `on-loss`, `nohup` by default; see `considered` and D8.)
   - *Confident (the rescue):* pressing `Ctrl-Alt-F<n>` for the VT you are already looking at moves that keyboard to the focus until the next boot, whatever the head file says, and never edits the file.
 - **Inversion:** Between "one grid for every display", the C reference's `multi-monitor` and today's vtium, and "a console process per display", which the kernel forbids (one DRM master per card, one VT shown on every display). vtium keeps one process and one VT and puts the terminals inside it, placed by rules a user writes or a tool writes for them.
 
@@ -182,6 +188,7 @@ profile = desk
 [head panel]
 profile = small
 consoles = 2
+on-loss = hangup 30s
 
 [rules]
 display edid:AAA:0x0001:LARGE00001 -> desk
@@ -199,7 +206,7 @@ The example's placement: two heads, each with its own display and keyboard, and 
 
 ![Two heads with bound keyboards. Head desk holds the large monitor, 7680x2160 at about 138 DPI with its own grid, on DP-8 of the discrete GPU, and two inputs its rules claim, keyboard A at path ...usb-0:3.3 and a mouse at path ...usb-0:3.4.4; it holds the focus, shown by a filled mark. Head panel holds the small panel, 800x480 at about 185 DPI with its own grid, on HDMI-A-2 of the integrated GPU, and keyboard B at path ...usb-0:3.2; it shows a hollow mark, no focus. Below, four devices go to the focus: a numpad and a USB receiver that no rule claims, an OTP token sent there by its rule, and media-key devices no rule claims; the focus delivers them to head desk, drawn as a dashed arrow. The caption says displays and keyboard A, the mouse and keyboard B are placed by their rules, the rest follow the focus, and keyboard A types into head desk alone and keyboard B into head panel alone. A legend marks vtium as root, a device, holds the focus and no focus.](figures/ADR-1401-two-heads.svg)
 
-- **Heads.** `[head NAME]` declares a head; a name is 1 to 64 characters of `A-Z a-z 0-9 . _ + -`, and `focus`, `ignore` and `dark` are reserved. A head's keys: `profile` (the profile's name, unset `default`), `consoles` (the number of virtual consoles, unset 1, at most the cap of D10), `login` (the consoles' command, as kmscon.conf's `login` takes it, unset kmscon.conf's), and `hangup-after` (D8). A head names nothing but its profile.
+- **Heads.** `[head NAME]` declares a head; a name is 1 to 64 characters of `A-Z a-z 0-9 . _ + -`, and `focus`, `ignore` and `dark` are reserved. A head's keys: `profile` (the profile's name, unset `default`), `consoles` (the number of virtual consoles, unset 1, at most the cap of D10), `login` (the consoles' command, as kmscon.conf's `login` takes it, unset kmscon.conf's), and `on-loss` (D8). A head names nothing but its profile.
 - **Rules.** Under `[rules]`, one rule a line: `display MATCH -> TARGET` or `input MATCH -> TARGET`. A match is `*`, every device of that kind, or one or more `key:value` tokens, every one of which must hold (D4).
 - **Targets.** A head's name. `focus`, for an input: it follows the focus chord (D5). `ignore`, for an input: vtium never opens it, but for a keyboard watched for the rescue key alone (D9). `dark`, for a display: vtium sets its connector off, so it shows nothing, a frame another master left included, and logs it.
 - **First match, alone.** Each device walks the rules top to bottom and takes the first that matches it. The walk reads only the device's own identity and the rules, never another device or the order devices were reported, so a hotplugged device lands where it would at start (D11's determinism row).
@@ -339,12 +346,14 @@ flowchart LR
 - **No input at start:** vtium runs, and the notice says no keyboard was found; a keyboard plugged in later walks the rules.
 - **Inputs with no lit display** deliver to nothing.
 - **Every display lost mid-session:** vtium keeps running and waits for a hotplug, as the C reference did; `display-wait` governs the start only.
-- **A head that loses its last display** keeps its sessions for `hangup-after` seconds, and then hangs them up, as a line losing its carrier: the session's pty is closed and its processes get SIGHUP. A display of the head returning within the time resumes them. `hangup-after = 0` hangs up at once, and `never` keeps the sessions, today's behaviour, which the shipped `console` head takes. Unset, a head the file declares takes 10 seconds (probe 3).
-- vtium never reattaches a live session to whatever display next claims a lost display's identity once the time has run out.
+- **A head that loses its last display** does what its `on-loss` key says; a mirrored head keeps its sessions while any of its displays remains. `nohup`, the default on every head, the shipped `console` head included: the sessions keep running and come back when a display of the head returns, as the kernel's VT console keeps its session through an unplugged monitor or keyboard. `hangup`: the sessions are hung up at once, as a serial line losing its carrier: the pty is closed and its processes get SIGHUP. `hangup DURATION`, such as `hangup 30s` (seconds, or with an `s`, `m` or `h` suffix): a display returning within the time resumes the sessions, and after it they are hung up. On Unix a hang-up belongs to lines, a serial carrier, a removed USB serial tty or a dropped ssh connection, and a console is not one, so hanging up is the choice a head opts into.
+- **A head reattaches only to a display its rules match,** so it is never looser than the kernel console, which shows its session on whatever monitor is plugged in.
+
+> Edited 2026-10-29: the operator answered the Summary's probe (`considered`) with `on-loss`, `nohup` by default. D8 read: "keeps its sessions for `hangup-after` seconds, and then hangs them up [...] `hangup-after = 0` hangs up at once, and `never` keeps the sessions, today's behaviour, which the shipped `console` head takes. Unset, a head the file declares takes 10 seconds (probe 3).", and "vtium never reattaches a live session to whatever display next claims a lost display's identity once the time has run out."
 
 A boot with nothing attached, each device added after it, and the display removed:
 
-![A timeline, left to right: boot, a display plugged in, a keyboard plugged in, the display removed. Step 1, nothing attached: no display and no keyboard; vtium holds its VT and waits display-wait, 10 s by default, from when the VT is first shown; no rule is walked yet and no session starts; a display within the wait goes on to step 2. Below step 1 the branch: with no display by then, vtium exits with status 1 and the unit's OnFailure= starts a getty on the VT; under display-wait=forever, vtium waits for the first display however long it takes, and then goes on to step 2. Step 2, a display: it walks the rules, display * -> console; the head lights and its session starts on its grid; a notice says no keyboard was found; the login prompt shows and nothing can type yet. Step 3, a keyboard: it walks the same rules, input * -> focus; it follows the focus on the only lit head; the session can be typed on and the notice is gone; a new keyboard never takes the focus from another head. Step 4, drawn dashed as the tail, the display goes: vtium keeps running and waits for a hotplug, display-wait being the start's alone; the shipped head console never hangs up, as today; a head the file declares takes hangup-after. A panel below draws a declared head losing its last display, probe 3: from gone, a hangup-after period, 10 s when unset, then the hang-up; back within the time, the sessions resume; on time out the pty closes and its processes get SIGHUP; hangup-after = 0 hangs up at once and never keeps them. The caption says each device walks the rules when it arrives, exactly as one found at start would, and the session waits for the first display. A legend marks vtium as root, an exit or a notice, what is open to the operator in probe 3, and the later moment of the tail.](figures/ADR-1401-after-boot.svg)
+![A timeline, left to right: boot, a display plugged in, a keyboard plugged in, the display removed. Step 1, nothing attached: no display and no keyboard; vtium holds its VT and waits display-wait, 10 s by default, from when the VT is first shown; no rule is walked yet and no session starts; a display within the wait goes on to step 2. Below step 1 the branch: with no display by then, vtium exits with status 1 and the unit's OnFailure= starts a getty on the VT; under display-wait=forever, vtium waits for the first display however long it takes, and then goes on to step 2. Step 2, a display: it walks the rules, display * -> console; the head lights and its session starts on its grid; a notice says no keyboard was found; the login prompt shows and nothing can type yet. Step 3, a keyboard: it walks the same rules, input * -> focus; it follows the focus on the only lit head; the session can be typed on and the notice is gone; a new keyboard never takes the focus from another head. Step 4, drawn dashed as the tail, the display goes: vtium keeps running and waits for a hotplug, display-wait being the start's alone; on-loss = nohup, the default, keeps the sessions running, and hangup and hangup 30s are opt-ins set per head. A panel below draws a head losing its last display under each on-loss value: nohup, the default, runs the sessions on and brings them back on a matching display; hangup sends SIGHUP at once, as a line losing carrier; hangup 30s resumes the sessions on a return within the time and then sends SIGHUP; a mirrored head keeps its sessions while any display remains. The caption says each device walks the rules when it arrives, exactly as one found at start would, and the session waits for the first display. A legend marks vtium as root, an exit or a notice, an opt-in value, and the later moment of the tail.](figures/ADR-1401-after-boot.svg)
 
 ### D9: guards against lockout
 
@@ -402,6 +411,7 @@ flowchart TD
 - `vtium check-config` lists every planted error with its line.
 - **Determinism row** (docs/architecture.md): a property test walks a generated set of devices through a generated ruleset in every order and at every hotplug point, and the placement of each device is the same.
 - The anti-lockout guard, the display guard and the rescue each have a boot test: every keyboard claimed by a head with no display types into the focus; an empty ruleset lights the boot display; the rescue moves a claimed keyboard and an ignored one and writes nothing.
+- A head losing its last display keeps its sessions under `nohup` and resumes them when a matching display returns, hangs them up at once under `hangup`, and under `hangup 30s` resumes them on a return within the time and hangs them up after it; a mirrored head losing one of two displays keeps them under every value.
 - An instanced template, read back, gives the compiled-in defaults, and a present file, a symlink and a writable `/etc/vtium` are each left untouched.
 - **The verification plan:** tier 3 proves heads before any VT review on the operator's hardware. Its QEMU guest exposes two virtual outputs (virtio-gpu's `max_outputs=2`), with a second virtio-gpu device for the case of two cards, and the guest runs two heads at two sizes against them: the ruleset placing each display and each emulated keyboard, an emulated keyboard added and removed through QEMU's monitor as the hotplug case, and each guard, with screens captured and compared as tier 3 compares them. A display unplugged on the virtual card, where QEMU cannot raise it, is left to the VT review, which then runs on the operator's two cards.
 
@@ -464,7 +474,7 @@ The probes, in the order the record raises them:
 
 1. The head file's path and name, `/etc/vtium/heads.conf` here, and whether drop-ins (`/etc/vtium/heads.d/`) are read.
 2. Where a head's virtual consoles are declared, their count and each console's command: in the head file, as D3 has it, or in the profile.
-3. A head that loses its display: hang up at once, a grace period (D8's 10 seconds, the Summary's probe), or keep the sessions and require a fresh login, which needs a lock screen vtium lacks (vtium/vtium#87).
+3. A head that loses its display. Answered 2026-10-29: `on-loss`, with `nohup` the default on every head and `hangup` and `hangup DURATION` as choices (D8, `considered`).
 4. Whether `check-config` notes a rule that reaches a head with sessions by `id` or `name` alone (D4).
 5. Whether the invalid-configuration notice waits for a key or shows for a few seconds (D7).
 6. The caps on consoles per head and in total, and how their scrollback fits minspec's memory figure (D10).
@@ -472,7 +482,7 @@ The probes, in the order the record raises them:
 8. The draft directory, `$XDG_STATE_HOME/vtium/drafts/<time>/` here, and whether OSC 50 may preview an unprivileged user's draft frit on the console during a trial, its sources read by the sandboxed helper as `nobody`.
 9. The team lead's proposals, written above as the design: `check-config`'s note on weak matches (D4); the instanced templates as commented lines, best effort, and only the default files (D6); missing and changing hardware (D8); focus and input (D5); the security rules (D10).
 
-Agent calls the operator has not yet looked at: the head file's syntax and the target `dark` setting the connector off (D3); naming cards by `ID_PATH` (D4); the keyboard class as 26 letters and Enter (D9); the head file's template carrying its two rules live (D6); `instance-defaults` (D6); `check-config`'s exit status for hardware-dependent findings (D7); `hangup-after`'s values and `never` for the shipped head (D8); mode 1004's focus per head (D5); the overlay socket for root alone (D12); and that the blank stays the seat's, any head's activity waking every display.
+Agent calls the operator has not yet looked at: the head file's syntax and the target `dark` setting the connector off (D3); naming cards by `ID_PATH` (D4); the keyboard class as 26 letters and Enter (D9); the head file's template carrying its two rules live (D6); `instance-defaults` (D6); `check-config`'s exit status for hardware-dependent findings (D7); the form of `on-loss`'s duration (D8); mode 1004's focus per head (D5); the overlay socket for root alone (D12); and that the blank stays the seat's, any head's activity waking every display.
 
 ## Evidence: a machine with two displays
 
@@ -517,6 +527,7 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - Each display draws at its own density, and a small panel and a large monitor each get a readable grid.
 - The default is today's console, and every customisation is a rule added above it; a machine with one display never sees heads.
 - No ruleset, file or hardware change can leave the console with no keyboard typing into a lit display.
+- A monitor that sleeps and drops off its link, a KVM switch or a pulled cable leaves every session running under the default `nohup`, as on the kernel's console.
 - Placement is a function of each device and the file, so tests can enumerate it and a hotplug behaves as a boot does.
 - `vtium-vitrify` gives a user a correct file without reading this record, from the console or a desktop, with or without privilege.
 
@@ -525,6 +536,7 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - vtium carries a ruleset parser, a notice, the guards and the configuration crate; the parser and evaluator count against the binary's budget, which leaves less for other features.
 - One process holds every head, so a crash ends every head's sessions at once.
 - Keyboards the rules ignore are still opened, read and dropped.
+- Under `nohup`, a session whose head has lost its display keeps running unseen until a matching display returns; a head that should end it sets `hangup` or `hangup DURATION`.
 - A head's consoles multiply memory; on minspec the caps bind.
 - A user who wants one session mirrored across displays at different densities still gets one grid sized by the scaled rule.
 
@@ -544,5 +556,6 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - **xorg.conf's model,** sections that reference each other (devices, monitors, screens, layouts, input classes). Rejected for the failures D3 lists: a required file, cross-references that break, unmatched sections as errors, and files written by hand only.
 - **Inferring placement,** spreading keyboards one per head or pairing devices by their ports. Rejected: it misplaces tokens and media-key devices, and its result depends on what is plugged in where in ways a user cannot read from a file.
 - **Repairing an invalid file in place,** or refusing to start. Rejected: repair alters a file root wrote, and a refusal leaves a dead screen; vtium runs the shipped default and says why.
-- **Reattaching a session to whatever display next matches.** Rejected for D8's reason: the display a session shows on is part of who can read it.
+- **Hanging up by default,** at once or after a grace period, the draft's proposal. Rejected (the operator, 2026-10-29): a console is not a line, the kernel's VT console keeps its session through a lost monitor, and a sleeping monitor or a KVM switch would end sessions. Both stay as `on-loss` values.
+- **Reattaching a session to any display that appears,** as the kernel console shows its session on any monitor. Narrowed: a head reattaches only to a display its rules match (D8).
 - **One grid for every display,** today's layout. Kept within a head, and replaced across heads.
