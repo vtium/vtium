@@ -1,7 +1,7 @@
 //! The built-in sets (ADR-1200 D7): `unifont` and `unscii-8`, packed by
 //! `build.rs` and compiled into the binary, trusted by construction and
 //! never read from disk. Each is read once, the first time it is asked
-//! for, by the same reader as a set from the store.
+//! for, by the same reader as the helper's glyphs.
 
 use std::sync::{Arc, OnceLock};
 

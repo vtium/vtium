@@ -152,7 +152,7 @@ fn expanded(w: u32, rows: &[u8]) -> Vec<u8> {
 fn a_set_reads_back_every_field() {
     let set = read(small_set(true));
     assert_eq!(set.name(), "small-1.0");
-    assert_eq!(set.version(), (1, 0));
+    assert_eq!(set.version(), (2, 0));
     let meta: Vec<_> = set.meta().collect();
     assert_eq!(
         meta,
@@ -510,7 +510,7 @@ fn chunk_entry(set: &[u8], i: usize) -> (usize, usize, usize, u32) {
             .map(|at| u64_at(at + 4) as usize)
             .expect("GLYF")
     };
-    let e = glyf_at + 8 + 52 * i;
+    let e = glyf_at + 8 + 20 * i;
     let u32_at = |i: usize| u32::from_le_bytes(set[i..i + 4].try_into().unwrap());
     let offset = u64::from_le_bytes(set[e..e + 8].try_into().unwrap()) as usize;
     (
@@ -521,25 +521,8 @@ fn chunk_entry(set: &[u8], i: usize) -> (usize, usize, usize, u32) {
     )
 }
 
-// A chunk whose bytes do not match its hash draws nothing, and is the
-// set's fault; the others still draw (ADR-1200 D3, D10)
-#[test]
-fn a_chunk_that_fails_its_hash_is_refused() {
-    let mut bytes = small_set(false);
-    // the last chunk is the R8 strike's; the first, the 1-bit one's
-    let (at, _, _, _) = chunk_entry(&bytes, 0);
-    bytes[at] ^= 1;
-    let set = Arc::new(read(bytes));
-    assert!(matches!(set.check_chunks(), Err(SetError::ChunkHash(0))));
-    let face = SetFace::new(set.clone(), 6).expect("a face");
-    assert_eq!(face.draw(&['A'], Style::default()), None);
-    assert!(matches!(set.fault(), Some(SetError::ChunkHash(0))));
-    let r8 = SetFace::new(set.clone(), 8).expect("a face");
-    assert!(r8.draw(&['a'], Style::default()).is_some());
-}
-
-// A deflated chunk that decodes to any length but its index's is refused
-// (ADR-1200 D3, D10)
+// A deflated chunk that decodes to any length but its index's is refused:
+// it draws nothing, and is the set's fault (ADR-1200 D2, D10)
 #[test]
 fn a_deflated_chunk_of_another_length_is_refused() {
     let cell = Cell {
@@ -557,30 +540,34 @@ fn a_deflated_chunk_of_another_length_is_refused() {
         assert_eq!(other.len(), stored, "a stream of the same stored length");
         let mut bytes = good.clone();
         bytes[at..at + stored].copy_from_slice(&other);
-        // the index's hash is the new bytes', so only the length is wrong
-        let (_, _, secs) = sections(&bytes);
-        let glyf = &secs.iter().find(|(t, _)| t == b"GLYF").unwrap().1;
-        let hash_at = bytes.len() - glyf.len() + 8 + 20;
-        bytes[hash_at..hash_at + 32].copy_from_slice(&Sha256::digest(&other));
-        let set = read(bytes);
+        let set = Arc::new(read(bytes));
         assert!(
             matches!(set.check_chunks(), Err(SetError::ChunkLength(0))),
+            "{len}"
+        );
+        let face = SetFace::new(set.clone(), 16).expect("a face");
+        assert_eq!(face.draw(&['x'], Style::default()), None, "{len}");
+        assert!(
+            matches!(set.fault(), Some(SetError::ChunkLength(0))),
             "{len}"
         );
     }
 }
 
-// An unknown major version is refused, naming the version; a later minor
-// version's extra section is skipped
+// An unknown major version is refused, naming the version, format 1's
+// included, whose chunk records held a SHA-256; a later minor version's
+// extra section is skipped
 #[test]
 fn an_unknown_major_version_is_refused() {
-    let mut bytes = small_set(true);
-    bytes[8..10].copy_from_slice(&2u16.to_le_bytes());
-    assert!(matches!(refused(bytes), SetError::UnknownMajor(2)));
+    for major in [1u16, 3] {
+        let mut bytes = small_set(true);
+        bytes[8..10].copy_from_slice(&major.to_le_bytes());
+        assert!(matches!(refused(bytes), SetError::UnknownMajor(m) if m == major));
+    }
     let (_, _, mut secs) = sections(&small_set(true));
     secs.insert(2, (*b"XTRA", vec![1, 2, 3]));
-    let set = read(assemble(1, 7, &secs));
-    assert_eq!(set.version(), (1, 7));
+    let set = read(assemble(2, 7, &secs));
+    assert_eq!(set.version(), (2, 7));
     set.check_chunks().expect("checks");
 }
 
