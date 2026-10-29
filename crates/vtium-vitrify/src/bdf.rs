@@ -385,6 +385,7 @@ fn place(
 #[expect(
     clippy::expect_used,
     clippy::indexing_slicing,
+    clippy::panic,
     reason = "a test fails by panicking"
 )]
 pub(crate) mod tests {
@@ -534,11 +535,13 @@ pub(crate) mod tests {
             "{}",
             gz.len()
         );
-        let e = font(&gz).err().expect("refused");
+        let Err(e) = font(&gz) else {
+            panic!("accepted")
+        };
         assert!(e.contains("mostly advance 192"), "{e}");
-        let e = font(&crate::decode::tests::gzip(inkless(32_768).as_bytes()))
-            .err()
-            .expect("refused");
+        let Err(e) = font(&crate::decode::tests::gzip(inkless(32_768).as_bytes())) else {
+            panic!("accepted")
+        };
         assert!(e.contains("PSF_BYTES_MAX"), "{e}");
         // 14,563 glyphs of 1,152 bytes stay under 16 MiB, and one more
         // passes it
