@@ -95,7 +95,8 @@ impl Edid {
 /// A display descriptor's text: its 13 bytes up to the line feed that
 /// ends it, without the spaces that pad it; `None` where that leaves
 /// nothing. A byte that is no printable ASCII, a space within the text
-/// included, reads as `_`, so the text is one token of the head file.
+/// included, and `#`, which starts the head file's comments, read as `_`,
+/// so the text is one token of the head file.
 fn text(bytes: &[u8]) -> Option<String> {
     let end = bytes
         .iter()
@@ -105,7 +106,7 @@ fn text(bytes: &[u8]) -> Option<String> {
     (!text.is_empty()).then(|| {
         text.iter()
             .map(|&b| {
-                if b.is_ascii_graphic() {
+                if b.is_ascii_graphic() && b != b'#' {
                     char::from(b)
                 } else {
                     '_'
@@ -272,6 +273,9 @@ mod tests {
         let odd = descriptor(SERIAL_STRING, b"A B\xe9C");
         assert_eq!(id(&block((60, 34), 0, &[odd])), "AAA:0x0001:A_B_C");
         // what follows the line feed is padding, whatever it holds
+        // `#` starts a comment in the head file
+        let hash = descriptor(SERIAL_STRING, b"SN#42");
+        assert_eq!(id(&block((60, 34), 0, &[hash])), "AAA:0x0001:SN_42");
         let mut tail = descriptor(SERIAL_STRING, b"X2");
         tail[8..].fill(b'Z');
         assert_eq!(id(&block((60, 34), 0, &[tail])), "AAA:0x0001:X2");
