@@ -37,6 +37,7 @@ Commands:
   verify [NAME...]                   run the console's check on the store's sets
   remove NAME...                     drop sets from the store; their frits stay (root)
   set NAME                           switch the running console to a built set
+  serve                              generate glyphs for the console (the console starts it)
 
 Options:
   --store DIR           a store the invoking user owns, in place of the system's
@@ -168,6 +169,7 @@ pub fn run(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         "verify" => cli.verify(&rest),
         "remove" => cli.remove(&rest),
         "set" => crate::switch::command(&rest, o.store.as_deref(), cli.out, cli.err),
+        crate::serve::SERVE_ARG => cli.serve(&rest),
         "" => cli.usage("no command"),
         other => cli.usage(&format!("unknown command {other}")),
     }
@@ -206,6 +208,31 @@ impl Cli<'_> {
     fn fail(&mut self, why: &str) -> u8 {
         let _ = writeln!(self.err, "vtium-vitrify: {why}");
         1
+    }
+
+    /// `serve`: the helper the console starts (ADR-1301 D2), its kbd and
+    /// font directories and vconsole files as the options name them.
+    fn serve(&mut self, rest: &[String]) -> u8 {
+        if !rest.is_empty() {
+            return self.usage("serve takes no argument");
+        }
+        let o = self.o;
+        let system = crate::serve::Paths::default();
+        let paths = crate::serve::Paths {
+            kbd_dirs: if o.kbd_dirs.is_empty() {
+                system.kbd_dirs
+            } else {
+                o.kbd_dirs.clone()
+            },
+            font_dirs: if o.font_dirs.is_empty() {
+                system.font_dirs
+            } else {
+                o.font_dirs.clone()
+            },
+            vconsole_conf: o.vconsole_conf.clone().unwrap_or(system.vconsole_conf),
+            kernel_cmdline: o.kernel_cmdline.clone().unwrap_or(system.kernel_cmdline),
+        };
+        crate::serve::command(&paths)
     }
 
     /// Prints `name`'s line; true when it did not fail.

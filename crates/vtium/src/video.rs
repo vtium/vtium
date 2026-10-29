@@ -5,7 +5,7 @@ use std::any::Any;
 use std::io;
 
 use vtium_platform::display::{
-    Canvas, Card, DisplayId, Dpms, Drm2d, Event, Fb, Fbdev, Rect, SwapError, Swapped,
+    Canvas, Card, Density, DisplayId, Dpms, Drm2d, Event, Fb, Fbdev, Rect, SwapError, Swapped,
 };
 use vtium_render::Arrow;
 
@@ -70,6 +70,12 @@ pub trait Video: Any {
     fn need_commit(&self, _: DisplayId) -> bool {
         false
     }
+    /// The density the display measures from the physical size it
+    /// reports, in dots per inch across and down; `None` where it reports
+    /// none, or one vtium-platform does not believe.
+    fn dpi(&self, _: DisplayId) -> Option<(f64, f64)> {
+        None
+    }
 }
 
 /// A video device's cursor plane, as the pointer drives it.
@@ -109,6 +115,11 @@ impl Video for Drm2d<Card> {
     }
     fn levels(&self, id: DisplayId) -> Option<u8> {
         Drm2d::levels(self, id)
+    }
+    fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
+        Drm2d::density(self, id)
+            .filter(Density::measured)
+            .map(|d| d.dpi())
     }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         Drm2d::canvas(self, id)
@@ -183,6 +194,11 @@ impl Video for Fbdev<Fb> {
     }
     fn levels(&self, id: DisplayId) -> Option<u8> {
         Fbdev::levels(self, id)
+    }
+    fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
+        Fbdev::density(self, id)
+            .filter(Density::measured)
+            .map(|d| d.dpi())
     }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         Fbdev::canvas(self, id)

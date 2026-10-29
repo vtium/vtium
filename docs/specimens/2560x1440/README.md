@@ -6,7 +6,7 @@ A QHD monitor: 2560x1440, 24-bit color, drawn in `desktop` at 14x32, 182x45 cell
 
 | Display | Class | Cell | Grid | Font | Screens |
 |---|---|---|---|---|---|
-| 2560x1440, 24-bit color | order unknown | 14x32 | 182x45 | `desktop`, built from [`desktop.vtfrit`](../../../tools/specimens/frits/desktop.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png) |
+| 2560x1440, 24-bit color | order unknown | 14x32 | 182x45 | `desktop`, the frit [`desktop.vtfrit`](../../../tools/specimens/frits/desktop.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png) |
 
 ## Why this font
 
@@ -17,11 +17,10 @@ ADR-1200 D11 builds one outline size for the display the package hook sees, snap
 [vtium.conf](vtium.conf):
 
 ```ini
-# The desktop set: tools/specimens/frits/desktop.vtfrit in
-# /etc/vtium/fonts, built with `vtium-vitrify create desktop`. vtium
-# loads a set by name from #126. font-size=0 picks the strike.
+# The desktop frit: tools/specimens/frits/desktop.vtfrit in
+# /etc/vtium/fonts, its glyphs generated at run time (ADR-1301 D2).
 font-name=desktop
 font-size=0
 ```
 
-The console loads a set by name from #126. The screens here draw the set vtium-vitrify builds from the frit and the pinned fonts `make specimens-fonts` fetches (`tools/specimens/README.md`); where those fonts are absent the check skips this profile while it is provisional, and fails it once accepted.
+The console loads a set by name from #126. The screens here draw the glyphs vtium-vitrify's engine, the one the helper runs (ADR-1301 D2), generates from the frit and the pinned fonts `make specimens-fonts` fetches, in the profile's cell (`tools/specimens/README.md`); where those fonts are absent the check skips this profile while it is provisional, and fails it once accepted.

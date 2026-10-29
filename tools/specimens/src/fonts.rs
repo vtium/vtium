@@ -1,20 +1,20 @@
-//! The outline fonts the desktop set is built from, and the set itself.
+//! The outline fonts the desktop frit names, and its glyphs.
 //!
 //! vtium ships no third-party font bytes, so the outline profiles' fonts
 //! are pinned here by URL and SHA-256 and fetched into a cache outside the
 //! tree, as tier 3 pins its guest images: `$XDG_CACHE_HOME/vtium/specimens/fonts`.
-//! The desktop set is built from them by vtium-vitrify itself, `create
-//! --out` on `frits/desktop.vtfrit` with the cache as its only font
-//! directory, into a directory the run creates beside the cache, and read back with
-//! vtium-font's set reader. A profile whose set cannot be built, for want
-//! of the tool or of a font, is skipped, and says why.
+//! The glyphs of `frits/desktop.vtfrit` are generated from them by
+//! vtium-vitrify's engine, the one the helper runs, in this process, with
+//! the cache as its only font directory, at each outline profile's cell. A
+//! profile whose glyphs cannot be generated, for want of a font, is
+//! skipped, and says why.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
 use vtium_font::set::Set;
-use vtium_font::{Sha256, sha256_hex};
+use vtium_font::{Cell, Sha256, sha256_hex};
 
 /// One pinned font: its file in the cache, where it comes from, and the
 /// SHA-256 of its bytes, which the frit's `sha256=` line repeats.
@@ -97,55 +97,58 @@ pub fn fetch(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The desktop set, built by `vitrify` from the fonts in `fonts`, or why
-/// it is not.
-pub fn desktop(vitrify: Option<&Path>, fonts: &Path) -> Result<Arc<Set>, String> {
-    let vitrify = vitrify.ok_or("no vtium-vitrify given, as `make specimens` gives it")?;
+/// The desktop frit's glyphs at each of `cells`, generated from the fonts
+/// in `fonts`, or why they are not.
+pub fn desktop(fonts: &Path, cells: &[Cell]) -> Result<Vec<(Cell, Arc<Set>)>, String> {
     if let Some(why) = FONTS.iter().find_map(|f| fault(fonts, f)) {
         return Err(format!(
             "{why}; `make specimens-fonts` fetches the pinned fonts"
         ));
     }
-    // beside the font cache, in a directory this run creates itself: an
-    // existing one, whoever made it, is refused rather than written into
-    let parent = fonts.parent().unwrap_or(fonts);
-    let dir = parent.join(format!("build-{}", std::process::id()));
-    std::fs::create_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let built = build(vitrify, fonts, &dir);
-    let _ = std::fs::remove_dir_all(&dir);
-    built
+    generate("desktop", FRIT, fonts, cells)
 }
 
-fn build(vitrify: &Path, fonts: &Path, dir: &Path) -> Result<Arc<Set>, String> {
-    let frit = dir.join("desktop.vtfrit");
-    let out = dir.join("desktop.vtglass");
-    std::fs::write(&frit, FRIT).map_err(|e| format!("{}: {e}", frit.display()))?;
-    let run = Command::new(vitrify)
-        .args(["create", "--no-banner", "--font-dir"])
-        .arg(fonts)
-        .arg("--out")
-        .arg(&out)
-        .arg(&frit)
-        .output()
-        .map_err(|e| format!("{}: {e}", vitrify.display()))?;
-    let stdout = String::from_utf8_lossy(&run.stdout);
-    // a set built from only some of its sources is not the profile's set
-    if !run.status.success() || stdout.trim_end() != "built\tdesktop" {
-        return Err(format!(
-            "vtium-vitrify did not build the whole set: {}{}",
-            stdout.trim_end(),
-            String::from_utf8_lossy(&run.stderr).trim_end()
-        ));
-    }
-    let bytes = std::fs::read(&out).map_err(|e| format!("{}: {e}", out.display()))?;
-    Set::from_bytes(bytes)
-        .map(Arc::new)
-        .map_err(|e| format!("the desktop set: {e:?}"))
+/// The glyphs of the frit `name`, `text`, at each of `cells`, as
+/// vtium-vitrify's engine, the one the helper runs (ADR-1301 D2), draws
+/// every codepoint the frit gives, `fonts` its only font directory. A cell
+/// at which a source gives nothing, or fails as it draws, is refused: the
+/// glyphs of only some of the frit's sources are not the profile's.
+fn generate(
+    name: &str,
+    text: &str,
+    fonts: &Path,
+    cells: &[Cell],
+) -> Result<Vec<(Cell, Arc<Set>)>, String> {
+    use vtium_vitrify::serve::{Engine, FritText, Paths};
+    let frit = FritText {
+        name: name.to_owned(),
+        text: text.to_owned(),
+    };
+    let paths = Paths {
+        font_dirs: vec![fonts.to_path_buf()],
+        ..Paths::default()
+    };
+    let engine = Engine::load(&frit, &paths, None)?;
+    cells
+        .iter()
+        .map(|&cell| {
+            let bytes = engine.draw(cell, engine.coverage())?;
+            // none_at names each source that gave nothing at the cell
+            let why = engine.none_at(cell);
+            let bytes = match bytes {
+                Some(bytes) if !why.contains("source=") => bytes,
+                _ => return Err(format!("the frit {name}: {why}")),
+            };
+            let set = Set::from_bytes(bytes).map_err(|e| format!("the frit {name}: {e:?}"))?;
+            Ok((cell, Arc::new(set)))
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vtium_font::Face;
 
     // The frit pins each source to the bytes the cache is checked against,
     // in the same order.
@@ -159,8 +162,8 @@ mod tests {
         assert_eq!(pins, table);
     }
 
-    // A cache holding a font of other bytes builds no set, before
-    // vtium-vitrify is run: the profiles drawn from it go undrawn.
+    // A cache holding a font of other bytes generates no glyphs, before the
+    // engine reads it: the profiles drawn from it go undrawn.
     #[test]
     fn a_changed_font_in_the_cache_builds_no_set() {
         let dir =
@@ -169,9 +172,51 @@ mod tests {
         for f in &FONTS {
             std::fs::write(dir.join(f.file), b"not the font").unwrap();
         }
-        let why = desktop(Some(Path::new("/nonexistent/vtium-vitrify")), &dir).unwrap_err();
+        let why = desktop(&dir, &[]).unwrap_err();
         assert!(why.contains("has SHA-256"), "{why}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // ADR-1301 D2: the frit's glyphs come from the engine the helper runs,
+    // one set at each cell asked, drawn in that cell.
+    #[test]
+    fn a_frits_glyphs_are_generated_at_each_cell() {
+        let cells = [
+            Cell {
+                width: 8,
+                height: 8,
+            },
+            Cell {
+                width: 12,
+                height: 24,
+            },
+        ];
+        let sets = generate(
+            "t",
+            "source=builtin:unscii-8\n",
+            Path::new("/nonexistent"),
+            &cells,
+        )
+        .unwrap();
+        assert_eq!(sets.iter().map(|(c, _)| *c).collect::<Vec<_>>(), cells);
+        for (cell, set) in sets {
+            let face = vtium_font::set::SetFace::new(set, cell.height).unwrap();
+            assert_eq!(face.cell(), cell);
+            assert!(face.has_glyph('A'));
+        }
+    }
+
+    // A source that gives nothing at a cell, as unifont's 8x16 in an 8x8
+    // cell, leaves the frit's glyphs there short of the frit: refused.
+    #[test]
+    fn a_source_left_out_at_a_cell_is_refused() {
+        let cell = Cell {
+            width: 8,
+            height: 8,
+        };
+        let frit = "source=builtin:unscii-8\nsource=builtin:unifont\n";
+        let why = generate("t", frit, Path::new("/nonexistent"), &[cell]).unwrap_err();
+        assert!(why.contains("source=builtin:unifont"), "{why}");
     }
 
     #[test]

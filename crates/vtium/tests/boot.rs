@@ -47,6 +47,9 @@ struct Memory {
     refresh_mhz: u32,
     /// Every swap fails, as on a display announced and never shown.
     refuses: bool,
+    /// The density the display measures, across and down; `None` for one
+    /// that reports no physical size.
+    dpi: Option<(f64, f64)>,
 }
 
 impl Default for Memory {
@@ -73,6 +76,8 @@ impl Memory {
             ages: Vec::new(),
             refresh_mhz: 60_000,
             refuses: false,
+            // the C reference's fixed density, where a point is a pixel
+            dpi: Some((72.0, 72.0)),
         }
     }
 }
@@ -95,6 +100,9 @@ impl Video for Memory {
     }
     fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
         Some(self.refresh_mhz)
+    }
+    fn dpi(&self, _: DisplayId) -> Option<(f64, f64)> {
+        self.dpi
     }
     fn canvas(&mut self, _: DisplayId) -> Option<Canvas<'_>> {
         if !self.awake || self.dpms != Some(Dpms::On) {
@@ -223,12 +231,12 @@ struct Harness {
     ahead: Rc<Cell<Duration>>,
 }
 
-/// No store and no vconsole font, so the seat draws its built-in sets
+/// No frits and no vconsole font, so the seat draws its built-in font
 /// whatever the machine running the tests holds.
 fn no_fonts() -> Sources {
     Sources {
-        store: PathBuf::from("/nonexistent/vtium-test-store"),
-        uid: 0,
+        frits: PathBuf::from("/nonexistent/vtium-test-frits"),
+        helper: None,
         vconsole_conf: PathBuf::from("/dev/null"),
         kernel_cmdline: PathBuf::from("/dev/null"),
     }
@@ -263,9 +271,9 @@ impl Harness {
         Harness::boot(args, FakeVt::new(), None)
     }
 
-    /// The seat booted with `args`. The harness draws 16-pixel cells, the
-    /// size every test's grid is reckoned in, unless a test sets
-    /// `font-size`: at 320x160 the automatic size is the built-in
+    /// The seat booted with `args`. The harness draws 16-pixel cells, 16
+    /// points on a display measuring 72 DPI, the size every test's grid is
+    /// reckoned in, unless a test sets `font-size`: at 320x160 the automatic size is the built-in
     /// Unscii-8's 8 pixels (vtium/vtium#118), which its own tests check.
     fn boot<V: Vt + 'static>(args: &[&str], vt: V, video: Option<Box<dyn Video>>) -> Harness {
         Harness::boot_with(args, vt, video, no_fonts())
@@ -282,6 +290,18 @@ impl Harness {
         vt: V,
         video: Option<Box<dyn Video>>,
         fonts: Sources,
+    ) -> Harness {
+        Harness::boot_console(args, vt, video, fonts, None)
+    }
+
+    /// [`Harness::boot_with`], with the kernel's font `console` read at
+    /// start.
+    fn boot_console<V: Vt + 'static>(
+        args: &[&str],
+        vt: V,
+        video: Option<Box<dyn Video>>,
+        fonts: Sources,
+        console: Option<vtium_platform::vt::font::ConsoleFont>,
     ) -> Harness {
         let sized = args.iter().any(|a| a.starts_with("--font-size"));
         let args: Vec<OsString> = (!sized)
@@ -304,6 +324,9 @@ impl Harness {
         };
         let mut app = App::new(loaded.config, Box::new(vt), lp.handle(), clock, env);
         app.set_font_sources(fonts);
+        if let Some(console) = console {
+            app.set_console_font(console);
+        }
         if let Some(video) = video {
             app.add_video(PathBuf::from("/dev/mem0"), video);
         }
@@ -1190,6 +1213,9 @@ impl Video for SlowFlip {
     fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
         self.memory.refresh_mhz(id)
     }
+    fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
+        self.memory.dpi(id)
+    }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         self.memory.canvas(id)
     }
@@ -2028,6 +2054,9 @@ impl Video for Late {
     fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
         self.memory.refresh_mhz(id)
     }
+    fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
+        self.memory.dpi(id)
+    }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         self.memory.canvas(id)
     }
@@ -2111,6 +2140,9 @@ impl Video for Planed {
     }
     fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
         self.memory.refresh_mhz(id)
+    }
+    fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
+        self.memory.dpi(id)
     }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         self.memory.canvas(id)
@@ -2275,6 +2307,9 @@ impl Video for Gate {
     }
     fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
         self.memory.refresh_mhz(id)
+    }
+    fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
+        self.memory.dpi(id)
     }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         self.memory.canvas(id)
@@ -3064,6 +3099,9 @@ impl Video for Slow {
     fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
         self.memory.refresh_mhz(id)
     }
+    fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
+        self.memory.dpi(id)
+    }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         self.memory.canvas(id)
     }
@@ -3185,85 +3223,7 @@ fn a_zoom_reports_the_text_area_to_a_program_waiting_in_a_read() {
     );
 }
 
-/// A set of one 1-bit strike of 6x12 cells, `name`, holding the printable
-/// ASCII characters, each a box.
-fn tiny(name: &str) -> Vec<u8> {
-    use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
-    use vtium_font::{Cell, Style, Width};
-    let cell = Cell {
-        width: 6,
-        height: 12,
-    };
-    let mut strike = StrikeBuilder::new(PixelFormat::Bits, cell, Style::default());
-    let mut rows = vec![0b1111_1100];
-    rows.extend([0b1000_0100; 10]);
-    rows.push(0b1111_1100);
-    for c in ' '..='~' {
-        let g = strike.glyph(Width::Narrow, rows.clone());
-        strike.map(c, g);
-    }
-    SetBuilder::new(name).strike(strike).write().expect("a set")
-}
-
-/// A store for `test` under Cargo's temporary directory, holding each of
-/// `sets` (its name, its first source as spelled, and its bytes), with
-/// vconsole.conf beside it holding `vconsole`; the sources that read it.
-fn store(test: &str, sets: &[(&str, &str, Vec<u8>)], vconsole: &str) -> Sources {
-    use std::fs;
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    use vtium_font::set::{Manifest, ManifestRow, VERSION};
-    use vtium_font::{Cell, Sha256};
-    let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("vtium-font-stores");
-    let dir = base.join(test);
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).expect("the store");
-    let mode = |p: &Path, m: u32| {
-        fs::set_permissions(p, fs::Permissions::from_mode(m)).expect("chmod");
-    };
-    mode(&base, 0o755);
-    mode(&dir, 0o755);
-    let mut rows = Vec::new();
-    for (name, source, bytes) in sets {
-        let row = ManifestRow {
-            name: (*name).to_owned(),
-            sha256: Sha256::digest(bytes),
-            build_key: Sha256::digest(name.as_bytes()),
-            version: VERSION,
-            cells: vec![Cell {
-                width: 6,
-                height: 12,
-            }],
-            source: (*source).to_owned(),
-        };
-        let file = dir.join(row.file_name());
-        fs::write(&file, bytes).expect("the set");
-        mode(&file, 0o644);
-        rows.push(row);
-    }
-    let manifest = Manifest::new(rows).expect("a manifest");
-    fs::write(dir.join("manifest"), manifest.to_tsv()).expect("the manifest");
-    mode(&dir.join("manifest"), 0o644);
-    let conf = base.join(format!("{test}.vconsole.conf"));
-    fs::write(&conf, vconsole).expect("vconsole.conf");
-    let uid = fs::metadata(&dir).expect("stat").uid();
-    // The store's check refuses a directory under one others may write,
-    // such as a target directory under /tmp: these tests need a target
-    // directory whose ancestors only root or the invoking user may write.
-    if let Err(e) = vtium_font::set::Store::open(&dir, uid) {
-        panic!(
-            "the store's check refuses the tests' store {} ({e}): set CARGO_TARGET_DIR to a directory whose ancestors only root or uid {uid} may write",
-            dir.display()
-        );
-    }
-    Sources {
-        uid,
-        store: dir,
-        vconsole_conf: conf,
-        kernel_cmdline: PathBuf::from("/dev/null"),
-    }
-}
-
-/// The seat with `args` and a session that waits, its sets from `fonts`.
+/// The seat with `args` and a session that waits, its frits from `fonts`.
 fn with_fonts(args: &[&str], fonts: Sources) -> Harness {
     let args: Vec<&str> = args
         .iter()
@@ -3271,63 +3231,6 @@ fn with_fonts(args: &[&str], fonts: Sources) -> Harness {
         .chain(["--login", "--", "/bin/sh", "-c", "read x"])
         .collect();
     Harness::fonts(&args, Memory::default(), fonts)
-}
-
-// ADR-1200 D9: the configured font names a set, loaded from the store and
-// drawn at its strike and its whole multiples.
-#[test]
-fn the_configured_font_is_a_set_from_the_store() {
-    let fonts = store("named", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
-    let h = with_fonts(&["--font-name=tiny", "--font-size=12"], fonts.clone());
-    assert_eq!(h.app.font_name(), "tiny");
-    assert_eq!(h.app.cells(), [(6, 12)]);
-    assert_eq!(h.app.grid(), (53, 13));
-    let h = with_fonts(&["--font-name=tiny", "--font-size=24"], fonts.clone());
-    assert_eq!(h.app.cells(), [(12, 24)]);
-    // With no size, the set's own height at 320x160 (vtium/vtium#118).
-    let h = with_fonts(&["--font-name=tiny", "--font-size=0"], fonts);
-    assert_eq!(h.app.cells(), [(6, 12)]);
-}
-
-// ADR-1200 D9: `font-engine=psf` with a path finds the set built from that
-// path, and vconsole's font names the set when the configuration does not.
-#[test]
-fn a_path_or_vconsoles_font_finds_the_set_built_from_it() {
-    let path = "/usr/share/kbd/consolefonts/ter-v12n.psf.gz";
-    let sets = [
-        ("ter-v12n", &*format!("file:{path}"), tiny("ter-v12n")),
-        ("console-font", "vconsole", tiny("console-font")),
-    ];
-    let fonts = store("by-source", &sets, "FONT=lat9w-12\n");
-    let h = with_fonts(
-        &[
-            "--font-engine=psf",
-            &format!("--font-name={path}"),
-            "--font-size=12",
-        ],
-        fonts.clone(),
-    );
-    assert_eq!(h.app.font_name(), "ter-v12n");
-    assert_eq!(h.app.cells(), [(6, 12)]);
-    // No set is named lat9w-12, so the one `create --vconsole` built.
-    let h = with_fonts(&["--font-size=12"], fonts);
-    assert_eq!(h.app.font_name(), "console-font");
-    assert_eq!(h.app.cells(), [(6, 12)]);
-}
-
-// ADR-1200 D3, D9: a font with no set, or a set that fails the store's
-// check, draws the built-ins.
-#[test]
-fn a_font_with_no_set_or_a_refused_one_draws_the_builtins() {
-    let absent = store("absent", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
-    for (name, fonts) in [("absent", absent), ("tiny", tampered("refused"))] {
-        let h = with_fonts(&[&format!("--font-name={name}"), "--font-size=16"], fonts);
-        assert_eq!(h.app.font_name(), "unifont", "{name}");
-        assert_eq!(h.app.cells(), [(8, 16)], "{name}");
-    }
-    // With no store at all.
-    let h = with_fonts(&["--font-name=tiny", "--font-size=16"], no_fonts());
-    assert_eq!(h.app.font_name(), "unifont");
 }
 
 // vtium/vtium#118: at 320x240 with no font size, the built-in Unscii-8
@@ -3349,20 +3252,11 @@ fn a_320x240_display_draws_40_by_30_cells_of_8x8() {
     }
 }
 
-// ADR-1200 D9: zoom steps through the set's strikes and their whole
-// multiples, and stops at the smallest.
+// ADR-1200 D7: zoom steps through the built-ins, Unscii-8's 8, then
+// unifont's 16 and 32, and stops at the smallest
 #[test]
-fn zoom_steps_through_the_strikes_and_stops_at_the_smallest() {
+fn zoom_steps_through_the_built_ins_and_stops_at_the_smallest() {
     let (equal, minus) = (0x3d, 0x2d);
-    let fonts = store("zoom", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
-    let mut h = with_fonts(&["--font-name=tiny", "--font-size=12"], fonts);
-    let mut cells = Vec::new();
-    for k in [equal, equal, minus, minus, minus] {
-        h.app.input_event(key(Mods::CTRL, k), now());
-        cells.push(h.app.cells()[0]);
-    }
-    assert_eq!(cells, [(12, 24), (18, 36), (12, 24), (6, 12), (6, 12)]);
-    // The built-ins: Unscii-8's 8, then unifont's 16 and 32.
     let mut h = with_fonts(&["--font-size=8"], no_fonts());
     let mut cells = vec![h.app.cells()[0]];
     for k in [equal, equal, minus, minus, minus] {
@@ -3386,63 +3280,6 @@ fn osc50(args: &[&str], script: &str, fonts: Sources) -> Harness {
         a.screen_text().iter().any(|l| l.ends_with("done"))
     }));
     h
-}
-
-// ADR-1200 D5: OSC 50 switches the live console among the built sets, as
-// a zoom does: a new font and a new grid.
-// covers: text.font-change
-#[test]
-fn osc_50_switches_among_the_built_sets() {
-    let fonts = store("osc50", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
-    let h = osc50(&["--font-size=12"], "\\033]50;tiny\\007", fonts.clone());
-    assert_eq!(h.app.font_name(), "tiny");
-    assert_eq!(h.app.cells(), [(6, 12)]);
-    assert_eq!(h.app.grid(), (53, 13));
-    // A built-in by name, which then keeps to its own sizes.
-    let mut h = osc50(&["--font-size=8"], "\\033]50;unifont\\007", fonts);
-    assert_eq!(h.app.font_name(), "unifont");
-    assert_eq!(h.app.cells(), [(8, 16)]);
-    h.app.input_event(key(Mods::CTRL, 0x2d), now());
-    assert_eq!(h.app.cells(), [(8, 16)], "no Unscii-8 below it");
-}
-
-// ADR-1200 D5: a name with no built set, or OSC 50 under
-// `no-allow-font-ops`, leaves the font as it was.
-#[test]
-fn osc_50_leaves_the_font_for_a_set_not_built_or_with_font_ops_off() {
-    let fonts = store("osc50-off", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
-    for (args, script) in [
-        (&["--font-size=12"][..], "\\033]50;absent\\007"),
-        (&["--font-size=12"][..], "\\033]50;/etc/passwd\\007"),
-        (
-            &["--font-size=12", "--no-allow-font-ops"][..],
-            "\\033]50;tiny\\007",
-        ),
-    ] {
-        let h = osc50(args, script, fonts.clone());
-        assert_eq!(h.app.font_name(), "unscii-8", "{args:?} {script}");
-        assert_eq!(h.app.cells(), [(8, 8)], "{args:?} {script}");
-    }
-}
-
-// ADR-1200 D5: `vtium-vitrify set` writes the set and then the query in
-// one write; the query's reply names the new set. The reply reaches the
-// shell's tty, whose echo shows it.
-#[test]
-fn a_query_after_osc_50_names_the_new_set() {
-    let fonts = store("osc50-query", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
-    let mut h = osc50(
-        &["--font-size=12"],
-        "\\033]50;tiny\\007\\033]50;?\\007",
-        fonts,
-    );
-    let echoed = |a: &App| a.screen_text().iter().any(|l| l.contains("]50;"));
-    assert!(h.until(SECOND, echoed), "{:?}", h.app.screen_text());
-    assert!(
-        h.app.screen_text().iter().any(|l| l.contains("]50;tiny")),
-        "{:?}",
-        h.app.screen_text()
-    );
 }
 
 /// The log lines this thread wrote since the last call.
@@ -3470,49 +3307,957 @@ fn logged() -> Vec<String> {
     LINES.with(|l| std::mem::take(&mut *l.borrow_mut()))
 }
 
-/// The store `test` holding `tiny` with one byte of its set changed after
-/// the manifest's hash.
-fn tampered(test: &str) -> Sources {
-    let fonts = store(test, &[("tiny", "kbd:tiny", tiny("tiny"))], "");
-    let file = std::fs::read_dir(&fonts.store)
-        .expect("the store")
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .find(|p| p.extension().is_some_and(|x| x == "vtglass"))
-        .expect("the set");
-    let mut bytes = std::fs::read(&file).expect("read");
-    let last = bytes.len() - 1;
-    bytes[last] ^= 1;
-    std::fs::write(&file, bytes).expect("write");
-    fonts
+/// A frit `t` in a directory of its own, and a stand-in helper that
+/// answers each request with `answer` once `go` exists, then exits as at
+/// its idle interval; the sources and the go file.
+fn frit_fonts(name: &str, answer: &[u8], script: &str) -> (Sources, PathBuf) {
+    frit_fonts_of(name, "source=builtin:unifont\n", answer, script)
 }
 
-// ADR-1200 D3, D5: OSC 50 naming a set the store's check refuses leaves the
-// font as it was.
-#[test]
-fn osc_50_leaves_the_font_for_a_set_that_fails_the_stores_check() {
-    let h = osc50(
-        &["--font-size=12"],
-        "\\033]50;tiny\\007",
-        tampered("osc50-tampered"),
+/// [`frit_fonts`] with the frit `frit`.
+fn frit_fonts_of(name: &str, frit: &str, answer: &[u8], script: &str) -> (Sources, PathBuf) {
+    let dir = std::env::temp_dir().join(format!("vtium-boot-frit-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the frits' directory");
+    std::fs::write(dir.join("t.vtfrit"), frit).expect("the frit");
+    let fixture = dir.join("answer");
+    std::fs::write(&fixture, answer).expect("the answer");
+    let go = dir.join("go");
+    let helper = vtium::helper::Command {
+        program: PathBuf::from("/bin/sh"),
+        args: ["-c", script, "helper"]
+            .into_iter()
+            .map(OsString::from)
+            .chain([fixture.into_os_string(), go.clone().into_os_string()])
+            .collect(),
+        account: None,
+    };
+    let fonts = Sources {
+        frits: dir,
+        helper: Some(helper),
+        ..no_fonts()
+    };
+    (fonts, go)
+}
+
+/// One cell's fill as the helper sends it: every printable ASCII character
+/// a solid block, then the fill's end.
+fn solid_ascii(cell: vtium_font::Cell) -> Vec<u8> {
+    use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
+    let mut s = StrikeBuilder::new(PixelFormat::R8, cell, vtium_font::Style::default());
+    let g = s.glyph(
+        vtium_font::Width::Narrow,
+        vec![255; (cell.width * cell.height) as usize],
     );
-    assert_eq!(h.app.font_name(), "unscii-8");
-    assert_eq!(h.app.cells(), [(8, 8)]);
+    for c in (0x21u8..0x7f).map(char::from) {
+        s.map(c, g);
+    }
+    let set = SetBuilder::new("t").strike(s).write().expect("a set");
+    // a fill's frame, then the fill's end
+    let mut out = 4u32.to_le_bytes().to_vec();
+    out.extend((set.len() as u32).to_le_bytes());
+    out.extend(set);
+    out.extend(5u32.to_le_bytes());
+    out.extend(8u32.to_le_bytes());
+    out.extend(cell.width.to_le_bytes());
+    out.extend(cell.height.to_le_bytes());
+    out
+}
+
+/// The 8x16 cell at column `col` of the top row, as the memory display's
+/// pixels: one value each.
+fn top_cell(m: &Memory, col: u32) -> Vec<u32> {
+    (0..16)
+        .flat_map(|y| (0..8).map(move |x| (col * 8 + x, y)))
+        .map(|(x, y)| {
+            let at = ((y * m.w + x) * 4) as usize;
+            m.pixels
+                .get(at..at + 4)
+                .map_or(0, |p| u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
+        })
+        .collect()
+}
+
+fn solid(cell: &[u32]) -> bool {
+    cell.iter().all(|&p| p == cell[0])
+}
+
+// ADR-1301 D2: a configured frit draws in the built-in font from the first
+// frame, with no frame waiting on the helper, and the helper's glyphs
+// replace the built-in's in the cells that show them once they arrive.
+#[test]
+fn a_frit_draws_the_built_in_font_first_and_the_helpers_glyphs_after() {
+    let cell = vtium_font::Cell {
+        width: 8,
+        height: 16,
+    };
+    let (fonts, go) = frit_fonts(
+        "swap",
+        &solid_ascii(cell),
+        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+    );
+    let mut h = with_fonts(&["--font-name=t"], fonts.clone());
+    assert_eq!(h.app.font_name(), "t");
+    h.type_str("AB");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| {
+            let a = top_cell(m, 0);
+            a.iter().any(|&p| p != a[0]) && !solid(&top_cell(m, 1))
+        }),
+        "the built-in font's AB is drawn before the helper answers"
+    );
+    let frames = h.memory().frames;
+    std::fs::write(&go, b"").expect("the go file");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| solid(&top_cell(m, 0))
+            && solid(&top_cell(m, 1))),
+        "the helper's glyphs replace A and B"
+    );
+    assert!(h.memory().frames > frames);
+    // a blank cell past the cursor stays the background
+    let m = h.memory();
+    let blank = top_cell(m, 3);
+    assert!(solid(&blank) && blank[0] != top_cell(m, 0)[0]);
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// ADR-1200 D7: the built-in font draws only what the frit has not yet
+// sent. A character drawn in the built-in font and cleared before its
+// glyph arrives draws the frit's glyph when the screen shows it again.
+#[test]
+fn a_glyph_that_arrives_off_screen_draws_when_shown_again() {
+    let cell = vtium_font::Cell {
+        width: 8,
+        height: 16,
+    };
+    let (fonts, go) = frit_fonts(
+        "offscreen",
+        &solid_ascii(cell),
+        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+    );
+    // A at the top left; then, at each Enter, the screen cleared with B
+    // beside where A was, and A drawn there again
+    let session = "stty -echo; printf A; read x; printf '\\033[H\\033[2J B'; read y; printf '\\033[HA'; read z";
+    let mut h = Harness::fonts(
+        &["--font-name=t", "--login", "--", "/bin/sh", "-c", session],
+        Memory::default(),
+        fonts.clone(),
+    );
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| !solid(&top_cell(m, 0))),
+        "the built-in font's A is drawn"
+    );
+    h.type_str("\r");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| solid(&top_cell(m, 0))
+            && !solid(&top_cell(m, 1))),
+        "A is cleared and the built-in font's B drawn"
+    );
+    let background = top_cell(h.memory(), 0)[0];
+    std::fs::write(&go, b"").expect("the go file");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| solid(&top_cell(m, 1))),
+        "the helper's glyphs, A's among them, arrive and replace B"
+    );
+    h.type_str("\r");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| {
+            let a = top_cell(m, 0);
+            solid(&a) && a[0] != background
+        }),
+        "A, shown again, draws the helper's glyph"
+    );
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// ADR-1301 D2: a helper that dies leaves the built-in font drawing, with
+// one log line however much the screen asks after.
+#[test]
+fn a_helper_that_dies_leaves_the_built_in_font_with_one_log_line() {
+    let (fonts, _go) = frit_fonts("dies", b"", "kill -SEGV $$");
+    logged();
+    let mut h = with_fonts(&["--font-name=t"], fonts.clone());
+    h.type_str("AB");
+    assert!(h.until(Duration::from_secs(10), |app| {
+        app.screen_text()
+            .first()
+            .is_some_and(|l| l.starts_with("AB"))
+    }));
+    // given up after its starts again, however long a loaded machine
+    // takes to start a shell four times; then no second line
+    let given = |l: &String| l.starts_with("the font's glyphs are not generated");
+    let mut lines = Vec::new();
+    h.until(Duration::from_secs(10), |_| {
+        lines.extend(logged());
+        lines.iter().any(given)
+    });
+    h.until(Duration::from_millis(300), |_| false);
+    lines.extend(logged());
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| !solid(&top_cell(m, 0))),
+        "A is the built-in font's"
+    );
+    let given_up: Vec<&String> = lines.iter().filter(|l| given(l)).collect();
+    assert_eq!(given_up.len(), 1, "{lines:?}");
+    assert!(given_up[0].contains("signal 11"), "{given_up:?}");
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+/// The cell `cell` at column `col` of the top row, as the memory
+/// display's pixels.
+fn top_cell_of(m: &Memory, cell: vtium_font::Cell, col: u32) -> Vec<u32> {
+    (0..cell.height)
+        .flat_map(|y| (0..cell.width).map(move |x| (col * cell.width + x, y)))
+        .map(|(x, y)| {
+            let at = ((y * m.w + x) * 4) as usize;
+            m.pixels
+                .get(at..at + 4)
+                .map_or(0, |p| u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
+        })
+        .collect()
+}
+
+// #145: the frit states the cell where no font-size is configured; the
+// built-in draws in it from the first frame, the helper's glyphs arrive
+// at it, and only a zoom resizes the grid
+#[test]
+fn a_frits_stated_cell_is_the_grids_and_the_glyphs_never_move_it() {
+    let (equal, minus) = (0x3d, 0x2d);
+    let cell = vtium_font::Cell {
+        width: 10,
+        height: 20,
+    };
+    let (fonts, go) = frit_fonts_of(
+        "cell",
+        "source=builtin:unifont\ncell=10x20\n",
+        &solid_ascii(cell),
+        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+    );
+    let mut h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(10, 20)], (32, 8)));
+    h.type_str("AB");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| {
+            let a = top_cell_of(m, cell, 0);
+            a.iter().any(|&p| p != a[0])
+        }),
+        "the built-in font's A is drawn in the 10x20 cell"
+    );
+    std::fs::write(&go, b"").expect("the go file");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| solid(&top_cell_of(m, cell, 0))
+            && solid(&top_cell_of(m, cell, 1))),
+        "the helper's glyphs at 10x20 replace A and B"
+    );
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(10, 20)], (32, 8)));
+    h.app.input_event(key(Mods::CTRL, equal), now());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(20, 40)], (16, 4)));
+    h.app.input_event(key(Mods::CTRL, minus), now());
+    h.app.input_event(key(Mods::CTRL, minus), now());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(10, 20)], (32, 8)));
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// #145, vtium/vtium#118, ADR-1200 D17: with no stated cell, the display's;
+// the 320x160 memory display is under the small-display floor, so
+// Unscii-8's 8x8; a configured size is as wide as the built-in font there
+#[test]
+fn a_frit_with_no_stated_cell_takes_the_displays() {
+    let (fonts, _go) = frit_fonts_of("auto", "source=builtin:unifont\n", b"", "cat >/dev/null");
+    let h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 8)], (40, 20)));
+    let h = with_fonts(&["--font-name=t", "--font-size=19"], fonts.clone());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 19)], (40, 8)));
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+/// The helper's answer to a cell query: the frit's own cell.
+fn own_cell(width: u32, height: u32) -> Vec<u8> {
+    let mut out = 6u32.to_le_bytes().to_vec();
+    out.extend(8u32.to_le_bytes());
+    out.extend(width.to_le_bytes());
+    out.extend(height.to_le_bytes());
+    out
+}
+
+// the operator's decision on #145, 2026-10-28: a frit of bitmap sources
+// with no cell= takes its fonts' own cell, asked of the helper before the
+// first frame, where the display's would be 8x8 at 320x160; a configured
+// font-size keeps winning
+#[test]
+fn a_bitmap_frit_with_no_cell_takes_its_fonts_own_cell() {
+    let (fonts, _go) = frit_fonts_of(
+        "own",
+        "source=kbd:x\n",
+        &own_cell(8, 16),
+        "cat >/dev/null & cat \"$1\"; wait",
+    );
+    logged();
+    let h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 16)], (40, 10)));
+    let lines = logged();
+    assert!(
+        lines
+            .iter()
+            .any(|l| l == "the frit t draws in its fonts' own 8x16 cell"),
+        "{lines:?}"
+    );
+    let h = with_fonts(&["--font-name=t", "--font-size=8"], fonts.clone());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 8)], (40, 20)));
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// ADR-1200 D5 and the operator's decision on #145, 2026-10-28: OSC 50's
+// switch to a frit of bitmap sources with no cell= takes its fonts' own
+// cell too, on the switch's new grid
+#[test]
+fn osc_50_to_a_bitmap_frit_with_no_cell_takes_its_fonts_own_cell() {
+    let (fonts, _go) = frit_fonts_of(
+        "own-osc50",
+        "source=kbd:x\n",
+        &own_cell(8, 16),
+        "cat >/dev/null & cat \"$1\"; wait",
+    );
+    let h = osc50(&["--font-size=0"], "\\033]50;t\\007", fonts.clone());
+    assert_eq!(h.app.font_name(), "t");
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 16)], (40, 10)));
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// the operator's decision on #145, 2026-10-28: a helper that does not
+// answer the cell query in its bound leaves the display's cell, with one
+// line, and the first frame waits no longer than the bound
+#[test]
+fn a_bitmap_frits_own_cell_unanswered_falls_back_within_its_bound() {
+    let (fonts, _go) = frit_fonts_of("own-none", "source=kbd:x\n", b"", "cat >/dev/null");
+    logged();
+    let t = now();
+    let h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
+    let took = now().saturating_duration_since(t);
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 8)], (40, 20)));
+    assert!(took >= Duration::from_millis(100), "{took:?}");
+    assert!(took < Duration::from_secs(5), "{took:?}");
+    let lines = logged();
+    let fell: Vec<&String> = lines
+        .iter()
+        .filter(|l| l.starts_with("the frit t's own cell is not known"))
+        .collect();
+    assert_eq!(
+        fell,
+        [
+            "the frit t's own cell is not known (the helper gave no answer in 100 ms): it draws in the display's cell"
+        ],
+        "{lines:?}"
+    );
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// #145, ADR-1200 D9: a frit whose cell= is unreadable is not drawn; the
+// built-in font is, with one line naming the font and why, and no command
+#[test]
+fn a_frit_with_an_unreadable_cell_leaves_the_built_in_font() {
+    let (fonts, _go) = frit_fonts_of(
+        "bad",
+        "source=builtin:unifont\ncell=10\n",
+        b"",
+        "cat >/dev/null",
+    );
+    logged();
+    let h = with_fonts(&["--font-name=t"], fonts.clone());
+    assert_eq!(h.app.font_name(), "unifont");
+    let lines = logged();
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("the font t is not drawn (line 2: cell=10 is not WIDTHxHEIGHT")),
+        "{lines:?}"
+    );
+    assert!(lines.iter().all(|l| !l.contains("create")), "{lines:?}");
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+/// The seat with the frit `t`, whose helper answers every printable ASCII
+/// character as a solid block once `go` exists, its session running
+/// `script`; the harness, the sources and the go file.
+fn frit_session(name: &str, script: &str) -> (Harness, Sources, PathBuf) {
+    let cell = vtium_font::Cell {
+        width: 8,
+        height: 16,
+    };
+    let (fonts, go) = frit_fonts(
+        name,
+        &solid_ascii(cell),
+        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+    );
+    let h = Harness::fonts(
+        &[
+            "--font-name=t",
+            "--no-blink",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            script,
+        ],
+        Memory::default(),
+        fonts.clone(),
+    );
+    (h, fonts, go)
+}
+
+// #149: the glyphs that land damage the cells each buffer shows, a
+// cluster's included
+#[test]
+fn a_cluster_cell_draws_the_helpers_glyph_once_it_lands() {
+    let (mut h, fonts, go) = frit_session("cluster", "printf 'e\\314\\201'; read x");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| !solid(&top_cell(m, 0))),
+        "the built-in font's e with its accent"
+    );
+    h.until(Duration::from_millis(300), |_| false);
+    std::fs::write(&go, b"").expect("the go file");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| solid(&top_cell(m, 0))),
+        "the helper's e draws in the cluster's cell"
+    );
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// #149: a scrolled-back view's cells take the glyphs too
+#[test]
+fn a_scrolled_back_cell_draws_the_helpers_glyph_once_it_lands() {
+    let (mut h, fonts, go) = frit_session(
+        "scrolled",
+        "echo A; i=0; while [ $i -lt 12 ]; do printf '\\303\\251\\n'; i=$((i+1)); done; printf '\\303\\251\\303\\251'; read x",
+    );
+    // the live screen shows only é, which the helper does not send
+    assert!(h.until(SECOND, |a| {
+        a.screen_text().iter().any(|l| l == "\u{e9}\u{e9}")
+    }));
+    h.point(
+        [PointerEvent::Wheel(1), PointerEvent::Wheel(1)],
+        Mods::empty(),
+    );
+    assert_eq!(h.app.term.terminal.screen().scrolled_back(), 4);
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| !solid(&top_cell(m, 0))),
+        "the built-in font's A, scrolled back"
+    );
+    // the scroll's own redraw is done before the glyphs land
+    h.until(Duration::from_millis(300), |_| false);
+    std::fs::write(&go, b"").expect("the go file");
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| solid(&top_cell(m, 0))),
+        "the helper's A draws in the scrolled-back view"
+    );
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// The operator's damage decision (2026-10-28): a fill of characters no
+// buffer shows starts no draw pass, and swaps no frame
+#[test]
+fn glyphs_no_buffer_shows_start_no_draw() {
+    let (mut h, fonts, go) = frit_session("unseen", "read x");
+    assert!(h.until_memory(Duration::from_secs(10), |m| m.frames > 0));
+    h.until(Duration::from_millis(200), |_| false);
+    let (frames, passes) = (h.memory().frames, h.memory().ages.len());
+    std::fs::write(&go, b"").expect("the go file");
+    // the helper answers and exits; the screen shows none of its glyphs
+    h.until(Duration::from_millis(1000), |_| false);
+    assert_eq!((h.memory().frames, h.memory().ages.len()), (frames, passes));
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+/// The recording stand-in: it becomes `cat`, writing what it is sent to
+/// a file of its own as it arrives, so a helper the console stops at once
+/// has still recorded its request. A checker beside it, which outlives it,
+/// reads the first request's frit name and shows the file as `request.*`
+/// only for a name of ADR-1200 D1's characters and at most 64 bytes, which
+/// the helper's request reader takes; any other it moves to `refused.*`.
+const RECORDER: &str = r#"
+part="$1/part.$$"
+: >"$part"
+(
+    has() {
+        i=0
+        while [ "$(wc -c <"$part")" -lt "$1" ]; do
+            i=$((i + 1))
+            [ "$i" -le 1000 ] || exit 1
+            sleep 0.01
+        done
+    }
+    has 16
+    n=$(od -An -tu4 -j12 -N4 "$part" | tr -d ' ')
+    if [ "$n" -ge 1 ] && [ "$n" -le 64 ]; then
+        has $((16 + n))
+        name=$(dd if="$part" bs=1 skip=16 count="$n" status=none)
+        case $name in
+        .* | *[!A-Za-z0-9._+-]*) ;;
+        *) [ ${#name} -eq "$n" ] && exec mv "$part" "$1/request.$$" ;;
+        esac
+    fi
+    mv "$part" "$1/refused.$$"
+) </dev/null &
+exec cat >>"$part"
+"#;
+
+/// An empty frits' directory for `name`, and a stand-in helper,
+/// [`RECORDER`], that writes what it is sent to a file of its own there
+/// and answers nothing; the sources.
+fn recording(name: &str) -> Sources {
+    let dir = std::env::temp_dir().join(format!("vtium-boot-rec-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the frits' directory");
+    let helper = vtium::helper::Command {
+        program: PathBuf::from("/bin/sh"),
+        args: ["-c", RECORDER, "helper"]
+            .into_iter()
+            .map(OsString::from)
+            .chain([dir.clone().into_os_string()])
+            .collect(),
+        account: None,
+    };
+    Sources {
+        frits: dir,
+        helper: Some(helper),
+        ..no_fonts()
+    }
+}
+
+/// The first request in `bytes`: the frit's name and text, and the
+/// rest of the request.
+fn first_request(bytes: &[u8]) -> Option<(String, String, &[u8])> {
+    let u32_at = |b: &[u8]| Some(u32::from_le_bytes(b.get(..4)?.try_into().ok()?) as usize);
+    let rest = bytes.strip_prefix(b"VTVSREQ2")?.get(4..)?;
+    let n = u32_at(rest)?;
+    let name = String::from_utf8(rest.get(4..4 + n)?.to_vec()).ok()?;
+    let rest = rest.get(4 + n..)?;
+    let n = u32_at(rest)?;
+    let text = String::from_utf8(rest.get(4..4 + n)?.to_vec()).ok()?;
+    Some((name, text, rest.get(4 + n..)?))
+}
+
+/// The first request of each helper the stand-in in `fonts` started,
+/// sorted, each as its bytes; waited for until there are `n`.
+fn requests(h: &mut Harness, fonts: &Sources, n: usize) -> Vec<Vec<u8>> {
+    let read = || -> Vec<Vec<u8>> {
+        let mut out: Vec<Vec<u8>> = std::fs::read_dir(&fonts.frits)
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().starts_with("request."))
+            .filter_map(|e| std::fs::read(e.path()).ok())
+            .filter(|b| first_request(b).is_some())
+            .collect();
+        out.sort();
+        out
+    };
+    h.until(Duration::from_secs(10), |_| read().len() >= n);
+    read()
+}
+
+/// The frit's name and text in the first request of each helper the
+/// stand-in in `fonts` started, sorted; waited for until there are `n`.
+fn recorded(h: &mut Harness, fonts: &Sources, n: usize) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = requests(h, fonts, n)
+        .iter()
+        .filter_map(|b| first_request(b).map(|(name, text, _)| (name, text)))
+        .collect();
+    out.sort();
+    out
+}
+
+fn pair(name: &str, text: &str) -> (String, String) {
+    (name.to_owned(), text.to_owned())
+}
+
+// ADR-1200 D9: a kbd name no frit bears is drawn from a one-source frit
+// made on the fly, handed to the helper as text, with no file
+#[test]
+fn a_kbd_name_no_frit_bears_is_generated_as_a_one_source_frit() {
+    let fonts = recording("kbd");
+    let mut h = with_fonts(&["--font-name=ter-v16n"], fonts.clone());
+    assert_eq!(h.app.font_name(), "ter-v16n");
+    assert_eq!(
+        recorded(&mut h, &fonts, 1),
+        [pair("ter-v16n", "source=kbd:ter-v16n\n")]
+    );
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// ADR-1200 D9: a path under `font-engine=psf` is a one-source frit with a
+// file: source, and vconsole's font, the kernel command line's over
+// vconsole.conf's, one with the vconsole source; a name outside D1's
+// characters, as a path is, goes to the helper as `generated`, a name it
+// takes, and the font keeps the name it was given
+#[test]
+fn a_path_or_vconsoles_font_is_generated_as_a_one_source_frit() {
+    let path = "/usr/share/kbd/consolefonts/ter-v12n.psf.gz";
+    let fonts = recording("path");
+    let mut h = with_fonts(
+        &["--font-engine=psf", &format!("--font-name={path}")],
+        fonts.clone(),
+    );
+    assert_eq!(h.app.font_name(), path);
+    assert_eq!(
+        recorded(&mut h, &fonts, 1),
+        [pair("generated", &format!("source=file:{path}\n"))]
+    );
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+    let mut fonts = recording("vconsole");
+    fonts.vconsole_conf = fonts.frits.join("vconsole.conf");
+    fonts.kernel_cmdline = fonts.frits.join("cmdline");
+    std::fs::write(&fonts.vconsole_conf, "FONT=lat9w-16\n").expect("vconsole.conf");
+    std::fs::write(&fonts.kernel_cmdline, "quiet\n").expect("cmdline");
+    let mut h = with_fonts(&[], fonts.clone());
+    assert_eq!(h.app.font_name(), "lat9w-16");
+    assert_eq!(
+        recorded(&mut h, &fonts, 1),
+        [pair("lat9w-16", "source=vconsole\n")]
+    );
+    drop(h);
+    for entry in std::fs::read_dir(&fonts.frits).expect("the directory") {
+        let path = entry.expect("an entry").path();
+        if path
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with("request."))
+        {
+            std::fs::remove_file(path).expect("the old request");
+        }
+    }
+    std::fs::write(&fonts.kernel_cmdline, "quiet vconsole.font=ter-v32n\n").expect("cmdline");
+    let mut h = with_fonts(&[], fonts.clone());
+    assert_eq!(h.app.font_name(), "ter-v32n");
+    assert_eq!(
+        recorded(&mut h, &fonts, 1),
+        [pair("ter-v32n", "source=vconsole\n")]
+    );
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// ADR-1200 D9: a name a frit bears is that frit, vconsole's included, and
+// font-name wins over vconsole's font
+#[test]
+fn a_name_a_frit_bears_is_the_frit_and_font_name_wins_over_vconsole() {
+    let mut fonts = recording("bears");
+    fonts.vconsole_conf = fonts.frits.join("vconsole.conf");
+    std::fs::write(&fonts.vconsole_conf, "FONT=t\n").expect("vconsole.conf");
+    std::fs::write(fonts.frits.join("t.vtfrit"), "source=kbd:x\n").expect("the frit");
+    let mut h = with_fonts(&[], fonts.clone());
+    assert_eq!(h.app.font_name(), "t");
+    assert_eq!(recorded(&mut h, &fonts, 1), [pair("t", "source=kbd:x\n")]);
+    drop(h);
+    let h = with_fonts(&["--font-name=ter-v16n"], fonts.clone());
+    assert_eq!(h.app.font_name(), "ter-v16n");
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// ADR-1200 D9: an outline family, font-name under font-engine=pango or
+// freetype, is a one-source frit with a font: source
+#[test]
+fn a_family_is_generated_as_a_one_source_frit() {
+    let fonts = recording("family");
+    let mut h = with_fonts(
+        &["--font-engine=pango", "--font-name=DejaVu Sans Mono"],
+        fonts.clone(),
+    );
+    assert_eq!(h.app.font_name(), "DejaVu Sans Mono");
+    assert_eq!(
+        recorded(&mut h, &fonts, 1),
+        [pair("generated", "source=font:DejaVu Sans Mono\n")]
+    );
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// ADR-1200 D17: a zoom steps an outline frit by 1 pixel, as the C
+// reference's outline engines did, each height but the stated one as
+// wide as the built-in font there
+#[test]
+fn a_zoom_steps_an_outline_frit_by_one_pixel() {
+    let (equal, minus) = (0x3d, 0x2d);
+    let fonts = recording("outline-zoom");
+    std::fs::write(
+        fonts.frits.join("t.vtfrit"),
+        "source=outline:/f.ttf\ncell=10x20\n",
+    )
+    .expect("the frit");
+    let mut h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
+    let mut cells = vec![h.app.cells()[0]];
+    for k in [equal, minus, minus] {
+        h.app.input_event(key(Mods::CTRL, k), now());
+        cells.push(h.app.cells()[0]);
+    }
+    assert_eq!(cells, [(10, 20), (8, 21), (10, 20), (8, 19)]);
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+/// The seat on the memory display measuring `dpi`, across and down, or
+/// none, with `args`, the frit `t` of `text` in `fonts`, and a session that
+/// waits.
+fn at_density(args: &[&str], dpi: Option<(f64, f64)>, fonts: &Sources, text: &str) -> Harness {
+    std::fs::write(fonts.frits.join("t.vtfrit"), text).expect("the frit");
+    let args: Vec<&str> = args
+        .iter()
+        .copied()
+        .chain(["--font-name=t", "--login", "--", "/bin/sh", "-c", "read x"])
+        .collect();
+    let memory = Memory {
+        dpi,
+        ..Memory::default()
+    };
+    Harness::fonts(&args, memory, fonts.clone())
+}
+
+/// The lines logged since the last call that say a display's density is
+/// assumed.
+fn assumed() -> Vec<String> {
+    logged()
+        .into_iter()
+        .filter(|l| l.contains("reports no physical size"))
+        .collect()
+}
+
+/// A 27-inch 2560x1440 monitor's density, 597x336 mm: about 109 DPI.
+const DPI_27_INCH: Option<(f64, f64)> = Some((108.9, 108.9));
+
+// the operator's decision on #145, 2026-10-28: an outline frit's size= is
+// points, pixels = points x DPI / 72, at the display's measured density,
+// else at 96 DPI assumed with one warning naming the display
+#[test]
+fn an_outline_frits_size_is_points_at_the_displays_density() {
+    let fonts = recording("points");
+    let frit = "source=outline:/f.ttf\nsize=12\n";
+    assumed();
+    let h = at_density(&["--font-size=0"], DPI_27_INCH, &fonts, frit);
+    assert_eq!(h.app.cells(), [(8, 18)], "12 pt at 109 DPI");
+    assert_eq!(assumed(), Vec::<String>::new());
+    drop(h);
+    let h = at_density(&["--font-size=0"], None, &fonts, frit);
+    assert_eq!(h.app.cells(), [(8, 16)], "12 pt at 96 DPI");
+    assert_eq!(
+        assumed(),
+        [
+            "display MEM-1 reports no physical size: vtium assumes 96 DPI, which display-dpi can state"
+        ]
+    );
+    // font-size is points too, and wins over size=
+    let h = at_density(&["--font-size=10"], DPI_27_INCH, &fonts, frit);
+    assert_eq!(h.app.cells(), [(8, 15)], "10 pt at 109 DPI");
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// the operator's decision on #145, 2026-10-28: display-dpi states the
+// density, over a measured one, and nothing is logged
+#[test]
+fn display_dpi_wins_over_the_measured_density_unlogged() {
+    let fonts = recording("display-dpi");
+    let frit = "source=outline:/f.ttf\nsize=12\n";
+    assumed();
+    for dpi in [None, DPI_27_INCH] {
+        let h = at_density(&["--font-size=0", "--display-dpi=144"], dpi, &fonts, frit);
+        assert_eq!(
+            h.app.cells(),
+            [(8, 24)],
+            "12 pt at 144 DPI, measured {dpi:?}"
+        );
+    }
+    assert_eq!(assumed(), Vec::<String>::new());
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// #145, accepted by the team lead for the operator, 2026-10-28: points
+// measure height, so they convert at the density down the rows as vtium
+// draws them, across on a display turned a quarter, and at the lowest
+// density of several displays
+#[test]
+fn points_convert_down_the_rows_at_the_lowest_density() {
+    let equal = 0x3d;
+    let minus = 0x2d;
+    let fonts = recording("axis");
+    let frit = "source=outline:/f.ttf\nsize=12\n";
+    let mut h = at_density(&["--font-size=0"], Some((72.0, 144.0)), &fonts, frit);
+    assert_eq!(h.app.cells()[0].1, 24, "12 pt at 144 DPI down");
+    h.app.input_event(key(Mods::LOGO, equal), now());
+    assert_eq!(h.app.cells()[0].1, 12, "turned a quarter, 72 DPI across");
+    h.app.input_event(key(Mods::LOGO, minus), now());
+    assert_eq!(h.app.cells()[0].1, 24);
+    let second = Memory {
+        dpi: Some((96.0, 96.0)),
+        ..Memory::default()
+    };
+    h.app
+        .add_video(PathBuf::from("/dev/mem1"), Box::new(second));
+    assert!(h.until(SECOND, |a| a.cells().len() == 2));
+    let heights: Vec<u32> = h.app.cells().iter().map(|c| c.1).collect();
+    assert_eq!(heights, [16, 16], "the lower of 144 and 96 DPI");
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// the operator's decision on #145, 2026-10-28: an outline frit zooms 1 pt
+// at a time, converted to pixels: from 12 pt at 96 DPI, 13 pt is 17 px
+#[test]
+fn a_zoom_steps_an_outline_frit_by_one_point() {
+    let (equal, minus) = (0x3d, 0x2d);
+    let fonts = recording("point-zoom");
+    let frit = "source=outline:/f.ttf\nsize=12\n";
+    let mut h = at_density(&["--font-size=0"], None, &fonts, frit);
+    let mut heights = vec![h.app.cells()[0].1];
+    for k in [equal, equal, minus, minus, minus] {
+        h.app.input_event(key(Mods::CTRL, k), now());
+        heights.push(h.app.cells()[0].1);
+    }
+    assert_eq!(heights, [16, 17, 19, 17, 16, 15]);
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// ADR-1200 D16, D17: a configured font-size wins over the frit's cell, as
+// wide as the built-in font at that height; font-size=0 leaves the cell
+#[test]
+fn a_configured_font_size_wins_over_the_frits_cell() {
+    let fonts = recording("sized");
+    std::fs::write(fonts.frits.join("t.vtfrit"), "source=kbd:x\ncell=10x20\n").expect("the frit");
+    let h = with_fonts(&["--font-name=t", "--font-size=24"], fonts.clone());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 24)], (40, 6)));
+    let h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(10, 20)], (32, 8)));
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+/// [`osc50`] with the frits `frits`, each its name and text, in `fonts`.
+fn osc50_frits(args: &[&str], script: &str, fonts: &Sources, frits: &[(&str, &str)]) -> Harness {
+    for (name, text) in frits {
+        std::fs::write(fonts.frits.join(format!("{name}.vtfrit")), text).expect("a frit");
+    }
+    osc50(args, script, fonts.clone())
+}
+
+// ADR-1200 D5: OSC 50 naming a frit switches the live console to it as a
+// zoom does, in the frit's cell on a new grid, with a helper of its own
+// asked for its glyphs; a built-in by name keeps to its own sizes
+// covers: text.font-change
+#[test]
+fn osc_50_switches_to_a_frit_and_its_helper_is_asked() {
+    let fonts = recording("osc50");
+    let mut h = osc50_frits(
+        &["--font-size=0"],
+        "\\033]50;t\\007",
+        &fonts,
+        &[("t", "source=kbd:x\ncell=10x20\n")],
+    );
+    assert_eq!(h.app.font_name(), "t");
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(10, 20)], (32, 8)));
+    assert_eq!(
+        recorded(&mut h, &fonts, 1),
+        [pair("t", "source=kbd:x\ncell=10x20\n")]
+    );
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+    let mut h = osc50(&["--font-size=8"], "\\033]50;unifont\\007", no_fonts());
+    assert_eq!(h.app.font_name(), "unifont");
+    assert_eq!(h.app.cells(), [(8, 16)]);
+    h.app.input_event(key(Mods::CTRL, 0x2d), now());
+    assert_eq!(h.app.cells(), [(8, 16)], "no Unscii-8 below it");
+}
+
+// ADR-1200 D5: a switch from one frit to another starts a helper for the
+// new frit, with a store of its own
+#[test]
+fn osc_50_from_one_frit_to_another_starts_a_helper_for_it() {
+    let fonts = recording("osc50-two");
+    let mut h = osc50_frits(
+        &["--font-name=a"],
+        "\\033]50;b\\007",
+        &fonts,
+        &[("a", "source=kbd:a\n"), ("b", "source=kbd:b\n")],
+    );
+    assert_eq!(h.app.font_name(), "b");
+    assert_eq!(
+        recorded(&mut h, &fonts, 2),
+        [pair("a", "source=kbd:a\n"), pair("b", "source=kbd:b\n")]
+    );
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// ADR-1200 D5: a name no frit bears, a path, a frit whose cell cannot be
+// read, or OSC 50 under `no-allow-font-ops` leaves the font as it was
+#[test]
+fn osc_50_leaves_the_font_for_a_name_no_frit_bears_or_with_font_ops_off() {
+    let fonts = recording("osc50-off");
+    for (args, script) in [
+        (&["--font-size=12"][..], "\\033]50;absent\\007"),
+        (&["--font-size=12"][..], "\\033]50;/etc/passwd\\007"),
+        (&["--font-size=12"][..], "\\033]50;bad\\007"),
+        (
+            &["--font-size=12", "--no-allow-font-ops"][..],
+            "\\033]50;t\\007",
+        ),
+    ] {
+        let h = osc50_frits(
+            args,
+            script,
+            &fonts,
+            &[("t", "source=kbd:x\n"), ("bad", "source=kbd:x\ncell=10\n")],
+        );
+        assert_eq!(h.app.font_name(), "unscii-8", "{args:?} {script}");
+        assert_eq!(h.app.cells(), [(8, 8)], "{args:?} {script}");
+    }
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+/// Whether the session's screen shows OSC 50's reply naming `name`, as
+/// its tty echoed it; waited for.
+fn replied(h: &mut Harness, name: &str) -> bool {
+    let reply = format!("]50;{name}");
+    h.until(SECOND, |a| {
+        a.screen_text().iter().any(|l| l.contains(&reply))
+    })
+}
+
+// ADR-1200 D5: `OSC 50 ; ?` names the current frit, a frit made on the fly
+// included
+#[test]
+fn osc_50_query_names_the_current_frit() {
+    let fonts = recording("osc50-query");
+    let mut h = osc50_frits(
+        &["--font-name=t"],
+        "\\033]50;?\\007",
+        &fonts,
+        &[("t", "source=kbd:x\n")],
+    );
+    assert!(replied(&mut h, "t"), "{:?}", h.app.screen_text());
+    let mut h = osc50(&["--font-name=ter-v16n"], "\\033]50;?\\007", fonts.clone());
+    assert!(replied(&mut h, "ter-v16n"), "{:?}", h.app.screen_text());
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// ADR-1200 D5: `vtium-vitrify set` writes the frit and then the query in
+// one write; the query's reply names the new frit
+#[test]
+fn a_query_after_osc_50_names_the_new_frit() {
+    let fonts = recording("osc50-then");
+    let mut h = osc50_frits(
+        &["--font-size=12"],
+        "\\033]50;t\\007\\033]50;?\\007",
+        &fonts,
+        &[("t", "source=kbd:x\n")],
+    );
+    assert!(replied(&mut h, "t"), "{:?}", h.app.screen_text());
+    let _ = std::fs::remove_dir_all(&fonts.frits);
 }
 
 // A program's flood of refused OSC 50 requests logs one line, and the
 // switch that follows counts the rest.
 #[test]
 fn a_flood_of_refused_osc_50_requests_logs_one_line() {
-    let fonts = store("osc50-flood", &[("tiny", "kbd:tiny", tiny("tiny"))], "");
+    let fonts = recording("osc50-flood");
     logged();
     let flood = "\\033]50;absent\\007\\033]50;other\\007".repeat(20);
-    let h = osc50(
+    let h = osc50_frits(
         &["--font-size=12"],
-        &format!("{flood}\\033]50;tiny\\007"),
-        fonts,
+        &format!("{flood}\\033]50;t\\007"),
+        &fonts,
+        &[("t", "source=kbd:x\n")],
     );
-    assert_eq!(h.app.font_name(), "tiny");
+    assert_eq!(h.app.font_name(), "t");
     let lines = logged();
     let refused: Vec<&String> = lines
         .iter()
@@ -3526,4 +4271,76 @@ fn a_flood_of_refused_osc_50_requests_logs_one_line() {
             .any(|l| l == "OSC 50 was refused 39 more times before this switch"),
         "{lines:?}"
     );
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// ADR-1200 D8: the kernel's font, read at start, is handed to the helper
+// with each request, for a frit's console: source to read
+#[test]
+fn the_kernels_font_is_handed_to_the_helper() {
+    use vtium_platform::vt::font::{ConsoleFont, UniPair};
+    let fonts = recording("console");
+    std::fs::write(fonts.frits.join("t.vtfrit"), "source=console:1\n").expect("the frit");
+    let console = ConsoleFont {
+        width: 8,
+        height: 2,
+        charcount: 2,
+        data: vec![0x81, 0x42, 0x24, 0x18],
+        unimap: vec![UniPair {
+            unicode: 0x41,
+            fontpos: 1,
+        }],
+    };
+    let mut h = Harness::boot_console(
+        &["--font-name=t", "--login", "--", "/bin/sh", "-c", "read x"],
+        FakeVt::new(),
+        Some(Box::new(Memory::default())),
+        fonts.clone(),
+        Some(console),
+    );
+    let all = requests(&mut h, &fonts, 1);
+    let (_, _, rest) = first_request(&all[0]).expect("a request");
+    let words = |b: &[u8], n: usize| -> Vec<u32> {
+        b.chunks(4)
+            .take(n)
+            .map(|w| u32::from_le_bytes(w.try_into().expect("a word")))
+            .collect()
+    };
+    // the cell, the reserved capabilities, then the codepoints and the
+    // held ranges, each counted
+    let codepoints = words(&rest[12..], 1)[0] as usize;
+    let rest = &rest[16 + 4 * codepoints..];
+    let held = words(rest, 1)[0] as usize;
+    let rest = &rest[4 + 8 * held..];
+    assert_eq!(words(rest, 5), [1, 8, 2, 2, 4], "the font's shape");
+    assert_eq!(&rest[20..24], [0x81, 0x42, 0x24, 0x18], "its glyphs");
+    assert_eq!(words(&rest[24..], 1), [1], "one pair in its map");
+    assert_eq!(&rest[28..], [0x41, 0, 1, 0], "U+0041 at 1");
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// ADR-1200 D1: the frit's glyph-source= lines set the font's sprite
+// policy, and the configuration's keys override them
+#[test]
+fn a_frits_glyph_source_sets_the_policy_and_the_keys_override_it() {
+    use vtium_font::sprite::Range;
+    use vtium_font::{Missing, Source, SpritePolicy};
+    let fonts = recording("glyph-source");
+    std::fs::write(
+        fonts.frits.join("t.vtfrit"),
+        "source=kbd:x\nglyph-source=font\n",
+    )
+    .expect("the frit");
+    let h = with_fonts(&["--font-name=t"], fonts.clone());
+    assert_eq!(
+        h.app.font_policy(),
+        Some((SpritePolicy::all(Source::Font), Missing::Replacement))
+    );
+    let h = with_fonts(
+        &["--font-name=t", "--glyph-source-braille=auto"],
+        fonts.clone(),
+    );
+    let want = SpritePolicy::all(Source::Font).with(Range::Braille, Source::Auto);
+    assert_eq!(h.app.font_policy(), Some((want, Missing::Replacement)));
+    let _ = std::fs::remove_dir_all(&fonts.frits);
 }

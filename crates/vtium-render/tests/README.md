@@ -16,5 +16,6 @@ Each top-level `.rs` file is its own test crate, run by `cargo test -p vtium-ren
 | `selection.rs` | The selection's inversion, starting and ending inside a run of one style, and dim over it, against literal colors. |
 | `write_only.rs` | A buffer of garbage and one of zeros hold the same frames; every write lies inside the display; a run of cells is written a pixel line at a time. |
 | `memory.rs` | ADR-1300's memory table, from caches filled to their budgets. |
+| `swap_in.rs` | Glyphs that arrive under a renderer: only the cells and rows that show them draw again, the cache keeps every glyph that does not hold an arrived character, and an 80x25 redraw after an arrival, its time printed. |
 | `figures.rs` | The render timer's figures at 1366x768, printed. |
 | `reference/` | The C reference's digests, the screens they draw and the program that takes them. |

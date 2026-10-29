@@ -54,7 +54,7 @@ use std::time::{Duration, Instant};
 
 use vtium_font::{Face, Font};
 use vtium_platform::calloop::LoopHandle;
-use vtium_platform::display::{Blank, DisplayId, Dpms, Event};
+use vtium_platform::display::{Blank, DPI_ASSUMED, DisplayId, Dpms, Event};
 use vtium_platform::input::{Button, InputEvent, KeyEvent, Mods as InputMods, PointerEvent};
 use vtium_platform::pty::{Erase, Pty, Size};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
@@ -63,7 +63,8 @@ use vtium_render::{
     Config as RenderConfig, DecorationColors, Depth, DrawState, Orientation, PointerShape, Profile,
 };
 use vtium_term::{
-    BlankRequest, BlankTimeout, Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal,
+    Age, BlankRequest, BlankTimeout, Content, Glyph, Mods, MouseButton, MouseEvent, MouseTracking,
+    Terminal,
 };
 
 use crate::blank::Order;
@@ -73,6 +74,7 @@ use crate::config::keys;
 use crate::config::{Config, ModeSpec};
 use crate::font::{self, Chosen};
 use crate::grab::{self, Chord, Grab};
+use crate::helper::{self, Answer, Helper};
 use crate::layout::{self, Zoom};
 use crate::power::{self, Power, PowerKey};
 use crate::respawn::{self, Next, Respawn};
@@ -221,9 +223,14 @@ pub struct App {
     /// The base font's height; each display may draw larger
     /// ([`layout::layout`]).
     font_size: u32,
+    /// `font-size` in points: the base height follows the displays'
+    /// density ([`App::dpi`]), until a zoom.
+    points: Option<u32>,
     /// `font-size=0`: the base height follows the smallest display, until
     /// a zoom.
     auto_size: bool,
+    /// The displays whose density is assumed, each warned of once.
+    assumed: BTreeSet<(PathBuf, DisplayId)>,
     /// The base font was found once: a later failure keeps it.
     has_font: bool,
     /// The base font's size step, which a zoom takes.
@@ -238,6 +245,16 @@ pub struct App {
     refont: bool,
     /// OSC 50's refusals since its last switch: only the first is logged.
     font_refused: u64,
+    /// The helper that generates a frit's glyphs, started on the first
+    /// need (ADR-1301 D2).
+    helper: Option<Helper>,
+    /// The helper cannot start: logged once, and the built-in font draws.
+    helper_refused: bool,
+    /// The cells whose glyphs the helper was asked for.
+    asked: Vec<vtium_font::Cell>,
+    /// The kernel's font, read from the VT at start for a frit's
+    /// `console:` source (vtium/vtium#145).
+    console_font: Option<vtium_platform::vt::font::ConsoleFont>,
     /// The locale, which keeps the built-in Unscii-8 from a zh, ja or ko
     /// locale (ADR-1200 D7).
     locale: String,
@@ -359,8 +376,13 @@ impl App {
             term: Term::new(terminal, sync, blink, clock.clone()),
             pty: None,
             views: BTreeMap::new(),
-            font_size: config.number(&keys::FONT_SIZE).map_or(0, to_u32),
+            font_size: 0,
+            points: config
+                .number(&keys::FONT_SIZE)
+                .filter(|&n| n != 0)
+                .map(to_u32),
             auto_size: config.number(&keys::FONT_SIZE).unwrap_or(0) == 0,
+            assumed: BTreeSet::new(),
             has_font: false,
             step: 16,
             cell: (8, 16),
@@ -368,6 +390,10 @@ impl App {
             font_sources: font::Sources::default(),
             refont: false,
             font_refused: 0,
+            helper: None,
+            helper_refused: false,
+            asked: Vec::new(),
+            console_font: None,
             locale: locale(&inherited),
             orientation: Orientation::Normal,
             config,
@@ -408,6 +434,12 @@ impl App {
     pub fn set_font_sources(&mut self, sources: font::Sources) {
         self.font_sources = sources;
         self.font = None;
+    }
+
+    /// The kernel's font, read from the VT while it was in text mode, for
+    /// a frit's `console:` source (vtium/vtium#145).
+    pub fn set_console_font(&mut self, font: vtium_platform::vt::font::ConsoleFont) {
+        self.console_font = Some(font);
     }
 
     /// The selection buffer: what the user copied last, or a program set
@@ -540,40 +572,89 @@ impl App {
         self.pty = Some(pty);
     }
 
-    /// Chooses the font set once, at the first display (ADR-1200 D9): the
-    /// set the configuration or vconsole names, from the store, else the
-    /// built-ins, with one line naming the command that builds the set.
+    /// Chooses the font once, at the first display (ADR-1200 D9): the
+    /// frit `font-name` or vconsole names, or the one-source frit made on
+    /// the fly for a kbd name, a path or vconsole's font, generated at run
+    /// time (ADR-1301 D2); else the built-in font, with one line naming
+    /// the font and why.
     fn choose_font(&mut self) {
         if self.font.is_some() {
             return;
         }
         let s = &self.font_sources;
-        let wanted = font::wanted(
+        let Some(wanted) = font::wanted(
             &self.config,
             &font::read_text(&s.vconsole_conf),
             &font::read_text(&s.kernel_cmdline),
-        );
-        let chosen = match wanted {
-            None => Chosen::Builtin(None),
-            Some(w) if vtium_font::set::builtin(&w.name).is_some() => {
-                font::by_name(s, &w.name).unwrap_or(Chosen::Builtin(None))
-            }
-            Some(w) => match font::load(s, &w) {
-                Ok((name, set)) => {
-                    log::info!("the font is the set {name}");
-                    Chosen::Set { name, set }
-                }
-                Err((why, held)) => {
-                    log::warn!(
-                        "the font {} is not drawn ({why}): vtium draws its built-in font; build the set with {}",
-                        w.name,
-                        w.command(held)
-                    );
-                    Chosen::Builtin(None)
-                }
-            },
+        ) else {
+            self.font = Some(Chosen::Builtin(None));
+            return;
         };
-        self.font = Some(chosen);
+        if let Some(builtin) = font::builtin_named(&wanted.name) {
+            self.font = Some(builtin);
+            return;
+        }
+        // The frit's cell is read as text before the first frame; its
+        // fonts are the helper's to parse (#145).
+        let sized = self.sized();
+        let chosen = font::frit_named(&s.frits, &wanted).and_then(|frit| Chosen::frit(frit, sized));
+        self.font = Some(match chosen {
+            Ok(chosen) => {
+                log::info!(
+                    "the font is the frit {}, drawn in the built-in font until its glyphs are generated",
+                    chosen.name(0, &self.locale)
+                );
+                chosen
+            }
+            Err(why) => {
+                log::warn!(
+                    "the font {} is not drawn ({why}): vtium draws its built-in font",
+                    wanted.name
+                );
+                Chosen::Builtin(None)
+            }
+        });
+        self.own_cell();
+    }
+
+    /// A frit of bitmap sources that states no cell, with no `font-size`
+    /// configured, takes its fonts' own cell, as the C reference drew a
+    /// PSF font at its own size (the operator, 2026-10-28): the helper is
+    /// asked for it before the first frame and waited for at most
+    /// [`helper::OWN_CELL_MS`], the one wait on the helper before a frame.
+    /// A refusal, or no answer in time, leaves the display's cell, with
+    /// one line saying why.
+    fn own_cell(&mut self) {
+        if self.sized() || !self.font.as_ref().is_some_and(Chosen::wants_own_cell) {
+            return;
+        }
+        let now = (self.clock)();
+        let Some(helper) = self.helper() else {
+            return;
+        };
+        let own = helper.own_cell(Duration::from_millis(helper::OWN_CELL_MS), now);
+        let name = self.chosen().name(0, &self.locale).to_owned();
+        match own {
+            Ok(cell) => {
+                log::info!(
+                    "the frit {name} draws in its fonts' own {}x{} cell",
+                    cell.width,
+                    cell.height
+                );
+                if let Some(font) = &mut self.font {
+                    font.set_own_cell(cell);
+                }
+            }
+            Err(why) => log::warn!(
+                "the frit {name}'s own cell is not known ({why}): it draws in the display's cell"
+            ),
+        }
+    }
+
+    /// Whether `font-size` is configured, which wins over a frit's cell
+    /// (ADR-1200 D16); `font-size=0` is the automatic size.
+    fn sized(&self) -> bool {
+        self.config.number(&keys::FONT_SIZE).unwrap_or(0) != 0
     }
 
     /// The font set in use, the built-ins before one is chosen.
@@ -598,28 +679,40 @@ impl App {
         })
     }
 
-    /// OSC 50 asked for the set `name` (ADR-1200 D5): a built set switches
-    /// the live console as a zoom does, on a new grid; anything else
-    /// leaves the font. The first refusal since the last switch is logged
-    /// and the rest counted, so a program's flood of requests logs one
-    /// line.
+    /// OSC 50 asked for the font `name` (ADR-1200 D5): a frit or a
+    /// built-in switches the live console as a zoom does, on a new grid, a
+    /// frit with a helper and a store of its own; anything else leaves the
+    /// font. The first refusal since the last switch is logged and the
+    /// rest counted, so a program's flood of requests logs one line.
     fn switch_font(&mut self, name: &str) {
         self.choose_font();
         let same = match self.chosen() {
-            Chosen::Set { name: n, .. } => n == name,
+            Chosen::Frit { name: now, .. } => now == name,
             Chosen::Builtin(Some(n)) => *n == name,
             Chosen::Builtin(None) => false,
         };
         if same {
             return;
         }
+        let sized = self.sized();
         let new = font::by_name(&self.font_sources, name).and_then(|new| {
+            let new = match new {
+                Chosen::Frit { frit, .. } => Chosen::frit(frit, sized)?,
+                builtin => builtin,
+            };
             let old = self.font.replace(new);
+            let helper = self.helper.take();
+            let refused = std::mem::take(&mut self.helper_refused);
+            let asked = std::mem::take(&mut self.asked);
+            self.own_cell();
             self.refont = true;
             if self.relayout() {
                 return Ok(());
             }
             self.font = old;
+            self.helper = helper;
+            self.helper_refused = refused;
+            self.asked = asked;
             self.refont = true;
             self.relayout();
             Err(format!("it draws nothing at {} pixels", self.font_size))
@@ -633,7 +726,7 @@ impl App {
                         refused.saturating_sub(1)
                     );
                 }
-                log::info!("OSC 50: the font is now the set {}", self.font_name());
+                log::info!("OSC 50: the font is now {}", self.font_name());
             }
             Err(why) => {
                 if self.font_refused == 0 {
@@ -647,11 +740,15 @@ impl App {
         }
     }
 
-    /// The font at `height`, with the configuration's sprite policy and
-    /// missing glyph.
+    /// The font at `height`, with the frit's sprite policy and the
+    /// configuration's over it, and the missing glyph.
     fn font_at(&self, face: Box<dyn Face>) -> Font<Box<dyn Face>> {
         let font = Font::new(face);
-        let policy = font::policy(&self.config, font.policy());
+        let own = match self.chosen() {
+            Chosen::Frit { frit, .. } => font::frit_policy(&frit.text, font.policy()),
+            Chosen::Builtin(_) => font.policy(),
+        };
+        let policy = font::policy(&self.config, own);
         font.with_policy(policy)
             .with_missing(font::missing(&self.config))
     }
@@ -693,6 +790,15 @@ impl App {
         let refresh = video.refresh_mhz(id);
         let (backend, name) = (video.backend(), video.name(id));
         let levels = video.levels(id);
+        let measured = video.dpi(id).is_some();
+        if !measured
+            && self.config.number(&keys::DISPLAY_DPI).is_none()
+            && self.assumed.insert((node.clone(), id))
+        {
+            crate::warn::warn(format_args!(
+                "display {name} reports no physical size: vtium assumes {DPI_ASSUMED} DPI, which display-dpi can state"
+            ));
+        }
         self.choose_font();
         let Ok(face) = self.face(self.font_size.max(1)) else {
             log::error!("cannot load the font for display {name}");
@@ -738,12 +844,15 @@ impl App {
             return true;
         }
         self.choose_font();
-        if self.auto_size {
+        let dpi = self.dpi();
+        if let Some(points) = self.points {
+            self.font_size = font::points_to_pixels(points, dpi);
+        } else if self.auto_size {
             let w = sizes.iter().map(|s| s.0).min().unwrap_or(0);
             let h = sizes.iter().map(|s| s.1).min().unwrap_or(0);
-            let smallest = self.chosen().smallest(&self.locale);
-            self.font_size = font::auto_size(w, h, smallest);
+            self.font_size = self.chosen().auto_height(w, h, &self.locale, dpi);
         }
+        self.font_size = self.chosen().snap(self.font_size);
         let base = match font::select(self.font_size, self.has_font, |h| self.face(h)) {
             Ok((face, h)) => {
                 if !self.has_font {
@@ -798,7 +907,207 @@ impl App {
             }
         }
         self.resize(l.grid);
+        self.ask_glyphs();
         true
+    }
+
+    /// The density points convert at (the operator's decision on
+    /// vtium/vtium#145): `display-dpi`; else the lowest of the displays',
+    /// each one's measured down its rows as vtium draws it, or
+    /// [`DPI_ASSUMED`] where it measures none; [`DPI_ASSUMED`] with no
+    /// display.
+    fn dpi(&self) -> f64 {
+        if let Some(dpi) = self.config.number(&keys::DISPLAY_DPI) {
+            return dpi as f64;
+        }
+        let turned = matches!(self.orientation, Orientation::Right | Orientation::Left);
+        self.views
+            .keys()
+            .map(|(node, id)| {
+                let measured = self.videos.get(node).and_then(|v| v.dpi(*id));
+                measured.map_or(
+                    DPI_ASSUMED,
+                    |(across, down)| if turned { across } else { down },
+                )
+            })
+            .reduce(f64::min)
+            .unwrap_or(DPI_ASSUMED)
+    }
+
+    /// The characters the displays show, sorted, each once: read from the
+    /// view each buffer draws, scrolled back or not, every character of a
+    /// cluster among them (#149).
+    fn visible_chars(&self) -> Vec<char> {
+        let palette = self.term.terminal.palette();
+        let frame = self.term.terminal.screen().frame(palette, Age::NEVER);
+        let mut chars: Vec<char> = Vec::new();
+        for row in 0..frame.rows() {
+            for cell in frame.cells(row) {
+                match cell.glyph {
+                    Glyph::Char(c) => chars.push(c),
+                    Glyph::Cluster(text) => chars.extend(text.chars()),
+                    Glyph::Empty => {}
+                }
+            }
+        }
+        chars.retain(|c| !c.is_whitespace());
+        chars.sort_unstable();
+        chars.dedup();
+        chars
+    }
+
+    /// While the font is a frit, fills each cell a display draws at and
+    /// that was not filled yet, the screen's characters first, and asks for
+    /// the screen's characters there; drops the glyphs of cells no display
+    /// draws at any more (ADR-1301 D2, the operator's fill model).
+    fn ask_glyphs(&mut self) {
+        if !matches!(self.font, Some(Chosen::Frit { .. })) {
+            return;
+        }
+        let mut cells: Vec<vtium_font::Cell> = self
+            .views
+            .values()
+            .map(|v| v.renderer.font().cell())
+            .collect();
+        cells.sort_unstable_by_key(|c| (c.height, c.width));
+        cells.dedup();
+        let now = (self.clock)();
+        if let Some(helper) = &mut self.helper {
+            helper.retain(&cells, now);
+        }
+        self.asked.retain(|c| cells.contains(c));
+        let new: Vec<vtium_font::Cell> = cells
+            .into_iter()
+            .filter(|c| !self.asked.contains(c))
+            .collect();
+        if new.is_empty() {
+            return;
+        }
+        let visible = self.visible_chars();
+        let Some(helper) = self.helper() else {
+            return;
+        };
+        for &cell in &new {
+            helper.ask(cell, &visible, now);
+            helper.fill(cell, &visible, now);
+        }
+        self.asked.extend(new);
+    }
+
+    /// While the font is a frit and the screen changed, asks for each
+    /// character it shows that the store does not hold, and marks the sets
+    /// that hold the others as used.
+    fn ask_visible(&mut self, now: Instant) {
+        let Some(Chosen::Frit { generated, .. }) = &self.font else {
+            return;
+        };
+        let generated = Rc::clone(generated);
+        if self.helper.is_none() {
+            return;
+        }
+        let visible = self.visible_chars();
+        let cells = self.asked.clone();
+        for cell in cells {
+            generated.borrow_mut().touch(cell, &visible);
+            if let Some(helper) = &mut self.helper {
+                helper.ask(cell, &visible, now);
+            }
+        }
+    }
+
+    /// The helper, started on the first need with a wake-up into the loop
+    /// for its answers and the store its glyphs go into; `None`, logged
+    /// once, when it cannot be.
+    fn helper(&mut self) -> Option<&mut Helper> {
+        let Some(Chosen::Frit {
+            frit, generated, ..
+        }) = &self.font
+        else {
+            return None;
+        };
+        let (frit, generated) = (frit.clone(), Rc::clone(generated));
+        if self.helper.is_none() && !self.helper_refused {
+            let command = self
+                .font_sources
+                .helper
+                .clone()
+                .map_or_else(helper::Command::system, Ok);
+            let wake = vtium_platform::calloop::ping::make_ping()
+                .map_err(|e| format!("cannot make its wake-up: {e}"))
+                .and_then(|(ping, source)| {
+                    self.handle
+                        .insert_source(source, |(), (), _: &mut App| {})
+                        .map_err(|e| format!("cannot watch its wake-up: {e}"))?;
+                    Ok(ping)
+                });
+            match command.and_then(|c| wake.map(|w| (c, w))) {
+                Ok((command, ping)) => {
+                    let wake = std::sync::Mutex::new(ping);
+                    self.helper = Some(Helper::new(
+                        command,
+                        std::sync::Arc::new(move || {
+                            if let Ok(p) = wake.lock() {
+                                p.ping();
+                            }
+                        }),
+                        self.epoch,
+                        frit,
+                        self.console_font.clone(),
+                        generated,
+                        crate::deferred::store_limit(physical_memory()),
+                    ));
+                }
+                Err(why) => {
+                    log::warn!(
+                        "the font's glyphs are not generated ({why}): vtium draws its built-in font"
+                    );
+                    self.helper_refused = true;
+                }
+            }
+        }
+        self.helper.as_mut()
+    }
+
+    /// Takes the helper's answers: each display at a set's cell forgets
+    /// the glyphs it cached for the set's characters, so none draws the
+    /// built-in font once the frit sent it (ADR-1200 D7), and redraws the
+    /// cells that show one.
+    fn helper_turn(&mut self, now: Instant) {
+        if self.term.changed {
+            self.ask_visible(now);
+        }
+        let Some(helper) = &mut self.helper else {
+            return;
+        };
+        let answers = helper.poll(now);
+        if answers.is_empty() {
+            return;
+        }
+        // Arrival is damage, as program output is: the answers since the
+        // last turn merge into one set per cell, which the next frame draws
+        // once, and only the cells showing their characters draw.
+        let visible = self.visible_chars();
+        let mut arrived: Vec<(vtium_font::Cell, Vec<char>)> = Vec::new();
+        for Answer { cell, chars, .. } in answers {
+            match arrived.iter_mut().find(|(at, _)| *at == cell) {
+                Some((_, all)) => all.extend(chars),
+                None => arrived.push((cell, chars)),
+            }
+        }
+        for (cell, chars) in arrived {
+            let (shown, hidden): (Vec<char>, Vec<char>) = chars
+                .into_iter()
+                .partition(|c| visible.binary_search(c).is_ok());
+            for v in self.views.values_mut() {
+                if v.renderer.font().cell() == cell {
+                    v.renderer.forget_glyphs(&hidden);
+                    if !shown.is_empty() {
+                        v.renderer.glyphs_changed(&shown);
+                    }
+                }
+            }
+            self.draw_now |= !shown.is_empty();
+        }
     }
 
     /// The terminal and the pty at `grid`, the pointer within it.
@@ -1267,15 +1576,15 @@ impl App {
         self.draw_now = true;
     }
 
-    /// A zoom: the base height the next of the set's strikes and their
-    /// whole multiples, larger or smaller, which ends `font-size=0`'s
-    /// following of the display (ADR-1200 D9). Below the smallest it
-    /// stops, with a line naming the set and its smallest height. A
-    /// height with no font keeps the one in use.
+    /// A zoom: the base height the font's next step, larger or smaller
+    /// ([`Chosen::zoom`]), which ends `font-size`'s following of the
+    /// displays (ADR-1200 D9). Below the smallest it stops, with a line
+    /// naming the set and its smallest height. A height with no font keeps
+    /// the one in use.
     fn zoom(&mut self, dir: Zoom) {
         self.choose_font();
         let chosen = self.chosen();
-        let Some(size) = font::zoom(&chosen.rungs(&self.locale), self.font_size, dir) else {
+        let Some(size) = chosen.zoom(self.font_size, dir, &self.locale, self.dpi()) else {
             if dir == Zoom::Out {
                 let smallest = chosen.smallest(&self.locale);
                 log::info!(
@@ -1285,12 +1594,14 @@ impl App {
             }
             return;
         };
-        let (old, auto) = (self.font_size, self.auto_size);
+        let (old, auto, points) = (self.font_size, self.auto_size, self.points);
         self.auto_size = false;
+        self.points = None;
         self.font_size = size;
         if !self.relayout() {
             self.font_size = old;
             self.auto_size = auto;
+            self.points = points;
         }
     }
 
@@ -1623,6 +1934,7 @@ impl App {
             self.outside_order(order, now);
         }
         self.timers(now);
+        self.helper_turn(now);
         if self.awake {
             self.draw(now);
         }
@@ -1785,6 +2097,7 @@ impl App {
         due.extend(self.term.sync.deadline());
         due.extend(self.blank.deadline());
         due.extend(self.views.values().filter_map(|v| v.wait.due()));
+        due.extend(self.helper.as_ref().and_then(Helper::deadline));
         if let Some(Leaving::Until(d)) = self.leaving {
             due.push(d);
         }

@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use vtium_font::Font;
 use vtium_font::set::{Set, SetFace, builtin};
+use vtium_font::{Cell, Font};
 use vtium_render::{Canvas, Config, DrawState, Renderer};
 use vtium_term::{Age, Terminal, WidthMethod};
 
@@ -46,10 +46,11 @@ impl Image {
     }
 }
 
-/// What the profiles draw from beyond the built-in sets: the desktop set,
-/// or why it could not be built (`crate::fonts`).
+/// What the profiles draw from beyond the built-in sets: the desktop
+/// frit's glyphs at each outline profile's cell, or why they could not be
+/// generated (`crate::fonts`).
 pub struct Sources {
-    pub desktop: Result<Arc<Set>, String>,
+    pub desktop: Result<Vec<(Cell, Arc<Set>)>, String>,
 }
 
 /// Why `profile` cannot be drawn here, if it cannot: the set it needs was
@@ -67,7 +68,14 @@ pub fn font(profile: &Profile, sources: &Sources) -> Result<Font<SetFace>, Strin
         Glyphs::Builtin { set, .. } => {
             builtin(set).ok_or_else(|| format!("no built-in set {set} in this build"))?
         }
-        Glyphs::Desktop { .. } => sources.desktop.clone()?,
+        Glyphs::Desktop { .. } => {
+            let (width, height) = profile.cell;
+            let sets = sources.desktop.as_ref().map_err(Clone::clone)?;
+            sets.iter()
+                .find(|(c, _)| *c == Cell { width, height })
+                .map(|(_, set)| Arc::clone(set))
+                .ok_or_else(|| format!("the desktop frit has no glyphs at {width}x{height}"))?
+        }
     };
     let face = SetFace::new(set, profile.glyphs.height())
         .ok_or_else(|| format!("the set {} has no strikes", profile.glyphs.set()))?;
