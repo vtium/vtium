@@ -1,0 +1,5 @@
+# Each named cover= set's source, fetched once by tools/cover-tables:
+# NAME URL VERSION SHA256 CODEPOINTS. Unicode's terms of use cover the files.
+gbk	https://www.unicode.org/Public/MAPPINGS/VENDORS/MICSFT/WINDOWS/CP936.TXT	2.01, 1/7/2000	b86f601c575e9ab457380b6f7abef03c75499cc6075bdc8b4b27f3f2de74bf6a	21920
+big5	https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/OTHER/BIG5.TXT	2.0, 2011 October 14 (header updated: 2015 December 02)	d1b60c58a1d327918f1616a620162c60ad2079a229ee42a73488f186e11f3aac	13704
+jis-x-0208	https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/JIS/JIS0208.TXT	2.0, 2011 October 14 (header updated: 2015 December 02)	1c571870457f19c97720631fa83ee491549a96ba1436da1296786a67d8632e87	6879

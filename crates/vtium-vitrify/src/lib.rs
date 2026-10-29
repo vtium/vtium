@@ -12,7 +12,8 @@
 //! vtium-vitrify: generates vtium's glyphs from frits at run time
 //! (ADR-1200, ADR-1301 D2).
 //!
-//! A frit ([`frit`]) names its sources; [`sources`] finds and reads them;
+//! A frit ([`frit`]) names its sources, each limited by `cover=` to a
+//! range or a named set of [`cover`]; [`sources`] finds and reads them;
 //! [`decode`]'s decoders parse a bitmap font into the bounded [`glyphs`]
 //! form, which [`font`] holds at its own cell, as [`bdf`] reads a BDF font
 //! into it, and [`outline`] rasterises an outline font. [`serve`] is the helper the console starts, which
@@ -25,6 +26,7 @@ pub mod banner;
 pub mod bdf;
 pub mod child;
 pub mod cli;
+pub mod cover;
 pub mod decode;
 pub mod font;
 pub mod frit;

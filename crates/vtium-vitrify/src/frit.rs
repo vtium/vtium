@@ -91,7 +91,8 @@ pub struct Source {
     pub origin: Origin,
     /// `unimap=`: a kbd unimap name or an absolute path.
     pub unimap: Option<String>,
-    /// `cover=`: empty for every glyph the source holds.
+    /// `cover=`: the union of its lines' ranges, sorted and merged; empty
+    /// for every glyph the source holds.
     pub cover: Vec<Cover>,
     /// `cp-size=`: the height of the CPI font's three to take.
     pub cp_size: Option<u32>,
@@ -102,7 +103,14 @@ pub struct Source {
 impl Source {
     /// Whether `cover=` lets the source give `c`.
     pub fn covers(&self, c: u32) -> bool {
-        self.cover.is_empty() || self.cover.iter().any(|&(a, b)| (a..=b).contains(&c))
+        if self.cover.is_empty() {
+            return true;
+        }
+        let after = self.cover.partition_point(|&(a, _)| a <= c);
+        after
+            .checked_sub(1)
+            .and_then(|i| self.cover.get(i))
+            .is_some_and(|&(_, b)| c <= b)
     }
 }
 
@@ -273,9 +281,9 @@ impl Frit {
                 }
                 "cover" => {
                     let i = current(&mut sources)?;
-                    let range = cover(value).map_err(|why| err(n, &why))?;
+                    let ranges = cover(value).map_err(|why| err(n, &why))?;
                     if let Some(source) = sources.get_mut(i) {
-                        source.cover.push(range);
+                        source.cover = merged([std::mem::take(&mut source.cover), ranges].concat());
                     }
                 }
                 "cp-size" => {
@@ -485,17 +493,26 @@ fn origin(value: &str) -> Result<Origin, String> {
     }
 }
 
-/// A `cover=` value: `ascii`, `latin-1` or `U+XXXX-U+YYYY`.
-fn cover(value: &str) -> Result<Cover, String> {
+/// The ASCII graphic characters, `cover=ascii`.
+const ASCII: Cover = (0x20, 0x7e);
+/// Latin-1's beyond ASCII, which `cover=latin-1` adds.
+const LATIN_1: Cover = (0xa0, 0xff);
+
+/// A `cover=` value's ranges: `ascii`, `latin-1`, a named set of
+/// [`crate::cover`], or `U+XXXX` or `U+XXXX-U+YYYY`.
+fn cover(value: &str) -> Result<Vec<Cover>, String> {
     match value {
-        "ascii" => return Ok((0, 0x7f)),
-        "latin-1" => return Ok((0, 0xff)),
-        "gb2312" | "gbk" | "big5" | "jis-x-0208" | "ks-x-1001" => {
+        "ascii" => return Ok(vec![ASCII]),
+        "latin-1" => return Ok(vec![ASCII, LATIN_1]),
+        "gb2312" | "ks-x-1001" => {
             return Err(format!(
-                "cover={value} is not built yet (vtium/vtium#125's later slices); give a range"
+                "cover={value} is not built yet (vtium/vtium#145's S5); give a range"
             ));
         }
         _ => {}
+    }
+    if let Some((_, set)) = crate::cover::SETS.iter().find(|(name, _)| *name == value) {
+        return Ok(set.to_vec());
     }
     let point = |s: &str| {
         let hex = s.strip_prefix("U+")?;
@@ -511,11 +528,24 @@ fn cover(value: &str) -> Result<Cover, String> {
         None => (point(value), point(value)),
     };
     match (a, b) {
-        (Some(a), Some(b)) if a <= b => Ok((a, b)),
+        (Some(a), Some(b)) if a <= b => Ok(vec![(a, b)]),
         _ => Err(format!(
-            "cover={value} is none of ascii, latin-1, U+XXXX or U+XXXX-U+YYYY"
+            "cover={value} is none of ascii, latin-1, gbk, big5, jis-x-0208, U+XXXX or U+XXXX-U+YYYY"
         )),
     }
+}
+
+/// `ranges` sorted, with those that overlap or touch merged.
+fn merged(mut ranges: Vec<Cover>) -> Vec<Cover> {
+    ranges.sort_unstable();
+    let mut out: Vec<Cover> = Vec::with_capacity(ranges.len());
+    for (a, b) in ranges {
+        match out.last_mut() {
+            Some((_, end)) if a <= end.saturating_add(1) => *end = (*end).max(b),
+            _ => out.push((a, b)),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -604,7 +634,7 @@ mod tests {
         );
         assert_eq!(r.warnings, [], "nothing here does nothing");
         assert_eq!(r.sources[0].unimap.as_deref(), Some("lat1u"));
-        assert_eq!(r.sources[0].cover, [(0, 0x7f), (0x2500, 0x257f)]);
+        assert_eq!(r.sources[0].cover, [(0x20, 0x7e), (0x2500, 0x257f)]);
         assert!(r.sources[0].covers(0x41) && !r.sources[0].covers(0xe9));
         assert!(r.sources[1].covers(0xe9));
     }
@@ -693,7 +723,9 @@ mod tests {
                 3,
                 "given twice",
             ),
-            ("source=kbd:x\ncover=gbk\n", 2, "not built yet"),
+            ("source=kbd:x\ncover=gb2312\n", 2, "not built yet"),
+            ("source=kbd:x\ncover=ks-x-1001\n", 2, "not built yet"),
+            ("source=kbd:x\ncover=GBK\n", 2, "none of"),
             ("source=kbd:x\ncover=U+9FFF-U+4E00\n", 2, "none of"),
             ("source=kbd:x\ncover=U+41\n", 2, "none of"),
             ("source=font: \n", 1, "family name"),
@@ -738,6 +770,61 @@ mod tests {
             );
         }
         assert_eq!(parse("source=kbd:x\n").expect("parses").warnings, []);
+    }
+
+    /// The codepoints `cover=VALUE` lets a source give.
+    fn count(value: &str) -> u32 {
+        let r = parse(&format!("source=kbd:x\ncover={value}\n")).expect("parses");
+        r.sources[0].cover.iter().map(|&(a, b)| b - a + 1).sum()
+    }
+
+    // ADR-1200 D1: each named set is its standard's repertoire as its
+    // Unicode mapping file gives it (tools/cover-tables/provenance.tsv),
+    // so a regenerated table that moves fails here
+    #[test]
+    fn the_named_sets_hold_their_files_codepoints() {
+        for (name, codepoints) in [
+            ("ascii", 95),
+            ("latin-1", 95 + 96),
+            ("gbk", 21_920),
+            ("big5", 13_704),
+            ("jis-x-0208", 6_879),
+        ] {
+            assert_eq!(count(name), codepoints, "{name}");
+        }
+        let r = parse(
+            "source=kbd:x\ncover=jis-x-0208\nsource=kbd:y\ncover=big5\ncover=ascii\n\
+             source=kbd:z\ncover=gbk\n",
+        )
+        .expect("parses");
+        let [jis, big5, gbk] = [0, 1, 2].map(|i| &r.sources[i]);
+        assert!(jis.covers(0x3042) && jis.covers(0x4e9c) && !jis.covers(0x41));
+        assert!(!jis.covers(0xac00), "no Hangul in JIS X 0208");
+        assert!(big5.covers(0x41) && big5.covers(0x7e) && !big5.covers(0x7f));
+        assert!(big5.covers(0x4e00) && !big5.covers(0xac00));
+        assert!(gbk.covers(0x9fa5) && gbk.covers(0x20ac) && !gbk.covers(0xac00));
+        // the ranges are merged and sorted
+        assert!(
+            big5.cover.windows(2).all(|w| w[0].1 + 1 < w[1].0),
+            "{:?}",
+            &big5.cover[..4]
+        );
+    }
+
+    #[test]
+    fn a_sources_cover_lines_are_one_sorted_union() {
+        let r = parse(
+            "source=kbd:x\ncover=U+2500-U+257F\ncover=U+0045-U+0090\ncover=ascii\ncover=U+257F\n\
+             cover=U+2580-U+259F\ncover=U+00A0\n",
+        )
+        .expect("parses");
+        assert_eq!(
+            r.sources[0].cover,
+            [(0x20, 0x90), (0xa0, 0xa0), (0x2500, 0x259f)]
+        );
+        let s = &r.sources[0];
+        assert!(s.covers(0x20) && s.covers(0x90) && !s.covers(0x91) && !s.covers(0x1f));
+        assert!(s.covers(0xa0) && !s.covers(0xa1) && s.covers(0x259f) && !s.covers(0x25a0));
     }
 
     #[test]
