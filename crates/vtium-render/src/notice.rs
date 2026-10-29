@@ -22,7 +22,7 @@ use vtium_font::{Face, Font, Format, Glyph, Style, Width};
 use vtium_term::Rgb;
 
 use crate::blend::{mask, over_bg, pixel};
-use crate::mono::{Depth, Ink, Threshold};
+use crate::mono::{Depth, Fallback, Ink, Threshold};
 use crate::target::{Orientation, Rect, Target};
 
 /// A display's buffer as the console's own drawing sees it: its size, how
@@ -235,7 +235,8 @@ impl Notice {
                 _ => cols,
             }
         };
-        let lines = wrap(&self.text, room, cols_at, |c| cells(font, c));
+        let glyphs = Glyphs::new(font, display.depth, &self.text);
+        let lines = wrap(&self.text, room, cols_at, |c| glyphs.width(c));
         let shown = u32::try_from(lines.len().max(1)).unwrap_or(1);
         let colors = colors.at(display.depth);
         let mut picture = Picture::new(
@@ -253,8 +254,8 @@ impl Notice {
         {
             let mut x = inset.0;
             for &(c, width) in line {
-                if let Some(g) = font.glyph(&[c], width, Style::default()) {
-                    picture.glyph(x, y, &g, colors);
+                if let Some(g) = glyphs.glyph(c) {
+                    picture.glyph(x, y, g, colors);
                 }
                 x = x.saturating_add(cw.saturating_mul(width.cells()));
             }
@@ -310,7 +311,7 @@ impl Mark {
         let mut picture = Picture::new(view.width, view.height, colors.paper);
         match font
             .has_glyph(c)
-            .then(|| font.glyph(&[c], Width::Narrow, Style::default()))
+            .then(|| standin(font, display.depth, c, Width::Narrow))
             .flatten()
         {
             Some(g) => picture.glyph(0, 0, &g, colors),
@@ -320,12 +321,58 @@ impl Mark {
     }
 }
 
-/// The cells `c` takes in `font`: its face's own width, one cell for a
-/// character the face lacks.
-fn cells<F: Face>(font: &Font<F>, c: char) -> Width {
-    font.face()
-        .draw(&[c], Style::default())
-        .map_or(Width::Narrow, |g| g.cells())
+/// `c`'s glyph `width` cells wide in `font`, as a cell at `depth` draws
+/// it: with the stand-in [`Fallback`] gives a color glyph, and at 1 bit a
+/// sprite of partial coverage.
+fn standin<F: Face>(font: &Font<F>, depth: Depth, c: char, width: Width) -> Option<Glyph> {
+    let g = font.glyph(&[c], width, Style::default())?;
+    let thick = font.decorations().underline_thickness;
+    Some(
+        Fallback::new(depth, font.cell(), thick)
+            .and_then(|f| f.glyph(&g, 1, &[c], width, Style::default()))
+            .unwrap_or(g),
+    )
+}
+
+/// The glyphs of a notice's characters, each drawn once however often it
+/// appears, with the cells it takes: its face's own width, one cell for a
+/// character the face lacks. The faces have no advance apart from the
+/// glyph, so measuring a character draws it.
+struct Glyphs {
+    /// Sorted by character.
+    glyphs: Vec<(char, Width, Option<Glyph>)>,
+}
+
+impl Glyphs {
+    fn new<F: Face>(font: &Font<F>, depth: Depth, text: &str) -> Glyphs {
+        let mut chars: Vec<char> = text.chars().filter(|&c| c != '\n').collect();
+        chars.sort_unstable();
+        chars.dedup();
+        let glyphs = chars
+            .into_iter()
+            .map(|c| {
+                let width = font
+                    .face()
+                    .draw(&[c], Style::default())
+                    .map_or(Width::Narrow, |g| g.cells());
+                (c, width, standin(font, depth, c, width))
+            })
+            .collect();
+        Glyphs { glyphs }
+    }
+
+    fn get(&self, c: char) -> Option<&(char, Width, Option<Glyph>)> {
+        let i = self.glyphs.binary_search_by_key(&c, |g| g.0).ok()?;
+        self.glyphs.get(i)
+    }
+
+    fn width(&self, c: char) -> Width {
+        self.get(c).map_or(Width::Narrow, |g| g.1)
+    }
+
+    fn glyph(&self, c: char) -> Option<&Glyph> {
+        self.get(c).and_then(|g| g.2.as_ref())
+    }
 }
 
 /// `text`'s first `lines` lines, line `i` wrapped to `cols(i)` cells by
@@ -1128,5 +1175,66 @@ mod tests {
         ];
         assert_eq!(draw(Mark::Focus), filled);
         assert_eq!(draw(Mark::NoFocus), empty);
+    }
+
+    // vtium/vtium#135: the notice's glyphs take the 1-bit stand-ins a
+    // cell's do, so a shade keeps its pattern where the cut would empty it
+    #[test]
+    fn a_1_bit_notice_draws_a_shade_as_its_1_bit_pattern() {
+        let font = font("unscii-8", 8);
+        let d = Surface {
+            depth: Depth::One,
+            ..display(320, 240)
+        };
+        let mut canvas = Canvas::new(320, 240, 0);
+        Notice::new("\u{2591}")
+            .draw(&font, d, Colors::NOTICE, None, &mut canvas)
+            .expect("it fits");
+        let thick = font.decorations().underline_thickness;
+        let want: Vec<u32> = vtium_font::sprite::one_bit('\u{2591}', 8, 8, thick)
+            .expect("a 1-bit shade")
+            .pixels()
+            .iter()
+            .map(|&a| if a >= 128 { 0 } else { 0x00ff_ffff })
+            .collect();
+        assert!(want.contains(&0) && want.contains(&0x00ff_ffff));
+        assert_eq!(block(&canvas, 5, 3, 8, 8), want);
+    }
+
+    /// A face of `x` alone, solid, that counts the glyphs it draws.
+    struct Counting(std::cell::Cell<u32>);
+
+    impl Face for Counting {
+        fn cell(&self) -> vtium_font::Cell {
+            vtium_font::Cell {
+                width: 8,
+                height: 8,
+            }
+        }
+        fn size_step(&self) -> u32 {
+            8
+        }
+        fn has_glyph(&self, c: char) -> bool {
+            c == 'x'
+        }
+        fn draw(&self, cluster: &[char], _: Style) -> Option<vtium_font::Glyph> {
+            self.0.set(self.0.get() + 1);
+            (cluster == ['x'])
+                .then(|| vtium_font::Glyph::from_pixels(8, 8, Format::Mask, vec![255; 64]))
+                .flatten()
+        }
+    }
+
+    // the notice draws each character it shows once, however often it
+    // appears, so its cost follows the characters and not the text
+    #[test]
+    fn a_notice_draws_each_character_once() {
+        let font = Font::new(Counting(std::cell::Cell::new(0)));
+        let mut canvas = Canvas::new(320, 240, 0);
+        Notice::new("x".repeat(300))
+            .draw(&font, display(320, 240), Colors::NOTICE, None, &mut canvas)
+            .expect("it fits");
+        // one draw to measure it and one to draw it
+        assert!(font.face().0.get() <= 2, "{} draws", font.face().0.get());
     }
 }
