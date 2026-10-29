@@ -93,7 +93,9 @@ related: []
 
 The kernel's VTs are one system-wide set: one VT is shown on every display at once, and Ctrl-Alt-F<n> switches every display together. A card has one DRM master. A console per display therefore lives inside vtium: vtium holds its one kernel VT, takes every card of its seat while that VT is shown, drives every connector on them, and keeps its own consoles per display.
 
-logind's seats split whole devices, cards and inputs, never connectors, and only seat0 has kernel VTs. A machine with two GPUs can give one card and its own keyboard to seat1, so a vtium and a desktop run side by side; one keyboard cannot be on two seats.
+logind's seats split whole devices, cards and inputs, never connectors, and only seat0 has kernel VTs. A machine with two GPUs can give one card and its own keyboard to seat1, so a vtium and a desktop run side by side; one keyboard cannot be on two seats. vtium keeps its one real VT on seat0, and runs without a VT only on an extra seat, which has none.
+
+A login inside vtium runs on a pty, so logind gives it a session with no seat and no seat-bound device access for the user, as vtium's login does today and the C reference's did; heads change nothing in this.
 
 A Wayland compositor holds its cards' master while it runs, and disabling an output in the desktop does not release it. A DRM lease (`wp_drm_lease_v1`) can hand a client some of a compositor's connectors.
 
@@ -103,27 +105,50 @@ Keyboards cannot be told from other key devices by the kernel's marks: udev mark
 
 ## Decision
 
-The figure follows one device from udev to where it lands.
+The figure shows the layers this record adds to, from the kernel to the sessions, with the files and the programs beside them and who each runs as.
+
+![The layers of interaction, bottom to top: the kernel, with card0 (the iGPU, HDMI-A-2), card1 (the dGPU, DP-8, the boot card), the evdev devices and the one set of kernel VTs; logind and its seats, seat0 holding the VT and both cards, extra seats without a VT marked as later; vtium's ruleset, which each device walks, its guards beside it (never-zero display, anti-lockout, the rescue key), and routing to a head or to the focus; two heads, desk on DP-8 with its keyboard and mouse and profile desk, and panel on HDMI-A-2 with the Air84 and profile small, each profile naming its frit; each head's virtual consoles, one shown at a time; and sessions, whose pty, screen, scrollback and grid vtium holds as root while login, the shell and programs run as the user. Layers 3 to 5 are one vtium process running as root. Beside the stack, /etc/vtium (the head file, profiles and frits, owned by root and writable by no one else) feeds layer 3; /run/vtium (written by root, its state read by all, a staged trial) sits between vtium and vtium-vitrify; vtium-vitrify, run as the user, with detect, setup, status, check, new and preview, and install through sudo, saves drafts to the user's $XDG_STATE_HOME/vtium/drafts; and the glyph helper, vtium-vitrify serve, runs as nobody, sandboxed, and generates the heads' frits. A legend marks root, the user, nobody, the kernel and pieces not yet built.](figures/ADR-1401-layers.svg)
+
+The structure inside the one process: the VT and the cards, the ruleset placing each input in a head or the focus, and each head's consoles and sessions.
 
 ```mermaid
-flowchart LR
-    DEV["a display or an input<br>found at start<br>or hotplugged"] --> RULES["the rules<br>top to bottom<br>first match"]
-    RULES -->|"a head's name"| HEAD["the head<br>its displays, inputs,<br>profile and consoles"]
-    RULES -->|"focus (inputs)"| FOCUS["the focused head"]
-    RULES -->|"ignore (inputs)"| IGN["never opened;<br>a keyboard watched<br>for the rescue only"]
-    RULES -->|"dark (displays)"| DARK["set off, logged"]
-    RULES -->|"no match"| IMPL["a display dark,<br>an input to the focus"]
-    GUARD["the guards:<br>no keyboard reaches a lit head,<br>no display lit,<br>the rescue key"] -.->|"overrule for the boot"| FOCUS
-    GUARD -.-> HEAD
-    classDef step fill:#2d7d9a,color:#ffffff,stroke:#94a3b8
+flowchart TB
+    subgraph PROC["one vtium process, root"]
+        direction TB
+        VT["the kernel VT<br>seat0's, one shown on every display"]
+        CARDS["every card of the seat<br>while the VT is shown"]
+        RULES["the ruleset and the guards"]
+        subgraph H1["head desk"]
+            direction TB
+            D1["displays"] --- C1["virtual consoles"]
+            C1 --> S1["sessions: pty, screen,<br>scrollback, grid"]
+        end
+        subgraph H2["head panel"]
+            direction TB
+            D2["displays"] --- C2["virtual consoles"]
+            C2 --> S2["sessions: pty, screen,<br>scrollback, grid"]
+        end
+        FOCUS["the focus<br>moved by its chord"]
+    end
+    INPUTS["evdev inputs"] --> RULES
+    CARDS --> RULES
+    VT --- CARDS
+    RULES -->|"claimed"| H1
+    RULES -->|"claimed"| H2
+    RULES -->|"unclaimed, or focus"| FOCUS
+    FOCUS -.->|"one head at a time"| H1
+    FOCUS -.-> H2
     classDef core fill:#7c3aed,color:#ffffff,stroke:#94a3b8
-    classDef input fill:#fbbf24,color:#1a1a1a,stroke:#94a3b8
-    classDef user fill:#475569,color:#ffffff,stroke:#94a3b8
-    class DEV input
-    class RULES step
-    class HEAD,FOCUS core
-    class IGN,DARK,IMPL user
-    class GUARD step
+    classDef step fill:#2d7d9a,color:#ffffff,stroke:#94a3b8
+    classDef dev fill:#475569,color:#ffffff,stroke:#94a3b8
+    classDef sess fill:#2d8e5e,color:#ffffff,stroke:#94a3b8
+    class VT,CARDS,INPUTS dev
+    class RULES,FOCUS core
+    class D1,C1,D2,C2 step
+    class S1,S2 sess
+    style PROC fill:#7c3aed1a,stroke:#8b5cf6
+    style H1 fill:#f6821f1a,stroke:#d97706
+    style H2 fill:#f6821f1a,stroke:#d97706
 ```
 
 ### D1: heads
@@ -175,6 +200,36 @@ input * -> focus
 - **Profiles say how a head looks** (font, size, colors) and name a frit (ADR-1200 D16, D1); the head file says where devices go. Keys in kmscon.conf apply to every head and win over its profile, as ADR-1200 D16 says of `font-size` and `font-name`.
 - **xorg.conf's failures, avoided by rule:** the file is optional; heads are self-contained, the only reference a profile's name; a rule matching no connected device is skipped with a log line, never an error; and a tool writes the file (D12).
 
+The walk of one device, from udev to where it lands, and the same walk again at a hotplug:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Found: udev reports a display or an input,<br>at start or at a hotplug
+    Found --> Rule: take rule 1
+    Rule --> Rule: no match, take the next rule
+    Rule --> Head: first match names a head
+    Rule --> Focus: first match is focus (inputs)
+    Rule --> Ignore: first match is ignore (inputs)
+    Rule --> Dark: first match is dark (displays)
+    Rule --> Implicit: no rule matched
+    Implicit --> Dark: a display, logged with<br>the rule line to paste
+    Implicit --> Focus: an input
+    Head --> Placed
+    Focus --> Placed
+    Ignore --> Placed: a keyboard is watched<br>for the rescue key only
+    Dark --> Placed: connector set off
+    Placed --> [*]: removed
+    Placed --> Found: unplugged and plugged again:<br>the same walk
+    classDef step fill:#2d7d9a,color:#ffffff,stroke:#94a3b8
+    classDef core fill:#7c3aed,color:#ffffff,stroke:#94a3b8
+    classDef inert fill:#475569,color:#ffffff,stroke:#94a3b8
+    classDef done fill:#2d8e5e,color:#ffffff,stroke:#94a3b8
+    class Found,Rule,Implicit step
+    class Head,Focus core
+    class Ignore,Dark inert
+    class Placed done
+```
+
 ### D4: matching
 
 | Key | Value | Binds | Strength |
@@ -224,6 +279,40 @@ input * -> focus
 - **`vtium check-config`** runs the boot's parser and evaluator, lists every error with its line, and exits non-zero; given a candidate file's path, it checks that file before it is installed, as `nft -c`, `visudo -c` and `sshd -t` do. It exits 1 on an error or a warning about the file itself, as it does for kmscon.conf; a finding that depends on the hardware present, such as a rule matching no connected device, is noted on standard output outside the exit status, so a file can be checked away from its machine.
 - On a future live reload, an invalid new file leaves the running configuration as it is.
 
+The default chain and each file's fallback, from the head file to the built-in fonts:
+
+```mermaid
+flowchart LR
+    HF{"the head file"} -->|"missing"| HFI["instanced from its template,<br>else the compiled-in default"]
+    HF -->|"invalid"| HFS["the shipped two rules,<br>logged, notice"]
+    HF -->|"valid"| HFV["its heads and rules"]
+    HFI --> PR
+    HFS --> PR
+    HFV --> PR{"each head's profile"}
+    PR -->|"missing default"| PRI["instanced from its template"]
+    PR -->|"missing, by name"| PRD["the default profile,<br>logged"]
+    PR -->|"invalid"| PRD
+    PR -->|"valid"| PRV["its look and its frit"]
+    PRI --> FR
+    PRD --> FR
+    PRV --> FR{"the profile's frit"}
+    FR -->|"missing default"| FRI["instanced from its template"]
+    FR -->|"missing, by name"| FRD["the default frit,<br>logged, no file made"]
+    FR -->|"invalid"| FRD
+    FR -->|"valid"| FRV["generated by the helper"]
+    FRI --> BI
+    FRD --> BI["vconsole's font where set,<br>else the built-in fonts"]
+    FRV -->|"a character it lacks,<br>or the helper unavailable"| BI
+    classDef check fill:#fbbf24,color:#1a1a1a,stroke:#94a3b8
+    classDef step fill:#2d7d9a,color:#ffffff,stroke:#94a3b8
+    classDef fall fill:#f6821f,color:#1a1a1a,stroke:#94a3b8
+    classDef done fill:#2d8e5e,color:#ffffff,stroke:#94a3b8
+    class HF,PR,FR check
+    class HFV,PRV,FRV step
+    class HFI,HFS,PRI,PRD,FRI,FRD fall
+    class BI done
+```
+
 ### D8: missing and changing hardware
 
 - **No display at start:** `display-wait` as today (exit 1 for the unit's `OnFailure=` getty, or wait under `forever`); the rules are walked once a display exists.
@@ -242,6 +331,35 @@ input * -> focus
 - **Layer 3, the rescue:** Ctrl-Alt-F<n> for the VT vtium is on, pressed while that VT is shown, makes the keyboard that pressed it follow the focus for the rest of the boot, with a notice, and never writes the configuration. The VT's keys come first in the key order, and the shown VT's own key does nothing today, so the press has no other meaning. A numpad or an OTP token never sends that chord in its use, so the press shows a keyboard a person types on. From another VT it takes two presses: the switch, then the same key again. It can take a keyboard off the head a rule gave it, which grants no more than unplugging it would. On a seat without kernel VTs the same keys are vtium's own.
 - So that the rescue works, vtium opens the keyboard-class devices the rules ignore, to watch for the rescue key alone; nothing else they send is delivered or logged. Other devices stay closed under `ignore`.
 
+The guards run after every device added or removed, and the rescue key from a running console:
+
+```mermaid
+flowchart TD
+    EV["a device added or removed,<br>or the start"] --> VALID{"the head file<br>valid?"}
+    VALID -->|"yes"| EVAL["walk each device<br>through the file's rules"]
+    VALID -->|"no: logged, notice,<br>file left as it is"| SHIP["walk each device through<br>the shipped two rules"]
+    SHIP --> EVAL2["placement"]
+    EVAL --> EVAL2
+    EVAL2 --> LIT{"any display lit?"}
+    LIT -->|"no"| NZ["display guard: the first head<br>takes the boot display"]
+    LIT -->|"yes"| KB
+    NZ --> KB{"a keyboard-class device<br>reaching a head<br>with a lit display?"}
+    KB -->|"no"| AL["anti-lockout guard: every<br>keyboard-class device<br>follows the focus, notice"]
+    KB -->|"yes"| RUN(["running"])
+    AL --> RUN
+    RUN -->|"Ctrl-Alt-F&lt;n&gt; for vtium's own VT,<br>while shown"| RES["rescue: that keyboard follows<br>the focus for the boot, notice;<br>no file written"]
+    RES --> RUN
+    RUN -->|"the next add or remove"| EV
+    classDef step fill:#2d7d9a,color:#ffffff,stroke:#94a3b8
+    classDef check fill:#fbbf24,color:#1a1a1a,stroke:#94a3b8
+    classDef guard fill:#f6821f,color:#1a1a1a,stroke:#94a3b8
+    classDef done fill:#2d8e5e,color:#ffffff,stroke:#94a3b8
+    class EV,EVAL,SHIP,EVAL2 step
+    class VALID,LIT,KB check
+    class NZ,AL,RES guard
+    class RUN done
+```
+
 ### D10: security
 
 - The head file, the profiles and the frits route input and choose login commands, so vtium reads each only when root owns it and neither group nor others can write it, as `sshd`'s `StrictModes` refuses a writable file; a file that fails is invalid (D7). The directories above it pass the same check. No file a user supplies is read by the console.
@@ -257,7 +375,7 @@ input * -> focus
 - **Determinism row** (docs/architecture.md): a property test walks a generated set of devices through a generated ruleset in every order and at every hotplug point, and the placement of each device is the same.
 - The anti-lockout guard, the display guard and the rescue each have a boot test: every keyboard claimed by a head with no display types into the focus; an empty ruleset lights the boot display; the rescue moves a claimed keyboard and an ignored one and writes nothing.
 - An instanced template, read back, gives the compiled-in defaults, and a present file, a symlink and a writable `/etc/vtium` are each left untouched.
-- Tier 3's two-display variant runs two heads at two densities.
+- **The verification plan:** tier 3 proves heads before any VT review on the operator's hardware. Its QEMU guest exposes two virtual outputs (virtio-gpu's `max_outputs=2`), with a second virtio-gpu device for the case of two cards, and the guest runs two heads at two sizes against them: the ruleset placing each display and each emulated keyboard, an emulated keyboard added and removed through QEMU's monitor as the hotplug case, and each guard, with screens captured and compared as tier 3 compares them. A display unplugged on the virtual card, where QEMU cannot raise it, is left to the VT review, which then runs on the operator's two cards.
 
 ### D12: `vtium-vitrify` as the configuration tool
 
@@ -279,6 +397,38 @@ Hand-editing the head file, the profiles and the frits stays fully supported; th
 - **From a desktop terminal,** `detect`, `check`, `status` and `preview` need no privilege, reading EDIDs, connector states, input classes and USB serials from sysfs; displays are named as the desktop names them (`DP-8`, `HDMI-A-2`), since vtium is not on screen; a trial is staged and runs when vtium's VT is next shown.
 - **On minspec, where vtium is the only terminal,** the dialog is line-oriented, fits 40 columns (320x240 at 8x8) and works over a serial line; a frit is previewed by trying it on the live console through OSC 50 under the same countdown; on a read-only root the confirm step prints the confirmed file and its target path for the image build. Its size is measured in tier 3 with the rest of the install tree.
 - **Without privilege,** the tool still previews a font and saves a viable frit or head file to `$XDG_STATE_HOME/vtium/drafts/<time>/` (probe 8), then prints where it is and what makes it active: a copy into `/etc/vtium`, or `sudo vtium-vitrify install DIR`. Run under sudo, it installs after confirmation, writing `/etc/vtium` as `root:root 0644`, and writes nothing into the invoking user's home as root.
+
+`setup`'s trial, as root and without privilege:
+
+```mermaid
+sequenceDiagram
+    actor Op as the operator
+    participant V as vtium-vitrify setup
+    participant R as /run/vtium
+    participant T as vtium
+    participant E as /etc/vtium
+    Op->>V: answers: which keyboard, display, profile
+    V->>R: reads its own head and keyboard
+    V-->>Op: warns before a candidate that moves them
+    alt run as root
+        V->>R: stages the candidate, checked
+        R->>T: the trial
+        T->>T: applies it, starts the countdown
+        alt confirmed within the countdown
+            Op->>V: confirm
+            V->>E: backs up the file it replaces, writes the candidate atomically, root:root 0644
+            T->>T: keeps the trial
+        else no confirmation
+            T->>T: reverts to the running configuration
+            V-->>Op: reverted, nothing written
+        end
+    else without privilege
+        V->>V: writes the draft to $XDG_STATE_HOME/vtium/drafts/(time)/
+        V-->>Op: prints the draft's path and the command to make it active
+        Note over Op,E: sudo vtium-vitrify install DIR, or a copy into /etc/vtium
+    end
+    Note over V,T: until vtium applies a candidate while running, setup installs for the next boot and says so
+```
 
 ### For the operator's check
 
@@ -354,6 +504,7 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the G95
 
 - vtium/vtium#82's open question, whether several sessions are allowed on a kernel VT, is answered yes for heads; its chords and bound remain its own.
 - vtium/vtium#35's single grid stays the rule within a head.
+- A login keeps logind's session without a seat, as on a pty today.
 - ADR-1200 gains a home for profiles' files and the default profile and frit; ADR-1000 gains rows for the head file's capability.
 
 ## Alternatives Considered
