@@ -19,7 +19,15 @@ pub struct Source {
 }
 
 /// The sets, in the order `src/cover.rs` holds them.
-pub const SOURCES: [Source; 3] = [
+pub const SOURCES: [Source; 5] = [
+    // unicode.org no longer serves GB2312.TXT: this is the Wayback
+    // Machine's latest capture of its original URL, byte for byte
+    Source {
+        name: "gb2312",
+        constant: "GB2312",
+        url: "https://web.archive.org/web/20040618175143id_/http://www.unicode.org:80/Public/MAPPINGS/OBSOLETE/EASTASIA/GB/GB2312.TXT",
+        column: 1,
+    },
     Source {
         name: "gbk",
         constant: "GBK",
@@ -37,6 +45,12 @@ pub const SOURCES: [Source; 3] = [
         constant: "JIS_X_0208",
         url: "https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/JIS/JIS0208.TXT",
         column: 2,
+    },
+    Source {
+        name: "ks-x-1001",
+        constant: "KS_X_1001",
+        url: "https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/KSC/KSX1001.TXT",
+        column: 1,
     },
 ];
 
@@ -238,7 +252,7 @@ mod tests {
     #[test]
     fn the_module_and_provenance_name_each_set() {
         let set = Generated {
-            source: &SOURCES[2],
+            source: &SOURCES[3],
             version: "2.0, 2011".to_owned(),
             sha256: "ab".repeat(32),
             codepoints: vec![0xac, 0x3000, 0x3001, 0x3003, 0x3005, 0x3007],
@@ -254,7 +268,7 @@ mod tests {
         let p = provenance(std::slice::from_ref(&set));
         let line = format!(
             "jis-x-0208\t{}\t2.0, 2011\t{}\t6\n",
-            SOURCES[2].url,
+            SOURCES[3].url,
             "ab".repeat(32)
         );
         assert!(p.ends_with(&line), "{p}");

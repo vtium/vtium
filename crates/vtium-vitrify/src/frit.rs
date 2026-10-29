@@ -504,11 +504,6 @@ fn cover(value: &str) -> Result<Vec<Cover>, String> {
     match value {
         "ascii" => return Ok(vec![ASCII]),
         "latin-1" => return Ok(vec![ASCII, LATIN_1]),
-        "gb2312" | "ks-x-1001" => {
-            return Err(format!(
-                "cover={value} is not built yet (vtium/vtium#145's S5); give a range"
-            ));
-        }
         _ => {}
     }
     if let Some((_, set)) = crate::cover::SETS.iter().find(|(name, _)| *name == value) {
@@ -530,7 +525,7 @@ fn cover(value: &str) -> Result<Vec<Cover>, String> {
     match (a, b) {
         (Some(a), Some(b)) if a <= b => Ok(vec![(a, b)]),
         _ => Err(format!(
-            "cover={value} is none of ascii, latin-1, gbk, big5, jis-x-0208, U+XXXX or U+XXXX-U+YYYY"
+            "cover={value} is none of ascii, latin-1, gb2312, gbk, big5, jis-x-0208, ks-x-1001, U+XXXX or U+XXXX-U+YYYY"
         )),
     }
 }
@@ -723,8 +718,6 @@ mod tests {
                 3,
                 "given twice",
             ),
-            ("source=kbd:x\ncover=gb2312\n", 2, "not built yet"),
-            ("source=kbd:x\ncover=ks-x-1001\n", 2, "not built yet"),
             ("source=kbd:x\ncover=GBK\n", 2, "none of"),
             ("source=kbd:x\ncover=U+9FFF-U+4E00\n", 2, "none of"),
             ("source=kbd:x\ncover=U+41\n", 2, "none of"),
@@ -786,9 +779,11 @@ mod tests {
         for (name, codepoints) in [
             ("ascii", 95),
             ("latin-1", 95 + 96),
+            ("gb2312", 7_445),
             ("gbk", 21_920),
             ("big5", 13_704),
             ("jis-x-0208", 6_879),
+            ("ks-x-1001", 8_224),
         ] {
             assert_eq!(count(name), codepoints, "{name}");
         }
@@ -803,6 +798,13 @@ mod tests {
         assert!(big5.covers(0x41) && big5.covers(0x7e) && !big5.covers(0x7f));
         assert!(big5.covers(0x4e00) && !big5.covers(0xac00));
         assert!(gbk.covers(0x9fa5) && gbk.covers(0x20ac) && !gbk.covers(0xac00));
+        let r =
+            parse("source=kbd:x\ncover=gb2312\nsource=kbd:y\ncover=ks-x-1001\n").expect("parses");
+        let [gb2312, ks] = [0, 1].map(|i| &r.sources[i]);
+        // 啊 opens GB 2312's hanzi; 丂 is GBK's alone
+        assert!(gb2312.covers(0x554a) && !gb2312.covers(0x4e02) && !gb2312.covers(0x41));
+        // 가 is KS X 1001's; 갂 is UHC's alone
+        assert!(ks.covers(0xac00) && !ks.covers(0xac02) && ks.covers(0x4f3d));
         // the ranges are merged and sorted
         assert!(
             big5.cover.windows(2).all(|w| w[0].1 + 1 < w[1].0),
