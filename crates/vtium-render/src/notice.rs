@@ -283,7 +283,10 @@ impl Mark {
     /// Draws the mark in `cell`, a cell's rectangle in the display's
     /// pixels as the renderer placed the grid, with `font`, its circle in
     /// `colors.ink` on `colors.paper` and cut to the cell, and returns the
-    /// display area it covers. `None`, writing nothing, when the cell is
+    /// display area it covers. A font that lacks the circle draws a square
+    /// half the cell's shorter side, filled for [`Mark::Focus`] and hollow
+    /// for [`Mark::NoFocus`], where its stand-in for a missing character
+    /// would draw both alike. `None`, writing nothing, when the cell is
     /// empty or not wholly on the display.
     pub fn draw<F: Face>(
         self,
@@ -303,10 +306,16 @@ impl Mark {
             return None;
         }
         let c = self.char();
-        let g = font.glyph(&[c], Width::Narrow, Style::default())?;
         let colors = colors.at(display.depth);
         let mut picture = Picture::new(view.width, view.height, colors.paper);
-        picture.glyph(0, 0, &g, colors);
+        match font
+            .has_glyph(c)
+            .then(|| font.glyph(&[c], Width::Narrow, Style::default()))
+            .flatten()
+        {
+            Some(g) => picture.glyph(0, 0, &g, colors),
+            None => picture.square(self == Mark::Focus, colors.ink),
+        }
         Some(display.put((view.x, view.y), &picture, target))
     }
 }
@@ -435,6 +444,27 @@ impl Picture {
                     && y < self.height.saturating_sub(thick);
                 if !inside {
                     self.set(x, y, p);
+                }
+            }
+        }
+    }
+
+    /// A square half its shorter side, centred, in `color`: filled, or an
+    /// edge an eighth of that side thick, at least a pixel.
+    fn square(&mut self, filled: bool, color: Rgb) {
+        let side = self.width.min(self.height) / 2;
+        let x0 = self.width.saturating_sub(side) / 2;
+        let y0 = self.height.saturating_sub(side) / 2;
+        let thick = (side / 8).max(1);
+        let p = pixel(color);
+        for y in 0..side {
+            for x in 0..side {
+                let edge = x < thick
+                    || y < thick
+                    || x >= side.saturating_sub(thick)
+                    || y >= side.saturating_sub(thick);
+                if filled || edge {
+                    self.set(x0.saturating_add(x), y0.saturating_add(y), p);
                 }
             }
         }
@@ -1027,5 +1057,76 @@ mod tests {
         for text in ["\u{2800}", "e\u{301}", "d\u{435}sc"] {
             assert_eq!(quote(text), format!("\"{text}\""));
         }
+    }
+
+    /// A face with no circles: it holds `?` alone, drawn solid.
+    struct Bare;
+
+    impl Face for Bare {
+        fn cell(&self) -> vtium_font::Cell {
+            vtium_font::Cell {
+                width: 8,
+                height: 8,
+            }
+        }
+        fn size_step(&self) -> u32 {
+            8
+        }
+        fn has_glyph(&self, c: char) -> bool {
+            c == '?'
+        }
+        fn draw(&self, cluster: &[char], _: Style) -> Option<vtium_font::Glyph> {
+            (cluster == ['?'])
+                .then(|| vtium_font::Glyph::from_pixels(8, 8, Format::Mask, vec![255; 64]))
+                .flatten()
+        }
+    }
+
+    // a font without the circles still tells the focus apart: a filled
+    // box where the head holds it and an empty one where it does not,
+    // never the font's stand-in for a character it lacks
+    #[test]
+    fn a_font_without_the_circles_draws_the_mark_as_boxes() {
+        let font = Font::new(Bare);
+        assert!(!font.has_glyph(Mark::Focus.char()) && !font.has_glyph(Mark::NoFocus.char()));
+        let cell = Rect {
+            x: 312,
+            y: 0,
+            width: 8,
+            height: 8,
+        };
+        let draw = |mark: Mark| {
+            let mut canvas = Canvas::new(320, 240, 0);
+            mark.draw(&font, display(320, 240), cell, Colors::NOTICE, &mut canvas)
+                .expect("it fits");
+            block(&canvas, 312, 0, 8, 8)
+                .iter()
+                .map(|&p| u8::from(p == pixel(Colors::NOTICE.ink)))
+                .collect::<Vec<u8>>()
+        };
+        #[rustfmt::skip]
+        let filled = [
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 1, 1, 1, 1, 0, 0,
+            0, 0, 1, 1, 1, 1, 0, 0,
+            0, 0, 1, 1, 1, 1, 0, 0,
+            0, 0, 1, 1, 1, 1, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        #[rustfmt::skip]
+        let empty = [
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 1, 1, 1, 1, 0, 0,
+            0, 0, 1, 0, 0, 1, 0, 0,
+            0, 0, 1, 0, 0, 1, 0, 0,
+            0, 0, 1, 1, 1, 1, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        assert_eq!(draw(Mark::Focus), filled);
+        assert_eq!(draw(Mark::NoFocus), empty);
     }
 }
