@@ -17,7 +17,7 @@ use vtium_font::set::Set;
 use vtium_font::{Cell, Sha256, sha256_hex};
 
 /// One pinned font: its file in the cache, where it comes from, and the
-/// SHA-256 of its bytes, which the frit's `sha256=` line repeats.
+/// SHA-256 of its bytes, which the frit's comment above its source repeats.
 #[derive(Clone, Copy, Debug)]
 pub struct Pinned {
     pub file: &'static str,
@@ -150,13 +150,15 @@ mod tests {
     use super::*;
     use vtium_font::Face;
 
-    // The frit pins each source to the bytes the cache is checked against,
-    // in the same order.
+    // The frit names each source's SHA-256, the bytes the cache is checked
+    // against, in the same order.
     #[test]
-    fn the_frit_pins_the_fonts_this_table_fetches() {
+    fn the_frit_names_the_fonts_this_table_fetches() {
         let pins: Vec<&str> = FRIT
             .lines()
-            .filter_map(|l| l.strip_prefix("sha256="))
+            .filter_map(|l| l.strip_prefix("# "))
+            .filter(|l| l.len() == 65 && l.ends_with('.'))
+            .map(|l| &l[..64])
             .collect();
         let table: Vec<&str> = FONTS.iter().map(|f| f.sha256).collect();
         assert_eq!(pins, table);

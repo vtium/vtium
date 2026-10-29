@@ -9,11 +9,12 @@ The program that generates vtium's glyphs at run time (ADR-1200, ADR-1301 D2), i
 | `src/frit.rs` | Frits in kmscon.conf's line syntax, read strictly. |
 | `src/sources.rs` | Each source found and read: kbd names as `setfont` finds them, files, vconsole.conf and the kernel command line, the kernel's VT font behind the `Consoles` seam, the built-ins. |
 | `src/child.rs` | The parser's child process: how it is started, its limits, the request it reads and the answer the parent checks; kept for `preview` and `new`. |
-| `src/decode.rs` | The decoders the parser runs: compressions told by their magic, gzip, PSF through vtium-font's reader, and kbd unimaps. |
+| `src/decode.rs` | The decoders the helper and the parser run: compressions told by their magic, gzip, PSF through vtium-font's reader, the font of a CPI file `cp-size=` takes, and kbd unimaps. |
+| `src/bdf.rs` | vtium-vitrify's own BDF reader, a `bdf:` source's glyphs at the font's own cell. |
 | `src/outline.rs` | Outline fonts: the request and the bounded answer the parent checks, and the rasteriser the parser runs, swash placing each glyph in its cell as R8 or premultiplied RGBA. |
 | `src/resample.rs` | Scaling a color bitmap down to its cells, by the method chosen when the tool is built. |
 | `src/glyphs.rs` | The bounded glyph form the parser answers with, and its check. |
-| `src/font.rs` | A bitmap source's glyphs at its own cell, from a parsed font or a built-in one. |
+| `src/font.rs` | A bitmap source's glyphs at its own cell, from a parsed font, a BDF font or a built-in one. |
 | `src/serve.rs` | `serve`: the helper the console starts to generate a frit's glyphs at run time, its request, its framed answers and its idle exit. |
 | `src/switch.rs` | `set`: OSC 50 and its query on the controlling terminal, the reply read in raw mode within its wait. |
 | `tests/cli.rs` | The command line's usage errors, the store's commands gone, and the parser's child under its limits. |
@@ -40,22 +41,20 @@ When stdin and stdout are both terminals, the tool opens with a banner of its na
 
 ## Frits
 
-One `key=value` a line, blanks around key and value dropped, `#` to the line's end a comment, as kmscon.conf reads; unlike kmscon.conf, an unknown key, a malformed line, a value with a control character or a key this build does not build yet refuses the whole frit, naming the file and line. This slice reads `name=`, `source=` (`font:`, `kbd:`, `file:`, `outline:`, `vconsole`, `console:VT`, `builtin:`), `package=`, `sha256=`, `unimap=`, `cover=` (`ascii`, `latin-1`, `U+XXXX` and `U+XXXX-U+YYYY`), `style=regular`, `size=`, `cell=`, `compress=` and `license=`. `cell=WIDTHxHEIGHT`, each side 6 to 96, states the cell the console draws the frit in and the helper generates for (#145); the console reads it as text before its first frame.
+One `key=value` a line, blanks around key and value dropped, `#` to the line's end a comment, as kmscon.conf reads; unlike kmscon.conf, an unknown key, a malformed line, a value with a control character or a key this build does not build yet refuses the whole frit, naming the file and line. This slice reads ADR-1200 D1's keys and ADR-1301 D4's `antialias=`: `name=`, `source=` (`font:`, `kbd:`, `file:`, `bdf:`, `outline:`, `vconsole`, `console:VT`, `builtin:`), `unimap=`, `cover=` (`ascii`, `latin-1`, `U+XXXX` and `U+XXXX-U+YYYY`), `cp-size=`, `style=regular`, `cell=`, `size=`, `glyph-source=` and `glyph-source-<range>=`, `antialias=` and `license=`. The store's `package=` and `sha256=` are unknown keys. `compress=`, which chose how a stored set was compressed, is accepted with one warning naming the file and line, since refusing it would leave the console on the built-in font for a key that never changed what was drawn.
+
+`cell=WIDTHxHEIGHT`, each side 6 to 96 pixels, states the cell the console draws the frit in and the helper generates for (#145); the console reads it as text before its first frame. `size=`, once, 6 to 96, is an outline frit's starting size in points, from which a zoom steps; the console reads it, converting it at the display's density (`crates/vtium/README.md`), and the helper draws at the cell each request names. `glyph-source=` and `glyph-source-box=`, `-block=`, `-braille=`, `-sextants=`, `-octants=` and `-legacy=` take `font`, `sprites` or `auto`, the configuration's names and values, each once; the console reads them as the frit's sprite policy, its configuration's keys over them. `antialias=` is `auto` or `no`; the engine reads it once ADR-1301 D6's grid is built.
 
 A frit is meant to travel, so a source names a font each machine finds for itself. The `font:` form below is provisional: its syntax is the operator's to choose, and may be renamed before the first release (vtium/vtium#121).
 
 ```ini
 source=font:Terminus 16      # a family, matched on the machine that draws it
 style=regular
-package=terminus-font        # optional: the package that installs it
-sha256=<64 hex digits>       # optional: the font file's SHA-256
 ```
 
-`font:FAMILY` matches as fontconfig matches a family, with case and blanks ignored. kbd console fonts match it first, by name: the font `setfont` would find by that name, else the first, in each data directory's sorted `consolefonts/`, whose name less its suffixes is the family. A PSF file outside kbd's directories carries no family in its header, so only `file:` names it. With no kbd font of that name, an installed outline font matches: a `.ttf`, `.otf`, `.ttc` or `.otc` file whose name less its extension is the family, or the family and `Regular`, with case, blanks, `-` and `_` ignored, so `font:JetBrains Mono` finds `JetBrainsMono-Regular.ttf`; the plain name first, then the font directories in order (`/usr/share/fonts` and `/usr/local/share/fonts`, or each `--font-dir`), then by path. The engine checks that the file's name table gives that family, typographic or legacy, and in a collection takes the first face of it. `outline:PATH` names an outline file by its absolute path. BDF families are matched once BDF is read. `package=` and `sha256=` follow a `font:`, `kbd:`, `file:` or `outline:` source.
+`font:FAMILY` matches as fontconfig matches a family, with case and blanks ignored. kbd console fonts match it first, by name: the font `setfont` would find by that name, else the first, in each data directory's sorted `consolefonts/`, whose name less its suffixes is the family. A PSF file outside kbd's directories carries no family in its header, so only `file:` names it. With no kbd font of that name, an installed outline font matches: a `.ttf`, `.otf`, `.ttc` or `.otc` file whose name less its extension is the family, or the family and `Regular`, with case, blanks, `-` and `_` ignored, so `font:JetBrains Mono` finds `JetBrainsMono-Regular.ttf`; the plain name first, then the font directories in order (`/usr/share/fonts` and `/usr/local/share/fonts`, or each `--font-dir`), then by path. The engine checks that the file's name table gives that family, typographic or legacy, and in a collection takes the first face of it. `outline:PATH` names an outline file by its absolute path, and `bdf:PATH` a BDF font.
 
-`size=` names a height, 6 to 96 pixels, at most three times; the console reads it (`crates/vtium/README.md`), and the helper draws at the cell each request names.
-
-A source missing on this machine, whose bytes are not its `sha256=`, or that cannot be read, is left out, and the next source in the frit's order gives its glyphs. With every source left out, the frit fails, naming each source, why, and the package `package=` names.
+A source missing on this machine, or that cannot be read, is left out, and the next source in the frit's order gives its glyphs. With every source left out, the frit fails, naming each source and why.
 
 Each later source fills only the codepoints the earlier ones lack. A bitmap font is scaled by the largest whole factor at which its cell fits the cell asked for, centred across and placed on the cell's bottom row; one whose cell does not fit at factor 1 fills nothing. The cell holds a strike a pixel format: bitmap fonts give 1-bit glyphs, outline fonts R8 coverage and color glyphs premultiplied RGBA, each stored raw; the strikes' codepoints are apart.
 
@@ -71,10 +70,12 @@ The parser's answer, which the parent checks, gives, for each cell asked for, th
 
 ## Sources
 
-- **kbd names** resolve as `setfont` resolves them (kbd's `src/libkbdfile/kbdfile.c`, `src/libkfont/context.c`): in `consolefonts/` of each data directory in turn (`/usr/share/kbd`, `/usr/share`, `/usr/lib/kbd`, or `--kbd-dir`), the name followed by the first of `""`, `.psfu`, `.psf`, `.cp` and `.fnt` for which a file exists, plain before `.gz`, `.bz2`, `.xz` and `.zst`; a name with a `/` looks in the subdirectory its first component names, and an absolute path is taken as given, then with each suffix. Unimaps resolve the same way under `unimaps/` with `""`, `.uni` and `.sfm`. A font or unimap found by name is resolved through its links and read only if it stays under the `consolefonts/` or `unimaps/` of a data directory; a link out of them fails the source, and nothing is read from or hashed outside. A `font:` family's scan fails past `FAMILY_ENTRIES_MAX` entries in one directory.
+- **kbd names** resolve as `setfont` resolves them (kbd's `src/libkbdfile/kbdfile.c`, `src/libkfont/context.c`): in `consolefonts/` of each data directory in turn (`/usr/share/kbd`, `/usr/share`, `/usr/lib/kbd`, or `--kbd-dir`), the name followed by the first of `""`, `.psfu`, `.psf`, `.cp` and `.fnt` for which a file exists, plain before `.gz`, `.bz2`, `.xz` and `.zst`; a name with a `/` looks in the subdirectory its first component names, and an absolute path is taken as given, then with each suffix. Unimaps resolve the same way under `unimaps/` with `""`, `.uni` and `.sfm`. A font or unimap found by name is resolved through its links and read only if it stays under the `consolefonts/` or `unimaps/` of a data directory; a link out of them fails the source, and nothing is read from outside. A `font:` family's scan fails past `FAMILY_ENTRIES_MAX` entries in one directory.
 - **A font's map** is the frit's `unimap=` when given, else the font's own table, else kbd's `def.uni`; a font with none is refused, naming `unimap=`.
 - **vconsole** reads `FONT=` and `FONT_UNIMAP=` from vconsole.conf, with the kernel command line's `vconsole.font=` and `vconsole.font_unimap=` over them, as systemd-vconsole-setup reads them (`src/vconsole/vconsole-setup.c`). With no `FONT=`, systemd ran no `setfont` and the kernel kept its font, so the source is refused and names `console:VT`. `FONT_MAP=` maps the kernel's 8-bit translation and sets no glyph, so it is not read.
 - **console:VT** takes the font the console read from its own VT at start, with `KD_FONT_OP_GET_TALL`, or `KD_FONT_OP_GET` on a kernel without it, and its map with `GIO_UNIMAP`, and handed the helper (ADR-1200 D8); the helper opens no VT.
+- **CPI fonts** are the codepage files kbd ships (`.cp`), as `setfont` reads them: one screen codepage, its 28-byte entry header and its info header, then each font's height, width, aspect and glyph count and its glyphs. A CPI file holds a font of each of several heights, so its source takes `cp-size=` 8, 14 or 16, as `setfont` takes `-8`, `-14` or `-16`, and with none the source fails naming `cp-size=`; `cp-size=` on a source that reads as no CPI file fails that source. Its glyphs have no table, so they take `unimap=`, else `def.uni`.
+- **BDF fonts** are read by vtium-vitrify's own reader, never through swash (ADR-1200 D14): Adobe's BDF 2.1, plain or compressed, of `CHARSET_REGISTRY` `ISO10646`, whose encodings are codepoints; any other registry fails the source. Its cell is the narrowest advance among its glyphs wide and `FONT_ASCENT` and `FONT_DESCENT` high, else the bounding box's. A glyph advancing that width is one cell wide and one advancing twice it two; a glyph of another advance, or an encoding no Unicode scalar value, is left out, and a codepoint's first glyph is taken. Each glyph sits on the baseline at its `BBX` offsets and is cut at its cells' edges. A BDF font is read where the source is resolved, in the helper, since the glyph form the parser's child answers with holds no glyph two cells wide.
 - **Compression** is told by its magic, as kbd tells it, and decoded with its stream's own check value verified: gzip, bzip2, xz and zstd, each refused past `COMPRESSED_BYTES_MAX` before it is decoded and past `PSF_BYTES_MAX` once decoded.
 
 ## Decoders
@@ -109,7 +110,8 @@ The tests' xz fixtures take `lzma-rust2`'s encoder as a dev-dependency; bzip2 an
 
 ## What this slice leaves for later
 
-- BDF, CPI and raw fonts, `bdf:` sources, `cp-size=`, styles other than regular (an outline font's bold and italic faces, ADR-1000's `text.outline`), the named `cover=` sets and `glyph-source=`: each is refused by name.
+- Raw fonts, styles other than regular (an outline font's bold and italic faces, ADR-1000's `text.outline`) and the named `cover=` sets (`gb2312`, `gbk`, `big5`, `jis-x-0208`, `ks-x-1001`): each is refused by name.
+- `compress=`'s warning is held in the parsed frit; nothing prints it yet.
 - ADR-1300's subpixel strikes, and shaping across cells (ligatures, emoji sequences such as flags and families): a set maps single codepoints.
 - A collection matched by family needs a file named for that family; a collection of several families is named with `outline:`.
 - COLR version 1 glyphs, such as `Noto-COLRv1.ttf`'s, are not drawn in color: swash reads version 0. A COLR layer in the text's color takes swash's mid grey, since a set cannot know the text's color.
@@ -136,7 +138,14 @@ A frit and every source file are opened once, never blocking on a FIFO, refused 
 | `FONT_DEPTH_MAX` | 8 | A font directory's subdirectories deeper than it are not searched |
 | `OUTLINE_BYTES_MAX` | 64 MiB | An outline font file is refused before it is parsed |
 | `OUTLINE_ANSWER_BYTES_MAX` | 128 MiB, a strike of GB 2312's ideographs at 48 pixels and room | The parser's answer is refused |
-| `FRIT_SIZE_MIN`, `FRIT_SIZE_MAX`, `OUTLINE_CELLS_MAX` | 6 and 96 pixels, 3 sizes | The frit is refused, naming the line |
+| `FRIT_SIZE_MIN`, `FRIT_SIZE_MAX` | 6 and 96 points, one `size=` | The frit is refused, naming the line |
+| `FRIT_CELL_MIN`, `FRIT_CELL_MAX` | 6 and 96 pixels a side | The frit is refused, naming the line |
+| `OUTLINE_CELLS_MAX` | 3 cells an outline request names | The request is refused |
+| `BDF_LINE_MAX` | 4096 bytes | The BDF font is refused, naming the line |
+| `BDF_GLYPHS_MAX` | 65535 glyphs, as a PSF's | The BDF font is refused |
+| `BDF_BITMAP_MAX` | 192 pixels, a glyph's side or offset | The BDF font is refused, naming the line |
+| A BDF font's cell | 1 to `FRIT_CELL_MAX`, and its glyphs' bitmaps `PSF_BYTES_MAX` in all | The BDF font is refused |
+| A CPI file | 8 fonts of 512 glyphs, 32 wide | It is no CPI file |
 | A glyph | a set's 16 KiB chunk | Left out: a color glyph two cells wide past about 64 pixels |
 | `GLYPHS_MAX`, `MAP_MAX` | 65536 glyphs, a font's 16-bit glyph ids, and no more than the map names; 0x110000 codepoints | The parser's answer is refused |
 | `RANGES_MAX` | 4096 `cover=` ranges a request names | The request is refused |

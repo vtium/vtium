@@ -1,13 +1,14 @@
-//! Finding and reading a frit's sources, as the invoking user, before
+//! Finding and reading a frit's sources, as the helper's account, before
 //! anything is parsed (ADR-1200 D1, D8, D14): kbd names resolved as
 //! `setfont` resolves them, outline families found among the installed
 //! fonts, files, vconsole.conf with the kernel's command line over it, the
-//! kernel's own font, and the built-in sets. Each source
-//! becomes the bytes the parser is handed and the SHA-256 of each.
+//! kernel's own font, and the built-in fonts. Each source becomes the
+//! bytes the parser is handed, or the glyphs vtium-vitrify reads itself: a
+//! built-in font's, and a BDF font's through [`crate::bdf`].
 
 use std::path::{Path, PathBuf};
 
-use vtium_font::{PSF_BYTES_MAX, Sha256, sha256_hex};
+use vtium_font::PSF_BYTES_MAX;
 use vtium_platform::vt::font::{ConsoleFont, ConsoleTty};
 
 use crate::child::Request;
@@ -71,27 +72,24 @@ impl Consoles for KernelConsoles {
     }
 }
 
-/// A source read: what the parser is to be given, or a built-in set's
-/// glyphs, which the tool holds and parses nothing for.
+/// A source read: what the parser is to be given, or glyphs already read.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Input {
+    /// A PSF font, the font of a CPI file `cp-size=` took, or the
+    /// kernel's, with the maps it may take.
     Font(Request),
-    /// An outline font, its cells and coverage filled in when the set's
-    /// cell is known.
+    /// An outline font, its cells and coverage filled in when the cell is
+    /// known.
     Outline(OutlineRequest),
+    /// A bitmap font's glyphs at its own cell, read here: a built-in
+    /// font's, or a BDF font's.
     Builtin(Font),
 }
 
-/// A source ready to parse, and the SHA-256s of what was read for it.
+/// A source ready to draw from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Resolved {
     pub input: Input,
-    /// The font's bytes as read; for a built-in, its glyphs'
-    /// ([`Font::digest`]).
-    pub sha256: [u8; 32],
-    /// The unimap's and def.uni's, when read.
-    pub unimap_sha256: Option<[u8; 32]>,
-    pub def_uni_sha256: Option<[u8; 32]>,
 }
 
 /// Reads `path`, at most `limit` bytes: opened once, without blocking on
@@ -254,8 +252,7 @@ pub fn console_psf(font: &ConsoleFont) -> Vec<u8> {
 /// Why a source gave no font.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceError {
-    /// The font is not on this machine, or holds other bytes than the
-    /// frit's `sha256=`.
+    /// The font is not on this machine.
     Missing(String),
     /// The source is there and cannot be read.
     Failed(String),
@@ -449,10 +446,6 @@ fn contained(path: &Path, data_dirs: &[PathBuf], sub: &str) -> Result<PathBuf, S
 /// Reads `source` for the parser.
 pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, SourceError> {
     let limit = u64::from(PSF_BYTES_MAX);
-    let missing = |why: String| match &source.package {
-        Some(package) => SourceError::Missing(format!("{why}; package {package} installs it")),
-        None => SourceError::Missing(why),
-    };
     let dirs = || {
         host.kbd_dirs
             .iter()
@@ -470,7 +463,7 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, SourceError
     };
     let find_font = |name: &str| -> Result<PathBuf, SourceError> {
         let path = find(name, &host.kbd_dirs, "consolefonts", &FONT_SUFFIXES)
-            .ok_or_else(|| missing(format!("no kbd font {name} in {}", dirs())))?;
+            .ok_or_else(|| SourceError::Missing(format!("no kbd font {name} in {}", dirs())))?;
         Ok(inside(name, path, "consolefonts")?)
     };
     let read_unimap = |name: &str| -> Result<Vec<u8>, String> {
@@ -483,15 +476,13 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, SourceError
             .map(|p| read_bounded(&contained(&p, &host.kbd_dirs, "unimaps")?, limit))
             .transpose()
     };
+    let not_here =
+        |path: &Path| SourceError::Missing(format!("{}: not on this machine", path.display()));
     let (font, unimap_name) = match &source.origin {
-        Origin::Builtin(name) => {
-            let font = Font::from_builtin(name)?;
-            return Ok(Resolved {
-                sha256: font.digest(),
-                input: Input::Builtin(font),
-                unimap_sha256: None,
-                def_uni_sha256: None,
-            });
+        Origin::Builtin(name) => return Ok(bitmap(Font::from_builtin(name)?)),
+        Origin::Bdf(path) if !path.exists() => return Err(not_here(path)),
+        Origin::Bdf(path) => {
+            return Ok(bitmap(crate::bdf::font(&read_bounded(path, limit)?)?));
         }
         Origin::Kbd(name) => (
             read_bounded(&find_font(name)?, limit)?,
@@ -509,25 +500,27 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, SourceError
                         .iter()
                         .map(|d| d.display().to_string())
                         .collect();
-                    missing(format!(
+                    SourceError::Missing(format!(
                         "no font of family {family}: no kbd console font of that name in {}, \
                          and no outline font named for it in {}",
                         dirs(),
                         fonts.join(", ")
                     ))
                 })?;
-                return outline(source, read_bounded(&path, OUTLINE_BYTES_MAX)?, family);
+                if source.cp_size.is_some() {
+                    return Err(SourceError::Failed(format!(
+                        "cp-size= is for a CPI font, and {} is an outline font",
+                        path.display()
+                    )));
+                }
+                return Ok(outline(read_bounded(&path, OUTLINE_BYTES_MAX)?, family));
             }
         },
-        Origin::Outline(path) if !path.exists() => {
-            return Err(missing(format!("{}: not on this machine", path.display())));
-        }
+        Origin::Outline(path) if !path.exists() => return Err(not_here(path)),
         Origin::Outline(path) => {
-            return outline(source, read_bounded(path, OUTLINE_BYTES_MAX)?, "");
+            return Ok(outline(read_bounded(path, OUTLINE_BYTES_MAX)?, ""));
         }
-        Origin::File(path) if !path.exists() => {
-            return Err(missing(format!("{}: not on this machine", path.display())));
-        }
+        Origin::File(path) if !path.exists() => return Err(not_here(path)),
         Origin::File(path) => (read_bounded(path, limit)?, source.unimap.clone()),
         Origin::Vconsole => {
             let conf = match read_bounded(&host.vconsole_conf, CONFIG_BYTES_MAX) {
@@ -553,20 +546,13 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, SourceError
         }
         Origin::Console(vt) => (console_psf(&host.consoles.font(*vt)?), None),
     };
-    let sha256 = Sha256::digest(&font);
-    if let Some(want) = source.sha256.filter(|&want| want != sha256) {
-        return Err(missing(format!(
-            "the font here has SHA-256 {}, not the frit's {}",
-            sha256_hex(&sha256),
-            sha256_hex(&want)
-        )));
-    }
+    let font = match source.cp_size {
+        Some(height) => crate::decode::cpi(&font, height)?,
+        None => font,
+    };
     let unimap = unimap_name.as_deref().map(read_unimap).transpose()?;
     let def_uni = if unimap.is_none() { def_uni()? } else { None };
     Ok(Resolved {
-        sha256,
-        unimap_sha256: unimap.as_deref().map(Sha256::digest),
-        def_uni_sha256: def_uni.as_deref().map(Sha256::digest),
         input: Input::Font(Request {
             font,
             unimap,
@@ -575,33 +561,25 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, SourceError
     })
 }
 
-/// An outline font's bytes, read for `source`, as the parser's input: the
-/// family the parser is to find in it, the cells and coverage filled in
-/// once the set's cell is known.
-fn outline(source: &Source, font: Vec<u8>, family: &str) -> Result<Resolved, SourceError> {
-    let sha256 = Sha256::digest(&font);
-    if let Some(want) = source.sha256.filter(|&want| want != sha256) {
-        let why = format!(
-            "the font here has SHA-256 {}, not the frit's {}",
-            sha256_hex(&sha256),
-            sha256_hex(&want)
-        );
-        return Err(SourceError::Missing(match &source.package {
-            Some(package) => format!("{why}; package {package} installs it"),
-            None => why,
-        }));
+/// A bitmap font's glyphs, read here.
+fn bitmap(font: Font) -> Resolved {
+    Resolved {
+        input: Input::Builtin(font),
     }
-    Ok(Resolved {
-        sha256,
-        unimap_sha256: None,
-        def_uni_sha256: None,
+}
+
+/// An outline font's bytes as the parser's input: the family the parser
+/// is to find in it, the cells and coverage filled in once the cell is
+/// known.
+fn outline(font: Vec<u8>, family: &str) -> Resolved {
+    Resolved {
         input: Input::Outline(OutlineRequest {
             font: font.into(),
             family: family.to_owned(),
             cells: Vec::new(),
             cover: Vec::new(),
         }),
-    })
+    }
 }
 
 #[cfg(test)]
@@ -776,27 +754,39 @@ mod tests {
             origin,
             unimap: unimap.map(Into::into),
             cover: Vec::new(),
-            package: None,
-            sha256: None,
+            cp_size: None,
             line: 1,
         }
     }
 
+    /// The request a source resolves to.
+    fn request(r: Resolved) -> Request {
+        match r.input {
+            Input::Font(request) => request,
+            other => panic!("not a font: {other:?}"),
+        }
+    }
+
     #[test]
-    fn each_source_reads_its_bytes_and_hashes_them() {
+    fn each_source_reads_its_bytes() {
         let t = Tree::new("resolve");
         t.file("kbd/consolefonts/f.psfu.gz", b"font bytes");
         t.file("kbd/unimaps/lat1u.uni", b"0x41 U+0041\n");
         t.file("kbd/unimaps/def.uni", b"0x00 U+0041\n");
         let consoles = Graphics;
         let h = host(&t, &consoles);
-        let r = resolve(&source("kbd:f", Origin::Kbd("f".into()), None), &h).unwrap();
-        assert_eq!(r.sha256, Sha256::digest(b"font bytes"));
-        assert_eq!(r.def_uni_sha256, Some(Sha256::digest(b"0x00 U+0041\n")));
-        let r = resolve(&source("kbd:f", Origin::Kbd("f".into()), Some("lat1u")), &h).unwrap();
-        assert_eq!(r.unimap_sha256, Some(Sha256::digest(b"0x41 U+0041\n")));
+        let r = request(resolve(&source("kbd:f", Origin::Kbd("f".into()), None), &h).unwrap());
+        assert_eq!(
+            (r.font.as_slice(), r.unimap, r.def_uni.as_deref()),
+            (&b"font bytes"[..], None, Some(&b"0x00 U+0041\n"[..]))
+        );
+        let lat1u = source("kbd:f", Origin::Kbd("f".into()), Some("lat1u"));
+        let r = request(resolve(&lat1u, &h).unwrap());
         // def.uni is not read when the frit names a unimap
-        assert_eq!(r.def_uni_sha256, None);
+        assert_eq!(
+            (r.unimap.as_deref(), r.def_uni),
+            (Some(&b"0x41 U+0041\n"[..]), None)
+        );
         // a font not here is missing
         let e = resolve(&source("kbd:g", Origin::Kbd("g".into()), None), &h).unwrap_err();
         assert!(
@@ -849,11 +839,7 @@ mod tests {
         let t = Tree::new("console");
         let consoles = Kernel;
         let h = host(&t, &consoles);
-        let r = resolve(&source("console:3", Origin::Console(3), None), &h).unwrap();
-        let Input::Font(request) = &r.input else {
-            panic!("a font")
-        };
-        assert_eq!(r.sha256, Sha256::digest(&request.font));
+        let request = request(resolve(&source("console:3", Origin::Console(3), None), &h).unwrap());
         let g = crate::decode::font(&request.font, None, None).expect("parses");
         assert_eq!(
             (g.width, g.height, g.count, g.format.as_str()),
@@ -868,7 +854,7 @@ mod tests {
     }
 
     #[test]
-    fn a_builtin_is_hashed_by_its_glyphs() {
+    fn a_builtin_reads_as_its_glyphs() {
         let t = Tree::new("builtin");
         let consoles = Graphics;
         let h = host(&t, &consoles);
@@ -878,9 +864,64 @@ mod tests {
         )
         .unwrap();
         let font = crate::font::Font::from_builtin("unscii-8").unwrap();
-        assert_ne!(r.sha256, Sha256::digest(b"builtin:unscii-8"));
-        assert_eq!(r.sha256, font.digest());
         assert_eq!(r.input, Input::Builtin(font));
+    }
+
+    // ADR-1200 D1: cp-size= hands the parser the CPI font of that height
+    #[test]
+    fn cp_size_hands_the_parser_the_cpi_font_of_its_height() {
+        let t = Tree::new("cp-size");
+        let cp = crate::decode::tests::cpi_file(&[16, 14, 8]);
+        t.file(
+            "kbd/consolefonts/437.cp.gz",
+            &crate::decode::tests::gzip(&cp),
+        );
+        let consoles = Graphics;
+        let h = host(&t, &consoles);
+        let mut s = source("kbd:437", Origin::Kbd("437".into()), None);
+        s.cp_size = Some(14);
+        let r = request(resolve(&s, &h).unwrap());
+        assert_eq!(r.font, crate::decode::cpi(&cp, 14).unwrap());
+        let psf = vtium_font::Psf::parse(&r.font).expect("a PSF");
+        assert_eq!(psf.glyph_size(), (8, 14));
+        // a PSF with cp-size= fails its source
+        t.file(
+            "kbd/consolefonts/f.psf",
+            &crate::decode::tests::psf2(8, 16, 4, None),
+        );
+        let mut s = source("kbd:f", Origin::Kbd("f".into()), None);
+        s.cp_size = Some(16);
+        let e = resolve(&s, &h).unwrap_err();
+        assert!(e.to_string().contains("cp-size= is for a CPI font"), "{e}");
+    }
+
+    // ADR-1200 D1, D14: a bdf: source is read by vitrify's own reader
+    #[test]
+    fn a_bdf_source_reads_as_its_glyphs() {
+        let t = Tree::new("bdf");
+        let path = t.file(
+            "fonts/t.bdf.xz",
+            &crate::decode::tests::xz(crate::bdf::tests::bdf("").as_bytes()),
+        );
+        let consoles = Graphics;
+        let h = host(&t, &consoles);
+        let r = resolve(&source("bdf:", Origin::Bdf(path), None), &h).unwrap();
+        let Input::Builtin(font) = r.input else {
+            panic!("not glyphs: {:?}", r.input)
+        };
+        assert_eq!(
+            (font.cell.width, font.cell.height, font.format.as_str()),
+            (4, 6, "bdf+xz")
+        );
+        let gone = t.0.join("fonts/gone.bdf");
+        let e = resolve(&source("bdf:", Origin::Bdf(gone), None), &h).unwrap_err();
+        assert!(matches!(e, SourceError::Missing(_)), "{e}");
+        let bad = t.file("fonts/bad.bdf", b"STARTFONT 2.1\nCHARS 1\n");
+        let e = resolve(&source("bdf:", Origin::Bdf(bad), None), &h).unwrap_err();
+        assert!(
+            matches!(&e, SourceError::Failed(w) if w.contains("CHARSET_REGISTRY")),
+            "{e}"
+        );
     }
 
     #[test]
@@ -988,7 +1029,6 @@ mod tests {
             (&req.font[..], req.family.as_str()),
             (&b"outline bytes"[..], "Test")
         );
-        assert_eq!(r.sha256, Sha256::digest(b"outline bytes"));
         let e = resolve(
             &source("font:Absent", Origin::Font("Absent".into()), None),
             &h,
@@ -1007,24 +1047,6 @@ mod tests {
     }
 
     #[test]
-    fn a_font_with_other_bytes_than_its_sha256_is_missing() {
-        let t = Tree::new("sha");
-        t.file("kbd/consolefonts/f.psf", b"font bytes");
-        let consoles = Graphics;
-        let h = host(&t, &consoles);
-        let mut s = source("font:F", Origin::Font("F".into()), None);
-        s.sha256 = Some(Sha256::digest(b"font bytes"));
-        assert!(resolve(&s, &h).is_ok());
-        s.sha256 = Some([0; 32]);
-        s.package = Some("f-fonts".into());
-        let e = resolve(&s, &h).unwrap_err();
-        assert!(
-            matches!(&e, SourceError::Missing(w) if w.contains("the font here has SHA-256") && w.ends_with("package f-fonts installs it")),
-            "{e:?}"
-        );
-    }
-
-    #[test]
     fn vconsole_resolves_its_font_as_a_kbd_name() {
         let t = Tree::new("vconsole");
         t.file("kbd/consolefonts/lat2-16.psfu.gz", b"lat2");
@@ -1036,10 +1058,10 @@ mod tests {
         let e = resolve(&vc, &h).unwrap_err().to_string();
         assert!(e.contains("names no FONT="), "{e}");
         t.file("vconsole.conf", b"FONT=ter-v16n\n");
-        assert_eq!(resolve(&vc, &h).unwrap().sha256, Sha256::digest(b"ter"));
+        assert_eq!(request(resolve(&vc, &h).unwrap()).font, b"ter");
         t.file("cmdline", b"vconsole.font=lat2-16 vconsole.font_unimap=x\n");
-        let r = resolve(&vc, &h).unwrap();
-        assert_eq!(r.sha256, Sha256::digest(b"lat2"));
-        assert_eq!(r.unimap_sha256, Some(Sha256::digest(b"0x41 U+0041\n")));
+        let r = request(resolve(&vc, &h).unwrap());
+        assert_eq!(r.font, b"lat2");
+        assert_eq!(r.unimap.as_deref(), Some(&b"0x41 U+0041\n"[..]));
     }
 }

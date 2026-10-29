@@ -26,7 +26,7 @@ license=OFL-1.1 AND MIT
 # fonts-symbols-nerd-font (Debian), Nerd Fonts 3.x, file
 # SymbolsNerdFontMono-Regular.ttf.
 source=font:Symbols Nerd Font Mono
-package=ttf-nerd-fonts-symbols-mono
+# Arch's ttf-nerd-fonts-symbols-mono installs it.
 cover=U+E0A0-U+E0A2        # Powerline: branch, line number, lock (Powerline's licence)
 cover=U+E0B0-U+E0B3        # Powerline: the arrow separators every prompt draws
 cover=U+E0A3               # Powerline Extra (MIT): column number
@@ -44,7 +44,7 @@ cover=U+2B58               # IEC Power Symbols (MIT)
 # noto-fonts-emoji 1:2.057-1 (Arch), NotoColorEmoji.ttf, SHA-256
 # 15671215ab769fdc7162a045d56fd7d7e477c51b04e6b3c761d914d8fdd6cc44.
 source=font:Noto Color Emoji
-package=noto-fonts-emoji
+# Arch's noto-fonts-emoji installs it.
 cover=U+1F600-U+1F64F      # Emoticons: the smileys
 cover=U+2705               # check mark button: tests passed
 cover=U+274C               # cross mark: tests failed
