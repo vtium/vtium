@@ -263,6 +263,31 @@ fn an_unknown_key_is_reported_once() {
     );
 }
 
+// the operator on #145, 2026-10-28: display-dpi states the density, from
+// vtium-platform's coarsest believed to its finest; unset, it is measured
+#[test]
+fn display_dpi_is_unset_or_a_believed_density() {
+    assert_eq!(main_file("").config.number(&DISPLAY_DPI), None);
+    assert_eq!(
+        main_file("display-dpi=109\n").config.number(&DISPLAY_DPI),
+        Some(109)
+    );
+    for (text, used) in [("display-dpi=5\n", 20), ("display-dpi=4000\n", 1000)] {
+        let l = main_file(text);
+        assert_eq!(l.config.number(&DISPLAY_DPI), Some(used), "{text}");
+        assert!(
+            matches!(
+                problems(&l)[..],
+                [Problem::Clamped {
+                    key: "display-dpi",
+                    ..
+                }]
+            ),
+            "{text}"
+        );
+    }
+}
+
 #[test]
 fn a_number_out_of_bounds_is_clamped_and_reported() {
     let l = main_file("sb-size=200000\nfont-size=99999\nsb-size-cap=99999999999999999999999\n");

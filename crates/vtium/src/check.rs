@@ -16,9 +16,11 @@ pub const HELP: &str = "Usage: vtium check-config [OPTION]...\n\n\
 Reads the configuration as vtium would start with these options:\n\
 kmscon.conf and the seat's file in the configuration directory, then the\n\
 options. It prints each warning and exits 1 when there is any, 0 when\n\
-there is none. It only checks: it opens no VT, display or input device,\n\
-applies nothing, and reads nothing but the configuration files and the\n\
-frit font-name names.\n";
+there is none, and notes on standard output the density font sizes in\n\
+points convert at, which the start reads from each display.\n\
+It only checks: it opens no VT, display or input device, applies\n\
+nothing, and reads nothing but the configuration files and the frit\n\
+font-name names.\n";
 
 /// What a value means beyond its own key, which the start reports too.
 pub fn semantics(config: &Config) -> Vec<String> {
@@ -100,6 +102,21 @@ pub fn warnings(loaded: &Loaded) -> Vec<String> {
     out.extend(semantics(&loaded.config));
     out.extend(crate::config::budget::memory_warning());
     out
+}
+
+/// What the subcommand reports beyond the warnings, on standard output
+/// and outside the exit status: the density points convert at,
+/// `display-dpi`'s, else each display's, which only the start reads, since
+/// the subcommand opens no display (the operator's decision on
+/// vtium/vtium#145).
+pub fn notes(config: &Config) -> Vec<String> {
+    let density = match config.number(&keys::DISPLAY_DPI) {
+        Some(dpi) => format!(
+            "display-dpi={dpi}: every display converts points at {dpi} DPI, its measured density aside"
+        ),
+        None => "each display converts points at the density it measures from its physical size, else at 96 DPI with a warning naming it; the start logs which".to_owned(),
+    };
+    vec![density]
 }
 
 /// The subcommand on the configuration `loaded`, which the command line
@@ -297,6 +314,34 @@ mod tests {
         assert!(frit(&config("fine"), &dir).is_empty());
         assert!(frit(&config("ter-v16n"), &dir).is_empty(), "no frit");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // the operator on #145, 2026-10-28: the density points convert at,
+    // display-dpi's, else each display's measured or assumed, which only
+    // the start can read, since check-config opens no display
+    #[test]
+    fn the_density_source_is_noted_outside_the_status() {
+        let note = |args: &[&str]| {
+            let args: Vec<OsString> = [SUBCOMMAND]
+                .iter()
+                .chain(args)
+                .map(OsString::from)
+                .collect();
+            notes(&config::load(&args, None, &mut |_: &Path| Ok(None)).config)
+        };
+        assert_eq!(
+            note(&["--display-dpi=109"]),
+            [
+                "display-dpi=109: every display converts points at 109 DPI, its measured density aside"
+            ]
+        );
+        assert_eq!(
+            note(&[]),
+            [
+                "each display converts points at the density it measures from its physical size, else at 96 DPI with a warning naming it; the start logs which"
+            ]
+        );
+        assert_eq!(run_with(&["--display-dpi=109"], ""), (Vec::new(), 0));
     }
 
     #[test]

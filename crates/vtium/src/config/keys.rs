@@ -6,6 +6,7 @@
 //! fails when either differs, and `VTIUM_BLESS=1` rewrites them.
 
 use vtium_font::CELL_SIDE_MAX;
+use vtium_platform::display::{DPI_MAX, DPI_MIN};
 use vtium_term::{SB_MEMORY_DEFAULT, SB_MEMORY_MAX, SB_MEMORY_MIN, SB_SIZE_DEFAULT, SB_SIZE_MAX};
 
 /// The most bytes a text value or a `login` command holds.
@@ -827,14 +828,14 @@ pub const FONT_SIZE: Key = Key {
     kind: Kind::Number {
         min: 0,
         max: CELL_SIDE_MAX as u64,
-        unit: "px",
+        unit: "pt",
         word: None,
     },
     default: Default::Number(0),
     scope: Scope::Anywhere,
     reader: "vtium-font",
-    what: "The font's height; 0 picks one from the display's size.",
-    cite: "src/config.c:1423; vtium-font's `CELL_SIDE_MAX`",
+    what: "The font's size in points, 1/72 inch, drawn at points × DPI ÷ 72 pixels at the displays' density (`display-dpi`), and over a frit's `cell=`; 0 picks one from the display's size.",
+    cite: "src/config.c:1423; vtium-font's `CELL_SIDE_MAX`; the operator on vtium/vtium#145",
 };
 
 pub const ALLOW_FONT_OPS: Key = Key {
@@ -958,6 +959,22 @@ pub const DISPLAY_DEPTH: Key = Key {
     cite: "the operator on vtium/vtium#135",
 };
 
+pub const DISPLAY_DPI: Key = Key {
+    name: "display-dpi",
+    short: None,
+    kind: Kind::Number {
+        min: DPI_MIN as u64,
+        max: DPI_MAX as u64,
+        unit: "dpi",
+        word: None,
+    },
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Each display's density, which converts `font-size` and a frit's `size=` from points to pixels, over the density a display measures. Unset, the density is measured from the physical size the display reports, else assumed at 96 with one logged warning per display.",
+    cite: "the operator on vtium/vtium#145",
+};
+
 pub const RENDER_TIMER: Key = Key {
     name: "render-timer",
     short: None,
@@ -1014,7 +1031,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 78] = [
+pub const KEYS: [Key; 79] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1092,6 +1109,7 @@ pub const KEYS: [Key; 78] = [
     MISSING,
     GLYPH_CACHE,
     DISPLAY_DEPTH,
+    DISPLAY_DPI,
     RENDER_TIMER,
 ];
 

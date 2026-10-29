@@ -54,7 +54,7 @@ use std::time::{Duration, Instant};
 
 use vtium_font::{Face, Font};
 use vtium_platform::calloop::LoopHandle;
-use vtium_platform::display::{Blank, DisplayId, Dpms, Event};
+use vtium_platform::display::{Blank, DPI_ASSUMED, DisplayId, Dpms, Event};
 use vtium_platform::input::{Button, InputEvent, KeyEvent, Mods as InputMods, PointerEvent};
 use vtium_platform::pty::{Erase, Pty, Size};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
@@ -223,9 +223,14 @@ pub struct App {
     /// The base font's height; each display may draw larger
     /// ([`layout::layout`]).
     font_size: u32,
+    /// `font-size` in points: the base height follows the displays'
+    /// density ([`App::dpi`]), until a zoom.
+    points: Option<u32>,
     /// `font-size=0`: the base height follows the smallest display, until
     /// a zoom.
     auto_size: bool,
+    /// The displays whose density is assumed, each warned of once.
+    assumed: BTreeSet<(PathBuf, DisplayId)>,
     /// The base font was found once: a later failure keeps it.
     has_font: bool,
     /// The base font's size step, which a zoom takes.
@@ -371,8 +376,13 @@ impl App {
             term: Term::new(terminal, sync, blink, clock.clone()),
             pty: None,
             views: BTreeMap::new(),
-            font_size: config.number(&keys::FONT_SIZE).map_or(0, to_u32),
+            font_size: 0,
+            points: config
+                .number(&keys::FONT_SIZE)
+                .filter(|&n| n != 0)
+                .map(to_u32),
             auto_size: config.number(&keys::FONT_SIZE).unwrap_or(0) == 0,
+            assumed: BTreeSet::new(),
             has_font: false,
             step: 16,
             cell: (8, 16),
@@ -780,6 +790,15 @@ impl App {
         let refresh = video.refresh_mhz(id);
         let (backend, name) = (video.backend(), video.name(id));
         let levels = video.levels(id);
+        let measured = video.dpi(id).is_some();
+        if !measured
+            && self.config.number(&keys::DISPLAY_DPI).is_none()
+            && self.assumed.insert((node.clone(), id))
+        {
+            crate::warn::warn(format_args!(
+                "display {name} reports no physical size: vtium assumes {DPI_ASSUMED} DPI, which display-dpi can state"
+            ));
+        }
         self.choose_font();
         let Ok(face) = self.face(self.font_size.max(1)) else {
             log::error!("cannot load the font for display {name}");
@@ -825,12 +844,15 @@ impl App {
             return true;
         }
         self.choose_font();
-        if self.auto_size {
+        let dpi = self.dpi();
+        if let Some(points) = self.points {
+            self.font_size = font::points_to_pixels(points, dpi);
+        } else if self.auto_size {
             let w = sizes.iter().map(|s| s.0).min().unwrap_or(0);
             let h = sizes.iter().map(|s| s.1).min().unwrap_or(0);
-            self.font_size = self.chosen().auto_height(w, h, &self.locale);
+            self.font_size = self.chosen().auto_height(w, h, &self.locale, dpi);
         }
-        self.font_size = self.chosen().snap(self.font_size, &self.locale);
+        self.font_size = self.chosen().snap(self.font_size);
         let base = match font::select(self.font_size, self.has_font, |h| self.face(h)) {
             Ok((face, h)) => {
                 if !self.has_font {
@@ -887,6 +909,29 @@ impl App {
         self.resize(l.grid);
         self.ask_glyphs();
         true
+    }
+
+    /// The density points convert at (the operator's decision on
+    /// vtium/vtium#145): `display-dpi`; else the lowest of the displays',
+    /// each one's measured down its rows as vtium draws it, or
+    /// [`DPI_ASSUMED`] where it measures none; [`DPI_ASSUMED`] with no
+    /// display.
+    fn dpi(&self) -> f64 {
+        if let Some(dpi) = self.config.number(&keys::DISPLAY_DPI) {
+            return dpi as f64;
+        }
+        let turned = matches!(self.orientation, Orientation::Right | Orientation::Left);
+        self.views
+            .keys()
+            .map(|(node, id)| {
+                let measured = self.videos.get(node).and_then(|v| v.dpi(*id));
+                measured.map_or(
+                    DPI_ASSUMED,
+                    |(across, down)| if turned { across } else { down },
+                )
+            })
+            .reduce(f64::min)
+            .unwrap_or(DPI_ASSUMED)
     }
 
     /// The characters the displays show, sorted, each once: read from the
@@ -1529,15 +1574,15 @@ impl App {
         self.draw_now = true;
     }
 
-    /// A zoom: the base height the next of the set's strikes and their
-    /// whole multiples, larger or smaller, which ends `font-size=0`'s
-    /// following of the display (ADR-1200 D9). Below the smallest it
-    /// stops, with a line naming the set and its smallest height. A
-    /// height with no font keeps the one in use.
+    /// A zoom: the base height the font's next step, larger or smaller
+    /// ([`Chosen::zoom`]), which ends `font-size`'s following of the
+    /// displays (ADR-1200 D9). Below the smallest it stops, with a line
+    /// naming the set and its smallest height. A height with no font keeps
+    /// the one in use.
     fn zoom(&mut self, dir: Zoom) {
         self.choose_font();
         let chosen = self.chosen();
-        let Some(size) = font::zoom(&chosen.rungs(&self.locale), self.font_size, dir) else {
+        let Some(size) = chosen.zoom(self.font_size, dir, &self.locale, self.dpi()) else {
             if dir == Zoom::Out {
                 let smallest = chosen.smallest(&self.locale);
                 log::info!(
@@ -1547,12 +1592,14 @@ impl App {
             }
             return;
         };
-        let (old, auto) = (self.font_size, self.auto_size);
+        let (old, auto, points) = (self.font_size, self.auto_size, self.points);
         self.auto_size = false;
+        self.points = None;
         self.font_size = size;
         if !self.relayout() {
             self.font_size = old;
             self.auto_size = auto;
+            self.points = points;
         }
     }
 
