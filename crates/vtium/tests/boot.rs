@@ -3499,6 +3499,87 @@ fn a_frit_with_no_stated_cell_takes_the_displays() {
     let _ = std::fs::remove_dir_all(&fonts.frits);
 }
 
+/// The helper's answer to a cell query: the frit's own cell.
+fn own_cell(width: u32, height: u32) -> Vec<u8> {
+    let mut out = 6u32.to_le_bytes().to_vec();
+    out.extend(8u32.to_le_bytes());
+    out.extend(width.to_le_bytes());
+    out.extend(height.to_le_bytes());
+    out
+}
+
+// the operator's decision on #145, 2026-10-28: a frit of bitmap sources
+// with no cell= takes its fonts' own cell, asked of the helper before the
+// first frame, where the display's would be 8x8 at 320x160; a configured
+// font-size keeps winning
+#[test]
+fn a_bitmap_frit_with_no_cell_takes_its_fonts_own_cell() {
+    let (fonts, _go) = frit_fonts_of(
+        "own",
+        "source=kbd:x\n",
+        &own_cell(8, 16),
+        "cat >/dev/null & cat \"$1\"; wait",
+    );
+    logged();
+    let h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 16)], (40, 10)));
+    let lines = logged();
+    assert!(
+        lines
+            .iter()
+            .any(|l| l == "the frit t draws in its fonts' own 8x16 cell"),
+        "{lines:?}"
+    );
+    let h = with_fonts(&["--font-name=t", "--font-size=8"], fonts.clone());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 8)], (40, 20)));
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// ADR-1200 D5 and the operator's decision on #145, 2026-10-28: OSC 50's
+// switch to a frit of bitmap sources with no cell= takes its fonts' own
+// cell too, on the switch's new grid
+#[test]
+fn osc_50_to_a_bitmap_frit_with_no_cell_takes_its_fonts_own_cell() {
+    let (fonts, _go) = frit_fonts_of(
+        "own-osc50",
+        "source=kbd:x\n",
+        &own_cell(8, 16),
+        "cat >/dev/null & cat \"$1\"; wait",
+    );
+    let h = osc50(&["--font-size=0"], "\\033]50;t\\007", fonts.clone());
+    assert_eq!(h.app.font_name(), "t");
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 16)], (40, 10)));
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// the operator's decision on #145, 2026-10-28: a helper that does not
+// answer the cell query in its bound leaves the display's cell, with one
+// line, and the first frame waits no longer than the bound
+#[test]
+fn a_bitmap_frits_own_cell_unanswered_falls_back_within_its_bound() {
+    let (fonts, _go) = frit_fonts_of("own-none", "source=kbd:x\n", b"", "cat >/dev/null");
+    logged();
+    let t = now();
+    let h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
+    let took = now().saturating_duration_since(t);
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 8)], (40, 20)));
+    assert!(took >= Duration::from_millis(100), "{took:?}");
+    assert!(took < Duration::from_secs(5), "{took:?}");
+    let lines = logged();
+    let fell: Vec<&String> = lines
+        .iter()
+        .filter(|l| l.starts_with("the frit t's own cell is not known"))
+        .collect();
+    assert_eq!(
+        fell,
+        [
+            "the frit t's own cell is not known (the helper gave no answer in 100 ms): it draws in the display's cell"
+        ],
+        "{lines:?}"
+    );
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
 // #145, ADR-1200 D9: a frit whose cell= is unreadable is not drawn; the
 // built-in font is, with one line naming the font and why, and no command
 #[test]

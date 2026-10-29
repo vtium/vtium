@@ -6,7 +6,9 @@
 //! frit's (`NAME.vtfrit` in the frits' directory), else a kbd name, a path
 //! or vconsole's font becomes a one-source frit made on the fly
 //! ([`frit_named`]). A frit is generated at run time (ADR-1301 D2), in
-//! the cell it states, else the display's ([`frit_cell`], #145): the
+//! the cell it states ([`frit_cell`], #145), else for a frit of bitmap
+//! sources its fonts' own cell, which the helper tells before the first
+//! frame (the operator, 2026-10-28), else the display's: the
 //! built-in font draws in that cell at once, and the helper's glyphs
 //! replace it, character by character, as they arrive ([`Chosen::Frit`],
 //! [`crate::deferred`], [`crate::helper`]). The built-ins are Unscii-8
@@ -522,6 +524,9 @@ pub enum Chosen {
         cell: Option<Cell>,
         /// `size=`, unless `font-size` is configured.
         size: Option<u32>,
+        /// Its fonts' own cell, as the helper tells it for a frit of
+        /// bitmap sources that states no cell or size.
+        own: Option<Cell>,
         /// A source is an outline font, so a zoom steps by 1 pixel.
         outline: bool,
         generated: Shared,
@@ -554,6 +559,7 @@ impl Chosen {
             frit,
             cell: cell.filter(|_| !sized),
             size: size.filter(|_| !sized),
+            own: None,
             generated: Shared::default(),
         })
     }
@@ -569,6 +575,38 @@ impl Chosen {
             let width = Chosen::Builtin(None).face(height, locale)?.cell().width;
             Some(Cell { width, height })
         })
+    }
+
+    /// Whether the font is a frit that takes its fonts' own cell, asked of
+    /// the helper (the operator, 2026-10-28): its sources bitmap, by its
+    /// text, and no cell or size stated or configured.
+    pub fn wants_own_cell(&self) -> bool {
+        matches!(
+            self,
+            Chosen::Frit {
+                cell: None,
+                size: None,
+                own: None,
+                outline: false,
+                ..
+            }
+        )
+    }
+
+    /// Takes `cell`, the frit's fonts' own, as the helper told it.
+    pub fn set_own_cell(&mut self, cell: Cell) {
+        if let Chosen::Frit { own, .. } = self {
+            *own = Some(cell);
+        }
+    }
+
+    /// The cell a bitmap frit's heights are whole multiples of: the one it
+    /// states, else its fonts' own.
+    fn base_cell(&self, locale: &str) -> Option<Cell> {
+        match self {
+            Chosen::Frit { own, .. } => self.stated(locale).or(*own),
+            Chosen::Builtin(_) => None,
+        }
     }
 
     /// Whether the font is a frit a zoom steps by 1 pixel.
@@ -601,14 +639,14 @@ impl Chosen {
     pub fn face(&self, height: u32, locale: &str) -> Option<Box<dyn Face>> {
         if let Chosen::Frit { generated, .. } = self {
             let at = Chosen::Builtin(None).face(height, locale)?;
-            let stated = self.stated(locale);
+            let stated = self.base_cell(locale);
             let (cell, step) = match (stated, self.outline()) {
                 // D17, the C reference's outline increase_step of 1: the
                 // stated cell at its own height, else D17's width
                 (Some(c), true) if c.height == height => (c, 1),
                 (_, true) => (frit_cell_at(None, height, at.cell()), 1),
                 // D17, the C reference's PSF increase_step of the font's
-                // height: the stated cell's whole multiples
+                // height: the stated or own cell's whole multiples
                 (Some(c), false) => (frit_cell_at(Some(c), height, at.cell()), c.height),
                 // D17: with no cell stated, the display's
                 (None, false) => (frit_cell_at(None, height, at.cell()), at.size_step()),
@@ -629,7 +667,7 @@ impl Chosen {
 
     /// The heights a zoom steps through (ADR-1200 D17): an outline frit's
     /// every height from the built-in's smallest, a bitmap frit's stated
-    /// cell's height and its whole multiples. The built-ins, and a bitmap
+    /// or own cell's height and its whole multiples. The built-ins, and a bitmap
     /// frit with no cell stated, step through Unscii-8's 8 under 16, where
     /// it is drawn, and unifont's multiples of 16 from 16.
     pub fn rungs(&self, locale: &str) -> Vec<Rung> {
@@ -647,7 +685,7 @@ impl Chosen {
             }];
         }
         // D17, the C reference's PSF increase_step of the font's height
-        if let Some(cell) = self.stated(locale) {
+        if let Some(cell) = self.base_cell(locale) {
             return vec![all(cell.height)];
         }
         match self {
@@ -672,19 +710,21 @@ impl Chosen {
     /// The height `font-size=0` picks for a display `width` by `height`:
     /// the height of the cell a frit states, or its `size=`, which no
     /// display moves (#145, ADR-1200 D17); else [`auto_size`] for the
-    /// font's smallest height.
+    /// font's smallest height, which a frit's own cell takes at the
+    /// largest whole multiple not over it, at least the cell itself, as
+    /// the C reference scaled a PSF font (the operator, 2026-10-28).
     pub fn auto_height(&self, width: u32, height: u32, locale: &str) -> u32 {
         match self.stated(locale) {
             Some(cell) => cell.height,
-            None => auto_size(width, height, self.smallest(locale)),
+            None => self.snap(auto_size(width, height, self.smallest(locale)), locale),
         }
     }
 
     /// The height the font draws when `height` is asked for: a bitmap
-    /// frit's stated cell's whole multiple at or under it, at least the
-    /// cell itself (#145, ADR-1200 D17); else `height`.
+    /// frit's stated or own cell's whole multiple at or under it, at least
+    /// the cell itself (#145, ADR-1200 D17); else `height`.
     pub fn snap(&self, height: u32, locale: &str) -> u32 {
-        match self.stated(locale) {
+        match self.base_cell(locale) {
             Some(cell) if !self.outline() => frit_cell_at(Some(cell), height, cell).height,
             _ => height,
         }
@@ -921,6 +961,41 @@ mod tests {
         let f = frit_of("source=outline:/f.ttf\n", false);
         assert_eq!(zoom(&f.rungs("C"), 9, Zoom::Out), Some(8));
         assert_eq!(zoom(&f.rungs("C"), 8, Zoom::Out), None);
+    }
+
+    // the operator's decision on #145, 2026-10-28: a bitmap frit with no
+    // cell or size stated asks for its fonts' own cell, and takes it at the
+    // largest whole multiple not over the automatic height, at least once,
+    // as the C reference scaled a PSF font; it zooms by the cell's height
+    #[test]
+    fn a_frits_own_cell_scales_by_whole_factors_under_the_automatic_height() {
+        assert!(frit_of("source=kbd:x\n", false).wants_own_cell());
+        for text in [
+            "source=kbd:x\ncell=8x16\n",
+            "source=kbd:x\nsize=16\n",
+            "source=outline:/f.ttf\n",
+            "source=kbd:x\nsource=font:Mono\n",
+        ] {
+            assert!(!frit_of(text, false).wants_own_cell(), "{text}");
+        }
+        let mut f = frit_of("source=kbd:x\n", false);
+        f.set_own_cell(cell(8, 16));
+        assert!(!f.wants_own_cell());
+        // 1366x768's automatic 19, 1920x1080's 27 and 3840x2160's 54
+        assert_eq!(f.auto_height(1366, 768, "C"), 16);
+        assert_eq!(f.auto_height(1920, 1080, "C"), 16);
+        assert_eq!(f.auto_height(3840, 2160, "C"), 48);
+        // at least the cell, under #118's floor too
+        assert_eq!(f.auto_height(320, 240, "C"), 16);
+        assert_eq!(f.face(16, "C").expect("a face").cell(), cell(8, 16));
+        assert_eq!(f.face(48, "C").expect("a face").cell(), cell(24, 48));
+        assert_eq!(zoom(&f.rungs("C"), 16, Zoom::In), Some(32));
+        assert_eq!(zoom(&f.rungs("C"), 16, Zoom::Out), None);
+        let mut f = frit_of("source=kbd:x\n", false);
+        f.set_own_cell(cell(8, 8));
+        assert_eq!(f.auto_height(320, 240, "C"), 8);
+        assert_eq!(f.auto_height(640, 480, "C"), 16);
+        assert_eq!(f.face(16, "C").expect("a face").cell(), cell(16, 16));
     }
 
     // ADR-1200 D1, D17: size= alone is the starting height, the cell as

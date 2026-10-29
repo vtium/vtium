@@ -604,6 +604,41 @@ impl App {
                 Chosen::Builtin(None)
             }
         });
+        self.own_cell();
+    }
+
+    /// A frit of bitmap sources that states no cell, with no `font-size`
+    /// configured, takes its fonts' own cell, as the C reference drew a
+    /// PSF font at its own size (the operator, 2026-10-28): the helper is
+    /// asked for it before the first frame and waited for at most
+    /// [`helper::OWN_CELL_MS`], the one wait on the helper before a frame.
+    /// A refusal, or no answer in time, leaves the display's cell, with
+    /// one line saying why.
+    fn own_cell(&mut self) {
+        if self.sized() || !self.font.as_ref().is_some_and(Chosen::wants_own_cell) {
+            return;
+        }
+        let now = (self.clock)();
+        let Some(helper) = self.helper() else {
+            return;
+        };
+        let own = helper.own_cell(Duration::from_millis(helper::OWN_CELL_MS), now);
+        let name = self.chosen().name(0, &self.locale).to_owned();
+        match own {
+            Ok(cell) => {
+                log::info!(
+                    "the frit {name} draws in its fonts' own {}x{} cell",
+                    cell.width,
+                    cell.height
+                );
+                if let Some(font) = &mut self.font {
+                    font.set_own_cell(cell);
+                }
+            }
+            Err(why) => log::warn!(
+                "the frit {name}'s own cell is not known ({why}): it draws in the display's cell"
+            ),
+        }
     }
 
     /// Whether `font-size` is configured, which wins over a frit's cell
@@ -659,6 +694,7 @@ impl App {
             let helper = self.helper.take();
             let refused = std::mem::take(&mut self.helper_refused);
             let asked = std::mem::take(&mut self.asked);
+            self.own_cell();
             self.refont = true;
             if self.relayout() {
                 return Ok(());
