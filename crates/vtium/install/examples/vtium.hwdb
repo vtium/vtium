@@ -1,0 +1,15 @@
+# vtium's example hwdb fragment, installed as
+# /usr/share/doc/vtium/examples/vtium.hwdb (ADR-1401 D4). vtium installs no
+# active udev file: to use it, copy this file to /etc/udev/hwdb.d/, change its
+# matches to your devices and run `systemd-hwdb update`. Each entry marks
+# devices by bus, vendor and product with VTIUM_ROLE, which the anti-lockout
+# guard reads (ADR-1401 D9): a token or a numpad does not count as a keyboard.
+# The entries use udev's own evdev: prefix, which systemd's stock
+# 60-evdev.rules looks up for every input event device, so no vtium rule is
+# needed. The vendor and product ids here are illustrative.
+
+evdev:input:b0003vBBBBp0001*
+ VTIUM_ROLE=token
+
+evdev:input:b0003vAAAAp0002*
+ VTIUM_ROLE=numpad

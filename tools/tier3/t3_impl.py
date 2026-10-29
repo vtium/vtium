@@ -25,6 +25,10 @@ BINARY_BUDGET = 2621440
 # binary it starts.
 VT_UNIT = "usr/lib/systemd/system/kmsconvt@.service"
 REQUIRED = (BINARY, VT_UNIT)
+# The directories udev reads rules and hwdb files from: vtium installs its
+# udev material as examples alone, under usr/share/doc/vtium/examples
+# (ADR-1401 D4), so a tree holding anything here is refused.
+UDEV_DIRS = ("usr/lib/udev", "lib/udev", "etc/udev")
 
 
 def tree(path, tar_path=None):
@@ -38,6 +42,11 @@ def tree(path, tar_path=None):
     if missing:
         raise SystemExit("the install tree at %s holds no %s, which the guest starts on each VT"
                          % (rel(path), ", ".join("/" + f for f in missing)))
+    active = [d for d in UDEV_DIRS if os.path.lexists(os.path.join(path, d))]
+    if active:
+        raise SystemExit("the install tree at %s installs %s, where udev reads its rules; vtium "
+                         "ships its udev material as examples alone (ADR-1401 D4)"
+                         % (rel(path), ", ".join("/" + d for d in active)))
     impl = {"path": path, "binary_bytes": files[BINARY],
             "installed_bytes": sum(files.values())}
     impl.update(pack_tree(path, tar_path or os.path.join(RUNDIR, "vtium-tree.tar")))

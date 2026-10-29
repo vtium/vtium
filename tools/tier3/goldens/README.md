@@ -40,6 +40,16 @@ The goldens of the frit variants (vtium/vtium#145, `../README.md`, Variants) are
 | `2d-640x480-frit-held/small-console.png` | The `small-console` screen with a helper that never answers: the screen before the helper's first answer, all in the built-in unifont, pixel for pixel the reviewed `2d-640x480-psf16/small-console.png`. |
 | `2d-640x480-frit-held/cjk.png` | The `cjk` screen with a helper that never answers, all in the built-in unifont, pixel for pixel `2d-640x480-psf16/cjk.png`. |
 
+The goldens of the device variants (`../README.md`, Outputs and keyboards) are vtium's captures from `make tier3 VARIANTS="two-outputs-mirror two-cards-mirror usb-keyboards"` at 7da1d7a: 640x480, 8x16 cells, 80 by 30, in the 8x16 test font with unifont after it. Each is pixel for pixel the `2d-640x480-psf16` golden of the same screen, as vtium draws one grid on every output today. They stay in `../provisional.tsv` until the operator reviews them.
+
+| Golden | What it shows |
+|---|---|
+| `two-outputs-mirror/sgr.png`, `two-outputs-mirror/sgr@1.png` | The `sgr` screen on the first and the second output of one card. |
+| `two-outputs-mirror/cjk.png`, `two-outputs-mirror/cjk@1.png` | The `cjk` screen on each output; `vt-restore` and `vt-restore@1` are compared with them. |
+| `two-cards-mirror/sgr.png`, `two-cards-mirror/sgr@card1.png` | The `sgr` screen on the first card and the second. |
+| `two-cards-mirror/cjk.png`, `two-cards-mirror/cjk@card1.png` | The `cjk` screen on each card. |
+| `usb-keyboards/cjk.png` | The `cjk` screen with a USB keyboard in the port the example rule names. |
+
 ## Recaptured with the sets (vtium/vtium#126)
 
 vtium draws only vitrified sets, so the small displays draw sets the guest builds before the console starts: the 8x8 test font with the built-in Unscii-8 after it, and the 8x16 one with unifont after it (`../guest/frits`). The sprites win over a fill font's glyphs, so box drawing, blocks, shades and Braille draw as before. Eight goldens moved, where a character the test font lacked, `?` before, now draws as Unscii-8's U+25A1, the missing glyph, at 8x8, since Unscii-8 holds none of them, and as unifont's glyph at 8x16. They were recaptured from `make tier3-minimal` and are listed in `../provisional.tsv` until the operator reviews them; the table's descriptions of those eight are the goldens before. The rows and columns that moved, counted from 1, with the pixels that differ:
