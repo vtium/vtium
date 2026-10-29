@@ -835,20 +835,25 @@ def check_udev_examples(vm, work, caps, errors, log):
 
 
 def check_keyboard_hotplug(vm, work, caps, errors, log):
-    """The keyboard-hotplug check (t3_devices.CHECKS): a USB keyboard
-    plugged into the hub through QMP, bound to the first display's console
-    so QMP's input-send-event types on it alone; vtium must log it as a
-    keyboard, the keys typed on it must run screens/keyboard-hotplug.sh,
-    which lists it; then it is pulled out, and the console's keyboard runs
-    the script again, which must not list it. The capture is the screen the
-    second run left."""
+    """The keyboard-hotplug check (t3_devices.CHECKS), after udev-examples,
+    which reads the boot's USB keyboard. That keyboard is pulled out, so the
+    console's keys reach the PS/2 keyboard, and screens/keyboard-hotplug.sh,
+    which lists the keyboards and the PS/2 keyboard's interrupt count, runs
+    twice on it, the count's control. A USB keyboard is plugged into the hub
+    through QMP, bound to the first display's console so QMP's
+    input-send-event types on it alone, and the script runs twice on it;
+    then it is pulled out and the script runs once more on the console's.
+    t3_devices.judge_hotplug judges the runs. The capture is the screen the
+    last run left."""
     case = "keyboard-hotplug"
     try:
+        vm.cmd("device_del", id=t3_devices.BOOT_ID)
+        t3_devices.wait_qmp_event(vm, "DEVICE_DELETED", t3_devices.BOOT_ID, 30)
+        control = [t3_devices.run_screen(vm, case, SCREEN_TIMEOUT) for _ in range(2)]
         since = t3_devices.serial_size(vm)
         vm.cmd("device_add", driver="usb-kbd", id=t3_devices.HOT_ID,
                bus=t3_devices.USB_BUS, port=t3_devices.HOT_PORT, display="video0")
-        m = t3_devices.wait_serial_after(vm, t3_devices.KEYBOARD_LINE, since, 30)
-        log("%s: vtium took %s [%s]" % (case, m.group(1), m.group(2)))
+        t3_devices.wait_serial_after(vm, t3_devices.KEYBOARD_LINE, since, 30)
 
         def type_hot(text):
             for ch in text:
@@ -858,15 +863,18 @@ def check_keyboard_hotplug(vm, work, caps, errors, log):
                            events=t3_devices.key_events(codes, down))
                 time.sleep(0.05)
 
-        plugged = t3_devices.listed(t3_devices.run_screen(vm, case, SCREEN_TIMEOUT, type_hot))
-        if t3_devices.HOT_NAME not in plugged:
-            raise RuntimeError("plugged in, the guest lists %s, not %s"
-                               % (plugged, t3_devices.HOT_NAME))
+        plugged = t3_devices.run_screen(vm, case, SCREEN_TIMEOUT, type_hot)
+        typed = t3_devices.run_screen(vm, case, SCREEN_TIMEOUT, type_hot)
+        with open(vm.serial, "rb") as f:
+            took = [m.group(1) for m in t3_devices.KEYBOARD_LINE.finditer(
+                f.read()[since:].decode(errors="replace"))]
+        log("%s: vtium took %s after the plug" % (case, ", ".join(took)))
         vm.cmd("device_del", id=t3_devices.HOT_ID)
         t3_devices.wait_qmp_event(vm, "DEVICE_DELETED", t3_devices.HOT_ID, 30)
-        pulled = t3_devices.listed(t3_devices.run_screen(vm, case, SCREEN_TIMEOUT))
-        if t3_devices.HOT_NAME in pulled:
-            raise RuntimeError("pulled out, the guest still lists %s" % t3_devices.HOT_NAME)
+        pulled = t3_devices.run_screen(vm, case, SCREEN_TIMEOUT)
+        why = t3_devices.judge_hotplug(control, plugged, typed, pulled, took)
+        if why:
+            raise RuntimeError(why)
         path = os.path.join(work, case + ".ppm")
         wait_stable(vm, path)
         caps[case] = path

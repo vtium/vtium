@@ -2671,14 +2671,50 @@ class DevicesTest(unittest.TestCase):
                                                    "key": {"type": "qcode", "data": "shift"}}},
                           {"type": "key", "data": {"down": True,
                                                    "key": {"type": "qcode", "data": "a"}}}])
-        self.assertEqual(t3_devices.listed(["T3-KBD a-event-kbd", "T3-RSS x 1", "T3-KBD b"]),
-                         ["a-event-kbd", "b"])
+        self.assertEqual(t3_devices.listed(["T3-KBD a-event-kbd /dev/input/event2",
+                                            "T3-RSS x 1", "T3-KBD b /dev/input/event1"]),
+                         {"a-event-kbd": "/dev/input/event2", "b": "/dev/input/event1"})
+        self.assertEqual(t3_devices.i8042(["T3-KBD a /dev/input/event1", "T3-I8042 41"]), 41)
+        self.assertIsNone(t3_devices.i8042(["T3-I8042 "]))
         m = t3_devices.KEYBOARD_LINE.search(
             "[ 6.4] vtium[411]: input: using /dev/input/event6 [QEMU QEMU USB Keyboard] as "
             "keyboard\n")
         self.assertEqual(m.groups(), ("/dev/input/event6", "QEMU QEMU USB Keyboard"))
         self.assertIsNone(t3_devices.KEYBOARD_LINE.search(
             "input: using /dev/input/event4 [VirtualPS/2 VMware VMMouse] as Virtual mouse"))
+
+    # The guest's account of each keyboard-hotplug run (screens/keyboard-hotplug.sh).
+    PS2 = "T3-KBD platform-i8042-serio-0-event-kbd /dev/input/event1"
+    HOT = "T3-KBD %s /dev/input/event6" % t3_devices.HOT_NAME
+
+    def hotplug(self, control=(40, 52), plugged=(HOT, 60), typed=(HOT, 60),
+                pulled=(None, 72), took=("/dev/input/event6",)):
+        run = lambda kbd, n: [self.PS2] + ([kbd] if kbd else []) + ["T3-I8042 %d" % n,
+                                                                    "T3-DONE keyboard-hotplug"]
+        return t3_devices.judge_hotplug([run(None, n) for n in control], run(*plugged),
+                                        run(*typed), run(*pulled), list(took))
+
+    def test_keyboard_hotplug(self):
+        self.assertIsNone(self.hotplug())
+        wrong = {
+            # the console's keys never reached the PS/2 keyboard
+            "no control": (dict(control=(40, 40)), "typing on the PS/2 keyboard did not raise "
+                           "its interrupt count (40, then 40)"),
+            # the keys sent to the plugged-in keyboard's console came from the PS/2 one
+            "typed on the console": (dict(typed=(self.HOT, 64)), "typing on the plugged-in keyboard "
+                                     "moved the PS/2 keyboard's interrupt count from 60 to 64"),
+            "not listed": (dict(plugged=(None, 60)), "plugged in, the guest lists"),
+            # vtium logged another keyboard after the plug, not the new one
+            "another node": (dict(took=("/dev/input/event1",)), "vtium took /dev/input/event1 "
+                             "after the plug, not /dev/input/event6"),
+            "nothing taken": (dict(took=()), "vtium took no keyboard after the plug"),
+            "still listed": (dict(pulled=(self.HOT, 72)), "pulled out, the guest still lists"),
+        }
+        for name, (change, why) in wrong.items():
+            with self.subTest(name):
+                got = self.hotplug(**change)
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
 
 
 if __name__ == "__main__":

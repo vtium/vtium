@@ -45,13 +45,21 @@ CHECKS = {
                      "keyboard no VTIUM_ property; the fragment builds without a "
                      "message and marks the token and the numpad it names, and nothing "
                      "else.",
-    "keyboard-hotplug": "A USB keyboard plugged into port 3.3 of the hub through QMP, "
-                        "typed on, then pulled out, and the console typed on again. "
-                        "Correct: vtium takes the new keyboard, its keys reach the "
-                        "session, the guest lists it while plugged and not once pulled "
-                        "out, and the session still takes keys.",
+    "keyboard-hotplug": "The boot's USB keyboard pulled out, so the PS/2 keyboard is the "
+                        "console's; a USB keyboard plugged into port 3.3 of the hub "
+                        "through QMP, typed on, then pulled out, and the console typed on "
+                        "again. Correct: typing on the PS/2 keyboard raises its interrupt "
+                        "count; vtium takes the new keyboard's event node; its keys reach "
+                        "the session and leave the PS/2 count unchanged; the guest lists "
+                        "it while plugged and not once pulled out; and the session still "
+                        "takes keys.",
 }
 
+# The boot's USB keyboard, which keyboard-hotplug pulls out first: QEMU
+# sends a key no console binding claims to the keyboard plugged in last, so
+# once it is gone the console's keys reach the PS/2 keyboard, whose interrupt
+# count tells its keys from a USB keyboard's.
+BOOT_ID = "kbd32"
 # The keyboard plugged in and pulled out: its QMP id, its port, and the name
 # the guest's udev gives it, which the guest lists (screens/keyboard-hotplug.sh).
 HOT_ID = "kbd33"
@@ -203,8 +211,43 @@ def key_events(qcodes, down):
 
 
 def listed(lines):
-    """The keyboards the guest listed (screens/keyboard-hotplug.sh)."""
-    return [l.split()[1] for l in lines if l.startswith("T3-KBD ") and len(l.split()) > 1]
+    """The keyboards the guest listed (screens/keyboard-hotplug.sh), as {by-path
+    name: event node}."""
+    return {f[1]: f[2] for f in (l.split() for l in lines) if len(f) == 3 and f[0] == "T3-KBD"}
+
+
+def i8042(lines):
+    """The PS/2 keyboard's interrupt count the guest reported
+    (screens/keyboard-hotplug.sh), or None."""
+    counts = [f[1] for f in (l.split() for l in lines)
+              if len(f) == 2 and f[0] == "T3-I8042" and f[1].isdigit()]
+    return int(counts[-1]) if counts else None
+
+
+def judge_hotplug(control, plugged, typed, pulled, took):
+    """Why keyboard-hotplug failed (CHECKS), from the guest's account of each
+    run of screens/keyboard-hotplug.sh: `control`, two runs typed on the
+    console's keyboard; `plugged` and `typed`, two typed on the plugged-in
+    keyboard; `pulled`, one on the console's once it is out; and `took`, the
+    event nodes vtium logged as keyboards after the plug. None when it
+    passed."""
+    first, second = (i8042(r) for r in control)
+    if first is None or second is None or second <= first:
+        return ("typing on the PS/2 keyboard did not raise its interrupt count (%s, then %s), "
+                "so the count cannot tell the keyboards apart" % (first, second))
+    node = listed(plugged).get(HOT_NAME)
+    if node is None:
+        return "plugged in, the guest lists %s, not %s" % (sorted(listed(plugged)), HOT_NAME)
+    if node not in took:
+        return "vtium took %s after the plug, not %s, the node of %s" % (
+            ", ".join(took) or "no keyboard", node, HOT_NAME)
+    before, after = i8042(plugged), i8042(typed)
+    if before is None or after != before:
+        return ("typing on the plugged-in keyboard moved the PS/2 keyboard's interrupt count "
+                "from %s to %s: its keys came from the PS/2 keyboard" % (before, after))
+    if HOT_NAME in listed(pulled):
+        return "pulled out, the guest still lists %s" % HOT_NAME
+    return None
 
 
 def wait_qmp_event(vm, name, device, timeout):
