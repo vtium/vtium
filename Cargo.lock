@@ -507,6 +507,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vtium-config"
+version = "0.0.0"
+dependencies = [
+ "rustix",
+ "vtium-font",
+]
+
+[[package]]
 name = "vtium-conformance"
 version = "0.0.0"
 dependencies = [
