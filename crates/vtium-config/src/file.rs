@@ -2,8 +2,8 @@
 //!
 //! vtium reads the file only when it is a regular file once symlinks are
 //! followed, root owns it and neither its group nor others can write it,
-//! and each directory above it, on the path given and on the path the
-//! symlinks lead to, is owned by root and writable by neither, as `sshd`'s
+//! and each directory above it, on the path given and above every link
+//! of its symlink chain, is owned by root and writable by neither, as `sshd`'s
 //! `StrictModes` refuses a writable file. Its bytes are then bounded,
 //! UTF-8, and free of control characters but tab and newline, so nothing
 //! the parser quotes can carry one. A file that fails any check is invalid
@@ -90,23 +90,33 @@ fn unreadable(e: &std::io::Error) -> Rejected {
     Rejected::one(None, Problem::Unreadable(e.kind()))
 }
 
-/// The directories above `path`, on the path given and on the path its
-/// symlinks lead to.
+/// The links one resolution of a path follows at most, the kernel's
+/// bound (`MAXSYMLINKS`); `open` has followed the chain within it already.
+const LINKS_MAX: usize = 40;
+
+/// The directories above `path` as given, and above each link of its
+/// symlink chain and the file it ends at, each resolved: the directory
+/// holding every link is checked, since whoever can write it can swap
+/// the link.
 fn directories(path: &Path) -> Result<BTreeSet<PathBuf>, Rejected> {
-    let parent = match path.parent() {
-        Some(p) if !p.as_os_str().is_empty() => p,
-        _ => Path::new("."),
-    };
-    let given = std::fs::canonicalize(parent).map_err(|e| unreadable(&e))?;
-    let target = std::fs::canonicalize(path).map_err(|e| unreadable(&e))?;
-    let mut dirs = BTreeSet::new();
-    for start in [Some(given.as_path()), target.parent()]
-        .into_iter()
-        .flatten()
-    {
-        dirs.extend(start.ancestors().map(Path::to_path_buf));
+    let mut current = std::path::absolute(path).map_err(|e| unreadable(&e))?;
+    let mut dirs: BTreeSet<PathBuf> = current
+        .parent()
+        .map(|p| p.ancestors().map(Path::to_path_buf).collect())
+        .unwrap_or_default();
+    for _ in 0..=LINKS_MAX {
+        let parent = current.parent().unwrap_or(Path::new("/"));
+        let holder = std::fs::canonicalize(parent).map_err(|e| unreadable(&e))?;
+        dirs.extend(holder.ancestors().map(Path::to_path_buf));
+        let meta = std::fs::symlink_metadata(&current).map_err(|e| unreadable(&e))?;
+        if !meta.file_type().is_symlink() {
+            return Ok(dirs);
+        }
+        let target = std::fs::read_link(&current).map_err(|e| unreadable(&e))?;
+        // a relative target is read from the link's own directory
+        current = holder.join(target);
     }
-    Ok(dirs)
+    Err(unreadable(&rustix::io::Errno::LOOP.into()))
 }
 
 /// Reads the head file at `path`: `None` when it does not exist, the

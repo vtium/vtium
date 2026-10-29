@@ -220,3 +220,31 @@ fn the_check_stops_at_a_tests_top_and_reads_the_top_itself() {
         "with no top every directory up to / is read, the open one among them"
     );
 }
+
+#[test]
+fn each_link_of_a_symlink_chain_sits_in_a_directory_that_passes() {
+    let dir = fixture("chain");
+    let (a, open, b) = (dir.join("a"), dir.join("open"), dir.join("b"));
+    for d in [&a, &open, &b] {
+        fs::create_dir(d).expect("a directory");
+        fs::set_permissions(d, fs::Permissions::from_mode(0o755)).expect("mode");
+    }
+    let real = b.join("real.conf");
+    write(&real, "version = 1\n", 0o644);
+    // a/heads.conf -> open/middle -> ../b/real.conf, relative as it often is
+    symlink("../b/real.conf", open.join("middle")).expect("the middle link");
+    let first = a.join("heads.conf");
+    symlink(open.join("middle"), &first).expect("the first link");
+    assert_eq!(
+        read(&first, &me(&dir)).expect("trusted"),
+        Some("version = 1\n".to_owned())
+    );
+
+    // anyone could swap the middle link for one to a file of theirs
+    fs::set_permissions(&open, fs::Permissions::from_mode(0o777)).expect("mode");
+    let p = problem(read(&first, &me(&dir)));
+    assert!(
+        matches!(&p, Problem::Untrusted(Untrusted::Writable { path, .. }) if path.raw().ends_with("/open")),
+        "{p:?}"
+    );
+}
