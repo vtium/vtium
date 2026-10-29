@@ -51,26 +51,6 @@ struct Entry {
 }
 
 impl Entry {
-    /// When the screen last showed one of its glyphs.
-    fn used(&self) -> u64 {
-        self.glyphs.iter().map(|&(_, used)| used).max().unwrap_or(0)
-    }
-
-    /// Its codepoints as runs of consecutive ones, first and length.
-    fn runs(&self) -> Vec<(u32, u32)> {
-        let mut runs: Vec<(u32, u32)> = Vec::new();
-        for &(c, _) in &self.glyphs {
-            let c = u32::from(c);
-            match runs.last_mut() {
-                Some((first, n)) if first.checked_add(*n) == Some(c) => {
-                    *n = n.saturating_add(1);
-                }
-                _ => runs.push((c, 1)),
-            }
-        }
-        runs
-    }
-
     /// Each glyph's share of the set's bytes, rounded up: what dropping
     /// it is taken to free when the glyphs to evict are chosen.
     fn share(&self) -> u64 {
@@ -326,18 +306,6 @@ impl Generated {
         }
         out.retain(|(_, chars)| !chars.is_empty());
         out
-    }
-
-    /// Drops the set least recently on the screen: its cell and the
-    /// codepoints it mapped. `None` when the store is empty.
-    pub fn evict(&mut self) -> Option<(Cell, Vec<(u32, u32)>)> {
-        let (i, _) = self
-            .entries
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, e)| e.used())?;
-        let e = self.entries.remove(i);
-        Some((e.cell, e.runs()))
     }
 
     /// The screen shows `chars` at `cell`: their glyphs are the most
@@ -699,17 +667,18 @@ mod tests {
     }
 
     #[test]
-    fn the_set_least_recently_on_the_screen_is_evicted_first() {
+    fn the_glyph_least_recently_on_the_screen_leaves_first() {
         let mut g = Generated::default();
         add(&mut g, CELL, solid(CELL, &['A']), vec![(0x41, 1)], 10);
         add(&mut g, CELL, solid(CELL, &['B']), vec![(0x42, 1)], 20);
         assert_eq!(g.bytes(), 30);
         // A is on the screen, B is not
         g.touch(CELL, &['A']);
-        assert_eq!(g.evict(), Some((CELL, vec![(0x42, 1)])));
+        assert_eq!(g.make_room(1), vec![(CELL, vec!['B'])]);
         assert_eq!(g.bytes(), 10);
-        assert_eq!(g.evict(), Some((CELL, vec![(0x41, 1)])));
-        assert_eq!(g.evict(), None);
+        assert_eq!(g.make_room(1), vec![(CELL, vec!['A'])]);
+        assert_eq!(g.make_room(1), vec![]);
+        assert_eq!(g.bytes(), 0);
     }
 
     /// `seed`'s R8 glyph `cells` wide at [`CELL`], its coverage between 1

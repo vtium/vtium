@@ -10,8 +10,9 @@
 //! then the rest, a batch at a time, a waiting ask answered before the
 //! next batch. The fill stops at the store's limit ([`crate::deferred`]),
 //! so speculative glyphs never churn the store; only an ask past the limit
-//! evicts, the sets least recently on the screen first, and an evicted
-//! glyph is asked for again when the screen shows it.
+//! evicts, compacting the store by the overrun, the glyphs least recently
+//! shown leaving, and an evicted glyph is asked for again when the screen
+//! shows it.
 //!
 //! The helper runs with an empty environment in `/`, in its own process
 //! group, holding only its pipes, as `nobody` when the console is root
@@ -974,8 +975,10 @@ impl Helper {
     /// The store takes the frame without the glyphs it holds, as a request
     /// may send again a glyph an earlier one brought (ADR-1200 D18), and a
     /// frame with nothing new adds nothing. An ask's past the store's limit
-    /// evicts the sets least recently on the screen; a fill's past it is
-    /// dropped and the fill stopped.
+    /// compacts the store by the overrun, the glyphs least recently shown
+    /// leaving ([`crate::deferred::Generated::make_room`]), and a frame
+    /// that then carries a glyph that left adds it again; a fill's past
+    /// the limit is dropped and the fill stopped.
     fn glyphs(
         &mut self,
         fill: bool,
@@ -1051,22 +1054,32 @@ impl Helper {
                 state.pending.put(c, false);
             }
             let mut fresh = without_held()?;
-            if fresh.bytes() > self.limit {
-                return Ok(None);
-            }
-            while self.store.borrow().bytes().saturating_add(fresh.bytes()) > self.limit {
-                let Some((at, gone)) = self.store.borrow_mut().evict() else {
-                    break;
-                };
-                if let Some(state) = self.cells.iter_mut().find(|c| c.cell == at) {
-                    for c in codepoints(&gone).flatten() {
-                        state.held.put(c, false);
+            loop {
+                if fresh.bytes() > self.limit {
+                    return Ok(None);
+                }
+                let held = self.store.borrow().bytes();
+                let overrun = held
+                    .saturating_add(fresh.bytes())
+                    .saturating_sub(self.limit);
+                if overrun == 0 {
+                    break fresh;
+                }
+                for (at, gone) in self.store.borrow_mut().make_room(overrun) {
+                    if let Some(state) = self.cells.iter_mut().find(|c| c.cell == at) {
+                        for c in gone {
+                            state.held.put(u32::from(c), false);
+                        }
                     }
                 }
-                // a glyph the frame carries may have left with the set
+                if self.store.borrow().bytes() == held {
+                    // nothing left to free
+                    return Ok(None);
+                }
+                // a glyph the frame carries may have left the store, and
+                // the frame then adds it again
                 fresh = without_held()?;
             }
-            fresh
         };
         let added: Vec<char> = fresh.chars().collect();
         let Some(face) = self.store.borrow_mut().add(fresh) else {
@@ -1658,8 +1671,8 @@ mod tests {
         assert!(!s.helper.full);
     }
 
-    // D18, D19: an ask's frame carries B, which the store holds in the set
-    // its eviction drops; the store keeps B from the frame
+    // D18, D19: an ask's frame carries B, which the store holds and the
+    // ask's compaction drops; the store keeps B from the frame
     #[test]
     fn a_held_glyph_whose_set_an_ask_evicts_is_kept_from_the_asks_frame() {
         let bc = set(CELL, &['B', 'C']);
@@ -1678,6 +1691,64 @@ mod tests {
         assert!(answers[1].face.has_glyph('B') && answers[1].face.has_glyph('C'));
         assert!(!s.held('A') && s.held('B') && s.held('C'));
         assert_eq!(s.helper.store.borrow().bytes(), limit);
+    }
+
+    /// A set of `chars` at `cell`, each glyph its own shade, its chunks
+    /// raw as the helper writes them.
+    fn shades(cell: Cell, chars: &[char]) -> Vec<u8> {
+        let mut s = StrikeBuilder::new(PixelFormat::R8, cell, Style::default()).compress(false);
+        for (seed, &c) in (1u32..).zip(chars) {
+            let g = s.glyph(
+                Width::Narrow,
+                (0..cell.width * cell.height)
+                    .map(|i| u8::try_from((i * 7 + seed * 13) % 254 + 1).unwrap())
+                    .collect(),
+            );
+            s.map(c, g);
+        }
+        SetBuilder::new("t").strike(s).write().unwrap()
+    }
+
+    // #145, ADR-1200 D19: an ask at a full store compacts the set that
+    // holds both glyphs the screen shows and the least recently shown:
+    // the shown stay, only enough of the others leave to cover the
+    // overrun, and the store counts the set as written again
+    #[test]
+    fn an_ask_at_a_full_store_compacts_the_set_it_takes_room_from() {
+        let abcd = shades(CELL, &['A', 'B', 'C', 'D']);
+        let e = shades(CELL, &['E']);
+        let limit = (abcd.len() + e.len() - 1) as u64;
+        let script = format!(
+            "head -c {} >/dev/null; cat \"$1\"; head -c {} >/dev/null; cat \"$1.ask\"; cat >/dev/null",
+            request_bytes(FILL),
+            request_bytes(ASK) + 4
+        );
+        let mut fill = frame_bytes(FRAME_FILL, &abcd);
+        fill.extend(filled(CELL));
+        let mut s = StandIn::limited("askcompacts", &script, &fill, limit);
+        let mut ask = frame_bytes(FRAME_GLYPHS, &e);
+        ask.extend(frame_bytes(FRAME_DONE, &[]));
+        std::fs::write(s.dir.join("answer.ask"), ask).unwrap();
+        let now = t0();
+        s.helper.fill(CELL, &[], now);
+        assert_eq!(s.run(now).len(), 1);
+        assert_eq!(s.helper.store.borrow().bytes(), abcd.len() as u64);
+        // the screen shows A and B; C and D are the least recently shown
+        s.helper.store.borrow_mut().touch(CELL, &['A', 'B']);
+        s.helper.ask(CELL, &['E'], now);
+        let answers = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(answers.len(), 1);
+        assert!(answers[0].face.has_glyph('E'));
+        // one byte over: C alone covers it
+        assert!(s.held('A') && s.held('B') && s.held('D') && s.held('E'));
+        assert!(!s.held('C'));
+        let rebuilt = shades(CELL, &['A', 'B', 'D']).len();
+        assert_eq!(s.helper.store.borrow().bytes(), (rebuilt + e.len()) as u64);
+        assert!(s.helper.store.borrow().bytes() <= limit);
+        // C, evicted, is asked for again when the screen shows it
+        s.helper.ask(CELL, &['C'], now);
+        assert!(s.helper.busy());
     }
 
     // a zoom or a hotplug during a fill: the frames already on their way
