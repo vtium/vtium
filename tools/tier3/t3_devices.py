@@ -40,12 +40,14 @@ CHECKS = {
     "udev-examples": "vtium's example udev rules and hwdb fragment, as the tree installs "
                      "them under /usr/share/doc/vtium/examples, read by the guest's udev: "
                      "udevadm verify on the rules, udevadm test with them for each "
-                     "keyboard, and systemd-hwdb with the fragment for three devices. "
-                     "Correct: the rules verify without a message; the keyboard in port "
-                     "pci-0000:15:00.0-usb-0:3.2 gets VTIUM_HEAD=panel and every other "
-                     "keyboard no VTIUM_ property; the fragment builds without a "
-                     "message and marks the token and the numpad it names, and nothing "
-                     "else.",
+                     "keyboard, with the fragment installed, its token's match changed "
+                     "to the PS/2 keyboard, and systemd-hwdb with the fragment as shipped "
+                     "for three devices. Correct: the rules verify without a message; the "
+                     "keyboard in port pci-0000:15:00.0-usb-0:3.2 gets VTIUM_HEAD=panel, "
+                     "the PS/2 keyboard VTIUM_ROLE=token from udev's own 60-evdev.rules, "
+                     "and every other keyboard no VTIUM_ property; the fragment builds "
+                     "without a message and marks the token and the numpad it names, and "
+                     "nothing else.",
     "keyboard-hotplug": "The boot's USB keyboard pulled out, so the PS/2 keyboard is the "
                         "console's; a USB keyboard plugged into port 3.3 of the hub "
                         "through QMP, typed on, then pulled out, and the console typed on "
@@ -72,12 +74,21 @@ KEYBOARD_LINE = re.compile(r"input: using (/dev/input/event\d+) \[([^\]]*)\] as 
 # The port the example rule names, and the property it sets.
 PANEL_PORT = "-usb-0:3.2:"
 PANEL = ["VTIUM_HEAD=panel"]
+# The PS/2 keyboard, which the guest's copy of the hwdb fragment marks as the
+# token (guest/setup), and the property udev gives it.
+PS2_NAME = "platform-i8042-serio-0-event-kbd"
+TOKEN = ["VTIUM_ROLE=token"]
 # What the example hwdb fragment gives each device the guest queries
 # (screens/udev-examples.sh): the token, the numpad, and a device of the
 # numpad's vendor it does not name.
-HWDB = {"vtium:input:b0003vBBBBp0001e0110": ["VTIUM_ROLE=token"],
-        "vtium:input:b0003vAAAAp0002e0110": ["VTIUM_ROLE=numpad"],
-        "vtium:input:b0003vAAAAp0003e0110": []}
+HWDB = {"evdev:input:b0003vBBBBp0001e0110": TOKEN,
+        "evdev:input:b0003vAAAAp0002e0110": ["VTIUM_ROLE=numpad"],
+        "evdev:input:b0003vAAAAp0003e0110": []}
+
+
+def udev_wanted(name):
+    """The VTIUM_ properties udev must give the keyboard of by-path `name`."""
+    return PANEL if PANEL_PORT in name else TOKEN if name == PS2_NAME else []
 
 
 def split(case):
@@ -200,8 +211,10 @@ def judge_udev(keyboards, hwdb, built, verified):
     panel = [k for k in keyboards if PANEL_PORT in k]
     if not panel:
         return "no keyboard in the port the example rule names: %s" % sorted(keyboards)
+    if PS2_NAME not in keyboards:
+        return "no PS/2 keyboard for the hwdb fragment to mark: %s" % sorted(keyboards)
     for name, props in sorted(keyboards.items()):
-        want = PANEL if PANEL_PORT in name else []
+        want = udev_wanted(name)
         if props != want:
             return "udevadm test gave %s %s, not %s" % (name, props or "nothing", want or "nothing")
     for modalias, want in HWDB.items():

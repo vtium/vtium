@@ -39,6 +39,17 @@ if [ -f "$disc"/pointer ]; then
     mountpoint -q /sys/kernel/debug || mount -t debugfs debugfs /sys/kernel/debug
     chmod 0755 /sys/kernel/debug
 fi
+# The udev-examples variant installs the example hwdb fragment as an
+# administrator would, its token's match changed to a device the guest has,
+# the PS/2 keyboard (bus 0011, vendor 0001, product 0001), so udev's own
+# 60-evdev.rules reads the fragment for that keyboard.
+if [ -f "$disc"/udev-examples ]; then
+    install -d /etc/udev/hwdb.d
+    sed 's/^evdev:input:b0003vBBBBp0001\*$/evdev:input:b0011v0001p0001*/' \
+        /usr/share/doc/vtium/examples/vtium.hwdb > /etc/udev/hwdb.d/vtium.hwdb
+    grep -qx 'evdev:input:b0011v0001p0001\*' /etc/udev/hwdb.d/vtium.hwdb
+    systemd-hwdb update
+fi
 # A power variant's kernel settings, such as kernel.ctrl-alt-del for the
 # hard reboot, set before the console starts.
 if [ -f "$disc"/sysctl.conf ]; then

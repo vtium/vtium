@@ -2661,11 +2661,11 @@ class DevicesTest(unittest.TestCase):
     # prints it on a guest whose udev reads them as the record writes them.
     UDEV = ["T3-RULES-VERIFY ok",
             "T3-UDEV pci-0000:15:00.0-usb-0:3.2:1.0-event-kbd VTIUM_HEAD=panel",
-            "T3-UDEV platform-i8042-serio-0-event-kbd",
+            "T3-UDEV platform-i8042-serio-0-event-kbd VTIUM_ROLE=token",
             "T3-HWDB-BUILD ok",
-            "T3-HWDB vtium:input:b0003vBBBBp0001e0110 VTIUM_ROLE=token",
-            "T3-HWDB vtium:input:b0003vAAAAp0002e0110 VTIUM_ROLE=numpad",
-            "T3-HWDB vtium:input:b0003vAAAAp0003e0110",
+            "T3-HWDB evdev:input:b0003vBBBBp0001e0110 VTIUM_ROLE=token",
+            "T3-HWDB evdev:input:b0003vAAAAp0002e0110 VTIUM_ROLE=numpad",
+            "T3-HWDB evdev:input:b0003vAAAAp0003e0110",
             "T3-DONE udev-examples"]
 
     def judge_udev(self, lines):
@@ -2678,24 +2678,33 @@ class DevicesTest(unittest.TestCase):
                 lambda l: l.replace(" VTIUM_HEAD=panel", ""),
                 "udevadm test gave pci-0000:15:00.0-usb-0:3.2:1.0-event-kbd nothing, not "
                 "['VTIUM_HEAD=panel']"),
+            # the installed fragment read by no rule of udev's, as a prefix
+            # udev never looks up leaves it
+            "the PS/2 keyboard unmarked": (
+                lambda l: l.replace(" VTIUM_ROLE=token", "") if "i8042" in l else l,
+                "udevadm test gave platform-i8042-serio-0-event-kbd nothing, not "
+                "['VTIUM_ROLE=token']"),
             "another keyboard marked": (
                 lambda l: l + " VTIUM_IGNORE=1" if "i8042" in l else l,
-                "udevadm test gave platform-i8042-serio-0-event-kbd ['VTIUM_IGNORE=1'], not "
-                "nothing"),
+                "udevadm test gave platform-i8042-serio-0-event-kbd ['VTIUM_ROLE=token', "
+                "'VTIUM_IGNORE=1'], not ['VTIUM_ROLE=token']"),
+            "no PS/2 keyboard": (
+                lambda l: None if "i8042" in l else l,
+                "no PS/2 keyboard for the hwdb fragment to mark"),
             "no keyboard in the port": (
                 lambda l: None if "usb-0:3.2" in l else l,
                 "no keyboard in the port the example rule names"),
             "the token unmarked": (
-                lambda l: l.replace(" VTIUM_ROLE=token", ""),
-                "the hwdb gave vtium:input:b0003vBBBBp0001e0110 nothing, not "
+                lambda l: l.replace(" VTIUM_ROLE=token", "") if "T3-HWDB " in l else l,
+                "the hwdb gave evdev:input:b0003vBBBBp0001e0110 nothing, not "
                 "['VTIUM_ROLE=token']"),
             "a device it does not name marked": (
                 lambda l: l + " VTIUM_ROLE=numpad" if "p0003" in l else l,
-                "the hwdb gave vtium:input:b0003vAAAAp0003e0110 ['VTIUM_ROLE=numpad'], not "
+                "the hwdb gave evdev:input:b0003vAAAAp0003e0110 ['VTIUM_ROLE=numpad'], not "
                 "nothing"),
             "a query missing": (
                 lambda l: None if "p0002" in l else l,
-                "the guest did not query the hwdb for vtium:input:b0003vAAAAp0002e0110"),
+                "the guest did not query the hwdb for evdev:input:b0003vAAAAp0002e0110"),
             "the build complained": (
                 lambda l: "T3-HWDB-BUILD vtium.hwdb:3: Property or empty line expected"
                 if l.startswith("T3-HWDB-BUILD") else l,
@@ -2737,9 +2746,14 @@ class DevicesTest(unittest.TestCase):
         self.assertIn(port + ":", "pci-0000:15:00.0" + t3_devices.PANEL_PORT)
         self.assertEqual(t3_devices.HOT_NAME, "pci-0000:15:00.0-usb-0:%s:1.0-event-kbd"
                          % t3_devices.HOT_PORT)
+        # udev's own prefix, which its 60-evdev.rules looks up; the token's
+        # entry is the one guest/setup changes to the PS/2 keyboard
         with open(os.path.join(examples, "vtium.hwdb")) as f:
-            entries = [l.strip() for l in f if l.startswith("vtium:input:")]
-        self.assertEqual(entries, ["vtium:input:b0003vBBBBp0001*", "vtium:input:b0003vAAAAp0002*"])
+            entries = [l.strip() for l in f if not l.startswith(("#", " ")) and l.strip()]
+        self.assertEqual(entries, ["evdev:input:b0003vBBBBp0001*", "evdev:input:b0003vAAAAp0002*"])
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            setup = f.read()
+        self.assertIn("s/^evdev:input:b0003vBBBBp0001\\*$/evdev:input:b0011v0001p0001*/", setup)
 
     def test_the_examples_are_installed_as_documentation(self):
         # make install-tree puts both under /usr/share/doc/vtium/examples;

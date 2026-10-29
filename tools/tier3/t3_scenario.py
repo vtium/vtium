@@ -428,8 +428,10 @@ def build_disc(variant, work, impl):
     frits it builds, the frits it installs to be generated at run time, a
     `helper-held` file if its helper never answers, a `pointer` file if it
     reads the cursor plane, a
-    `no-udev` file if it runs without a udev daemon, and a `two-vts` file
-    if it runs a second vtium on tty3 from the boot."""
+    `no-udev` file if it runs without a udev daemon, a `two-vts` file
+    if it runs a second vtium on tty3 from the boot, and a `udev-examples`
+    file if it runs that check, whose guest installs the example hwdb
+    fragment."""
     disc = os.path.join(work, "disc")
     shutil.rmtree(disc, ignore_errors=True)
     os.makedirs(disc)
@@ -467,6 +469,8 @@ def build_disc(variant, work, impl):
         open(os.path.join(disc, "helper-held"), "w").close()
     if VARIANTS[variant].get("pointer"):
         open(os.path.join(disc, "pointer"), "w").close()
+    if "udev-examples" in VARIANTS[variant].get("checks", []):
+        open(os.path.join(disc, "udev-examples"), "w").close()
     iso = os.path.join(work, "t3pkg.iso")
     make_iso(disc, "T3PKG", iso)
     return iso
