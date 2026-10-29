@@ -158,7 +158,7 @@ fn a_set_reads_back_every_field() {
         meta,
         [
             ("name", "small-1.0"),
-            ("format", "1.0"),
+            ("format", "2.0"),
             (
                 "build-key",
                 "0000000000000000000000000000000000000000000000000000000000000000"
@@ -298,7 +298,7 @@ fn the_same_inputs_give_the_same_bytes() {
     // the format's bytes, pinned: a change to the layout moves this digest
     assert_eq!(
         sha256_hex(&Sha256::digest(&one)),
-        "3b3cbaf7772b822001e9c99a5f4eb84c2e228f3af7b9ed0b254c30c1e5d9c714"
+        "c411e7cea8698299320c055d444440f1b6f4f547485219a06ad4cfd969315eb7"
     );
 }
 
