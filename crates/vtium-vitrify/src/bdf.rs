@@ -128,7 +128,7 @@ pub fn font(bytes: &[u8]) -> Result<Font, String> {
     }
     // the glyphs
     let mut chars = Vec::new();
-    let (mut seen, mut bytes_held) = (0u32, 0usize);
+    let mut seen = 0u32;
     loop {
         let (line, n) = next()?.ok_or("a BDF font cut short before ENDFONT")?;
         match word(line, 0) {
@@ -138,16 +138,11 @@ pub fn font(bytes: &[u8]) -> Result<Font, String> {
                     return Err(format!("BDF line {n}: more glyphs than CHARS names"));
                 }
                 seen += 1;
-                let Some(c) = glyph(&mut next, n, header.advance)? else {
-                    continue;
-                };
-                // what the placed glyph takes, at most two cells of the
-                // largest a frit states
-                bytes_held = bytes_held.saturating_add(c.rows.len().max(1));
-                if bytes_held > PSF_BYTES_MAX as usize {
-                    return Err(format!("BDF line {n}: glyphs past PSF_BYTES_MAX"));
+                // the rows read are bounded by the file's own bytes; what
+                // they are placed into is bounded in place()
+                if let Some(c) = glyph(&mut next, n, header.advance)? {
+                    chars.push(c);
                 }
-                chars.push(c);
             }
             _ => return Err(format!("BDF line {n}: not STARTCHAR or ENDFONT")),
         }
@@ -334,6 +329,7 @@ fn place(
             c => format!("bdf+{}", c.name()),
         },
     };
+    let mut placed = 0usize;
     for c in chars {
         let cells = match c.advance {
             a if a == width => Width::Narrow,
@@ -345,6 +341,13 @@ fn place(
         }
         let across = width * cells.cells();
         let row = across.div_ceil(8) as usize;
+        placed = placed.saturating_add(row * height as usize);
+        if placed > PSF_BYTES_MAX as usize {
+            return Err(format!(
+                "BDF line {}: its glyphs take past PSF_BYTES_MAX, {PSF_BYTES_MAX} bytes, placed in its {width}x{height} cell",
+                c.line
+            ));
+        }
         let mut bits = vec![0u8; row * height as usize];
         let (w, h, x0, y0) = c.bbx;
         let src_row = w.div_ceil(8) as usize;
@@ -481,6 +484,61 @@ pub(crate) mod tests {
         assert_eq!(rows(&f, ' '), ["...."; 6]);
         let keys: Vec<u32> = f.map.keys().copied().collect();
         assert_eq!(keys, [0x20, 0x41, 0x42, 0x4e2d]);
+    }
+
+    /// A BDF font of `CHARS 65535` with no ink, FONT_ASCENT 96: `narrow`
+    /// glyphs advancing 96 and the rest 192, each `BBX 0 0`, so a few
+    /// bytes of the file place a glyph of up to 2,304 bytes.
+    fn inkless(narrow: u32) -> String {
+        let mut f = String::from(
+            "STARTFONT 2.1\nSTARTPROPERTIES 3\nFONT_ASCENT 96\nFONT_DESCENT 0\n\
+             CHARSET_REGISTRY \"ISO10646\"\nENDPROPERTIES\nCHARS 65535\n",
+        );
+        for i in 0..65535u32 {
+            let advance = if i < narrow { 96 } else { 192 };
+            f.push_str(&format!(
+                "STARTCHAR g\nENCODING {}\nDWIDTH {advance} 0\nBBX 0 0 0 0\nBITMAP\nENDCHAR\n",
+                0x20000 + i
+            ));
+        }
+        f.push_str("ENDFONT\n");
+        f
+    }
+
+    // the reviewer's file: 4.4 MB of BDF placing 146 MB of glyphs, and
+    // under 1 MiB gzipped
+    #[test]
+    fn glyphs_placed_past_psf_bytes_max_refuse_the_font() {
+        let f = inkless(1);
+        assert!(f.len() < 5 << 20, "{}", f.len());
+        let gz = crate::decode::tests::gzip(f.as_bytes());
+        assert!(
+            gz.len() < crate::decode::COMPRESSED_BYTES_MAX,
+            "{}",
+            gz.len()
+        );
+        let e = font(&gz).err().expect("refused");
+        assert!(e.contains("PSF_BYTES_MAX"), "{e}");
+        // one glyph of 1,152 bytes and 7,281 of 2,304 stay under 16 MiB,
+        // and one more passes it
+        let mut few = inkless(1);
+        let cut = few
+            .match_indices("STARTCHAR")
+            .nth(7_282)
+            .map(|(i, _)| i)
+            .expect("a glyph");
+        few.truncate(cut);
+        few.push_str("ENDFONT\n");
+        assert_eq!(font(few.as_bytes()).expect("reads").glyphs.len(), 7_282);
+        let mut more = inkless(1);
+        let cut = more
+            .match_indices("STARTCHAR")
+            .nth(7_283)
+            .map(|(i, _)| i)
+            .expect("a glyph");
+        more.truncate(cut);
+        more.push_str("ENDFONT\n");
+        assert!(font(more.as_bytes()).is_err(), "7,283 glyphs");
     }
 
     #[test]

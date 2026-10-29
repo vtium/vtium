@@ -147,7 +147,8 @@ A frit and every source file are opened once, never blocking on a FIFO, refused 
 | `BDF_LINE_MAX` | 4096 bytes | The BDF font is refused, naming the line |
 | `BDF_GLYPHS_MAX` | 65535 glyphs, as a PSF's | The BDF font is refused |
 | `BDF_BITMAP_MAX` | 192 pixels, a glyph's side or offset | The BDF font is refused, naming the line |
-| A BDF font's cell | 1 to `FRIT_CELL_MAX`, and its glyphs' bitmaps `PSF_BYTES_MAX` in all | The BDF font is refused |
+| A BDF font's cell | 1 to `FRIT_CELL_MAX` a side | The BDF font is refused |
+| A BDF font's glyphs | `PSF_BYTES_MAX` in all, each counted as placed in its one or two cells | The BDF font is refused, naming the bound |
 | A CPI file | 8 fonts of 512 glyphs, 32 wide | It is no CPI file |
 | A glyph | a set's 16 KiB chunk | Left out: a color glyph two cells wide past about 64 pixels |
 | `GLYPHS_MAX`, `MAP_MAX` | 65536 glyphs, a font's 16-bit glyph ids, and no more than the map names; 0x110000 codepoints | The parser's answer is refused |
