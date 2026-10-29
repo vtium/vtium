@@ -13,7 +13,8 @@
 //! frame whole (age 0), which restores every cell beneath it.
 //!
 //! The notice sits across the top of the text's view, where a getty prints
-//! its banner; the mark sits in the view's top right cell.
+//! its banner. The mark fills the grid cell its owner gives it, so the
+//! owner chooses the cell and whether the grid gives it up.
 
 use vtium_font::{Face, Font, Format, Glyph, Style, Width};
 use vtium_term::Rgb;
@@ -56,9 +57,21 @@ impl Surface {
 
     /// The display area that draws the view's area `r`.
     fn area(&self, r: Rect) -> Rect {
-        let (x0, y0) = self.place(r.x, r.y);
+        self.map(r, Surface::place)
+    }
+
+    /// The view's area the display area `r` draws: [`Surface::area`]
+    /// undone.
+    fn view_area(&self, r: Rect) -> Rect {
+        self.map(r, Surface::unplace)
+    }
+
+    /// `r` with its corners taken through `to`, a quarter turn swapping
+    /// its sides.
+    fn map(&self, r: Rect, to: fn(&Surface, u32, u32) -> (u32, u32)) -> Rect {
+        let (x0, y0) = to(self, r.x, r.y);
         let far = |v: u32, n: u32| v.saturating_add(n).saturating_sub(1);
-        let (x1, y1) = self.place(far(r.x, r.width), far(r.y, r.height));
+        let (x1, y1) = to(self, far(r.x, r.width), far(r.y, r.height));
         let (width, height) = if self.orientation.turned() {
             (r.height, r.width)
         } else {
@@ -242,28 +255,34 @@ impl Mark {
         }
     }
 
-    /// Draws the mark in the top right cell of `display`'s view with
-    /// `font`, its circle in `colors.ink` on `colors.paper`, and returns
-    /// the display area it covers. `None`, writing nothing, when the
-    /// display is smaller than the mark.
+    /// Draws the mark in `cell`, a cell's rectangle in the display's
+    /// pixels as the renderer placed the grid, with `font`, its circle in
+    /// `colors.ink` on `colors.paper` and cut to the cell, and returns the
+    /// display area it covers. `None`, writing nothing, when the cell is
+    /// empty or not wholly on the display.
     pub fn draw<F: Face>(
         self,
         font: &Font<F>,
         display: Surface,
+        cell: Rect,
         colors: Colors,
         target: &mut impl Target,
     ) -> Option<Rect> {
-        let c = self.char();
-        let width = cells(font, c);
-        let g = font.glyph(&[c], width, Style::default())?;
         let (vw, vh) = display.view();
-        if g.width() > vw || g.height() > vh {
+        let view = display.view_area(cell);
+        if view.width == 0
+            || view.height == 0
+            || view.x.saturating_add(view.width) > vw
+            || view.y.saturating_add(view.height) > vh
+        {
             return None;
         }
+        let c = self.char();
+        let g = font.glyph(&[c], Width::Narrow, Style::default())?;
         let colors = colors.at(display.depth);
-        let mut picture = Picture::new(g.width(), g.height(), colors.paper);
+        let mut picture = Picture::new(view.width, view.height, colors.paper);
         picture.glyph(0, 0, &g, colors);
-        Some(display.put((vw.saturating_sub(g.width()), 0), &picture, target))
+        Some(display.put((view.x, view.y), &picture, target))
     }
 }
 
@@ -391,6 +410,7 @@ impl Picture {
 #[cfg(test)]
 #[expect(
     clippy::expect_used,
+    clippy::indexing_slicing,
     clippy::arithmetic_side_effects,
     clippy::cast_possible_truncation,
     reason = "a test fails by panicking"
@@ -645,8 +665,21 @@ mod tests {
             let a = Notice::new(FIGURE)
                 .draw(&font, d, Colors::NOTICE, &mut c)
                 .expect("it fits");
+            // the view's top right cell, where the display draws it
+            let cell = match o {
+                Orientation::Normal => (312, 0),
+                Orientation::UpsideDown => (0, 232),
+                Orientation::Right => (232, 312),
+                Orientation::Left => (0, 0),
+            };
+            let cell = Rect {
+                x: cell.0,
+                y: cell.1,
+                width: 8,
+                height: 8,
+            };
             let b = Mark::Focus
-                .draw(&font, d, Colors::NOTICE, &mut c)
+                .draw(&font, d, cell, Colors::NOTICE, &mut c)
                 .expect("it fits");
             (c, a, b)
         };
@@ -721,19 +754,17 @@ mod tests {
             let ink = |mark: Mark| {
                 assert!(font.face().has_glyph(mark.char()), "{name} {mark:?}");
                 let mut canvas = Canvas::new(320, 240, 0);
-                let area = mark
-                    .draw(&font, display(320, 240), Colors::NOTICE, &mut canvas)
-                    .expect("it fits");
                 let cell = font.cell();
-                assert_eq!(
-                    area,
-                    Rect {
-                        x: 320 - cell.width,
-                        y: 0,
-                        width: cell.width,
-                        height: cell.height
-                    }
-                );
+                let cell = Rect {
+                    x: 320 - cell.width,
+                    y: 0,
+                    width: cell.width,
+                    height: cell.height,
+                };
+                let area = mark
+                    .draw(&font, display(320, 240), cell, Colors::NOTICE, &mut canvas)
+                    .expect("it fits");
+                assert_eq!(area, cell);
                 block(&canvas, area.x, 0, area.width, area.height)
                     .iter()
                     .filter(|&&p| p == pixel(Colors::NOTICE.ink))
@@ -758,5 +789,102 @@ mod tests {
         assert_eq!(quote("x\u{200b}y"), "\"x\\u{200b}y\"");
         assert_eq!(quote("say \"hi\" \\"), "\"say \\\"hi\\\" \\\\\"");
         assert_eq!(quote("caf\u{e9} \u{6f22}"), "\"caf\u{e9} \u{6f22}\"");
+    }
+
+    /// The renderer's drawing of `w` by `h` turned as `o`, its cells blank
+    /// but for a full block in the top right one, and that cell's display
+    /// rectangle as the renderer placed it.
+    fn top_right_cell(font: &Font<SetFace>, w: u32, h: u32, o: Orientation) -> (Canvas, Rect) {
+        let cell = font.cell();
+        let (vw, vh) = if o.turned() { (h, w) } else { (w, h) };
+        let (cols, rows) = ((vw / cell.width) as usize, (vh / cell.height) as usize);
+        let mut rows_ = lines(cols, rows, ' ');
+        rows_[0].write(
+            cols - 1,
+            Glyph::Char('\u{2588}'),
+            vtium_term::Width::Narrow,
+            &vtium_term::Style::DEFAULT,
+            None,
+        );
+        let damage = Damage::new(cols, rows);
+        let palette = palette();
+        let config = Config {
+            orientation: o,
+            ..Config::default()
+        };
+        let mut r = Renderer::new(font.clone(), w, h, config);
+        let mut canvas = Canvas::new(w, h, 0);
+        r.draw(
+            &frame(&rows_, &damage, &palette, Age::NEVER),
+            &mut canvas,
+            0,
+            &DrawState::default(),
+        );
+        let lit: Vec<(u32, u32)> = (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .filter(|&(x, y)| canvas.pixel(x, y) != Some(0))
+            .collect();
+        let (x0, y0) = (
+            lit.iter().map(|p| p.0).min().expect("lit"),
+            lit.iter().map(|p| p.1).min().expect("lit"),
+        );
+        let (x1, y1) = (
+            lit.iter().map(|p| p.0).max().expect("lit"),
+            lit.iter().map(|p| p.1).max().expect("lit"),
+        );
+        let rect = Rect {
+            x: x0,
+            y: y0,
+            width: x1 - x0 + 1,
+            height: y1 - y0 + 1,
+        };
+        (canvas, rect)
+    }
+
+    // the mark takes the cell it is given, wherever the renderer centred
+    // the grid, and touches nothing beside it
+    #[test]
+    fn the_mark_fills_the_grid_cell_it_is_given() {
+        for (name, ch, w, h, o) in [
+            ("unscii-8", 8, 1366, 768, Orientation::Normal),
+            ("unscii-8", 8, 1366, 768, Orientation::Right),
+            ("unifont", 16, 640, 480, Orientation::Normal),
+            ("unifont", 16, 1366, 768, Orientation::UpsideDown),
+            ("unifont", 32, 1366, 768, Orientation::Left),
+        ] {
+            let font = font(name, ch);
+            let (grid, cell) = top_right_cell(&font, w, h, o);
+            let mut canvas = grid.clone();
+            let d = Surface {
+                orientation: o,
+                ..display(w, h)
+            };
+            let area = Mark::Focus
+                .draw(&font, d, cell, Colors::NOTICE, &mut canvas)
+                .expect("it fits");
+            assert_eq!(area, cell, "{name} {w}x{h} {o:?}");
+            let c = Colors::NOTICE;
+            for y in 0..h {
+                for x in 0..w {
+                    let now = canvas.pixel(x, y).expect("inside");
+                    let inside = x >= cell.x
+                        && y >= cell.y
+                        && x < cell.x + cell.width
+                        && y < cell.y + cell.height;
+                    if inside {
+                        assert!(
+                            now == pixel(c.ink) || now == pixel(c.paper),
+                            "{name} {w}x{h} {o:?}: the mark at {x},{y}"
+                        );
+                    } else {
+                        assert_eq!(
+                            Some(now),
+                            grid.pixel(x, y),
+                            "{name} {w}x{h} {o:?}: beside it at {x},{y}"
+                        );
+                    }
+                }
+            }
+        }
     }
 }
