@@ -36,10 +36,12 @@ vtium is one console and a few programs and files around it. The table lists eac
 | `vtium-vitrify install` | Checks a portable set and adds it to the store | root or a package hook | built | vtium/vtium#125 |
 | `vtium-vitrify list`, `verify`, `remove` | Lists the built sets, runs the console's check on them, drops one | anyone; `remove` root | built | vtium/vtium#125 |
 | `vtium-vitrify set` | Switches the running console among built sets | the user, in the session | built | vtium/vtium#126 |
+| `vtium-vitrify detect`, `setup`, `status`, `check` | Lists every display and input with a rule ready to paste, writes a head file by asking which keyboard belongs to which display, reports what the running console did with each device, and checks a candidate file | any user; root to install the file | proposed | [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) |
 | `vtium-clipboard`, also `vticlip` | Copies to the console's selection from a script or a pipe | the user, in the session | proposed; copy decided, paste open | vtium/vtium#113 |
 | The frits and the store | Frits that declare sets, and the built sets with a manifest of their hashes | written by root | the store and its check built; frits built by vtium-vitrify's first slice (#125) | vtium/vtium#3 |
 | The built-in sets | Unifont, and Unscii-8 for small displays, compiled into vtium as the fallback and the template every set follows | inside `vtium` | built: the console draws Unscii-8 for cells under 16 pixels and unifont from 16 | vtium/vtium#3, #126 |
 | The configuration | One file, a file for the seat, and the command line | written by root, read by `vtium` | built | [config.md](config.md) |
+| The head file | The heads and the ordered rules that place each display and input, written from a template when absent | written by root or by `vtium-vitrify setup`, read by `vtium` | proposed | [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) |
 | The unit | systemd's service for vtium on a VT, in getty's place | started by logind | built | [systemd.md](systemd.md) |
 | The terminfo entry | Tells programs in the session what vtium can do | read by the session's programs | built | [crates/vtium](../crates/vtium/README.md), vtium/vtium#21 |
 | The package hook | Builds or installs at least the default font set at install and upgrade | the distribution's package manager, as root | proposed | vtium/vtium#3 |
@@ -103,6 +105,18 @@ The figure follows one switch away from vtium's VT and back: who draws on the di
 
 The other VT's owner can be a desktop, a getty or another vtium.
 
+## Heads: a terminal per display
+
+This section describes the design [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) proposes; none of it is built.
+
+The kernel shows one VT on every display, so vtium today draws one grid mirrored across them all. In the design, vtium keeps its one VT and drives every display from one process as a set of heads. A head is a terminal for one or more displays, with its own inputs, its own look and a stack of virtual consoles, each a session of its own, so a small panel and a large monitor each get a grid sized for them, with a keyboard typing into each.
+
+A head file in `/etc/vtium` declares the heads and an ordered list of rules, read as a firewall reads its rules: each display and each keyboard or pointer walks them from the top, and the first that matches places it in a head, in the focus, which a chord moves between heads, or out of use. A rule names a device by its port, its serial number or its monitor's identity, or more weakly by its name. The rules vtium ships put every display in one head and every input in the focus, which is the console as it is today, and a user adds rules above them.
+
+The console can always be typed on. A missing file is written from a template that changes nothing until edited; a broken one is reported on the screen and in the log, left as it is, and replaced in memory by the shipped rules. Whatever the rules say, a keyboard that reaches no lit head follows the focus, and Ctrl-Alt-F<n> for the VT already shown moves the keyboard that pressed it to the focus until the next boot.
+
+vtium-vitrify writes the file for whoever prefers not to, from the console or a desktop terminal, with or without privilege: it lists every device with a rule ready to paste, asks which keyboard belongs to which display, reports what the running console did, and checks a candidate before it is installed.
+
 ## Fonts as vitrified sets
 
 This section describes the design ADR-1200 decides (accepted 2026-10-28, vtium/vtium#3), with the preview of vtium/vtium#120 and the guided builder of vtium/vtium#121. The set format, the console's reader, the store check and the built-in sets (vtium/vtium#124), vtium-vitrify with PSF, kbd and outline sources (vtium/vtium#125, #23), and the console's set selection and switching (vtium/vtium#126) are built: vtium reads no font file, and draws a set from the store or its built-ins.
@@ -161,6 +175,8 @@ vtium-vitrify's set command switches the running console among built sets throug
 ### The configuration
 
 vtium reads one configuration file, then a file for its seat over it, then its command line over both, once at start. It reads the file the C reference read, with its settings, and adds its own. [config.md](config.md) lists every setting.
+
+In the proposed design of ADR-1401, a head file beside it places each display and input ([Heads](#heads-a-terminal-per-display)).
 
 ### Selection and the clipboard
 
