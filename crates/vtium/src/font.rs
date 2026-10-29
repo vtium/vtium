@@ -243,18 +243,47 @@ pub fn frit_cell(text: &str) -> Result<Option<Cell>, String> {
     })
 }
 
-/// The height a frit's `text` starts at, `size=` (ADR-1200 D1), the
-/// height of its glyphs in its cell; `None` when it states none; an error
-/// naming the line for a value vtium-vitrify refuses, or a second `size=`.
+/// The size a frit's `text` starts at, `size=` (ADR-1200 D1), in points;
+/// `None` when it states none; an error naming the line for a value
+/// vtium-vitrify refuses, or a second `size=`.
 pub fn frit_size(text: &str) -> Result<Option<u32>, String> {
     let Some((n, value)) = frit_line(text, "size")? else {
         return Ok(None);
     };
     frit_side(value).map(Some).ok_or_else(|| {
         format!(
-            "line {n}: size={value} is not a height in pixels, {FRIT_CELL_MIN} to {FRIT_CELL_MAX}"
+            "line {n}: size={value} is not a size in points, {FRIT_CELL_MIN} to {FRIT_CELL_MAX}"
         )
     })
+}
+
+/// Points in an inch: a point is 1/72 inch.
+const POINTS_PER_INCH: f64 = 72.0;
+
+/// The pixel height of `points` on a display of `dpi` dots per inch, at
+/// least 1 and at most [`CELL_SIDE_MAX`] (the operator's decision on
+/// vtium/vtium#145).
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is held inside 1..=CELL_SIDE_MAX, a u32, before the cast, and NaN casts to 0"
+)]
+pub fn points_to_pixels(points: u32, dpi: f64) -> u32 {
+    // points × DPI ÷ 72, to the nearest pixel, a half away from zero
+    let pixels = (f64::from(points) * dpi / POINTS_PER_INCH).round();
+    (pixels.clamp(1.0, f64::from(CELL_SIDE_MAX)) as u32).max(1)
+}
+
+/// The whole points at or under `pixels` on a display of `dpi` dots per
+/// inch, held to a u32.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is held inside 0..=u32::MAX before the cast, and NaN casts to 0"
+)]
+fn points_under(pixels: u32, dpi: f64) -> u32 {
+    let points = (f64::from(pixels) * POINTS_PER_INCH / dpi).floor();
+    points.clamp(0.0, f64::from(u32::MAX)) as u32
 }
 
 /// Whether a frit's `text` names an outline source, `outline:` or a
@@ -544,48 +573,45 @@ pub struct Rung {
 impl Chosen {
     /// The frit `frit`, its cell and size read from its text before the
     /// first frame (#145), unless `sized`, a configured `font-size`, wins
-    /// over them (ADR-1200 D16, D17). A name that is not a frit's goes to
+    /// over them (ADR-1200 D16, D17). Its `size=` counts for an outline
+    /// frit only: points do not apply to bitmap fonts (the operator's
+    /// decision on vtium/vtium#145). A name that is not a frit's goes to
     /// the helper as [`GENERATED`]. The error is why they cannot be read.
     pub fn frit(mut frit: FritText, sized: bool) -> Result<Chosen, String> {
         let cell = frit_cell(&frit.text)?;
         let size = frit_size(&frit.text)?;
+        let outline = frit_outline(&frit.text);
         let name = frit.name.clone();
         if !frit_name(&name) {
             GENERATED.clone_into(&mut frit.name);
         }
         Ok(Chosen::Frit {
             name,
-            outline: frit_outline(&frit.text),
+            outline,
             frit,
             cell: cell.filter(|_| !sized),
-            size: size.filter(|_| !sized),
+            size: size.filter(|_| !sized && outline),
             own: None,
             generated: Shared::default(),
         })
     }
 
-    /// A frit's starting cell (ADR-1200 D17): `cell=`; else with `size=`
-    /// alone, that height as wide as the built-in font there; else none.
-    fn stated(&self, locale: &str) -> Option<Cell> {
-        let Chosen::Frit { cell, size, .. } = self else {
-            return None;
-        };
-        cell.or_else(|| {
-            let height = (*size)?;
-            let width = Chosen::Builtin(None).face(height, locale)?.cell().width;
-            Some(Cell { width, height })
-        })
+    /// The cell a frit states, `cell=`, in pixels (ADR-1200 D17).
+    fn stated(&self) -> Option<Cell> {
+        match self {
+            Chosen::Frit { cell, .. } => *cell,
+            Chosen::Builtin(_) => None,
+        }
     }
 
     /// Whether the font is a frit that takes its fonts' own cell, asked of
     /// the helper (the operator, 2026-10-28): its sources bitmap, by its
-    /// text, and no cell or size stated or configured.
+    /// text, and no cell stated or size configured.
     pub fn wants_own_cell(&self) -> bool {
         matches!(
             self,
             Chosen::Frit {
                 cell: None,
-                size: None,
                 own: None,
                 outline: false,
                 ..
@@ -602,9 +628,9 @@ impl Chosen {
 
     /// The cell a bitmap frit's heights are whole multiples of: the one it
     /// states, else its fonts' own.
-    fn base_cell(&self, locale: &str) -> Option<Cell> {
+    fn base_cell(&self) -> Option<Cell> {
         match self {
-            Chosen::Frit { own, .. } => self.stated(locale).or(*own),
+            Chosen::Frit { own, .. } => self.stated().or(*own),
             Chosen::Builtin(_) => None,
         }
     }
@@ -639,7 +665,7 @@ impl Chosen {
     pub fn face(&self, height: u32, locale: &str) -> Option<Box<dyn Face>> {
         if let Chosen::Frit { generated, .. } = self {
             let at = Chosen::Builtin(None).face(height, locale)?;
-            let stated = self.base_cell(locale);
+            let stated = self.base_cell();
             let (cell, step) = match (stated, self.outline()) {
                 // D17, the C reference's outline increase_step of 1: the
                 // stated cell at its own height, else D17's width
@@ -670,7 +696,7 @@ impl Chosen {
     /// or own cell's height and its whole multiples. The built-ins, and a bitmap
     /// frit with no cell stated, step through Unscii-8's 8 under 16, where
     /// it is drawn, and unifont's multiples of 16 from 16.
-    pub fn rungs(&self, locale: &str) -> Vec<Rung> {
+    fn rungs(&self, locale: &str) -> Vec<Rung> {
         let all = |step| Rung {
             step,
             min: step,
@@ -685,7 +711,7 @@ impl Chosen {
             }];
         }
         // D17, the C reference's PSF increase_step of the font's height
-        if let Some(cell) = self.base_cell(locale) {
+        if let Some(cell) = self.base_cell() {
             return vec![all(cell.height)];
         }
         match self {
@@ -707,26 +733,56 @@ impl Chosen {
         }
     }
 
-    /// The height `font-size=0` picks for a display `width` by `height`:
-    /// the height of the cell a frit states, or its `size=`, which no
-    /// display moves (#145, ADR-1200 D17); else [`auto_size`] for the
-    /// font's smallest height, which a frit's own cell takes at the
-    /// largest whole multiple not over it, at least the cell itself, as
-    /// the C reference scaled a PSF font (the operator, 2026-10-28).
-    pub fn auto_height(&self, width: u32, height: u32, locale: &str) -> u32 {
-        match self.stated(locale) {
-            Some(cell) => cell.height,
-            None => self.snap(auto_size(width, height, self.smallest(locale)), locale),
+    /// The height `font-size=0` picks for a display `width` by `height` at
+    /// `dpi`: the height of the cell a frit states, or an outline frit's
+    /// `size=` in points at `dpi`, which no display's size moves (#145,
+    /// ADR-1200 D17); else [`auto_size`] for the font's smallest height,
+    /// which a frit's own cell takes at the largest whole multiple not
+    /// over it, at least the cell itself, as the C reference scaled a PSF
+    /// font (the operator, 2026-10-28).
+    pub fn auto_height(&self, width: u32, height: u32, locale: &str, dpi: f64) -> u32 {
+        if let Some(cell) = self.stated() {
+            return cell.height;
+        }
+        match self {
+            Chosen::Frit {
+                size: Some(points), ..
+            } => points_to_pixels(*points, dpi),
+            _ => self.snap(auto_size(width, height, self.smallest(locale))),
         }
     }
 
     /// The height the font draws when `height` is asked for: a bitmap
     /// frit's stated or own cell's whole multiple at or under it, at least
     /// the cell itself (#145, ADR-1200 D17); else `height`.
-    pub fn snap(&self, height: u32, locale: &str) -> u32 {
-        match self.base_cell(locale) {
+    pub fn snap(&self, height: u32) -> u32 {
+        match self.base_cell() {
             Some(cell) if !self.outline() => frit_cell_at(Some(cell), height, cell).height,
             _ => height,
+        }
+    }
+
+    /// The height a zoom asks for from `size` at `dpi` (ADR-1200 D17): an
+    /// outline frit's next whole point in its direction whose pixels
+    /// differ from `size`, as the C reference's outline engines stepped by
+    /// 1 in their own units (the operator's decision on vtium/vtium#145);
+    /// else the next of its rungs. `None` past [`ZOOM_IN_MAX`]
+    /// in, or below the smallest out.
+    pub fn zoom(&self, size: u32, dir: Zoom, locale: &str, dpi: f64) -> Option<u32> {
+        if !self.outline() {
+            return zoom(&self.rungs(locale), size, dir);
+        }
+        let under = points_under(size, dpi);
+        match dir {
+            Zoom::In if size > ZOOM_IN_MAX => None,
+            Zoom::In => (under.saturating_add(1)..=under.saturating_add(POINTS_SCAN))
+                .map(|p| points_to_pixels(p, dpi))
+                .find(|&h| h > size),
+            Zoom::Out => (under.saturating_sub(POINTS_SCAN)..=under)
+                .rev()
+                .map(|p| points_to_pixels(p, dpi))
+                .find(|&h| h < size)
+                .filter(|&h| h >= self.smallest(locale)),
         }
     }
 
@@ -740,12 +796,21 @@ impl Chosen {
     }
 }
 
+/// The largest height a zoom in starts from, as the C reference refused
+/// above 150 pixels.
+pub const ZOOM_IN_MAX: u32 = 150;
+
+/// The points an outline frit's zoom looks through for a height that
+/// differs: a pixel is at most 3.6 points at vtium-platform's coarsest
+/// density believed, 20 DPI, and rounding moves it by under one more.
+const POINTS_SCAN: u32 = 5;
+
 /// The height a zoom asks for from `size`, the next of `rungs` in its
-/// direction; `None` past 150 in, or below the smallest out.
+/// direction; `None` past [`ZOOM_IN_MAX`] in, or below the smallest out.
 pub fn zoom(rungs: &[Rung], size: u32, dir: Zoom) -> Option<u32> {
     let heights = rungs.iter().filter(|r| r.step > 0);
     match dir {
-        Zoom::In if size > 150 => None,
+        Zoom::In if size > ZOOM_IN_MAX => None,
         Zoom::In => heights
             .filter_map(|r| {
                 let next = size
@@ -911,8 +976,8 @@ mod tests {
         assert_eq!(face(16).cell(), cell(10, 20), "never smaller than stated");
         assert_eq!(face(45).cell(), cell(20, 40));
         assert_eq!(face(20).size_step(), 20);
-        assert_eq!((f.snap(16, "C"), f.snap(45, "C")), (20, 40));
-        assert_eq!(frit_font(None).snap(19, "C"), 19);
+        assert_eq!((f.snap(16), f.snap(45)), (20, 40));
+        assert_eq!(frit_font(None).snap(19), 19);
         assert_eq!(
             f.rungs("C"),
             [Rung {
@@ -924,8 +989,8 @@ mod tests {
         assert_eq!(zoom(&f.rungs("C"), 20, Zoom::In), Some(40));
         assert_eq!(zoom(&f.rungs("C"), 20, Zoom::Out), None);
         // the display moves no stated cell
-        assert_eq!(f.auto_height(3840, 2160, "C"), 20);
-        assert_eq!(f.auto_height(320, 240, "C"), 20);
+        assert_eq!(f.auto_height(3840, 2160, "C", 96.0), 20);
+        assert_eq!(f.auto_height(320, 240, "C", 96.0), 20);
     }
 
     fn frit_of(text: &str, sized: bool) -> Chosen {
@@ -936,21 +1001,21 @@ mod tests {
         Chosen::frit(frit, sized).expect("a frit")
     }
 
-    // ADR-1200 D17: an outline frit zooms by 1 pixel, as the C reference's
-    // outline engines' increase_step did, from its stated cell, each
-    // height but the stated one as wide as the built-in font there
+    // ADR-1200 D17: at 72 DPI, the C reference's fixed density, an
+    // outline frit zooms by 1 pixel, as its outline engines' increase_step
+    // did, from its stated cell, each height but the stated one as wide as
+    // the built-in font there
     #[test]
-    fn an_outline_frit_zooms_by_one_pixel() {
+    fn an_outline_frit_at_72_dpi_zooms_by_one_pixel() {
         for text in [
             "source=outline:/f.ttf\ncell=10x20\n",
             "source=font:DejaVu Sans Mono\ncell=10x20\n",
             "source=kbd:x\nsource=outline:/f.ttf\ncell=10x20\n",
         ] {
             let f = frit_of(text, false);
-            let r = f.rungs("C");
-            assert_eq!(zoom(&r, 20, Zoom::In), Some(21), "{text}");
-            assert_eq!(zoom(&r, 20, Zoom::Out), Some(19), "{text}");
-            assert_eq!(f.snap(21, "C"), 21, "{text}");
+            assert_eq!(f.zoom(20, Zoom::In, "C", 72.0), Some(21), "{text}");
+            assert_eq!(f.zoom(20, Zoom::Out, "C", 72.0), Some(19), "{text}");
+            assert_eq!(f.snap(21), 21, "{text}");
             let cell_at = |h| f.face(h, "C").expect("a face").cell();
             assert_eq!(cell_at(20), cell(10, 20), "{text}");
             assert_eq!(cell_at(21), cell(8, 21), "{text}");
@@ -959,20 +1024,21 @@ mod tests {
         }
         // down to the built-in font's smallest, which it draws in meanwhile
         let f = frit_of("source=outline:/f.ttf\n", false);
-        assert_eq!(zoom(&f.rungs("C"), 9, Zoom::Out), Some(8));
-        assert_eq!(zoom(&f.rungs("C"), 8, Zoom::Out), None);
+        assert_eq!(f.zoom(9, Zoom::Out, "C", 72.0), Some(8));
+        assert_eq!(f.zoom(8, Zoom::Out, "C", 72.0), None);
     }
 
     // the operator's decision on #145, 2026-10-28: a bitmap frit with no
-    // cell or size stated asks for its fonts' own cell, and takes it at the
-    // largest whole multiple not over the automatic height, at least once,
-    // as the C reference scaled a PSF font; it zooms by the cell's height
+    // cell stated asks for its fonts' own cell, and takes it at the largest
+    // whole multiple not over the automatic height, at least once, as the C
+    // reference scaled a PSF font; it zooms by the cell's height
     #[test]
     fn a_frits_own_cell_scales_by_whole_factors_under_the_automatic_height() {
-        assert!(frit_of("source=kbd:x\n", false).wants_own_cell());
+        for text in ["source=kbd:x\n", "source=kbd:x\nsize=16\n"] {
+            assert!(frit_of(text, false).wants_own_cell(), "{text}");
+        }
         for text in [
             "source=kbd:x\ncell=8x16\n",
-            "source=kbd:x\nsize=16\n",
             "source=outline:/f.ttf\n",
             "source=kbd:x\nsource=font:Mono\n",
         ] {
@@ -982,48 +1048,45 @@ mod tests {
         f.set_own_cell(cell(8, 16));
         assert!(!f.wants_own_cell());
         // 1366x768's automatic 19, 1920x1080's 27 and 3840x2160's 54
-        assert_eq!(f.auto_height(1366, 768, "C"), 16);
-        assert_eq!(f.auto_height(1920, 1080, "C"), 16);
-        assert_eq!(f.auto_height(3840, 2160, "C"), 48);
+        assert_eq!(f.auto_height(1366, 768, "C", 96.0), 16);
+        assert_eq!(f.auto_height(1920, 1080, "C", 96.0), 16);
+        assert_eq!(f.auto_height(3840, 2160, "C", 96.0), 48);
         // at least the cell, under #118's floor too
-        assert_eq!(f.auto_height(320, 240, "C"), 16);
+        assert_eq!(f.auto_height(320, 240, "C", 96.0), 16);
         assert_eq!(f.face(16, "C").expect("a face").cell(), cell(8, 16));
         assert_eq!(f.face(48, "C").expect("a face").cell(), cell(24, 48));
         assert_eq!(zoom(&f.rungs("C"), 16, Zoom::In), Some(32));
         assert_eq!(zoom(&f.rungs("C"), 16, Zoom::Out), None);
         let mut f = frit_of("source=kbd:x\n", false);
         f.set_own_cell(cell(8, 8));
-        assert_eq!(f.auto_height(320, 240, "C"), 8);
-        assert_eq!(f.auto_height(640, 480, "C"), 16);
+        assert_eq!(f.auto_height(320, 240, "C", 96.0), 8);
+        assert_eq!(f.auto_height(640, 480, "C", 96.0), 16);
         assert_eq!(f.face(16, "C").expect("a face").cell(), cell(16, 16));
     }
 
-    // ADR-1200 D1, D17: size= alone is the starting height, the cell as
-    // wide as the built-in font there; a bitmap frit zooms by its whole
-    // multiples, as the C reference's PSF engine's increase_step did
+    // ADR-1200 D1, D17: an outline frit's size= alone is its starting
+    // size, the cell as wide as the built-in font at its height; points do
+    // not apply to a bitmap frit, whose size= the console leaves aside (the
+    // operator's decision on #145, 2026-10-28)
     #[test]
-    fn size_alone_starts_the_height_and_cell_wins_over_it() {
-        let f = frit_of("source=kbd:x\nsize=24\n", false);
-        assert_eq!(f.auto_height(320, 240, "C"), 24);
-        assert_eq!(f.face(24, "C").expect("a face").cell(), cell(8, 24));
-        assert_eq!(zoom(&f.rungs("C"), 24, Zoom::In), Some(48));
-        assert_eq!(f.face(48, "C").expect("a face").cell(), cell(16, 48));
-        assert_eq!(zoom(&f.rungs("C"), 24, Zoom::Out), None);
+    fn size_alone_starts_an_outline_frit_and_cell_wins_over_it() {
         let f = frit_of("source=outline:/f.ttf\nsize=24\n", false);
-        assert_eq!(f.auto_height(320, 240, "C"), 24);
-        assert_eq!(zoom(&f.rungs("C"), 24, Zoom::In), Some(25));
-        // the cell is cell='s; size= is the glyph's height in it
-        let f = frit_of("source=kbd:x\ncell=10x20\nsize=16\n", false);
-        assert_eq!(f.auto_height(320, 240, "C"), 20);
+        assert_eq!(f.auto_height(320, 240, "C", 96.0), 32);
+        assert_eq!(f.face(32, "C").expect("a face").cell(), cell(16, 32));
+        let f = frit_of("source=kbd:x\nsize=24\n", false);
+        assert_eq!(f.auto_height(320, 240, "C", 96.0), 8, "the display's");
+        // the cell is cell='s; size= is the glyph's size in it
+        let f = frit_of("source=outline:/f.ttf\ncell=10x20\nsize=16\n", false);
+        assert_eq!(f.auto_height(320, 240, "C", 96.0), 20);
         assert_eq!(f.face(20, "C").expect("a face").cell(), cell(10, 20));
         // a configured font-size wins over both
-        let f = frit_of("source=kbd:x\ncell=10x20\nsize=16\n", true);
-        assert_eq!(f.auto_height(320, 240, "C"), 8);
+        let f = frit_of("source=outline:/f.ttf\ncell=10x20\nsize=16\n", true);
+        assert_eq!(f.auto_height(320, 240, "C", 96.0), 8);
         for (text, why) in [
             ("size=24\nsize=32\n", "line 2: size= given twice"),
             (
                 "size=5\n",
-                "line 1: size=5 is not a height in pixels, 6 to 96",
+                "line 1: size=5 is not a size in points, 6 to 96",
             ),
             ("size=016\n", "line 1: size=016 is not"),
         ] {
@@ -1034,6 +1097,48 @@ mod tests {
             let e = Chosen::frit(frit, false).expect_err(text);
             assert!(e.contains(why), "{text:?}: {e}");
         }
+    }
+
+    // the operator's decision on #145, 2026-10-28: an outline frit's size=
+    // is points, pixels = points x DPI / 72; a 27-inch 2560x1440 monitor is
+    // about 109 DPI, and a display that measures none is assumed 96
+    #[test]
+    fn an_outline_frits_size_is_points_at_the_displays_density() {
+        let f = frit_of("source=outline:/f.ttf\nsize=12\n", false);
+        assert_eq!(f.auto_height(2560, 1440, "C", 108.86), 18);
+        assert_eq!(f.auto_height(2560, 1440, "C", 96.0), 16);
+        assert_eq!(f.auto_height(320, 240, "C", 300.0), 50);
+        // cell= stays in pixels, whatever the density
+        let f = frit_of("source=outline:/f.ttf\ncell=10x20\nsize=12\n", false);
+        assert_eq!(f.auto_height(2560, 1440, "C", 300.0), 20);
+    }
+
+    // the operator's decision on #145, 2026-10-28: an outline frit zooms 1
+    // pt at a time, converted to pixels, to the next point whose pixels
+    // differ
+    #[test]
+    fn an_outline_frit_zooms_by_one_point() {
+        let f = frit_of("source=outline:/f.ttf\nsize=12\n", false);
+        // 12 pt at 96 DPI is 16 px; 13 pt is 17.3, 14 pt 18.7 and 11 pt 14.7
+        assert_eq!(f.zoom(16, Zoom::In, "C", 96.0), Some(17));
+        assert_eq!(f.zoom(17, Zoom::In, "C", 96.0), Some(19));
+        assert_eq!(f.zoom(16, Zoom::Out, "C", 96.0), Some(15));
+        // at 300 DPI a point is over 4 pixels: 12 pt is 50, 13 pt 54.2
+        assert_eq!(f.zoom(50, Zoom::In, "C", 300.0), Some(54));
+        assert_eq!(f.zoom(50, Zoom::Out, "C", 300.0), Some(46));
+        // at 50 DPI 15 pt is 10.4 px, so in from 10 is 16 pt's 11
+        assert_eq!(f.zoom(10, Zoom::In, "C", 50.0), Some(11));
+        // down to the built-in font's smallest, and not in past 150
+        assert_eq!(f.zoom(9, Zoom::Out, "C", 96.0), Some(8));
+        assert_eq!(f.zoom(8, Zoom::Out, "C", 96.0), None);
+        assert_eq!(f.zoom(150, Zoom::In, "C", 96.0), Some(151));
+        assert_eq!(f.zoom(151, Zoom::In, "C", 96.0), None);
+        // a bitmap frit and the built-ins step by their cells, at any density
+        let b = Chosen::Builtin(None);
+        assert_eq!(b.zoom(16, Zoom::In, "C", 300.0), Some(32));
+        let mut k = frit_of("source=kbd:x\n", false);
+        k.set_own_cell(cell(8, 16));
+        assert_eq!(k.zoom(16, Zoom::In, "C", 300.0), Some(32));
     }
 
     // #145: under 16 pixels the smaller strike, Unscii-8, draws
@@ -1066,7 +1171,7 @@ mod tests {
     fn with_no_stated_cell_the_cell_comes_from_the_display() {
         let f = frit_font(None);
         let at = |w, h| {
-            let height = f.auto_height(w, h, "C");
+            let height = f.auto_height(w, h, "C", 96.0);
             f.face(height, "C").expect("a face").cell()
         };
         assert_eq!(at(320, 240), cell(8, 8), "40 by 30");
@@ -1076,7 +1181,7 @@ mod tests {
         assert_eq!(at(3840, 2160), cell(24, 54), "unifont's 24 at 54");
         assert_eq!(f.face(27, "C").expect("a face").size_step(), 16);
         // unifont alone in a zh, ja or ko locale: 16 at the floor
-        let height = f.auto_height(320, 240, "ja_JP.UTF-8");
+        let height = f.auto_height(320, 240, "ja_JP.UTF-8", 96.0);
         assert_eq!(
             f.face(height, "ja_JP.UTF-8").expect("a face").cell(),
             cell(8, 16)

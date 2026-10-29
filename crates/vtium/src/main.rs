@@ -61,6 +61,11 @@ fn main() -> ExitCode {
         for line in lines {
             eprintln!("{line}");
         }
+        if !loaded.config.switch(&keys::HELP) {
+            for note in check::notes(&loaded.config) {
+                println!("{note}");
+            }
+        }
         return ExitCode::from(u8::try_from(status).unwrap_or(1));
     }
     for w in check::warnings(&loaded) {

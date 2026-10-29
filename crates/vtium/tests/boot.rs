@@ -47,6 +47,9 @@ struct Memory {
     refresh_mhz: u32,
     /// Every swap fails, as on a display announced and never shown.
     refuses: bool,
+    /// The density the display measures, across and down; `None` for one
+    /// that reports no physical size.
+    dpi: Option<(f64, f64)>,
 }
 
 impl Default for Memory {
@@ -73,6 +76,8 @@ impl Memory {
             ages: Vec::new(),
             refresh_mhz: 60_000,
             refuses: false,
+            // the C reference's fixed density, where a point is a pixel
+            dpi: Some((72.0, 72.0)),
         }
     }
 }
@@ -95,6 +100,9 @@ impl Video for Memory {
     }
     fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
         Some(self.refresh_mhz)
+    }
+    fn dpi(&self, _: DisplayId) -> Option<(f64, f64)> {
+        self.dpi
     }
     fn canvas(&mut self, _: DisplayId) -> Option<Canvas<'_>> {
         if !self.awake || self.dpms != Some(Dpms::On) {
@@ -263,9 +271,9 @@ impl Harness {
         Harness::boot(args, FakeVt::new(), None)
     }
 
-    /// The seat booted with `args`. The harness draws 16-pixel cells, the
-    /// size every test's grid is reckoned in, unless a test sets
-    /// `font-size`: at 320x160 the automatic size is the built-in
+    /// The seat booted with `args`. The harness draws 16-pixel cells, 16
+    /// points on a display measuring 72 DPI, the size every test's grid is
+    /// reckoned in, unless a test sets `font-size`: at 320x160 the automatic size is the built-in
     /// Unscii-8's 8 pixels (vtium/vtium#118), which its own tests check.
     fn boot<V: Vt + 'static>(args: &[&str], vt: V, video: Option<Box<dyn Video>>) -> Harness {
         Harness::boot_with(args, vt, video, no_fonts())
@@ -1205,6 +1213,9 @@ impl Video for SlowFlip {
     fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
         self.memory.refresh_mhz(id)
     }
+    fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
+        self.memory.dpi(id)
+    }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         self.memory.canvas(id)
     }
@@ -2043,6 +2054,9 @@ impl Video for Late {
     fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
         self.memory.refresh_mhz(id)
     }
+    fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
+        self.memory.dpi(id)
+    }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         self.memory.canvas(id)
     }
@@ -2126,6 +2140,9 @@ impl Video for Planed {
     }
     fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
         self.memory.refresh_mhz(id)
+    }
+    fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
+        self.memory.dpi(id)
     }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         self.memory.canvas(id)
@@ -2290,6 +2307,9 @@ impl Video for Gate {
     }
     fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
         self.memory.refresh_mhz(id)
+    }
+    fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
+        self.memory.dpi(id)
     }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         self.memory.canvas(id)
@@ -3078,6 +3098,9 @@ impl Video for Slow {
     }
     fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
         self.memory.refresh_mhz(id)
+    }
+    fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
+        self.memory.dpi(id)
     }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         self.memory.canvas(id)
@@ -3916,6 +3939,125 @@ fn a_zoom_steps_an_outline_frit_by_one_pixel() {
         cells.push(h.app.cells()[0]);
     }
     assert_eq!(cells, [(10, 20), (8, 21), (10, 20), (8, 19)]);
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+/// The seat on the memory display measuring `dpi`, across and down, or
+/// none, with `args`, the frit `t` of `text` in `fonts`, and a session that
+/// waits.
+fn at_density(args: &[&str], dpi: Option<(f64, f64)>, fonts: &Sources, text: &str) -> Harness {
+    std::fs::write(fonts.frits.join("t.vtfrit"), text).expect("the frit");
+    let args: Vec<&str> = args
+        .iter()
+        .copied()
+        .chain(["--font-name=t", "--login", "--", "/bin/sh", "-c", "read x"])
+        .collect();
+    let memory = Memory {
+        dpi,
+        ..Memory::default()
+    };
+    Harness::fonts(&args, memory, fonts.clone())
+}
+
+/// The lines logged since the last call that say a display's density is
+/// assumed.
+fn assumed() -> Vec<String> {
+    logged()
+        .into_iter()
+        .filter(|l| l.contains("reports no physical size"))
+        .collect()
+}
+
+/// A 27-inch 2560x1440 monitor's density, 597x336 mm: about 109 DPI.
+const DPI_27_INCH: Option<(f64, f64)> = Some((108.9, 108.9));
+
+// the operator's decision on #145, 2026-10-28: an outline frit's size= is
+// points, pixels = points x DPI / 72, at the display's measured density,
+// else at 96 DPI assumed with one warning naming the display
+#[test]
+fn an_outline_frits_size_is_points_at_the_displays_density() {
+    let fonts = recording("points");
+    let frit = "source=outline:/f.ttf\nsize=12\n";
+    assumed();
+    let h = at_density(&["--font-size=0"], DPI_27_INCH, &fonts, frit);
+    assert_eq!(h.app.cells(), [(8, 18)], "12 pt at 109 DPI");
+    assert_eq!(assumed(), Vec::<String>::new());
+    drop(h);
+    let h = at_density(&["--font-size=0"], None, &fonts, frit);
+    assert_eq!(h.app.cells(), [(8, 16)], "12 pt at 96 DPI");
+    assert_eq!(
+        assumed(),
+        [
+            "display MEM-1 reports no physical size: vtium assumes 96 DPI, which display-dpi can state"
+        ]
+    );
+    // font-size is points too, and wins over size=
+    let h = at_density(&["--font-size=10"], DPI_27_INCH, &fonts, frit);
+    assert_eq!(h.app.cells(), [(8, 15)], "10 pt at 109 DPI");
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// the operator's decision on #145, 2026-10-28: display-dpi states the
+// density, over a measured one, and nothing is logged
+#[test]
+fn display_dpi_wins_over_the_measured_density_unlogged() {
+    let fonts = recording("display-dpi");
+    let frit = "source=outline:/f.ttf\nsize=12\n";
+    assumed();
+    for dpi in [None, DPI_27_INCH] {
+        let h = at_density(&["--font-size=0", "--display-dpi=144"], dpi, &fonts, frit);
+        assert_eq!(
+            h.app.cells(),
+            [(8, 24)],
+            "12 pt at 144 DPI, measured {dpi:?}"
+        );
+    }
+    assert_eq!(assumed(), Vec::<String>::new());
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// #145, accepted by the team lead for the operator, 2026-10-28: points
+// measure height, so they convert at the density down the rows as vtium
+// draws them, across on a display turned a quarter, and at the lowest
+// density of several displays
+#[test]
+fn points_convert_down_the_rows_at_the_lowest_density() {
+    let equal = 0x3d;
+    let minus = 0x2d;
+    let fonts = recording("axis");
+    let frit = "source=outline:/f.ttf\nsize=12\n";
+    let mut h = at_density(&["--font-size=0"], Some((72.0, 144.0)), &fonts, frit);
+    assert_eq!(h.app.cells()[0].1, 24, "12 pt at 144 DPI down");
+    h.app.input_event(key(Mods::LOGO, equal), now());
+    assert_eq!(h.app.cells()[0].1, 12, "turned a quarter, 72 DPI across");
+    h.app.input_event(key(Mods::LOGO, minus), now());
+    assert_eq!(h.app.cells()[0].1, 24);
+    let second = Memory {
+        dpi: Some((96.0, 96.0)),
+        ..Memory::default()
+    };
+    h.app
+        .add_video(PathBuf::from("/dev/mem1"), Box::new(second));
+    assert!(h.until(SECOND, |a| a.cells().len() == 2));
+    let heights: Vec<u32> = h.app.cells().iter().map(|c| c.1).collect();
+    assert_eq!(heights, [16, 16], "the lower of 144 and 96 DPI");
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// the operator's decision on #145, 2026-10-28: an outline frit zooms 1 pt
+// at a time, converted to pixels: from 12 pt at 96 DPI, 13 pt is 17 px
+#[test]
+fn a_zoom_steps_an_outline_frit_by_one_point() {
+    let (equal, minus) = (0x3d, 0x2d);
+    let fonts = recording("point-zoom");
+    let frit = "source=outline:/f.ttf\nsize=12\n";
+    let mut h = at_density(&["--font-size=0"], None, &fonts, frit);
+    let mut heights = vec![h.app.cells()[0].1];
+    for k in [equal, equal, minus, minus, minus] {
+        h.app.input_event(key(Mods::CTRL, k), now());
+        heights.push(h.app.cells()[0].1);
+    }
+    assert_eq!(heights, [16, 17, 19, 17, 16, 15]);
     let _ = std::fs::remove_dir_all(&fonts.frits);
 }
 
