@@ -4,15 +4,16 @@
 //!
 //! NAME is checked first, as the console checks it: a built-in font, or a
 //! frit's name with `NAME.vtfrit` a regular file in the frits' directory;
-//! the command fails naming that file when it is neither. It then writes `OSC 50 ; NAME ST` and the query `OSC 50 ; ? ST` to
-//! `/dev/tty`, and reads the reply in raw mode for at most [`WAIT`],
-//! putting the terminal's mode back after. SIGTERM, SIGHUP, SIGINT and
-//! SIGQUIT are held while the terminal is raw, so one that comes then acts
-//! once the mode is back; input left unread, such as a reply that came
-//! late, is dropped first, so it never reaches the shell's prompt. It prints `set NAME` and exits
-//! 0 when the reply names NAME; otherwise it says what the console kept,
-//! or that no reply came: font operations are off (`allow-font-ops`), or
-//! the terminal is not vtium.
+//! the command fails naming that file when it is neither. It then writes
+//! `OSC 50 ; NAME ST` and the query `OSC 50 ; ? ST` to `/dev/tty`, and
+//! reads the reply in raw mode for at most [`WAIT`], putting the
+//! terminal's mode back after. SIGTERM, SIGHUP, SIGINT and SIGQUIT are
+//! held while the terminal is raw, so one that comes then acts once the
+//! mode is back; input left unread, such as a reply that came late, is
+//! dropped first, so it never reaches the shell's prompt. It prints
+//! `set NAME` and exits 0 when the reply names NAME; otherwise it says
+//! what the console kept, or that no reply came: font operations are off
+//! (`allow-font-ops`), or the terminal is not vtium.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
