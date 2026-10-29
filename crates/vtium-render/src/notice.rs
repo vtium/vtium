@@ -155,12 +155,13 @@ impl Colors {
     }
 }
 
-/// `text` from a file, such as a head's name, in double quotes, with every
-/// character a reader could not see or could mistake escaped as Rust
-/// escapes it: a newline, a control character, a quote, a backslash, a
-/// bidirectional or zero-width format character. The notice and the log
-/// put a file's text through it, so the file cannot add a line or hide a
-/// character in vtium's message.
+/// `text` from a file, such as a head's name, in double quotes, escaped as
+/// Rust's `escape_debug` escapes it: a backslash, a quote, every control
+/// character (C0, DEL and C1), and the characters Unicode leaves unprinted,
+/// the bidirectional and zero-width ones among them, so no control
+/// character reaches the notice or the log and the file cannot add a line
+/// to vtium's message. A character that looks like another, such as U+2800,
+/// a combining mark after a letter or a Cyrillic `е`, passes as it is.
 pub fn quote(text: &str) -> String {
     format!("\"{}\"", text.escape_debug())
 }
@@ -1006,6 +1007,25 @@ mod tests {
                     .expect("it fits");
                 assert_eq!(mark, cell);
             }
+        }
+    }
+
+    // the bound of quote: no control character passes, and look-alikes do
+    #[test]
+    fn quote_lets_no_control_character_through() {
+        for c in ('\u{0}'..='\u{1f}')
+            .chain(['\u{7f}'])
+            .chain('\u{80}'..='\u{9f}')
+        {
+            let q = quote(&format!("a{c}b"));
+            assert!(
+                !q.chars().any(char::is_control),
+                "{:?} gave {q:?}",
+                u32::from(c)
+            );
+        }
+        for text in ["\u{2800}", "e\u{301}", "d\u{435}sc"] {
+            assert_eq!(quote(text), format!("\"{text}\""));
         }
     }
 }
