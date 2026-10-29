@@ -26,6 +26,7 @@ mod card;
 mod density;
 mod depth;
 mod drm2d;
+mod edid;
 #[cfg(test)]
 mod fake;
 mod fbdev;
@@ -36,6 +37,7 @@ pub use blank::{Blank, DPMS_TIMEOUT};
 pub use card::Card;
 pub use density::{DPI_ASSUMED, DPI_MAX, DPI_MIN, Density};
 pub use drm2d::{CURSOR_MAX, Drm2d};
+pub use edid::{EdidId, Serial};
 pub use fbdev::{Fb, Fbdev};
 pub use mode::{Mode, ModeLookup, ModePolicy, Wanted};
 
@@ -44,6 +46,25 @@ use std::io;
 /// A display: the connector's id on a DRM card, 0 on fbdev.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DisplayId(pub u32);
+
+/// What names a display to the head file's rules (ADR-1401 D4), with the
+/// mark of the boot display (D9).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Identity {
+    /// The kernel's name of its connector, as `DP-8`.
+    pub connector: String,
+    /// udev's `ID_PATH` of its card, as [`Drm2d::set_card_path`] gave it.
+    pub card: Option<String>,
+    /// The monitor its EDID names, where the connector has one to read.
+    pub edid: Option<EdidId>,
+    /// The connector showed a mode when its card was first scanned, as the
+    /// console or the boot loader left it.
+    pub lit_at_start: bool,
+}
+
+/// Whether a display is left dark: its connector set off, a frame another
+/// master left included, and no display announced for it.
+pub type DarkPolicy = dyn Fn(&Identity) -> bool;
 
 /// A rectangle of pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
