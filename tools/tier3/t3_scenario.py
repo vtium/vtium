@@ -672,7 +672,8 @@ def run_variant(variant, timing, impl, log):
             "startup_ms": console_startup_ms(vm.serial)}
     meta["console"] = console_revision(vm.serial)
     errors_all, drop = variant_errors(error, displays, v["renderer"], caps, rss,
-                                      meta["console"], screens_of(variant))
+                                      meta["console"], screens_of(variant),
+                                      v.get("outputs", ()))
     if drop:
         caps = {}
     if errors_all:
@@ -1001,17 +1002,27 @@ def press_power_keys(vm, cases, work, caps, errors, notes, log, phase):
         phase(case)
 
 
-def variant_errors(error, displays, renderer, caps, rss, console, screens=SCREENS):
+def variant_errors(error, displays, renderer, caps, rss, console, screens=SCREENS,
+                   outputs=()):
     """Every reason a variant failed, the scenario's own `error` first, and
     whether its captures must be dropped so every case fails: when a console
     drew with another renderer than the variant tests, the captures show the
-    wrong path; when a drawn screen has no resident-memory reading (`rss`),
-    the run lacks a figure measured on every run; and when the console
-    (`console_revision`) is not vtium, the captures are another console's."""
+    wrong path; when a variant with `outputs` beyond the first did not set up
+    a display for each, one Display line a display, a capture of an output
+    may show QEMU's screen rather than vtium's; when a drawn screen has no
+    resident-memory reading (`rss`), the run lacks a figure measured on
+    every run; and when the console (`console_revision`) is not vtium, the
+    captures are another console's."""
     out, drop = [error] if error else [], False
     want = "text renderer [%s]" % renderer
     if not displays or not all(want in d for d in displays):
         out.append("the console did not draw with %s: %s" % (renderer, displays))
+        drop = True
+    names = sorted({m.group(1) for m in (re.search(r"Display (\S+) with", d) for d in displays)
+                    if m})
+    if outputs and len(names) != 1 + len(outputs):
+        out.append("the console set up %d display(s) (%s), not one for each of the %d outputs"
+                   % (len(names), ", ".join(names) or "none", 1 + len(outputs)))
         drop = True
     unread = [s for s in screens if s in caps and s not in rss]
     if unread:

@@ -2555,6 +2555,55 @@ class DevicesTest(unittest.TestCase):
                 t3_qemu.vnc_set_size(path, 320, 240)
             t.join()
 
+    def test_each_output_is_captured_from_itself(self):
+        # A fake VM whose every output shows its own steady screen, recording
+        # what each screendump asked for: each capture of a case on another
+        # output names that output's device and head.
+        class Vm:
+            def __init__(self):
+                self.seen = []
+
+            def screendump(self, path, output=None):
+                self.seen.append((os.path.basename(path), output))
+                key = repr(sorted((output or {}).items())).encode()
+                img = t3img.Image(1, 1, hashlib.sha256(key).digest()[:3])
+                t3_qemu.write_ppm(path, img)
+                return img
+
+        for variant, want in (("two-outputs-mirror", {"device": "video0", "head": 1}),
+                              ("two-cards-mirror", {"device": "video1"})):
+            with self.subTest(variant), tempfile.TemporaryDirectory() as d, \
+                    mock.patch.object(t3_qemu.time, "sleep"):
+                vm, caps = Vm(), {}
+                outputs = t3_scenario.VARIANTS[variant]["outputs"]
+                lasts = {o["suffix"]: t3img.Image(1, 1, b"\0\0\0") for o in outputs}
+                t3_scenario.capture_outputs(vm, outputs, d, "cjk", caps, lasts)
+                name = "cjk" + outputs[0]["suffix"]
+                self.assertEqual(caps, {name: os.path.join(d, name + ".ppm")})
+                self.assertEqual(sorted({(p, repr(o)) for p, o in vm.seen}),
+                                 [(name + ".ppm", repr(want))])
+
+    def test_a_display_for_each_output(self):
+        # One Display line a display: a variant whose console set up fewer
+        # displays than it has outputs fails, and its captures are dropped.
+        line = "Display %s with backend [drm2d] text renderer [bbulk], cell size 8x16"
+        outputs = t3_scenario.VARIANTS["two-outputs-mirror"]["outputs"]
+        caps, rss = {"cjk": "a"}, {"cjk": 1}
+        vtium = {"name": "vtium", "revision": "0.1"}
+        both = [line % "Virtual-1", line % "Virtual-2"]
+        self.assertEqual(t3_scenario.variant_errors(None, both, "bbulk", caps, rss, vtium,
+                                                    ["cjk"], outputs), ([], False))
+        self.assertEqual(t3_scenario.variant_errors(None, both[:1], "bbulk", caps, rss, vtium,
+                                                    ["cjk"], outputs),
+                         (["the console set up 1 display(s) (Virtual-1), not one for each of "
+                           "the 2 outputs"], True))
+        # the second console on tty3 logs the same displays again
+        self.assertEqual(t3_scenario.variant_errors(None, both + both, "bbulk", caps, rss,
+                                                    vtium, ["cjk"], outputs), ([], False))
+        # a variant with one output is not counted
+        self.assertEqual(t3_scenario.variant_errors(None, both, "bbulk", caps, rss, vtium,
+                                                    ["cjk"]), ([], False))
+
     def ppm(self, d, name, data):
         path = os.path.join(d, name + ".ppm")
         t3_qemu.write_ppm(path, t3img.Image(1, 1, data))
