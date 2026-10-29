@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 use vtium_font::{PSF_BYTES_MAX, Sha256, sha256_hex};
 use vtium_platform::vt::font::{ConsoleFont, ConsoleTty};
 
-use crate::font::Font;
 use crate::child::Request;
+use crate::font::Font;
 use crate::frit::{Origin, Source};
 use crate::outline::{OUTLINE_BYTES_MAX, OutlineRequest, family_key as outline_key};
 

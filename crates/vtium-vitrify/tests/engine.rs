@@ -227,7 +227,10 @@ fn a_font_named_by_family_resolves_and_a_missing_one_is_left_out() {
     let sha = vtium_font::sha256_hex(&Sha256::digest(&font));
     let psf = Psf::parse(&font).expect("the font parses");
     // the family matches the kbd font with case and blanks ignored
-    let set = w.drawn(&format!("source=font:Ter-V16N\nsha256={sha}\n"), cell(8, 16));
+    let set = w.drawn(
+        &format!("source=font:Ter-V16N\nsha256={sha}\n"),
+        cell(8, 16),
+    );
     draws_as(set, &psf, &chars());
     // a family not on this machine is left out, and the next source gives
     // the glyphs
@@ -297,9 +300,7 @@ fn a_fallback_fills_what_the_first_source_lacks_on_the_bottom_rows() {
         .expect("a face")
         .draw_unscaled(&['▀'], Style::default())
         .expect("drawn");
-    let ours = face
-        .draw_unscaled(&['▀'], Style::default())
-        .expect("drawn");
+    let ours = face.draw_unscaled(&['▀'], Style::default()).expect("drawn");
     assert_eq!((ours.width(), ours.height()), (8, 16));
     assert!(
         ours.pixels()[..8 * 8].iter().all(|&p| p == 0),

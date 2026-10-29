@@ -207,7 +207,12 @@ fn set_names_a_frit_with_no_store() {
     let (master, slave) = pair();
     let answering = console(master.try_clone().expect("dup"), &["tiny"], true);
     let out = Command::new("setsid")
-        .args(["--ctty", env!("CARGO_BIN_EXE_vtium-vitrify"), "--frits", frits])
+        .args([
+            "--ctty",
+            env!("CARGO_BIN_EXE_vtium-vitrify"),
+            "--frits",
+            frits,
+        ])
         .args(["set", "tiny"])
         .stdin(Stdio::from(
             slave.as_fd().try_clone_to_owned().expect("dup"),
