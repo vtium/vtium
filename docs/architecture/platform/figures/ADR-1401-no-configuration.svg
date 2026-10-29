@@ -10,18 +10,18 @@
 <text x="156" y="58" font-size="13" text-anchor="middle">/etc/vtium/heads.conf</text>
 <text x="156" y="76" font-size="12" text-anchor="middle">absent at start</text>
 <line x1="156" y1="84" x2="156" y2="108" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
-<text x="164" y="101" font-size="11">written from template</text>
+<text x="164" y="101" font-size="11">nothing is written</text>
 <rect x="16" y="110" width="280" height="150" fill="#e6eef7" stroke="#2f6fb0"/>
-<text x="30" y="132" font-size="12"># every other setting is</text>
-<text x="30" y="150" font-size="12"># a commented line</text>
+<text x="30" y="132" font-size="12"># compiled into vtium,</text>
+<text x="30" y="150" font-size="12"># held in memory</text>
 <text x="30" y="172" font-size="12">[head console]</text>
 <text x="30" y="190" font-size="12">profile = default</text>
 <text x="30" y="212" font-size="12">[rules]</text>
 <text x="30" y="230" font-size="12">display * -&gt; console</text>
 <text x="30" y="248" font-size="12">input * -&gt; focus</text>
-<text x="156" y="284" font-size="12" text-anchor="middle">the compiled-in default,</text>
-<text x="156" y="302" font-size="12" text-anchor="middle">written out: it changes</text>
-<text x="156" y="320" font-size="12" text-anchor="middle">nothing until edited</text>
+<text x="156" y="284" font-size="12" text-anchor="middle">the compiled-in default;</text>
+<text x="156" y="302" font-size="12" text-anchor="middle">vtium-vitrify writes it</text>
+<text x="156" y="320" font-size="12" text-anchor="middle">as a file when asked</text>
 <line x1="296" y1="200" x2="328" y2="200" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <!-- the head -->
 <rect x="330" y="40" width="320" height="270" fill="#e6eef7" stroke="#2f6fb0" stroke-width="2"/>
@@ -65,11 +65,11 @@
 <line x1="650" y1="64" x2="688" y2="64" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <rect x="690" y="116" width="254" height="48" fill="#e6eef7" stroke="#2f6fb0"/>
 <text x="817" y="136" font-size="13" text-anchor="middle">profile default</text>
-<text x="817" y="154" font-size="11" text-anchor="middle">instanced if absent</text>
+<text x="817" y="154" font-size="11" text-anchor="middle">compiled in when absent</text>
 <line x1="817" y1="88" x2="817" y2="114" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <rect x="690" y="192" width="254" height="48" fill="#e6eef7" stroke="#2f6fb0"/>
 <text x="817" y="212" font-size="13" text-anchor="middle">frit default</text>
-<text x="817" y="230" font-size="11" text-anchor="middle">instanced if absent</text>
+<text x="817" y="230" font-size="11" text-anchor="middle">compiled in when absent</text>
 <line x1="817" y1="164" x2="817" y2="190" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <rect x="690" y="268" width="254" height="70" fill="#e6eef7" stroke="#2f6fb0"/>
 <text x="817" y="288" font-size="12" text-anchor="middle">vconsole's font, where set;</text>
@@ -83,6 +83,6 @@
 <text x="180" y="471" font-size="12">a device</text>
 <rect x="270" y="458" width="22" height="16" fill="#ffffff" stroke="#9aa5b1" stroke-dasharray="6 4"/>
 <text x="300" y="471" font-size="12">absent</text>
-<text x="16" y="492" font-size="11">Proposed (ADR-1401, D6). With no file, vtium behaves as it does today.</text>
+<text x="16" y="492" font-size="11">Proposed (ADR-1401, D6). With no file, vtium behaves as it does today and writes no file.</text>
 </g>
 </svg>

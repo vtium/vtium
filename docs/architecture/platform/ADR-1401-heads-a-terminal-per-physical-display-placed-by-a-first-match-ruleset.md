@@ -52,6 +52,7 @@ basis:
   - evidence: "The operator's machine, read by this record's agent on 2026-10-29 from sysfs and `udevadm info`, without privilege: card1, the discrete GPU (boot_vga 1), DP-8 to a large monitor whose EDID carries a serial string; card0, the integrated GPU (boot_vga 0), HDMI-A-2 to a small panel whose EDID carries one too. A numpad (with a USB serial, path ...usb-0:3.4.1) and an OTP token (path ...usb-0:3.4.2) carry ID_INPUT_KEYBOARD=1, and their key bitmaps declare all 26 letters, Enter, Ctrl, Alt and F1, as keyboard A's and keyboard B's do. Keyboard B reports another maker's vendor id on three event nodes (interfaces 1.0, 1.1, 1.2). A USB receiver's consumer and system controls, the microphone's keys and the Bluetooth headphones' AVRCP node carry ID_INPUT_KEY without ID_INPUT_KEYBOARD and declare no letters; the AVRCP node has no ID_PATH."
   - evidence: "The figures relayed in this record's brief and not re-measured here: the large monitor at 7680x2160 and about 138 DPI, the small panel at 800x480 and about 185 DPI, and today's mirrored layout of the two as one 66x20 grid with letters 108 pixels tall on the large monitor"
   - upstream: "aaronsb/kmscon b1f7a7c5: one seat a process (src/main.c:58-71); a seat's sessions, `session-control` off by default and `session-max` 50 (src/config.c:1357-1358), refused on a real VT (src/seat.c:841-845); `multi-monitor` defaulting to `scaled`, one grid for every display (src/config.c:1418, src/terminal.c:1107-1170); devices kept by ID_SEAT, seat0 when unset (src/uterm/monitor.c:387-451); the fake VT for seats without kernel VTs, which its own comment called debugging-only (src/uterm/vt_fake.c:25-40); a fixed 72 DPI (src/font/font.c:198-199); the key order, the VT's keys first (src/uterm/vt_real.c:705); every option of the example configuration a commented line (scripts/etc/kmscon.conf.example)"
+  - upstream: "aaronsb/kmscon origin/main: the build installed scripts/etc/kmscon.conf.example into the configuration directory at install time (meson.build:409-413); the C reference never wrote a configuration file at run time"
   - standard: "sd-login(3) and logind's seats, systemd 262: a seat holds whole devices, and only seat0 has kernel VTs (external, not re-verified here)"
   - standard: "wayland-protocols staging/drm-lease/drm-lease-v1.xml, wp_drm_lease_device_v1: a compositor leases connectors, CRTCs and planes of its card to a client (external, not re-verified here)"
   - standard: "sshd_config(5) StrictModes; nft(8) -c; visudo(8) -c; sshd(8) -t; the XDG Base Directory Specification 0.8, XDG_STATE_HOME; open(2) O_CREAT, O_EXCL and O_NOFOLLOW (external, not re-verified here)"
@@ -68,6 +69,10 @@ considered:
     via: operator, in conversation with the team lead, 2026-10-29; the wording is the team lead's
     paraphrase: true
     covers: [losing a display]
+  - operator: aaronsb
+    said: "vtium never writes a configuration file. With no head file, profile or frit present it runs the compiled-in configuration, the shipped two rules, the default profile and the default frit, unchanged as the always-typeable guarantee. The first default configuration is written by vtium-vitrify when asked (setup, or a command that writes the commented template), under D12's privilege flow: sudo installs into /etc, unprivileged writes the XDG draft and prints how to install it. A package may also ship the template as a tracked configuration file or an example; that is the distribution's choice. Root services do not write their own /etc configuration at run time (sshd's comes from its package; systemd runs with /etc empty), and the C reference shipped kmscon.conf.example through its build's install step, never at run time. This reverses the earlier 'a missing configuration is instanced from its template'."
+    via: operator, in conversation with the team lead, 2026-10-29; the wording is the team lead's
+    paraphrase: true
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and an unclaimed keyboard follows the focus chord"
@@ -87,7 +92,7 @@ related: []
 
 ## Summary
 
-- **Decided:** vtium drives every display it can see from one process, as a set of **heads**. A head is a terminal for one or more displays: its displays, its inputs, a profile, and a stack of virtual consoles, each a session with its own pty, screen, scrollback and grid. A head's grid is its own, so each head draws at its own displays' density. One optional, root-owned head file declares the heads and an ordered ruleset; each display and each input walks the rules alone, top to bottom, and the first match places it: in a head, in the focus, ignored, or dark. The shipped ruleset, `display * -> console` and `input * -> focus`, is today's console. Absent files are instanced from templates that change nothing until edited; an invalid file is reported, never altered, and replaced in memory by the shipped default; and three guards keep a keyboard typing whatever the rules say, the last of them a key the user presses: `Ctrl-Alt-F<n>` for the VT already shown. `vtium-vitrify` becomes the configuration tool: it detects, sets up, reports and checks, with or without privilege, from the console or a desktop.
+- **Decided:** vtium drives every display it can see from one process, as a set of **heads**. A head is a terminal for one or more displays: its displays, its inputs, a profile, and a stack of virtual consoles, each a session with its own pty, screen, scrollback and grid. A head's grid is its own, so each head draws at its own displays' density. One optional, root-owned head file declares the heads and an ordered ruleset; each display and each input walks the rules alone, top to bottom, and the first match places it: in a head, in the focus, ignored, or dark. The shipped ruleset, `display * -> console` and `input * -> focus`, is today's console. With no file present vtium runs its compiled-in configuration, and it never writes one; an invalid file is reported, never altered, and replaced in memory by the shipped default; and three guards keep a keyboard typing whatever the rules say, the last of them a key the user presses: `Ctrl-Alt-F<n>` for the VT already shown. `vtium-vitrify` becomes the configuration tool: it detects, sets up, reports and checks, with or without privilege, from the console or a desktop.
 - **Trades away:** One process holds every display of the seat, so a fault in one head's session handling reaches every head. Several terminals share one kernel VT, which the C reference refused. The console takes on device routing, a ruleset parser and a notice of its own, and opens keyboards the rules ignore. Mirroring across heads with different densities, which today's single grid gives, needs a head that claims both displays.
 - **One-way?** Expensive once a release ships the head file: its syntax, its match keys and its targets become the format users' files are written in. Everything behind the file changes in a session.
 - **Probes:**
@@ -283,14 +288,16 @@ One keyboard and two heads, before and after the focus chord:
 ### D6: defaults that always type
 
 - With no configuration at all, vtium gives a lit console that can be typed on. The chain: the shipped head file's two rules name the default head; the default head names the default profile; the default profile names the default frit; the default frit draws vconsole's font where one is set, else the built-in fonts, compiled into vtium, which draw with no helper and no font file (ADR-1200 D9, D7). This holds where vtium can take the card; where another display server holds it, vtium waits for its VT as today.
-- The compiled-in defaults are the truth. A missing default file is instanced from its template: the head file, the default profile and the default frit, and no other. A template is every setting written as a commented line, as the C reference shipped its example configuration, so an instanced file changes nothing until edited and the defaults move with vtium. The head file's template carries `[head console]` and the two shipped rules as live lines, since an empty ruleset lights no display; they state the compiled-in default, so they too change nothing.
-- vtium writes an instanced file only when it is absent (`O_CREAT | O_EXCL`), follows no symlink (`O_NOFOLLOW`), refuses when `/etc/vtium` fails the ownership check of D10, writes it `root:root 0644`, and carries the templates in its binary.
-- Instancing is best effort: a read-only root, a missing `/etc/vtium` or a refused directory runs the compiled-in defaults with one log line. `instance-defaults`, a kmscon.conf switch on by default, turns it off for a distribution that ships the templates as files.
+- **vtium never writes a configuration file.** With no head file, profile or frit present it runs the compiled-in configuration, the shipped two rules, the default profile and the default frit, and a missing file is neither an error nor a file to create. Root services do not write their own `/etc` configuration at run time: sshd's comes from its package, and systemd runs with `/etc` empty; the C reference's build installed its example configuration (`kmscon/meson.build:409-413`), and its program never wrote one.
+- **The first default configuration is `vtium-vitrify`'s to write,** when asked: by `setup`, or by `template`, which writes the commented template of the head file, the default profile and the default frit, under D12's privilege flow. A template is every setting written as a commented line, so a file written from it changes nothing until edited; the head file's template carries `[head console]` and the two shipped rules as live lines, since an empty ruleset lights no display, and they state the compiled-in default.
+- A distribution may ship the template as a tracked configuration file or as an example; that is its choice.
 - A profile naming a frit that does not exist draws the default frit with a log line and creates no file.
+
+> Edited 2026-10-29: the operator decided that vtium never writes a configuration file (`considered`), reversing "A missing configuration is instanced from its template" (basis). D6 read: "A missing default file is instanced from its template: the head file, the default profile and the default frit, and no other [...] vtium writes an instanced file only when it is absent (`O_CREAT | O_EXCL`), follows no symlink (`O_NOFOLLOW`), refuses when `/etc/vtium` fails the ownership check of D10, writes it `root:root 0644`, and carries the templates in its binary. Instancing is best effort: a read-only root, a missing `/etc/vtium` or a refused directory runs the compiled-in defaults with one log line. `instance-defaults`, a kmscon.conf switch on by default, turns it off for a distribution that ships the templates as files."
 
 A machine with no configuration at all:
 
-![No configuration. On the left, /etc/vtium/heads.conf, absent at start and drawn dashed, is written from its template: every other setting a commented line, then [head console], profile = default, [rules], display * -> console and input * -> focus, the compiled-in default written out, which changes nothing until edited. In the middle, head console holds the large monitor, 7680x2160 at about 138 DPI on DP-8 of the discrete GPU, and the small panel, 800x480 at about 185 DPI on HDMI-A-2 of the integrated GPU, as one grid mirrored by the scaled rule. Below it, the focus rests on head console, and keyboard A, keyboard B, a numpad, an OTP token and a mouse all reach it through input * -> focus. On the right, the default chain: head console names its profile; profile default, instanced if absent; frit default, instanced if absent; and vconsole's font where set, else the built-in fonts, Unscii-8 and unifont. A legend marks vtium as root, a device, and absent; the caption says that with no file vtium behaves as it does today.](figures/ADR-1401-no-configuration.svg)
+![No configuration. On the left, /etc/vtium/heads.conf, absent at start and drawn dashed, and nothing is written: vtium holds the compiled-in configuration in memory, [head console], profile = default, [rules], display * -> console and input * -> focus, which vtium-vitrify writes as a file when asked. In the middle, head console holds the large monitor, 7680x2160 at about 138 DPI on DP-8 of the discrete GPU, and the small panel, 800x480 at about 185 DPI on HDMI-A-2 of the integrated GPU, as one grid mirrored by the scaled rule. Below it, the focus rests on head console, and keyboard A, keyboard B, a numpad, an OTP token and a mouse all reach it through input * -> focus. On the right, the default chain: head console names its profile; profile default, compiled in when absent; frit default, compiled in when absent; and vconsole's font where set, else the built-in fonts, Unscii-8 and unifont. A legend marks vtium as root, a device, and absent; the caption says that with no file vtium behaves as it does today and writes no file.](figures/ADR-1401-no-configuration.svg)
 
 ### D7: an invalid configuration
 
@@ -310,20 +317,20 @@ The default chain and each file's fallback, from the head file to the built-in f
 
 ```mermaid
 flowchart LR
-    HF{"the head file"} -->|"missing"| HFI["instanced from its template,<br>else the compiled-in default"]
+    HF{"the head file"} -->|"missing"| HFI["the compiled-in default,<br>nothing written"]
     HF -->|"invalid"| HFS["the shipped two rules,<br>logged, notice"]
     HF -->|"valid"| HFV["its heads and rules"]
     HFI --> PR
     HFS --> PR
     HFV --> PR{"each head's profile"}
-    PR -->|"missing default"| PRI["instanced from its template"]
+    PR -->|"missing default"| PRI["the compiled-in<br>default profile"]
     PR -->|"missing, by name"| PRD["the default profile,<br>logged"]
     PR -->|"invalid"| PRD
     PR -->|"valid"| PRV["its look and its frit"]
     PRI --> FR
     PRD --> FR
     PRV --> FR{"the profile's frit"}
-    FR -->|"missing default"| FRI["instanced from its template"]
+    FR -->|"missing default"| FRI["the compiled-in<br>default frit"]
     FR -->|"missing, by name"| FRD["the default frit,<br>logged, no file made"]
     FR -->|"invalid"| FRD
     FR -->|"valid"| FRV["generated by the helper"]
@@ -412,7 +419,7 @@ flowchart TD
 - **Determinism row** (docs/architecture.md): a property test walks a generated set of devices through a generated ruleset in every order and at every hotplug point, and the placement of each device is the same.
 - The anti-lockout guard, the display guard and the rescue each have a boot test: every keyboard claimed by a head with no display types into the focus; an empty ruleset lights the boot display; the rescue moves a claimed keyboard and an ignored one and writes nothing.
 - A head losing its last display keeps its sessions under `nohup` and resumes them when a matching display returns, hangs them up at once under `hangup`, and under `hangup 30s` resumes them on a return within the time and hangs them up after it; a mirrored head losing one of two displays keeps them under every value.
-- An instanced template, read back, gives the compiled-in defaults, and a present file, a symlink and a writable `/etc/vtium` are each left untouched.
+- A boot with no file present writes nothing under `/etc/vtium`, its listing the same before and after, and the template `vtium-vitrify template` writes, read back, gives the compiled-in defaults.
 - **The verification plan:** tier 3 proves heads before any VT review on the operator's hardware. Its QEMU guest exposes two virtual outputs (virtio-gpu's `max_outputs=2`), with a second virtio-gpu device for the case of two cards, and the guest runs two heads at two sizes against them: the ruleset placing each display and each emulated keyboard, an emulated keyboard added and removed through QEMU's monitor as the hotplug case, and each guard, with screens captured and compared as tier 3 compares them. A display unplugged on the virtual card, where QEMU cannot raise it, is left to the VT review, which then runs on the operator's two cards.
 
 ### D12: `vtium-vitrify` as the configuration tool
@@ -425,9 +432,11 @@ Hand-editing the head file, the profiles and the frits stays fully supported; th
 | `setup` | any user; keypress identification needs root or the input group | Asks, per display, which keyboard and pointer, which profile and frit, and writes the strongest match each device offers (as `pwmconfig`). |
 | `status` | any user | What the running console did: which rule took each device, which guard acted (as `sensors`), read from `/run/vtium/`. |
 | `check FILE` | any user | Checks a candidate as `vtium check-config` does. |
+| `template` | any user; root to install | Writes the commented template of the head file, the default profile and the default frit (D6): under sudo into `/etc/vtium`, never over a file present; as a user into the draft directory below, printing how to install it. |
 | `install DIR` | root | Checks, backs up the files it replaces beside them, replaces them atomically, and stages the trial. |
 | `new`, `preview` | the user | The frit builder and the preview already planned (#121, #120; vtium/vtium#3 tracks them). |
 
+- **The tool writes the first default configuration,** by `setup` or `template`; vtium itself writes none (D6).
 - **One crate parses and evaluates the configuration,** and both binaries link it, so the verdict before install is the verdict at boot. Detection and setup live only in `vtium-vitrify`; `vtium`'s binary stays inside its size budget, and `vtium-vitrify` ships everywhere as the glyph helper `serve` (ADR-1200 D15).
 - **It identifies a keyboard by behaviour,** asking for a keypress on it, as `pwmconfig` stops each fan; without privilege it asks the user to unplug and plug the device again, since udev's events are readable by any user.
 - **It never disconnects itself.** `detect` and `setup` read inputs without a grab, take no DRM master, set no mode and switch no VT. To identify a display it asks vtium to draw an overlay that moves nothing, through a socket under `/run/vtium/` that takes requests from root alone. `setup` finds its own head in `/run/vtium/` and warns before any candidate that moves the keyboard it is answered from or its head's display.
@@ -480,9 +489,9 @@ The probes, in the order the record raises them:
 6. The caps on consoles per head and in total, and how their scrollback fits minspec's memory figure (D10).
 7. Whether vtium also reads a writable configuration directory on a read-only root, a security decision this record leaves open.
 8. The draft directory, `$XDG_STATE_HOME/vtium/drafts/<time>/` here, and whether OSC 50 may preview an unprivileged user's draft frit on the console during a trial, its sources read by the sandboxed helper as `nobody`.
-9. The team lead's proposals, written above as the design: `check-config`'s note on weak matches (D4); the instanced templates as commented lines, best effort, and only the default files (D6); missing and changing hardware (D8); focus and input (D5); the security rules (D10).
+9. The team lead's proposals, written above as the design: `check-config`'s note on weak matches (D4); missing and changing hardware (D8); focus and input (D5); the security rules (D10).
 
-Agent calls the operator has not yet looked at: the head file's syntax and the target `dark` setting the connector off (D3); naming cards by `ID_PATH` (D4); the keyboard class as 26 letters and Enter (D9); the head file's template carrying its two rules live (D6); `instance-defaults` (D6); `check-config`'s exit status for hardware-dependent findings (D7); the form of `on-loss`'s duration (D8); mode 1004's focus per head (D5); the overlay socket for root alone (D12); and that the blank stays the seat's, any head's activity waking every display.
+Agent calls the operator has not yet looked at: the head file's syntax and the target `dark` setting the connector off (D3); naming cards by `ID_PATH` (D4); the keyboard class as 26 letters and Enter (D9); the head file's template carrying its two rules live, and the command name `template` (D6, D12); `check-config`'s exit status for hardware-dependent findings (D7); the form of `on-loss`'s duration (D8); mode 1004's focus per head (D5); the overlay socket for root alone (D12); and that the blank stays the seat's, any head's activity waking every display.
 
 ## Evidence: a machine with two displays
 
@@ -529,6 +538,7 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - No ruleset, file or hardware change can leave the console with no keyboard typing into a lit display.
 - A monitor that sleeps and drops off its link, a KVM switch or a pulled cable leaves every session running under the default `nohup`, as on the kernel's console.
 - Placement is a function of each device and the file, so tests can enumerate it and a hotplug behaves as a boot does.
+- vtium writes nothing under `/etc`, so a read-only root, an image build and a package-managed `/etc` need no switch and see no file appear.
 - `vtium-vitrify` gives a user a correct file without reading this record, from the console or a desktop, with or without privilege.
 
 ### Negative
@@ -538,6 +548,7 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - Keyboards the rules ignore are still opened, read and dropped.
 - Under `nohup`, a session whose head has lost its display keeps running unseen until a matching display returns; a head that should end it sets `hangup` or `hangup DURATION`.
 - A head's consoles multiply memory; on minspec the caps bind.
+- A user who wants a file to edit asks `vtium-vitrify` for one, or copies the example a package ships; a bare install has none.
 - A user who wants one session mirrored across displays at different densities still gets one grid sized by the scaled rule.
 
 ### Neutral
@@ -555,6 +566,7 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - **Keys per display in kmscon.conf,** as `mode=` takes `GPU[CONNECTOR]`. Rejected: keys have no order, so no first match, no routing of inputs and no default to fall through to.
 - **xorg.conf's model,** sections that reference each other (devices, monitors, screens, layouts, input classes). Rejected for the failures D3 lists: a required file, cross-references that break, unmatched sections as errors, and files written by hand only.
 - **Inferring placement,** spreading keyboards one per head or pairing devices by their ports. Rejected: it misplaces tokens and media-key devices, and its result depends on what is plugged in where in ways a user cannot read from a file.
+- **vtium instancing missing files at run time,** the draft's design, writing each absent default file from a template compiled into it. Rejected (the operator, 2026-10-29): root services do not write their own `/etc` configuration at run time, as sshd's comes from its package and systemd runs with `/etc` empty, and the C reference shipped its example through its build's install step (`kmscon/meson.build:409-413`), never at run time. The configuration tool writes it on request instead (D6, D12).
 - **Repairing an invalid file in place,** or refusing to start. Rejected: repair alters a file root wrote, and a refusal leaves a dead screen; vtium runs the shipped default and says why.
 - **Hanging up by default,** at once or after a grace period, the draft's proposal. Rejected (the operator, 2026-10-29): a console is not a line, the kernel's VT console keeps its session through a lost monitor, and a sleeping monitor or a KVM switch would end sessions. Both stay as `on-loss` values.
 - **Reattaching a session to any display that appears,** as the kernel console shows its session on any monitor. Narrowed: a head reattaches only to a display its rules match (D8).
