@@ -104,7 +104,7 @@ impl Vt for FakeVt {
         toggle
     }
 
-    /// The kernel VT's rule for its number: Ctrl+Alt+F<n> or
+    /// The kernel VT's rule for its number: `Ctrl+Alt+F<n>` or
     /// `XF86Switch_VT_<n>` while it is ours; with no number, none.
     fn is_own_key(&self, key: &KeyEvent) -> bool {
         self.num.is_some() && switch_target(key) == self.num && self.is_active()

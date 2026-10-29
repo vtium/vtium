@@ -589,7 +589,7 @@ impl<C: Console> Vt for KernelVt<C> {
         true
     }
 
-    /// Ctrl+Alt+F<n> or `XF86Switch_VT_<n>` for this VT, while it is ours
+    /// `Ctrl+Alt+F<n>` or `XF86Switch_VT_<n>` for this VT, while it is ours
     /// and shown, as the C reference ignored it (vt_real.c:505-516).
     fn is_own_key(&self, key: &KeyEvent) -> bool {
         switch_target(key) == Some(self.num) && self.shown_and_ours()
