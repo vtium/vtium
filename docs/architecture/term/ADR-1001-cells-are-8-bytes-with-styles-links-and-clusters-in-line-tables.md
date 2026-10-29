@@ -173,6 +173,8 @@ Tier 3 measures the real figures from the first working build (kmscon ADR-304 §
 
 > Added 2026-10-28 (vtium/vtium#131), the operator's decision: the minspec peak figure is 16 MiB, and the scrollback is bounded by its memory as well as its lines. `sb-memory` sets its byte budget, each row costing its struct and its heap; the oldest lines go past it, as past `sb-size`, which can only lower what the budget allows. The default, 5,963,776 bytes, is what 16 MiB leaves after the first screen (about 10.06 MiB, above) and a full link store, rounded down to 64 KiB: about 788 rows at 7,560 bytes, so the worst default scrollback comes to about 15.99 MiB, and 1,000 full-width shell lines take about 1.45 MiB of it. `the_worst_default_scrollback_fits_the_minspec_peak` prices each row at 7,560 bytes and asserts the 16 MiB figure. The budget is fenced from 1 MiB to the lesser of 1 GiB and a quarter of the machine's memory, so at the larger line caps the fence, not the line count, bounds the worst case.
 
+> Added 2026-10-29: with heads (ADR-1401 D1), each head holds a stack of virtual consoles, and each console's session has a scrollback of its own under `sb-memory`, so the scrollback across every virtual console on minspec needs a total budget. No decision sets it yet: it is an open question for the heads build, beside ADR-1401's probe 6 on the caps of consoles per head and in total.
+
 ## Consequences
 
 ### Positive
