@@ -13,7 +13,7 @@ use crate::bounds::{
     CONSOLES_MAX, FONT_SIZE_MAX, HEADS_MAX, LINE_MAX, NAME_MAX, RULES_MAX, TOKENS_MAX,
 };
 use crate::config::{Config, Guards, Head, OnLoss, Rule, Target};
-use crate::error::{Note, Problem, Quoted, Rejected, Warning};
+use crate::error::{Error, Note, Problem, Quoted, Rejected, Warning};
 use crate::identity::Kind;
 use crate::matching::{Match, Token, TokenError};
 
@@ -486,8 +486,13 @@ impl Parser {
     }
 
     fn finish(mut self) -> Result<Parsed, Rejected> {
+        // errors found once every line is read, merged in by line
+        let mut late = Vec::new();
         if !self.versioned {
-            self.errors.push(None, Problem::MissingVersion);
+            late.push(Error {
+                line: None,
+                problem: Problem::MissingVersion,
+            });
         }
         for pending in std::mem::take(&mut self.pending) {
             let index = self
@@ -498,12 +503,14 @@ impl Parser {
             let line = self.config.rules.get(pending.rule).map_or(0, |r| r.line);
             match (index, self.config.rules.get_mut(pending.rule)) {
                 (Some(index), Some(rule)) => rule.target = Target::Head(index),
-                _ => self.error(line, Problem::UndefinedHead(Quoted::new(&pending.name))),
+                _ => late.push(Error {
+                    line: Some(line),
+                    problem: Problem::UndefinedHead(Quoted::new(&pending.name)),
+                }),
             }
         }
+        self.errors.merge(late);
         if !self.errors.is_empty() {
-            // the errors in the file's order, the undefined heads among them
-            self.errors.errors.sort_by_key(|e| e.line);
             return Err(self.errors);
         }
         let config = self.config;

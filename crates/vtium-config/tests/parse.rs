@@ -600,3 +600,23 @@ fn a_head_keeps_its_login_as_written() {
         Some("/sbin/agetty -o '-p -- \\u' $TERM")
     );
 }
+
+#[test]
+fn the_errors_kept_are_the_first_by_line() {
+    // the undefined head is found only once every head is known, after
+    // the errors of every later line
+    let mut text = String::from("version = 1\n[rules]\ninput * -> nowhere\n");
+    for _ in 0..vtium_config::ERRORS_MAX + 6 {
+        text.push_str("nonsense\n");
+    }
+    let r = parse(&text).expect_err("errors");
+    assert_eq!(r.errors.len(), vtium_config::ERRORS_MAX);
+    assert_eq!(r.more, 7);
+    assert_eq!(r.errors[0].line, Some(3));
+    assert!(matches!(&r.errors[0].problem, Problem::UndefinedHead(n) if n.raw() == "nowhere"));
+    let lines: Vec<_> = r.errors.iter().map(|e| e.line).collect();
+    let mut sorted = lines.clone();
+    sorted.sort();
+    assert_eq!(lines, sorted);
+    assert_eq!(lines.last(), Some(&Some(vtium_config::ERRORS_MAX + 2)));
+}

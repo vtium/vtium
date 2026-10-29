@@ -229,6 +229,20 @@ impl Rejected {
         }
     }
 
+    /// Adds errors found after the file was read, such as a rule's
+    /// undefined head, and keeps the first [`ERRORS_MAX`] by line. The
+    /// errors held were pushed in the file's order, so any dropped before
+    /// lies after every one kept and stays dropped.
+    pub(crate) fn merge(&mut self, late: Vec<Error>) {
+        self.errors.extend(late);
+        self.errors.sort_by_key(|e| e.line);
+        if self.errors.len() > ERRORS_MAX {
+            let past = self.errors.len().saturating_sub(ERRORS_MAX);
+            self.more = self.more.saturating_add(past);
+            self.errors.truncate(ERRORS_MAX);
+        }
+    }
+
     pub(crate) fn one(line: Option<usize>, problem: Problem) -> Rejected {
         let mut r = Rejected::default();
         r.push(line, problem);
