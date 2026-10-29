@@ -44,12 +44,12 @@ fn the_compiled_in_configuration_is_the_parse_of_the_template() {
     let want = [
         (Kind::Display, Match::Any, Target::Head(0)),
         (Kind::Input, class(Class::Keyboard), Target::Focus),
-        (Kind::Input, class(Class::Key), Target::Focus),
         (Kind::Input, class(Class::Mouse), Target::Focus),
         (Kind::Input, class(Class::Touchpad), Target::Focus),
         (Kind::Input, class(Class::Touchscreen), Target::Focus),
         (Kind::Input, class(Class::Trackball), Target::Focus),
         (Kind::Input, class(Class::Pointingstick), Target::Focus),
+        (Kind::Input, class(Class::Key), Target::Focus),
         (Kind::Input, Match::Any, Target::Ignore),
     ];
     let got: Vec<_> = config
