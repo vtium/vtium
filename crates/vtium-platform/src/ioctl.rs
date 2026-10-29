@@ -393,6 +393,52 @@ pub(crate) const LED_NUML: u16 = 0x00;
 pub(crate) const LED_CAPSL: u16 = 0x01;
 /// `LED_SCROLLL`, `linux/input-event-codes.h`.
 pub(crate) const LED_SCROLLL: u16 = 0x02;
+/// `EV_SW`, `linux/input-event-codes.h`.
+pub(crate) const EV_SW: u16 = 0x05;
+/// `KEY_ESC`, `linux/input-event-codes.h`.
+pub(crate) const KEY_ESC: u16 = 1;
+/// `KEY_S`, `linux/input-event-codes.h`.
+pub(crate) const KEY_S: u16 = 31;
+/// `BTN_MISC`, `linux/input-event-codes.h`: the first button, `BTN_0`.
+pub(crate) const BTN_MISC: u16 = 0x100;
+/// `BTN_1`, `linux/input-event-codes.h`.
+pub(crate) const BTN_1: u16 = 0x101;
+/// `BTN_TASK`, `linux/input-event-codes.h`: the last mouse button.
+pub(crate) const BTN_TASK: u16 = 0x117;
+/// `BTN_JOYSTICK`, `linux/input-event-codes.h`.
+pub(crate) const BTN_JOYSTICK: u16 = 0x120;
+/// `BTN_DIGI`, `linux/input-event-codes.h`: `BTN_TOOL_PEN`.
+pub(crate) const BTN_DIGI: u16 = 0x140;
+/// `BTN_TOOL_FINGER`, `linux/input-event-codes.h`.
+pub(crate) const BTN_TOOL_FINGER: u16 = 0x145;
+/// `BTN_STYLUS`, `linux/input-event-codes.h`.
+pub(crate) const BTN_STYLUS: u16 = 0x14b;
+/// `KEY_OK`, `linux/input-event-codes.h`: the first key above the buttons.
+pub(crate) const KEY_OK: u16 = 0x160;
+/// `BTN_DPAD_UP`, `linux/input-event-codes.h`.
+pub(crate) const BTN_DPAD_UP: u16 = 0x220;
+/// `BTN_DPAD_RIGHT`, `linux/input-event-codes.h`.
+pub(crate) const BTN_DPAD_RIGHT: u16 = 0x223;
+/// `KEY_ALS_TOGGLE`, `linux/input-event-codes.h`.
+pub(crate) const KEY_ALS_TOGGLE: u16 = 0x230;
+/// `BTN_TRIGGER_HAPPY`, `linux/input-event-codes.h`.
+pub(crate) const BTN_TRIGGER_HAPPY: u16 = 0x2c0;
+/// `BTN_TRIGGER_HAPPY40`, `linux/input-event-codes.h`.
+pub(crate) const BTN_TRIGGER_HAPPY40: u16 = 0x2e7;
+/// `ABS_RX`, `linux/input-event-codes.h`.
+pub(crate) const ABS_RX: u16 = 0x03;
+/// `ABS_WHEEL`, `linux/input-event-codes.h`.
+pub(crate) const ABS_WHEEL: u16 = 0x08;
+/// `ABS_PRESSURE`, `linux/input-event-codes.h`.
+pub(crate) const ABS_PRESSURE: u16 = 0x18;
+/// `ABS_MT_POSITION_X`, `linux/input-event-codes.h`.
+pub(crate) const ABS_MT_POSITION_X: u16 = 0x35;
+/// `ABS_MT_POSITION_Y`, `linux/input-event-codes.h`.
+pub(crate) const ABS_MT_POSITION_Y: u16 = 0x36;
+/// `INPUT_PROP_POINTING_STICK`, `linux/input-event-codes.h`.
+pub(crate) const INPUT_PROP_POINTING_STICK: u16 = 0x05;
+/// `INPUT_PROP_ACCELEROMETER`, `linux/input-event-codes.h`.
+pub(crate) const INPUT_PROP_ACCELEROMETER: u16 = 0x06;
 /// `EV_CNT`, `linux/input-event-codes.h`: `EV_MAX + 1`.
 const EV_CNT: usize = 0x20;
 /// `KEY_CNT`, `linux/input-event-codes.h`: `KEY_MAX + 1`.
@@ -768,6 +814,29 @@ mod tests {
             ("LED_NUML", LED_NUML),
             ("LED_CAPSL", LED_CAPSL),
             ("LED_SCROLLL", LED_SCROLLL),
+            ("EV_SW", EV_SW),
+            ("KEY_ESC", KEY_ESC),
+            ("KEY_S", KEY_S),
+            ("BTN_MISC", BTN_MISC),
+            ("BTN_1", BTN_1),
+            ("BTN_TASK", BTN_TASK),
+            ("BTN_JOYSTICK", BTN_JOYSTICK),
+            ("BTN_DIGI", BTN_DIGI),
+            ("BTN_TOOL_FINGER", BTN_TOOL_FINGER),
+            ("BTN_STYLUS", BTN_STYLUS),
+            ("KEY_OK", KEY_OK),
+            ("BTN_DPAD_UP", BTN_DPAD_UP),
+            ("BTN_DPAD_RIGHT", BTN_DPAD_RIGHT),
+            ("KEY_ALS_TOGGLE", KEY_ALS_TOGGLE),
+            ("BTN_TRIGGER_HAPPY", BTN_TRIGGER_HAPPY),
+            ("BTN_TRIGGER_HAPPY40", BTN_TRIGGER_HAPPY40),
+            ("ABS_RX", ABS_RX),
+            ("ABS_WHEEL", ABS_WHEEL),
+            ("ABS_PRESSURE", ABS_PRESSURE),
+            ("ABS_MT_POSITION_X", ABS_MT_POSITION_X),
+            ("ABS_MT_POSITION_Y", ABS_MT_POSITION_Y),
+            ("INPUT_PROP_POINTING_STICK", INPUT_PROP_POINTING_STICK),
+            ("INPUT_PROP_ACCELEROMETER", INPUT_PROP_ACCELEROMETER),
         ] {
             assert_eq!(define(&codes, name), u32::from(ours), "{name}");
         }

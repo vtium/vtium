@@ -92,6 +92,12 @@ impl Vt for FakeVt {
         toggle
     }
 
+    /// Its one key, Ctrl+Super+F12, gives it up or takes it back, so no
+    /// key is its own.
+    fn is_own_key(&self, _: &KeyEvent) -> bool {
+        false
+    }
+
     fn restore(&mut self) -> io::Result<()> {
         Ok(())
     }

@@ -11,6 +11,13 @@
 //! `HOTPLUG=1` asks the card to look at its connectors again
 //! ([`crate::display::Drm2d::poll`]). A device whose `ID_SEAT` changes is
 //! removed and added again.
+//!
+//! An event node carries its identity for a head file's rules (ADR-1401
+//! D4), read without opening it ([`InputIdentity`]): its udev classes,
+//! else the classes udev's rule gives its capability bitmaps; its
+//! `ID_PATH`, its USB serial, its unique id, its vendor and product, its
+//! name, and its udev properties, bounded by `UDEV_PROPERTIES_MAX` and
+//! `UDEV_PROPERTY_MAX`.
 
 #[cfg(test)]
 mod tests;
@@ -25,6 +32,8 @@ use calloop::generic::Generic;
 use calloop::{Interest, LoopHandle, Mode, PostAction};
 use rustix::fs::OFlags;
 
+use crate::bounds::{UDEV_PROPERTIES_MAX, UDEV_PROPERTY_MAX};
+use crate::input::class::{Bitmaps, Class, Classes};
 use crate::ioctl;
 
 /// What kind of device.
@@ -57,6 +66,62 @@ pub struct Device {
     pub flags: DeviceFlags,
     /// udev's `ID_PATH` for a card, which `mode=` lines may name.
     pub id_path: Option<String>,
+    /// An event node's identity, boxed: a card's event is the common one.
+    pub input: Option<Box<InputIdentity>>,
+}
+
+/// What a head file's rules match an input device by (ADR-1401 D4).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InputIdentity {
+    /// udev's classes where its `input_id` ran, else the classes its rule
+    /// gives the device's capability bitmaps.
+    pub classes: Classes,
+    /// The classes are udev's tags.
+    pub tagged: bool,
+    /// udev's `ID_PATH`: the port, for `path`.
+    pub id_path: Option<String>,
+    /// udev's `ID_VENDOR_ID`, `ID_MODEL_ID` and `ID_SERIAL_SHORT`, for
+    /// `serial`.
+    pub vendor_id: Option<String>,
+    pub model_id: Option<String>,
+    pub serial_short: Option<String>,
+    /// The unique id the device reports, a Bluetooth device's address, for
+    /// `bluetooth`.
+    pub uniq: Option<String>,
+    /// The vendor and product the device reports, for `id`.
+    pub id: Option<(u16, u16)>,
+    /// The device's name, for `name`.
+    pub name: Option<String>,
+    /// Its udev properties by name, for `udev:`; none without a udev
+    /// daemon.
+    pub properties: BTreeMap<String, String>,
+}
+
+impl InputIdentity {
+    /// The identity of an event node udev describes.
+    fn of(dev: &Uevent) -> InputIdentity {
+        let property = |name: &str| dev.properties.get(name).map(String::as_str);
+        let tags = Classes::from_properties(property);
+        let classes = tags.unwrap_or_else(|| {
+            Classes::from_bitmaps(&Bitmaps::from_sysfs(|name| {
+                dev.attributes.get(name).cloned()
+            }))
+        });
+        let attribute = |name: &str| dev.attributes.get(name).filter(|v| !v.is_empty()).cloned();
+        let hex = |name: &str| u16::from_str_radix(attribute(name)?.trim(), 16).ok();
+        InputIdentity {
+            classes,
+            tagged: tags.is_some(),
+            id_path: property("ID_PATH").map(str::to_owned),
+            vendor_id: property("ID_VENDOR_ID").map(str::to_owned),
+            model_id: property("ID_MODEL_ID").map(str::to_owned),
+            serial_short: property("ID_SERIAL_SHORT").map(str::to_owned),
+            uniq: attribute("uniq"),
+            id: hex("id/vendor").zip(hex("id/product")),
+            name: attribute("name"),
+            properties: dev.properties.clone(),
+        }
+    }
 }
 
 /// What udev reported about the seat's devices.
@@ -101,6 +166,67 @@ pub(crate) struct Uevent {
     pub(crate) platform_parent: bool,
     /// An input device has a parent in the input subsystem.
     pub(crate) input_parent: bool,
+    /// An event node's udev properties, read by [`properties`].
+    pub(crate) properties: BTreeMap<String, String>,
+    /// An event node's parent's sysfs attributes of [`INPUT_ATTRIBUTES`],
+    /// each at most `UDEV_PROPERTY_MAX` bytes.
+    pub(crate) attributes: BTreeMap<String, String>,
+}
+
+/// The udev properties an event node's identity reads by name, read
+/// before the rest so the bound never drops them.
+const IDENTITY_PROPERTIES: [&str; 5] = [
+    "ID_INPUT",
+    "ID_PATH",
+    "ID_VENDOR_ID",
+    "ID_MODEL_ID",
+    "ID_SERIAL_SHORT",
+];
+
+/// The sysfs attributes of an event node's parent input device its
+/// identity reads.
+pub(crate) const INPUT_ATTRIBUTES: [&str; 9] = [
+    "name",
+    "uniq",
+    "id/vendor",
+    "id/product",
+    "capabilities/ev",
+    "capabilities/key",
+    "capabilities/rel",
+    "capabilities/abs",
+    "properties",
+];
+
+/// An event node's properties, bounded: those its identity reads by name
+/// (`named`) first, then the rest in udev's order (`all`), each name and
+/// value at most `UDEV_PROPERTY_MAX` bytes together and at most
+/// `UDEV_PROPERTIES_MAX` of them.
+pub(crate) fn properties(
+    named: impl Fn(&str) -> Option<String>,
+    all: impl Iterator<Item = (String, String)>,
+) -> BTreeMap<String, String> {
+    let names = IDENTITY_PROPERTIES
+        .into_iter()
+        .chain(Class::ALL.map(Class::property));
+    let first = names.filter_map(|n| Some((n.to_owned(), named(n)?)));
+    let mut kept = BTreeMap::new();
+    let mut dropped: usize = 0;
+    for (name, value) in first.chain(all) {
+        if kept.contains_key(&name) {
+            continue;
+        }
+        if kept.len() >= UDEV_PROPERTIES_MAX
+            || name.len().saturating_add(value.len()) > UDEV_PROPERTY_MAX
+        {
+            dropped = dropped.saturating_add(1);
+            continue;
+        }
+        kept.insert(name, value);
+    }
+    if dropped > 0 {
+        log::warn!(target: "monitor", "left out {dropped} udev properties past the bounds");
+    }
+    kept
 }
 
 /// What the monitor reads from a card or framebuffer it opens, so the
@@ -176,6 +302,7 @@ impl Monitor {
             DeviceKind::Fbdev => fb_flags(node, probe),
             DeviceKind::Input => DeviceFlags::default(),
         };
+        let input = (kind == DeviceKind::Input).then(|| Box::new(InputIdentity::of(dev)));
         self.known.insert(node.clone(), kind);
         self.events.push(DeviceEvent::Added(Device {
             kind,
@@ -184,6 +311,7 @@ impl Monitor {
             id_path: (kind == DeviceKind::Drm)
                 .then(|| dev.id_path.clone())
                 .flatten(),
+            input,
         }));
     }
 
@@ -418,6 +546,29 @@ fn uevent(dev: &udev::Device) -> Uevent {
     };
     let parent = |subsystem: &str| dev.parent_with_subsystem(subsystem).ok().flatten();
     let pci = parent("pci");
+    let event_node = dev.subsystem() == Some(OsStr::new("input"))
+        && dev.sysname().to_string_lossy().starts_with("event");
+    let (properties, attributes) = match (&input_parent, event_node) {
+        (Some(p), true) => (
+            properties(
+                |name| text(dev.property_value(name)),
+                dev.properties().map(|e| {
+                    (
+                        e.name().to_string_lossy().into_owned(),
+                        e.value().to_string_lossy().into_owned(),
+                    )
+                }),
+            ),
+            INPUT_ATTRIBUTES
+                .into_iter()
+                .filter_map(|name| {
+                    let value = text(p.attribute_value(name))?;
+                    (value.len() <= UDEV_PROPERTY_MAX).then(|| (name.to_owned(), value))
+                })
+                .collect(),
+        ),
+        _ => (BTreeMap::new(), BTreeMap::new()),
+    };
     Uevent {
         subsystem: text(dev.subsystem()),
         sysname: dev.sysname().to_string_lossy().into_owned(),
@@ -432,5 +583,7 @@ fn uevent(dev: &udev::Device) -> Uevent {
         usb_parent: parent("usb").is_some(),
         platform_parent: parent("platform").is_some(),
         input_parent: input_parent.is_some(),
+        properties,
+        attributes,
     }
 }

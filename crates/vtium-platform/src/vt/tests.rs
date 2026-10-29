@@ -1243,3 +1243,42 @@ fn the_fake_vt_is_taken_and_given_up_on_request_and_its_key() {
     assert!(vt.refuse_release().is_ok());
     assert!(vt.is_active());
 }
+
+#[test]
+fn only_the_shown_vts_own_switch_key_is_its_own() {
+    let (console, mut vt) = shown();
+    vt.events().for_each(drop);
+    console.clear();
+    assert!(vt.is_own_key(&key(ctrl_alt(), keysyms::KEY_F3)));
+    assert!(vt.is_own_key(&key(Mods::empty(), keysyms::KEY_XF86Switch_VT_3)));
+    assert!(!vt.is_own_key(&key(ctrl_alt(), keysyms::KEY_F2)));
+    assert!(!vt.is_own_key(&key(Mods::CTRL, keysyms::KEY_F3)));
+    assert!(!vt.is_own_key(&key(Mods::empty(), keysyms::KEY_F3)));
+    // Asking switches nothing.
+    assert!(
+        !console
+            .calls()
+            .iter()
+            .any(|c| matches!(c, Call::Activate(_)))
+    );
+    // Not shown, the key is no longer its own.
+    asked_away(&console, &mut vt, 5);
+    assert!(!vt.is_own_key(&key(ctrl_alt(), keysyms::KEY_F3)));
+    assert!(vt.acknowledge_release().is_ok());
+    console.show(5);
+    assert!(!vt.is_own_key(&key(ctrl_alt(), keysyms::KEY_F3)));
+}
+
+#[test]
+fn the_fake_vt_has_no_own_switch_key() {
+    let mut vt = FakeVt::new();
+    assert!(vt.activate().is_ok());
+    vt.events().for_each(drop);
+    for k in [
+        key(Mods::CTRL.union(Mods::LOGO), keysyms::KEY_F12),
+        key(ctrl_alt(), keysyms::KEY_F1),
+    ] {
+        assert!(!vt.is_own_key(&k));
+    }
+    assert!(vt.is_active());
+}

@@ -14,6 +14,7 @@
 //! timer after `xkb-repeat-delay` and then every `xkb-repeat-rate`
 //! milliseconds, for keys the keymap marks as repeating.
 
+pub(crate) mod class;
 mod evdev;
 mod keyboard;
 mod pointer;
@@ -23,6 +24,7 @@ mod fake;
 #[cfg(test)]
 mod tests;
 
+pub use class::{Class, Classes};
 pub use evdev::Evdev;
 
 use evdev::EventDevice;
