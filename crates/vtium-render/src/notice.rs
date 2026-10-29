@@ -14,7 +14,9 @@
 //!
 //! The notice sits across the top of the text's view, where a getty prints
 //! its banner. The mark fills the grid cell its owner gives it, so the
-//! owner chooses the cell and whether the grid gives it up.
+//! owner chooses the cell and whether the grid gives it up. The owner
+//! draws the mark after the notice and gives the notice the mark's cell
+//! to keep its text clear of.
 
 use vtium_font::{Face, Font, Format, Glyph, Style, Width};
 use vtium_term::Rgb;
@@ -183,12 +185,15 @@ impl Notice {
 
     /// Draws the notice across the top of `display`'s view with `font`, its
     /// lines as many as fit and the rest cut, and returns the display area
-    /// it covers. `None`, writing nothing, when the display holds no line.
+    /// it covers. A line that crosses `clear`, a rectangle in the display's
+    /// pixels such as the focus mark's cell, ends before it. `None`,
+    /// writing nothing, when the display holds no line.
     pub fn draw<F: Face>(
         &self,
         font: &Font<F>,
         display: Surface,
         colors: Colors,
+        clear: Option<Rect>,
         target: &mut impl Target,
     ) -> Option<Rect> {
         let cell = font.cell();
@@ -209,9 +214,28 @@ impl Notice {
         if cols == 0 || room == 0 {
             return None;
         }
-        let mut lines = wrap(&self.text, cols, |c| cells(font, c));
-        lines.truncate(usize::try_from(room).unwrap_or(usize::MAX));
-        let shown = u32::try_from(lines.len().max(1)).unwrap_or(room);
+        let room = usize::try_from(room).unwrap_or(usize::MAX);
+        // a line crossing `clear` ends before it, so the mark drawn over
+        // the box hides no text
+        let clear = clear.map(|r| display.view_area(r));
+        let cols_at = |i: usize| {
+            let top = u32::try_from(i)
+                .unwrap_or(u32::MAX)
+                .saturating_mul(ch)
+                .saturating_add(inset.1);
+            match clear {
+                Some(r)
+                    if r.y < top.saturating_add(ch)
+                        && r.y.saturating_add(r.height) > top
+                        && r.x.saturating_add(r.width) > inset.0 =>
+                {
+                    cols.min(r.x.saturating_sub(inset.0).checked_div(cw).unwrap_or(0))
+                }
+                _ => cols,
+            }
+        };
+        let lines = wrap(&self.text, room, cols_at, |c| cells(font, c));
+        let shown = u32::try_from(lines.len().max(1)).unwrap_or(1);
         let colors = colors.at(display.depth);
         let mut picture = Picture::new(
             vw,
@@ -294,15 +318,32 @@ fn cells<F: Face>(font: &Font<F>, c: char) -> Width {
         .map_or(Width::Narrow, |g| g.cells())
 }
 
-/// `text`'s lines, each wrapped to `cols` cells by `width`: broken after
-/// its last space that fits, the space dropped, or else after the last
-/// character that fits, at least one a line.
-fn wrap(text: &str, cols: u32, width: impl Fn(char) -> Width) -> Vec<Vec<(char, Width)>> {
+/// `text`'s first `lines` lines, line `i` wrapped to `cols(i)` cells by
+/// `width`: broken after its last space that fits, the space dropped, or
+/// else after the last character that fits, at least one a line. A line
+/// of no cells is left empty.
+fn wrap(
+    text: &str,
+    lines: usize,
+    cols: impl Fn(usize) -> u32,
+    width: impl Fn(char) -> Width,
+) -> Vec<Vec<(char, Width)>> {
     let mut out = Vec::new();
     for paragraph in text.split('\n') {
-        let mut rest: &[(char, Width)] =
-            &paragraph.chars().map(|c| (c, width(c))).collect::<Vec<_>>();
+        let chars: Vec<(char, Width)> = paragraph.chars().map(|c| (c, width(c))).collect();
+        let mut rest = chars.as_slice();
         loop {
+            if out.len() >= lines {
+                return out;
+            }
+            let cols = cols(out.len());
+            if cols == 0 {
+                out.push(Vec::new());
+                if rest.is_empty() {
+                    break;
+                }
+                continue;
+            }
             let mut used = 0u32;
             let fit = rest
                 .iter()
@@ -506,6 +547,7 @@ mod tests {
                 &font("unscii-8", 8),
                 display(w, h),
                 Colors::NOTICE,
+                None,
                 &mut canvas,
             )
             .expect("a notice fits 320x240");
@@ -553,22 +595,28 @@ mod tests {
     fn a_long_message_wraps_at_its_spaces_to_the_box() {
         // 38 cells: 320 pixels of 8, less the edge and half a cell each side
         assert_eq!(
-            text(&wrap(FIGURE, 38, narrow)),
+            text(&wrap(FIGURE, usize::MAX, |_| 38, narrow)),
             [
                 "vtium: heads.conf:5: rule names",
                 "undefined head \"desc\"; running the",
                 "shipped rules",
             ]
         );
-        assert_eq!(text(&wrap("one\n\ntwo", 8, narrow)), ["one", "", "two"]);
+        assert_eq!(
+            text(&wrap("one\n\ntwo", usize::MAX, |_| 8, narrow)),
+            ["one", "", "two"]
+        );
         // a break on the last space leaves no empty line after it
-        assert_eq!(text(&wrap("abcd efgh ", 4, narrow)), ["abcd", "efgh"]);
+        assert_eq!(
+            text(&wrap("abcd efgh ", usize::MAX, |_| 4, narrow)),
+            ["abcd", "efgh"]
+        );
     }
 
     #[test]
     fn a_word_longer_than_the_box_breaks_inside_it() {
         assert_eq!(
-            text(&wrap("abcdefghij kl", 4, narrow)),
+            text(&wrap("abcdefghij kl", usize::MAX, |_| 4, narrow)),
             ["abcd", "efgh", "ij", "kl"]
         );
         // a wide character that does not fit goes to the next line, and one
@@ -580,8 +628,14 @@ mod tests {
                 Width::Narrow
             }
         };
-        assert_eq!(text(&wrap("ab\u{6f22}", 3, wide)), ["ab", "\u{6f22}"]);
-        assert_eq!(text(&wrap("\u{6f22}a", 1, wide)), ["\u{6f22}", "a"]);
+        assert_eq!(
+            text(&wrap("ab\u{6f22}", usize::MAX, |_| 3, wide)),
+            ["ab", "\u{6f22}"]
+        );
+        assert_eq!(
+            text(&wrap("\u{6f22}a", usize::MAX, |_| 1, wide)),
+            ["\u{6f22}", "a"]
+        );
     }
 
     /// The pixels of the `w` by `h` block at `x`, `y`.
@@ -601,14 +655,17 @@ mod tests {
             let font = font(name, ch);
             let mut canvas = Canvas::new(w, h, 0);
             let area = Notice::new(FIGURE)
-                .draw(&font, display(w, h), Colors::NOTICE, &mut canvas)
+                .draw(&font, display(w, h), Colors::NOTICE, None, &mut canvas)
                 .expect("it fits");
             let (edge, cw) = ((ch / 8).max(1), 8);
             let inset = (edge + cw / 2, edge + ch / 4);
             assert_eq!(area.height, 2 * inset.1 + lines * ch, "{name}");
             let cols = (w - 2 * inset.0) / cw;
             let c = Colors::NOTICE;
-            for (row, line) in wrap(FIGURE, cols, narrow).iter().enumerate() {
+            for (row, line) in wrap(FIGURE, usize::MAX, |_| cols, narrow)
+                .iter()
+                .enumerate()
+            {
                 for (col, &(ch_, _)) in line.iter().enumerate() {
                     let g = font
                         .glyph(&[ch_], Width::Narrow, Style::default())
@@ -633,6 +690,7 @@ mod tests {
                 &font("unscii-8", 8),
                 display(320, 240),
                 Colors::NOTICE,
+                None,
                 &mut canvas,
             )
             .expect("it fits");
@@ -644,6 +702,7 @@ mod tests {
             &font("unscii-8", 8),
             display(16, 8),
             Colors::NOTICE,
+            None,
             &mut small,
         );
         assert_eq!(none, None);
@@ -663,7 +722,7 @@ mod tests {
                 ..display(dw, dh)
             };
             let a = Notice::new(FIGURE)
-                .draw(&font, d, Colors::NOTICE, &mut c)
+                .draw(&font, d, Colors::NOTICE, None, &mut c)
                 .expect("it fits");
             // the view's top right cell, where the display draws it
             let cell = match o {
@@ -726,7 +785,7 @@ mod tests {
         };
         // a rounded corner and a diagonal, sprites of partial coverage
         let area = Notice::new(format!("{FIGURE} \u{256d}\u{2571}"))
-            .draw(&font("unscii-8", 8), d, Colors::NOTICE, &mut canvas)
+            .draw(&font("unscii-8", 8), d, Colors::NOTICE, None, &mut canvas)
             .expect("it fits");
         let box_ = block(&canvas, 0, 0, area.width, area.height);
         assert!(box_.iter().all(|&p| p == 0 || p == 0x00ff_ffff));
@@ -740,7 +799,7 @@ mod tests {
             edge: Rgb::new(0xe0, 0xe0, 0xe0),
         };
         let mut canvas = Canvas::new(320, 240, 0);
-        Notice::new("x").draw(&font("unscii-8", 8), d, pale, &mut canvas);
+        Notice::new("x").draw(&font("unscii-8", 8), d, pale, None, &mut canvas);
         assert_eq!(canvas.pixel(0, 0), Some(0), "the edge");
         assert!(block(&canvas, 5, 3, 8, 8).contains(&0), "the text");
     }
@@ -884,6 +943,50 @@ mod tests {
                         );
                     }
                 }
+            }
+        }
+    }
+
+    // the review's widths, where the notice's text ran under the mark, and
+    // a height whose centred grid puts the mark across the second line
+    #[test]
+    fn the_notice_keeps_its_text_clear_of_the_mark() {
+        let filler = "m".repeat(400);
+        for (name, ch, w, h) in [
+            ("unscii-8", 8, 320, 240),
+            ("unscii-8", 8, 1050, 480),
+            ("unifont", 16, 324, 480),
+            ("unifont", 16, 900, 480),
+            ("unifont", 32, 600, 480),
+            ("unifont", 32, 1080, 480),
+            ("unifont", 32, 1080, 511),
+        ] {
+            let font = font(name, ch);
+            let (grid, cell) = top_right_cell(&font, w, h, Orientation::Normal);
+            for text in [FIGURE, filler.as_str()] {
+                let mut canvas = grid.clone();
+                let area = Notice::new(text)
+                    .draw(
+                        &font,
+                        display(w, h),
+                        Colors::NOTICE,
+                        Some(cell),
+                        &mut canvas,
+                    )
+                    .expect("it fits");
+                let ink = pixel(Colors::NOTICE.ink);
+                let under = block(&canvas, cell.x, cell.y, cell.width, cell.height);
+                assert!(
+                    !under.contains(&ink),
+                    "{name} {w}x{h}: text under the mark at {cell:?}"
+                );
+                let shown = block(&canvas, 0, 0, w, area.height);
+                assert!(shown.contains(&ink), "{name} {w}x{h}: the text");
+                // the mark, drawn last, shows whole over the box
+                let mark = Mark::Focus
+                    .draw(&font, display(w, h), cell, Colors::NOTICE, &mut canvas)
+                    .expect("it fits");
+                assert_eq!(mark, cell);
             }
         }
     }
