@@ -1,8 +1,9 @@
 //! `cover-tables generate`: fetches each of Unicode's mapping files the
 //! named `cover=` sets come from, once, with curl, into
 //! `$XDG_CACHE_HOME/vtium/cover-tables`, checks each against the SHA-256
-//! `provenance.tsv` pins for it, and writes vtium-vitrify's `src/cover.rs`
-//! and `provenance.tsv`. `--repin` takes a file whose bytes moved and pins
+//! `provenance.tsv` pins for it, and writes vtium-vitrify's `src/cover.rs`,
+//! its SHA-256 in `src/cover.rs.sha256`, which a vtium-vitrify test holds
+//! it to, and `provenance.tsv`. `--repin` takes a file whose bytes moved and pins
 //! its new SHA-256. `cover-tables check` writes nothing and fails when the
 //! checked-in files differ from what the cached files generate.
 
@@ -50,6 +51,7 @@ fn fetch(url: &str) -> Result<Vec<u8>, String> {
 fn run(write: bool, repin: bool) -> Result<bool, String> {
     let root = root();
     let module_path = root.join("crates/vtium-vitrify/src/cover.rs");
+    let digest_path = root.join("crates/vtium-vitrify/src/cover.rs.sha256");
     let provenance_path = root.join("tools/cover-tables/provenance.tsv");
     let pins = std::fs::read_to_string(&provenance_path).unwrap_or_default();
     let mut sets = Vec::new();
@@ -73,8 +75,11 @@ fn run(write: bool, repin: bool) -> Result<bool, String> {
             codepoints: codepoints(&text, source.column).map_err(at)?,
         });
     }
+    let table = module(&sets);
+    let digest = format!("{}\n", sha256_hex(&Sha256::digest(table.as_bytes())));
     let files = [
-        (module_path, module(&sets)),
+        (module_path, table),
+        (digest_path, digest),
         (provenance_path, provenance(&sets)),
     ];
     if write {

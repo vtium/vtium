@@ -813,6 +813,16 @@ mod tests {
         );
     }
 
+    // src/cover.rs is what tools/cover-tables wrote: an edit by hand that
+    // keeps each set's count still moves its SHA-256, which the generator
+    // writes beside it and its check compares
+    #[test]
+    fn the_named_sets_are_the_tables_the_generator_wrote() {
+        let digest =
+            vtium_font::sha256_hex(&vtium_font::Sha256::digest(include_bytes!("cover.rs")));
+        assert_eq!(digest, include_str!("cover.rs.sha256").trim());
+    }
+
     #[test]
     fn a_sources_cover_lines_are_one_sorted_union() {
         let r = parse(
