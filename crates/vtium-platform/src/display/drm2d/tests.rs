@@ -2212,3 +2212,28 @@ fn a_displays_identity_names_its_connector_card_and_monitor() {
     );
     assert_eq!(v.dark().count(), 0);
 }
+
+// With every display dark, master was let go; a dark connector plugged in
+// then takes it again for the commit that sets it off, and lets it go.
+#[test]
+fn a_dark_connector_plugged_in_with_master_let_go_takes_master_for_its_commit() {
+    let card = dark_card();
+    card.state().connectors.get_mut(&B).unwrap().connected = false;
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    v.set_dark(Box::new(|_: &Identity| true));
+    v.wake_up().unwrap();
+    let commits = v.card().state().commits.len();
+    assert!(!v.card().state().master);
+    v.card().state().connectors.get_mut(&B).unwrap().connected = true;
+    v.poll().unwrap();
+    let s = v.card().state();
+    assert_eq!(s.commits.len(), commits + 1);
+    let c = s.commits.last().unwrap();
+    assert_eq!(
+        (c.get(B, "CRTC_ID"), c.get(101, "ACTIVE")),
+        (Some(0), Some(0))
+    );
+    assert_eq!(s.active.get(&101), Some(&false));
+    assert!(!s.master);
+    assert_eq!(s.master_drops, 2);
+}
