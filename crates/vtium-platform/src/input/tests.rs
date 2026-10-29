@@ -26,6 +26,7 @@ use crate::ioctl::{
     ABS_X, ABS_Y, BTN_LEFT, BTN_RIGHT, BTN_TOUCH, EV_ABS, EV_KEY, EV_REL, EV_SYN, LED_CAPSL,
     LED_NUML, LED_SCROLLL, REL_WHEEL, REL_X, REL_Y,
 };
+use crate::vt::{FakeVt, Vt};
 
 // evdev's key codes, `linux/input-event-codes.h`.
 const KEY_E: u16 = 18;
@@ -863,9 +864,22 @@ fn with_devices(
     (input, ids)
 }
 
-fn tagged_keys(input: &mut Input<Nodes>) -> Vec<(Option<super::DeviceId>, bool, u32)> {
+/// A VT with no own key, so a watched device's keys are all dropped.
+fn no_vt() -> FakeVt {
+    FakeVt::new()
+}
+
+/// VT 2, ours: Ctrl+Alt+F2 is its own key.
+fn vt_2() -> FakeVt {
+    let mut vt = FakeVt::with_number(2);
+    assert!(vt.activate().is_ok());
+    vt.events().for_each(drop);
+    vt
+}
+
+fn tagged_keys(input: &mut Input<Nodes>, vt: &dyn Vt) -> Vec<(Option<super::DeviceId>, bool, u32)> {
     input
-        .device_events()
+        .device_events(vt)
         .filter_map(
             |DeviceInput {
                  device,
@@ -893,7 +907,7 @@ fn each_event_names_the_device_it_came_from() {
     feed(&mut input, two, *b, &[press(KEY_S)]);
     feed(&mut input, mouse, *m, &[ev(EV_REL, REL_X, 5)]);
     let tagged: Vec<_> = input
-        .device_events()
+        .device_events(&no_vt())
         .map(|d| (d.device, d.rescue, matches!(d.event, InputEvent::Key(_))))
         .collect();
     assert_eq!(
@@ -908,7 +922,7 @@ fn each_event_names_the_device_it_came_from() {
     assert_eq!(input.events().count(), 0);
     feed(&mut input, one, *a, &[press(KEY_A)]);
     assert_eq!(input.events().count(), 1);
-    assert_eq!(input.device_events().count(), 0);
+    assert_eq!(input.device_events(&no_vt()).count(), 0);
 }
 
 #[test]
@@ -955,16 +969,22 @@ fn a_rescue_keyboard_delivers_nothing_but_its_keys_marked_for_the_rescue() {
         &mut input,
         watched,
         *w,
-        &[press(KEY_LEFTCTRL), press(KEY_F2)],
+        &[press(KEY_LEFTCTRL), press(KEY_LEFTALT), press(KEY_F2)],
     );
     assert!(keys(&mut input).is_empty());
     feed(&mut input, watched, *w, &[press(KEY_F2)]);
-    assert_eq!(tagged_keys(&mut input), [(Some(*w), true, keysyms::KEY_F2)]);
+    assert_eq!(
+        tagged_keys(&mut input, &vt_2()),
+        [(Some(*w), true, keysyms::KEY_XF86Switch_VT_2)]
+    );
     // Its modifiers are its own and reach no one else's keys.
     assert_eq!(input.mods(), Mods::empty());
-    assert_eq!(input.mods_of(&[*w]), Mods::CTRL);
+    assert_eq!(input.mods_of(&[*w]), Mods::CTRL.union(Mods::ALT));
     feed(&mut input, typing, *a, &[press(KEY_A)]);
-    assert_eq!(tagged_keys(&mut input), [(Some(*a), false, keysyms::KEY_a)]);
+    assert_eq!(
+        tagged_keys(&mut input, &no_vt()),
+        [(Some(*a), false, keysyms::KEY_a)]
+    );
     // A program's LEDs reach the typing keyboard alone.
     typing.borrow_mut().leds.clear();
     watched.borrow_mut().leds.clear();
@@ -1066,7 +1086,7 @@ fn a_delivered_device_is_taken_where_the_default_rule_drops_it() {
 }
 
 #[test]
-fn a_repeat_comes_from_its_device_and_a_watched_ones_stays_for_the_rescue() {
+fn a_repeat_comes_from_its_device_and_a_watched_ones_is_dropped() {
     let (mut input, devices) = with_devices(&[
         ("/dev/input/event0", fake::keyboard(), None),
         (
@@ -1075,17 +1095,73 @@ fn a_repeat_comes_from_its_device_and_a_watched_ones_stays_for_the_rescue() {
             Some(Disposition::Rescue),
         ),
     ]);
-    for (rescue, (node, id)) in [false, true].into_iter().zip(&devices) {
-        feed(&mut input, node, *id, &[press(KEY_A)]);
-        input.device_events().for_each(drop);
-        let serial = input.repeat_serial(*id).unwrap_or_default();
-        assert!(input.repeat(*id, serial));
-        assert_eq!(
-            tagged_keys(&mut input),
-            [(Some(*id), rescue, keysyms::KEY_a)]
-        );
-        feed(&mut input, node, *id, &[release(KEY_A)]);
-    }
+    let vt = vt_2();
+    let [(typing, a), (watched, w)] = devices.as_slice() else {
+        panic!("two devices");
+    };
+    feed(&mut input, typing, *a, &[press(KEY_A)]);
+    input.device_events(&vt).for_each(drop);
+    let serial = input.repeat_serial(*a).unwrap_or_default();
+    assert!(input.repeat(*a, serial));
+    assert_eq!(
+        tagged_keys(&mut input, &vt),
+        [(Some(*a), false, keysyms::KEY_a)]
+    );
+    // The watched keyboard's own key, held: its press is the rescue, its
+    // repeat nothing.
+    feed(
+        &mut input,
+        watched,
+        *w,
+        &[press(KEY_LEFTCTRL), press(KEY_LEFTALT), press(KEY_F2)],
+    );
+    assert_eq!(
+        tagged_keys(&mut input, &vt),
+        [(Some(*w), true, keysyms::KEY_XF86Switch_VT_2)]
+    );
+    let serial = input.repeat_serial(*w).unwrap_or_default();
+    assert!(input.repeat(*w, serial));
+    assert!(tagged_keys(&mut input, &vt).is_empty());
+}
+
+#[test]
+fn a_watched_device_delivers_the_vts_own_key_alone() {
+    // An OTP token the rules ignore: what it types is dropped, and so is
+    // every chord but the shown VT's own key.
+    let (mut input, devices) = with_devices(&[(
+        "/dev/input/event0",
+        fake::keyboard(),
+        Some(Disposition::Rescue),
+    )]);
+    let [(token, t)] = devices.as_slice() else {
+        panic!("one device");
+    };
+    let vt = vt_2();
+    feed(
+        &mut input,
+        token,
+        *t,
+        &[press(KEY_A), press(KEY_S), press(KEY_E), press(KEY_X)],
+    );
+    feed(
+        &mut input,
+        token,
+        *t,
+        &[
+            press(KEY_LEFTCTRL),
+            press(KEY_LEFTALT),
+            press(KEY_A),
+            press(KEY_F2),
+        ],
+    );
+    assert_eq!(
+        tagged_keys(&mut input, &vt),
+        [(Some(*t), true, keysyms::KEY_XF86Switch_VT_2)]
+    );
+    feed(&mut input, token, *t, &[press(KEY_F2)]);
+    assert!(tagged_keys(&mut input, &no_vt()).is_empty());
+    feed(&mut input, token, *t, &[press(KEY_A)]);
+    assert!(keys(&mut input).is_empty());
 }
 
 /// A keyboard with a mouse's axes and buttons on the same node, as
@@ -1128,7 +1204,7 @@ fn a_watched_device_sends_no_pointer_events_and_arms_no_hide() {
     );
     assert!(
         input
-            .device_events()
+            .device_events(&no_vt())
             .all(|d| !matches!(d.event, InputEvent::Pointer(_)))
     );
     assert_eq!(input.hide_at, None);

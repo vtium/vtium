@@ -51,6 +51,7 @@ use keyboard::{KeyState, Keyboard, RepeatChange};
 use pointer::Pointer;
 
 use crate::ioctl::{EV_ABS, EV_KEY, EV_REL, EV_SYN};
+use crate::vt::Vt;
 
 /// The modifiers held with a key, as the C reference numbered them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -141,8 +142,7 @@ pub enum InputEvent {
 pub struct DeviceInput {
     /// `None` for an event of no one device, the pointer's hide.
     pub device: Option<DeviceId>,
-    /// A key of a device watched for the rescue key alone, for the rescue
-    /// and nothing else.
+    /// The rescue key, pressed on a device watched for it alone.
     pub rescue: bool,
     pub event: InputEvent,
 }
@@ -152,9 +152,9 @@ pub struct DeviceInput {
 pub enum Disposition {
     /// Opened, its events delivered, whatever it reports.
     Deliver,
-    /// Opened to watch for the rescue key alone: its key presses are
-    /// drained marked [`DeviceInput::rescue`], and nothing else it sends is
-    /// delivered (ADR-1401 D9).
+    /// Opened to watch for the rescue key alone: a press of the VT's own
+    /// key is drained marked [`DeviceInput::rescue`], and nothing else it
+    /// sends is delivered (ADR-1401 D9).
     Rescue,
     /// Never opened.
     Closed,
@@ -354,12 +354,20 @@ impl<O: Open + 'static> Input<O> {
     }
 
     /// What happened since the last drain, in order, each with the device
-    /// it came from.
-    pub fn device_events(&mut self) -> impl Iterator<Item = DeviceInput> + '_ {
+    /// it came from. Of a device watched for the rescue key, only the
+    /// presses `vt` says are its own key are kept (ADR-1401 D9); its other
+    /// keys and its repeats are dropped.
+    pub fn device_events<'a>(
+        &'a mut self,
+        vt: &'a dyn Vt,
+    ) -> impl Iterator<Item = DeviceInput> + 'a {
         let Queue { events, sources } = &mut self.queue;
         sources
             .drain(..)
             .zip(events.drain(..))
+            .filter(move |(s, event)| {
+                !s.rescue || matches!(event, InputEvent::Key(k) if !k.repeat && vt.is_own_key(k))
+            })
             .map(|(s, event)| DeviceInput {
                 device: s.device,
                 rescue: s.rescue,
