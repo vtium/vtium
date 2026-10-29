@@ -7,7 +7,7 @@
 //! console started it as, and answers in the strike chunk format the
 //! console already reads.
 //!
-//! The console sends three requests (the operator's fill model,
+//! The console sends four requests (the operator's fill model,
 //! 2026-10-28). An ask names codepoints at a cell, those on the screen or
 //! newly needed, and is answered whole, ahead of any fill. A fill fills a
 //! cell's coverage in order: the codepoints it names (the screen's), then
@@ -15,7 +15,12 @@
 //! the frit's coverage, skipping what the console holds, one [`BATCH`] at
 //! a time; between batches the helper takes any waiting request, so a
 //! request waits at most one batch. A stop ends a cell's fill, as when the
-//! console's store is full or no display draws at the cell. The helper
+//! console's store is full or no display draws at the cell. A cell query
+//! asks for the frit's own cell before the console's first frame, for a
+//! frit of bitmap sources that states no cell (the operator, 2026-10-28):
+//! the helper answers its first source's cell when every other source's
+//! fits in it, and otherwise, an outline source among them, says why it
+//! has none ([`Engine::own_cell`]). The helper
 //! keeps what it sent only for the request that sent it, so it sends a
 //! glyph once within one ask or one fill; the console's store is the one
 //! record of what the console holds (ADR-1200 D18). The helper exits once
@@ -23,22 +28,24 @@
 //! console closes its end and its work is done.
 //!
 //! ```text
-//! request  magic "VTVSREQ2", kind u32 (1 ask, 2 fill, 3 stop), frit
-//!          name length u32, the name (ADR-1200 D1's characters), frit
-//!          text length u32, the text (UTF-8), cell width u32, cell height
-//!          u32, capabilities length u32, the capabilities (reserved for the
+//! request  magic "VTVSREQ2", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
+//!          query), frit name length u32, the name (ADR-1200 D1's
+//!          characters), frit text length u32, the text (UTF-8), cell width
+//!          u32, cell height u32 (both 0 for a cell query), capabilities length u32, the capabilities (reserved for the
 //!          display's, ADR-1301 D1 and D3: always 0 bytes, and refused
 //!          otherwise), codepoint count u32, each codepoint u32 (an ask's
-//!          wanted, a fill's first), held range count u32, each range's
-//!          first and last codepoint u32 (what the console holds at the
-//!          cell, for a fill), console font flag u32 (0 none, 1 one):
+//!          wanted, a fill's first; none for a cell query), held range
+//!          count u32, each range's first and last codepoint u32 (what the
+//!          console holds at the cell, for a fill; none for a cell query),
+//!          console font flag u32 (0 none, 1 one):
 //!          width u32, height u32, glyph count u32, data length u32, the
 //!          data, map count u32, each (codepoint u16, glyph u16)
 //! answer   frames: kind u32, length u32, then the payload; kind 1 an
 //!          ask's glyphs and 4 a fill's, each a vitrified set of one cell's
 //!          glyphs; kind 2 the oldest ask answered (no payload); kind 5 a
-//!          cell's fill done (its width u32 and height u32); kind 3 a
-//!          failure (UTF-8 reason)
+//!          cell's fill done (its width u32 and height u32); kind 6 the
+//!          frit's own cell (its width u32 and height u32); kind 7 no own
+//!          cell (UTF-8 reason); kind 3 a failure (UTF-8 reason)
 //! ```
 //!
 //! Little-endian throughout. The console checks every frame before it
@@ -98,12 +105,18 @@ pub const FRAME_FAILED: u32 = 3;
 pub const FRAME_FILL: u32 = 4;
 /// A cell's fill is done: its width and height.
 pub const FRAME_FILLED: u32 = 5;
+/// The frit's own cell, a cell query's answer: its width and height.
+pub const FRAME_OWN_CELL: u32 = 6;
+/// The frit has no own cell, a cell query's answer: the reason, as UTF-8.
+pub const FRAME_NO_OWN_CELL: u32 = 7;
 /// An ask: the codepoints named, answered whole.
 pub const ASK: u32 = 1;
 /// A fill: the cell's coverage, in order, around the asks.
 pub const FILL: u32 = 2;
 /// The end of a cell's fill.
 pub const STOP: u32 = 3;
+/// A cell query: the frit's own cell, at no cell and naming nothing.
+pub const OWN_CELL: u32 = 4;
 /// What a fill draws after the screen's codepoints: printable Latin
 /// (Basic Latin, Latin-1 and Latin Extended-A), then box drawing, block
 /// elements and shades.
@@ -136,7 +149,7 @@ pub struct FritText {
 /// What the console sends.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ServeRequest {
-    /// [`ASK`], [`FILL`] or [`STOP`].
+    /// [`ASK`], [`FILL`], [`STOP`] or [`OWN_CELL`].
     pub kind: u32,
     pub frit: FritText,
     pub cell: Cell,
@@ -239,10 +252,11 @@ impl ServeRequest {
     }
 
     /// Reads one request from `r`: `None` at the end of the input between
-    /// requests. Every field is checked: the kind one of three, the frit's
+    /// requests. Every field is checked: the kind one of four, the frit's
     /// name a frit name (ADR-1200 D1), checked before it is allocated, and
     /// its text UTF-8, each inside its bound, the cell inside
-    /// [`CELL_SIDE_MAX`], the reserved capabilities empty, each codepoint a
+    /// [`CELL_SIDE_MAX`], a cell query's at no cell and naming no
+    /// codepoint and no range, the reserved capabilities empty, each codepoint a
     /// scalar value, each held range in order and inside Unicode, the
     /// kernel's font inside the kernel's own bounds with its data exactly
     /// as long as its shape.
@@ -261,7 +275,7 @@ impl ServeRequest {
         }
         let mut f = Fields(r);
         let kind = f.u32()?;
-        if !matches!(kind, ASK | FILL | STOP) {
+        if !matches!(kind, ASK | FILL | STOP | OWN_CELL) {
             return Err("an unknown request kind".to_owned());
         }
         let n = f.count(NAME_BYTES_MAX, "a frit's name")?;
@@ -279,14 +293,23 @@ impl ServeRequest {
             width: f.u32()?,
             height: f.u32()?,
         };
-        if !(1..=CELL_SIDE_MAX).contains(&cell.width) || !(1..=CELL_SIDE_MAX).contains(&cell.height)
+        let query = kind == OWN_CELL;
+        if query && (cell.width, cell.height) != (0, 0) {
+            return Err("a cell query at a cell".to_owned());
+        }
+        if !query
+            && (!(1..=CELL_SIDE_MAX).contains(&cell.width)
+                || !(1..=CELL_SIDE_MAX).contains(&cell.height))
         {
             return Err("a cell past CELL_SIDE_MAX".to_owned());
         }
         if f.u32()? != 0 {
             return Err("display capabilities this helper does not read".to_owned());
         }
-        let n = f.count(FIRST_MAX, "the codepoints asked for")?;
+        let n = f.count(
+            if query { 0 } else { FIRST_MAX },
+            "the codepoints asked for",
+        )?;
         let mut codepoints = Vec::with_capacity(n);
         for _ in 0..n {
             let c = f.u32()?;
@@ -295,7 +318,7 @@ impl ServeRequest {
             }
             codepoints.push(c);
         }
-        let n = f.count(HELD_RANGES_MAX, "the ranges held")?;
+        let n = f.count(if query { 0 } else { HELD_RANGES_MAX }, "the ranges held")?;
         let mut held = Vec::with_capacity(n);
         for _ in 0..n {
             let (a, b) = (f.u32()?, f.u32()?);
@@ -573,6 +596,41 @@ impl Engine {
         &self.coverage
     }
 
+    /// The frit's own cell (the operator, 2026-10-28): its first source's,
+    /// when every source is a bitmap font whose cell fits in it, so each
+    /// draws at a whole factor; else why it has none, an outline source
+    /// among its sources or a bitmap one whose cell does not fit.
+    pub fn own_cell(&self) -> Result<Cell, String> {
+        let mut own: Option<(&Source, Cell)> = None;
+        for (source, loaded) in &self.sources {
+            let Loaded::Bitmap(font) = loaded else {
+                return Err(format!(
+                    "source={} is an outline font, which has no cell of its own",
+                    source.spelling
+                ));
+            };
+            match own {
+                None => own = Some((source, font.cell)),
+                Some((first, cell))
+                    if font.cell.width > cell.width || font.cell.height > cell.height =>
+                {
+                    return Err(format!(
+                        "source={}'s {}x{} cell does not fit source={}'s {}x{}",
+                        source.spelling,
+                        font.cell.width,
+                        font.cell.height,
+                        first.spelling,
+                        cell.width,
+                        cell.height
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
+        own.map(|(_, cell)| cell)
+            .ok_or_else(|| "the frit names no source".to_owned())
+    }
+
     /// Why no source gives a glyph at `cell`: each bitmap source whose own
     /// cell does not fit it, and each source that failed as it drew.
     pub fn none_at(&self, cell: Cell) -> String {
@@ -812,11 +870,16 @@ impl Fill {
 }
 
 fn failed(out: &mut dyn Write, why: &str) -> io::Result<()> {
+    reason(out, FRAME_FAILED, why)
+}
+
+/// Writes `why`, cut at [`REASON_BYTES_MAX`], as a frame of `kind`.
+fn reason(out: &mut dyn Write, kind: u32, why: &str) -> io::Result<()> {
     let mut why = why.to_owned();
     while why.len() > REASON_BYTES_MAX {
         why.pop();
     }
-    write_frame(out, FRAME_FAILED, why.as_bytes())
+    write_frame(out, kind, why.as_bytes())
 }
 
 /// The requests read from `input` on a thread of their own, so the wait for
@@ -872,7 +935,7 @@ impl Work<'_> {
     }
 
     /// Takes a request in: an ask waits its turn, a fill replaces the
-    /// cell's, a stop ends it.
+    /// cell's, a stop ends it, and a cell query is answered at once.
     fn take(&mut self, request: ServeRequest, out: &mut dyn Write) -> io::Result<()> {
         if self.console.is_none() {
             self.console.clone_from(&request.console);
@@ -887,6 +950,21 @@ impl Work<'_> {
                     Err(why) => return failed(out, &why.clone()),
                 };
                 self.fills.push_back(fill);
+            }
+            OWN_CELL => {
+                let own = match self.engine(&request.frit) {
+                    Ok(engine) => engine.own_cell(),
+                    Err(why) => Err(why.clone()),
+                };
+                return match own {
+                    Ok(cell) => {
+                        let mut payload = Vec::with_capacity(8);
+                        put32(&mut payload, cell.width);
+                        put32(&mut payload, cell.height);
+                        write_frame(out, FRAME_OWN_CELL, &payload)
+                    }
+                    Err(why) => reason(out, FRAME_NO_OWN_CELL, &why),
+                };
             }
             _ => self.fills.retain(|f| !same(f)),
         }
@@ -1227,6 +1305,113 @@ mod tests {
         not_utf8[16] = 0xff;
         assert!(ServeRequest::read(&mut &not_utf8[..]).is_err());
         assert!(ServeRequest::read(&mut &good[..good.len() - 1]).is_err());
+    }
+
+    /// A cell query for `frit`: at no cell, naming nothing.
+    fn query(frit: FritText) -> ServeRequest {
+        ServeRequest {
+            cell: Cell {
+                width: 0,
+                height: 0,
+            },
+            ..request(OWN_CELL, frit, &[])
+        }
+    }
+
+    /// The frit `t` whose sources are `sources`, each a PSF2 font written
+    /// to a file of its own as `(width, height)`, or a source's spelling.
+    fn psf_frit(name: &str, sources: &[Result<(u32, u32), &str>]) -> (FritText, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("vtium-serve-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut text = String::new();
+        for (i, source) in sources.iter().enumerate() {
+            match source {
+                Ok((w, h)) => {
+                    let path = dir.join(format!("{i}.psf"));
+                    let font = crate::decode::tests::psf2(*w, *h, 1, Some(&[(0, 'A')]));
+                    std::fs::write(&path, font).unwrap();
+                    text.push_str(&format!("source=file:{}\n", path.display()));
+                }
+                Err(spelling) => text.push_str(&format!("source={spelling}\n")),
+            }
+        }
+        (frit(&text), dir)
+    }
+
+    fn cell_bytes(width: u32, height: u32) -> Vec<u8> {
+        [width.to_le_bytes(), height.to_le_bytes()].concat()
+    }
+
+    // the operator's decision on #145, 2026-10-28: a frit of bitmap sources
+    // with no cell= takes its first source's own cell, asked of the helper
+    #[test]
+    fn a_cell_query_answers_the_frits_own_cell() {
+        let (psf, dir) = psf_frit("own-psf", &[Ok((8, 16))]);
+        let (mixed, mixed_dir) = psf_frit("own-mixed", &[Ok((8, 16)), Err("builtin:unscii-8")]);
+        let frames = run(&[query(psf), query(mixed)]);
+        let _ = (
+            std::fs::remove_dir_all(dir),
+            std::fs::remove_dir_all(mixed_dir),
+        );
+        assert_eq!(
+            frames,
+            [
+                (FRAME_OWN_CELL, cell_bytes(8, 16)),
+                (FRAME_OWN_CELL, cell_bytes(8, 16))
+            ]
+        );
+        let frames = run(&[query(frit(
+            "source=builtin:unscii-8\nsource=builtin:unscii-8\n",
+        ))]);
+        assert_eq!(frames, [(FRAME_OWN_CELL, cell_bytes(8, 8))]);
+    }
+
+    // a later source whose cell does not fit the first's leaves the frit
+    // with no own cell, and the reason names it
+    #[test]
+    fn a_frit_whose_sources_do_not_fit_its_first_has_no_own_cell() {
+        let (frit, dir) = psf_frit("own-unfit", &[Ok((8, 8)), Err("builtin:unifont")]);
+        let frames = run(&[
+            query(frit),
+            query(self::frit("source=file:/nonexistent/x.psf\n")),
+        ]);
+        let _ = std::fs::remove_dir_all(dir);
+        assert_eq!(
+            frames.iter().map(|f| f.0).collect::<Vec<_>>(),
+            [FRAME_NO_OWN_CELL, FRAME_NO_OWN_CELL]
+        );
+        let why = String::from_utf8_lossy(&frames[0].1);
+        assert!(
+            why.contains("source=builtin:unifont's 8x16 cell does not fit"),
+            "{why}"
+        );
+        assert!(String::from_utf8_lossy(&frames[1].1).contains("not on this machine"));
+    }
+
+    // a cell query names no cell, no codepoint and no range
+    #[test]
+    fn a_cell_query_at_a_cell_or_naming_codepoints_is_refused() {
+        let good = query(frit("")).encode();
+        assert!(ServeRequest::read(&mut &good[..]).unwrap().is_some());
+        for bad in [
+            ServeRequest {
+                cell: CELL,
+                ..query(frit(""))
+            },
+            ServeRequest {
+                codepoints: vec![0x41],
+                ..query(frit(""))
+            },
+            ServeRequest {
+                held: vec![(0x41, 0x41)],
+                ..query(frit(""))
+            },
+        ] {
+            assert!(
+                ServeRequest::read(&mut &bad.encode()[..]).is_err(),
+                "{bad:?}"
+            );
+        }
     }
 
     #[test]

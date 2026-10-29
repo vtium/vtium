@@ -1,19 +1,20 @@
-//! The font: which set vtium draws, its faces at each height, its zoom
-//! steps and the automatic size, with the lookup's fallback.
+//! The font: which frit or built-in font vtium draws, its faces at each
+//! height, its zoom steps and the automatic size, with the lookup's
+//! fallback.
 //!
-//! A configured font that names a frit (`NAME.vtfrit` in the frits'
-//! directory) is generated at run time (ADR-1301 D2), in the cell the frit
-//! states, else the display's ([`frit_cell`], #145): the built-in font
-//! draws in that cell at once, and the helper's glyphs replace it,
-//! character by character, as they arrive ([`Chosen::Frit`],
-//! [`crate::deferred`], [`crate::helper`]). Any other configured font
-//! names a vitrified set (ADR-1200), which is loaded from the root-owned
-//! store after the store's check, or vtium draws its built-in sets and
-//! logs the command that would build the missing one ([`wanted`],
-//! [`load`], D9). The built-ins
-//! are Unscii-8 for cells under 16 pixels and unifont from 16, but in a
-//! zh, ja or ko locale, which Unscii-8 does not cover (D7). OSC 50
-//! switches among the built sets while vtium runs (D5).
+//! The font is `font-name`, else vconsole's (ADR-1200 D9). A name is a
+//! frit's (`NAME.vtfrit` in the frits' directory), else a kbd name, a path
+//! or vconsole's font becomes a one-source frit made on the fly
+//! ([`frit_named`]). A frit is generated at run time (ADR-1301 D2), in
+//! the cell it states ([`frit_cell`], #145), else for a frit of bitmap
+//! sources its fonts' own cell, which the helper tells before the first
+//! frame (the operator, 2026-10-28), else the display's: the
+//! built-in font draws in that cell at once, and the helper's glyphs
+//! replace it, character by character, as they arrive ([`Chosen::Frit`],
+//! [`crate::deferred`], [`crate::helper`]). The built-ins are Unscii-8
+//! for cells under 16 pixels and unifont from 16, but in a zh, ja or ko
+//! locale, which Unscii-8 does not cover (D7). OSC 50 switches among the
+//! frits and the built-ins while vtium runs (D5).
 //!
 //! A font is looked up at the size asked for. When none is in use yet, a
 //! failure tries [`FALLBACK_SIZE`] once, and a second failure is the
@@ -24,9 +25,8 @@
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Arc;
 
-use vtium_font::set::{Set, SetFace, Store, builtin, builtin_name};
+use vtium_font::set::{SetFace, builtin, builtin_name};
 use vtium_font::sprite::Range;
 use vtium_font::{CELL_SIDE_MAX, Cell, Face, Missing, Source, SpritePolicy, Unifont};
 
@@ -37,7 +37,7 @@ use crate::config::keys::{
 };
 use crate::config::{Config, Origin};
 use crate::deferred::{DeferredFace, Shared};
-use crate::helper;
+use crate::helper::{self, FritText};
 use crate::layout::Zoom;
 
 /// Each sprite range and the key that sets its source alone.
@@ -70,6 +70,29 @@ pub fn policy(config: &Config, default: SpritePolicy) -> SpritePolicy {
     RANGE_KEYS.iter().fold(base, |p, &(range, key)| {
         match config.text(key).and_then(source) {
             Some(s) => p.with(range, s),
+            None => p,
+        }
+    })
+}
+
+/// A frit's sprite policy from its `text` (ADR-1200 D1): `glyph-source=`
+/// for all six ranges, else `default`, then each range's own
+/// `glyph-source-<range>=` over it, read in the frit's line syntax as the
+/// configuration's keys are named. A value or a range vtium does not know
+/// changes nothing here; the helper refuses the frit naming its line.
+pub fn frit_policy(text: &str, default: SpritePolicy) -> SpritePolicy {
+    let lines = || {
+        text.split('\n').filter_map(|line| {
+            let (key, value) = line.split('#').next()?.split_once('=')?;
+            Some((key.trim(), source(value.trim())?))
+        })
+    };
+    let base = lines()
+        .rfind(|&(key, _)| key == GLYPH_SOURCE.name)
+        .map_or(default, |(_, s)| SpritePolicy::all(s));
+    lines().fold(base, |p, (key, s)| {
+        match RANGE_KEYS.iter().find(|(_, k)| k.name == key) {
+            Some(&(range, _)) => p.with(range, s),
             None => p,
         }
     })
@@ -120,29 +143,32 @@ pub fn auto_size(width: u32, height: u32, smallest: u32) -> u32 {
     }
 }
 
-/// The store's directory, set at build time with `VTIUM_FONT_STORE` as
-/// vtium-vitrify's is.
-pub fn default_store() -> PathBuf {
-    PathBuf::from(option_env!("VTIUM_FONT_STORE").unwrap_or("/var/lib/vtium/fonts"))
-}
-
 /// The frits' directory, set at build time with `VTIUM_FONT_FRITS` as
 /// vtium-vitrify's is.
 pub fn default_frits() -> PathBuf {
     PathBuf::from(option_env!("VTIUM_FONT_FRITS").unwrap_or("/etc/vtium/fonts"))
 }
 
-/// The frit `name` names in `frits`: `NAME.vtfrit`, a regular file, for a
-/// name of 1 to 64 characters of `A-Z a-z 0-9 . _ + -` not starting with
-/// `.` (ADR-1200 D1), so no name reaches outside the directory.
-pub fn frit(frits: &Path, name: &str) -> Option<PathBuf> {
-    let valid = (1..=64).contains(&name.len())
+/// Whether `name` is a frit's name (ADR-1200 D1): 1 to 64 characters of
+/// `A-Z a-z 0-9 . _ + -`, not starting with `.`.
+fn frit_name(name: &str) -> bool {
+    (1..=64).contains(&name.len())
         && !name.starts_with('.')
         && name
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'));
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'))
+}
+
+/// The name a frit made on the fly goes to the helper by when the name it
+/// was given is not a frit's name, as a path or a family is: the helper
+/// refuses a request naming any other (ADR-1200 D1).
+pub const GENERATED: &str = "generated";
+
+/// The frit `name` names in `frits`: `NAME.vtfrit`, a regular file, for a
+/// frit's name, so no name reaches outside the directory.
+pub fn frit(frits: &Path, name: &str) -> Option<PathBuf> {
     let path = frits.join(format!("{name}.vtfrit"));
-    (valid && std::fs::metadata(&path).is_ok_and(|m| m.is_file())).then_some(path)
+    (frit_name(name) && std::fs::metadata(&path).is_ok_and(|m| m.is_file())).then_some(path)
 }
 
 /// The smallest and largest side of a frit's `cell=`, vtium-vitrify's
@@ -165,43 +191,84 @@ pub fn frit_text(path: &Path) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|_| "it is not UTF-8".to_owned())
 }
 
-/// The cell a frit's `text` states, `cell=WIDTHxHEIGHT` (#145): read in
-/// the frit's line syntax, one `key=value` a line and `#` to the line's
-/// end a comment, and nothing else of it, since the console parses no
-/// font. `None` when it states none; an error naming the line for a value
-/// vtium-vitrify refuses, or a second `cell=`.
-pub fn frit_cell(text: &str) -> Result<Option<Cell>, String> {
-    let mut cell = None;
+/// The value of the one `key=` line in a frit's `text`, with its line
+/// number: read in the frit's line syntax, one `key=value` a line and `#`
+/// to the line's end a comment, and nothing else of it, since the console
+/// parses no font. `None` when there is none; an error naming the line
+/// for a second.
+fn frit_line<'a>(text: &'a str, key: &str) -> Result<Option<(usize, &'a str)>, String> {
+    let mut found = None;
     for (line, n) in text.split('\n').zip(1usize..) {
         let body = line.split('#').next().unwrap_or_default();
-        let Some((key, value)) = body.split_once('=') else {
+        let Some((k, value)) = body.split_once('=') else {
             continue;
         };
-        if key.trim() != "cell" {
+        if k.trim() != key {
             continue;
         }
-        if cell.is_some() {
-            return Err(format!("line {n}: cell= given twice"));
+        if found.is_some() {
+            return Err(format!("line {n}: {key}= given twice"));
         }
-        let value = value.trim();
-        let side = |s: &str| {
-            s.parse::<u32>().ok().filter(|v| {
-                (FRIT_CELL_MIN..=FRIT_CELL_MAX).contains(v) && !s.starts_with(['0', '+'])
-            })
-        };
-        let parsed = value.split_once('x').and_then(|(w, h)| {
-            Some(Cell {
-                width: side(w)?,
-                height: side(h)?,
-            })
-        });
-        cell = Some(parsed.ok_or_else(|| {
-            format!(
-                "line {n}: cell={value} is not WIDTHxHEIGHT in pixels, each {FRIT_CELL_MIN} to {FRIT_CELL_MAX}"
-            )
-        })?);
+        found = Some((n, value.trim()));
     }
-    Ok(cell)
+    Ok(found)
+}
+
+/// One side of a frit's cell, or its size, in pixels: digits only, no
+/// leading zero, [`FRIT_CELL_MIN`] to [`FRIT_CELL_MAX`], as vtium-vitrify
+/// reads it.
+fn frit_side(s: &str) -> Option<u32> {
+    s.parse::<u32>()
+        .ok()
+        .filter(|v| (FRIT_CELL_MIN..=FRIT_CELL_MAX).contains(v) && !s.starts_with(['0', '+']))
+}
+
+/// The cell a frit's `text` states, `cell=WIDTHxHEIGHT` (#145); `None`
+/// when it states none; an error naming the line for a value
+/// vtium-vitrify refuses, or a second `cell=`.
+pub fn frit_cell(text: &str) -> Result<Option<Cell>, String> {
+    let Some((n, value)) = frit_line(text, "cell")? else {
+        return Ok(None);
+    };
+    let parsed = value.split_once('x').and_then(|(w, h)| {
+        Some(Cell {
+            width: frit_side(w)?,
+            height: frit_side(h)?,
+        })
+    });
+    parsed.map(Some).ok_or_else(|| {
+        format!(
+            "line {n}: cell={value} is not WIDTHxHEIGHT in pixels, each {FRIT_CELL_MIN} to {FRIT_CELL_MAX}"
+        )
+    })
+}
+
+/// The height a frit's `text` starts at, `size=` (ADR-1200 D1), the
+/// height of its glyphs in its cell; `None` when it states none; an error
+/// naming the line for a value vtium-vitrify refuses, or a second `size=`.
+pub fn frit_size(text: &str) -> Result<Option<u32>, String> {
+    let Some((n, value)) = frit_line(text, "size")? else {
+        return Ok(None);
+    };
+    frit_side(value).map(Some).ok_or_else(|| {
+        format!(
+            "line {n}: size={value} is not a height in pixels, {FRIT_CELL_MIN} to {FRIT_CELL_MAX}"
+        )
+    })
+}
+
+/// Whether a frit's `text` names an outline source, `outline:` or a
+/// family, `font:`, so a zoom steps it by 1 pixel (ADR-1200 D17).
+fn frit_outline(text: &str) -> bool {
+    text.split('\n').any(|line| {
+        line.split('#')
+            .next()
+            .and_then(|body| body.split_once('='))
+            .is_some_and(|(k, v)| {
+                let v = v.trim();
+                k.trim() == "source" && (v.starts_with("outline:") || v.starts_with("font:"))
+            })
+    })
 }
 
 /// What `vtium check-config` says of the cell the frit `name`'s `text`
@@ -252,10 +319,9 @@ pub fn frit_warnings(name: &str, text: &str) -> Vec<String> {
 }
 
 /// A frit's cell at `height` (#145): the cell it states, scaled by the
-/// whole factor `height` reaches, at least 1; or with none stated, the
-/// display's, `height` tall and half as wide, rounded up, as the C
-/// reference took a cell to be (`src/terminal.c:899-918`), never smaller
-/// than `builtin`, the built-in font's cell at `height`.
+/// whole factor `height` reaches, at least 1; or with none stated,
+/// `height` tall and as wide as `builtin`, the built-in font's cell at
+/// `height`, never shorter than it (ADR-1200 D17).
 fn frit_cell_at(stated: Option<Cell>, height: u32, builtin: Cell) -> Cell {
     match stated {
         Some(c) => {
@@ -272,7 +338,7 @@ fn frit_cell_at(stated: Option<Cell>, height: u32, builtin: Cell) -> Cell {
             }
         }
         None => Cell {
-            width: height.div_ceil(2).max(builtin.width),
+            width: builtin.width,
             height: height.max(builtin.height),
         },
     }
@@ -286,14 +352,11 @@ fn builtin_in(cell: Cell, locale: &str) -> Option<Box<dyn Face>> {
     Chosen::Builtin(None).face(if k == 0 { 8 } else { k.saturating_mul(16) }, locale)
 }
 
-/// Where vtium finds sets and frits: the store and the owner its check
-/// expects, the frits' directory, the helper that generates a frit's
-/// glyphs, and the files that name the font when the configuration does
-/// not.
+/// Where vtium finds frits: the frits' directory, the helper that
+/// generates a frit's glyphs, and the files that name the font when the
+/// configuration does not.
 #[derive(Clone, Debug)]
 pub struct Sources {
-    pub store: PathBuf,
-    pub uid: u32,
     pub frits: PathBuf,
     /// The helper; `None` for the system's, [`helper::Command::system`].
     pub helper: Option<helper::Command>,
@@ -302,12 +365,10 @@ pub struct Sources {
 }
 
 impl Default for Sources {
-    /// The system's: the store owned by root, the frits' directory, the
-    /// installed helper, `/etc/vconsole.conf` and `/proc/cmdline`.
+    /// The system's: the frits' directory, the installed helper,
+    /// `/etc/vconsole.conf` and `/proc/cmdline`.
     fn default() -> Sources {
         Sources {
-            store: default_store(),
-            uid: 0,
             frits: default_frits(),
             helper: None,
             vconsole_conf: PathBuf::from("/etc/vconsole.conf"),
@@ -316,32 +377,18 @@ impl Default for Sources {
     }
 }
 
-/// Where the font's name came from, which picks the command that builds
-/// its set.
+/// Where the font's name came from, which picks the source of the frit
+/// made on the fly for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Came {
     /// `font-name`: a path, or a kbd font's name.
     Config,
     /// `font-name` under `font-engine=freetype` or `pango`: an outline
-    /// font's family, which only a frit names.
+    /// font's family, a `font:` source.
     Family,
     /// `vconsole.font=` on the kernel command line, or `FONT=` in
     /// vconsole.conf.
     Vconsole,
-}
-
-/// `word` quoted for a shell where it needs it: in single quotes, each
-/// quote in it closed, escaped and opened again.
-fn quote(word: &str) -> String {
-    let plain = !word.is_empty()
-        && word
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"/._+-=:,@".contains(&b));
-    if plain {
-        word.to_owned()
-    } else {
-        format!("'{}'", word.replace('\'', "'\\''"))
-    }
 }
 
 /// The font a name asks for, and where the name came from.
@@ -352,32 +399,15 @@ pub struct Wanted {
 }
 
 impl Wanted {
-    /// How a set built from the font is spelled as its frit's first
-    /// source, as `vtium-vitrify create` writes the one-source frit; none
-    /// for a family, whose frit names its file.
-    fn source(&self) -> Option<String> {
+    /// The one source of the frit made on the fly for the name (ADR-1200
+    /// D9): `vconsole` for vconsole's font, `font:` for an outline family,
+    /// `file:` for a path, else `kbd:`.
+    fn source(&self) -> String {
         match self.came {
-            Came::Vconsole => Some("vconsole".to_owned()),
-            Came::Config if self.name.starts_with('/') => Some(format!("file:{}", self.name)),
-            Came::Config => Some(format!("kbd:{}", self.name)),
-            Came::Family => None,
-        }
-    }
-
-    /// How to build the set: the command, `--force` rebuilding one the
-    /// store holds, each word quoted for a shell.
-    pub fn command(&self, force: bool) -> String {
-        let force = if force { "--force " } else { "" };
-        let name = quote(&self.name);
-        match self.came {
-            Came::Vconsole => format!("sudo vtium-vitrify create {force}--vconsole"),
-            Came::Config if self.name.starts_with('/') => {
-                format!("sudo vtium-vitrify create {force}--file {name}")
-            }
-            Came::Config => format!("sudo vtium-vitrify create {force}--kbd {name}"),
-            Came::Family => format!(
-                "a frit naming the file of {name}, `source=outline:PATH` (outline sources come with vtium/vtium#23), built with sudo vtium-vitrify create {force}FRIT, and font-name set to the set's name"
-            ),
+            Came::Vconsole => "vconsole".to_owned(),
+            Came::Family => format!("font:{}", self.name),
+            Came::Config if self.name.starts_with('/') => format!("file:{}", self.name),
+            Came::Config => format!("kbd:{}", self.name),
         }
     }
 }
@@ -421,7 +451,7 @@ pub fn vconsole_font(conf: &str, cmdline: &str) -> Option<String> {
 /// The font the configuration asks for (ADR-1200 D9): `font-name`, set in
 /// a file or on the command line, unless `font-engine` names the built-in
 /// unifont or the C reference's 8x16; unset, vconsole's font; else none,
-/// and vtium draws its built-in sets.
+/// and vtium draws its built-in font.
 pub fn wanted(config: &Config, vconsole_conf: &str, cmdline: &str) -> Option<Wanted> {
     if matches!(config.text(&FONT_ENGINE), Some("unifont" | "8x16")) {
         return None;
@@ -442,44 +472,37 @@ pub fn wanted(config: &Config, vconsole_conf: &str, cmdline: &str) -> Option<Wan
     }
 }
 
-/// The set `wanted` finds in the store at `sources`, looked up by set name
-/// and then by its first source as the frit spelled it (ADR-1200 D9), and
-/// checked as D3 checks it: the set's name, and the set. The error is the
-/// reason and whether the store holds the set, which then needs a rebuild.
-pub fn load(sources: &Sources, wanted: &Wanted) -> Result<(String, Arc<Set>), (String, bool)> {
-    let store = Store::open(&sources.store, sources.uid).map_err(|e| (e.to_string(), false))?;
-    let manifest = store.manifest().map_err(|e| (e.to_string(), false))?;
-    let source = wanted.source();
-    let row = manifest
-        .row(&wanted.name)
-        .or_else(|| {
-            manifest
-                .rows()
-                .iter()
-                .find(|r| Some(&r.source) == source.as_ref())
-        })
-        .ok_or_else(|| ("the store holds no set built from it".to_owned(), false))?;
-    let set = store.load_row(row).map_err(|e| (e.to_string(), true))?;
-    Ok((row.name.clone(), set))
+/// The frit `wanted` names (ADR-1200 D9): the frit of that name in
+/// `frits`; else a kbd name, a path, an outline family or vconsole's font
+/// as a one-source frit made on the fly, named as it was named. The error
+/// is why the frit of that name cannot be read.
+pub fn frit_named(frits: &Path, wanted: &Wanted) -> Result<FritText, String> {
+    if let Some(path) = frit(frits, &wanted.name) {
+        return FritText::read(&path);
+    }
+    Ok(FritText {
+        name: wanted.name.clone(),
+        text: format!("source={}\n", wanted.source()),
+    })
 }
 
-/// The set named `name` for OSC 50 (ADR-1200 D5): a built-in, or a set the
-/// store's manifest names, checked as D3 checks it. The set keeps the name
-/// as the built-in or the manifest spells it, never the request's bytes.
+/// The built-in font `name` names, as its own name spells it.
+pub fn builtin_named(name: &str) -> Option<Chosen> {
+    ["unifont", "unscii-8"]
+        .into_iter()
+        .find(|b| *b == name)
+        .map(|b| Chosen::Builtin(Some(b)))
+}
+
+/// The font named `name` for OSC 50 (ADR-1200 D5): a built-in, or a frit
+/// in the frits' directory. The font keeps the name as the built-in or
+/// the frit's file spells it, never the request's bytes.
 pub fn by_name(sources: &Sources, name: &str) -> Result<Chosen, String> {
-    if let Some(builtin) = ["unifont", "unscii-8"].into_iter().find(|b| *b == name) {
-        return Ok(Chosen::Builtin(Some(builtin)));
+    if let Some(builtin) = builtin_named(name) {
+        return Ok(builtin);
     }
-    let store = Store::open(&sources.store, sources.uid).map_err(|e| e.to_string())?;
-    let manifest = store.manifest().map_err(|e| e.to_string())?;
-    let row = manifest
-        .row(name)
-        .ok_or_else(|| "the store holds no set of that name".to_owned())?;
-    let set = store.load_row(row).map_err(|e| e.to_string())?;
-    Ok(Chosen::Set {
-        name: row.name.clone(),
-        set,
-    })
+    let path = frit(&sources.frits, name).ok_or("no frit is named so")?;
+    Chosen::frit(FritText::read(&path)?, false)
 }
 
 /// The font vtium draws.
@@ -489,15 +512,23 @@ pub enum Chosen {
     /// cells under 16 pixels and unifont from 16, but unifont alone in a
     /// zh, ja or ko locale (ADR-1200 D7).
     Builtin(Option<&'static str>),
-    /// A set from the store.
-    Set { name: String, set: Arc<Set> },
     /// A frit, generated at run time (ADR-1301 D2), in the cell it
     /// states, else the display's (#145): drawn in the built-in font, each
     /// character the helper has sent drawn from `generated` in its place.
     Frit {
+        /// The name the font goes by, as it was given.
         name: String,
-        path: PathBuf,
+        /// The frit as the helper is handed it, under a frit's name.
+        frit: FritText,
+        /// `cell=`, unless `font-size` is configured.
         cell: Option<Cell>,
+        /// `size=`, unless `font-size` is configured.
+        size: Option<u32>,
+        /// Its fonts' own cell, as the helper tells it for a frit of
+        /// bitmap sources that states no cell or size.
+        own: Option<Cell>,
+        /// A source is an outline font, so a zoom steps by 1 pixel.
+        outline: bool,
         generated: Shared,
     },
 }
@@ -511,36 +542,115 @@ pub struct Rung {
 }
 
 impl Chosen {
-    /// The built-in set drawn at `height` in `locale`.
-    fn builtin_at(&self, height: u32, locale: &str) -> Option<&'static str> {
-        match self {
-            Chosen::Builtin(Some(name)) => Some(name),
-            Chosen::Builtin(None) | Chosen::Frit { .. } => Some(builtin_name(height, locale)),
-            Chosen::Set { .. } => None,
+    /// The frit `frit`, its cell and size read from its text before the
+    /// first frame (#145), unless `sized`, a configured `font-size`, wins
+    /// over them (ADR-1200 D16, D17). A name that is not a frit's goes to
+    /// the helper as [`GENERATED`]. The error is why they cannot be read.
+    pub fn frit(mut frit: FritText, sized: bool) -> Result<Chosen, String> {
+        let cell = frit_cell(&frit.text)?;
+        let size = frit_size(&frit.text)?;
+        let name = frit.name.clone();
+        if !frit_name(&name) {
+            GENERATED.clone_into(&mut frit.name);
+        }
+        Ok(Chosen::Frit {
+            name,
+            outline: frit_outline(&frit.text),
+            frit,
+            cell: cell.filter(|_| !sized),
+            size: size.filter(|_| !sized),
+            own: None,
+            generated: Shared::default(),
+        })
+    }
+
+    /// A frit's starting cell (ADR-1200 D17): `cell=`; else with `size=`
+    /// alone, that height as wide as the built-in font there; else none.
+    fn stated(&self, locale: &str) -> Option<Cell> {
+        let Chosen::Frit { cell, size, .. } = self else {
+            return None;
+        };
+        cell.or_else(|| {
+            let height = (*size)?;
+            let width = Chosen::Builtin(None).face(height, locale)?.cell().width;
+            Some(Cell { width, height })
+        })
+    }
+
+    /// Whether the font is a frit that takes its fonts' own cell, asked of
+    /// the helper (the operator, 2026-10-28): its sources bitmap, by its
+    /// text, and no cell or size stated or configured.
+    pub fn wants_own_cell(&self) -> bool {
+        matches!(
+            self,
+            Chosen::Frit {
+                cell: None,
+                size: None,
+                own: None,
+                outline: false,
+                ..
+            }
+        )
+    }
+
+    /// Takes `cell`, the frit's fonts' own, as the helper told it.
+    pub fn set_own_cell(&mut self, cell: Cell) {
+        if let Chosen::Frit { own, .. } = self {
+            *own = Some(cell);
         }
     }
 
-    /// The set's name at `height` in `locale`, as `vtium-vitrify list`
-    /// and OSC 50 spell it.
+    /// The cell a bitmap frit's heights are whole multiples of: the one it
+    /// states, else its fonts' own.
+    fn base_cell(&self, locale: &str) -> Option<Cell> {
+        match self {
+            Chosen::Frit { own, .. } => self.stated(locale).or(*own),
+            Chosen::Builtin(_) => None,
+        }
+    }
+
+    /// Whether the font is a frit a zoom steps by 1 pixel.
+    fn outline(&self) -> bool {
+        matches!(self, Chosen::Frit { outline: true, .. })
+    }
+
+    /// The built-in font drawn at `height` in `locale`.
+    fn builtin_at(&self, height: u32, locale: &str) -> &'static str {
+        match self {
+            Chosen::Builtin(Some(name)) => name,
+            Chosen::Builtin(None) | Chosen::Frit { .. } => builtin_name(height, locale),
+        }
+    }
+
+    /// The font's name at `height` in `locale`, as OSC 50 spells it: the
+    /// frit's, else the built-in's.
     pub fn name(&self, height: u32, locale: &str) -> &str {
         match self {
-            Chosen::Set { name, .. } | Chosen::Frit { name, .. } => name,
-            _ => self.builtin_at(height, locale).unwrap_or("unifont"),
+            Chosen::Frit { name, .. } => name,
+            Chosen::Builtin(_) => self.builtin_at(height, locale),
         }
     }
 
-    /// The face at `height`: the strike of that height, else one whose
-    /// whole multiple it is, else the tallest under it scaled by the
-    /// largest whole factor that fits (ADR-1200 D9). The built-in unifont
-    /// draws through its own face.
+    /// The face at `height`: a frit's, in its cell at that height, drawn
+    /// in the built-in font until the helper's glyphs land; else the
+    /// built-in's strike of that height, else the tallest under it scaled
+    /// by the largest whole factor that fits. The built-in unifont draws
+    /// through its own face.
     pub fn face(&self, height: u32, locale: &str) -> Option<Box<dyn Face>> {
-        if let Chosen::Frit {
-            cell, generated, ..
-        } = self
-        {
+        if let Chosen::Frit { generated, .. } = self {
             let at = Chosen::Builtin(None).face(height, locale)?;
-            let step = cell.map_or_else(|| at.size_step(), |c| c.height);
-            let cell = frit_cell_at(*cell, height, at.cell());
+            let stated = self.base_cell(locale);
+            let (cell, step) = match (stated, self.outline()) {
+                // D17, the C reference's outline increase_step of 1: the
+                // stated cell at its own height, else D17's width
+                (Some(c), true) if c.height == height => (c, 1),
+                (_, true) => (frit_cell_at(None, height, at.cell()), 1),
+                // D17, the C reference's PSF increase_step of the font's
+                // height: the stated or own cell's whole multiples
+                (Some(c), false) => (frit_cell_at(Some(c), height, at.cell()), c.height),
+                // D17: with no cell stated, the display's
+                (None, false) => (frit_cell_at(None, height, at.cell()), at.size_step()),
+            };
             let builtin = builtin_in(cell, locale)?;
             return Some(Box::new(DeferredFace::new(
                 builtin,
@@ -549,29 +659,36 @@ impl Chosen {
                 Rc::clone(generated),
             )));
         }
-        let set = match (self, self.builtin_at(height, locale)) {
-            (_, Some("unifont")) => return Some(Box::new(Unifont::new(height))),
-            (_, Some(name)) => builtin(name)?,
-            (Chosen::Set { set, .. }, None) => set.clone(),
-            (Chosen::Builtin(_) | Chosen::Frit { .. }, None) => return None,
-        };
-        SetFace::new(set, height).map(|f| Box::new(f) as Box<dyn Face>)
+        match self.builtin_at(height, locale) {
+            "unifont" => Some(Box::new(Unifont::new(height))),
+            name => SetFace::new(builtin(name)?, height).map(|f| Box::new(f) as Box<dyn Face>),
+        }
     }
 
-    /// The heights a zoom steps through: each strike's height and its
-    /// whole multiples. The built-ins step through Unscii-8's 8 under 16,
-    /// where it is drawn, and unifont's multiples of 16 from 16.
+    /// The heights a zoom steps through (ADR-1200 D17): an outline frit's
+    /// every height from the built-in's smallest, a bitmap frit's stated
+    /// or own cell's height and its whole multiples. The built-ins, and a bitmap
+    /// frit with no cell stated, step through Unscii-8's 8 under 16, where
+    /// it is drawn, and unifont's multiples of 16 from 16.
     pub fn rungs(&self, locale: &str) -> Vec<Rung> {
         let all = |step| Rung {
             step,
             min: step,
             end: u32::MAX,
         };
+        // D17, the C reference's outline increase_step of 1
+        if self.outline() {
+            return vec![Rung {
+                step: 1,
+                min: Chosen::Builtin(None).smallest(locale),
+                end: u32::MAX,
+            }];
+        }
+        // D17, the C reference's PSF increase_step of the font's height
+        if let Some(cell) = self.base_cell(locale) {
+            return vec![all(cell.height)];
+        }
         match self {
-            Chosen::Set { set, .. } => set.cells().iter().map(|c| all(c.height)).collect(),
-            Chosen::Frit {
-                cell: Some(cell), ..
-            } => vec![all(cell.height)],
             Chosen::Builtin(Some("unscii-8")) => vec![all(8)],
             Chosen::Builtin(Some(_)) => vec![all(16)],
             Chosen::Builtin(None) | Chosen::Frit { .. }
@@ -591,25 +708,24 @@ impl Chosen {
     }
 
     /// The height `font-size=0` picks for a display `width` by `height`:
-    /// the height of the cell a frit states, which no display moves
-    /// (#145); else [`auto_size`] for the font's smallest height.
+    /// the height of the cell a frit states, or its `size=`, which no
+    /// display moves (#145, ADR-1200 D17); else [`auto_size`] for the
+    /// font's smallest height, which a frit's own cell takes at the
+    /// largest whole multiple not over it, at least the cell itself, as
+    /// the C reference scaled a PSF font (the operator, 2026-10-28).
     pub fn auto_height(&self, width: u32, height: u32, locale: &str) -> u32 {
-        match self {
-            Chosen::Frit {
-                cell: Some(cell), ..
-            } => cell.height,
-            _ => auto_size(width, height, self.smallest(locale)),
+        match self.stated(locale) {
+            Some(cell) => cell.height,
+            None => self.snap(auto_size(width, height, self.smallest(locale)), locale),
         }
     }
 
-    /// The height the font draws when `height` is asked for: a frit's
-    /// stated cell's whole multiple at or under it, at least the cell
-    /// itself (#145); else `height`.
-    pub fn snap(&self, height: u32) -> u32 {
-        match self {
-            Chosen::Frit {
-                cell: Some(cell), ..
-            } => frit_cell_at(Some(*cell), height, *cell).height,
+    /// The height the font draws when `height` is asked for: a bitmap
+    /// frit's stated or own cell's whole multiple at or under it, at least
+    /// the cell itself (#145, ADR-1200 D17); else `height`.
+    pub fn snap(&self, height: u32, locale: &str) -> u32 {
+        match self.base_cell(locale) {
+            Some(cell) if !self.outline() => frit_cell_at(Some(cell), height, cell).height,
             _ => height,
         }
     }
@@ -687,6 +803,29 @@ mod tests {
         );
     }
 
+    // ADR-1200 D1: a frit's glyph-source= lines are its sprite policy, over
+    // the face's, the configuration's keys over both
+    #[test]
+    fn a_frits_glyph_source_is_its_policy_under_the_keys() {
+        let face = SpritePolicy::SPRITES;
+        assert_eq!(frit_policy("source=kbd:x\n", face), face);
+        let frit = "source=kbd:x\nglyph-source=font # all six\nglyph-source-braille = auto\n";
+        let own = SpritePolicy::all(Source::Font).with(Range::Braille, Source::Auto);
+        assert_eq!(frit_policy(frit, face), own);
+        // a value or a range vtium does not know is the helper's to refuse
+        assert_eq!(
+            frit_policy("glyph-source=x\nglyph-source-y=font\n", face),
+            face
+        );
+        assert_eq!(
+            policy(
+                &config(&["--glyph-source-braille=sprites"]),
+                frit_policy(frit, face)
+            ),
+            own.with(Range::Braille, Source::Sprites)
+        );
+    }
+
     #[test]
     fn missing_is_box_or_hex() {
         assert_eq!(missing(&config(&[])), Missing::Replacement);
@@ -735,12 +874,8 @@ mod tests {
     }
 
     fn frit_font(stated: Option<Cell>) -> Chosen {
-        Chosen::Frit {
-            name: "f".into(),
-            path: PathBuf::from("/etc/vtium/fonts/f.vtfrit"),
-            cell: stated,
-            generated: Shared::default(),
-        }
+        let cell = stated.map_or_else(String::new, |c| format!("cell={}x{}\n", c.width, c.height));
+        frit_of(&format!("source=kbd:x\n{cell}"), false)
     }
 
     // #145: the console reads a frit's cell as text, before its first frame
@@ -776,8 +911,8 @@ mod tests {
         assert_eq!(face(16).cell(), cell(10, 20), "never smaller than stated");
         assert_eq!(face(45).cell(), cell(20, 40));
         assert_eq!(face(20).size_step(), 20);
-        assert_eq!((f.snap(16), f.snap(45)), (20, 40));
-        assert_eq!(frit_font(None).snap(19), 19);
+        assert_eq!((f.snap(16, "C"), f.snap(45, "C")), (20, 40));
+        assert_eq!(frit_font(None).snap(19, "C"), 19);
         assert_eq!(
             f.rungs("C"),
             [Rung {
@@ -791,6 +926,114 @@ mod tests {
         // the display moves no stated cell
         assert_eq!(f.auto_height(3840, 2160, "C"), 20);
         assert_eq!(f.auto_height(320, 240, "C"), 20);
+    }
+
+    fn frit_of(text: &str, sized: bool) -> Chosen {
+        let frit = FritText {
+            name: "f".into(),
+            text: text.into(),
+        };
+        Chosen::frit(frit, sized).expect("a frit")
+    }
+
+    // ADR-1200 D17: an outline frit zooms by 1 pixel, as the C reference's
+    // outline engines' increase_step did, from its stated cell, each
+    // height but the stated one as wide as the built-in font there
+    #[test]
+    fn an_outline_frit_zooms_by_one_pixel() {
+        for text in [
+            "source=outline:/f.ttf\ncell=10x20\n",
+            "source=font:DejaVu Sans Mono\ncell=10x20\n",
+            "source=kbd:x\nsource=outline:/f.ttf\ncell=10x20\n",
+        ] {
+            let f = frit_of(text, false);
+            let r = f.rungs("C");
+            assert_eq!(zoom(&r, 20, Zoom::In), Some(21), "{text}");
+            assert_eq!(zoom(&r, 20, Zoom::Out), Some(19), "{text}");
+            assert_eq!(f.snap(21, "C"), 21, "{text}");
+            let cell_at = |h| f.face(h, "C").expect("a face").cell();
+            assert_eq!(cell_at(20), cell(10, 20), "{text}");
+            assert_eq!(cell_at(21), cell(8, 21), "{text}");
+            assert_eq!(cell_at(33), cell(16, 33), "{text}");
+            assert_eq!(f.face(21, "C").expect("a face").size_step(), 1);
+        }
+        // down to the built-in font's smallest, which it draws in meanwhile
+        let f = frit_of("source=outline:/f.ttf\n", false);
+        assert_eq!(zoom(&f.rungs("C"), 9, Zoom::Out), Some(8));
+        assert_eq!(zoom(&f.rungs("C"), 8, Zoom::Out), None);
+    }
+
+    // the operator's decision on #145, 2026-10-28: a bitmap frit with no
+    // cell or size stated asks for its fonts' own cell, and takes it at the
+    // largest whole multiple not over the automatic height, at least once,
+    // as the C reference scaled a PSF font; it zooms by the cell's height
+    #[test]
+    fn a_frits_own_cell_scales_by_whole_factors_under_the_automatic_height() {
+        assert!(frit_of("source=kbd:x\n", false).wants_own_cell());
+        for text in [
+            "source=kbd:x\ncell=8x16\n",
+            "source=kbd:x\nsize=16\n",
+            "source=outline:/f.ttf\n",
+            "source=kbd:x\nsource=font:Mono\n",
+        ] {
+            assert!(!frit_of(text, false).wants_own_cell(), "{text}");
+        }
+        let mut f = frit_of("source=kbd:x\n", false);
+        f.set_own_cell(cell(8, 16));
+        assert!(!f.wants_own_cell());
+        // 1366x768's automatic 19, 1920x1080's 27 and 3840x2160's 54
+        assert_eq!(f.auto_height(1366, 768, "C"), 16);
+        assert_eq!(f.auto_height(1920, 1080, "C"), 16);
+        assert_eq!(f.auto_height(3840, 2160, "C"), 48);
+        // at least the cell, under #118's floor too
+        assert_eq!(f.auto_height(320, 240, "C"), 16);
+        assert_eq!(f.face(16, "C").expect("a face").cell(), cell(8, 16));
+        assert_eq!(f.face(48, "C").expect("a face").cell(), cell(24, 48));
+        assert_eq!(zoom(&f.rungs("C"), 16, Zoom::In), Some(32));
+        assert_eq!(zoom(&f.rungs("C"), 16, Zoom::Out), None);
+        let mut f = frit_of("source=kbd:x\n", false);
+        f.set_own_cell(cell(8, 8));
+        assert_eq!(f.auto_height(320, 240, "C"), 8);
+        assert_eq!(f.auto_height(640, 480, "C"), 16);
+        assert_eq!(f.face(16, "C").expect("a face").cell(), cell(16, 16));
+    }
+
+    // ADR-1200 D1, D17: size= alone is the starting height, the cell as
+    // wide as the built-in font there; a bitmap frit zooms by its whole
+    // multiples, as the C reference's PSF engine's increase_step did
+    #[test]
+    fn size_alone_starts_the_height_and_cell_wins_over_it() {
+        let f = frit_of("source=kbd:x\nsize=24\n", false);
+        assert_eq!(f.auto_height(320, 240, "C"), 24);
+        assert_eq!(f.face(24, "C").expect("a face").cell(), cell(8, 24));
+        assert_eq!(zoom(&f.rungs("C"), 24, Zoom::In), Some(48));
+        assert_eq!(f.face(48, "C").expect("a face").cell(), cell(16, 48));
+        assert_eq!(zoom(&f.rungs("C"), 24, Zoom::Out), None);
+        let f = frit_of("source=outline:/f.ttf\nsize=24\n", false);
+        assert_eq!(f.auto_height(320, 240, "C"), 24);
+        assert_eq!(zoom(&f.rungs("C"), 24, Zoom::In), Some(25));
+        // the cell is cell='s; size= is the glyph's height in it
+        let f = frit_of("source=kbd:x\ncell=10x20\nsize=16\n", false);
+        assert_eq!(f.auto_height(320, 240, "C"), 20);
+        assert_eq!(f.face(20, "C").expect("a face").cell(), cell(10, 20));
+        // a configured font-size wins over both
+        let f = frit_of("source=kbd:x\ncell=10x20\nsize=16\n", true);
+        assert_eq!(f.auto_height(320, 240, "C"), 8);
+        for (text, why) in [
+            ("size=24\nsize=32\n", "line 2: size= given twice"),
+            (
+                "size=5\n",
+                "line 1: size=5 is not a height in pixels, 6 to 96",
+            ),
+            ("size=016\n", "line 1: size=016 is not"),
+        ] {
+            let frit = FritText {
+                name: "f".into(),
+                text: text.into(),
+            };
+            let e = Chosen::frit(frit, false).expect_err(text);
+            assert!(e.contains(why), "{text:?}: {e}");
+        }
     }
 
     // #145: under 16 pixels the smaller strike, Unscii-8, draws
@@ -816,9 +1059,9 @@ mod tests {
         }
     }
 
-    // #145: with no stated cell, the display's: the C reference's
-    // automatic height, a cell half as wide, rounded up, never smaller than
-    // the built-in's there; #118's floor first
+    // ADR-1200 D17: with no stated cell, the display's: the C reference's
+    // automatic height, #118's floor first, as wide as the built-in font
+    // is at that height
     #[test]
     fn with_no_stated_cell_the_cell_comes_from_the_display() {
         let f = frit_font(None);
@@ -828,9 +1071,9 @@ mod tests {
         };
         assert_eq!(at(320, 240), cell(8, 8), "40 by 30");
         assert_eq!(at(640, 480), cell(8, 16), "80 by 30");
-        assert_eq!(at(1366, 768), cell(10, 19), "136 by 40");
-        assert_eq!(at(1920, 1080), cell(14, 27), "137 by 40");
-        assert_eq!(at(3840, 2160), cell(27, 54), "142 by 40");
+        assert_eq!(at(1366, 768), cell(8, 19), "unifont's 8 at 19");
+        assert_eq!(at(1920, 1080), cell(8, 27), "unifont's 8 at 27");
+        assert_eq!(at(3840, 2160), cell(24, 54), "unifont's 24 at 54");
         assert_eq!(f.face(27, "C").expect("a face").size_step(), 16);
         // unifont alone in a zh, ja or ko locale: 16 at the floor
         let height = f.auto_height(320, 240, "ja_JP.UTF-8");
@@ -966,22 +1209,6 @@ mod tests {
         )
         .expect("named");
         assert_eq!((named.name.as_str(), named.came), (path, Came::Config));
-        assert_eq!(named.source(), Some(format!("file:{path}")));
-        assert_eq!(
-            named.command(false),
-            format!("sudo vtium-vitrify create --file {path}")
-        );
-        let kbd = wanted(&config(&["--font-name=Lat2-Terminus16"]), "", "").expect("named");
-        assert_eq!(kbd.source().as_deref(), Some("kbd:Lat2-Terminus16"));
-        assert_eq!(
-            kbd.command(true),
-            "sudo vtium-vitrify create --force --kbd Lat2-Terminus16"
-        );
-        let v = wanted(&config(&[]), conf, "").expect("vconsole");
-        assert_eq!(v.source().as_deref(), Some("vconsole"));
-        assert_eq!(v.command(false), "sudo vtium-vitrify create --vconsole");
-        // An outline font's family under freetype or pango: a frit names
-        // its file, and the suggestion quotes the family.
         let family = wanted(
             &config(&["--font-engine=pango", "--font-name=DejaVu Sans Mono"]),
             "",
@@ -989,23 +1216,53 @@ mod tests {
         )
         .expect("named");
         assert_eq!(family.came, Came::Family);
-        assert_eq!(family.source(), None);
-        let says = family.command(false);
-        assert!(says.contains("of 'DejaVu Sans Mono'"), "{says}");
-        assert!(says.contains("source=outline:PATH"), "{says}");
-        assert!(!says.contains("--kbd"), "{says}");
-        assert_eq!(quote("it's"), "'it'\\''s'");
-        assert_eq!(
-            wanted(&config(&["--font-name=/fonts/my font.psf"]), "", "")
-                .expect("named")
-                .command(false),
-            "sudo vtium-vitrify create --file '/fonts/my font.psf'"
-        );
         // `font-engine=unifont` or `8x16` draws the built-ins.
         for engine in ["unifont", "8x16"] {
             let c = config(&[&format!("--font-engine={engine}"), "--font-name=x"]);
             assert_eq!(wanted(&c, conf, ""), None, "{engine}");
         }
+    }
+
+    // ADR-1200 D9: a name no frit bears is a one-source frit made on the
+    // fly, named as it was named: kbd:, file:, font: or vconsole
+    #[test]
+    fn a_name_no_frit_bears_is_a_one_source_frit() {
+        let none = Path::new("/nonexistent/vtium-test-frits");
+        let made = |name: &str, came| {
+            frit_named(
+                none,
+                &Wanted {
+                    name: name.into(),
+                    came,
+                },
+            )
+        };
+        let text = |name: &str, came| made(name, came).map(|f| (f.name, f.text));
+        assert_eq!(
+            text("Lat2-Terminus16", Came::Config),
+            Ok((
+                "Lat2-Terminus16".into(),
+                "source=kbd:Lat2-Terminus16\n".into()
+            ))
+        );
+        assert_eq!(
+            text("/fonts/my font.psf", Came::Config),
+            Ok((
+                "/fonts/my font.psf".into(),
+                "source=file:/fonts/my font.psf\n".into()
+            ))
+        );
+        assert_eq!(
+            text("lat9w-16", Came::Vconsole),
+            Ok(("lat9w-16".into(), "source=vconsole\n".into()))
+        );
+        assert_eq!(
+            text("DejaVu Sans Mono", Came::Family),
+            Ok((
+                "DejaVu Sans Mono".into(),
+                "source=font:DejaVu Sans Mono\n".into()
+            ))
+        );
     }
 
     #[test]

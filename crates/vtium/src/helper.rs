@@ -34,6 +34,12 @@
 //! that exits 0 with nothing outstanding left at its idle interval, and
 //! the next need starts another.
 //!
+//! A frit of bitmap sources that states no cell takes its fonts' own cell
+//! (the operator, 2026-10-28), which the console asks the helper for
+//! before its first frame ([`Helper::own_cell`]): the one wait on the
+//! helper, at most [`OWN_CELL_MS`]. An answer that comes after it is
+//! dropped.
+//!
 //! The wire format is `vtium-vitrify`'s serve mode's (`serve.rs`), whose
 //! constants this module repeats.
 
@@ -73,16 +79,23 @@ pub const FRAME_BYTES_MAX: u32 = 16 << 20;
 pub const REASON_BYTES_MAX: u32 = 4096;
 /// The most codepoints one request names, the helper's `FIRST_MAX`.
 pub const FIRST_MAX: usize = 32_000;
+/// How long the console waits before its first frame for a frit's own
+/// cell.
+// The helper starts and reads a PSF well inside it on minspec, and a start that waits longer stalls visibly (the operator, 2026-10-28).
+pub const OWN_CELL_MS: u64 = 100;
 
 const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ2";
 const ASK: u32 = 1;
 const FILL: u32 = 2;
 const STOP: u32 = 3;
+const OWN_CELL: u32 = 4;
 const FRAME_GLYPHS: u32 = 1;
 const FRAME_DONE: u32 = 2;
 const FRAME_FAILED: u32 = 3;
 const FRAME_FILL: u32 = 4;
 const FRAME_FILLED: u32 = 5;
+const FRAME_OWN_CELL: u32 = 6;
+const FRAME_NO_OWN_CELL: u32 = 7;
 
 /// `SIGXCPU`, which an exhausted `RLIMIT_CPU` sends.
 const SIGXCPU: i32 = 24;
@@ -232,6 +245,10 @@ enum Event {
     Done,
     /// A cell's fill is done.
     Filled(Cell),
+    /// The frit's own cell, a cell query's answer.
+    OwnCell(Cell),
+    /// The frit has no own cell: why.
+    NoOwnCell(String),
     Failed(String),
     /// Bytes that are not a frame, or a set its reader refused.
     Malformed(String),
@@ -333,8 +350,8 @@ fn frame(r: &mut impl Read) -> Option<Event> {
     let max = match kind {
         FRAME_GLYPHS | FRAME_FILL => FRAME_BYTES_MAX,
         FRAME_DONE => 0,
-        FRAME_FILLED => 8,
-        FRAME_FAILED => REASON_BYTES_MAX,
+        FRAME_FILLED | FRAME_OWN_CELL => 8,
+        FRAME_FAILED | FRAME_NO_OWN_CELL => REASON_BYTES_MAX,
         other => return Some(Event::Malformed(format!("a frame of unknown kind {other}"))),
     };
     if len > max {
@@ -367,6 +384,22 @@ fn frame(r: &mut impl Read) -> Option<Event> {
             }),
             _ => Event::Malformed("a fill's end without its cell".to_owned()),
         },
+        FRAME_OWN_CELL => match *payload.as_slice() {
+            [w0, w1, w2, w3, h0, h1, h2, h3] => {
+                let cell = Cell {
+                    width: u32::from_le_bytes([w0, w1, w2, w3]),
+                    height: u32::from_le_bytes([h0, h1, h2, h3]),
+                };
+                let side = 1..=vtium_font::CELL_SIDE_MAX;
+                if side.contains(&cell.width) && side.contains(&cell.height) {
+                    Event::OwnCell(cell)
+                } else {
+                    Event::Malformed("an own cell past CELL_SIDE_MAX".to_owned())
+                }
+            }
+            _ => Event::Malformed("an own cell without its size".to_owned()),
+        },
+        FRAME_NO_OWN_CELL => Event::NoOwnCell(String::from_utf8_lossy(&payload).into_owned()),
         _ => Event::Failed(String::from_utf8_lossy(&payload).into_owned()),
     })
 }
@@ -507,6 +540,11 @@ pub struct Helper {
     /// helper ends that fill or exits.
     stopped: Vec<Cell>,
     asks: VecDeque<Ask>,
+    /// A cell query is unanswered: its late answer is dropped.
+    querying: bool,
+    /// What the helper sent while the console waited for its own cell,
+    /// for the next [`Helper::poll`].
+    early: Option<Event>,
     /// When the next answer is due, while work is outstanding.
     due: Option<Instant>,
     restarts: u32,
@@ -545,6 +583,8 @@ impl Helper {
             cells: Vec::new(),
             stopped: Vec::new(),
             asks: VecDeque::new(),
+            querying: false,
+            early: None,
             due: None,
             restarts: 0,
             full: false,
@@ -626,6 +666,45 @@ impl Helper {
             sent: now,
         });
         self.send(ASK, cell, &codepoints, &[], now);
+    }
+
+    /// The frit's own cell, asked of the helper and waited for at most
+    /// `wait`, the one wait on the helper before a frame (the operator,
+    /// 2026-10-28). The error is why there is none: the helper's refusal,
+    /// a helper that cannot start or ends first, or no answer in time,
+    /// whose late answer is dropped.
+    pub fn own_cell(&mut self, wait: Duration, now: Instant) -> Result<Cell, String> {
+        let none = Cell {
+            width: 0,
+            height: 0,
+        };
+        if self.failed.is_none() {
+            self.send(OWN_CELL, none, &[], &[], now);
+        }
+        if let Some(why) = &self.failed {
+            return Err(why.clone());
+        }
+        let event = self
+            .running
+            .as_ref()
+            .ok_or("the helper is not running")?
+            .events
+            .recv_timeout(wait);
+        match event {
+            Ok(Event::OwnCell(cell)) => Ok(cell),
+            Ok(Event::NoOwnCell(why)) => Err(why.trim().to_owned()),
+            Ok(other) => {
+                self.early = Some(other);
+                Err("the helper answered something else first".to_owned())
+            }
+            Err(_) => {
+                self.querying = true;
+                Err(format!(
+                    "the helper gave no answer in {} ms",
+                    wait.as_millis()
+                ))
+            }
+        }
     }
 
     /// Forgets every cell but `cells`, as no display draws at them: their
@@ -778,6 +857,7 @@ impl Helper {
     /// nothing it sent is taken.
     fn stop(&mut self) {
         self.stopped.clear();
+        self.querying = false;
         if let Some(fd) = self.running.take().and_then(|r| r.pidfd) {
             let _ = pidfd_send_signal(&fd, Signal::KILL);
         }
@@ -830,7 +910,10 @@ impl Helper {
     pub fn poll(&mut self, now: Instant) -> Vec<Answer> {
         let mut out = Vec::new();
         while self.failed.is_none() {
-            let Some(event) = self.running.as_ref().and_then(|r| r.events.try_recv().ok()) else {
+            let early = self.early.take();
+            let Some(event) =
+                early.or_else(|| self.running.as_ref().and_then(|r| r.events.try_recv().ok()))
+            else {
                 break;
             };
             let result = match event {
@@ -844,6 +927,14 @@ impl Helper {
                     .map(|a| out.extend(a)),
                 Event::Done => self.done(),
                 Event::Filled(cell) => self.filled(cell, now),
+                // a cell query's answer after the console stopped waiting
+                Event::OwnCell(_) | Event::NoOwnCell(_) if self.querying => {
+                    self.querying = false;
+                    Ok(())
+                }
+                Event::OwnCell(_) | Event::NoOwnCell(_) => {
+                    Err("the helper answered a cell query not made".to_owned())
+                }
                 Event::Failed(why) => Err(format!("the helper failed: {}", why.trim())),
                 Event::Malformed(why) => Err(format!("the helper's answer was refused: {why}")),
                 Event::Closed(status) => {
@@ -1068,6 +1159,7 @@ impl Helper {
     fn closed(&mut self, status: Option<ExitStatus>, now: Instant) {
         self.running = None;
         self.stopped.clear();
+        self.querying = false;
         let clean = status.is_some_and(|s| s.success());
         let why = match status.and_then(|s| s.signal()) {
             Some(SIGXCPU | 9) => "reached its CPU limit".to_owned(),
@@ -1806,6 +1898,50 @@ mod tests {
         }
         let why = s.helper.failed().unwrap();
         assert!(why.contains("CPU limit"), "{why}");
+    }
+
+    fn own_cell_frame(width: u32, height: u32) -> Vec<u8> {
+        let mut c = width.to_le_bytes().to_vec();
+        c.extend_from_slice(&height.to_le_bytes());
+        frame_bytes(FRAME_OWN_CELL, &c)
+    }
+
+    // the operator's decision on #145, 2026-10-28: the console asks the
+    // helper for a bitmap frit's own cell and waits a bounded time; a
+    // refusal is no failure, and an answer after the wait is dropped
+    #[test]
+    fn a_frits_own_cell_is_asked_and_waited_for_a_bounded_time() {
+        let wait = Duration::from_secs(10);
+        let mut s = StandIn::new("own-cell", ANSWERS, &own_cell_frame(8, 16));
+        assert_eq!(s.helper.own_cell(wait, t0()), Ok(CELL));
+        let refusal = frame_bytes(
+            FRAME_NO_OWN_CELL,
+            b"source=outline:/f.ttf is an outline font",
+        );
+        let mut s = StandIn::new("own-cell-refused", ANSWERS, &refusal);
+        let why = s.helper.own_cell(wait, t0()).unwrap_err();
+        assert!(why.contains("is an outline font"), "{why}");
+        s.until_gone(t0());
+        assert_eq!(s.helper.failed(), None);
+        // the answer comes after the wait, and is dropped
+        let late = "cat >/dev/null & sleep 0.5; cat \"$1\"; wait";
+        let mut s = StandIn::new("own-cell-late", late, &own_cell_frame(8, 16));
+        let why = s
+            .helper
+            .own_cell(Duration::from_millis(50), t0())
+            .unwrap_err();
+        assert_eq!(why, "the helper gave no answer in 50 ms");
+        s.until_gone(t0());
+        assert_eq!(s.helper.failed(), None);
+        // past the cell's bound, or never asked: given up
+        let mut s = StandIn::new("own-cell-huge", ANSWERS, &own_cell_frame(8, 4096));
+        assert!(s.helper.own_cell(wait, t0()).is_err());
+        s.run(t0());
+        assert!(s.helper.failed().unwrap().contains("past CELL_SIDE_MAX"));
+        let mut s = StandIn::new("own-cell-unasked", ANSWERS, &own_cell_frame(8, 16));
+        s.helper.ask(CELL, &['A'], t0());
+        s.run(t0());
+        assert!(s.helper.failed().unwrap().contains("a cell query not made"));
     }
 
     #[test]

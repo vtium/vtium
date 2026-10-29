@@ -562,69 +562,89 @@ impl App {
         self.pty = Some(pty);
     }
 
-    /// Chooses the font once, at the first display: a frit `font-name`
-    /// names, generated at run time (ADR-1301 D2); else the set the
-    /// configuration or vconsole names, from the store (ADR-1200 D9), else
-    /// the built-ins, with one line naming the command that builds the set.
+    /// Chooses the font once, at the first display (ADR-1200 D9): the
+    /// frit `font-name` or vconsole names, or the one-source frit made on
+    /// the fly for a kbd name, a path or vconsole's font, generated at run
+    /// time (ADR-1301 D2); else the built-in font, with one line naming
+    /// the font and why.
     fn choose_font(&mut self) {
         if self.font.is_some() {
             return;
         }
         let s = &self.font_sources;
-        let wanted = font::wanted(
+        let Some(wanted) = font::wanted(
             &self.config,
             &font::read_text(&s.vconsole_conf),
             &font::read_text(&s.kernel_cmdline),
-        );
-        let frit = wanted
-            .as_ref()
-            .filter(|w| w.came == font::Came::Config)
-            .and_then(|w| Some((w.name.clone(), font::frit(&s.frits, &w.name)?)));
-        if let Some((name, path)) = frit {
-            // The frit's cell is read as text before the first frame; its
-            // fonts are the helper's to parse (#145).
-            match font::frit_text(&path).and_then(|t| font::frit_cell(&t)) {
-                Ok(cell) => {
-                    log::info!(
-                        "the font is the frit {name}, drawn in the built-in font until its glyphs are generated"
-                    );
-                    self.font = Some(Chosen::Frit {
-                        name,
-                        path,
-                        cell,
-                        generated: crate::deferred::Shared::default(),
-                    });
-                }
-                Err(why) => {
-                    log::warn!(
-                        "the frit {name} is not drawn ({why}): vtium draws its built-in font"
-                    );
-                    self.font = Some(Chosen::Builtin(None));
-                }
-            }
+        ) else {
+            self.font = Some(Chosen::Builtin(None));
+            return;
+        };
+        if let Some(builtin) = font::builtin_named(&wanted.name) {
+            self.font = Some(builtin);
             return;
         }
-        let chosen = match wanted {
-            None => Chosen::Builtin(None),
-            Some(w) if vtium_font::set::builtin(&w.name).is_some() => {
-                font::by_name(s, &w.name).unwrap_or(Chosen::Builtin(None))
+        // The frit's cell is read as text before the first frame; its
+        // fonts are the helper's to parse (#145).
+        let sized = self.sized();
+        let chosen = font::frit_named(&s.frits, &wanted).and_then(|frit| Chosen::frit(frit, sized));
+        self.font = Some(match chosen {
+            Ok(chosen) => {
+                log::info!(
+                    "the font is the frit {}, drawn in the built-in font until its glyphs are generated",
+                    chosen.name(0, &self.locale)
+                );
+                chosen
             }
-            Some(w) => match font::load(s, &w) {
-                Ok((name, set)) => {
-                    log::info!("the font is the set {name}");
-                    Chosen::Set { name, set }
-                }
-                Err((why, held)) => {
-                    log::warn!(
-                        "the font {} is not drawn ({why}): vtium draws its built-in font; build the set with {}",
-                        w.name,
-                        w.command(held)
-                    );
-                    Chosen::Builtin(None)
-                }
-            },
+            Err(why) => {
+                log::warn!(
+                    "the font {} is not drawn ({why}): vtium draws its built-in font",
+                    wanted.name
+                );
+                Chosen::Builtin(None)
+            }
+        });
+        self.own_cell();
+    }
+
+    /// A frit of bitmap sources that states no cell, with no `font-size`
+    /// configured, takes its fonts' own cell, as the C reference drew a
+    /// PSF font at its own size (the operator, 2026-10-28): the helper is
+    /// asked for it before the first frame and waited for at most
+    /// [`helper::OWN_CELL_MS`], the one wait on the helper before a frame.
+    /// A refusal, or no answer in time, leaves the display's cell, with
+    /// one line saying why.
+    fn own_cell(&mut self) {
+        if self.sized() || !self.font.as_ref().is_some_and(Chosen::wants_own_cell) {
+            return;
+        }
+        let now = (self.clock)();
+        let Some(helper) = self.helper() else {
+            return;
         };
-        self.font = Some(chosen);
+        let own = helper.own_cell(Duration::from_millis(helper::OWN_CELL_MS), now);
+        let name = self.chosen().name(0, &self.locale).to_owned();
+        match own {
+            Ok(cell) => {
+                log::info!(
+                    "the frit {name} draws in its fonts' own {}x{} cell",
+                    cell.width,
+                    cell.height
+                );
+                if let Some(font) = &mut self.font {
+                    font.set_own_cell(cell);
+                }
+            }
+            Err(why) => log::warn!(
+                "the frit {name}'s own cell is not known ({why}): it draws in the display's cell"
+            ),
+        }
+    }
+
+    /// Whether `font-size` is configured, which wins over a frit's cell
+    /// (ADR-1200 D16); `font-size=0` is the automatic size.
+    fn sized(&self) -> bool {
+        self.config.number(&keys::FONT_SIZE).unwrap_or(0) != 0
     }
 
     /// The font set in use, the built-ins before one is chosen.
@@ -649,28 +669,40 @@ impl App {
         })
     }
 
-    /// OSC 50 asked for the set `name` (ADR-1200 D5): a built set switches
-    /// the live console as a zoom does, on a new grid; anything else
-    /// leaves the font. The first refusal since the last switch is logged
-    /// and the rest counted, so a program's flood of requests logs one
-    /// line.
+    /// OSC 50 asked for the font `name` (ADR-1200 D5): a frit or a
+    /// built-in switches the live console as a zoom does, on a new grid, a
+    /// frit with a helper and a store of its own; anything else leaves the
+    /// font. The first refusal since the last switch is logged and the
+    /// rest counted, so a program's flood of requests logs one line.
     fn switch_font(&mut self, name: &str) {
         self.choose_font();
         let same = match self.chosen() {
-            Chosen::Set { name: n, .. } | Chosen::Frit { name: n, .. } => n == name,
+            Chosen::Frit { name: now, .. } => now == name,
             Chosen::Builtin(Some(n)) => *n == name,
             Chosen::Builtin(None) => false,
         };
         if same {
             return;
         }
+        let sized = self.sized();
         let new = font::by_name(&self.font_sources, name).and_then(|new| {
+            let new = match new {
+                Chosen::Frit { frit, .. } => Chosen::frit(frit, sized)?,
+                builtin => builtin,
+            };
             let old = self.font.replace(new);
+            let helper = self.helper.take();
+            let refused = std::mem::take(&mut self.helper_refused);
+            let asked = std::mem::take(&mut self.asked);
+            self.own_cell();
             self.refont = true;
             if self.relayout() {
                 return Ok(());
             }
             self.font = old;
+            self.helper = helper;
+            self.helper_refused = refused;
+            self.asked = asked;
             self.refont = true;
             self.relayout();
             Err(format!("it draws nothing at {} pixels", self.font_size))
@@ -684,7 +716,7 @@ impl App {
                         refused.saturating_sub(1)
                     );
                 }
-                log::info!("OSC 50: the font is now the set {}", self.font_name());
+                log::info!("OSC 50: the font is now {}", self.font_name());
             }
             Err(why) => {
                 if self.font_refused == 0 {
@@ -698,11 +730,15 @@ impl App {
         }
     }
 
-    /// The font at `height`, with the configuration's sprite policy and
-    /// missing glyph.
+    /// The font at `height`, with the frit's sprite policy and the
+    /// configuration's over it, and the missing glyph.
     fn font_at(&self, face: Box<dyn Face>) -> Font<Box<dyn Face>> {
         let font = Font::new(face);
-        let policy = font::policy(&self.config, font.policy());
+        let own = match self.chosen() {
+            Chosen::Frit { frit, .. } => font::frit_policy(&frit.text, font.policy()),
+            Chosen::Builtin(_) => font.policy(),
+        };
+        let policy = font::policy(&self.config, own);
         font.with_policy(policy)
             .with_missing(font::missing(&self.config))
     }
@@ -794,7 +830,7 @@ impl App {
             let h = sizes.iter().map(|s| s.1).min().unwrap_or(0);
             self.font_size = self.chosen().auto_height(w, h, &self.locale);
         }
-        self.font_size = self.chosen().snap(self.font_size);
+        self.font_size = self.chosen().snap(self.font_size, &self.locale);
         let base = match font::select(self.font_size, self.has_font, |h| self.face(h)) {
             Ok((face, h)) => {
                 if !self.has_font {
@@ -939,12 +975,12 @@ impl App {
     /// once, when it cannot be.
     fn helper(&mut self) -> Option<&mut Helper> {
         let Some(Chosen::Frit {
-            path, generated, ..
+            frit, generated, ..
         }) = &self.font
         else {
             return None;
         };
-        let (path, generated) = (path.clone(), Rc::clone(generated));
+        let (frit, generated) = (frit.clone(), Rc::clone(generated));
         if self.helper.is_none() && !self.helper_refused {
             let command = self
                 .font_sources
@@ -959,9 +995,8 @@ impl App {
                         .map_err(|e| format!("cannot watch its wake-up: {e}"))?;
                     Ok(ping)
                 });
-            let frit = helper::FritText::read(&path);
-            match command.and_then(|c| frit.and_then(|f| wake.map(|w| (c, f, w)))) {
-                Ok((command, frit, ping)) => {
+            match command.and_then(|c| wake.map(|w| (c, w))) {
+                Ok((command, ping)) => {
                     let wake = std::sync::Mutex::new(ping);
                     self.helper = Some(Helper::new(
                         command,

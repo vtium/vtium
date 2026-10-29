@@ -236,13 +236,17 @@ considered:
     said: "One side owns each fact: the console's per-boot store is the only record of which glyphs the console holds. The helper keeps what it sent for one request only, an ask or a fill, and skips repeats only within it. A later fill may send again glyphs the console still holds, and the console drops them; that cost is accepted."
     via: the team lead's reading of the operator's design rule (one side owns each fact), 2026-10-28
     paraphrase: true
+  - operator: aaronsb
+    said: "A frit whose sources are all bitmap (a kbd name, a PSF path, `FONT=` or `console:`) and that states no `cell=` takes the font's own cell, as the C reference did: it drew a PSF at its own size, scaled by whole factors. Before the first frame, the console asks the helper for that frit's cell. It waits a bounded time, about 100 ms, and falls back to the automatic cell with a logged line if no answer comes in time. This is the one case where a frame waits on the helper. It applies only to an unconfigured bitmap font, and ADR-1200's observable carries the exception. The console still never parses a font."
+    via: the operator's decision on vtium/vtium#145, 2026-10-28, relayed by the team lead; the issue's comment of 2026-10-29T01:20Z headed "The operator decided how a bitmap font named without a cell finds its cell (2026-10-28)", posted from the operator's account, the wording agent-written
 observable:
-  - "On a cold start with a CJK frit, the first frame draws in the built-in font in the profile's cell, the frit's glyphs replace it as the helper sends them, no frame waits on the helper, and the grid's size never changes when they arrive"
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame (#149)"
   - "With the store at its limit, the fill sends nothing more, and an ask evicts the glyphs least recently shown, redrawing nothing"
   - "A helper killed by its CPU limit is started again with its asks resent, at most RESTARTS_MAX times a boot; one that sends a frame it was not asked for is given up for the boot with one log line, and the built-in font keeps drawing"
   - "No file the console or the helper writes holds a glyph, and the console opens no font file"
   - "Tier 3's frit variants on the 1-vCPU, 512 MB guest draw the built-in font first and the frit once the helper answers"
+  - On a cold start with a CJK frit, the first frame draws in the built-in font in the profile's cell, the frit's glyphs replace it as the helper sends them, no frame waits on the helper, and the grid's size never changes when they arrive; the one frame that waits is the first of a frit of bitmap sources that states no cell, which waits at most OWN_CELL_MS (100 ms) for its fonts' own cell and draws in the display's cell, with one log line, when none comes
+  - Tier 3's 2d-potato-min-psf draws kbd's default8x16, named by a path with no cell, in its own 8x16 cell at 1366x768, as the C reference's goldens do
 status: accepted
 date: 2026-10-28
 deciders:
@@ -348,13 +352,16 @@ With no font named, vtium draws the built-in font (D9), and picks no frit by loc
 ### D17: the cell
 
 - **From the profile, before the first frame.** The console reads the profile's cell as text before it draws, so the grid has its size from the first frame, without blocking on the helper and without parsing a font.
+- **A frit of bitmap sources that states no cell takes its fonts' own cell,** as the C reference drew a PSF font at its own size, scaled by whole factors (the operator, 2026-10-28). The console sees from the frit's text that every source is a bitmap one (a kbd name, a PSF path, `FONT=`, `console:` or a built-in) and that no `cell=` or `size=` is stated, and with no `font-size` configured it asks the helper for the cell before the first frame, since the console parses no font. The helper answers the first source's cell when every other source's fits in it, and refuses an outline source or a source whose cell does not fit. The console waits for the answer at most `OWN_CELL_MS`, 100 ms, the one case where a frame waits on the helper, and takes the cell at the largest whole multiple not over the automatic rule's height, at least once; a zoom steps by its height. A refusal, or no answer in time, leaves the display's cell with one logged line, and a later answer is dropped.
 - **With no profile,** the cell comes from the display, by the automatic rule: at most 120 columns, taking a cell as half as wide as it is high, at least 40 rows, and never under 16 pixels. #118's small-display rule takes precedence: where 16-pixel cells would leave fewer than 80 by 25, the built-in font's smallest height is used, so 320x240 draws 40 by 30 cells of 8x8 and 480x320 60 by 40, and a zh, ja or ko locale stays at 16. The cell's width is the built-in font's at that height.
 - **A configured `font-size`** sets the height the automatic rule would pick, as before, and wins over a profile's cell (D16).
 - **The grid resizes only on an explicit event:** a zoom, or a display hotplug while the cell is automatic. A resize sets the pty's size, which sends SIGWINCH, and redraws; the glyphs for the new cell are asked for, and the built-in font draws meanwhile. Glyphs arriving never move the cell.
 - **The helper generates for the cell and never moves it.** A frit that cannot fit the cell fails with a logged reason, and the built-in font keeps drawing. A profile whose cell does not suit its frit is linted by `vtium-vitrify` when it builds or checks the profile, and by `vtium check-config`.
 - **A zoom steps through the frit's pixel sizes,** as the C reference's zoom stepped by its font's `increase_step` (C notes), starting from the frit's `size=` (D1) (the operator, 2026-10-28).
 
-The C reference loaded its font before its first frame and took the font's cell; vtium has the same certainty from the profile without waiting on a font.
+The C reference loaded its font before its first frame and took the font's cell; vtium has the same certainty from the profile without waiting on a font, and waits only for a bitmap frit's own cell, bounded.
+
+> Edited 2026-10-28: the operator decided that a frit of bitmap sources with no cell takes its fonts' own cell (`considered`), which this decision, the observable, D10, the departures, the consequences and the alternatives now carry. A bitmap frit with no cell stated drew in the display's cell, and no frame waited on the helper; the earlier text is in git at fa6bbf6.
 
 ### D7: the built-in fonts
 
@@ -472,7 +479,7 @@ The helper sends glyphs in the chunk format vtium-font reads, little-endian, eve
 
 ### D10: how it is judged
 
-- **The pipeline:** with a stand-in helper that answers after a delay, the first frame draws in the built-in font in the profile's cell, no frame waits on the helper, the grid's size is the same before and after the glyphs arrive, and the frame after they arrive draws the frit's glyphs in only the cells that show them, scrollback view and clusters included.
+- **The pipeline:** with a stand-in helper that answers after a delay, the first frame draws in the built-in font in the profile's cell, no frame waits on the helper but a bitmap frit's first for its own cell, the grid's size is the same before and after the glyphs arrive, and the frame after they arrive draws the frit's glyphs in only the cells that show them, scrollback view and clusters included.
 - **Asks and the fill:** an ask sent while a fill runs is answered before the next batch; the fill stops at the store's limit; an ask past it evicts the glyphs least recently shown; eviction redraws nothing.
 - **The helper:** a crash, the CPU limit, a hang and an exit with work outstanding each restart it, up to `RESTARTS_MAX` times a boot; a frame it was not asked for gives it up for the boot with one log line; it refuses to start as root.
 - **Nothing outlives the boot:** no file the console or the helper writes holds a glyph.
@@ -545,7 +552,7 @@ How the C reference drew its glyphs, as the logical reference for each decision 
 
 - **Generated in a sandboxed helper, not in the root process:** the C reference parsed and rasterised fonts as root, in the draw path; vtium does both in the helper (D14, D15).
 - **The first frame does not wait for a font:** the C reference loaded its font before drawing; vtium draws the built-in font at once and swaps the frit's glyphs in (D7, D17).
-- **The cell comes from the profile:** the C reference took its cell from the loaded font; vtium reads it from the profile as text, and the automatic rule yields to #118's small-display rule (D17).
+- **The cell comes from the profile:** the C reference took its cell from the loaded font; vtium reads it from the profile as text, takes a bitmap frit's own cell only when the helper tells it within 100 ms, and the automatic rule yields to #118's small-display rule (D17).
 - **Arrival damages only the cells that show it:** the C reference had no arrival and redrew everything on a font change (D23).
 - **Glyphs keyed by text:** the C reference keyed its cache by a symbol and a generation; vtium keys by the cluster's text and needs neither (D20).
 - **A per-character fallback to the built-in font,** and U+FFFD before U+25A1: the C reference fell back from its font to U+25A1, then `?` (D7, D22).
@@ -558,7 +565,7 @@ How the C reference drew its glyphs, as the logical reference for each decision 
 
 - One path draws every font on every build, with no store, manifest, hash chain, build commands or package hooks to keep.
 - A frit takes effect as soon as it is written, for whatever display it lands on.
-- A start never waits on a font, and the grid never jumps when glyphs arrive.
+- A start never waits on a font but for a bitmap frit's own cell, at most 100 ms, and the grid never jumps when glyphs arrive.
 - The console's process parses no font, decompresses no file and shapes no text; each runs in a sandboxed process that does not outlive its idle interval.
 - Memory follows what the screen shows: the store's limit bounds it, and the fill never churns it.
 - A redraw after an arrival is as small as the cells that show the arrived characters.
@@ -586,6 +593,8 @@ How the C reference drew its glyphs, as the logical reference for each decision 
 - **No built-in font,** waiting for the helper's first glyphs. Not taken: the screen would be blank until the helper answers, and blank where it cannot run; the C reference likewise kept a compiled-in fallback.
 - **Generated glyphs fill the built-in font's cell,** as phase 1 drew. Replaced by the operator: the profile states the cell, and the grid never resizes because glyphs arrived.
 - **The console reads font files,** as the C reference's `font-engine=psf` did. Not taken: every decoder and parser would sit in the root process, facing files a user can name.
+- **The console reads a bitmap font's header for its own cell.** Rejected by the operator: the first exception to the console never parsing a font. The helper tells the cell instead (D17).
+- **A bitmap frit with no cell keeps the display's cell.** Rejected by the operator: an existing PSF setup would draw in the display's cell, 8x19 at 1366x768, instead of the font's 8x16.
 - **Rasterising in the console's root process,** as the C reference did. Not taken: a font file would be parsed as root, and swash panicked on a pixel font's OTB (D14).
 - **A persistent helper,** kept for the boot once started. Not taken, by the operator: state a hostile font plants would survive, and the CPU and memory budgets would never reset.
 - **Unbounded restarts.** Not taken, by the operator: each restart re-randomizes the address layout, so an exploit could retry until it lands.
