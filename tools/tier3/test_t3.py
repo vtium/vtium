@@ -1032,16 +1032,20 @@ class VtiumGoldenTest(unittest.TestCase):
         # 2026-10-28, the four vtium/vtium#119 adds in advance, so the list
         # in the tree names only the guest without systemd's (vtium/vtium#104),
         # those vtium/vtium#126 recaptured from the sets' fills and the frit
-        # variants' (vtium/vtium#145); every golden it names must be one a
-        # case draws.
+        # variants' (vtium/vtium#145), and the device variants'; every golden
+        # it names must be one a case draws.
         prov = t3_evaluate.read_provisional()
         moved = ["%s/%s" % (v, s) for v in ("2d-320x240-psf8", "2d-640x480-psf16")
                  for s in ("underline-styles", "strike", "wide-margin", "cjk")]
         frit = ["%s/%s" % (v, s) for v in ("2d-640x480-frit", "2d-640x480-frit-held")
                 for s in ("small-console", "cjk")]
+        devices = ["two-outputs-mirror/sgr", "two-outputs-mirror/sgr@1",
+                   "two-outputs-mirror/cjk", "two-outputs-mirror/cjk@1",
+                   "two-cards-mirror/sgr", "two-cards-mirror/sgr@card1",
+                   "two-cards-mirror/cjk", "two-cards-mirror/cjk@card1", "usb-keyboards/cjk"]
         self.assertEqual(sorted(prov), sorted(["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
                                                "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
-                                               "sysvinit-two-vts/cjk"] + moved + frit))
+                                               "sysvinit-two-vts/cjk"] + moved + frit + devices))
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
                                                    t3_evaluate.VTIUM_GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
