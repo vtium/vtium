@@ -197,6 +197,23 @@ pub(crate) const INPUT_ATTRIBUTES: [&str; 9] = [
     "properties",
 ];
 
+/// The sysfs attributes of [`INPUT_ATTRIBUTES`] an event node's parent
+/// shows, read through `read`; one longer than `UDEV_PROPERTY_MAX` bytes,
+/// as a device may name itself, is left out with a warning.
+pub(crate) fn attributes(read: impl Fn(&str) -> Option<String>) -> BTreeMap<String, String> {
+    INPUT_ATTRIBUTES
+        .into_iter()
+        .filter_map(|name| {
+            let value = read(name)?;
+            if value.len() > UDEV_PROPERTY_MAX {
+                log::warn!(target: "monitor", "left out the sysfs {name} past the bound");
+                return None;
+            }
+            Some((name.to_owned(), value))
+        })
+        .collect()
+}
+
 /// An event node's properties, bounded: those its identity reads by name
 /// (`named`) first, then the rest in udev's order (`all`), each name and
 /// value at most `UDEV_PROPERTY_MAX` bytes together and at most
@@ -559,13 +576,7 @@ fn uevent(dev: &udev::Device) -> Uevent {
                     )
                 }),
             ),
-            INPUT_ATTRIBUTES
-                .into_iter()
-                .filter_map(|name| {
-                    let value = text(p.attribute_value(name))?;
-                    (value.len() <= UDEV_PROPERTY_MAX).then(|| (name.to_owned(), value))
-                })
-                .collect(),
+            attributes(|name| text(p.attribute_value(name))),
         ),
         _ => (BTreeMap::new(), BTreeMap::new()),
     };

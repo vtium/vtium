@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use super::{
     Action, Device, DeviceEvent, DeviceFlags, DeviceKind, InputIdentity, Monitor, Probe, Udev,
-    Uevent, properties,
+    Uevent, attributes, properties,
 };
 use crate::bounds::{UDEV_PROPERTIES_MAX, UDEV_PROPERTY_MAX};
 use crate::input::{Class, Classes};
@@ -554,4 +554,20 @@ fn an_event_nodes_properties_are_bounded_and_its_named_ones_kept() {
     }
     assert!(!kept.contains_key("LONG"));
     assert!(!kept.contains_key(&format!("P{:04}", UDEV_PROPERTIES_MAX)));
+}
+
+#[test]
+fn an_input_devices_sysfs_attributes_are_bounded() {
+    let read = |name: &str| match name {
+        "name" => Some("n".repeat(UDEV_PROPERTY_MAX)),
+        "uniq" => Some("u".repeat(UDEV_PROPERTY_MAX + 1)),
+        "id/vendor" => Some(String::from("2dc8")),
+        _ => None,
+    };
+    let kept = attributes(read);
+    assert_eq!(
+        kept.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["id/vendor", "name"]
+    );
+    assert_eq!(kept.get("name").map(String::len), Some(UDEV_PROPERTY_MAX));
 }
