@@ -267,6 +267,12 @@ fn an_unknown_key_is_reported_once() {
 // vtium-platform's coarsest believed to its finest; unset, it is measured
 #[test]
 fn display_dpi_is_unset_or_a_believed_density() {
+    use vtium_platform::display::{DPI_MAX, DPI_MIN};
+    let bounds = match DISPLAY_DPI.kind {
+        Kind::Number { min, max, .. } => Some((min as f64, max as f64)),
+        _ => None,
+    };
+    assert_eq!(bounds, Some((DPI_MIN, DPI_MAX)), "vtium-platform's bounds");
     assert_eq!(main_file("").config.number(&DISPLAY_DPI), None);
     assert_eq!(
         main_file("display-dpi=109\n").config.number(&DISPLAY_DPI),

@@ -6,7 +6,6 @@
 //! fails when either differs, and `VTIUM_BLESS=1` rewrites them.
 
 use vtium_font::CELL_SIDE_MAX;
-use vtium_platform::display::{DPI_MAX, DPI_MIN};
 use vtium_term::{SB_MEMORY_DEFAULT, SB_MEMORY_MAX, SB_MEMORY_MIN, SB_SIZE_DEFAULT, SB_SIZE_MAX};
 
 /// The most bytes a text value or a `login` command holds.
@@ -962,9 +961,10 @@ pub const DISPLAY_DEPTH: Key = Key {
 pub const DISPLAY_DPI: Key = Key {
     name: "display-dpi",
     short: None,
+    // vtium-platform's DPI_MIN and DPI_MAX, the densities it believes
     kind: Kind::Number {
-        min: DPI_MIN as u64,
-        max: DPI_MAX as u64,
+        min: 20,
+        max: 1000,
         unit: "dpi",
         word: None,
     },

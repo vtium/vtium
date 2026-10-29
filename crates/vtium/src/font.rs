@@ -263,11 +263,27 @@ const POINTS_PER_INCH: f64 = 72.0;
 /// The pixel height of `points` on a display of `dpi` dots per inch, at
 /// least 1 and at most [`CELL_SIDE_MAX`] (the operator's decision on
 /// vtium/vtium#145).
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is held inside 1..=CELL_SIDE_MAX, a u32, before the cast, and NaN casts to 0"
+)]
 pub fn points_to_pixels(points: u32, dpi: f64) -> u32 {
     // points × DPI ÷ 72, to the nearest pixel, a half away from zero
     let pixels = (f64::from(points) * dpi / POINTS_PER_INCH).round();
-    // `as` saturates, and takes NaN to 0
-    (pixels as u32).clamp(1, CELL_SIDE_MAX)
+    (pixels.clamp(1.0, f64::from(CELL_SIDE_MAX)) as u32).max(1)
+}
+
+/// The whole points at or under `pixels` on a display of `dpi` dots per
+/// inch, held to a u32.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is held inside 0..=u32::MAX before the cast, and NaN casts to 0"
+)]
+fn points_under(pixels: u32, dpi: f64) -> u32 {
+    let points = (f64::from(pixels) * POINTS_PER_INCH / dpi).floor();
+    points.clamp(0.0, f64::from(u32::MAX)) as u32
 }
 
 /// Whether a frit's `text` names an outline source, `outline:` or a
@@ -756,8 +772,7 @@ impl Chosen {
         if !self.outline() {
             return zoom(&self.rungs(locale), size, dir);
         }
-        // the whole points at or under `size`; `as` saturates
-        let under = (f64::from(size) * POINTS_PER_INCH / dpi).floor() as u32;
+        let under = points_under(size, dpi);
         match dir {
             Zoom::In if size > ZOOM_IN_MAX => None,
             Zoom::In => (under.saturating_add(1)..=under.saturating_add(POINTS_SCAN))
