@@ -149,7 +149,7 @@ Keyboards cannot be told from other key devices by the kernel's marks: udev mark
 
 The figure shows the layers this record adds to, from the kernel to the sessions, with the files and the programs beside them and who each runs as.
 
-![The layers of interaction, bottom to top: the kernel, with card0 (the integrated GPU, HDMI-A-2), card1 (the discrete GPU, DP-8, the boot card), the evdev devices and the one set of kernel VTs; logind and its seats, seat0 holding the VT and both cards, extra seats without a VT marked as later; vtium's ruleset, which each device walks, its guards beside it (never-zero display, anti-lockout, the rescue key), and routing to a head or to the focus; two heads, desk on DP-8 with keyboard A and the mouse and profile desk, and panel on HDMI-A-2 with keyboard B and profile small, each profile naming its frit; each head's virtual consoles, one shown per head; and sessions, whose pty, screen, scrollback and grid vtium holds as root while login, the shell and programs run as the user. Layers 3 to 5 are one vtium process running as root. Beside the stack, /etc/vtium (the head file, profiles and frits, owned by root and writable by no one else) feeds layer 3; /run/vtium (written by root, its state read by all, a staged trial) sits between vtium and vtium-vitrify; vtium-vitrify, run as the user, with detect, setup, status, check, new and preview, and install through sudo, saves drafts to the user's $XDG_STATE_HOME/vtium/drafts; and the glyph helper, vtium-vitrify serve, runs as nobody, sandboxed, and generates the heads' frits. A legend marks root, the user, nobody, the kernel and pieces not yet built.](figures/ADR-1401-layers.svg)
+![The layers of interaction, bottom to top: the kernel, with card0 (the integrated GPU, HDMI-A-2), card1 (the discrete GPU, DP-8, the boot card), the evdev devices and the one set of kernel VTs; logind and its seats, seat0 holding the VT and both cards, extra seats without a VT marked as later; vtium's ruleset, which each device walks, its guards beside it (never-zero display, anti-lockout, the rescue key), and routing to a head or to the focus; two heads, desk on DP-8 with keyboard A and the mouse and profile desk, and panel on HDMI-A-2 with keyboard B and profile small, each profile naming its frit; each head's virtual consoles, one shown per head; and sessions, whose pty, screen, scrollback and grid vtium holds as root while login, the shell and programs run as the user. Layers 3 to 5 are one vtium process running as root. Beside the stack, /etc/vtium (the head file, profiles and frits, owned by root and writable by no one else) feeds layer 3; /run/vtium/<tty>, one directory a VT (written by root, its state read by all, a staged trial) sits between vtium and vtium-vitrify; vtium-vitrify, run as the user, with detect, setup, status, check, new and preview, and install through sudo, saves drafts to the user's $XDG_STATE_HOME/vtium/drafts; and the glyph helper, vtium-vitrify serve, runs as nobody, sandboxed, and generates the heads' frits. A legend marks root, the user, nobody, the kernel and pieces not yet built.](figures/ADR-1401-layers.svg)
 
 The structure inside the one process: the VT and the cards, the ruleset placing each input in a head or the focus, and each head's consoles and sessions.
 
@@ -200,6 +200,9 @@ flowchart TB
 - A head shows one console at a time on every display it holds. Its consoles start with one, as today's console has one session; the count, and each console's command, are set per head (D3; probe 2). A zoom changes the grid of the console shown.
 - A head whose displays never appear starts no sessions until one does.
 - Every head's consoles keep the session rules each session has today: its own login, the respawn limit, the reply rule (docs/architecture.md, "Determinism"), and the helper's sandbox as the session's user (ADR-1400 D2, ADR-1200 D15).
+- **One glyph helper for each frit in use,** and, once a session has logged in, for each session user of that frit, since ADR-1200 D15 runs the helper as the session's user. A helper is never shared across users.
+
+> Edited 2026-10-29: the team lead's correction from the heads gap-check (C5): several consoles logged in as different users cannot share one helper running as one of them, and heads with different frits need a helper each. D1 said only that each console keeps the helper's sandbox as the session's user.
 
 ### D2: one process, one VT, every card
 
@@ -256,8 +259,10 @@ The example's placement: two heads, each with its own display and keyboard, and 
 - **Targets.** A head's name. `focus`, for an input: it follows the focus chord (D5). `ignore`, for an input: vtium never opens it, but for a keyboard watched for the rescue key alone (D9). `dark`, for a display: vtium sets its connector off, so it shows nothing, a frame another master left included, and logs it.
 - **First match, alone.** Each device walks the rules top to bottom and takes the first that matches it. The walk reads only the device's own identity and the rules, never another device or the order devices were reported, so a hotplugged device lands where it would at start (D11's determinism row).
 - **No match.** A display goes dark, and the log names it with the rule line that would claim it, ready to paste. An input follows the focus.
-- **The shipped default** is one head, `[head console]` with the default profile, and the rules `display * -> console`, `input class:keyboard -> focus` and the same for `mouse`, `touchpad`, `touchscreen`, `trackball` and `pointingstick`, then `input * -> ignore`: one head mirroring every display, every keyboard and pointer typing into it, as vtium does today, and media keys, joysticks, tablets, switches and accelerometers left closed. The shipped rules carry no `udev:` line, so the compiled-in configuration means the same with or without a udev daemon: the classes come from udev's tags where udev runs and from vtium's own `input_id` rule where it does not (D4). Tokens are not ignored by default: a console login may use an OTP, so a token follows the focus like any keyboard. The rules are the allowlist; there is no separate one. A user customises by adding rules above them: `input class:key -> focus` above the last line lets media keys through.
-- **Profiles say how a head looks** (font, size, colors) and name a frit (ADR-1200 D16, D1); the head file says where devices go. Keys in kmscon.conf apply to every head and win over its profile, as ADR-1200 D16 says of `font-size` and `font-name`.
+- **The shipped default** is one head, `[head console]` with the default profile, and the rules `display * -> console`, `input class:keyboard -> focus` and the same for `mouse`, `touchpad`, `touchscreen`, `trackball` and `pointingstick`, then `input * -> ignore`: one head mirroring every display, every keyboard and pointer typing into it, as vtium does today, and media keys, joysticks, tablets, switches and accelerometers left closed. The shipped rules match by `class:` alone, so the compiled-in configuration means the same with or without a udev daemon: the classes come from udev's tags where udev runs and from vtium's own `input_id` rule where it does not (D4). Tokens are not ignored by default: a console login may use an OTP, so a token follows the focus like any keyboard. The rules are the allowlist; there is no separate one. A user customises by adding rules above them: `input class:key -> focus` above the last line lets media keys through.
+- **A head names a profile,** the profile of ADR-1200 D16, which names a frit; the head file says where devices go. Until a profile file format exists (#121, #136, #137), a head's `profile` resolves to the compiled-in default profile for `default`, and to the frit of that name for any other name. Keys in kmscon.conf apply to every head and win over its profile, as ADR-1200 D16 says of `font-size` and `font-name`.
+> Edited 2026-10-29: the team lead's correction from the heads gap-check (C3): ADR-1200 D16 defines the profile, and no profile file format exists yet for a name to resolve to. The bullet read: "**Profiles say how a head looks** (font, size, colors) and name a frit (ADR-1200 D16, D1)".
+
 - **xorg.conf's failures, avoided by rule:** the file is optional; heads are self-contained, the only reference a profile's name; a rule matching no connected device is skipped with a log line, never an error; and a tool writes the file (D12).
 
 The walk of one device, from udev to where it lands, and the same walk again at a hotplug:
@@ -306,14 +311,18 @@ stateDiagram-v2
 | `udev` | `NAME=VALUE`: any udev property of the device, a glob on the value (`udev:VTIUM_HEAD=panel`) | whatever the administrator's udev rules and hwdb say, as `ID_SEAT` and `uaccess` do | as strong as the rule that set it |
 
 - **The classes are udev's.** vtium reads the `ID_INPUT_*` tag udev set, so a hwdb correction (`/usr/lib/udev/hwdb.d`, `/etc/udev/hwdb.d`) applies to vtium as it does to libinput and the desktop. Without a udev daemon, vtium applies udev's `input_id` rule to the device's capability bitmaps itself, so a device's classes are the same either way. This follows the system's convention, the rule the operator set for vtium.
-- **`udev:` hands the rare cases to udev.** vtium's own keys cover the common cases; anything rarer is classified with udev's own rules and hwdb and matched with `udev:`, never with a new vtium key. Without a udev daemon a device has no properties, so `udev:` matches nothing; `vtium check-config` notes a rule that uses it on such a system.
+- **`udev:` hands the rare cases to udev.** vtium's own keys cover the common cases; anything rarer is classified with udev's own rules and hwdb and matched with `udev:`, never with a new vtium key. Without a udev daemon a device has no properties, so `udev:` matches nothing.
+- **Keys that need udev's database.** `path`, `serial`, `card` and `connector` read what the udev daemon records: `ID_PATH`, and the `ID_VENDOR_ID`, `ID_MODEL_ID` and `ID_SERIAL_SHORT` of its `usb_id` builtin. Like `udev:`, they match nothing without a daemon. `id`, `name`, `bluetooth`, `class` and `edid` read sysfs or the device, and work either way. On a system with no udev daemon, `vtium check-config` notes each rule that uses `udev:`, `path`, `serial`, `card` or `connector`, naming the key.
+
+> Edited 2026-10-29: the team lead's correction from the heads gap-check (C4): only `udev:` was named as matching nothing without a daemon. The `udev:` bullet ended: "`vtium check-config` notes a rule that uses it on such a system.", and D3 said: "The shipped rules carry no `udev:` line".
 - **Example patterns, not installed files.** vtium installs no active udev file. It ships the patterns as examples under `/usr/share/doc/vtium/examples/` and in the template's comments: a udev rule setting `ENV{VTIUM_HEAD}`, `ENV{VTIUM_IGNORE}` or `ENV{VTIUM_ROLE}` for a device, and a small hwdb fragment marking tokens and numpads by vendor and product, each with the head-file line that uses it. An administrator copies one into `/etc/udev/rules.d` or `/etc/udev/hwdb.d` to use it, and from then on `udev:` and the guard's reading of `VTIUM_ROLE` (D9) act on it; without udev neither has any effect, and `check-config` says so.
 
 ```text
 # examples/vtium.hwdb, copied to /etc/udev/hwdb.d/ to use; illustrative entries
-vtium:input:b0003vBBBBp0001*
+evdev:input:b0003vBBBBp0001*
  VTIUM_ROLE=token
-vtium:input:b0003vAAAAp0002*
+
+evdev:input:b0003vAAAAp0002*
  VTIUM_ROLE=numpad
 
 # examples/71-vtium-local.rules, copied to /etc/udev/rules.d/ to use; illustrative
@@ -325,6 +334,10 @@ SUBSYSTEM=="input", ENV{ID_VENDOR_ID}=="aaaa", ENV{ID_MODEL_ID}=="0003", ENV{VTI
 input udev:VTIUM_IGNORE=1 -> ignore
 input udev:VTIUM_HEAD=panel -> panel
 ```
+
+The hwdb fragment uses udev's own `evdev:` prefix, which systemd's stock `60-evdev.rules` looks up for each input event node and imports, so it needs no vtium rule. A blank line separates its entries, since systemd-hwdb drops a match that directly follows a property line.
+
+> Edited 2026-10-29: the team lead's correction from the heads gap-check: the hwdb block's matches read `vtium:input:b0003vBBBBp0001*` and `vtium:input:b0003vAAAAp0002*`, a prefix no stock rule looks up, with no blank line between the entries.
 
 > Edited 2026-10-29: the operator corrected the shipped udev material to example patterns only (basis). This read: "vtium's udev files, package files in udev's vendor locations [...] `/usr/lib/udev/hwdb.d/70-vtium.hwdb`, a small device database setting `VTIUM_ROLE=token` [...] `/usr/lib/udev/rules.d/70-vtium.rules`, which imports that hwdb", and the shipped rules began with `input udev:VTIUM_IGNORE=1 -> ignore`.
 
@@ -340,10 +353,12 @@ input udev:VTIUM_HEAD=panel -> panel
 - Focus moves only by the focus chord, never at a hotplug, and a new keyboard never takes it. Every head shows whether it holds the focus, drawn by vtium outside the session's output.
 - A keyboard a rule sends to a head types into that head alone, and its console chords switch that head's consoles. The focus chord moves only the devices following the focus.
 - Pointers follow the same rules: a pointer claimed by a head moves on that head's displays; one following the focus moves on the focused head's.
-- A program's keyboard LEDs (DECLL) reach the keyboards delivering to its head.
+- Each keyboard's lock LEDs show that keyboard's own lock state, within its head. A program's DECLL stays ignored, and vtium-term leaves the LEDs as the user set them (ADR-1000 `ctl.decll`).
 - Spreading spare keyboards one per head happens only on an explicit `input * -> HEAD` rule, never inferred; inferring would misplace an OTP token or a media-key device.
 - The console chords and the focus chord are grab keys matched after the VT's keys and the power keys and before the terminal's grabs, the C reference's place for its seat keys; their names and default chords are vtium/vtium#82's.
 - The terminal of each head's shown console has mode 1004's focus while its head has a lit display and a keyboard delivering to it, so several terminals hold it at once, one a head.
+
+> Edited 2026-10-29: the team lead's correction from the heads gap-check (C2): ADR-1000 keeps `ctl.decll` ignored. The LED bullet read: "A program's keyboard LEDs (DECLL) reach the keyboards delivering to its head."
 
 One keyboard and two heads, before and after the focus chord:
 
@@ -370,9 +385,11 @@ A machine with no configuration at all:
 - Missing hardware never makes a file invalid.
 - **The fallback is per file:** an invalid head file runs the shipped default; an invalid profile gives the heads naming it the default profile; an invalid frit draws the default frit, as an unreadable `cell=` or `size=` does today.
 - **vtium never fixes, comments out, renames or replaces a present file,** broken or empty. An empty head file is a valid ruleset with no rules: every display goes dark, and D9's display guard lights the boot display in a default head.
-- **Every error is logged** with its file and line, and a notice shows on the console before the login: vtium's own message, drawn as a getty prints its banner, never written to the session's pty or kept in its scrollback (probe 5: a key ends it, or it shows for a few seconds). vtium keeps running.
+- **Every error is logged** with its file and line, and a notice shows on the console before the login: vtium's own message, drawn as a getty prints its banner, never written to the session's pty or kept in its scrollback (probe 5: a key ends it, or it shows for a few seconds). Text the notice quotes from a file is escaped first, so a control byte or an escape sequence in the file never reaches the screen. vtium keeps running.
 - **`vtium check-config`** runs the boot's parser and evaluator, lists every error with its line, and exits non-zero; given a candidate file's path, it checks that file before it is installed, as `nft -c`, `visudo -c` and `sshd -t` do. It exits 1 on an error or a warning about the file itself, as it does for kmscon.conf; a finding that depends on the hardware present, such as a rule matching no connected device, is noted on standard output outside the exit status, so a file can be checked away from its machine.
 - On a future live reload, an invalid new file leaves the running configuration as it is.
+
+> Edited 2026-10-29: the team lead's correction from the heads gap-check: the notice quotes a file's own text, which can carry control bytes. D7 said nothing of escaping it.
 
 An invalid head file at boot:
 
@@ -480,10 +497,12 @@ flowchart TD
 ### D10: security
 
 - The head file, the profiles and the frits route input and choose login commands, so vtium reads each only when root owns it and neither group nor others can write it, as `sshd`'s `StrictModes` refuses a writable file; a file that fails is invalid (D7). The directories above it pass the same check. No file a user supplies is read by the console.
-- Each head multiplies sessions, ptys and scrollback, so the consoles of a head and of the process are bounded, rows of the binary's bounds table and part of minspec's memory bound (probe 6). A head asking for more consoles than its cap gets the cap, with a warning.
-- vtium's state under `/run/vtium/` (D12) is written by root, readable by every user, and holds what sysfs already shows any user: device identities, the rule each matched, the guards that acted. A candidate staged there for a trial is accepted only from root.
+- Each head multiplies sessions, ptys and scrollback, so the consoles of a head and of the process are bounded, rows of a bounds table the vtium crate gains with the heads build, and part of minspec's memory bound (probe 6). A head asking for more consoles than its cap gets the cap, with a warning.
+- vtium's state lives under `/run/vtium/<tty>/`, one directory a VT (`/run/vtium/tty1/`), so two vtiums never share it (D2, D12). It is written by root, readable by every user, and holds what sysfs already shows any user: device identities, the rule each matched, the guards that acted. A candidate staged there for a trial is accepted only from root.
 - **No panic is reachable from pty input,** and heads raise the stakes: one process holds every head (D2), so a crash a program provokes with crafted output ends every session, not its own. Parsing is bounded, nothing unwraps untrusted bytes (docs/architecture.md, "No input-reachable panic"), and each session's output parser runs under fuzzing.
 - Each session runs its own login, the helper stays sandboxed as ADR-1400 D2 and ADR-1200 D15 say, and the reply rule holds for each terminal.
+
+> Edited 2026-10-29: the team lead's corrections from the heads gap-check (C6, C7): two vtiums on two VTs would have shared one `/run/vtium/`, and the `vtium` crate has no bounds table yet. D10 read: "rows of the binary's bounds table" and "vtium's state under `/run/vtium/` (D12) is written by root".
 
 ### D11: how it is judged
 
@@ -509,8 +528,8 @@ Hand-editing the head file, the profiles and the frits stays fully supported; th
 |---|---|---|
 | `detect` | any user | Lists every display and input with every match key filled and a rule line ready to paste, read from sysfs; writes nothing (as `sensors-detect`). |
 | `setup` | any user; keypress identification needs root or the input group | Asks, per display, which keyboard and pointer, which profile and frit, and writes the strongest match each device offers (as `pwmconfig`). |
-| `status` | any user | What the running console did: which rule took each device, which guard acted (as `sensors`), read from `/run/vtium/`. |
-| `check FILE` | any user | Checks a candidate as `vtium check-config` does. |
+| `status` | any user | What the running console did: which rule took each device, which guard acted (as `sensors`), read from `/run/vtium/<tty>/`. |
+| `check FILE` | any user | Checks any configuration file by its kind, a head file, a profile or a frit, as `vtium check-config` does, the rule checker of ADR-1200 D4 included, so one command serves both. |
 | `template` | any user; root to install | Writes the commented template of the head file, the default profile and the default frit (D6): under sudo into `/etc/vtium`, never over a file present; as a user into the draft directory below, printing how to install it. |
 | `install DIR` | root | Checks, backs up the files it replaces beside them, replaces them atomically, and stages the trial. |
 | `new`, `preview` | the user | The frit builder and the preview already planned (#121, #120; vtium/vtium#3 tracks them). |
@@ -520,11 +539,13 @@ Hand-editing the head file, the profiles and the frits stays fully supported; th
 - **Packaging.** A native build (pacman, dpkg, rpm, Nix, or a source tree's `make install`) runs `vtium-vitrify`, built for the build machine, to write the templates into its staging tree, and marks them its own way (`backup=`, conffiles, `%config(noreplace)`). A cross-built image (Buildroot, Yocto, an ARM image built on x86) cannot run the target's tool, so the source tree also carries the generated templates as plain files, such as `dist/etc/vtium/`, which a test keeps byte-identical to what the tool writes (D11); every route ends in the bytes of the compiled-in configuration.
 - **One crate parses and evaluates the configuration,** and both binaries link it, so the verdict before install is the verdict at boot. Detection and setup live only in `vtium-vitrify`; `vtium`'s binary stays inside its size budget, and `vtium-vitrify` ships everywhere as the glyph helper `serve` (ADR-1200 D15).
 - **It identifies a keyboard by behaviour,** asking for a keypress on it, as `pwmconfig` stops each fan; without privilege it asks the user to unplug and plug the device again, since udev's events are readable by any user.
-- **It never disconnects itself.** `detect` and `setup` read inputs without a grab, take no DRM master, set no mode and switch no VT. To identify a display it asks vtium to draw an overlay that moves nothing, through a socket under `/run/vtium/` that takes requests from root alone. `setup` finds its own head in `/run/vtium/` and warns before any candidate that moves the keyboard it is answered from or its head's display.
-- **A candidate is tried before it is kept:** vtium applies it from `/run/vtium/` and reverts it unless it is confirmed within a countdown, as KDE's display settings do; only a confirmed candidate replaces the file in `/etc/vtium`. Until vtium can apply a candidate while running, `setup` installs for the next boot and says so, and D9's guards stand in for the revert.
+- **It never disconnects itself.** `detect` and `setup` read inputs without a grab, take no DRM master, set no mode and switch no VT. To identify a display it asks vtium to draw an overlay that moves nothing, through a socket under `/run/vtium/<tty>/` that takes requests from root alone. `setup` finds its own head in `/run/vtium/<tty>/` and warns before any candidate that moves the keyboard it is answered from or its head's display.
+- **A candidate is tried before it is kept:** vtium applies it from `/run/vtium/<tty>/` and reverts it unless it is confirmed within a countdown, as KDE's display settings do; only a confirmed candidate replaces the file in `/etc/vtium`. Until vtium can apply a candidate while running, `setup` installs for the next boot and says so, and D9's guards stand in for the revert.
 - **From a desktop terminal,** `detect`, `check`, `status` and `preview` need no privilege, reading EDIDs, connector states, input classes and USB serials from sysfs; displays are named as the desktop names them (`DP-8`, `HDMI-A-2`), since vtium is not on screen; a trial is staged and runs when vtium's VT is next shown.
 - **On minspec, where vtium is the only terminal,** the dialog is line-oriented, fits 40 columns (320x240 at 8x8) and works over a serial line; a frit is previewed by trying it on the live console through OSC 50 under the same countdown; on a read-only root the confirm step prints the confirmed file and its target path for the image build. Its size is measured in tier 3 with the rest of the install tree.
 - **Without privilege,** the tool still previews a font and saves a viable frit or head file to `$XDG_STATE_HOME/vtium/drafts/<time>/` (probe 8), then prints where it is and what makes it active: a copy into `/etc/vtium`, or `sudo vtium-vitrify install DIR`. Run under sudo, it installs after confirmation, writing `/etc/vtium` as `root:root 0644`, and writes nothing into the invoking user's home as root.
+
+> Edited 2026-10-29: the team lead's corrections from the heads gap-check (C6, C9): the run state moved to `/run/vtium/<tty>/` as D10 now places it, and `check FILE` serves every configuration file. The table's `check FILE` row read: "Checks a candidate as `vtium check-config` does.", and the run state was `/run/vtium/`.
 
 `setup`'s trial, as root and without privilege:
 
@@ -532,7 +553,7 @@ Hand-editing the head file, the profiles and the frits stays fully supported; th
 sequenceDiagram
     actor Op as the operator
     participant V as vtium-vitrify setup
-    participant R as /run/vtium
+    participant R as /run/vtium/(tty)
     participant T as vtium
     participant E as /etc/vtium
     Op->>V: answers: which keyboard, display, profile
