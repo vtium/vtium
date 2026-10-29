@@ -307,14 +307,22 @@ mod tests {
 
     #[test]
     fn bytes_that_are_no_edid_state_nothing() {
-        // a block cut short, a bad header and a bad checksum
+        // a block cut short, its own bytes summing to 0 so only its length
+        // refuses it, a bad header and a bad checksum
+        let short = |n: usize| {
+            let mut b = block((60, 34), 1, &[])[..n].to_vec();
+            b[n - 1] = 0;
+            b[n - 1] = 0u8.wrapping_sub(b.iter().fold(0u8, |s, &x| s.wrapping_add(x)));
+            b
+        };
         let mut header = block((60, 34), 1, &[]);
         header[0] = 1;
         header[127] = header[127].wrapping_sub(1);
         let mut sum = block((60, 34), 1, &[]);
         sum[127] ^= 1;
         for (why, b) in [
-            ("short", block((60, 34), 1, &[])[..127].to_vec()),
+            ("127 bytes", short(127)),
+            ("64 bytes", short(64)),
             ("header", header),
             ("checksum", sum),
         ] {
