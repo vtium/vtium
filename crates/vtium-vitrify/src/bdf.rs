@@ -1,8 +1,8 @@
 //! vtium-vitrify's own BDF reader (ADR-1200 D1, D14): a `bdf:` source's
 //! glyphs, plain or compressed, read as Adobe's Glyph Bitmap Distribution
 //! Format 2.1 lays them out, and never through swash. A BDF font is read
-//! for a character cell: one or two cells wide, its cell the narrowest
-//! advance its glyphs take and its ascent and descent high.
+//! for a character cell: one or two cells wide, its cell as wide as most
+//! of its glyphs advance and its ascent and descent high.
 //!
 //! The file is someone else's bytes: every line, count and side is bounded
 //! before anything is allocated for it, and a malformed line refuses the
@@ -287,9 +287,9 @@ fn glyph<'a>(
     }
 }
 
-/// The glyphs placed in the font's cell: its width the narrowest advance,
-/// its height the ascent and descent, from the properties, else the
-/// bounding box.
+/// The glyphs placed in the font's cell: its width the advance most of
+/// its glyphs take, the narrower on a tie, its height the ascent and
+/// descent, from the properties, else the bounding box.
 fn place(
     header: &Header,
     chars: Vec<Char>,
@@ -308,14 +308,19 @@ fn place(
         .ok()
         .filter(|h| (1..=FRIT_CELL_MAX).contains(h))
         .ok_or_else(|| format!("a BDF font {ascent} high above its baseline and {descent} below, not 1 to {FRIT_CELL_MAX}"))?;
-    let width = chars
+    // the advance most of its glyphs take, a tie to the narrower
+    let mut counts: BTreeMap<u32, usize> = BTreeMap::new();
+    for c in &chars {
+        *counts.entry(c.advance).or_default() += 1;
+    }
+    let width = counts
         .iter()
-        .map(|c| c.advance)
-        .min()
+        .max_by(|(wa, na), (wb, nb)| na.cmp(nb).then(wb.cmp(wa)))
+        .map(|(&w, _)| w)
         .ok_or("a BDF font with no glyph of a Unicode codepoint")?;
     if width > FRIT_CELL_MAX {
         return Err(format!(
-            "a BDF font whose narrowest glyph is {width} wide, past {FRIT_CELL_MAX}"
+            "a BDF font whose glyphs mostly advance {width}, past {FRIT_CELL_MAX}"
         ));
     }
     let cell = Cell { width, height };
@@ -505,40 +510,66 @@ pub(crate) mod tests {
         f
     }
 
-    // the reviewer's file: 4.4 MB of BDF placing 146 MB of glyphs, and
-    // under 1 MiB gzipped
+    /// `text` cut to its first `glyphs` glyphs.
+    fn first(text: &str, glyphs: usize) -> String {
+        let cut = text
+            .match_indices("STARTCHAR")
+            .nth(glyphs)
+            .map(|(i, _)| i)
+            .expect("a glyph");
+        format!("{}ENDFONT\n", &text[..cut])
+    }
+
+    // review-s5's file: 4.4 MB of BDF that placed 146 MB of glyphs, under
+    // 1 MiB gzipped. Its glyphs mostly advance 192, so its cell is past
+    // FRIT_CELL_MAX; half and one narrow keep the cell at 96, and place
+    // over 100 MB.
     #[test]
     fn glyphs_placed_past_psf_bytes_max_refuse_the_font() {
-        let f = inkless(1);
-        assert!(f.len() < 5 << 20, "{}", f.len());
-        let gz = crate::decode::tests::gzip(f.as_bytes());
+        let reviewers = inkless(1);
+        assert!(reviewers.len() < 5 << 20, "{}", reviewers.len());
+        let gz = crate::decode::tests::gzip(reviewers.as_bytes());
         assert!(
             gz.len() < crate::decode::COMPRESSED_BYTES_MAX,
             "{}",
             gz.len()
         );
         let e = font(&gz).err().expect("refused");
+        assert!(e.contains("mostly advance 192"), "{e}");
+        let e = font(&crate::decode::tests::gzip(inkless(32_768).as_bytes()))
+            .err()
+            .expect("refused");
         assert!(e.contains("PSF_BYTES_MAX"), "{e}");
-        // one glyph of 1,152 bytes and 7,281 of 2,304 stay under 16 MiB,
-        // and one more passes it
-        let mut few = inkless(1);
-        let cut = few
-            .match_indices("STARTCHAR")
-            .nth(7_282)
-            .map(|(i, _)| i)
-            .expect("a glyph");
-        few.truncate(cut);
-        few.push_str("ENDFONT\n");
-        assert_eq!(font(few.as_bytes()).expect("reads").glyphs.len(), 7_282);
-        let mut more = inkless(1);
-        let cut = more
-            .match_indices("STARTCHAR")
-            .nth(7_283)
-            .map(|(i, _)| i)
-            .expect("a glyph");
-        more.truncate(cut);
-        more.push_str("ENDFONT\n");
-        assert!(font(more.as_bytes()).is_err(), "7,283 glyphs");
+        // 14,563 glyphs of 1,152 bytes stay under 16 MiB, and one more
+        // passes it
+        let narrow = inkless(65_535);
+        let held = font(first(&narrow, 14_563).as_bytes()).expect("reads");
+        assert_eq!(held.glyphs.len(), 14_563);
+        assert!(
+            font(first(&narrow, 14_564).as_bytes()).is_err(),
+            "14,564 glyphs"
+        );
+    }
+
+    // the cell is the advance most of the glyphs take, so one stray glyph
+    // narrower than the rest leaves only itself out
+    #[test]
+    fn the_cell_is_the_most_frequent_advance() {
+        let f = font(
+            bdf(
+                "STARTCHAR B\nENCODING 66\nDWIDTH 4 0\nBBX 1 1 0 0\nBITMAP\n80\nENDCHAR\n\
+                 STARTCHAR stray\nENCODING 105\nDWIDTH 2 0\nBBX 1 1 0 0\nBITMAP\n80\nENDCHAR\n",
+            )
+            .as_bytes(),
+        )
+        .expect("reads");
+        assert_eq!((f.cell.width, f.cell.height), (4, 6));
+        let keys: Vec<u32> = f.map.keys().copied().collect();
+        assert_eq!(keys, [0x41, 0x42, 0x4e2d], "the stray i is left out");
+        assert_eq!(f.glyphs[f.map[&0x41] as usize].0, Width::Narrow);
+        // a tie goes to the narrower advance: one 4 and one 8 here
+        let tie = font(bdf("").as_bytes()).expect("reads");
+        assert_eq!(tie.cell.width, 4);
     }
 
     #[test]
