@@ -5,7 +5,8 @@ colors and cells of the sixel goldens, the tree a run installs and the
 guest's account of it (t3_impl.py, t3_scenario.py), the machine each variant
 boots, the console lines the driver waits for and the QEMU command line
 (t3_qemu.py), the power cases' verdicts (t3_power.py), the pointer case's
-reading of the cursor plane (t3_pointer.py), a benchmark screen's
+reading of the cursor plane (t3_pointer.py), the outputs, keyboards and
+udev examples of the device variants (t3_devices.py), a benchmark screen's
 figures (t3_bench.py), and the copies against provenance.tsv, the image
 cache and the logger a worker process receives (t3_common.py).
 
@@ -20,16 +21,20 @@ import os
 import pickle
 import re
 import shlex
+import socket
+import struct
 import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import t3  # noqa: E402
 import t3_bench  # noqa: E402
+import t3_devices  # noqa: E402
 import t3_evaluate  # noqa: E402
 import t3_impl  # noqa: E402
 import t3_pointer  # noqa: E402
@@ -2382,6 +2387,294 @@ class LoggerTest(unittest.TestCase):
         # A worker process receives the run's logger by pickle.
         log = pickle.loads(pickle.dumps(Logger(t0=123.5).labelled("v")))
         self.assertEqual((log.t0, log.label), (123.5, "v"))
+
+
+class DevicesTest(unittest.TestCase):
+    """The device variants (t3_devices.py): their machines and cases, the
+    outputs each captures, the second head connected over VNC, the mirror
+    check, the guest's reading of the udev examples and the hotplugged
+    keyboard."""
+
+    def test_variants(self):
+        # The minspec machine at 640x480 in the 8x16 test font, out of the
+        # default and minimal runs, judged by vtium's goldens.
+        cases = {
+            "two-outputs-mirror": ["sgr", "sgr@1", "cjk", "cjk@1", "vt-switch", "vt-restore",
+                                   "vt-restore@1", "mirror"],
+            "two-cards-mirror": ["sgr", "sgr@card1", "cjk", "cjk@card1", "vt-switch",
+                                 "vt-restore", "vt-restore@card1", "mirror"],
+            "usb-keyboards": ["cjk", "vt-switch", "vt-restore", "udev-examples",
+                              "keyboard-hotplug"],
+        }
+        self.assertEqual(t3_scenario.DEVICE_VARIANTS, list(cases))
+        for name, want in cases.items():
+            with self.subTest(name):
+                v = t3_scenario.VARIANTS[name]
+                self.assertEqual((v["cpus"], v["memory_mb"], v["conf"]),
+                                 (1, 512, "kmscon-small-8x16.conf"))
+                self.assertIn("id=video0", v["device"])
+                self.assertIn("xres=640,yres=480", v["device"])
+                self.assertEqual(v["goldens"], t3_evaluate.VTIUM_GOLDEN)
+                self.assertNotIn(name, t3_scenario.DEFAULT_VARIANTS)
+                self.assertEqual(t3_scenario.variant_cases(name), want)
+                self.assertEqual(t3_scenario.base_of(name)[0], t3_common.BASE)
+        self.assertIn("max_outputs=2", t3_scenario.VARIANTS["two-outputs-mirror"]["device"])
+        self.assertEqual(t3_scenario.VARIANTS["two-cards-mirror"]["qemu"],
+                         ["-device", "virtio-gpu-pci,id=video1,xres=640,yres=480,edid=on"])
+
+    def test_outputs(self):
+        outputs = t3_scenario.VARIANTS["two-outputs-mirror"]["outputs"]
+        self.assertEqual(t3_devices.heads(outputs), [("video0", 1, (640, 480))])
+        self.assertEqual(t3_devices.capture(outputs[0]), {"device": "video0", "head": 1})
+        cards = t3_scenario.VARIANTS["two-cards-mirror"]["outputs"]
+        self.assertEqual(t3_devices.heads(cards), [])
+        self.assertEqual(t3_devices.capture(cards[0]), {"device": "video1"})
+        self.assertEqual(t3_devices.split("cjk@card1"), ("cjk", "@card1"))
+        self.assertEqual(t3_devices.split("cjk"), ("cjk", ""))
+
+    def test_a_case_on_another_output_has_its_own_golden(self):
+        root = t3_evaluate.VTIUM_GOLDEN
+        self.assertEqual(t3_evaluate.golden_for("two-outputs-mirror", "cjk@1", root)[0],
+                         os.path.join(root, "two-outputs-mirror", "cjk@1.png"))
+        self.assertEqual(t3_evaluate.golden_for("two-outputs-mirror", "vt-restore@1", root)[0],
+                         os.path.join(root, "two-outputs-mirror", "cjk@1.png"))
+        self.assertEqual(t3_evaluate.same_as("vt-restore@card1"), "cjk@card1")
+        self.assertEqual(t3_evaluate.same_as("vt-restore"), "cjk")
+        caption, wrong = t3_evaluate.describe("cjk@1")
+        self.assertEqual(caption, t3_evaluate.describe("cjk")[0] + " Captured from the output 1.")
+        self.assertEqual(wrong, t3_evaluate.describe("cjk")[1])
+        self.assertEqual(t3_evaluate.screen_text("cjk@card1", LOG),
+                         t3_evaluate.screen_text("cjk", LOG))
+        for check in t3_devices.CHECKS:
+            self.assertEqual(t3_evaluate.golden_for("usb-keyboards", check), (None, None))
+            self.assertEqual(t3_evaluate.describe(check), (t3_devices.CHECKS[check], None))
+
+    def test_a_stray_golden_on_another_output(self):
+        # A golden for an output the variant does not capture is refused.
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "two-outputs-mirror"))
+            for name in ("cjk@1", "cjk@2"):
+                t3img.write_png(os.path.join(d, "two-outputs-mirror", name + ".png"),
+                                t3img.Image(1, 1, b"\0\0\0"))
+            cases = {"two-outputs-mirror": t3_scenario.variant_cases("two-outputs-mirror")}
+            self.assertEqual(t3_evaluate.check_goldens(cases, d),
+                             ["%s is a golden no case draws"
+                              % t3_common.rel(os.path.join(d, "two-outputs-mirror", "cjk@2.png"))])
+
+    def test_qemu_connects_the_second_head(self):
+        class Started(Exception):
+            pass
+
+        def popen(args, **kwargs):
+            raise Started(args)
+
+        with mock.patch.object(t3_qemu.subprocess, "Popen", popen), \
+                tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(Started) as cm:
+                t3_qemu.Qemu(d, [], "virtio-vga,id=video0,max_outputs=2", lambda msg: None,
+                             heads=[("video0", 1, (640, 480))])
+            args = cm.exception.args[0]
+            self.assertIn("unix:%s,id=vnc-video0-1,display=video0,head=1"
+                          % os.path.join(d, "vnc1.sock"), args)
+            with self.assertRaises(Started) as cm:
+                t3_qemu.Qemu(d, [], "virtio-vga", lambda msg: None)
+            self.assertNotIn("-vnc", cm.exception.args[0])
+
+    def test_screendump_names_the_output(self):
+        seen = []
+        vm = t3_qemu.Qemu.__new__(t3_qemu.Qemu)
+        vm.capture = "screendump"
+
+        def cmd(name, **arguments):
+            seen.append((name, {k: v for k, v in arguments.items() if k != "filename"}))
+            t3_qemu.write_ppm(arguments["filename"], t3img.Image(1, 1, b"\0\0\0"))
+
+        vm.cmd = cmd
+        with tempfile.TemporaryDirectory() as d:
+            vm.screendump(os.path.join(d, "a.ppm"))
+            vm.screendump(os.path.join(d, "b.ppm"), {"device": "video0", "head": 1})
+        self.assertEqual(seen, [("screendump", {"format": "ppm"}),
+                                ("screendump", {"format": "ppm", "device": "video0",
+                                                "head": 1})])
+
+    def rfb_server(self, path, status, got):
+        """A VNC server on `path` that takes one SetDesktopSize and answers
+        with ExtendedDesktopSize's `status`, putting what it read in `got`."""
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv.bind(path)
+        srv.listen(1)
+
+        def recv(c, n):
+            buf = b""
+            while len(buf) < n:
+                buf += c.recv(n - len(buf))
+            return buf
+
+        def serve():
+            c, _ = srv.accept()
+            with c:
+                c.sendall(b"RFB 003.008\n")
+                recv(c, 12)
+                c.sendall(b"\x01\x01")
+                recv(c, 1)
+                c.sendall(struct.pack(">I", 0))
+                recv(c, 1)
+                c.sendall(struct.pack(">HH", 640, 480) + bytes(16) + struct.pack(">I", 1) + b"q")
+                recv(c, 20)  # SetPixelFormat
+                _, n = struct.unpack(">BxH", recv(c, 4))
+                got["encodings"] = list(struct.unpack(">%di" % n, recv(c, 4 * n)))
+                # a notice first, then the answer to the request
+                c.sendall(b"\x00\x00" + struct.pack(">H", 2)
+                          + struct.pack(">HHHHi", 0, 0, 640, 480, -308) + b"\x01" + bytes(3)
+                          + bytes(16)
+                          + struct.pack(">HHHHi", 1, status, 640, 480, -308) + b"\x00" + bytes(3))
+                kind, w, h, screens = struct.unpack(">BxHHBx", recv(c, 8))
+                got["request"] = (kind, w, h, screens, struct.unpack(">IHHHHI", recv(c, 16)))
+            srv.close()
+
+        t = threading.Thread(target=serve)
+        t.start()
+        return t
+
+    def test_vnc_asks_for_the_size(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "vnc1.sock")
+            got = {}
+            t = self.rfb_server(path, 4, got)
+            t3_qemu.vnc_set_size(path, 320, 240)
+            t.join()
+            self.assertEqual(got["encodings"], [0, -308])
+            self.assertEqual(got["request"], (251, 320, 240, 1, (0, 0, 0, 320, 240, 0)))
+            os.unlink(path)
+            t = self.rfb_server(path, 3, {})
+            with self.assertRaisesRegex(RuntimeError, "refused 320x240: status 3"):
+                t3_qemu.vnc_set_size(path, 320, 240)
+            t.join()
+
+    def ppm(self, d, name, data):
+        path = os.path.join(d, name + ".ppm")
+        t3_qemu.write_ppm(path, t3img.Image(1, 1, data))
+        return path
+
+    def test_mirror(self):
+        variant = "two-outputs-mirror"
+        cases = [c for c in t3_scenario.variant_cases(variant)
+                 if c not in t3_evaluate.NO_GOLDEN]
+        with tempfile.TemporaryDirectory() as d:
+            caps = {c: self.ppm(d, c, b"\1\2\3") for c in cases}
+            errors = {}
+            t3_scenario.check_mirror(variant, caps, errors)
+            self.assertEqual((errors, caps["mirror"]), ({}, caps["cjk@1"]))
+            # one output drew one screen differently
+            caps = {c: self.ppm(d, c, b"\0\0\0" if c == "sgr@1" else b"\1\2\3") for c in cases}
+            t3_scenario.check_mirror(variant, caps, errors)
+            self.assertEqual(errors, {"mirror": "differs from the first output's capture: sgr@1"})
+            self.assertNotIn("mirror", caps)
+            # a screen the other output never showed
+            del caps["cjk@1"]
+            errors = {}
+            t3_scenario.check_mirror(variant, caps, errors)
+            self.assertEqual(errors, {"mirror": "not captured on every output: cjk@1"})
+            errors = {}
+            t3_scenario.check_mirror(variant, {}, errors)
+            self.assertEqual(errors, {"mirror": "no screen was captured"})
+
+    # The guest's account of the examples (screens/udev-examples.sh), as it
+    # prints it on a guest whose udev reads them as the record writes them.
+    UDEV = ["T3-UDEV pci-0000:15:00.0-usb-0:3.2:1.0-event-kbd VTIUM_HEAD=panel",
+            "T3-UDEV platform-i8042-serio-0-event-kbd",
+            "T3-HWDB-BUILD ok",
+            "T3-HWDB vtium:input:b0003vBBBBp0001e0110 VTIUM_ROLE=token",
+            "T3-HWDB vtium:input:b0003vAAAAp0002e0110 VTIUM_ROLE=numpad",
+            "T3-HWDB vtium:input:b0003vAAAAp0003e0110",
+            "T3-DONE udev-examples"]
+
+    def judge_udev(self, lines):
+        return t3_devices.judge_udev(*t3_devices.parse_udev(lines))
+
+    def test_udev_examples(self):
+        self.assertIsNone(self.judge_udev(self.UDEV))
+        wrong = {
+            "the panel keyboard untouched": (
+                lambda l: l.replace(" VTIUM_HEAD=panel", ""),
+                "udevadm test gave pci-0000:15:00.0-usb-0:3.2:1.0-event-kbd nothing, not "
+                "['VTIUM_HEAD=panel']"),
+            "another keyboard marked": (
+                lambda l: l + " VTIUM_IGNORE=1" if "i8042" in l else l,
+                "udevadm test gave platform-i8042-serio-0-event-kbd ['VTIUM_IGNORE=1'], not "
+                "nothing"),
+            "no keyboard in the port": (
+                lambda l: None if "usb-0:3.2" in l else l,
+                "no keyboard in the port the example rule names"),
+            "the token unmarked": (
+                lambda l: l.replace(" VTIUM_ROLE=token", ""),
+                "the hwdb gave vtium:input:b0003vBBBBp0001e0110 nothing, not "
+                "['VTIUM_ROLE=token']"),
+            "a device it does not name marked": (
+                lambda l: l + " VTIUM_ROLE=numpad" if "p0003" in l else l,
+                "the hwdb gave vtium:input:b0003vAAAAp0003e0110 ['VTIUM_ROLE=numpad'], not "
+                "nothing"),
+            "a query missing": (
+                lambda l: None if "p0002" in l else l,
+                "the guest did not query the hwdb for vtium:input:b0003vAAAAp0002e0110"),
+            "the build complained": (
+                lambda l: "T3-HWDB-BUILD vtium.hwdb:3: Property or empty line expected"
+                if l.startswith("T3-HWDB-BUILD") else l,
+                "building the hwdb fragment printed: vtium.hwdb:3: Property or empty line "
+                "expected"),
+            "no build": (
+                lambda l: None if l.startswith("T3-HWDB-BUILD") else l,
+                "the guest did not build the hwdb fragment"),
+        }
+        for name, (change, why) in wrong.items():
+            with self.subTest(name):
+                lines = [m for m in (change(l) for l in self.UDEV) if m is not None]
+                got = self.judge_udev(lines)
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+
+    def test_the_examples_name_the_ports_the_guest_has(self):
+        # The keyboard the example rule names is the one tier 3 plugs into
+        # that port, and the hotplugged one sits beside it on the same hub.
+        examples = os.path.join(t3_common.ROOT, "crates", "vtium", "install", "examples")
+        with open(os.path.join(examples, "71-vtium-local.rules")) as f:
+            rule = next(l for l in f if "VTIUM_HEAD" in l and not l.startswith("#"))
+        port = re.search(r'ENV\{ID_PATH\}=="([^"*]+)\*"', rule).group(1)
+        self.assertEqual(port, "pci-0000:15:00.0-usb-0:3.2")
+        self.assertIn("usb-kbd,id=kbd32,bus=%s,port=3.2" % t3_devices.USB_BUS, t3_devices.USB)
+        self.assertIn("usb-hub,id=hub3,bus=%s,port=3" % t3_devices.USB_BUS, t3_devices.USB)
+        self.assertIn(port + ":", "pci-0000:15:00.0" + t3_devices.PANEL_PORT)
+        self.assertEqual(t3_devices.HOT_NAME, "pci-0000:15:00.0-usb-0:%s:1.0-event-kbd"
+                         % t3_devices.HOT_PORT)
+        with open(os.path.join(examples, "vtium.hwdb")) as f:
+            entries = [l.strip() for l in f if l.startswith("vtium:input:")]
+        self.assertEqual(entries, ["vtium:input:b0003vBBBBp0001*", "vtium:input:b0003vAAAAp0002*"])
+
+    def test_the_examples_are_installed_as_documentation_alone(self):
+        # make install-tree puts both under /usr/share/doc/vtium/examples
+        # and installs nothing under a udev directory (ADR-1401 D4).
+        r = subprocess.run(["make", "-n", "--no-print-directory", "install-tree", "DESTDIR=/D"],
+                           cwd=t3_common.ROOT, capture_output=True, text=True, check=True)
+        lines = [l for l in r.stdout.splitlines() if l.startswith(("install ", "tic "))]
+        self.assertIn("install -Dm644 -t /D/usr/share/doc/vtium/examples "
+                      "crates/vtium/install/examples/71-vtium-local.rules "
+                      "crates/vtium/install/examples/vtium.hwdb", lines)
+        self.assertEqual([l for l in lines if "udev" in l.split("/D", 1)[-1].split()[0]], [])
+
+    def test_keyboard_hotplug_helpers(self):
+        self.assertEqual(t3_devices.key_events(["shift", "a"], True),
+                         [{"type": "key", "data": {"down": True,
+                                                   "key": {"type": "qcode", "data": "shift"}}},
+                          {"type": "key", "data": {"down": True,
+                                                   "key": {"type": "qcode", "data": "a"}}}])
+        self.assertEqual(t3_devices.listed(["T3-KBD a-event-kbd", "T3-RSS x 1", "T3-KBD b"]),
+                         ["a-event-kbd", "b"])
+        m = t3_devices.KEYBOARD_LINE.search(
+            "[ 6.4] vtium[411]: input: using /dev/input/event6 [QEMU QEMU USB Keyboard] as "
+            "keyboard\n")
+        self.assertEqual(m.groups(), ("/dev/input/event6", "QEMU QEMU USB Keyboard"))
+        self.assertIsNone(t3_devices.KEYBOARD_LINE.search(
+            "input: using /dev/input/event4 [VirtualPS/2 VMware VMMouse] as Virtual mouse"))
 
 
 if __name__ == "__main__":

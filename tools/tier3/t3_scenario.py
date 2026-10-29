@@ -9,12 +9,14 @@ import subprocess
 import time
 
 import t3_bench
+import t3_devices
 import t3_pointer
 import t3_power
+import t3img
 from t3_common import BASE, BASE_SYSVINIT, GUEST, GUEST_SYSVINIT, RUNDIR, rel
-from t3_evaluate import (BENCHMARKS, CASES, IMAGE_SCREENS, KEYED, KEYS_AFTER, SCREENS,
-                         SMALL_SCREENS, VTIUM_GOLDEN, cases, evaluate)
-from t3_qemu import Qemu, make_iso, not_blank, wait_stable
+from t3_evaluate import (BENCHMARKS, CASES, IMAGE_SCREENS, KEYED, KEYS_AFTER, NO_GOLDEN,
+                         SCREENS, SMALL_SCREENS, VTIUM_GOLDEN, cases, evaluate)
+from t3_qemu import Qemu, char_qcodes, make_iso, not_blank, wait_stable
 
 # Display variants. Each boots its own guest from the base image, with its
 # own vCPUs and memory, and names the text renderer its console must log:
@@ -251,6 +253,43 @@ VARIANTS.update({
 SYSVINIT_VARIANTS = ["sysvinit-640x480", "sysvinit-no-udev", "sysvinit-reboot",
                      "sysvinit-restart", "sysvinit-power-off"]
 
+# Displays and keyboards beyond one of each (t3_devices), on the minspec
+# machine at 640x480 in the 8x16 test font, judged by vtium's own goldens,
+# each run only when named. two-outputs-mirror is one card with two outputs
+# and two-cards-mirror two cards with one each: each screen is captured
+# from every output ("outputs"), and the mirror check holds every output's
+# capture to the first's, the one grid vtium draws on every display today.
+# usb-keyboards puts a keyboard in the USB port ADR-1401's example rule
+# names, has the guest's udev read the example files the tree installs, and
+# plugs a second keyboard in and pulls it out through QMP ("checks").
+DEVICES = {
+    "device": "virtio-vga,id=video0,xres=640,yres=480,edid=on",
+    "display": "none",
+    "conf": "kmscon-small-8x16.conf",
+    "renderer": "bbulk",
+    "cpus": 1,
+    "memory_mb": 512,
+    "images": False,
+    "fonts": True,
+    "frits": ["vtium-test-8x16.vtfrit"],
+    "screens": ["sgr", "cjk"],
+    "goldens": VTIUM_GOLDEN,
+}
+VARIANTS.update({
+    "two-outputs-mirror": dict(DEVICES, device="virtio-vga,id=video0,max_outputs=2,xres=640,"
+                                               "yres=480,edid=on",
+                               outputs=[{"suffix": "@1", "device": "video0", "head": 1,
+                                         "size": (640, 480)}],
+                               mirror=True),
+    "two-cards-mirror": dict(DEVICES, qemu=["-device", "virtio-gpu-pci,id=video1,xres=640,"
+                                                       "yres=480,edid=on"],
+                             outputs=[{"suffix": "@card1", "device": "video1"}],
+                             mirror=True),
+    "usb-keyboards": dict(DEVICES, qemu=t3_devices.USB, screens=["cjk"],
+                          checks=["udev-examples", "keyboard-hotplug"]),
+})
+DEVICE_VARIANTS = ["two-outputs-mirror", "two-cards-mirror", "usb-keyboards"]
+
 # Each guest's base image, the make target that provisions it, the console
 # lines its boot ends with before the driver presses Ctrl+Alt+F2, and the
 # line that shows the switch took, which no boot logs: under systemd, logind
@@ -302,17 +341,25 @@ def screens_of(variant):
 def variant_cases(variant):
     """The cases of `variant`'s report: a power variant's own; otherwise
     every case of its screens, but for a variant without images the keyed
-    cases of the image screens, whose keys act on pictures, and the pointer
-    case last for a variant that runs it."""
-    if "power" in VARIANTS[variant]:
-        return list(VARIANTS[variant]["power"])
-    out = CASES if "screens" not in VARIANTS[variant] else cases(screens_of(variant))
-    if not VARIANTS[variant].get("images", True):
+    cases of the image screens, whose keys act on pictures, each case with
+    a golden followed by the same case on each of its other outputs, then
+    the mirror check for a variant that runs it, the pointer case for one
+    that runs it, and its other checks (t3_devices.CHECKS)."""
+    v = VARIANTS[variant]
+    if "power" in v:
+        return list(v["power"])
+    out = CASES if "screens" not in v else cases(screens_of(variant))
+    if not v.get("images", True):
         skipped = {case for screen, case, _ in KEYED if screen in IMAGE_SCREENS}
         out = [c for c in out if c not in skipped]
-    if VARIANTS[variant].get("pointer"):
+    outputs = v.get("outputs", [])
+    out = [c for case in out for c in [case] + (
+        t3_devices.output_cases(case, outputs) if case not in NO_GOLDEN else [])]
+    if v.get("mirror"):
+        out = out + ["mirror"]
+    if v.get("pointer"):
         out = out + [t3_pointer.CASE]
-    return out
+    return out + list(v.get("checks", []))
 
 
 def vtium_golden_cases():
@@ -581,7 +628,7 @@ def run_variant(variant, timing, impl, log):
     vm = Qemu(work, [(disk, "qcow2", False), (iso, "raw", True)],
               v["device"], log, display=v["display"],
               capture=v.get("capture", "screendump"), cpus=v["cpus"], memory_mb=v["memory_mb"],
-              extra=v.get("qemu", ()))
+              extra=v.get("qemu", ()), heads=t3_devices.heads(v.get("outputs", [])))
     caps, errors, notes, error, installed = {}, {}, {}, None, None
     try:
         line = vm.wait_serial("TIER3-INSTALL-OK", timeout=180)
@@ -617,7 +664,8 @@ def run_variant(variant, timing, impl, log):
         conf = [line.strip() for line in f if line.strip() and not line.startswith("#")]
     rss = resident_kb(vm)
     meta = {"installed": installed,
-            "displays": displays, "errors": errors, "notes": notes, "device": v["device"], "config": conf,
+            "displays": displays, "errors": errors, "notes": notes, "device": v["device"],
+            "qemu": list(v.get("qemu", ())), "config": conf,
             "cell": console_cell(vm.serial), "cpus": v["cpus"], "memory_mb": v["memory_mb"],
             "bench": bench_figures(vm, caps, conf, v.get("images", True)),
             "rss_kb": rss, "resident": resident(rss, screens_of(variant)),
@@ -637,6 +685,7 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
     cases, then switch VTs away and back, filling `caps` with each case's
     capture and `errors` with each case's error."""
     v = VARIANTS[variant]
+    outputs = v.get("outputs", [])
     tmp = os.path.join(work, "wait.ppm")
     vm.type("tester\n")
     # The user name echoes; then login asks for the password.
@@ -654,6 +703,8 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
         line = vm.wait_event("T3-LOGIN", timeout=60)
     check_login(line)
     last = wait_stable(vm, tmp)
+    # The capture before each output's next, which that one must differ from.
+    lasts = {o["suffix"]: wait_stable(vm, tmp, output=t3_devices.capture(o)) for o in outputs}
     phase("login")
     for name in screens_of(variant):
         vm.type("t3 %s\n" % name)
@@ -664,6 +715,7 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
         # previous screen is never taken for this one.
         last = wait_stable(vm, path, want=lambda img, prev=last: img.data != prev.data)
         caps[name] = path
+        capture_outputs(vm, outputs, work, name, caps, lasts)
         phase(name)
         # The keyed cases of this screen, each captured once the screen
         # has changed from the capture before it: a key that changes
@@ -684,6 +736,7 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
             path = os.path.join(work, case + ".ppm")
             last = wait_stable(vm, path, want=lambda img, prev=last: img.data != prev.data)
             caps[case] = path
+            capture_outputs(vm, outputs, work, case, caps, lasts)
             phase(case)
         for chord in KEYS_AFTER.get(name, []) if v.get("images", True) and not refused else []:
             vm.keys(*chord)
@@ -708,14 +761,123 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
     # switch back, so tty3's screen, drawn or blank, is never taken for
     # tty2's. A switch to tty3 that never happened fails vt-restore too.
     away = vm.screendump(tmp)
+    for o in outputs:
+        lasts[o["suffix"]] = vm.screendump(tmp, t3_devices.capture(o))
     vm.keys("ctrl", "alt", "f2")
     path = os.path.join(work, "vt-restore.ppm")
     wait_stable(vm, path, want=lambda img: img.data != away.data)
     caps["vt-restore"] = path
+    capture_outputs(vm, outputs, work, "vt-restore", caps, lasts)
     phase("vt-restore")
+    if v.get("mirror"):
+        check_mirror(variant, caps, errors)
     if v.get("pointer"):
         check_pointer(variant, vm, work, caps, errors, log)
         phase(t3_pointer.CASE)
+    for check in v.get("checks", []):
+        CHECK_RUNS[check](vm, work, caps, errors, log)
+        phase(check)
+
+
+def capture_outputs(vm, outputs, work, case, caps, lasts):
+    """Capture `case` from each of `outputs` after the first, once its
+    screen has settled and differs from its capture before (`lasts`, by
+    suffix, which takes the new one)."""
+    for o in outputs:
+        name = case + o["suffix"]
+        path = os.path.join(work, name + ".ppm")
+        lasts[o["suffix"]] = wait_stable(
+            vm, path, output=t3_devices.capture(o),
+            want=lambda img, prev=lasts[o["suffix"]]: img.data != prev.data)
+        caps[name] = path
+
+
+def check_mirror(variant, caps, errors):
+    """The mirror check (t3_devices.CHECKS): every case with a golden that
+    the first output drew, against the same case on each other output. Its
+    capture is the last screen's on the last output, kept only when every
+    capture matched; `errors` gets the cases that differ otherwise."""
+    outputs = VARIANTS[variant]["outputs"]
+    images, missing = {}, []
+    for case in variant_cases(variant):
+        if case in NO_GOLDEN or t3_devices.split(case)[1] or case not in caps:
+            continue
+        others = t3_devices.output_cases(case, outputs)
+        missing += [c for c in others if c not in caps]
+        images[case] = (t3img.read(caps[case]),
+                        [(c, t3img.read(caps[c])) for c in others if c in caps])
+    why = ("not captured on every output: %s" % ", ".join(missing) if missing
+           else None if images else "no screen was captured")
+    why = why or t3_devices.judge_mirror(images)
+    if why:
+        errors["mirror"] = why
+    else:
+        caps["mirror"] = caps[screens_of(variant)[-1] + outputs[-1]["suffix"]]
+
+
+def check_udev_examples(vm, work, caps, errors, log):
+    """The udev-examples check (t3_devices.CHECKS): the guest reads the
+    example files with its udev (screens/udev-examples.sh), and the account
+    it prints is judged. The capture is the screen the script left, kept
+    when the account passed."""
+    case = "udev-examples"
+    try:
+        lines = t3_devices.run_screen(vm, case, SCREEN_TIMEOUT)
+        why = t3_devices.judge_udev(*t3_devices.parse_udev(lines))
+        log("%s: %s" % (case, why or "as wanted"))
+        if why:
+            raise RuntimeError(why)
+        path = os.path.join(work, case + ".ppm")
+        wait_stable(vm, path)
+        caps[case] = path
+    except RuntimeError as e:
+        errors[case] = str(e)
+
+
+def check_keyboard_hotplug(vm, work, caps, errors, log):
+    """The keyboard-hotplug check (t3_devices.CHECKS): a USB keyboard
+    plugged into the hub through QMP, bound to the first display's console
+    so QMP's input-send-event types on it alone; vtium must log it as a
+    keyboard, the keys typed on it must run screens/keyboard-hotplug.sh,
+    which lists it; then it is pulled out, and the console's keyboard runs
+    the script again, which must not list it. The capture is the screen the
+    second run left."""
+    case = "keyboard-hotplug"
+    try:
+        since = t3_devices.serial_size(vm)
+        vm.cmd("device_add", driver="usb-kbd", id=t3_devices.HOT_ID,
+               bus=t3_devices.USB_BUS, port=t3_devices.HOT_PORT, display="video0")
+        m = t3_devices.wait_serial_after(vm, t3_devices.KEYBOARD_LINE, since, 30)
+        log("%s: vtium took %s [%s]" % (case, m.group(1), m.group(2)))
+
+        def type_hot(text):
+            for ch in text:
+                codes = char_qcodes(ch)
+                for down in (True, False):
+                    vm.cmd("input-send-event", device="video0",
+                           events=t3_devices.key_events(codes, down))
+                time.sleep(0.05)
+
+        plugged = t3_devices.listed(t3_devices.run_screen(vm, case, SCREEN_TIMEOUT, type_hot))
+        if t3_devices.HOT_NAME not in plugged:
+            raise RuntimeError("plugged in, the guest lists %s, not %s"
+                               % (plugged, t3_devices.HOT_NAME))
+        vm.cmd("device_del", id=t3_devices.HOT_ID)
+        t3_devices.wait_qmp_event(vm, "DEVICE_DELETED", t3_devices.HOT_ID, 30)
+        pulled = t3_devices.listed(t3_devices.run_screen(vm, case, SCREEN_TIMEOUT))
+        if t3_devices.HOT_NAME in pulled:
+            raise RuntimeError("pulled out, the guest still lists %s" % t3_devices.HOT_NAME)
+        path = os.path.join(work, case + ".ppm")
+        wait_stable(vm, path)
+        caps[case] = path
+    except RuntimeError as e:
+        errors[case] = str(e)
+        log("%s: %s" % (case, e))
+
+
+# The checks a variant names ("checks"), each run after the VT switch.
+CHECK_RUNS = {"udev-examples": check_udev_examples,
+              "keyboard-hotplug": check_keyboard_hotplug}
 
 
 def check_login(line):

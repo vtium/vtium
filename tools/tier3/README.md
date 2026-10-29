@@ -16,6 +16,7 @@ make install-tree DESTDIR=D  # vtium's install tree alone
 make tier3-provenance        # each copy against its source in a kmscon checkout (KMSCON=DIR); a review step, not a gate
 make tier3-image-nosystemd   # fetch, verify and provision the guest without systemd, unless the cache holds it
 make tier3-nosystemd         # the install tree, then the variants on the guest without systemd (The guest without systemd)
+make tier3 VARIANTS="two-outputs-mirror two-cards-mirror usb-keyboards"   # two outputs, two cards, USB keyboards (Outputs and keyboards)
 make test-tools              # the harness's self-tests, with no guest
 ```
 
@@ -49,6 +50,7 @@ The image pins live in the Makefile, and the guest's package list in `guest/user
 | `/usr/lib/systemd/system/kmsconvt@.service` | `crates/vtium/install/kmsconvt@.service`: `vtium --vt=%I --no-switchvt` in place of getty, with getty's TTY settings and `OnFailure=getty@%i` (ADR-1400, D3) |
 | `/usr/share/terminfo/k/kmscon` | `crates/vtium/install/kmscon.ti`, compiled with `tic -x` |
 | `/etc/kmscon/kmscon.conf.example` | `crates/vtium/install/kmscon.conf.example` |
+| `/usr/share/doc/vtium/examples/71-vtium-local.rules`, `/usr/share/doc/vtium/examples/vtium.hwdb` | `crates/vtium/install/examples/`: ADR-1401 D4's example udev rules and hwdb fragment, documentation an administrator copies into `/etc/udev` to use; the tree installs nothing under a udev directory |
 
 The tree goes on the run's disc as `tree.tar`, every entry owned by root, and `guest/setup` unpacks it over the guest's root through the guest's directory links. What the harness needs of the build:
 
@@ -118,6 +120,20 @@ After an S3 resume the guest does not power off, whichever path suspended it. Th
 
 Three findings from the C reference's runs shaped this table. At 7680x2160 each XRGB buffer is 63 MiB, and with QEMU's default `max_hostmem` (256 MiB) the second instance on tty3 fails to create its buffers; 1 GiB clears it. Once virgl owns the scanout, QMP `screendump` fails with "no surface", so the GL variant captures over VNC on a unix socket (raw RFB, `t3_qemu.py`). QEMU 11.1's `screendump` pads each PPM row to a multiple of 4 bytes while the header gives the width, so `t3img.read_ppm` drops the padding and refuses a body of any other size.
 
+## Outputs and keyboards
+
+Three variants put more than one display or keyboard in front of vtium, each run only when named, on the minspec machine at 640x480 in the 8x16 test font, judged by vtium's own goldens (`t3_devices.py`). They record vtium as it is today: one grid drawn on every display, and every keyboard typing into it.
+
+| Variant | Machine | Cases |
+|---|---|---|
+| `two-outputs-mirror` | `virtio-vga` with `max_outputs=2`: one card, two outputs | `sgr` and `cjk` captured from each output, `vt-switch`, `vt-restore` from each, and `mirror` |
+| `two-cards-mirror` | `virtio-vga` and a second card, `virtio-gpu-pci`, one output each | the same, from each card |
+| `usb-keyboards` | `virtio-vga`, with an xHCI controller at `0000:15:00.0`, a hub in its port 3 and a keyboard in the hub's port 2 | `cjk`, `vt-switch`, `vt-restore`, `udev-examples` and `keyboard-hotplug` |
+
+A variant's `outputs` lists the outputs it captures after the first, each by QMP `screendump`'s `device` and `head`. A case drawn on one is named with the output's suffix (`cjk@1`, `cjk@card1`) and has its own golden; `vt-restore@1` is compared with `cjk@1`. A virtio-gpu head after the first reports itself disconnected until a display asks for its size, which a headless QEMU never does, so the driver gives each such output a VNC server on a unix socket of its own (`vnc1.sock`) and, before the guest boots, asks it for the output's size with RFB's SetDesktopSize (`t3_qemu.vnc_set_size`); the head then shows as connected with that size as its mode. `mirror` is a check without a golden: every case with a golden, as each other output drew it, must be identical to the first output's.
+
+The USB controller sits behind the second of two PCIe root ports; the first holds 19 buses beyond its own, so the firmware's depth-first numbering gives the controller bus 0x15 and the keyboard the `ID_PATH` `pci-0000:15:00.0-usb-0:3.2:1.0`, the port the example rule names as the record writes it. `udev-examples` has the guest read the example files the tree installs with its own udev, as `tester` and changing nothing (`guest/screens/udev-examples.sh`): `udevadm test --extra-rules-dir` with `71-vtium-local.rules` for each keyboard, which must give the keyboard in that port `VTIUM_HEAD=panel` and every other no `VTIUM_` property, and `vtium.hwdb` built into a scratch root with `systemd-hwdb update --strict`, which must print nothing, and queried for the token and the numpad it names, which must get `VTIUM_ROLE=token` and `VTIUM_ROLE=numpad`, and a device of the numpad's vendor it does not name, which must get nothing. `keyboard-hotplug` plugs a USB keyboard into the hub's port 3 with QMP `device_add`, bound to the first display's console so QMP `input-send-event` types on it alone; vtium must log it as a keyboard, the keys typed on it must run `guest/screens/keyboard-hotplug.sh`, which lists the guest's keyboards and must list it; then QMP `device_del` pulls it out, and once QEMU reports `DEVICE_DELETED` the console's own keyboard runs the script again, which must not list it. Both are checks without a golden.
+
 ## The guest without systemd
 
 `docs/systemd.md` lists what vtium does on a host whose PID 1 is not systemd; this guest judges that column. It is Debian 13 with sysvinit as PID 1, provisioned from the pins above by `make tier3-image-nosystemd` into the cache's `base/` as `sysvinit-<digest>.qcow2`, keyed by the files in `guest-sysvinit/` it is built from (`SYSVINIT_INPUTS`), and linked from `target/tier3/vm/base-sysvinit.qcow2`. Its one boot under systemd, with cloud-init, masks the image's apt timers and purges `unattended-upgrades` before its first fetch, so nothing newer than the snapshot is installed, then installs `sysvinit-core` and `sysv-rc` in place of `systemd-sysv` (and `libpam-systemd`), and `libxkbcommon0`, the one library of vtium's the image lacks; changes the inittab's `tty2` line from getty to `t3-console`; makes `/etc/rc.local`, which initscripts runs at the end of the runlevel, the boot hook; and powers off with `systemctl`, as sysvinit's `shutdown` is the one installed and systemd does not hear it. Alpine was ruled out because it is not glibc, and Devuan because it publishes no disk image for excalibur and no dated snapshot to pin its packages to.
@@ -173,7 +189,7 @@ The run exits 1 on any `fail` or `missing`, or a binary over the budget. Nothing
 - `tools` names vtium's commit (`+dirty` with uncommitted changes), the guest image, its SHA-256 and the archive snapshot, which the Makefile passes, and under `goldens` the kmscon commit the C reference's goldens were copied from and the `provenance.tsv` that lists them. A field the driver ran without is `null`.
 - `build` names the tree and its `tree_sha256`, `binary_bytes` and `installed_bytes` (the regular files it installs), `budget` (the binary's budget and whether it is met), and `consoles`, each `NAME REVISION` the variants' consoles logged.
 - Each case carries `status`, `departure` (the title, for a case `departures.tsv` lists), `description` (the header comment of its screen's script with its `# look-for:` lines, or its entry in `CHECKS`), `wrong` (its `# wrong-looks-like:` lines), `text` (the lines its script prints, colors removed, or `null`; see `guest/screens/README.md`), `golden`, `actual`, `diff` and their thumbnails as PNGs, `tolerance`, and `stats` (`pixels`, at most 16 `bbox` regions, `max_delta`).
-- Under `variants`, each variant records `installed` (the tree the guest reported), `displays` (the console's `Display` lines), its QEMU `device`, `config`, `cell`, `cpus` and `memory_mb`, `bench` (each benchmark screen's figures), `rss_kb` (the console's VmRSS after each screen, the largest across its processes), `resident` (after the first screen, and the peak with the screen it followed), `startup_ms` (from the Revision line to the first `Display` line), `console`, `timing` (seconds to the end of each phase) and any `error`.
+- Under `variants`, each variant records `installed` (the tree the guest reported), `displays` (the console's `Display` lines), its QEMU `device` and `qemu` (the devices after it), `config`, `cell`, `cpus` and `memory_mb`, `bench` (each benchmark screen's figures), `rss_kb` (the console's VmRSS after each screen, the largest across its processes), `resident` (after the first screen, and the peak with the screen it followed), `startup_ms` (from the Revision line to the first `Display` line), `console`, `timing` (seconds to the end of each phase) and any `error`.
 
 The run prints each case's status, then the tree, its binary against the budget and the consoles that ran, and each variant's resident memory.
 
@@ -187,7 +203,7 @@ The figures are measured on a guest: a vCPU preempted by the host still counts a
 
 ## Self-tests
 
-`make test-tools` runs `test_t3img.py` (image I/O and the masked compare) and `test_t3.py`: the captions and screen text, the tree and its budget, the guest's account of its install, the copies against `provenance.tsv`, where provisioning fetches and builds the images, the base image's inputs, each variant's machine, the console lines the driver reads, the QEMU command line, the benchmark figures and verdicts, the serial reader, and the guest without systemd's variants, disc, login and account of its init and udev. `SixelGoldenTest` reads the colors and cells of the copied sixel goldens.
+`make test-tools` runs `test_t3img.py` (image I/O and the masked compare) and `test_t3.py`: the captions and screen text, the tree and its budget, the guest's account of its install, the copies against `provenance.tsv`, where provisioning fetches and builds the images, the base image's inputs, each variant's machine, the console lines the driver reads, the QEMU command line, the benchmark figures and verdicts, the serial reader, the guest without systemd's variants, disc, login and account of its init and udev, and the device variants' outputs, VNC size request, mirror check, reading of the udev examples, hotplug helpers and the examples' install paths. `SixelGoldenTest` reads the colors and cells of the copied sixel goldens.
 
 ## What changed from the fork's harness
 
