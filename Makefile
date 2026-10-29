@@ -67,8 +67,10 @@ minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, 
 	$(call check-glibc,$(VTIUM_MINSPEC))
 
 # vtium as a system installs it, staged under DESTDIR: the minspec binary,
-# vtium-vitrify, the VT unit, the compiled terminfo entry and the example
-# configuration. Tier 3 installs this tree in its guest.
+# vtium-vitrify, the VT unit, the compiled terminfo entry, the example
+# configuration and the example udev rules and hwdb fragment, which are
+# documentation and never active (ADR-1401 D4). Tier 3 installs this tree in
+# its guest.
 DESTDIR ?= target/install-tree
 VTIUM_INSTALL := crates/vtium/install
 VTIUM_VITRIFY := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/release/vtium-vitrify
@@ -85,6 +87,7 @@ install-tree: minspec ## Stage vtium's install tree under DESTDIR (default targe
 	install -dm755 $(DESTDIR)/usr/share/terminfo
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/kmscon.ti
 	install -Dm644 $(VTIUM_INSTALL)/kmscon.conf.example $(DESTDIR)/etc/kmscon/kmscon.conf.example
+	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
 
 # The ARM single-board computers minspec is judged against
 # (docs/architecture.md): each target links against a pinned Debian sysroot
