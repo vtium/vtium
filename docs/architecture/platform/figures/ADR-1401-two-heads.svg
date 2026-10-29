@@ -46,22 +46,21 @@
 <!-- unclaimed devices -->
 <rect x="36" y="380" width="200" height="44" fill="#f1f5f9" stroke="#9aa5b1"/>
 <text x="136" y="399" font-size="13" text-anchor="middle">a numpad</text>
-<text x="136" y="416" font-size="11" text-anchor="middle">no rule claims it</text>
+<text x="136" y="416" font-size="11" text-anchor="middle">class:keyboard -&gt; focus</text>
 <rect x="260" y="380" width="200" height="44" fill="#f1f5f9" stroke="#9aa5b1"/>
 <text x="360" y="399" font-size="13" text-anchor="middle">an OTP token</text>
 <text x="360" y="416" font-size="11" text-anchor="middle">path ...3.4.2 -&gt; focus</text>
 <rect x="484" y="380" width="200" height="44" fill="#f1f5f9" stroke="#9aa5b1"/>
 <text x="584" y="399" font-size="13" text-anchor="middle">a USB receiver</text>
-<text x="584" y="416" font-size="11" text-anchor="middle">no rule claims it</text>
-<rect x="708" y="380" width="200" height="44" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="584" y="416" font-size="11" text-anchor="middle">class:keyboard -&gt; focus</text>
+<rect x="708" y="380" width="200" height="44" fill="#f1f5f9" stroke="#9aa5b1" stroke-dasharray="6 4"/>
 <text x="808" y="399" font-size="13" text-anchor="middle">media-key devices</text>
-<text x="808" y="416" font-size="11" text-anchor="middle">no rule claims them</text>
+<text x="808" y="416" font-size="11" text-anchor="middle">input * -&gt; ignore: closed</text>
 <line x1="136" y1="380" x2="380" y2="328" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <line x1="360" y1="380" x2="450" y2="328" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <line x1="584" y1="380" x2="520" y2="328" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
-<line x1="808" y1="380" x2="590" y2="328" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
-<text x="16" y="450" font-size="11">Displays and keyboard A, the mouse and keyboard B are placed by their rules; the rest follow the focus,</text>
-<text x="16" y="466" font-size="11">by a rule or by input * -&gt; focus. Keyboard A types into head desk alone, keyboard B into head panel alone.</text>
+<text x="16" y="450" font-size="11">Displays and keyboard A, the mouse and keyboard B are placed by their rules; keyboards and pointers no rule</text>
+<text x="16" y="466" font-size="11">claims follow the focus by class, and media keys stay closed. Keyboard A types into head desk alone.</text>
 <!-- legend -->
 <rect x="16" y="480" width="22" height="16" fill="#e6eef7" stroke="#2f6fb0"/>
 <text x="46" y="493" font-size="12">vtium, root</text>

@@ -15,7 +15,7 @@
 <text x="26" y="124" fill="#9aa5b1">4</text><text x="46" y="124">display * -&gt; desk</text>
 <rect x="20" y="130" width="292" height="20" fill="#fee2e2" stroke="#b91c1c"/>
 <text x="26" y="144" fill="#9aa5b1">5</text><text x="46" y="144">input path:...3.3 -&gt; desc</text>
-<text x="26" y="164" fill="#9aa5b1">6</text><text x="46" y="164">input * -&gt; focus</text>
+<text x="26" y="164" fill="#9aa5b1">6</text><text x="46" y="164">input class:keyboard -&gt; focus</text>
 </g>
 <text x="26" y="190" font-size="11" fill="#b91c1c">line 5 names a head no section declares</text>
 <text x="16" y="224" font-size="12">left as it is: its hash before</text>
@@ -29,8 +29,8 @@
 <text x="386" y="126" font-size="12">so no part of it applies</text>
 <text x="364" y="148" font-size="12">3. logs it with file and line</text>
 <text x="364" y="170" font-size="12">4. runs the shipped rules:</text>
-<text x="386" y="188" font-size="11">display * -&gt; console</text>
-<text x="386" y="204" font-size="11">input * -&gt; focus</text>
+<text x="386" y="188" font-size="10">display * -&gt; console</text>
+<text x="386" y="204" font-size="10">class rules -&gt; focus, * -&gt; ignore</text>
 <text x="364" y="226" font-size="12">5. shows the notice, keeps</text>
 <text x="386" y="242" font-size="12">running</text>
 <line x1="610" y1="140" x2="638" y2="140" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
