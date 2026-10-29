@@ -462,6 +462,73 @@ fn draw_config<F: Face>(
 mod tests {
     use super::*;
 
+    /// A glyph's size and pixels, for comparing.
+    type Drawn = (u32, u32, Vec<u8>);
+
+    /// `glyph`, drawn for a font of `from`'s cell, placed in `cell` as the
+    /// helper's engine places a bitmap source: scaled by the largest whole
+    /// factor that fits, centred across and on the cell's bottom rows.
+    fn placed(glyph: &Glyph, from: Cell, cell: Cell) -> Drawn {
+        let cells = glyph.width() / from.width;
+        let scale = (cell.width / from.width).min(cell.height / from.height);
+        let (w, h) = (cell.width * cells, cell.height);
+        let x0 = (w - glyph.width() * scale) / 2;
+        let y0 = h - glyph.height() * scale;
+        let mut px = vec![0u8; (w * h) as usize];
+        for y in 0..glyph.height() * scale {
+            for x in 0..glyph.width() * scale {
+                let src = ((y / scale) * glyph.width() + x / scale) as usize;
+                px[((y0 + y) * w + x0 + x) as usize] = glyph.pixels()[src];
+            }
+        }
+        (w, h, px)
+    }
+
+    // ADR-1301 D2, ADR-1200 D1: the engine's glyphs for a PSF test font
+    // and a built-in after it are, codepoint by codepoint, the PSF's own
+    // glyph where the font has one, and otherwise the built-in's, placed
+    // on the cell's bottom rows. The oracle reads the PSF and the
+    // built-in set directly, apart from the engine.
+    #[test]
+    fn a_psf_test_font_with_a_fill_draws_the_font_then_the_built_in() {
+        for (font, fill) in [
+            (TestFont::Small8x8, "unscii-8"),
+            (TestFont::Small8x16, "unifont"),
+        ] {
+            let bytes = font.bytes().unwrap();
+            let psf = Psf::parse(&bytes).unwrap();
+            let cell = psf.cell();
+            let builtin = vtium_font::set::builtin(fill).unwrap();
+            let from = *builtin.cells().first().unwrap();
+            let fill_face = SetFace::new(builtin, from.height).unwrap();
+            let set = Arc::new(Set::from_bytes(font.generate(Some(fill)).unwrap()).unwrap());
+            let face = SetFace::new(set, cell.height).unwrap();
+            let (mut from_font, mut from_fill) = (0, 0);
+            for c in (0..=0x10_ffff).filter_map(char::from_u32) {
+                let want: Option<Drawn> = if let Some(i) = psf.glyph_index(c) {
+                    from_font += 1;
+                    let g = psf.render(i, FontStyle::default()).unwrap();
+                    Some((g.width(), g.height(), g.pixels().to_vec()))
+                } else if fill_face.has_glyph(c) {
+                    from_fill += 1;
+                    let g = fill_face.draw_unscaled(&[c], FontStyle::default()).unwrap();
+                    Some(placed(&g, from, cell))
+                } else {
+                    None
+                };
+                let got = face.has_glyph(c).then(|| {
+                    let g = face.draw_unscaled(&[c], FontStyle::default()).unwrap();
+                    (g.width(), g.height(), g.pixels().to_vec())
+                });
+                assert!(got == want, "{font:?} with {fill}: {c:?}");
+            }
+            assert!(
+                from_font > 0 && from_fill > 0,
+                "{font:?}: {from_font} {from_fill}"
+            );
+        }
+    }
+
     // A decoration color that names an index follows the palette, as the
     // C reference resolved it on every frame: a second part that changes the
     // index with OSC 4 draws, where the renderer that took the color once
