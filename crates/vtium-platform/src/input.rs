@@ -9,6 +9,13 @@
 //! hands on in the key order: the VT's keys ([`crate::vt::Vt::key`]), then
 //! the seat's, then the terminal's grabs, then the encoder.
 //!
+//! Each device has a disposition a head file's rules set (ADR-1401 D3):
+//! delivered, watched for the rescue key alone, or closed and never
+//! opened. Until one is set, a device is taken by the rule vtium has always
+//! used ([`Input::add`]). [`Input::device_events`] drains the events with
+//! the device each came from, so a head takes its own keyboards and
+//! pointers, with their modifiers, LEDs and screen per set of devices.
+//!
 //! Each keyboard keeps its own xkb state, so modifiers held on one apply
 //! to it alone. The kernel's repeat is ignored: a held key repeats from a
 //! timer after `xkb-repeat-delay` and then every `xkb-repeat-rate`
@@ -128,6 +135,31 @@ pub enum InputEvent {
     Pointer(PointerEvent),
 }
 
+/// An event with the device it came from, as [`Input::device_events`]
+/// drains them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeviceInput {
+    /// `None` for an event of no one device, the pointer's hide.
+    pub device: Option<DeviceId>,
+    /// A key of a device watched for the rescue key alone, for the rescue
+    /// and nothing else.
+    pub rescue: bool,
+    pub event: InputEvent,
+}
+
+/// What vtium does with a device, as a head file's rules place it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Disposition {
+    /// Opened, its events delivered, whatever it reports.
+    Deliver,
+    /// Opened to watch for the rescue key alone: its key presses are
+    /// drained marked [`DeviceInput::rescue`], and nothing else it sends is
+    /// delivered (ADR-1401 D9).
+    Rescue,
+    /// Never opened.
+    Closed,
+}
+
 /// The pointer hides after this long without a frame, unless the
 /// configuration says otherwise (input_pointer.c:9-18).
 pub const POINTER_HIDE: Duration = Duration::from_secs(20);
@@ -217,6 +249,38 @@ struct Device<E> {
     /// Counts the repeats started, so a timer left from an earlier one
     /// stops.
     repeat_serial: u64,
+    /// What the rules set; `None` takes the device by the rule vtium has
+    /// always used.
+    disposition: Option<Disposition>,
+    /// The screen its pointer moves within, where it is not the seat's.
+    pointer_max: Option<(i32, i32)>,
+}
+
+impl<E> Device<E> {
+    fn rescue(&self) -> bool {
+        self.disposition == Some(Disposition::Rescue)
+    }
+}
+
+/// Where a queued event came from.
+#[derive(Clone, Copy, Debug)]
+struct Source {
+    device: Option<DeviceId>,
+    rescue: bool,
+}
+
+/// The events queued since the last drain, each with its source.
+#[derive(Debug, Default)]
+struct Queue {
+    events: Vec<InputEvent>,
+    sources: Vec<Source>,
+}
+
+impl Queue {
+    fn push(&mut self, device: Option<DeviceId>, rescue: bool, event: InputEvent) {
+        self.events.push(event);
+        self.sources.push(Source { device, rescue });
+    }
 }
 
 struct Probed {
@@ -248,7 +312,7 @@ pub struct Input<O: Open = Direct> {
     /// When the pointer hides, while a frame arrived within its hide
     /// timeout.
     hide_at: Option<Instant>,
-    events: Vec<InputEvent>,
+    queue: Queue,
     link: Option<Box<dyn Link>>,
 }
 
@@ -274,14 +338,33 @@ impl<O: Open + 'static> Input<O> {
             next_id: 0,
             pointer_max: (0, 0),
             hide_at: None,
-            events: Vec::new(),
+            queue: Queue::default(),
             link: None,
         }
     }
 
-    /// What happened since the last call, in order.
+    /// What happened since the last drain, in order, but for the keys of
+    /// devices watched for the rescue key.
     pub fn events(&mut self) -> std::vec::Drain<'_, InputEvent> {
-        self.events.drain(..)
+        let Queue { events, sources } = &mut self.queue;
+        let mut from = sources.drain(..);
+        events.retain(|_| from.next().is_none_or(|s| !s.rescue));
+        drop(from);
+        events.drain(..)
+    }
+
+    /// What happened since the last drain, in order, each with the device
+    /// it came from.
+    pub fn device_events(&mut self) -> impl Iterator<Item = DeviceInput> + '_ {
+        let Queue { events, sources } = &mut self.queue;
+        sources
+            .drain(..)
+            .zip(events.drain(..))
+            .map(|(s, event)| DeviceInput {
+                device: s.device,
+                rescue: s.rescue,
+                event,
+            })
     }
 
     pub fn is_awake(&self) -> bool {
@@ -290,16 +373,51 @@ impl<O: Open + 'static> Input<O> {
 
     /// The pointer's last pixel: the screen's width and height.
     pub fn set_pointer_max(&mut self, width: u32, height: u32) {
-        self.pointer_max = (
-            i32::try_from(width).unwrap_or(i32::MAX),
-            i32::try_from(height).unwrap_or(i32::MAX),
-        );
+        self.pointer_max = pixel(width, height);
+    }
+
+    /// The last pixel of the screen the pointers of `devices` move within,
+    /// in place of the seat's.
+    pub fn set_pointer_max_of(&mut self, devices: &[DeviceId], width: u32, height: u32) {
+        for device in self.devices.iter_mut().filter(|d| devices.contains(&d.id)) {
+            device.pointer_max = Some(pixel(width, height));
+        }
     }
 
     /// A device udev reported, opened and probed at once while awake, and
     /// dropped when it is no keyboard or pointer vtium takes
     /// (input.c:620-637).
     pub fn add(&mut self, node: &Path) -> Option<DeviceId> {
+        self.add_device(node, None)
+    }
+
+    /// A device udev reported, with the disposition its rule gives it: a
+    /// closed one is never opened, and a delivered one is kept whatever it
+    /// reports, with a keyboard for any key.
+    pub fn add_with(&mut self, node: &Path, disposition: Disposition) -> Option<DeviceId> {
+        self.add_device(node, Some(disposition))
+    }
+
+    /// A device's disposition, `None` while it is taken by the rule vtium
+    /// has always used.
+    pub fn disposition(&self, id: DeviceId) -> Option<Disposition> {
+        self.devices.iter().find(|d| d.id == id)?.disposition
+    }
+
+    /// Sets a device's disposition: closing it, or opening it while awake.
+    pub fn set_disposition(&mut self, id: DeviceId, disposition: Disposition) {
+        let Some(device) = self.devices.iter_mut().find(|d| d.id == id) else {
+            return;
+        };
+        device.disposition = Some(disposition);
+        if disposition == Disposition::Closed {
+            self.close(id);
+        } else if self.awake > 0 {
+            self.wake_device(id);
+        }
+    }
+
+    fn add_device(&mut self, node: &Path, disposition: Option<Disposition>) -> Option<DeviceId> {
         let id = DeviceId(self.next_id);
         self.next_id = self.next_id.saturating_add(1);
         self.devices.push(Device {
@@ -309,6 +427,8 @@ impl<O: Open + 'static> Input<O> {
             probed: None,
             watch: None,
             repeat_serial: 0,
+            disposition,
+            pointer_max: None,
         });
         if self.awake > 0 && !self.wake_device(id) {
             return None;
@@ -359,9 +479,19 @@ impl<O: Open + 'static> Input<O> {
         }
     }
 
-    /// Sets the keyboards' LEDs, as a program asks with DECLL.
+    /// Sets the keyboards' LEDs, as a program asks with DECLL, but for
+    /// those watched for the rescue key.
     pub fn set_leds(&mut self, leds: Leds) {
-        for device in &mut self.devices {
+        self.write_leds_where(leds, |d| !d.rescue());
+    }
+
+    /// Sets the LEDs of the keyboards of `devices`.
+    pub fn set_leds_of(&mut self, devices: &[DeviceId], leds: Leds) {
+        self.write_leds_where(leds, |d| devices.contains(&d.id));
+    }
+
+    fn write_leds_where(&mut self, leds: Leds, wanted: impl Fn(&Device<O::Device>) -> bool) {
+        for device in self.devices.iter_mut().filter(|d| wanted(d)) {
             let has_leds = device.probed.as_ref().is_some_and(|p| p.caps.leds);
             if let (Some(dev), true) = (device.open.as_mut(), has_leds) {
                 write_leds(dev, &device.node, leds);
@@ -369,10 +499,21 @@ impl<O: Open + 'static> Input<O> {
         }
     }
 
-    /// Shift, Lock, Control, Alt and Super, held on any keyboard.
+    /// Shift, Lock, Control, Alt and Super, held on any keyboard but those
+    /// watched for the rescue key.
     pub fn mods(&self) -> Mods {
+        self.mods_where(|d| !d.rescue())
+    }
+
+    /// The modifiers held on the keyboards of `devices`.
+    pub fn mods_of(&self, devices: &[DeviceId]) -> Mods {
+        self.mods_where(|d| devices.contains(&d.id))
+    }
+
+    fn mods_where(&self, wanted: impl Fn(&Device<O::Device>) -> bool) -> Mods {
         self.devices
             .iter()
+            .filter(|d| wanted(d))
             .filter_map(|d| d.probed.as_ref()?.keyboard.as_ref())
             .fold(Mods::empty(), |mods, k| mods.union(k.mods()))
     }
@@ -394,7 +535,7 @@ impl<O: Open + 'static> Input<O> {
         let Some(device) = self.devices.get_mut(index) else {
             return false;
         };
-        if device.open.is_some() {
+        if device.open.is_some() || device.disposition == Some(Disposition::Closed) {
             return true;
         }
         let mut dev = match self.opener.open(&device.node) {
@@ -414,24 +555,38 @@ impl<O: Open + 'static> Input<O> {
                     Capabilities::default()
                 }
             };
-            if !caps.usable(self.config.mouse) {
+            let placed = device.disposition.is_some();
+            if !placed && !caps.usable(self.config.mouse) {
                 log::debug!(target: "input", "ignoring {} [{name}]", device.node.display());
                 self.opener.close(dev);
                 return false;
             }
+            let keys = caps.keys || (placed && caps.any_key);
             let kind = caps.pointer_kind();
             device.probed = Some(Probed {
                 caps,
-                keyboard: caps.keys.then(|| Keyboard::new(&self.keymap)),
+                keyboard: keys.then(|| Keyboard::new(&self.keymap)),
                 pointer: Pointer::new(kind),
             });
-            log::info!(
-                target: "input",
-                "using {} [{name}] as {}{}",
-                device.node.display(),
-                if caps.keys { "keyboard" } else { "" },
-                kind.name()
-            );
+            let id = dev
+                .id()
+                .map(|(vendor, product)| format!(" {vendor:04x}:{product:04x}"))
+                .unwrap_or_default();
+            if device.rescue() {
+                log::info!(
+                    target: "input",
+                    "watching {} [{name}]{id} for the rescue key",
+                    device.node.display()
+                );
+            } else {
+                log::info!(
+                    target: "input",
+                    "using {} [{name}]{id} as {}{}",
+                    device.node.display(),
+                    if keys { "keyboard" } else { "" },
+                    kind.name()
+                );
+            }
         }
         let Some(probed) = device.probed.as_mut() else {
             return false;
@@ -529,13 +684,17 @@ impl<O: Open + 'static> Input<O> {
 
     /// One evdev event, by type (input.c:56-74).
     fn event(&mut self, id: DeviceId, ev: RawEvent, now: Instant) {
-        let max = self.pointer_max;
         let Some(device) = self.devices.iter_mut().find(|d| d.id == id) else {
             return;
         };
+        let max = device.pointer_max.unwrap_or(self.pointer_max);
+        let rescue = device.disposition == Some(Disposition::Rescue);
         let Some(probed) = device.probed.as_mut() else {
             return;
         };
+        let from = Some(id);
+        // A device watched for the rescue key sends its keys alone.
+        let pointer = !rescue;
         match ev.kind {
             EV_KEY => {
                 if let (Some(keyboard), Some(state)) =
@@ -565,27 +724,28 @@ impl<O: Open + 'static> Input<O> {
                         None => {}
                     }
                     if let Some(key) = processed.key {
-                        self.events.push(InputEvent::Key(key));
+                        self.queue.push(from, rescue, InputEvent::Key(key));
                     }
                 }
-                if let Some(p) = probed.pointer.button(ev.code, ev.value, now) {
-                    self.events.push(InputEvent::Pointer(p));
+                if let (Some(p), true) = (probed.pointer.button(ev.code, ev.value, now), pointer) {
+                    self.queue.push(from, false, InputEvent::Pointer(p));
                 }
             }
             EV_REL => {
-                if let Some(p) = probed.pointer.rel(ev.code, ev.value, max) {
-                    self.events.push(InputEvent::Pointer(p));
+                if let (Some(p), true) = (probed.pointer.rel(ev.code, ev.value, max), pointer) {
+                    self.queue.push(from, false, InputEvent::Pointer(p));
                 }
             }
             EV_ABS => {
-                if let Some(p) = probed.pointer.abs(ev.code, ev.value, max) {
-                    self.events.push(InputEvent::Pointer(p));
+                if let (Some(p), true) = (probed.pointer.abs(ev.code, ev.value, max), pointer) {
+                    self.queue.push(from, false, InputEvent::Pointer(p));
                 }
             }
             // A frame of a device with no pointer, a keyboard's, is no
             // pointer event.
-            EV_SYN if probed.pointer.kind != pointer::Kind::None => {
-                self.events.push(InputEvent::Pointer(PointerEvent::Sync));
+            EV_SYN if pointer && probed.pointer.kind != pointer::Kind::None => {
+                self.queue
+                    .push(from, false, InputEvent::Pointer(PointerEvent::Sync));
                 if let Some(after) = self.config.pointer_hide {
                     self.hide_at = now.checked_add(after);
                     if let Some(link) = &self.link {
@@ -611,9 +771,10 @@ impl<O: Open + 'static> Input<O> {
             .as_ref()
             .and_then(|p| p.keyboard.as_ref())
             .and_then(Keyboard::repeated);
+        let rescue = device.rescue();
         match key {
             Some(key) => {
-                self.events.push(InputEvent::Key(key));
+                self.queue.push(Some(id), rescue, InputEvent::Key(key));
                 true
             }
             None => false,
@@ -628,7 +789,8 @@ impl<O: Open + 'static> Input<O> {
             return Some(left);
         }
         self.hide_at = None;
-        self.events.push(InputEvent::Pointer(PointerEvent::Hide));
+        self.queue
+            .push(None, false, InputEvent::Pointer(PointerEvent::Hide));
         None
     }
 
@@ -676,6 +838,14 @@ impl<O: Open + 'static> Input<O> {
             }
         }
     }
+}
+
+/// A screen's width and height as the pointer's last pixel.
+fn pixel(width: u32, height: u32) -> (i32, i32) {
+    (
+        i32::try_from(width).unwrap_or(i32::MAX),
+        i32::try_from(height).unwrap_or(i32::MAX),
+    )
 }
 
 fn write_leds<E: EventDevice>(dev: &mut E, node: &Path, leds: Leds) {

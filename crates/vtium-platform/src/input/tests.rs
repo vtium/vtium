@@ -18,7 +18,10 @@ use xkbcommon::xkb::keysyms;
 use super::evdev::RawEvent;
 use super::fake::{self, Node, Nodes};
 use super::pointer::Range;
-use super::{Button, Input, InputConfig, InputEvent, KeyEvent, Keymap, Leds, Mods, PointerEvent};
+use super::{
+    Button, DeviceInput, Disposition, Input, InputConfig, InputEvent, KeyEvent, Keymap, Leds, Mods,
+    PointerEvent,
+};
 use crate::ioctl::{
     ABS_X, ABS_Y, BTN_LEFT, BTN_RIGHT, BTN_TOUCH, EV_ABS, EV_KEY, EV_REL, EV_SYN, LED_CAPSL,
     LED_NUML, LED_SCROLLL, REL_WHEEL, REL_X, REL_Y,
@@ -828,4 +831,259 @@ fn the_hide_timer_fires_in_the_loop() {
         seen = pointers(&mut data.input);
     }
     assert_eq!(seen, [PointerEvent::Hide]);
+}
+
+/// A stand-in device and its handle in the input.
+type Added = (Rc<RefCell<Node>>, super::DeviceId);
+
+/// The input awake with the stand-in devices at `nodes`, each added with
+/// its disposition.
+fn with_devices(
+    devices: &[(&str, super::evdev::Bits, Option<Disposition>)],
+) -> (Input<Nodes>, Vec<Added>) {
+    let nodes = Nodes::default();
+    let made: Vec<_> = devices
+        .iter()
+        .map(|(path, bits, _)| nodes.add(path, *bits))
+        .collect();
+    let mut input = Input::new(nodes, keymap(), InputConfig::default());
+    input.set_pointer_max(100, 50);
+    input.wake_up();
+    let ids = devices
+        .iter()
+        .zip(made)
+        .map(|((path, _, disposition), node)| {
+            let id = match disposition {
+                Some(d) => input.add_with(Path::new(path), *d),
+                None => input.add(Path::new(path)),
+            };
+            (node, id.unwrap_or_else(|| panic!("{path} is kept")))
+        })
+        .collect();
+    (input, ids)
+}
+
+fn tagged_keys(input: &mut Input<Nodes>) -> Vec<(Option<super::DeviceId>, bool, u32)> {
+    input
+        .device_events()
+        .filter_map(
+            |DeviceInput {
+                 device,
+                 rescue,
+                 event,
+             }| match event {
+                InputEvent::Key(k) => Some((device, rescue, k.keysyms.first().copied()?)),
+                InputEvent::Pointer(_) => None,
+            },
+        )
+        .collect()
+}
+
+#[test]
+fn each_event_names_the_device_it_came_from() {
+    let (mut input, devices) = with_devices(&[
+        ("/dev/input/event0", fake::keyboard(), None),
+        ("/dev/input/event1", fake::keyboard(), None),
+        ("/dev/input/event2", fake::mouse(), None),
+    ]);
+    let [(one, a), (two, b), (mouse, m)] = devices.as_slice() else {
+        panic!("three devices");
+    };
+    feed(&mut input, one, *a, &[press(KEY_A)]);
+    feed(&mut input, two, *b, &[press(KEY_S)]);
+    feed(&mut input, mouse, *m, &[ev(EV_REL, REL_X, 5)]);
+    let tagged: Vec<_> = input
+        .device_events()
+        .map(|d| (d.device, d.rescue, matches!(d.event, InputEvent::Key(_))))
+        .collect();
+    assert_eq!(
+        tagged,
+        [
+            (Some(*a), false, true),
+            (Some(*b), false, true),
+            (Some(*m), false, false)
+        ]
+    );
+    // One drain empties the other.
+    assert_eq!(input.events().count(), 0);
+    feed(&mut input, one, *a, &[press(KEY_A)]);
+    assert_eq!(input.events().count(), 1);
+    assert_eq!(input.device_events().count(), 0);
+}
+
+#[test]
+fn a_closed_device_is_never_opened() {
+    let (mut input, devices) = with_devices(&[(
+        "/dev/input/event0",
+        fake::keyboard(),
+        Some(Disposition::Closed),
+    )]);
+    let [(node, id)] = devices.as_slice() else {
+        panic!("one device");
+    };
+    input.sleep();
+    input.wake_up();
+    assert_eq!(node.borrow().opens, 0);
+    assert_eq!(input.disposition(*id), Some(Disposition::Closed));
+    // Delivered from now on, it opens; closed again, it closes.
+    input.set_disposition(*id, Disposition::Deliver);
+    assert!(node.borrow().open);
+    feed(&mut input, node, *id, &[press(KEY_A)]);
+    assert_eq!(syms(&keys(&mut input)), [keysyms::KEY_a]);
+    input.set_disposition(*id, Disposition::Closed);
+    assert!(!node.borrow().open);
+    input.sleep();
+    input.wake_up();
+    assert!(!node.borrow().open);
+}
+
+#[test]
+fn a_rescue_keyboard_delivers_nothing_but_its_keys_marked_for_the_rescue() {
+    let (mut input, devices) = with_devices(&[
+        ("/dev/input/event0", fake::keyboard(), None),
+        (
+            "/dev/input/event1",
+            fake::keyboard(),
+            Some(Disposition::Rescue),
+        ),
+    ]);
+    let [(typing, a), (watched, w)] = devices.as_slice() else {
+        panic!("two devices");
+    };
+    assert!(watched.borrow().open);
+    feed(
+        &mut input,
+        watched,
+        *w,
+        &[press(KEY_LEFTCTRL), press(KEY_F2)],
+    );
+    assert!(keys(&mut input).is_empty());
+    feed(&mut input, watched, *w, &[press(KEY_F2)]);
+    assert_eq!(tagged_keys(&mut input), [(Some(*w), true, keysyms::KEY_F2)]);
+    // Its modifiers are its own and reach no one else's keys.
+    assert_eq!(input.mods(), Mods::empty());
+    assert_eq!(input.mods_of(&[*w]), Mods::CTRL);
+    feed(&mut input, typing, *a, &[press(KEY_A)]);
+    assert_eq!(tagged_keys(&mut input), [(Some(*a), false, keysyms::KEY_a)]);
+    // A program's LEDs reach the typing keyboard alone.
+    typing.borrow_mut().leds.clear();
+    watched.borrow_mut().leds.clear();
+    input.set_leds(Leds {
+        num_lock: true,
+        caps_lock: false,
+        scroll_lock: false,
+    });
+    assert_eq!(typing.borrow().leds.len(), 1);
+    assert!(watched.borrow().leds.is_empty());
+}
+
+#[test]
+fn modifiers_and_leds_follow_a_set_of_keyboards() {
+    let (mut input, devices) = with_devices(&[
+        ("/dev/input/event0", fake::keyboard(), None),
+        ("/dev/input/event1", fake::keyboard(), None),
+    ]);
+    let [(one, a), (two, b)] = devices.as_slice() else {
+        panic!("two devices");
+    };
+    feed(&mut input, one, *a, &[press(KEY_LEFTSHIFT)]);
+    feed(&mut input, two, *b, &[press(KEY_LEFTALT)]);
+    assert_eq!(input.mods_of(&[*a]), Mods::SHIFT);
+    assert_eq!(input.mods_of(&[*b]), Mods::ALT);
+    assert_eq!(input.mods_of(&[*a, *b]), Mods::SHIFT.union(Mods::ALT));
+    assert_eq!(input.mods_of(&[]), Mods::empty());
+    one.borrow_mut().leds.clear();
+    two.borrow_mut().leds.clear();
+    let leds = Leds {
+        num_lock: false,
+        caps_lock: true,
+        scroll_lock: false,
+    };
+    input.set_leds_of(&[*b], leds);
+    assert!(one.borrow().leds.is_empty());
+    assert_eq!(
+        two.borrow().leds.last().cloned(),
+        Some(vec![
+            (LED_NUML, false),
+            (LED_CAPSL, true),
+            (LED_SCROLLL, false)
+        ])
+    );
+}
+
+#[test]
+fn a_pointer_moves_within_its_own_screen() {
+    let (mut input, devices) = with_devices(&[
+        ("/dev/input/event0", fake::mouse(), None),
+        ("/dev/input/event1", fake::mouse(), None),
+    ]);
+    let [(one, a), (two, b)] = devices.as_slice() else {
+        panic!("two devices");
+    };
+    input.set_pointer_max_of(&[*b], 400, 300);
+    feed(&mut input, one, *a, &[ev(EV_REL, REL_X, 500)]);
+    feed(&mut input, two, *b, &[ev(EV_REL, REL_X, 500)]);
+    assert_eq!(
+        pointers(&mut input),
+        [
+            PointerEvent::Moved {
+                x: 100,
+                y: 0,
+                held: None
+            },
+            PointerEvent::Moved {
+                x: 400,
+                y: 0,
+                held: None
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_delivered_device_is_taken_where_the_default_rule_drops_it() {
+    let nodes = Nodes::default();
+    nodes.add("/dev/input/event0", fake::volume_keys());
+    let mut input = Input::new(nodes, keymap(), InputConfig::default());
+    input.wake_up();
+    assert_eq!(input.add(Path::new("/dev/input/event0")), None);
+    let (mut input, devices) = with_devices(&[(
+        "/dev/input/event0",
+        fake::volume_keys(),
+        Some(Disposition::Deliver),
+    )]);
+    let [(node, id)] = devices.as_slice() else {
+        panic!("one device");
+    };
+    feed(&mut input, node, *id, &[press(115)]);
+    assert_eq!(
+        keys(&mut input)
+            .iter()
+            .map(|k| k.keycode)
+            .collect::<Vec<_>>(),
+        [115 + 8]
+    );
+}
+
+#[test]
+fn a_repeat_comes_from_its_device_and_a_watched_ones_stays_for_the_rescue() {
+    let (mut input, devices) = with_devices(&[
+        ("/dev/input/event0", fake::keyboard(), None),
+        (
+            "/dev/input/event1",
+            fake::keyboard(),
+            Some(Disposition::Rescue),
+        ),
+    ]);
+    for (rescue, (node, id)) in [false, true].into_iter().zip(&devices) {
+        feed(&mut input, node, *id, &[press(KEY_A)]);
+        input.device_events().for_each(drop);
+        let serial = input.repeat_serial(*id).unwrap_or_default();
+        assert!(input.repeat(*id, serial));
+        assert_eq!(
+            tagged_keys(&mut input),
+            [(Some(*id), rescue, keysyms::KEY_a)]
+        );
+        feed(&mut input, node, *id, &[release(KEY_A)]);
+    }
 }

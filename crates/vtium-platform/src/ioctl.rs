@@ -477,6 +477,8 @@ pub(crate) fn bit_is_set(bits: &[usize], bit: u16) -> bool {
 /// The bits in one of a bitmap's `unsigned long`s.
 const LONG_BITS: usize = usize::BITS as usize;
 
+/// `EVIOCGID`: `_IOR('E', 0x02, struct input_id)`.
+const EVIOCGID: Opcode = opcode::read::<InputId>(b'E', 0x02);
 /// `EVIOCGNAME(len)`: `_IOC(_IOC_READ, 'E', 0x06, len)`.
 const EVIOCGNAME: Opcode = opcode::read::<[u8; 256]>(b'E', 0x06);
 /// `EVIOCGPROP(len)`: `_IOC(_IOC_READ, 'E', 0x09, len)`.
@@ -504,6 +506,25 @@ pub(crate) struct InputAbsinfo {
     pub(crate) fuzz: i32,
     pub(crate) flat: i32,
     pub(crate) resolution: i32,
+}
+
+/// `struct input_id`, `linux/input.h`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct InputId {
+    pub(crate) bustype: u16,
+    pub(crate) vendor: u16,
+    pub(crate) product: u16,
+    pub(crate) version: u16,
+}
+
+/// The bus, vendor, product and version the device reports.
+pub(crate) fn evdev_id(fd: BorrowedFd<'_>) -> io::Result<InputId> {
+    #[expect(unsafe_code, reason = "an ioctl rustix does not wrap")]
+    // SAFETY: EVIOCGID writes one `struct input_id`, the size its number
+    // encodes.
+    let id = unsafe { ioctl(fd, Getter::<EVIOCGID, InputId>::new())? };
+    Ok(id)
 }
 
 /// The device's name, up to its first NUL.
@@ -764,6 +785,7 @@ mod tests {
     fn evdev_numbers_match_the_headers() {
         let input = header("linux/input.h");
         for (macro_, body) in [
+            ("EVIOCGID", "_IOR('E', 0x02, struct input_id)"),
             ("EVIOCGNAME(len)", "_IOC(_IOC_READ, 'E', 0x06, len)"),
             ("EVIOCGPROP(len)", "_IOC(_IOC_READ, 'E', 0x09, len)"),
             (
@@ -781,6 +803,8 @@ mod tests {
                 .unwrap_or_else(|| panic!("{macro_} is not defined"));
             assert!(line.contains(body), "{macro_}: {line}");
         }
+        assert_eq!(EVIOCGID, ioc_read(b'E', 0x02, 8));
+        assert_eq!(size_of::<InputId>(), 8);
         assert_eq!(EVIOCGNAME, ioc_read(b'E', 0x06, 256));
         assert_eq!(EVIOCGPROP, ioc_read(b'E', 0x09, size_of::<PropBits>()));
         assert_eq!(EVIOCGBIT_EV, ioc_read(b'E', 0x20, size_of::<EvBits>()));
