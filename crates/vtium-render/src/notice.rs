@@ -319,9 +319,9 @@ fn cells<F: Face>(font: &Font<F>, c: char) -> Width {
 }
 
 /// `text`'s first `lines` lines, line `i` wrapped to `cols(i)` cells by
-/// `width`: broken after its last space that fits, the space dropped, or
-/// else after the last character that fits, at least one a line. A line
-/// of no cells is left empty.
+/// `width`: broken at its last space that fits, or else after the last
+/// character that fits, at least one a line, and the spaces at a break
+/// dropped. A line of no cells is left empty.
 fn wrap(
     text: &str,
     lines: usize,
@@ -362,11 +362,19 @@ fn wrap(
                     .rposition(|&(c, _)| c == ' ')
                     .filter(|&at| at > 0)
             }) {
-                Some(at) => (rest.get(..at), rest.get(at.saturating_add(1)..)),
+                Some(at) => (rest.get(..at), rest.get(at..)),
                 None => (rest.get(..fit), rest.get(fit..)),
             };
-            out.push(line.unwrap_or_default().to_vec());
+            let space = |&(c, _): &(char, Width)| c == ' ';
+            let line = line.unwrap_or_default();
+            let kept = line
+                .len()
+                .saturating_sub(line.iter().rev().take_while(|p| space(p)).count());
+            out.push(line.get(..kept).unwrap_or_default().to_vec());
             rest = next.unwrap_or_default();
+            rest = rest
+                .get(rest.iter().take_while(|p| space(p)).count()..)
+                .unwrap_or_default();
             if rest.is_empty() {
                 break;
             }
@@ -605,6 +613,16 @@ mod tests {
         assert_eq!(
             text(&wrap("one\n\ntwo", usize::MAX, |_| 8, narrow)),
             ["one", "", "two"]
+        );
+        // a continuation line starts at its first word: a run of spaces at
+        // the break goes with it
+        assert_eq!(
+            text(&wrap("abcd  efgh", usize::MAX, |_| 4, narrow)),
+            ["abcd", "efgh"]
+        );
+        assert_eq!(
+            text(&wrap("ab   cd", usize::MAX, |_| 3, narrow)),
+            ["ab", "cd"]
         );
         // a break on the last space leaves no empty line after it
         assert_eq!(
