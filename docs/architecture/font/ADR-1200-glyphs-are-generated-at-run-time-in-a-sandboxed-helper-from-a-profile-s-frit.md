@@ -357,11 +357,13 @@ source=bdf:/usr/share/fonts/fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.bd
 |---|---|---|
 | `new FONT`, `new --template`, `new --from FILE` | the user, with `sudo` once at the end | The guided builder and its templates: guides a font to a profile and ends in a frit; at the end it shows one command, run with `sudo`, that writes the frit (#121). |
 | `preview FONT...` | the user | Draws a sample of a font as the helper would for a profile, and writes nothing (#120). |
-| The rule checker | the user | Lints a profile and its frit against a display (ADR-1301 D8, #137). |
+| `check FILE`, with the rule checker | the user | Checks any configuration file by its kind, a head file, a profile or a frit, as ADR-1401 D12 has it, and lints a profile and its frit against a display (ADR-1301 D8, #137). |
 | `set NAME` | the session's user | Switches the console's frit (D5). |
 | `serve` | the account D15 names | The helper (D15). |
 
 Each command is non-interactive where it writes, prints one line a result, and exits 0 on success, 1 on a failure and 2 on a usage error; #112's banner shows only at an interactive terminal. vtium/vtium#3 tracks the tool.
+
+> Edited 2026-10-29: the team lead's correction from the heads gap-check (C9): ADR-1401 D12's `check FILE` and the rule checker are one command. The row read: "| The rule checker | the user | Lints a profile and its frit against a display (ADR-1301 D8, #137). |"
 
 ### D11: the frit drawn when nothing names one
 
