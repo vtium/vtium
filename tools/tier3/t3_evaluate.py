@@ -124,11 +124,19 @@ NO_GOLDEN = {"vt-switch", *t3_power.CHECKS, *t3_pointer.CHECKS}
 DEPARTURES_FILE = os.path.join(HERE, "departures.tsv")
 
 
+def overlap(a, b):
+    """Whether rectangles `a` and `b`, each x0,y0,x1,y1 with the far edges
+    outside, share a pixel."""
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+
 def read_departures(path=DEPARTURES_FILE):
     """departures.tsv as {case "VARIANT/SCREEN": [{"readme", "title", "rects"}]}:
     each departure that explains part of the case's difference from its
     golden, in the file's order, and the rectangles its part must lie in. A
-    malformed line, or a case listed twice under one departure, is refused."""
+    malformed line, a case listed twice under one departure, or a case under
+    two departures whose rectangles overlap, where one differing pixel would
+    show both, is refused."""
     out = {}
     with open(path) as f:
         for n, line in enumerate(f, 1):
@@ -152,6 +160,10 @@ def read_departures(path=DEPARTURES_FILE):
                     listed = out.setdefault(case, [])
                     if any(d["title"] == title for d in listed):
                         raise SystemExit("%s: %s is listed twice under %r" % (where, case, title))
+                    for d in listed:
+                        if any(overlap(a, b) for a in rects for b in d["rects"]):
+                            raise SystemExit("%s: %s: a rectangle of %r overlaps one of %r"
+                                             % (where, case, title, d["title"]))
                     listed.append({"readme": readme, "title": title, "rects": rects})
     return out
 
