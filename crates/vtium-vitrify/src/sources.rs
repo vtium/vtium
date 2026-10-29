@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use vtium_font::{PSF_BYTES_MAX, Sha256, sha256_hex};
 use vtium_platform::vt::font::{ConsoleFont, ConsoleTty};
 
-use crate::build::Font;
+use crate::font::Font;
 use crate::child::Request;
 use crate::frit::{Origin, Source};
 use crate::outline::{OUTLINE_BYTES_MAX, OutlineRequest, family_key as outline_key};
@@ -878,7 +878,7 @@ mod tests {
             &h,
         )
         .unwrap();
-        let font = crate::build::Font::from_builtin("unscii-8").unwrap();
+        let font = crate::font::Font::from_builtin("unscii-8").unwrap();
         assert_ne!(r.sha256, Sha256::digest(b"builtin:unscii-8"));
         assert_eq!(r.sha256, font.digest());
         assert_eq!(r.input, Input::Builtin(font));

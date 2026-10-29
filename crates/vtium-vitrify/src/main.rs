@@ -1,5 +1,5 @@
-//! vtium-vitrify: builds vitrified font sets for vtium from frits, and
-//! keeps the root-owned store they are loaded from (ADR-1200).
+//! vtium-vitrify: generates vtium's glyphs from frits, and switches the
+//! console's frit (ADR-1200).
 
 use std::ffi::OsString;
 use std::process::ExitCode;
