@@ -53,6 +53,17 @@ basis:
   - evidence: "The figures relayed in this record's brief and not re-measured here: the large monitor at 7680x2160 and about 138 DPI, the small panel at 800x480 and about 185 DPI, and today's mirrored layout of the two as one 66x20 grid with letters 108 pixels tall on the large monitor"
   - upstream: "aaronsb/kmscon b1f7a7c5: one seat a process (src/main.c:58-71); a seat's sessions, `session-control` off by default and `session-max` 50 (src/config.c:1357-1358), refused on a real VT (src/seat.c:841-845); `multi-monitor` defaulting to `scaled`, one grid for every display (src/config.c:1418, src/terminal.c:1107-1170); devices kept by ID_SEAT, seat0 when unset (src/uterm/monitor.c:387-451); the fake VT for seats without kernel VTs, which its own comment called debugging-only (src/uterm/vt_fake.c:25-40); a fixed 72 DPI (src/font/font.c:198-199); the key order, the VT's keys first (src/uterm/vt_real.c:705); every option of the example configuration a commented line (scripts/etc/kmscon.conf.example)"
   - upstream: "aaronsb/kmscon origin/main: the build installed scripts/etc/kmscon.conf.example into the configuration directory at install time (meson.build:409-413); the C reference never wrote a configuration file at run time"
+  - operator: aaronsb
+    level: guided
+    said: "The guards can be disabled."
+    via: "operator, in conversation with the team lead, 2026-10-29; the [guards] section, the per-head rescue key and the kernel command-line escape are the team lead's shape"
+    paraphrase: true
+  - operator: aaronsb
+    level: directed
+    said: "One process for every head, built with panic=abort, means a panic takes down every head and every session; no panic may be reachable from pty input, and sessions that survive a vtium restart are a later item."
+    via: "operator, in conversation with the team lead, 2026-10-29; the wording is the team lead's"
+    paraphrase: true
+  - standard: "systemd.special(7), rescue.target and the kernel command line's systemd.unit=; sd_notify(3) FDSTORE=1 and the unit's FileDescriptorStoreMax=, systemd 262 (external, not re-verified here)"
   - standard: "sd-login(3) and logind's seats, systemd 262: a seat holds whole devices, and only seat0 has kernel VTs (external, not re-verified here)"
   - standard: "wayland-protocols staging/drm-lease/drm-lease-v1.xml, wp_drm_lease_device_v1: a compositor leases connectors, CRTCs and planes of its card to a client (external, not re-verified here)"
   - standard: "sshd_config(5) StrictModes; nft(8) -c; visudo(8) -c; sshd(8) -t; the XDG Base Directory Specification 0.8, XDG_STATE_HOME; open(2) O_CREAT, O_EXCL and O_NOFOLLOW (external, not re-verified here)"
@@ -92,7 +103,7 @@ related: []
 
 ## Summary
 
-- **Decided:** vtium drives every display it can see from one process, as a set of **heads**. A head is a terminal for one or more displays: its displays, its inputs, a profile, and a stack of virtual consoles, each a session with its own pty, screen, scrollback and grid. A head's grid is its own, so each head draws at its own displays' density. One optional, root-owned head file declares the heads and an ordered ruleset; each display and each input walks the rules alone, top to bottom, and the first match places it: in a head, in the focus, ignored, or dark. The shipped ruleset, `display * -> console` and `input * -> focus`, is today's console. With no file present vtium runs its compiled-in configuration, and it never writes one; an invalid file is reported, never altered, and replaced in memory by the shipped default; and three guards keep a keyboard typing whatever the rules say, the last of them a key the user presses: `Ctrl-Alt-F<n>` for the VT already shown. `vtium-vitrify` becomes the configuration tool: it detects, sets up, reports and checks, with or without privilege, from the console or a desktop.
+- **Decided:** vtium drives every display it can see from one process, as a set of **heads**. A head is a terminal for one or more displays: its displays, its inputs, a profile, and a stack of virtual consoles, each a session with its own pty, screen, scrollback and grid. A head's grid is its own, so each head draws at its own displays' density. One optional, root-owned head file declares the heads and an ordered ruleset; each display and each input walks the rules alone, top to bottom, and the first match places it: in a head, in the focus, ignored, or dark. The shipped ruleset, `display * -> console` and `input * -> focus`, is today's console. With no file present vtium runs its compiled-in configuration, and it never writes one; an invalid file is reported, never altered, and replaced in memory by the shipped default; and three guards, on unless the file turns them off, keep a keyboard typing whatever the rules say, the last of them a key the user presses: `Ctrl-Alt-F<n>` for the VT already shown. `vtium-vitrify` becomes the configuration tool: it detects, sets up, reports and checks, with or without privilege, from the console or a desktop.
 - **Trades away:** One process holds every display of the seat, so a fault in one head's session handling reaches every head. Several terminals share one kernel VT, which the C reference refused. The console takes on device routing, a ruleset parser and a notice of its own, and opens keyboards the rules ignore. Mirroring across heads with different densities, which today's single grid gives, needs a head that claims both displays.
 - **One-way?** Expensive once a release ships the head file: its syntax, its match keys and its targets become the format users' files are written in. Everything behind the file changes in a session.
 - **Probes:**
@@ -205,13 +216,19 @@ input path:pci-0000:15:00.0-usb-0:3.4.2 -> focus
 input name:"Headphones (AVRCP)" -> ignore
 display * -> desk
 input * -> focus
+
+[guards]
+# each guard is on; turning one off is a choice to risk a lockout
+anti-lockout = on
+rescue-key = on
+never-dark = on
 ```
 
 The example's placement: two heads, each with its own display and keyboard, and the devices no rule claims following the focus.
 
 ![Two heads with bound keyboards. Head desk holds the large monitor, 7680x2160 at about 138 DPI with its own grid, on DP-8 of the discrete GPU, and two inputs its rules claim, keyboard A at path ...usb-0:3.3 and a mouse at path ...usb-0:3.4.4; it holds the focus, shown by a filled mark. Head panel holds the small panel, 800x480 at about 185 DPI with its own grid, on HDMI-A-2 of the integrated GPU, and keyboard B at path ...usb-0:3.2; it shows a hollow mark, no focus. Below, four devices go to the focus: a numpad and a USB receiver that no rule claims, an OTP token sent there by its rule, and media-key devices no rule claims; the focus delivers them to head desk, drawn as a dashed arrow. The caption says displays and keyboard A, the mouse and keyboard B are placed by their rules, the rest follow the focus, and keyboard A types into head desk alone and keyboard B into head panel alone. A legend marks vtium as root, a device, holds the focus and no focus.](figures/ADR-1401-two-heads.svg)
 
-- **Heads.** `[head NAME]` declares a head; a name is 1 to 64 characters of `A-Z a-z 0-9 . _ + -`, and `focus`, `ignore` and `dark` are reserved. A head's keys: `profile` (the profile's name, unset `default`), `consoles` (the number of virtual consoles, unset 1, at most the cap of D10), `login` (the consoles' command, as kmscon.conf's `login` takes it, unset kmscon.conf's), and `on-loss` (D8). A head names nothing but its profile.
+- **Heads.** `[head NAME]` declares a head; a name is 1 to 64 characters of `A-Z a-z 0-9 . _ + -`, and `focus`, `ignore` and `dark` are reserved. A head's keys: `profile` (the profile's name, unset `default`), `consoles` (the number of virtual consoles, unset 1, at most the cap of D10), `login` (the consoles' command, as kmscon.conf's `login` takes it, unset kmscon.conf's), `on-loss` (D8), and `rescue` (D9). A head names nothing but its profile.
 - **Rules.** Under `[rules]`, one rule a line: `display MATCH -> TARGET` or `input MATCH -> TARGET`. A match is `*`, every device of that kind, or one or more `key:value` tokens, every one of which must hold (D4).
 - **Targets.** A head's name. `focus`, for an input: it follows the focus chord (D5). `ignore`, for an input: vtium never opens it, but for a keyboard watched for the rescue key alone (D9). `dark`, for a display: vtium sets its connector off, so it shows nothing, a frame another master left included, and logs it.
 - **First match, alone.** Each device walks the rules top to bottom and takes the first that matches it. The walk reads only the device's own identity and the rules, never another device or the order devices were reported, so a hotplugged device lands where it would at start (D11's determinism row).
@@ -367,14 +384,22 @@ A boot with nothing attached, each device added after it, and the display remove
 
 - **The classes.** An input is keyboard-class when its key bitmap declares the 26 letters and Enter; pointer-class with relative axes and a left button; touch-class with absolute axes and touch. The kernel cannot tell a keyboard from a numpad or a token, so keyboard-class covers them (Evidence below).
 - **Layer 1, warnings.** `vtium check-config` and `vtium-vitrify check` warn of a head that claims only pointers while every keyboard is claimed elsewhere, of every keyboard ignored, and of a head whose only keyboard is one device; each names the device as reported.
-- **Layer 2, the anti-lockout guard,** as pfSense keeps its administration port open: while no keyboard-class device reaches a head with a lit display, every keyboard-class device follows the focus, with a notice, until one does. It moves every stranded keyboard at once, so it chooses none and stays deterministic.
-- **The display guard,** beside it: when the rules leave no display lit, the first head in the file takes the boot display, or the default head where the file has none. The boot display is the connector lit at start, else the first connected one in the kernel's order on the boot card (`boot_vga`, vtium-platform's primary card).
-- **Layer 3, the rescue:** `Ctrl-Alt-F<n>` for the VT vtium is on, pressed while that VT is shown, makes the keyboard that pressed it follow the focus for the rest of the boot, with a notice, and never writes the configuration. The VT's keys come first in the key order, and the shown VT's own key does nothing today, so the press has no other meaning. A numpad or an OTP token never sends that chord in its use, so the press shows a keyboard a person types on. From another VT it takes two presses: the switch, then the same key again. It can take a keyboard off the head a rule gave it, which grants no more than unplugging it would. On a seat without kernel VTs the same keys are vtium's own.
+- **Layer 2, the anti-lockout guard (`anti-lockout`),** as pfSense keeps its administration port open: while no keyboard-class device reaches a head with a lit display, every keyboard-class device follows the focus, with a notice, until one does. It moves every stranded keyboard at once, so it chooses none and stays deterministic.
+- **The display guard (`never-dark`),** beside it: when the rules leave no display lit, the first head in the file takes the boot display, or the default head where the file has none. The boot display is the connector lit at start, else the first connected one in the kernel's order on the boot card (`boot_vga`, vtium-platform's primary card).
+- **Layer 3, the rescue (`rescue-key`):** `Ctrl-Alt-F<n>` for the VT vtium is on, pressed while that VT is shown, makes the keyboard that pressed it follow the focus for the rest of the boot, with a notice, and never writes the configuration. The VT's keys come first in the key order, and the shown VT's own key does nothing today, so the press has no other meaning. A numpad or an OTP token never sends that chord in its use, so the press shows a keyboard a person types on. From another VT it takes two presses: the switch, then the same key again. It can take a keyboard off the head a rule gave it, which grants no more than unplugging it would. On a seat without kernel VTs the same keys are vtium's own.
 - So that the rescue works, vtium opens the keyboard-class devices the rules ignore, to watch for the rescue key alone; nothing else they send is delivered or logged. Other devices stay closed under `ignore`.
+
+- **Turning a guard off.** A `[guards]` section in the head file holds three switches, each `on` in the compiled-in configuration and in the template, whose comment says what turning it off risks:
+  - `anti-lockout = off`: a ruleset may leave no keyboard reaching a lit head.
+  - `rescue-key = off`: `Ctrl-Alt-F<n>` on the shown VT moves no keyboard.
+  - `never-dark = off`: a ruleset may leave every display dark, and the machine can end with nothing on screen.
+- **Per head, `rescue = off`** keeps the keyboards that head claims from being pulled to the focus by the rescue key, for a kiosk. It is the only guard that also works per head, since it is the only one that takes a keyboard from a configured head.
+- A guard that is off is a note in `vtium check-config` and `vtium-vitrify check`, never an error, and the start's log names it.
+- **The escape when they are off:** the kernel command-line parameter `vtium.heads=builtin` makes vtium ignore the head file for that boot and run the compiled-in rules with every guard on, as `systemd.unit=rescue.target` does for a system; vtium already reads the kernel command line for `vconsole.font=` (ADR-1200 D9). Physical access to the bootloader is the trust boundary, as for any rescue boot.
 
 Lockout and rescue, in two cases:
 
-![Lockout and rescue, in two rows. Row 1: every keyboard is claimed by a head with no lit display. Head panel, drawn dashed, has its small panel unplugged and a rule input * -> panel; keyboard A and keyboard B are claimed by it. The anti-lockout guard, in red, finds no keyboard-class device reaching a lit head, so every one follows the focus until one does, and head desk, with the large monitor lit, shows the notice that no keyboard reached a lit head and every keyboard follows the focus. The guard moves every stranded keyboard at once, choosing none, and lets go once a rule's keyboard reaches a lit head. Row 2: a head is left with only a numpad. Head desk, lit, has the rules input path:...3.4.1 -> desk and input path:...3.3 -> ignore; the numpad reaches it, and since it declares 26 letters and Enter it is keyboard-class, so the guard does not act. Keyboard A, ignored by its rule, is opened only to watch for the rescue key. The rescue key, Ctrl-Alt-F&lt;n&gt; for vtium's own VT while it is shown, pressed on keyboard A, makes keyboard A follow the focus for the boot, with a notice, and heads.conf unchanged. A legend marks vtium as root, a device, a guard or a notice, and a head with no lit display.](figures/ADR-1401-lockout.svg)
+![Lockout and rescue, in two rows. Row 1: every keyboard is claimed by a head with no lit display. Head panel, drawn dashed, has its small panel unplugged and a rule input * -> panel; keyboard A and keyboard B are claimed by it. The anti-lockout guard, in red, finds no keyboard-class device reaching a lit head, so every one follows the focus until one does, and head desk, with the large monitor lit, shows the notice that no keyboard reached a lit head and every keyboard follows the focus. The guard moves every stranded keyboard at once, choosing none, and lets go once a rule's keyboard reaches a lit head. Row 2: a head is left with only a numpad. Head desk, lit, has the rules input path:...3.4.1 -> desk and input path:...3.3 -> ignore; the numpad reaches it, and since it declares 26 letters and Enter it is keyboard-class, so the guard does not act. Keyboard A, ignored by its rule, is opened only to watch for the rescue key. The rescue key, Ctrl-Alt-F&lt;n&gt; for vtium's own VT while it is shown, pressed on keyboard A, makes keyboard A follow the focus for the boot, with a notice, and heads.conf unchanged. A strip below names the switches: [guards] with anti-lockout, rescue-key and never-dark on by default, a head's rescue = off keeping its keyboards, each one off a note in check-config, and vtium.heads=builtin on the kernel command line running the compiled-in rules with every guard on. A legend marks vtium as root, a device, a guard or a notice, and a head with no lit display.](figures/ADR-1401-lockout.svg)
 
 The guards run after every device added or removed, and the rescue key from a running console:
 
@@ -410,6 +435,7 @@ flowchart TD
 - The head file, the profiles and the frits route input and choose login commands, so vtium reads each only when root owns it and neither group nor others can write it, as `sshd`'s `StrictModes` refuses a writable file; a file that fails is invalid (D7). The directories above it pass the same check. No file a user supplies is read by the console.
 - Each head multiplies sessions, ptys and scrollback, so the consoles of a head and of the process are bounded, rows of the binary's bounds table and part of minspec's memory bound (probe 6). A head asking for more consoles than its cap gets the cap, with a warning.
 - vtium's state under `/run/vtium/` (D12) is written by root, readable by every user, and holds what sysfs already shows any user: device identities, the rule each matched, the guards that acted. A candidate staged there for a trial is accepted only from root.
+- **No panic is reachable from pty input,** and heads raise the stakes: one process holds every head (D2), so a crash a program provokes with crafted output ends every session, not its own. Parsing is bounded, nothing unwraps untrusted bytes (docs/architecture.md, "No input-reachable panic"), and each session's output parser runs under fuzzing.
 - Each session runs its own login, the helper stays sandboxed as ADR-1400 D2 and ADR-1200 D15 say, and the reply rule holds for each terminal.
 
 ### D11: how it is judged
@@ -420,6 +446,8 @@ flowchart TD
 - **Determinism row** (docs/architecture.md): a property test walks a generated set of devices through a generated ruleset in every order and at every hotplug point, and the placement of each device is the same.
 - The anti-lockout guard, the display guard and the rescue each have a boot test: every keyboard claimed by a head with no display types into the focus; an empty ruleset lights the boot display; the rescue moves a claimed keyboard and an ignored one and writes nothing.
 - A head losing its last display keeps its sessions under `nohup` and resumes them when a matching display returns, hangs them up at once under `hangup`, and under `hangup 30s` resumes them on a return within the time and hangs them up after it; a mirrored head losing one of two displays keeps them under every value.
+- **The switches:** with `anti-lockout = off` a ruleset that strands every keyboard is left as it is; with `rescue-key = off` the rescue key moves nothing; with `never-dark = off` an empty ruleset leaves every display dark; a head with `rescue = off` keeps its keyboard through the rescue key while another head's moves; each guard that is off is a note in `check-config` and a line in the start's log.
+- **The escape:** with `vtium.heads=builtin` on the kernel command line, a head file that turns every guard off is ignored for that boot, and the compiled-in rules run with every guard on.
 - A boot with no file present writes nothing under `/etc/vtium`, its listing the same before and after.
 - **One source** (D6): the compiled-in configuration equals the parse of the template; the file `vtium-vitrify template` writes is byte-identical to the template; the templates committed for cross-built images (D12) are byte-identical to what the tool writes; and docs/architecture.md's template-drift row checks the same.
 - **The verification plan:** tier 3 proves heads before any VT review on the operator's hardware. Its QEMU guest exposes two virtual outputs (virtio-gpu's `max_outputs=2`), with a second virtio-gpu device for the case of two cards, and the guest runs two heads at two sizes against them: the ruleset placing each display and each emulated keyboard, an emulated keyboard added and removed through QEMU's monitor as the hotplug case, and each guard, with screens captured and compared as tier 3 compares them. A display unplugged on the virtual card, where QEMU cannot raise it, is left to the VT review, which then runs on the operator's two cards.
@@ -480,6 +508,10 @@ sequenceDiagram
     Note over V,T: until vtium applies a candidate while running, setup installs for the next boot and says so
 ```
 
+### D13, later: sessions that survive a vtium restart
+
+Not built here. vtium keeps each session's pty master in systemd's file-descriptor store (`FDSTORE=1`, with the unit's `FileDescriptorStoreMax=`) or, without systemd, in a small holder process, as dtach keeps one; a restarted vtium takes them back and sends each a resize, so its program redraws, and only the screen contents and the scrollback are lost. It touches the unit and docs/systemd.md, and its own probe asks whether it is wanted (12 below).
+
 ### For the operator's check
 
 The probes, in the order the record raises them:
@@ -493,6 +525,9 @@ The probes, in the order the record raises them:
 7. Whether vtium also reads a writable configuration directory on a read-only root, a security decision this record leaves open.
 8. The draft directory, `$XDG_STATE_HOME/vtium/drafts/<time>/` here, and whether OSC 50 may preview an unprivileged user's draft frit on the console during a trial, its sources read by the sandboxed helper as `nobody`.
 9. The team lead's proposals, written above as the design: `check-config`'s note on weak matches (D4); missing and changing hardware (D8); focus and input (D5); the security rules (D10).
+10. The kernel command-line parameter's name, `vtium.heads=builtin` here (D9).
+11. The shape of the guard switches, the team lead's: a `[guards]` section with `anti-lockout`, `rescue-key` and `never-dark`, and the per-head `rescue` (D9).
+12. Whether sessions should survive a vtium restart (D13), which would make a crash cost only the screens.
 
 Agent calls the operator has not yet looked at: the head file's syntax and the target `dark` setting the connector off (D3); naming cards by `ID_PATH` (D4); the keyboard class as 26 letters and Enter (D9); the head file's template carrying its two rules live, and the command name `template` (D6, D12); `check-config`'s exit status for hardware-dependent findings (D7); the form of `on-loss`'s duration (D8); mode 1004's focus per head (D5); the overlay socket for root alone (D12); and that the blank stays the seat's, any head's activity waking every display.
 
@@ -538,7 +573,7 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 
 - Each display draws at its own density, and a small panel and a large monitor each get a readable grid.
 - The default is today's console, and every customisation is a rule added above it; a machine with one display never sees heads.
-- No ruleset, file or hardware change can leave the console with no keyboard typing into a lit display.
+- No ruleset, file or hardware change can leave the console with no keyboard typing into a lit display while the guards are on, and `vtium.heads=builtin` turns them back on for a boot.
 - A monitor that sleeps and drops off its link, a KVM switch or a pulled cable leaves every session running under the default `nohup`, as on the kernel's console.
 - Placement is a function of each device and the file, so tests can enumerate it and a hotplug behaves as a boot does.
 - vtium writes nothing under `/etc`, so a read-only root, an image build and a package-managed `/etc` need no switch and see no file appear.
@@ -547,7 +582,8 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 ### Negative
 
 - vtium carries a ruleset parser, a notice, the guards and the configuration crate; the parser and evaluator count against the binary's budget, which leaves less for other features.
-- One process holds every head, so a crash ends every head's sessions at once.
+- **A crash's blast radius.** vtium is one process for every head (D2) and is built with `panic=abort`, so a panic takes down every head and every virtual console, closing every pty and hanging up every session, after which the unit restarts vtium or its `OnFailure=` starts a getty. Today a crash costs one session; with heads it costs all of them, and a program in one session that crashes vtium with crafted output takes the others down with it, a denial of service across sessions. The C reference had the same property. A program crashing in a session costs only that session, which the respawn policy starts again, and a glyph helper crash costs nothing: it is sandboxed, restarted at most 3 times, and the built-in fonts draw meanwhile (ADR-1200 D15). D10's requirement and D13 answer it.
+- A guard turned off can lock a machine out until someone with the bootloader passes `vtium.heads=builtin`.
 - Keyboards the rules ignore are still opened, read and dropped.
 - Under `nohup`, a session whose head has lost its display keeps running unseen until a matching display returns; a head that should end it sets `hangup` or `hangup DURATION`.
 - A head's consoles multiply memory; on minspec the caps bind.
@@ -570,6 +606,7 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - **xorg.conf's model,** sections that reference each other (devices, monitors, screens, layouts, input classes). Rejected for the failures D3 lists: a required file, cross-references that break, unmatched sections as errors, and files written by hand only.
 - **Inferring placement,** spreading keyboards one per head or pairing devices by their ports. Rejected: it misplaces tokens and media-key devices, and its result depends on what is plugged in where in ways a user cannot read from a file.
 - **vtium instancing missing files at run time,** the draft's design, writing each absent default file from a template compiled into it. Rejected (the operator, 2026-10-29): root services do not write their own `/etc` configuration at run time, as sshd's comes from its package and systemd runs with `/etc` empty, and the C reference shipped its example through its build's install step (`kmscon/meson.build:409-413`), never at run time. The configuration tool writes it on request instead (D6, D12).
+- **A process per session for parsing,** so a crafted stream crashes only its own parser. Declined for minspec's memory and the complexity of handing screens between processes; D10's requirement and D13 bound the risk instead.
 - **Repairing an invalid file in place,** or refusing to start. Rejected: repair alters a file root wrote, and a refusal leaves a dead screen; vtium runs the shipped default and says why.
 - **Hanging up by default,** at once or after a grace period, the draft's proposal. Rejected (the operator, 2026-10-29): a console is not a line, the kernel's VT console keeps its session through a lost monitor, and a sleeping monitor or a KVM switch would end sessions. Both stay as `on-loss` values.
 - **Reattaching a session to any display that appears,** as the kernel console shows its session on any monitor. Narrowed: a head reattaches only to a display its rules match (D8).
