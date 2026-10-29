@@ -2041,5 +2041,9 @@ pub const JIS_X_0208: &[(u32, u32)] = &[
 ];
 
 /// Each set by the name `cover=` gives it.
-pub const SETS: [(&str, &[(u32, u32)]); 3] =
-    [("gbk", GBK), ("big5", BIG5), ("jis-x-0208", JIS_X_0208)];
+#[rustfmt::skip]
+pub const SETS: [(&str, &[(u32, u32)]); 3] = [
+    ("gbk", GBK),
+    ("big5", BIG5),
+    ("jis-x-0208", JIS_X_0208),
+];

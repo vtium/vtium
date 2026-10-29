@@ -143,7 +143,7 @@ pub fn module(sets: &[Generated<'_>]) -> String {
     }
     let _ = write!(
         out,
-        "\n/// Each set by the name `cover=` gives it.\npub const SETS: [(&str, &[(u32, u32)]); {}] = [\n",
+        "\n/// Each set by the name `cover=` gives it.\n#[rustfmt::skip]\npub const SETS: [(&str, &[(u32, u32)]); {}] = [\n",
         sets.len()
     );
     for set in sets {
