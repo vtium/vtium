@@ -14,7 +14,7 @@
 <rect x="16" y="110" width="280" height="238" fill="#e6eef7" stroke="#2f6fb0"/>
 <g font-size="11">
 <text x="28" y="128"># compiled into vtium, held in memory;</text>
-<text x="28" y="144"># vtium-vitrify writes it when asked</text>
+<text x="28" y="144"># vtiumctl writes it when asked</text>
 <text x="28" y="162">version = 1</text>
 <text x="28" y="178">[head console]</text>
 <text x="28" y="194">profile = default</text>

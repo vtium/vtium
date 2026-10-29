@@ -299,7 +299,7 @@ The figure follows a glyph from the profile to the frame: the profile's cell and
 
 - A profile is a display's capabilities, the four fields ADR-1301 D3 reads (depth, subpixel order with rotation folded in, density and resolution), named freely by its user, with the frit, the cell and the vtium options that suit that display, such as `font-antialias`, `display-depth` and `display-subpixel`. vtium ships example profiles with descriptive names, and #142's specimens are drawn per profile (`docs/specimens/`).
 - The console reads a profile's settings as text, as it reads its configuration, before its first frame.
-- **A head names a profile, and a profile names a frit** (ADR-1401 D1, D3). Profile files live where ADR-1401 places them, and `vtium-vitrify` writes them when asked (ADR-1401 D12; #121, #136, #137). Until profiles have a file of their own, the cell is a frit's `cell=` line (D1), and a profile's file takes it over when it lands (the operator, 2026-10-28).
+- **A head names a profile, and a profile names a frit** (ADR-1401 D1, D3). Profile files live where ADR-1401 places them, and `vtiumctl` writes them when asked (ADR-1401 D12; #121, #136, #137). Until profiles have a file of their own, the cell is a frit's `cell=` line (D1), and a profile's file takes it over when it lands (the operator, 2026-10-28).
 - **The default profile.** vtium's compiled-in configuration holds a default profile, which names the default frit, and a head that names no profile takes it (ADR-1401 D3, D6). The default frit has no `source=` line, so it states no font, and a head with the default profile draws what D9's chain gives past the profile: the configuration's `font-name`, else vconsole's font where one is set, else the built-in fonts (D7).
 - **A profile that fails** falls back by file: an invalid profile gives the heads that name it the default profile, and a profile naming a frit that does not exist draws the default frit, each with a log line (ADR-1401 D6, D7).
 - **vtium never writes a profile or a frit** (ADR-1401 D6).
@@ -359,13 +359,15 @@ source=bdf:/usr/share/fonts/fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.bd
 |---|---|---|
 | `new FONT`, `new --template`, `new --from FILE` | the user, with `sudo` once at the end | The guided builder and its templates: guides a font to a profile and ends in a frit; at the end it shows one command, run with `sudo`, that writes the frit (#121). |
 | `preview FONT...` | the user | Draws a sample of a font as the helper would for a profile, and writes nothing (#120). |
-| `check FILE`, with the rule checker | the user | Checks any configuration file by its kind, a head file, a profile or a frit, as ADR-1401 D12 has it, and lints a profile and its frit against a display (ADR-1301 D8, #137). |
+| The rule checker, a library | `vtiumctl check`, as the user | Lints a profile and its frit against a display (ADR-1301 D8, #137). `vtiumctl check FILE` checks every configuration file by its kind, frits included through vitrify's frit parser and this checker (ADR-1401 D12). |
 | `set NAME` | the session's user | Switches the console's frit (D5). |
 | `serve` | the account D15 names | The helper (D15). |
 
 Each command is non-interactive where it writes, prints one line a result, and exits 0 on success, 1 on a failure and 2 on a usage error; #112's banner shows only at an interactive terminal. vtium/vtium#3 tracks the tool.
 
 > Edited 2026-10-29: the team lead's correction from the heads gap-check (C9): ADR-1401 D12's `check FILE` and the rule checker are one command. The row read: "| The rule checker | the user | Lints a profile and its frit against a display (ADR-1301 D8, #137). |"
+
+> Edited 2026-10-29: the operator accepted an independent advisor's review of ADR-1401 (ADR-1401's `considered`): the configuration tool is `vtiumctl`, a binary of its own, and `vtium-vitrify` keeps the fonts. The row read: "| `check FILE`, with the rule checker | the user | Checks any configuration file by its kind, a head file, a profile or a frit, as ADR-1401 D12 has it, and lints a profile and its frit against a display (ADR-1301 D8, #137). |"
 
 ### D11: the frit drawn when nothing names one
 
