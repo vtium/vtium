@@ -2,9 +2,9 @@
 //! its bytes (ADR-1401 D3, D10).
 //!
 //! No test runs as root, so each trusts its own user's files and root's
-//! directories with [`Trust::owner`]; the files live under cargo's
-//! temporary directory for this target, whose directories no one else can
-//! write.
+//! directories with [`Trust::owner`], below a fixture directory of its own
+//! with [`Trust::below`]: the fixture's modes are the test's, wherever the
+//! target directory sits, `/tmp` included.
 
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
@@ -12,24 +12,21 @@ use std::path::{Path, PathBuf};
 
 use vtium_config::{FILE_MAX, Problem, Trust, Untrusted, read, text};
 
-/// A fresh directory of its own for one test, mode 0755.
-fn scratch(name: &str) -> PathBuf {
+/// A fresh fixture directory of its own for one test, mode 0755.
+fn fixture(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join("vtium-config")
+        .join("vtium-config-fixtures")
         .join(name);
     let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).expect("the scratch directory");
-    for d in [dir.as_path(), dir.parent().expect("a parent")] {
-        fs::set_permissions(d, fs::Permissions::from_mode(0o755)).expect("mode 0755");
-    }
+    fs::create_dir_all(&dir).expect("the fixture directory");
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).expect("mode 0755");
     dir
 }
 
-fn me() -> Trust {
-    let uid = fs::metadata(env!("CARGO_TARGET_TMPDIR"))
-        .expect("the temporary directory")
-        .uid();
-    Trust::owner(uid)
+/// The test's own user, trusted below `dir`.
+fn me(dir: &Path) -> Trust {
+    let uid = fs::metadata(dir).expect("the fixture").uid();
+    Trust::owner(uid).below(dir)
 }
 
 fn write(path: &Path, text: &str, mode: u32) {
@@ -46,11 +43,11 @@ fn problem(result: Result<Option<String>, vtium_config::Rejected>) -> Problem {
 
 #[test]
 fn a_file_is_read_only_when_its_owner_is_trusted_and_no_one_else_can_write_it() {
-    let dir = scratch("owner");
+    let dir = fixture("owner");
     let file = dir.join("heads.conf");
     write(&file, "version = 1\n", 0o644);
     assert_eq!(
-        read(&file, &me()).expect("trusted"),
+        read(&file, &me(&dir)).expect("trusted"),
         Some("version = 1\n".to_owned())
     );
 
@@ -64,7 +61,7 @@ fn a_file_is_read_only_when_its_owner_is_trusted_and_no_one_else_can_write_it() 
         fs::set_permissions(&file, fs::Permissions::from_mode(mode)).expect("mode");
         assert!(
             matches!(
-                problem(read(&file, &me())),
+                problem(read(&file, &me(&dir))),
                 Problem::Untrusted(Untrusted::Writable { .. })
             ),
             "mode {mode:o}"
@@ -72,29 +69,29 @@ fn a_file_is_read_only_when_its_owner_is_trusted_and_no_one_else_can_write_it() 
     }
     fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).expect("mode");
     assert!(
-        read(&file, &me()).is_ok(),
+        read(&file, &me(&dir)).is_ok(),
         "a file only its owner reads passes"
     );
 }
 
 #[test]
 fn a_directory_above_the_file_passes_the_same_check() {
-    let dir = scratch("directory");
+    let dir = fixture("directory");
     let file = dir.join("heads.conf");
     write(&file, "version = 1\n", 0o644);
     fs::set_permissions(&dir, fs::Permissions::from_mode(0o775)).expect("mode");
-    let p = problem(read(&file, &me()));
+    let p = problem(read(&file, &me(&dir)));
     assert!(
         matches!(&p, Problem::Untrusted(Untrusted::Writable { path, .. }) if path.raw() == dir.to_string_lossy()),
         "{p:?}"
     );
     fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).expect("mode");
-    assert!(read(&file, &me()).is_ok());
+    assert!(read(&file, &me(&dir)).is_ok());
 }
 
 #[test]
 fn a_symlink_is_followed_and_its_targets_directories_are_checked() {
-    let dir = scratch("symlink");
+    let dir = fixture("symlink");
     let open = dir.join("open");
     fs::create_dir(&open).expect("a directory");
     fs::set_permissions(&open, fs::Permissions::from_mode(0o777)).expect("mode");
@@ -103,24 +100,27 @@ fn a_symlink_is_followed_and_its_targets_directories_are_checked() {
     let link = dir.join("heads.conf");
     symlink(&target, &link).expect("the link");
     assert!(matches!(
-        problem(read(&link, &me())),
+        problem(read(&link, &me(&dir))),
         Problem::Untrusted(Untrusted::Writable { .. })
     ));
     fs::set_permissions(&open, fs::Permissions::from_mode(0o755)).expect("mode");
     assert_eq!(
-        read(&link, &me()).expect("trusted"),
+        read(&link, &me(&dir)).expect("trusted"),
         Some("version = 1\n".to_owned())
     );
 }
 
 #[test]
 fn a_missing_file_is_none_and_anything_but_a_regular_file_is_refused() {
-    let dir = scratch("kinds");
-    assert_eq!(read(&dir.join("absent.conf"), &me()).expect("absent"), None);
+    let dir = fixture("kinds");
+    assert_eq!(
+        read(&dir.join("absent.conf"), &me(&dir)).expect("absent"),
+        None
+    );
     let dangling = dir.join("dangling.conf");
     symlink(dir.join("nowhere"), &dangling).expect("the link");
-    assert_eq!(read(&dangling, &me()).expect("absent"), None);
-    assert_eq!(problem(read(&dir, &me())), Problem::NotAFile);
+    assert_eq!(read(&dangling, &me(&dir)).expect("absent"), None);
+    assert_eq!(problem(read(&dir, &me(&dir))), Problem::NotAFile);
     // a FIFO with no writer is refused at once, never waited on
     let fifo = dir.join("fifo.conf");
     rustix::fs::mknodat(
@@ -131,17 +131,17 @@ fn a_missing_file_is_none_and_anything_but_a_regular_file_is_refused() {
         0,
     )
     .expect("the FIFO");
-    assert_eq!(problem(read(&fifo, &me())), Problem::NotAFile);
+    assert_eq!(problem(read(&fifo, &me(&dir))), Problem::NotAFile);
 }
 
 #[test]
 fn a_file_past_its_byte_bound_is_refused() {
-    let dir = scratch("large");
+    let dir = fixture("large");
     let file = dir.join("heads.conf");
     write(&file, &"#".repeat(FILE_MAX), 0o644);
-    assert!(read(&file, &me()).is_ok(), "FILE_MAX bytes pass");
+    assert!(read(&file, &me(&dir)).is_ok(), "FILE_MAX bytes pass");
     write(&file, &"#".repeat(FILE_MAX + 1), 0o644);
-    assert_eq!(problem(read(&file, &me())), Problem::TooLarge);
+    assert_eq!(problem(read(&file, &me(&dir))), Problem::TooLarge);
 }
 
 #[test]
@@ -194,4 +194,29 @@ fn trust_takes_the_owner_for_files_and_root_too_for_directories() {
         "a file is the trusted user's own"
     );
     assert!(user.check(path, 1001, 0o040755, true).is_err());
+}
+
+#[test]
+fn the_check_stops_at_a_tests_top_and_reads_the_top_itself() {
+    let dir = fixture("top");
+    let open = dir.join("open");
+    let inner = open.join("inner");
+    fs::create_dir_all(&inner).expect("the directories");
+    fs::set_permissions(&open, fs::Permissions::from_mode(0o777)).expect("mode");
+    fs::set_permissions(&inner, fs::Permissions::from_mode(0o755)).expect("mode");
+    let file = inner.join("heads.conf");
+    write(&file, "version = 1\n", 0o644);
+    assert!(
+        read(&file, &me(&inner)).is_ok(),
+        "above the top goes unchecked"
+    );
+    assert!(matches!(
+        problem(read(&file, &me(&open))),
+        Problem::Untrusted(Untrusted::Writable { .. })
+    ));
+    let uid = fs::metadata(&dir).expect("the fixture").uid();
+    assert!(
+        read(&file, &Trust::owner(uid)).is_err(),
+        "with no top every directory up to / is read, the open one among them"
+    );
 }

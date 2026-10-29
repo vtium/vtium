@@ -20,19 +20,48 @@ use crate::bounds::FILE_MAX;
 use crate::error::{Problem, Quoted, Rejected};
 
 /// The user the head file and its directories must belong to: root, or
-/// in a test the test's own user, since no test runs as root.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// in a test the test's own user, since no test runs as root; and the
+/// directory the check stops at, `/` but in a test.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Trust {
     owner: u32,
+    top: Option<PathBuf>,
 }
 
 impl Trust {
-    /// root, as vtium reads its files.
-    pub const ROOT: Trust = Trust { owner: 0 };
+    /// root, every directory up to `/`, as vtium reads its files.
+    pub const ROOT: Trust = Trust {
+        owner: 0,
+        top: None,
+    };
 
     /// `uid`'s files and root's directories, for a test.
     pub fn owner(uid: u32) -> Trust {
-        Trust { owner: uid }
+        Trust {
+            owner: uid,
+            top: None,
+        }
+    }
+
+    /// This trust with the directory check stopping at `top`, for a test
+    /// whose fixture directory sits under a directory others can write,
+    /// such as `/tmp`: `top` is checked, and the directories above it are
+    /// not.
+    #[must_use]
+    pub fn below(self, top: &Path) -> Trust {
+        let top = std::fs::canonicalize(top).unwrap_or_else(|_| top.to_path_buf());
+        Trust {
+            top: Some(top),
+            ..self
+        }
+    }
+
+    /// Whether the directory check reads `dir`: every directory but those
+    /// above `top`.
+    fn covers(&self, dir: &Path) -> bool {
+        self.top
+            .as_deref()
+            .is_none_or(|top| dir == top || !top.starts_with(dir))
     }
 
     /// Checks one entry's owner and mode: a file must be the trusted
@@ -102,7 +131,7 @@ pub fn read(path: &Path, trust: &Trust) -> Result<Option<String>, Rejected> {
     trust
         .check(path, meta.uid(), meta.mode(), false)
         .map_err(untrusted)?;
-    for dir in directories(path)? {
+    for dir in directories(path)?.into_iter().filter(|d| trust.covers(d)) {
         let meta = std::fs::metadata(&dir).map_err(|e| unreadable(&e))?;
         trust
             .check(&dir, meta.uid(), meta.mode(), true)
