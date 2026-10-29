@@ -327,7 +327,6 @@ pub(super) fn parse_index(
         let mut r = c.record(size)?;
         let offset = r.u64()?;
         let (stored, decoded, flags) = (r.u32()?, r.u32()?, r.u32()?);
-        let sha256 = r.array::<32>()?;
         if flags & !CHUNK_DEFLATED != 0 {
             return Err(SetError::Malformed("an unknown chunk flag"));
         }
@@ -350,7 +349,6 @@ pub(super) fn parse_index(
             stored,
             decoded,
             deflated,
-            sha256,
             strike: 0,
             start: 0,
         });

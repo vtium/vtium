@@ -30,8 +30,8 @@ fn pair() -> (File, File) {
 }
 
 /// The console on `master`, as vtium answers: its terminal parses what
-/// `set` writes, and a set asked for switches when it is in `built`. Ends
-/// when the slave closes.
+/// `set` writes, and a font asked for switches when it is in `built`.
+/// Ends when the slave closes.
 fn console(mut master: File, built: &'static [&'static str], ops: bool) -> JoinHandle<()> {
     thread::spawn(move || {
         let mut t = Terminal::new(80, 24, 0);
@@ -62,7 +62,7 @@ fn now() -> Instant {
     Instant::now()
 }
 
-/// `set NAME` on a pty whose console knows `built`, under `ops`, waiting
+/// `set NAME` on a pty whose console takes `built`, under `ops`, waiting
 /// `wait`.
 fn run(name: &str, built: &'static [&'static str], ops: bool, wait: Duration) -> Answer {
     let (master, slave) = pair();
@@ -86,7 +86,7 @@ fn run(name: &str, built: &'static [&'static str], ops: bool, wait: Duration) ->
 }
 
 #[test]
-fn a_built_set_switches_and_the_reply_names_it() {
+fn a_frit_the_console_takes_switches_and_the_reply_names_it() {
     assert_eq!(
         run("tiny", &["tiny"], true, WAIT),
         Answer::Named("tiny".into())
@@ -94,7 +94,7 @@ fn a_built_set_switches_and_the_reply_names_it() {
 }
 
 #[test]
-fn a_set_the_console_refuses_leaves_the_name_before() {
+fn a_frit_the_console_refuses_leaves_the_name_before() {
     assert_eq!(
         run("tiny", &[], true, WAIT),
         Answer::Named("unifont".into())
@@ -128,14 +128,7 @@ fn cli(args: &[&str]) -> (i32, String) {
 }
 
 #[test]
-fn a_name_list_does_not_give_fails_before_the_terminal_is_touched() {
-    let store = concat!(env!("CARGO_TARGET_TMPDIR"), "/vtium-vitrify-set-no-store");
-    let (status, err) = cli(&["--store", store, "set", "nosuch"]);
-    assert_eq!(status, 1, "{err}");
-    assert!(
-        err.contains("no set is named nosuch") && err.contains("vtium-vitrify list"),
-        "{err}"
-    );
+fn set_takes_one_name() {
     let (status, err) = cli(&["set"]);
     assert_eq!(status, 2, "{err}");
     let (status, err) = cli(&["set", "a", "b"]);
@@ -168,16 +161,10 @@ fn a_sigterm_during_the_wait_ends_set_with_the_mode_back() {
     use std::os::unix::process::ExitStatusExt;
     use std::process::{Command, Stdio};
     let (mut master, slave) = pair();
-    let store = concat!(env!("CARGO_TARGET_TMPDIR"), "/vtium-vitrify-set-no-store");
     // setsid --ctty makes the pty the command's controlling terminal, the
     // /dev/tty set opens
     let mut child = Command::new("setsid")
-        .args([
-            "--ctty",
-            env!("CARGO_BIN_EXE_vtium-vitrify"),
-            "--store",
-            store,
-        ])
+        .args(["--ctty", env!("CARGO_BIN_EXE_vtium-vitrify")])
         .args(["set", "unifont"])
         .stdin(Stdio::from(
             slave.as_fd().try_clone_to_owned().expect("dup"),
@@ -203,5 +190,53 @@ fn a_sigterm_during_the_wait_ends_set_with_the_mode_back() {
             .local_modes
             .contains(LocalModes::ICANON | LocalModes::ECHO),
         "the mode before is back"
+    );
+}
+
+// ADR-1200 D5: `set` checks NAME against the frits, `NAME.vtfrit` in the
+// frits' directory, and the built-in fonts; no store is read. A frit there
+// passes the check, and the console's reply naming it ends the command 0.
+#[test]
+fn set_names_a_frit_with_no_store() {
+    use std::os::fd::AsFd;
+    use std::process::{Command, Stdio};
+    let frits = concat!(env!("CARGO_TARGET_TMPDIR"), "/vtium-vitrify-set-frits");
+    let _ = std::fs::remove_dir_all(frits);
+    std::fs::create_dir_all(frits).expect("mkdir");
+    std::fs::write(format!("{frits}/tiny.vtfrit"), "source=kbd:tiny\n").expect("frit");
+    let (master, slave) = pair();
+    let answering = console(master.try_clone().expect("dup"), &["tiny"], true);
+    let out = Command::new("setsid")
+        .args([
+            "--ctty",
+            env!("CARGO_BIN_EXE_vtium-vitrify"),
+            "--frits",
+            frits,
+        ])
+        .args(["set", "tiny"])
+        .stdin(Stdio::from(
+            slave.as_fd().try_clone_to_owned().expect("dup"),
+        ))
+        .output()
+        .expect("setsid runs");
+    drop(slave);
+    drop(master);
+    let _ = answering.join();
+    assert_eq!(
+        (
+            out.status.code(),
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        ),
+        (Some(0), "set\ttiny\n".to_owned()),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // a name with no frit there and no built-in fails before the terminal
+    // is touched, naming where frits are
+    let (status, err) = cli(&["--frits", frits, "set", "nosuch"]);
+    assert_eq!(status, 1, "{err}");
+    assert!(
+        err.contains("no frit is named nosuch") && err.contains("nosuch.vtfrit"),
+        "{err}"
     );
 }

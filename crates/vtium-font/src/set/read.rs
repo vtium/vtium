@@ -1,28 +1,21 @@
-//! The set reader (ADR-1200 D2, D3, D13): a set's header and every section
-//! but its glyph chunks read and checked once, and each chunk read, checked
-//! against its own hash and inflated the first time a glyph is drawn from
-//! it, then kept as stored; a 1-bit glyph is expanded to an 8-bit mask
-//! as it is drawn.
+//! The set reader (ADR-1200 D2, D13): a set's header and every section
+//! but its glyph chunks read and checked once, and each chunk inflated the
+//! first time a glyph is drawn from it, then kept as stored; a 1-bit glyph
+//! is expanded to an 8-bit mask as it is drawn.
 
 use std::fmt;
-use std::fs::File;
-use std::io::{self, Read};
-use std::os::unix::fs::FileExt;
 use std::sync::OnceLock;
 
 use crate::bounds::{
-    SET_BYTES_MAX, SET_CHUNKS_MAX, SET_META_BYTES_MAX, SET_RECORD_BYTES_MAX, SET_RUNS_MAX,
-    SET_SECTIONS_MAX, SET_STRIKES_MAX,
+    SET_BYTES_MAX, SET_CHUNKS_MAX, SET_META_BYTES_MAX, SET_RECORD_BYTES_MAX, SET_SECTIONS_MAX,
 };
 use crate::face::{Cell, Decorations, Style, Width};
 use crate::glyph::{Format, Glyph};
 use crate::policy::{Coverage, RangeCoverage, SpritePolicy};
 use crate::set::format::{
-    CHUNK_RECORD, CMAP, COVERAGE_RECORD, FORMAT_BITS, FORMAT_R8, FORMAT_RGBA, GLYF, MAGIC, MAJOR,
-    META, POLY, PRELUDE_BYTES, RUN_RECORD, SECTION_BYTES, STRIKE_RECORD, STRK, TABLE_HEAD_BYTES,
-    glyph_bytes,
+    CHUNK_RECORD, CMAP, FORMAT_BITS, FORMAT_R8, FORMAT_RGBA, GLYF, MAGIC, MAJOR, META, POLY,
+    PRELUDE_BYTES, SECTION_BYTES, STRK, TABLE_HEAD_BYTES, glyph_bytes,
 };
-use crate::sha256::Sha256;
 use crate::sprite::Range;
 
 mod parse;
@@ -33,14 +26,11 @@ use parse::{parse_cmap, parse_index, parse_meta, parse_poly, parse_strikes};
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum SetError {
-    /// The file could not be read.
-    Io(io::Error),
-    /// The file does not start with `VTGLASS\0`.
+    /// The set does not start with `VTGLASS\0`.
     NotSet,
-    /// The file's major format version is not one this build reads; the
-    /// set is rebuilt with `vtium-vitrify create --all`.
+    /// The set's major format version is not one this build reads.
     UnknownMajor(u16),
-    /// The file ends before what its header or a table describes.
+    /// The set ends before what its header or a table describes.
     Truncated,
     /// A count or size passes the named bound.
     Bound(&'static str),
@@ -48,19 +38,13 @@ pub enum SetError {
     Malformed(&'static str),
     /// A strike's pixel format is one this build does not draw.
     UnknownFormat(u8),
-    /// The whole file's SHA-256 is not the one expected.
-    FileHash { expected: [u8; 32], found: [u8; 32] },
-    /// The chunk's bytes do not match its SHA-256.
-    ChunkHash(usize),
     /// The chunk is not a deflate stream of exactly its decoded length.
     ChunkLength(usize),
 }
 
 impl fmt::Display for SetError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use crate::sha256::hex;
         match self {
-            SetError::Io(e) => write!(f, "cannot read the set: {e}"),
             SetError::NotSet => f.write_str("not a vitrified set"),
             SetError::UnknownMajor(v) => write!(
                 f,
@@ -70,13 +54,6 @@ impl fmt::Display for SetError {
             SetError::Bound(name) => write!(f, "the set passes {name}"),
             SetError::Malformed(why) => write!(f, "malformed set: {why}"),
             SetError::UnknownFormat(v) => write!(f, "a strike in pixel format {v}, not drawn"),
-            SetError::FileHash { expected, found } => write!(
-                f,
-                "the set's SHA-256 is {}, not {}",
-                hex(found),
-                hex(expected)
-            ),
-            SetError::ChunkHash(i) => write!(f, "glyph chunk {i} does not match its SHA-256"),
             SetError::ChunkLength(i) => {
                 write!(f, "glyph chunk {i} does not decode to its length")
             }
@@ -84,20 +61,7 @@ impl fmt::Display for SetError {
     }
 }
 
-impl std::error::Error for SetError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            SetError::Io(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-impl From<io::Error> for SetError {
-    fn from(e: io::Error) -> SetError {
-        SetError::Io(e)
-    }
-}
+impl std::error::Error for SetError {}
 
 /// How a strike's glyphs are stored in the file.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -178,7 +142,6 @@ struct Chunk {
     stored: u32,
     decoded: u32,
     deflated: bool,
-    sha256: [u8; 32],
     strike: usize,
     start: u64,
 }
@@ -187,19 +150,17 @@ struct Chunk {
 enum Bytes {
     /// Compiled in: a built-in set.
     Static(&'static [u8]),
-    /// The whole file, read into memory.
+    /// The whole set, held in memory.
     Owned(Vec<u8>),
-    /// The store's file, read a chunk at a time.
-    File(File),
 }
 
-/// A chunk once read: its bytes in memory, or `None` when it failed its
-/// check.
+/// A chunk once read: its bytes in memory, or `None` when it did not
+/// decode.
 type Loaded = OnceLock<Option<Box<[u8]>>>;
 
 /// A vitrified set: its provenance, strikes, maps and sprite policy, held
-/// in memory once checked, and its glyph chunks, each read and checked the
-/// first time a glyph is drawn from it and kept.
+/// in memory once checked, and its glyph chunks, each decoded the first
+/// time a glyph is drawn from it and kept.
 pub struct Set {
     version: (u16, u16),
     meta: String,
@@ -207,12 +168,8 @@ pub struct Set {
     strikes: Vec<Strike>,
     chunks: Vec<Chunk>,
     bytes: Bytes,
-    /// Whether each chunk is checked against its hash; a built-in set is
-    /// trusted by construction.
-    checked: bool,
     loaded: Box<[Loaded]>,
     fault: OnceLock<SetError>,
-    sha256: Option<[u8; 32]>,
 }
 
 impl fmt::Debug for Set {
@@ -409,213 +366,28 @@ fn index_len(head: &[u8]) -> Result<u64, SetError> {
     )
 }
 
-/// A set's file read once, start to end, every byte hashed.
-struct Stream<R> {
-    reader: R,
-    hash: Sha256,
-}
-
-/// A table's length from its head: `skip` bytes, then its count, checked
-/// against `bound`, and its record size, at least `known`.
-fn table_len(
-    head: &[u8],
-    skip: u64,
-    bound: u32,
-    name: &'static str,
-    known: u32,
-) -> Result<u64, SetError> {
-    let mut c = Cursor(head);
-    c.take(usize_of(skip)?)?;
-    let (count, size) = c.table(bound, name, known)?;
-    let size = u64::try_from(size).map_err(|_| SetError::Truncated)?;
-    add(
-        add(skip, u64::from(TABLE_HEAD_BYTES))?,
-        mul(u64::from(count), size)?,
-    )
-}
-
-impl<R: Read> Stream<R> {
-    /// The next `n` bytes, hashed, kept or not.
-    fn pass(&mut self, n: u64, mut keep: Option<&mut Vec<u8>>) -> Result<(), SetError> {
-        if let Some(kept) = keep.as_deref_mut() {
-            kept.reserve_exact(usize_of(n)?);
-        }
-        let mut buf = [0u8; 16 * 1024];
-        let mut left = n;
-        while left > 0 {
-            let want = usize_of(left.min(16 * 1024))?;
-            let block = buf.get_mut(..want).ok_or(SetError::Truncated)?;
-            self.reader.read_exact(block).map_err(|e| match e.kind() {
-                io::ErrorKind::UnexpectedEof => SetError::Truncated,
-                _ => SetError::Io(e),
-            })?;
-            self.hash.update(block);
-            if let Some(kept) = keep.as_deref_mut() {
-                kept.extend_from_slice(block);
-            }
-            left = left.saturating_sub(u64::try_from(want).unwrap_or(0));
-        }
-        Ok(())
-    }
-
-    fn keep(&mut self, n: u64) -> Result<Vec<u8>, SetError> {
-        let mut kept = Vec::new();
-        self.pass(n, Some(&mut kept))?;
-        Ok(kept)
-    }
-
-    fn skip(&mut self, n: u64) -> Result<(), SetError> {
-        self.pass(n, None)
-    }
-
-    /// Section `tag`, `length` bytes, as the set is checked from it: each
-    /// table's head is read first, and then only as many bytes as its
-    /// counts and record sizes declare, so a set is held in memory only as
-    /// large as a valid set of the counts it declares. `GLYF` keeps its
-    /// head and chunk index and passes over its chunks.
-    fn section(&mut self, tag: [u8; 4], length: u64) -> Result<Vec<u8>, SetError> {
-        let table = u64::from(TABLE_HEAD_BYTES);
-        let mismatch = SetError::Malformed("a section whose length is not its table's");
-        match tag {
-            META => {
-                if length > u64::from(SET_META_BYTES_MAX) {
-                    return Err(SetError::Bound("SET_META_BYTES_MAX"));
-                }
-                self.keep(length)
-            }
-            STRK | POLY => {
-                // POLY's sources and a reserved u16 come before its table
-                let (skip, known) = if tag == STRK {
-                    (0, STRIKE_RECORD)
-                } else {
-                    (8, COVERAGE_RECORD)
-                };
-                let mut kept = self.keep(add(skip, table)?.min(length))?;
-                let need = table_len(&kept, skip, SET_STRIKES_MAX, "SET_STRIKES_MAX", known)?;
-                if need != length {
-                    return Err(mismatch);
-                }
-                self.pass(length.saturating_sub(add(skip, table)?), Some(&mut kept))?;
-                Ok(kept)
-            }
-            CMAP => {
-                let mut kept = self.keep(table.min(length))?;
-                let mut c = Cursor(&kept);
-                let (count, size) = c.table(SET_STRIKES_MAX, "SET_STRIKES_MAX", RUN_RECORD)?;
-                let size = u64::try_from(size).map_err(|_| SetError::Truncated)?;
-                let mut left = length.saturating_sub(table);
-                let mut total = 0u32;
-                for _ in 0..count {
-                    left = left.checked_sub(4).ok_or(SetError::Truncated)?;
-                    let n = self.keep(4)?;
-                    let n = Cursor(&n).u32()?;
-                    total = total.saturating_add(n);
-                    if total > SET_RUNS_MAX {
-                        return Err(SetError::Bound("SET_RUNS_MAX"));
-                    }
-                    kept.extend(n.to_le_bytes());
-                    let runs = mul(u64::from(n), size)?;
-                    left = left.checked_sub(runs).ok_or(SetError::Truncated)?;
-                    self.pass(runs, Some(&mut kept))?;
-                }
-                if left != 0 {
-                    return Err(mismatch);
-                }
-                Ok(kept)
-            }
-            GLYF => {
-                let mut kept = self.keep(table.min(length))?;
-                let n = index_len(&kept)?;
-                if n > length {
-                    return Err(SetError::Truncated);
-                }
-                self.pass(n.saturating_sub(table), Some(&mut kept))?;
-                self.skip(length.saturating_sub(n))?;
-                Ok(kept)
-            }
-            // a section a later minor version added: hashed and skipped
-            _ => {
-                self.skip(length)?;
-                Ok(Vec::new())
-            }
-        }
-    }
-}
-
 impl Set {
     /// Reads and checks a whole set held in memory: every bound, every
-    /// table and the chunk index. Each chunk is checked against its hash
-    /// when a glyph is first drawn from it, or by [`Set::check_chunks`].
+    /// table and the chunk index. Each chunk is decoded when a glyph is
+    /// first drawn from it, or by [`Set::check_chunks`].
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Set, SetError> {
         if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > u64::from(SET_BYTES_MAX) {
             return Err(SetError::Bound("SET_BYTES_MAX"));
         }
-        let sha = Sha256::digest(&bytes);
         let mut set = {
             let parts = Set::split(&bytes)?;
-            Set::build(&parts, true)?
+            Set::build(&parts)?
         };
         set.bytes = Bytes::Owned(bytes);
-        set.sha256 = Some(sha);
         Ok(set)
     }
 
-    /// A built-in set, compiled into the binary and trusted by
-    /// construction: its chunks are not hashed again.
+    /// A built-in set, compiled into the binary.
     #[cfg_attr(not(any(feature = "unifont", feature = "unscii")), allow(dead_code))]
     pub(crate) fn from_static(bytes: &'static [u8]) -> Result<Set, SetError> {
         let parts = Set::split(bytes)?;
-        let mut set = Set::build(&parts, false)?;
+        let mut set = Set::build(&parts)?;
         set.bytes = Bytes::Static(bytes);
-        Ok(set)
-    }
-
-    /// Reads a set from `file`, `len` bytes long, once, start to end,
-    /// hashing every byte and keeping all but the glyph chunks, which are
-    /// read from `file` as they are drawn. The whole file's SHA-256 must be
-    /// `expected` (ADR-1200 D3).
-    pub(crate) fn from_file(file: File, len: u64, expected: [u8; 32]) -> Result<Set, SetError> {
-        if len > u64::from(SET_BYTES_MAX) {
-            return Err(SetError::Bound("SET_BYTES_MAX"));
-        }
-        let mut stream = Stream {
-            reader: (&file).take(len),
-            hash: Sha256::new(),
-        };
-        let mut head = stream.keep(u64::from(PRELUDE_BYTES))?;
-        let header_len = u64::try_from(Header::len(&head)?).map_err(|_| SetError::Truncated)?;
-        head.extend(stream.keep(header_len.saturating_sub(u64::from(PRELUDE_BYTES)))?);
-        let header = Header::parse(&head, len)?;
-        let mut kept: Vec<([u8; 4], Vec<u8>)> = Vec::new();
-        let mut glyf = (0, 0);
-        for &(tag, offset, length) in &header.sections {
-            if tag == GLYF {
-                glyf = (offset, length);
-            }
-            kept.push((tag, stream.section(tag, length)?));
-        }
-        let found = stream.hash.finish();
-        if found != expected {
-            return Err(SetError::FileHash { expected, found });
-        }
-        let get = |tag: [u8; 4]| -> &[u8] {
-            kept.iter()
-                .find(|(t, _)| *t == tag)
-                .map(|(_, b)| b.as_slice())
-                .unwrap_or_default()
-        };
-        let parts = Parts {
-            version: header.version,
-            meta: get(META),
-            strk: get(STRK),
-            cmap: get(CMAP),
-            poly: get(POLY),
-            index: get(GLYF),
-            glyf,
-        };
-        let mut set = Set::build(&parts, true)?;
-        set.bytes = Bytes::File(file);
-        set.sha256 = Some(found);
         Ok(set)
     }
 
@@ -645,7 +417,7 @@ impl Set {
     }
 
     /// Checks every section and builds the set, its chunks not yet read.
-    fn build(parts: &Parts<'_>, checked: bool) -> Result<Set, SetError> {
+    fn build(parts: &Parts<'_>) -> Result<Set, SetError> {
         if parts.meta.len() > usize_of(SET_META_BYTES_MAX)? {
             return Err(SetError::Bound("SET_META_BYTES_MAX"));
         }
@@ -662,10 +434,8 @@ impl Set {
             strikes,
             chunks,
             bytes: Bytes::Static(&[]),
-            checked,
             loaded,
             fault: OnceLock::new(),
-            sha256: None,
         })
     }
 
@@ -687,11 +457,6 @@ impl Set {
     /// The format's major and minor version the set was written in.
     pub fn version(&self) -> (u16, u16) {
         self.version
-    }
-
-    /// The whole file's SHA-256; `None` for a built-in set.
-    pub fn sha256(&self) -> Option<[u8; 32]> {
-        self.sha256
     }
 
     /// The sprite policy the set was built with.
@@ -724,19 +489,18 @@ impl Set {
             .count()
     }
 
-    /// The first chunk that failed its check since the set was read, if
+    /// The first chunk that did not decode since the set was read, if
     /// any: its glyphs draw as missing ones.
     pub fn fault(&self) -> Option<&SetError> {
         self.fault.get()
     }
 
-    /// Reads, checks and decodes every chunk without keeping it: the whole
-    /// check `vtium-vitrify install` and `verify` run (ADR-1200 D12).
+    /// Decodes every chunk without keeping it: the whole set's check.
     pub fn check_chunks(&self) -> Result<(), SetError> {
         (0..self.chunks.len()).try_for_each(|i| self.decode(i).map(drop))
     }
 
-    /// Chunk `i` read, checked and inflated.
+    /// Chunk `i` read and inflated.
     fn decode(&self, i: usize) -> Result<Box<[u8]>, SetError> {
         let chunk = self
             .chunks
@@ -752,19 +516,7 @@ impl Set {
         let bytes = match &self.bytes {
             Bytes::Static(all) => read_slice(all)?,
             Bytes::Owned(all) => read_slice(all)?,
-            Bytes::File(file) => {
-                let mut buf = vec![0u8; stored];
-                file.read_exact_at(&mut buf, chunk.offset)
-                    .map_err(|e| match e.kind() {
-                        io::ErrorKind::UnexpectedEof => SetError::Truncated,
-                        _ => SetError::Io(e),
-                    })?;
-                buf
-            }
         };
-        if self.checked && Sha256::digest(&bytes) != chunk.sha256 {
-            return Err(SetError::ChunkHash(i));
-        }
         let decoded = usize_of(chunk.decoded)?;
         let bytes = if chunk.deflated {
             miniz_oxide::inflate::decompress_to_vec_with_limit(&bytes, decoded)
@@ -857,7 +609,7 @@ impl Set {
     }
 
     /// The glyph for `c` at `cell`, drawn at `scale`; `None` when the set
-    /// lacks it or its chunk fails its check.
+    /// lacks it or its chunk does not decode.
     pub(crate) fn draw(&self, cell: Cell, c: char, style: Style, scale: u32) -> Option<Glyph> {
         let (strike, widen) = self.strike_for(cell, style, u32::from(c))?;
         let index = strike.index(u32::from(c))?;
@@ -994,7 +746,7 @@ impl Strike {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bounds::{SET_RECORD_BYTES_MAX, SET_STRIKES_MAX};
+    use crate::bounds::{SET_RECORD_BYTES_MAX, SET_RUNS_MAX, SET_STRIKES_MAX};
 
     // The map a set can make the reader hold: 36 bytes a run, a run and
     // the glyph span it may bring in, so at most 9 MiB at SET_RUNS_MAX, and

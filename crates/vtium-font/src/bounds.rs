@@ -76,8 +76,8 @@ const CELL: Bound = Bound {
 const SET_BYTES: Bound = Bound {
     name: "SET_BYTES_MAX",
     value: 1 << 30,
-    what: "Bytes a vitrified set file holds",
-    past: "The set is refused before its hash is trusted",
+    what: "Bytes a vitrified set holds",
+    past: "The set is refused",
     cite: "vtium's own, from ADR-1200's measured sets: Noto Sans Mono CJK unlimited at 48 pixels is about 100 MB a strike (D1), a full GBK set at 48 pixels 49.8 MB (D13), and a set holds at most three sizes (D11)",
 };
 
@@ -86,7 +86,7 @@ const SET_SECTIONS: Bound = Bound {
     value: 16,
     what: "Sections a set's header lists",
     past: "The set is refused",
-    cite: "vtium's own: format 1.0 writes five (ADR-1200 D2), and a minor version adds sections a reader skips",
+    cite: "vtium's own: format 2.0 writes five (ADR-1200 D2), and a minor version adds sections a reader skips",
 };
 
 const SET_META: Bound = Bound {
@@ -142,28 +142,12 @@ const SET_RECORD: Bound = Bound {
     value: 64,
     what: "Bytes a record of a set's tables declares",
     past: "The set is refused",
-    cite: "vtium's own: format 1.0's largest record is 52 bytes, and a minor version adds fields at a record's end (ADR-1200 D2); it bounds what a table's counts can make the reader hold",
-};
-
-const MANIFEST_BYTES: Bound = Bound {
-    name: "MANIFEST_BYTES_MAX",
-    value: 1 << 20,
-    what: "Bytes the store's manifest holds",
-    past: "The store is refused",
-    cite: "vtium's own: a machine holds a few sets (ADR-1200 D11), and a row is under 400 bytes",
-};
-
-const MANIFEST_ROWS: Bound = Bound {
-    name: "MANIFEST_ROWS_MAX",
-    value: 4096,
-    what: "Sets the store's manifest lists",
-    past: "The store is refused",
-    cite: "vtium's own: a machine holds its locale's default and a couple of favorites (ADR-1200 D11)",
+    cite: "vtium's own: format 2.0's largest record is 48 bytes, and a minor version adds fields at a record's end (ADR-1200 D2); it bounds what a table's counts can make the reader hold",
 };
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 18] = [
+pub(crate) const BOUNDS: [Bound; 16] = [
     GLYPHS,
     WIDTH,
     HEIGHT,
@@ -180,8 +164,6 @@ pub(crate) const BOUNDS: [Bound; 18] = [
     SET_CHUNKS,
     SET_CHUNK,
     SET_RECORD,
-    MANIFEST_BYTES,
-    MANIFEST_ROWS,
 ];
 
 /// Glyphs a PSF font holds; a font with more is refused.
@@ -235,12 +217,6 @@ pub const SET_CHUNK_BYTES: u32 = SET_CHUNK.value;
 
 /// Bytes a record of a set's tables declares; a larger one is refused.
 pub const SET_RECORD_BYTES_MAX: u32 = SET_RECORD.value;
-
-/// Bytes the store's manifest holds; a larger one is refused.
-pub const MANIFEST_BYTES_MAX: u32 = MANIFEST_BYTES.value;
-
-/// Sets the store's manifest lists; a manifest with more is refused.
-pub const MANIFEST_ROWS_MAX: u32 = MANIFEST_ROWS.value;
 
 #[cfg(test)]
 #[expect(

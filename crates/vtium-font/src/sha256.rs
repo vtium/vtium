@@ -1,9 +1,10 @@
-//! SHA-256 (FIPS 180-4, section 6.2), the hash a vitrified set, its chunks
-//! and the store's manifest are checked by (ADR-1200 D2, D3).
+//! SHA-256 (FIPS 180-4, section 6.2): the built-in sets' provenance names
+//! the SHA-256 of the files they are packed from, and vtium-vitrify pins a
+//! frit's font files by it (ADR-1200 D1).
 //!
 //! vtium-font writes it rather than taking a crate: it is one small
 //! function, and `build.rs` includes this file to hash the built-in sets'
-//! chunks. The tests hold it to FIPS 180-4's examples and NIST's
+//! sources. The tests hold it to FIPS 180-4's examples and NIST's
 //! long-message vector.
 
 /// The first 32 bits of the fractional parts of the cube roots of the first
@@ -215,19 +216,6 @@ pub fn hex(digest: &[u8; 32]) -> String {
     s
 }
 
-/// The digest 64 hex digits spell, either case; `None` for anything else.
-pub fn parse_hex(s: &str) -> Option<[u8; 32]> {
-    if s.len() != 64 {
-        return None;
-    }
-    let mut out = [0u8; 32];
-    for (dst, pair) in out.iter_mut().zip(s.as_bytes().chunks_exact(2)) {
-        let pair = std::str::from_utf8(pair).ok()?;
-        *dst = u8::from_str_radix(pair, 16).ok()?;
-    }
-    Some(out)
-}
-
 #[cfg(test)]
 #[expect(clippy::expect_used, reason = "a test fails by panicking")]
 mod tests {
@@ -312,14 +300,5 @@ mod tests {
             h.update(b);
             assert_eq!(h.finish(), Sha256::digest(&data), "split at {n}");
         }
-    }
-
-    #[test]
-    fn hex_round_trips() {
-        let d = Sha256::digest(b"abc");
-        assert_eq!(parse_hex(&hex(&d)), Some(d));
-        assert_eq!(parse_hex(&hex(&d).to_uppercase()), Some(d));
-        assert_eq!(parse_hex("ab"), None);
-        assert_eq!(parse_hex(&"g".repeat(64)), None);
     }
 }
