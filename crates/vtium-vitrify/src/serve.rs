@@ -15,7 +15,9 @@
 //! the frit's coverage, skipping what the console holds, one [`BATCH`] at
 //! a time; between batches the helper takes any waiting request, so a
 //! request waits at most one batch. A stop ends a cell's fill, as when the
-//! console's store is full or no display draws at the cell. A cell query
+//! console's store is full or no display draws at the cell, and is answered
+//! as it is taken, so the console knows each fill frame before the answer
+//! is the stopped fill's, even when the cell is filled again at once. A cell query
 //! asks for the frit's own cell before the console's first frame, for a
 //! frit of bitmap sources that states no cell (the operator, 2026-10-28):
 //! the helper answers its first source's cell when every other source's
@@ -45,7 +47,9 @@
 //!          glyphs; kind 2 the oldest ask answered (no payload); kind 5 a
 //!          cell's fill done (its width u32 and height u32); kind 6 the
 //!          frit's own cell (its width u32 and height u32); kind 7 no own
-//!          cell (UTF-8 reason); kind 3 a failure (UTF-8 reason)
+//!          cell (UTF-8 reason); kind 8 a stop taken (its cell's width u32
+//!          and height u32), one for each stop; kind 3 a failure (UTF-8
+//!          reason)
 //! ```
 //!
 //! Little-endian throughout. The console checks every frame before it
@@ -109,6 +113,9 @@ pub const FRAME_FILLED: u32 = 5;
 pub const FRAME_OWN_CELL: u32 = 6;
 /// The frit has no own cell, a cell query's answer: the reason, as UTF-8.
 pub const FRAME_NO_OWN_CELL: u32 = 7;
+/// A stop is taken, every frame of the fill it ended sent: its cell's
+/// width and height.
+pub const FRAME_STOPPED: u32 = 8;
 /// An ask: the codepoints named, answered whole.
 pub const ASK: u32 = 1;
 /// A fill: the cell's coverage, in order, around the asks.
@@ -869,6 +876,14 @@ impl Fill {
     }
 }
 
+/// A frame's payload of `cell`: its width and height.
+fn cell_payload(cell: Cell) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(8);
+    put32(&mut payload, cell.width);
+    put32(&mut payload, cell.height);
+    payload
+}
+
 fn failed(out: &mut dyn Write, why: &str) -> io::Result<()> {
     reason(out, FRAME_FAILED, why)
 }
@@ -935,7 +950,8 @@ impl Work<'_> {
     }
 
     /// Takes a request in: an ask waits its turn, a fill replaces the
-    /// cell's, a stop ends it, and a cell query is answered at once.
+    /// cell's, a stop ends it and is answered, and a cell query is answered
+    /// at once.
     fn take(&mut self, request: ServeRequest, out: &mut dyn Write) -> io::Result<()> {
         if self.console.is_none() {
             self.console.clone_from(&request.console);
@@ -957,16 +973,14 @@ impl Work<'_> {
                     Err(why) => Err(why.clone()),
                 };
                 return match own {
-                    Ok(cell) => {
-                        let mut payload = Vec::with_capacity(8);
-                        put32(&mut payload, cell.width);
-                        put32(&mut payload, cell.height);
-                        write_frame(out, FRAME_OWN_CELL, &payload)
-                    }
+                    Ok(cell) => write_frame(out, FRAME_OWN_CELL, &cell_payload(cell)),
                     Err(why) => reason(out, FRAME_NO_OWN_CELL, &why),
                 };
             }
-            _ => self.fills.retain(|f| !same(f)),
+            _ => {
+                self.fills.retain(|f| !same(f));
+                return write_frame(out, FRAME_STOPPED, &cell_payload(request.cell));
+            }
         }
         Ok(())
     }
@@ -1024,10 +1038,7 @@ impl Work<'_> {
             };
             return failed(out, &why);
         }
-        let mut cell = Vec::with_capacity(8);
-        put32(&mut cell, fill.cell.width);
-        put32(&mut cell, fill.cell.height);
-        write_frame(out, FRAME_FILLED, &cell)
+        write_frame(out, FRAME_FILLED, &cell_payload(fill.cell))
     }
 }
 
@@ -1526,9 +1537,44 @@ mod tests {
             .unwrap();
         assert_eq!(work.fills.len(), 1);
         assert_eq!(work.fills[0].order[0], u32::from('α'));
+        assert!(out.is_empty());
         work.take(request(STOP, frit, &[]), &mut out).unwrap();
         assert!(work.fills.is_empty());
-        assert!(out.is_empty());
+        assert_eq!(frames(&out), [(FRAME_STOPPED, cell_payload(CELL))]);
+    }
+
+    // a stop is answered as it is taken, between the stopped fill's last
+    // frame and the next fill's first, and answered with no fill too
+    #[test]
+    fn a_stop_is_answered_between_the_fill_it_ends_and_the_next() {
+        let frit = frit("source=builtin:unscii-8\n");
+        let frames = run(&[
+            request(STOP, frit.clone(), &[]),
+            request(FILL, frit.clone(), &['A']),
+            request(STOP, frit.clone(), &[]),
+            request(FILL, frit, &['A']),
+        ]);
+        let kinds: Vec<u32> = frames.iter().map(|f| f.0).collect();
+        let stops: Vec<usize> = (0..kinds.len())
+            .filter(|&i| kinds[i] == FRAME_STOPPED)
+            .collect();
+        assert_eq!(stops.len(), 2, "{kinds:?}");
+        assert!(stops.iter().all(|&i| frames[i].1 == cell_payload(CELL)));
+        // the first stop, with no fill, comes first; the first fill's
+        // frames, and its end if it reached it, come before the second,
+        // and the second fill runs whole after it
+        assert_eq!(stops[0], 0);
+        assert!(
+            kinds[..stops[1]]
+                .iter()
+                .filter(|&&k| k == FRAME_FILLED)
+                .count()
+                <= 1
+        );
+        let after = &kinds[stops[1] + 1..];
+        assert_eq!(after.first(), Some(&FRAME_FILL), "{kinds:?}");
+        assert_eq!(after.last(), Some(&FRAME_FILLED), "{kinds:?}");
+        assert_eq!(after.iter().filter(|&&k| k == FRAME_FILLED).count(), 1);
     }
 
     // a frit is its name and its text: the same name with new text is read

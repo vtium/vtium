@@ -14,7 +14,7 @@ use vtium_font::set::{Set, SetFace};
 use vtium_font::{Cell, Face};
 use vtium_vitrify::serve::{
     ASK, FILL, FRAME_DONE, FRAME_FAILED, FRAME_FILL, FRAME_FILLED, FRAME_GLYPHS, FRAME_NO_OWN_CELL,
-    FritText, OWN_CELL, Paths, STOP, ServeRequest, serve,
+    FRAME_STOPPED, FritText, OWN_CELL, Paths, STOP, ServeRequest, serve,
 };
 
 /// The frames in `bytes`, kind and payload.
@@ -160,8 +160,9 @@ fn frames_until(r: &mut impl Read, last: &[u32]) -> Vec<(u32, Vec<u8>)> {
 }
 
 // a zoom away and back inside the helper's idle interval: the stop the
-// console sends as it drops the cell's glyphs makes the helper send them
-// again, so the fill back at the cell draws the frit, not a failure
+// console sends as it drops the cell's glyphs is answered, and makes the
+// helper send them again, so the fill back at the cell draws the frit, not
+// a failure
 #[test]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 fn a_cell_stopped_and_filled_again_is_filled_again() {
@@ -200,13 +201,17 @@ fn a_cell_stopped_and_filled_again_is_filled_again() {
     let again = frames_until(&mut stdout, &ends);
     drop(stdin);
     assert!(child.wait().unwrap().success());
+    let mut cell = 8u32.to_le_bytes().to_vec();
+    cell.extend_from_slice(&16u32.to_le_bytes());
+    let (stopped, again) = again.split_first().unwrap();
+    assert_eq!(*stopped, (FRAME_STOPPED, cell));
     let kinds = |f: &[(u32, Vec<u8>)]| f.iter().map(|f| f.0).collect::<Vec<_>>();
-    assert_eq!(kinds(&again), kinds(&first), "{:?}", again.last());
+    assert_eq!(kinds(again), kinds(&first), "{:?}", again.last());
     let a = |f: &[(u32, Vec<u8>)]| {
         let set = Arc::new(Set::from_bytes(f[0].1.clone()).unwrap());
         SetFace::new(set, 16).unwrap().has_glyph('A')
     };
-    assert!(a(&first) && a(&again));
+    assert!(a(&first) && a(again));
 }
 
 /// Each codepoint the fill frames among `frames` hold, with how many
