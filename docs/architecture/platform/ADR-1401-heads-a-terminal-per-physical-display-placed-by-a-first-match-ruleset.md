@@ -101,6 +101,9 @@ considered:
     said: "vtium never writes a configuration file. With no head file, profile or frit present it runs the compiled-in configuration, the shipped two rules, the default profile and the default frit, unchanged as the always-typeable guarantee. The first default configuration is written by vtium-vitrify when asked (setup, or a command that writes the commented template), under D12's privilege flow: sudo installs into /etc, unprivileged writes the XDG draft and prints how to install it. A package may also ship the template as a tracked configuration file or an example; that is the distribution's choice. Root services do not write their own /etc configuration at run time (sshd's comes from its package; systemd runs with /etc empty), and the C reference shipped kmscon.conf.example through its build's install step, never at run time. This reverses the earlier 'a missing configuration is instanced from its template'."
     via: operator, in conversation with the team lead, 2026-10-29; the wording is the team lead's
     paraphrase: true
+  - operator: aaronsb
+    said: "ok, let's accept this."
+    via: "conversation with the team lead, 2026-10-29, after reading PR #153"
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and an unclaimed keyboard follows the focus chord"
@@ -109,7 +112,7 @@ observable:
   - "With every keyboard claimed by a head whose display is absent, every keyboard types into the focused head, with a notice"
   - "Ctrl-Alt-F<n> for the shown VT, pressed on a keyboard claimed elsewhere or ignored, moves that keyboard to the focus for the boot, and the head file is unchanged"
   - "`vtium-vitrify detect` as an unprivileged user lists every display and input with a rule line ready to paste"
-status: proposed
+status: accepted
 date: 2026-10-29
 deciders:
   - aaronsb

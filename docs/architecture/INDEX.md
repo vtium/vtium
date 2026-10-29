@@ -44,3 +44,4 @@ _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_
 | ADR | Title | Status |
 |-----|-------|--------|
 | [ADR-1400](./platform/ADR-1400-the-privilege-and-sandbox-model.md) | The privilege and sandbox model | accepted |
+| [ADR-1401](./platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) | Heads: a terminal per physical display, placed by a first-match ruleset | accepted |
