@@ -109,6 +109,15 @@ pub trait Vt {
     /// was taken, so no one later in the key order sees it.
     fn key(&mut self, key: &KeyEvent) -> bool;
 
+    /// Whether `key` is this VT's own switch key, pressed while the VT is
+    /// ours and shown: a key [`Vt::key`] takes and does nothing with,
+    /// which a head's rescue reads (ADR-1401 D9). Asking switches nothing.
+    /// A backend with no such key has none.
+    fn is_own_key(&self, key: &KeyEvent) -> bool {
+        let _ = key;
+        false
+    }
+
     /// Puts the VT's modes back after a program handed the display back
     /// (vtium/vtium#36).
     fn restore(&mut self) -> io::Result<()>;

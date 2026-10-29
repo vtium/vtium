@@ -1,17 +1,21 @@
 //! The fake VT, for a system without kernel VTs: always the seat's only
 //! session, taken and given up on request or with Ctrl+Super+F12
-//! (vt_fake.c).
+//! (vt_fake.c). A test gives it a VT number, so its own key follows the
+//! kernel VT's rule.
 
 use std::io;
 
 use xkbcommon::xkb::keysyms;
 
+use super::kernel::switch_target;
 use super::{Switch, Vt, VtEvent};
 use crate::input::{KeyEvent, Mods};
 
 /// A VT with no kernel behind it.
 #[derive(Debug, Default)]
 pub struct FakeVt {
+    /// The VT number it reports, `None` as a system without kernel VTs.
+    num: Option<u16>,
     active: bool,
     releasing: bool,
     events: Vec<VtEvent>,
@@ -20,6 +24,14 @@ pub struct FakeVt {
 impl FakeVt {
     pub fn new() -> FakeVt {
         FakeVt::default()
+    }
+
+    /// A fake VT reporting itself as VT `num`, shown while it is ours.
+    pub fn with_number(num: u16) -> FakeVt {
+        FakeVt {
+            num: Some(num),
+            ..FakeVt::default()
+        }
     }
 
     fn take(&mut self) {
@@ -92,6 +104,12 @@ impl Vt for FakeVt {
         toggle
     }
 
+    /// The kernel VT's rule for its number: `Ctrl+Alt+F<n>` or
+    /// `XF86Switch_VT_<n>` while it is ours; with no number, none.
+    fn is_own_key(&self, key: &KeyEvent) -> bool {
+        self.num.is_some() && switch_target(key) == self.num && self.is_active()
+    }
+
     fn restore(&mut self) -> io::Result<()> {
         Ok(())
     }
@@ -99,6 +117,6 @@ impl Vt for FakeVt {
     fn bell(&mut self) {}
 
     fn number(&self) -> Option<u16> {
-        None
+        self.num
     }
 }

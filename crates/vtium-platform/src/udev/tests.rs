@@ -7,7 +7,12 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::{Action, Device, DeviceEvent, DeviceFlags, DeviceKind, Monitor, Probe, Udev, Uevent};
+use super::{
+    Action, Device, DeviceEvent, DeviceFlags, DeviceKind, InputIdentity, Monitor, Probe, Udev,
+    Uevent, attributes, properties,
+};
+use crate::bounds::{UDEV_PROPERTIES_MAX, UDEV_PROPERTY_MAX};
+use crate::input::{Class, Classes};
 
 /// Answers for the cards and framebuffers by node; any other node fails,
 /// as an open would.
@@ -115,6 +120,7 @@ fn added(kind: DeviceKind, node: &str, flags: DeviceFlags, id_path: Option<&str>
         node: PathBuf::from(node),
         flags,
         id_path: id_path.map(String::from),
+        input: (kind == DeviceKind::Input).then(Box::default),
     })
 }
 
@@ -414,4 +420,154 @@ fn the_scan_reads_this_machines_devices_through_libudev() {
     assert_eq!(probe.asked.len(), cards);
     // Nothing is waiting on the monitor socket that the loop would miss.
     udev.receive();
+}
+
+fn map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+    pairs
+        .iter()
+        .map(|&(k, v)| (k.to_owned(), v.to_owned()))
+        .collect()
+}
+
+/// The numpad of ADR-1401's Evidence, its keyboard interface, as sysfs
+/// and udev describe it; its serial stands in for the real one.
+fn numpad(tagged: bool) -> Uevent {
+    let mut properties = map(&[
+        ("ID_INPUT", "1"),
+        ("ID_INPUT_KEY", "1"),
+        ("ID_INPUT_KEYBOARD", "1"),
+        ("ID_PATH", "pci-0000:15:00.0-usb-0:3.4.1:1.1"),
+        ("ID_VENDOR_ID", "2dc8"),
+        ("ID_MODEL_ID", "5204"),
+        ("ID_SERIAL_SHORT", "0000000001"),
+        ("VTIUM_ROLE", "numpad"),
+    ]);
+    if !tagged {
+        properties.clear();
+    }
+    Uevent {
+        input_parent: true,
+        properties,
+        attributes: map(&[
+            ("name", "8BitDo Retro 18 Numpad Keyboard"),
+            ("uniq", "0000000001"),
+            ("id/vendor", "2dc8"),
+            ("id/product", "5204"),
+            ("capabilities/ev", "12001f"),
+            (
+                "capabilities/key",
+                "733eff 0 0 483ffff17aff32d bfd4444600000000 1 130ff38b17c007 ffff7bfad9415fff febeffdfffefffff fffffffffffffffe",
+            ),
+            ("capabilities/rel", "1040"),
+            ("capabilities/abs", "100000000"),
+            ("properties", "0"),
+        ]),
+        ..device("input", "event24", Some("/dev/input/event24"))
+    }
+}
+
+fn identity(dev: &Uevent) -> InputIdentity {
+    let mut monitor = Monitor::new("seat0");
+    monitor.add(dev, &mut answers());
+    match monitor.events().next() {
+        Some(DeviceEvent::Added(Device {
+            input: Some(input), ..
+        })) => *input,
+        other => panic!("not an input device: {other:?}"),
+    }
+}
+
+fn keyboard_classes() -> Classes {
+    Classes::empty().with(Class::Keyboard).with(Class::Key)
+}
+
+#[test]
+fn an_event_node_carries_its_identity_from_udev_and_sysfs() {
+    let id = identity(&numpad(true));
+    assert_eq!(id.classes, keyboard_classes());
+    assert!(id.tagged);
+    assert_eq!(
+        id.id_path.as_deref(),
+        Some("pci-0000:15:00.0-usb-0:3.4.1:1.1")
+    );
+    assert_eq!(
+        (
+            id.vendor_id.as_deref(),
+            id.model_id.as_deref(),
+            id.serial_short.as_deref()
+        ),
+        (Some("2dc8"), Some("5204"), Some("0000000001"))
+    );
+    assert_eq!(id.uniq.as_deref(), Some("0000000001"));
+    assert_eq!(id.id, Some((0x2dc8, 0x5204)));
+    assert_eq!(id.name.as_deref(), Some("8BitDo Retro 18 Numpad Keyboard"));
+    assert_eq!(
+        id.properties.get("VTIUM_ROLE").map(String::as_str),
+        Some("numpad")
+    );
+}
+
+#[test]
+fn without_a_udev_daemon_an_event_node_is_classed_from_its_bitmaps() {
+    let id = identity(&numpad(false));
+    assert_eq!(id.classes, keyboard_classes());
+    assert!(!id.tagged);
+    assert_eq!(id.id_path, None);
+    assert_eq!(id.serial_short, None);
+    assert!(id.properties.is_empty());
+    // What sysfs shows still identifies it.
+    assert_eq!(id.id, Some((0x2dc8, 0x5204)));
+    assert_eq!(id.name.as_deref(), Some("8BitDo Retro 18 Numpad Keyboard"));
+}
+
+#[test]
+fn a_hwdb_correction_reaches_an_event_nodes_classes() {
+    let mut dev = numpad(true);
+    dev.properties
+        .insert(String::from("ID_INPUT_KEYBOARD"), String::from("0"));
+    assert_eq!(identity(&dev).classes, Classes::empty().with(Class::Key));
+}
+
+#[test]
+fn a_card_carries_no_input_identity() {
+    let mut monitor = Monitor::new("seat0");
+    monitor.add(&card0(), &mut answers());
+    assert!(matches!(
+        monitor.events().next(),
+        Some(DeviceEvent::Added(Device { input: None, .. }))
+    ));
+}
+
+#[test]
+fn an_event_nodes_properties_are_bounded_and_its_named_ones_kept() {
+    let many = (0..UDEV_PROPERTIES_MAX + 10).map(|i| (format!("P{i:04}"), String::from("1")));
+    let long = std::iter::once((String::from("LONG"), "x".repeat(UDEV_PROPERTY_MAX)));
+    let named = |name: &str| match name {
+        "ID_INPUT" | "ID_INPUT_KEYBOARD" => Some(String::from("1")),
+        "ID_PATH" => Some(String::from("pci-0000:15:00.0-usb-0:3.2:1.0")),
+        _ => None,
+    };
+    let kept = properties(named, long.chain(many));
+    assert_eq!(kept.len(), UDEV_PROPERTIES_MAX);
+    for name in ["ID_INPUT", "ID_INPUT_KEYBOARD", "ID_PATH", "P0000"] {
+        assert!(kept.contains_key(name), "{name}");
+    }
+    assert!(!kept.contains_key("LONG"));
+    assert!(!kept.contains_key(&format!("P{:04}", UDEV_PROPERTIES_MAX)));
+}
+
+#[test]
+fn an_input_devices_sysfs_attributes_are_bounded() {
+    let read = |name: &str| match name {
+        "name" => Some("n".repeat(UDEV_PROPERTY_MAX)),
+        "uniq" => Some("u".repeat(UDEV_PROPERTY_MAX + 1)),
+        "id/vendor" => Some(String::from("2dc8")),
+        _ => None,
+    };
+    let kept = attributes(read);
+    assert_eq!(
+        kept.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["id/vendor", "name"]
+    );
+    assert_eq!(kept.get("name").map(String::len), Some(UDEV_PROPERTY_MAX));
 }

@@ -62,7 +62,10 @@ impl RawEvent {
 /// What a device reports (input.c:299-369).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Capabilities {
+    /// A key from Escape to Mute.
     pub(crate) keys: bool,
+    /// Any key, as udev's `key` class counts them.
+    pub(crate) any_key: bool,
     pub(crate) leds: bool,
     pub(crate) rel: bool,
     pub(crate) abs: bool,
@@ -91,6 +94,7 @@ impl Capabilities {
         let mut caps = Capabilities::default();
         if let Some(key) = &bits.key {
             caps.keys = (0..=KEY_MIN_INTERESTING).any(|k| bit_is_set(key, k));
+            caps.any_key = super::class::any_key(key);
             caps.mouse_button = bit_is_set(key, BTN_LEFT);
             caps.touch = bit_is_set(key, BTN_TOUCH);
         }
@@ -144,6 +148,9 @@ pub(crate) trait EventDevice {
 
     /// What it reports, from its bitmaps.
     fn bits(&self) -> io::Result<Bits>;
+
+    /// The vendor and product it reports.
+    fn id(&self) -> io::Result<(u16, u16)>;
 
     /// The range of its X and Y axes.
     fn abs_range(&self) -> io::Result<(Range, Range)>;
@@ -205,6 +212,11 @@ impl EventDevice for Evdev {
                 .then(|| ioctl::evdev_props(fd))
                 .transpose()?,
         })
+    }
+
+    fn id(&self) -> io::Result<(u16, u16)> {
+        let id = ioctl::evdev_id(self.fd.as_fd())?;
+        Ok((id.vendor, id.product))
     }
 
     fn abs_range(&self) -> io::Result<(Range, Range)> {

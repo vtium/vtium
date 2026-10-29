@@ -439,6 +439,12 @@ impl<C: Console> KernelVt<C> {
         })
     }
 
+    /// The VT is ours, not hung up, and on screen: when its switch keys
+    /// act (vt_real.c:491-502).
+    fn shown_and_ours(&self) -> bool {
+        self.state == State::Active && !self.hup && self.on_screen() == Some(true)
+    }
+
     fn hung_up(&self) -> io::Result<()> {
         if self.hup {
             Err(io::Error::from(rustix::io::Errno::PIPE))
@@ -568,7 +574,7 @@ impl<C: Console> Vt for KernelVt<C> {
         let Some(target) = switch_target(key) else {
             return false;
         };
-        if self.state != State::Active || self.hup || self.on_screen() != Some(true) {
+        if !self.shown_and_ours() {
             return false;
         }
         if target != self.num {
@@ -581,6 +587,12 @@ impl<C: Console> Vt for KernelVt<C> {
             }
         }
         true
+    }
+
+    /// `Ctrl+Alt+F<n>` or `XF86Switch_VT_<n>` for this VT, while it is ours
+    /// and shown, as the C reference ignored it (vt_real.c:505-516).
+    fn is_own_key(&self, key: &KeyEvent) -> bool {
+        switch_target(key) == Some(self.num) && self.shown_and_ours()
     }
 
     /// Graphics mode, `VT_PROCESS`, the keyboard off and the tty silent
@@ -771,7 +783,7 @@ impl<C: Console> Restore<C> {
 
 /// The VT a switch key names: Ctrl+Alt+F1 to F12, or XF86Switch_VT_1 to
 /// 12.
-fn switch_target(key: &KeyEvent) -> Option<u16> {
+pub(super) fn switch_target(key: &KeyEvent) -> Option<u16> {
     let sym = *key.keysyms.first()?;
     let ctrl_alt = key.mods.contains(Mods::CTRL) && key.mods.contains(Mods::ALT);
     let base = if ctrl_alt && (keysyms::KEY_F1..=keysyms::KEY_F12).contains(&sym) {
