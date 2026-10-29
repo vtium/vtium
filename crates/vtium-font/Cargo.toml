@@ -28,9 +28,6 @@ unscii = []
 # sets' among them, and gzipped PSF fonts (ADR-1200 D2); deflates the
 # chunks a set is written with
 miniz_oxide = "0.8.9"
-# opens the store's files relative to its directory with O_NOFOLLOW
-# (ADR-1200 D3); vtium-platform already links this version
-rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"] }
 
 [dev-dependencies]
 # the tests read the PSF fixtures with the features the console leaves out

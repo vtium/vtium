@@ -1,34 +1,33 @@
-//! `set NAME` (ADR-1200 D5): switches the running console among the built
-//! sets through xterm's font operation, OSC 50, on the controlling
-//! terminal.
+//! `set NAME` (ADR-1200 D5): switches the running console among the frits
+//! and the built-in fonts through xterm's font operation, OSC 50, on the
+//! controlling terminal.
 //!
-//! NAME is checked against `list` first, the store's sets and the
-//! built-ins, and the command fails naming `list` when it is not there.
-//! It then writes `OSC 50 ; NAME ST` and the query `OSC 50 ; ? ST` to
-//! `/dev/tty`, and reads the reply in raw mode for at most [`WAIT`],
-//! putting the terminal's mode back after. SIGTERM, SIGHUP, SIGINT and
-//! SIGQUIT are held while the terminal is raw, so one that comes then acts
-//! once the mode is back; input left unread, such as a reply that came
-//! late, is dropped first, so it never reaches the shell's prompt. It prints `set NAME` and exits
-//! 0 when the reply names NAME; otherwise it says what the console kept,
-//! or that no reply came: font operations are off (`allow-font-ops`), or
-//! the terminal is not vtium.
+//! NAME is checked first, as the console checks it: a built-in font, or a
+//! frit's name with `NAME.vtfrit` a regular file in the frits' directory;
+//! the command fails naming that file when it is neither. It then writes
+//! `OSC 50 ; NAME ST` and the query `OSC 50 ; ? ST` to `/dev/tty`, and
+//! reads the reply in raw mode for at most [`WAIT`], putting the
+//! terminal's mode back after. SIGTERM, SIGHUP, SIGINT and SIGQUIT are
+//! held while the terminal is raw, so one that comes then acts once the
+//! mode is back; input left unread, such as a reply that came late, is
+//! dropped first, so it never reaches the shell's prompt. It prints
+//! `set NAME` and exits 0 when the reply names NAME; otherwise it says
+//! what the console kept, or that no reply came: font operations are off
+//! (`allow-font-ops`), or the terminal is not vtium.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::fd::AsFd;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use rustix::process::geteuid;
 use rustix::termios::{
     OptionalActions, QueueSelector, SpecialCodeIndex, Termios, tcflush, tcgetattr, tcsetattr,
 };
-use vtium_font::set::{Store, builtin};
+use vtium_font::set::builtin;
 use vtium_platform::calloop::signals::{Signal, Signals};
 
-use crate::frit::RESERVED;
-use crate::store::{default_store, manifest};
+use crate::frit::{RESERVED, valid_name};
 
 /// How long the reply is waited for.
 pub const WAIT: Duration = Duration::from_secs(1);
@@ -39,7 +38,7 @@ const READ_MAX: usize = 4096;
 /// What the terminal answered the query.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Answer {
-    /// The set in use, as the reply names it.
+    /// The font in use, as the reply names it.
     Named(String),
     /// No reply within the wait.
     Silent,
@@ -129,53 +128,54 @@ impl Drop for Raw<'_> {
     }
 }
 
-/// Whether `name` is a set `list` gives: a built-in, or a row of the
-/// store at `store`, owned by `uid`; a store that does not exist holds
-/// none.
-fn listed(name: &str, store: &Path, uid: u32) -> Result<bool, String> {
-    if RESERVED.contains(&name) && builtin(name).is_some() {
-        return Ok(true);
-    }
-    if !store.exists() {
-        return Ok(false);
-    }
-    let store = Store::open(store, uid).map_err(|e| e.to_string())?;
-    let m = manifest(&store).map_err(|e| e.to_string())?;
-    Ok(m.row(name).is_some())
+/// The frits' directory, set at build time with `VTIUM_FONT_FRITS` as
+/// the console's is.
+pub fn default_frits() -> PathBuf {
+    PathBuf::from(option_env!("VTIUM_FONT_FRITS").unwrap_or("/etc/vtium/fonts"))
 }
 
-/// `set` with its words, the store `--store` named, if any, writing to
-/// `out` and `err`; returns the exit status.
+/// The frit file `name` names in `frits`, for a frit's name.
+fn frit_file(frits: &Path, name: &str) -> Option<PathBuf> {
+    valid_name(name).then(|| frits.join(format!("{name}.vtfrit")))
+}
+
+/// Whether the console takes `name`: a built-in font, or a frit's name
+/// whose file in `frits` is a regular file.
+fn known(name: &str, frits: &Path) -> bool {
+    (RESERVED.contains(&name) && builtin(name).is_some())
+        || frit_file(frits, name).is_some_and(|p| std::fs::metadata(p).is_ok_and(|m| m.is_file()))
+}
+
+/// `set` with its words, the frits' directory `--frits` named, if any,
+/// writing to `out` and `err`; returns the exit status.
 pub fn command(
     words: &[String],
-    store: Option<&Path>,
+    frits: Option<&Path>,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
     let [name] = words else {
         let _ = writeln!(
             err,
-            "vtium-vitrify: set takes one set's name\nTry vtium-vitrify --help."
+            "vtium-vitrify: set takes one frit's name\nTry vtium-vitrify --help."
         );
         return 2;
     };
-    let (path, uid) = match store {
-        Some(p) => (p.to_owned(), geteuid().as_raw()),
-        None => (default_store(), 0),
-    };
+    let frits = frits.map_or_else(default_frits, Path::to_owned);
     let fail = |err: &mut dyn Write, why: &str| {
         let _ = writeln!(err, "vtium-vitrify: {why}");
         1
     };
-    match listed(name, &path, uid) {
-        Ok(true) => {}
-        Ok(false) => {
-            return fail(
-                err,
-                &format!("no set is named {name}: vtium-vitrify list names the built sets"),
-            );
-        }
-        Err(why) => return fail(err, &why),
+    if !known(name, &frits) {
+        let file = frits.join(format!("{name}.vtfrit"));
+        return fail(
+            err,
+            &format!(
+                "no frit is named {name}: a frit is {}, and the built-in fonts are {}",
+                file.display(),
+                RESERVED.join(" and ")
+            ),
+        );
     }
     let tty = match OpenOptions::new().read(true).write(true).open("/dev/tty") {
         Ok(tty) => tty,
@@ -198,7 +198,7 @@ pub fn command(
         Ok(Answer::Named(n)) => {
             let _ = writeln!(
                 out,
-                "failed\t{name}\tthe console kept the set {n}; its log says why"
+                "failed\t{name}\tthe console kept the font {n}; its log says why"
             );
             1
         }

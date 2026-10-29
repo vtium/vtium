@@ -462,91 +462,70 @@ fn draw_config<F: Face>(
 mod tests {
     use super::*;
 
-    /// The set `vtium-vitrify create` built from a frit naming `font`,
-    /// then `fill`: its bytes. The font is parsed in this process, where
-    /// `create` parsed it in its child.
-    fn created(font: TestFont, fill: Option<&str>) -> Result<Vec<u8>, String> {
-        use vtium_font::Sha256;
-        use vtium_vitrify::build::{Font as Bitmap, Parsed, Part, assemble, build_key};
-        use vtium_vitrify::child::Request;
-        use vtium_vitrify::frit::Frit;
-        use vtium_vitrify::sources::{Input, Resolved};
-        let bytes = font.bytes()?;
-        let mut frit = format!("source=file:/usr/share/vtium-tests/{}\n", font.file());
-        if let Some(fill) = fill {
-            frit.push_str(&format!("source=builtin:{fill}\n"));
-        }
-        let name = font.file().trim_end_matches(".psf");
-        let frit = Frit::parse(frit.as_bytes(), std::path::Path::new("/tier2.vtfrit"), name)
-            .map_err(|e| e.to_string())?;
-        let mut fonts = vec![(
-            Bitmap::from_glyphs(vtium_vitrify::decode::font(&bytes, None, None)?),
-            Resolved {
-                input: Input::Font(Request {
-                    font: bytes.clone(),
-                    unimap: None,
-                    def_uni: None,
-                }),
-                sha256: Sha256::digest(&bytes),
-                unimap_sha256: None,
-                def_uni_sha256: None,
-            },
-        )];
-        if let Some(fill) = fill {
-            let font = Bitmap::from_builtin(fill)?;
-            let resolved = Resolved {
-                input: Input::Builtin(font.clone()),
-                sha256: font.digest(),
-                unimap_sha256: None,
-                def_uni_sha256: None,
-            };
-            fonts.push((font, resolved));
-        }
-        let read: Vec<Option<Resolved>> = fonts.iter().map(|(_, r)| Some(r.clone())).collect();
-        let parts: Vec<Part<'_>> = frit
-            .sources
-            .iter()
-            .zip(&fonts)
-            .map(|(source, (font, resolved))| Part {
-                source,
-                resolved,
-                parsed: Parsed::Bitmap(font.clone()),
-            })
-            .collect();
-        assemble(&frit, &parts, &[], &build_key(&frit, &read))
-    }
+    /// A glyph's size and pixels, for comparing.
+    type Drawn = (u32, u32, Vec<u8>);
 
-    /// Each character `set` maps at `cell`, with its glyph.
-    fn glyphs(set: Vec<u8>, cell: Cell) -> Vec<(char, Glyph)> {
-        let set = Arc::new(Set::from_bytes(set).unwrap());
-        let face = SetFace::new(set, cell.height).unwrap();
-        assert_eq!(face.cell(), cell);
-        (0..=0x10_ffff)
-            .filter_map(char::from_u32)
-            .filter(|&c| face.has_glyph(c))
-            .map(|c| (c, face.draw(&[c], FontStyle::default()).unwrap()))
-            .collect()
-    }
-
-    // ADR-1301 D2: the engine the helper runs draws a PSF test font, and
-    // the built-in after it, glyph for glyph as `create` built the set the
-    // small displays' vitrified goldens judge.
-    #[test]
-    fn a_psf_test_font_through_the_engine_draws_as_create_did() {
-        for (font, fill, cell) in [
-            (TestFont::Small8x8, "unscii-8", (8, 8)),
-            (TestFont::Small8x16, "unifont", (8, 16)),
-        ] {
-            let cell = Cell {
-                width: cell.0,
-                height: cell.1,
-            };
-            for fill in [None, Some(fill)] {
-                let created = glyphs(created(font, fill).unwrap(), cell);
-                let engine = glyphs(font.generate(fill).unwrap(), cell);
-                assert!(!created.is_empty());
-                assert!(created == engine, "{font:?} with {fill:?}");
+    /// `glyph`, drawn for a font of `from`'s cell, placed in `cell` as the
+    /// helper's engine places a bitmap source: scaled by the largest whole
+    /// factor that fits, centred across and on the cell's bottom rows.
+    fn placed(glyph: &Glyph, from: Cell, cell: Cell) -> Drawn {
+        let cells = glyph.width() / from.width;
+        let scale = (cell.width / from.width).min(cell.height / from.height);
+        let (w, h) = (cell.width * cells, cell.height);
+        let x0 = (w - glyph.width() * scale) / 2;
+        let y0 = h - glyph.height() * scale;
+        let mut px = vec![0u8; (w * h) as usize];
+        for y in 0..glyph.height() * scale {
+            for x in 0..glyph.width() * scale {
+                let src = ((y / scale) * glyph.width() + x / scale) as usize;
+                px[((y0 + y) * w + x0 + x) as usize] = glyph.pixels()[src];
             }
+        }
+        (w, h, px)
+    }
+
+    // ADR-1301 D2, ADR-1200 D1: the engine's glyphs for a PSF test font
+    // and a built-in after it are, codepoint by codepoint, the PSF's own
+    // glyph where the font has one, and otherwise the built-in's, placed
+    // on the cell's bottom rows. The oracle reads the PSF and the
+    // built-in set directly, apart from the engine.
+    #[test]
+    fn a_psf_test_font_with_a_fill_draws_the_font_then_the_built_in() {
+        for (font, fill) in [
+            (TestFont::Small8x8, "unscii-8"),
+            (TestFont::Small8x16, "unifont"),
+        ] {
+            let bytes = font.bytes().unwrap();
+            let psf = Psf::parse(&bytes).unwrap();
+            let cell = psf.cell();
+            let builtin = vtium_font::set::builtin(fill).unwrap();
+            let from = *builtin.cells().first().unwrap();
+            let fill_face = SetFace::new(builtin, from.height).unwrap();
+            let set = Arc::new(Set::from_bytes(font.generate(Some(fill)).unwrap()).unwrap());
+            let face = SetFace::new(set, cell.height).unwrap();
+            let (mut from_font, mut from_fill) = (0, 0);
+            for c in (0..=0x10_ffff).filter_map(char::from_u32) {
+                let want: Option<Drawn> = if let Some(i) = psf.glyph_index(c) {
+                    from_font += 1;
+                    let g = psf.render(i, FontStyle::default()).unwrap();
+                    Some((g.width(), g.height(), g.pixels().to_vec()))
+                } else if fill_face.has_glyph(c) {
+                    from_fill += 1;
+                    let g = fill_face.draw_unscaled(&[c], FontStyle::default()).unwrap();
+                    Some(placed(&g, from, cell))
+                } else {
+                    None
+                };
+                let got = face.has_glyph(c).then(|| {
+                    let g = face.draw_unscaled(&[c], FontStyle::default()).unwrap();
+                    (g.width(), g.height(), g.pixels().to_vec())
+                });
+                assert!(got == want, "{font:?} with {fill}: {c:?}");
+            }
+            assert!(
+                from_font > 0 && from_fill > 0,
+                "{font:?}: {from_font} {from_fill}"
+            );
         }
     }
 

@@ -17,7 +17,6 @@ use crate::set::format::{
     FORMAT_RGBA, GLYF, MAGIC, MAJOR, META, MINOR, POLY, PRELUDE_BYTES, RUN_RECORD, RUN_WIDE,
     SECTION_BYTES, SOURCE_AUTO, STRIKE_RECORD, STRK, glyph_bytes,
 };
-use crate::sha256::Sha256;
 use crate::sprite::spans;
 
 /// One strike as the writer takes it.
@@ -364,7 +363,6 @@ pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
         put32(&mut glyf, u32_of(c.stored.len())?);
         put32(&mut glyf, c.decoded);
         put32(&mut glyf, c.flags);
-        glyf.extend_from_slice(&Sha256::digest(&c.stored));
         at = at
             .checked_add(u64::try_from(c.stored.len()).map_err(|_| "a count past u64")?)
             .ok_or("a count past u64")?;

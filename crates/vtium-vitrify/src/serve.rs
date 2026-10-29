@@ -82,8 +82,8 @@ use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
 use vtium_font::{CELL_SIDE_MAX, Cell, Style, Width};
 use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, UniPair};
 
-use crate::build::Font;
 use crate::child::PARSER_MEMORY;
+use crate::font::Font;
 use crate::frit::{Cover, FRIT_BYTES_MAX, Frit, Source, valid_name};
 use crate::outline::{OutlineRequest, family_key, rasterise};
 use crate::sources::{Consoles, FONT_DIRS, Host, Input, KBD_DIRS, resolve};

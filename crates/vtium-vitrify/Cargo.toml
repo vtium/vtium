@@ -1,6 +1,6 @@
 [package]
 name = "vtium-vitrify"
-description = "Builds vitrified font sets for vtium from frits, and keeps the root-owned store"
+description = "Generates vtium's glyphs from frits at run time, and switches the console's frit"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,8 +12,8 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-# The set format, its writer and the store's check; the PSF reader; the
-# built-in sets a frit may name as sources. The PSF reader is behind
+# The glyph chunk format's writer; the PSF reader; the built-in fonts a
+# frit may name as sources. The PSF reader is behind
 # vtium-font's `psf` feature, which only this tool enables.
 vtium-font = { workspace = true, features = ["psf"] }
 # KDGETMODE, KDFONTOP and GIO_UNIMAP for the console: source (ADR-1200 D8).
@@ -21,7 +21,8 @@ vtium-platform.workspace = true
 # gzip's deflate, for compressed fonts and unimaps; vtium-font already
 # builds this version.
 miniz_oxide = "0.8.9"
-# The store's lock, the parser's no-new-privileges and limits, the
+# Opening a source without following a link, the parser's and the
+# helper's no-new-privileges and limits, the
 # effective uid, `set`'s raw mode, and the terminal's width for the
 # banner; vtium-platform already builds this version with these features.
 rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "process", "termios", "thread"] }

@@ -1,7 +1,7 @@
 //! The built-in sets (ADR-1200 D7): `unifont` and `unscii-8`, packed by
 //! `build.rs` and compiled into the binary, trusted by construction and
 //! never read from disk. Each is read once, the first time it is asked
-//! for, by the same reader as a set from the store.
+//! for, by the same reader as the helper's glyphs.
 
 use std::sync::{Arc, OnceLock};
 
@@ -45,7 +45,7 @@ pub(crate) fn unscii_8() -> Option<&'static Arc<Set>> {
     None
 }
 
-/// The built-in set named `name`, as the manifest and OSC 50 spell it:
+/// The built-in set named `name`, as a frit's `builtin:` and OSC 50 spell it:
 /// `unifont` or `unscii-8`. `None` for any other name, or one this build
 /// leaves out.
 pub fn builtin(name: &str) -> Option<Arc<Set>> {
