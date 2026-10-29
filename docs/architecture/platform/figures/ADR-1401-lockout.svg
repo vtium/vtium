@@ -70,6 +70,6 @@
 <text x="300" y="589" font-size="12">a guard or a notice</text>
 <rect x="470" y="576" width="22" height="16" fill="#e6eef7" stroke="#2f6fb0" stroke-dasharray="6 4"/>
 <text x="500" y="589" font-size="12">a head with no lit display</text>
-<text x="944" y="612" font-size="11" text-anchor="end">Proposed (ADR-1401, D9)</text>
+<text x="944" y="612" font-size="11" text-anchor="end">Not yet built (ADR-1401, D9)</text>
 </g>
 </svg>
