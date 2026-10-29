@@ -214,7 +214,7 @@ tier2: ## Draw tier 2's screens and judge them against their goldens
 
 # The demonstration set (vtium/vtium#142): the test card drawn for each
 # display profile into docs/specimens/, and judged against what is committed.
-# The outline profiles draw the set vtium-vitrify builds from the pinned fonts
+# The outline profiles draw the glyphs vtium-vitrify's engine generates from the pinned fonts
 # specimens-fonts fetches into $XDG_CACHE_HOME/vtium/specimens/fonts.
 .PHONY: specimens specimens-check specimens-fonts
 specimens: ## Draw the test card for each display profile into docs/specimens (REVIEW=DIR copies each collage there)
@@ -283,7 +283,7 @@ tier3: tier3-image ## Tier 3: build the install tree, then run every variant, or
 
 .PHONY: tier3-minimal
 tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: unifont, a PSF font, and the 320x240 and 640x480 displays
-	$(T3_RUN) --tree-target install-tree $(or $(VARIANTS),2d-potato-min 2d-potato-min-psf 2d-320x240-psf8 2d-640x480-psf16)
+	$(T3_RUN) --tree-target install-tree $(or $(VARIANTS),2d-potato-min 2d-potato-min-psf 2d-320x240-psf8 2d-640x480-psf16 2d-640x480-frit 2d-640x480-frit-held)
 
 # Each row of tools/tier3/provenance.tsv against its source in a kmscon
 # checkout, read with git; a review step when the copies change, never a gate.

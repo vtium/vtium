@@ -1,8 +1,7 @@
 #!/bin/sh
 # Per-run guest setup, run as root at boot from the T3PKG disc mounted at $1:
 # unpacks vtium's install tree (tree.tar) over the root, installs the
-# variant's config, its test fonts and the scenario screens, and builds its
-# font sets.
+# variant's config, its test fonts, its frits and the scenario screens.
 set -eu
 disc=$1
 tar -xpf "$disc"/tree.tar -C / --no-overwrite-dir --keep-directory-symlink
@@ -17,14 +16,22 @@ install -Dm644 "$disc"/kmscon.conf /etc/kmscon/kmscon.conf
 if [ -d "$disc"/fonts ]; then
     install -Dm644 -t /usr/local/share/tier3-fonts "$disc"/fonts/*
 fi
-# A variant drawing a PSF font draws the set built from it (ADR-1200 D9):
-# its frits are built into the store before the console starts, as a
-# package hook builds them, and each set's line goes to the serial console.
+# A variant drawing a PSF font installs its frits, whose glyphs the helper
+# generates at run time (ADR-1301 D2); nothing is built before the console
+# starts.
 if [ -d "$disc"/frits ]; then
     install -Dm644 -t /etc/vtium/fonts "$disc"/frits/*.vtfrit
-    for frit in "$disc"/frits/*.vtfrit; do
-        vtium-vitrify create "$(basename "$frit" .vtfrit)" > /dev/ttyS0
-    done
+fi
+# A variant whose font is a frit generated at run time installs it with no
+# set built (ADR-1301 D2). One that holds the helper replaces vtium-vitrify
+# with a program that never answers, so the screens show what the console
+# draws before any answer.
+if [ -d "$disc"/deferred-frits ]; then
+    install -Dm644 -t /etc/vtium/fonts "$disc"/deferred-frits/*.vtfrit
+fi
+if [ -f "$disc"/helper-held ]; then
+    printf '#!/bin/sh\nexec /usr/bin/sleep 3600\n' > /usr/bin/vtium-vitrify
+    chmod 755 /usr/bin/vtium-vitrify
 fi
 # The pointer variant's screens read the display's DRM atomic state as
 # tester (screens/pointer.sh), so debugfs is opened to them.

@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="610" viewBox="0 0 1040 610" font-family="DejaVu Sans, sans-serif">
+<title>The glyph pipeline: profile and frit, the cell, the built-in font's first frame, asks and the fill to the helper, the per-boot store, swap-in, damage and the frame</title>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#334155"/></marker>
+</defs>
+<rect width="1040" height="610" fill="#ffffff"/>
+<rect x="12" y="14" width="1016" height="318" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="28" y="38" font-size="14" font-weight="bold" fill="#1f2933">vtium, the console (root): reads the profile as text, parses no font</text>
+<rect x="222" y="392" width="806" height="204" rx="10" fill="#f5f3ff" stroke="#8b5cf6" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="1012" y="416" text-anchor="end" font-size="14" font-weight="bold" fill="#4c1d95">vtium-vitrify serve: sandboxed, never root</text>
+<g font-size="12.5" fill="#1f2933">
+<rect x="30" y="60" width="170" height="86" rx="6" fill="#fde68a" stroke="#b45309"/>
+<text x="115" y="82" text-anchor="middle" font-weight="bold" font-size="14">profile</text>
+<text x="115" y="101" text-anchor="middle">names a frit,</text>
+<text x="115" y="117" text-anchor="middle">states the cell</text>
+<text x="115" y="133" text-anchor="middle">and its options</text>
+<rect x="240" y="60" width="170" height="86" rx="6" fill="#bfdbfe" stroke="#1d4ed8"/>
+<text x="325" y="82" text-anchor="middle" font-weight="bold" font-size="14">the cell</text>
+<text x="325" y="101" text-anchor="middle">sizes the grid before</text>
+<text x="325" y="117" text-anchor="middle">the first frame; never</text>
+<text x="325" y="133" text-anchor="middle">moved by an arrival</text>
+<rect x="450" y="60" width="190" height="86" rx="6" fill="#bbf7d0" stroke="#15803d"/>
+<text x="545" y="82" text-anchor="middle" font-weight="bold" font-size="14">built-in font</text>
+<text x="545" y="101" text-anchor="middle">Unscii-8 under 16 px,</text>
+<text x="545" y="117" text-anchor="middle">unifont from 16 px;</text>
+<text x="545" y="133" text-anchor="middle">the per-character fallback</text>
+<rect x="840" y="60" width="170" height="86" rx="6" fill="#e2e8f0" stroke="#475569"/>
+<text x="925" y="82" text-anchor="middle" font-weight="bold" font-size="14">the frame</text>
+<text x="925" y="101" text-anchor="middle">one damage pass;</text>
+<text x="925" y="117" text-anchor="middle">only damaged cells</text>
+<text x="925" y="133" text-anchor="middle">are drawn</text>
+<rect x="240" y="196" width="170" height="104" rx="6" fill="#bfdbfe" stroke="#1d4ed8"/>
+<text x="325" y="218" text-anchor="middle" font-weight="bold" font-size="14">asks and the fill</text>
+<text x="325" y="237" text-anchor="middle">asks: what the screen</text>
+<text x="325" y="253" text-anchor="middle">shows, answered first;</text>
+<text x="325" y="269" text-anchor="middle">fill: the rest, in batches,</text>
+<text x="325" y="285" text-anchor="middle">an ask going first</text>
+<rect x="450" y="196" width="136" height="104" rx="6" fill="#e2e8f0" stroke="#475569"/>
+<text x="518" y="218" text-anchor="middle" font-weight="bold" font-size="14">check</text>
+<text x="518" y="237" text-anchor="middle">each frame</text>
+<text x="518" y="253" text-anchor="middle">bounded, at the</text>
+<text x="518" y="269" text-anchor="middle">cell asked, only</text>
+<text x="518" y="285" text-anchor="middle">what was asked</text>
+<rect x="618" y="196" width="186" height="104" rx="6" fill="#bbf7d0" stroke="#15803d"/>
+<text x="711" y="218" text-anchor="middle" font-weight="bold" font-size="14">per-boot store</text>
+<text x="711" y="237" text-anchor="middle">in memory, keyed by text,</text>
+<text x="711" y="253" text-anchor="middle">bold, italic, width at a cell;</text>
+<text x="711" y="269" text-anchor="middle">the fill stops at its limit;</text>
+<text x="711" y="285" text-anchor="middle">only an ask evicts</text>
+<rect x="840" y="196" width="170" height="104" rx="6" fill="#fed7aa" stroke="#c2410c"/>
+<text x="925" y="218" text-anchor="middle" font-weight="bold" font-size="14">swap-in = damage</text>
+<text x="925" y="237" text-anchor="middle">same path as program</text>
+<text x="925" y="253" text-anchor="middle">output; the cells each</text>
+<text x="925" y="269" text-anchor="middle">buffer shows with the</text>
+<text x="925" y="285" text-anchor="middle">arrived characters</text>
+<rect x="30" y="440" width="170" height="80" rx="6" fill="#fde68a" stroke="#b45309"/>
+<text x="115" y="462" text-anchor="middle" font-weight="bold" font-size="14">frit</text>
+<text x="115" y="481" text-anchor="middle">/etc/vtium/fonts/</text>
+<text x="115" y="497" text-anchor="middle">NAME.vtfrit: sources</text>
+<text x="115" y="513" text-anchor="middle">and options, by root</text>
+<rect x="240" y="440" width="564" height="140" rx="6" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="522" y="462" text-anchor="middle" font-weight="bold" font-size="14">the helper</text>
+<text x="522" y="484" text-anchor="middle">reads the frit and its fonts, shapes clusters (HarfRust), rasterises (swash)</text>
+<text x="522" y="503" text-anchor="middle">for the cell it is asked for, and sends glyph chunks</text>
+<text x="522" y="527" text-anchor="middle">starts on the first need, exits when idle, is not persisted</text>
+<text x="522" y="546" text-anchor="middle">restarted after a crash or its CPU limit, a bounded number of times a boot</text>
+<text x="522" y="565" text-anchor="middle">an answer of garbage gives the frit up for the boot; the built-in font draws on</text>
+</g>
+<g stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)">
+<line x1="200" y1="103" x2="238" y2="103"/>
+<line x1="410" y1="103" x2="448" y2="103"/>
+<line x1="640" y1="103" x2="838" y2="103"/>
+<line x1="115" y1="146" x2="115" y2="438"/>
+<line x1="200" y1="480" x2="238" y2="480"/>
+<line x1="325" y1="146" x2="325" y2="194"/>
+<line x1="325" y1="300" x2="325" y2="438"/>
+<line x1="518" y1="438" x2="518" y2="302"/>
+<line x1="586" y1="248" x2="616" y2="248"/>
+<line x1="804" y1="248" x2="838" y2="248"/>
+<line x1="925" y1="196" x2="925" y2="148"/>
+</g>
+<g font-size="12" fill="#334155">
+<text x="740" y="95" text-anchor="middle">the first frame, at once</text>
+<text x="123" y="290">names</text>
+<text x="333" y="176">glyphs for the cell</text>
+<text x="333" y="356">asks, fills</text>
+<text x="333" y="371">(a pipe)</text>
+<text x="526" y="356">glyph chunks</text>
+<text x="526" y="371">(a pipe)</text>
+<text x="933" y="176">next frame</text>
+</g>
+</svg>

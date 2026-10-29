@@ -3,7 +3,7 @@
 //!
 //! [`card`] writes the card's byte stream, [`profiles`] holds the display
 //! profiles and how each arrays the card, [`fonts`] pins the outline
-//! fonts and builds the desktop set, [`draw`] draws a profile's
+//! fonts and generates the desktop frit's glyphs, [`draw`] draws a profile's
 //! screens and its collage, [`png`] reads and writes them, [`docs`] lays
 //! out `docs/specimens/`, and [`check`] writes it or judges it.
 

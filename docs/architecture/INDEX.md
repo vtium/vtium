@@ -28,7 +28,7 @@ _Font loading, glyph rasterisation, color glyphs and fallback_
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [ADR-1200](./font/ADR-1200-fonts-reach-the-console-as-vitrified-sets-from-a-root-owned-store.md) | Fonts reach the console as vitrified sets from a root-owned store | accepted |
+| [ADR-1200](./font/ADR-1200-glyphs-are-generated-at-run-time-in-a-sandboxed-helper-from-a-profile-s-frit.md) | Glyphs are generated at run time in a sandboxed helper, from a profile's frit | accepted |
 
 ## Render
 _Cells and images to pixels - the renderer and its display interface_
@@ -36,7 +36,7 @@ _Cells and images to pixels - the renderer and its display interface_
 | ADR | Title | Status |
 |-----|-------|--------|
 | [ADR-1300](./render/ADR-1300-the-drawn-glyph-cache-and-frame-composition.md) | The drawn-glyph cache and frame composition | accepted |
-| [ADR-1301](./render/ADR-1301-one-glyph-engine-draws-for-the-display-s-capabilities-ahead-of-time-or-at-run-time.md) | One glyph engine draws for the display's capabilities, ahead of time or at run time | accepted |
+| [ADR-1301](./render/ADR-1301-one-glyph-engine-draws-at-run-time-for-the-display-s-capabilities.md) | One glyph engine draws at run time for the display's capabilities | accepted |
 
 ## Platform
 _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_
@@ -44,3 +44,4 @@ _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_
 | ADR | Title | Status |
 |-----|-------|--------|
 | [ADR-1400](./platform/ADR-1400-the-privilege-and-sandbox-model.md) | The privilege and sandbox model | accepted |
+| [ADR-1401](./platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) | Heads: a terminal per physical display, placed by a first-match ruleset | accepted |

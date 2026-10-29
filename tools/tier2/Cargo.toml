@@ -22,8 +22,8 @@ vtium-term.workspace = true
 # console leaves out
 vtium-font = { workspace = true, features = ["psf"] }
 vtium-render.workspace = true
-# vitrifies the test PSF fonts as `vtium-vitrify create` does, for the
-# screens drawn from sets
+# generates the test PSF fonts' glyphs through the engine the helper runs,
+# for the screens drawn from sets
 vtium-vitrify = { path = "../../crates/vtium-vitrify" }
 # the small displays' PSF fonts, built in memory
 vtium-testfont = { path = "../testfont" }

@@ -141,6 +141,8 @@ pub struct DrawState {
 pub struct Stats {
     /// Cells drawn.
     pub cells: u32,
+    /// Rows scanned for cells to draw.
+    pub rows: u32,
     /// Glyphs the font drew.
     pub misses: u32,
     /// Of those, the glyphs drawn without being cached.
@@ -378,6 +380,9 @@ pub struct Renderer<F> {
     /// drawn's palette; `None` follows the foreground.
     deco: (Option<Rgb>, Option<Rgb>),
     compose: Composer,
+    /// Characters the font draws differently since the last frame, sorted:
+    /// the cells showing one draw again ([`Renderer::glyphs_changed`]).
+    changed: Vec<char>,
 }
 
 /// The pointer's image for cells `cell_height` tall: the arrow, or the
@@ -407,6 +412,14 @@ fn span(width: Width, before: Option<Width>, next: impl FnOnce() -> Option<Width
         Width::Wide if next() == Some(Width::WideTail) => 2,
         _ => 1,
     }
+}
+
+/// `chars` sorted, each once.
+fn sorted(chars: &[char]) -> Vec<char> {
+    let mut out = chars.to_vec();
+    out.sort_unstable();
+    out.dedup();
+    out
 }
 
 /// The width of the cell after `col` in `row`, among the grid's `cols`.
@@ -487,7 +500,31 @@ impl<F: Face> Renderer<F> {
             pointer_line: Vec::new(),
             mono_line: Vec::new(),
             deco: (None, None),
+            changed: Vec::new(),
         }
+    }
+
+    /// The font now draws each of `chars` differently, as when the deferred
+    /// pipeline's generated glyphs arrive (ADR-1301 D2): the cache drops
+    /// the glyphs whose text holds one of `chars`, alone or in a cluster,
+    /// and the next frame draws again each cell that shows one (ADR-1200
+    /// D23). Every other glyph stays cached, and every other cell keeps its
+    /// pixels.
+    pub fn glyphs_changed(&mut self, chars: &[char]) {
+        let arrived = sorted(chars);
+        self.compose.cache.forget(&arrived);
+        self.changed.extend_from_slice(&arrived);
+        self.changed.sort_unstable();
+        self.changed.dedup();
+    }
+
+    /// The font now draws each of `chars` differently, and no cell shows
+    /// one: the cache drops the glyphs whose text holds one, alone or in a
+    /// cluster, so a cell that shows one later draws the font's new glyph
+    /// (ADR-1200 D7), and no cell draws again now. Every other glyph stays
+    /// cached.
+    pub fn forget_glyphs(&mut self, chars: &[char]) {
+        self.compose.cache.forget(&sorted(chars));
     }
 
     pub fn font(&self) -> &Font<F> {
@@ -608,7 +645,8 @@ impl<F: Face> Renderer<F> {
             let bg = mono::border(self.config.depth, state.background);
             self.fill_border(&grid, &mut out, bg, *r);
         }
-        let cells = self.draw_cells(&grid, frame, &mut out, state);
+        let (cells, rows) = self.draw_cells(&grid, frame, &mut out, state);
+        self.changed.clear();
         self.arrow = arrow;
         self.pointer_line = line;
         self.mono_line = mono_line;
@@ -628,6 +666,7 @@ impl<F: Face> Renderer<F> {
             damage,
             stats: Stats {
                 cells,
+                rows,
                 misses: counts.misses,
                 uncached: counts.uncached,
                 damage_px,
@@ -677,13 +716,15 @@ impl<F: Face> Renderer<F> {
         }
     }
 
+    /// Draws the cells this buffer lacks; returns how many, and how many
+    /// rows it scanned for them.
     fn draw_cells(
         &mut self,
         g: &Grid,
         frame: &Frame<'_>,
         target: &mut impl Target,
         state: &DrawState,
-    ) -> u32 {
+    ) -> (u32, u32) {
         let cursor = frame.cursor();
         let at = (cursor.visible && state.cursor_on).then(|| Self::cursor_cell(frame, &cursor));
         let blink_toggled = state.blink_hidden != self.blink_hidden;
@@ -698,18 +739,43 @@ impl<F: Face> Renderer<F> {
             plain: (self.config.depth == Depth::One)
                 .then(|| frame.clone().with_selection(Vec::new())),
         };
-        let mut drawn = 0u32;
+        let (mut drawn, mut scanned) = (0u32, 0u32);
         for row in 0..g.rows {
             let scan = self.cells.row_stale(row)
+                || self.row_shows_changed(frame, row, g.cols)
                 || blink_toggled
                 || frame.row_changed(row)
                 || at.is_some_and(|(_, r)| r == row)
                 || last_cursor.is_some_and(|(_, r)| r == row);
             if scan {
+                scanned = scanned.saturating_add(1);
                 drawn = drawn.saturating_add(self.draw_row(&pass, row, target));
             }
         }
-        drawn
+        (drawn, scanned)
+    }
+
+    /// Whether `row` shows a character [`Renderer::glyphs_changed`] named,
+    /// read from its line's glyphs alone.
+    fn row_shows_changed(&self, frame: &Frame<'_>, row: usize, cols: usize) -> bool {
+        !self.changed.is_empty()
+            && frame.line(row).is_some_and(|line| {
+                line.cells()
+                    .iter()
+                    .take(cols)
+                    .any(|&c| self.shows_changed(&line.glyph(c)))
+            })
+    }
+
+    /// Whether `glyph` shows a character [`Renderer::glyphs_changed`] named.
+    fn shows_changed(&self, glyph: &Glyph<'_>) -> bool {
+        let changed = |c: char| self.changed.binary_search(&c).is_ok();
+        match *glyph {
+            _ if self.changed.is_empty() => false,
+            Glyph::Empty => false,
+            Glyph::Char(c) => changed(c),
+            Glyph::Cluster(text) => text.chars().any(changed),
+        }
     }
 
     /// Scans one row, updates what each cell last drew, and draws the cells
@@ -725,7 +791,7 @@ impl<F: Face> Renderer<F> {
             before = Some(fc.width);
             // a cell that joins or leaves a wide pair draws differently
             let role = u8::try_from(ncells).unwrap_or(1);
-            let mut changed = fc.changed;
+            let mut changed = fc.changed || self.shows_changed(&fc.glyph);
             if let Some(s) = self.cells.get_mut(here, row) {
                 changed |= core::mem::replace(&mut s.span, role) != role;
             }

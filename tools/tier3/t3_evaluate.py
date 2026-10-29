@@ -124,11 +124,19 @@ NO_GOLDEN = {"vt-switch", *t3_power.CHECKS, *t3_pointer.CHECKS}
 DEPARTURES_FILE = os.path.join(HERE, "departures.tsv")
 
 
+def overlap(a, b):
+    """Whether rectangles `a` and `b`, each x0,y0,x1,y1 with the far edges
+    outside, share a pixel."""
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+
 def read_departures(path=DEPARTURES_FILE):
-    """departures.tsv as {case "VARIANT/SCREEN": {"readme", "title", "rects"}}:
-    the departure that explains the case's difference from its golden, and
-    the rectangles the difference must lie in. A malformed line, or a case
-    listed twice, is refused."""
+    """departures.tsv as {case "VARIANT/SCREEN": [{"readme", "title", "rects"}]}:
+    each departure that explains part of the case's difference from its
+    golden, in the file's order, and the rectangles its part must lie in. A
+    malformed line, a case listed twice under one departure, or a case under
+    two departures whose rectangles overlap, where one differing pixel would
+    show both, is refused."""
     out = {}
     with open(path) as f:
         for n, line in enumerate(f, 1):
@@ -149,9 +157,14 @@ def read_departures(path=DEPARTURES_FILE):
             for v in variants.split(","):
                 for s in screens.split(","):
                     case = "%s/%s" % (v, s)
-                    if case in out:
-                        raise SystemExit("%s: %s is listed twice" % (where, case))
-                    out[case] = {"readme": readme, "title": title, "rects": rects}
+                    listed = out.setdefault(case, [])
+                    if any(d["title"] == title for d in listed):
+                        raise SystemExit("%s: %s is listed twice under %r" % (where, case, title))
+                    for d in listed:
+                        if any(overlap(a, b) for a in rects for b in d["rects"]):
+                            raise SystemExit("%s: %s: a rectangle of %r overlaps one of %r"
+                                             % (where, case, title, d["title"]))
+                    listed.append({"readme": readme, "title": title, "rects": rects})
     return out
 
 
@@ -171,7 +184,7 @@ def check_departures(departures, cases_of):
     (`cases_of` gives each variant's cases), one without a golden of its own,
     or a departure its README does not list."""
     errors = []
-    for case, d in departures.items():
+    for case, d in ((c, d) for c, listed in departures.items() for d in listed):
         variant, _, screen = case.partition("/")
         if screen not in cases_of(variant):
             errors.append("departures.tsv lists %s, which no variant draws" % case)
@@ -373,9 +386,9 @@ def evaluate(variant, case, ppm, meta, log, golden_root=None):
         entry["thumb_diff"] = write_thumb(t3img.diff_thumbnail(img, points),
                                           stem + ".diff.thumb.png")
     entry["status"] = t3img.verdict(stats, tol)
-    departure = DEPARTURES.get(entry["name"])
-    if departure:
-        judge_departure(entry, departure, stats, points)
+    departures = DEPARTURES.get(entry["name"])
+    if departures:
+        judge_departure(entry, departures, stats, points)
     reviewed = "%s/%s" % (variant, SAME_AS.get(case, case))
     if golden_root and reviewed in PROVISIONAL:
         entry["note"] = ("provisional: not yet reviewed, so not judged; judged, it would be %s"
@@ -389,25 +402,30 @@ def evaluate(variant, case, ppm, meta, log, golden_root=None):
     return entry
 
 
-def judge_departure(entry, departure, stats, points):
-    """A listed case: "departure" when every differing pixel lies in the
-    departure's rectangles; a fail when one lies outside them, or when the
-    case no longer differs, so the line leaves with the difference."""
-    entry["departure"] = departure["title"]
+def judge_departure(entry, departures, stats, points):
+    """A listed case: "departure" when every differing pixel lies in its
+    departures' rectangles; a fail when one lies outside them all, or when
+    a departure shows no differing pixel in its own, so a line leaves with
+    its difference."""
+    titles = [d["title"] for d in departures]
+    entry["departure"] = "; ".join(titles)
     if "size_mismatch" in stats:
         return
-    if not points:
-        entry["status"] = "fail"
-        entry["error"] = ("listed under the departure %r, which it no longer shows"
-                          % departure["title"])
-        return
+    inside = lambda rects, x, y: any(x0 <= x < x1 and y0 <= y < y1
+                                     for x0, y0, x1, y1 in rects)
+    for d in departures:
+        if not any(inside(d["rects"], x, y) for x, y in points):
+            entry["status"] = "fail"
+            entry["error"] = ("listed under the departure %r, which it no longer shows"
+                              % d["title"])
+            return
     outside = sum(1 for x, y in points
-                  if not any(x0 <= x < x1 and y0 <= y < y1
-                             for x0, y0, x1, y1 in departure["rects"]))
+                  if not any(inside(d["rects"], x, y) for d in departures))
     if outside:
+        named = " and ".join(repr(t) for t in titles)
         entry["status"] = "fail"
-        entry["error"] = ("%d differing pixel(s) outside the rectangles of the departure %r"
-                          % (outside, departure["title"]))
+        entry["error"] = ("%d differing pixel(s) outside the rectangles of the departure%s %s"
+                          % (outside, "s" if len(titles) > 1 else "", named))
     else:
         entry["status"] = "departure"
 

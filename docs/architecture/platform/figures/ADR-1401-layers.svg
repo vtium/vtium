@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1136" height="848" viewBox="0 0 1136 848" font-family="DejaVu Sans Mono, monospace">
+<title>The layers of a vtium with heads: the kernel, logind and seats, vtium's ruleset and guards, heads, virtual consoles and sessions, with /etc/vtium, /run/vtium, vtium-vitrify and the glyph helper beside them</title>
+<defs>
+<marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
+</defs>
+<rect width="1136" height="848" fill="#ffffff"/>
+<g fill="#1f2933">
+<!-- 6: sessions -->
+<rect x="16" y="16" width="744" height="92" fill="#f8fafc" stroke="#9aa5b1"/>
+<text x="28" y="36" font-size="14" font-weight="bold">6  sessions</text>
+<rect x="36" y="46" width="344" height="50" fill="#e6eef7" stroke="#2f6fb0"/>
+<text x="208" y="66" font-size="13" text-anchor="middle">pty, screen, scrollback, grid</text>
+<text x="208" y="86" font-size="12" text-anchor="middle">held by vtium, as root</text>
+<rect x="396" y="46" width="348" height="50" fill="#fbecd0" stroke="#b45309"/>
+<text x="570" y="66" font-size="13" text-anchor="middle">login, then the shell and programs</text>
+<text x="570" y="86" font-size="12" text-anchor="middle">as the user who logged in</text>
+<!-- the vtium process outline -->
+<rect x="8" y="126" width="760" height="362" fill="none" stroke="#2f6fb0" stroke-width="2"/>
+<text x="760" y="119" font-size="11" text-anchor="end" fill="#2f6fb0">one vtium process, root: layers 3 to 5</text>
+<!-- 5: virtual consoles -->
+<rect x="16" y="132" width="744" height="68" fill="#e6eef7" stroke="#9aa5b1"/>
+<text x="28" y="152" font-size="14" font-weight="bold">5  virtual consoles, one shown per head</text>
+<rect x="36" y="160" width="344" height="32" fill="#ffffff" stroke="#9aa5b1"/>
+<text x="208" y="181" font-size="13" text-anchor="middle">desk: console 1</text>
+<rect x="396" y="160" width="348" height="32" fill="#ffffff" stroke="#9aa5b1"/>
+<text x="570" y="181" font-size="13" text-anchor="middle">panel: consoles 1 and 2</text>
+<!-- 4: heads -->
+<rect x="16" y="224" width="744" height="104" fill="#e6eef7" stroke="#9aa5b1"/>
+<text x="28" y="244" font-size="14" font-weight="bold">4  heads</text>
+<rect x="36" y="254" width="344" height="64" fill="#ffffff" stroke="#9aa5b1"/>
+<text x="208" y="272" font-size="13" text-anchor="middle" font-weight="bold">head desk</text>
+<text x="208" y="290" font-size="12" text-anchor="middle">DP-8 on card1; keyboard A, the mouse</text>
+<text x="208" y="308" font-size="12" text-anchor="middle">profile desk → its frit</text>
+<rect x="396" y="254" width="348" height="64" fill="#ffffff" stroke="#9aa5b1"/>
+<text x="570" y="272" font-size="13" text-anchor="middle" font-weight="bold">head panel</text>
+<text x="570" y="290" font-size="12" text-anchor="middle">HDMI-A-2 on card0; keyboard B</text>
+<text x="570" y="308" font-size="12" text-anchor="middle">profile small → its frit</text>
+<!-- 3: vtium -->
+<rect x="16" y="352" width="744" height="128" fill="#e6eef7" stroke="#9aa5b1"/>
+<text x="28" y="372" font-size="14" font-weight="bold">3  vtium: rules, guards, routing</text>
+<rect x="36" y="382" width="220" height="60" fill="#ffffff" stroke="#9aa5b1"/>
+<text x="146" y="400" font-size="13" text-anchor="middle" font-weight="bold">the ruleset</text>
+<text x="146" y="417" font-size="12" text-anchor="middle">each device walks it;</text>
+<text x="146" y="434" font-size="12" text-anchor="middle">the first match wins</text>
+<rect x="272" y="382" width="250" height="60" fill="#ffffff" stroke="#9aa5b1"/>
+<text x="397" y="400" font-size="13" text-anchor="middle" font-weight="bold">the guards</text>
+<text x="397" y="417" font-size="12" text-anchor="middle">never-zero display,</text>
+<text x="397" y="434" font-size="12" text-anchor="middle">anti-lockout, rescue key</text>
+<rect x="538" y="382" width="206" height="60" fill="#ffffff" stroke="#9aa5b1"/>
+<text x="641" y="400" font-size="13" text-anchor="middle" font-weight="bold">routing</text>
+<text x="641" y="417" font-size="12" text-anchor="middle">to a head,</text>
+<text x="641" y="434" font-size="12" text-anchor="middle">or to the focus</text>
+<text x="272" y="466" font-size="12">holds the VT and every card while shown</text>
+<!-- 2: logind and seats -->
+<rect x="16" y="504" width="744" height="76" fill="#e6eef7" stroke="#9aa5b1"/>
+<text x="28" y="524" font-size="14" font-weight="bold">2  logind and seats</text>
+<rect x="36" y="532" width="340" height="40" fill="#ffffff" stroke="#9aa5b1"/>
+<text x="206" y="557" font-size="13" text-anchor="middle">seat0: the kernel VT, both cards</text>
+<rect x="392" y="532" width="352" height="40" fill="#ffffff" stroke="#9aa5b1" stroke-dasharray="6 4"/>
+<text x="568" y="557" font-size="13" text-anchor="middle">extra seats: no VT (later)</text>
+<!-- 1: the kernel -->
+<rect x="16" y="604" width="744" height="164" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="28" y="624" font-size="14" font-weight="bold">1  the kernel</text>
+<rect x="36" y="634" width="220" height="58" fill="#ffffff" stroke="#9aa5b1"/>
+<text x="146" y="657" font-size="13" text-anchor="middle">card0, the integrated GPU</text>
+<text x="146" y="677" font-size="12" text-anchor="middle">connector HDMI-A-2</text>
+<rect x="272" y="634" width="220" height="58" fill="#ffffff" stroke="#9aa5b1"/>
+<text x="382" y="657" font-size="13" text-anchor="middle">card1, the discrete GPU</text>
+<text x="382" y="677" font-size="12" text-anchor="middle">DP-8; the boot card</text>
+<rect x="508" y="634" width="236" height="58" fill="#ffffff" stroke="#9aa5b1"/>
+<text x="626" y="657" font-size="13" text-anchor="middle">evdev devices</text>
+<text x="626" y="677" font-size="12" text-anchor="middle">keyboards, pointers, tokens</text>
+<rect x="36" y="704" width="708" height="48" fill="#ffffff" stroke="#9aa5b1"/>
+<text x="390" y="733" font-size="13" text-anchor="middle">the kernel's VTs: one set, one VT shown on every display</text>
+<!-- arrows up the stack -->
+<line x1="206" y1="634" x2="206" y2="575" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="626" y1="634" x2="360" y2="575" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="230" y1="532" x2="230" y2="445" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="256" y1="412" x2="270" y2="412" stroke="#1f2933" stroke-width="1.5"/>
+<line x1="522" y1="412" x2="536" y2="412" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="660" y1="382" x2="660" y2="321" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="580" y1="382" x2="300" y2="321" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="208" y1="254" x2="208" y2="195" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="570" y1="254" x2="570" y2="195" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="208" y1="160" x2="208" y2="99" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="440" y1="160" x2="440" y2="99" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<!-- beside the stack -->
+<g transform="translate(16,0)">
+<rect x="790" y="16" width="314" height="104" fill="#fbecd0" stroke="#b45309"/>
+<text x="947" y="38" font-size="14" text-anchor="middle" font-weight="bold">vtium-vitrify</text>
+<text x="947" y="58" font-size="12" text-anchor="middle">detect, setup, status, check</text>
+<text x="947" y="76" font-size="12" text-anchor="middle">install DIR: root, through sudo</text>
+<text x="947" y="94" font-size="12" text-anchor="middle">new, preview</text>
+<text x="947" y="112" font-size="11" text-anchor="middle">as the user</text>
+<rect x="790" y="148" width="180" height="80" fill="#e6eef7" stroke="#2f6fb0"/>
+<text x="880" y="168" font-size="13" text-anchor="middle" font-weight="bold">/run/vtium</text>
+<text x="880" y="186" font-size="11" text-anchor="middle">written by root</text>
+<text x="880" y="202" font-size="11" text-anchor="middle">state, read by all</text>
+<text x="880" y="218" font-size="11" text-anchor="middle">a staged trial</text>
+<rect x="984" y="148" width="120" height="80" fill="#fbecd0" stroke="#b45309"/>
+<text x="1044" y="168" font-size="13" text-anchor="middle" font-weight="bold">drafts</text>
+<text x="1044" y="186" font-size="11" text-anchor="middle">$XDG_STATE_HOME</text>
+<text x="1044" y="202" font-size="11" text-anchor="middle">/vtium/drafts</text>
+<text x="1044" y="218" font-size="11" text-anchor="middle">the user's</text>
+<line x1="880" y1="122" x2="880" y2="146" stroke="#1f2933" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<line x1="1044" y1="120" x2="1044" y2="146" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="790" y="248" width="314" height="70" fill="#f5f3ff" stroke="#8b5cf6" stroke-dasharray="6 4"/>
+<text x="947" y="268" font-size="13" text-anchor="middle" font-weight="bold">vtium-vitrify serve</text>
+<text x="947" y="288" font-size="12" text-anchor="middle">the glyph helper, as nobody</text>
+<text x="947" y="306" font-size="12" text-anchor="middle">generates the heads' frits</text>
+<rect x="790" y="352" width="314" height="100" fill="#e6eef7" stroke="#2f6fb0"/>
+<text x="947" y="372" font-size="13" text-anchor="middle" font-weight="bold">/etc/vtium</text>
+<text x="947" y="392" font-size="12" text-anchor="middle">heads.conf, the head file</text>
+<text x="947" y="410" font-size="12" text-anchor="middle">profiles and frits</text>
+<text x="947" y="428" font-size="12" text-anchor="middle">owned by root, writable by</text>
+<text x="947" y="444" font-size="12" text-anchor="middle">no one else</text>
+</g>
+<line x1="806" y1="170" x2="770" y2="170" stroke="#1f2933" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<line x1="806" y1="283" x2="770" y2="283" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="806" y1="402" x2="770" y2="402" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<!-- legend -->
+<text x="16" y="800" font-size="13" font-weight="bold">runs as</text>
+<rect x="96" y="788" width="22" height="16" fill="#e6eef7" stroke="#2f6fb0"/>
+<text x="126" y="801" font-size="12">root</text>
+<rect x="182" y="788" width="22" height="16" fill="#fbecd0" stroke="#b45309"/>
+<text x="212" y="801" font-size="12">the user</text>
+<rect x="300" y="788" width="22" height="16" fill="#f5f3ff" stroke="#8b5cf6" stroke-dasharray="4 3"/>
+<text x="330" y="801" font-size="12">nobody, sandboxed</text>
+<rect x="476" y="788" width="22" height="16" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="506" y="801" font-size="12">the kernel</text>
+<rect x="612" y="788" width="22" height="16" fill="#ffffff" stroke="#9aa5b1" stroke-dasharray="6 4"/>
+<text x="642" y="801" font-size="12">later, not built</text>
+<text x="16" y="830" font-size="12">Layers 3 to 5, the head file, /run/vtium and vtium-vitrify's configuration commands are proposed (ADR-1401).</text>
+</g>
+</svg>

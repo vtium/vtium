@@ -9,26 +9,27 @@
     clippy::unreachable,
     clippy::todo
 )]
-//! vtium-vitrify: builds vitrified font sets for vtium (ADR-1200).
+//! vtium-vitrify: generates vtium's glyphs from frits at run time
+//! (ADR-1200, ADR-1301 D2).
 //!
-//! A frit ([`frit`]) names a set's sources; [`sources`] finds and
-//! reads them as the invoking user; [`child`] parses each in an
-//! unprivileged child process with [`decode`]'s decoders and hands back
-//! the bounded [`glyphs`] form; [`build`] lays the glyphs into a set; and
-//! [`store`] writes it into the root-owned store under its lock, or
-//! `create --out` into a portable file. [`switch`] switches the running
-//! console among the built sets. [`cli`] is the command line, and
-//! [`banner`] the art it opens with at a terminal.
+//! A frit ([`frit`]) names its sources; [`sources`] finds and reads them;
+//! [`decode`]'s decoders parse a bitmap font into the bounded [`glyphs`]
+//! form, which [`font`] holds at its own cell, and [`outline`] rasterises
+//! an outline font. [`serve`] is the helper the console starts, which
+//! draws a frit's glyphs at a cell and sends them in the glyph chunk
+//! format; [`child`] parses in an unprivileged child process. [`switch`]
+//! switches the running console among the frits. [`cli`] is the command
+//! line, and [`banner`] the art it opens with at a terminal.
 
 pub mod banner;
-pub mod build;
 pub mod child;
 pub mod cli;
 pub mod decode;
+pub mod font;
 pub mod frit;
 pub mod glyphs;
 pub mod outline;
 pub mod resample;
+pub mod serve;
 pub mod sources;
-pub mod store;
 pub mod switch;

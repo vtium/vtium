@@ -3,6 +3,7 @@
 
 use std::io;
 use std::os::fd::OwnedFd;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use super::Mode;
@@ -24,6 +25,9 @@ pub(crate) struct Connector {
     pub(crate) kind_id: u32,
     pub(crate) connected: bool,
     pub(crate) modes: Vec<Mode>,
+    /// The physical size in millimetres, across and down, as the kernel
+    /// reads it from the EDID; 0 where it has none.
+    pub(crate) mm: (u32, u32),
     /// The encoder it is bound to, 0 for none.
     pub(crate) encoder: u32,
     pub(crate) encoders: Vec<u32>,
@@ -124,6 +128,12 @@ pub(crate) trait Kms {
     /// The levels of the 1-bit or gray panel the card drives, `None` for
     /// a color display ([`super::depth`]).
     fn levels(&self) -> Option<u8> {
+        None
+    }
+
+    /// The card's directory in sysfs, which holds a directory for each of
+    /// its connectors.
+    fn sysfs(&self) -> Option<PathBuf> {
         None
     }
 }

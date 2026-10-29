@@ -19,8 +19,7 @@
 //!          record size u32, then for each strike and each range:
 //!            covered u32, total u32
 //! GLYF     chunk count u32, record size u32, then each chunk:
-//!            offset u64, stored length u32, decoded length u32,
-//!            flags u32, SHA-256 [u8; 32]
+//!            offset u64, stored length u32, decoded length u32, flags u32
 //!          then the chunks' bytes
 //! ```
 //!
@@ -37,8 +36,10 @@
 
 /// The file's first eight bytes.
 pub(crate) const MAGIC: [u8; 8] = *b"VTGLASS\0";
-/// The format's major version: a reader refuses any other.
-pub(crate) const MAJOR: u16 = 1;
+/// The format's major version: a reader refuses any other. Version 2
+/// dropped the chunk record's SHA-256: the format is the helper's wire
+/// format, written to no file (ADR-1200 D2).
+pub(crate) const MAJOR: u16 = 2;
 /// The format's minor version: a reader takes any.
 pub(crate) const MINOR: u16 = 0;
 
@@ -59,7 +60,7 @@ pub(crate) const STRIKE_RECORD: u32 = 24;
 pub(crate) const RUN_RECORD: u32 = 16;
 /// Six ranges' covered and total counts.
 pub(crate) const COVERAGE_RECORD: u32 = 48;
-pub(crate) const CHUNK_RECORD: u32 = 52;
+pub(crate) const CHUNK_RECORD: u32 = 20;
 
 /// A run's flag: its glyphs are two cells wide.
 pub(crate) const RUN_WIDE: u32 = 1;

@@ -4,7 +4,7 @@
 //! them once.
 //!
 //! It shows only when stdin and stdout are both terminals, and never with
-//! [`OFF`], `--json`, `--version`, a non-empty `NO_COLOR`, a dpkg
+//! [`OFF`], `--version`, a non-empty `NO_COLOR`, a dpkg
 //! maintainer script's environment, a Chinese, Japanese or Korean locale,
 //! or a `TERM` that is unset, `dumb`, a monochrome VT or a terminfo name's
 //! monochrome form (`-m`, `-mono`). It follows the color depth the environment reports
@@ -22,7 +22,7 @@ use std::io::{IsTerminal, Write};
 pub const OFF: &str = "--no-banner";
 
 /// Arguments whose output a script reads; the banner never precedes it.
-const MACHINE: [&str; 2] = ["--json", "--version"];
+const MACHINE: [&str; 1] = ["--version"];
 
 /// The colors the terminal reports it draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -923,7 +923,7 @@ mod tests {
     #[test]
     fn shows_at_an_interactive_terminal() {
         assert_eq!(
-            plan_for(&["list"], TTY, &[("TERM", "xterm-256color")]),
+            plan_for(&["set", "x"], TTY, &[("TERM", "xterm-256color")]),
             Some(Plan {
                 depth: Depth::Indexed256,
                 form: Form::Wide,
@@ -940,7 +940,7 @@ mod tests {
                 stdout,
                 columns: Some(80),
             };
-            assert_eq!(plan_for(&["list"], t, &vars), None, "{stdin} {stdout}");
+            assert_eq!(plan_for(&["set", "x"], t, &vars), None, "{stdin} {stdout}");
         }
     }
 
@@ -948,15 +948,14 @@ mod tests {
     fn hidden_by_the_flag_and_machine_readable_output() {
         let vars = [("TERM", "xterm-256color")];
         for words in [
-            &["--no-banner", "list"][..],
-            &["list", "--json"],
+            &["--no-banner", "set", "x"][..],
             &["--version"],
-            &["create", "--no-banner", "x"],
+            &["set", "--no-banner", "x"],
         ] {
             assert_eq!(plan_for(words, TTY, &vars), None, "{words:?}");
         }
         // After `--` they are words, not options.
-        assert!(plan_for(&["remove", "--", "--json"], TTY, &vars).is_some());
+        assert!(plan_for(&["set", "--", "--version"], TTY, &vars).is_some());
     }
 
     #[test]
@@ -974,7 +973,7 @@ mod tests {
             ("TERM", "xterm-256color"),
             ("DPKG_MAINTSCRIPT_NAME", "postinst"),
         ];
-        assert_eq!(plan_for(&["create", "--all"], TTY, &vars), None);
+        assert_eq!(plan_for(&["set", "x"], TTY, &vars), None);
     }
 
     #[test]

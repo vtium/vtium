@@ -15,3 +15,7 @@ sysvinit-two-vts/cjk	the recaptured 2d-640x480-psf16 golden of the same screen, 
 2d-640x480-psf16/strike	vtium/vtium#126: recaptured from the set of the 8x16 test font with unifont after it, which draws the characters the font lacks; awaits the operator's review
 2d-640x480-psf16/wide-margin	vtium/vtium#126: recaptured from the set of the 8x16 test font with unifont after it, which draws the characters the font lacks; awaits the operator's review
 2d-640x480-psf16/cjk	vtium/vtium#126: recaptured from the set of the 8x16 test font with unifont after it, which draws the characters the font lacks; awaits the operator's review
+2d-640x480-frit/small-console	vtium/vtium#145: vtium's capture of the frit dejavu-mono once the helper's glyphs have arrived, DejaVu Sans Mono on unifont's 8x16 cells; not yet reviewed
+2d-640x480-frit/cjk	vtium/vtium#145: the cjk screen in the frit dejavu-mono, its Latin in DejaVu Sans Mono and its CJK, which the font lacks, in the built-in unifont (vtium/vtium#141); not yet reviewed
+2d-640x480-frit-held/small-console	vtium/vtium#145: the frit dejavu-mono with a helper that never answers, the screen before the helper's first answer, drawn in the built-in unifont; not yet reviewed
+2d-640x480-frit-held/cjk	vtium/vtium#145: the cjk screen with a helper that never answers, in the built-in unifont; not yet reviewed
