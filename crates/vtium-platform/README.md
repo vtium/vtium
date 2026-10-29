@@ -16,7 +16,8 @@ vtium's platform layer: everything that touches the kernel and the session. This
 | `src/display/density.rs` | `Density`: a display's dots per inch from its mode and the physical size its device reports, measured or assumed, and the bounds it is believed within. |
 | `src/display/edid.rs` | A connector's EDID in sysfs, its base block read once for the physical size and for the monitor it names, `EdidId`. |
 | `src/display/depth.rs` | The DRM drivers of 1-bit and gray panels, each with its source and its panel's levels. |
-| `src/display/drm2d.rs` | `Drm2d`: a card's displays and their identities, the hotplug scan, the connectors left dark, modesets, swaps, the cursor, DPMS, sleep and wake-up. |
+| `src/display/drm2d.rs` | `Drm2d`: a card's displays and their identities, the hotplug scan, modesets, swaps, the cursor, DPMS, sleep and wake-up. |
+| `src/display/drm2d/dark.rs` | The connectors left dark: each set off where another master left it on a CRTC, through the atomic modeset or the legacy calls. |
 | `src/display/drm2d/output.rs` | One display on a card: its CRTC and planes, buffers and cursor, and the atomic state a commit sets for it. |
 | `src/display/drm2d/source.rs` | drm2d in the loop: the card's descriptor, the flip-wait bound and the wake-up retries as sources. |
 | `src/display/drm2d/tests.rs` | drm2d against the stand-in card: modesets and hotplugs, the clips and cursor commits of a frame sequence, the frame contract, failed swaps, the waits on a pending flip and a lost flip event, DPMS, a monitor's power cycle, the wake-up retries, the displays left dark, each display's identity, and the same through a real loop. |

@@ -9,6 +9,7 @@
 //! any other device, a device with universal planes and no atomic commits
 //! among them, uses the legacy calls and presents whole frames.
 
+mod dark;
 mod output;
 
 pub use output::CURSOR_MAX;
@@ -31,6 +32,7 @@ use super::{
     Ages, Canvas, Damage, DarkPolicy, Density, DisplayId, Dpms, Event, Identity, Rect, SwapError,
     Swapped,
 };
+use dark::Dark;
 use output::{
     ARGB8888, Buffer, Cursor, Output, PLANE_CURSOR, PLANE_OVERLAY, PLANE_PRIMARY, Planes, Props,
     XRGB8888, clip_bytes, connector_name, dpms_value, invalid, mode_bytes, value,
@@ -68,15 +70,6 @@ struct Found {
     /// one, either read as on where the property is missing.
     visible: bool,
     edid: Option<Edid>,
-}
-
-/// A connected connector the policy leaves dark.
-#[derive(Debug)]
-struct Dark {
-    id: u32,
-    identity: Identity,
-    /// Seen by the scan in progress.
-    available: bool,
 }
 
 /// An operation that waits until no page flip is in flight.
@@ -1304,138 +1297,6 @@ impl<K: Kms> Drm2d<K> {
                 if let Err(e) = cleared {
                     log::warn!("cannot hide plane {plane}: {e}");
                 }
-            }
-        }
-    }
-
-    /// The CRTC dark connector `d` is on, as another master left it.
-    fn dark_crtc(&self, d: &Dark) -> Option<u32> {
-        self.connector_crtc(d.id)
-    }
-
-    /// The CRTC connector `id` is on, as the kernel reports it.
-    fn connector_crtc(&self, id: u32) -> Option<u32> {
-        let conn = self
-            .card
-            .connector(id)
-            .inspect_err(|e| log::debug!("connector {id} is gone: {e}"))
-            .ok()?;
-        let crtc = (conn.encoder != 0)
-            .then(|| self.encoder(conn.encoder))
-            .flatten()?
-            .crtc;
-        (crtc != 0).then_some(crtc)
-    }
-
-    /// Adds to `req` what sets each dark connector off where another
-    /// master left it on a CRTC, and returns the CRTCs it turns off, whose
-    /// planes [`Self::clear_planes`] takes down and every connector on
-    /// which, one vtium neither binds nor darkens included, leaves it, as
-    /// the kernel turns off only a CRTC no connector is on
-    /// (`drm_atomic_helper_check_modeset`). A CRTC a display takes only
-    /// loses the connector; one that is not active shows nothing and stays
-    /// out of the commit, which asks no flip event of it
-    /// (`drm_atomic_crtc_check`).
-    fn prepare_dark(&self, req: &mut Request) -> Vec<u32> {
-        let mut off = Vec::new();
-        for d in &self.dark {
-            let Some(crtc) = self.dark_crtc(d) else {
-                continue;
-            };
-            let name = &d.identity.connector;
-            let taken = self.outputs.iter().any(|o| o.crtc == crtc);
-            let crtc_props = if taken || off.contains(&crtc) {
-                None
-            } else {
-                match self.card.properties(crtc, Object::Crtc) {
-                    Ok(props) if value(&props, "ACTIVE") == Some(0) => continue,
-                    Ok(props) => Some(props),
-                    Err(e) => {
-                        log::warn!(
-                            "cannot set {name} off: cannot read the properties of CRTC {crtc}: {e}"
-                        );
-                        continue;
-                    }
-                }
-            };
-            // Each part goes in whole, or not at all.
-            let mut part = Request::default();
-            let set = self.unbind(&mut part, d.id).and_then(|()| {
-                let Some(props) = &crtc_props else {
-                    return Ok(());
-                };
-                let props = Props::new(props);
-                props.set(&mut part, crtc, "MODE_ID", 0)?;
-                props.set(&mut part, crtc, "ACTIVE", 0)?;
-                for other in self.card.resources()?.connectors {
-                    if other != d.id && self.connector_crtc(other) == Some(crtc) {
-                        self.unbind(&mut part, other)?;
-                    }
-                }
-                Ok(())
-            });
-            match set {
-                Ok(()) => {
-                    req.entries.extend(part.entries);
-                    if crtc_props.is_some() {
-                        off.push(crtc);
-                    }
-                }
-                Err(e) => log::warn!("cannot set {name} off: {e}"),
-            }
-        }
-        off
-    }
-
-    /// Adds to `part` what takes connector `id` off its CRTC.
-    fn unbind(&self, part: &mut Request, id: u32) -> io::Result<()> {
-        let props = self.card.properties(id, Object::Connector)?;
-        Props::new(&props).set(part, id, "CRTC_ID", 0)
-    }
-
-    /// Sets the dark connectors off while no display is online, taking
-    /// DRM master for it.
-    fn darken(&mut self) {
-        if !self.master {
-            if let Err(e) = self.card.set_master() {
-                log::warn!("cannot take DRM master to set the dark displays off: {e}");
-                return;
-            }
-            self.master = true;
-        }
-        if self.legacy {
-            self.legacy_dark();
-            return;
-        }
-        let mut req = Request::default();
-        let off = self.prepare_dark(&mut req);
-        if req.entries.is_empty() {
-            return;
-        }
-        self.clear_planes(&mut req, &off);
-        let flags = DRM_MODE_ATOMIC_ALLOW_MODESET | DRM_MODE_ATOMIC_NONBLOCK;
-        if let Err(e) = self.card.commit(&req, flags) {
-            log::warn!("cannot set the dark displays off: {e}");
-        }
-    }
-
-    /// The legacy calls' [`Self::prepare_dark`]: turns off each CRTC a
-    /// dark connector is on that no display takes and that shows a mode.
-    fn legacy_dark(&self) {
-        let mut off = Vec::new();
-        for d in &self.dark {
-            let Some(crtc) = self.dark_crtc(d) else {
-                continue;
-            };
-            if off.contains(&crtc)
-                || self.outputs.iter().any(|o| o.crtc == crtc)
-                || !matches!(self.card.crtc_mode(crtc), Ok(Some(_)))
-            {
-                continue;
-            }
-            match self.card.disable_crtc(crtc) {
-                Ok(()) => off.push(crtc),
-                Err(e) => log::warn!("cannot set {} off: {e}", d.identity.connector),
             }
         }
     }
