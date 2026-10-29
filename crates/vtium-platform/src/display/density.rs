@@ -1,12 +1,9 @@
 //! A display's pixel density, from the physical size its device reports:
 //! a DRM connector's `mm_width` and `mm_height`, which the kernel takes
 //! from the EDID, or where those are 0 the size the connector's EDID in
-//! sysfs states (ADR-1301 D3), or fbdev's `width` and `height` in
-//! millimetres. The console converts point sizes to pixels with it:
+//! sysfs states ([`super::edid`], ADR-1301 D3), or fbdev's `width` and
+//! `height` in millimetres. The console converts point sizes to pixels with it:
 //! pixels = points × DPI ÷ 72 (the operator's decision on vtium/vtium#145).
-
-use std::io::Read;
-use std::path::Path;
 
 /// The density of a display with no physical size, or with one that gives
 /// a density out of bounds: a desktop monitor's.
@@ -24,54 +21,6 @@ pub const DPI_MAX: f64 = 1000.0;
 /// An inch in tenths of a millimetre, so the bounds' own figures divide
 /// exactly.
 const INCH_IN_TENTH_MM: f64 = 254.0;
-
-/// The bytes of an EDID's base block, the most read of one.
-const EDID_BASE: usize = 128;
-
-/// The eight bytes every EDID starts with.
-const EDID_HEADER: [u8; 8] = [0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0];
-
-/// The physical size in millimetres, across and down, an EDID's base
-/// block states: its image size in centimetres, bytes 21 and 22. `None`
-/// for bytes that are no EDID or whose base block's checksum fails, and
-/// for a side of 0, as EDID 1.4 states an aspect ratio with no size.
-pub(crate) fn edid_mm(edid: &[u8]) -> Option<(u32, u32)> {
-    let base = edid.get(..EDID_BASE)?;
-    if base.get(..EDID_HEADER.len())? != EDID_HEADER
-        || base.iter().fold(0u8, |sum, &b| sum.wrapping_add(b)) != 0
-    {
-        return None;
-    }
-    let (&w, &h) = (base.get(21)?, base.get(22)?);
-    (w != 0 && h != 0).then(|| {
-        (
-            u32::from(w).saturating_mul(10),
-            u32::from(h).saturating_mul(10),
-        )
-    })
-}
-
-/// The physical size the EDID of connector `name` (`HDMI-A-1`) states,
-/// read from `card`, the card's directory in sysfs, where the kernel keeps
-/// it as `card<N>-<name>/edid`; `None` where there is none to read.
-pub(crate) fn sysfs_mm(card: &Path, name: &str) -> Option<(u32, u32)> {
-    let suffix = format!("-{name}");
-    let mut dirs: Vec<String> = std::fs::read_dir(card)
-        .ok()?
-        .filter_map(Result::ok)
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|d| {
-            d.strip_prefix("card")
-                .and_then(|d| d.strip_suffix(&suffix))
-                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-        })
-        .collect();
-    dirs.sort();
-    let file = std::fs::File::open(card.join(dirs.first()?).join("edid")).ok()?;
-    let mut edid = Vec::with_capacity(EDID_BASE);
-    file.take(EDID_BASE as u64).read_to_end(&mut edid).ok()?;
-    edid_mm(&edid)
-}
 
 /// A display's density in dots per inch, across and down, and whether the
 /// device measured it or vtium assumed [`DPI_ASSUMED`].
@@ -120,11 +69,6 @@ impl Density {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::indexing_slicing,
-    clippy::unwrap_used,
-    reason = "a test fails by panicking"
-)]
 mod tests {
     use super::*;
 
@@ -167,86 +111,6 @@ mod tests {
         for mm in [(1, 1), (20_000, 11_250), (597, 1), (u32::MAX, u32::MAX)] {
             assert_eq!(Density::of((1920, 1080), mm), Density::ASSUMED, "{mm:?}");
         }
-    }
-
-    /// A base block stating `cm`, its checksum made good.
-    fn edid(cm: (u8, u8)) -> Vec<u8> {
-        let mut b = vec![0u8; EDID_BASE];
-        b[..8].copy_from_slice(&EDID_HEADER);
-        b[18] = 1;
-        b[19] = 4;
-        (b[21], b[22]) = cm;
-        let sum = b.iter().fold(0u8, |s, &x| s.wrapping_add(x));
-        b[127] = 0u8.wrapping_sub(sum);
-        b
-    }
-
-    #[test]
-    fn an_edid_states_its_image_size_in_centimetres() {
-        // a 27-inch monitor's, 60 by 34 cm; a base block with an extension
-        // after it reads the same
-        assert_eq!(edid_mm(&edid((60, 34))), Some((600, 340)));
-        let mut extended = edid((60, 34));
-        extended.extend([0x02; 128]);
-        assert_eq!(edid_mm(&extended), Some((600, 340)));
-    }
-
-    #[test]
-    fn an_edid_with_no_size_or_no_edid_states_none() {
-        // no size, an aspect ratio alone, a block cut short, a bad header
-        // and a bad checksum
-        let mut header = edid((60, 34));
-        header[0] = 1;
-        header[127] = header[127].wrapping_sub(1);
-        let mut sum = edid((60, 34));
-        sum[127] ^= 1;
-        for (why, b) in [
-            ("none", edid((0, 0))),
-            ("ratio", edid((0, 79))),
-            ("short", edid((60, 34))[..127].to_vec()),
-            ("header", header),
-            ("checksum", sum),
-        ] {
-            assert_eq!(edid_mm(&b), None, "{why}");
-        }
-    }
-
-    /// A stand-in card directory in sysfs for `test`, holding `edids` by
-    /// connector directory.
-    fn sysfs(test: &str, edids: &[(&str, Vec<u8>)]) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("vtium-edid-{test}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        for (conn, bytes) in edids {
-            std::fs::create_dir_all(dir.join(conn)).unwrap();
-            std::fs::write(dir.join(conn).join("edid"), bytes).unwrap();
-        }
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    #[test]
-    fn a_connectors_edid_is_read_from_its_cards_directory_in_sysfs() {
-        let dir = sysfs(
-            "read",
-            &[
-                ("card0-HDMI-A-1", edid((60, 34))),
-                ("card0-HDMI-A-11", edid((30, 17))),
-                ("card0-DP-1", Vec::new()),
-            ],
-        );
-        let read = |name| sysfs_mm(&dir, name);
-        let (hdmi, hdmi11, dp, gone) = (
-            read("HDMI-A-1"),
-            read("HDMI-A-11"),
-            read("DP-1"),
-            read("eDP-1"),
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(hdmi, Some((600, 340)));
-        assert_eq!(hdmi11, Some((300, 170)));
-        // an empty edid file, as a connector with no EDID has, and none
-        assert_eq!((dp, gone), (None, None));
-        assert_eq!(sysfs_mm(Path::new("/nonexistent/vtium"), "HDMI-A-1"), None);
     }
 
     #[test]

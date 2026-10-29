@@ -9,6 +9,7 @@
 //! any other device, a device with universal planes and no atomic commits
 //! among them, uses the legacy calls and presents whole frames.
 
+mod dark;
 mod output;
 
 pub use output::CURSOR_MAX;
@@ -24,9 +25,14 @@ use drm_ffi::{
 };
 use rustix::io::Errno;
 
-use super::kms::{Connector, Encoder, Kms, Object, Request, Resources};
+use super::edid::Edid;
+use super::kms::{Connector, Encoder, Kms, Object, Property, Request, Resources};
 use super::mode::{self, Mode, ModePolicy};
-use super::{Ages, Canvas, Damage, Density, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
+use super::{
+    Ages, Canvas, Damage, DarkPolicy, Density, DisplayId, Dpms, Event, Identity, Rect, SwapError,
+    Swapped,
+};
+use dark::Dark;
 use output::{
     ARGB8888, Buffer, Cursor, Output, PLANE_CURSOR, PLANE_OVERLAY, PLANE_PRIMARY, Planes, Props,
     XRGB8888, clip_bytes, connector_name, dpms_value, invalid, mode_bytes, value,
@@ -40,17 +46,30 @@ fn errno(e: &io::Error) -> Option<Errno> {
 /// The physical size of connector `name`, `mm` as the connector reports
 /// it, or where it reports a side of 0, the size its EDID in sysfs states
 /// (ADR-1301 D3); `mm` where that states none either.
-fn physical_size(card: &impl Kms, name: &str, mm: (u32, u32)) -> (u32, u32) {
+fn physical_size(name: &str, mm: (u32, u32), edid: Option<&Edid>) -> (u32, u32) {
     if mm.0 != 0 && mm.1 != 0 {
         return mm;
     }
-    let edid = card
-        .sysfs()
-        .and_then(|dir| super::density::sysfs_mm(&dir, name));
+    let edid = edid.and_then(|e| e.mm);
     if let Some((w, h)) = edid {
         log::info!("display {name} reports no physical size: its EDID in sysfs states {w}x{h} mm");
     }
     edid.unwrap_or(mm)
+}
+
+/// A connected connector as a scan finds it: its name, the encoder it is
+/// on and the mode that encoder's CRTC shows, its properties, and its EDID
+/// in sysfs, read once for its identity and its physical size.
+struct Found {
+    name: String,
+    current: Option<Encoder>,
+    shown: Option<Mode>,
+    props: Vec<Property>,
+    /// The connector is visible: its CRTC shows a mode and is on, by
+    /// `ACTIVE` on an atomic card and by the connector's DPMS on a legacy
+    /// one, either read as on where the property is missing.
+    visible: bool,
+    edid: Option<Edid>,
 }
 
 /// An operation that waits until no page flip is in flight.
@@ -91,7 +110,21 @@ pub struct Drm2d<K: Kms> {
     foreground: bool,
     awake: bool,
     policy: ModePolicy,
+    /// udev's `ID_PATH` of the card, for each display's identity.
+    card_path: Option<String>,
+    dark_policy: Option<Box<DarkPolicy>>,
+    /// The card has been scanned once: a connector lit from then on was
+    /// not lit at start.
+    scanned: bool,
     outputs: Vec<Output<K::Map>>,
+    /// The identity of each display bound.
+    identities: Vec<(DisplayId, Identity)>,
+    /// The connected connectors the policy leaves dark, in the card's
+    /// connector order.
+    dark: Vec<Dark>,
+    /// A modeset could not set the dark connectors off beside the lit
+    /// displays, and that was logged as a warning.
+    dark_refused: bool,
     waiting: Option<Waiting>,
     /// A flip's event was lost, and that was logged as a warning.
     lost_flip: bool,
@@ -148,7 +181,13 @@ impl<K: Kms> Drm2d<K> {
             foreground: false,
             awake: false,
             policy,
+            card_path: None,
+            dark_policy: None,
+            scanned: false,
             outputs: Vec::new(),
+            identities: Vec::new(),
+            dark: Vec::new(),
+            dark_refused: false,
             waiting: None,
             lost_flip: false,
             blanked: false,
@@ -160,6 +199,32 @@ impl<K: Kms> Drm2d<K> {
             timers: Timers::default(),
             link: None,
         })
+    }
+
+    /// Sets udev's `ID_PATH` of the card, which the identity of each
+    /// connector the scan finds from then on carries.
+    pub fn set_card_path(&mut self, path: Option<String>) {
+        self.card_path = path;
+    }
+
+    /// Sets which displays are left dark, asked of each connector as it is
+    /// connected from the next scan; unset, every display is lit.
+    pub fn set_dark(&mut self, dark: Box<DarkPolicy>) {
+        self.dark_policy = Some(dark);
+    }
+
+    /// The identity of a display online.
+    pub fn identity(&self, id: DisplayId) -> Option<&Identity> {
+        self.output(id)?;
+        self.identities
+            .iter()
+            .find_map(|(i, identity)| (*i == id).then_some(identity))
+    }
+
+    /// The identity of each connected connector left dark, in the card's
+    /// connector order.
+    pub fn dark(&self) -> impl Iterator<Item = &Identity> + '_ {
+        self.dark.iter().map(|d| &d.identity)
     }
 
     /// The events since the last drain, in order.
@@ -730,7 +795,7 @@ impl<K: Kms> Drm2d<K> {
     fn finish_sleep(&mut self) {
         if self.master && !self.legacy {
             let mut req = Request::default();
-            self.clear_planes(&mut req);
+            self.clear_planes(&mut req, &[]);
             if !req.entries.is_empty() {
                 if let Err(e) = self.card.commit(&req, DRM_MODE_ATOMIC_NONBLOCK) {
                     log::warn!("cannot hide the cursor and overlay planes: {e}");
@@ -884,6 +949,9 @@ impl<K: Kms> Drm2d<K> {
         for o in &mut self.outputs {
             o.available = false;
         }
+        for d in &mut self.dark {
+            d.available = false;
+        }
         let mut needs = scan != Scan::Hotplug;
         for &id in &res.connectors {
             // A connector the kernel lists can be gone by the time it is
@@ -903,11 +971,42 @@ impl<K: Kms> Drm2d<K> {
                 needs |= !o.online;
                 continue;
             }
-            if let Some(o) = self.bind(&res, &conn) {
+            if let Some(d) = self.dark.iter_mut().find(|d| d.id == id) {
+                d.available = true;
+                continue;
+            }
+            let found = self.find(&conn);
+            let identity = self.identify(&found);
+            if self
+                .dark_policy
+                .as_ref()
+                .is_some_and(|dark| dark(&identity))
+            {
+                log::info!("display {} is left dark", found.name);
+                self.dark.push(Dark {
+                    id,
+                    identity,
+                    available: true,
+                });
+                needs = true;
+                continue;
+            }
+            if let Some(o) = self.bind(&res, &conn, found) {
+                self.identities.retain(|(i, _)| *i != o.id);
+                self.identities.push((o.id, identity));
                 self.outputs.push(o);
                 needs = true;
             }
         }
+        self.scanned = true;
+        self.dark.retain(|d| {
+            if !d.available {
+                log::info!("display {}, left dark, is gone", d.identity.connector);
+            }
+            d.available
+        });
+        self.dark
+            .sort_by_key(|d| res.connectors.iter().position(|&c| c == d.id));
         let (kept, gone): (Vec<_>, Vec<_>) = self.outputs.drain(..).partition(|o| o.available);
         self.outputs = kept;
         for o in gone {
@@ -917,7 +1016,13 @@ impl<K: Kms> Drm2d<K> {
             }
             self.free(o);
         }
+        let outputs = &self.outputs;
+        self.identities
+            .retain(|(id, _)| outputs.iter().any(|o| o.id == *id));
         if self.outputs.is_empty() {
+            if needs && !self.dark.is_empty() {
+                self.darken();
+            }
             if self.master {
                 self.release_master();
             }
@@ -944,9 +1049,8 @@ impl<K: Kms> Drm2d<K> {
         }
     }
 
-    /// A display for a connected connector, or `None` when it has no free
-    /// CRTC or no primary plane.
-    fn bind(&self, res: &Resources, conn: &Connector) -> Option<Output<K::Map>> {
+    /// What a scan finds of connector `conn`.
+    fn find(&self, conn: &Connector) -> Found {
         let name = connector_name(conn.kind, conn.kind_id);
         let current = (conn.encoder != 0)
             .then(|| self.encoder(conn.encoder))
@@ -960,6 +1064,56 @@ impl<K: Kms> Drm2d<K> {
                 .ok()
                 .flatten()
         });
+        let props = self
+            .card
+            .properties(conn.id, Object::Connector)
+            .inspect_err(|e| {
+                log::warn!("cannot read the properties of connector {name}: {e}");
+            })
+            .unwrap_or_default();
+        let on = match current.map(|e| e.crtc) {
+            _ if self.legacy => value(&props, "DPMS").is_none_or(|d| d == 0),
+            Some(crtc) => self
+                .card
+                .properties(crtc, Object::Crtc)
+                .inspect_err(|e| log::debug!("cannot read the properties of CRTC {crtc}: {e}"))
+                .ok()
+                .and_then(|p| value(&p, "ACTIVE"))
+                .is_none_or(|a| a != 0),
+            None => false,
+        };
+        let edid = self.card.sysfs().and_then(|dir| Edid::sysfs(&dir, &name));
+        Found {
+            name,
+            current,
+            visible: on && shown.is_some(),
+            shown,
+            props,
+            edid,
+        }
+    }
+
+    /// The identity of the connector `found` describes.
+    fn identify(&self, found: &Found) -> Identity {
+        Identity {
+            connector: found.name.clone(),
+            card: self.card_path.clone(),
+            edid: found.edid.as_ref().map(|e| e.id.clone()),
+            lit_at_start: !self.scanned && found.visible,
+        }
+    }
+
+    /// A display for a connected connector, or `None` when it has no free
+    /// CRTC or no primary plane.
+    fn bind(&self, res: &Resources, conn: &Connector, found: Found) -> Option<Output<K::Map>> {
+        let Found {
+            name,
+            current,
+            shown,
+            props: connector_props,
+            edid,
+            ..
+        } = found;
         let wanted = self.policy.wanted.as_ref().and_then(|f| f(&name));
         let choice = mode::choose(
             &conn.modes,
@@ -967,13 +1121,6 @@ impl<K: Kms> Drm2d<K> {
             wanted,
             self.policy.use_original,
         )?;
-        let connector_props = self
-            .card
-            .properties(conn.id, Object::Connector)
-            .inspect_err(|e| {
-                log::warn!("cannot read the properties of connector {name}: {e}");
-            })
-            .unwrap_or_default();
         // Its modeset turns the display on, whatever DPMS the connector was
         // left at.
         let dpms = connector_props
@@ -999,7 +1146,7 @@ impl<K: Kms> Drm2d<K> {
             choice.current.size().0,
             choice.current.size().1
         );
-        let mm = physical_size(&self.card, &name, conn.mm);
+        let mm = physical_size(&name, conn.mm, edid.as_ref());
         Some(Output {
             id: DisplayId(conn.id),
             name,
@@ -1124,8 +1271,9 @@ impl<K: Kms> Drm2d<K> {
     }
 
     /// Hides every cursor and overlay plane, which another program may
-    /// have left in the middle of the screen.
-    fn clear_planes(&self, req: &mut Request) {
+    /// have left in the middle of the screen, and every plane on a CRTC in
+    /// `off`, which the commit turns off.
+    fn clear_planes(&self, req: &mut Request, off: &[u32]) {
         let all = self.card.planes().unwrap_or_else(|e| {
             log::warn!("cannot list the card's planes: {e}");
             Vec::new()
@@ -1138,7 +1286,10 @@ impl<K: Kms> Drm2d<K> {
                     continue;
                 }
             };
-            if matches!(value(&props, "type"), Some(PLANE_CURSOR | PLANE_OVERLAY)) {
+            let on_off = value(&props, "CRTC_ID")
+                .and_then(|c| u32::try_from(c).ok())
+                .is_some_and(|c| off.contains(&c));
+            if on_off || matches!(value(&props, "type"), Some(PLANE_CURSOR | PLANE_OVERLAY)) {
                 let props = Props::new(&props);
                 let cleared = props
                     .set(req, plane, "CRTC_ID", 0)
@@ -1212,25 +1363,47 @@ impl<K: Kms> Drm2d<K> {
     }
 
     /// An atomic modeset of every display, tried again with each display's
-    /// default mode where the test commit fails.
+    /// default mode where the test commit fails. Where it fails with the
+    /// dark connectors set off, it is tried without them first, so a dark
+    /// connector never costs the lit displays (ADR-1401 D9); the first
+    /// such failure is logged as a warning, later ones at debug level.
     fn atomic_modeset_or_default(&mut self) -> io::Result<()> {
-        match self.atomic_modeset() {
-            Err(Failure::Test(e)) if errno(&e) != Some(Errno::ACCESS) => {
-                log::warn!("retrying the modeset with each display's default mode");
-                let modes: Vec<Mode> = self.outputs.iter().map(|o| o.mode).collect();
-                for o in &mut self.outputs {
-                    o.mode = o.choice.default;
-                }
-                let retried = self.atomic_modeset();
-                if retried.is_err() {
-                    for (o, mode) in self.outputs.iter_mut().zip(modes) {
-                        o.mode = mode;
-                    }
-                }
-                retried.map_err(Failure::into_inner)
+        let refused = |set: &Result<(), Failure>| matches!(set, Err(Failure::Test(e)) if errno(e) != Some(Errno::ACCESS));
+        let mut dark = !self.dark.is_empty();
+        let mut set = self.atomic_modeset(dark);
+        if dark && refused(&set) {
+            let names: Vec<&str> = self
+                .dark
+                .iter()
+                .map(|d| d.identity.connector.as_str())
+                .collect();
+            let line = format!(
+                "cannot set {} off beside the lit displays; they stay as they are",
+                names.join(", ")
+            );
+            if std::mem::replace(&mut self.dark_refused, true) {
+                log::debug!("{line}");
+            } else {
+                log::warn!("{line}");
             }
-            set => set.map_err(Failure::into_inner),
+            dark = false;
+            set = self.atomic_modeset(false);
         }
+        if !refused(&set) {
+            return set.map_err(Failure::into_inner);
+        }
+        log::warn!("retrying the modeset with each display's default mode");
+        let modes: Vec<Mode> = self.outputs.iter().map(|o| o.mode).collect();
+        for o in &mut self.outputs {
+            o.mode = o.choice.default;
+        }
+        let retried = self.atomic_modeset(dark);
+        if retried.is_err() {
+            for (o, mode) in self.outputs.iter_mut().zip(modes) {
+                o.mode = mode;
+            }
+        }
+        retried.map_err(Failure::into_inner)
     }
 
     /// Announces each display online: new ones as added, and those whose
@@ -1354,9 +1527,14 @@ impl<K: Kms> Drm2d<K> {
 
     /// One atomic modeset of every display: tried first as a test-only
     /// commit, then committed without blocking, with a flip event.
-    fn atomic_modeset(&mut self) -> Result<(), Failure> {
+    fn atomic_modeset(&mut self, dark: bool) -> Result<(), Failure> {
         let mut req = Request::default();
-        self.clear_planes(&mut req);
+        let off = if dark {
+            self.prepare_dark(&mut req)
+        } else {
+            Vec::new()
+        };
+        self.clear_planes(&mut req, &off);
         let mut staged = Vec::with_capacity(self.outputs.len());
         let mut outputs = std::mem::take(&mut self.outputs);
         // A wake-up or a hotplug counts as user activity (the operator's
@@ -1450,6 +1628,7 @@ impl<K: Kms> Drm2d<K> {
 
     /// The legacy modeset: each CRTC in turn, with no flip event.
     fn legacy_modeset(&mut self) {
+        self.legacy_dark();
         let mut outputs = std::mem::take(&mut self.outputs);
         for o in &mut outputs {
             log::info!(
