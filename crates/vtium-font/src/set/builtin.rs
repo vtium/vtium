@@ -45,7 +45,7 @@ pub(crate) fn unscii_8() -> Option<&'static Arc<Set>> {
     None
 }
 
-/// The built-in set named `name`, as the manifest and OSC 50 spell it:
+/// The built-in set named `name`, as a frit's `builtin:` and OSC 50 spell it:
 /// `unifont` or `unscii-8`. `None` for any other name, or one this build
 /// leaves out.
 pub fn builtin(name: &str) -> Option<Arc<Set>> {

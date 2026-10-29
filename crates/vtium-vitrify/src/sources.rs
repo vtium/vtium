@@ -3,8 +3,7 @@
 //! `setfont` resolves them, outline families found among the installed
 //! fonts, files, vconsole.conf with the kernel's command line over it, the
 //! kernel's own font, and the built-in sets. Each source
-//! becomes the bytes the parser is handed and the SHA-256 of each, from
-//! which the build key is made.
+//! becomes the bytes the parser is handed and the SHA-256 of each.
 
 use std::path::{Path, PathBuf};
 
@@ -256,9 +255,9 @@ pub fn console_psf(font: &ConsoleFont) -> Vec<u8> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceError {
     /// The font is not on this machine, or holds other bytes than the
-    /// frit's `sha256=`: the set is built without it, with a warning.
+    /// frit's `sha256=`.
     Missing(String),
-    /// The source is there and cannot be read: the set fails.
+    /// The source is there and cannot be read.
     Failed(String),
 }
 
@@ -798,7 +797,7 @@ mod tests {
         assert_eq!(r.unimap_sha256, Some(Sha256::digest(b"0x41 U+0041\n")));
         // def.uni is not read when the frit names a unimap
         assert_eq!(r.def_uni_sha256, None);
-        // a font not here is missing, and the set is built without it
+        // a font not here is missing
         let e = resolve(&source("kbd:g", Origin::Kbd("g".into()), None), &h).unwrap_err();
         assert!(
             matches!(&e, SourceError::Missing(w) if w.starts_with("no kbd font g in ")),

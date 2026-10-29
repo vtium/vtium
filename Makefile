@@ -214,7 +214,7 @@ tier2: ## Draw tier 2's screens and judge them against their goldens
 
 # The demonstration set (vtium/vtium#142): the test card drawn for each
 # display profile into docs/specimens/, and judged against what is committed.
-# The outline profiles draw the set vtium-vitrify builds from the pinned fonts
+# The outline profiles draw the glyphs vtium-vitrify's engine generates from the pinned fonts
 # specimens-fonts fetches into $XDG_CACHE_HOME/vtium/specimens/fonts.
 .PHONY: specimens specimens-check specimens-fonts
 specimens: ## Draw the test card for each display profile into docs/specimens (REVIEW=DIR copies each collage there)
