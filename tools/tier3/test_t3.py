@@ -893,7 +893,10 @@ class DeparturesTest(unittest.TestCase):
                            "rects": [[203, 16, 491, 32]]}])
         self.assertEqual(deps["2d-potato-min/underline-styles"][0]["rects"],
                          [[123, 80, 251, 96], [123, 224, 339, 240]])
-        self.assertEqual(len(deps), 22)
+        self.assertEqual(len(deps), 28)
+        self.assertEqual([d["title"] for d in deps["2d-potato-min-psf/underline-styles"]],
+                         ["A dash runs from the cell's left edge for five eighths of it.",
+                          "A character the frit lacks draws in the built-in font."])
 
     def test_read(self):
         path = self.tsv("a,b\tx,y\tR.md\tT\t0,0,8,16;8,0,16,16\n")

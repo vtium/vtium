@@ -10,3 +10,9 @@
 # shows in its own.
 2d-potato-min,2d-potato-min-psf	sixel,sixel-ramps,sixel-article,sixel-evict,photos,photo-scroll,mpv-sixel,tmux-2x2,tmux-3x3,flood	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.	203,16,491,32
 2d-potato-min,2d-potato-min-psf	underline-styles	crates/vtium-render/README.md	A dash runs from the cell's left edge for five eighths of it.	123,80,251,96;123,224,339,240
+2d-potato-min-psf	cjk,vt-restore	crates/vtium/README.md	A character the frit lacks draws in the built-in font.	131,0,195,16;3,16,131,32;155,16,203,32;11,32,27,48;35,32,51,48;59,32,75,48;83,32,99,48;107,32,123,48
+2d-potato-min-psf	combining	crates/vtium/README.md	A character the frit lacks draws in the built-in font.	275,32,283,48;275,112,283,128
+2d-potato-min-psf	emoji	crates/vtium/README.md	A character the frit lacks draws in the built-in font.	291,0,307,16;291,16,307,32;291,32,307,48;291,64,307,80;291,80,307,96;363,128,371,144;363,144,371,160;131,160,147,176;155,160,171,176;179,160,195,176;235,192,251,208;283,192,299,208
+2d-potato-min-psf	strike	crates/vtium/README.md	A character the frit lacks draws in the built-in font.	155,96,187,112;227,96,275,112
+2d-potato-min-psf	underline-styles	crates/vtium/README.md	A character the frit lacks draws in the built-in font.	123,208,155,224;195,208,243,224
+2d-potato-min-psf	wide-margin	crates/vtium/README.md	A character the frit lacks draws in the built-in font.	1347,16,1363,32;3,48,19,64;3,80,19,96;1347,96,1363,112;3,144,19,160
