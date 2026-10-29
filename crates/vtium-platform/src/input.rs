@@ -23,7 +23,9 @@
 
 pub(crate) mod class;
 mod evdev;
+mod event;
 mod keyboard;
+mod link;
 mod pointer;
 
 #[cfg(test)]
@@ -33,132 +35,26 @@ mod tests;
 
 pub use class::{Class, Classes};
 pub use evdev::Evdev;
+pub use event::{
+    Button, DeviceId, DeviceInput, Disposition, InputEvent, KeyEvent, Mods, PointerEvent,
+};
 
 use evdev::EventDevice;
 pub use keyboard::{Keymap, KeymapConfig, Leds, locale};
 
 use std::io;
-use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use calloop::generic::Generic;
-use calloop::timer::{TimeoutAction, Timer};
-use calloop::{Interest, LoopHandle, Mode, PostAction, RegistrationToken};
+use calloop::{LoopHandle, RegistrationToken};
 
 use evdev::{Capabilities, EVENTS_PER_READ, RawEvent};
 use keyboard::{KeyState, Keyboard, RepeatChange};
+use link::{Link, LoopLink};
 use pointer::Pointer;
 
 use crate::ioctl::{EV_ABS, EV_KEY, EV_REL, EV_SYN};
 use crate::vt::Vt;
-
-/// The modifiers held with a key, as the C reference numbered them.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct Mods(u8);
-
-impl Mods {
-    pub const SHIFT: Mods = Mods(1);
-    pub const LOCK: Mods = Mods(2);
-    pub const CTRL: Mods = Mods(4);
-    pub const ALT: Mods = Mods(8);
-    pub const LOGO: Mods = Mods(16);
-
-    pub const fn empty() -> Mods {
-        Mods(0)
-    }
-
-    pub const fn bits(self) -> u8 {
-        self.0
-    }
-
-    pub const fn contains(self, other: Mods) -> bool {
-        self.0 & other.0 == other.0
-    }
-
-    #[must_use]
-    pub const fn union(self, other: Mods) -> Mods {
-        Mods(self.0 | other.0)
-    }
-}
-
-/// A key press, or its repeat.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct KeyEvent {
-    /// xkb's key code: evdev's plus 8.
-    pub keycode: u32,
-    /// The ASCII keysym for shortcuts, or 0 (`NoSymbol`).
-    pub ascii: u32,
-    pub mods: Mods,
-    /// The keysyms the key makes; a compose sequence's result replaces
-    /// them.
-    pub keysyms: Vec<u32>,
-    /// Each keysym's character, where it has one.
-    pub codepoints: Vec<Option<char>>,
-    /// Made by the repeat timer of a held key.
-    pub repeat: bool,
-}
-
-/// A pointer button.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Button {
-    Left,
-    Middle,
-    Right,
-}
-
-/// What the pointer did.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PointerEvent {
-    /// The pointer is at `x`, `y`, with `held` pressed.
-    Moved {
-        x: i32,
-        y: i32,
-        held: Option<Button>,
-    },
-    Button {
-        button: Button,
-        pressed: bool,
-        double_click: bool,
-    },
-    /// Wheel steps, positive up.
-    Wheel(i32),
-    /// The end of one evdev frame.
-    Sync,
-    /// No pointer event for [`POINTER_HIDE`]: hide the pointer.
-    Hide,
-}
-
-/// What the input devices tell their owner.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum InputEvent {
-    Key(KeyEvent),
-    Pointer(PointerEvent),
-}
-
-/// An event with the device it came from, as [`Input::device_events`]
-/// drains them.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DeviceInput {
-    /// `None` for an event of no one device, the pointer's hide.
-    pub device: Option<DeviceId>,
-    /// The rescue key, pressed on a device watched for it alone.
-    pub rescue: bool,
-    pub event: InputEvent,
-}
-
-/// What vtium does with a device, as a head file's rules place it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Disposition {
-    /// Opened, its events delivered, whatever it reports.
-    Deliver,
-    /// Opened to watch for the rescue key alone: a press of the VT's own
-    /// key is drained marked [`DeviceInput::rescue`], and nothing else it
-    /// sends is delivered (ADR-1401 D9).
-    Rescue,
-    /// Never opened.
-    Closed,
-}
 
 /// The pointer hides after this long without a frame, unless the
 /// configuration says otherwise (input_pointer.c:9-18).
@@ -233,10 +129,6 @@ impl Open for Direct {
     }
 }
 
-/// A device's handle in [`Input`], never reused.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct DeviceId(u64);
-
 struct Device<E> {
     id: DeviceId,
     node: PathBuf,
@@ -287,15 +179,6 @@ struct Probed {
     caps: Capabilities,
     keyboard: Option<Keyboard>,
     pointer: Pointer,
-}
-
-/// What ties the input to the loop it was inserted in.
-trait Link {
-    fn watch(&self, id: DeviceId, fd: OwnedFd) -> Option<RegistrationToken>;
-    fn unwatch(&self, token: RegistrationToken);
-    fn repeat(&self, id: DeviceId, serial: u64, delay: Duration, rate: Duration);
-    /// Arms the pointer's hide timer, `after` from now, if it is not.
-    fn hide(&self, after: Duration);
 }
 
 /// Every keyboard and pointer of the seat.
@@ -555,45 +438,19 @@ impl<O: Open + 'static> Input<O> {
         };
         let first = device.probed.is_none();
         if first {
-            let name = dev.name();
-            let caps = match dev.bits() {
-                Ok(bits) => Capabilities::from_bits(&bits),
-                Err(e) => {
-                    log::warn!(target: "input", "cannot probe {name}: {e}");
-                    Capabilities::default()
+            let disposition = device.disposition;
+            match probe(
+                &dev,
+                &device.node,
+                disposition,
+                self.config.mouse,
+                &self.keymap,
+            ) {
+                Some(probed) => device.probed = Some(probed),
+                None => {
+                    self.opener.close(dev);
+                    return false;
                 }
-            };
-            let placed = device.disposition.is_some();
-            if !placed && !caps.usable(self.config.mouse) {
-                log::debug!(target: "input", "ignoring {} [{name}]", device.node.display());
-                self.opener.close(dev);
-                return false;
-            }
-            let keys = caps.keys || (placed && caps.any_key);
-            let kind = caps.pointer_kind();
-            device.probed = Some(Probed {
-                caps,
-                keyboard: keys.then(|| Keyboard::new(&self.keymap)),
-                pointer: Pointer::new(kind),
-            });
-            let id = dev
-                .id()
-                .map(|(vendor, product)| format!(" {vendor:04x}:{product:04x}"))
-                .unwrap_or_default();
-            if device.rescue() {
-                log::info!(
-                    target: "input",
-                    "watching {} [{name}]{id} for the rescue key",
-                    device.node.display()
-                );
-            } else {
-                log::info!(
-                    target: "input",
-                    "using {} [{name}]{id} as {}{}",
-                    device.node.display(),
-                    if keys { "keyboard" } else { "" },
-                    kind.name()
-                );
             }
         }
         let Some(probed) = device.probed.as_mut() else {
@@ -829,11 +686,7 @@ impl<O: Open + 'static> Input<O> {
         D: 'static,
         A: Fn(&mut D) -> Option<&mut Input<O>> + Clone + 'static,
     {
-        self.link = Some(Box::new(LoopLink {
-            handle: handle.clone(),
-            access,
-            hide_armed: std::rc::Rc::new(std::cell::Cell::new(false)),
-        }));
+        self.link = Some(Box::new(LoopLink::new(handle, access)));
         let ids: Vec<DeviceId> = self.devices.iter().map(|d| d.id).collect();
         for id in ids {
             let Some(device) = self.devices.iter_mut().find(|d| d.id == id) else {
@@ -848,6 +701,58 @@ impl<O: Open + 'static> Input<O> {
     }
 }
 
+/// Probes a device opened the first time: what it reports, its keyboard
+/// and its pointer, and the line saying what it is used as. `None` when
+/// vtium does not take it: with no disposition, a device that is no
+/// keyboard or pointer by the rule vtium has always used.
+fn probe<E: EventDevice>(
+    dev: &E,
+    node: &Path,
+    disposition: Option<Disposition>,
+    mouse: bool,
+    keymap: &Keymap,
+) -> Option<Probed> {
+    let name = dev.name();
+    let caps = match dev.bits() {
+        Ok(bits) => Capabilities::from_bits(&bits),
+        Err(e) => {
+            log::warn!(target: "input", "cannot probe {name}: {e}");
+            Capabilities::default()
+        }
+    };
+    let placed = disposition.is_some();
+    if !placed && !caps.usable(mouse) {
+        log::debug!(target: "input", "ignoring {} [{name}]", node.display());
+        return None;
+    }
+    let keys = caps.keys || (placed && caps.any_key);
+    let kind = caps.pointer_kind();
+    let id = dev
+        .id()
+        .map(|(vendor, product)| format!(" {vendor:04x}:{product:04x}"))
+        .unwrap_or_default();
+    if disposition == Some(Disposition::Rescue) {
+        log::info!(
+            target: "input",
+            "watching {} [{name}]{id} for the rescue key",
+            node.display()
+        );
+    } else {
+        log::info!(
+            target: "input",
+            "using {} [{name}]{id} as {}{}",
+            node.display(),
+            if keys { "keyboard" } else { "" },
+            kind.name()
+        );
+    }
+    Some(Probed {
+        caps,
+        keyboard: keys.then(|| Keyboard::new(keymap)),
+        pointer: Pointer::new(kind),
+    })
+}
+
 /// A screen's width and height as the pointer's last pixel.
 fn pixel(width: u32, height: u32) -> (i32, i32) {
     (
@@ -859,93 +764,5 @@ fn pixel(width: u32, height: u32) -> (i32, i32) {
 fn write_leds<E: EventDevice>(dev: &mut E, node: &Path, leds: Leds) {
     if let Err(e) = dev.write_leds(&leds.codes()) {
         log::warn!(target: "input", "cannot set the LEDs of {}: {e}", node.display());
-    }
-}
-
-struct LoopLink<D: 'static, A> {
-    handle: LoopHandle<'static, D>,
-    access: A,
-    /// The hide timer is in the loop.
-    hide_armed: std::rc::Rc<std::cell::Cell<bool>>,
-}
-
-impl<D, A, O> Link for LoopLink<D, A>
-where
-    D: 'static,
-    O: Open + 'static,
-    A: Fn(&mut D) -> Option<&mut Input<O>> + Clone + 'static,
-{
-    fn watch(&self, id: DeviceId, fd: OwnedFd) -> Option<RegistrationToken> {
-        let access = self.access.clone();
-        self.handle
-            .insert_source(
-                Generic::new(fd, Interest::READ, Mode::Level),
-                move |readiness, _, data: &mut D| {
-                    let Some(input) = access(data) else {
-                        return Ok(PostAction::Remove);
-                    };
-                    if readiness.error {
-                        input.hangup(id);
-                        return Ok(PostAction::Continue);
-                    }
-                    #[expect(
-                        clippy::disallowed_methods,
-                        reason = "the double click reads the clock, held in vtium-platform"
-                    )]
-                    let now = Instant::now();
-                    input.dispatch(id, now);
-                    Ok(PostAction::Continue)
-                },
-            )
-            .inspect_err(|e| log::warn!(target: "input", "cannot watch a device: {}", e.error))
-            .ok()
-    }
-
-    fn unwatch(&self, token: RegistrationToken) {
-        self.handle.remove(token);
-    }
-
-    fn repeat(&self, id: DeviceId, serial: u64, delay: Duration, rate: Duration) {
-        let access = self.access.clone();
-        let inserted = self
-            .handle
-            .insert_source(Timer::from_duration(delay), move |_, _, data| {
-                if access(data).is_some_and(|input| input.repeat(id, serial)) {
-                    TimeoutAction::ToDuration(rate)
-                } else {
-                    TimeoutAction::Drop
-                }
-            });
-        if let Err(e) = inserted {
-            log::warn!(target: "input", "cannot start the key repeat: {}", e.error);
-        }
-    }
-
-    fn hide(&self, after: Duration) {
-        if self.hide_armed.replace(true) {
-            return;
-        }
-        let access = self.access.clone();
-        let armed = std::rc::Rc::clone(&self.hide_armed);
-        let inserted = self
-            .handle
-            .insert_source(Timer::from_duration(after), move |_, _, data| {
-                #[expect(
-                    clippy::disallowed_methods,
-                    reason = "the pointer's hide timer is one of the timers vtium-platform holds"
-                )]
-                let now = Instant::now();
-                match access(data).and_then(|input| input.hide(now)) {
-                    Some(left) => TimeoutAction::ToDuration(left),
-                    None => {
-                        armed.set(false);
-                        TimeoutAction::Drop
-                    }
-                }
-            });
-        if let Err(e) = inserted {
-            self.hide_armed.set(false);
-            log::warn!(target: "input", "cannot arm the pointer's hide timer: {}", e.error);
-        }
     }
 }
