@@ -3,6 +3,7 @@
 
 use std::io;
 use std::os::fd::OwnedFd;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use super::Mode;
@@ -127,6 +128,12 @@ pub(crate) trait Kms {
     /// The levels of the 1-bit or gray panel the card drives, `None` for
     /// a color display ([`super::depth`]).
     fn levels(&self) -> Option<u8> {
+        None
+    }
+
+    /// The card's directory in sysfs, which holds a directory for each of
+    /// its connectors.
+    fn sysfs(&self) -> Option<PathBuf> {
         None
     }
 }

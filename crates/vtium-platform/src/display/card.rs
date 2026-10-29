@@ -311,9 +311,18 @@ impl Kms for Card {
         Ok(())
     }
 
+    /// The card's directory in sysfs, found by its node's device number.
+    fn sysfs(&self) -> Option<std::path::PathBuf> {
+        let dev = rustix::fs::fstat(self.raw()).ok()?.st_rdev;
+        Some(std::path::PathBuf::from(format!(
+            "/sys/dev/char/{}:{}",
+            rustix::fs::major(dev),
+            rustix::fs::minor(dev)
+        )))
+    }
+
     /// The driver's name from `DRM_IOCTL_VERSION`, and the properties of
-    /// the device's device-tree node in sysfs, found by the node's device
-    /// number.
+    /// the device's device-tree node in sysfs.
     fn levels(&self) -> Option<u8> {
         let mut name = Vec::new();
         if let Err(e) = drm_ffi::get_version(self.raw(), Some(&mut name), None, None) {
@@ -327,14 +336,7 @@ impl Kms for Card {
                 .collect::<Vec<u8>>(),
         )
         .into_owned();
-        let node = rustix::fs::fstat(self.raw()).ok().map(|st| {
-            let dev = st.st_rdev;
-            std::path::PathBuf::from(format!(
-                "/sys/dev/char/{}:{}/device/of_node",
-                rustix::fs::major(dev),
-                rustix::fs::minor(dev)
-            ))
-        });
+        let node = self.sysfs().map(|card| card.join("device/of_node"));
         let read = |property: &str| std::fs::read(node.as_ref()?.join(property)).ok();
         let levels = super::depth::levels(&driver, read);
         if let Some(n) = levels {
