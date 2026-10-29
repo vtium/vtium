@@ -49,8 +49,8 @@ basis:
     said: "vtium-vitrify as the configuration tool: optional, hand-editing stays fully supported; it never disconnects itself; it works from a desktop terminal; it works on minspec where vtium is the only terminal; without privilege it saves to a user-scoped directory and prints what to run to make it active."
     via: "the same brief, \"vtium-vitrify as the configuration tool (operator)\" and its sub-points; the wording is the team lead's"
     paraphrase: true
-  - evidence: "The operator's machine, read by this record's agent on 2026-10-29 from sysfs and `udevadm info`, without privilege: card1 (amdgpu, boot_vga 1) DP-8, EDID SAM 0x7476 'Odyssey G95NC', serial string HNTX800370; card0 (amdgpu, boot_vga 0) HDMI-A-2, EDID VEY 0x0001 'GX Touch 50', serial string HQ2031SYUTE. The 8BitDo Retro 18 Numpad (2dc8:5204, serial 7BFA23A0FB, path ...usb-0:3.4.1) and the YubiKey (1050:0407, path ...usb-0:3.4.2) carry ID_INPUT_KEYBOARD=1, and their key bitmaps declare all 26 letters, Enter, Ctrl, Alt and F1, as the 8BitDo keyboard's and the Air84's do. The Air84 reports 05ac:024f on three event nodes (interfaces 1.0, 1.1, 1.2). The Logitech receiver's consumer and system controls, the microphone's keys and the Bluetooth headphones' AVRCP node carry ID_INPUT_KEY without ID_INPUT_KEYBOARD and declare no letters; the AVRCP node has no ID_PATH."
-  - evidence: "The figures relayed in this record's brief and not re-measured here: the G95NC at 7680x2160 and about 138 DPI, the GX Touch 50 at 800x480 and about 185 DPI, and today's mirrored layout of the two as one 66x20 grid with letters 108 pixels tall on the G95NC"
+  - evidence: "The operator's machine, read by this record's agent on 2026-10-29 from sysfs and `udevadm info`, without privilege: card1, the discrete GPU (boot_vga 1), DP-8 to a large monitor whose EDID carries a serial string; card0, the integrated GPU (boot_vga 0), HDMI-A-2 to a small panel whose EDID carries one too. A numpad (with a USB serial, path ...usb-0:3.4.1) and an OTP token (path ...usb-0:3.4.2) carry ID_INPUT_KEYBOARD=1, and their key bitmaps declare all 26 letters, Enter, Ctrl, Alt and F1, as keyboard A's and keyboard B's do. Keyboard B reports another maker's vendor id on three event nodes (interfaces 1.0, 1.1, 1.2). A USB receiver's consumer and system controls, the microphone's keys and the Bluetooth headphones' AVRCP node carry ID_INPUT_KEY without ID_INPUT_KEYBOARD and declare no letters; the AVRCP node has no ID_PATH."
+  - evidence: "The figures relayed in this record's brief and not re-measured here: the large monitor at 7680x2160 and about 138 DPI, the small panel at 800x480 and about 185 DPI, and today's mirrored layout of the two as one 66x20 grid with letters 108 pixels tall on the large monitor"
   - upstream: "aaronsb/kmscon b1f7a7c5: one seat a process (src/main.c:58-71); a seat's sessions, `session-control` off by default and `session-max` 50 (src/config.c:1357-1358), refused on a real VT (src/seat.c:841-845); `multi-monitor` defaulting to `scaled`, one grid for every display (src/config.c:1418, src/terminal.c:1107-1170); devices kept by ID_SEAT, seat0 when unset (src/uterm/monitor.c:387-451); the fake VT for seats without kernel VTs, which its own comment called debugging-only (src/uterm/vt_fake.c:25-40); a fixed 72 DPI (src/font/font.c:198-199); the key order, the VT's keys first (src/uterm/vt_real.c:705); every option of the example configuration a commented line (scripts/etc/kmscon.conf.example)"
   - standard: "sd-login(3) and logind's seats, systemd 262: a seat holds whole devices, and only seat0 has kernel VTs (external, not re-verified here)"
   - standard: "wayland-protocols staging/drm-lease/drm-lease-v1.xml, wp_drm_lease_device_v1: a compositor leases connectors, CRTCs and planes of its card to a client (external, not re-verified here)"
@@ -81,17 +81,17 @@ related: []
 
 ## Summary
 
-- **Decided:** vtium drives every display it can see from one process, as a set of **heads**. A head is a terminal for one or more displays: its displays, its inputs, a profile, and a stack of virtual consoles, each a session with its own pty, screen, scrollback and grid. A head's grid is its own, so each head draws at its own displays' density. One optional, root-owned head file declares the heads and an ordered ruleset; each display and each input walks the rules alone, top to bottom, and the first match places it: in a head, in the focus, ignored, or dark. The shipped ruleset, `display * -> console` and `input * -> focus`, is today's console. Absent files are instanced from templates that change nothing until edited; an invalid file is reported, never altered, and replaced in memory by the shipped default; and three guards keep a keyboard typing whatever the rules say, the last of them a key the user presses: Ctrl-Alt-F<n> for the VT already shown. `vtium-vitrify` becomes the configuration tool: it detects, sets up, reports and checks, with or without privilege, from the console or a desktop.
+- **Decided:** vtium drives every display it can see from one process, as a set of **heads**. A head is a terminal for one or more displays: its displays, its inputs, a profile, and a stack of virtual consoles, each a session with its own pty, screen, scrollback and grid. A head's grid is its own, so each head draws at its own displays' density. One optional, root-owned head file declares the heads and an ordered ruleset; each display and each input walks the rules alone, top to bottom, and the first match places it: in a head, in the focus, ignored, or dark. The shipped ruleset, `display * -> console` and `input * -> focus`, is today's console. Absent files are instanced from templates that change nothing until edited; an invalid file is reported, never altered, and replaced in memory by the shipped default; and three guards keep a keyboard typing whatever the rules say, the last of them a key the user presses: `Ctrl-Alt-F<n>` for the VT already shown. `vtium-vitrify` becomes the configuration tool: it detects, sets up, reports and checks, with or without privilege, from the console or a desktop.
 - **Trades away:** One process holds every display of the seat, so a fault in one head's session handling reaches every head. Several terminals share one kernel VT, which the C reference refused. The console takes on device routing, a ruleset parser and a notice of its own, and opens keyboards the rules ignore. Mirroring across heads with different densities, which today's single grid gives, needs a head that claims both displays.
 - **One-way?** Expensive once a release ships the head file: its syntax, its match keys and its targets become the format users' files are written in. Everything behind the file changes in a session.
 - **Probes:**
   - *Not confident (losing a display):* when a head you set up for one monitor loses it, its sessions stay for 10 seconds and then hang up, as a line losing its carrier; the monitor coming back within the 10 seconds resumes them. The shipped one-head console keeps today's behaviour, running on with no display. Is a hang-up after a short wait what you want for a head whose monitor goes away?
-  - *Confident (the rescue):* pressing Ctrl-Alt-F<n> for the VT you are already looking at moves that keyboard to the focus until the next boot, whatever the head file says, and never edits the file.
+  - *Confident (the rescue):* pressing `Ctrl-Alt-F<n>` for the VT you are already looking at moves that keyboard to the focus until the next boot, whatever the head file says, and never edits the file.
 - **Inversion:** Between "one grid for every display", the C reference's `multi-monitor` and today's vtium, and "a console process per display", which the kernel forbids (one DRM master per card, one VT shown on every display). vtium keeps one process and one VT and puts the terminals inside it, placed by rules a user writes or a tool writes for them.
 
 ## Context
 
-The kernel's VTs are one system-wide set: one VT is shown on every display at once, and Ctrl-Alt-F<n> switches every display together. A card has one DRM master. A console per display therefore lives inside vtium: vtium holds its one kernel VT, takes every card of its seat while that VT is shown, drives every connector on them, and keeps its own consoles per display.
+The kernel's VTs are one system-wide set: one VT is shown on every display at once, and `Ctrl-Alt-F<n>` switches every display together. A card has one DRM master. A console per display therefore lives inside vtium: vtium holds its one kernel VT, takes every card of its seat while that VT is shown, drives every connector on them, and keeps its own consoles per display.
 
 logind's seats split whole devices, cards and inputs, never connectors, and only seat0 has kernel VTs. A machine with two GPUs can give one card and its own keyboard to seat1, so a vtium and a desktop run side by side; one keyboard cannot be on two seats. vtium keeps its one real VT on seat0, and runs without a VT only on an extra seat, which has none.
 
@@ -99,15 +99,15 @@ A login inside vtium runs on a pty, so logind gives it a session with no seat an
 
 A Wayland compositor holds its cards' master while it runs, and disabling an output in the desktop does not release it. A DRM lease (`wp_drm_lease_v1`) can hand a client some of a compositor's connectors.
 
-vtium today lays every display out as one grid: the smallest grid each display holds at the base font, each larger display drawing at the largest height that still holds it (`crates/vtium/src/layout.rs`). On the operator's machine that mirrors an 8K ultrawide and a 5-inch panel as one 66x20 grid, with letters 108 pixels tall on the ultrawide. Sizes in points (ADR-1200's point rule, on `feat/deferred`) cannot be exact on both.
+vtium today lays every display out as one grid: the smallest grid each display holds at the base font, each larger display drawing at the largest height that still holds it (`crates/vtium/src/layout.rs`). On the operator's machine that mirrors a large monitor (7680x2160, about 138 DPI) and a small panel (800x480, about 185 DPI) as one 66x20 grid, with letters 108 pixels tall on the large monitor. Sizes in points (ADR-1200's point rule, on `feat/deferred`) cannot be exact on both.
 
-Keyboards cannot be told from other key devices by the kernel's marks: udev marks a numpad and a YubiKey `ID_INPUT_KEYBOARD`, and both declare every letter, Enter, Ctrl, Alt and F1 (Evidence below). Any routing rule a user writes can therefore strand the real keyboard.
+Keyboards cannot be told from other key devices by the kernel's marks: udev marks a numpad and an OTP token `ID_INPUT_KEYBOARD`, and both declare every letter, Enter, Ctrl, Alt and F1 (Evidence below). Any routing rule a user writes can therefore strand the real keyboard.
 
 ## Decision
 
 The figure shows the layers this record adds to, from the kernel to the sessions, with the files and the programs beside them and who each runs as.
 
-![The layers of interaction, bottom to top: the kernel, with card0 (the iGPU, HDMI-A-2), card1 (the dGPU, DP-8, the boot card), the evdev devices and the one set of kernel VTs; logind and its seats, seat0 holding the VT and both cards, extra seats without a VT marked as later; vtium's ruleset, which each device walks, its guards beside it (never-zero display, anti-lockout, the rescue key), and routing to a head or to the focus; two heads, desk on DP-8 with its keyboard and mouse and profile desk, and panel on HDMI-A-2 with the Air84 and profile small, each profile naming its frit; each head's virtual consoles, one shown at a time; and sessions, whose pty, screen, scrollback and grid vtium holds as root while login, the shell and programs run as the user. Layers 3 to 5 are one vtium process running as root. Beside the stack, /etc/vtium (the head file, profiles and frits, owned by root and writable by no one else) feeds layer 3; /run/vtium (written by root, its state read by all, a staged trial) sits between vtium and vtium-vitrify; vtium-vitrify, run as the user, with detect, setup, status, check, new and preview, and install through sudo, saves drafts to the user's $XDG_STATE_HOME/vtium/drafts; and the glyph helper, vtium-vitrify serve, runs as nobody, sandboxed, and generates the heads' frits. A legend marks root, the user, nobody, the kernel and pieces not yet built.](figures/ADR-1401-layers.svg)
+![The layers of interaction, bottom to top: the kernel, with card0 (the integrated GPU, HDMI-A-2), card1 (the discrete GPU, DP-8, the boot card), the evdev devices and the one set of kernel VTs; logind and its seats, seat0 holding the VT and both cards, extra seats without a VT marked as later; vtium's ruleset, which each device walks, its guards beside it (never-zero display, anti-lockout, the rescue key), and routing to a head or to the focus; two heads, desk on DP-8 with keyboard A and the mouse and profile desk, and panel on HDMI-A-2 with keyboard B and profile small, each profile naming its frit; each head's virtual consoles, one shown per head; and sessions, whose pty, screen, scrollback and grid vtium holds as root while login, the shell and programs run as the user. Layers 3 to 5 are one vtium process running as root. Beside the stack, /etc/vtium (the head file, profiles and frits, owned by root and writable by no one else) feeds layer 3; /run/vtium (written by root, its state read by all, a staged trial) sits between vtium and vtium-vitrify; vtium-vitrify, run as the user, with detect, setup, status, check, new and preview, and install through sudo, saves drafts to the user's $XDG_STATE_HOME/vtium/drafts; and the glyph helper, vtium-vitrify serve, runs as nobody, sandboxed, and generates the heads' frits. A legend marks root, the user, nobody, the kernel and pieces not yet built.](figures/ADR-1401-layers.svg)
 
 The structure inside the one process: the VT and the cards, the ruleset placing each input in a head or the focus, and each head's consoles and sessions.
 
@@ -166,12 +166,16 @@ flowchart TB
 - vtium serves seat0. Other seats, one vtium a seat with console switching of its own where the seat has no kernel VT, are a later extension this record names and does not build; the head file then gains a file per seat.
 - A DRM lease from a compositor is not a head source, unless a later decision makes it a display-only head: it would put a root login inside a user's graphical session and need raw input read beside the compositor.
 
+The later extension of two seats, drawn so its boundary is clear:
+
+![Two GPUs on two seats, marked later and not built. On the left, seat0, with the kernel VTs and Ctrl-Alt-F&lt;n&gt;: the desktop compositor, the user's graphical session, holds the master of card1, the discrete GPU, and takes the large monitor on DP-8, keyboard A and the mouse; a vtium on a seat0 VT runs there too and takes card1 only while its VT is shown. On the right, seat1, dashed as later and not built, with no kernel VT: vtium, one a seat, with its own console switching, holds the master of card0, the integrated GPU, and takes the small panel on HDMI-A-2 and keyboard B, its own; Ctrl-Alt-F&lt;n&gt; are vtium's own keys there, and the two sessions run side by side, neither switching the other. Below both, logind assigns whole devices to seats, cards and inputs, never connectors; one keyboard cannot be on two seats, and only seat0 has kernel VTs. A legend marks root, the user, a device, and later, not built.](figures/ADR-1401-two-seats.svg)
+
 ### D3: the head file
 
 One file, `/etc/vtium/heads.conf` (probe 1), holds the heads and an ordered list of rules. Its lines are bounded as kmscon.conf's are (65536 bytes a file, 8192 a line); `#` starts a comment; spaces around `=` and between tokens are dropped.
 
 ```ini
-# /etc/vtium/heads.conf on the operator's machine
+# /etc/vtium/heads.conf for the machine under Evidence; the EDID values are illustrative
 [head desk]
 profile = desk
 
@@ -180,16 +184,20 @@ profile = small
 consoles = 2
 
 [rules]
-display edid:SAM:0x7476:HNTX800370 -> desk
-display edid:VEY:0x0001:HQ2031SYUTE -> panel
+display edid:AAA:0x0001:LARGE00001 -> desk
+display edid:BBB:0x0002:SMALL00001 -> panel
 input path:pci-0000:15:00.0-usb-0:3.3 -> desk
 input path:pci-0000:15:00.0-usb-0:3.4.4 -> desk
 input path:pci-0000:15:00.0-usb-0:3.2 -> panel
 input path:pci-0000:15:00.0-usb-0:3.4.2 -> focus
-input name:"Dutchess of Low End (AVRCP)" -> ignore
+input name:"Headphones (AVRCP)" -> ignore
 display * -> desk
 input * -> focus
 ```
+
+The example's placement: two heads, each with its own display and keyboard, and the devices no rule claims following the focus.
+
+![Two heads with bound keyboards. Head desk holds the large monitor, 7680x2160 at about 138 DPI with its own grid, on DP-8 of the discrete GPU, and two inputs its rules claim, keyboard A at path ...usb-0:3.3 and a mouse at path ...usb-0:3.4.4; it holds the focus, shown by a filled mark. Head panel holds the small panel, 800x480 at about 185 DPI with its own grid, on HDMI-A-2 of the integrated GPU, and keyboard B at path ...usb-0:3.2; it shows a hollow mark, no focus. Below, four devices go to the focus: a numpad and a USB receiver that no rule claims, an OTP token sent there by its rule, and media-key devices no rule claims; the focus delivers them to head desk, drawn as a dashed arrow. The caption says displays and keyboard A, the mouse and keyboard B are placed by their rules, the rest follow the focus, and keyboard A types into head desk alone and keyboard B into head panel alone. A legend marks vtium as root, a device, holds the focus and no focus.](figures/ADR-1401-two-heads.svg)
 
 - **Heads.** `[head NAME]` declares a head; a name is 1 to 64 characters of `A-Z a-z 0-9 . _ + -`, and `focus`, `ignore` and `dark` are reserved. A head's keys: `profile` (the profile's name, unset `default`), `consoles` (the number of virtual consoles, unset 1, at most the cap of D10), `login` (the consoles' command, as kmscon.conf's `login` takes it, unset kmscon.conf's), and `hangup-after` (D8). A head names nothing but its profile.
 - **Rules.** Under `[rules]`, one rule a line: `display MATCH -> TARGET` or `input MATCH -> TARGET`. A match is `*`, every device of that kind, or one or more `key:value` tokens, every one of which must hold (D4).
@@ -237,7 +245,7 @@ stateDiagram-v2
 | `path` | udev's `ID_PATH` of the USB device or port, matching every interface below it (`pci-0000:15:00.0-usb-0:3.3` takes `...:3.3:1.0` and `...:3.3:1.2`) | the physical port | strong |
 | `serial` | `VENDOR:PRODUCT:SERIAL`, udev's `ID_VENDOR_ID`, `ID_MODEL_ID` and `ID_SERIAL_SHORT`, matching every interface of that unit | one unit, wherever plugged; copyable | strong where the device has a serial |
 | `bluetooth` | the address the device reports as its unique id | one device | strong once bonded |
-| `id` | `VENDOR:PRODUCT` | every unit of a model; devices lie (the Air84 reports Apple's `05ac`) | weak |
+| `id` | `VENDOR:PRODUCT` | every unit of a model; devices lie (keyboard B reports another maker's vendor id) | weak |
 | `name` | the device's name, a glob | anything that names itself so | weakest |
 | `class` | `keyboard`, `pointer` or `touch` (D9's classes) | routing only | none |
 | `edid` | `MAKER:PRODUCT:SERIAL`: the PNP maker id, the product code in hex, the serial string, else the serial number | one monitor; copyable by an EDID emulator | strong |
@@ -246,7 +254,7 @@ stateDiagram-v2
 
 - A card is named by its `ID_PATH`, never by `cardN`, whose number can change between boots on a machine with several GPUs.
 - A rule's tokens combine: `input path:... serial:...` binds that unit in that port, the strongest binding; `display connector:... edid:...` binds that monitor on that port.
-- One physical keyboard may be several input devices (the Air84 is three: its keys, its media keys and a pointer); a `path` or `serial` match takes every interface of that USB device.
+- One physical keyboard may be several input devices (keyboard B is three: its keys, its media keys and a pointer); a `path` or `serial` match takes every interface of that USB device.
 - The template's comments advise: `path` plus `serial` where the device has a serial; `path` alone otherwise; `id` or `name` alone only for convenience, never for a head whose sessions need protecting; `connector` plus `edid` for displays.
 - `vtium check-config` and `vtium-vitrify check` note a rule that sends input to a head by `id` or `name` alone (probe 4).
 
@@ -257,9 +265,13 @@ stateDiagram-v2
 - A keyboard a rule sends to a head types into that head alone, and its console chords switch that head's consoles. The focus chord moves only the devices following the focus.
 - Pointers follow the same rules: a pointer claimed by a head moves on that head's displays; one following the focus moves on the focused head's.
 - A program's keyboard LEDs (DECLL) reach the keyboards delivering to its head.
-- Spreading spare keyboards one per head happens only on an explicit `input * -> HEAD` rule, never inferred; inferring would misplace a YubiKey or a media-key device.
+- Spreading spare keyboards one per head happens only on an explicit `input * -> HEAD` rule, never inferred; inferring would misplace an OTP token or a media-key device.
 - The console chords and the focus chord are grab keys matched after the VT's keys and the power keys and before the terminal's grabs, the C reference's place for its seat keys; their names and default chords are vtium/vtium#82's.
 - The terminal of each head's shown console has mode 1004's focus while its head has a lit display and a keyboard delivering to it, so several terminals hold it at once, one a head.
+
+One keyboard and two heads, before and after the focus chord:
+
+![One keyboard, two heads, in two rows. Before the chord, head desk with the large monitor holds the focus, a filled mark, and its session reads the keys typed; head panel with the small panel shows a hollow mark, its session running on with no keys reaching it; the keyboard's arrow points to head desk. Between the rows, the focus chord, pressed on the keyboard, a grab key whose default chord is vtium/vtium#82's. After the chord, head desk shows no focus and head panel holds it, and the keyboard's arrow points to head panel. The caption says focus moves only by the chord, never at a hotplug, a new keyboard never takes it, it rests only on a head with a lit display, and each head draws its mark outside the session's output. A legend marks vtium as root, a device, holds the focus and no focus.](figures/ADR-1401-focus.svg)
 
 ### D6: defaults that always type
 
@@ -268,6 +280,10 @@ stateDiagram-v2
 - vtium writes an instanced file only when it is absent (`O_CREAT | O_EXCL`), follows no symlink (`O_NOFOLLOW`), refuses when `/etc/vtium` fails the ownership check of D10, writes it `root:root 0644`, and carries the templates in its binary.
 - Instancing is best effort: a read-only root, a missing `/etc/vtium` or a refused directory runs the compiled-in defaults with one log line. `instance-defaults`, a kmscon.conf switch on by default, turns it off for a distribution that ships the templates as files.
 - A profile naming a frit that does not exist draws the default frit with a log line and creates no file.
+
+A machine with no configuration at all:
+
+![No configuration. On the left, /etc/vtium/heads.conf, absent at start and drawn dashed, is written from its template: every other setting a commented line, then [head console], profile = default, [rules], display * -> console and input * -> focus, the compiled-in default written out, which changes nothing until edited. In the middle, head console holds the large monitor, 7680x2160 at about 138 DPI on DP-8 of the discrete GPU, and the small panel, 800x480 at about 185 DPI on HDMI-A-2 of the integrated GPU, as one grid mirrored by the scaled rule. Below it, the focus rests on head console, and keyboard A, keyboard B, a numpad, an OTP token and a mouse all reach it through input * -> focus. On the right, the default chain: head console names its profile; profile default, instanced if absent; frit default, instanced if absent; and vconsole's font where set, else the built-in fonts, Unscii-8 and unifont. A legend marks vtium as root, a device, and absent; the caption says that with no file vtium behaves as it does today.](figures/ADR-1401-no-configuration.svg)
 
 ### D7: an invalid configuration
 
@@ -278,6 +294,10 @@ stateDiagram-v2
 - **Every error is logged** with its file and line, and a notice shows on the console before the login: vtium's own message, drawn as a getty prints its banner, never written to the session's pty or kept in its scrollback (probe 5: a key ends it, or it shows for a few seconds). vtium keeps running.
 - **`vtium check-config`** runs the boot's parser and evaluator, lists every error with its line, and exits non-zero; given a candidate file's path, it checks that file before it is installed, as `nft -c`, `visudo -c` and `sshd -t` do. It exits 1 on an error or a warning about the file itself, as it does for kmscon.conf; a finding that depends on the hardware present, such as a rule matching no connected device, is noted on standard output outside the exit status, so a file can be checked away from its machine.
 - On a future live reload, an invalid new file leaves the running configuration as it is.
+
+An invalid head file at boot:
+
+![An invalid head file. On the left, /etc/vtium/heads.conf with six numbered lines: [head desk], profile = desk, [rules], display * -> desk, input path:...3.3 -> desc highlighted as the error, and input * -> focus; line 5 names a head no section declares, and the file is left as it is, its hash before the boot equal to its hash after. In the middle, vtium at start reads the file whole, finds the error so no part of it applies, logs it with file and line, runs the shipped rules display * -> console and input * -> focus, shows the notice and keeps running. On the right, every display as one head shows the notice in a red box, vtium: heads.conf:5: rule names undefined head "desc"; running the shipped rules, drawn by vtium and never in the session, above the login prompt, and the session starts as before. Below, vtium check-config /etc/vtium/heads.conf prints the same error with its line and exits 1, the boot's parser and evaluator run on a candidate before install. The caption says vtium never fixes, comments out, renames or replaces a present file, an invalid profile gives its heads the default profile, an invalid frit draws the default frit, and missing hardware never makes a file invalid; the message's wording is illustrative. A legend marks vtium as root, a device, and an error or a notice.](figures/ADR-1401-invalid-file.svg)
 
 The default chain and each file's fallback, from the head file to the built-in fonts:
 
@@ -328,8 +348,12 @@ flowchart LR
 - **Layer 1, warnings.** `vtium check-config` and `vtium-vitrify check` warn of a head that claims only pointers while every keyboard is claimed elsewhere, of every keyboard ignored, and of a head whose only keyboard is one device; each names the device as reported.
 - **Layer 2, the anti-lockout guard,** as pfSense keeps its administration port open: while no keyboard-class device reaches a head with a lit display, every keyboard-class device follows the focus, with a notice, until one does. It moves every stranded keyboard at once, so it chooses none and stays deterministic.
 - **The display guard,** beside it: when the rules leave no display lit, the first head in the file takes the boot display, or the default head where the file has none. The boot display is the connector lit at start, else the first connected one in the kernel's order on the boot card (`boot_vga`, vtium-platform's primary card).
-- **Layer 3, the rescue:** Ctrl-Alt-F<n> for the VT vtium is on, pressed while that VT is shown, makes the keyboard that pressed it follow the focus for the rest of the boot, with a notice, and never writes the configuration. The VT's keys come first in the key order, and the shown VT's own key does nothing today, so the press has no other meaning. A numpad or an OTP token never sends that chord in its use, so the press shows a keyboard a person types on. From another VT it takes two presses: the switch, then the same key again. It can take a keyboard off the head a rule gave it, which grants no more than unplugging it would. On a seat without kernel VTs the same keys are vtium's own.
+- **Layer 3, the rescue:** `Ctrl-Alt-F<n>` for the VT vtium is on, pressed while that VT is shown, makes the keyboard that pressed it follow the focus for the rest of the boot, with a notice, and never writes the configuration. The VT's keys come first in the key order, and the shown VT's own key does nothing today, so the press has no other meaning. A numpad or an OTP token never sends that chord in its use, so the press shows a keyboard a person types on. From another VT it takes two presses: the switch, then the same key again. It can take a keyboard off the head a rule gave it, which grants no more than unplugging it would. On a seat without kernel VTs the same keys are vtium's own.
 - So that the rescue works, vtium opens the keyboard-class devices the rules ignore, to watch for the rescue key alone; nothing else they send is delivered or logged. Other devices stay closed under `ignore`.
+
+Lockout and rescue, in two cases:
+
+![Lockout and rescue, in two rows. Row 1: every keyboard is claimed by a head with no lit display. Head panel, drawn dashed, has its small panel unplugged and a rule input * -> panel; keyboard A and keyboard B are claimed by it. The anti-lockout guard, in red, finds no keyboard-class device reaching a lit head, so every one follows the focus until one does, and head desk, with the large monitor lit, shows the notice that no keyboard reached a lit head and every keyboard follows the focus. The guard moves every stranded keyboard at once, choosing none, and lets go once a rule's keyboard reaches a lit head. Row 2: a head is left with only a numpad. Head desk, lit, has the rules input path:...3.4.1 -> desk and input path:...3.3 -> ignore; the numpad reaches it, and since it declares 26 letters and Enter it is keyboard-class, so the guard does not act. Keyboard A, ignored by its rule, is opened only to watch for the rescue key. The rescue key, Ctrl-Alt-F&lt;n&gt; for vtium's own VT while it is shown, pressed on keyboard A, makes keyboard A follow the focus for the boot, with a notice, and heads.conf unchanged. A legend marks vtium as root, a device, a guard or a notice, and a head with no lit display.](figures/ADR-1401-lockout.svg)
 
 The guards run after every device added or removed, and the rescue key from a running console:
 
@@ -446,23 +470,23 @@ The probes, in the order the record raises them:
 
 Agent calls the operator has not yet looked at: the head file's syntax and the target `dark` setting the connector off (D3); naming cards by `ID_PATH` (D4); the keyboard class as 26 letters and Enter (D9); the head file's template carrying its two rules live (D6); `instance-defaults` (D6); `check-config`'s exit status for hardware-dependent findings (D7); `hangup-after`'s values and `never` for the shipped head (D8); mode 1004's focus per head (D5); the overlay socket for root alone (D12); and that the blank stays the seat's, any head's activity waking every display.
 
-## Evidence: the operator's machine
+## Evidence: a machine with two displays
 
-Read on 2026-10-29 from sysfs and `udevadm info`, as any user may:
+Read on 2026-10-29 from sysfs and `udevadm info`, as any user may. The ports and the facts are as read; the identity values are illustrative:
 
 | Device | Identity | What the kernel says |
 |---|---|---|
-| Samsung Odyssey G95NC on card1 DP-8 | EDID `SAM:0x7476:HNTX800370`; card1 is the boot card | 7680x2160, about 138 DPI (relayed) |
-| GX Touch 50 on card0 HDMI-A-2 | EDID `VEY:0x0001:HQ2031SYUTE` | 800x480, about 185 DPI (relayed) |
-| 8BitDo Retro Keyboard Receiver | `2dc8:5201`, no serial, path `...usb-0:3.3` | keyboard-class |
-| 8BitDo Retro 18 Numpad | `2dc8:5204`, serial `7BFA23A0FB`, path `...usb-0:3.4.1` | `ID_INPUT_KEYBOARD`; every letter, Enter, Ctrl, Alt, F1 |
-| YubiKey OTP+FIDO+CCID | `1050:0407`, path `...usb-0:3.4.2` | `ID_INPUT_KEYBOARD`; every letter, Enter, Ctrl, Alt, F1 |
-| Lofree Air84 | reports `05ac:024f`, path `...usb-0:3.2`, three interfaces | keyboard-class on interface 1.0 |
-| Logitech M510 | `046d:c52b`, path `...usb-0:3.4.4` | pointer |
-| Logitech receiver | `046d:c548`, no serial, path `...13:00.0-usb-0:1` | keyboard-class, with consumer and system controls that are not |
-| Microphone, headphones' AVRCP, PC speaker | the AVRCP node has no `ID_PATH` | key devices with no letters |
+| The large monitor on card1, the discrete GPU, DP-8 | EDID `AAA:0x0001:LARGE00001`; card1 is the boot card | 7680x2160, about 138 DPI (relayed) |
+| The small panel on card0, the integrated GPU, HDMI-A-2 | EDID `BBB:0x0002:SMALL00001` | 800x480, about 185 DPI (relayed) |
+| Keyboard A | `aaaa:0001`, no serial, path `...usb-0:3.3` | keyboard-class |
+| A numpad | `aaaa:0002`, serial `NUMPAD0001`, path `...usb-0:3.4.1` | `ID_INPUT_KEYBOARD`; every letter, Enter, Ctrl, Alt, F1 |
+| An OTP token | `bbbb:0001`, path `...usb-0:3.4.2` | `ID_INPUT_KEYBOARD`; every letter, Enter, Ctrl, Alt, F1 |
+| Keyboard B | reports another maker's vendor id, `cccc:0003`, path `...usb-0:3.2`, three interfaces | keyboard-class on interface 1.0 |
+| A mouse | `dddd:0001`, path `...usb-0:3.4.4` | pointer |
+| A USB receiver | `dddd:0002`, no serial, path `...13:00.0-usb-0:1` | keyboard-class, with consumer and system controls that are not |
+| A microphone's keys, Bluetooth headphones' media keys (AVRCP), the PC speaker | the AVRCP node has no `ID_PATH` | key devices with no letters |
 
-Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the G95NC, the case for heads. The example in D3 gives each its own head.
+Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the large monitor, the case for heads. The example in D3 gives each its own head.
 
 ## C notes: the C reference's flow
 

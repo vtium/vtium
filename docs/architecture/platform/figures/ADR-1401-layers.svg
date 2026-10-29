@@ -19,7 +19,7 @@
 <text x="760" y="119" font-size="11" text-anchor="end" fill="#2f6fb0">one vtium process, root: layers 3 to 5</text>
 <!-- 5: virtual consoles -->
 <rect x="16" y="132" width="744" height="68" fill="#e6eef7" stroke="#9aa5b1"/>
-<text x="28" y="152" font-size="14" font-weight="bold">5  virtual consoles, one shown a head</text>
+<text x="28" y="152" font-size="14" font-weight="bold">5  virtual consoles, one shown per head</text>
 <rect x="36" y="160" width="344" height="32" fill="#ffffff" stroke="#9aa5b1"/>
 <text x="208" y="181" font-size="13" text-anchor="middle">desk: console 1</text>
 <rect x="396" y="160" width="348" height="32" fill="#ffffff" stroke="#9aa5b1"/>
@@ -29,11 +29,11 @@
 <text x="28" y="244" font-size="14" font-weight="bold">4  heads</text>
 <rect x="36" y="254" width="344" height="64" fill="#ffffff" stroke="#9aa5b1"/>
 <text x="208" y="272" font-size="13" text-anchor="middle" font-weight="bold">head desk</text>
-<text x="208" y="290" font-size="12" text-anchor="middle">DP-8 on card1; its keyboard and mouse</text>
+<text x="208" y="290" font-size="12" text-anchor="middle">DP-8 on card1; keyboard A, the mouse</text>
 <text x="208" y="308" font-size="12" text-anchor="middle">profile desk → its frit</text>
 <rect x="396" y="254" width="348" height="64" fill="#ffffff" stroke="#9aa5b1"/>
 <text x="570" y="272" font-size="13" text-anchor="middle" font-weight="bold">head panel</text>
-<text x="570" y="290" font-size="12" text-anchor="middle">HDMI-A-2 on card0; the Air84</text>
+<text x="570" y="290" font-size="12" text-anchor="middle">HDMI-A-2 on card0; keyboard B</text>
 <text x="570" y="308" font-size="12" text-anchor="middle">profile small → its frit</text>
 <!-- 3: vtium -->
 <rect x="16" y="352" width="744" height="128" fill="#e6eef7" stroke="#9aa5b1"/>
@@ -62,10 +62,10 @@
 <rect x="16" y="604" width="744" height="164" fill="#f1f5f9" stroke="#9aa5b1"/>
 <text x="28" y="624" font-size="14" font-weight="bold">1  the kernel</text>
 <rect x="36" y="634" width="220" height="58" fill="#ffffff" stroke="#9aa5b1"/>
-<text x="146" y="657" font-size="13" text-anchor="middle">card0, the iGPU</text>
+<text x="146" y="657" font-size="13" text-anchor="middle">card0, the integrated GPU</text>
 <text x="146" y="677" font-size="12" text-anchor="middle">connector HDMI-A-2</text>
 <rect x="272" y="634" width="220" height="58" fill="#ffffff" stroke="#9aa5b1"/>
-<text x="382" y="657" font-size="13" text-anchor="middle">card1, the dGPU</text>
+<text x="382" y="657" font-size="13" text-anchor="middle">card1, the discrete GPU</text>
 <text x="382" y="677" font-size="12" text-anchor="middle">DP-8; the boot card</text>
 <rect x="508" y="634" width="236" height="58" fill="#ffffff" stroke="#9aa5b1"/>
 <text x="626" y="657" font-size="13" text-anchor="middle">evdev devices</text>

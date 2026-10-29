@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="510" viewBox="0 0 960 510" font-family="DejaVu Sans Mono, monospace">
+<title>Two heads with bound keyboards: the large monitor with keyboard A and the mouse, the small panel with keyboard B, and the unclaimed devices following the focus</title>
+<defs>
+<marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
+<marker id="arrow-blue" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#2f6fb0"/></marker>
+</defs>
+<rect width="960" height="510" fill="#ffffff"/>
+<g fill="#1f2933">
+<!-- head desk -->
+<rect x="16" y="40" width="440" height="212" fill="#e6eef7" stroke="#2f6fb0" stroke-width="2"/>
+<text x="30" y="60" font-size="14" font-weight="bold">head desk</text>
+<circle cx="298" cy="55" r="6" fill="#2f6fb0"/>
+<text x="310" y="60" font-size="12" fill="#2f6fb0">holds the focus</text>
+<rect x="36" y="72" width="400" height="98" fill="#f1f5f9" stroke="#9aa5b1"/>
+<rect x="48" y="80" width="376" height="62" fill="#ffffff" stroke="#9aa5b1"/>
+<text x="236" y="106" font-size="13" text-anchor="middle">the large monitor</text>
+<text x="236" y="126" font-size="12" text-anchor="middle">7680x2160, about 138 DPI, its own grid</text>
+<text x="236" y="162" font-size="12" text-anchor="middle">DP-8, the discrete GPU</text>
+<rect x="36" y="190" width="190" height="48" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="131" y="210" font-size="13" text-anchor="middle">keyboard A</text>
+<text x="131" y="228" font-size="11" text-anchor="middle">path ...usb-0:3.3</text>
+<rect x="246" y="190" width="190" height="48" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="341" y="210" font-size="13" text-anchor="middle">a mouse</text>
+<text x="341" y="228" font-size="11" text-anchor="middle">path ...usb-0:3.4.4</text>
+<line x1="131" y1="190" x2="131" y2="172" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="341" y1="190" x2="341" y2="172" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<!-- head panel -->
+<rect x="500" y="40" width="444" height="212" fill="#e6eef7" stroke="#2f6fb0" stroke-width="2"/>
+<text x="514" y="60" font-size="14" font-weight="bold">head panel</text>
+<circle cx="836" cy="55" r="6" fill="#ffffff" stroke="#2f6fb0" stroke-width="1.5"/>
+<text x="848" y="60" font-size="12" fill="#2f6fb0">no focus</text>
+<rect x="610" y="72" width="224" height="98" fill="#f1f5f9" stroke="#9aa5b1"/>
+<rect x="622" y="80" width="200" height="62" fill="#ffffff" stroke="#9aa5b1"/>
+<text x="722" y="106" font-size="13" text-anchor="middle">the small panel</text>
+<text x="722" y="126" font-size="11" text-anchor="middle">800x480, ~185 DPI, its grid</text>
+<text x="722" y="162" font-size="11" text-anchor="middle">HDMI-A-2, the integrated GPU</text>
+<rect x="627" y="190" width="190" height="48" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="722" y="210" font-size="13" text-anchor="middle">keyboard B</text>
+<text x="722" y="228" font-size="11" text-anchor="middle">path ...usb-0:3.2</text>
+<line x1="722" y1="190" x2="722" y2="172" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<!-- the focus -->
+<rect x="330" y="290" width="300" height="36" fill="#e6eef7" stroke="#2f6fb0"/>
+<text x="480" y="313" font-size="13" text-anchor="middle">the focus</text>
+<line x1="400" y1="290" x2="320" y2="256" stroke="#2f6fb0" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrow-blue)"/>
+<text x="150" y="282" font-size="12" fill="#2f6fb0">delivers to head desk</text>
+<!-- unclaimed devices -->
+<rect x="36" y="380" width="200" height="44" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="136" y="399" font-size="13" text-anchor="middle">a numpad</text>
+<text x="136" y="416" font-size="11" text-anchor="middle">no rule claims it</text>
+<rect x="260" y="380" width="200" height="44" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="360" y="399" font-size="13" text-anchor="middle">an OTP token</text>
+<text x="360" y="416" font-size="11" text-anchor="middle">path ...3.4.2 -&gt; focus</text>
+<rect x="484" y="380" width="200" height="44" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="584" y="399" font-size="13" text-anchor="middle">a USB receiver</text>
+<text x="584" y="416" font-size="11" text-anchor="middle">no rule claims it</text>
+<rect x="708" y="380" width="200" height="44" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="808" y="399" font-size="13" text-anchor="middle">media-key devices</text>
+<text x="808" y="416" font-size="11" text-anchor="middle">no rule claims them</text>
+<line x1="136" y1="380" x2="380" y2="328" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="360" y1="380" x2="450" y2="328" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="584" y1="380" x2="520" y2="328" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="808" y1="380" x2="590" y2="328" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="16" y="450" font-size="11">Displays and keyboard A, the mouse and keyboard B are placed by their rules; the rest follow the focus,</text>
+<text x="16" y="466" font-size="11">by a rule or by input * -&gt; focus. Keyboard A types into head desk alone, keyboard B into head panel alone.</text>
+<!-- legend -->
+<rect x="16" y="480" width="22" height="16" fill="#e6eef7" stroke="#2f6fb0"/>
+<text x="46" y="493" font-size="12">vtium, root</text>
+<rect x="150" y="480" width="22" height="16" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="180" y="493" font-size="12">a device</text>
+<circle cx="282" cy="488" r="6" fill="#2f6fb0"/>
+<text x="294" y="493" font-size="12">holds the focus</text>
+<circle cx="434" cy="488" r="6" fill="#ffffff" stroke="#2f6fb0" stroke-width="1.5"/>
+<text x="446" y="493" font-size="12">no focus</text>
+<text x="944" y="493" font-size="11" text-anchor="end">Proposed (ADR-1401, D3, D5)</text>
+</g>
+</svg>

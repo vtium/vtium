@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="500" viewBox="0 0 960 500" font-family="DejaVu Sans Mono, monospace">
+<title>No configuration: the shipped two rules, one head mirroring every display, every keyboard typing into it, the default profile and frit down to the built-in fonts</title>
+<defs>
+<marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
+</defs>
+<rect width="960" height="500" fill="#ffffff"/>
+<g fill="#1f2933">
+<!-- the head file -->
+<rect x="16" y="40" width="280" height="44" fill="#ffffff" stroke="#9aa5b1" stroke-dasharray="6 4"/>
+<text x="156" y="58" font-size="13" text-anchor="middle">/etc/vtium/heads.conf</text>
+<text x="156" y="76" font-size="12" text-anchor="middle">absent at start</text>
+<line x1="156" y1="84" x2="156" y2="108" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="164" y="101" font-size="11">written from template</text>
+<rect x="16" y="110" width="280" height="150" fill="#e6eef7" stroke="#2f6fb0"/>
+<text x="30" y="132" font-size="12"># every other setting is</text>
+<text x="30" y="150" font-size="12"># a commented line</text>
+<text x="30" y="172" font-size="12">[head console]</text>
+<text x="30" y="190" font-size="12">profile = default</text>
+<text x="30" y="212" font-size="12">[rules]</text>
+<text x="30" y="230" font-size="12">display * -&gt; console</text>
+<text x="30" y="248" font-size="12">input * -&gt; focus</text>
+<text x="156" y="284" font-size="12" text-anchor="middle">the compiled-in default,</text>
+<text x="156" y="302" font-size="12" text-anchor="middle">written out: it changes</text>
+<text x="156" y="320" font-size="12" text-anchor="middle">nothing until edited</text>
+<line x1="296" y1="200" x2="328" y2="200" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<!-- the head -->
+<rect x="330" y="40" width="320" height="270" fill="#e6eef7" stroke="#2f6fb0" stroke-width="2"/>
+<text x="344" y="60" font-size="14" font-weight="bold">head console</text>
+<rect x="350" y="72" width="280" height="110" fill="#f1f5f9" stroke="#9aa5b1"/>
+<rect x="362" y="82" width="256" height="66" fill="#ffffff" stroke="#9aa5b1"/>
+<text x="490" y="110" font-size="13" text-anchor="middle">the large monitor</text>
+<text x="490" y="130" font-size="12" text-anchor="middle">7680x2160, about 138 DPI</text>
+<text x="490" y="170" font-size="12" text-anchor="middle">DP-8, the discrete GPU</text>
+<rect x="410" y="194" width="160" height="88" fill="#f1f5f9" stroke="#9aa5b1"/>
+<rect x="420" y="202" width="140" height="50" fill="#ffffff" stroke="#9aa5b1"/>
+<text x="490" y="222" font-size="12" text-anchor="middle">the small panel</text>
+<text x="490" y="240" font-size="11" text-anchor="middle">800x480, ~185 DPI</text>
+<text x="490" y="272" font-size="11" text-anchor="middle">HDMI-A-2, integrated</text>
+<text x="490" y="300" font-size="12" text-anchor="middle">one grid, mirrored by the scaled rule</text>
+<!-- the focus -->
+<rect x="330" y="326" width="320" height="30" fill="#e6eef7" stroke="#2f6fb0"/>
+<text x="490" y="346" font-size="12" text-anchor="middle">the focus, resting on head console</text>
+<line x1="490" y1="326" x2="490" y2="312" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<!-- inputs -->
+<rect x="16" y="392" width="118" height="40" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="75" y="417" font-size="12" text-anchor="middle">keyboard A</text>
+<rect x="142" y="392" width="118" height="40" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="201" y="417" font-size="12" text-anchor="middle">keyboard B</text>
+<rect x="268" y="392" width="118" height="40" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="327" y="417" font-size="12" text-anchor="middle">a numpad</text>
+<rect x="394" y="392" width="118" height="40" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="453" y="417" font-size="12" text-anchor="middle">an OTP token</text>
+<rect x="520" y="392" width="118" height="40" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="579" y="417" font-size="12" text-anchor="middle">a mouse</text>
+<line x1="75" y1="392" x2="360" y2="358" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="201" y1="392" x2="420" y2="358" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="327" y1="392" x2="470" y2="358" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="453" y1="392" x2="520" y2="358" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="579" y1="392" x2="590" y2="358" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="660" y="417" font-size="12">every input: input * -&gt; focus</text>
+<!-- the default chain -->
+<rect x="690" y="40" width="254" height="48" fill="#e6eef7" stroke="#2f6fb0"/>
+<text x="817" y="60" font-size="13" text-anchor="middle">head console</text>
+<text x="817" y="78" font-size="11" text-anchor="middle">names its profile</text>
+<line x1="650" y1="64" x2="688" y2="64" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="690" y="116" width="254" height="48" fill="#e6eef7" stroke="#2f6fb0"/>
+<text x="817" y="136" font-size="13" text-anchor="middle">profile default</text>
+<text x="817" y="154" font-size="11" text-anchor="middle">instanced if absent</text>
+<line x1="817" y1="88" x2="817" y2="114" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="690" y="192" width="254" height="48" fill="#e6eef7" stroke="#2f6fb0"/>
+<text x="817" y="212" font-size="13" text-anchor="middle">frit default</text>
+<text x="817" y="230" font-size="11" text-anchor="middle">instanced if absent</text>
+<line x1="817" y1="164" x2="817" y2="190" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="690" y="268" width="254" height="70" fill="#e6eef7" stroke="#2f6fb0"/>
+<text x="817" y="288" font-size="12" text-anchor="middle">vconsole's font, where set;</text>
+<text x="817" y="306" font-size="12" text-anchor="middle">else the built-in fonts,</text>
+<text x="817" y="324" font-size="12" text-anchor="middle">Unscii-8 and unifont</text>
+<line x1="817" y1="240" x2="817" y2="266" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<!-- legend -->
+<rect x="16" y="458" width="22" height="16" fill="#e6eef7" stroke="#2f6fb0"/>
+<text x="46" y="471" font-size="12">vtium, root</text>
+<rect x="150" y="458" width="22" height="16" fill="#f1f5f9" stroke="#9aa5b1"/>
+<text x="180" y="471" font-size="12">a device</text>
+<rect x="270" y="458" width="22" height="16" fill="#ffffff" stroke="#9aa5b1" stroke-dasharray="6 4"/>
+<text x="300" y="471" font-size="12">absent</text>
+<text x="16" y="492" font-size="11">Proposed (ADR-1401, D6). With no file, vtium behaves as it does today.</text>
+</g>
+</svg>
