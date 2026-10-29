@@ -2634,7 +2634,8 @@ class DevicesTest(unittest.TestCase):
 
     # The guest's account of the examples (screens/udev-examples.sh), as it
     # prints it on a guest whose udev reads them as the record writes them.
-    UDEV = ["T3-UDEV pci-0000:15:00.0-usb-0:3.2:1.0-event-kbd VTIUM_HEAD=panel",
+    UDEV = ["T3-RULES-VERIFY ok",
+            "T3-UDEV pci-0000:15:00.0-usb-0:3.2:1.0-event-kbd VTIUM_HEAD=panel",
             "T3-UDEV platform-i8042-serio-0-event-kbd",
             "T3-HWDB-BUILD ok",
             "T3-HWDB vtium:input:b0003vBBBBp0001e0110 VTIUM_ROLE=token",
@@ -2678,6 +2679,18 @@ class DevicesTest(unittest.TestCase):
             "no build": (
                 lambda l: None if l.startswith("T3-HWDB-BUILD") else l,
                 "the guest did not build the hwdb fragment"),
+            # a misspelled key in a rule udevadm test never reaches
+            "a rule udev refuses": (
+                lambda l: "T3-RULES-VERIFY /usr/share/doc/vtium/examples/71-vtium-local.rules:17 "
+                          "Invalid key 'ATTRZ'." if l.startswith("T3-RULES-VERIFY") else l,
+                "udevadm verify on the example rules printed: "
+                "/usr/share/doc/vtium/examples/71-vtium-local.rules:17 Invalid key 'ATTRZ'."),
+            "verify failed silently": (
+                lambda l: "T3-RULES-VERIFY" if l.startswith("T3-RULES-VERIFY") else l,
+                "udevadm verify on the example rules printed: nothing, and failed"),
+            "no verify": (
+                lambda l: None if l.startswith("T3-RULES-VERIFY") else l,
+                "the guest did not verify the example rules"),
         }
         for name, (change, why) in wrong.items():
             with self.subTest(name):

@@ -39,8 +39,9 @@ CHECKS = {
               "the same grid on every output, each capture identical to the first's.",
     "udev-examples": "vtium's example udev rules and hwdb fragment, as the tree installs "
                      "them under /usr/share/doc/vtium/examples, read by the guest's udev: "
-                     "udevadm test with the rules for each keyboard, and systemd-hwdb "
-                     "with the fragment for three devices. Correct: the keyboard in port "
+                     "udevadm verify on the rules, udevadm test with them for each "
+                     "keyboard, and systemd-hwdb with the fragment for three devices. "
+                     "Correct: the rules verify without a message; the keyboard in port "
                      "pci-0000:15:00.0-usb-0:3.2 gets VTIUM_HEAD=panel and every other "
                      "keyboard no VTIUM_ property; the fragment builds without a "
                      "message and marks the token and the numpad it names, and nothing "
@@ -166,8 +167,9 @@ def run_screen(vm, name, timeout, type_line=None):
 def parse_udev(lines):
     """The guest's account of the examples (screens/udev-examples.sh): ({each
     keyboard's by-path name: its VTIUM_ properties}, {each queried device:
-    the hwdb's properties}, what building the hwdb printed)."""
-    keyboards, hwdb, built = {}, {}, None
+    the hwdb's properties}, what building the hwdb printed, what verifying
+    the rules printed), each "ok" when it printed nothing."""
+    keyboards, hwdb, built, verified = {}, {}, None, None
     for line in lines:
         fields = line.split()
         if not fields:
@@ -178,12 +180,19 @@ def parse_udev(lines):
             hwdb[fields[1]] = fields[2:]
         elif fields[0] == "T3-HWDB-BUILD":
             built = " ".join(fields[1:])
-    return keyboards, hwdb, built
+        elif fields[0] == "T3-RULES-VERIFY":
+            verified = " ".join(fields[1:])
+    return keyboards, hwdb, built, verified
 
 
-def judge_udev(keyboards, hwdb, built):
+def judge_udev(keyboards, hwdb, built, verified):
     """Why the guest's reading of the examples is wrong (CHECKS
     "udev-examples"); None when it is right."""
+    if verified is None:
+        return "the guest did not verify the example rules"
+    if verified != "ok":
+        return "udevadm verify on the example rules printed: %s" % (verified or "nothing, "
+                                                                   "and failed")
     if built is None:
         return "the guest did not build the hwdb fragment"
     if built != "ok":

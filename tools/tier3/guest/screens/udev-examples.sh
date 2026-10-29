@@ -1,13 +1,18 @@
 # vtium's example udev rules and hwdb fragment, as the tree installs them,
 # read by the guest's own udev (ADR-1401 D4), for tier 3's udev-examples
-# case (t3_devices.py). Each keyboard's VTIUM_ properties under the example
-# rules, from udevadm test, which changes nothing, go on the event port as
+# case (t3_devices.py). udevadm verify checks every rule of the example
+# rules, as T3-RULES-VERIFY; each keyboard's VTIUM_ properties under them,
+# from udevadm test, which changes nothing, go on the event port as
 # T3-UDEV NAME PROPERTY..., by its by-path name; the fragment is built into a
 # scratch root and queried for three devices, as T3-HWDB-BUILD and T3-HWDB
 # MODALIAS PROPERTY... The case runs it; it is no screen of the scenario's.
 # screen-text: none, it prints udev's reading of the examples.
 out=${T3_EVENTS:-/dev/stdout}
 examples=/usr/share/doc/vtium/examples
+msg=$(udevadm verify --no-style --no-summary "$examples/71-vtium-local.rules" 2>&1) &&
+    [ -z "$msg" ] && msg=ok
+echo "T3-RULES-VERIFY $(printf '%s' "$msg" | tr '\n' ' ')" > "$out"
+echo "71-vtium-local.rules: $msg"
 seen=" "
 for link in /dev/input/by-path/*-event-kbd; do
     node=$(readlink -f "$link")
