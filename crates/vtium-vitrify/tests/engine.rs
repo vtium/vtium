@@ -438,6 +438,72 @@ fn shipped(frit: &str) -> String {
     fs::read_to_string(path).expect("the frit")
 }
 
+// ADR-1200 D7: vtium's own frits carry no copy of unifont or Unscii-8; the
+// console draws what a frit lacks in the built-in font, character by
+// character.
+#[test]
+fn vtiums_own_frits_name_no_built_in_font() {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/frits");
+    let mut seen = 0;
+    for entry in fs::read_dir(dir).expect("the frits") {
+        let path = entry.expect("an entry").path();
+        let text = fs::read_to_string(&path).expect("a frit");
+        seen += 1;
+        for line in text.lines() {
+            assert!(
+                !line.trim_start().starts_with("source=builtin:"),
+                "{}: {line}",
+                path.display()
+            );
+        }
+    }
+    assert_eq!(seen, 3, "minspec-8, minspec-16 and proof");
+}
+
+/// Each shipped minspec frit, drawn here from stand-ins of the fonts it
+/// names: the outline fixture as `Noto Color Emoji`, its color square at
+/// U+23F3, U+2B50 and U+1F600, and as `Symbols Nerd Font Mono`, its bar
+/// at U+23FB, U+2B58 and U+E0B0. Each of those codepoints draws from the
+/// font the frit takes it from, in the frit's cell.
+#[test]
+fn the_minspec_frits_take_each_chosen_symbol_from_its_font() {
+    for (frit, at) in [("minspec-16", cell(8, 16)), ("minspec-8", cell(8, 8))] {
+        let w = World::new(&format!("shipped-{frit}"));
+        let mut emoji = ttf::test_mono();
+        emoji.family = "Noto Color Emoji".to_owned();
+        emoji.cmap = vec![(0x23f3, 5), (0x2b50, 5), (0x1f600, 5)];
+        fs::write(w.path("fonts/NotoColorEmoji.ttf"), emoji.build()).expect("font");
+        let mut nerd = ttf::test_mono();
+        nerd.family = "Symbols Nerd Font Mono".to_owned();
+        nerd.cmap = vec![(0x23fb, 2), (0x2b58, 2), (0xe0b0, 2)];
+        nerd.colr.clear();
+        fs::write(
+            w.path("fonts/SymbolsNerdFontMono-Regular.ttf"),
+            nerd.build(),
+        )
+        .expect("font");
+        let text = shipped(frit);
+        assert!(
+            text.lines()
+                .any(|l| l == format!("cell={}x{}", at.width, at.height)),
+            "{frit} states its cell"
+        );
+        let face = SetFace::new(w.drawn(&text, at), at.height).expect("a face");
+        for c in ['\u{23f3}', '\u{2b50}', '\u{1f600}'] {
+            let g = face.draw_unscaled(&[c], Style::default()).expect("drawn");
+            assert_eq!(g.format(), Format::Rgba, "{frit} {c:?}");
+        }
+        for c in ['\u{23fb}', '\u{2b58}', '\u{e0b0}'] {
+            let g = face.draw_unscaled(&[c], Style::default()).expect("drawn");
+            // the bar's edges are partly covered: an outline, not a bitmap
+            assert!(
+                g.pixels().iter().any(|&p| p > 0 && p < 255),
+                "{frit} {c:?} is not the Nerd Font's"
+            );
+        }
+    }
+}
+
 /// The shipped proof frit, drawn from stand-ins of its three fonts, takes
 /// Nerd Fonts' private-use symbols but not Font Logos (U+F300-U+F385),
 /// which carries no licence grant.

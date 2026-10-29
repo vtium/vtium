@@ -1,42 +1,25 @@
-# minspec-16: minspec's curated set at 8x16 cells (vtium/vtium#23): the
-# built-in unifont for text, with a chosen subset of Nerd Fonts' symbols and
-# of color emoji drawn over it. vtium ships this frit, never the fonts:
-# `vtium-vitrify create` builds the set on the target from the fonts its
-# packages installed, and a font missing there is left out with a warning.
+# minspec-16: minspec's curated font at 8x16 cells (vtium/vtium#23): a chosen
+# subset of Nerd Fonts' symbols and of color emoji, drawn over the
+# built-in unifont, which draws every character the frit does not give
+# (ADR-1200 D7). vtium ships this frit, never the fonts: the helper draws
+# from the fonts the target's packages installed, and leaves a missing
+# one out.
 #
 # Each source and each range is written down with why it is here, so the
 # selection can be reviewed and grown. A cover= limits the source above it.
 #
-# Licences, as each source's documentation gives them; the set's
-# provenance names each outline font's own licence string:
-# - unifont: SIL OFL 1.1 (GNU Unifont), built into vtium.
+# Licences, as each source's documentation gives them:
 # - Symbols Nerd Font Mono (Nerd Fonts' symbols-only font): MIT for the
 #   patcher; each icon set under its own licence, listed at each range.
 #   Font Logos (U+F300-U+F385) carries no licence grant and is left out.
 #   Font Awesome and Codicons are CC-BY-4.0 and Material Design Icons
 #   Apache-2.0: not needed at minspec, so left out here, not refused.
-# - Noto Color Emoji: SIL OFL 1.1, redistributable in a derived set.
+# - Noto Color Emoji: SIL OFL 1.1.
 # - Twemoji (CC-BY-4.0, attribution required) is not used.
 
 name=minspec-16
+cell=8x16
 license=OFL-1.1 AND MIT
-
-# Text: unifont first, sets the 8x16 cell. It holds 1-bit emoji and
-# symbols of its own; the Misc Symbols, Dingbats and emoji blocks and each
-# codepoint the color and Nerd Fonts sources below take are kept out of
-# it here, so those draw from them, and it fills what they lack last.
-source=builtin:unifont
-cover=U+0000-U+23F2        # text, punctuation, symbols, up to the hourglass
-cover=U+23F4-U+23FA        # up to the IEC power symbols
-cover=U+23FF-U+25FF        # box drawing, blocks, shapes
-cover=U+27C0-U+2B4F        # math and arrows, up to the star
-cover=U+2B51-U+2B57        # up to the IEC power symbol at U+2B58
-cover=U+2B59-U+E09F        # CJK, Hangul, up to the Powerline range
-cover=U+E0D8-U+E5F9        # the private use the symbols below leave free
-cover=U+E6BC-U+E6FF
-cover=U+E959-U+F3FF
-cover=U+F534-U+1F2FF       # presentation forms, ancient scripts, enclosed alphanumerics
-cover=U+1FB00-U+10FFFF     # Symbols for Legacy Computing and beyond
 
 # Nerd Fonts' symbols, one cell wide (the Mono build), for prompts and
 # file listers. Written against ttf-nerd-fonts-symbols-mono (Arch) /
@@ -91,8 +74,3 @@ cover=U+1F6A7              # construction: work in progress
 cover=U+1F6A8              # police light: gitmoji's lint
 cover=U+1F9EA              # test tube: gitmoji's tests
 cover=U+1F504              # arrows: refresh and sync
-
-# What the ranges above kept out of the text font: unifont's own 1-bit
-# glyphs for every symbol and emoji the color and Nerd Fonts sources did
-# not give, so the set covers all that unifont covers.
-source=builtin:unifont
