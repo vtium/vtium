@@ -2237,3 +2237,28 @@ fn a_dark_connector_plugged_in_with_master_let_go_takes_master_for_its_commit() 
     assert!(!s.master);
     assert_eq!(s.master_drops, 2);
 }
+
+// ADR-1401 D9: lit at start is visible at start. A CRTC another master
+// left with a mode and powered down, by ACTIVE on an atomic card or by
+// the connector's DPMS on a legacy one, is not lit.
+#[test]
+fn a_crtc_another_master_left_powered_down_is_not_lit_at_start() {
+    let lit = |legacy: bool, on: bool| {
+        let card = dark_card();
+        {
+            let mut s = card.state();
+            s.atomic = !legacy;
+            if legacy {
+                s.dpms.insert(B, if on { 0 } else { 3 });
+            } else {
+                s.active.insert(101, on);
+            }
+        }
+        let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+        v.identity(DisplayId(B)).unwrap().lit_at_start
+    };
+    assert!(lit(false, true));
+    assert!(!lit(false, false), "atomic, ACTIVE 0");
+    assert!(lit(true, true));
+    assert!(!lit(true, false), "legacy, DPMS off");
+}

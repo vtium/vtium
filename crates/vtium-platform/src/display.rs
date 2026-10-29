@@ -57,8 +57,10 @@ pub struct Identity {
     pub card: Option<String>,
     /// The monitor its EDID names, where the connector has one to read.
     pub edid: Option<EdidId>,
-    /// The connector showed a mode when its card was first scanned, as the
-    /// console or the boot loader left it.
+    /// The connector was visible when its card was first scanned, as the
+    /// console or the boot loader left it: its CRTC showed a mode and was
+    /// on, by `ACTIVE` on an atomic card and by the connector's DPMS on a
+    /// legacy one.
     pub lit_at_start: bool,
 }
 

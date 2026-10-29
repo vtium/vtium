@@ -25,7 +25,7 @@ use drm_ffi::{
 use rustix::io::Errno;
 
 use super::edid::Edid;
-use super::kms::{Connector, Encoder, Kms, Object, Request, Resources};
+use super::kms::{Connector, Encoder, Kms, Object, Property, Request, Resources};
 use super::mode::{self, Mode, ModePolicy};
 use super::{
     Ages, Canvas, Damage, DarkPolicy, Density, DisplayId, Dpms, Event, Identity, Rect, SwapError,
@@ -56,12 +56,17 @@ fn physical_size(name: &str, mm: (u32, u32), edid: Option<&Edid>) -> (u32, u32) 
 }
 
 /// A connected connector as a scan finds it: its name, the encoder it is
-/// on and the mode that encoder's CRTC shows, and its EDID in sysfs, read
-/// once for its identity and its physical size.
+/// on and the mode that encoder's CRTC shows, its properties, and its EDID
+/// in sysfs, read once for its identity and its physical size.
 struct Found {
     name: String,
     current: Option<Encoder>,
     shown: Option<Mode>,
+    props: Vec<Property>,
+    /// The connector is visible: its CRTC shows a mode and is on, by
+    /// `ACTIVE` on an atomic card and by the connector's DPMS on a legacy
+    /// one, either read as on where the property is missing.
+    visible: bool,
     edid: Option<Edid>,
 }
 
@@ -1062,11 +1067,31 @@ impl<K: Kms> Drm2d<K> {
                 .ok()
                 .flatten()
         });
+        let props = self
+            .card
+            .properties(conn.id, Object::Connector)
+            .inspect_err(|e| {
+                log::warn!("cannot read the properties of connector {name}: {e}");
+            })
+            .unwrap_or_default();
+        let on = match current.map(|e| e.crtc) {
+            _ if self.legacy => value(&props, "DPMS").is_none_or(|d| d == 0),
+            Some(crtc) => self
+                .card
+                .properties(crtc, Object::Crtc)
+                .inspect_err(|e| log::debug!("cannot read the properties of CRTC {crtc}: {e}"))
+                .ok()
+                .and_then(|p| value(&p, "ACTIVE"))
+                .is_none_or(|a| a != 0),
+            None => false,
+        };
         let edid = self.card.sysfs().and_then(|dir| Edid::sysfs(&dir, &name));
         Found {
             name,
             current,
+            visible: on && shown.is_some(),
             shown,
+            props,
             edid,
         }
     }
@@ -1077,7 +1102,7 @@ impl<K: Kms> Drm2d<K> {
             connector: found.name.clone(),
             card: self.card_path.clone(),
             edid: found.edid.as_ref().map(|e| e.id.clone()),
-            lit_at_start: !self.scanned && found.shown.is_some(),
+            lit_at_start: !self.scanned && found.visible,
         }
     }
 
@@ -1088,7 +1113,9 @@ impl<K: Kms> Drm2d<K> {
             name,
             current,
             shown,
+            props: connector_props,
             edid,
+            ..
         } = found;
         let wanted = self.policy.wanted.as_ref().and_then(|f| f(&name));
         let choice = mode::choose(
@@ -1097,13 +1124,6 @@ impl<K: Kms> Drm2d<K> {
             wanted,
             self.policy.use_original,
         )?;
-        let connector_props = self
-            .card
-            .properties(conn.id, Object::Connector)
-            .inspect_err(|e| {
-                log::warn!("cannot read the properties of connector {name}: {e}");
-            })
-            .unwrap_or_default();
         // Its modeset turns the display on, whatever DPMS the connector was
         // left at.
         let dpms = connector_props
