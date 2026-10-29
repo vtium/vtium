@@ -889,9 +889,9 @@ class DeparturesTest(unittest.TestCase):
         deps = t3_evaluate.read_departures()
         self.assertEqual(t3_evaluate.check_departures(deps, t3_scenario.variant_cases), [])
         self.assertEqual(deps["2d-potato-min-psf/flood"],
-                         {"readme": "crates/vtium-term/README.md", "title": self.TITLE,
-                          "rects": [[203, 16, 491, 32]]})
-        self.assertEqual(deps["2d-potato-min/underline-styles"]["rects"],
+                         [{"readme": "crates/vtium-term/README.md", "title": self.TITLE,
+                           "rects": [[203, 16, 491, 32]]}])
+        self.assertEqual(deps["2d-potato-min/underline-styles"][0]["rects"],
                          [[123, 80, 251, 96], [123, 224, 339, 240]])
         self.assertEqual(len(deps), 22)
 
@@ -899,8 +899,12 @@ class DeparturesTest(unittest.TestCase):
         path = self.tsv("a,b\tx,y\tR.md\tT\t0,0,8,16;8,0,16,16\n")
         deps = t3_evaluate.read_departures(path)
         self.assertEqual(sorted(deps), ["a/x", "a/y", "b/x", "b/y"])
-        self.assertEqual(deps["b/y"], {"readme": "R.md", "title": "T",
-                                       "rects": [[0, 0, 8, 16], [8, 0, 16, 16]]})
+        self.assertEqual(deps["b/y"], [{"readme": "R.md", "title": "T",
+                                        "rects": [[0, 0, 8, 16], [8, 0, 16, 16]]}])
+        # a case under two departures, each a line of its own
+        path = self.tsv("a\tx\tR.md\tT\t0,0,8,16\na\tx\tR.md\tU\t8,0,16,16\n")
+        self.assertEqual([d["title"] for d in t3_evaluate.read_departures(path)["a/x"]],
+                         ["T", "U"])
 
     def test_refused(self):
         for text, why in (("a\tx\tR.md\tT\n", "want VARIANTS, SCREENS"),
@@ -908,7 +912,9 @@ class DeparturesTest(unittest.TestCase):
                           ("a\tx\tR.md\tT\t0,0,1\n", "a rectangle is"),
                           ("a\tx\tR.md\tT\t1,0,1,1\n", "a rectangle is"),
                           ("a\tx\tR.md\tT\tz,0,1,1\n", "a rectangle is"),
-                          ("a\tx,x\tR.md\tT\t0,0,1,1\n", "a/x is listed twice")):
+                          ("a\tx,x\tR.md\tT\t0,0,1,1\n", "a/x is listed twice"),
+                          ("a\tx\tR.md\tT\t0,0,1,1\na\tx\tR.md\tT\t1,0,2,1\n",
+                           "a/x is listed twice under 'T'")):
             with self.subTest(text):
                 with self.assertRaisesRegex(SystemExit, re.escape(why)):
                     t3_evaluate.read_departures(self.tsv(text))
@@ -918,12 +924,12 @@ class DeparturesTest(unittest.TestCase):
         with open(readme, "w") as f:
             f.write("## Departures\n\n- **Listed.** Why.\n\n## Other\n\n- **Elsewhere.** No.\n")
         dep = {"readme": readme, "title": "Listed.", "rects": [[0, 0, 1, 1]]}
-        deps = {"2d-potato-min/sixel": dep,
-                "2d-potato-min/photo-scrollback": dep,
-                "no-such/sgr": dep,
-                "2d-potato-min/vt-switch": dep,
-                "2d-potato-min/cjk": dict(dep, title="Elsewhere."),
-                "2d-potato-min/sgr": dict(dep, readme=readme + ".missing")}
+        deps = {"2d-potato-min/sixel": [dep],
+                "2d-potato-min/photo-scrollback": [dep],
+                "no-such/sgr": [dep],
+                "2d-potato-min/vt-switch": [dep],
+                "2d-potato-min/cjk": [dep, dict(dep, title="Elsewhere.")],
+                "2d-potato-min/sgr": [dict(dep, readme=readme + ".missing")]}
         errors = t3_evaluate.check_departures(deps, lambda v: t3_scenario.variant_cases(v)
                                               if v in t3_scenario.VARIANTS else [])
         self.assertEqual(len(errors), 5, errors)
@@ -934,10 +940,10 @@ class DeparturesTest(unittest.TestCase):
                     "2d-potato-min/sgr: [Errno 2]"):
             self.assertTrue(any(why in e for e in errors), (why, errors))
 
-    def judged(self, actual_pixels, listed=True, golden_pixels=()):
+    def judged(self, actual_pixels, listed=True, golden_pixels=(), also=()):
         """The entry for 2d-potato-min/sixel with a black 32x32 golden and a capture
         differing at `actual_pixels`, listed under a departure whose rectangle
-        is 8,0,24,16."""
+        is 8,0,24,16, and under `also`'s departures after it."""
         golden = os.path.join(self.dir.name, "golden")
         img = t3img.Image(32, 32, bytes(32 * 32 * 3))
         os.makedirs(os.path.join(golden, "2d-potato-min"), exist_ok=True)
@@ -948,7 +954,7 @@ class DeparturesTest(unittest.TestCase):
         cap = os.path.join(self.dir.name, "cap.png")
         t3img.write_png(cap, t3img.Image(32, 32, bytes(data)))
         dep = {"readme": "R.md", "title": "T", "rects": [[8, 0, 24, 16]]}
-        deps = {"2d-potato-min/sixel": dep} if listed else {}
+        deps = {"2d-potato-min/sixel": [dep, *also]} if listed else {}
         with mock.patch.object(t3_evaluate, "GOLDEN", golden), \
                 mock.patch.object(t3_evaluate, "RUNDIR", os.path.join(self.dir.name, "run")), \
                 mock.patch.object(t3_evaluate, "DEPARTURES", deps):
@@ -968,6 +974,18 @@ class DeparturesTest(unittest.TestCase):
                          ("fail", "listed under the departure 'T', which it no longer shows"))
         e = self.judged(inside, listed=False)
         self.assertEqual((e["status"], "departure" in e), ("fail", False))
+        # under two departures: the difference lies in their rectangles
+        # together, and each shows in its own
+        u = {"readme": "R.md", "title": "U", "rects": [[0, 16, 8, 32]]}
+        e = self.judged(inside + [(0, 16)], also=[u])
+        self.assertEqual((e["status"], e["departure"]), ("departure", "T; U"))
+        e = self.judged(inside + [(0, 16), (31, 31)], also=[u])
+        self.assertEqual((e["status"], e["error"]),
+                         ("fail", "1 differing pixel(s) outside the rectangles of the "
+                                  "departures 'T' and 'U'"))
+        e = self.judged(inside, also=[u])
+        self.assertEqual((e["status"], e["error"]),
+                         ("fail", "listed under the departure 'U', which it no longer shows"))
 
     def test_departure_passes_the_run(self):
         # The run's verdict counts a departure and a provisional case as a pass.
