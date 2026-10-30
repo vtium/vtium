@@ -93,7 +93,7 @@ Tier 3 needs `qemu-system-x86_64` with KVM, `qemu-img`, `xorriso`, `gpg`, `curl`
 
 ### The VT review
 
-In the VT review, the maintainer checks a build by eye on a real VT. The review runs one build at a time and starts it from one place, so that no stray builds are left lying around:
+In the VT review, the maintainer checks a build by eye on a real VT. The review runs one build at a time and starts it from one place, so that no other vtium build is left running on a VT:
 
 - The steering session, which is the main session that directs the work, starts the run on a free VT with `make vt-check GUIDE=...` without asking first, and tells the maintainer which VT to switch to. A delegated agent, meaning a subagent that the steering session started, never starts a run.
 - The maintainer switches to that VT (Ctrl-Alt-F<n>), follows each step of the guide, and answers y, n or skip, with a note. Sudo asks for its password in the terminal where the run started.
@@ -109,11 +109,11 @@ Work happens on this machine first. GitHub's runners are slow, so the steering s
 2. **A worktree per branch,** placed beside the repositories. From the vtium checkout, run `git worktree add -b feat/<topic> ../vtium-<topic> integration`. The forks get no worktrees, because they are read only. Each worktree has its own `target/` directory, so builds running in parallel never wait on each other's lock. No two agents edit the same file, and each crate has one owner at a time.
 3. **The branch starts from `integration`,** a branch in the maintainer's checkout that collects reviewed work. Starting there lets later work build on earlier work before main sees it. `integration` reaches GitHub at each merge point. In a fresh clone that has no `integration` branch, branch from main.
 4. **The author commits locally and runs the gates.** The author does not push or open a PR. The author's report gives the branch, the head commit, the gate results and the departures, the way a PR body would.
-5. **A fresh reviewer reads the diff** (`git diff integration...<branch>`), runs the gates, and plants the defects that the change claims to catch. A fresh reviewer is an agent that did not write the change. Its findings are fixed on the same branch, in a fix round. Any fix round after the second goes to a newly briefed agent.
+5. **A fresh reviewer reads the diff** (`git diff integration...<branch>`), runs the gates, and plants the defects that the change claims to catch. A fresh reviewer is an agent that did not write the change. The author fixes the reviewer's findings in a round on the same branch. A fix round after the second goes to a newly briefed agent, so if a branch needs a third round, a new agent does it.
 6. **The reviewed branch merges into `integration`** with `git merge --no-ff`, and the steering session runs the full gates again on the merged tree.
 7. **At a merge point,** such as the end of a wave (a batch of agents working at the same time), the steering session pushes `integration`, opens one PR to main, and waits for that PR's CI. A PR merges with a regular merge commit, never a squash or a rebase.
 
-A provisional golden, one the maintainer has not reviewed yet, judges nothing. Before you delete a test because the thing it checks against (its oracle) is going away, find out what else would fail without it.
+A provisional golden, one the maintainer has not reviewed yet, judges nothing. Before you delete a test because the golden or other reference it compared against is going away, check which defects only that test would catch, and keep a test that still catches each of them.
 
 A stand-in that a test uses in place of a real part must check what the real part checks. In one case a stand-in helper accepted any name, so the tests never saw the real helper refuse a name, and the problem showed up only in tier 3.
 
