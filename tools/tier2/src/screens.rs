@@ -15,7 +15,7 @@
 use vtium_render::{Depth, Orientation};
 use vtium_term::WidthMethod;
 
-use crate::draw::{DecoSpec, Decorations, FontKind, Screen, TestFont};
+use crate::draw::{DecoSpec, Decorations, FontKind, Osd, Screen, TestFont};
 
 /// Where a screen's golden lives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -365,6 +365,17 @@ const fn edges(name: &'static str, orientation: Orientation) -> Case {
 /// A light theme set by OSC 10 and 11, for a 1-bit display: default
 /// text, a red word, colored and reversed cells, decorations and sprites
 /// (vtium/vtium#135).
+/// A shell session beneath the on-screen display (ADR-1401 D5,
+/// vtium/vtium#169).
+const OSD_SHELL: &[u8] = concat!(
+    "desk login: pi\r\n",
+    "Password:\r\n",
+    "pi@desk:~$ ls\r\n",
+    "\x1b[1;34mbin\x1b[0m  notes.txt  \x1b[1;32mrun.sh\x1b[0m\r\n",
+    "pi@desk:~$ ",
+)
+.as_bytes();
+
 const LIGHT: &[u8] = concat!(
     "\x1b]10;rgb:20/20/20\x1b\\\x1b]11;rgb:f0/f0/f0\x1b\\",
     "default text on a light background\r\n",
@@ -804,6 +815,34 @@ pub const CASES: &[Case] = &[
                 SMALL_80,
                 80,
                 30,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            osd: Some(Osd::Line("\u{25cf} desk \u{b7} console 2 of 3")),
+            ..Screen::new(
+                "osd-full",
+                "vtium's on-screen display under `osd = full` over a shell session, in unifont, 40 by 6 cells (ADR-1401 D5, vtium/vtium#169). Correct: a dark box with a grey edge across the top, the width of the display, holding `● desk · console 2 of 3` in light text, its first letter half a cell in from the edge, the filled dot meaning desk is the active head; the session's first rows covered by the box, and the rows below it as the terminal drew them.",
+                OSD_SHELL,
+                40,
+                6,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            osd: Some(Osd::Dot(vtium_render::Mark::Focus)),
+            ..Screen::new(
+                "osd-minimal",
+                "vtium's on-screen display under `osd = minimal`, the default, over the same shell session (ADR-1401 D5, vtium/vtium#169). Correct: the session as the terminal drew it, and a filled dot in the top-right cell, dark on the notice's pale red, meaning this head is the active head; every other cell untouched.",
+                OSD_SHELL,
+                40,
+                6,
             )
         },
         source: Source::Vtium,

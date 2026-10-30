@@ -18,8 +18,8 @@ use std::sync::Arc;
 use vtium_font::set::{Set, SetFace};
 use vtium_font::{Cell, Face, Font, Glyph, Psf, Style as FontStyle, Unifont};
 use vtium_render::{
-    Budgets, Canvas, Config, DecoColor, DecorationColors, Depth, DrawState, Orientation, Profile,
-    Renderer, Storage,
+    Budgets, Canvas, Colors, Config, DecoColor, DecorationColors, Depth, DrawState, Mark, Notice,
+    Orientation, Profile, Rect, Renderer, Storage, Surface,
 };
 use vtium_term::{Age, Glyph as Text, Rgb, Terminal, WidthMethod};
 
@@ -174,6 +174,17 @@ impl Decorations {
     }
 }
 
+/// What vtium's on-screen display draws over a screen's last frame
+/// (ADR-1401 D5), as the console draws it: with the screen's font, outside
+/// the terminal's cells.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Osd {
+    /// `osd = full`'s line, alone in the status box across the top.
+    Line(&'static str),
+    /// `osd = minimal`'s dot in the grid's top-right cell.
+    Dot(Mark),
+}
+
 /// One screen of tier 2.
 #[derive(Clone, Copy, Debug)]
 pub struct Screen {
@@ -195,6 +206,8 @@ pub struct Screen {
     pub decorations: Decorations,
     /// The display's depth: a 1-bit screen is drawn in black and white.
     pub depth: Depth,
+    /// The on-screen display drawn over the last frame.
+    pub osd: Option<Osd>,
 }
 
 impl Screen {
@@ -224,6 +237,7 @@ impl Screen {
                 force: false,
             },
             depth: Depth::Color,
+            osd: None,
         }
     }
 }
@@ -452,6 +466,31 @@ fn draw_config<F: Face>(
         if fresh.front().pixels() != display.front().pixels() {
             return Err("the frames drawn in turn differ from a fresh draw".to_owned());
         }
+    }
+    if let Some(osd) = screen.osd {
+        let surface = Surface {
+            width: w,
+            height: h,
+            orientation: screen.orientation,
+            depth: screen.depth,
+        };
+        let font = r.font();
+        let front = &mut display.buffers[display.back ^ 1];
+        let drawn = match osd {
+            Osd::Line(line) => Notice::new(line).draw(font, surface, Colors::STATUS, None, front),
+            Osd::Dot(mark) => {
+                let cell = font.cell();
+                let cols = u32::try_from(screen.cols).unwrap_or(u32::MAX);
+                let top_right = Rect {
+                    x: cols.saturating_sub(1).saturating_mul(cell.width),
+                    y: 0,
+                    width: cell.width,
+                    height: cell.height,
+                };
+                mark.draw(font, surface, top_right, Colors::NOTICE, front)
+            }
+        };
+        drawn.ok_or("the on-screen display drew nothing")?;
     }
     let front = display.front();
     Image::from_xrgb(front.width(), front.height(), front.pixels())
