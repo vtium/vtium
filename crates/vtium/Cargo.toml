@@ -20,6 +20,8 @@ logind = ["vtium-platform/logind"]
 
 [dependencies]
 vtium-term.workspace = true
+# Without vtium-font's `deflate` feature: the console rewrites its store
+# raw, so it links no deflate (ADR-1200 D19).
 vtium-font.workspace = true
 vtium-render.workspace = true
 vtium-platform.workspace = true

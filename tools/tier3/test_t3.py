@@ -382,18 +382,20 @@ class ImplementationTest(unittest.TestCase):
         self.assertEqual(t3_impl.describe(impl), {
             "tree": t3_common.rel(self.tree), "tree_sha256": impl["tree_sha256"],
             "binary_bytes": 8, "installed_bytes": 21,
-            "budget": {"binary_bytes": 2621440, "met": True}})
+            "budget": {"binary_bytes": t3_impl.BINARY_BUDGET, "met": True}})
 
     def test_budget(self):
-        # The operator's budget is the binary's bytes, 2.50 MiB (#22): at it
-        # the run passes, one byte past it fails. The rest of the tree does
-        # not count.
+        # The operator's budget is the binary's bytes, 3 MiB (ADR-1200 D19):
+        # at it the run passes, one byte past it fails. The rest of the tree
+        # does not count.
+        budget = t3_impl.BINARY_BUDGET
+        self.assertEqual(budget, 3145728)
         impl = t3_impl.tree(self.tree, self.tar)
-        for size, met in ((2621440, True), (2621441, False)):
+        for size, met in ((budget, True), (budget + 1, False)):
             impl["binary_bytes"] = size
             self.assertEqual(t3_impl.within_budget(impl), met, size)
             self.assertEqual(t3_impl.describe(impl)["budget"],
-                             {"binary_bytes": 2621440, "met": met})
+                             {"binary_bytes": budget, "met": met})
 
     def test_refused(self):
         # No tree, a file in its place, or a tree without the binary or the
@@ -642,21 +644,23 @@ class ImplementationTest(unittest.TestCase):
         self.assertEqual(t3_scenario.consoles(metas), ["vtium 0.1"])
 
     def test_summary(self):
+        budget = t3_impl.BINARY_BUDGET
         impl = t3_impl.tree(self.tree, self.tar)
-        impl["binary_bytes"], impl["installed_bytes"] = 2621441, 2630443
+        impl["binary_bytes"], impl["installed_bytes"] = budget + 1, 2630443
         metas = {"2d-potato-min": {"resident": t3_scenario.resident({"sgr": 10547,
                                                                      "s1-scroll": 16077}),
                                    "console": {"name": "vtium", "revision": "0.1"}},
                  "2d-potato-min-psf": {"resident": t3_scenario.resident({}), "console": None}}
         self.assertEqual(t3.summary(impl, metas).splitlines(), [
-            "tree %s: binary 2621441 B, over the budget of 2621440 B by 1 B; 2.51 MiB "
-            "installed; the console logged vtium 0.1" % t3_common.rel(self.tree),
+            "tree %s: binary %d B, over the budget of %d B by 1 B; 2.51 MiB "
+            "installed; the console logged vtium 0.1"
+            % (t3_common.rel(self.tree), budget + 1, budget),
             "2d-potato-min: resident 10.30 MiB after sgr, peak 15.70 MiB after s1-scroll",
             "2d-potato-min-psf: resident none after sgr, peak none after none"])
         impl["binary_bytes"] = 2368120
         self.assertTrue(t3.summary(impl, {}).startswith(
-            "tree %s: binary 2368120 B, within the budget of 2621440 B; "
-            % t3_common.rel(self.tree)))
+            "tree %s: binary 2368120 B, within the budget of %d B; "
+            % (t3_common.rel(self.tree), budget)))
 
     def test_vtium_process(self):
         # vtium's process logs as vtium[pid]; its render-timer and startup

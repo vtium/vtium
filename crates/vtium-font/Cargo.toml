@@ -18,6 +18,10 @@ default = ["unifont", "unscii"]
 psf = []
 # gzip-compressed PSF fonts, as the C reference's zlib option read them
 gzip = ["psf"]
+# the set writer's deflate: vtium-vitrify enables it, and the console, whose
+# writer only rewrites its store raw, does not (ADR-1200 D19); without it
+# the writer stores every chunk raw
+deflate = []
 # the built-in unifont, a vitrified set compiled in, inflated a chunk at a time
 unifont = []
 # the built-in Unscii-8 set, for cells under 16 pixels high (ADR-1200 D7)
@@ -26,7 +30,7 @@ unscii = []
 [dependencies]
 # inflates a vitrified set's deflated chunks in every build, the built-in
 # sets' among them, and gzipped PSF fonts (ADR-1200 D2); deflates the
-# chunks a set is written with
+# chunks a set is written with, with the `deflate` feature
 miniz_oxide = "0.8.9"
 
 [dev-dependencies]

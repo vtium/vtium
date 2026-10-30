@@ -21,8 +21,18 @@ mod builder;
 mod builtin;
 mod face;
 pub(crate) mod format;
+#[cfg(feature = "deflate")]
+mod pack;
 mod read;
 pub(crate) mod write;
+
+/// Without the `deflate` feature the writer stores every chunk raw.
+#[cfg(not(feature = "deflate"))]
+mod pack {
+    pub(crate) fn deflate(_raw: &[u8]) -> Option<Vec<u8>> {
+        None
+    }
+}
 
 pub use builder::{SetBuilder, StrikeBuilder, WriteError};
 #[cfg(feature = "unifont")]
