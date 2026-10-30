@@ -316,6 +316,49 @@ fn an_untrusted_files_content_is_never_consulted() {
 }
 
 #[test]
+fn a_running_closed_policy_takes_a_restart_to_open() {
+    let running = resolve(&Read::Trusted(Trusted {
+        stated: Stated::Closed,
+        rest: Rest::Valid,
+    }));
+    let reloaded = running.reload(&Read::Trusted(Trusted {
+        stated: Stated::Open,
+        rest: Rest::Valid,
+    }));
+    assert_eq!(reloaded.policy, Policy::Closed);
+    assert_eq!(reloaded, running);
+}
+
+#[test]
+fn a_reload_applies_only_a_valid_file_its_running_policy_accepts() {
+    // the valid trusted files, as written: a running open policy accepts each, a running closed one the closed ones alone
+    let valid = |stated| {
+        [Rest::Valid, Rest::Headless, Rest::Empty]
+            .map(|rest| Read::Trusted(Trusted { stated, rest }))
+    };
+    let closed: BTreeSet<Read> = valid(Stated::Closed).into_iter().collect();
+    let open: BTreeSet<Read> = [Stated::Unset, Stated::Open, Stated::Closed]
+        .into_iter()
+        .flat_map(valid)
+        .collect();
+    for start in paths() {
+        let running = resolve(&start);
+        let accepts = match running.policy {
+            Policy::Open => &open,
+            Policy::Closed => &closed,
+        };
+        for read in paths() {
+            let want = if accepts.contains(&read) {
+                resolve(&read)
+            } else {
+                running
+            };
+            assert_eq!(running.reload(&read), want, "{start:?} reloading {read:?}");
+        }
+    }
+}
+
+#[test]
 fn missing_and_valid_paths_are_silent_and_every_other_shows_one_line_on_a_lit_display() {
     for run in runs() {
         let silent = match run.read {

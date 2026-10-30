@@ -4,13 +4,14 @@
 //!
 //! Each head the running text declares is isolated or not, as the text writes it or the policy leaves it, and every such assignment is a start of its own; the operator's own way in under a closed policy is a head written `isolated = no`.
 //!
-//! A state is the devices present, the keyboards the rescue key has moved and which head is the active head; a reload changes the configuration only for a valid trusted file, which the events here never read. The guards run after every event, as D9 says, so the anti-lockout guard firing and letting go and the display guard firing are outcomes of the events, never events of their own. The state space is finite, 2^9 device sets by 2^4 rescued sets by 4 places for the active head, and the exploration runs breadth first until no event reaches a new state. Every invariant here is a property of one state, so a sequence of any length reaches only states the exploration checked.
+//! A state is the devices present, the keyboards the rescue key has moved and which head is the active head. A reload is checked for what it runs: a valid file, a trusted one whose start is silent, that the running policy accepts, and otherwise what runs already; the exploration does not follow an applied reload, whose outcome is a start of its own. The guards run after every event, as D9 says, so the anti-lockout guard firing and letting go and the display guard firing are outcomes of the events, never events of their own. The state space is finite, 2^9 device sets by 2^4 rescued sets by 4 places for the active head, and the exploration runs breadth first until no event reaches a new state. Every invariant here is a property of one state, so a sequence of any length reaches only states the exploration checked.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::paths;
 use crate::outcome::{
-    Fallback, Line, Outcome, Read, Rest, Runs, Stated, SwitchKey, Trusted, Unplaced, resolve,
+    Fallback, Line, Outcome, Policy, Read, Rest, Runs, Stated, SwitchKey, Trusted, Unplaced,
+    resolve,
 };
 
 const H1: u8 = 1;
@@ -463,7 +464,7 @@ fn allowed(start: &Config, by_text: bool) -> u64 {
         }
     };
     let guard = |k: SwitchKey| !by_text && start.guard(k);
-    let open = !by_text && o.policy == crate::outcome::Policy::Open;
+    let open = !by_text && o.policy == Policy::Open;
     // the open policy's display guard may light the default head; a closed file never grants it
     let heads = start.scene.heads | if open { DEF } else { 0 };
     let takes = |h: u8| h == DEF || !isolated(h);
@@ -518,7 +519,7 @@ enum Event {
     Reload(Read),
 }
 
-const RELOADS: [Read; 6] = [
+const RELOADS: [Read; 9] = [
     Read::Missing,
     Read::Untrusted,
     Read::Inaccessible,
@@ -533,6 +534,18 @@ const RELOADS: [Read; 6] = [
     Read::Trusted(Trusted {
         stated: Stated::Unset,
         rest: Rest::Partly,
+    }),
+    Read::Trusted(Trusted {
+        stated: Stated::Closed,
+        rest: Rest::Partly,
+    }),
+    Read::Trusted(Trusted {
+        stated: Stated::Open,
+        rest: Rest::Valid,
+    }),
+    Read::Trusted(Trusted {
+        stated: Stated::Closed,
+        rest: Rest::Valid,
     }),
 ];
 
@@ -572,6 +585,9 @@ struct Found {
     depth: usize,
     text_breaches: Vec<String>,
     policy_breaches: Vec<String>,
+    reload_breaches: Vec<String>,
+    /// Reloads that changed what runs.
+    applied: usize,
     anti_lockout: usize,
     let_go: usize,
     display_guard: usize,
@@ -662,15 +678,30 @@ fn explore(read: &Read, iso: Isolation, found: &mut Found) {
                             .find(|&h| v.heads & h != 0 && c.takes(h));
                     }
                 }
-                // only a valid trusted file is applied, and these are none
+                // a reload runs what a start of a valid file runs, a trusted file whose start is silent, and under a running closed policy only a closed one; anything else keeps what runs
                 Event::Reload(r) => {
                     let new = c.o.reload(&r);
+                    let started = resolve(&r);
+                    let valid = match r {
+                        Read::Missing | Read::Untrusted | Read::Inaccessible => false,
+                        Read::Trusted(_) => started.line.is_none(),
+                    };
+                    let accepted =
+                        valid && (c.o.policy == Policy::Open || started.policy == Policy::Closed);
+                    let want = if accepted { started } else { c.o };
+                    if new != want {
+                        found.reload_breaches.push(format!(
+                            "{}: a reload of {r:?} runs {new:?}, not {want:?}",
+                            at()
+                        ));
+                    }
+                    if readable_closed && new.policy != Policy::Closed {
+                        found
+                            .text_breaches
+                            .push(format!("{}: a reload of {r:?} runs {new:?}", at()));
+                    }
                     if new != c.o {
-                        let breach = format!("{}: a reload of {r:?} runs {new:?}", at());
-                        if readable_closed {
-                            found.text_breaches.push(breach.clone());
-                        }
-                        found.policy_breaches.push(breach);
+                        found.applied = found.applied.saturating_add(1);
                     }
                 }
             }
@@ -726,6 +757,17 @@ fn no_event_opens_what_a_readable_closed_policy_did_not_grant() {
         "{} states reach what the closed file did not grant: {:#?}",
         found.text_breaches.len(),
         firsts(&found.text_breaches)
+    );
+}
+
+#[test]
+fn a_reload_runs_a_valid_file_its_running_policy_accepts_and_nothing_else() {
+    let found = explore_all();
+    assert!(
+        found.reload_breaches.is_empty(),
+        "{} reloads run what they should not: {:#?}",
+        found.reload_breaches.len(),
+        firsts(&found.reload_breaches)
     );
 }
 
@@ -797,16 +839,18 @@ fn the_exploration_reaches_every_event_and_guard() {
         );
     }
     assert!(found.anti_lockout > 0 && found.let_go > 0 && found.display_guard > 0);
-    // a reload of a file vtium cannot run whole changes nothing
+    // a reload changes what runs, which a start of its own explores, and moves no device, rescue or active head
+    assert!(found.applied > 0);
     assert!(!found.effective.contains_key("reload"));
     println!(
-        "{} starts, {} states, depth {}, anti-lockout firing in {}, letting go {} times, display guard firing in {}, effective events {:?}",
+        "{} starts, {} states, depth {}, anti-lockout firing in {}, letting go {} times, display guard firing in {}, reloads applied {}, effective events {:?}",
         found.starts,
         found.states,
         found.depth,
         found.anti_lockout,
         found.let_go,
         found.display_guard,
+        found.applied,
         found.effective
     );
 }

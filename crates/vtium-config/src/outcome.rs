@@ -2,7 +2,7 @@
 //!
 //! Failure is resolved at three levels, each asked only once the one before it has passed: whether the file can be trusted ([`Read`]), whether it states a policy ([`Stated`]), and how much of the rest is good ([`Rest`]). A trusted file's policy and content exist only inside [`Read::Trusted`], so nothing can consult an untrusted file's content. [`resolve`] maps every path to one [`Outcome`], by exhaustive matches with no wildcard arm, so a new variant fails to compile until it has an answer. The module reads no file and holds no state: the loader classifies what it found with [`scope`] and [`Trusted::of`] and asks [`resolve`], and a reload asks [`Outcome::reload`].
 //!
-//! A readable closed policy is sticky. Once a trusted file states a readable `policy = closed`, nothing opens anything up: no other line of the file, no broken line in it, and no change of state while vtium runs, a reload of anything but a valid trusted file included.
+//! A readable closed policy is sticky. Once a trusted file states a readable `policy = closed`, nothing opens anything up: no other line of the file, no broken line in it, and no event while vtium runs. A reload under it applies only a valid closed file, so going from closed to open takes a vtium restart.
 //!
 //! `outcomes.tsv`, beside the crate's manifest, lists every path with its outcome; `outcome_table_matches_resolve` fails when it differs from [`resolve`], and `VTIUM_CONFIG_BLESS=1 cargo test -p vtium-config outcome_table` rewrites it.
 //!
@@ -364,19 +364,30 @@ impl Outcome {
         }
     }
 
-    /// What runs once a reload reads `read` while this outcome runs (vtium/vtium#86): a valid trusted file runs as it would at start, the owner's deliberate change, and a missing, untrusted, inaccessible, partly broken or broken file leaves whatever runs as it is, under either policy. A running closed policy is therefore sticky for the boot; a closed file deleted or made untrusted before a reboot starts the shipped rules with the notice.
+    /// What runs once a reload reads `read` while this outcome runs (vtium/vtium#86): a valid trusted file the running policy accepts runs as it would at start, the owner's deliberate change, and anything else leaves whatever runs as it is. A running open policy accepts any valid file; a running closed one accepts only a valid closed file, so going from closed to open takes a vtium restart, which reads the file afresh.
     pub fn reload(&self, read: &Read) -> Outcome {
         let valid = match read {
-            Read::Missing | Read::Untrusted | Read::Inaccessible => false,
-            Read::Trusted(t) => matches!(
-                (t.stated, t.rest),
-                (
-                    Stated::Unset | Stated::Open | Stated::Closed,
-                    Rest::Valid | Rest::Headless | Rest::Empty
-                )
-            ),
+            Read::Missing | Read::Untrusted | Read::Inaccessible => None,
+            Read::Trusted(t) => match (t.stated, t.rest) {
+                (Stated::Unset | Stated::Open, Rest::Valid | Rest::Headless | Rest::Empty) => {
+                    Some(Policy::Open)
+                }
+                (Stated::Closed, Rest::Valid | Rest::Headless | Rest::Empty) => {
+                    Some(Policy::Closed)
+                }
+                (Stated::Unreadable, Rest::Valid | Rest::Headless | Rest::Empty)
+                | (
+                    Stated::Unset | Stated::Open | Stated::Closed | Stated::Unreadable,
+                    Rest::Partly | Rest::Broken,
+                ) => None,
+            },
         };
-        if valid { resolve(read) } else { *self }
+        let accepted = match (self.policy, valid) {
+            (Policy::Open, Some(Policy::Open | Policy::Closed))
+            | (Policy::Closed, Some(Policy::Closed)) => true,
+            (Policy::Closed, Some(Policy::Open)) | (Policy::Open | Policy::Closed, None) => false,
+        };
+        if accepted { resolve(read) } else { *self }
     }
 }
 
