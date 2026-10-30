@@ -1050,9 +1050,10 @@ impl Helper {
                 Event::OwnCell(_) | Event::NoOwnCell(_) => {
                     Err("the helper answered a cell query not made".to_owned())
                 }
+                // a warning answers nothing, so the answer is still due
                 Event::Warning(why) => {
                     self.warn(why.trim());
-                    Ok(())
+                    continue;
                 }
                 Event::Failed(why) => Err(format!("the helper failed: {}", why.trim())),
                 Event::Malformed(why) => Err(format!("the helper's answer was refused: {why}")),
@@ -1239,8 +1240,20 @@ impl Helper {
     /// Logs the frit's warning `why`, once a boot and at most
     /// [`WARNINGS_MAX`] of them: a helper started again reads the frit
     /// again and sends its warnings again.
+    /// Its control characters are escaped, so the helper's text cannot
+    /// steer what shows the log.
     fn warn(&mut self, why: &str) {
-        if self.warned.len() < WARNINGS_MAX && self.warned.insert(why.to_owned()) {
+        let why: String = why
+            .chars()
+            .flat_map(|c| {
+                let escaped = c.is_control().then(|| c.escape_default());
+                escaped
+                    .into_iter()
+                    .flatten()
+                    .chain((!c.is_control()).then_some(c))
+            })
+            .collect();
+        if self.warned.len() < WARNINGS_MAX && self.warned.insert(why.clone()) {
             log::warn!("the frit {why}");
         }
     }
@@ -1738,6 +1751,31 @@ mod tests {
                 .warned
                 .contains(&format!("t:{WARNINGS_MAX}: a key that does nothing"))
         );
+    }
+
+    // a warning's control characters are escaped before the log, and a
+    // warning answers nothing: an ask the helper only warns on is still
+    // past due at ANSWER_MS, and the helper is started again
+    #[test]
+    fn a_warning_is_escaped_and_answers_nothing() {
+        let mut fixture = Vec::new();
+        for _ in 0..3 {
+            fixture.extend(frame_bytes(FRAME_WARNING, b"t:1: bad\x1b[2J\nline"));
+        }
+        let mut s = StandIn::new("warn-only", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.ask(CELL, &shown(&['A']), now);
+        for _ in 0..3 {
+            s.woke.recv_timeout(Duration::from_secs(10)).unwrap();
+        }
+        let late = now + Duration::from_millis(ANSWER_MS + 1);
+        let _ = s.helper.poll(late);
+        assert_eq!(
+            s.helper.warned.iter().collect::<Vec<_>>(),
+            ["t:1: bad\\u{1b}[2J\\nline"]
+        );
+        assert_eq!(s.helper.restarts, 1, "the ask was past due");
+        assert_eq!(s.helper.failed(), None);
     }
 
     // a cluster past CLUSTER_SCALARS_MAX is never asked for, as the helper
