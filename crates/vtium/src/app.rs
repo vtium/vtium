@@ -2303,11 +2303,9 @@ fn depth(config: &Config, levels: Option<u8>) -> Depth {
 
 #[cfg(test)]
 #[expect(
-    clippy::arithmetic_side_effects,
     clippy::disallowed_methods,
-    clippy::expect_used,
     clippy::unwrap_used,
-    reason = "a test's sizes are small, its clock is the host's, and a test fails by panicking"
+    reason = "a test's clock is the host's, and a test fails by panicking"
 )]
 mod tests {
     use std::any::Any;
