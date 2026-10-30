@@ -220,8 +220,19 @@ pub struct App {
     /// not: the focus starts over them, so a display leaving never moves
     /// it (ADR-1401 D8).
     start_lit: BTreeMap<(PathBuf, DisplayId), vtium_config::Identity>,
-    /// The displays a device announced that the rules leave dark.
-    dark: BTreeSet<(PathBuf, DisplayId)>,
+    /// The displays a device announced that the rules leave dark, as the
+    /// rules saw them.
+    dark: BTreeMap<(PathBuf, DisplayId), vtium_config::Identity>,
+    /// The display the display guard lit, and its head (ADR-1401 D9).
+    guard_lit: Option<((PathBuf, DisplayId), usize)>,
+    /// A device came or went: the guards run at the turn's end.
+    guard_due: bool,
+    /// The anti-lockout guard holds every keyboard on the focus.
+    locked_out: bool,
+    /// A display is lit, which a DRM card's dark rule reads: while none
+    /// is, a display the rules leave dark is announced for the display
+    /// guard to light.
+    any_lit: Rc<Cell<bool>>,
     /// The scrollback cap and length each console takes.
     scrollback: (usize, usize),
     /// The scrollback memory each console takes.
@@ -380,7 +391,11 @@ impl App {
             cards: BTreeMap::new(),
             lit: BTreeMap::new(),
             start_lit: BTreeMap::new(),
-            dark: BTreeSet::new(),
+            dark: BTreeMap::new(),
+            guard_lit: None,
+            guard_due: false,
+            locked_out: false,
+            any_lit: Rc::default(),
             scrollback: (cap, lines),
             scrollback_bytes: bytes,
             caps,
@@ -412,10 +427,25 @@ impl App {
     /// session yet, and its rules for each display that comes.
     pub fn set_heads(&mut self, rules: vtium_config::Config) {
         let rules = route::in_force(rules, &self.config);
+        for (on, name) in [
+            (rules.guards.anti_lockout, "anti-lockout"),
+            (rules.guards.rescue_key, "rescue-key"),
+            (rules.guards.never_dark, "never-dark"),
+        ] {
+            if !on {
+                log::warn!("the head file turns the {name} guard off");
+            }
+        }
+        // The display guard's default head, where the file declares none
+        // (D9).
+        let mut declared = rules.clone();
+        if declared.heads.is_empty() {
+            declared.heads = vtium_config::Config::builtin().heads;
+        }
         let caps = self.caps;
-        self.scrollback_bytes = session::scrollback_bytes(&self.config, caps, rules.heads.len());
+        self.scrollback_bytes = session::scrollback_bytes(&self.config, caps, declared.heads.len());
         let scrollback = (self.scrollback, self.scrollback_bytes);
-        self.heads = session::heads(&rules, &self.config, scrollback, caps, &self.clock);
+        self.heads = session::heads(&declared, &self.config, scrollback, caps, &self.clock);
         self.rules = rules;
         self.focus = None;
         self.lit.clear();
@@ -597,7 +627,9 @@ impl App {
         self.videos.remove(node);
         self.cards.remove(node);
         self.lit.retain(|(n, _), _| n != node);
-        self.dark.retain(|(n, _)| n != node);
+        self.dark.retain(|(n, _), _| n != node);
+        self.guard_lit.take_if(|((n, _), _)| n == node);
+        self.guard_due = true;
         for h in 0..self.heads.len() {
             let lost = self.heads.get_mut(h).is_some_and(|head| {
                 let before = head.views.len();
@@ -942,11 +974,16 @@ impl App {
     /// rules leave dark is set off and logged ([`place_display`]).
     fn head_for(&mut self, node: &Path, id: DisplayId) -> Option<(usize, vtium_config::Identity)> {
         let display = self.identity(node, id)?;
+        let key = (node.to_owned(), id);
+        if let Some((_, h)) = self.guard_lit.as_ref().filter(|(k, _)| *k == key) {
+            return Some((*h, display));
+        }
         match place_display(&self.rules, &display) {
             Ok(h) => Some((h, display)),
             Err(line) => {
                 log::info!("{line}");
-                self.dark.insert((node.to_owned(), id));
+                self.dark.insert(key, display);
+                self.guard_due = true;
                 self.darken();
                 None
             }
@@ -957,7 +994,7 @@ impl App {
     /// dark, after a wake-up or an unblank lit it: a DRM card never
     /// announces one ([`open_video`]), a framebuffer does.
     fn darken(&mut self) {
-        for (node, id) in &self.dark {
+        for (node, id) in self.dark.keys() {
             if let Some(video) = self.videos.get_mut(node) {
                 if let Err(e) = video.set_dpms(*id, Dpms::Off) {
                     log::warn!("cannot set display {} off: {e}", video.name(*id));
@@ -1028,6 +1065,7 @@ impl App {
         }
         self.lit.insert(key.clone(), display);
         self.focus_due = true;
+        self.guard_due = true;
         if let Some(v) = self.heads.get(h).and_then(|head| head.views.get(&key)) {
             let cell = v.cell();
             log::info!(
@@ -1496,7 +1534,7 @@ impl App {
                 // device holding one powers up its other displays alone.
                 let dark: Vec<DisplayId> = self
                     .dark
-                    .iter()
+                    .keys()
                     .filter(|(n, _)| n == node)
                     .map(|&(_, id)| id)
                     .collect();
@@ -1603,8 +1641,11 @@ impl App {
         match event {
             Event::Added(id) => self.add_display(node, id),
             Event::Removed(id) => {
-                self.lit.remove(&(node.to_owned(), id));
-                self.dark.remove(&(node.to_owned(), id));
+                let key = (node.to_owned(), id);
+                self.lit.remove(&key);
+                self.dark.remove(&key);
+                self.guard_lit.take_if(|(k, _)| *k == key);
+                self.guard_due = true;
                 if let Some(h) = self.head_of(node, id) {
                     if let Some(head) = self.heads.get_mut(h) {
                         head.views.remove(&(node.to_owned(), id));
@@ -1676,20 +1717,114 @@ impl App {
         if self.start_lit.is_empty() || self.focus.is_some() && (self.focus_settled || !due) {
             return;
         }
-        // The guards are H3d's: with them off the placement is the rules'
-        // alone, and its focus where D5 starts it.
+        // The display guard's display counts as lit; the anti-lockout
+        // guard moves the focus itself ([`App::guard`]).
         let mut rules = self.rules.clone();
-        rules.guards = vtium_config::Guards {
-            anti_lockout: false,
-            rescue_key: false,
-            never_dark: false,
-        };
+        rules.guards.anti_lockout = false;
         let lit: Vec<vtium_config::Identity> = self.start_lit.values().cloned().collect();
-        self.focus = match rules.place(&lit, None).focus {
-            Some(vtium_config::Place::Head(h)) => Some(h),
-            _ => None,
-        };
+        self.focus = head_index(rules.place(&lit, None).focus);
         self.bound_pointers();
+    }
+
+    /// The guards (ADR-1401 D9), after a device came or went: every device
+    /// present placed by the rules in force, then the display guard and the
+    /// anti-lockout guard over the placement.
+    ///
+    /// The display guard lights the boot display in the first head while
+    /// the rules light none, and lets it go dark once they light another.
+    /// The anti-lockout guard sends every keyboard to the focus, opened to
+    /// deliver, while none reaches a head with a lit display, and moves the
+    /// focus to a lit head, with a notice and the focus marks; once one
+    /// reaches a lit head each goes back to its rule. A keyboard the rescue
+    /// key moved follows the focus throughout, and reaches it while the
+    /// focus's head is lit.
+    fn guard(&mut self, now: Instant) {
+        if !std::mem::take(&mut self.guard_due) {
+            return;
+        }
+        let displays: Vec<(PathBuf, DisplayId)> =
+            self.lit.keys().chain(self.dark.keys()).cloned().collect();
+        let devices: Vec<vtium_config::Identity> = self
+            .lit
+            .values()
+            .chain(self.dark.values())
+            .chain(self.routes.unrescued())
+            .cloned()
+            .collect();
+        let focus_lit = self
+            .focus
+            .and_then(|h| self.heads.get(h))
+            .is_some_and(|head| !head.views.is_empty());
+        let mut rules = self.rules.clone();
+        rules.guards.anti_lockout &= !(focus_lit && self.routes.rescued_keyboard());
+        let focus = self.focus.map(vtium_config::Place::Head);
+        let placement = rules.place(&devices, focus);
+        let (shown, inputs) = placement
+            .placed
+            .split_at(displays.len().min(placement.placed.len()));
+        let lighting = displays
+            .iter()
+            .zip(shown)
+            .find(|(_, p)| p.by == vtium_config::By::NeverDark)
+            .and_then(|(key, p)| Some((key.clone(), head_index(Some(p.place))?)));
+        if lighting != self.guard_lit {
+            if let Some((key, _)) = self.guard_lit.take() {
+                self.unlight(key);
+            }
+            if let Some((key, h)) = lighting {
+                log::warn!(
+                    "the display guard lights display {} in head {}",
+                    key.0.display(),
+                    self.heads.get(h).map_or("?", Head::name)
+                );
+                self.dark.remove(&key);
+                self.guard_lit = Some((key.clone(), h));
+                if let Some(video) = self.videos.get_mut(&key.0) {
+                    if let Err(e) = video.set_dpms(key.1, Dpms::On) {
+                        log::warn!("cannot set display {} on: {e}", video.name(key.1));
+                    }
+                }
+                self.add_display(&key.0, key.1);
+            }
+        }
+        let guarded = inputs.iter().map(|p| p.by == vtium_config::By::AntiLockout);
+        for (id, disposition) in self.routes.guard(&self.rules, guarded) {
+            if let Some(input) = &mut self.input {
+                input.set_disposition(id, disposition);
+            }
+        }
+        if placement.anti_lockout {
+            if let Some(to) = head_index(placement.focus).filter(|&h| Some(h) != self.focus) {
+                self.move_focus(to, now);
+            }
+            if !self.locked_out {
+                let line = "the anti-lockout guard: no keyboard reaches a head with a lit display, so every keyboard follows the focus";
+                log::warn!("{line}");
+                if let Some(head) = self.focus.and_then(|h| self.heads.get_mut(h)) {
+                    head.add_notice(line);
+                }
+            }
+        }
+        self.locked_out = placement.anti_lockout;
+        self.any_lit.set(!self.lit.is_empty());
+        self.bound_pointers();
+    }
+
+    /// The display the display guard lit goes dark again: the rules light
+    /// another.
+    fn unlight(&mut self, key: (PathBuf, DisplayId)) {
+        let Some(display) = self.lit.remove(&key) else {
+            return;
+        };
+        if let Some(h) = self.head_of(&key.0, key.1) {
+            if let Some(head) = self.heads.get_mut(h) {
+                head.views.remove(&key);
+            }
+            self.relayout(h);
+        }
+        log::info!("display {} goes dark again", key.0.display());
+        self.dark.insert(key, display);
+        self.darken();
     }
 
     /// A head's first display came, its last went, or its next came. With
@@ -1822,6 +1957,7 @@ impl App {
             DeviceEvent::Removed { kind, node } => match kind {
                 DeviceKind::Input => {
                     self.routes.remove(&node);
+                    self.guard_due = true;
                     if let Some(input) = &mut self.input {
                         if let Some(id) = input.find(&node) {
                             input.remove(id);
@@ -1844,6 +1980,7 @@ impl App {
     /// `identity` (ADR-1401 D3): opened to deliver, opened for the rescue
     /// key alone, or never opened.
     pub fn add_input(&mut self, node: &Path, identity: vtium_config::Identity) {
+        self.guard_due = true;
         let disposition = self.routes.add(&self.rules, node, &identity);
         if let Some(id) = self
             .input
@@ -1927,6 +2064,7 @@ impl App {
         let Some(id) = self.routes.rescue(&self.rules, node) else {
             return;
         };
+        self.guard_due = true;
         let line = format!(
             "the rescue key: {} follows the focus until the next boot",
             node.display()
@@ -2232,6 +2370,7 @@ impl App {
             }
         }
         self.take_focus();
+        self.guard(now);
         self.attachment(now);
         self.first_start(now);
         if let Some(r) = &self.releasing {
@@ -2581,6 +2720,15 @@ impl App {
     }
 }
 
+/// The index of the head at `place`: the default head is the first.
+fn head_index(place: Option<vtium_config::Place>) -> Option<usize> {
+    match place? {
+        vtium_config::Place::Head(h) => Some(h),
+        vtium_config::Place::DefaultHead => Some(0),
+        _ => None,
+    }
+}
+
 /// What the screens of `heads` show, merged: each character and cluster
 /// any of them shows, sorted and once.
 fn shown<'a>(heads: impl Iterator<Item = &'a &'a Head>) -> crate::deferred::Shown {
@@ -2771,8 +2919,14 @@ pub fn open_video(app: &mut App, node: &Path, kind: DeviceKind, card: Card) -> i
             drm.set_card_path(card.id_path.clone());
             // A display the rules leave dark is set off before it is
             // announced, a frame another master left included (D3).
-            let (rules, at) = (app.rules.clone(), card.clone());
+            let (rules, at, lit) = (app.rules.clone(), card.clone(), Rc::clone(&app.any_lit));
             drm.set_dark(Box::new(move |named| {
+                // While none is lit, it is announced for the display guard
+                // to light (D9), which leaves dark again the ones it lights
+                // not.
+                if rules.guards.never_dark && !lit.get() {
+                    return false;
+                }
                 let display = identity::display(named, &at, 0);
                 place_display(&rules, &display)
                     .map_err(|line| log::info!("{line}"))
