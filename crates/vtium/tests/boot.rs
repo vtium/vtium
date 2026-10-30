@@ -3817,8 +3817,8 @@ fn a_frit_with_an_unreadable_cell_leaves_the_built_in_font() {
 
 /// The seat with the frit `t`, whose helper answers every printable ASCII
 /// character as a solid block once `go` exists, its session running
-/// `script`; the harness, the sources and the go file.
-fn frit_session(name: &str, script: &str) -> (Scratch, Harness, Sources, PathBuf) {
+/// `script`; the directory, the harness and the go file.
+fn frit_session(name: &str, script: &str) -> (Scratch, Harness, PathBuf) {
     let cell = vtium_font::Cell {
         width: 8,
         height: 16,
@@ -3839,16 +3839,16 @@ fn frit_session(name: &str, script: &str) -> (Scratch, Harness, Sources, PathBuf
             script,
         ],
         Memory::default(),
-        fonts.clone(),
+        fonts,
     );
-    (scratch, h, fonts, go)
+    (scratch, h, go)
 }
 
 // #149: the glyphs that land damage the cells each buffer shows, a
 // cluster's included
 #[test]
 fn a_cluster_cell_draws_the_helpers_glyph_once_it_lands() {
-    let (_dir, mut h, fonts, go) = frit_session("cluster", "printf 'e\\314\\201'; read x");
+    let (_dir, mut h, go) = frit_session("cluster", "printf 'e\\314\\201'; read x");
     assert!(
         h.until_memory(Duration::from_secs(10), |m| !solid(&top_cell(m, 0))),
         "the built-in font's e with its accent"
@@ -3864,7 +3864,7 @@ fn a_cluster_cell_draws_the_helpers_glyph_once_it_lands() {
 // #149: a scrolled-back view's cells take the glyphs too
 #[test]
 fn a_scrolled_back_cell_draws_the_helpers_glyph_once_it_lands() {
-    let (_dir, mut h, fonts, go) = frit_session(
+    let (_dir, mut h, go) = frit_session(
         "scrolled",
         "echo A; i=0; while [ $i -lt 12 ]; do printf '\\303\\251\\n'; i=$((i+1)); done; printf '\\303\\251\\303\\251'; read x",
     );
@@ -3902,7 +3902,7 @@ fn a_scrolled_back_cell_draws_the_helpers_glyph_once_it_lands() {
 // buffer shows starts no draw pass, and swaps no frame
 #[test]
 fn glyphs_no_buffer_shows_start_no_draw() {
-    let (_dir, mut h, fonts, go) = frit_session("unseen", "read x");
+    let (_dir, mut h, go) = frit_session("unseen", "read x");
     assert!(h.until_memory(Duration::from_secs(10), |m| m.frames > 0));
     h.until(Duration::from_millis(200), |_| false);
     let (frames, passes) = (h.memory().frames, h.memory().ages.len());
