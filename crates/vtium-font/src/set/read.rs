@@ -13,14 +13,17 @@ use crate::face::{Cell, Decorations, Style, Width};
 use crate::glyph::{Format, Glyph};
 use crate::policy::{Coverage, RangeCoverage, SpritePolicy};
 use crate::set::format::{
-    CHUNK_RECORD, CMAP, FORMAT_BITS, FORMAT_R8, FORMAT_RGBA, GLYF, MAGIC, MAJOR, META, POLY,
-    PRELUDE_BYTES, SECTION_BYTES, STRK, TABLE_HEAD_BYTES, glyph_bytes,
+    CHUNK_RECORD, CLUS, CMAP, FORMAT_BITS, FORMAT_R8, FORMAT_RGBA, GLYF, MAGIC, MAJOR, META,
+    POLY, PRELUDE_BYTES, SECTION_BYTES, STRK, TABLE_HEAD_BYTES, glyph_bytes,
 };
 use crate::sprite::Range;
 
 mod parse;
 
-use parse::{parse_cmap, parse_index, parse_meta, parse_poly, parse_strikes};
+use parse::{
+    ClusterMap, parse_clusters, parse_cmap, parse_index,
+    parse_meta, parse_poly, parse_strikes,
+};
 
 /// Why a set was refused, or a chunk of it.
 #[derive(Debug)]
@@ -133,6 +136,8 @@ struct Strike {
     coverage: Coverage,
     /// The strike's chunks, `[first, end)` of the set's.
     chunks: (usize, usize),
+    /// The strike's clusters, `[first, end)` of the set's.
+    clusters: (usize, usize),
 }
 
 /// A chunk's index entry, with where it starts in its strike's glyph
@@ -167,6 +172,7 @@ pub struct Set {
     policy: SpritePolicy,
     strikes: Vec<Strike>,
     chunks: Vec<Chunk>,
+    clusters: ClusterMap,
     bytes: Bytes,
     loaded: Box<[Loaded]>,
     fault: OnceLock<SetError>,
@@ -351,6 +357,9 @@ struct Parts<'a> {
     /// `GLYF`'s head and chunk index.
     index: &'a [u8],
     glyf: (u64, u64),
+    /// `CLUS` but its chunks' bytes, and where it lies, when the set has
+    /// one.
+    clus: Option<(&'a [u8], (u64, u64))>,
 }
 
 /// The length of `GLYF`'s head and index, from its first 8 bytes.
@@ -413,6 +422,10 @@ impl Set {
             poly: get(POLY)?,
             index,
             glyf: header.section(GLYF)?,
+            clus: match header.section(CLUS) {
+                Ok(at) => Some((get(CLUS)?, at)),
+                Err(_) => None,
+            },
         })
     }
 
@@ -425,7 +438,18 @@ impl Set {
         let mut strikes = parse_strikes(parts.strk)?;
         parse_cmap(parts.cmap, &mut strikes)?;
         let policy = parse_poly(parts.poly, &mut strikes)?;
-        let chunks = parse_index(parts.index, parts.glyf, &mut strikes)?;
+        let mut chunks = parse_index(parts.index, parts.glyf, &mut strikes)?;
+        let clusters = match parts.clus {
+            Some((bytes, at)) => {
+                let (map, more) = parse_clusters(bytes, at, &mut strikes, chunks.len())?;
+                chunks.extend(more);
+                if u32::try_from(chunks.len()).map_or(true, |n| n > SET_CHUNKS_MAX) {
+                    return Err(SetError::Bound("SET_CHUNKS_MAX"));
+                }
+                map
+            }
+            None => ClusterMap::default(),
+        };
         let loaded = chunks.iter().map(|_| OnceLock::new()).collect();
         Ok(Set {
             version: parts.version,
@@ -433,6 +457,7 @@ impl Set {
             policy,
             strikes,
             chunks,
+            clusters,
             bytes: Bytes::Static(&[]),
             loaded,
             fault: OnceLock::new(),
@@ -479,6 +504,17 @@ impl Set {
             }
         }
         cells
+    }
+
+    /// Each cluster `CLUS` maps, with its strike's cell and style, strike
+    /// after strike, each strike's sorted by key.
+    pub fn clusters(&self) -> impl Iterator<Item = (Cell, Style, Vec<char>)> + '_ {
+        self.strikes.iter().flat_map(|s| {
+            (s.clusters.0..s.clusters.1).filter_map(|i| {
+                let key = self.clusters.key_of(i)?;
+                Some((s.info.cell, s.info.style, key))
+            })
+        })
     }
 
     /// How many glyph chunks are held in memory.
@@ -551,10 +587,20 @@ impl Set {
     /// on, so a style drawn from fewer sources than the regular falls back
     /// to the regular glyphs (ADR-1200 D1, `style=`).
     fn strike_for(&self, cell: Cell, style: Style, cp: u32) -> Option<(&Strike, bool)> {
+        self.strike_by(cell, style, |k| k.run(cp).is_some())
+    }
+
+    /// The strike [`Set::strike_for`] picks, of those `holds` takes.
+    fn strike_by(
+        &self,
+        cell: Cell,
+        style: Style,
+        holds: impl Fn(&Strike) -> bool,
+    ) -> Option<(&Strike, bool)> {
         let find = |bold: bool, italic: bool| {
-            self.strikes.iter().find(|k| {
-                k.info.cell == cell && k.info.style == Style { bold, italic } && k.run(cp).is_some()
-            })
+            self.strikes
+                .iter()
+                .find(|k| k.info.cell == cell && k.info.style == Style { bold, italic } && holds(k))
         };
         let Style { bold, italic } = style;
         find(bold, italic)
@@ -616,6 +662,23 @@ impl Set {
         self.draw_index(strike, index, widen, scale)
     }
 
+    /// The glyph `CLUS` maps `cluster` to at `cell`, drawn at `scale`,
+    /// from a strike chosen as [`Set::draw`] chooses one; `None` when the
+    /// set maps no such cluster, or its chunk fails its check.
+    pub(crate) fn cluster(
+        &self,
+        cell: Cell,
+        cluster: &[char],
+        style: Style,
+        scale: u32,
+    ) -> Option<Glyph> {
+        let (strike, widen) = self.strike_by(cell, style, |k| {
+            self.clusters.find(k.clusters, cluster).is_some()
+        })?;
+        let at = self.clusters.find(strike.clusters, cluster)?;
+        self.draw_at(strike, &at, widen, scale)
+    }
+
     /// Glyph 0 of the first regular strike at `cell` that holds a glyph,
     /// drawn when the set holds neither U+25A1 nor `?`.
     pub(crate) fn last_resort(&self, cell: Cell, style: Style, scale: u32) -> Option<Glyph> {
@@ -629,6 +692,12 @@ impl Set {
     /// as vtium-font's bitmap faces widen.
     fn draw_index(&self, strike: &Strike, glyph: u32, widen: bool, scale: u32) -> Option<Glyph> {
         let at = strike.locate(&self.chunks, glyph)?;
+        self.draw_at(strike, &at, widen, scale)
+    }
+
+    /// The glyph of `strike` that lies `at`, drawn as
+    /// [`Set::draw_index`] draws one.
+    fn draw_at(&self, strike: &Strike, at: &Located, widen: bool, scale: u32) -> Option<Glyph> {
         let chunk = self.chunk(at.chunk)?;
         let start = usize_of(at.offset).ok()?;
         let info = strike.info;

@@ -34,6 +34,7 @@ pub struct StrikeBuilder {
     compress: bool,
     glyphs: Vec<(bool, Vec<u8>)>,
     map: Vec<(u32, u32)>,
+    clusters: Vec<(Vec<u32>, u32)>,
 }
 
 impl StrikeBuilder {
@@ -52,6 +53,7 @@ impl StrikeBuilder {
             compress: format != PixelFormat::Bits,
             glyphs: Vec::new(),
             map: Vec::new(),
+            clusters: Vec::new(),
         }
     }
 
@@ -85,10 +87,19 @@ impl StrikeBuilder {
         self.map.push((u32::from(c), glyph));
     }
 
-    /// Whether no codepoint is mapped yet: a strike the writer would
-    /// write no glyph for.
+    /// Maps the cluster `key`, a sequence of 1 to
+    /// [`CLUSTER_SCALARS_MAX`](crate::CLUSTER_SCALARS_MAX) characters, to
+    /// glyph `glyph`, drawn for the cluster whole (`CLUS`). A glyph may
+    /// serve codepoints and clusters both.
+    pub fn cluster(&mut self, key: &[char], glyph: u32) {
+        self.clusters
+            .push((key.iter().map(|&c| u32::from(c)).collect(), glyph));
+    }
+
+    /// Whether no codepoint and no cluster is mapped yet: a strike the
+    /// writer would write no glyph for.
     pub fn is_empty(&self) -> bool {
-        self.map.is_empty()
+        self.map.is_empty() && self.clusters.is_empty()
     }
 
     fn raw(&self) -> Result<RawStrike, WriteError> {
@@ -122,6 +133,7 @@ impl StrikeBuilder {
             compress: self.compress,
             glyphs: self.glyphs.clone(),
             map: self.map.clone(),
+            clusters: self.clusters.clone(),
         })
     }
 }

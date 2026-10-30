@@ -9,14 +9,16 @@
 //! same set gives the same bytes on every host.
 
 use crate::bounds::{
-    CELL_SIDE_MAX, SET_BYTES_MAX, SET_CHUNK_BYTES, SET_CHUNKS_MAX, SET_GLYPHS_MAX,
-    SET_META_BYTES_MAX, SET_RUNS_MAX, SET_STRIKES_MAX,
+    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, SET_BYTES_MAX, SET_CHUNK_BYTES, SET_CHUNKS_MAX,
+    SET_CLUSTERS_MAX, SET_GLYPHS_MAX, SET_META_BYTES_MAX, SET_RUNS_MAX, SET_STRIKES_MAX,
 };
 use crate::set::format::{
-    CHUNK_DEFLATED, CHUNK_RECORD, CMAP, COVERAGE_RECORD, DEFLATE_LEVEL, FORMAT_BITS, FORMAT_R8,
-    FORMAT_RGBA, GLYF, MAGIC, MAJOR, META, MINOR, POLY, PRELUDE_BYTES, RUN_RECORD, RUN_WIDE,
-    SECTION_BYTES, SOURCE_AUTO, STRIKE_RECORD, STRK, glyph_bytes,
+    CHUNK_DEFLATED, CHUNK_RECORD, CLUS, CLUSTER_RECORD, CMAP, COVERAGE_RECORD, DEFLATE_LEVEL,
+    FORMAT_BITS, FORMAT_R8, FORMAT_RGBA, GLYF, MAGIC, MAJOR, META, MINOR, POLY, PRELUDE_BYTES,
+    RUN_RECORD, RUN_WIDE, SECTION_BYTES, SOURCE_AUTO, STRIKE_RECORD, STRK, glyph_bytes,
 };
+use std::collections::BTreeMap;
+
 use crate::sprite::spans;
 
 /// One strike as the writer takes it.
@@ -39,6 +41,9 @@ pub(crate) struct RawStrike {
     pub glyphs: Vec<(bool, Vec<u8>)>,
     /// Each codepoint the strike maps and the glyph it draws, in any order.
     pub map: Vec<(u32, u32)>,
+    /// Each cluster the strike maps, its scalar values, and the glyph it
+    /// draws, in any order.
+    pub clusters: Vec<(Vec<u32>, u32)>,
 }
 
 /// A set as the writer takes it.
@@ -73,6 +78,10 @@ struct Laid {
 
 fn u32_of(n: usize) -> Result<u32, WriteError> {
     u32::try_from(n).map_err(|_| "a count past u32")
+}
+
+fn u64_of(n: usize) -> Result<u64, WriteError> {
+    u64::try_from(n).map_err(|_| "a count past u64")
 }
 
 fn checked(a: u32, b: u32) -> Result<u32, WriteError> {
@@ -172,6 +181,9 @@ fn lay_out(strike: &RawStrike) -> Result<Laid, WriteError> {
     })
 }
 
+/// Where a glyph lies once cut into chunks: its chunk and its offset in it.
+type Place = (u32, u32);
+
 /// A chunk as stored: its flags and its bytes, and its decoded length.
 struct Chunk {
     flags: u32,
@@ -181,21 +193,24 @@ struct Chunk {
 
 /// A strike's glyph bytes cut into chunks of at most `SET_CHUNK_BYTES` on
 /// glyph boundaries, each deflated when `compress` asks and that makes it
-/// smaller.
-fn chunks(stream: &[Vec<u8>], compress: bool) -> Result<Vec<Chunk>, WriteError> {
+/// smaller; with each glyph's chunk, counted from 0, and its offset in it.
+fn chunks(stream: &[Vec<u8>], compress: bool) -> Result<(Vec<Chunk>, Vec<Place>), WriteError> {
     let limit = usize::try_from(SET_CHUNK_BYTES).map_err(|_| "a chunk past usize")?;
     let mut raws: Vec<Vec<u8>> = Vec::new();
     let mut raw: Vec<u8> = Vec::new();
+    let mut at = Vec::with_capacity(stream.len());
     for glyph in stream {
         if raw.len().saturating_add(glyph.len()) > limit {
             raws.push(std::mem::take(&mut raw));
         }
+        at.push((u32_of(raws.len())?, u32_of(raw.len())?));
         raw.extend_from_slice(glyph);
     }
     if !raw.is_empty() {
         raws.push(raw);
     }
-    raws.into_iter()
+    let chunks = raws
+        .into_iter()
         .map(|raw| {
             let decoded = u32_of(raw.len())?;
             if compress {
@@ -214,7 +229,128 @@ fn chunks(stream: &[Vec<u8>], compress: bool) -> Result<Vec<Chunk>, WriteError> 
                 decoded,
             })
         })
-        .collect()
+        .collect::<Result<_, _>>()?;
+    Ok((chunks, at))
+}
+
+/// Each chunk's record, its offset from the start of `out`, the section
+/// so far, then the chunks' bytes.
+fn put_chunks(out: &mut Vec<u8>, all: &[Chunk]) -> Result<(), WriteError> {
+    let mut at = u64::from(CHUNK_RECORD)
+        .checked_mul(u64_of(all.len())?)
+        .and_then(|n| n.checked_add(u64_of(out.len()).ok()?))
+        .ok_or("a count past u64")?;
+    for c in all {
+        put64(out, at);
+        put32(out, u32_of(c.stored.len())?);
+        put32(out, c.decoded);
+        put32(out, c.flags);
+        at = at
+            .checked_add(u64_of(c.stored.len())?)
+            .ok_or("a count past u64")?;
+    }
+    for c in all {
+        out.extend_from_slice(&c.stored);
+    }
+    Ok(())
+}
+
+/// `CLUS`, or `None` when no strike maps a cluster: each strike's clusters
+/// sorted by key, their glyphs stored once each, strike after strike.
+fn clusters(order: &[&RawStrike]) -> Result<Option<Vec<u8>>, WriteError> {
+    let mut records = Vec::new();
+    let mut pool: Vec<u32> = Vec::new();
+    let mut all: Vec<Chunk> = Vec::new();
+    for (i, s) in order.iter().enumerate() {
+        if s.clusters.is_empty() {
+            continue;
+        }
+        let strike = u16::try_from(i).map_err(|_| "a strike past u16")?;
+        let mut sorted: Vec<&(Vec<u32>, u32)> = s.clusters.iter().collect();
+        sorted.sort_unstable();
+        if sorted.windows(2).any(|w| matches!(w, [a, b] if a.0 == b.0)) {
+            return Err("a cluster mapped twice");
+        }
+        // each glyph stored once, in the order the sorted keys reach it
+        let mut stored: BTreeMap<u32, usize> = BTreeMap::new();
+        let mut stream: Vec<Vec<u8>> = Vec::new();
+        for &(_, g) in &sorted {
+            if !stored.contains_key(g) {
+                let i = usize::try_from(*g).map_err(|_| "a glyph index past usize")?;
+                let (wide, bytes) = s
+                    .glyphs
+                    .get(i)
+                    .ok_or("a cluster mapped to a glyph the strike lacks")?;
+                let want = glyph_bytes(
+                    s.format,
+                    u32::from(s.cell_width),
+                    u32::from(s.cell_height),
+                    if *wide { 2 } else { 1 },
+                )
+                .ok_or("an unknown pixel format")?;
+                if u32_of(bytes.len())? != want || want > SET_CHUNK_BYTES {
+                    return Err("a glyph whose bytes do not fit its cells and format");
+                }
+                stored.insert(*g, stream.len());
+                stream.push(bytes.clone());
+            }
+        }
+        let (chunks, at) = self::chunks(&stream, s.compress)?;
+        let first = u32_of(all.len())?;
+        for (key, g) in sorted {
+            if key.is_empty() || u32_of(key.len())? > CLUSTER_SCALARS_MAX {
+                return Err("a cluster empty or longer than CLUSTER_SCALARS_MAX");
+            }
+            if key.iter().any(|&c| char::from_u32(c).is_none()) {
+                return Err("a cluster holding a codepoint that is not a character");
+            }
+            let &(chunk, offset) = stored
+                .get(g)
+                .and_then(|&n| at.get(n))
+                .ok_or("a cluster mapped to a glyph the strike lacks")?;
+            let wide = usize::try_from(*g)
+                .ok()
+                .and_then(|g| s.glyphs.get(g))
+                .is_some_and(|&(w, _)| w);
+            put16(&mut records, strike);
+            put16(
+                &mut records,
+                u16::try_from(key.len()).map_err(|_| "a key past u16")?,
+            );
+            put32(&mut records, u32_of(pool.len())?);
+            put32(&mut records, checked(first, chunk)?);
+            put32(&mut records, offset);
+            put32(&mut records, if wide { RUN_WIDE } else { 0 });
+            pool.extend_from_slice(key);
+        }
+        all.extend(chunks);
+    }
+    if records.is_empty() {
+        return Ok(None);
+    }
+    let count = order.iter().map(|s| s.clusters.len()).sum::<usize>();
+    if u32_of(count)? > SET_CLUSTERS_MAX {
+        return Err("more clusters than SET_CLUSTERS_MAX");
+    }
+    if u32_of(all.len())? > SET_CHUNKS_MAX {
+        return Err("more cluster chunks than SET_CHUNKS_MAX");
+    }
+    let mut out = Vec::new();
+    for v in [
+        u32_of(count)?,
+        CLUSTER_RECORD,
+        u32_of(pool.len())?,
+        u32_of(all.len())?,
+        CHUNK_RECORD,
+    ] {
+        put32(&mut out, v);
+    }
+    out.extend(records);
+    for c in pool {
+        put32(&mut out, c);
+    }
+    put_chunks(&mut out, &all)?;
+    Ok(Some(out))
 }
 
 fn put16(out: &mut Vec<u8>, v: u16) {
@@ -345,7 +481,7 @@ pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
 
     let mut all: Vec<Chunk> = Vec::new();
     for (s, l) in order.iter().zip(&laid) {
-        all.extend(chunks(&l.stream, s.compress)?);
+        all.extend(chunks(&l.stream, s.compress)?.0);
     }
     if u32_of(all.len())? > SET_CHUNKS_MAX {
         return Err("more chunks than SET_CHUNKS_MAX");
@@ -353,41 +489,29 @@ pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
     let mut glyf = Vec::new();
     put32(&mut glyf, u32_of(all.len())?);
     put32(&mut glyf, CHUNK_RECORD);
-    let index_len = u64::from(CHUNK_RECORD)
-        .checked_mul(u64::try_from(all.len()).map_err(|_| "a count past u64")?)
-        .and_then(|n| n.checked_add(8))
-        .ok_or("a count past u64")?;
-    let mut at = index_len;
-    for c in &all {
-        put64(&mut glyf, at);
-        put32(&mut glyf, u32_of(c.stored.len())?);
-        put32(&mut glyf, c.decoded);
-        put32(&mut glyf, c.flags);
-        at = at
-            .checked_add(u64::try_from(c.stored.len()).map_err(|_| "a count past u64")?)
-            .ok_or("a count past u64")?;
-    }
-    for c in &all {
-        glyf.extend_from_slice(&c.stored);
-    }
+    put_chunks(&mut glyf, &all)?;
+    let clus = clusters(&order)?;
 
-    let sections: [([u8; 4], &[u8]); 5] = [
+    let mut sections: Vec<([u8; 4], &[u8])> = vec![
         (META, meta.as_bytes()),
         (STRK, &strk),
         (CMAP, &cmap),
         (POLY, &poly),
         (GLYF, &glyf),
     ];
+    if let Some(clus) = &clus {
+        sections.push((CLUS, clus));
+    }
     let mut out = Vec::new();
     out.extend_from_slice(&MAGIC);
     put16(&mut out, MAJOR);
     put16(&mut out, MINOR);
     put32(&mut out, u32_of(sections.len())?);
     let mut offset = u64::from(PRELUDE_BYTES)
-        .checked_add(u64::from(SECTION_BYTES).saturating_mul(5))
+        .checked_add(u64::from(SECTION_BYTES).saturating_mul(u64_of(sections.len())?))
         .ok_or("a count past u64")?;
     for (tag, bytes) in &sections {
-        let len = u64::try_from(bytes.len()).map_err(|_| "a count past u64")?;
+        let len = u64_of(bytes.len())?;
         out.extend_from_slice(tag);
         put64(&mut out, offset);
         put64(&mut out, len);

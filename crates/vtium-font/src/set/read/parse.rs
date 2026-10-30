@@ -2,15 +2,21 @@
 //! against its bound and every table against the others, before any glyph
 //! is drawn from it (ADR-1200 D2).
 
-use super::{Chunk, Cursor, PixelFormat, Run, SetError, Span, Strike, StrikeInfo, add, mul};
+use std::cmp::Ordering;
+
+use super::{
+    Chunk, Cursor, Located, PixelFormat, Run, SetError, Span, Strike, StrikeInfo, add, mul,
+};
 use crate::bounds::{
-    CELL_SIDE_MAX, SET_CHUNK_BYTES, SET_CHUNKS_MAX, SET_GLYPHS_MAX, SET_RUNS_MAX, SET_STRIKES_MAX,
+    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, SET_CHUNK_BYTES, SET_CHUNKS_MAX, SET_CLUSTERS_MAX,
+    SET_GLYPHS_MAX, SET_RECORD_BYTES_MAX, SET_RUNS_MAX, SET_STRIKES_MAX,
 };
 use crate::face::{Cell, Decorations, Style};
 use crate::policy::{Coverage, RangeCoverage, Source, SpritePolicy};
 use crate::set::format::{
-    CHUNK_DEFLATED, CHUNK_RECORD, COVERAGE_RECORD, RUN_RECORD, RUN_WIDE, SOURCE_AUTO, SOURCE_FONT,
-    SOURCE_SPRITES, STRIKE_RECORD, STYLE_BOLD, STYLE_ITALIC, TABLE_HEAD_BYTES, valid_name,
+    CHUNK_DEFLATED, CHUNK_RECORD, CLUSTER_RECORD, COVERAGE_RECORD, RUN_RECORD, RUN_WIDE,
+    SOURCE_AUTO, SOURCE_FONT, SOURCE_SPRITES, STRIKE_RECORD, STYLE_BOLD, STYLE_ITALIC,
+    TABLE_HEAD_BYTES, valid_name,
 };
 use crate::sprite::Range;
 
@@ -124,6 +130,7 @@ pub(super) fn parse_strikes(bytes: &[u8]) -> Result<Vec<Strike>, SetError> {
                 total: 0,
             }),
             chunks: (0, 0),
+            clusters: (0, 0),
         });
     }
     c.end()?;
@@ -310,18 +317,16 @@ pub(super) fn parse_poly(bytes: &[u8], strikes: &mut [Strike]) -> Result<SpriteP
     Ok(policy)
 }
 
-/// `GLYF`'s index: chunks packed in order after it and filling the
-/// section, each within `SET_CHUNK_BYTES`, and each strike's glyph bytes
-/// cut into whole chunks on glyph boundaries, strike after strike.
-pub(super) fn parse_index(
-    bytes: &[u8],
-    glyf: (u64, u64),
-    strikes: &mut [Strike],
+/// A chunk table of `count` records of `size` bytes, read from `c`, its
+/// first chunk `at` bytes into its section, `section` its offset in the
+/// file and its length: chunks packed in order and filling the section,
+/// each within `SET_CHUNK_BYTES`.
+fn chunk_table(
+    c: &mut Cursor<'_>,
+    (count, size): (u32, usize),
+    mut at: u64,
+    section: (u64, u64),
 ) -> Result<Vec<Chunk>, SetError> {
-    let mut c = Cursor(bytes);
-    let (count, size) = c.table(SET_CHUNKS_MAX, "SET_CHUNKS_MAX", CHUNK_RECORD)?;
-    let size64 = u64::try_from(size).map_err(|_| SetError::Truncated)?;
-    let mut at = add(u64::from(TABLE_HEAD_BYTES), mul(u64::from(count), size64)?)?;
     let mut chunks = Vec::new();
     for _ in 0..count {
         let mut r = c.record(size)?;
@@ -345,7 +350,7 @@ pub(super) fn parse_index(
         }
         at = add(at, u64::from(stored))?;
         chunks.push(Chunk {
-            offset: add(glyf.0, offset)?,
+            offset: add(section.0, offset)?,
             stored,
             decoded,
             deflated,
@@ -353,10 +358,31 @@ pub(super) fn parse_index(
             start: 0,
         });
     }
-    c.end()?;
-    if at != glyf.1 {
-        return Err(SetError::Malformed("GLYF's length is not its chunks'"));
+    if at != section.1 {
+        return Err(SetError::Malformed("a section's length is not its chunks'"));
     }
+    Ok(chunks)
+}
+
+/// `GLYF`'s index: chunks packed in order after it and filling the
+/// section, each within `SET_CHUNK_BYTES`, and each strike's glyph bytes
+/// cut into whole chunks on glyph boundaries, strike after strike.
+pub(super) fn parse_index(
+    bytes: &[u8],
+    glyf: (u64, u64),
+    strikes: &mut [Strike],
+) -> Result<Vec<Chunk>, SetError> {
+    let mut c = Cursor(bytes);
+    let table = c.table(SET_CHUNKS_MAX, "SET_CHUNKS_MAX", CHUNK_RECORD)?;
+    let at = add(
+        u64::from(TABLE_HEAD_BYTES),
+        mul(
+            u64::from(table.0),
+            u64::try_from(table.1).map_err(|_| SetError::Truncated)?,
+        )?,
+    )?;
+    let mut chunks = chunk_table(&mut c, table, at, glyf)?;
+    c.end()?;
     let mut next = 0usize;
     for (i, strike) in strikes.iter_mut().enumerate() {
         let first = next;
@@ -382,6 +408,205 @@ pub(super) fn parse_index(
         return Err(SetError::Malformed("more chunk bytes than glyph bytes"));
     }
     Ok(chunks)
+}
+
+/// The length of `CLUS`'s fixed head.
+pub(super) const CLUSTER_HEAD_BYTES: u64 = 20;
+
+/// `CLUS`'s head from its first 20 bytes, each count within its bound:
+/// its clusters and their record size, its key pool's length, its chunks
+/// and their record size; and how many bytes come before its chunks'
+/// bytes.
+pub(super) fn cluster_head(bytes: &[u8]) -> Result<([u32; 5], u64), SetError> {
+    let head: &[u8; 20] = bytes.first_chunk().ok_or(SetError::Truncated)?;
+    let [count, size, pool, chunks, chunk_size] = words(head);
+    if count > SET_CLUSTERS_MAX {
+        return Err(SetError::Bound("SET_CLUSTERS_MAX"));
+    }
+    if chunks > SET_CHUNKS_MAX {
+        return Err(SetError::Bound("SET_CHUNKS_MAX"));
+    }
+    if size > SET_RECORD_BYTES_MAX || chunk_size > SET_RECORD_BYTES_MAX {
+        return Err(SetError::Bound("SET_RECORD_BYTES_MAX"));
+    }
+    if size < CLUSTER_RECORD
+        || chunk_size < CHUNK_RECORD
+        || pool > count.saturating_mul(CLUSTER_SCALARS_MAX)
+    {
+        return Err(SetError::Malformed("a malformed cluster"));
+    }
+    // each product is under 2^32 by the bounds above
+    let len = [(count, size), (pool, 4), (chunks, chunk_size)]
+        .iter()
+        .fold(CLUSTER_HEAD_BYTES, |n, &(a, b)| {
+            n.saturating_add(u64::from(a).saturating_mul(u64::from(b)))
+        });
+    Ok(([count, size, pool, chunks, chunk_size], len))
+}
+
+/// Five little-endian u32s.
+fn words(b: &[u8; 20]) -> [u32; 5] {
+    let [
+        a0,
+        a1,
+        a2,
+        a3,
+        b0,
+        b1,
+        b2,
+        b3,
+        c0,
+        c1,
+        c2,
+        c3,
+        d0,
+        d1,
+        d2,
+        d3,
+        e0,
+        e1,
+        e2,
+        e3,
+    ] = *b;
+    [
+        u32::from_le_bytes([a0, a1, a2, a3]),
+        u32::from_le_bytes([b0, b1, b2, b3]),
+        u32::from_le_bytes([c0, c1, c2, c3]),
+        u32::from_le_bytes([d0, d1, d2, d3]),
+        u32::from_le_bytes([e0, e1, e2, e3]),
+    ]
+}
+
+/// `CLUS`'s records and key pool as stored, checked once and then read in
+/// place.
+#[derive(Default)]
+pub(super) struct ClusterMap {
+    bytes: Box<[u8]>,
+    /// A record's size.
+    size: usize,
+    /// Where the key pool starts in `bytes`.
+    pool: usize,
+    /// The set's number for `CLUS`'s first chunk.
+    first: usize,
+}
+
+impl ClusterMap {
+    /// Record `i`: its strike and key length, its key's place in the pool,
+    /// its glyph's chunk and offset, and its flags.
+    fn record(&self, i: usize) -> Option<[usize; 6]> {
+        let r = self.bytes.get(i.checked_mul(self.size)?..)?.first_chunk()?;
+        let [head, key, chunk, offset, flags] = words(r).map(|w| w as usize);
+        Some([head & 0xffff, head >> 16, key, chunk, offset, flags])
+    }
+
+    /// Record `i`'s key, scalar value by scalar value.
+    fn key(&self, i: usize) -> Option<impl Iterator<Item = u32> + '_> {
+        let [_, len, key, ..] = self.record(i)?;
+        let start = self.pool.checked_add(key.checked_mul(4)?)?;
+        let bytes = self
+            .bytes
+            .get(start..start.checked_add(len.checked_mul(4)?)?)?;
+        Some(
+            bytes
+                .chunks_exact(4)
+                .map(|b| b.first_chunk().map_or(u32::MAX, |&w| u32::from_le_bytes(w))),
+        )
+    }
+
+    /// Record `i`'s key as characters; `None` past the records, the
+    /// parser having checked each scalar value.
+    pub(super) fn key_of(&self, i: usize) -> Option<Vec<char>> {
+        self.key(i)?.map(char::from_u32).collect()
+    }
+
+    /// Where the glyph of the cluster `cluster` lies, among records
+    /// `[lo, hi)`, sorted by key.
+    pub(super) fn find(
+        &self,
+        (mut lo, mut hi): (usize, usize),
+        cluster: &[char],
+    ) -> Option<Located> {
+        while lo < hi {
+            let mid = lo.midpoint(hi);
+            match self.key(mid)?.cmp(cluster.iter().map(|&c| u32::from(c))) {
+                Ordering::Less => lo = mid.checked_add(1)?,
+                Ordering::Greater => hi = mid,
+                Ordering::Equal => {
+                    let [.., chunk, offset, flags] = self.record(mid)?;
+                    return Some(Located {
+                        chunk: self.first.checked_add(chunk)?,
+                        offset: offset as u64,
+                        wide: flags != 0,
+                    });
+                }
+            }
+        }
+        None
+    }
+}
+
+/// `CLUS`: its clusters, each of a strike the set holds, sorted by strike
+/// and then by key with no key twice in a strike, each key 1 to
+/// `CLUSTER_SCALARS_MAX` scalar values of the pool, and each glyph inside
+/// one of the section's own chunks, numbered from `first`, the count of
+/// the set's chunks before them; with those chunks.
+pub(super) fn parse_clusters(
+    bytes: &[u8],
+    clus: (u64, u64),
+    strikes: &mut [Strike],
+    first: usize,
+) -> Result<(ClusterMap, Vec<Chunk>), SetError> {
+    let ([count, size, pool, chunks, chunk_size], len) = cluster_head(bytes)?;
+    let (count, size) = (count as usize, size as usize);
+    let records = count.saturating_mul(size);
+    let end = records
+        .saturating_add((pool as usize).saturating_mul(4))
+        .saturating_add(20);
+    let body = bytes.get(20..end).ok_or(SetError::Truncated)?;
+    let mut c = Cursor(bytes.get(end..).unwrap_or_default());
+    let chunks = chunk_table(&mut c, (chunks, chunk_size as usize), len, clus)?;
+    let map = ClusterMap {
+        bytes: body.into(),
+        size,
+        pool: records,
+        first,
+    };
+    let scalars = body.get(records..).unwrap_or_default();
+    let mut ok = scalars.chunks_exact(4).all(|w| {
+        w.first_chunk()
+            .is_some_and(|&w| char::from_u32(u32::from_le_bytes(w)).is_some())
+    });
+    for i in 0..count {
+        let [strike, len, _, chunk, offset, flags] = map.record(i).ok_or(SetError::Truncated)?;
+        if len == 0 || len > CLUSTER_SCALARS_MAX as usize {
+            return Err(SetError::Bound("CLUSTER_SCALARS_MAX"));
+        }
+        let s = strikes.get_mut(strike);
+        let fits = s
+            .as_ref()
+            .and_then(|s| s.size(flags == 1))
+            .zip(chunks.get(chunk))
+            .is_some_and(|(n, ch)| (offset as u64).saturating_add(n) <= u64::from(ch.decoded));
+        // after the record before it: a later strike, or a greater key
+        let after = match i.checked_sub(1).and_then(|p| Some((p, map.record(p)?[0]))) {
+            None => true,
+            Some((p, before)) if before == strike => {
+                map.key(p).zip(map.key(i)).is_some_and(|(a, b)| a.lt(b))
+            }
+            Some((_, before)) => before < strike,
+        };
+        ok &= flags <= 1 && fits && after && map.key(i).is_some();
+        if let Some(s) = s {
+            s.clusters = (
+                if s.clusters.1 == 0 { i } else { s.clusters.0 },
+                i.saturating_add(1),
+            );
+        }
+    }
+    if !ok {
+        return Err(SetError::Malformed("a malformed cluster"));
+    }
+    Ok((map, chunks))
 }
 
 impl Strike {
