@@ -16,7 +16,7 @@ pub mod identity;
 pub(crate) mod route;
 pub(crate) mod session;
 
-use vtium_config::{By, Place};
+use vtium_config::{By, OnLoss, Place};
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -106,6 +106,10 @@ pub struct Head {
     pub(crate) login: Option<Config>,
     /// Why the head runs no session any more.
     pub(crate) ended: Option<Ended>,
+    /// What the head does when it loses its last display (ADR-1401 D8).
+    pub(crate) on_loss: OnLoss,
+    /// When its sessions hang up, while it has no display.
+    pub(crate) hangup_due: Option<Instant>,
     pub(crate) views: BTreeMap<(PathBuf, DisplayId), View>,
     pub(crate) attached: Attached,
     /// Every display of the head draws at once at the end of the turn.
@@ -261,6 +265,8 @@ impl Head {
             wanted: 1,
             login: None,
             ended: None,
+            on_loss: OnLoss::Nohup,
+            hangup_due: None,
             views: BTreeMap::new(),
             attached: Attached::NotYet,
             draw_now: false,

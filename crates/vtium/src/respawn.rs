@@ -75,6 +75,16 @@ impl Respawn {
         self.started = now;
         Next::Restart
     }
+
+    /// vtium hung the command up at `now` (ADR-1401 D8): not its exit, so
+    /// no quick exit counts. On [`Next::Restart`], `now` is its next start.
+    pub fn hung_up(&mut self, now: Duration, oneshot: bool) -> Next {
+        if oneshot {
+            return Next::Oneshot;
+        }
+        self.started = now;
+        Next::Restart
+    }
 }
 
 #[cfg(test)]
