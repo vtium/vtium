@@ -651,7 +651,8 @@ impl App {
         }
     }
 
-    fn place(&self) -> Place<'_> {
+    /// Where head `h`'s console `id` runs its session.
+    fn place(&self, h: usize, id: u64) -> Place<'_> {
         let kms = self.videos.values().any(|v| v.backend() == "drm2d");
         Place {
             seat: Some(self.vt.seat()),
@@ -661,6 +662,7 @@ impl App {
             } else {
                 SessionDisplay::Fbdev
             },
+            console: self.heads.get(h).map(|head| (head.name(), id)),
         }
     }
 
@@ -671,7 +673,7 @@ impl App {
             .get(h)
             .and_then(|head| head.login.as_ref())
             .unwrap_or(&self.config);
-        let spec = child::child(config, &self.place(), self.inherited.clone());
+        let spec = child::child(config, &self.place(h, id), self.inherited.clone());
         let Some(command) = spec.command() else {
             log::error!("no command to run");
             self.request_exit(Exit::Spawn);

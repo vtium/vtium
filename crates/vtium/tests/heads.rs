@@ -1168,6 +1168,135 @@ fn mode_1004_follows_the_keyboards_delivering_to_each_head() {
     );
 }
 
+/// Two heads of two consoles each, a keyboard claimed by each.
+const TWO_CONSOLES: &str = "version = 1
+[head small]
+consoles = 2
+[head large]
+consoles = 2
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+input path:kbd-small -> small
+input path:kbd-large -> large
+";
+
+/// The rows of every console of head `name`, in the ring's order.
+fn every_console(app: &App, name: &str) -> Vec<Vec<String>> {
+    app.head(name).map(Head::consoles_text).unwrap_or_default()
+}
+
+/// The line holding `prefix` on each console of head `name`, in the
+/// ring's order, `None` where none does.
+fn console_lines(app: &App, name: &str, prefix: &str) -> Vec<Option<String>> {
+    every_console(app, name)
+        .into_iter()
+        .map(|rows| rows.into_iter().find(|l| l.starts_with(prefix)))
+        .collect()
+}
+
+/// [`TWO_CONSOLES`] booted on both displays, every console running
+/// `script`.
+fn two_consoles(script: &str) -> Seat {
+    Seat::with_heads(&[], Some(TWO_CONSOLES), two_displays(), script)
+}
+
+/// Adds [`KBD_SMALL`] and [`KBD_LARGE`] to `s`.
+fn claim_keyboards(s: &mut Seat) {
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
+}
+
+/// vtium/vtium#167 and D5: each console's session is told its head and the
+/// console's own id, distinct in every console of every head; the id is
+/// not the console's place in the ring, so after a console closes the one
+/// left keeps its id and a console opened next takes a new one.
+// covers: platform.heads
+#[test]
+fn each_console_is_told_its_head_and_its_own_id_through_a_close() {
+    let script = "echo \"is:$VTIUM_HEAD:$VTIUM_CONSOLE\"; \
+                  while read a; do [ \"$a\" = q ] && exit; done";
+    let mut s = two_consoles(script);
+    claim_keyboards(&mut s);
+    let told = |a: &App, name: &str| console_lines(a, name, "is:");
+    let line = |text: &str| Some(text.to_owned());
+    assert!(
+        s.until(SECOND, |a| told(a, "small").iter().all(Option::is_some)
+            && told(a, "large").iter().all(Option::is_some))
+    );
+    assert_eq!(
+        told(&s.app, "small"),
+        [line("is:small:1"), line("is:small:2")]
+    );
+    assert_eq!(
+        told(&s.app, "large"),
+        [line("is:large:1"), line("is:large:2")]
+    );
+    s.type_on(KBD_SMALL, "q\r");
+    assert!(
+        s.until(SECOND, |a| consoles(a, "small") == Some((1, 0))),
+        "the first console closed"
+    );
+    assert_eq!(
+        told(&s.app, "small"),
+        [line("is:small:2")],
+        "2 keeps its id"
+    );
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
+    assert!(
+        s.until(SECOND, |a| told(a, "small").iter().all(Option::is_some)
+            && told(a, "small").len() == 2)
+    );
+    assert_eq!(
+        told(&s.app, "small"),
+        [line("is:small:2"), line("is:small:3")],
+        "a new console takes a new id, never the place 2 left"
+    );
+    assert_eq!(
+        told(&s.app, "large"),
+        [line("is:large:1"), line("is:large:2")]
+    );
+}
+
+/// vtium/vtium#167 and D5: focus reporting is the signal of a console
+/// switch. A head showing another console sends a focus-out to the one it
+/// leaves and a focus-in to the one it shows, while a keyboard delivers to
+/// the head.
+// covers: platform.heads
+#[test]
+fn a_console_switch_sends_a_focus_out_to_the_console_left_and_a_focus_in_to_the_one_shown() {
+    let script = "stty -icanon -echo; printf '\\033[?1004h'; echo ready; \
+                  while :; do echo \"k:$(head -c 3 | od -An -tx1)\"; done";
+    let (focus_in, focus_out) = ("k: 1b 5b 49", "k: 1b 5b 4f");
+    let mut s = two_consoles(script);
+    let ready = |a: &App| console_lines(a, "small", "ready");
+    assert!(s.until(SECOND, |a| ready(a).iter().all(Option::is_some)));
+    // Once both consoles report focus, so the keyboard's focus is seen.
+    claim_keyboards(&mut s);
+    let seen = |a: &App| -> Vec<Vec<String>> {
+        every_console(a, "small")
+            .into_iter()
+            .map(|rows| rows.into_iter().filter(|l| l.starts_with("k:")).collect())
+            .collect()
+    };
+    let lines = |texts: &[&str]| -> Vec<String> { texts.iter().map(|t| (*t).to_owned()).collect() };
+    assert!(
+        s.until(SECOND, |a| seen(a) == [lines(&[focus_in]), lines(&[])]),
+        "the shown console has the focus: {:?}",
+        seen(&s.app)
+    );
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RIGHT), now());
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)));
+    assert!(
+        s.until(SECOND, |a| seen(a)
+            == [lines(&[focus_in, focus_out]), lines(&[focus_in])]),
+        "out to the console left, in to the one shown: {:?}",
+        seen(&s.app)
+    );
+}
+
 /// D5 and the operator's answer of 2026-10-30: the focus starts on the
 /// boot display's head even when that display lights a turn late, until
 /// the first key; after a key it stays where it is. The key comes from a

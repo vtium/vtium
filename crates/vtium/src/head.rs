@@ -106,7 +106,8 @@ pub struct Head {
     pub(crate) hidden: Vec<Console>,
     /// The shown console's place in the ring.
     pub(crate) at: usize,
-    /// The next console's id.
+    /// The next console's id: a head numbers its consoles from 1 as it
+    /// opens them and never reuses a number (ADR-1401 D5).
     next_id: u64,
     /// A new console's `font-size`, as configured: in points, or `0`.
     configured: (Option<u32>, bool),
@@ -256,6 +257,28 @@ pub(crate) fn frit_store(store: u64, heads: usize) -> u64 {
         .unwrap_or(store)
 }
 
+/// The text of `console`'s screen rows.
+fn screen_text(console: &Console) -> Vec<String> {
+    console
+        .term
+        .terminal
+        .screen()
+        .lines()
+        .iter()
+        .map(|line| {
+            line.cells()
+                .iter()
+                .map(|c| match c.content() {
+                    Content::Char(ch) => ch,
+                    Content::Empty | Content::Cluster(_) => ' ',
+                })
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        })
+        .collect()
+}
+
 /// What [`Head`]'s `draw_hook` runs.
 pub type DrawHook = std::sync::Arc<dyn Fn() + Send + std::marker::Sync>;
 
@@ -280,10 +303,10 @@ impl Head {
         };
         Head {
             name: name.to_owned(),
-            console: Console::new(0, term, fit),
+            console: Console::new(1, term, fit),
             hidden: Vec::new(),
             at: 0,
-            next_id: 1,
+            next_id: 2,
             configured: (points, auto_size),
             wanted: 1,
             login: None,
@@ -555,24 +578,15 @@ impl Head {
 
     /// The text of the shown console's screen rows, for tests and logs.
     pub fn screen_text(&self) -> Vec<String> {
-        self.console
-            .term
-            .terminal
-            .screen()
-            .lines()
-            .iter()
-            .map(|line| {
-                line.cells()
-                    .iter()
-                    .map(|c| match c.content() {
-                        Content::Char(ch) => ch,
-                        Content::Empty | Content::Cluster(_) => ' ',
-                    })
-                    .collect::<String>()
-                    .trim_end()
-                    .to_owned()
-            })
-            .collect()
+        screen_text(&self.console)
+    }
+
+    /// The text of each console's screen rows, in the ring's order, for
+    /// tests.
+    pub fn consoles_text(&self) -> Vec<Vec<String>> {
+        let mut all: Vec<Vec<String>> = self.hidden.iter().map(screen_text).collect();
+        all.insert(self.at.min(all.len()), self.screen_text());
+        all
     }
 
     /// Whether the head's `font-size` is configured, kmscon.conf's or its
