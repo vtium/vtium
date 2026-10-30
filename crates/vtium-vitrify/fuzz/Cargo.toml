@@ -1,0 +1,28 @@
+# The shaping path's fuzz target, run with cargo-fuzz on nightly:
+#   cargo +nightly fuzz run shape
+# Its own workspace, so the main workspace and CI do not build it.
+[package]
+name = "vtium-vitrify-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+# The test font builder the target shares with the tests compresses its
+# PNG strikes; vtium-vitrify already builds this version.
+miniz_oxide = "=0.8.9"
+vtium-vitrify = { path = ".." }
+
+[[bin]]
+name = "shape"
+path = "fuzz_targets/shape.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]
