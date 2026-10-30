@@ -26,9 +26,11 @@
 //!   to the head holding the focus, and one sent to `ignore` is never
 //!   opened, or opened for the rescue key alone. The focus starts on the
 //!   head of the boot display, else the first head in the file with a
-//!   display, starting again as each display lights until the first key or
-//!   focus chord; then only the focus chord moves it. The terminal of each
-//!   head a keyboard delivers to has mode 1004's focus.
+//!   display, starting again as each display lights until the first key
+//!   reaching a head or the first focus chord, over every display lit
+//!   since the start, one that left included; then only the focus chord
+//!   moves it. The terminal of each head a keyboard delivers to has mode
+//!   1004's focus.
 //! - **Keys**, in order: the VT's, then the seat's (the power keys, which
 //!   act on a press and never on its repeat), then the heads' chords
 //!   ([`chord`]), then the terminal's grabs, then DECARM's drop of a
@@ -209,6 +211,10 @@ pub struct App {
     cards: BTreeMap<PathBuf, Card>,
     /// Each display lit in a head, as the rules saw it.
     lit: BTreeMap<(PathBuf, DisplayId), vtium_config::Identity>,
+    /// Each display lit since the start until the focus settled, gone or
+    /// not: the focus starts over them, so a display leaving never moves
+    /// it (ADR-1401 D8).
+    start_lit: BTreeMap<(PathBuf, DisplayId), vtium_config::Identity>,
     /// The displays a device announced that the rules leave dark.
     dark: BTreeSet<(PathBuf, DisplayId)>,
     /// The scrollback cap and length each console takes.
@@ -362,6 +368,7 @@ impl App {
             focus_due: false,
             cards: BTreeMap::new(),
             lit: BTreeMap::new(),
+            start_lit: BTreeMap::new(),
             dark: BTreeSet::new(),
             scrollback: (cap, lines),
             scrollback_bytes: bytes,
@@ -401,6 +408,7 @@ impl App {
         self.rules = rules;
         self.focus = None;
         self.lit.clear();
+        self.start_lit.clear();
         self.dark.clear();
         self.frits.clear();
     }
@@ -995,6 +1003,9 @@ impl App {
         }
         // Lit once it draws, so the focus never starts on a head whose
         // display could not be set up.
+        if !self.focus_settled {
+            self.start_lit.insert(key.clone(), display.clone());
+        }
         self.lit.insert(key.clone(), display);
         self.focus_due = true;
         if let Some(v) = self.heads.get(h).and_then(|head| head.views.get(&key)) {
@@ -1634,18 +1645,15 @@ impl App {
     /// the head holding the boot display, the connector lit at start, else
     /// the first connected one on the boot card, else on the other cards,
     /// in the kernel's order; else on the first head in the file with a
-    /// display. Until the first key or the first focus chord it starts
-    /// again as each display lights, so a boot display lighting a turn late
-    /// takes it whatever order the displays came in (the operator's answer
-    /// on vtium/vtium#156); after, it moves only by the chord.
+    /// display. Until the first key reaching a head or the first focus
+    /// chord it starts again as each display lights, over every display lit
+    /// since the start, one that left included, so a boot display lighting
+    /// a turn late takes it whatever order the displays came in (the
+    /// operator's answer on vtium/vtium#156) and a display leaving never
+    /// moves it (D8); after, it moves only by the chord.
     fn take_focus(&mut self) {
         let due = std::mem::take(&mut self.focus_due);
-        // The focus never moves because its head's display left (D8).
-        let unlit = self
-            .focus
-            .and_then(|h| self.heads.get(h))
-            .is_some_and(|head| head.views.is_empty());
-        if self.lit.is_empty() || unlit || self.focus.is_some() && (self.focus_settled || !due) {
+        if self.start_lit.is_empty() || self.focus.is_some() && (self.focus_settled || !due) {
             return;
         }
         // The guards are H3d's: with them off the placement is the rules'
@@ -1656,7 +1664,7 @@ impl App {
             rescue_key: false,
             never_dark: false,
         };
-        let lit: Vec<vtium_config::Identity> = self.lit.values().cloned().collect();
+        let lit: Vec<vtium_config::Identity> = self.start_lit.values().cloned().collect();
         self.focus = match rules.place(&lit, None).focus {
             Some(vtium_config::Place::Head(h)) => Some(h),
             _ => None,
@@ -1703,6 +1711,8 @@ impl App {
                         None => log::warn!(
                             "the last display{of} is gone: the session runs on at {cols}x{rows} until the next comes"
                         ),
+                        // The hang-up logs its own line.
+                        Some(0) => {}
                         Some(secs) => log::warn!(
                             "the last display{of} is gone: the session hangs up in {secs} s unless one comes"
                         ),
@@ -1736,15 +1746,31 @@ impl App {
 
     /// Hangs up head `h`'s sessions, which lost their last display under
     /// `on-loss = hangup` (ADR-1401 D8); the head then follows the respawn
-    /// policy.
+    /// policy, coming back with the consoles its file asks for, as at its
+    /// start.
     fn hang_up(&mut self, h: usize, now: Instant) {
         let since = now.saturating_duration_since(self.epoch);
-        let Some(head) = self.heads.get_mut(h) else {
+        let App {
+            heads,
+            config,
+            scrollback,
+            scrollback_bytes,
+            clock,
+            ..
+        } = self;
+        let Some(head) = heads.get_mut(h) else {
             return;
         };
-        if head.hang_up(since, self.oneshot, self.awake) {
-            let id = head.console.id;
-            self.spawn(h, id);
+        if head.hang_up(since, self.oneshot) {
+            head.open_wanted(|| {
+                crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock))
+            });
+            let ids: Vec<u64> = std::iter::once(head.console.id)
+                .chain(head.start_consoles(since))
+                .collect();
+            for id in ids {
+                self.spawn(h, id);
+            }
         }
         if let Some(exit) = session::exit_due(&self.heads) {
             self.request_exit(exit);
@@ -1845,7 +1871,8 @@ impl App {
         });
         match event {
             InputEvent::Key(key) => {
-                self.focus_settled = true;
+                // Only a key reaching a head settles the focus's start.
+                self.focus_settled |= h.is_some();
                 self.activity(now);
                 self.key(h, &key, now);
             }

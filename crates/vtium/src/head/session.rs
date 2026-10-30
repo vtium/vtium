@@ -231,11 +231,11 @@ impl Head {
 
     /// Hangs up the head's sessions at `since`, as a line losing its
     /// carrier (ADR-1401 D8): every console's pty closes, so its programs
-    /// get SIGHUP; the consoles but the shown one close, and its exit
-    /// follows the respawn policy, the shown next while `visible`. Returns
-    /// whether its session starts again. A head that ended or never
-    /// started has nothing to hang up.
-    pub(crate) fn hang_up(&mut self, since: Duration, oneshot: bool, visible: bool) -> bool {
+    /// get SIGHUP, and the consoles but the shown one close. The respawn
+    /// policy follows, with no quick exit counted, since vtium ended the
+    /// session. Returns whether its session starts again. A head that
+    /// ended or never started has nothing to hang up.
+    pub(crate) fn hang_up(&mut self, since: Duration, oneshot: bool) -> bool {
         self.hangup_due = None;
         if self.ended.is_some() || !self.started() {
             return false;
@@ -246,7 +246,15 @@ impl Head {
         );
         self.hidden.clear();
         self.at = 0;
-        self.exited(self.console.id, since, oneshot, visible) == AfterExit::Restart
+        self.console.pty = None;
+        // An exit read before the hang-up is the hung-up session's.
+        self.console.term.exited = None;
+        let next = self
+            .console
+            .respawn
+            .as_mut()
+            .map_or(Next::Restart, |r| r.hung_up(since, oneshot));
+        self.last_ended(next) == AfterExit::Restart
     }
 
     /// The program of console `id` exited at `since`, the console shown
@@ -274,6 +282,11 @@ impl Head {
             .respawn
             .as_mut()
             .map_or(Next::Restart, |r| r.exited(since, oneshot));
+        self.last_ended(next)
+    }
+
+    /// The last console's session ended, and `next` follows.
+    fn last_ended(&mut self, next: Next) -> AfterExit {
         let ended = match next {
             Next::Restart => {
                 // A new session starts from a hard reset (RIS), drawn at
