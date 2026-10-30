@@ -60,6 +60,10 @@ considered:
     said: "1 yes 2 yes"
     via: operator, in session 2026-10-26, after reading the record and the second opinion
     covers: [as the C reference, root's images]
+  - operator: aaronsb
+    said: "Accepted: the file that holds the login key gets the head file's ownership check."
+    via: the operator's answers in conversation with the team lead, 2026-10-29, relayed in the team lead's brief; the wording is the team lead's
+    paraphrase: true
 observable:
   - "The login child's `/proc/<pid>/fd` holds 0, 1 and 2 only, after exec"
   - "The helper's `/proc/<pid>/status` shows the session's uid and `NoNewPrivs: 1`, and at a root login prompt with no logind no helper runs as root"
@@ -189,6 +193,8 @@ vtium's units match the C reference's, with getty parity and no hardening direct
   - *Note (2026-10-28):* ADR-1200 changes what OSC 50 reaches: it switches only among vitrified sets already built into the root-owned store, behind `allow-font-ops`, and never names a font path, so no path goes through the helper for it. ADR-1200's D15 reuses this helper for another job: on any build, it generates glyphs no built set holds from the frit, as the session's user in this sandbox, and hands back glyph chunks the main process checks for bounds and dimensions only, as it does decoded images (vtium/vtium#123). The helper exits after an idle interval (ADR-1301 D2, D2 above). *Edited 2026-10-28:* the operator reversed ADR-1200's ban on generating at run time on minspec; this read "on a build that isn't minspec, it rasterises a size a set lacks".
 
 > Added 2026-10-29: the configuration file's `login` key chooses the command each session's login child runs as root, and vtium reads that file with no ownership check today: `crates/vtium/src/config/mod.rs` refuses only a path that is not a regular file. ADR-1401 D10 reads the head file, the profiles and the frits only when root owns each and neither group nor others can write it, as `sshd`'s `StrictModes` does, so a head's own `login` key takes that check. The file that holds the configuration's `login` key needs the same check; whether it gets it, and what a file that fails it does, is an open question.
+
+> Added 2026-10-29: the operator decided that the file holding the `login` key takes the head file's ownership check of ADR-1401 D10 (`considered`).
 
 ## Consequences
 

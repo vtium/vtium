@@ -254,6 +254,10 @@ considered:
   - operator: aaronsb
     said: "every glyph the helper sends replaces the built-in drawing of its character in each renderer's cache, whether or not the character is on screen when it arrives; only the visible cells are damaged (D7: the built-in draws what the frit has not yet sent)."
     via: vtium/vtium#145, comment of 2026-10-29T14:46Z headed "Decision (operator, 2026-10-29)"; posted from the operator's account, the wording agent-written
+  - operator: aaronsb
+    said: "Accepted: font-engine= ranks with font-name. Tier 3's binary budget rises to about 3 MiB, the old 2,621,440 B figure being arbitrary, and deflate (22,032 B) is cut from the console, revisited after the first cut of heads."
+    via: the operator's answers in conversation with the team lead, 2026-10-29, relayed in the team lead's brief; the wording is the team lead's
+    paraphrase: true
 observable:
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame (#149)"
   - "With the store at its limit, the fill sends nothing more, and an ask evicts the glyphs least recently shown, redrawing nothing"
@@ -303,8 +307,10 @@ The figure follows a glyph from the profile to the frame: the profile's cell and
 - **The default profile.** vtium's compiled-in configuration holds a default profile, which names the default frit, and a head that names no profile takes it (ADR-1401 D3, D6). The default frit has no `source=` line, so it states no font, and a head with the default profile draws what D9's chain gives past the profile: the configuration's `font-name`, else vconsole's font where one is set, else the built-in fonts (D7).
 - **A profile that fails** falls back by file: an invalid profile gives the heads that name it the default profile, and a profile naming a frit that does not exist draws the default frit, each with a log line (ADR-1401 D6, D7).
 - **vtium never writes a profile or a frit** (ADR-1401 D6).
-- **The more specific setting wins** (the operator, 2026-10-29): the configuration file's `font-name` and `font-size` are the base for every head; a head's profile overrides them for that head; and a `font-name` or `font-size` in the head's own section of the head file overrides both (ADR-1401 D3). `font-name` chooses the frit (D9) and `font-size` the cell (D17). A profile overrides only what it states: the default profile states no size, and its default frit no font, so a head with the default profile takes the configuration's keys. Within one level, a `font-size` wins over the cell of the frit that level names. `crates/vtium/README.md` states the rule as built before profiles have a file: "At start the font is `font-name` when a file or the command line sets it, else vconsole's [...]. Profiles have no file yet, so no profile names a frit.", and "A configured `font-size` wins over the frit's cell and size (ADR-1200 D16); `font-size=0` does not."
+- **The more specific setting wins** (the operator, 2026-10-29): the configuration file's `font-name` and `font-size` are the base for every head; a head's profile overrides them for that head; and a `font-name` or `font-size` in the head's own section of the head file overrides both (ADR-1401 D3). `font-name` chooses the frit (D9) and `font-size` the cell (D17). A profile overrides only what it states: the default profile states no size, and its default frit no font, so a head with the default profile takes the configuration's keys. Within one level, a `font-size` wins over the cell of the frit that level names. `font-engine` ranks with `font-name`: a `font-engine` at one level is read with that level's `font-name` (the operator, 2026-10-29). `crates/vtium/README.md` states the rule as built before profiles have a file: "At start the font is `font-name` when a file or the command line sets it, else vconsole's [...]. Profiles have no file yet, so no profile names a frit.", and "A configured `font-size` wins over the frit's cell and size (ADR-1200 D16); `font-size=0` does not."
 - The C reference had no profiles: its font came from kmscon.conf's `font-name`, `font-size` and `font-engine`.
+
+> Edited 2026-10-29: the operator decided that `font-engine` ranks with `font-name` (`considered`), which `crates/vtium/README.md` left unranked against a head's profile.
 
 > Edited 2026-10-29: the operator accepted an independent advisor's review of ADR-1401 (ADR-1401's `considered`): the more specific setting wins, which reverses the operator's answer of 2026-10-28 (`considered`) that an explicit key wins over the profile. The bullet read: "An explicit `font-size` or `font-name` in the configuration wins over the profile, as an explicit key overrides a default elsewhere (the operator, 2026-10-28): `font-size` over its cell (D17), `font-name` over its frit (D9). A key in the configuration applies to every head (ADR-1401 D3)." The default frit drew "vconsole's font where one is set, else the built-in fonts".
 
@@ -408,7 +414,7 @@ The C reference loaded its font before its first frame and took the font's cell;
 - **The first frame:** the built-in font draws at once, in the cell D17 gives: centered when the cell is larger than the built-in's, and in the built-in's smaller strike, cropped where even that does not fit, when the cell is smaller. Its glyphs come at the cell's size, so the renderer stores them as it stores the frit's.
 - **The per-character fallback** (#141): a character the frit lacks, or has not yet sent, draws in the built-in font for the cell, then as the replacement glyph (D22). A frit names `builtin:` only to change that order, and vtium's own frits carry no copy of unifont or Unscii-8.
 - **Where the helper is unavailable,** as with `vtium-vitrify` not installed, the helper given up for the boot (D15) or a frit that fails, the built-in font draws everything, and the console logs one line naming the frit and the reason.
-- Fusion Pixel 12 is not built in: it is 362 KB compressed against the 192 KB the binary's budget leaves, and one compiled-in variant would give Japanese users Chinese glyph forms.
+- Fusion Pixel 12 is not built in: it is 362 KB compressed against the 192 KB the binary's budget of 2,621,440 bytes left, a budget since raised (D19), and one compiled-in variant would give Japanese users Chinese glyph forms.
 
 ### D9: the font at start, and its fallback
 
@@ -473,6 +479,8 @@ The console, which opens its VT as root already, reads the kernel's font once at
 - vtium keeps no prerendered or persistent glyph cache of any kind (Alternatives Considered).
 
 > Edited 2026-10-28: the operator decided how a glyph leaves the store (vtium/vtium#145, `considered`), and D19 takes the decision in its compaction and rejected bullets. D19 said only that an ask evicted the glyphs least recently shown; the store then evicted a whole helper answer at a time, aged by its most recently shown glyph.
+
+> Added 2026-10-29: the operator raised tier 3's budget for the minspec console binary to about 3 MiB, since the 2,621,440-byte figure was arbitrary, and the console drops the set writer's deflate, 22,032 bytes, which the rewritten sets do not use; both are revisited after the first cut of heads (ADR-1401 D11, `considered`). The figure is tier 3's `BINARY_BUDGET` (tools/tier3/README.md).
 
 ### D20: keys
 

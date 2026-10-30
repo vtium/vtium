@@ -116,6 +116,10 @@ considered:
     said: "C10: keys follow the kernel console (fbcon) as closely as practical within vtium's security model. A head whose display was lit and then left keeps its sessions under on-loss = nohup and keeps receiving the keys of the devices that reach it, as fbcon's tty does when a monitor is unplugged; a head whose display never lit starts no session and receives nothing; a head with on-loss = hangup hangs up as decided; focus never moves to a head because its display left or came back."
     via: the operator's answer in conversation with the team lead, 2026-10-29, relayed in the team lead's brief; the wording is the team lead's
     paraphrase: true
+  - operator: aaronsb
+    said: "Accepted: the head file is /etc/vtium/heads.conf, one file, with no drop-ins; consoles and login are set per head in the head file; a weak-only match on a head with sessions is a check-config note, not a warning, exit 0; the notice ends on any key reaching that head or after 30 s; the caps are 4 consoles a head and 8 in total by default, with hard maxima of 50 consoles and 16 heads, and the scrollback budget is set in H3b from measurement; no writable configuration directory is read on a read-only root; drafts go to $XDG_STATE_HOME/vtium/drafts/<time>/; the parameter is vtium.heads=builtin; the properties are VTIUM_HEAD, VTIUM_ROLE and VTIUM_IGNORE; kmscon.conf's mouse key stays as a shorthand that drops the pointer rules. Still open: the focus mark's placement, on-loss's duration form, OSC 50 preview of a draft frit, and the example file's missing class:key."
+    via: the operator's answers in conversation with the team lead, 2026-10-29, relayed in the team lead's brief; the wording is the team lead's
+    paraphrase: true
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and an unclaimed keyboard follows the focus chord"
@@ -213,7 +217,7 @@ flowchart TB
 
 - A head is a terminal for one or more physical displays: its displays, its inputs, a profile, and a stack of virtual consoles, each a session with its own pty, screen, scrollback and grid. Each display can be its own head, and so hold its own session.
 - A head's grid is its own, so a size in points is exact on each head. Where a head claims several displays it mirrors across them by the scaled rule of `crates/vtium/src/layout.rs`, and there alone one grid spans several densities; the point rule's lowest density converts there.
-- A head shows one console at a time on every display it holds. Its consoles start with one, as today's console has one session; the count, and each console's command, are set per head (D3; probe 2). A zoom changes the grid of the console shown.
+- A head shows one console at a time on every display it holds. Its consoles start with one, as today's console has one session; the count, and each console's command, are set per head in the head file (D3). A zoom changes the grid of the console shown.
 - A head whose displays never appear starts no sessions until one does.
 - Every head's consoles keep the session rules each session has today: its own login, the respawn limit, the reply rule (docs/architecture.md, "Determinism"), and the helper's sandbox as the session's user (ADR-1400 D2, ADR-1200 D15).
 - **One glyph helper for each frit in use,** and, once a session has logged in, for each session user of that frit, since ADR-1200 D15 runs the helper as the session's user. A helper is never shared across users.
@@ -236,7 +240,7 @@ The later extension of two seats, drawn so its boundary is clear:
 
 ### D3: the head file
 
-One file, `/etc/vtium/heads.conf` (probe 1), holds the heads and an ordered list of rules. Its first line that is not a comment is `version = 1`; a file with no version, or a version vtium does not know, is invalid (D7) and falls back whole. Its lines are bounded as kmscon.conf's are (65536 bytes a file, 8192 a line); `#` starts a comment; spaces around `=` and between tokens are dropped.
+One file, `/etc/vtium/heads.conf`, holds the heads and an ordered list of rules. Its first line that is not a comment is `version = 1`; a file with no version, or a version vtium does not know, is invalid (D7) and falls back whole. vtium reads no drop-ins beside it. Its lines are bounded as kmscon.conf's are (65536 bytes a file, 8192 a line); `#` starts a comment; spaces around `=` and between tokens are dropped.
 
 ```ini
 # /etc/vtium/heads.conf for the machine under Evidence; the EDID values are illustrative
@@ -282,7 +286,9 @@ The example's placement: two heads, each with its own display and keyboard, and 
 - **Targets.** A head's name. `focus`, for an input: it follows the focus chord (D5). `ignore`, for an input: vtium never opens it, but for a keyboard watched for the rescue key alone (D9). `dark`, for a display: vtium sets its connector off, so it shows nothing, a frame another master left included, and logs it.
 - **First match, alone.** Each device walks the rules top to bottom and takes the first that matches it. The walk reads only the device's own identity and the rules, never another device or the order devices were reported, so a hotplugged device lands where it would at start (D11's determinism row).
 - **No match.** A display goes dark, and the log names it with the rule line that would claim it, ready to paste. An input follows the focus.
-- **The shipped default** is one head, `[head console]` with the default profile, and the rules `display * -> console`, `input class:keyboard -> focus` and the same for `mouse`, `touchpad`, `touchscreen`, `trackball` and `pointingstick`, then `input class:key -> focus`, then `input * -> ignore`: one head mirroring every display, every keyboard, pointer and other key device typing into it as vtium does today, numpads and macro pads without letters and media-key devices among them, and joysticks, tablets, switches and accelerometers left closed. The shipped rules match by `class:` alone, so the compiled-in configuration means the same with or without a udev daemon: the classes come from udev's tags where udev runs and from vtium's own `input_id` rule where it does not (D4). Tokens are not ignored by default: a console login may use an OTP, so a token follows the focus like any keyboard. The rules are the allowlist; there is no separate one. A user customises by adding rules above them.
+- **The shipped default** is one head, `[head console]` with the default profile, and the rules `display * -> console`, `input class:keyboard -> focus` and the same for `mouse`, `touchpad`, `touchscreen`, `trackball` and `pointingstick`, then `input class:key -> focus`, then `input * -> ignore`: one head mirroring every display, every keyboard, pointer and other key device typing into it as vtium does today, numpads and macro pads without letters and media-key devices among them, and joysticks, tablets, switches and accelerometers left closed. The shipped rules match by `class:` alone, so the compiled-in configuration means the same with or without a udev daemon: the classes come from udev's tags where udev runs and from vtium's own `input_id` rule where it does not (D4). Tokens are not ignored by default: a console login may use an OTP, so a token follows the focus like any keyboard. The rules are the allowlist; there is no separate one. A user customises by adding rules above them. kmscon.conf's `mouse` key stays as a shorthand: `mouse` off drops the pointer rules from the shipped rules.
+
+> Edited 2026-10-29: the operator answered (`considered`): the head file is `/etc/vtium/heads.conf`, one file with no drop-ins (probe 1); consoles and `login` are set per head in the head file (probe 2); and kmscon.conf's `mouse` key stays as a shorthand that drops the pointer rules. D3 cited probe 1 for the path, and the `mouse` key was an agent call.
 > Edited 2026-10-29: the operator answered C1 (`considered`): the shipped rules gain `input class:key -> focus`. The shipped rules went from the pointer classes straight to `input * -> ignore`, which closed numpads and macro pads without letters, and the bullet ended: "A user customises by adding rules above them: `input class:key -> focus` above the last line lets media keys through."
 
 - **A head names a profile,** the profile of ADR-1200 D16, which names a frit; the head file says where devices go. Until a profile file format exists (#121, #136, #137), a head's `profile` resolves to the compiled-in default profile for `default`, and to the frit of that name for any other name.
@@ -376,7 +382,9 @@ The hwdb fragment uses udev's own `evdev:` prefix, which systemd's stock `60-evd
 - A rule's tokens combine: `input path:... serial:...` binds that unit in that port, the strongest binding; `display connector:... edid:...` binds that monitor on that port.
 - One physical keyboard may be several input devices (keyboard B is three: its keys, its media keys and a pointer); a `path` or `serial` match takes every interface of that USB device.
 - The template's comments advise: `path` plus `serial` where the device has a serial; `path` alone otherwise; `id` or `name` alone only for convenience, never for a head whose sessions need protecting; `edid` for displays, with `connector-path` where a multi-stream connector must be told apart, and `connector` only where its name is stable.
-- `vtium check-config` and `vtiumctl check` note a rule that sends input to a head by `id` or `name` alone (probe 4).
+- `vtium check-config` and `vtiumctl check` note a rule that sends input to a head with sessions by `id` or `name` alone: a note, never a warning, so the exit status stays 0.
+
+> Edited 2026-10-29: the operator answered (`considered`): a weak-only match is a note with exit status 0 (probe 4). The bullet read: "note a rule that sends input to a head by `id` or `name` alone (probe 4)."
 
 > Edited 2026-10-29: the operator accepted an independent advisor's review (`considered`): `edid` is the recommended display match, and `connector-path` joins the keys. The advice read: "`connector` plus `edid` for displays."
 
@@ -430,9 +438,11 @@ A machine with no configuration at all:
 - Missing hardware never makes a file invalid.
 - **The fallback is per file:** an invalid head file runs the shipped default; an invalid profile gives the heads naming it the default profile; an invalid frit draws the default frit, as an unreadable `cell=` or `size=` does today.
 - **vtium never fixes, comments out, renames or replaces a present file,** broken or empty. An empty head file has no `version`, so it is invalid and falls back whole to the shipped rules. A file with `version = 1` and no rules is a valid ruleset with no rules: every display goes dark, and D9's display guard lights the boot display in a default head.
-- **Every error is logged** with its file and line, and a notice shows on the console before the login: vtium's own message, drawn as a getty prints its banner, never written to the session's pty or kept in its scrollback (probe 5: a key ends it, or it shows for a few seconds). Text the notice quotes from a file is escaped first, so a control byte or an escape sequence in the file never reaches the screen. vtium keeps running.
+- **Every error is logged** with its file and line, and a notice shows on the console before the login: vtium's own message, drawn as a getty prints its banner, never written to the session's pty or kept in its scrollback; it ends on any key that reaches that head, or after 30 s. Text the notice quotes from a file is escaped first, so a control byte or an escape sequence in the file never reaches the screen. vtium keeps running.
 - **`vtium check-config`** runs the boot's parser and evaluator, lists every error with its line, and exits non-zero; given a candidate file's path, it checks that file before it is installed, as `nft -c`, `visudo -c` and `sshd -t` do. It exits 1 on an error or a warning about the file itself, as it does for kmscon.conf; a finding that depends on the hardware present, such as a rule matching no connected device, is noted on standard output outside the exit status, so a file can be checked away from its machine.
 - On a future live reload, an invalid new file leaves the running configuration as it is.
+
+> Edited 2026-10-29: the operator answered (`considered`): the notice ends on any key reaching its head or after 30 s (probe 5). It read: "(probe 5: a key ends it, or it shows for a few seconds)".
 
 > Edited 2026-10-29: the team lead's correction from H2's questions: an empty file contradicted D3's required `version = 1`, and D3 named no rule for a key or section given twice. D7 read: "An empty head file is a valid ruleset with no rules: every display goes dark, and D9's display guard lights the boot display in a default head."
 
@@ -554,13 +564,16 @@ flowchart TD
 ### D10: security
 
 - The head file, the profiles and the frits route input and choose login commands, so vtium reads each only when root owns it and neither group nor others can write it, as `sshd`'s `StrictModes` refuses a writable file; a file that fails is invalid (D7). The directories above it pass the same check. No file a user supplies is read by the console.
-- Each head multiplies sessions, ptys and scrollback, so the consoles of a head and of the process are bounded, rows of a bounds table the vtium crate gains with the heads build, and part of minspec's memory bound (probe 6). A head asking for more consoles than its cap gets the cap, with a warning.
+- Each head multiplies sessions, ptys and scrollback, so the consoles of a head and of the process are bounded: 4 consoles a head and 8 in total by default, which the configuration may raise to hard maxima of 50 consoles and 16 heads. They are rows of a bounds table the vtium crate gains with the heads build. The total scrollback budget across them is set from measurement in the heads build's slice H3b (ADR-1001). A head asking for more consoles than its cap gets the cap, with a warning.
+- On a read-only root, vtium reads no writable configuration directory in place of `/etc/vtium`.
 - vtium's state lives under `/run/vtium/<tty>/`, one directory a VT (`/run/vtium/tty1/`), so two vtiums never share it (D2, D12). It is written by root, readable by every user, and holds what sysfs already shows any user: device identities, the rule each matched, the guards that acted. A candidate staged there for a trial is accepted only from root.
 - **No panic is reachable from pty input,** and heads raise the stakes: one process holds every head (D2), so a crash a program provokes with crafted output ends every session, not its own. Parsing is bounded, nothing unwraps untrusted bytes (docs/architecture.md, "No input-reachable panic"), and each session's output parser runs under fuzzing.
 - A keyboard opened only for the rescue key is read only while vtium's VT is shown (D9), so vtium never reads what is typed on another VT.
 - Each session runs its own login, the helper stays sandboxed as ADR-1400 D2 and ADR-1200 D15 say, and the reply rule holds for each terminal.
 
 > Edited 2026-10-29: the team lead's corrections from the heads gap-check (C6, C7): two vtiums on two VTs would have shared one `/run/vtium/`, and the `vtium` crate has no bounds table yet. D10 read: "rows of the binary's bounds table" and "vtium's state under `/run/vtium/` (D12) is written by root".
+
+> Edited 2026-10-29: the operator answered (`considered`): the caps (probe 6), and no writable configuration directory on a read-only root (probe 7). D10 said: "and part of minspec's memory bound (probe 6)", and left the read-only root open.
 
 ### D11: how it is judged
 
@@ -603,7 +616,7 @@ Hand-editing the head file, the profiles and the frits stays fully supported; th
 - **A candidate is tried before it is kept:** vtium applies it from `/run/vtium/<tty>/` and reverts it unless it is confirmed within a countdown, as KDE's display settings do; only a confirmed candidate replaces the file in `/etc/vtium`. Until vtium can apply a candidate while running, `setup` installs for the next boot and says so, and D9's guards stand in for the revert.
 - **From a desktop terminal,** `vtiumctl detect`, `check` and `status`, and `vtium-vitrify preview`, need no privilege, reading EDIDs, connector states, input classes and USB serials from sysfs; displays are named as the desktop names them (`DP-8`, `HDMI-A-2`), since vtium is not on screen; a trial is staged and runs when vtium's VT is next shown.
 - **On minspec, where vtium is the only terminal,** the dialog is line-oriented, fits 40 columns (320x240 at 8x8) and works over a serial line; a frit is previewed by trying it on the live console through OSC 50 under the same countdown; on a read-only root the confirm step prints the confirmed file and its target path for the image build. Its size is measured in tier 3 with the rest of the install tree.
-- **Without privilege,** `vtiumctl` saves a viable frit or head file to `$XDG_STATE_HOME/vtium/drafts/<time>/` (probe 8), then prints where it is and what makes it active: a copy into `/etc/vtium`, or `sudo vtiumctl install DIR`. Run under sudo, it installs after confirmation, writing `/etc/vtium` as `root:root 0644`, and writes nothing into the invoking user's home as root.
+- **Without privilege,** `vtiumctl` saves a viable frit or head file to `$XDG_STATE_HOME/vtium/drafts/<time>/`, then prints where it is and what makes it active: a copy into `/etc/vtium`, or `sudo vtiumctl install DIR`. Run under sudo, it installs after confirmation, writing `/etc/vtium` as `root:root 0644`, and writes nothing into the invoking user's home as root.
 
 > Edited 2026-10-29: the team lead's corrections from the heads gap-check (C6, C9): the run state moved to `/run/vtium/<tty>/` as D10 now places it, and `check FILE` serves every configuration file. The table's `check FILE` row read: "Checks a candidate as `vtium check-config` does.", and the run state was `/run/vtium/`.
 
@@ -651,21 +664,25 @@ Built directly after heads themselves, ahead of `vtiumctl` (D11's build order). 
 
 The probes, in the order the record raises them:
 
-1. The head file's path and name, `/etc/vtium/heads.conf` here, and whether drop-ins (`/etc/vtium/heads.d/`) are read.
-2. Where a head's virtual consoles are declared, their count and each console's command: in the head file, as D3 has it, or in the profile.
+1. The head file's path and name, `/etc/vtium/heads.conf` here, and whether drop-ins (`/etc/vtium/heads.d/`) are read. Answered 2026-10-29: `/etc/vtium/heads.conf`, one file, no drop-ins (D3, `considered`).
+2. Where a head's virtual consoles are declared, their count and each console's command: in the head file, as D3 has it, or in the profile. Answered 2026-10-29: per head, in the head file (D3).
 3. A head that loses its display. Answered 2026-10-29: `on-loss`, with `nohup` the default on every head and `hangup` and `hangup DURATION` as choices (D8, `considered`).
-4. Whether `check-config` notes a rule that reaches a head with sessions by `id` or `name` alone (D4).
-5. Whether the invalid-configuration notice waits for a key or shows for a few seconds (D7).
-6. The caps on consoles per head and in total, and how their scrollback fits minspec's memory figure (D10).
-7. Whether vtium also reads a writable configuration directory on a read-only root, a security decision this record leaves open.
-8. The draft directory, `$XDG_STATE_HOME/vtium/drafts/<time>/` here, and whether OSC 50 may preview an unprivileged user's draft frit on the console during a trial, its sources read by the sandboxed helper as `nobody`.
+4. Whether `check-config` notes a rule that reaches a head with sessions by `id` or `name` alone (D4). Answered 2026-10-29: a note, not a warning, exit 0 (D4).
+5. Whether the invalid-configuration notice waits for a key or shows for a few seconds (D7). Answered 2026-10-29: it ends on any key reaching that head, or after 30 s (D7).
+6. The caps on consoles per head and in total, and how their scrollback fits minspec's memory figure (D10). Answered 2026-10-29: 4 a head and 8 in total by default, hard maxima of 50 consoles and 16 heads, and the scrollback budget set in H3b from measurement (D10).
+7. Whether vtium also reads a writable configuration directory on a read-only root, a security decision this record leaves open. Answered 2026-10-29: it does not (D10).
+8. The draft directory, `$XDG_STATE_HOME/vtium/drafts/<time>/` here, and whether OSC 50 may preview an unprivileged user's draft frit on the console during a trial, its sources read by the sandboxed helper as `nobody`. Answered 2026-10-29 for the directory, as written (D12); the OSC 50 preview is still open.
 9. The team lead's proposals, written above as the design: `check-config`'s note on weak matches (D4); missing and changing hardware (D8); focus and input (D5); the security rules (D10).
-10. The kernel command-line parameter's name, `vtium.heads=builtin` here (D9).
+10. The kernel command-line parameter's name, `vtium.heads=builtin` here (D9). Answered 2026-10-29: `vtium.heads=builtin`.
 11. The shape of the guard switches, the team lead's: a `[guards]` section with `anti-lockout`, `rescue-key` and `never-dark`, and the per-head `rescue` (D9).
 12. Whether sessions should survive a vtium restart (D13), which would make a crash cost only the screens. Answered 2026-10-29: yes, built directly after heads (D13, `considered`).
-13. The property names, `VTIUM_ROLE`, `VTIUM_HEAD` and `VTIUM_IGNORE` (D4).
+13. The property names, `VTIUM_ROLE`, `VTIUM_HEAD` and `VTIUM_IGNORE` (D4). Answered 2026-10-29: these names.
 
-Agent calls the operator has not yet looked at: the shape of the `udev:` match and of the example udev patterns, the team lead's (D4); the head file's syntax and the target `dark` setting the connector off (D3); naming cards by `ID_PATH` (D4); whether kmscon.conf's `mouse` key stays as a shorthand for the pointer rules or goes (D3, D4); the head file's template carrying its two rules live, and the command name `template` (D6, D12); `check-config`'s exit status for hardware-dependent findings (D7); the form of `on-loss`'s duration (D8); mode 1004's focus per head (D5); the overlay socket for root alone (D12); and that the blank stays the seat's, any head's activity waking every display.
+Agent calls the operator has not yet looked at: the shape of the `udev:` match and of the example udev patterns, the team lead's (D4); the head file's syntax and the target `dark` setting the connector off (D3); naming cards by `ID_PATH` (D4); the head file's template carrying its two rules live, and the command name `template` (D6, D12); `check-config`'s exit status for hardware-dependent findings (D7); the form of `on-loss`'s duration (D8); mode 1004's focus per head (D5); the overlay socket for root alone (D12); and that the blank stays the seat's, any head's activity waking every display.
+
+Still open: where a head draws its focus mark (D5); the form of `on-loss`'s duration, where plain seconds are the operator's lean (D8); whether OSC 50 may preview an unprivileged user's draft frit (probe 8); and the D3 example file's missing `class:key` rule.
+
+> Edited 2026-10-29: the operator answered (`considered`): probes 1, 2, 4, 5, 6, 7, 10 and 13, the first half of probe 8, and the `mouse` key, which left this list of agent calls.
 
 ## Evidence: a machine with two displays
 
