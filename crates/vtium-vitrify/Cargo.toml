@@ -36,6 +36,11 @@ ruzstd = "=0.8.2"
 # parser's child; MIT or Apache-2.0, as are skrifa, read-fonts, zeno and
 # yazi under it. The README says why this one.
 swash = "=0.2.10"
+# The shaper ADR-1200's glyph engine takes for clusters (vtium/vtium#144):
+# HarfRust, the HarfBuzz project's Rust port, MIT, with no unsafe code of
+# its own; run only in the helper and the parser's child, never in the
+# console. Its read-fonts is the version swash's skrifa already builds.
+harfrust = { version = "=0.12.0", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 # A pty for `set`'s and the banner's tests; vtium-platform already builds

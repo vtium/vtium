@@ -8,8 +8,13 @@
 //! console already reads.
 //!
 //! The console sends four requests (the operator's fill model,
-//! 2026-10-28). An ask names codepoints at a cell, those on the screen or
-//! newly needed, and is answered whole, ahead of any fill. A fill fills a
+//! 2026-10-28). An ask names codepoints and clusters at a cell, those on
+//! the screen or newly needed, and is answered whole, ahead of any fill:
+//! each cluster shaped with HarfRust from the first outline source in the
+//! frit's order that covers its first scalar value other than U+200D, and
+//! drawn whole into the frame's cluster map (ADR-1200 D21, ADR-1301 D1); a
+//! cluster no source shapes as [`crate::shaping::kind`] requires is left
+//! out, and the console draws it its own way. A fill fills a
 //! cell's coverage in order: the codepoints it names (the screen's), then
 //! printable Latin and box drawing ([`LATIN_AND_BOX`]), then the rest of
 //! the frit's coverage, skipping what the console holds, one [`BATCH`] at
@@ -36,7 +41,9 @@
 //!          u32, cell height u32 (both 0 for a cell query), capabilities length u32, the capabilities (reserved for the
 //!          display's, ADR-1301 D1 and D3: always 0 bytes, and refused
 //!          otherwise), codepoint count u32, each codepoint u32 (an ask's
-//!          wanted, a fill's first; none for a cell query), held range
+//!          wanted, a fill's first; none for a cell query), cluster count
+//!          u32, each cluster's length u32 and scalar values u32 (an ask's
+//!          alone), held range
 //!          count u32, each range's first and last codepoint u32 (what the
 //!          console holds at the cell, for a fill; none for a cell query),
 //!          console font flag u32 (0 none, 1 one):
@@ -44,7 +51,7 @@
 //!          data, map count u32, each (codepoint u16, glyph u16)
 //! answer   frames: kind u32, length u32, then the payload; kind 1 an
 //!          ask's glyphs and 4 a fill's, each a vitrified set of one cell's
-//!          glyphs; kind 2 the oldest ask answered (no payload); kind 5 a
+//!          glyphs, an ask's clusters in its cluster map; kind 2 the oldest ask answered (no payload); kind 5 a
 //!          cell's fill done (its width u32 and height u32); kind 6 the
 //!          frit's own cell (its width u32 and height u32); kind 7 no own
 //!          cell (UTF-8 reason); kind 8 a stop taken (its cell's width u32
@@ -55,8 +62,8 @@
 //! Little-endian throughout. The console checks every frame before it
 //! trusts it: the length against [`FRAME_BYTES_MAX`] before it allocates,
 //! a set through vtium-font's reader, every strike at the cell asked for,
-//! an ask's glyphs among those it asked for, and a fill's among those it
-//! does not hold.
+//! an ask's glyphs and clusters among those it asked for, and a fill's
+//! among those it does not hold, with no cluster.
 //!
 //! The kernel's font reaches a frit's `console:` source only as the bytes
 //! the console read from its own VT at start and handed over
@@ -79,13 +86,14 @@ use std::time::Duration;
 
 use rustix::process::{Resource, Rlimit, Uid, geteuid, setrlimit};
 use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
-use vtium_font::{CELL_SIDE_MAX, Cell, Style, Width};
+use vtium_font::{CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Style, Width};
 use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, UniPair};
 
 use crate::child::PARSER_MEMORY;
 use crate::font::Font;
 use crate::frit::{Cover, FRIT_BYTES_MAX, Frit, Source, valid_name};
-use crate::outline::{OutlineRequest, family_key, rasterise};
+use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
+use crate::shaping::ZWJ;
 use crate::sources::{Consoles, FONT_DIRS, Host, Input, KBD_DIRS, resolve};
 
 /// The command that makes the binary the helper.
@@ -98,7 +106,7 @@ pub const HELPER_IDLE_MS: u64 = 60_000;
 /// number of times a boot (the console's `RESTARTS_MAX`).
 pub const HELPER_SECONDS: u64 = 300;
 
-pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ2";
+pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ3";
 /// A frame of an ask's glyphs: a vitrified set.
 pub const FRAME_GLYPHS: u32 = 1;
 /// The oldest ask is answered whole.
@@ -163,6 +171,8 @@ pub struct ServeRequest {
     /// An ask's codepoints, or the codepoints a fill draws first: those on
     /// the screen.
     pub codepoints: Vec<u32>,
+    /// An ask's clusters, each 1 to [`CLUSTER_SCALARS_MAX`] scalar values.
+    pub clusters: Vec<Vec<u32>>,
     /// What the console holds at the cell, for a fill, as ranges.
     pub held: Vec<Cover>,
     /// The kernel's font, read by the console from its VT at start.
@@ -235,6 +245,13 @@ impl ServeRequest {
         for &c in &self.codepoints {
             put32(&mut out, c);
         }
+        put32(&mut out, len32(self.clusters.len()));
+        for cluster in &self.clusters {
+            put32(&mut out, len32(cluster.len()));
+            for &c in cluster {
+                put32(&mut out, c);
+            }
+        }
         put32(&mut out, len32(self.held.len()));
         for &(a, b) in &self.held {
             put32(&mut out, a);
@@ -264,7 +281,8 @@ impl ServeRequest {
     /// its text UTF-8, each inside its bound, the cell inside
     /// [`CELL_SIDE_MAX`], a cell query's at no cell and naming no
     /// codepoint and no range, the reserved capabilities empty, each codepoint a
-    /// scalar value, each held range in order and inside Unicode, the
+    /// scalar value, clusters in an ask alone, each 1 to
+    /// [`CLUSTER_SCALARS_MAX`] scalar values, each held range in order and inside Unicode, the
     /// kernel's font inside the kernel's own bounds with its data exactly
     /// as long as its shape.
     pub fn read(r: &mut impl Read) -> Result<Option<ServeRequest>, String> {
@@ -325,6 +343,28 @@ impl ServeRequest {
             }
             codepoints.push(c);
         }
+        let n = f.count(
+            if kind == ASK { FIRST_MAX } else { 0 },
+            "the clusters asked for",
+        )?;
+        let mut clusters = Vec::with_capacity(n);
+        for _ in 0..n {
+            let len = f.count(CLUSTER_SCALARS_MAX as usize, "a cluster's scalar values")?;
+            let mut cluster = Vec::with_capacity(len);
+            for _ in 0..len {
+                let c = f.u32()?;
+                if char::from_u32(c).is_none() {
+                    return Err(
+                        "a cluster holding a codepoint that is not a scalar value".to_owned()
+                    );
+                }
+                cluster.push(c);
+            }
+            if cluster.is_empty() {
+                return Err("an empty cluster".to_owned());
+            }
+            clusters.push(cluster);
+        }
         let n = f.count(if query { 0 } else { HELD_RANGES_MAX }, "the ranges held")?;
         let mut held = Vec::with_capacity(n);
         for _ in 0..n {
@@ -371,6 +411,7 @@ impl ServeRequest {
             frit: FritText { name, text },
             cell,
             codepoints,
+            clusters,
             held,
             console,
         }))
@@ -667,11 +708,35 @@ impl Engine {
         why
     }
 
-    /// The glyphs at `cell` for `want`, sorted codepoints: each from the
-    /// first source in the frit's order that gives it, as a vitrified set
-    /// of that one cell; `None` when no source gives any. A source that
-    /// fails as it draws is left out, and the next one gives its glyphs.
+    /// The glyphs at `cell` for `want`, sorted codepoints, as
+    /// [`Engine::glyphs`] draws them.
     pub fn draw(&self, cell: Cell, want: &[u32]) -> Result<Option<Vec<u8>>, String> {
+        self.glyphs(cell, want, &[])
+    }
+
+    /// The glyphs at `cell` for `clusters`, sorted, as [`Engine::glyphs`]
+    /// draws them.
+    pub fn draw_clusters(
+        &self,
+        cell: Cell,
+        clusters: &[Vec<u32>],
+    ) -> Result<Option<Vec<u8>>, String> {
+        self.glyphs(cell, &[], clusters)
+    }
+
+    /// The glyphs at `cell` for `want`, sorted codepoints, and `clusters`,
+    /// sorted: each codepoint from the first source in the frit's order
+    /// that gives it, and each cluster from the first outline source that
+    /// covers its first scalar value other than U+200D and shapes it
+    /// (ADR-1200 D21), as a vitrified set of that one cell; `None` when no
+    /// source gives any. A source that fails as it draws is left out, and
+    /// the next one gives its glyphs.
+    fn glyphs(
+        &self,
+        cell: Cell,
+        want: &[u32],
+        clusters: &[Vec<u32>],
+    ) -> Result<Option<Vec<u8>>, String> {
         let strike = |format| {
             StrikeBuilder::new(format, cell, Style::default())
                 .baseline(cell.height)
@@ -683,6 +748,7 @@ impl Engine {
             strike(PixelFormat::Rgba),
         );
         let mut mapped: BTreeSet<u32> = BTreeSet::new();
+        let mut shaped: BTreeSet<&[u32]> = BTreeSet::new();
         for (i, (source, loaded)) in self.sources.iter().enumerate() {
             if self.failed.borrow().contains_key(&i) {
                 continue;
@@ -692,10 +758,14 @@ impl Engine {
                 .copied()
                 .filter(|&c| !mapped.contains(&c) && source.covers(c))
                 .collect();
-            if left.is_empty() {
-                continue;
-            }
+            let lead = |k: &[u32]| k.iter().copied().find(|&c| c != ZWJ);
+            let unshaped: Vec<&[u32]> = clusters
+                .iter()
+                .map(Vec::as_slice)
+                .filter(|k| !shaped.contains(k) && lead(k).is_some_and(|c| source.covers(c)))
+                .collect();
             match loaded {
+                Loaded::Bitmap(_) if left.is_empty() => {}
                 Loaded::Bitmap(font) => {
                     let scale = (cell.width / font.cell.width.max(1))
                         .min(cell.height / font.cell.height.max(1));
@@ -723,12 +793,24 @@ impl Engine {
                         mapped.insert(c);
                     }
                 }
+                Loaded::Outline { .. } if left.is_empty() && unshaped.is_empty() => {}
                 Loaded::Outline { font, family, .. } => {
+                    // a cluster's scalar values join the cover, as an empty
+                    // cover is every codepoint; only those wanted are taken
+                    let mut cover: Vec<u32> = left.clone();
+                    cover.extend(unshaped.iter().flat_map(|k| k.iter().copied()));
+                    cover.retain(|&c| source.covers(c));
+                    cover.sort_unstable();
+                    cover.dedup();
+                    if cover.is_empty() {
+                        continue;
+                    }
                     let request = OutlineRequest {
                         font: Arc::clone(font),
                         family: family.clone(),
                         cells: vec![(cell.width, cell.height)],
-                        cover: ranges(&left),
+                        cover: ranges(&cover),
+                        clusters: unshaped.iter().map(|k| crate::shaping::ask(k)).collect(),
                     };
                     let outline = match rasterise(&request) {
                         Ok(outline) => outline,
@@ -741,30 +823,50 @@ impl Engine {
                         continue;
                     };
                     let mut placed: BTreeMap<u32, u32> = BTreeMap::new();
-                    for &(c, g) in &s.map {
-                        let (Some(glyph), Some(ch)) = (s.glyphs.get(g as usize), char::from_u32(c))
-                        else {
-                            continue;
-                        };
-                        if mapped.contains(&c) {
-                            continue;
-                        }
-                        let target = if glyph.color { &mut rgba } else { &mut r8 };
-                        let index = *placed.entry(g).or_insert_with(|| {
+                    let mut index = |g: u32, target: &mut StrikeBuilder, glyph: &Placed| {
+                        *placed.entry(g).or_insert_with(|| {
                             let width = if glyph.wide {
                                 Width::Wide
                             } else {
                                 Width::Narrow
                             };
                             target.glyph(width, glyph.pixels.clone())
-                        });
-                        target.map(ch, index);
+                        })
+                    };
+                    for &(c, g) in &s.map {
+                        let (Some(glyph), Some(ch)) = (s.glyphs.get(g as usize), char::from_u32(c))
+                        else {
+                            continue;
+                        };
+                        if mapped.contains(&c) || left.binary_search(&c).is_err() {
+                            continue;
+                        }
+                        let target = if glyph.color { &mut rgba } else { &mut r8 };
+                        let at = index(g, target, glyph);
+                        target.map(ch, at);
                         mapped.insert(c);
+                    }
+                    for (key, g) in &s.clusters {
+                        let Some(glyph) = s.glyphs.get(*g as usize) else {
+                            continue;
+                        };
+                        let Some(&asked) = unshaped.iter().find(|k| **k == key.as_slice()) else {
+                            continue;
+                        };
+                        let chars: Option<Vec<char>> =
+                            key.iter().map(|&c| char::from_u32(c)).collect();
+                        let Some(chars) = chars else {
+                            continue;
+                        };
+                        let target = if glyph.color { &mut rgba } else { &mut r8 };
+                        let at = index(*g, target, glyph);
+                        target.cluster(&chars, at);
+                        shaped.insert(asked);
                     }
                 }
             }
         }
-        if mapped.is_empty() {
+        if mapped.is_empty() && shaped.is_empty() {
             return Ok(None);
         }
         let mut set = SetBuilder::new(&self.name);
@@ -798,28 +900,37 @@ impl Bits {
     }
 }
 
-/// Draws `want` at `cell` and writes it as frames of `kind`, a set that
-/// passes [`FRAME_BYTES_MAX`] cut in two. Returns whether any glyph went, or the engine's
-/// failure; only a write that fails is the outer error.
+/// Draws `want` and `clusters` at `cell` and writes them as frames of
+/// `kind`, a set that passes [`FRAME_BYTES_MAX`] cut in two. Returns
+/// whether any glyph went, or the engine's failure; only a write that
+/// fails is the outer error.
 fn send_glyphs(
     engine: &Engine,
     cell: Cell,
     want: &[u32],
+    clusters: &[Vec<u32>],
     kind: u32,
     out: &mut dyn Write,
 ) -> io::Result<Result<bool, String>> {
-    let mut queue: VecDeque<&[u32]> = VecDeque::from([want]);
+    let mut queue: VecDeque<(&[u32], &[Vec<u32>])> = VecDeque::from([(want, clusters)]);
     let mut any = false;
-    while let Some(want) = queue.pop_front() {
-        if want.is_empty() {
+    while let Some((want, clusters)) = queue.pop_front() {
+        if want.is_empty() && clusters.is_empty() {
             continue;
         }
-        match engine.draw(cell, want) {
+        let many = want.len().saturating_add(clusters.len()) > 1;
+        match engine.glyphs(cell, want, clusters) {
             Ok(None) => {}
-            Ok(Some(set)) if set.len() > FRAME_BYTES_MAX as usize && want.len() > 1 => {
-                let (a, b) = want.split_at(want.len() / 2);
-                queue.push_front(b);
-                queue.push_front(a);
+            Ok(Some(set)) if set.len() > FRAME_BYTES_MAX as usize && many => {
+                if want.len() > 1 || (want.len() == 1 && !clusters.is_empty()) {
+                    let (a, b) = want.split_at(want.len() / 2);
+                    queue.push_front((b, clusters));
+                    queue.push_front((a, &[]));
+                } else {
+                    let (a, b) = clusters.split_at(clusters.len() / 2);
+                    queue.push_front((want, b));
+                    queue.push_front((&[], a));
+                }
             }
             Ok(Some(set)) if set.len() > FRAME_BYTES_MAX as usize => {}
             Ok(Some(set)) => {
@@ -985,17 +1096,25 @@ impl Work<'_> {
         Ok(())
     }
 
-    /// Answers the oldest ask whole, then done; or the engine's failure.
+    /// Answers the oldest ask whole, its codepoints and then its clusters a
+    /// batch at a time, then done; or the engine's failure.
     fn ask(&mut self, request: &ServeRequest, out: &mut dyn Write) -> io::Result<()> {
         let mut want = request.codepoints.clone();
         want.sort_unstable();
         want.dedup();
+        let mut clusters = request.clusters.clone();
+        clusters.sort_unstable();
+        clusters.dedup();
         let cell = request.cell;
         let mut result = Ok(());
         match self.engine(&request.frit) {
             Ok(engine) => {
-                for w in want.chunks(BATCH) {
-                    if let Err(why) = send_glyphs(engine, cell, w, FRAME_GLYPHS, out)? {
+                let batches = want
+                    .chunks(BATCH)
+                    .map(|w| (w, &[][..]))
+                    .chain(clusters.chunks(BATCH).map(|k| (&[][..], k)));
+                for (w, k) in batches {
+                    if let Err(why) = send_glyphs(engine, cell, w, k, FRAME_GLYPHS, out)? {
                         result = Err(why);
                         break;
                     }
@@ -1020,7 +1139,7 @@ impl Work<'_> {
         fill.next = end;
         batch.sort_unstable();
         let drawn = match self.engine(&fill.frit) {
-            Ok(engine) => send_glyphs(engine, fill.cell, &batch, FRAME_FILL, out)?,
+            Ok(engine) => send_glyphs(engine, fill.cell, &batch, &[], FRAME_FILL, out)?,
             Err(why) => Err(why.clone()),
         };
         match drawn {
@@ -1189,6 +1308,7 @@ mod tests {
             frit,
             cell: CELL,
             codepoints: codepoints.iter().map(|&c| u32::from(c)).collect(),
+            clusters: Vec::new(),
             held: Vec::new(),
             console: None,
         }
@@ -1318,6 +1438,44 @@ mod tests {
         assert!(ServeRequest::read(&mut &good[..good.len() - 1]).is_err());
     }
 
+    // ADR-1200 D21: an ask names clusters whole, each checked as it is
+    // read, and no other request names one
+    #[test]
+    fn an_asks_clusters_read_back_and_a_malformed_one_is_refused() {
+        let acute = vec![0x65, 0x301];
+        let family = vec![0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467];
+        let ask = ServeRequest {
+            clusters: vec![acute.clone(), family],
+            ..request(ASK, frit("source=builtin:unifont\n"), &['A'])
+        };
+        let bytes = ask.encode();
+        assert_eq!(ServeRequest::read(&mut &bytes[..]), Ok(Some(ask.clone())));
+        let longest = CLUSTER_SCALARS_MAX as usize;
+        for bad in [vec![], vec![0x41; longest + 1], vec![0x65, 0xd800]] {
+            let r = ServeRequest {
+                clusters: vec![bad.clone()],
+                ..ask.clone()
+            };
+            assert!(
+                ServeRequest::read(&mut &r.encode()[..]).is_err(),
+                "{bad:x?}"
+            );
+        }
+        let longest_ok = ServeRequest {
+            clusters: vec![vec![0x41; longest]],
+            ..ask.clone()
+        };
+        assert!(ServeRequest::read(&mut &longest_ok.encode()[..]).is_ok());
+        for kind in [FILL, STOP] {
+            let r = ServeRequest {
+                clusters: vec![acute.clone()],
+                ..request(kind, frit("source=builtin:unifont\n"), &[])
+            };
+            let e = ServeRequest::read(&mut &r.encode()[..]).unwrap_err();
+            assert!(e.contains("past its bound"), "{e}");
+        }
+    }
+
     /// A cell query for `frit`: at no cell, naming nothing.
     fn query(frit: FritText) -> ServeRequest {
         ServeRequest {
@@ -1411,6 +1569,7 @@ mod tests {
             },
             ServeRequest {
                 codepoints: vec![0x41],
+                clusters: Vec::new(),
                 ..query(frit(""))
             },
             ServeRequest {

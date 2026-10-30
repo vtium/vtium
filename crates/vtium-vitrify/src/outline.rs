@@ -9,15 +9,19 @@
 //! which the parent checks field by field before it trusts any:
 //!
 //! ```text
-//! request  magic "VTVOUT1\0", font length u32, the font, family length u32,
+//! request  magic "VTVOUT2\0", font length u32, the font, family length u32,
 //!          the family, cell count u32, each cell's width u32 (0: the font
 //!          sets it) and height u32, range count u32, each range's first
-//!          and last codepoint u32
-//! answer   magic "VTVOUTL1", family length u32, the family, format length
-//!          u32, the format, licence length u32, the licence, strike count u32, then each strike: cell width
-//!          u32, cell height u32, baseline u32, glyph count u32, map length
-//!          u32, each glyph's flags u8 (1 two cells wide, 2 RGBA) and its
-//!          rows, then the map: each (codepoint u32, glyph u32), sorted
+//!          and last codepoint u32, cluster count u32, each cluster's kind
+//!          u8, length u8 and scalar values u32
+//! answer   magic "VTVOUTL2", family length u32, the family, format length
+//!          u32, the format, licence length u32, the licence, strike count
+//!          u32, then each strike: cell width u32, cell height u32, baseline
+//!          u32, glyph count u32, map length u32, cluster count u32, each
+//!          glyph's flags u8 (1 two cells wide, 2 RGBA) and its rows, then
+//!          the map: each (codepoint u32, glyph u32), sorted, then the
+//!          clusters: each length u8, scalar values u32 and glyph u32,
+//!          sorted
 //! ```
 //!
 //! Little-endian throughout.
@@ -34,11 +38,16 @@
 //! them and kept inside the cell's height. Outlines are hinted; color
 //! glyphs are not, and a COLR glyph's layers are laid over each other here,
 //! premultiplied with the renderer's rounding.
+//!
+//! The clusters asked for ([`crate::shaping`]) are shaped once with
+//! HarfRust and drawn at each cell: each glyph the shaper gives at its
+//! position, laid over the others, and the whole placed as one glyph is.
 
 use std::sync::Arc;
 
 use crate::frit::Cover;
-use vtium_font::{CELL_SIDE_MAX, SET_CHUNK_BYTES};
+use crate::shaping::{Ask, Kind};
+use vtium_font::{CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, SET_CHUNK_BYTES};
 
 /// The most bytes an outline font file holds; Noto Sans CJK's collection
 /// is about 20 MB.
@@ -58,9 +67,12 @@ const LICENSE_MAX: usize = 1024;
 const MAP_MAX: usize = 0x11_0000;
 /// The most glyphs a strike holds: a font's glyph ids are 16 bits.
 const GLYPHS_MAX: usize = 65536;
+/// The most clusters one request asks for: every cluster
+/// [`crate::shaping::asks`] lists is under half of it.
+pub const CLUSTERS_MAX: usize = 1 << 14;
 
-pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT1\0";
-const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL1";
+pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT2\0";
+const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL2";
 
 const GLYPH_WIDE: u8 = 1;
 const GLYPH_COLOR: u8 = 2;
@@ -80,6 +92,8 @@ pub struct OutlineRequest {
     /// The codepoints to draw, as ranges; empty for every one the font
     /// maps.
     pub cover: Vec<Cover>,
+    /// The clusters to shape and draw whole.
+    pub clusters: Vec<Ask>,
 }
 
 /// One glyph placed in its cells: R8 coverage or premultiplied RGBA, row
@@ -101,6 +115,9 @@ pub struct Strike {
     pub glyphs: Vec<Placed>,
     /// Each codepoint and its glyph, sorted by codepoint.
     pub map: Vec<(u32, u32)>,
+    /// Each cluster the font shaped as asked, and its glyph, sorted by
+    /// cluster.
+    pub clusters: Vec<(Vec<u32>, u32)>,
 }
 
 /// The parser's answer: the face it took and its glyphs at each cell
@@ -125,6 +142,13 @@ fn len32(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
+fn put_key(out: &mut Vec<u8>, key: &[u32]) {
+    out.push(u8::try_from(key.len()).unwrap_or(u8::MAX));
+    for &c in key {
+        put32(out, c);
+    }
+}
+
 /// Little-endian fields read from the front of a slice.
 struct Reader<'a>(&'a [u8]);
 
@@ -146,6 +170,23 @@ impl<'a> Reader<'a> {
         let b = self.take(4)?;
         let a: [u8; 4] = b.try_into().map_err(|_| "cut short")?;
         Ok(u32::from_le_bytes(a))
+    }
+
+    /// A cluster's key: a length u8 of 1 to [`CLUSTER_SCALARS_MAX`], then
+    /// that many scalar values.
+    fn key(&mut self) -> Result<Vec<u32>, &'static str> {
+        let n = self.u8()?;
+        if n == 0 || u32::from(n) > CLUSTER_SCALARS_MAX {
+            return Err("a cluster empty or past CLUSTER_SCALARS_MAX");
+        }
+        (0..n)
+            .map(|_| {
+                let c = self.u32()?;
+                char::from_u32(c)
+                    .map(|_| c)
+                    .ok_or("a cluster holding a codepoint that is not a character")
+            })
+            .collect()
     }
 
     fn count(&mut self, max: usize) -> Result<usize, &'static str> {
@@ -193,6 +234,11 @@ impl OutlineRequest {
             put32(&mut out, a);
             put32(&mut out, b);
         }
+        put32(&mut out, len32(self.clusters.len()));
+        for ask in &self.clusters {
+            out.push(ask.kind.code());
+            put_key(&mut out, &ask.key);
+        }
         [head.into(), Arc::clone(&self.font), out.into()]
     }
 
@@ -216,6 +262,14 @@ impl OutlineRequest {
         for _ in 0..r.count(RANGES_MAX)? {
             cover.push((r.u32()?, r.u32()?));
         }
+        let mut clusters = Vec::new();
+        for _ in 0..r.count(CLUSTERS_MAX)? {
+            let kind = Kind::from_code(r.u8()?).ok_or("an unknown cluster kind")?;
+            clusters.push(Ask {
+                key: r.key()?,
+                kind,
+            });
+        }
         if !r.0.is_empty() {
             return Err("bytes after the request");
         }
@@ -224,6 +278,7 @@ impl OutlineRequest {
             family,
             cells,
             cover,
+            clusters,
         })
     }
 
@@ -258,6 +313,7 @@ impl Outline {
                 s.baseline,
                 len32(s.glyphs.len()),
                 len32(s.map.len()),
+                len32(s.clusters.len()),
             ] {
                 put32(&mut out, v);
             }
@@ -271,6 +327,10 @@ impl Outline {
                 put32(&mut out, c);
                 put32(&mut out, g);
             }
+            for (key, g) in &s.clusters {
+                put_key(&mut out, key);
+                put32(&mut out, *g);
+            }
         }
         out
     }
@@ -280,8 +340,9 @@ impl Outline {
     /// [`CELL_SIDE_MAX`] with its baseline inside it; every glyph exactly
     /// as long as its flags say and no larger than a set's chunk, RGBA
     /// premultiplied; every codepoint a scalar value in order, one the
-    /// request covers, and every glyph one the strike holds; nothing after
-    /// the last strike.
+    /// request covers, and every glyph one the strike holds; every cluster
+    /// one the request asked for, in order, its glyph one the strike holds;
+    /// nothing after the last strike.
     pub fn decode(bytes: &[u8], request: &OutlineRequest) -> Result<Outline, &'static str> {
         if bytes.len() > OUTLINE_ANSWER_BYTES_MAX {
             return Err("larger than OUTLINE_ANSWER_BYTES_MAX");
@@ -297,6 +358,8 @@ impl Outline {
         if count != request.cells.len() {
             return Err("not a strike for each cell asked for");
         }
+        let mut asked: Vec<&[u32]> = request.clusters.iter().map(|a| a.key.as_slice()).collect();
+        asked.sort_unstable();
         let mut strikes = Vec::with_capacity(count);
         for &(want_w, want_h) in &request.cells {
             let (width, height, baseline) = (r.u32()?, r.u32()?, r.u32()?);
@@ -308,10 +371,14 @@ impl Outline {
             }
             let glyph_count = r.count(usize::MAX)?;
             let map_len = r.count(MAP_MAX)?;
-            // every glyph is one the map names, so a strike holds no more
-            // glyphs than codepoints, nor than a set's strike holds
-            if glyph_count > map_len.min(GLYPHS_MAX) {
-                return Err("more glyphs than the map names, or than GLYPHS_MAX");
+            let cluster_count = r.count(usize::MAX)?;
+            if cluster_count > asked.len() {
+                return Err("more clusters than the request asked for");
+            }
+            // every glyph is one the map or a cluster names, so a strike
+            // holds no more glyphs than those, nor than a set's strike holds
+            if glyph_count > map_len.saturating_add(cluster_count).min(GLYPHS_MAX) {
+                return Err("more glyphs than the map and clusters name, or than GLYPHS_MAX");
             }
             let mut glyphs = Vec::new();
             for _ in 0..glyph_count {
@@ -359,12 +426,32 @@ impl Outline {
                 }
                 map.push((c, g));
             }
+            // a cluster's length, one scalar value and its glyph at least
+            if cluster_count > r.0.len() / 9 {
+                return Err("an answer cut short: its clusters are longer than the bytes left");
+            }
+            let mut clusters: Vec<(Vec<u32>, u32)> = Vec::with_capacity(cluster_count);
+            for _ in 0..cluster_count {
+                let key = r.key()?;
+                if asked.binary_search(&key.as_slice()).is_err() {
+                    return Err("a cluster the request did not ask for");
+                }
+                if clusters.last().is_some_and(|(p, _)| *p >= key) {
+                    return Err("the clusters are not sorted, or name one twice");
+                }
+                let g = r.u32()?;
+                if usize::try_from(g).map_or(true, |g| g >= glyphs.len()) {
+                    return Err("a cluster's glyph past the count");
+                }
+                clusters.push((key, g));
+            }
             strikes.push(Strike {
                 width,
                 height,
                 baseline,
                 glyphs,
                 map,
+                clusters,
             });
         }
         if !r.0.is_empty() {
@@ -392,7 +479,7 @@ pub use raster::rasterise;
 
 /// The child's side: swash, on bytes no one has checked. A panic here ends
 /// the child, which fails the source and nothing else (ADR-1200 D14).
-mod raster {
+pub(crate) mod raster {
     use super::{
         LICENSE_MAX, Outline, OutlineRequest, Placed, SET_CHUNK_BYTES, Strike, family_key,
     };
@@ -404,12 +491,13 @@ mod raster {
     use swash::{FontDataRef, FontRef, StringId};
 
     /// The face `family` names in `data`, or its first face for an empty
-    /// family; with the family its name table gives.
-    fn face<'a>(data: &'a [u8], family: &str) -> Result<(FontRef<'a>, String), String> {
+    /// family; with the family its name table gives and its index in a
+    /// collection.
+    fn face<'a>(data: &'a [u8], family: &str) -> Result<(FontRef<'a>, String, u32), String> {
         let fonts = FontDataRef::new(data).ok_or("not a TrueType or OpenType font")?;
         let want = family_key(family);
         let mut first = None;
-        for font in fonts.fonts() {
+        for (index, font) in (0u32..).zip(fonts.fonts()) {
             let strings = font.localized_strings();
             let names: Vec<String> = [StringId::TypographicFamily, StringId::Family]
                 .into_iter()
@@ -417,11 +505,8 @@ mod raster {
                 .map(|s| s.to_string())
                 .collect();
             let name = names.first().cloned().unwrap_or_default();
-            if want.is_empty() {
-                return Ok((font, name));
-            }
-            if names.iter().any(|n| family_key(n) == want) {
-                return Ok((font, name));
+            if want.is_empty() || names.iter().any(|n| family_key(n) == want) {
+                return Ok((font, name, index));
             }
             first.get_or_insert(name);
         }
@@ -433,7 +518,7 @@ mod raster {
 
     /// The pixels of `image` from row `y`, column `x` of its own: one byte
     /// a pixel for a mask, four premultiplied for color.
-    fn pixel(image: &Image, x: u32, y: u32, color: bool) -> [u8; 4] {
+    pub(crate) fn pixel(image: &Image, x: u32, y: u32, color: bool) -> [u8; 4] {
         let w = image.placement.width as usize;
         let (x, y) = (x as usize, y as usize);
         if color {
@@ -475,17 +560,17 @@ mod raster {
 
     /// The color a COLR layer takes when it names the text's color, which
     /// a set cannot know: swash's own default, a mid grey.
-    const FOREGROUND: [u8; 4] = [128, 128, 128, 255];
+    pub(crate) const FOREGROUND: [u8; 4] = [128, 128, 128, 255];
 
     /// `t / 255` rounded, for `t` up to 255 * 255.
-    fn div255(t: u32) -> u32 {
+    pub(crate) fn div255(t: u32) -> u32 {
         (t + 127) / 255
     }
 
     /// Draws one face's glyphs: color glyphs unhinted, as COLR layers or
     /// bitmaps, and outlines hinted.
-    struct Drawer<'a> {
-        font: FontRef<'a>,
+    pub(crate) struct Drawer<'a> {
+        pub(crate) font: FontRef<'a>,
         context: ScaleContext,
     }
 
@@ -494,7 +579,7 @@ mod raster {
         /// outline as coverage. A color bitmap is scaled from its largest
         /// strike to `ppem`, and further to fit `fit`, by this build's
         /// [`METHOD`].
-        fn draw(&mut self, g: u16, ppem: f32, fit: (u32, u32)) -> Option<Image> {
+        pub(crate) fn draw(&mut self, g: u16, ppem: f32, fit: (u32, u32)) -> Option<Image> {
             let mut scaler = self.context.builder(self.font).size(ppem).build();
             if scaler.has_color_outlines() {
                 if let Some(layers) = scaler.scale_color_outline(g) {
@@ -614,7 +699,7 @@ mod raster {
     }
 
     pub fn rasterise(request: &OutlineRequest) -> Result<Outline, String> {
-        let (font, family) = face(&request.font, &request.family)?;
+        let (font, family, index) = face(&request.font, &request.family)?;
         let metrics = font.metrics(&[]);
         let span = metrics.ascent + metrics.descent.abs();
         if metrics.units_per_em == 0 || span <= 0.0 {
@@ -630,6 +715,8 @@ mod raster {
         });
         wanted.sort_unstable();
         wanted.dedup_by_key(|&mut (c, _)| c);
+        let shaped =
+            crate::shaping::shape::shape_all(&request.font, index, font, &request.clusters);
         let mut drawer = Drawer {
             font,
             context: ScaleContext::new(),
@@ -686,12 +773,15 @@ mod raster {
                 };
                 map.push((c, at));
             }
+            let clusters =
+                crate::shaping::shape::draw_all(&mut drawer, &shaped, &cell, &mut glyphs)?;
             strikes.push(Strike {
                 width,
                 height: h,
                 baseline,
                 glyphs,
                 map,
+                clusters,
             });
         }
         let color = strikes.iter().flat_map(|s| &s.glyphs).any(|g| g.color);
@@ -717,27 +807,40 @@ mod raster {
     }
 
     /// The cell glyphs are placed in, and the size they are drawn at.
-    struct Cell {
-        width: u32,
-        height: u32,
+    pub(crate) struct Cell {
+        pub(crate) width: u32,
+        pub(crate) height: u32,
         baseline: u32,
-        ppem: f32,
+        pub(crate) ppem: f32,
     }
 
     /// Glyph `g`, advancing `advance` pixels, placed in `cell`, one or two
     /// cells wide by its advance; `None` when the font draws nothing for
     /// it.
     fn place(drawer: &mut Drawer<'_>, g: u16, advance: f32, cell: &Cell) -> Option<Placed> {
-        let h = cell.height;
         let wide = advance > cell.width as f32 * 1.5;
+        place_drawn(&mut |ppem, fit| drawer.draw(g, ppem, fit), wide, cell)
+    }
+
+    /// What `draw` draws at a size and within a box, placed in `cell`, two
+    /// cells wide when `wide`: a mask by its own bearing on the baseline,
+    /// moved left by half of what passes the cell's right edge, a color
+    /// image larger than its cells drawn again at the size that fits them
+    /// and centred across them.
+    pub(crate) fn place_drawn(
+        draw: &mut dyn FnMut(f32, (u32, u32)) -> Option<Image>,
+        wide: bool,
+        cell: &Cell,
+    ) -> Option<Placed> {
+        let h = cell.height;
         let bw = cell.width * if wide { 2 } else { 1 };
-        let mut image = drawer.draw(g, cell.ppem, (bw, h))?;
+        let mut image = draw(cell.ppem, (bw, h))?;
         let color = image.content == Content::Color;
         let (iw, ih) = (image.placement.width, image.placement.height);
         if color && (iw > bw || ih > h) && iw > 0 && ih > 0 {
             // a COLR glyph, drawn again at the size that fits
             let fit = (bw as f32 / iw as f32).min(h as f32 / ih as f32);
-            image = drawer.draw(g, cell.ppem * fit, (bw, h))?;
+            image = draw(cell.ppem * fit, (bw, h))?;
         }
         let (iw, ih) = (image.placement.width as i32, image.placement.height as i32);
         let (bw_i, h_i, base) = (bw as i32, h as i32, cell.baseline as i32);
