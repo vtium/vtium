@@ -94,6 +94,14 @@ pub const FIRST_MAX: usize = 32_000;
 /// the record is emptied, and a cluster shown again is asked for again.
 // A program can write clusters without end, each different; a screen shows at most FIRST_MAX, and 4,096 is a screen's worth of distinct ones on minspec's 80x25.
 pub const CLUSTERS_LACKED_MAX: usize = 4096;
+/// The most clusters a cell has asked for and not been answered: past it a
+/// cluster shown draws unshaped, and is asked for on a later change.
+pub const CLUSTERS_WAITING_MAX: usize = CLUSTERS_LACKED_MAX;
+/// The most asks the helper has not answered whole: past it nothing more
+/// is asked, and what the screen shows is asked for on a later change, so
+/// a program that writes faster than the helper answers grows no queue.
+// One ask a cell a turn, a few cells at most; 64 is many turns of a busy screen behind.
+pub const ASKS_MAX: usize = 64;
 /// The most warnings from the frit's text logged a boot; a helper that
 /// sends more is not given up, and the rest are not logged.
 // A frit's text gives a warning a line at most, and a frit worth drawing has few lines that do nothing; the bound keeps a helper that sends warnings without end out of the log.
@@ -719,10 +727,13 @@ impl Helper {
 
     /// Asks for each character and each cluster `shown` at `cell` that the
     /// store does not hold, the frit is not known to lack and no ask has
-    /// named. A cluster longer than [`vtium_font::CLUSTER_SCALARS_MAX`] is
-    /// never asked for, and draws unshaped.
+    /// named: at most [`FIRST_MAX`] of each, at most
+    /// [`CLUSTERS_WAITING_MAX`] clusters waiting at the cell, and nothing
+    /// while [`ASKS_MAX`] asks wait; what is left is asked for on a later
+    /// change. A cluster longer than [`vtium_font::CLUSTER_SCALARS_MAX`]
+    /// is never asked for. A cluster not asked for draws unshaped.
     pub fn ask(&mut self, cell: Cell, shown: &Shown, now: Instant) {
-        if self.failed.is_some() {
+        if self.failed.is_some() || self.asks.len() >= ASKS_MAX {
             return;
         }
         let Some(state) = self.state(cell) else {
@@ -730,6 +741,9 @@ impl Helper {
         };
         let mut want = BTreeSet::new();
         for c in shown.chars.iter().map(|&c| u32::from(c)) {
+            if want.len() >= FIRST_MAX {
+                break;
+            }
             if !state.held.has(c) && !state.absent.has(c) && !state.pending.has(c) {
                 state.pending.put(c, true);
                 want.insert(c);
@@ -737,12 +751,18 @@ impl Helper {
         }
         let longest = usize::try_from(vtium_font::CLUSTER_SCALARS_MAX).unwrap_or(usize::MAX);
         let known = &mut state.clusters;
+        let room = CLUSTERS_WAITING_MAX
+            .saturating_sub(known.pending.len())
+            .min(FIRST_MAX);
         let mut clusters = BTreeSet::new();
         for t in shown
             .clusters
             .iter()
             .filter(|t| (2..=longest).contains(&t.len()))
         {
+            if clusters.len() >= room {
+                break;
+            }
             if !known.held.contains(t) && !known.absent.contains(t) && !known.pending.contains(t) {
                 known.pending.insert(t.clone());
                 clusters.insert(t.clone());
@@ -1723,6 +1743,74 @@ mod tests {
         helper.ask(CELL, &shown, t0());
         assert!(helper.asks.is_empty());
         assert_eq!(helper.failed(), None);
+    }
+
+    // a program that writes new clusters faster than the helper answers
+    // grows nothing without bound: at most ASKS_MAX asks wait, and at most
+    // CLUSTERS_WAITING_MAX clusters a cell; what is left is asked for on a
+    // later change
+    #[test]
+    fn asks_and_the_clusters_they_wait_on_are_bounded() {
+        let mut s = StandIn::new("flood-asks", "cat >/dev/null", b"");
+        let now = t0();
+        let cluster = |i: u32, j: u32| {
+            vec![
+                char::from_u32(0x4e00 + i).unwrap(),
+                char::from_u32(0x300 + j).unwrap(),
+            ]
+        };
+        for i in 0..1000 {
+            let shown = Shown {
+                chars: Vec::new(),
+                clusters: (0..10).map(|j| cluster(i, j)).collect(),
+            };
+            s.helper.ask(CELL, &shown, now);
+            assert!(s.helper.asks.len() <= ASKS_MAX);
+        }
+        assert_eq!(s.helper.asks.len(), ASKS_MAX);
+        let waiting = |h: &Helper, cell: Cell| {
+            h.cells
+                .iter()
+                .find(|c| c.cell == cell)
+                .map_or(0, |c| c.clusters.pending.len())
+        };
+        assert_eq!(waiting(&s.helper, CELL), ASKS_MAX * 10);
+        // one ask of more clusters than may wait at a cell
+        let other = Cell {
+            width: 16,
+            height: 32,
+        };
+        let mut t = StandIn::new("flood-one", "cat >/dev/null", b"");
+        let shown = Shown {
+            chars: Vec::new(),
+            clusters: (0..5000).map(|i| cluster(i / 10, i % 10)).collect(),
+        };
+        t.helper.ask(other, &shown, now);
+        assert_eq!(waiting(&t.helper, other), CLUSTERS_WAITING_MAX);
+        t.helper.ask(other, &shown, now);
+        assert_eq!(t.helper.asks.len(), 1, "nothing more fits");
+    }
+
+    // a codepoint past an ask's FIRST_MAX is not asked for, so its answer
+    // does not take it for one the frit lacks; a later change asks for it
+    #[test]
+    fn a_codepoint_past_an_asks_bound_is_not_taken_for_lacking() {
+        let mut s = StandIn::new("first-max", ANSWERS, &frame_bytes(FRAME_DONE, &[]));
+        let now = t0();
+        let n = u32::try_from(FIRST_MAX).unwrap() + 5;
+        let chars: Vec<char> = (0..n)
+            .map(|i| char::from_u32(0x4e00 + i).unwrap())
+            .collect();
+        s.helper.ask(CELL, &shown(&chars), now);
+        let _ = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        let state = s.helper.cells.iter().find(|c| c.cell == CELL).unwrap();
+        let last = u32::from(chars[FIRST_MAX - 1]);
+        assert!(state.absent.has(last));
+        for &c in &chars[FIRST_MAX..] {
+            let c = u32::from(c);
+            assert!(!state.absent.has(c) && !state.pending.has(c), "{c:x}");
+        }
     }
 
     // the record of clusters the frit lacks is bounded: past it, it is
