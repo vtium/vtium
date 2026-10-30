@@ -1,6 +1,6 @@
 # Heads, by scenario
 
-This page shows the head file, `/etc/vtium/heads.conf`, in the setups it is made for: each scenario's purpose, a complete head file, and what to expect, on an unplug and of what stays shared. Heads are in vtium, as [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) decided them; two pieces this page uses are not built yet: the head key `vt-keys`, which stations need, and `vtiumctl`. ADR-1401 holds every rule; this page applies them.
+This page shows the head file, `/etc/vtium/heads.conf`, in the setups it is made for: each scenario's purpose, a complete head file, and what to expect, on an unplug and of what stays shared. Heads are in vtium, as [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) decided them; three pieces this page uses are not built yet: the head keys `vt-keys` and `focus`, which the kiosk and the stations need, and `vtiumctl`. ADR-1401 holds every rule; this page applies them.
 
 ## Reading a head file
 
@@ -9,6 +9,22 @@ A head file starts with `version = 1`. Each `[head NAME]` section declares a hea
 vtium reads the file only when root owns it and no one else can write it. With no file it runs its compiled-in configuration and writes nothing; an invalid file is reported, left as it is, and replaced in memory by the shipped rules. `vtium check-config FILE` checks a candidate before it is installed. `vtiumctl detect` lists every display and input with a rule line ready to paste; the identity values in the files below are illustrative, and real ones come from it.
 
 A rule names a device most strongly by its USB port (`path:`), its unit (`serial:`) or its monitor (`edid:`), and only for convenience by its model (`id:`) or its name (`name:`). A `path:` match takes every interface behind that port, so a hub on the port joins with it; `serial:` binds the unit wherever it is plugged.
+
+## Which input can reach whose session
+
+The defaults give every keyboard every right, as today's console does. Each route by which one input can disturb another person's session has a switch of its own, and a kiosk or stations combine them:
+
+| Route | Disturbs | Governed by |
+|---|---|---|
+| The VT keys, `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>` | every display, which leaves for another VT | the head's `vt-keys` |
+| The console chords | the console the head shows | the head's `consoles`: with 1 there is nothing to switch |
+| The focus chord | where the keyboards following the focus type | taken only from keyboards following the focus |
+| The rescue key | takes a keyboard off its head, or brings an ignored one into the focus | `[guards] rescue-key` and the head's `rescue` |
+| The anti-lockout guard | sends every keyboard to the focus | `[guards] anti-lockout` |
+| Unclaimed keyboards | type into the focused head | the rules, ending in `input * -> ignore` |
+| Arrival through the focus | the head the focus rests on | the head's `focus` |
+
+Each right a head file removes is a note in `vtium check-config`, which still exits 0. The machine is the operator's, and so is a deliberate lockout: a machine its head file locks out is recovered as any misconfigured Linux system is, over ssh, from a serial getty, through out-of-band management, or by booting other media and editing the file. vtium has no rescue boot of its own.
 
 ## The default: no file
 
@@ -86,7 +102,7 @@ input * -> ignore
 
 ## A kiosk
 
-**Purpose.** One display running one program, whose keyboard the rescue key never takes away.
+**Purpose.** One display running one program, which no keyboard but its own reaches and none takes away from it.
 
 **The file.**
 
@@ -96,7 +112,10 @@ version = 1
 
 [head kiosk]
 login = /usr/local/bin/kiosk
+consoles = 1
+vt-keys = off
 rescue = off
+focus = off
 
 [rules]
 display edid:CCC:0x0003:KIOSK00001 -> kiosk
@@ -108,14 +127,15 @@ input * -> ignore
 **What to expect.**
 
 - The kiosk's display runs the program `login` names; any other display is set off.
-- The keyboard at port 2 types only into the kiosk, and the rescue key pressed on it moves nothing. Every other input is ignored.
-- A keyboard plugged into another port is opened only to watch for the rescue key, so `Ctrl-Alt-F<n>` for the shown VT pressed on it makes it follow the focus, which rests on the kiosk. While the kiosk's own keyboard is unplugged, the anti-lockout guard sends every keyboard to the kiosk. A kiosk that must refuse both sets `rescue-key = off` and `anti-lockout = off` under `[guards]`, at the risk of a lockout; `vtium.heads=builtin` on the kernel command line runs the compiled-in rules with every guard on for that boot.
-- `Ctrl-Alt-F<n>` on the kiosk's keyboard switches the VT; `vt-keys = off` on the head passes it to the program instead, as for a station.
+- The keyboard at port 2 types only into the kiosk. It has one console and nothing to switch; `Ctrl-Alt-F<n>` for another VT reaches the program as keys; the rescue key pressed on it moves nothing.
+- The focus never rests on the kiosk, and no other head takes it, so there is no focus. A keyboard plugged into another port is ignored; one the rescue key moves, or every keyboard the anti-lockout guard moves while the kiosk's own is unplugged, follows the focus and types nowhere.
+- `vtium check-config` notes that no head takes the focus, and exits 0.
+- The machine-wide guards stay on, and a keyboard following the focus keeps the VT keys whatever any head says. A keyboard on another port, after the rescue key, can therefore switch the VT away from the kiosk, to a getty on another VT. That is what the operator still has at the machine; with `rescue-key` and `anti-lockout` off under `[guards]`, only the out-of-band routes remain.
 - The display unplugged leaves the program running, and it comes back when the display returns.
 
 ## Stations: one person to each head
 
-**Purpose.** Several people working at once on one machine, each at their own display, keyboard and mouse: a multi-terminal host. Off by default; the head key `vt-keys = off` makes it work, since `Ctrl-Alt-F<n>` would otherwise switch every station's display away.
+**Purpose.** Several people working at once on one machine, each at their own display, keyboard and mouse: a multi-terminal host. Off by default; the head keys `vt-keys = off` and `focus = off` make it work, since `Ctrl-Alt-F<n>` would otherwise switch every station's display away and a keyboard following the focus would type into someone's station.
 
 **The file.**
 
@@ -124,16 +144,19 @@ input * -> ignore
 version = 1
 
 [head station1]
-rescue = off
 vt-keys = off
+rescue = off
+focus = off
 
 [head station2]
-rescue = off
 vt-keys = off
+rescue = off
+focus = off
 
 [head station3]
-rescue = off
 vt-keys = off
+rescue = off
+focus = off
 
 [rules]
 display edid:AAA:0x0001:STATION001 -> station1
@@ -144,19 +167,18 @@ input path:pci-0000:15:00.0-usb-0:2 -> station2
 input path:pci-0000:15:00.0-usb-0:3 -> station3
 display * -> dark
 input * -> ignore
-
-[guards]
-rescue-key = off
 ```
 
 **What to expect.**
 
 - A station is a USB port: a hub on it carries that station's keyboard and mouse, and anything plugged into the hub joins the station. A device bound by `serial:` in place of `path:` follows its unit to any port.
 - Each station's display shows its own head, with its own login, and its keyboard and mouse work only there. A device on no station's port is ignored, and a display no rule names is set off.
-- `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>` for another VT, pressed on a station's keyboard, switch nothing and reach that station's session as keys, as a serial terminal sends them. The focus chord reaches the session the same way. The rescue key moves nothing.
-- `vtium check-config` notes of this file that no keyboard can switch the VT, and exits 0, as for a guard turned off. `vtium.heads=builtin` on the kernel command line is the way back to the compiled-in rules.
+- `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>` for another VT, pressed on a station's keyboard, switch nothing and reach that station's session as keys, as a serial terminal sends them. The focus chord reaches the session the same way. The rescue key pressed on a station's keyboard moves nothing.
+- No station takes the focus, so there is no focus: a keyboard the rescue key moves, and every keyboard the anti-lockout guard moves once every station's keyboard is gone, type nowhere.
+- `vtium check-config` notes that no keyboard can switch the VT and that no head takes the focus, and exits 0.
+- The machine-wide guards stay on, and a keyboard following the focus keeps the VT keys. A keyboard on a port no station claims, after the rescue key, can therefore switch the VT, and with it every station's display, to a getty on another VT. That is what the operator still has at the machine, and what anyone with a free port has; with `rescue-key` and `anti-lockout` off under `[guards]`, only the out-of-band routes remain.
 - A station's display unplugged leaves its sessions running unseen (`nohup`, the default), and its keyboard still reaches them; they come back when that display returns. For stations people walk away from, `on-loss = hangup` ends the sessions when the display goes, and `on-loss = hangup 30s` after a grace period.
-- A station's keyboard unplugged leaves its session running, and the keyboard plugged into the same port returns to it. With every station's keyboard gone, the anti-lockout guard sends every keyboard to the focused station until one returns.
+- A station's keyboard unplugged leaves its session running, and the keyboard plugged into the same port returns to it.
 - The default caps allow 4 consoles a head and 8 in total, so more than 8 stations need the total raised, up to the hard maxima of 16 heads and 50 consoles.
 
 **What stays shared.**
