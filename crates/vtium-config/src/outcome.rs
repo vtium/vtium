@@ -220,6 +220,16 @@ closed! {
 }
 
 closed! {
+    /// What vtium does when no display appears at start (ADR-1401 D8).
+    pub enum DisplayWait {
+        /// `display-wait` as kmscon.conf sets it: with no display by its end, vtium exits 1 and the unit's `OnFailure=` starts a getty on the VT.
+        AsSet = "as-set",
+        /// vtium holds the VT and waits for a display however long it takes, as `display-wait = forever` does, so no getty starts on the VT: a closed file never gives up its VT for lack of a display.
+        Forever = "forever",
+    }
+}
+
+closed! {
     /// A switch of a run. The policy alone sets the anti-lockout guard and the rescue key (ADR-1401 D9); a head's `isolated` is the one switch the file writes (D5).
     pub enum SwitchKey {
         AntiLockout = "anti-lockout",
@@ -285,6 +295,14 @@ impl Policy {
         }
     }
 
+    /// What vtium does when no display appears at start.
+    pub fn display_wait(self) -> DisplayWait {
+        match self {
+            Policy::Open => DisplayWait::AsSet,
+            Policy::Closed => DisplayWait::Forever,
+        }
+    }
+
     /// What the display guard may light when the running rules light no display.
     pub fn fallback(self) -> Fallback {
         match self {
@@ -331,6 +349,11 @@ impl Outcome {
                 },
             },
         }
+    }
+
+    /// What vtium does when no display appears at start: the policy decides, the shipped rules being open.
+    pub fn display_wait(&self) -> DisplayWait {
+        self.policy.display_wait()
     }
 
     /// The notice the display guard shows on the boot display when no head the running text declares has a display: the run's own line, else `vtium: no display for any head`, the one notice a valid file shows. Under open the guard lights a head instead.

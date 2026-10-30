@@ -237,7 +237,7 @@ const TABLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/outcomes.tsv");
 /// The outcome table: one row a path, its inputs, its outcome, each switch's rule, and the extremes of its text under which a lockout can occur.
 fn table() -> String {
     let mut out = String::from(
-        "read\tpolicy\trest\truns\teffective\trescue\tline\tlit\tfallback\tdark-notice\tunplaced",
+        "read\tpolicy\trest\truns\teffective\trescue\tline\tlit\tfallback\tdark-notice\tdisplay-wait\tunplaced",
     );
     for key in SwitchKey::ALL {
         out.push('\t');
@@ -255,6 +255,7 @@ fn table() -> String {
             o.lit.name(),
             o.fallback.name(),
             o.dark_notice().map_or("-", Line::text),
+            o.display_wait().name(),
             o.unplaced.name(),
         ]);
         row.extend(SwitchKey::ALL.iter().map(|&k| o.switch(k).name()));
@@ -433,6 +434,26 @@ fn a_degraded_run_is_never_more_open_than_builtin_and_never_closes_what_its_poli
         })
         .collect();
     assert_eq!(broken, want);
+}
+
+#[test]
+fn no_start_under_a_trusted_closed_file_exits_for_lack_of_a_display() {
+    for read in paths() {
+        let closed = matches!(
+            read,
+            Read::Trusted(Trusted {
+                stated: Stated::Closed,
+                ..
+            })
+        );
+        let wait = resolve(&read).display_wait();
+        if closed {
+            assert_eq!(wait, DisplayWait::Forever, "{read:?} may give up its VT");
+        } else {
+            // under open, `display-wait` and the getty fallback stay as they are
+            assert_eq!(wait, DisplayWait::AsSet, "{read:?}");
+        }
+    }
 }
 
 #[test]
