@@ -1184,25 +1184,50 @@ fn pressed_chord(code: u32, keysym: u32, unicode: Option<char>) -> [InputEvent; 
     ]
 }
 
-/// The pixels of both displays of `s` once its frames stop changing.
-fn settled(s: &mut Seat) -> [Vec<u8>; 2] {
-    let take = |s: &mut Seat| {
-        s.until(Duration::from_millis(100), |_| false);
-        [
-            s.memory("/dev/mem0").pixels.clone(),
-            s.memory("/dev/mem1").pixels.clone(),
-        ]
-    };
-    let mut last = take(s);
-    let end = now() + SECOND;
-    while now() < end {
-        let next = take(s);
-        if next == last {
-            return next;
-        }
-        last = next;
+/// The two mirrored displays of [`two_displays`].
+const MIRRORED: [&str; 2] = ["/dev/mem0", "/dev/mem1"];
+
+/// Whether the shown screen of `app` holds `got:line`, the session's
+/// answer to `line`, with the cursor at the start of the row below it:
+/// the screen the answer leaves, whatever reads the pty split.
+fn answered(app: &App, line: &str) -> bool {
+    let rows = app.screen_text();
+    let want = format!("got:{line}");
+    let at = rows.iter().position(|l| l.contains(&want));
+    let cursor = app.term().map(|t| t.terminal.screen().cursor());
+    at.is_some_and(|row| cursor == Some((0, row + 1)))
+}
+
+/// The pixels of each display of `s` after the frames the turn just run
+/// asked for: each display's frame count is taken before the turn, and
+/// the loop runs until the head's render thread has handed each display
+/// its next frame, which [`SECOND`] bounds.
+fn next_frames(s: &mut Seat, turn: impl FnOnce(&mut Seat)) -> [Vec<u8>; 2] {
+    let before = MIRRORED.map(|node| s.memory(node).frames);
+    turn(s);
+    for (node, before) in MIRRORED.into_iter().zip(before) {
+        assert!(
+            s.until_memory(node, SECOND, |m| m.frames > before),
+            "{node} draws a frame"
+        );
     }
-    last
+    MIRRORED.map(|node| s.memory(node).pixels.clone())
+}
+
+/// The pixels of both displays of `s` drawn from the screen as it is
+/// now. Each display is asked to draw whole twice, and the second frame
+/// is the one: a display has one frame on its way at a time, so the
+/// second is taken from the screen after the first came back, and a
+/// frame of an older screen, still on its way, can only be the first.
+fn drawn_now(s: &mut Seat) -> [Vec<u8>; 2] {
+    let redraw = |s: &mut Seat| {
+        for node in MIRRORED {
+            s.memory(node).events.push(Event::Redraw(ID));
+        }
+        s.app.turn(now());
+    };
+    next_frames(s, redraw);
+    next_frames(s, redraw)
 }
 
 /// What both displays show of a seat with no head file and one console
@@ -1212,15 +1237,17 @@ fn drawn_alone(line: &str) -> [Vec<u8>; 2] {
     let mut s = Seat::boot(&["--no-blink"], two_displays(), ECHO);
     assert!(s.until(SECOND, |a| a.cells().len() == 2 && shows(a, "ready")));
     s.type_str(&format!("{line}\r"));
-    assert!(s.until(SECOND, |a| shows(a, &format!("got:{line}"))));
-    settled(&mut s)
+    assert!(s.until(SECOND, |a| answered(a, line)));
+    drawn_now(&mut s)
 }
 
 /// The maintainer's VT review (2026-10-30): with no head file, so one
 /// head on two mirrored displays, Ctrl-Super-Right, Ctrl-Super-Left and
 /// Ctrl-Super-Backspace, pressed as a keyboard sends them, switch the
-/// shown console, and both displays draw the console now shown, pixel for
-/// pixel as a seat that never switched draws that screen.
+/// shown console at once, and the frame of the turn that took the keys
+/// draws the console now shown on both displays, pixel for pixel as a
+/// seat that never switched draws that screen. The only wait after a
+/// chord is for that frame to come back from the head's render thread.
 #[test]
 fn the_console_chords_draw_the_console_they_show() {
     const KBD: &str = "/dev/input/event0";
@@ -1236,7 +1263,7 @@ fn the_console_chords_draw_the_console_they_show() {
             .first()
             .map(|h| (h.console_count(), h.shown_console()))
     };
-    let chord = |s: &mut Seat, code: u32, keysym: u32| {
+    let press = |s: &mut Seat, code: u32, keysym: u32| {
         let unicode = match keysym {
             RETURN => Some('\r'),
             BACKSPACE => Some('\u{8}'),
@@ -1246,26 +1273,37 @@ fn the_console_chords_draw_the_console_they_show() {
             s.app.device_input(Path::new(KBD), event, now());
         }
     };
+    // The chord's keys, the console then shown, and the frame of the turn
+    // that took them.
+    let chord = |s: &mut Seat, code: u32, keysym: u32| {
+        let mut state = None;
+        let frame = next_frames(s, |s| {
+            press(s, code, keysym);
+            state = shown(s);
+            s.app.turn(now());
+        });
+        (state, frame)
+    };
     s.type_on(KBD, "one\r");
-    assert!(s.until(SECOND, |a| shows(a, "got:one")));
-    assert!(settled(&mut s) == one, "the first console");
-    chord(&mut s, 28, RETURN);
+    assert!(s.until(SECOND, |a| answered(a, "one")));
+    assert!(drawn_now(&mut s) == one, "the first console");
+    press(&mut s, 28, RETURN);
     assert_eq!(shown(&s), Some((2, 1)), "Return opens and shows");
     assert!(s.until(SECOND, |a| shows(a, "ready")));
     s.type_on(KBD, "two\r");
-    assert!(s.until(SECOND, |a| shows(a, "got:two")));
-    assert!(settled(&mut s) == two, "the new console");
-    chord(&mut s, 106, RIGHT);
-    assert_eq!(shown(&s), Some((2, 0)), "Right wraps to the first");
-    assert!(settled(&mut s) == one, "Right draws the first console");
-    chord(&mut s, 105, LEFT);
-    assert_eq!(shown(&s), Some((2, 1)), "Left wraps to the second");
-    assert!(settled(&mut s) == two, "Left draws the second console");
-    chord(&mut s, 14, BACKSPACE);
-    assert_eq!(shown(&s), Some((1, 0)), "Backspace closes it");
+    assert!(s.until(SECOND, |a| answered(a, "two")));
+    assert!(drawn_now(&mut s) == two, "the new console");
+    let (state, frame) = chord(&mut s, 106, RIGHT);
+    assert_eq!(state, Some((2, 0)), "Right wraps to the first");
+    assert!(frame == one, "Right's frame draws the first console");
+    let (state, frame) = chord(&mut s, 105, LEFT);
+    assert_eq!(state, Some((2, 1)), "Left wraps to the second");
+    assert!(frame == two, "Left's frame draws the second console");
+    let (state, frame) = chord(&mut s, 14, BACKSPACE);
+    assert_eq!(state, Some((1, 0)), "Backspace closes it");
     assert!(
-        settled(&mut s) == one,
-        "Backspace draws the console shown next"
+        frame == one,
+        "Backspace's frame draws the console shown next"
     );
 }
 
