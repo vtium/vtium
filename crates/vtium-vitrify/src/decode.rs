@@ -403,7 +403,7 @@ pub fn cpi(bytes: &[u8], height: u32) -> Result<Vec<u8>, String> {
 }
 
 /// A font file's bytes parsed into the glyph form: decompressed, read as
-/// PSF1 or PSF2, and mapped by `unimap` when the frit gives one, else by
+/// PSF1, PSF2 or a raw font, and mapped by `unimap` when the frit gives one, else by
 /// the font's own table, else by `def_uni`, kbd's default map. A font with
 /// none of them is refused, naming `unimap=`, and a CPI font, which holds
 /// several, is refused naming `cp-size=`.
@@ -421,9 +421,9 @@ pub fn font(bytes: &[u8], unimap: Option<&[u8]>, def_uni: Option<&[u8]>) -> Resu
                     .to_owned(),
             );
         }
-        _ => {
-            return Err("not a PSF or CPI font (raw fonts are not read yet)".to_owned());
-        }
+        // a file of no magic is a raw font when its size is one: Psf::parse
+        // refuses any other
+        _ => "raw",
     };
     let psf = Psf::parse(&plain).map_err(|e| e.to_string())?;
     let count = psf.glyph_count();
@@ -746,8 +746,33 @@ pub(crate) mod tests {
     fn not_a_psf_is_refused() {
         let e = font(b"STARTFONT 2.1\n", None, None).expect_err("bdf");
         assert!(e.contains("a bdf: source"), "{e}");
-        let e = font(b"\0\0\0\0", None, None).expect_err("raw");
-        assert!(e.contains("not a PSF or CPI font"), "{e}");
+        let e = font(b"\0\0\0\0", None, None).expect_err("no raw size");
+        assert!(e.contains("not a raw font of 256*N bytes"), "{e}");
+    }
+
+    // setfont(8): a raw font is 256*N bytes, one byte a row, 8 across; it
+    // holds no table, so a unimap= or kbd's def.uni maps it
+    #[test]
+    fn a_raw_font_is_read_with_the_map_it_is_given() {
+        let mut raw = vec![0u8; 256 * 16];
+        raw[16 * 3] = 0x81;
+        let e = font(&raw, None, None).expect_err("no table");
+        assert!(e.contains("unimap="), "{e}");
+        let g = font(&raw, Some(b"0x03 U+0041\n"), None).unwrap();
+        assert_eq!((g.width, g.height, g.count), (8, 16, 256));
+        assert_eq!(g.format, "raw+unimap");
+        assert_eq!(g.map, vec![(0x41, 3)]);
+        assert_eq!(g.glyph(3).and_then(|r| r.first()), Some(&0x81));
+        let g = font(&raw, None, Some(b"0x04 U+0042\n")).unwrap();
+        assert_eq!((g.format.as_str(), g.map), ("raw+def.uni", vec![(0x42, 4)]));
+        // gzipped, as kbd ships one
+        let g = font(&gzip(&raw), Some(b"0x03 U+0041\n"), None).unwrap();
+        assert_eq!(g.format, "raw+gzip+unimap");
+        // a size that is no raw font's is refused
+        for len in [255, 257, 256 * 33] {
+            let e = font(&vec![0u8; len], Some(b"0x00 U+0041\n"), None).expect_err("size");
+            assert!(e.contains("not a raw font of 256*N bytes"), "{len}: {e}");
+        }
     }
 
     /// A CPI file as kbd ships one: a screen codepage's 28-byte entry, its
