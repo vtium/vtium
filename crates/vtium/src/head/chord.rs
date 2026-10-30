@@ -11,6 +11,14 @@
 /// What a chord does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum HeadChord {
+    /// The head's next console.
+    NextConsole,
+    /// The head's previous console.
+    PreviousConsole,
+    /// A new console in the head, shown.
+    NewConsole,
+    /// The shown console closed, the next shown.
+    CloseConsole,
     /// The focus to the next head with a lit display.
     NextHead,
     /// The focus to the previous head with a lit display.
@@ -22,6 +30,10 @@ const CTRL_SUPER: u8 = 4 | 16;
 
 const UP: u32 = 0xff52;
 const DOWN: u32 = 0xff54;
+const RIGHT: u32 = 0xff53;
+const LEFT: u32 = 0xff51;
+const RETURN: u32 = 0xff0d;
+const BACKSPACE: u32 = 0xff08;
 
 /// The chord a key held with `mods` (the C reference's bits) and making
 /// `keysyms` is, if any.
@@ -30,6 +42,10 @@ pub(crate) fn chord(mods: u8, keysyms: &[u32]) -> Option<HeadChord> {
         return None;
     }
     match keysyms {
+        [RIGHT] => Some(HeadChord::NextConsole),
+        [LEFT] => Some(HeadChord::PreviousConsole),
+        [RETURN] => Some(HeadChord::NewConsole),
+        [BACKSPACE] => Some(HeadChord::CloseConsole),
         [UP] => Some(HeadChord::NextHead),
         [DOWN] => Some(HeadChord::PreviousHead),
         _ => None,
@@ -70,6 +86,13 @@ mod tests {
     fn a_chord_is_its_keys_with_ctrl_and_super_exactly() {
         assert_eq!(chord(CTRL_SUPER, &[UP]), Some(HeadChord::NextHead));
         assert_eq!(chord(CTRL_SUPER, &[DOWN]), Some(HeadChord::PreviousHead));
+        assert_eq!(chord(CTRL_SUPER, &[RIGHT]), Some(HeadChord::NextConsole));
+        assert_eq!(chord(CTRL_SUPER, &[LEFT]), Some(HeadChord::PreviousConsole));
+        assert_eq!(chord(CTRL_SUPER, &[RETURN]), Some(HeadChord::NewConsole));
+        assert_eq!(
+            chord(CTRL_SUPER, &[BACKSPACE]),
+            Some(HeadChord::CloseConsole)
+        );
         assert_eq!(chord(4, &[UP]), None, "Ctrl alone");
         assert_eq!(chord(CTRL_SUPER | 1, &[UP]), None, "with Shift");
     }

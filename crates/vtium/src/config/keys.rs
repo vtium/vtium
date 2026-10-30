@@ -171,6 +171,38 @@ pub const ONESHOT: Key = Key {
     cite: "src/config.c:1367; src/misc/pty.c:752-756",
 };
 
+pub const HEAD_CONSOLES_MAX: Key = Key {
+    name: "head-consoles-max",
+    short: None,
+    kind: Kind::Number {
+        min: 1,
+        max: vtium_config::CONSOLES_MAX as u64,
+        unit: "consoles",
+        word: None,
+    },
+    default: Default::Number(4),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "The most consoles one head holds: the head file's `consoles` and Ctrl-Super-Return open no more.",
+    cite: "ADR-1401 D10; the C reference's `session-max` (src/config.c:1357) bounded the seat's sessions",
+};
+
+pub const CONSOLES_MAX: Key = Key {
+    name: "consoles-max",
+    short: None,
+    kind: Kind::Number {
+        min: 1,
+        max: vtium_config::CONSOLES_MAX as u64,
+        unit: "consoles",
+        word: None,
+    },
+    default: Default::Number(8),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "The most consoles every head holds together. Each head keeps its first console; the others open, in the head file's order, while the total is below this.",
+    cite: "ADR-1401 D10; the C reference's `session-max` (src/config.c:1357)",
+};
+
 pub const TERM: Key = Key {
     name: "term",
     short: Some('t'),
@@ -1031,7 +1063,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 79] = [
+pub const KEYS: [Key; 81] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1039,6 +1071,8 @@ pub const KEYS: [Key; 79] = [
     SWITCHVT,
     LOGIN,
     ONESHOT,
+    HEAD_CONSOLES_MAX,
+    CONSOLES_MAX,
     TERM,
     RESET_ENV,
     BACKSPACE_DELETE,

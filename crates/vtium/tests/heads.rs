@@ -903,7 +903,7 @@ const KBD_FOCUS: &str = "/dev/input/event2";
 
 /// Two heads booted on [`CLAIMED`], the large display the boot display,
 /// with [`KBD_SMALL`], [`KBD_LARGE`] and [`KBD_FOCUS`], each head's
-/// session echoing each line it reads.
+/// session echoing each line it reads, and ending at `q`.
 fn claimed() -> Seat {
     let displays = [
         ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
@@ -912,7 +912,7 @@ fn claimed() -> Seat {
             Memory::new(640, 320, "MEM-2", "mem-large").lit(),
         ),
     ];
-    let script = "echo ready; while read a; do echo \"got:$a\"; done";
+    let script = "echo ready; while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done";
     let mut s = Seat::with_heads(&[], Some(CLAIMED), displays, script);
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
     s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
@@ -1038,4 +1038,234 @@ fn the_focus_waits_for_a_late_boot_display_until_the_first_key() {
     };
     assert_eq!(late(false).as_deref(), Some("large"), "the boot display's");
     assert_eq!(late(true).as_deref(), Some("small"), "a key settled it");
+}
+
+const RIGHT: u32 = 0xff53;
+const LEFT: u32 = 0xff51;
+const RETURN: u32 = 0xff0d;
+const BACKSPACE: u32 = 0xff08;
+
+/// The console count and the shown console of head `name`.
+fn consoles(app: &App, name: &str) -> Option<(usize, usize)> {
+    app.head(name)
+        .map(|h| (h.console_count(), h.shown_console()))
+}
+
+/// #82 and the operator's chords (2026-10-30): Ctrl-Super-Return opens a
+/// console in the head the keyboard delivers to and shows it,
+/// Ctrl-Super-Right and Ctrl-Super-Left show the next and the previous,
+/// wrapping, and Ctrl-Super-Backspace closes the shown one and shows the
+/// next. Each console is a session of its own; the other head's consoles
+/// stay as they were.
+#[test]
+fn the_console_chords_open_switch_and_close_a_heads_consoles() {
+    let mut s = claimed();
+    let chord = |s: &mut Seat, keysym: u32| {
+        s.app
+            .device_input(Path::new(KBD_SMALL), ctrl_super(keysym), now());
+        s.until(Duration::from_millis(50), |_| false);
+    };
+    chord(&mut s, RETURN);
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)), "opened and shown");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
+    s.type_on(KBD_SMALL, "two\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:two")));
+    chord(&mut s, RIGHT);
+    assert_eq!(
+        consoles(&s.app, "small"),
+        Some((2, 0)),
+        "wraps to the first"
+    );
+    assert!(!head_shows(&s.app, "small", "got:two"), "its own screen");
+    s.type_on(KBD_SMALL, "one\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:one")));
+    chord(&mut s, LEFT);
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)));
+    assert!(head_shows(&s.app, "small", "got:two"));
+    chord(&mut s, BACKSPACE);
+    assert_eq!(consoles(&s.app, "small"), Some((1, 0)), "closed");
+    assert!(head_shows(&s.app, "small", "got:one"), "the next shows");
+    chord(&mut s, BACKSPACE);
+    assert_eq!(
+        consoles(&s.app, "small"),
+        Some((1, 0)),
+        "the last console is not closed"
+    );
+    assert_eq!(consoles(&s.app, "large"), Some((1, 0)));
+}
+
+/// D3 and D10: a head starts the consoles its file asks for, at most 4 a
+/// head by default and 8 in all, each a session; a head asking for more
+/// gets its cap. Each head keeps its first console whatever the total.
+#[test]
+fn a_head_starts_the_consoles_its_file_asks_for_within_the_caps() {
+    let heads = "version = 1
+[head a]
+consoles = 6
+[head b]
+consoles = 4
+[head c]
+consoles = 3
+[rules]
+display card:mem-a -> a
+display card:mem-b -> b
+display card:mem-c -> c
+";
+    let displays = [
+        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-a")),
+        ("/dev/mem1", Memory::new(320, 160, "MEM-2", "mem-b")),
+        ("/dev/mem2", Memory::new(320, 160, "MEM-3", "mem-c")),
+    ];
+    let mut s = Seat::with_heads(&[], Some(heads), displays, "echo ready; read x");
+    assert!(s.until(SECOND, |a| a.cells().len() == 3));
+    let counts = |a: &App| -> Vec<usize> { a.heads().iter().map(Head::console_count).collect() };
+    assert_eq!(counts(&s.app), [4, 3, 1], "a's cap, then the total's");
+    assert!(s.until(SECOND, |a| a.heads().iter().all(Head::started)));
+    let raised = Seat::with_heads(
+        &["--head-consoles-max=6", "--consoles-max=12"],
+        Some(heads),
+        [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-a"))],
+        "read x",
+    );
+    assert_eq!(
+        counts(&raised.app)[0],
+        6,
+        "the configuration raises the caps"
+    );
+}
+
+/// The operator's answers (2026-10-30): a console whose program exits
+/// while others stay open closes, and the head shows its next console.
+#[test]
+fn a_console_exiting_shows_the_heads_next_console() {
+    let mut s = claimed();
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
+    assert!(s.until(SECOND, |a| consoles(a, "small") == Some((2, 1))
+        && head_shows(a, "small", "ready")));
+    s.type_on(KBD_SMALL, "x\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:x")));
+    s.type_on(KBD_SMALL, "q\r");
+    assert!(
+        s.until(SECOND, |a| consoles(a, "small") == Some((1, 0))),
+        "the console closed"
+    );
+    assert!(!head_shows(&s.app, "small", "got:x"), "the first shows");
+    assert!(s.app.finished().is_none());
+}
+
+/// Two heads whose consoles run the head file's own `login`: small runs
+/// `small`, large runs `large`, each a shell command.
+fn logins(args: &[&str], small: &str, large: &str) -> Seat {
+    let heads = format!(
+        "version = 1
+[head small]
+login = /bin/sh -c \"{small}\"
+[head large]
+login = /bin/sh -c \"{large}\"
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+"
+    );
+    Seat::with_heads(args, Some(&heads), two_displays(), "read x")
+}
+
+/// D3, and the operator's answers (2026-10-30): each head runs its own
+/// `login`; under respawn, a session ending brings back that head's
+/// login alone, and the other head's session runs on.
+#[test]
+fn under_respawn_a_session_ending_restarts_its_head_alone() {
+    let marker = std::env::temp_dir().join(format!("vtium-heads-respawn-{}", std::process::id()));
+    let _ = std::fs::remove_file(&marker);
+    let small = format!(
+        "if [ -e {m} ]; then echo again; read x; else : > {m}; echo first; fi",
+        m = marker.display()
+    );
+    let mut s = logins(&[], &small, "echo large; read x");
+    assert!(
+        s.until(Duration::from_secs(3), |a| head_shows(a, "small", "again")),
+        "small's login came back"
+    );
+    assert!(head_shows(&s.app, "large", "large"), "large runs on");
+    assert!(!head_shows(&s.app, "large", "again"));
+    let _ = std::fs::remove_file(&marker);
+}
+
+/// The operator's answers (2026-10-30): under oneshot a head whose
+/// program ends shows "session ended" and stays dark; vtium exits when the
+/// last head's program ends.
+#[test]
+fn under_oneshot_vtium_exits_when_the_last_heads_program_ends() {
+    let mut s = logins(&["--oneshot"], "echo bye", "sleep 1");
+    assert!(
+        s.until(SECOND, |a| a.head("small").and_then(Head::notice)
+            == Some("session ended")),
+        "small's program ended"
+    );
+    s.until(Duration::from_millis(200), |_| false);
+    assert_eq!(s.app.finished(), None, "large's runs on");
+    assert_eq!(s.app.head("large").and_then(Head::notice), None);
+    assert!(
+        s.until(Duration::from_secs(3), |a| a.finished()
+            == Some(vtium::app::Exit::Oneshot)),
+        "the last head's program ended"
+    );
+}
+
+/// The operator's answers (2026-10-30): a session restarting too fast
+/// gives up on its head alone, with a notice; when every head has given
+/// up vtium exits with status 1, for the getty fallback.
+#[test]
+fn a_head_restarting_too_fast_gives_up_alone_and_vtium_exits_after_every_head() {
+    let gave_up = |a: &App, name: &str| {
+        a.head(name)
+            .and_then(Head::notice)
+            .is_some_and(|n| n.contains("too quickly"))
+    };
+    let mut s = logins(&[], "exit 1", "echo large; read x");
+    assert!(
+        s.until(Duration::from_secs(3), |a| gave_up(a, "small")),
+        "small gave up"
+    );
+    s.until(Duration::from_millis(200), |_| false);
+    assert_eq!(s.app.finished(), None, "large's runs on");
+    assert!(head_shows(&s.app, "large", "large"));
+    let mut both = logins(&[], "exit 1", "exit 1");
+    assert!(
+        both.until(Duration::from_secs(3), |a| a.finished().is_some()),
+        "every head gave up"
+    );
+    assert_eq!(both.app.finished(), Some(vtium::app::Exit::TooQuick));
+    assert_eq!(both.app.finished().map(vtium::app::Exit::status), Some(1));
+}
+
+/// D1: a zoom changes the grid of the console shown alone; each console
+/// keeps its own grid, which shows again with it.
+#[test]
+fn a_zoom_changes_the_grid_of_the_console_shown_alone() {
+    let mut s = claimed();
+    let key = |s: &mut Seat, event: InputEvent| {
+        s.app.device_input(Path::new(KBD_SMALL), event, now());
+        s.until(Duration::from_millis(50), |_| false);
+    };
+    key(&mut s, ctrl_super(RETURN));
+    let equal = InputEvent::Key(KeyEvent {
+        mods: Mods::CTRL,
+        ..char_key('=')
+    });
+    key(&mut s, equal);
+    assert_eq!(grid(&s.app, "small"), Some((20, 5)), "zoomed to 16x32");
+    key(&mut s, ctrl_super(RIGHT));
+    assert_eq!(
+        grid(&s.app, "small"),
+        Some((40, 10)),
+        "the first console's own"
+    );
+    key(&mut s, ctrl_super(RIGHT));
+    assert_eq!(
+        grid(&s.app, "small"),
+        Some((20, 5)),
+        "the second keeps its zoom"
+    );
 }

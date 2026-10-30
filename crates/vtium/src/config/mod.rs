@@ -400,6 +400,24 @@ impl Config {
         }
     }
 
+    /// This configuration with `login` the command `text`, read as a
+    /// file's `login` line is: a head's own `login` (ADR-1401 D3). The
+    /// reports when `text` gives no command.
+    pub fn with_login(&self, text: &str) -> Result<Config, Vec<Report>> {
+        let mut reports = Reports::default();
+        let value = value::parse(&keys::LOGIN, text, &Origin::Default, &mut reports);
+        let Some(value) = value else {
+            return Err(reports.finish());
+        };
+        let mut config = self.clone();
+        config.set(Assignment {
+            key: &keys::LOGIN,
+            value,
+            origin: Origin::Default,
+        });
+        Ok(config)
+    }
+
     /// A color key's value, if set.
     pub fn rgb(&self, key: &Key) -> Option<[u8; 3]> {
         match self.get(key) {

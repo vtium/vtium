@@ -11,6 +11,7 @@
 //! (`src/seat.c:53-108`, `src/terminal.c:1107-1170` at kmscon b1f7a7c5).
 
 pub(crate) mod chord;
+pub mod console;
 pub mod identity;
 pub(crate) mod route;
 
@@ -33,9 +34,9 @@ use crate::blink::Blink;
 use crate::config::{Config, keys};
 use crate::deferred::Shown;
 use crate::font::{self, Chosen, DisplayFace};
+use crate::head::console::{Console, Fit};
 use crate::layout::Zoom;
 use crate::painter::{Figures, Painter};
-use crate::respawn::Respawn;
 use crate::sync::Sync;
 use crate::term::{Clock, Term, View};
 
@@ -81,13 +82,30 @@ pub(crate) struct Drag {
     moved: bool,
 }
 
-/// One head: its session's terminal and pty, its displays, and its grid.
+/// One head: its consoles, one shown, its displays, and the shown
+/// console's grid.
 pub struct Head {
     name: String,
-    pub(crate) term: Term,
-    pub(crate) pty: Option<Pty>,
+    /// The console shown.
+    pub(crate) console: Console,
+    /// The other consoles in the ring's order, the shown one's place among
+    /// them at [`Head::at`].
+    pub(crate) hidden: Vec<Console>,
+    /// The shown console's place in the ring.
+    pub(crate) at: usize,
+    /// The next console's id.
+    next_id: u64,
+    /// A new console's `font-size`, as configured: in points, or `0`.
+    configured: (Option<u32>, bool),
+    /// The consoles the head opens at its start, its file's `consoles`
+    /// within the caps.
+    pub(crate) wanted: usize,
+    /// The configuration its consoles' command is read from: kmscon.conf's
+    /// with the head's own `login` over it.
+    pub(crate) login: Option<Config>,
+    /// Why the head runs no session any more.
+    pub(crate) ended: Option<Ended>,
     pub(crate) views: BTreeMap<(PathBuf, DisplayId), View>,
-    pub(crate) respawn: Option<Respawn>,
     pub(crate) attached: Attached,
     /// Every display of the head draws at once at the end of the turn.
     pub(crate) draw_now: bool,
@@ -140,46 +158,84 @@ pub struct Head {
     pub(crate) figures: Figures,
 }
 
+/// A console's terminal for `config`, on [`GRID`] with the scrollback cap
+/// and length `scrollback` and `bytes` of scrollback memory.
+pub(crate) fn terminal(
+    config: &Config,
+    scrollback: (usize, usize),
+    bytes: usize,
+    clock: Clock,
+) -> Term {
+    let (cap, lines) = scrollback;
+    let mut terminal = Terminal::new(GRID.0, GRID.1, cap);
+    terminal.screen_mut().set_scrollback_max(lines);
+    terminal.screen_mut().set_scrollback_memory(bytes);
+    terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
+    terminal.set_palette(config.palette());
+    terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
+    if let Ok(table) = crate::termcap::termcap() {
+        terminal.set_termcap(table);
+    }
+    let timeout = Duration::from_millis(config.number(&keys::SYNC_TIMEOUT).unwrap_or(200));
+    terminal.set_sync_enabled(!timeout.is_zero());
+    let sync = Sync::new(timeout, terminal.sync_frames());
+    Term::new(terminal, sync, Blink::configured(config), clock)
+}
+
+/// Why a head runs no session any more (the operator's answers on
+/// vtium/vtium#156).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ended {
+    /// Its last console's program ended under `oneshot`.
+    Oneshot,
+    /// Its last console's program exited too quickly too many times
+    /// running.
+    TooQuick,
+}
+
+impl Ended {
+    /// What the head shows in place of its session.
+    pub fn notice(self) -> &'static str {
+        match self {
+            Ended::Oneshot => "session ended",
+            Ended::TooQuick => "the session exited too quickly too many times running",
+        }
+    }
+}
+
 /// What [`Head`]'s `draw_hook` runs.
 pub type DrawHook = std::sync::Arc<dyn Fn() + Send + std::marker::Sync>;
 
 impl Head {
-    /// The head `name` for `config`, its terminal on [`GRID`] with the
-    /// scrollback `config` allows, and the font keys `font` (ADR-1401 D3):
-    /// its session starts at its first display.
-    pub(crate) fn new(
-        name: &str,
-        config: &Config,
-        font: &vtium_config::Font,
-        cap: usize,
-        lines: usize,
-        clock: Clock,
-    ) -> Head {
-        let mut terminal = Terminal::new(GRID.0, GRID.1, cap);
-        terminal.screen_mut().set_scrollback_max(lines);
-        terminal
-            .screen_mut()
-            .set_scrollback_memory(crate::config::budget::sb_memory(config));
-        terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
-        terminal.set_palette(config.palette());
-        terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
-        if let Ok(table) = crate::termcap::termcap() {
-            terminal.set_termcap(table);
-        }
-        let timeout = Duration::from_millis(config.number(&keys::SYNC_TIMEOUT).unwrap_or(200));
-        terminal.set_sync_enabled(!timeout.is_zero());
-        let sync = Sync::new(timeout, terminal.sync_frames());
-        let blink = Blink::configured(config);
+    /// The head `name` for `config`, its one console's terminal `term`,
+    /// and the font keys `font` (ADR-1401 D3): its session starts at its
+    /// first display.
+    pub(crate) fn new(name: &str, config: &Config, font: &vtium_config::Font, term: Term) -> Head {
         let size = font
             .size
             .map(u64::from)
             .or_else(|| config.number(&keys::FONT_SIZE));
+        let points = size
+            .filter(|&n| n != 0)
+            .map(|n| u32::try_from(n).unwrap_or(u32::MAX));
+        let auto_size = size.unwrap_or(0) == 0;
+        let fit = Fit {
+            grid: GRID,
+            font_size: 0,
+            points,
+            auto_size,
+        };
         Head {
             name: name.to_owned(),
-            term: Term::new(terminal, sync, blink, clock),
-            pty: None,
+            console: Console::new(0, term, fit),
+            hidden: Vec::new(),
+            at: 0,
+            next_id: 1,
+            configured: (points, auto_size),
+            wanted: 1,
+            login: None,
+            ended: None,
             views: BTreeMap::new(),
-            respawn: None,
             attached: Attached::NotYet,
             draw_now: false,
             text_due: None,
@@ -189,10 +245,8 @@ impl Head {
             tracking: MouseTracking::Off,
             font_name: font.name.clone(),
             font_size: 0,
-            points: size
-                .filter(|&n| n != 0)
-                .map(|n| u32::try_from(n).unwrap_or(u32::MAX)),
-            auto_size: size.unwrap_or(0) == 0,
+            points,
+            auto_size,
             sized: size.unwrap_or(0) != 0,
             has_font: false,
             step: 16,
@@ -235,24 +289,159 @@ impl Head {
             .collect()
     }
 
-    /// The head's terminal.
+    /// The shown console's terminal.
     pub fn term(&self) -> &Term {
-        &self.term
+        &self.console.term
     }
 
-    /// The session's pty, while its command runs.
+    /// The shown console's pty, while its command runs.
     pub fn pty(&self) -> Option<&Pty> {
-        self.pty.as_ref()
+        self.console.pty.as_ref()
     }
 
-    /// Whether the session's command has started.
+    /// Whether a console's command has started.
     pub fn started(&self) -> bool {
-        self.respawn.is_some()
+        self.consoles().any(Console::started)
     }
 
-    /// The text of the screen's rows, for tests and logs.
+    /// The head's consoles, the shown one first.
+    pub(crate) fn consoles(&self) -> impl Iterator<Item = &Console> {
+        std::iter::once(&self.console).chain(&self.hidden)
+    }
+
+    /// The head's consoles, the shown one first.
+    pub(crate) fn consoles_mut(&mut self) -> impl Iterator<Item = &mut Console> {
+        std::iter::once(&mut self.console).chain(&mut self.hidden)
+    }
+
+    /// The console `id`, shown or hidden.
+    pub(crate) fn console_mut(&mut self, id: u64) -> Option<&mut Console> {
+        self.consoles_mut().find(|c| c.id == id)
+    }
+
+    /// How many consoles the head has.
+    pub fn console_count(&self) -> usize {
+        self.hidden.len().saturating_add(1)
+    }
+
+    /// The shown console's place among the head's, in the order they were
+    /// opened.
+    pub fn shown_console(&self) -> usize {
+        self.at
+    }
+
+    /// What the head shows of itself in place of a session, once its
+    /// session has ended for good.
+    pub fn notice(&self) -> Option<&str> {
+        self.ended.map(Ended::notice)
+    }
+
+    /// How the shown console fits the displays.
+    fn fit(&self) -> Fit {
+        Fit {
+            grid: self.grid,
+            font_size: self.font_size,
+            points: self.points,
+            auto_size: self.auto_size,
+        }
+    }
+
+    /// A new console's fit: the shown one's grid, at the configured
+    /// `font-size`.
+    pub(crate) fn fresh_fit(&self) -> Fit {
+        let (points, auto_size) = self.configured;
+        Fit {
+            points,
+            auto_size,
+            ..self.fit()
+        }
+    }
+
+    /// The next console's id.
+    pub(crate) fn next_id(&mut self) -> u64 {
+        let id = self.next_id;
+        self.next_id = id.saturating_add(1);
+        id
+    }
+
+    /// Shows `new` in place of the console shown, which is returned: the
+    /// head takes `new`'s fit, and the old keeps the head's. While
+    /// `visible`, the new one is potentially visible (mode 2033), and it
+    /// takes mode 1004's focus from the old while a keyboard delivers to
+    /// the head. Every display draws whole.
+    fn swap_shown(&mut self, new: Console, visible: bool) -> Console {
+        let fit = self.fit();
+        self.grid = new.fit.grid;
+        self.font_size = new.fit.font_size;
+        self.points = new.fit.points;
+        self.auto_size = new.fit.auto_size;
+        let mut old = std::mem::replace(&mut self.console, new);
+        old.fit = fit;
+        old.term.terminal.set_visible(false);
+        self.console.term.terminal.set_visible(visible);
+        if self.focused {
+            old.term.terminal.focus(false);
+            self.console.term.terminal.focus(true);
+        }
+        old.send_replies();
+        self.send_user_bytes();
+        self.pointer.drag = None;
+        for v in self.views.values_mut() {
+            v.lost = true;
+        }
+        self.draw_now = true;
+        old
+    }
+
+    /// Shows the console at ring position `to`.
+    pub(crate) fn show(&mut self, to: usize, visible: bool) {
+        let k = console::hidden_index(to, self.at);
+        if to == self.at || k >= self.hidden.len() {
+            return;
+        }
+        let new = self.hidden.remove(k);
+        let old = self.swap_shown(new, visible);
+        let back = console::hidden_index(self.at, to).min(self.hidden.len());
+        self.hidden.insert(back, old);
+        self.at = to;
+    }
+
+    /// Opens `console` at the ring's end and shows it.
+    pub(crate) fn push(&mut self, console: Console, visible: bool) {
+        self.hidden.push(console);
+        self.show(self.hidden.len(), visible);
+    }
+
+    /// Takes the shown console out and shows the next, the ring's first
+    /// after the last; `None`, changing nothing, when it is the only one.
+    pub(crate) fn close_shown(&mut self, visible: bool) -> Option<Console> {
+        if self.hidden.is_empty() {
+            return None;
+        }
+        let next = if self.at < self.hidden.len() {
+            self.at
+        } else {
+            0
+        };
+        let new = self.hidden.remove(next);
+        let old = self.swap_shown(new, visible);
+        self.at = next;
+        Some(old)
+    }
+
+    /// Takes the hidden console `id` out.
+    pub(crate) fn remove_hidden(&mut self, id: u64) -> Option<Console> {
+        let k = self.hidden.iter().position(|c| c.id == id)?;
+        if k < self.at {
+            self.at = self.at.saturating_sub(1);
+        }
+        Some(self.hidden.remove(k))
+    }
+
+    /// The text of the shown console's screen rows, for tests and logs.
     pub fn screen_text(&self) -> Vec<String> {
-        self.term
+        self.console
+            .term
             .terminal
             .screen()
             .lines()
@@ -339,31 +528,26 @@ impl Head {
         }
     }
 
-    /// The terminal's replies go to the program.
+    /// The shown console's replies go to its program.
     pub(crate) fn send_user_bytes(&mut self) {
-        let bytes = self.term.terminal.take_replies();
-        if let Some(pty) = &mut self.pty {
-            if !bytes.is_empty() {
-                pty.write(&bytes);
-            }
-        }
+        self.console.send_replies();
     }
 
-    /// The console is potentially visible while it draws: not while the
-    /// VT is another's or the displays are blanked. Mode 2033's report
+    /// The shown console is potentially visible while it draws: not while
+    /// the VT is another's or the displays are blanked. Mode 2033's report
     /// goes out at once, to a program that may be waiting in a read.
     pub(crate) fn set_visible(&mut self, visible: bool) {
-        self.term.terminal.set_visible(visible);
+        self.console.term.terminal.set_visible(visible);
         self.send_user_bytes();
     }
 
-    /// The terminal and the pty at `grid`, the pointer's last pixel the
-    /// grid's.
+    /// The shown console's terminal and pty at `grid`, the pointer's last
+    /// pixel the grid's.
     pub(crate) fn resize(&mut self, grid: (usize, usize)) {
         let (cw, ch) = self.cell;
         let (w, h) = self.pixels(grid);
-        self.term.terminal.set_cell_size(cw, ch);
-        self.term.terminal.set_display_size(w, h);
+        self.console.term.terminal.set_cell_size(cw, ch);
+        self.console.term.terminal.set_display_size(w, h);
         for v in self.views.values_mut() {
             v.lost = true;
         }
@@ -371,7 +555,7 @@ impl Head {
         if grid != self.grid {
             self.grid = grid;
             let size = self.pty_size();
-            if let Some(pty) = &mut self.pty {
+            if let Some(pty) = &mut self.console.pty {
                 if let Err(e) = pty.resize(size) {
                     log::warn!("cannot resize the pty: {e}");
                 }
@@ -379,7 +563,7 @@ impl Head {
         }
         // Last, so mode 2048 reports the resize once it is complete, a new
         // font on the same grid included; the report goes out at once.
-        self.term.terminal.resize(grid.0, grid.1);
+        self.console.term.terminal.resize(grid.0, grid.1);
         self.send_user_bytes();
     }
 
@@ -395,8 +579,13 @@ impl Head {
     /// sorted and once.
     pub(crate) fn visible(&self) -> Shown {
         use vtium_term::{Age, Glyph};
-        let palette = self.term.terminal.palette();
-        let frame = self.term.terminal.screen().frame(palette, Age::NEVER);
+        let palette = self.console.term.terminal.palette();
+        let frame = self
+            .console
+            .term
+            .terminal
+            .screen()
+            .frame(palette, Age::NEVER);
         let mut shown = Shown::default();
         for row in 0..frame.rows() {
             for cell in frame.cells(row) {
@@ -419,10 +608,10 @@ impl Head {
     }
 
     pub(crate) fn draw_state(&self) -> DrawState {
-        let palette = self.term.terminal.palette();
+        let palette = self.console.term.terminal.palette();
         DrawState {
-            cursor_on: self.term.blink.cursor_shown(),
-            blink_hidden: !self.term.blink.text_shown(),
+            cursor_on: self.console.term.blink.cursor_shown(),
+            blink_hidden: !self.console.term.blink.text_shown(),
             background: palette.bg(),
             pointer: self
                 .pointer
@@ -443,7 +632,7 @@ impl Head {
         mods: Mods,
         selection: &mut Option<Vec<u8>>,
     ) -> Option<Zoom> {
-        let tracking = self.term.terminal.mouse_tracking() != MouseTracking::Off;
+        let tracking = self.console.term.terminal.mouse_tracking() != MouseTracking::Off;
         let shift = mods.contains(Mods::SHIFT);
         let moved = matches!(event, PointerEvent::Moved { .. });
         let mut zoom = None;
@@ -461,7 +650,7 @@ impl Head {
                 let (col, row) = self.pointer_cell();
                 if let Some(drag) = &mut self.pointer.drag {
                     drag.moved |= (col, row) != drag.from;
-                    self.term.terminal.screen_mut().select_to(col, row);
+                    self.console.term.terminal.screen_mut().select_to(col, row);
                 } else if tracking
                     && if held.is_some() {
                         !self.pointer.ours
@@ -499,10 +688,15 @@ impl Head {
                     Wheel::Report(button) => self.report_pointer(button, MouseEvent::Press, mods),
                     Wheel::Zoom(dir) => zoom = Some(dir),
                     Wheel::Scroll { up: true } => {
-                        self.term.terminal.screen_mut().scroll_view_up(WHEEL_LINES);
+                        self.console
+                            .term
+                            .terminal
+                            .screen_mut()
+                            .scroll_view_up(WHEEL_LINES);
                     }
                     Wheel::Scroll { up: false } => {
-                        self.term
+                        self.console
+                            .term
                             .terminal
                             .screen_mut()
                             .scroll_view_down(WHEEL_LINES);
@@ -514,13 +708,13 @@ impl Head {
             // (`src/terminal.c:1655-1659` at kmscon b1f7a7c5).
             PointerEvent::Hide => {
                 self.pointer.visible = false;
-                self.term.terminal.screen_mut().clear_selection();
+                self.console.term.terminal.screen_mut().clear_selection();
             }
         }
         // Only motion may be coalesced while the child does not read; a
         // press, a release, a wheel report or a paste is queued whole.
-        let bytes = self.term.terminal.take_replies();
-        if let Some(pty) = self.pty.as_mut().filter(|_| !bytes.is_empty()) {
+        let bytes = self.console.term.terminal.take_replies();
+        if let Some(pty) = self.console.pty.as_mut().filter(|_| !bytes.is_empty()) {
             if moved {
                 pty.write_motion(&bytes);
             } else {
@@ -535,11 +729,11 @@ impl Head {
     /// selection, as the C reference's did (`src/terminal.c:890-897` at
     /// kmscon b1f7a7c5).
     pub(crate) fn tracking_changed(&mut self) {
-        let tracking = self.term.terminal.mouse_tracking();
+        let tracking = self.console.term.terminal.mouse_tracking();
         if tracking != self.tracking {
             self.tracking = tracking;
             self.pointer.drag = None;
-            self.term.terminal.screen_mut().clear_selection();
+            self.console.term.terminal.screen_mut().clear_selection();
         }
     }
 
@@ -562,7 +756,8 @@ impl Head {
     fn report_pointer(&mut self, button: MouseButton, event: MouseEvent, mods: Mods) {
         let (col, row) = self.pointer_cell();
         let (x, y) = (self.pointer.x, self.pointer.y);
-        self.term
+        self.console
+            .term
             .terminal
             .mouse(col, row, x, y, button, event, mods);
     }
@@ -591,7 +786,7 @@ impl Head {
                     _ => 1,
                 };
                 self.pointer.drag = None;
-                let screen = self.term.terminal.screen_mut();
+                let screen = self.console.term.terminal.screen_mut();
                 match self.pointer.clicks {
                     1 => {
                         screen.select_start(col, row);
@@ -613,18 +808,18 @@ impl Head {
             (Button::Left, false) => match self.pointer.drag.take() {
                 Some(Drag { moved: true, .. }) => self.copy(selection),
                 Some(Drag { moved: false, .. }) => {
-                    self.term.terminal.screen_mut().clear_selection();
+                    self.console.term.terminal.screen_mut().clear_selection();
                 }
                 None => {}
             },
             (Button::Middle, true) => {}
             (Button::Middle, false) => {
                 self.paste(selection.as_deref());
-                self.term.terminal.screen_mut().clear_selection();
+                self.console.term.terminal.screen_mut().clear_selection();
             }
             (Button::Right, _) => {
                 self.pointer.drag = None;
-                self.term.terminal.screen_mut().clear_selection();
+                self.console.term.terminal.screen_mut().clear_selection();
             }
         }
     }
@@ -633,6 +828,7 @@ impl Head {
     /// selected the buffer keeps what it holds.
     fn copy(&self, selection: &mut Option<Vec<u8>>) {
         if let Some(text) = self
+            .console
             .term
             .terminal
             .screen()
@@ -647,7 +843,7 @@ impl Head {
     /// bracketed while it asks (`Terminal::paste`).
     pub(crate) fn paste(&mut self, selection: Option<&[u8]>) {
         if let Some(text) = selection {
-            self.term.terminal.paste(text);
+            self.console.term.terminal.paste(text);
         }
     }
 }
