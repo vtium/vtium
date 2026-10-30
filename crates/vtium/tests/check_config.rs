@@ -1,21 +1,29 @@
 //! `vtium check-config` run as the operator runs it: the binary, on a
-//! configuration directory of its own.
+//! configuration directory of its own and a head file of its own, given
+//! as the candidate, so no test reads the machine's `/etc/vtium`.
 
 use std::path::PathBuf;
 use std::process::{Command, Output};
+
+/// A head file that checks clean, but for the notes outside the status.
+const CLEAN_HEADS: &str =
+    "version = 1\n[head console]\n[rules]\ndisplay * -> console\ninput * -> focus\n";
 
 fn dir(name: &str, conf: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("vtium-check-{name}-{}", std::process::id()));
     std::fs::create_dir_all(&d).expect("a directory");
     std::fs::write(d.join("kmscon.conf"), conf).expect("a configuration");
+    std::fs::write(d.join("heads.conf"), CLEAN_HEADS).expect("a head file");
     d
 }
 
+/// `vtium check-config -c DIR DIR/heads.conf`, then `extra`.
 fn check(dir: &PathBuf, extra: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_vtium"))
         .arg("check-config")
         .arg("-c")
         .arg(dir)
+        .arg(dir.join("heads.conf"))
         .args(extra)
         .output()
         .expect("vtium runs")
@@ -83,6 +91,7 @@ fn it_opens_nothing_but_the_configuration() {
         .arg(env!("CARGO_BIN_EXE_vtium"))
         .args(["check-config", "-c"])
         .arg(&d)
+        .arg(d.join("heads.conf"))
         .output()
         .expect("strace runs");
     let trace = String::from_utf8_lossy(&out.stderr);
@@ -106,6 +115,11 @@ fn it_opens_nothing_but_the_configuration() {
         return;
     }
     assert!(opened.iter().any(|p| p.ends_with("kmscon.conf")), "{trace}");
+    assert!(opened.iter().any(|p| p.ends_with("heads.conf")), "{trace}");
+    assert!(
+        !opened.iter().any(|p| p.starts_with("/etc/vtium")),
+        "{trace}"
+    );
     for p in &opened {
         assert!(
             !p.starts_with("/dev/") && !p.starts_with("/sys/") && !p.starts_with("/run/udev"),
@@ -133,7 +147,7 @@ fn check_config_after_the_options_still_checks() {
 }
 
 /// A head file in a directory of its own, as a candidate is checked
-/// before it is installed (ADR-1401 D7).
+/// before it is installed (ADR-1401 D7), in place of the clean one.
 fn head_file(name: &str, text: &str) -> (PathBuf, PathBuf) {
     let d = dir(name, "");
     let file = d.join("heads.conf");
@@ -157,11 +171,11 @@ fn check_config_lists_each_planted_head_file_error_with_its_line_and_exits_1() {
          input path:pci-0000:15:00.0-usb-0:3.3 -> desc\n\
          [rules]\n",
     );
-    let out = check(&d, &[file.to_str().expect("a UTF-8 path")]);
+    let out = check(&d, &[]);
     assert_eq!(out.status.code(), Some(1));
     let err = String::from_utf8_lossy(&out.stderr);
     let at = |line: usize, what: &str| {
-        let prefix = format!("{}: line {line}: ", file.display());
+        let prefix = format!("{}:{line}: ", file.display());
         assert!(
             err.lines()
                 .any(|l| l.starts_with(&prefix) && l.contains(what)),
@@ -185,11 +199,11 @@ fn a_candidate_with_only_notes_exits_0_and_prints_them_on_stdout() {
         "notes",
         "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\n[guards]\nnever-dark = off\n",
     );
-    let out = check(&d, &[file.to_str().expect("a UTF-8 path")]);
+    let out = check(&d, &[]);
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(String::from_utf8_lossy(&out.stderr), "");
     let notes = String::from_utf8_lossy(&out.stdout);
-    let guard = format!("{}: line 6: the never-dark guard is off", file.display());
+    let guard = format!("{}:6: the never-dark guard is off", file.display());
     assert!(notes.lines().any(|l| l == guard), "{notes}");
     std::fs::remove_dir_all(d).ok();
 }

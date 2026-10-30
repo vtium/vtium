@@ -19,6 +19,11 @@ use std::path::{Path, PathBuf};
 use crate::bounds::FILE_MAX;
 use crate::error::{Problem, Quoted, Rejected};
 
+/// The head file the start reads: one file, with no drop-in directory
+/// beside it. ADR-1401's probe 1 is the operator's, and this, its
+/// recommendation, stands until the operator answers otherwise.
+pub const HEAD_FILE: &str = "/etc/vtium/heads.conf";
+
 /// The user the head file and its directories must belong to: root, or
 /// in a test the test's own user, since no test runs as root; and the
 /// directory the check stops at, `/` but in a test.
@@ -119,33 +124,48 @@ fn directories(path: &Path) -> Result<BTreeSet<PathBuf>, Rejected> {
     Err(unreadable(&rustix::io::Errno::LOOP.into()))
 }
 
-/// Reads the head file at `path`: `None` when it does not exist, the
-/// compiled-in configuration's case, and its text once every check
-/// passes. It is opened without blocking, so a FIFO is refused at once,
-/// and so that a tty never becomes the controlling one, as the console
-/// opens kmscon.conf.
-pub fn read(path: &Path, trust: &Trust) -> Result<Option<String>, Rejected> {
+/// A head file's bytes as read, and whether the ownership check trusts
+/// it: [`inspect`]'s answer, which [`read`] turns into the start's
+/// verdict, and which `vtium check-config` reads apart to check a
+/// candidate before it is installed (D7).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Inspected {
+    /// The file's text once [`text`]'s checks pass.
+    pub text: Result<String, Rejected>,
+    /// The ownership check of the file and every directory above it.
+    pub trusted: Result<(), Untrusted>,
+}
+
+/// Reads the file at `path` with the ownership check beside its text:
+/// `None` when it does not exist, the compiled-in configuration's case.
+/// The path is looked up first, following symlinks, and anything but a
+/// regular file is refused before it is opened, since opening a FIFO, a
+/// watchdog or a serial port acts on it. It is opened without blocking,
+/// in case it was swapped since, so that a tty never becomes the
+/// controlling one, as the console opens kmscon.conf, and at most
+/// [`FILE_MAX`] bytes and one are read.
+pub fn inspect(path: &Path, trust: &Trust) -> Result<Option<Inspected>, Rejected> {
     use rustix::fs::{Mode, OFlags};
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.is_file() => {}
+        Ok(_) => return Err(Rejected::one(None, Problem::NotAFile)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(unreadable(&e)),
+    }
     let flags = OFlags::RDONLY | OFlags::NOCTTY | OFlags::NONBLOCK | OFlags::CLOEXEC;
-    let fd = match rustix::fs::open(path, flags, Mode::empty()) {
-        Ok(fd) => fd,
-        Err(e) if e == rustix::io::Errno::NOENT => return Ok(None),
-        Err(e) => return Err(unreadable(&e.into())),
-    };
+    let fd = rustix::fs::open(path, flags, Mode::empty()).map_err(|e| unreadable(&e.into()))?;
     let file = std::fs::File::from(fd);
     let meta = file.metadata().map_err(|e| unreadable(&e))?;
     if !meta.is_file() {
         return Err(Rejected::one(None, Problem::NotAFile));
     }
-    let untrusted = |why| Rejected::one(None, Problem::Untrusted(why));
-    trust
-        .check(path, meta.uid(), meta.mode(), false)
-        .map_err(untrusted)?;
+    let mut trusted = trust.check(path, meta.uid(), meta.mode(), false);
     for dir in directories(path)?.into_iter().filter(|d| trust.covers(d)) {
+        if trusted.is_err() {
+            break;
+        }
         let meta = std::fs::metadata(&dir).map_err(|e| unreadable(&e))?;
-        trust
-            .check(&dir, meta.uid(), meta.mode(), true)
-            .map_err(untrusted)?;
+        trusted = trust.check(&dir, meta.uid(), meta.mode(), true);
     }
     let mut bytes = Vec::new();
     let limit = u64::try_from(FILE_MAX)
@@ -154,7 +174,23 @@ pub fn read(path: &Path, trust: &Trust) -> Result<Option<String>, Rejected> {
     file.take(limit)
         .read_to_end(&mut bytes)
         .map_err(|e| unreadable(&e))?;
-    text(&bytes).map(|t| Some(t.to_owned()))
+    Ok(Some(Inspected {
+        text: text(&bytes).map(str::to_owned),
+        trusted,
+    }))
+}
+
+/// Reads the head file at `path` as the start does: `None` when it does
+/// not exist, and its text once every check of [`inspect`] passes, the
+/// ownership check first.
+pub fn read(path: &Path, trust: &Trust) -> Result<Option<String>, Rejected> {
+    let Some(inspected) = inspect(path, trust)? else {
+        return Ok(None);
+    };
+    inspected
+        .trusted
+        .map_err(|why| Rejected::one(None, Problem::Untrusted(why)))?;
+    inspected.text.map(Some)
 }
 
 /// Checks a head file's bytes: at most [`FILE_MAX`], UTF-8, and no

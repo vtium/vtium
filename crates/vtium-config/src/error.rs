@@ -201,14 +201,18 @@ pub struct Error {
     pub problem: Problem,
 }
 
+impl Error {
+    /// The line the error names, `None` for the file as a whole.
+    pub fn line(&self) -> Option<usize> {
+        self.line
+    }
+}
+
 impl fmt::Display for Error {
-    /// `line 6: rule names undefined head "desc"`; the caller puts the
-    /// file's name before it.
+    /// `rule names undefined head "desc"`; [`at`] puts the file and the
+    /// line before it.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.line {
-            Some(line) => write!(f, "line {line}: {}", self.problem),
-            None => write!(f, "{}", self.problem),
-        }
+        write!(f, "{}", self.problem)
     }
 }
 
@@ -278,18 +282,38 @@ pub enum Note {
     WeakMatch { line: usize },
 }
 
+impl Warning {
+    /// The line the warning names.
+    pub fn line(&self) -> usize {
+        match self {
+            Warning::ConsolesCapped { line } | Warning::Shadowed { line, .. } => *line,
+        }
+    }
+}
+
+impl Note {
+    /// The line the note names.
+    pub fn line(&self) -> usize {
+        match self {
+            Note::GuardOff { line, .. } | Note::RescueOff { line } | Note::WeakMatch { line } => {
+                *line
+            }
+        }
+    }
+}
+
 impl fmt::Display for Warning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Warning::ConsolesCapped { line } => write!(
+            Warning::ConsolesCapped { .. } => write!(
                 f,
-                "line {line}: more consoles than the cap; the head gets {}",
+                "more consoles than the cap; the head gets {}",
                 crate::CONSOLES_MAX
             ),
-            Warning::Shadowed { line, by } => {
+            Warning::Shadowed { by, .. } => {
                 write!(
                     f,
-                    "line {line}: the rule on line {by} takes every device this one matches"
+                    "the rule on line {by} takes every device this one matches"
                 )
             }
         }
@@ -299,17 +323,46 @@ impl fmt::Display for Warning {
 impl fmt::Display for Note {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Note::GuardOff { line, guard } => write!(f, "line {line}: the {guard} guard is off"),
-            Note::RescueOff { line } => {
-                write!(
-                    f,
-                    "line {line}: the rescue key leaves this head's keyboards"
-                )
-            }
-            Note::WeakMatch { line } => write!(
-                f,
-                "line {line}: input reaches a head by `id` or `name` alone, which any device can claim"
+            Note::GuardOff { guard, .. } => write!(f, "the {guard} guard is off"),
+            Note::RescueOff { .. } => f.write_str("the rescue key leaves this head's keyboards"),
+            Note::WeakMatch { .. } => f.write_str(
+                "input reaches a head by `id` or `name` alone, which any device can claim",
             ),
         }
+    }
+}
+
+/// A finding located in a file: `PATH:LINE: WHAT`, or `PATH: WHAT` for the
+/// file as a whole, as kmscon.conf's reports read and as `vtium
+/// check-config`, the start's log, the notice and `vtiumctl` show the head
+/// file's. The path is shown with every control and format character
+/// escaped, so a newline in it never splits the line.
+#[derive(Clone, Copy, Debug)]
+pub struct At<'a, T> {
+    path: &'a std::path::Path,
+    line: Option<usize>,
+    what: T,
+}
+
+/// `what`, located at `line` of the file at `path`.
+pub fn at<T: fmt::Display>(path: &std::path::Path, line: Option<usize>, what: T) -> At<'_, T> {
+    At { path, line, what }
+}
+
+impl<T: fmt::Display> fmt::Display for At<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for c in self.path.to_string_lossy().chars() {
+            if matches!(c, '\\' | '"' | '\'') {
+                f.write_char(c)?;
+            } else {
+                for e in c.escape_debug() {
+                    f.write_char(e)?;
+                }
+            }
+        }
+        if let Some(line) = self.line {
+            write!(f, ":{line}")?;
+        }
+        write!(f, ": {}", self.what)
     }
 }

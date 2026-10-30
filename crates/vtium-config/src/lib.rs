@@ -51,8 +51,8 @@ pub use bounds::{
 };
 pub use cmdline::{HeadsWord, heads_word};
 pub use config::{Config, Font, Guards, Head, OnLoss, Rule, TEMPLATE, Target};
-pub use error::{Error, Note, Problem, Quoted, Rejected, Warning};
-pub use file::{Trust, Untrusted, read, text};
+pub use error::{At, Error, Note, Problem, Quoted, Rejected, Warning, at};
+pub use file::{HEAD_FILE, Inspected, Trust, Untrusted, inspect, read, text};
 pub use identity::{Class, Classes, Edid, Identity, Kind, UsbSerial};
 pub use matching::{Match, Token, glob};
 pub use parse::{Parsed, parse};

@@ -10,11 +10,10 @@
 //! than a fault, is noted on standard output outside the status, so a
 //! file can be checked away from its machine.
 
-use std::io::Read as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use vtium_config::{
-    Config as Heads, Error, Identity, Lockout, Note, Parsed, Problem, Rejected, Trust,
+    Config as Heads, Identity, Lockout, Note, Parsed, Problem, Rejected, Trust, at,
 };
 
 use crate::config::{Config, Loaded, keys};
@@ -23,22 +22,17 @@ use crate::font;
 /// The subcommand's name, which stands among the options.
 pub const SUBCOMMAND: &str = "check-config";
 
-/// The head file the start reads: one file, with no drop-in directory
-/// beside it. ADR-1401's probe 1 is still the operator's, and this is its
-/// recommendation; another answer changes this line.
-pub const HEAD_FILE: &str = "/etc/vtium/heads.conf";
-
 /// Whether a rule sending input to a head by `id` or `name` alone counts
-/// against the file. ADR-1401's probe 4 is still the operator's, and its
-/// recommendation is a note outside the status; another answer changes
-/// this line.
+/// against the file. ADR-1401's probe 4 is the operator's, and its
+/// recommendation, a note outside the status, stands until the operator
+/// answers otherwise; another answer changes this line.
 const WEAK_MATCH_COUNTS: bool = false;
 
 /// Whether a candidate that fails the ownership check where it sits counts
 /// against it. A candidate is checked before it is installed, and
-/// installing it makes it root's (ADR-1401 D12), so the recommendation, the
-/// team lead's to confirm, is a note outside the status; the head file at
-/// [`HEAD_FILE`] always counts it, as the start does.
+/// installing it makes it root's (ADR-1401 D12), so it is a note outside
+/// the status, the team lead's answer of 2026-10-29; the installed head
+/// file always counts it, as the start does.
 const CANDIDATE_OWNERSHIP_COUNTS: bool = false;
 
 /// The subcommand's help.
@@ -46,12 +40,12 @@ pub const HELP: &str = "Usage: vtium check-config [OPTION]... [FILE]\n\n\
 Reads the configuration as vtium would start with these options:\n\
 kmscon.conf and the seat's file in the configuration directory, then the\n\
 options, and the head file, /etc/vtium/heads.conf, or FILE in its place\n\
-to check it before it is installed. It prints each warning and each of\n\
-the head file's errors and exits 1 when there is any, 0 when there is\n\
-none. It notes on standard output what it does not count: the density\n\
-font sizes in points convert at, which the start reads from each\n\
-display, and of the head file a guard turned off, a weak match, and a\n\
-rule that needs a udev daemon where none runs.\n\
+to check it before it is installed. It prints each warning, and each\n\
+of the head file's errors and warnings, and exits 1 when there is any,\n\
+0 when there is none. It notes on standard output what it does not\n\
+count: the density font sizes in points convert at, which the start\n\
+reads from each display, and of the head file a guard turned off, a\n\
+weak match, and a rule that needs a udev daemon where none runs.\n\
 It only checks: it opens no VT, display or input device, applies\n\
 nothing, and reads nothing but the configuration files and the frit\n\
 font-name names.\n";
@@ -164,41 +158,83 @@ pub fn run(loaded: &Loaded) -> (Vec<String>, i32) {
     (lines, status)
 }
 
-/// The subcommand as the binary runs it: the configuration's warnings and
-/// the head file's errors and warnings on standard error, the notes on
-/// standard output, and the exit status, 1 when standard error holds any
-/// line.
-pub fn main(loaded: &Loaded) -> u8 {
-    let (lines, status) = run(loaded);
-    for line in &lines {
-        eprintln!("{line}");
-    }
-    if loaded.config.switch(&keys::HELP) {
-        return 0;
-    }
-    let heads = match loaded.candidate.as_deref() {
-        Some(path) => head_file(path, true, &Trust::ROOT, udev_daemon_runs()),
-        None => head_file(
-            Path::new(HEAD_FILE),
-            false,
-            &Trust::ROOT,
-            udev_daemon_runs(),
-        ),
-    };
-    for line in &heads.counted {
-        eprintln!("{line}");
-    }
-    for note in notes(&loaded.config).iter().chain(&heads.notes) {
-        println!("{note}");
-    }
-    u8::from(status != 0 || !heads.counted.is_empty())
+/// Where the subcommand finds the machine's files: the installed head
+/// file, and the udev daemon's control socket.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Host {
+    pub head_file: PathBuf,
+    pub udev_control: PathBuf,
 }
 
-/// Whether a udev daemon runs: its control socket is present, as
-/// `udevadm settle` reads it. Without one, the keys that read udev's
-/// database match nothing (ADR-1401 D4).
-fn udev_daemon_runs() -> bool {
-    Path::new("/run/udev/control").exists()
+impl Host {
+    /// The machine's own, which the binary takes and nothing overrides.
+    pub fn system() -> Host {
+        Host {
+            head_file: PathBuf::from(vtium_config::HEAD_FILE),
+            udev_control: PathBuf::from(UDEV_CONTROL),
+        }
+    }
+}
+
+/// The socket a udev daemon listens on, which `udevadm control` talks to.
+pub const UDEV_CONTROL: &str = "/run/udev/control";
+
+/// Whether a udev daemon runs: its control socket `control` is present.
+/// Without one, the keys that read udev's database match nothing
+/// (ADR-1401 D4).
+pub fn udev_daemon_runs(control: &Path) -> bool {
+    control.exists()
+}
+
+/// What the subcommand prints, and its exit status.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Outcome {
+    /// The configuration's warnings and the head file's errors and
+    /// warnings.
+    pub stderr: Vec<String>,
+    /// What the status does not count.
+    pub stdout: Vec<String>,
+    /// 1 when standard error holds any line.
+    pub status: u8,
+}
+
+/// The subcommand on `loaded` and the machine `host`.
+pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
+    let (stderr, status) = run(loaded);
+    if loaded.config.switch(&keys::HELP) {
+        return Outcome {
+            stderr,
+            stdout: Vec::new(),
+            status: 0,
+        };
+    }
+    let udev = udev_daemon_runs(&host.udev_control);
+    let heads = match loaded.candidate.as_deref() {
+        Some(path) => head_file(path, true, &Trust::ROOT, udev),
+        None => head_file(&host.head_file, false, &Trust::ROOT, udev),
+    };
+    let status = u8::from(status != 0 || !heads.counted.is_empty());
+    Outcome {
+        stderr: stderr.into_iter().chain(heads.counted).collect(),
+        stdout: notes(&loaded.config)
+            .into_iter()
+            .chain(heads.notes)
+            .collect(),
+        status,
+    }
+}
+
+/// The subcommand as the binary runs it on the machine's own files: it
+/// prints [`outcome`] and returns the exit status.
+pub fn main(loaded: &Loaded) -> u8 {
+    let out = outcome(loaded, &Host::system());
+    for line in &out.stderr {
+        eprintln!("{line}");
+    }
+    for line in &out.stdout {
+        println!("{line}");
+    }
+    out.status
 }
 
 /// What the head file's check found.
@@ -215,111 +251,114 @@ pub struct HeadCheck {
 /// under `trust`, on a machine where a udev daemon runs or not.
 pub fn head_file(path: &Path, candidate: bool, trust: &Trust, udev_daemon: bool) -> HeadCheck {
     let mut out = HeadCheck::default();
-    let shown = path.display();
-    let text = match vtium_config::read(path, trust) {
-        Ok(Some(text)) => text,
+    let inspected = match vtium_config::inspect(path, trust) {
+        Ok(Some(inspected)) => inspected,
         Ok(None) if candidate => {
-            out.counted.push(format!("{shown}: does not exist"));
+            out.counted
+                .push(at(path, None, "does not exist").to_string());
             return out;
         }
         Ok(None) => {
-            out.notes.push(format!(
-                "{shown}: absent, so the start runs the shipped rules"
-            ));
+            out.notes
+                .push(at(path, None, "absent, so the start runs the shipped rules").to_string());
             return out;
         }
-        Err(rejected) if candidate && !CANDIDATE_OWNERSHIP_COUNTS && untrusted(&rejected) => {
-            for e in &rejected.errors {
-                out.notes.push(format!(
-                    "{shown}: {}; the start reads it only once it is installed as root's",
-                    e.problem
-                ));
-            }
-            match candidate_text(path) {
-                Ok(text) => text,
-                Err(rejected) => {
-                    reject(&mut out, &shown, &rejected);
-                    return out;
-                }
-            }
+        Err(rejected) if denied(&rejected) => {
+            out.counted.push(
+                at(
+                    path,
+                    None,
+                    "permission denied: the head file can be checked only as root",
+                )
+                .to_string(),
+            );
+            return out;
         }
         Err(rejected) => {
-            reject(&mut out, &shown, &rejected);
+            reject(&mut out, path, &rejected);
             return out;
         }
     };
-    match vtium_config::parse(&text) {
-        Ok(parsed) => findings(&mut out, &shown, &parsed, udev_daemon),
-        Err(rejected) => reject(&mut out, &shown, &rejected),
+    if let Err(why) = inspected.trusted {
+        let problem = Problem::Untrusted(why);
+        if candidate && !CANDIDATE_OWNERSHIP_COUNTS {
+            out.notes.push(
+                at(
+                    path,
+                    None,
+                    format_args!(
+                        "{problem}; the start reads it only once it is installed as root's"
+                    ),
+                )
+                .to_string(),
+            );
+        } else {
+            let mut rejected = Rejected::default();
+            rejected.errors.push(vtium_config::Error {
+                line: None,
+                problem,
+            });
+            reject(&mut out, path, &rejected);
+            return out;
+        }
+    }
+    let parsed = inspected.text.and_then(|text| vtium_config::parse(&text));
+    match parsed {
+        Ok(parsed) => findings(&mut out, path, &parsed, udev_daemon),
+        Err(rejected) => reject(&mut out, path, &rejected),
     }
     out
 }
 
-/// Whether every reason `rejected` gives is the ownership check's.
-fn untrusted(rejected: &Rejected) -> bool {
-    !rejected.errors.is_empty()
-        && rejected
-            .errors
-            .iter()
-            .all(|e| matches!(e.problem, Problem::Untrusted(_)))
+/// Whether `rejected` is the open's refusal for want of permission: a
+/// head file root keeps from other users, which only root can check.
+fn denied(rejected: &Rejected) -> bool {
+    matches!(
+        rejected.errors.as_slice(),
+        [vtium_config::Error {
+            problem: Problem::Unreadable(std::io::ErrorKind::PermissionDenied),
+            ..
+        }]
+    )
 }
 
-/// A candidate's text, read as [`vtium_config::read`] reads a head file
-/// but for the ownership check: a regular file, opened without blocking
-/// and without taking a tty as the controlling one, its bytes checked by
-/// [`vtium_config::text`].
-fn candidate_text(path: &Path) -> Result<String, Rejected> {
-    use rustix::fs::{Mode, OFlags};
-    let fail = |problem| Rejected {
-        errors: vec![Error {
-            line: None,
-            problem,
-        }],
-        more: 0,
-    };
-    let unreadable = |e: std::io::Error| fail(Problem::Unreadable(e.kind()));
-    let flags = OFlags::RDONLY | OFlags::NOCTTY | OFlags::NONBLOCK | OFlags::CLOEXEC;
-    let fd = rustix::fs::open(path, flags, Mode::empty()).map_err(|e| unreadable(e.into()))?;
-    let file = std::fs::File::from(fd);
-    if !file.metadata().map_err(unreadable)?.is_file() {
-        return Err(fail(Problem::NotAFile));
-    }
-    let limit = u64::try_from(vtium_config::FILE_MAX)
-        .unwrap_or(u64::MAX)
-        .saturating_add(1);
-    let mut bytes = Vec::new();
-    file.take(limit)
-        .read_to_end(&mut bytes)
-        .map_err(unreadable)?;
-    vtium_config::text(&bytes).map(str::to_owned)
-}
-
-/// A file rejected whole: each error with its line, counted.
-fn reject(out: &mut HeadCheck, shown: &impl std::fmt::Display, rejected: &Rejected) {
+/// A file rejected whole: each error at its line, counted.
+fn reject(out: &mut HeadCheck, path: &Path, rejected: &Rejected) {
     for e in &rejected.errors {
-        out.counted.push(format!("{shown}: {e}"));
+        out.counted.push(at(path, e.line(), e).to_string());
     }
     if rejected.more > 0 {
         out.counted
-            .push(format!("{shown}: {} more errors", rejected.more));
+            .push(at(path, None, format_args!("{} more errors", rejected.more)).to_string());
     }
-    out.counted.push(format!(
-        "{shown}: rejected whole, so a start reading it runs the shipped rules"
-    ));
+    out.counted.push(
+        at(
+            path,
+            None,
+            "rejected whole, so a start reading it runs the shipped rules",
+        )
+        .to_string(),
+    );
 }
 
 /// A valid file's warnings, counted, and its notes, with a note for each
 /// rule that needs a udev daemon where none runs (ADR-1401 D4, D9).
-fn findings(out: &mut HeadCheck, shown: &impl std::fmt::Display, parsed: &Parsed, udev: bool) {
+fn findings(out: &mut HeadCheck, path: &Path, parsed: &Parsed, udev: bool) {
     for w in &parsed.warnings {
-        out.counted.push(format!("{shown}: {w}"));
+        out.counted.push(at(path, Some(w.line()), w).to_string());
     }
     if parsed.more_warnings > 0 {
-        out.counted
-            .push(format!("{shown}: {} more warnings", parsed.more_warnings));
+        out.counted.push(
+            at(
+                path,
+                None,
+                format_args!("{} more warnings", parsed.more_warnings),
+            )
+            .to_string(),
+        );
     }
     for n in &parsed.notes {
-        let line = format!("{shown}: {n}");
+        let line = at(path, Some(n.line()), n).to_string();
         if WEAK_MATCH_COUNTS && matches!(n, Note::WeakMatch { .. }) {
             out.counted.push(line);
         } else {
@@ -328,18 +367,28 @@ fn findings(out: &mut HeadCheck, shown: &impl std::fmt::Display, parsed: &Parsed
     }
     if parsed.more_notes > 0 {
         out.notes
-            .push(format!("{shown}: {} more notes", parsed.more_notes));
+            .push(at(path, None, format_args!("{} more notes", parsed.more_notes)).to_string());
     }
     if !udev {
         for (line, key) in parsed.config.needs_udev() {
-            out.notes.push(format!(
-                "{shown}: line {line}: no udev daemon runs, so `{key}:` matches nothing"
-            ));
+            out.notes.push(
+                at(
+                    path,
+                    Some(line),
+                    format_args!("no udev daemon runs, so `{key}:` matches nothing"),
+                )
+                .to_string(),
+            );
         }
     }
-    out.notes.push(format!(
-        "{shown}: no device is read, so no rule is checked against the devices present"
-    ));
+    out.notes.push(
+        at(
+            path,
+            None,
+            "no device is read, so no rule is checked against the devices present",
+        )
+        .to_string(),
+    );
 }
 
 /// A device as it reports itself, escaped: its name, else its path, else
@@ -359,26 +408,26 @@ fn reported(id: &Identity) -> String {
 /// reported. Each is a note outside the status, so a file can be checked
 /// away from its machine.
 pub fn device_findings(path: &Path, config: &Heads, devices: &[Identity]) -> Vec<String> {
-    let shown = path.display();
     let head = |i: usize| config.heads.get(i).map_or("?", |h| h.name.as_str());
     let mut out: Vec<String> = config
         .idle_rules(devices)
         .into_iter()
-        .map(|line| format!("{shown}: line {line}: the rule matches no device present"))
+        .map(|line| at(path, Some(line), "the rule matches no device present").to_string())
         .collect();
     for l in config.lockout(devices) {
-        out.push(match l {
+        let what = match l {
             Lockout::PointersOnly { head: h } => format!(
-                "{shown}: head {} claims pointers and no keyboard, and every keyboard is claimed by another head",
+                "head {} claims pointers and no keyboard, and every keyboard is claimed by another head",
                 head(h)
             ),
-            Lockout::EveryKeyboardIgnored => format!("{shown}: every keyboard is ignored"),
+            Lockout::EveryKeyboardIgnored => "every keyboard is ignored".to_owned(),
             Lockout::OneKeyboard { head: h, device } => format!(
-                "{shown}: head {}'s only keyboard is one device, {}",
+                "head {}'s only keyboard is one device, {}",
                 head(h),
                 devices.get(device).map_or_else(String::new, reported)
             ),
-        });
+        };
+        out.push(at(path, None, what).to_string());
     }
     out
 }
@@ -631,7 +680,7 @@ mod tests {
         assert_eq!(
             out.counted,
             [format!(
-                "{f}: line 6: the rule on line 5 takes every device this one matches"
+                "{f}:6: the rule on line 5 takes every device this one matches"
             )]
         );
         assert_eq!(
@@ -656,10 +705,10 @@ mod tests {
         assert_eq!(
             out.notes,
             [
-                format!("{f}: line 3: the rescue key leaves this head's keyboards"),
-                format!("{f}: line 7: the anti-lockout guard is off"),
-                format!("{f}: line 8: the rescue-key guard is off"),
-                format!("{f}: line 9: the never-dark guard is off"),
+                format!("{f}:3: the rescue key leaves this head's keyboards"),
+                format!("{f}:7: the anti-lockout guard is off"),
+                format!("{f}:8: the rescue-key guard is off"),
+                format!("{f}:9: the never-dark guard is off"),
                 format!(
                     "{f}: no device is read, so no rule is checked against the devices present"
                 ),
@@ -681,7 +730,7 @@ mod tests {
         assert_eq!(out.counted, [] as [String; 0]);
         let weak = |line: usize| {
             format!(
-                "{f}: line {line}: input reaches a head by `id` or `name` alone, which any device can claim"
+                "{f}:{line}: input reaches a head by `id` or `name` alone, which any device can claim"
             )
         };
         assert_eq!(
@@ -710,7 +759,7 @@ mod tests {
         let (out, f) = checked("udev", text, false);
         assert_eq!(out.counted, [] as [String; 0]);
         let no = |line: usize, key: &str| {
-            format!("{f}: line {line}: no udev daemon runs, so `{key}:` matches nothing")
+            format!("{f}:{line}: no udev daemon runs, so `{key}:` matches nothing")
         };
         let udev: Vec<&String> = out
             .notes
@@ -784,7 +833,7 @@ mod tests {
         assert_eq!(
             candidate.counted,
             [
-                format!("{f}: line 5: rule names undefined head \"desc\""),
+                format!("{f}:5: rule names undefined head \"desc\""),
                 rejected,
             ]
         );
@@ -810,7 +859,7 @@ mod tests {
         assert_eq!(
             device_findings(path, &config, &[Identity::display(), keyboard, mouse]),
             [
-                "/etc/vtium/heads.conf: line 8: the rule matches no device present",
+                "/etc/vtium/heads.conf:8: the rule matches no device present",
                 "/etc/vtium/heads.conf: head desk's only keyboard is one device, \"Keyb\\u{1b}[2J\"",
                 "/etc/vtium/heads.conf: head panel claims pointers and no keyboard, and every keyboard is claimed by another head",
             ]
@@ -836,6 +885,132 @@ mod tests {
         assert_eq!(l.reports.len(), 1, "{:?}", l.reports);
         let l = load(&[SUBCOMMAND]);
         assert_eq!((l.candidate, l.check), (None, true));
+    }
+
+    // a head file root keeps from other users, such as root's 0600 file in
+    // a 0700 /etc/vtium: only root can check it, and the start, root,
+    // reads it
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_head_file_the_user_may_not_read_can_be_checked_only_as_root() {
+        use std::os::unix::fs::PermissionsExt;
+        if rustix::process::geteuid().is_root() {
+            eprintln!("run as root, every file is readable: the check is skipped");
+            return;
+        }
+        let mode = |p: &Path, m: u32| {
+            std::fs::set_permissions(p, std::fs::Permissions::from_mode(m)).unwrap()
+        };
+        let (file, trust) = heads_fixture("denied", "version = 1\n", 0o000);
+        let dir = file.parent().unwrap().to_path_buf();
+        let denied = HeadCheck {
+            counted: vec![format!(
+                "{}: permission denied: the head file can be checked only as root",
+                file.display()
+            )],
+            notes: Vec::new(),
+        };
+        assert_eq!(head_file(&file, false, &trust, true), denied, "the file");
+        assert_eq!(head_file(&file, true, &trust, true), denied, "a candidate");
+        mode(&file, 0o644);
+        mode(&dir, 0o000);
+        assert_eq!(
+            head_file(&file, false, &trust, true),
+            denied,
+            "its directory"
+        );
+        mode(&dir, 0o700);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_udev_daemon_runs_where_its_control_socket_is_present() {
+        let (file, _) = heads_fixture("udev-control", "", 0o644);
+        assert!(udev_daemon_runs(&file));
+        assert!(!udev_daemon_runs(&file.with_file_name("absent")));
+        std::fs::remove_dir_all(file.parent().unwrap()).ok();
+    }
+
+    /// The subcommand on the command line `args` and a host of fixtures.
+    fn outcome_on(args: &[&str], host: &Host) -> Outcome {
+        let args: Vec<OsString> = [SUBCOMMAND]
+            .iter()
+            .chain(args)
+            .map(OsString::from)
+            .collect();
+        outcome(&config::load(&args, None, &mut |_: &Path| Ok(None)), host)
+    }
+
+    // the installed head file is the host's, read as the start reads it,
+    // and the udev daemon's socket is the host's too
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn the_installed_head_file_and_the_udev_socket_are_the_hosts() {
+        let (file, _) = heads_fixture(
+            "host",
+            "version = 1\n[head a]\n[rules]\ndisplay * -> a\ninput path:pci-0000:00:14.0-usb-0:1 -> a\n",
+            0o644,
+        );
+        let f = file.display().to_string();
+        let host = Host {
+            head_file: file.clone(),
+            udev_control: file.with_file_name("no-udev"),
+        };
+        let out = outcome_on(&[], &host);
+        assert_eq!(out.status, 1);
+        assert_eq!(
+            out.stderr,
+            [
+                format!(
+                    "{f}: not trusted: \"{f}\" is owned by uid {}, not root",
+                    rustix::process::geteuid().as_raw()
+                ),
+                format!("{f}: rejected whole, so a start reading it runs the shipped rules"),
+            ]
+        );
+        let out = outcome_on(&[file.to_str().unwrap()], &host);
+        assert_eq!((out.status, out.stderr), (0, Vec::new()));
+        assert!(
+            out.stdout.contains(&format!(
+                "{f}:5: no udev daemon runs, so `path:` matches nothing"
+            )),
+            "{:?}",
+            out.stdout
+        );
+        let host = Host {
+            udev_control: file.clone(),
+            ..host
+        };
+        let out = outcome_on(&[file.to_str().unwrap()], &host);
+        assert!(
+            !out.stdout.iter().any(|n| n.contains("udev daemon")),
+            "{:?}",
+            out.stdout
+        );
+        let gone = Host {
+            head_file: file.with_file_name("absent.conf"),
+            ..host
+        };
+        let out = outcome_on(&[], &gone);
+        assert_eq!((out.status, out.stderr), (0, Vec::new()));
+        assert!(
+            out.stdout
+                .iter()
+                .any(|n| n.ends_with("absent.conf: absent, so the start runs the shipped rules"))
+        );
+        std::fs::remove_dir_all(file.parent().unwrap()).ok();
+    }
+
+    // a newline or an escape in FILE never splits a line or reaches the
+    // terminal as itself
+    #[test]
+    fn a_control_character_in_the_path_is_shown_escaped() {
+        let path = Path::new("/tmp/vtium-check-heads-a\nb\u{1b}[2J.conf");
+        assert_eq!(
+            head_file(path, true, &Trust::ROOT, true).counted,
+            ["/tmp/vtium-check-heads-a\\nb\\u{1b}[2J.conf: does not exist"]
+        );
     }
 
     #[test]

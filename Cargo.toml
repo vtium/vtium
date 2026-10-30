@@ -17,6 +17,7 @@ vtium-image = { path = "crates/vtium-image" }
 vtium-font = { path = "crates/vtium-font" }
 vtium-render = { path = "crates/vtium-render" }
 vtium-platform = { path = "crates/vtium-platform" }
+vtium-config = { path = "crates/vtium-config" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

@@ -1,7 +1,9 @@
 //! The head file's parser: what makes a file invalid, each error named
 //! with its line, and what a valid file says (ADR-1401 D3, D7).
 
-use vtium_config::{Problem, parse};
+use std::path::Path;
+
+use vtium_config::{Problem, at, parse};
 
 /// The invalid file of ADR-1401's figure: line 6 names `desc`, a head no
 /// section declares.
@@ -22,9 +24,42 @@ fn a_rule_naming_an_undefined_head_rejects_the_file_at_its_line() {
     let error = &rejected.errors[0];
     assert_eq!(error.line, Some(6));
     assert!(matches!(&error.problem, Problem::UndefinedHead(name) if name.raw() == "desc"));
+    assert_eq!(error.to_string(), "rule names undefined head \"desc\"");
+}
+
+// ADR-1401 D7's figure: the error at its file and line, as kmscon.conf's
+// reports read
+#[test]
+fn a_finding_is_shown_at_its_file_and_line_with_the_path_escaped() {
+    let rejected = parse(INVALID_FIGURE).expect_err("a rule names an undefined head");
+    let error = &rejected.errors[0];
+    let heads = Path::new(vtium_config::HEAD_FILE);
     assert_eq!(
-        error.to_string(),
-        "line 6: rule names undefined head \"desc\""
+        at(heads, error.line(), error).to_string(),
+        "/etc/vtium/heads.conf:6: rule names undefined head \"desc\""
+    );
+    assert_eq!(
+        at(heads, None, "absent").to_string(),
+        "/etc/vtium/heads.conf: absent"
+    );
+    let parsed = parse("version = 1\n[head a]\nrescue = off\n[rules]\ndisplay * -> a\n[guards]\nnever-dark = off\n")
+        .expect("valid");
+    let notes: Vec<String> = parsed
+        .notes
+        .iter()
+        .map(|n| at(heads, Some(n.line()), n).to_string())
+        .collect();
+    assert_eq!(
+        notes,
+        [
+            "/etc/vtium/heads.conf:3: the rescue key leaves this head's keyboards",
+            "/etc/vtium/heads.conf:7: the never-dark guard is off",
+        ]
+    );
+    let odd = Path::new("/tmp/a\nb\u{1b}[2J\u{202e}c\\d\"e.conf");
+    assert_eq!(
+        at(odd, Some(2), "x").to_string(),
+        "/tmp/a\\nb\\u{1b}[2J\\u{202e}c\\d\"e.conf:2: x"
     );
 }
 
