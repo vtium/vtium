@@ -1162,6 +1162,26 @@ mod tests {
         assert!(all(&f.draw(&['e'], Style::default()).unwrap(), 255));
     }
 
+    // ADR-1200 D20: the store compares a cluster's text whole: with e held,
+    // e U+0301 is new, and with e U+0301 held, e U+0300 is
+    #[test]
+    fn the_store_keys_a_cluster_by_its_whole_text() {
+        let mut g = Generated::default();
+        add(&mut g, CELL, with_clusters(&['e'], &[]), vec![(0x65, 1)], 1);
+        assert!(g.held(CELL, &['e']) && !g.held(CELL, &ACUTE));
+        let fresh = g
+            .fresh(CELL, with_clusters(&['e'], &[(&ACUTE, 7)]), &[(0x65, 1)], 1)
+            .unwrap();
+        assert_eq!(fresh.texts().cloned().collect::<Vec<_>>(), [ACUTE.to_vec()]);
+        assert!(g.add(fresh).is_some());
+        let grave = ['e', '\u{300}'];
+        assert!(g.held(CELL, &ACUTE) && !g.held(CELL, &grave));
+        let fresh = g
+            .fresh(CELL, with_clusters(&[], &[(&grave, 9)]), &[], 1)
+            .unwrap();
+        assert_eq!(fresh.texts().cloned().collect::<Vec<_>>(), [grave.to_vec()]);
+    }
+
     #[test]
     fn a_clusters_nfc_form_is_found_in_canonical_order() {
         assert_eq!(precomposed(&ACUTE), Some('\u{e9}'));
