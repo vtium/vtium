@@ -5,8 +5,9 @@
 //! bitmap font or rasterises an outline one, and writes the glyph form
 //! ([`crate::glyphs::Glyphs`]) or the outline form
 //! ([`crate::outline::Outline`]), which its parent checks field by field.
-//! `serve` sets the same sandbox on itself and parses in its own process,
-//! so only the tests start the child; their parent's side is
+//! `serve` sets the same sandbox on itself, with 300 s of CPU
+//! (`HELPER_SECONDS`) in place of the child's 30, and parses in its own
+//! process, so only the tests start the child; their parent's side is
 //! `tests/common/parser.rs`.
 
 use std::io::{Read, Write};

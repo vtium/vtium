@@ -403,7 +403,7 @@ pub fn cpi(bytes: &[u8], height: u32) -> Result<Vec<u8>, String> {
 }
 
 /// A font file's bytes parsed into the glyph form: decompressed, read as
-/// PSF1 or PSF2, and mapped by `unimap` when the frit gives one, else by
+/// PSF1, PSF2 or a raw font, and mapped by `unimap` when the frit gives one, else by
 /// the font's own table, else by `def_uni`, kbd's default map. A font with
 /// none of them is refused, naming `unimap=`, and a CPI font, which holds
 /// several, is refused naming `cp-size=`.

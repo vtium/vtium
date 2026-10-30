@@ -66,8 +66,8 @@ pub enum Input {
     /// An outline font, its cells and coverage filled in when the cell is
     /// known.
     Outline(OutlineRequest),
-    /// A BDF font's bytes, for the parser: read here, parsed by
-    /// [`crate::bdf`] where the other untrusted fonts are.
+    /// A BDF font's bytes, read here and parsed by [`crate::bdf`] when the
+    /// frit loads, where the other untrusted fonts are.
     Bdf(Vec<u8>),
     /// A bitmap font's glyphs at its own cell, already read: a built-in
     /// font's.

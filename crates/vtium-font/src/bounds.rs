@@ -46,7 +46,7 @@ const RAW_HEIGHT: Bound = Bound {
     value: 32,
     what: "A raw font glyph's height in pixels: a raw font is 256 glyphs of N bytes, one byte a row, 8 pixels across",
     past: "The file is refused as a font",
-    cite: "setfont(8): \"Raw font files are binary files of size 256*N bytes ... (0 < N <= 32)\"; the C reference read no raw font (font_psf.c:154-205 refuses a file with neither PSF magic)",
+    cite: "setfont(8): \"Raw font files are binary files of size 256*N bytes ... (0 < N <= 32)\"; the C reference read no raw font (font_psf.c:154-205 refused a file with neither PSF magic)",
 };
 
 const BYTES: Bound = Bound {

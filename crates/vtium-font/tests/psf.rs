@@ -185,14 +185,18 @@ fn a_raw_font_is_256_glyphs_of_one_byte_rows() {
 // covers: text.psf
 #[test]
 fn a_file_of_no_raw_size_is_refused() {
-    for len in [0usize, 1, 255, 257, 256 * 33, 256 * 32 + 1, 256 * 64, 4095] {
+    for len in [1usize, 255, 257, 256 * 33, 256 * 32 + 1, 256 * 64, 4095] {
         let b = vec![0xaa; len];
         let e = Psf::parse(&b).expect_err("not a font");
-        assert!(
-            matches!(e, PsfError::NotPsf | PsfError::Truncated),
-            "{len}: {e}"
-        );
+        assert!(matches!(e, PsfError::NotPsf), "{len}: {e}");
     }
+    // gzipped, its size past the bound
+    if cfg!(feature = "gzip") {
+        let e = Psf::parse(&gzip(&vec![0xaa; 256 * 33])).expect_err("not a font");
+        assert!(matches!(e, PsfError::NotPsf), "{e}");
+    }
+    // an empty file has no header to read
+    assert!(matches!(Psf::parse(&[]), Err(PsfError::Truncated)));
     // the edges either side of the bound
     assert!(Psf::parse(&vec![0xaa; 256 * 32]).is_ok());
     assert!(Psf::parse(&vec![0xaa; 256]).is_ok());
@@ -651,6 +655,27 @@ fn the_terminus_fixtures_load() {
 // covers: text.psf
 #[test]
 fn every_kbd_console_font_loads() {
+    // the files kbd ships that are no PSF and load as raw fonts by their
+    // size alone; one a distribution adds is named here when it is seen
+    const RAW_KBD_FONTS: [&str; 17] = [
+        "alt-8x14.gz",
+        "alt-8x16.gz",
+        "alt-8x8.gz",
+        "altc-8x16.gz",
+        "arm8.fnt.gz",
+        "cp857.08.gz",
+        "cp857.14.gz",
+        "cp857.16.gz",
+        "cybercafe.fnt.gz",
+        "koi8c-8x16.gz",
+        "koi8r-8x14.gz",
+        "koi8r-8x16.gz",
+        "koi8r-8x8.gz",
+        "Mik_8x16.gz",
+        "README.Arabic",
+        "t850b.fnt.gz",
+        "t.fnt.gz",
+    ];
     let dir = "/usr/share/kbd/consolefonts";
     let Ok(entries) = std::fs::read_dir(dir) else {
         eprintln!("no {dir}: positive control skipped");
@@ -674,8 +699,11 @@ fn every_kbd_console_font_loads() {
             assert!(got.is_err(), "{}", path.display());
             continue;
         }
-        // a file of 256 times a height of 1 to 32 is a raw font
-        let raw_font = plain.len() % 256 == 0 && (1..=32).contains(&(plain.len() / 256));
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        let raw_font = RAW_KBD_FONTS.contains(&name);
         assert_eq!(
             got.is_ok(),
             psf || raw_font,

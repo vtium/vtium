@@ -9,17 +9,8 @@ mod parser;
 use std::os::fd::AsRawFd;
 use std::path::Path;
 
-use parser::{Parser, nobody};
+use parser::Parser;
 use vtium_vitrify::child::Request;
-
-#[test]
-fn nobody_is_read_from_passwd() {
-    let passwd = "root:x:0:0::/root:/bin/sh\nnobody:x:65534:65534:Nobody:/:/usr/bin/nologin\n";
-    assert_eq!(nobody(passwd), Some((65534, 65534)));
-    assert_eq!(nobody("root:x:0:0::/root:/bin/sh\n"), None);
-    // a nobody with uid 0 is no unprivileged account
-    assert_eq!(nobody("nobody:x:0:0::/:/bin/sh\n"), None);
-}
 
 fn stand_in(script: &str) -> Parser {
     Parser::with_program(Path::new("/bin/sh"), &["-c", script])

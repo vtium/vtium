@@ -5,79 +5,40 @@
 //! Nothing in the shipped binary starts the child (`serve` parses in its
 //! own sandbox), so the parent's side lives with the tests.
 
+// Three test crates include this file and each calls some of its methods.
 #![allow(dead_code)]
 
 use std::ffi::OsString;
 use std::io::{Read, Write};
-use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use rustix::process::{Pid, PidfdFlags, Signal, geteuid, pidfd_open, pidfd_send_signal};
-use vtium_vitrify::child::{PARSE_ARG, PARSER_WALL_SECONDS, Request};
+use rustix::process::{Pid, PidfdFlags, Signal, pidfd_open, pidfd_send_signal};
+use vtium_vitrify::child::{PARSER_WALL_SECONDS, Request};
 use vtium_vitrify::glyphs::{GLYPHS_BYTES_MAX, Glyphs};
 use vtium_vitrify::outline::{OUTLINE_ANSWER_BYTES_MAX, Outline, OutlineRequest};
 
 /// The most bytes of the parser's message on failure the parent keeps.
 const MESSAGE_MAX: u64 = 4096;
 
-/// The account the parser runs as when the parent is root: `nobody`, as
-/// ADR-1400's image helper falls back to it, its uid and gid read from
-/// `/etc/passwd`.
-pub fn nobody(passwd: &str) -> Option<(u32, u32)> {
-    passwd.lines().find_map(|line| {
-        let mut fields = line.split(':');
-        (fields.next() == Some("nobody")).then_some(())?;
-        let _password = fields.next()?;
-        let uid = fields.next()?.parse().ok()?;
-        let gid = fields.next()?.parse().ok()?;
-        (uid != 0 && gid != 0).then_some((uid, gid))
-    })
-}
-
 /// How to start the parser.
 #[derive(Clone, Debug)]
 pub struct Parser {
     program: PathBuf,
     args: Vec<OsString>,
-    /// The account to run as: set when the parent is root.
-    account: Option<(u32, u32)>,
     /// How long the parser may take, by the wall clock, before it is
     /// killed.
     deadline: Duration,
 }
 
 impl Parser {
-    /// This binary as the parser, run as `nobody` when the parent is root.
-    pub fn new() -> Result<Parser, String> {
-        let program = std::env::current_exe()
-            .map_err(|e| format!("cannot find this program to start the parser: {e}"))?;
-        let account = if geteuid().is_root() {
-            let passwd = std::fs::read_to_string("/etc/passwd")
-                .map_err(|e| format!("cannot read /etc/passwd for the parser's account: {e}"))?;
-            Some(
-                nobody(&passwd).ok_or(
-                    "no unprivileged account to parse fonts as: /etc/passwd holds no nobody",
-                )?,
-            )
-        } else {
-            None
-        };
-        Ok(Parser {
-            program,
-            args: vec![PARSE_ARG.into()],
-            account,
-            deadline: Duration::from_secs(PARSER_WALL_SECONDS),
-        })
-    }
-
     /// A stand-in program as the parser, for tests of the parent's side.
     pub fn with_program(program: &Path, args: &[&str]) -> Parser {
         Parser {
             program: program.to_owned(),
             args: args.iter().map(OsString::from).collect(),
-            account: None,
             deadline: Duration::from_secs(PARSER_WALL_SECONDS),
         }
     }
@@ -118,10 +79,6 @@ impl Parser {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        if let Some((uid, gid)) = self.account {
-            // std drops the supplementary groups before setuid when root
-            command.uid(uid).gid(gid);
-        }
         let mut child = command
             .spawn()
             .map_err(|e| format!("cannot start the parser: {e}"))?;
