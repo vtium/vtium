@@ -879,6 +879,63 @@ input class:keyboard -> focus
     assert!(now() - started >= slow, "after its slow compose");
 }
 
+/// D2: a flood in one head's pty takes a bounded share of each turn.
+/// While `desk`'s program writes as fast as it can, a key typed on
+/// `panel`'s keyboard reaches panel's session, and panel's display draws
+/// the echo, within 12 turns; no turn parses more than 64 KiB of desk's
+/// output, and desk's output keeps coming.
+#[test]
+fn a_flood_in_one_head_leaves_another_heads_keys_and_frames_their_turn() {
+    let heads = "version = 1
+[head desk]
+login = /bin/sh -c \"exec yes 0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz\"
+[head panel]
+login = /bin/sh -c \"echo ready; while read a; do echo got:$a; done\"
+[rules]
+display card:mem-large -> desk
+display card:mem-small -> panel
+input path:kbd-panel -> panel
+";
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let mut s = Seat::with_heads(&[], Some(heads), displays, "read x");
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-panel"));
+    let parsed = |a: &App| a.head("desk").map_or(0, |h| h.term().parsed);
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "panel", "ready")
+            && parsed(a) > 1 << 20),
+        "panel's session runs and desk floods"
+    );
+    let flooded = parsed(&s.app);
+    s.type_on(KBD_SMALL, "k\r");
+    let mut echoed = None;
+    let mut turns = 0;
+    while turns < 12 {
+        let before = parsed(&s.app);
+        s.lp.dispatch(Some(Duration::from_millis(20)), &mut s.app)
+            .expect("dispatch");
+        s.app.turn(now());
+        turns += 1;
+        let share = parsed(&s.app) - before;
+        assert!(
+            share <= 64 * 1024,
+            "turn {turns} parsed {share} bytes of desk's output"
+        );
+        let frames = s.memory("/dev/mem0").frames;
+        match echoed {
+            None if head_shows(&s.app, "panel", "got:k") => echoed = Some(frames),
+            Some(at) if frames > at => break,
+            _ => {}
+        }
+    }
+    assert!(
+        echoed.is_some(),
+        "the key's echo reached panel's screen within 12 turns"
+    );
+    assert!(turns < 12, "panel's display drew the echo within 12 turns");
+    assert!(parsed(&s.app) > flooded, "desk's output keeps coming");
+}
+
 /// D2: a frame composing holds up no VT switch. While the slow head's
 /// frame takes 2 s to compose, the VT's release is acknowledged within a
 /// second, the device asleep; the acquire draws the display again.
