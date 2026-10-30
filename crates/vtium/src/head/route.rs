@@ -15,7 +15,22 @@ struct Route {
     /// Its handle in the seat's input, once it has one.
     id: Option<DeviceId>,
     keyboard: bool,
+    /// Where its rule placed it.
     place: Place,
+    /// The rescue key moved it to the focus for the rest of the boot
+    /// (ADR-1401 D9).
+    rescued: bool,
+}
+
+impl Route {
+    /// Where its events go: its rule's place, or the focus once rescued.
+    fn place(&self) -> Place {
+        if self.rescued {
+            Place::Focus
+        } else {
+            self.place
+        }
+    }
 }
 
 /// Every input device the rules placed, by its node.
@@ -40,6 +55,7 @@ impl Routes {
                 id: None,
                 keyboard: identity.classes.has(Class::Keyboard),
                 place: placed.place,
+                rescued: false,
             },
         );
         match rules.disposition(&placed, identity) {
@@ -54,6 +70,23 @@ impl Routes {
         if let Some(route) = self.devices.get_mut(node) {
             route.id = Some(id);
         }
+    }
+
+    /// The rescue key pressed on the device at `node` (ADR-1401 D9): it
+    /// follows the focus for the rest of the boot where `rules` let the
+    /// rescue take it from its place. Returns its handle once moved.
+    pub(crate) fn rescue(
+        &mut self,
+        rules: &vtium_config::Config,
+        node: &Path,
+    ) -> Option<Option<DeviceId>> {
+        let route = self.devices.get_mut(node).filter(|r| !r.rescued)?;
+        let placed = vtium_config::Placed {
+            place: route.place,
+            by: vtium_config::By::NoMatch,
+        };
+        route.rescued = rules.rescue(&placed);
+        route.rescued.then_some(route.id)
     }
 
     pub(crate) fn remove(&mut self, node: &Path) {
@@ -73,7 +106,7 @@ impl Routes {
     /// no rule placed, as one a test types on, follows the focus; an
     /// ignored one reaches none.
     pub(crate) fn head(&self, node: Option<&Path>, focus: Option<usize>) -> Option<usize> {
-        let place = node.and_then(|n| self.devices.get(n)).map(|r| r.place);
+        let place = node.and_then(|n| self.devices.get(n)).map(Route::place);
         head_of(place.unwrap_or(Place::Focus), focus)
     }
 
@@ -81,7 +114,7 @@ impl Routes {
     pub(crate) fn devices_of(&self, h: usize, focus: Option<usize>) -> Vec<DeviceId> {
         self.devices
             .values()
-            .filter(|r| head_of(r.place, focus) == Some(h))
+            .filter(|r| head_of(r.place(), focus) == Some(h))
             .filter_map(|r| r.id)
             .collect()
     }
@@ -95,7 +128,7 @@ impl Routes {
     ) -> bool {
         self.devices
             .values()
-            .any(|r| r.keyboard && head_of(r.place, focus) == Some(h) && open(r.id))
+            .any(|r| r.keyboard && head_of(r.place(), focus) == Some(h) && open(r.id))
     }
 }
 

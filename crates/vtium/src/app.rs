@@ -1863,6 +1863,14 @@ impl App {
     /// is the user's activity; a pointer event is when
     /// [`App::pointer_event`] says so.
     fn deliver(&mut self, node: Option<&Path>, event: InputEvent, now: Instant) {
+        // The shown VT's own key does nothing else (D9).
+        if let (Some(node), InputEvent::Key(key)) = (node, &event) {
+            if !key.repeat && self.vt.is_own_key(key) {
+                self.activity(now);
+                self.rescue(node);
+                return;
+            }
+        }
         // A head whose display never lit receives nothing (D8).
         let h = self.routes.head(node, self.focus).filter(|&h| {
             self.heads
@@ -1884,6 +1892,25 @@ impl App {
                 self.pointer_to(h, p, mods, now);
             }
         }
+    }
+
+    /// The rescue key, `Ctrl-Alt-F<n>` for vtium's own VT, pressed on the
+    /// keyboard at `node` (ADR-1401 D9): it follows the focus for the rest
+    /// of the boot, opened to deliver where it was watched for the rescue
+    /// key alone, unless the `rescue-key` guard or its head's `rescue` is
+    /// off. Nothing is written.
+    fn rescue(&mut self, node: &Path) {
+        let Some(id) = self.routes.rescue(&self.rules, node) else {
+            return;
+        };
+        log::warn!(
+            "the rescue key: {} follows the focus until the next boot",
+            node.display()
+        );
+        if let (Some(input), Some(id)) = (&mut self.input, id) {
+            input.set_disposition(id, vtium_platform::input::Disposition::Deliver);
+        }
+        self.bound_pointers();
     }
 
     /// A pointer event, with the modifiers held on the keyboards as it
@@ -2187,10 +2214,7 @@ impl App {
             head.tracking_changed();
         }
         for e in inputs {
-            // The rescue key's move is not built: its press does nothing.
-            if e.rescue {
-                continue;
-            }
+            // A device watched for the rescue key sends its presses alone.
             let node = e
                 .device
                 .and_then(|id| self.routes.node(id))

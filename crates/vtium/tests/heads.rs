@@ -227,6 +227,19 @@ impl Seat {
         script: &str,
         fonts: Sources,
     ) -> Seat {
+        let rules = heads.map(|text| vtium_config::parse(text).expect("a valid head file").config);
+        Seat::with_rules(args, rules, displays, script, fonts)
+    }
+
+    /// [`Seat::with_fonts`], running `rules` as the head file in force, on
+    /// VT 1.
+    fn with_rules(
+        args: &[&str],
+        rules: Option<vtium_config::Config>,
+        displays: impl IntoIterator<Item = (&'static str, Memory)>,
+        script: &str,
+        fonts: Sources,
+    ) -> Seat {
         let args: Vec<OsString> = ["--font-size=16"]
             .iter()
             .chain(args)
@@ -239,14 +252,14 @@ impl Seat {
         let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
         let mut app = App::new(
             loaded.config,
-            Box::new(FakeVt::new()),
+            Box::new(FakeVt::with_number(1)),
             lp.handle(),
             Rc::new(now),
             env,
         );
         app.set_font_sources(fonts);
-        if let Some(text) = heads {
-            app.set_heads(vtium_config::parse(text).expect("a valid head file").config);
+        if let Some(rules) = rules {
+            app.set_heads(rules);
         }
         for (node, memory) in displays {
             app.add_video(PathBuf::from(node), Box::new(memory));
@@ -1786,4 +1799,142 @@ fn under_oneshot_a_hang_up_ends_the_head_and_then_vtium() {
         s.until(SECOND, |a| a.finished() == Some(vtium::app::Exit::Oneshot)),
         "large never lit, so nothing is left to run"
     );
+}
+
+/// A head file on disk, in a directory of its own that only the test's
+/// user can write, read as the start reads root's: the file, and the trust
+/// that reads it. The directory goes when it is dropped.
+struct HeadFile {
+    dir: PathBuf,
+    path: PathBuf,
+}
+
+impl HeadFile {
+    fn new(test: &str, text: &str) -> HeadFile {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("vtium-heads-{test}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the directory");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("0700");
+        let path = dir.join("heads.conf");
+        std::fs::write(&path, text).expect("the head file");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("0644");
+        HeadFile { dir, path }
+    }
+
+    /// The trust the start reads the file under, with the test's user in
+    /// root's place.
+    fn trust(&self) -> vtium_config::Trust {
+        use std::os::unix::fs::MetadataExt;
+        let uid = std::fs::metadata(&self.dir).expect("the directory").uid();
+        vtium_config::Trust::owner(uid).below(&self.dir)
+    }
+
+    /// The rules the start runs from the file.
+    fn rules(&self) -> vtium_config::Config {
+        vtium::head::rules(&self.path, &self.trust())
+    }
+
+    /// Every file of the directory, each with the hash of its bytes and
+    /// its modification time.
+    fn listing(&self) -> Vec<(OsString, u64, std::time::SystemTime)> {
+        use std::hash::{Hash, Hasher};
+        let mut out: Vec<_> = std::fs::read_dir(&self.dir)
+            .expect("the directory")
+            .map(|e| {
+                let e = e.expect("an entry");
+                let mut h = std::hash::DefaultHasher::new();
+                std::fs::read(e.path()).expect("its bytes").hash(&mut h);
+                let modified = e.metadata().and_then(|m| m.modified()).expect("its time");
+                (e.file_name(), h.finish(), modified)
+            })
+            .collect();
+        out.sort();
+        out
+    }
+}
+
+impl Drop for HeadFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// `Ctrl-Alt-F<n>`, the kernel's key for VT `n`.
+fn ctrl_alt_f(n: u32) -> InputEvent {
+    InputEvent::Key(KeyEvent {
+        keycode: 0,
+        ascii: 0,
+        mods: Mods::CTRL.union(Mods::ALT),
+        keysyms: vec![0xffbe + n - 1],
+        codepoints: vec![None],
+        repeat: false,
+    })
+}
+
+/// [`CLAIMED`] with a keyboard the rules ignore.
+const RESCUE: &str = "version = 1
+[head small]
+[head large]
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+input path:kbd-small -> small
+input path:kbd-ignored -> ignore
+input class:keyboard -> focus
+";
+
+const KBD_IGNORED: &str = "/dev/input/event3";
+
+/// Two heads booted on `rules`, the large display the boot display, so
+/// the focus rests on `large`, with [`KBD_SMALL`] and [`KBD_IGNORED`].
+fn rescue_seat(rules: vtium_config::Config) -> Seat {
+    let displays = [
+        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
+        (
+            "/dev/mem1",
+            Memory::new(640, 320, "MEM-2", "mem-large").lit(),
+        ),
+    ];
+    let script = "echo ready; while read a; do echo \"got:$a\"; done";
+    let mut s = Seat::with_rules(&[], Some(rules), displays, script, no_fonts());
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    s.app
+        .add_input(Path::new(KBD_IGNORED), keyboard("kbd-ignored"));
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")
+        && head_shows(a, "large", "ready")));
+    assert_eq!(s.app.focus_head(), Some("large"));
+    s
+}
+
+/// D9 and D11's rescue row: `Ctrl-Alt-F<n>` for vtium's own VT, pressed on
+/// a keyboard a head claims or on one the rules ignore, makes that
+/// keyboard follow the focus for the rest of the boot, and writes nothing:
+/// the head file's bytes and its directory are as they were.
+#[test]
+fn the_rescue_key_moves_a_claimed_keyboard_and_an_ignored_one_to_the_focus_and_writes_nothing() {
+    let file = HeadFile::new("rescue", RESCUE);
+    let before = file.listing();
+    let mut s = rescue_seat(file.rules());
+    s.type_on(KBD_IGNORED, "i\r");
+    s.type_on(KBD_SMALL, "c\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:c")));
+    s.until(Duration::from_millis(100), |_| false);
+    assert!(
+        !head_shows(&s.app, "large", "got:i"),
+        "ignored: it types nowhere"
+    );
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_alt_f(1), now());
+    s.app
+        .device_input(Path::new(KBD_IGNORED), ctrl_alt_f(1), now());
+    s.type_on(KBD_SMALL, "s\r");
+    s.type_on(KBD_IGNORED, "j\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "large", "got:s")
+            && head_shows(a, "large", "got:j")),
+        "both follow the focus"
+    );
+    assert!(!head_shows(&s.app, "small", "got:s"));
+    assert_eq!(file.listing(), before, "nothing written");
 }
