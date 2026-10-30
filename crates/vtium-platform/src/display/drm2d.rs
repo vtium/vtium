@@ -1031,17 +1031,17 @@ impl<K: Kms> Drm2d<K> {
         let outputs = &self.outputs;
         self.identities
             .retain(|(id, _)| outputs.iter().any(|o| o.id == *id));
+        // With no display the card keeps master while its VT is shown, so
+        // the kernel's console, which lights a display at a hotplug while
+        // no process holds master, never takes one plugged in meanwhile.
         if self.outputs.is_empty() {
             if needs && !self.dark.is_empty() {
                 self.darken();
             }
-            if self.master {
-                self.release_master();
-            }
             return Ok(());
         }
-        // The last display's going dropped master; a display back takes
-        // it again before its modeset (aaronsb/kmscon#237).
+        // A wake-up that failed let master go; the scan takes it again
+        // before its modeset (aaronsb/kmscon#237).
         if !self.master {
             self.card.set_master()?;
             self.master = true;
@@ -1185,6 +1185,7 @@ impl<K: Kms> Drm2d<K> {
             flip_timer: None,
             available: true,
             announced: false,
+            returning: self.scanned,
         })
     }
 
@@ -1286,6 +1287,12 @@ impl<K: Kms> Drm2d<K> {
     /// have left in the middle of the screen, and every plane on a CRTC in
     /// `off`, which the commit turns off.
     fn clear_planes(&self, req: &mut Request, off: &[u32]) {
+        self.hide_planes(req, off, true);
+    }
+
+    /// Hides every plane on a CRTC in `off`, and every cursor and overlay
+    /// plane too when `others`.
+    fn hide_planes(&self, req: &mut Request, off: &[u32], others: bool) {
         let all = self.card.planes().unwrap_or_else(|e| {
             log::warn!("cannot list the card's planes: {e}");
             Vec::new()
@@ -1301,7 +1308,8 @@ impl<K: Kms> Drm2d<K> {
             let on_off = value(&props, "CRTC_ID")
                 .and_then(|c| u32::try_from(c).ok())
                 .is_some_and(|c| off.contains(&c));
-            if on_off || matches!(value(&props, "type"), Some(PLANE_CURSOR | PLANE_OVERLAY)) {
+            let other = matches!(value(&props, "type"), Some(PLANE_CURSOR | PLANE_OVERLAY));
+            if on_off || others && other {
                 let props = Props::new(&props);
                 let cleared = props
                     .set(req, plane, "CRTC_ID", 0)
@@ -1537,9 +1545,87 @@ impl<K: Kms> Drm2d<K> {
         }
     }
 
+    /// Sets off each display that returns where the card shows it on a
+    /// CRTC, or shows a mode on the CRTC it takes: the CRTC its connector
+    /// is on and the CRTC it takes, their planes and every connector on
+    /// them, in a commit of its own. The modeset after it then sets the
+    /// display's mode, CRTC and connector from off, a full modeset,
+    /// whatever mode another master or the kernel's console left there.
+    /// The test seat's small panel showed nothing under frames committed
+    /// on the mode the console set at its return, until a VT switch set
+    /// its mode anew. A CRTC a display online drives only loses the
+    /// returning connector. A display on no CRTC, taking one with no mode,
+    /// is set from off already, and needs no such commit.
+    fn set_returning_off(&self) -> Result<(), Failure> {
+        let mut ids = Vec::new();
+        let mut off = Vec::new();
+        for o in self.outputs.iter().filter(|o| o.returning) {
+            let on = self.connector_crtc(o.id.0);
+            if on.is_some() {
+                ids.push(o.id.0);
+            }
+            for crtc in [on, Some(o.crtc)].into_iter().flatten() {
+                let driven = self.outputs.iter().any(|d| !d.returning && d.crtc == crtc);
+                if !driven && !off.contains(&crtc) && self.crtc_lit(crtc) {
+                    off.push(crtc);
+                }
+            }
+        }
+        if ids.is_empty() && off.is_empty() {
+            return Ok(());
+        }
+        let mut req = Request::default();
+        let prepared = (|| -> io::Result<()> {
+            for &id in &ids {
+                self.unbind(&mut req, id)?;
+            }
+            let all = self.card.resources()?.connectors;
+            for &crtc in &off {
+                let props = Props::new(&self.card.properties(crtc, Object::Crtc)?);
+                props.set(&mut req, crtc, "MODE_ID", 0)?;
+                props.set(&mut req, crtc, "ACTIVE", 0)?;
+                for &other in &all {
+                    if !ids.contains(&other) && self.connector_crtc(other) == Some(crtc) {
+                        self.unbind(&mut req, other)?;
+                    }
+                }
+            }
+            Ok(())
+        })();
+        prepared.map_err(|e| {
+            log::error!("cannot set the displays that return off: {e}");
+            Failure::Other(e)
+        })?;
+        self.hide_planes(&mut req, &off, false);
+        self.card
+            .commit(&req, DRM_MODE_ATOMIC_ALLOW_MODESET)
+            .map_err(|e| {
+                // EACCES while another process holds master is expected.
+                if errno(&e) == Some(Errno::ACCESS) {
+                    log::debug!("the commit setting the displays that return off was refused: {e}");
+                    Failure::Test(e)
+                } else {
+                    log::error!("cannot set the displays that return off: {e}");
+                    Failure::Other(e)
+                }
+            })
+    }
+
+    /// Whether `crtc` shows a mode or is active, as the card reports it; a
+    /// CRTC whose state cannot be read counts as lit.
+    fn crtc_lit(&self, crtc: u32) -> bool {
+        let mode = self.card.crtc_mode(crtc).map_or(true, |m| m.is_some());
+        let active = self
+            .card
+            .properties(crtc, Object::Crtc)
+            .map_or(true, |p| value(&p, "ACTIVE").is_some_and(|a| a != 0));
+        mode || active
+    }
+
     /// One atomic modeset of every display: tried first as a test-only
     /// commit, then committed without blocking, with a flip event.
     fn atomic_modeset(&mut self, dark: bool) -> Result<(), Failure> {
+        self.set_returning_off()?;
         let mut req = Request::default();
         let off = if dark {
             self.prepare_dark(&mut req)
@@ -1618,6 +1704,7 @@ impl<K: Kms> Drm2d<K> {
                 o.mode_blob = blob;
                 self.install(o, made);
                 o.online = true;
+                o.returning = false;
                 o.cursor_set = o.cursor_shown();
                 o.start_flip();
                 o.damage.set_whole();
@@ -1656,6 +1743,15 @@ impl<K: Kms> Drm2d<K> {
                     continue;
                 }
             };
+            // A display that returns is set from off, as the atomic
+            // modeset sets it, where the card can turn its CRTC off.
+            if o.returning {
+                if let Some(crtc) = self.connector_crtc(o.id.0) {
+                    if let Err(e) = self.card.disable_crtc(crtc) {
+                        log::debug!("cannot turn the CRTC of {} off first: {e}", o.name);
+                    }
+                }
+            }
             // Another program may have left its cursor on the CRTC.
             if let Err(e) = self.card.hide_cursor(o.crtc) {
                 log::warn!("cannot hide the hardware cursor: {e}");
@@ -1665,6 +1761,7 @@ impl<K: Kms> Drm2d<K> {
                 Ok(()) => {
                     self.install(o, made);
                     o.online = true;
+                    o.returning = false;
                     // The CRTC is on, whatever DPMS it was at.
                     if !o.dpms_on() {
                         o.dpms = o.dpms.map(|(prop, _)| (prop, Dpms::On));

@@ -719,7 +719,8 @@ fn a_card_opened_without_master_sleeps_quietly() {
 }
 
 // A monitor's power cycle: the connector goes, and another comes, as an
-// MST connector is replaced (aaronsb/kmscon#237).
+// MST connector is replaced (aaronsb/kmscon#237). With no display left the
+// card keeps master, as its VT is still shown.
 #[test]
 fn a_power_cycle_skips_the_gone_connector() {
     let card = FakeCard::new(&[
@@ -733,7 +734,7 @@ fn a_power_cycle_skips_the_gone_connector() {
     v.card().state().connectors.remove(&A);
     v.poll().unwrap();
     assert_eq!(events(&mut v), [Event::Removed(DisplayId(A))]);
-    assert!(!v.card().state().master, "no display left: master dropped");
+    assert!(v.card().state().master, "no display left: master kept");
     let before = v.card().state().commits.len();
     {
         let mut s = v.card().state();
@@ -883,6 +884,8 @@ fn the_wake_up_retries_run_out() {
     assert_eq!(events(&mut v), [Event::WakeFailed]);
 }
 
+// A card with no display keeps DRM master while its VT is shown, so the
+// kernel's console never lights a display plugged in later.
 #[test]
 fn a_connector_without_modes_is_no_display() {
     let card = FakeCard::new(&[(A, vec![])]);
@@ -890,7 +893,11 @@ fn a_connector_without_modes_is_no_display() {
     v.wake_up().unwrap();
     assert_eq!(events(&mut v), [Event::Awake]);
     assert_eq!(v.displays().count(), 0);
-    assert!(!v.card().state().master);
+    let s = v.card().state();
+    assert!(
+        s.master && s.master_drops == 0,
+        "master kept with no display"
+    );
 }
 
 #[test]
@@ -2117,10 +2124,10 @@ fn a_crtc_a_dark_connector_leaves_drives_a_lit_display() {
     assert_eq!((s.bound.get(&A), s.bound.get(&B)), (Some(&100), Some(&0)));
 }
 
-// With every display dark, vtium takes master to set them off and lets it
-// go, as with no display at all.
+// With every display dark, vtium sets them off and keeps master, as with
+// no display at all, while its VT is shown.
 #[test]
-fn every_display_dark_is_set_off_and_master_let_go() {
+fn every_display_dark_is_set_off_and_master_kept() {
     let card = FakeCard::new(&[(B, vec![mode(640, 480, 60, true)])]);
     left_lit(&card, B, 0);
     let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
@@ -2142,7 +2149,7 @@ fn every_display_dark_is_set_off_and_master_let_go() {
         (Some(0), Some(0))
     );
     let s = v.card().state();
-    assert!(!s.master);
+    assert!(s.master && s.master_drops == 0, "master kept");
     assert_eq!(s.active.get(&100), Some(&false));
 }
 
@@ -2243,17 +2250,17 @@ fn a_displays_identity_names_its_connector_card_and_monitor() {
     assert_eq!(v.dark().count(), 0);
 }
 
-// With every display dark, master was let go; a dark connector plugged in
-// then takes it again for the commit that sets it off, and lets it go.
+// With no display, the card keeps master; a dark connector plugged in then
+// is set off under it, and master is still kept after.
 #[test]
-fn a_dark_connector_plugged_in_with_master_let_go_takes_master_for_its_commit() {
+fn a_dark_connector_plugged_in_with_no_display_is_set_off_under_the_master_kept() {
     let card = dark_card();
     card.state().connectors.get_mut(&B).unwrap().connected = false;
     let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
     v.set_dark(Box::new(|_: &Identity| true));
     v.wake_up().unwrap();
     let commits = v.card().state().commits.len();
-    assert!(!v.card().state().master);
+    assert!(v.card().state().master);
     v.card().state().connectors.get_mut(&B).unwrap().connected = true;
     v.poll().unwrap();
     let s = v.card().state();
@@ -2264,8 +2271,8 @@ fn a_dark_connector_plugged_in_with_master_let_go_takes_master_for_its_commit() 
         (Some(0), Some(0))
     );
     assert_eq!(s.active.get(&101), Some(&false));
-    assert!(!s.master);
-    assert_eq!(s.master_drops, 2);
+    assert!(s.master);
+    assert_eq!(s.master_drops, 0, "master never let go");
 }
 
 // ADR-1401 D9: lit at start is visible at start. A CRTC another master
@@ -2377,4 +2384,86 @@ fn the_displays_keep_the_cards_connector_order_across_a_replug() {
     v.card().state().listed = vec![A, B];
     v.poll().unwrap();
     assert_eq!(v.displays().collect::<Vec<_>>(), both);
+}
+
+/// The kernel console's mode for a display whose preferred mode is
+/// `w`x`h`, the one drm2d picks too.
+fn console_mode(w: u16, h: u16) -> Vec<u8> {
+    mode_bytes(&mode(w, h, 60, true).0)
+}
+
+/// Draws a frame of `byte` on display `id` once its flip is in, swaps it
+/// and returns the framebuffer it went on, which holds the frame; the
+/// events it raised are dropped.
+fn drawn(v: &mut Drm2d<FakeCard>, id: u32, byte: u8) -> u32 {
+    flip(v);
+    v.canvas(DisplayId(id)).expect("a canvas").pixels.fill(byte);
+    let o = v.outputs.iter().find(|o| o.id.0 == id).unwrap();
+    let (back, fb) = (o.back, o.back_fb());
+    v.swap(DisplayId(id), &[rect(0, 0, 640, 480)]).unwrap();
+    flip(v);
+    let o = v.outputs.iter().find(|o| o.id.0 == id).unwrap();
+    assert_eq!(o.front(), back, "the frame is the front buffer");
+    assert!(o.buffers[back].map.iter().all(|&b| b == byte));
+    v.events().for_each(drop);
+    fb
+}
+
+// The small panel on the test seat (vtium/vtium#18's seat, the operator's
+// VT pass of 2026-10-30): unplugged, its CRTC went off with vtium's
+// framebuffers; plugged back while vtium held no master, the kernel's
+// console lit it first, and vtium's frames on the console's mode left it
+// dark until a VT switch. While its VT is shown vtium keeps master with no
+// display, so the console never takes the panel, and the panel's return
+// sets its CRTC from off: its first frame shows.
+#[test]
+fn a_display_plugged_back_in_shows_its_first_frame() {
+    let mut v = awake(one());
+    drawn(&mut v, A, 0x11);
+    v.card().state().connectors.get_mut(&A).unwrap().connected = false;
+    v.card().hotplug(&console_mode(640, 480));
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Removed(DisplayId(A))]);
+    {
+        let s = v.card().state();
+        assert_eq!(s.active.get(&100), Some(&false), "the CRTC went off");
+        assert!(s.master, "no display, and still master: the VT is shown");
+        assert_eq!(s.master_drops, 0);
+    }
+    v.card().state().connectors.get_mut(&A).unwrap().connected = true;
+    v.card().hotplug(&console_mode(640, 480));
+    assert!(
+        v.card().state().console_fbs.is_empty(),
+        "the console stays off"
+    );
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A))]);
+    let fb = drawn(&mut v, A, 0x22);
+    assert!(v.card().shows(100, fb), "{:?}", v.card().state());
+}
+
+// A display that returns gets a full modeset whatever its CRTC shows: one
+// plugged in while the VT was away, which the kernel's console lit with
+// no process holding master, is set off and set again at the wake-up, so
+// its first frame shows rather than stay dark on the console's mode.
+#[test]
+fn a_display_a_console_lit_while_away_is_set_anew_and_shows() {
+    let mut v = a_then_b(ModePolicy::default());
+    v.sleep();
+    flip(&mut v);
+    v.events().for_each(drop);
+    v.card().state().listed.push(B);
+    v.card().hotplug(&console_mode(800, 600));
+    assert_eq!(v.card().state().console_lit, [101]);
+    v.wake_up().unwrap();
+    let off = v
+        .card()
+        .real_commits()
+        .into_iter()
+        .rev()
+        .find(|c| c.get(101, "ACTIVE") == Some(0))
+        .expect("a commit that sets B's CRTC off");
+    assert_eq!(off.get(B, "CRTC_ID"), Some(0));
+    let fb = drawn(&mut v, B, 0x33);
+    assert!(v.card().shows(101, fb), "{:?}", v.card().state());
 }

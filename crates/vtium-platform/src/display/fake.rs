@@ -11,10 +11,22 @@
 //! plane on it and no mode (`drm_atomic_helper_check_plane_state`), is
 //! refused with EINVAL; a connector the commit moves puts the CRTC it
 //! leaves in the state, as `drm_atomic_set_crtc_for_connector` does. A framebuffer removed while a
-//! plane shows it takes the plane off its CRTC (`atomic_remove_fb`), and
-//! a dumb buffer keeps what its mappings wrote, for a test to read back.
+//! plane shows it takes the plane off its CRTC (`atomic_remove_fb`); on
+//! a primary plane it turns the CRTC off too and takes every connector
+//! off it, as on a driver that refuses a CRTC with no primary plane,
+//! amdgpu's, which retries the removal with the CRTC off. A dumb buffer
+//! keeps what its mappings wrote, for a test to read back.
 //! A connector's DPMS and its CRTC's `ACTIVE` are one state, as on an
 //! atomic driver: setting either sets the other.
+//!
+//! The kernel's console stands in too: at a hotplug while no process
+//! holds master ([`FakeCard::hotplug`]) it lights each connected
+//! connector on no CRTC with its own framebuffer, as the kernel's fbdev
+//! emulation does (`drm_fb_helper_hotplug_event`). A CRTC whose mode it
+//! set shows nothing until a commit sets the CRTC's mode, its `ACTIVE` or
+//! its connectors anew, a full modeset (`drm_atomic_crtc_needs_modeset`),
+//! as the small panel on vtium's test seat stayed dark under the frames
+//! committed on the console's mode.
 
 #![expect(
     clippy::arithmetic_side_effects,
@@ -153,6 +165,13 @@ pub(crate) struct State {
     pub(crate) blobs: BTreeMap<u32, Vec<u8>>,
     pub(crate) dumbs: BTreeMap<u32, (u32, u32)>,
     pub(crate) fbs: BTreeMap<u32, (u32, u32)>,
+    /// Each CRTC's mode, as the commits and the console set it.
+    pub(crate) modes: BTreeMap<u32, Vec<u8>>,
+    /// The CRTCs whose mode the console set and no full modeset has set
+    /// since: they show nothing.
+    pub(crate) console_lit: Vec<u32>,
+    /// The framebuffers the console put on a plane.
+    pub(crate) console_fbs: Vec<u32>,
 }
 
 impl State {
@@ -322,6 +341,76 @@ impl FakeCard {
             );
         }
         card
+    }
+
+    /// The kernel's hotplug, before the process sees it: while no process
+    /// holds master, the console lights each connected connector on no
+    /// CRTC with its own framebuffer on the first free CRTC's primary
+    /// plane, at `mode`, the bytes of a mode as drm2d sends them.
+    pub(crate) fn hotplug(&self, mode: &[u8]) {
+        let mut s = self.state.borrow_mut();
+        if s.master || s.master_elsewhere {
+            return;
+        }
+        let connected: Vec<(u32, Vec<u32>)> = s
+            .connectors
+            .values()
+            .filter(|c| c.connected && !c.modes.is_empty())
+            .filter(|c| s.bound.get(&c.id).is_none_or(|&crtc| crtc == 0))
+            .map(|c| (c.id, c.encoders.clone()))
+            .collect();
+        for (conn, encoders) in connected {
+            let Some((encoder, crtc, bit)) = encoders.iter().find_map(|&e| {
+                let possible = s.encoders.get(&e)?.possible_crtcs;
+                s.crtcs.iter().enumerate().find_map(|(i, &crtc)| {
+                    let bit = 1u32 << i;
+                    let free = !s.enabled.get(&crtc).copied().unwrap_or(false);
+                    (possible & bit != 0 && free).then_some((e, crtc, bit))
+                })
+            }) else {
+                continue;
+            };
+            let Some(primary) = s
+                .planes
+                .iter()
+                .find(|(_, p)| p.kind == PRIMARY && p.crtcs & bit != 0)
+                .map(|(&id, _)| id)
+            else {
+                continue;
+            };
+            let fb = self.id();
+            s.fbs.insert(fb, (0, 0));
+            s.console_fbs.push(fb);
+            if let Some(c) = s.connectors.get_mut(&conn) {
+                c.encoder = encoder;
+            }
+            if let Some(e) = s.encoders.get_mut(&encoder) {
+                e.crtc = crtc;
+            }
+            s.bound.insert(conn, crtc);
+            s.active.insert(crtc, true);
+            s.enabled.insert(crtc, true);
+            s.modes.insert(crtc, mode.to_vec());
+            if let Some(&m) = s.connectors.get(&conn).and_then(|c| c.modes.first()) {
+                s.crtc_modes.insert(crtc, m);
+            }
+            s.plane_crtc.insert(primary, crtc);
+            s.plane_fb.insert(primary, fb);
+            s.dpms.insert(conn, 0);
+            s.console_lit.push(crtc);
+        }
+    }
+
+    /// Whether `crtc` shows the framebuffer `fb` on its primary plane:
+    /// active, on a mode no console left, with the plane on it.
+    pub(crate) fn shows(&self, crtc: u32, fb: u32) -> bool {
+        let s = self.state.borrow();
+        let on_it = s.plane_fb.iter().any(|(plane, &shown)| {
+            shown == fb
+                && s.plane_crtc.get(plane) == Some(&crtc)
+                && s.planes.get(plane).is_some_and(|p| p.kind == PRIMARY)
+        });
+        on_it && s.active.get(&crtc).copied().unwrap_or(false) && !s.console_lit.contains(&crtc)
     }
 
     /// The bytes of the dumb buffer `handle` as its last mapping left
@@ -595,7 +684,10 @@ impl Kms for FakeCard {
     }
 
     /// Removing a framebuffer a plane shows takes the plane off its CRTC,
-    /// as the kernel's `drm_mode_rmfb` does (`atomic_remove_fb`).
+    /// as the kernel's `drm_mode_rmfb` does (`atomic_remove_fb`). On a
+    /// primary plane the CRTC goes off with it, every connector on it
+    /// taken off, as amdgpu's refusal of a CRTC without its primary plane
+    /// makes the kernel retry (`disable_crtcs`).
     fn rm_fb(&self, id: u32) -> io::Result<()> {
         let mut s = self.state.borrow_mut();
         s.fbs.remove(&id).ok_or_else(|| err(Errno::NOENT))?;
@@ -607,7 +699,30 @@ impl Kms for FakeCard {
             .collect();
         for plane in shown {
             s.plane_fb.remove(&plane);
-            s.plane_crtc.remove(&plane);
+            let crtc = s.plane_crtc.remove(&plane);
+            let primary = s.planes.get(&plane).is_some_and(|p| p.kind == PRIMARY);
+            if let Some(crtc) = crtc.filter(|_| primary) {
+                s.active.insert(crtc, false);
+                s.enabled.insert(crtc, false);
+                s.modes.remove(&crtc);
+                s.crtc_modes.remove(&crtc);
+                s.console_lit.retain(|&c| c != crtc);
+                let on: Vec<u32> = s
+                    .bound
+                    .iter()
+                    .filter(|&(_, &c)| c == crtc)
+                    .map(|(&conn, _)| conn)
+                    .collect();
+                for conn in on {
+                    s.bound.insert(conn, 0);
+                    if let Some(c) = s.connectors.get_mut(&conn) {
+                        c.encoder = 0;
+                    }
+                }
+                for e in s.encoders.values_mut().filter(|e| e.crtc == crtc) {
+                    e.crtc = 0;
+                }
+            }
         }
         Ok(())
     }
@@ -696,6 +811,23 @@ impl Kms for FakeCard {
         if commit.test_only() {
             return Ok(());
         }
+        // What each CRTC is before the commit: a full modeset changes it.
+        let before = |s: &State, crtc: u32| {
+            let mut on: Vec<u32> = s
+                .bound
+                .iter()
+                .filter(|&(_, &c)| c == crtc)
+                .map(|(&conn, _)| conn)
+                .collect();
+            on.sort_unstable();
+            (
+                s.enabled.get(&crtc).copied().unwrap_or(false),
+                s.active.get(&crtc).copied().unwrap_or(false),
+                s.modes.get(&crtc).cloned(),
+                on,
+            )
+        };
+        let was: Vec<_> = crtcs.iter().map(|&c| (c, before(&s, c))).collect();
         for (o, n, v) in &commit.props {
             let v32 = u32::try_from(*v).unwrap_or(0);
             match n.as_str() {
@@ -713,6 +845,10 @@ impl Kms for FakeCard {
                 }
                 "MODE_ID" => {
                     s.enabled.insert(*o, *v != 0);
+                    match commit.blobs.get(v) {
+                        Some(bytes) if *v != 0 => s.modes.insert(*o, bytes.clone()),
+                        _ => s.modes.remove(o),
+                    };
                 }
                 _ => {}
             }
@@ -728,6 +864,11 @@ impl Kms for FakeCard {
             })
             .collect();
         s.dpms.extend(tied);
+        for (crtc, then) in was {
+            if before(&s, crtc) != then {
+                s.console_lit.retain(|&c| c != crtc);
+            }
+        }
         if event {
             s.pending.extend(crtcs);
         }
