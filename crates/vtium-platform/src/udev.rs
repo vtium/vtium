@@ -217,12 +217,10 @@ pub(crate) fn attributes(read: impl Fn(&str) -> Option<String>) -> BTreeMap<Stri
         .collect()
 }
 
-/// The multi-valued udev properties with their separators: `DEVLINKS` joins
-/// links by spaces, and `TAGS` and `CURRENT_TAGS` as `:a:b:`.
-/// sd-device joins them in a hash order that changes from process to process.
-/// A `udev:` glob matches the joined value, so every value is presented
-/// sorted, here and in the lister, and a glob places a device the same way
-/// on every run.
+/// `value` with its items sorted where `name` is one of udev's multi-valued
+/// properties: `DEVLINKS` joins links by spaces, and `TAGS` and
+/// `CURRENT_TAGS` join tags as `:a:b:`. A `udev:` glob matches the joined
+/// value, so the sort makes a glob place a device the same way on every run.
 pub(crate) fn ordered(name: &str, value: String) -> String {
     let (sep, wrap) = match name {
         "DEVLINKS" => (' ', false),
