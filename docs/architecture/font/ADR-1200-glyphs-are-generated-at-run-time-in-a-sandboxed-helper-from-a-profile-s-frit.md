@@ -480,7 +480,7 @@ The console, which opens its VT as root already, reads the kernel's font once at
 
 > Edited 2026-10-28: the operator decided how a glyph leaves the store (vtium/vtium#145, `considered`), and D19 takes the decision in its compaction and rejected bullets. D19 said only that an ask evicted the glyphs least recently shown; the store then evicted a whole helper answer at a time, aged by its most recently shown glyph.
 
-> Added 2026-10-29: the operator raised tier 3's budget for the minspec console binary to about 3 MiB, since the 2,621,440-byte figure was arbitrary, and the console drops the set writer's deflate, 22,032 bytes, which the rewritten sets do not use; both are revisited after the first cut of heads (ADR-1401 D11, `considered`). The figure is tier 3's `BINARY_BUDGET` (tools/tier3/README.md).
+> Added 2026-10-29: the operator raised tier 3's budget for the minspec console binary to about 3 MiB, since the 2,621,440-byte figure was arbitrary, and the console drops the set writer's deflate, which the rewritten sets do not use: 22,240 bytes, measured by cutting it on integration 532b417 (minspec 2,921,080 to 2,898,840 bytes, `feat/size-budget` cd0c97f), where the 22,096 bytes above were measured on an older tree; both are revisited after the first cut of heads (ADR-1401 D11, `considered`). The figure is tier 3's `BINARY_BUDGET` (tools/tier3/README.md).
 
 ### D20: keys
 
