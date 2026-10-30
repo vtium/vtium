@@ -145,6 +145,8 @@ pub const HELD_RANGES_MAX: usize = 65_536;
 /// The most bytes a frame's payload holds; a batch past it is cut in two
 /// until it fits.
 pub const FRAME_BYTES_MAX: u32 = 16 << 20;
+/// [`FRAME_BYTES_MAX`] as a length.
+const FRAME: usize = FRAME_BYTES_MAX as usize;
 /// The most bytes a failure's reason holds.
 pub const REASON_BYTES_MAX: usize = 4096;
 /// The most bytes a frit's name holds, a frit name's own bound
@@ -914,16 +916,16 @@ impl Bits {
 }
 
 /// Draws `want` and `clusters` at `cell` and writes them as frames of
-/// `kind`, a set that passes [`FRAME_BYTES_MAX`] cut in two. Returns
-/// whether any glyph went, or the engine's failure; only a write that
-/// fails is the outer error.
+/// `kind`, a set that passes `max` bytes, [`FRAME_BYTES_MAX`] but in a
+/// test, cut in two. Returns whether any glyph went, or the engine's
+/// failure; only a write that fails is the outer error.
 fn send_glyphs(
     engine: &Engine,
     cell: Cell,
-    want: &[u32],
-    clusters: &[Vec<u32>],
+    (want, clusters): (&[u32], &[Vec<u32>]),
     kind: u32,
     out: &mut dyn Write,
+    max: usize,
 ) -> io::Result<Result<bool, String>> {
     let mut queue: VecDeque<(&[u32], &[Vec<u32>])> = VecDeque::from([(want, clusters)]);
     let mut any = false;
@@ -934,18 +936,22 @@ fn send_glyphs(
         let many = want.len().saturating_add(clusters.len()) > 1;
         match engine.glyphs(cell, want, clusters) {
             Ok(None) => {}
-            Ok(Some(set)) if set.len() > FRAME_BYTES_MAX as usize && many => {
-                if want.len() > 1 || (want.len() == 1 && !clusters.is_empty()) {
+            // the codepoints apart from the clusters, then each halved
+            Ok(Some(set)) if set.len() > max && many => {
+                if !want.is_empty() && !clusters.is_empty() {
+                    queue.push_front((&[], clusters));
+                    queue.push_front((want, &[]));
+                } else if want.len() > 1 {
                     let (a, b) = want.split_at(want.len() / 2);
-                    queue.push_front((b, clusters));
+                    queue.push_front((b, &[]));
                     queue.push_front((a, &[]));
                 } else {
                     let (a, b) = clusters.split_at(clusters.len() / 2);
-                    queue.push_front((want, b));
+                    queue.push_front((&[], b));
                     queue.push_front((&[], a));
                 }
             }
-            Ok(Some(set)) if set.len() > FRAME_BYTES_MAX as usize => {}
+            Ok(Some(set)) if set.len() > max => {}
             Ok(Some(set)) => {
                 write_frame(out, kind, &set)?;
                 any = true;
@@ -1144,7 +1150,7 @@ impl Work<'_> {
                     .map(|w| (w, &[][..]))
                     .chain(clusters.chunks(BATCH).map(|k| (&[][..], k)));
                 for (w, k) in batches {
-                    if let Err(why) = send_glyphs(engine, cell, w, k, FRAME_GLYPHS, out)? {
+                    if let Err(why) = send_glyphs(engine, cell, (w, k), FRAME_GLYPHS, out, FRAME)? {
                         result = Err(why);
                         break;
                     }
@@ -1169,7 +1175,7 @@ impl Work<'_> {
         fill.next = end;
         batch.sort_unstable();
         let drawn = match self.engine(&fill.frit) {
-            Ok(engine) => send_glyphs(engine, fill.cell, &batch, &[], FRAME_FILL, out)?,
+            Ok(engine) => send_glyphs(engine, fill.cell, (&batch, &[]), FRAME_FILL, out, FRAME)?,
             Err(why) => Err(why.clone()),
         };
         match drawn {
@@ -1294,6 +1300,10 @@ pub fn command(paths: &Paths) -> u8 {
         Duration::from_millis(HELPER_IDLE_MS),
     )
 }
+
+#[cfg(test)]
+#[path = "../tests/common/ttf.rs"]
+mod ttf;
 
 #[cfg(test)]
 #[expect(
@@ -1526,6 +1536,53 @@ mod tests {
         assert_eq!(frames.first().map(|f| f.0), Some(FRAME_WARNING));
         let quiet = run(&[request(ASK, frit("source=builtin:unifont\n"), &['A'])]);
         assert!(quiet.iter().all(|(k, _)| *k != FRAME_WARNING));
+    }
+
+    // a set past its frame's bound, of one codepoint and a cluster, is cut
+    // into the codepoint's and the cluster's, each sent, and ends
+    #[test]
+    fn an_oversize_set_of_a_codepoint_and_clusters_is_cut_and_ends() {
+        let dir = std::env::temp_dir().join(format!("vtium-serve-cut-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let font = dir.join("shaping.ttf");
+        std::fs::write(&font, super::ttf::test_shaping().build()).unwrap();
+        let engine = Engine::load(
+            &frit(&format!("source=outline:{}\n", font.display())),
+            &Paths::default(),
+            None,
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let engine = engine.unwrap();
+        let cell = Cell {
+            width: 12,
+            height: 20,
+        };
+        let (want, clusters) = (vec![0xe9], vec![vec![0x65, 0x301]]);
+        let whole = engine.glyphs(cell, &want, &clusters).unwrap().unwrap();
+        let mut out = Vec::new();
+        let sent = send_glyphs(
+            &engine,
+            cell,
+            (&want, &clusters),
+            FRAME_GLYPHS,
+            &mut out,
+            whole.len() - 1,
+        )
+        .unwrap();
+        assert_eq!(sent, Ok(true));
+        let sets: Vec<Set> = frames(&out)
+            .into_iter()
+            .map(|(k, p)| {
+                assert_eq!(k, FRAME_GLYPHS);
+                Set::from_bytes(p).unwrap()
+            })
+            .collect();
+        assert_eq!(sets.len(), 2);
+        assert_eq!(sets[0].clusters().count(), 0);
+        assert_eq!(
+            sets[1].clusters().map(|(_, _, k)| k).collect::<Vec<_>>(),
+            [vec!['e', '\u{301}']]
+        );
     }
 
     /// A cell query for `frit`: at no cell, naming nothing.
