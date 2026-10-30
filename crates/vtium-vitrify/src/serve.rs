@@ -55,8 +55,9 @@
 //!          cell's fill done (its width u32 and height u32); kind 6 the
 //!          frit's own cell (its width u32 and height u32); kind 7 no own
 //!          cell (UTF-8 reason); kind 8 a stop taken (its cell's width u32
-//!          and height u32), one for each stop; kind 3 a failure (UTF-8
-//!          reason)
+//!          and height u32), one for each stop; kind 9 a warning the
+//!          frit's text gave as it was read, once for each frit read
+//!          (UTF-8); kind 3 a failure (UTF-8 reason)
 //! ```
 //!
 //! Little-endian throughout. The console checks every frame before it
@@ -124,6 +125,9 @@ pub const FRAME_NO_OWN_CELL: u32 = 7;
 /// A stop is taken, every frame of the fill it ended sent: its cell's
 /// width and height.
 pub const FRAME_STOPPED: u32 = 8;
+/// A warning the frit's text gave as it was read, such as a key that does
+/// nothing (ADR-1200 D1): UTF-8, naming the frit and the line.
+pub const FRAME_WARNING: u32 = 9;
 /// An ask: the codepoints named, answered whole.
 pub const ASK: u32 = 1;
 /// A fill: the cell's coverage, in order, around the asks.
@@ -480,6 +484,8 @@ pub struct Engine {
     /// The sources that failed as they drew, by their place in `sources`,
     /// and why: left out for the engine's life (ADR-1200 D14).
     failed: RefCell<BTreeMap<usize, String>>,
+    /// What the frit's text gave as warnings, each naming its line.
+    warnings: Vec<String>,
 }
 
 /// The codepoints `font` maps in the face of `family` (its first face for
@@ -573,6 +579,7 @@ impl Engine {
         let file = Path::new(&frit.name);
         let frit =
             Frit::parse(frit.text.as_bytes(), file, &frit.name).map_err(|e| e.to_string())?;
+        let warnings: Vec<String> = frit.warnings.iter().map(ToString::to_string).collect();
         let handed = Handed(console);
         let host = Host {
             kbd_dirs: paths.kbd_dirs.clone(),
@@ -636,7 +643,13 @@ impl Engine {
             sources,
             coverage,
             failed: RefCell::default(),
+            warnings,
         })
+    }
+
+    /// The warnings the frit's text gave, each naming its line.
+    pub fn warnings(&self) -> &[String] {
+        &self.warnings
     }
 
     /// Every codepoint the frit's sources give, sorted.
@@ -1060,12 +1073,29 @@ impl Work<'_> {
             .or_insert_with(|| Engine::load(frit, paths, console))
     }
 
+    /// Reads `frit` when it is not read yet, and sends each warning its
+    /// text gives, so the console logs them.
+    fn load(&mut self, frit: &FritText, out: &mut dyn Write) -> io::Result<()> {
+        if self.engines.contains_key(frit) {
+            return Ok(());
+        }
+        if let Ok(engine) = self.engine(frit) {
+            for w in engine.warnings.clone() {
+                reason(out, FRAME_WARNING, &w)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Takes a request in: an ask waits its turn, a fill replaces the
     /// cell's, a stop ends it and is answered, and a cell query is answered
-    /// at once.
+    /// at once. A frit read for the first time sends its warnings first.
     fn take(&mut self, request: ServeRequest, out: &mut dyn Write) -> io::Result<()> {
         if self.console.is_none() {
             self.console.clone_from(&request.console);
+        }
+        if request.kind != STOP {
+            self.load(&request.frit, out)?;
         }
         let same = |f: &Fill| f.frit == request.frit && f.cell == request.cell;
         match request.kind {
@@ -1474,6 +1504,28 @@ mod tests {
             let e = ServeRequest::read(&mut &r.encode()[..]).unwrap_err();
             assert!(e.contains("past its bound"), "{e}");
         }
+    }
+
+    // ADR-1200 D1, S5: a frit's warnings, such as compress='s, are sent
+    // as the helper reads the frit, once for its life, so the console logs
+    // them
+    #[test]
+    fn a_frits_warnings_are_sent_once_as_it_is_read() {
+        let warned = frit("source=builtin:unifont\ncompress=yes\n");
+        let ask = request(ASK, warned.clone(), &['A']);
+        let frames = run(&[ask.clone(), request(FILL, warned, &[]), ask]);
+        let warnings: Vec<String> = frames
+            .iter()
+            .filter(|(k, _)| *k == FRAME_WARNING)
+            .map(|(_, p)| String::from_utf8(p.clone()).unwrap())
+            .collect();
+        assert_eq!(
+            warnings,
+            ["t:2: compress= has nothing to act on, and is ignored"]
+        );
+        assert_eq!(frames.first().map(|f| f.0), Some(FRAME_WARNING));
+        let quiet = run(&[request(ASK, frit("source=builtin:unifont\n"), &['A'])]);
+        assert!(quiet.iter().all(|(k, _)| *k != FRAME_WARNING));
     }
 
     /// A cell query for `frit`: at no cell, naming nothing.

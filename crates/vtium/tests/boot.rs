@@ -3364,6 +3364,37 @@ fn solid_ascii(cell: vtium_font::Cell) -> Vec<u8> {
     out
 }
 
+// ADR-1200 D1, S5: a warning the frit's text gives as the helper reads it
+// reaches the log, once however often the helper sends it
+#[test]
+fn a_frits_warning_from_the_helper_is_logged_once() {
+    let cell = vtium_font::Cell {
+        width: 8,
+        height: 16,
+    };
+    let why = b"t:2: compress= has nothing to act on, and is ignored";
+    let mut warning = 9u32.to_le_bytes().to_vec();
+    warning.extend((why.len() as u32).to_le_bytes());
+    warning.extend(why);
+    let mut answer = warning.clone();
+    answer.extend(&warning);
+    answer.extend(solid_ascii(cell));
+    let (fonts, _go) = frit_fonts("warning", &answer, "cat >/dev/null & cat \"$1\"; wait");
+    logged();
+    let mut h = with_fonts(&["--font-name=t"], fonts.clone());
+    let line = "the frit t:2: compress= has nothing to act on, and is ignored";
+    let mut lines = Vec::new();
+    h.until(Duration::from_secs(10), |_| {
+        lines.extend(logged());
+        lines.iter().any(|l| l == line)
+    });
+    h.until(Duration::from_millis(300), |_| false);
+    lines.extend(logged());
+    assert_eq!(lines.iter().filter(|l| *l == line).count(), 1, "{lines:?}");
+    assert_eq!(h.app.font_name(), "t", "the helper is not given up");
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
 /// The 8x16 cell at column `col` of the top row, as the memory display's
 /// pixels: one value each.
 fn top_cell(m: &Memory, col: u32) -> Vec<u32> {

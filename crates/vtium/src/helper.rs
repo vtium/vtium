@@ -31,6 +31,9 @@
 //! stopped and are dropped, so a cell filled again at once takes only its
 //! new fill.
 //!
+//! A warning the frit's text gave as the helper read it, such as a key that
+//! does nothing, is logged once a boot, at most [`WARNINGS_MAX`] of them.
+//!
 //! A helper that answers what is not a frame, what was not asked, or a
 //! failure is given up for the boot, logged once, and the built-in font
 //! goes on drawing what it has not sent, its clusters unshaped, a glyph a
@@ -91,6 +94,10 @@ pub const FIRST_MAX: usize = 32_000;
 /// the record is emptied, and a cluster shown again is asked for again.
 // A program can write clusters without end, each different; a screen shows at most FIRST_MAX, and 4,096 is a screen's worth of distinct ones on minspec's 80x25.
 pub const CLUSTERS_LACKED_MAX: usize = 4096;
+/// The most warnings from the frit's text logged a boot; a helper that
+/// sends more is not given up, and the rest are not logged.
+// A frit's text gives a warning a line at most, and a frit worth drawing has few lines that do nothing; the bound keeps a helper that sends warnings without end out of the log.
+pub const WARNINGS_MAX: usize = 16;
 /// How long the console waits before its first frame for a frit's own
 /// cell.
 // The helper starts and reads a PSF well inside it on minspec, and a start that waits longer stalls visibly (the operator, 2026-10-28).
@@ -109,6 +116,7 @@ const FRAME_FILLED: u32 = 5;
 const FRAME_OWN_CELL: u32 = 6;
 const FRAME_NO_OWN_CELL: u32 = 7;
 const FRAME_STOPPED: u32 = 8;
+const FRAME_WARNING: u32 = 9;
 
 /// `SIGXCPU`, which an exhausted `RLIMIT_CPU` sends.
 const SIGXCPU: i32 = 24;
@@ -273,6 +281,8 @@ enum Event {
     OwnCell(Cell),
     /// The frit has no own cell: why.
     NoOwnCell(String),
+    /// A warning the frit's text gave as the helper read it.
+    Warning(String),
     Failed(String),
     /// Bytes that are not a frame, or a set its reader refused.
     Malformed(String),
@@ -375,7 +385,7 @@ fn frame(r: &mut impl Read) -> Option<Event> {
         FRAME_GLYPHS | FRAME_FILL => FRAME_BYTES_MAX,
         FRAME_DONE => 0,
         FRAME_FILLED | FRAME_OWN_CELL | FRAME_STOPPED => 8,
-        FRAME_FAILED | FRAME_NO_OWN_CELL => REASON_BYTES_MAX,
+        FRAME_FAILED | FRAME_NO_OWN_CELL | FRAME_WARNING => REASON_BYTES_MAX,
         other => return Some(Event::Malformed(format!("a frame of unknown kind {other}"))),
     };
     if len > max {
@@ -431,6 +441,7 @@ fn frame(r: &mut impl Read) -> Option<Event> {
             _ => Event::Malformed("an own cell without its size".to_owned()),
         },
         FRAME_NO_OWN_CELL => Event::NoOwnCell(String::from_utf8_lossy(&payload).into_owned()),
+        FRAME_WARNING => Event::Warning(String::from_utf8_lossy(&payload).into_owned()),
         _ => Event::Failed(String::from_utf8_lossy(&payload).into_owned()),
     })
 }
@@ -614,6 +625,8 @@ pub struct Helper {
     restarts: u32,
     /// The store reached its limit: logged once.
     full: bool,
+    /// The frit's warnings logged this boot, at most [`WARNINGS_MAX`].
+    warned: BTreeSet<String>,
     failed: Option<String>,
     answer: Duration,
     request: Duration,
@@ -652,6 +665,7 @@ impl Helper {
             due: None,
             restarts: 0,
             full: false,
+            warned: BTreeSet::new(),
             failed: None,
             answer: Duration::from_millis(ANSWER_MS),
             request: Duration::from_millis(REQUEST_MS),
@@ -1015,6 +1029,10 @@ impl Helper {
                 Event::OwnCell(_) | Event::NoOwnCell(_) => {
                     Err("the helper answered a cell query not made".to_owned())
                 }
+                Event::Warning(why) => {
+                    self.warn(why.trim());
+                    Ok(())
+                }
                 Event::Failed(why) => Err(format!("the helper failed: {}", why.trim())),
                 Event::Malformed(why) => Err(format!("the helper's answer was refused: {why}")),
                 Event::Closed(status) => {
@@ -1189,6 +1207,15 @@ impl Helper {
             }
         }
         Ok(Some(Answer { cell, face, chars }))
+    }
+
+    /// Logs the frit's warning `why`, once a boot and at most
+    /// [`WARNINGS_MAX`] of them: a helper started again reads the frit
+    /// again and sends its warnings again.
+    fn warn(&mut self, why: &str) {
+        if self.warned.len() < WARNINGS_MAX && self.warned.insert(why.to_owned()) {
+            log::warn!("the frit {why}");
+        }
     }
 
     /// The store is full while `cell` fills: the fill stops there, logged
@@ -1642,6 +1669,33 @@ mod tests {
             true,
         );
         assert!(why.contains("fill carries a cluster"), "{why}");
+    }
+
+    // the frit's warnings are logged once each, at most WARNINGS_MAX a
+    // boot, and none gives the helper up
+    #[test]
+    fn a_frits_warnings_are_kept_to_their_bound() {
+        let mut fixture = Vec::new();
+        for i in 0..WARNINGS_MAX + 4 {
+            fixture.extend(frame_bytes(
+                FRAME_WARNING,
+                format!("t:{i}: a key that does nothing").as_bytes(),
+            ));
+        }
+        fixture.extend(frame_bytes(FRAME_WARNING, b"t:0: a key that does nothing"));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let mut s = StandIn::new("warnings", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.ask(CELL, &shown(&['A']), now);
+        let _ = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(s.helper.warned.len(), WARNINGS_MAX);
+        assert!(s.helper.warned.contains("t:0: a key that does nothing"));
+        assert!(
+            !s.helper
+                .warned
+                .contains(&format!("t:{WARNINGS_MAX}: a key that does nothing"))
+        );
     }
 
     // a cluster past CLUSTER_SCALARS_MAX is never asked for, as the helper
