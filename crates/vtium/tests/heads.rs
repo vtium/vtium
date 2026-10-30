@@ -15,6 +15,7 @@ use vtium::config;
 use vtium::font::Sources;
 use vtium::head::Head;
 use vtium::video::Video;
+use vtium_config::Class;
 use vtium_platform::display::{Canvas, DisplayId, Dpms, Event, Identity, Rect, SwapError, Swapped};
 use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{InputEvent, KeyEvent, Mods};
@@ -306,17 +307,37 @@ impl Seat {
     /// Types `text` as a keyboard does.
     fn type_str(&mut self, text: &str) {
         for c in text.chars() {
-            let keysym = if c == '\r' { 0xff0d } else { u32::from(c) };
-            let key = KeyEvent {
-                keycode: 0,
-                ascii: 0,
-                mods: Mods::empty(),
-                keysyms: vec![keysym],
-                codepoints: vec![(c != '\r').then_some(c)],
-                repeat: false,
-            };
-            self.app.input_event(InputEvent::Key(key), now());
+            self.app.input_event(InputEvent::Key(char_key(c)), now());
         }
+    }
+
+    /// Types `text` on the keyboard at `node`.
+    fn type_on(&mut self, node: &str, text: &str) {
+        for c in text.chars() {
+            self.app
+                .device_input(Path::new(node), InputEvent::Key(char_key(c)), now());
+        }
+    }
+}
+
+/// The key that types `c`, `\r` Return.
+fn char_key(c: char) -> KeyEvent {
+    let keysym = if c == '\r' { 0xff0d } else { u32::from(c) };
+    KeyEvent {
+        keycode: 0,
+        ascii: 0,
+        mods: Mods::empty(),
+        keysyms: vec![keysym],
+        codepoints: vec![(c != '\r').then_some(c)],
+        repeat: false,
+    }
+}
+
+/// A keyboard at the USB port `path`, as the rules read it.
+fn keyboard(path: &str) -> vtium_config::Identity {
+    vtium_config::Identity {
+        path: Some(path.to_owned()),
+        ..vtium_config::Identity::input().with_class(Class::Keyboard)
     }
 }
 
@@ -859,4 +880,162 @@ fn a_frame_composing_holds_up_no_vt_release() {
             && m.frames > before),
         "the acquire draws the display again"
     );
+}
+
+/// Two heads, a keyboard claimed by each, and every other keyboard
+/// following the focus.
+const CLAIMED: &str = "version = 1
+[head small]
+[head large]
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+input path:kbd-small -> small
+input path:kbd-large -> large
+input class:keyboard -> focus
+";
+
+/// The keyboards [`claimed`] adds: one claimed by each head, and one
+/// following the focus.
+const KBD_SMALL: &str = "/dev/input/event0";
+const KBD_LARGE: &str = "/dev/input/event1";
+const KBD_FOCUS: &str = "/dev/input/event2";
+
+/// Two heads booted on [`CLAIMED`], the large display the boot display,
+/// with [`KBD_SMALL`], [`KBD_LARGE`] and [`KBD_FOCUS`], each head's
+/// session echoing each line it reads.
+fn claimed() -> Seat {
+    let displays = [
+        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
+        (
+            "/dev/mem1",
+            Memory::new(640, 320, "MEM-2", "mem-large").lit(),
+        ),
+    ];
+    let script = "echo ready; while read a; do echo \"got:$a\"; done";
+    let mut s = Seat::with_heads(&[], Some(CLAIMED), displays, script);
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
+    s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")
+        && head_shows(a, "large", "ready")));
+    s
+}
+
+/// D5: a keyboard a rule sends to a head types into that head alone,
+/// whichever head holds the focus.
+#[test]
+fn a_claimed_keyboard_types_into_its_head_alone() {
+    let mut s = claimed();
+    s.type_on(KBD_SMALL, "c\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", "got:c")),
+        "the claimed keyboard types into its head"
+    );
+    s.type_on(KBD_FOCUS, "f\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "large", "got:f")),
+        "the keyboard following the focus types into the boot display's head"
+    );
+    s.until(Duration::from_millis(200), |_| false);
+    assert!(!head_shows(&s.app, "large", "got:c"), "nor elsewhere");
+    assert!(!head_shows(&s.app, "small", "got:f"));
+}
+
+/// The key `keysym` held with Ctrl and Super.
+fn ctrl_super(keysym: u32) -> InputEvent {
+    InputEvent::Key(KeyEvent {
+        keycode: 0,
+        ascii: 0,
+        mods: Mods::CTRL.union(Mods::LOGO),
+        keysyms: vec![keysym],
+        codepoints: vec![None],
+        repeat: false,
+    })
+}
+
+const UP: u32 = 0xff52;
+const DOWN: u32 = 0xff54;
+
+/// D5 and the operator's chord (2026-10-30): Ctrl-Super-Up moves the
+/// focus to the next head with a lit display, and Ctrl-Super-Down to the
+/// previous. The chord moves only the devices following the focus; a
+/// claimed keyboard keeps typing into its head.
+#[test]
+fn the_focus_chord_moves_only_the_devices_following_the_focus() {
+    let mut s = claimed();
+    s.app
+        .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+    assert_eq!(s.app.take_focus_move().as_deref(), Some("small"));
+    s.type_on(KBD_FOCUS, "f\r");
+    s.type_on(KBD_LARGE, "c\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", "got:f")
+            && head_shows(a, "large", "got:c")),
+        "the focus's keyboard types into small, the claimed one into large"
+    );
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(DOWN), now());
+    assert_eq!(s.app.take_focus_move().as_deref(), Some("large"));
+    s.type_on(KBD_FOCUS, "g\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "large", "got:g")));
+    s.until(Duration::from_millis(200), |_| false);
+    assert!(!head_shows(&s.app, "small", "got:c"));
+    assert!(!head_shows(&s.app, "small", "got:g"));
+    assert_eq!(s.app.take_focus_move(), None, "taken once");
+}
+
+/// D5: the terminal of each head a keyboard delivers to has mode 1004's
+/// focus, several at once, one a head. A keyboard following the focus
+/// gives it to the boot display's head; the focus chord takes it from
+/// that head and gives it to the next.
+#[test]
+fn mode_1004_follows_the_keyboards_delivering_to_each_head() {
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let script = "stty -icanon -echo; printf '\\033[?1004h'; echo ready; \
+                  while :; do echo \"k:$(head -c 3 | od -An -tx1)\"; done";
+    let mut s = Seat::with_heads(&[], Some(TWO_HEADS), displays, script);
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")
+        && head_shows(a, "large", "ready")));
+    let (focus_in, focus_out) = ("1b 5b 49", "1b 5b 4f");
+    s.until(Duration::from_millis(100), |_| false);
+    assert!(!head_shows(&s.app, "large", "k:"), "no keyboard yet");
+    s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "large", focus_in)),
+        "the keyboard gives the boot display's head the focus"
+    );
+    assert!(!head_shows(&s.app, "small", "k:"));
+    s.app
+        .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", focus_in)
+            && head_shows(a, "large", focus_out)),
+        "the chord moves it"
+    );
+}
+
+/// D5 and the operator's answer of 2026-10-30: the focus starts on the
+/// boot display's head even when that display lights a turn late, until
+/// the first key; after a key it stays where it is.
+#[test]
+fn the_focus_waits_for_a_late_boot_display_until_the_first_key() {
+    let late = |key: bool| {
+        let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+        let mut s = Seat::with_heads(&[], Some(TWO_HEADS), displays, "read x");
+        assert!(s.until(SECOND, |a| a.cells().len() == 1));
+        assert_eq!(s.app.focus_head(), Some("small"), "the only lit head");
+        if key {
+            s.type_str("k");
+        }
+        s.app.add_video(
+            PathBuf::from("/dev/mem1"),
+            Box::new(Memory::new(640, 320, "MEM-2", "mem-large").lit()),
+        );
+        assert!(s.until(SECOND, |a| a.cells().len() == 2));
+        s.app.focus_head().map(str::to_owned)
+    };
+    assert_eq!(late(false).as_deref(), Some("large"), "the boot display's");
+    assert_eq!(late(true).as_deref(), Some("small"), "a key settled it");
 }

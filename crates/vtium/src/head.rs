@@ -10,7 +10,9 @@
 //! seat held its sessions, each one terminal with its own grid
 //! (`src/seat.c:53-108`, `src/terminal.c:1107-1170` at kmscon b1f7a7c5).
 
+pub(crate) mod chord;
 pub mod identity;
+pub(crate) mod route;
 
 use vtium_config::{By, Place};
 
@@ -92,6 +94,9 @@ pub struct Head {
     pub(crate) text_due: Option<Instant>,
     pub(crate) cursor_due: Option<(Instant, Duration)>,
     pub(crate) pointer: Pointer,
+    /// A keyboard delivers to the head: its terminal has mode 1004's
+    /// focus.
+    pub(crate) focused: bool,
     /// The mouse tracking the program asked for, last seen: a change
     /// clears the selection.
     tracking: MouseTracking,
@@ -180,6 +185,7 @@ impl Head {
             text_due: None,
             cursor_due: None,
             pointer: Pointer::default(),
+            focused: false,
             tracking: MouseTracking::Off,
             font_name: font.name.clone(),
             font_size: 0,

@@ -20,16 +20,25 @@
 //!   `Retaken` sets every device's displays up again, or while blanked
 //!   at the input that ends the blank, and keeps the blank and its timer;
 //!   `Hangup` exits.
+//! - **Inputs** (D3, D5). Each input device walks the rules alone when it
+//!   comes, by its identity: a device a rule sends to a head delivers to
+//!   that head alone, one sent to `focus` or claimed by no rule delivers
+//!   to the head holding the focus, and one sent to `ignore` is never
+//!   opened, or opened for the rescue key alone. The focus starts on the
+//!   head of the boot display, else the first head in the file with a
+//!   display, starting again as each display lights until the first key or
+//!   focus chord; then only the focus chord moves it. The terminal of each
+//!   head a keyboard delivers to has mode 1004's focus.
 //! - **Keys**, in order: the VT's, then the seat's (the power keys, which
-//!   act on a press and never on its repeat), then the terminal's grabs,
-//!   then DECARM's drop of a repeat, then the encoder. Every keyboard types
-//!   into the head holding the focus (D5), which starts on the head of the
-//!   boot display, else the first head in the file with a display, and
-//!   rests there. A key draws at once and holds the cursor's blink.
-//! - **The pointer.** It moves on the head holding the focus. While the
-//!   program tracks it, its events are reported, but a button pressed, a
-//!   move without a button and the wheel with Shift held, as xterm's are.
-//!   The others select, copy, paste and scroll ([`Head::pointer_event`]).
+//!   act on a press and never on its repeat), then the heads' chords
+//!   ([`chord`]), then the terminal's grabs, then DECARM's drop of a
+//!   repeat, then the encoder. A key draws at once and holds the cursor's
+//!   blink.
+//! - **The pointer.** It moves on the head it delivers to, within that
+//!   head's grid. While the program tracks it, its events are reported,
+//!   but a button pressed, a move without a button and the wheel with
+//!   Shift held, as xterm's are. The others select, copy, paste and scroll
+//!   ([`Head::pointer_event`]).
 //! - **The blank** is the seat's. Each key press and pointer action (a
 //!   move, a button or the wheel) goes to every device's `input`, which
 //!   retries a failed wake-up, and to [`Blank::input`]; a device's `Awake`
@@ -69,7 +78,7 @@ use std::time::{Duration, Instant};
 
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::display::{Blank, DPI_ASSUMED, DisplayId, Dpms, Event};
-use vtium_platform::input::{InputEvent, KeyEvent, Mods as InputMods, PointerEvent};
+use vtium_platform::input::{DeviceInput, InputEvent, KeyEvent, Mods as InputMods, PointerEvent};
 use vtium_platform::pty::{Erase, Pty};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
 use vtium_platform::vt::{Switch, Vt, VtEvent};
@@ -83,7 +92,9 @@ use crate::config::keys;
 use crate::config::{Config, ModeSpec};
 use crate::font::{self, Chosen};
 use crate::grab::{self, Chord, Grab};
+use crate::head::chord::{self, HeadChord};
 use crate::head::identity::{self, Card};
+use crate::head::route::Routes;
 use crate::head::{Attached, Frit, Head, place_display};
 use crate::helper::{self, Answer, Helper};
 use crate::layout::{self, Zoom};
@@ -138,10 +149,14 @@ enum Leaving {
 /// VT's signals do.
 pub trait SeatVt: Vt + Any {
     fn as_any(&mut self) -> &mut dyn Any;
+    fn as_vt(&self) -> &dyn Vt;
 }
 
 impl<T: Vt + Any> SeatVt for T {
     fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn as_vt(&self) -> &dyn Vt {
         self
     }
 }
@@ -165,8 +180,17 @@ pub struct App {
     /// The head file in force: the file's, or the compiled-in
     /// configuration.
     rules: vtium_config::Config,
-    /// The head every keyboard types into.
+    /// The head the inputs following the focus deliver to.
     focus: Option<usize>,
+    /// Where each input device's events go.
+    routes: Routes,
+    /// The head the focus moved to since [`App::take_focus_move`].
+    focus_move: Option<usize>,
+    /// A key came or the focus chord moved the focus: the focus no longer
+    /// follows a boot display lighting late.
+    focus_settled: bool,
+    /// A display lit since the focus was last placed.
+    focus_due: bool,
     /// What the rules and the display guard read of each card.
     cards: BTreeMap<PathBuf, Card>,
     /// Each display lit in a head, as the rules saw it.
@@ -309,6 +333,10 @@ impl App {
             heads,
             rules,
             focus: None,
+            routes: Routes::default(),
+            focus_move: None,
+            focus_settled: false,
+            focus_due: false,
             cards: BTreeMap::new(),
             lit: BTreeMap::new(),
             dark: BTreeSet::new(),
@@ -894,6 +922,7 @@ impl App {
         // Lit once it draws, so the focus never starts on a head whose
         // display could not be set up.
         self.lit.insert(key.clone(), display);
+        self.focus_due = true;
         if let Some(v) = self.heads.get(h).and_then(|head| head.views.get(&key)) {
             let cell = v.cell();
             log::info!(
@@ -914,12 +943,10 @@ impl App {
         }
         self.choose_font(h);
         let dpi = self.dpi(h);
-        let focused = self.focus == Some(h);
         let App {
             heads,
             config,
             locale,
-            input,
             ..
         } = self;
         let Some(head) = heads.get_mut(h) else {
@@ -990,14 +1017,39 @@ impl App {
             }
         }
         head.resize(l.grid);
-        if focused {
-            if let Some(input) = input {
-                let (w, ht) = head.pixels(head.grid);
-                input.set_pointer_max(w, ht);
-            }
-        }
+        self.bound_pointers();
         self.ask_glyphs(h);
         true
+    }
+
+    /// Mode 1004's focus (ADR-1401 D5): the terminal of each head a
+    /// keyboard delivers to has it, lit or not, so several hold it at
+    /// once; each change goes to a program that asked for it.
+    fn report_focus(&mut self) {
+        for (h, head) in self.heads.iter_mut().enumerate() {
+            let focused = self.routes.keyboard_reaches(h, self.focus);
+            if focused != head.focused {
+                head.focused = focused;
+                if head.term.terminal.focus(focused) {
+                    head.send_user_bytes();
+                }
+            }
+        }
+    }
+
+    /// Each pointer moves within the grid of the head it delivers to, and
+    /// a pointer added later within the focus's until it is placed.
+    fn bound_pointers(&mut self) {
+        let Some(input) = &mut self.input else {
+            return;
+        };
+        for (h, head) in self.heads.iter().enumerate() {
+            let (w, ht) = head.pixels(head.grid);
+            if self.focus == Some(h) {
+                input.set_pointer_max(w, ht);
+            }
+            input.set_pointer_max_of(&self.routes.devices_of(h, self.focus), w, ht);
+        }
     }
 
     /// The density head `h`'s points convert at (the operator's decision
@@ -1494,9 +1546,13 @@ impl App {
     /// the head holding the boot display, the connector lit at start, else
     /// the first connected one on the boot card, else on the other cards,
     /// in the kernel's order; else on the first head in the file with a
-    /// display. It stays there.
+    /// display. Until the first key or the first focus chord it starts
+    /// again as each display lights, so a boot display lighting a turn late
+    /// takes it whatever order the displays came in (the operator's answer
+    /// on vtium/vtium#156); after, it moves only by the chord.
     fn take_focus(&mut self) {
-        if self.focus.is_some() || self.lit.is_empty() {
+        let due = std::mem::take(&mut self.focus_due);
+        if self.lit.is_empty() || self.focus.is_some() && (self.focus_settled || !due) {
             return;
         }
         // The guards are H3d's: with them off the placement is the rules'
@@ -1512,13 +1568,7 @@ impl App {
             Some(vtium_config::Place::Head(h)) => Some(h),
             _ => None,
         };
-        let Some(head) = self.focus.and_then(|h| self.heads.get(h)) else {
-            return;
-        };
-        if let Some(input) = &mut self.input {
-            let (w, h) = head.pixels(head.grid);
-            input.set_pointer_max(w, h);
-        }
+        self.bound_pointers();
     }
 
     /// A head's first display came, its last went, or its next came. With
@@ -1572,9 +1622,11 @@ impl App {
         match event {
             DeviceEvent::Added(dev) => match dev.kind {
                 DeviceKind::Input => {
-                    if let Some(input) = &mut self.input {
-                        input.add(&dev.node);
-                    }
+                    let identity = dev
+                        .input
+                        .as_deref()
+                        .map_or_else(vtium_config::Identity::input, identity::input);
+                    self.add_input(&dev.node, identity);
                 }
                 DeviceKind::Fbdev if dev.flags.drm_backed => {
                     log::debug!("{}: backed by a DRM card, skipped", dev.node.display());
@@ -1588,6 +1640,7 @@ impl App {
             },
             DeviceEvent::Removed { kind, node } => match kind {
                 DeviceKind::Input => {
+                    self.routes.remove(&node);
                     if let Some(input) = &mut self.input {
                         if let Some(id) = input.find(&node) {
                             input.remove(id);
@@ -1606,35 +1659,85 @@ impl App {
         }
     }
 
-    /// A key press or pointer event from the input devices. A key press
+    /// An input device udev reported, placed by the first rule matching
+    /// `identity` (ADR-1401 D3): opened to deliver, opened for the rescue
+    /// key alone, or never opened.
+    pub fn add_input(&mut self, node: &Path, identity: vtium_config::Identity) {
+        let disposition = self.routes.add(&self.rules, node, &identity);
+        if let Some(id) = self
+            .input
+            .as_mut()
+            .and_then(|i| i.add_with(node, disposition))
+        {
+            self.routes.opened(node, id);
+            self.bound_pointers();
+        }
+    }
+
+    /// The name of the head holding the focus.
+    pub fn focus_head(&self) -> Option<&str> {
+        self.heads.get(self.focus?).map(Head::name)
+    }
+
+    /// The head the focus chord last moved the focus to, by its name,
+    /// once: what draws the focus mark reads it (ADR-1401 D5).
+    pub fn take_focus_move(&mut self) -> Option<String> {
+        let h = self.focus_move.take()?;
+        self.heads.get(h).map(|head| head.name().to_owned())
+    }
+
+    /// A key press or pointer event from no one device, which follows the
+    /// focus.
+    pub fn input_event(&mut self, event: InputEvent, now: Instant) {
+        self.deliver(None, event, now);
+    }
+
+    /// A key press or pointer event from the input device at `node`.
+    pub fn device_input(&mut self, node: &Path, event: InputEvent, now: Instant) {
+        self.deliver(Some(node), event, now);
+    }
+
+    /// An event from the device at `node`, or from none, for the head its
+    /// rule names or the head holding the focus (ADR-1401 D5). A key press
     /// is the user's activity; a pointer event is when
     /// [`App::pointer_event`] says so.
-    pub fn input_event(&mut self, event: InputEvent, now: Instant) {
+    fn deliver(&mut self, node: Option<&Path>, event: InputEvent, now: Instant) {
+        let h = self.routes.head(node, self.focus);
         match event {
             InputEvent::Key(key) => {
+                self.focus_settled = true;
                 self.activity(now);
-                self.key(&key, now);
+                self.key(h, &key, now);
             }
             InputEvent::Pointer(p) => {
-                let mods = self.input.as_ref().map_or(InputMods::empty(), |i| i.mods());
-                self.pointer_event(p, mods, now);
+                let mods = match (&self.input, h) {
+                    (Some(input), Some(h)) => input.mods_of(&self.routes.devices_of(h, self.focus)),
+                    _ => InputMods::empty(),
+                };
+                self.pointer_to(h, p, mods, now);
             }
         }
     }
 
     /// A pointer event, with the modifiers held on the keyboards as it
-    /// came, for the head holding the focus. A move, a button or the wheel
-    /// is the user's activity; the end of a frame and the hide are vtium's
-    /// own, as the C reference counted them (`src/seat.c:578-590` at
-    /// kmscon b1f7a7c5).
+    /// came, for the head holding the focus.
     pub fn pointer_event(&mut self, event: PointerEvent, mods: InputMods, now: Instant) {
+        self.pointer_to(self.focus, event, mods, now);
+    }
+
+    /// A pointer event for head `h`, with the modifiers held on the
+    /// keyboards delivering to it. A move, a button or the wheel is the
+    /// user's activity; the end of a frame and the hide are vtium's own,
+    /// as the C reference counted them (`src/seat.c:578-590` at kmscon
+    /// b1f7a7c5).
+    fn pointer_to(&mut self, h: Option<usize>, event: PointerEvent, mods: InputMods, now: Instant) {
         match event {
             PointerEvent::Moved { .. } | PointerEvent::Button { .. } | PointerEvent::Wheel(_) => {
                 self.activity(now);
             }
             PointerEvent::Sync | PointerEvent::Hide => {}
         }
-        let Some(h) = self.focus else {
+        let Some(h) = h else {
             return;
         };
         let Some(head) = self.heads.get_mut(h) else {
@@ -1657,11 +1760,12 @@ impl App {
         self.user_input(now);
     }
 
-    /// The key order: the VT's keys, the seat's, then the focused head's
-    /// terminal: its grabs, DECARM, the encoder. Each key that passes the
-    /// seat's clears the selection, as the C reference's did
-    /// (`src/terminal.c:1370` at kmscon b1f7a7c5).
-    fn key(&mut self, key: &KeyEvent, now: Instant) {
+    /// The key order: the VT's keys, the seat's, then the terminal of
+    /// head `h`, the head the key's device delivers to: its grabs, DECARM,
+    /// the encoder. Each key that passes the seat's clears the selection,
+    /// as the C reference's did (`src/terminal.c:1370` at kmscon
+    /// b1f7a7c5).
+    fn key(&mut self, h: Option<usize>, key: &KeyEvent, now: Instant) {
         if self.vt.key(key) || !self.awake {
             return;
         }
@@ -1685,7 +1789,14 @@ impl App {
             }
             return;
         }
-        let Some(h) = self.focus else {
+        if let Some(chord) = chord::chord(bits, &key.keysyms) {
+            // One action a press, as the power keys.
+            if !key.repeat {
+                self.chord(chord);
+            }
+            return;
+        }
+        let Some(h) = h else {
             return;
         };
         let Some(head) = self.heads.get_mut(h) else {
@@ -1745,6 +1856,23 @@ impl App {
             head.cursor_due = Some((after(now, arm.first), arm.every));
         }
         head.draw_now = true;
+    }
+
+    /// A head's chord (ADR-1401 D5): the focus chord moves the focus to
+    /// the next or the previous head with a lit display.
+    fn chord(&mut self, chord: HeadChord) {
+        let back = match chord {
+            HeadChord::NextHead => false,
+            HeadChord::PreviousHead => true,
+        };
+        let heads = &self.heads;
+        let lit = |h: usize| heads.get(h).is_some_and(|head| !head.views.is_empty());
+        self.focus_settled = true;
+        if let Some(to) = chord::step(self.focus, heads.len(), back, lit) {
+            self.focus = Some(to);
+            self.focus_move = Some(to);
+            self.bound_pointers();
+        }
     }
 
     /// A zoom of head `h`: the base height the font's next step, larger or
@@ -1858,17 +1986,25 @@ impl App {
                 }
             }
         }
-        let inputs: Vec<InputEvent> = self
-            .input
-            .as_mut()
-            .map(|i| i.events().collect())
-            .unwrap_or_default();
+        let inputs: Vec<DeviceInput> = match &mut self.input {
+            Some(input) => input.device_events(self.vt.as_vt()).collect(),
+            None => Vec::new(),
+        };
         for head in &mut self.heads {
             head.tracking_changed();
         }
         for e in inputs {
-            self.input_event(e, now);
+            // The rescue key's move is not built: its press does nothing.
+            if e.rescue {
+                continue;
+            }
+            let node = e
+                .device
+                .and_then(|id| self.routes.node(id))
+                .map(Path::to_owned);
+            self.deliver(node.as_deref(), e.event, now);
         }
+        self.report_focus();
         for h in 0..self.heads.len() {
             self.session_turn(h, now);
         }
