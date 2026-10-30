@@ -953,6 +953,68 @@ mod tests {
         }
     }
 
+    // The focus mark's cell is where the renderer draws the grid's top-right
+    // cell, in each orientation: a full block there, drawn, lights exactly
+    // the rectangle `top_right` gives.
+    #[test]
+    fn top_right_is_the_cell_the_renderer_draws_top_right() {
+        for (o, w, h) in [
+            (Orientation::Normal, 100, 60),
+            (Orientation::UpsideDown, 100, 60),
+            (Orientation::Right, 60, 100),
+            (Orientation::Left, 60, 100),
+        ] {
+            let mut terminal = Terminal::new(10, 3, 0);
+            terminal.input("\x1b[1;10H\u{2588}".as_bytes());
+            let face: DisplayFace = Box::new(Unifont::new(16));
+            let config = RenderConfig {
+                orientation: o,
+                ..RenderConfig::default()
+            };
+            let mut renderer = Renderer::new(Font::new(face), w, h, config);
+            let mut canvas = vtium_render::Canvas::new(w, h, 0);
+            let snapshot = Snapshot::take(&terminal);
+            renderer.draw(
+                &snapshot.frame(Age::NEVER),
+                &mut canvas,
+                0,
+                &DrawState::default(),
+            );
+            let bg = canvas.pixel(0, 0);
+            let lit: Vec<(u32, u32)> = (0..h)
+                .flat_map(|y| (0..w).map(move |x| (x, y)))
+                .filter(|&(x, y)| canvas.pixel(x, y) != bg)
+                .collect();
+            let (x0, y0) = (lit.iter().map(|p| p.0).min(), lit.iter().map(|p| p.1).min());
+            let (x1, y1) = (lit.iter().map(|p| p.0).max(), lit.iter().map(|p| p.1).max());
+            let drawn = RenderRect {
+                x: x0.unwrap(),
+                y: y0.unwrap(),
+                width: x1.unwrap() - x0.unwrap() + 1,
+                height: y1.unwrap() - y0.unwrap() + 1,
+            };
+            let surface = Surface {
+                width: w,
+                height: h,
+                orientation: o,
+                depth: renderer.depth(),
+            };
+            let cell = renderer.font().cell();
+            assert_eq!(top_right(surface, (10, 3), cell), Some(drawn), "{o:?}");
+        }
+        let surface = Surface {
+            width: 100,
+            height: 60,
+            orientation: Orientation::Normal,
+            depth: Depth::Color,
+        };
+        let cell = vtium_font::Cell {
+            width: 8,
+            height: 16,
+        };
+        assert_eq!(top_right(surface, (0, 3), cell), None, "an empty grid");
+    }
+
     /// A terminal of 4 by 2 cells and its view on a display of 36 by 34,
     /// the grid at 2,1.
     fn view() -> (Term, View) {
