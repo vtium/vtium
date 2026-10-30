@@ -60,7 +60,7 @@ pub use identity::{Class, Classes, Edid, Identity, Kind, UsbSerial};
 pub use matching::{Match, Token, glob};
 pub use outcome::{
     DefaultLine, Fallback, Kept, Landing, Line, Lit, Outcome, Posture, Read, Rescue, Rest, Runs,
-    Scope, Stated, Switch, SwitchKey, Trusted, Within, resolve, scope,
+    Scope, Stated, Switch, SwitchKey, Trusted, Unplaced, Within, resolve, scope,
 };
 pub use parse::{Parsed, parse};
 pub use place::{By, Disposition, Lockout, Place, Placed, Placement, rule_for};

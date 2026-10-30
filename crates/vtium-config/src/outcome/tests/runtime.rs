@@ -2,13 +2,14 @@
 //!
 //! One small machine stands for every file: heads `H1` and `H2`, and the default head `DEF` the display guard may light. Displays `D1` and `D2` are claimed by `H1` and `H2`, and `DU` by no rule. Keyboards `K1` and `K2` are claimed by `H1` and `H2`, `KU` by no rule, and `KI` sent to `ignore`. Pointer `P1` is claimed by `H1`, and `PU` by no rule. A partly broken file keeps `H1` alone, so `D2` and `K2` fall through to no rule; a file with no head keeps the `ignore` rule alone; the shipped rules send every display to `DEF` and every keyboard and pointer to the focus.
 //!
-//! A state is the devices present, the keyboards the rescue key has moved, where the focus rests and which configuration runs. The guards run after every event, as D9 says, so the anti-lockout guard firing and letting go and the display guard firing are outcomes of the events, never events of their own. The state space is finite, 2^9 device sets by 2^4 rescued sets by 4 focus places by 2 configurations, and the exploration runs breadth first until no event reaches a new state. Every invariant here is a property of one state, so a sequence of any length reaches only states the exploration checked.
+//! A state is the devices present, the keyboards the rescue key has moved and where the focus rests; a reload changes the configuration only for a valid trusted file, which the events here never read. The guards run after every event, as D9 says, so the anti-lockout guard firing and letting go and the display guard firing are outcomes of the events, never events of their own. The state space is finite, 2^9 device sets by 2^4 rescued sets by 4 focus places, and the exploration runs breadth first until no event reaches a new state. Every invariant here is a property of one state, so a sequence of any length reaches only states the exploration checked.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Ways, paths, ways};
 use crate::outcome::{
-    Fallback, Landing, Outcome, Posture, Read, Rest, Runs, Stated, SwitchKey, Trusted, resolve,
+    Fallback, Landing, Outcome, Posture, Read, Rest, Runs, Stated, SwitchKey, Trusted, Unplaced,
+    resolve,
 };
 
 const H1: u8 = 1;
@@ -173,19 +174,19 @@ fn scene(o: &Outcome, rest: Rest) -> Scene {
     }
 }
 
-/// What the running text writes of `key` on `head`, `None` for a guard.
+/// What the running text writes of `key` on `head`, `None` for a guard; the posture alone sets `anti-lockout` and `rescue-key`.
 fn written(ways: Ways, head: Option<u8>, key: SwitchKey) -> Option<bool> {
     let head_right = match key {
         SwitchKey::Focus | SwitchKey::VtKeys | SwitchKey::Rescue => true,
-        SwitchKey::AntiLockout | SwitchKey::RescueKey | SwitchKey::NeverDark => false,
+        SwitchKey::NeverDark => false,
+        SwitchKey::AntiLockout | SwitchKey::RescueKey => return None,
     };
     match ways {
         Ways::Unset => None,
         Ways::Granted => Some(true),
         Ways::Revoked => Some(false),
         Ways::Admin if head_right => (head == Some(H1)).then_some(true),
-        Ways::Admin if key == SwitchKey::NeverDark => None,
-        Ways::Admin => Some(true),
+        Ways::Admin => None,
     }
 }
 
@@ -203,9 +204,23 @@ impl Config {
         head == Some(DEF) || self.o.switch(key).of(written(self.ways, head, key))
     }
 
-    fn takes(&self, h: u8) -> bool {
+    /// Whether `h` takes the focus while the heads `lit` are lit.
+    fn takes(&self, h: u8, lit: u8) -> bool {
+        let first_lit = ORDER
+            .into_iter()
+            .find(|&x| x != DEF && self.scene.heads & x != 0 && lit & x != 0);
         self.on(Some(h), SwitchKey::Focus)
-            || (self.o.landing == Landing::FirstSurvivor && Some(h) == self.scene.first())
+            || (self.o.landing == Landing::FirstLitSurvivor && Some(h) == first_lit)
+    }
+
+    /// Whether an input of `kind` that no running rule places follows the focus.
+    fn unplaced_follows(&self, kind: Kind) -> bool {
+        match self.o.unplaced {
+            Unplaced::Focus => true,
+            // the shipped rules' tail: the keyboard, pointer and key classes, every input here
+            Unplaced::Shipped => matches!(kind, Kind::Keyboard | Kind::Pointer),
+            Unplaced::Ignore => false,
+        }
     }
 }
 
@@ -283,6 +298,7 @@ fn head_name(h: u8) -> &'static str {
 #[derive(Clone, Copy)]
 struct View {
     heads: u8,
+    lit: u8,
     focus: Option<u8>,
     follows: u16,
     claims: [Option<u8>; 9],
@@ -323,14 +339,14 @@ fn settle(c: &Config, present: u16, rescued: u16, focus: Option<u8>) -> View {
                 shown |= shows(boot, h);
             }
             // the boot display for the notice alone, and dark when the run shows none
-            Fallback::NoticeOnly => never_dark = c.o.line.is_some(),
+            Fallback::NoticeOnly => never_dark = c.o.line.is_some() || c.scene.heads != 0,
         }
     }
     let heads = c.scene.heads | (lit & DEF);
     let lit_taker = || {
         boot_head
-            .filter(|&h| lit & h != 0 && c.takes(h))
-            .or_else(|| ORDER.into_iter().find(|&h| lit & h != 0 && c.takes(h)))
+            .filter(|&h| lit & h != 0 && c.takes(h, lit))
+            .or_else(|| ORDER.into_iter().find(|&h| lit & h != 0 && c.takes(h, lit)))
     };
     let mut follows = 0u16;
     let mut claims = [None; 9];
@@ -346,11 +362,11 @@ fn settle(c: &Config, present: u16, rescued: u16, focus: Option<u8>) -> View {
             To::Head(h) => *claim = Some(h),
             To::Focus => follows |= d.bit,
             To::Ignore => {}
-            To::None if c.o.posture == Posture::Allow => follows |= d.bit,
+            To::None if c.unplaced_follows(d.kind) => follows |= d.bit,
             To::None => {}
         }
     }
-    let mut focus = focus.filter(|&h| heads & h != 0 && c.takes(h));
+    let mut focus = focus.filter(|&h| heads & h != 0 && c.takes(h, lit));
     if focus.is_none() {
         focus = lit_taker();
     }
@@ -397,6 +413,7 @@ fn settle(c: &Config, present: u16, rescued: u16, focus: Option<u8>) -> View {
     }
     View {
         heads,
+        lit,
         focus,
         follows,
         claims,
@@ -422,10 +439,11 @@ fn allowed(start: &Config, by_text: bool) -> u64 {
     let posture = if by_text { Posture::Deny } else { o.posture };
     // the allow posture's display guard may light the default head; a deny file never grants it
     let heads = start.scene.heads | if posture == Posture::Allow { DEF } else { 0 };
+    // the first lit surviving head may be any head that survives
     let takes = |h: u8| {
         h == DEF
             || on(Some(h), SwitchKey::Focus)
-            || (!by_text && o.landing == Landing::FirstSurvivor && Some(h) == start.scene.first())
+            || (!by_text && o.landing == Landing::FirstLitSurvivor && start.scene.heads & h != 0)
     };
     let mut out = 0u64;
     for i in 0..3 {
@@ -445,7 +463,7 @@ fn allowed(start: &Config, by_text: bool) -> u64 {
             To::Focus | To::Ignore | To::None => true,
         };
         let follows = to == To::Focus
-            || (to == To::None && posture == Posture::Allow)
+            || (to == To::None && !by_text && start.unplaced_follows(d.kind))
             || (keyboard && on(None, SwitchKey::AntiLockout))
             || (keyboard && on(None, SwitchKey::RescueKey) && rescuable);
         for h in ORDER {
@@ -522,8 +540,6 @@ struct State {
     present: u16,
     rescued: u16,
     focus: Option<u8>,
-    /// 0 for the start configuration, 1 for the shipped rules a reload put in its place.
-    config: u8,
 }
 
 /// What an exploration found.
@@ -533,8 +549,6 @@ struct Found {
     depth: usize,
     text_breaches: Vec<String>,
     policy_breaches: Vec<String>,
-    /// Policy breaches in states where a reload put the shipped rules in place of an open start.
-    reloaded_open: usize,
     anti_lockout: usize,
     let_go: usize,
     never_dark: usize,
@@ -559,15 +573,6 @@ fn explore(read: &Read, ways: Ways, found: &mut Found) {
         scene: scene(&o, rest),
         ways,
     };
-    let shipped = resolve(&Read::Missing);
-    let configs = [
-        start,
-        Config {
-            o: shipped,
-            scene: scene(&shipped, Rest::Empty),
-            ways,
-        },
-    ];
     let by_text = allowed(&start, true);
     let by_policy = allowed(&start, false);
     let events = events();
@@ -578,13 +583,12 @@ fn explore(read: &Read, ways: Ways, found: &mut Found) {
         present: EVERY,
         rescued: 0,
         focus: first.focus,
-        config: 0,
     };
     seen.insert(s0);
     queue.push_back((s0, 0usize));
     while let Some((s, depth)) = queue.pop_front() {
         found.depth = found.depth.max(depth);
-        let c = configs.get(usize::from(s.config)).unwrap_or(&start);
+        let c = &start;
         let v = settle(c, s.present, s.rescued, s.focus);
         found.states = found.states.saturating_add(1);
         found.anti_lockout = found
@@ -598,13 +602,9 @@ fn explore(read: &Read, ways: Ways, found: &mut Found) {
                 .push(format!("{}: {}", at(), describe(v.reach & !by_text)));
         }
         if v.reach & !by_policy != 0 {
-            if s.config == 1 && o.posture == Posture::Allow {
-                found.reloaded_open = found.reloaded_open.saturating_add(1);
-            } else {
-                found
-                    .policy_breaches
-                    .push(format!("{}: {}", at(), describe(v.reach & !by_policy)));
-            }
+            found
+                .policy_breaches
+                .push(format!("{}: {}", at(), describe(v.reach & !by_policy)));
         }
         for e in &events {
             let mut next = s;
@@ -636,22 +636,22 @@ fn explore(read: &Read, ways: Ways, found: &mut Found) {
                             .skip(after.saturating_add(1))
                             .take(ORDER.len())
                             .copied()
-                            .find(|&h| v.heads & h != 0 && c.takes(h));
+                            .find(|&h| v.heads & h != 0 && c.takes(h, v.lit));
                     }
                 }
+                // only a valid trusted file is applied, and these are none
                 Event::Reload(r) => {
                     let new = c.o.reload(&r);
-                    if new != c.o && new.runs == Runs::Builtin {
-                        next.config = 1;
-                    } else if new != c.o {
-                        found
-                            .policy_breaches
-                            .push(format!("{}: a reload of {r:?} runs {new:?}", at()));
+                    if new != c.o {
+                        let breach = format!("{}: a reload of {r:?} runs {new:?}", at());
+                        if readable_deny {
+                            found.text_breaches.push(breach.clone());
+                        }
+                        found.policy_breaches.push(breach);
                     }
                 }
             }
-            let c2 = configs.get(usize::from(next.config)).unwrap_or(&start);
-            let settled = settle(c2, next.present, next.rescued, next.focus);
+            let settled = settle(c, next.present, next.rescued, next.focus);
             next.focus = settled.focus;
             if next != s {
                 let n = found.effective.entry(event_kind(e)).or_default();
@@ -727,8 +727,6 @@ fn no_event_opens_past_its_start_outcome() {
         found.policy_breaches.len(),
         firsts(&found.policy_breaches)
     );
-    // contradiction: a reload that finds the file gone puts the shipped rules in place of a running open file, which may give an input the focus the file closed
-    assert!(found.reloaded_open > 0);
 }
 
 #[test]
@@ -740,7 +738,6 @@ fn the_exploration_reaches_every_event_and_guard() {
         "pointer added or removed",
         "rescue key",
         "focus chord",
-        "reload",
     ] {
         assert!(
             found.effective.get(kind).is_some_and(|&n| n > 0),
@@ -748,14 +745,15 @@ fn the_exploration_reaches_every_event_and_guard() {
         );
     }
     assert!(found.anti_lockout > 0 && found.let_go > 0 && found.never_dark > 0);
+    // a reload of a file vtium cannot run whole changes nothing
+    assert!(!found.effective.contains_key("reload"));
     println!(
-        "{} states, depth {}, anti-lockout firing in {}, letting go {} times, never-dark firing in {}, effective events {:?}, open reloads to the shipped rules {}",
+        "{} states, depth {}, anti-lockout firing in {}, letting go {} times, never-dark firing in {}, effective events {:?}",
         found.states,
         found.depth,
         found.anti_lockout,
         found.let_go,
         found.never_dark,
-        found.effective,
-        found.reloaded_open
+        found.effective
     );
 }

@@ -49,7 +49,7 @@ enum Ways {
     Granted,
     /// Every switch off.
     Revoked,
-    /// The operator's own way in under deny: the first head writes `focus`, `vt-keys` and `rescue` on, the guards `anti-lockout` and `rescue-key` on, and nothing else is written.
+    /// The operator's own way in under deny: the first head writes `focus`, `vt-keys` and `rescue` on, and nothing else is written.
     Admin,
 }
 
@@ -98,8 +98,11 @@ fn written(read: &Read, ways: Ways, key: SwitchKey) -> Option<bool> {
         SwitchKey::Focus | SwitchKey::VtKeys | SwitchKey::Rescue => true,
         SwitchKey::AntiLockout | SwitchKey::RescueKey | SwitchKey::NeverDark => false,
     };
+    // the posture alone sets `anti-lockout` and `rescue-key`, which the file cannot write
+    let posture_only = matches!(key, SwitchKey::AntiLockout | SwitchKey::RescueKey);
     match ways {
         Ways::Unset => None,
+        Ways::Granted | Ways::Revoked | Ways::Admin if posture_only => None,
         Ways::Granted | Ways::Revoked | Ways::Admin if headless && head_right => None,
         Ways::Admin if key == SwitchKey::NeverDark => None,
         Ways::Granted | Ways::Admin => Some(true),
@@ -141,7 +144,7 @@ impl Run {
     fn lands(&self) -> bool {
         let first = match self.outcome.landing {
             Landing::AsSet => false,
-            Landing::FirstSurvivor => true,
+            Landing::FirstLitSurvivor => true,
         };
         first || self.on(SwitchKey::Focus)
     }
@@ -219,11 +222,10 @@ enum Inputs {
 }
 
 fn inputs(o: &Outcome) -> Inputs {
-    match (o.runs, o.posture) {
-        (Runs::Builtin, Posture::Allow | Posture::Deny) => Inputs::Shipped,
-        (Runs::Off, Posture::Allow | Posture::Deny) => Inputs::Ignored,
-        (Runs::File | Runs::Survivors, Posture::Allow) => Inputs::Focus,
-        (Runs::File | Runs::Survivors, Posture::Deny) => Inputs::Ignored,
+    match o.unplaced {
+        Unplaced::Focus => Inputs::Focus,
+        Unplaced::Shipped => Inputs::Shipped,
+        Unplaced::Ignore => Inputs::Ignored,
     }
 }
 
@@ -247,8 +249,9 @@ const TABLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/outcomes.tsv");
 
 /// The outcome table: one row a path, its inputs, its outcome, each switch's rule, and the extremes of its text under which a lockout can occur.
 fn table() -> String {
-    let mut out =
-        String::from("read\tdefault\trest\truns\tposture\trescue\tlanding\tline\tlit\tfallback");
+    let mut out = String::from(
+        "read\tdefault\trest\truns\tposture\trescue\tlanding\tline\tlit\tfallback\tunplaced",
+    );
     for key in SwitchKey::ALL {
         out.push('\t');
         out.push_str(key.name());
@@ -265,6 +268,7 @@ fn table() -> String {
             o.line.map_or("-", Line::text),
             o.lit.name(),
             o.fallback.name(),
+            o.unplaced.name(),
         ]);
         row.extend(SwitchKey::ALL.iter().map(|&k| o.switch(k).name()));
         let locked: Vec<&str> = ways(&read)
@@ -432,12 +436,11 @@ fn a_degraded_run_is_never_more_open_than_builtin_and_never_closes_what_its_disp
             );
         }
     }
-    // contradiction: the shipped rules ignore the inputs no class names, which an open disposition gives the focus, so an open degraded run breaks one half for them: partly broken runs its survivors open, broken runs the shipped rules
+    // the shipped rules ignore the inputs no class names, which an open disposition gives the focus: every open degraded run, partly broken or broken, keeps to the shipped rules and closes them, and none is more open
     let want: BTreeSet<(Read, Half)> = paths()
         .into_iter()
         .filter_map(|read| match (degraded(&read), disposition(&read)) {
-            (Some(Degraded::Partly), Some(Posture::Allow)) => Some((read, Half::MoreOpen)),
-            (Some(Degraded::Broken), Some(Posture::Allow)) => Some((read, Half::Closes)),
+            (Some(_), Some(Posture::Allow)) => Some((read, Half::Closes)),
             (Some(_), Some(Posture::Deny)) | (None, _) | (_, None) => None,
         })
         .collect();
@@ -472,15 +475,12 @@ fn every_partly_broken_run_leaves_a_rescued_keyboard_somewhere_to_land_or_names_
 
 #[test]
 fn a_readable_deny_is_sticky_within_the_file() {
-    // no other `default` line and no broken line moves a readable deny, and a second `default` line beside it leaves the file partly broken at best; a text vtium cannot read as a version 1 file holds no readable deny (C4)
+    // no other `default` line and no broken line moves a readable deny, and a second `default` line beside it leaves the file partly broken at best; a trusted file always fails to its disposition
     for defaults in sequences(DefaultLine::ALL, 3) {
         if !defaults.contains(&DefaultLine::Deny) {
             continue;
         }
         for scopes in sequences(Scope::ALL, 2) {
-            if scopes.contains(&Scope::Text) {
-                continue;
-            }
             for &kept in Kept::ALL {
                 let t = Trusted::of(&defaults, &scopes, kept);
                 assert_eq!(t.stated, Stated::Deny, "{defaults:?} {scopes:?} {kept:?}");
@@ -619,14 +619,6 @@ fn the_disposition_is_read_from_the_default_lines() {
     ] {
         assert_eq!(of(&lines, &[]).stated, Stated::Unreadable, "{lines:?}");
     }
-    // a text vtium cannot read as a version 1 file states nothing vtium can trust (C4)
-    assert_eq!(
-        of(&[DefaultLine::Deny], &[Scope::Text]),
-        Trusted {
-            stated: Stated::Unreadable,
-            rest: Rest::Broken
-        }
-    );
     assert_eq!(
         of(&[DefaultLine::InSection], &[]).stated,
         Stated::Unreadable
@@ -657,7 +649,7 @@ fn every_problem_has_its_scope() {
             Scope::Trust,
         ),
         (Problem::Untrusted(untrusted), Within::Top, Scope::Trust),
-        (Problem::TooLarge, Within::Top, Scope::Text),
+        (Problem::TooLarge, Within::Top, Scope::File),
         (Problem::NotUtf8, Within::Head, Scope::Head),
         (Problem::NotUtf8, Within::Top, Scope::Line),
         (Problem::ControlCharacter('\r'), Within::Rules, Scope::Line),
@@ -666,8 +658,8 @@ fn every_problem_has_its_scope() {
             Within::Header,
             Scope::Section,
         ),
-        (Problem::MissingVersion, Within::Top, Scope::Text),
-        (Problem::UnknownVersion(q()), Within::Top, Scope::Text),
+        (Problem::MissingVersion, Within::Top, Scope::File),
+        (Problem::UnknownVersion(q()), Within::Top, Scope::File),
         (Problem::LineTooLong, Within::Top, Scope::File),
         (Problem::LineTooLong, Within::Rules, Scope::File),
         (Problem::TooManyHeads, Within::Header, Scope::File),
