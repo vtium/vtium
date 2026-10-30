@@ -140,6 +140,64 @@ fn glyphs_start_where_the_header_says() {
     }
 }
 
+// setfont(8): a raw font is 256*N bytes, one byte a row, 8 pixels across,
+// 0 < N <= 32. The C reference read no raw font.
+// covers: text.psf
+#[test]
+fn a_raw_font_is_256_glyphs_of_one_byte_rows() {
+    // glyph i is N rows, row y holding i + y
+    for height in [1usize, 8, 14, 16, 32] {
+        let mut b = Vec::new();
+        for i in 0..=255u8 {
+            for y in 0..height {
+                b.push(i.wrapping_add(y as u8));
+            }
+        }
+        let psf = parse(&b).expect("loads");
+        assert_eq!(psf.glyph_count(), 256);
+        assert_eq!(psf.glyph_size(), (8, height as u32));
+        // a raw font holds no unicode table
+        assert!(!psf.has_table());
+        for i in [0u32, 1, 0x41, 0x80, 255] {
+            let g = psf.render(i, Style::default()).expect("a glyph");
+            for (y, row) in g.rows().enumerate() {
+                let byte = (i as u8).wrapping_add(y as u8);
+                for (x, &px) in row.iter().enumerate() {
+                    let on = byte >> (7 - x) & 1 != 0;
+                    assert_eq!(
+                        px,
+                        if on { 0xff } else { 0 },
+                        "{height}: glyph {i} at {x},{y}"
+                    );
+                }
+            }
+        }
+        if cfg!(feature = "gzip") {
+            assert_eq!(
+                parse(&gzip(&b)).expect("gz").glyph_size(),
+                (8, height as u32)
+            );
+        }
+    }
+}
+
+// a size that is not 256 times a height of 1 to 32 is no raw font
+// covers: text.psf
+#[test]
+fn a_file_of_no_raw_size_is_refused() {
+    for len in [0usize, 1, 255, 257, 256 * 33, 256 * 32 + 1, 256 * 64, 4095] {
+        let b = vec![0xaa; len];
+        let e = Psf::parse(&b).expect_err("not a font");
+        assert!(
+            matches!(e, PsfError::NotPsf | PsfError::Truncated),
+            "{len}: {e}"
+        );
+    }
+    // the edges either side of the bound
+    assert!(Psf::parse(&vec![0xaa; 256 * 32]).is_ok());
+    assert!(Psf::parse(&vec![0xaa; 256]).is_ok());
+}
+
 // test_font_psf.c test_short()
 // covers: text.psf
 #[test]
@@ -616,8 +674,16 @@ fn every_kbd_console_font_loads() {
             assert!(got.is_err(), "{}", path.display());
             continue;
         }
-        assert_eq!(got.is_ok(), psf, "{}: {:?}", path.display(), got.err());
-        if psf {
+        // a file of 256 times a height of 1 to 32 is a raw font
+        let raw_font = plain.len() % 256 == 0 && (1..=32).contains(&(plain.len() / 256));
+        assert_eq!(
+            got.is_ok(),
+            psf || raw_font,
+            "{}: {:?}",
+            path.display(),
+            got.err()
+        );
+        if psf || raw_font {
             loaded += 1;
             assert!(Psf::parse(&plain).is_ok(), "{} gunzipped", path.display());
         } else {
