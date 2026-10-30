@@ -3500,6 +3500,11 @@ fn a_helper_that_dies_leaves_the_built_in_font_with_one_log_line() {
     let given_up: Vec<&String> = lines.iter().filter(|l| given(l)).collect();
     assert_eq!(given_up.len(), 1, "{lines:?}");
     assert!(given_up[0].contains("signal 11"), "{given_up:?}");
+    // ADR-1301 D1: the same line says the clusters draw unshaped
+    assert!(
+        given_up[0].ends_with("and each cluster unshaped, a glyph a codepoint"),
+        "{given_up:?}"
+    );
     let _ = std::fs::remove_dir_all(&fonts.frits);
 }
 
@@ -3828,7 +3833,7 @@ fn recording(name: &str) -> Sources {
 /// rest of the request.
 fn first_request(bytes: &[u8]) -> Option<(String, String, &[u8])> {
     let u32_at = |b: &[u8]| Some(u32::from_le_bytes(b.get(..4)?.try_into().ok()?) as usize);
-    let rest = bytes.strip_prefix(b"VTVSREQ2")?.get(4..)?;
+    let rest = bytes.strip_prefix(b"VTVSREQ3")?.get(4..)?;
     let n = u32_at(rest)?;
     let name = String::from_utf8(rest.get(4..4 + n)?.to_vec()).ok()?;
     let rest = rest.get(4 + n..)?;
@@ -3882,6 +3887,45 @@ fn a_kbd_name_no_frit_bears_is_generated_as_a_one_source_frit() {
         recorded(&mut h, &fonts, 1),
         [pair("ter-v16n", "source=kbd:ter-v16n\n")]
     );
+    let _ = std::fs::remove_dir_all(&fonts.frits);
+}
+
+// ADR-1200 D21: a cluster the screen shows is asked for whole, by its
+// text, beside each of its characters
+#[test]
+fn a_cluster_the_screen_shows_is_asked_for_whole() {
+    let fonts = recording("cluster-ask");
+    let mut h = Harness::fonts(
+        &[
+            "--font-name=ter-v16n",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "printf 'e\\314\\201'; read x",
+        ],
+        Memory::default(),
+        fonts.clone(),
+    );
+    // a cluster count of 1, then the cluster: its length and each scalar
+    let words: Vec<u8> = [1u32, 2, 0x65, 0x301]
+        .iter()
+        .flat_map(|w| w.to_le_bytes())
+        .collect();
+    let asked = |h: &mut Harness| {
+        requests(h, &fonts, 1)
+            .iter()
+            .any(|b| b.windows(words.len()).any(|w| w == words.as_slice()))
+    };
+    let mut found = false;
+    for _ in 0..50 {
+        if asked(&mut h) {
+            found = true;
+            break;
+        }
+        h.until(Duration::from_millis(100), |_| false);
+    }
+    assert!(found, "the cluster e U+0301 is asked for whole");
     let _ = std::fs::remove_dir_all(&fonts.frits);
 }
 
@@ -4306,10 +4350,16 @@ fn the_kernels_font_is_handed_to_the_helper() {
             .map(|w| u32::from_le_bytes(w.try_into().expect("a word")))
             .collect()
     };
-    // the cell, the reserved capabilities, then the codepoints and the
-    // held ranges, each counted
+    // the cell, the reserved capabilities, then the codepoints, the
+    // clusters and the held ranges, each counted
     let codepoints = words(&rest[12..], 1)[0] as usize;
-    let rest = &rest[16 + 4 * codepoints..];
+    let mut rest = &rest[16 + 4 * codepoints..];
+    let clusters = words(rest, 1)[0] as usize;
+    rest = &rest[4..];
+    for _ in 0..clusters {
+        let len = words(rest, 1)[0] as usize;
+        rest = &rest[4 + 4 * len..];
+    }
     let held = words(rest, 1)[0] as usize;
     let rest = &rest[4 + 8 * held..];
     assert_eq!(words(rest, 5), [1, 8, 2, 2, 4], "the font's shape");
