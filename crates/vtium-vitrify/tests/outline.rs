@@ -3,12 +3,14 @@
 //! it as R8 coverage or premultiplied RGBA, one or two cells wide, the
 //! answer's check, and the same through the parser's child.
 
+#[path = "common/parser.rs"]
+mod parser;
 #[path = "common/ttf.rs"]
 mod ttf;
 
 use std::path::Path;
 
-use vtium_vitrify::child::Parser;
+use parser::Parser;
 use vtium_vitrify::outline::{Outline, OutlineRequest, rasterise};
 use vtium_vitrify::resample::{self, METHOD};
 

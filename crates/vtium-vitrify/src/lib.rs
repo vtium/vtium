@@ -18,7 +18,7 @@
 //! form, which [`font`] holds at its own cell, as [`bdf`] reads a BDF font
 //! into it, and [`outline`] rasterises an outline font. [`serve`] is the helper the console starts, which
 //! draws a frit's glyphs at a cell and sends them in the glyph chunk
-//! format; [`child`] parses in an unprivileged child process. [`switch`]
+//! format; [`child`] is the parser's child process. [`switch`]
 //! switches the running console among the frits. [`cli`] is the command
 //! line, and [`banner`] the art it opens with at a terminal.
 
