@@ -121,11 +121,11 @@ impl Run {
             .of(written(&self.read, self.ways, key))
     }
 
-    /// Whether a head's display is lit whatever the rules place: by the shipped rules or the display guard.
+    /// Whether a head's display is lit whatever the rules place: by the shipped rules or the display guard, which under deny lights no head of its own.
     fn lit(&self) -> bool {
-        match self.outcome.lit {
-            Lit::Rules => self.on(SwitchKey::NeverDark),
-            Lit::Notice => false,
+        match (self.outcome.lit, self.outcome.fallback) {
+            (Lit::Rules, Fallback::FirstHead) => self.on(SwitchKey::NeverDark),
+            (Lit::Rules, Fallback::NoticeOnly) | (Lit::Notice, _) => false,
         }
     }
 
@@ -472,15 +472,25 @@ fn every_partly_broken_run_leaves_a_rescued_keyboard_somewhere_to_land_or_names_
 
 #[test]
 fn a_readable_deny_is_sticky_within_the_file() {
-    // no other `default` line and no error moves a readable deny
+    // no other `default` line and no broken line moves a readable deny, and a second `default` line beside it leaves the file partly broken at best; a text vtium cannot read as a version 1 file holds no readable deny (C4)
     for defaults in sequences(DefaultLine::ALL, 3) {
         if !defaults.contains(&DefaultLine::Deny) {
             continue;
         }
         for scopes in sequences(Scope::ALL, 2) {
+            if scopes.contains(&Scope::Text) {
+                continue;
+            }
             for &kept in Kept::ALL {
                 let t = Trusted::of(&defaults, &scopes, kept);
                 assert_eq!(t.stated, Stated::Deny, "{defaults:?} {scopes:?} {kept:?}");
+                if defaults.len() > 1 {
+                    assert!(
+                        matches!(t.rest, Rest::Partly | Rest::Broken),
+                        "{defaults:?} {scopes:?} {kept:?} reads as {:?}",
+                        t.rest
+                    );
+                }
             }
         }
     }
@@ -497,7 +507,7 @@ fn a_readable_deny_is_sticky_within_the_file() {
         assert_eq!(o.posture, Posture::Deny, "{rest:?}");
         assert_ne!(o.rescue, Rescue::Forced, "{rest:?}");
         assert_eq!(o.landing, Landing::AsSet, "{rest:?}");
-        assert_eq!(o.fallback, Fallback::Notice, "{rest:?}");
+        assert_eq!(o.fallback, Fallback::NoticeOnly, "{rest:?}");
         // `never-dark` lights a display and grants no input: a degraded deny run keeps its notice on a lit display
         for &key in SwitchKey::ALL
             .iter()
@@ -589,24 +599,39 @@ fn the_disposition_is_read_from_the_default_lines() {
         }
     );
     assert_eq!(of(&[DefaultLine::Allow], &[]).stated, Stated::Allow);
-    for (lines, want) in [
-        ([DefaultLine::Deny, DefaultLine::Deny], Stated::Deny),
-        ([DefaultLine::Allow, DefaultLine::Deny], Stated::Deny),
-        ([DefaultLine::Deny, DefaultLine::Unknown], Stated::Deny),
-        ([DefaultLine::InSection, DefaultLine::Deny], Stated::Deny),
-        ([DefaultLine::Allow, DefaultLine::Allow], Stated::Unreadable),
-        (
-            [DefaultLine::Allow, DefaultLine::Unknown],
-            Stated::Unreadable,
-        ),
+    // a readable deny wins, and the duplicate leaves the file partly broken
+    for lines in [
+        [DefaultLine::Deny, DefaultLine::Deny],
+        [DefaultLine::Allow, DefaultLine::Deny],
+        [DefaultLine::Deny, DefaultLine::Unknown],
+        [DefaultLine::InSection, DefaultLine::Deny],
     ] {
-        assert_eq!(of(&lines, &[]).stated, want, "{lines:?}");
+        let want = Trusted {
+            stated: Stated::Deny,
+            rest: Rest::Partly,
+        };
+        assert_eq!(of(&lines, &[]), want, "{lines:?}");
     }
+    // with no readable deny, conflicting or unreadable lines state nothing
+    for lines in [
+        [DefaultLine::Allow, DefaultLine::Allow],
+        [DefaultLine::Allow, DefaultLine::Unknown],
+    ] {
+        assert_eq!(of(&lines, &[]).stated, Stated::Unreadable, "{lines:?}");
+    }
+    // a text vtium cannot read as a version 1 file states nothing vtium can trust (C4)
+    assert_eq!(
+        of(&[DefaultLine::Deny], &[Scope::Text]),
+        Trusted {
+            stated: Stated::Unreadable,
+            rest: Rest::Broken
+        }
+    );
     assert_eq!(
         of(&[DefaultLine::InSection], &[]).stated,
         Stated::Unreadable
     );
-    // a structure or format vtium cannot trust drops the file, and a readable deny still stands
+    // a structure vtium cannot trust drops the file, and a readable deny still stands
     assert_eq!(
         of(&[DefaultLine::Deny], &[Scope::File]),
         Trusted {
@@ -632,7 +657,7 @@ fn every_problem_has_its_scope() {
             Scope::Trust,
         ),
         (Problem::Untrusted(untrusted), Within::Top, Scope::Trust),
-        (Problem::TooLarge, Within::Top, Scope::File),
+        (Problem::TooLarge, Within::Top, Scope::Text),
         (Problem::NotUtf8, Within::Head, Scope::Head),
         (Problem::NotUtf8, Within::Top, Scope::Line),
         (Problem::ControlCharacter('\r'), Within::Rules, Scope::Line),
@@ -641,8 +666,8 @@ fn every_problem_has_its_scope() {
             Within::Header,
             Scope::Section,
         ),
-        (Problem::MissingVersion, Within::Top, Scope::File),
-        (Problem::UnknownVersion(q()), Within::Top, Scope::File),
+        (Problem::MissingVersion, Within::Top, Scope::Text),
+        (Problem::UnknownVersion(q()), Within::Top, Scope::Text),
         (Problem::LineTooLong, Within::Top, Scope::File),
         (Problem::LineTooLong, Within::Rules, Scope::File),
         (Problem::TooManyHeads, Within::Header, Scope::File),

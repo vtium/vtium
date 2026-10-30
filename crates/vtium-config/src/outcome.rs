@@ -2,7 +2,7 @@
 //!
 //! Failure is resolved at three levels, each asked only once the one before it has passed: whether the file can be trusted ([`Read`]), whether it states a disposition ([`Stated`]), and how much of the rest is good ([`Rest`]). A trusted file's disposition and content exist only inside [`Read::Trusted`], so nothing can consult an untrusted file's content. [`resolve`] maps every path to one [`Outcome`], by exhaustive matches with no wildcard arm, so a new variant fails to compile until it has an answer. The module reads no file and holds no state: the loader classifies what it found with [`scope`] and [`Trusted::of`] and asks [`resolve`], and a reload asks [`Outcome::reload`].
 //!
-//! A readable deny is sticky. Once a trusted file states a readable `default = deny`, nothing opens anything up: no other line of the file, no error in it, and no change of state while vtium runs, a reload included.
+//! A readable deny is sticky. Once a trusted file states a readable `default = deny`, nothing opens anything up: no other line of the file, no broken line in it, and no change of state while vtium runs, a reload included.
 //!
 //! `outcomes.tsv`, beside the crate's manifest, lists every path with its outcome; `outcome_table_matches_resolve` fails when it differs from [`resolve`], and `VTIUM_CONFIG_BLESS=1 cargo test -p vtium-config outcome_table` rewrites it.
 //!
@@ -131,7 +131,9 @@ closed! {
     pub enum Scope {
         /// The file is never read: the first level's verdict, which a parse never reports.
         Trust = "trust",
-        /// The file's structure or format cannot be trusted: nothing of it applies, but a readable `default` line still states its disposition, so a readable deny stays deny.
+        /// The text cannot be read as a version 1 head file, too large, with no `version` line or with a version vtium does not know: nothing applies, the disposition included, so it holds no readable deny (C4, with the operator).
+        Text = "text",
+        /// The file's structure cannot be trusted: nothing of it applies, but a readable `default` line still states its disposition, so a readable deny stays deny.
         File = "file",
         /// One head, with every rule naming it, each of which falls through to the next rule.
         Head = "head",
@@ -207,12 +209,12 @@ closed! {
 }
 
 closed! {
-    /// What the display guard lights on the boot display when the running rules light no display (ADR-1401 D9): the first head the running text declares, else this.
+    /// What the display guard lights when the running rules light no display (ADR-1401 D9).
     pub enum Fallback {
-        /// The default head, the compiled-in configuration's `[head console]`.
-        DefaultHead = "default-head",
-        /// The boot display alone, for the notice: under deny the default head would be a head and a session the file never granted.
-        Notice = "notice",
+        /// The boot display, for the first head the running text declares, else for the default head, the compiled-in configuration's `[head console]`.
+        FirstHead = "first-head",
+        /// Only a display a head's own rules claim, or the boot display for the notice alone when the run shows one: under deny the boot display given to a head would be a display the file never granted it, and the default head a head and a session it never granted. A valid deny file that declares nothing is dark and silent.
+        NoticeOnly = "notice-only",
     }
 }
 
@@ -287,11 +289,11 @@ impl Posture {
         }
     }
 
-    /// What the display guard lights when no head the running text declares has a display.
+    /// What the display guard may light when the running rules light no display.
     pub fn fallback(self) -> Fallback {
         match self {
-            Posture::Allow => Fallback::DefaultHead,
-            Posture::Deny => Fallback::Notice,
+            Posture::Allow => Fallback::FirstHead,
+            Posture::Deny => Fallback::NoticeOnly,
         }
     }
 }
@@ -389,7 +391,7 @@ fn builtin(line: Option<Line>) -> Outcome {
         landing: Landing::AsSet,
         line,
         lit: Lit::Rules,
-        fallback: Fallback::DefaultHead,
+        fallback: Fallback::FirstHead,
     }
 }
 
@@ -452,7 +454,7 @@ pub fn resolve(read: &Read) -> Outcome {
             posture: Posture::Deny,
             line: Some(Line::DenyOff),
             lit: Lit::Notice,
-            fallback: Fallback::Notice,
+            fallback: Fallback::NoticeOnly,
             ..builtin(None)
         },
     }
@@ -461,15 +463,22 @@ pub fn resolve(read: &Read) -> Outcome {
 impl Trusted {
     /// A trusted file's levels from what its parse found: every `default` line, wherever it sits; the scope of every other error; and what survives the errors. Nothing here reads where a line sits, so no outcome depends on the order of the top-level keys, and a readable deny wins over every other line.
     pub fn of(defaults: &[DefaultLine], scopes: &[Scope], kept: Kept) -> Trusted {
-        let whole = scopes.iter().any(|s| match s {
-            Scope::Trust | Scope::File => true,
-            Scope::Head | Scope::Section | Scope::Line => false,
-        });
+        let mut unread = false;
+        let mut whole = false;
+        for s in scopes {
+            match s {
+                Scope::Text => unread = true,
+                Scope::Trust | Scope::File => whole = true,
+                Scope::Head | Scope::Section | Scope::Line => {}
+            }
+        }
         let deny = defaults.iter().any(|d| match d {
             DefaultLine::Deny => true,
             DefaultLine::Allow | DefaultLine::Unknown | DefaultLine::InSection => false,
         });
-        let stated = if deny {
+        let stated = if unread {
+            Stated::Unreadable
+        } else if deny {
             Stated::Deny
         } else {
             match defaults {
@@ -483,8 +492,13 @@ impl Trusted {
                 [_, _, ..] => Stated::Unreadable,
             }
         };
-        let kept = if whole { Kept::Nothing } else { kept };
-        let clean = scopes.is_empty();
+        let kept = if unread || whole { Kept::Nothing } else { kept };
+        // a second or unreadable `default` line beside a readable deny is an error of the rest; an unreadable disposition is one of its own, which `resolve` counts
+        let extra = match defaults {
+            [] | [DefaultLine::Allow | DefaultLine::Deny] => false,
+            [DefaultLine::Unknown | DefaultLine::InSection] | [_, _, ..] => true,
+        };
+        let clean = scopes.is_empty() && !(extra && stated == Stated::Deny);
         let rest = match (clean, kept) {
             (true, Kept::Heads) => Rest::Valid,
             (true, Kept::Headless) => Rest::Headless,
@@ -496,16 +510,15 @@ impl Trusted {
     }
 }
 
-/// What the error `problem`, on a line `within` the file, takes down (open cell ?4): an error inside a head's section drops that head, a bad rule drops that rule alone, and an error that leaves the file's structure or format untrustworthy drops the whole file. No error leaves a readable `default` line unread, so a broken line never turns a readable deny open.
+/// What the error `problem`, on a line `within` the file, takes down (open cell ?4): an error inside a head's section drops that head, a bad rule drops that rule alone, and an error that leaves the file's structure untrustworthy drops the whole file. No broken line leaves a readable `default` line unread, so none turns a readable deny open; only a text vtium cannot read as a version 1 file does.
 pub fn scope(problem: &Problem, within: Within) -> Scope {
     let fixed = match problem {
         Problem::NotAFile | Problem::Unreadable(_) | Problem::Untrusted(_) => Some(Scope::Trust),
-        Problem::TooLarge
-        | Problem::MissingVersion
-        | Problem::UnknownVersion(_)
-        | Problem::LineTooLong
-        | Problem::TooManyHeads
-        | Problem::TooManyRules => Some(Scope::File),
+        Problem::TooLarge | Problem::MissingVersion | Problem::UnknownVersion(_) => {
+            Some(Scope::Text)
+        }
+        // a line too long is a broken line, which never turns a readable deny open
+        Problem::LineTooLong | Problem::TooManyHeads | Problem::TooManyRules => Some(Scope::File),
         Problem::UnknownSection(_) | Problem::DuplicateSection(_) => Some(Scope::Section),
         Problem::BadName(_) | Problem::ReservedName(_) | Problem::DuplicateHead(_) => {
             Some(Scope::Head)

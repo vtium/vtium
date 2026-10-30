@@ -209,10 +209,10 @@ impl Config {
     }
 }
 
-fn bit(n: usize) -> u32 {
+fn bit(n: usize) -> u64 {
     u32::try_from(n)
         .ok()
-        .and_then(|n| 1u32.checked_shl(n))
+        .and_then(|n| 1u64.checked_shl(n))
         .unwrap_or(0)
 }
 
@@ -221,7 +221,7 @@ fn slot(h: u8) -> usize {
 }
 
 /// An input delivering to a head.
-fn delivers(i: usize, h: u8) -> u32 {
+fn delivers(i: usize, h: u8) -> u64 {
     bit(i
         .saturating_sub(3)
         .saturating_mul(3)
@@ -229,16 +229,24 @@ fn delivers(i: usize, h: u8) -> u32 {
 }
 
 /// A keyboard switching the VT.
-fn switches(i: usize) -> u32 {
+fn switches(i: usize) -> u64 {
     bit(i.saturating_add(15))
 }
 
 /// A head's session.
-fn session(h: u8) -> u32 {
+fn session(h: u8) -> u64 {
     bit(slot(h).saturating_add(22))
 }
 
-fn describe(bits: u32) -> String {
+/// A display showing a head.
+fn shows(d: usize, h: u8) -> u64 {
+    bit(d
+        .saturating_mul(3)
+        .saturating_add(slot(h))
+        .saturating_add(25))
+}
+
+fn describe(bits: u64) -> String {
     let mut out = Vec::new();
     for (i, d) in DEVICES.iter().enumerate().skip(3) {
         for h in ORDER {
@@ -253,6 +261,11 @@ fn describe(bits: u32) -> String {
     for h in ORDER {
         if bits & session(h) != 0 {
             out.push(format!("session {}", head_name(h)));
+        }
+        for (d, display) in DEVICES.iter().enumerate().take(3) {
+            if bits & shows(d, h) != 0 {
+                out.push(format!("{} shows {}", display.name, head_name(h)));
+            }
         }
     }
     out.join(" ")
@@ -275,13 +288,14 @@ struct View {
     claims: [Option<u8>; 9],
     anti_lockout: bool,
     never_dark: bool,
-    reach: u32,
+    reach: u64,
 }
 
 /// Runs the placement and the guards over a state (ADR-1401 D5, D9).
 fn settle(c: &Config, present: u16, rescued: u16, focus: Option<u8>) -> View {
     let off = c.o.runs == Runs::Off;
     let mut lit = 0u8;
+    let mut shown = 0u64;
     let mut boot: Option<usize> = None;
     let mut boot_head = None;
     for (i, d) in DEVICES.iter().enumerate().take(3) {
@@ -292,22 +306,24 @@ fn settle(c: &Config, present: u16, rescued: u16, focus: Option<u8>) -> View {
         boot = boot.or(Some(i));
         if let To::Head(h) = c.scene.to(i) {
             lit |= h;
+            shown |= shows(i, h);
             if first {
                 boot_head = Some(h);
             }
         }
     }
     let mut never_dark = false;
-    if lit == 0 && boot.is_some() && c.on(None, SwitchKey::NeverDark) {
-        never_dark = true;
-        let guarded = match (c.scene.first(), c.o.fallback) {
-            (Some(h), Fallback::DefaultHead | Fallback::Notice) => Some(h),
-            (None, Fallback::DefaultHead) => Some(DEF),
-            (None, Fallback::Notice) => None,
-        };
-        if let Some(h) = guarded {
-            lit = h;
-            boot_head = Some(h);
+    if let (0, Some(boot), true) = (lit, boot, c.on(None, SwitchKey::NeverDark)) {
+        match c.o.fallback {
+            Fallback::FirstHead => {
+                let h = c.scene.first().unwrap_or(DEF);
+                never_dark = true;
+                lit = h;
+                boot_head = Some(h);
+                shown |= shows(boot, h);
+            }
+            // the boot display for the notice alone, and dark when the run shows none
+            Fallback::NoticeOnly => never_dark = c.o.line.is_some(),
         }
     }
     let heads = c.scene.heads | (lit & DEF);
@@ -364,7 +380,7 @@ fn settle(c: &Config, present: u16, rescued: u16, focus: Option<u8>) -> View {
         }
         focus = lit_taker();
     }
-    let mut reach = 0u32;
+    let mut reach = shown;
     for ((i, d), claim) in DEVICES.iter().enumerate().zip(claims.iter()) {
         let to = claim.or(if follows & d.bit != 0 { focus } else { None });
         if let Some(h) = to {
@@ -391,7 +407,7 @@ fn settle(c: &Config, present: u16, rescued: u16, focus: Option<u8>) -> View {
 }
 
 /// What a run may reach under `start`: by the file's text alone under deny (`by_text`), or by the start outcome's own policy.
-fn allowed(start: &Config, by_text: bool) -> u32 {
+fn allowed(start: &Config, by_text: bool) -> u64 {
     let o = &start.o;
     if o.runs == Runs::Off {
         return 0;
@@ -411,7 +427,16 @@ fn allowed(start: &Config, by_text: bool) -> u32 {
             || on(Some(h), SwitchKey::Focus)
             || (!by_text && o.landing == Landing::FirstSurvivor && Some(h) == start.scene.first())
     };
-    let mut out = 0u32;
+    let mut out = 0u64;
+    for i in 0..3 {
+        if let To::Head(h) = start.scene.to(i) {
+            out |= shows(i, h);
+        }
+        // the allow posture's display guard may give the boot display, any display present, to the first head or the default head
+        if posture == Posture::Allow {
+            out |= shows(i, start.scene.first().unwrap_or(DEF));
+        }
+    }
     for (i, d) in DEVICES.iter().enumerate().skip(3) {
         let keyboard = d.kind == Kind::Keyboard;
         let to = start.scene.to(i);
@@ -656,15 +681,41 @@ fn explore_all() -> &'static Found {
     })
 }
 
+/// The first breach of each start, so a failure names every start it reaches.
+fn firsts(breaches: &[String]) -> Vec<&String> {
+    let mut starts = BTreeSet::new();
+    breaches
+        .iter()
+        .filter(|b| starts.insert(b.split(" State").next().unwrap_or_default()))
+        .collect()
+}
+
 #[test]
 fn no_event_opens_what_a_readable_deny_did_not_grant() {
     let found = explore_all();
     assert!(
         found.text_breaches.is_empty(),
-        "{} states reach what the deny file did not grant, first: {:?}",
+        "{} states reach what the deny file did not grant: {:#?}",
         found.text_breaches.len(),
-        found.text_breaches.first()
+        firsts(&found.text_breaches)
     );
+}
+
+#[test]
+fn a_valid_deny_file_that_declares_nothing_is_dark_and_silent() {
+    let read = Read::Trusted(Trusted {
+        stated: Stated::Deny,
+        rest: Rest::Empty,
+    });
+    let o = resolve(&read);
+    let c = Config {
+        o,
+        scene: scene(&o, Rest::Empty),
+        ways: Ways::Unset,
+    };
+    let v = settle(&c, EVERY, 0, None);
+    assert_eq!(o.line, None);
+    assert!(v.reach == 0 && !v.never_dark, "{}", describe(v.reach));
 }
 
 #[test]
@@ -672,9 +723,9 @@ fn no_event_opens_past_its_start_outcome() {
     let found = explore_all();
     assert!(
         found.policy_breaches.is_empty(),
-        "{} states reach past their start outcome, first: {:?}",
+        "{} states reach past their start outcome: {:#?}",
         found.policy_breaches.len(),
-        found.policy_breaches.first()
+        firsts(&found.policy_breaches)
     );
     // contradiction: a reload that finds the file gone puts the shipped rules in place of a running open file, which may give an input the focus the file closed
     assert!(found.reloaded_open > 0);
