@@ -17,7 +17,7 @@ from t3_common import RUNDIR, rel
 # 2.50 MiB on 2026-10-29 by the operator's decision recorded in ADR-1200
 # D19, the 2.50 MiB figure being arbitrary, to be revisited after the
 # first cut of heads. A run whose binary is larger fails, and raising the
-# budget is a decision recorded in ADR-1200.
+# budget is a decision recorded in an ADR, this one ADR-1200 D19.
 BINARY = "usr/bin/vtium"
 BINARY_BUDGET = 3145728
 # What the guest needs of a tree (README, "What the harness needs of the

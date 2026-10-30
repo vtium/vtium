@@ -6,8 +6,9 @@
 //! The bytes depend only on what is given: strikes are sorted, each
 //! strike's map is sorted, glyphs are numbered in the order the map first
 //! reaches them, and every chunk is deflated at one fixed level, so the
-//! same set gives the same bytes on every host. A build without the
-//! `deflate` feature, the console's, stores every chunk raw.
+//! same set gives the same bytes on every host built with the same
+//! features: the console's writer, without the `deflate` feature, stores
+//! raw a compress=yes strike that vtium-vitrify's deflates.
 
 use crate::bounds::{
     CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, SET_BYTES_MAX, SET_CHUNK_BYTES, SET_CHUNKS_MAX,
