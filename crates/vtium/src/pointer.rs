@@ -29,9 +29,10 @@
 
 use std::io;
 
-use vtium_font::Face;
 use vtium_platform::display::DisplayId;
-use vtium_render::{Arrow, Renderer};
+use vtium_render::Arrow;
+#[cfg(doc)]
+use vtium_render::Renderer;
 
 /// A display's cursor plane, as the pointer drives it.
 pub trait Plane {
@@ -90,16 +91,16 @@ impl Pointer {
         self.route = Route::Unset;
     }
 
-    /// Before a draw: puts the renderer's arrow on the plane if it changed
-    /// since and the pointer shows, and gives back the pointer's tip, in
-    /// the grid's pixels, for the renderer to draw, which is `tip` unless
-    /// the plane shows it. A pointer that never shows, as with `mouse`
-    /// off, sets no plane up.
-    pub fn before_draw<F: Face>(
+    /// Before a draw: puts the renderer's `arrow` on the plane if it
+    /// changed since and the pointer shows, and gives back the pointer's
+    /// tip, in the grid's pixels, for the renderer to draw, which is `tip`
+    /// unless the plane shows it. A pointer that never shows, as with
+    /// `mouse` off, sets no plane up.
+    pub fn before_draw(
         &mut self,
         plane: &mut (impl Plane + ?Sized),
         id: DisplayId,
-        renderer: &Renderer<F>,
+        arrow: &Arrow,
         tip: Option<(u32, u32)>,
     ) -> Option<(u32, u32)> {
         if self.route == Route::Unset && tip.is_some() && self.soft {
@@ -107,7 +108,7 @@ impl Pointer {
             self.route = Route::Software;
         }
         if self.route == Route::Unset && tip.is_some() {
-            match plane.set_up(id, renderer.arrow()) {
+            match plane.set_up(id, arrow) {
                 Ok(()) => {
                     log::info!(target: "pointer", "display {} shows it on its cursor plane", id.0);
                     self.route = Route::Hardware;
@@ -134,20 +135,22 @@ impl Pointer {
         true
     }
 
-    /// After a draw, which placed the grid: shows the plane's arrow at the
-    /// pointer's `tip`, or hides it when the pointer is hidden, as it is
-    /// while a new renderer's arrow waits for the pointer to show.
-    pub fn after_draw<F: Face>(
+    /// After a draw, which placed the grid: shows the plane's arrow at
+    /// `at`, the display's pixel the renderer placed the pointer's `tip`
+    /// on ([`Renderer::pointer_at`]), or hides it when the pointer is
+    /// hidden, as it is while a new renderer's arrow waits for the pointer
+    /// to show.
+    pub fn after_draw(
         &mut self,
         plane: &mut (impl Plane + ?Sized),
         id: DisplayId,
-        renderer: &Renderer<F>,
         tip: Option<(u32, u32)>,
+        at: Option<(i32, i32)>,
     ) {
         if self.route == Route::Software || (self.route == Route::Unset && tip.is_some()) {
             return;
         }
-        match tip.and_then(|t| renderer.pointer_at(t)) {
+        match at {
             Some(at) => {
                 if let Err(e) = plane.show(id, at) {
                     log::warn!("display {}: cannot show the pointer: {e}", id.0);
@@ -163,7 +166,7 @@ impl Pointer {
 mod tests {
     use super::*;
     use vtium_font::{Font, Unifont};
-    use vtium_render::{Canvas, Config, DrawState, Orientation};
+    use vtium_render::{Canvas, Config, DrawState, Orientation, Renderer};
     use vtium_term::{Age, Cursor, Damage, Frame, Line, LineId, Palette, Rgb};
 
     /// A stand-in plane: what was set up and where it shows.
@@ -228,6 +231,11 @@ mod tests {
         r
     }
 
+    /// After a draw of `r`, with the pointer's tip at `tip`.
+    fn after(p: &mut Pointer, plane: &mut Fake, r: &Renderer<Unifont>, tip: Option<(u32, u32)>) {
+        p.after_draw(plane, ID, tip, tip.and_then(|t| r.pointer_at(t)));
+    }
+
     // The arrow is never larger than the cursor plane drm2d sets up: the
     // two crates bound the same side, 64 pixels.
     #[test]
@@ -242,16 +250,16 @@ mod tests {
     fn a_display_with_a_cursor_plane_shows_the_arrow_there() {
         let r = renderer(Orientation::Normal);
         let (mut p, mut plane) = (Pointer::default(), Fake::default());
-        assert_eq!(p.before_draw(&mut plane, ID, &r, Some((5, 6))), None);
+        assert_eq!(p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6))), None);
         assert_eq!(p.route(), Route::Hardware);
         assert_eq!(plane.arrow.as_ref(), Some(r.arrow()));
         // the grid is centred: 2,1 from the display's corner
-        p.after_draw(&mut plane, ID, &r, Some((5, 6)));
+        after(&mut p, &mut plane, &r, Some((5, 6)));
         assert_eq!(plane.shown, Some((7, 7)));
         // past the grid, the tip is kept on its last pixel
-        p.after_draw(&mut plane, ID, &r, Some((1000, 1000)));
+        after(&mut p, &mut plane, &r, Some((1000, 1000)));
         assert_eq!(plane.shown, Some((2 + 31, 1 + 31)));
-        p.after_draw(&mut plane, ID, &r, None);
+        after(&mut p, &mut plane, &r, None);
         assert_eq!(plane.shown, None);
     }
 
@@ -259,10 +267,10 @@ mod tests {
     fn the_plane_shows_the_pointer_where_the_turned_grid_puts_it() {
         let r = renderer(Orientation::Right);
         let (mut p, mut plane) = (Pointer::default(), Fake::default());
-        p.before_draw(&mut plane, ID, &r, Some((5, 6)));
+        p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6)));
         // turned right, the grid is 32 across and 32 down at 1,2; the
         // grid's pixel 5,6 lands at 1 + 32 - 1 - 6, 2 + 5
-        p.after_draw(&mut plane, ID, &r, Some((5, 6)));
+        after(&mut p, &mut plane, &r, Some((5, 6)));
         assert_eq!(plane.shown, Some((26, 7)));
         let arrow = plane.arrow.unwrap();
         assert_eq!(arrow, Arrow::new(16, Orientation::Right));
@@ -277,17 +285,17 @@ mod tests {
             ..Fake::default()
         };
         assert_eq!(
-            p.before_draw(&mut plane, ID, &r, Some((5, 6))),
+            p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6))),
             Some((5, 6))
         );
         assert_eq!(p.route(), Route::Software);
         // it is not offered again until the renderer changes
-        assert_eq!(p.before_draw(&mut plane, ID, &r, None), None);
+        assert_eq!(p.before_draw(&mut plane, ID, r.arrow(), None), None);
         assert_eq!(plane.arrow, None);
-        p.after_draw(&mut plane, ID, &r, Some((5, 6)));
+        after(&mut p, &mut plane, &r, Some((5, 6)));
         assert_eq!(plane.shown, None);
         p.reset();
-        assert_eq!(p.before_draw(&mut plane, ID, &r, Some((5, 6))), None);
+        assert_eq!(p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6))), None);
         assert_eq!(p.route(), Route::Hardware);
     }
 
@@ -300,11 +308,11 @@ mod tests {
             ..Fake::default()
         };
         assert_eq!(
-            p.before_draw(&mut plane, ID, &r, Some((5, 6))),
+            p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6))),
             Some((5, 6))
         );
         assert_eq!(p.route(), Route::Unset);
-        assert_eq!(p.before_draw(&mut plane, ID, &r, Some((5, 6))), None);
+        assert_eq!(p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6))), None);
         assert_eq!(p.route(), Route::Hardware);
     }
 
@@ -319,11 +327,11 @@ mod tests {
             ..Fake::default()
         };
         assert_eq!(
-            p.before_draw(&mut plane, ID, &r, Some((5, 6))),
+            p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6))),
             Some((5, 6))
         );
         assert_eq!(p.route(), Route::Software);
-        p.before_draw(&mut plane, ID, &r, Some((5, 6)));
+        p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6)));
         assert_eq!(plane.set_ups, 1);
     }
 
@@ -333,11 +341,11 @@ mod tests {
         let r = renderer(Orientation::Normal);
         let (mut p, mut plane) = (Pointer::default(), Fake::default());
         for _ in 0..3 {
-            assert_eq!(p.before_draw(&mut plane, ID, &r, None), None);
-            p.after_draw(&mut plane, ID, &r, None);
+            assert_eq!(p.before_draw(&mut plane, ID, r.arrow(), None), None);
+            after(&mut p, &mut plane, &r, None);
         }
         assert_eq!((plane.set_ups, p.route()), (0, Route::Unset));
-        p.before_draw(&mut plane, ID, &r, Some((5, 6)));
+        p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6)));
         assert_eq!((plane.set_ups, p.route()), (1, Route::Hardware));
     }
 
@@ -347,12 +355,12 @@ mod tests {
     fn a_new_renderer_with_the_pointer_hidden_hides_the_plane() {
         let r = renderer(Orientation::Normal);
         let (mut p, mut plane) = (Pointer::default(), Fake::default());
-        p.before_draw(&mut plane, ID, &r, Some((5, 6)));
-        p.after_draw(&mut plane, ID, &r, Some((5, 6)));
+        p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6)));
+        after(&mut p, &mut plane, &r, Some((5, 6)));
         assert!(plane.shown.is_some());
         p.reset();
-        p.before_draw(&mut plane, ID, &r, None);
-        p.after_draw(&mut plane, ID, &r, None);
+        p.before_draw(&mut plane, ID, r.arrow(), None);
+        after(&mut p, &mut plane, &r, None);
         assert_eq!(plane.shown, None);
     }
 
@@ -364,11 +372,11 @@ mod tests {
         let (mut p, mut plane) = (Pointer::software(), Fake::default());
         for _ in 0..2 {
             assert_eq!(
-                p.before_draw(&mut plane, ID, &r, Some((5, 6))),
+                p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6))),
                 Some((5, 6))
             );
             assert_eq!(p.route(), Route::Software);
-            p.after_draw(&mut plane, ID, &r, Some((5, 6)));
+            after(&mut p, &mut plane, &r, Some((5, 6)));
             assert!(!p.after_swap(&plane, ID));
             p.reset();
         }
@@ -381,14 +389,14 @@ mod tests {
     fn a_plane_given_up_sends_the_pointer_to_the_renderer() {
         let r = renderer(Orientation::Normal);
         let (mut p, mut plane) = (Pointer::default(), Fake::default());
-        p.before_draw(&mut plane, ID, &r, Some((5, 6)));
+        p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6)));
         assert!(!p.after_swap(&plane, ID));
         plane.arrow = None;
         assert!(p.after_swap(&plane, ID));
         assert_eq!(p.route(), Route::Software);
         assert!(!p.after_swap(&plane, ID));
         assert_eq!(
-            p.before_draw(&mut plane, ID, &r, Some((5, 6))),
+            p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6))),
             Some((5, 6))
         );
     }

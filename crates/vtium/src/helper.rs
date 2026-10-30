@@ -60,7 +60,6 @@ use std::os::fd::OwnedFd;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command as Process, ExitStatus, Stdio};
-use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -838,7 +837,7 @@ impl Helper {
             }
         }
         self.cells.retain(|c| cells.contains(&c.cell));
-        self.store.borrow_mut().retain(cells);
+        crate::deferred::lock(&self.store).retain(cells);
     }
 
     /// Tells the helper to stop `cell`'s fill, and drops that cell's fill
@@ -1119,10 +1118,9 @@ impl Helper {
             return Err(not_asked());
         }
         let clusters: Vec<Text> = set.clusters().map(|(_, _, key)| key).collect();
-        let store = Rc::clone(&self.store);
+        let store = Arc::clone(&self.store);
         let without_held = || {
-            store
-                .borrow()
+            crate::deferred::lock(&store)
                 .fresh(cell, Arc::clone(set), &runs, bytes)
                 .ok_or_else(not_asked)
         };
@@ -1153,7 +1151,11 @@ impl Helper {
             if fresh.texts().next().is_none() {
                 return Ok(None);
             }
-            if self.store.borrow().bytes().saturating_add(fresh.bytes()) > self.limit {
+            if crate::deferred::lock(&self.store)
+                .bytes()
+                .saturating_add(fresh.bytes())
+                > self.limit
+            {
                 self.store_full(cell, now);
                 return Ok(None);
             }
@@ -1190,21 +1192,21 @@ impl Helper {
                 if fresh.bytes() > self.limit {
                     return Ok(None);
                 }
-                let held = self.store.borrow().bytes();
+                let held = crate::deferred::lock(&self.store).bytes();
                 let overrun = held
                     .saturating_add(fresh.bytes())
                     .saturating_sub(self.limit);
                 if overrun == 0 {
                     break fresh;
                 }
-                for (at, gone) in self.store.borrow_mut().make_room(overrun) {
+                for (at, gone) in crate::deferred::lock(&self.store).make_room(overrun) {
                     if let Some(state) = self.cells.iter_mut().find(|c| c.cell == at) {
                         for t in gone {
                             state.forget(t);
                         }
                     }
                 }
-                if self.store.borrow().bytes() == held {
+                if crate::deferred::lock(&self.store).bytes() == held {
                     // nothing left to free
                     return Ok(None);
                 }
@@ -1214,7 +1216,7 @@ impl Helper {
             }
         };
         let added: Vec<Text> = fresh.texts().cloned().collect();
-        let Some(face) = self.store.borrow_mut().add(fresh) else {
+        let Some(face) = crate::deferred::lock(&self.store).add(fresh) else {
             return Ok(None);
         };
         // a cluster that decomposes from an arrived codepoint may draw it
@@ -1669,9 +1671,7 @@ mod tests {
         assert!(state.clusters.absent.contains(GRAVE.as_slice()));
         assert!(!state.held.has(u32::from('e')));
         assert!(
-            s.helper
-                .store
-                .borrow()
+            crate::deferred::lock(&s.helper.store)
                 .fresh(
                     CELL,
                     Arc::new(Set::from_bytes(cluster_set(CELL, &[&ACUTE])).unwrap()),
@@ -2081,7 +2081,10 @@ mod tests {
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 2);
         assert!(s.held('A') && s.held('B'));
-        assert_eq!(s.helper.store.borrow().bytes(), (a.len() + b.len()) as u64);
+        assert_eq!(
+            crate::deferred::lock(&s.helper.store).bytes(),
+            (a.len() + b.len()) as u64
+        );
         assert!(!s.helper.busy());
     }
 
@@ -2105,7 +2108,10 @@ mod tests {
         assert!(answers[1].face.has_glyph('B') && !answers[1].face.has_glyph('A'));
         assert!(s.held('A') && s.held('B'));
         let (a, b) = (set(CELL, &['A']).len(), set(CELL, &['B']).len());
-        assert_eq!(s.helper.store.borrow().bytes(), (a + b) as u64);
+        assert_eq!(
+            crate::deferred::lock(&s.helper.store).bytes(),
+            (a + b) as u64
+        );
         assert!(!s.helper.busy());
     }
 
@@ -2126,7 +2132,10 @@ mod tests {
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 1);
         assert!(s.held('A') && s.held('B'));
-        assert_eq!(s.helper.store.borrow().bytes(), ab.len() as u64);
+        assert_eq!(
+            crate::deferred::lock(&s.helper.store).bytes(),
+            ab.len() as u64
+        );
         assert!(!s.helper.busy());
         // answered, so A is neither pending nor lacking
         let state = s.helper.cells.iter().find(|c| c.cell == CELL).unwrap();
@@ -2151,7 +2160,7 @@ mod tests {
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 2);
         assert!(s.held('A') && s.held('C'));
-        assert_eq!(s.helper.store.borrow().bytes(), limit);
+        assert_eq!(crate::deferred::lock(&s.helper.store).bytes(), limit);
         assert!(!s.helper.full);
     }
 
@@ -2174,7 +2183,7 @@ mod tests {
         assert_eq!(answers.len(), 2);
         assert!(answers[1].face.has_glyph('B') && answers[1].face.has_glyph('C'));
         assert!(!s.held('A') && s.held('B') && s.held('C'));
-        assert_eq!(s.helper.store.borrow().bytes(), limit);
+        assert_eq!(crate::deferred::lock(&s.helper.store).bytes(), limit);
     }
 
     /// A set of `chars` at `cell`, each glyph its own shade, its chunks
@@ -2216,9 +2225,12 @@ mod tests {
         let now = t0();
         s.helper.fill(CELL, &[], now);
         assert_eq!(s.run(now).len(), 1);
-        assert_eq!(s.helper.store.borrow().bytes(), abcd.len() as u64);
+        assert_eq!(
+            crate::deferred::lock(&s.helper.store).bytes(),
+            abcd.len() as u64
+        );
         // the screen shows A and B; C and D are the least recently shown
-        s.helper.store.borrow_mut().touch(CELL, &shown(&['A', 'B']));
+        crate::deferred::lock(&s.helper.store).touch(CELL, &shown(&['A', 'B']));
         s.helper.ask(CELL, &shown(&['E']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
@@ -2228,8 +2240,11 @@ mod tests {
         assert!(s.held('A') && s.held('B') && s.held('D') && s.held('E'));
         assert!(!s.held('C'));
         let rebuilt = shades(CELL, &['A', 'B', 'D']).len();
-        assert_eq!(s.helper.store.borrow().bytes(), (rebuilt + e.len()) as u64);
-        assert!(s.helper.store.borrow().bytes() <= limit);
+        assert_eq!(
+            crate::deferred::lock(&s.helper.store).bytes(),
+            (rebuilt + e.len()) as u64
+        );
+        assert!(crate::deferred::lock(&s.helper.store).bytes() <= limit);
         // C, evicted, is asked for again when the screen shows it
         s.helper.ask(CELL, &shown(&['C']), now);
         assert!(s.helper.busy());
@@ -2428,7 +2443,7 @@ mod tests {
         assert!(holds(&answers[0], 'A') && !holds(&answers[0], 'D'));
         assert!(holds(&answers[1], 'D') && !holds(&answers[1], 'A'));
         assert!(!s.held('A') && !s.held('B') && !s.held('C') && s.held('D'));
-        assert!(s.helper.store.borrow().bytes() <= limit);
+        assert!(crate::deferred::lock(&s.helper.store).bytes() <= limit);
         assert!(s.helper.stopped.is_empty());
         assert!(!s.helper.busy());
         // A, evicted, is asked for again when the screen shows it

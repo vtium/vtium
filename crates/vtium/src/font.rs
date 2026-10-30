@@ -24,7 +24,6 @@
 //! aaronsb/kmscon#63).
 
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 
 use vtium_font::set::{SetFace, builtin, builtin_name};
 use vtium_font::sprite::Range;
@@ -373,10 +372,14 @@ fn frit_cell_at(stated: Option<Cell>, height: u32, builtin: Cell) -> Cell {
     }
 }
 
+/// A face a display draws with: [`Send`], as its head's render thread
+/// draws it (ADR-1401 D2).
+pub type DisplayFace = Box<dyn Face + Send>;
+
 /// The built-in face that draws in `cell` (#145): unifont at the largest
 /// whole factor whose cell fits, else the smaller strike, Unscii-8 outside
 /// a zh, ja or ko locale, cropped where even it does not fit.
-fn builtin_in(cell: Cell, locale: &str) -> Option<Box<dyn Face>> {
+fn builtin_in(cell: Cell, locale: &str) -> Option<DisplayFace> {
     let k = (cell.width / 8).min(cell.height / 16);
     Chosen::Builtin(None).face(if k == 0 { 8 } else { k.saturating_mul(16) }, locale)
 }
@@ -662,7 +665,7 @@ impl Chosen {
     /// built-in's strike of that height, else the tallest under it scaled
     /// by the largest whole factor that fits. The built-in unifont draws
     /// through its own face.
-    pub fn face(&self, height: u32, locale: &str) -> Option<Box<dyn Face>> {
+    pub fn face(&self, height: u32, locale: &str) -> Option<DisplayFace> {
         if let Chosen::Frit { generated, .. } = self {
             let at = Chosen::Builtin(None).face(height, locale)?;
             let stated = self.base_cell();
@@ -682,12 +685,12 @@ impl Chosen {
                 builtin,
                 cell,
                 step,
-                Rc::clone(generated),
+                std::sync::Arc::clone(generated),
             )));
         }
         match self.builtin_at(height, locale) {
             "unifont" => Some(Box::new(Unifont::new(height))),
-            name => SetFace::new(builtin(name)?, height).map(|f| Box::new(f) as Box<dyn Face>),
+            name => SetFace::new(builtin(name)?, height).map(|f| Box::new(f) as DisplayFace),
         }
     }
 

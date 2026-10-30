@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use vtium_font::{Face, Font};
+use vtium_font::Font;
 use vtium_platform::display::DisplayId;
 use vtium_platform::input::{Button, PointerEvent};
 use vtium_platform::pty::{Pty, Size};
@@ -30,8 +30,9 @@ use vtium_term::{Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal
 use crate::blink::Blink;
 use crate::config::{Config, keys};
 use crate::deferred::Shown;
-use crate::font::{self, Chosen};
+use crate::font::{self, Chosen, DisplayFace};
 use crate::layout::Zoom;
+use crate::painter::{Figures, Painter};
 use crate::respawn::Respawn;
 use crate::sync::Sync;
 use crate::term::{Clock, Term, View};
@@ -124,7 +125,18 @@ pub struct Head {
     pub(crate) font_refused: u64,
     pub(crate) orientation: Orientation,
     pub(crate) grid: (usize, usize),
+    /// Runs before each of the head's frames is composed: a test's
+    /// stand-in for a slow draw.
+    pub(crate) draw_hook: Option<DrawHook>,
+    /// The head's render thread, started at its first frame; `None` after
+    /// it could not start, when the loop composes the head's frames.
+    pub(crate) painter: Option<Painter>,
+    pub(crate) painter_refused: bool,
+    pub(crate) figures: Figures,
 }
+
+/// What [`Head`]'s `draw_hook` runs.
+pub type DrawHook = std::sync::Arc<dyn Fn() + Send + std::marker::Sync>;
 
 impl Head {
     /// The head `name` for `config`, its terminal on [`GRID`] with the
@@ -184,6 +196,10 @@ impl Head {
             font_refused: 0,
             orientation: Orientation::Normal,
             grid: GRID,
+            draw_hook: None,
+            painter: None,
+            painter_refused: false,
+            figures: Figures::default(),
         }
     }
 
@@ -202,7 +218,7 @@ impl Head {
         self.views
             .values()
             .map(|v| {
-                let c = v.renderer.font().cell();
+                let c = v.cell();
                 (c.width, c.height)
             })
             .collect()
@@ -258,7 +274,7 @@ impl Head {
     }
 
     /// The font set's face at `height`.
-    pub(crate) fn face(&self, height: u32, locale: &str) -> Result<Box<dyn Face>, String> {
+    pub(crate) fn face(&self, height: u32, locale: &str) -> Result<DisplayFace, String> {
         let chosen = self.chosen();
         chosen.face(height, locale).ok_or_else(|| {
             format!(
@@ -270,7 +286,7 @@ impl Head {
 
     /// The font at `height`, with the frit's sprite policy and the
     /// configuration's over it, and the missing glyph.
-    pub(crate) fn font_at(&self, face: Box<dyn Face>, config: &Config) -> Font<Box<dyn Face>> {
+    pub(crate) fn font_at(&self, face: DisplayFace, config: &Config) -> Font<DisplayFace> {
         let font = Font::new(face);
         let own = match self.chosen() {
             Chosen::Frit { frit, .. } => font::frit_policy(&frit.text, font.policy()),
