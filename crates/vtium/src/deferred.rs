@@ -526,9 +526,10 @@ impl DeferredFace {
 
     /// A cluster the store does not hold drawn without its own glyph
     /// (ADR-1200 D22, steps 2 to 4): its NFC form's, else its base's with
-    /// each combining mark's overstruck, centred across it; the default
-    /// ignorables and the rest of the cluster left out. A color base takes
-    /// no mark.
+    /// each combining mark's overstruck, the base and each mark centred
+    /// across the widest of them, so a mark two cells wide, as U+20E3 is in
+    /// unifont, makes the glyph two cells wide; the default ignorables and
+    /// the rest of the cluster left out. A color base takes no mark.
     fn unshaped(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         if let Some(c) = precomposed(cluster)
             && let Some(g) = self.generated.borrow().draw(self.cell, &[c], style)
@@ -549,11 +550,14 @@ impl DeferredFace {
         if marks.is_empty() {
             return Some(glyph);
         }
-        let (w, h) = (glyph.width(), glyph.height());
-        let mut pixels = glyph.pixels().to_vec();
-        for mark in &marks {
-            let dx = w.saturating_sub(mark.width()) / 2;
-            for (y, row) in (0..h).zip(mark.rows()) {
+        let parts: Vec<&Glyph> = std::iter::once(&glyph).chain(&marks).collect();
+        let w = parts.iter().map(|g| g.width()).max()?;
+        let h = glyph.height();
+        let wide = parts.iter().any(|g| g.cells() == Width::Wide);
+        let mut pixels = vec![0u8; usize::try_from(w.checked_mul(h)?).ok()?];
+        for part in parts {
+            let dx = w.saturating_sub(part.width()) / 2;
+            for (y, row) in (0..h).zip(part.rows()) {
                 for (x, &p) in (dx..w).zip(row) {
                     let at = usize::try_from(y.checked_mul(w)?.checked_add(x)?).ok()?;
                     if let Some(px) = pixels.get_mut(at) {
@@ -562,7 +566,8 @@ impl DeferredFace {
                 }
             }
         }
-        Glyph::from_pixels(w, h, Format::Mask, pixels).map(|g| g.with_cells(glyph.cells()))
+        let cells = if wide { Width::Wide } else { glyph.cells() };
+        Glyph::from_pixels(w, h, Format::Mask, pixels).map(|g| g.with_cells(cells))
     }
 
     /// The built-in's `glyph` at the cell's size: centred, padded or
@@ -1149,6 +1154,32 @@ mod tests {
     // combining mark overstruck, each from the store or the built-in
     // font; a default ignorable and the rest of an emoji sequence are not
     // drawn
+    #[test]
+    fn a_mark_wider_than_its_base_is_drawn_whole() {
+        let generated = Shared::default();
+        let f = face(&generated);
+        let unifont = Unifont::new(16);
+        let regular = Style::default();
+        let keycap = unifont.draw(&['\u{20e3}'], regular).unwrap();
+        assert_eq!(keycap.cells(), Width::Wide, "unifont's keycap is two cells");
+        let one = unifont.draw(&['1'], regular).unwrap();
+        let drawn = f.draw(&['1', '\u{fe0f}', '\u{20e3}'], regular).unwrap();
+        assert_eq!((drawn.width(), drawn.cells()), (16, Width::Wide));
+        // the keycap whole, and the 1 centred in it
+        assert!({
+            (0..16).all(|y| {
+                (0..16).all(|x| {
+                    let k = keycap.pixel(x, y).unwrap()[0];
+                    let o = x
+                        .checked_sub(4)
+                        .filter(|&x| x < 8)
+                        .map_or(0, |x| one.pixel(x, y).unwrap()[0]);
+                    drawn.pixel(x, y).unwrap()[0] == k.max(o)
+                })
+            })
+        });
+    }
+
     #[test]
     fn a_base_draws_with_its_marks_overstruck() {
         let generated = Shared::default();
