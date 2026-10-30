@@ -33,6 +33,7 @@ pub mod config;
 pub mod deferred;
 pub mod font;
 pub mod grab;
+pub mod head;
 pub mod helper;
 pub mod hook;
 pub mod layout;
