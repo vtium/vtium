@@ -58,10 +58,16 @@
 //!   every head has.
 //! - **No display.** From the first acquire, vtium waits `display-wait`
 //!   for a frame on a display's screen, and with none by then it ends
-//!   ([`crate::wait`]). Once one has come, a head's last going leaves its
-//!   session running on the grid it had, with the keys reaching it while
-//!   it holds the focus and no blank, until the next comes and is drawn
-//!   whole.
+//!   ([`crate::wait`]). Once one has come, a head's last going does what
+//!   its `on-loss` says (D8): under `nohup` its sessions run on at the
+//!   grid they had, with the keys of the devices reaching it and no
+//!   blank, until a display its rules match comes and is drawn whole;
+//!   under `hangup` their ptys close at once, and under `hangup
+//!   DURATION` once the time runs out with no display back, after which
+//!   the head follows the respawn policy. A mirrored head keeps its
+//!   sessions while one of its displays remains. A head whose display
+//!   never lit receives nothing, and the focus never moves because a
+//!   display left or came back.
 //! - **Drawing** (D2). Each head's render thread composes its frames
 //!   ([`crate::painter`]); the loop takes each frame from the screen,
 //!   and at the next turn's start, after the VT's events, copies it into
@@ -79,6 +85,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use vtium_config::OnLoss;
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::display::{Blank, DPI_ASSUMED, DisplayId, Dpms, Event};
 use vtium_platform::input::{
@@ -1633,7 +1640,12 @@ impl App {
     /// on vtium/vtium#156); after, it moves only by the chord.
     fn take_focus(&mut self) {
         let due = std::mem::take(&mut self.focus_due);
-        if self.lit.is_empty() || self.focus.is_some() && (self.focus_settled || !due) {
+        // The focus never moves because its head's display left (D8).
+        let unlit = self
+            .focus
+            .and_then(|h| self.heads.get(h))
+            .is_some_and(|head| head.views.is_empty());
+        if self.lit.is_empty() || unlit || self.focus.is_some() && (self.focus_settled || !due) {
             return;
         }
         // The guards are H3d's: with them off the placement is the rules'
@@ -1654,10 +1666,12 @@ impl App {
 
     /// A head's first display came, its last went, or its next came. With
     /// none the head's session runs on at the grid it had, which no
-    /// display resizes, and the blank does not run: the blank in force
-    /// ends, and the countdown starts afresh when a display comes, as at
-    /// the user's input for now (vtium/vtium#87 tells the two apart). The
-    /// next is drawn whole, and resizes the grid when its own differs.
+    /// display resizes, until its `on-loss` hangs it up (ADR-1401 D8), and
+    /// the blank does not run: the blank in force ends, and the countdown
+    /// starts afresh when a display comes, as at the user's input for now
+    /// (vtium/vtium#87 tells the two apart). The next is drawn whole, and
+    /// resizes the grid when its own differs, and stops the hang-up's
+    /// time.
     fn attachment(&mut self, now: Instant) {
         let several = self.heads.len() > 1;
         let mut changed = false;
@@ -1678,12 +1692,25 @@ impl App {
             };
             match (head.attached, attached) {
                 (Attached::Yes, Attached::Gone) => {
-                    log::warn!(
-                        "the last display{of} is gone: the session runs on at {cols}x{rows} until the next comes"
-                    );
+                    let hangup = match head.on_loss {
+                        OnLoss::Nohup => None,
+                        OnLoss::Hangup => Some(0),
+                        OnLoss::HangupAfter(secs) => Some(secs),
+                    };
+                    head.hangup_due =
+                        hangup.map(|secs| after(now, Duration::from_secs(secs.into())));
+                    match hangup {
+                        None => log::warn!(
+                            "the last display{of} is gone: the session runs on at {cols}x{rows} until the next comes"
+                        ),
+                        Some(secs) => log::warn!(
+                            "the last display{of} is gone: the session hangs up in {secs} s unless one comes"
+                        ),
+                    }
                     changed = true;
                 }
                 (Attached::Gone, Attached::Yes) => {
+                    head.hangup_due = None;
                     log::info!("a display{of} came: the session is drawn again at {cols}x{rows}");
                     changed = true;
                 }
@@ -1694,6 +1721,33 @@ impl App {
         }
         if changed {
             self.wake(now);
+        }
+        for h in 0..self.heads.len() {
+            let due = self
+                .heads
+                .get(h)
+                .and_then(|head| head.hangup_due)
+                .is_some_and(|d| d <= now);
+            if due {
+                self.hang_up(h, now);
+            }
+        }
+    }
+
+    /// Hangs up head `h`'s sessions, which lost their last display under
+    /// `on-loss = hangup` (ADR-1401 D8); the head then follows the respawn
+    /// policy.
+    fn hang_up(&mut self, h: usize, now: Instant) {
+        let since = now.saturating_duration_since(self.epoch);
+        let Some(head) = self.heads.get_mut(h) else {
+            return;
+        };
+        if head.hang_up(since, self.oneshot, self.awake) {
+            let id = head.console.id;
+            self.spawn(h, id);
+        }
+        if let Some(exit) = session::exit_due(&self.heads) {
+            self.request_exit(exit);
         }
     }
 
@@ -1783,7 +1837,12 @@ impl App {
     /// is the user's activity; a pointer event is when
     /// [`App::pointer_event`] says so.
     fn deliver(&mut self, node: Option<&Path>, event: InputEvent, now: Instant) {
-        let h = self.routes.head(node, self.focus);
+        // A head whose display never lit receives nothing (D8).
+        let h = self.routes.head(node, self.focus).filter(|&h| {
+            self.heads
+                .get(h)
+                .is_some_and(|head| head.attached != Attached::NotYet)
+        });
         match event {
             InputEvent::Key(key) => {
                 self.focus_settled = true;
@@ -2356,6 +2415,7 @@ impl App {
             due.extend(head.console.term.sync.deadline());
             due.extend(head.views.values().filter_map(|v| v.wait.due()));
             due.extend(head.figures.due);
+            due.extend(head.hangup_due);
         }
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));
@@ -2947,6 +3007,18 @@ mod tests {
         app.set_heads(vtium_config::parse(&text).unwrap().config);
         let cap = usize::try_from(crate::config::budget::sb_memory_cap()).unwrap();
         assert_eq!(app.scrollback_bytes, cap / 9);
+    }
+
+    // ADR-1401 D8: the loop wakes when a head's `on-loss` time runs out.
+    #[test]
+    fn the_loop_wakes_when_a_heads_hangup_falls_due() {
+        let (_lp, mut app) = seat(Some("version = 1\n[head a]\n"), no_fonts());
+        let t = Instant::now();
+        assert!(app.next_wake(t) > Some(Duration::from_secs(30)));
+        if let Some(head) = app.heads.first_mut() {
+            head.hangup_due = Some(t + Duration::from_secs(30));
+        }
+        assert_eq!(app.next_wake(t), Some(Duration::from_secs(30)));
     }
 
     // ADR-1401 D5: mode 1004's focus goes to a head a keyboard delivers

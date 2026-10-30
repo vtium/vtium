@@ -1398,3 +1398,224 @@ display card:mem-small -> one
     );
     assert!(s.until(SECOND, |a| head_shows(a, "one", "asked")));
 }
+
+/// A head losing a display (ADR-1401 D8): `small` holds the small
+/// display, or both when `mirrored`, under `on-loss`'s `value`, its
+/// session the script `test` writes, which marks its SIGHUP and echoes
+/// each line; `large` holds the large display. Returns the seat, booted,
+/// and the mark's path.
+fn losing(test: &str, value: &str, mirrored: bool) -> (Seat, PathBuf) {
+    let dir = std::env::temp_dir();
+    let mark = dir.join(format!("vtium-heads-{test}-{}.hup", std::process::id()));
+    let script = dir.join(format!("vtium-heads-{test}-{}.sh", std::process::id()));
+    let _ = std::fs::remove_file(&mark);
+    std::fs::write(
+        &script,
+        format!(
+            "trap 'echo > {m}; exit 0' HUP\necho ready\nwhile :; do read a; echo \"got:$a\"; done\n",
+            m = mark.display()
+        ),
+    )
+    .expect("the script");
+    let large = if mirrored { "small" } else { "large" };
+    let heads = format!(
+        "version = 1
+[head small]
+on-loss = {value}
+login = /bin/sh {script}
+[head large]
+[rules]
+display card:mem-small -> small
+display card:mem-large -> {large}
+input path:kbd-small -> small
+",
+        script = script.display()
+    );
+    let mut s = Seat::with_heads(&[], Some(&heads), two_displays(), "read x");
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
+    // A frame on a screen ends the start's wait, which a turn far ahead
+    // would otherwise run out.
+    assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
+    s.until(Duration::from_millis(50), |_| false);
+    (s, mark)
+}
+
+impl Seat {
+    /// The display of the memory device at `node` goes, in a turn at `at`.
+    fn unplug(&mut self, node: &str, at: Instant) {
+        self.memory(node).events.push(Event::Removed(ID));
+        self.app.turn(at);
+    }
+
+    /// The display of the memory device at `node` comes back, in a turn at
+    /// `at`.
+    fn plug(&mut self, node: &str, at: Instant) {
+        self.memory(node).events.push(Event::Added(ID));
+        self.app.turn(at);
+    }
+
+    /// The process id of head `name`'s shown console's session.
+    fn session(&self, name: &str) -> Option<u32> {
+        self.app
+            .head(name)
+            .and_then(Head::pty)
+            .and_then(|p| p.child_id())
+    }
+
+    /// Whether head `name`'s session was hung up within `limit`: its
+    /// SIGHUP marked `mark`.
+    fn hung_up(&mut self, mark: &Path, limit: Duration) -> bool {
+        self.until(limit, |_| mark.exists())
+    }
+}
+
+/// D8: under `on-loss = hangup` a head losing its last display hangs its
+/// sessions up at once, as a line losing its carrier: the pty closes and
+/// the session gets SIGHUP. The head then follows the respawn policy,
+/// which starts its login again; the other head runs on.
+#[test]
+fn under_hangup_a_head_losing_its_last_display_hangs_its_sessions_up_at_once() {
+    let (mut s, mark) = losing("hangup", "hangup", false);
+    let before = s.session("small");
+    let large = s.session("large");
+    s.unplug("/dev/mem0", now());
+    assert!(s.hung_up(&mark, SECOND), "SIGHUP at once");
+    assert!(
+        s.until(SECOND, |a| a.head("small").and_then(Head::pty).is_some()),
+        "the respawn policy starts the login again"
+    );
+    assert_ne!(s.session("small"), before, "a new session");
+    assert_eq!(s.session("large"), large, "the other head runs on");
+    assert!(s.app.finished().is_none());
+    let _ = std::fs::remove_file(&mark);
+}
+
+/// D8: under `nohup`, the default, a head losing its last display keeps
+/// its session, however long the display stays away, and the keys of the
+/// devices reaching it still type into it, as the kernel console's tty
+/// does; a display of the head coming back draws it again.
+#[test]
+fn under_nohup_a_head_losing_its_last_display_runs_on_and_shows_again_on_its_return() {
+    let (mut s, mark) = losing("nohup", "nohup", false);
+    let before = s.session("small");
+    let t = now();
+    s.unplug("/dev/mem0", t);
+    s.app.turn(t + Duration::from_secs(3600));
+    s.until(Duration::from_millis(300), |_| false);
+    assert!(!mark.exists(), "no SIGHUP");
+    assert_eq!(s.session("small"), before, "the session runs on");
+    s.type_on(KBD_SMALL, "x\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", "got:x")),
+        "the keys still reach it"
+    );
+    let frames = s.memory("/dev/mem0").frames;
+    s.plug("/dev/mem0", t + Duration::from_secs(3601));
+    assert!(
+        s.until_memory("/dev/mem0", SECOND, |m| m.frames > frames),
+        "drawn again on its return"
+    );
+    assert_eq!(s.session("small"), before);
+    let _ = std::fs::remove_file(&mark);
+}
+
+/// D8: under `hangup 30s` a display returning within the 30 seconds
+/// resumes the head's sessions; one staying away longer hangs them up
+/// after it. The time is the loop's, which the test gives.
+#[test]
+fn under_hangup_30s_a_return_within_the_time_resumes_and_after_it_hangs_up() {
+    let (mut s, mark) = losing("hangup-30s", "hangup 30s", false);
+    let before = s.session("small");
+    let t = now();
+    let at = |secs: u64| t + Duration::from_secs(secs);
+    s.unplug("/dev/mem0", at(0));
+    s.app.turn(at(29));
+    s.plug("/dev/mem0", at(29));
+    s.app.turn(at(31));
+    s.app.turn(at(100));
+    assert!(!s.hung_up(&mark, Duration::from_millis(300)), "resumed");
+    assert_eq!(s.session("small"), before);
+    s.unplug("/dev/mem0", at(100));
+    s.app.turn(at(129));
+    assert!(
+        !s.hung_up(&mark, Duration::from_millis(300)),
+        "within the time"
+    );
+    s.app.turn(at(130));
+    assert!(s.hung_up(&mark, SECOND), "after it, SIGHUP");
+    let _ = std::fs::remove_file(&mark);
+}
+
+/// D8: a mirrored head keeps its sessions while any of its displays
+/// remains, under `hangup` too; its last going hangs them up.
+#[test]
+fn a_mirrored_head_keeps_its_sessions_while_one_display_remains() {
+    let (mut s, mark) = losing("mirrored", "hangup", true);
+    assert_eq!(s.app.head("small").map(|h| h.cells().len()), Some(2));
+    let before = s.session("small");
+    s.unplug("/dev/mem1", now());
+    assert!(!s.hung_up(&mark, Duration::from_millis(300)), "one remains");
+    assert_eq!(s.session("small"), before);
+    s.unplug("/dev/mem0", now());
+    assert!(s.hung_up(&mark, SECOND), "the last went");
+    let _ = std::fs::remove_file(&mark);
+}
+
+/// D8: a head reattaches only to a display its rules match. A display no
+/// rule gives the head stops neither its absence nor its timer; its own
+/// display coming back reattaches it.
+#[test]
+fn a_head_reattaches_only_to_a_display_its_rules_match() {
+    let (mut s, mark) = losing("reattach", "hangup 30s", false);
+    let t = now();
+    s.unplug("/dev/mem0", t);
+    s.app.add_video(
+        PathBuf::from("/dev/mem2"),
+        Box::new(Memory::new(320, 160, "MEM-3", "mem-other")),
+    );
+    s.app.turn(t + Duration::from_secs(1));
+    assert_eq!(s.app.head("small").map(|h| h.cells().len()), Some(0));
+    s.app.turn(t + Duration::from_secs(30));
+    assert!(s.hung_up(&mark, SECOND), "its timer ran out");
+    s.plug("/dev/mem0", t + Duration::from_secs(31));
+    assert_eq!(s.app.head("small").map(|h| h.cells().len()), Some(1));
+    let _ = std::fs::remove_file(&mark);
+}
+
+/// D8: the focus never moves to a head or away from one because its
+/// display left or came back, even before the first key settles it.
+#[test]
+fn the_focus_never_moves_because_a_heads_display_left_or_came_back() {
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let mut s = Seat::with_heads(&[], Some(TWO_HEADS), displays, "read x");
+    assert!(s.until(SECOND, |a| a.cells().len() == 2));
+    assert_eq!(s.app.focus_head(), Some("large"), "the boot display's");
+    s.unplug("/dev/mem1", now());
+    s.app.add_video(
+        PathBuf::from("/dev/mem2"),
+        Box::new(Memory::new(320, 160, "MEM-3", "mem-small")),
+    );
+    assert!(s.until(SECOND, |a| a.cells().len() == 2));
+    assert_eq!(s.app.focus_head(), Some("large"), "it left");
+    s.plug("/dev/mem1", now());
+    assert!(s.until(SECOND, |a| a.cells().len() == 3));
+    assert_eq!(s.app.focus_head(), Some("large"), "it came back");
+}
+
+/// D8: a head whose display never lit receives nothing, even from a
+/// keyboard its rule claims.
+#[test]
+fn a_head_whose_display_never_lit_receives_no_key() {
+    let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::with_heads(&[], Some(CLAIMED), displays, "read x");
+    s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
+    assert!(s.until(SECOND, |a| a.cells().len() == 1));
+    s.type_on(KBD_LARGE, "never");
+    s.until(Duration::from_millis(100), |_| false);
+    assert!(!head_shows(&s.app, "large", "never"));
+    s.app
+        .device_input(Path::new(KBD_LARGE), ctrl_super(RETURN), now());
+    assert_eq!(consoles(&s.app, "large"), Some((1, 0)), "no console opened");
+}

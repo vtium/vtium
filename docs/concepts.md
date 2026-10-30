@@ -101,7 +101,7 @@ The other VT's owner can be a desktop, a getty or another vtium.
 
 ## Heads: a terminal per display
 
-This section describes the design of [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md). Built so far: heads placed by the head file's rules, each with a grid of its own, the head file read at start, inputs routed to their own heads, the focus chord, and several consoles a head. Still to be built: the guards, the notice and the focus mark drawn on the console, and `vtiumctl`.
+This section describes the design of [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md). Built so far: heads placed by the head file's rules, each with a grid of its own, the head file read at start, inputs routed to their own heads, the focus chord, several consoles a head, and what a head does when it loses its display. Still to be built: the guards, the notice and the focus mark drawn on the console, and `vtiumctl`.
 
 The kernel shows one VT on every display, so vtium keeps its one VT and drives every display from one process as a set of heads. A head is a terminal for one or more displays, with its own inputs, its own look and a stack of virtual consoles, each a session of its own, so a small panel and a large monitor each get a grid sized for them, with a keyboard typing into each.
 
@@ -109,7 +109,7 @@ A head file in `/etc/vtium` declares the heads and an ordered list of rules, rea
 
 The console can always be typed on. With no file, vtium runs its compiled-in configuration and writes nothing; a broken one is reported on the screen and in the log, left as it is, and replaced in memory by the shipped rules. Whatever the rules say, a keyboard that reaches no lit head follows the focus, and `Ctrl-Alt-F<n>` for the VT already shown moves the keyboard that pressed it to the focus until the next boot.
 
-Each head is a terminal of its own. Ctrl-Super-Up and Ctrl-Super-Down move the focus to the next and the previous head with a lit display; a keyboard a rule gives a head keeps typing into it. Ctrl-Super-Return opens a console in the head the keyboard types into, Ctrl-Super-Right and Ctrl-Super-Left show its next and previous console, and Ctrl-Super-Backspace closes the one shown. A head holds 4 consoles and every head 8 together, unless the configuration raises them. vtium ends only when no head has anything left to run; a head whose display never lit has nothing to run, so it never holds the exit up. The figure follows one head's consoles.
+Each head is a terminal of its own. Ctrl-Super-Up and Ctrl-Super-Down move the focus to the next and the previous head with a lit display; a keyboard a rule gives a head keeps typing into it. Ctrl-Super-Return opens a console in the head the keyboard types into, Ctrl-Super-Right and Ctrl-Super-Left show its next and previous console, and Ctrl-Super-Backspace closes the one shown. A head holds 4 consoles and every head 8 together, unless the configuration raises them. vtium ends only when no head has anything left to run; a head whose display never lit has nothing to run, so it never holds the exit up. A head losing its last display does what its `on-loss` says: under `nohup`, the default, its sessions run on unseen, the keys reaching the head still type into them, as the kernel console's do through an unplugged monitor, and a display its rules match brings them back; `hangup` hangs them up at once, as a serial line losing its carrier, and `hangup 30s` only when no such display returns within the time. A mirrored head keeps its sessions while one of its displays remains, and the focus never moves because a display left or came back. The figure follows one head's consoles.
 
 ```mermaid
 stateDiagram-v2
@@ -122,6 +122,9 @@ stateDiagram-v2
         Shown --> Shown: Ctrl-Super-Return opens one<br>within the caps, and shows it
         Shown --> Shown: Ctrl-Super-Backspace closes the one shown,<br>or a console's program exits,<br>and the next shows
     }
+    Running --> Dark: its last display goes
+    Dark --> Running: a display its rules match comes,<br>under nohup or within hangup's time
+    Dark --> LastExit: hangup, at once or when its time runs out:<br>every pty closes and its programs get SIGHUP
     Running --> LastExit: the last console's program exits
     LastExit --> Running: the head's login comes back
     LastExit --> GaveUp: it exited within 2 s<br>more than 5 times running
@@ -131,7 +134,7 @@ stateDiagram-v2
     classDef step fill:#2d7d9a,color:#ffffff,stroke:#94a3b8
     classDef done fill:#2d8e5e,color:#ffffff,stroke:#94a3b8
     classDef inert fill:#475569,color:#ffffff,stroke:#94a3b8
-    class Waiting,LastExit step
+    class Waiting,LastExit,Dark step
     class Shown done
     class GaveUp,Ended inert
 ```

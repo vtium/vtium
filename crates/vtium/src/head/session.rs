@@ -95,6 +95,7 @@ pub(crate) fn heads(
             let term = crate::head::terminal(config, lines, bytes, Rc::clone(clock));
             let mut head = Head::new(&h.name, config, &font, term);
             head.wanted = wanted;
+            head.on_loss = h.on_loss;
             head.login = h.login.as_deref().and_then(|text| {
                 config
                     .with_login(text)
@@ -226,6 +227,26 @@ impl Head {
             }
         }
         true
+    }
+
+    /// Hangs up the head's sessions at `since`, as a line losing its
+    /// carrier (ADR-1401 D8): every console's pty closes, so its programs
+    /// get SIGHUP; the consoles but the shown one close, and its exit
+    /// follows the respawn policy, the shown next while `visible`. Returns
+    /// whether its session starts again. A head that ended or never
+    /// started has nothing to hang up.
+    pub(crate) fn hang_up(&mut self, since: Duration, oneshot: bool, visible: bool) -> bool {
+        self.hangup_due = None;
+        if self.ended.is_some() || !self.started() {
+            return false;
+        }
+        log::warn!(
+            "head {}: its last display is gone: on-loss hangs its sessions up",
+            self.name()
+        );
+        self.hidden.clear();
+        self.at = 0;
+        self.exited(self.console.id, since, oneshot, visible) == AfterExit::Restart
     }
 
     /// The program of console `id` exited at `since`, the console shown
