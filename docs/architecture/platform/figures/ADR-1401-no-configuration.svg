@@ -20,13 +20,13 @@
 <text x="28" y="194">profile = default</text>
 <text x="28" y="212">[rules]</text>
 <text x="28" y="228">display * -&gt; console</text>
-<text x="28" y="244">input class:keyboard -&gt; focus</text>
-<text x="28" y="260">input class:mouse -&gt; focus</text>
-<text x="28" y="276">input class:touchpad -&gt; focus</text>
-<text x="28" y="292">input class:touchscreen -&gt; focus</text>
-<text x="28" y="308">input class:trackball -&gt; focus</text>
-<text x="28" y="324">input class:pointingstick -&gt; focus</text>
-<text x="28" y="340">input class:key -&gt; focus</text>
+<text x="28" y="244">input class:keyboard -&gt; roaming</text>
+<text x="28" y="260">input class:mouse -&gt; roaming</text>
+<text x="28" y="276">input class:touchpad -&gt; roaming</text>
+<text x="28" y="292">input class:touchscreen -&gt; roaming</text>
+<text x="28" y="308">input class:trackball -&gt; roaming</text>
+<text x="28" y="324">input class:pointingstick -&gt; roaming</text>
+<text x="28" y="340">input class:key -&gt; roaming</text>
 <text x="28" y="356">input * -&gt; ignore</text>
 </g>
 <line x1="296" y1="200" x2="328" y2="200" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
@@ -46,7 +46,7 @@
 <text x="490" y="300" font-size="12" text-anchor="middle">one grid, mirrored by the scaled rule</text>
 <!-- the focus -->
 <rect x="330" y="326" width="320" height="30" fill="#e6eef7" stroke="#2f6fb0"/>
-<text x="490" y="346" font-size="12" text-anchor="middle">the focus, resting on head console</text>
+<text x="490" y="346" font-size="12" text-anchor="middle">head console, the active head</text>
 <line x1="490" y1="326" x2="490" y2="312" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <!-- inputs -->
 <rect x="16" y="392" width="118" height="40" fill="#f1f5f9" stroke="#9aa5b1"/>
@@ -68,7 +68,7 @@
 <rect x="646" y="392" width="118" height="40" fill="#f1f5f9" stroke="#9aa5b1"/>
 <text x="705" y="417" font-size="12" text-anchor="middle">media keys</text>
 <text x="776" y="410" font-size="11">every one by its</text>
-<text x="776" y="424" font-size="11">class -&gt; focus</text>
+<text x="776" y="424" font-size="11">class -&gt; roaming</text>
 <!-- the default chain -->
 <rect x="690" y="40" width="254" height="48" fill="#e6eef7" stroke="#2f6fb0"/>
 <text x="817" y="60" font-size="13" text-anchor="middle">head console</text>

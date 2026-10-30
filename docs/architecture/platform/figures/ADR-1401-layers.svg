@@ -49,7 +49,7 @@
 <rect x="538" y="382" width="206" height="60" fill="#ffffff" stroke="#9aa5b1"/>
 <text x="641" y="400" font-size="13" text-anchor="middle" font-weight="bold">routing</text>
 <text x="641" y="417" font-size="12" text-anchor="middle">to a head,</text>
-<text x="641" y="434" font-size="12" text-anchor="middle">or to the focus</text>
+<text x="641" y="434" font-size="12" text-anchor="middle">or roaming</text>
 <text x="272" y="466" font-size="12">holds the VT and every card while shown</text>
 <!-- 2: logind and seats -->
 <rect x="16" y="504" width="744" height="76" fill="#e6eef7" stroke="#9aa5b1"/>

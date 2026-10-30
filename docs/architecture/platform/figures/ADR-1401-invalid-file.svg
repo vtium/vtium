@@ -16,7 +16,7 @@
 <text x="26" y="144" fill="#9aa5b1">5</text><text x="46" y="144">display * -&gt; desk</text>
 <rect x="20" y="150" width="292" height="20" fill="#fee2e2" stroke="#b91c1c"/>
 <text x="26" y="164" fill="#9aa5b1">6</text><text x="46" y="164">input path:...3.3 -&gt; desc</text>
-<text x="26" y="184" fill="#9aa5b1">7</text><text x="46" y="184">input class:keyboard -&gt; focus</text>
+<text x="26" y="184" fill="#9aa5b1">7</text><text x="46" y="184">input class:keyboard -&gt; roaming</text>
 </g>
 <text x="26" y="206" font-size="11" fill="#b91c1c">line 6 names a head no section declares</text>
 <text x="16" y="236" font-size="12">left as it is: its hash before</text>
@@ -31,7 +31,7 @@
 <text x="364" y="148" font-size="12">3. logs it with file and line</text>
 <text x="364" y="170" font-size="12">4. runs what survives, then</text>
 <text x="386" y="188" font-size="10">the shipped rules' tail:</text>
-<text x="386" y="204" font-size="10">class rules -&gt; focus, * -&gt; ignore</text>
+<text x="386" y="204" font-size="10">class rules -&gt; roaming, * -&gt; ignore</text>
 <text x="364" y="226" font-size="12">5. shows the notice, keeps</text>
 <text x="386" y="242" font-size="12">running</text>
 <line x1="610" y1="140" x2="638" y2="140" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
