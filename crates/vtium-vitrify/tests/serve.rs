@@ -49,6 +49,7 @@ fn the_helper_answers_under_its_sandbox_and_exits_when_the_console_closes() {
             height: 16,
         },
         codepoints: vec![0x41],
+        clusters: Vec::new(),
         held: Vec::new(),
         console: None,
     };
@@ -122,6 +123,7 @@ fn a_source_that_fails_as_it_draws_is_left_out_and_the_rest_answer() {
             height: 16,
         },
         codepoints: vec![0x41],
+        clusters: Vec::new(),
         held: Vec::new(),
         console: None,
     };
@@ -177,6 +179,7 @@ fn a_cell_stopped_and_filled_again_is_filled_again() {
             height: 16,
         },
         codepoints: vec![0x41],
+        clusters: Vec::new(),
         held: Vec::new(),
         console: None,
     };
@@ -250,6 +253,7 @@ fn each_fill_sends_the_cells_coverage_in_full_once() {
             height: 16,
         },
         codepoints: vec![0x41],
+        clusters: Vec::new(),
         held: Vec::new(),
         console: None,
     };
@@ -301,6 +305,7 @@ fn an_outline_frits_cell_query_is_refused() {
             height: 0,
         },
         codepoints: Vec::new(),
+        clusters: Vec::new(),
         held: Vec::new(),
         console: None,
     };
@@ -329,4 +334,82 @@ fn an_outline_frits_cell_query_is_refused() {
         let why = String::from_utf8_lossy(why);
         assert!(why.contains("is an outline font"), "{why}");
     }
+}
+
+// ADR-1200 D21, ADR-1301 D1: an ask's clusters are shaped with HarfRust
+// and drawn whole into the frame's cluster map, keyed by their text; one
+// the font does not shape as its kind requires is left out, and the ask
+// is answered whole
+#[test]
+#[expect(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    reason = "a test fails by panicking"
+)]
+fn an_asks_clusters_are_shaped_and_drawn_whole() {
+    let dir = std::env::temp_dir().join(format!("vtium-serve-clusters-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let font = dir.join("shaping.ttf");
+    std::fs::write(&font, ttf::test_shaping().build()).unwrap();
+    let key = |cs: &[char]| cs.iter().map(|&c| u32::from(c)).collect::<Vec<u32>>();
+    let acute = ['e', '\u{301}'];
+    // the font has no q, and no ligature of man and girl
+    let q_acute = ['q', '\u{301}'];
+    let man_girl = ['\u{1f468}', '\u{200d}', '\u{1f467}'];
+    let request = ServeRequest {
+        kind: ASK,
+        frit: FritText {
+            name: "t".to_owned(),
+            text: format!("source=outline:{}\n", font.display()),
+        },
+        cell: Cell {
+            width: 12,
+            height: 20,
+        },
+        codepoints: vec![0xe9],
+        clusters: vec![
+            key(&acute),
+            key(&ttf::FAMILY),
+            key(&ttf::FLAG),
+            key(&q_acute),
+            key(&man_girl),
+        ],
+        held: Vec::new(),
+        console: None,
+    };
+    let mut out = Vec::new();
+    let status = serve(
+        std::io::Cursor::new(request.encode()),
+        &mut out,
+        &Paths::default(),
+        Duration::from_secs(5),
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(status, 0);
+    let frames = frames(&out);
+    let kinds: Vec<u32> = frames.iter().map(|f| f.0).collect();
+    assert_eq!(kinds, [FRAME_GLYPHS, FRAME_GLYPHS, FRAME_DONE], "{kinds:?}");
+    let sets: Vec<Arc<Set>> = frames[..2]
+        .iter()
+        .map(|f| Arc::new(Set::from_bytes(f.1.clone()).unwrap()))
+        .collect();
+    // the codepoints' frame maps no cluster, the clusters' frame maps
+    // only the three the font shapes
+    assert_eq!(sets[0].clusters().count(), 0);
+    let mut shaped: Vec<Vec<char>> = sets[1].clusters().map(|(_, _, k)| k).collect();
+    shaped.sort();
+    let mut want = vec![acute.to_vec(), ttf::FAMILY.to_vec(), ttf::FLAG.to_vec()];
+    want.sort();
+    assert_eq!(shaped, want);
+    let codepoints = SetFace::new(Arc::clone(&sets[0]), 20).unwrap();
+    let clusters = SetFace::new(Arc::clone(&sets[1]), 20).unwrap();
+    let regular = vtium_font::Style::default();
+    // e and U+0301 compose to the font's é
+    assert_eq!(
+        clusters.cluster(&acute, regular).unwrap().pixels(),
+        codepoints.draw(&['\u{e9}'], regular).unwrap().pixels()
+    );
+    let family = clusters.cluster(&ttf::FAMILY, regular).unwrap();
+    assert_eq!(family.cells(), vtium_font::Width::Wide);
+    assert_eq!(family.format(), vtium_font::Format::Rgba);
 }

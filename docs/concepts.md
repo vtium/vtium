@@ -34,16 +34,16 @@ vtium is one console and a few programs and files around it. The table lists eac
 | `vtium-vitrify new` | The guided builder, and the templates it writes and reads, which end in a frit | the user, with sudo once at the end | proposed | vtium/vtium#121 |
 | `vtium-vitrify serve` | The helper: generates a frit's glyphs at run time in a sandbox, started on the console's first need and gone when idle | the console, never as root | built: PSF and kbd sources, and outline and color fonts | vtium/vtium#145, #23 |
 | `vtium-vitrify set` | Switches the running console among the frits and the built-in fonts | the user, in the session | built | vtium/vtium#126 |
-| `vtium-vitrify detect`, `setup`, `status`, `check`, `template` | Lists every display and input with a rule ready to paste, writes a head file by asking which keyboard belongs to which display, reports what the running console did with each device, checks a candidate file, and writes the commented default configuration when asked | any user; root to install the file | proposed | [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) |
+| `vtiumctl detect`, `setup`, `status`, `check`, `template`, `install` | The configuration tool, a small binary of its own: lists every display and input with a rule ready to paste, writes a head file by asking which keyboard belongs to which display, reports what the running console did with each device, checks any configuration file, frits included, writes the commented default configuration when asked, and installs a checked file | any user; root to install the file | proposed | [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) |
 | `vtium-clipboard`, also `vticlip` | Copies to the console's selection from a script or a pipe | the user, in the session | proposed; copy decided, paste open | vtium/vtium#113 |
 | The frits | Small text files that name a font's sources, which the helper draws from | written by root | built | vtium/vtium#3, #145 |
 | The built-in fonts | Unifont, and Unscii-8 for small cells, compiled into vtium: the first frame's font and the fallback for each character a frit lacks | inside `vtium` | built: Unscii-8 for cells under 16 pixels and unifont from 16 | vtium/vtium#3, #141 |
 | The configuration | One file, a file for the seat, and the command line | written by root, read by `vtium` | built | [config.md](config.md) |
-| The head file | The heads and the ordered rules that place each display and input; vtium runs its compiled-in rules when there is none and never writes one | written by root, or by `vtium-vitrify setup` or `template`, read by `vtium` | proposed | [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) |
+| The head file | The heads and the ordered rules that place each display and input; vtium runs its compiled-in rules when there is none and never writes one | written by root, or by `vtiumctl setup` or `template`, read by `vtium` | built | [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) |
 | The unit | systemd's service for vtium on a VT, in getty's place | started by logind | built | [systemd.md](systemd.md) |
 | The terminfo entry | Tells programs in the session what vtium can do | read by the session's programs | built | [crates/vtium](../crates/vtium/README.md), vtium/vtium#21 |
 
-vtium is the only piece needed to use the console. vtium-vitrify and vtium-clipboard are separate binaries, so the font decoders and the rasteriser stay out of the console's binary, and neither counts against the minspec build's budget.
+vtium is the only piece needed to use the console. vtium-vitrify, vtiumctl and vtium-clipboard are separate binaries, so the font decoders, the rasteriser and the configuration tool stay out of the console's binary, and neither counts against the minspec build's budget.
 
 ### From install to use
 
@@ -65,7 +65,7 @@ flowchart LR
 
 The figure shows the suite in two bands, what runs as root above and what runs as the user who logged in below. The session reaches the console only through the pty, the kernel's pair of devices that lets one program act as the terminal of another; the font builder reaches root's side once, through sudo. Dashed pieces are proposed.
 
-![Two bands. Above, running as root: the kernel's devices (the VT, the display, keyboards and pointers) joined to vtium, the console; vtium-vitrify create and install writing font sets into the root-owned store, which gives vtium checked sets. Between the bands, the pty, joined to vtium by bytes both ways. Below, running as the user who logged in: vtium-vitrify set, vtium-clipboard, and shell and programs, each joined to the pty; and vtium-vitrify preview, and vtium-vitrify new with its templates, the second of which hands a frit to create with sudo, once. Every vtium-vitrify piece and vtium-clipboard are drawn dashed, as proposed; the store is drawn solid, as built.](figures/concepts-pieces.svg)
+![Two bands. Above, running as root: the kernel's devices (the VT, the display, keyboards and pointers) joined to vtium, the console; vtium-vitrify new, under sudo, writing a frit into the root-owned frits in /etc/vtium/fonts, which vtium reads. Between the bands, the pty, joined to vtium by bytes both ways. Below, running as the user who logged in: vtium-vitrify set, vtium-clipboard, and shell and programs, each joined to the pty; and vtium-vitrify preview, and vtium-vitrify new with its templates, the second of which hands a frit to its own last step, under sudo, once. Every vtium-vitrify piece and vtium-clipboard are drawn dashed, as proposed; the frits are drawn solid, as built.](figures/concepts-pieces.svg)
 
 The console runs as root for its whole life, as the C reference did. Root lets it open the VT, take the display, read the keyboards and pointers directly, and start the system's login program, which authenticates the user and starts their shell with the user's rights. [ADR-1400](architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md) holds the privilege model, the image helper that decodes pictures as the session's user included.
 
@@ -101,15 +101,44 @@ The other VT's owner can be a desktop, a getty or another vtium.
 
 ## Heads: a terminal per display
 
-This section describes the design [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) proposes; none of it is built.
+This section describes the design [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) decides. Built so far: heads placed by the head file's rules, each with a grid of its own, the head file read at start, inputs routed to their own heads, the roaming chord, several consoles a head, what a head does when it loses its display, and the notice and the active-head mark drawn on the console. [heads.md](heads.md) marks what was decided since and is not built yet, among it `policy`, `isolated` and the head file's new names; also still to be built are the state under `/run/vtium/` and `vtiumctl`.
 
-The kernel shows one VT on every display, so vtium today draws one grid mirrored across them all. In the design, vtium keeps its one VT and drives every display from one process as a set of heads. A head is a terminal for one or more displays, with its own inputs, its own look and a stack of virtual consoles, each a session of its own, so a small panel and a large monitor each get a grid sized for them, with a keyboard typing into each.
+The kernel shows one VT on every display, so vtium keeps its one VT and drives every display from one process as a set of heads. A head is a terminal for one or more displays, with its own inputs, its own look and a stack of virtual consoles, each a session of its own, so a small panel and a large monitor each get a grid sized for them, with a keyboard typing into each.
 
-A head file in `/etc/vtium` declares the heads and an ordered list of rules, read as a firewall reads its rules: each display and each keyboard or pointer walks them from the top, and the first that matches places it in a head, in the focus, which a chord moves between heads, or out of use. A rule names a device by its port, its serial number or its monitor's identity, or more weakly by its name. The rules vtium ships put every display in one head and every keyboard and pointer in the focus, by the input classes udev gives each device, and leave media keys, joysticks and the like closed; that is the console as it is today, and a user adds rules above them.
+A head file in `/etc/vtium` declares the heads and an ordered list of rules, read as a firewall reads its rules: each display and each keyboard or pointer walks them from the top, and the first that matches places it in a head, roaming, which types into the active head a chord moves between heads, or out of use. A rule names a device by its port, its serial number or its monitor's identity, or more weakly by its name. The rules vtium ships put every display in one head and every keyboard, pointer and other key device, media keys included, roaming, by the input classes udev gives each device, and leave joysticks, tablets and the like closed; that is the console as it is today, and a user adds rules above them. Like a firewall, the file has a default policy for what its rules don't mention: under `policy = open`, the shipped rules' policy, a keyboard no rule names roams, and under `policy = closed` it is ignored and every head is isolated unless the file says otherwise, as a kiosk needs. [heads.md](heads.md) shows the head file in its scenarios, from the default to a kiosk and several people working at once on one machine, each with a complete file under [heads/](heads/).
 
-The console can always be typed on. With no file, vtium runs its compiled-in configuration and writes nothing; a broken one is reported on the screen and in the log, left as it is, and replaced in memory by the shipped rules. Whatever the rules say, a keyboard that reaches no lit head follows the focus, and `Ctrl-Alt-F<n>` for the VT already shown moves the keyboard that pressed it to the focus until the next boot.
+With no file, vtium runs its compiled-in configuration and writes nothing. A broken file is reported on the screen and in the log and left as it is; vtium runs what survives of it, else the shipped rules, unless it declares `policy = closed`, when nothing surviving means no keyboard types until the file is fixed from outside vtium. Under the open policy, whatever the rules say, a keyboard that reaches no lit head roams, and `Ctrl-Alt-F<n>` for the VT already shown makes the keyboard that pressed it roam until the next boot.
 
-vtium-vitrify writes the file for whoever prefers not to, from the console or a desktop terminal, with or without privilege: it lists every device with a rule ready to paste, asks which keyboard belongs to which display, reports what the running console did, and checks a candidate before it is installed.
+Each head is a terminal of its own. Ctrl-Super-Up and Ctrl-Super-Down make the next or the previous lit head the active head, and each head shows a mark in its top-right corner for a few seconds, filled on the active head; a keyboard a rule gives a head keeps typing into it. Ctrl-Super-Right and Ctrl-Super-Left show the next and the previous console of the head the keyboard types into. A head has the number of consoles its `consoles` sets, at most 4 a head and 8 in all unless the configuration raises them; today's build also opens and closes consoles with Ctrl-Super-Return and Ctrl-Super-Backspace, which the record removes. vtium ends only when no head has anything left to run; a head whose display never lit has nothing to run, so it never holds the exit up. A head losing its last display does what its `when-display-lost` says (today's build reads it as `on-loss`): under `keep`, the default, its sessions run on unseen, the keys reaching the head still type into them, as the kernel console's do through an unplugged monitor, and a display its rules match brings them back; `hangup` hangs them up at once, as a serial line losing its carrier, and `hangup 30s` only when no such display returns within the time. A mirrored head keeps its sessions while one of its displays remains, and the active head never moves because a display left or came back. The figure follows one head's consoles.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Waiting: the head file declares the head
+    Waiting --> Running: its first display lights,<br>and its consoles start
+    Waiting --> [*]: no display yet: it holds up<br>no exit, having nothing to run
+    state Running {
+        [*] --> Shown
+        Shown --> Shown: Ctrl-Super-Right or Left<br>shows the next or the previous
+        Shown --> Shown: a console's program exits,<br>and the next shows
+    }
+    Running --> Dark: its last display goes
+    Dark --> Running: a display its rules match comes,<br>under keep or within hangup's time
+    Dark --> LastExit: hangup, at once or when its time runs out:<br>every pty closes and its programs get SIGHUP
+    Running --> LastExit: the last console's program exits
+    LastExit --> Running: the head's login comes back
+    LastExit --> GaveUp: it exited within 2 s<br>more than 5 times running
+    LastExit --> Ended: oneshot
+    GaveUp --> [*]: a notice; once every head has given up,<br>vtium exits with status 1 for a getty
+    Ended --> [*]: "session ended"; once every head's<br>program has ended, vtium exits
+    classDef step fill:#2d7d9a,color:#ffffff,stroke:#94a3b8
+    classDef done fill:#2d8e5e,color:#ffffff,stroke:#94a3b8
+    classDef inert fill:#475569,color:#ffffff,stroke:#94a3b8
+    class Waiting,LastExit,Dark step
+    class Shown done
+    class GaveUp,Ended inert
+```
+
+vtiumctl writes the file for whoever prefers not to, from the console or a desktop terminal, with or without privilege: it lists every device with a rule ready to paste, asks which keyboard belongs to which display, reports what the running console did, and checks a candidate before it is installed.
 
 ## Fonts, generated at run time
 

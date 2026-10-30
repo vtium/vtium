@@ -1,7 +1,8 @@
 //! A TrueType font written in the test, the outline fixture: polygon glyphs
-//! in `glyf`, a format 12 `cmap`, a `name` table, and for color a COLR
-//! version 0 table with its CPAL palette. Big-endian throughout, tables
-//! sorted by tag and padded to four bytes.
+//! in `glyf`, a format 12 `cmap`, a `name` table, for color a COLR version
+//! 0 table with its CPAL palette, and for shaping a GSUB table of single
+//! substitutions and ligatures, each under a feature of its own. Big-endian
+//! throughout, tables sorted by tag and padded to four bytes.
 
 #![allow(dead_code)]
 
@@ -48,6 +49,18 @@ pub struct Font {
     /// A CBDT strike of color bitmaps, as Noto Color Emoji ships its
     /// emoji: its pixels to the em, and each glyph's bitmap.
     pub cbdt: Option<(u8, Vec<Bitmap>)>,
+    /// GSUB's lookups, each under its feature, applied in this order, for
+    /// the scripts `DFLT` and `arab`.
+    pub gsub: Vec<([u8; 4], Lookup)>,
+}
+
+/// A GSUB lookup.
+#[derive(Clone)]
+pub enum Lookup {
+    /// Each glyph and the glyph it becomes.
+    Single(Vec<(u16, u16)>),
+    /// Each sequence of glyphs and the ligature it becomes.
+    Ligature(Vec<(Vec<u16>, u16)>),
 }
 
 /// A CBDT glyph: its glyph, the bitmap's size, its left bearing, its top
@@ -147,6 +160,151 @@ fn glyf_entry(g: &Glyph) -> Vec<u8> {
         pi16(&mut out, y - py);
         py = y;
     }
+    out
+}
+
+/// A coverage table of format 1 over `glyphs`, sorted.
+fn coverage(glyphs: &[u16]) -> Vec<u8> {
+    let mut out = Vec::new();
+    p16(&mut out, 1);
+    p16(&mut out, glyphs.len() as u16);
+    for &g in glyphs {
+        p16(&mut out, g);
+    }
+    out
+}
+
+/// A lookup's one subtable.
+fn subtable(lookup: &Lookup) -> Vec<u8> {
+    let mut out = Vec::new();
+    match lookup {
+        Lookup::Single(pairs) => {
+            let mut pairs = pairs.clone();
+            pairs.sort();
+            let from: Vec<u16> = pairs.iter().map(|p| p.0).collect();
+            p16(&mut out, 2);
+            p16(&mut out, 6 + 2 * pairs.len() as u16);
+            p16(&mut out, pairs.len() as u16);
+            for &(_, to) in &pairs {
+                p16(&mut out, to);
+            }
+            out.extend(coverage(&from));
+        }
+        Lookup::Ligature(ligs) => {
+            let mut firsts: Vec<u16> = ligs.iter().map(|(s, _)| s[0]).collect();
+            firsts.sort();
+            firsts.dedup();
+            let sets: Vec<Vec<u8>> = firsts
+                .iter()
+                .map(|&f| {
+                    let mine: Vec<&(Vec<u16>, u16)> =
+                        ligs.iter().filter(|(s, _)| s[0] == f).collect();
+                    let mut set = Vec::new();
+                    p16(&mut set, mine.len() as u16);
+                    let mut body = Vec::new();
+                    let head = 2 + 2 * mine.len();
+                    for (seq, lig) in mine {
+                        p16(&mut set, (head + body.len()) as u16);
+                        p16(&mut body, *lig);
+                        p16(&mut body, seq.len() as u16);
+                        for &g in &seq[1..] {
+                            p16(&mut body, g);
+                        }
+                    }
+                    set.extend(body);
+                    set
+                })
+                .collect();
+            let head = 6 + 2 * sets.len();
+            let cov = coverage(&firsts);
+            p16(&mut out, 1);
+            p16(&mut out, head as u16);
+            p16(&mut out, sets.len() as u16);
+            let mut at = head + cov.len();
+            for set in &sets {
+                p16(&mut out, at as u16);
+                at += set.len();
+            }
+            out.extend(cov);
+            for set in sets {
+                out.extend(set);
+            }
+        }
+    }
+    out
+}
+
+/// GSUB: each lookup under a feature of its own, every feature in the
+/// default language system of `DFLT` and `arab`.
+fn gsub(lookups: &[([u8; 4], Lookup)]) -> Vec<u8> {
+    let n = lookups.len() as u16;
+    // the script list: two scripts, each with only a default LangSys
+    let mut langsys = Vec::new();
+    p16(&mut langsys, 0);
+    p16(&mut langsys, 0xffff);
+    p16(&mut langsys, n);
+    for i in 0..n {
+        p16(&mut langsys, i);
+    }
+    let mut script = Vec::new();
+    p16(&mut script, 4);
+    p16(&mut script, 0);
+    script.extend(&langsys);
+    let mut scripts = Vec::new();
+    p16(&mut scripts, 2);
+    for (i, tag) in [b"DFLT", b"arab"].iter().enumerate() {
+        scripts.extend(*tag);
+        p16(&mut scripts, (2 + 12 + i * script.len()) as u16);
+    }
+    scripts.extend(&script);
+    scripts.extend(&script);
+    // the feature list, in the lookups' order, each naming its lookup
+    let mut features = Vec::new();
+    p16(&mut features, n);
+    for (i, (tag, _)) in lookups.iter().enumerate() {
+        features.extend(tag);
+        p16(&mut features, 2 + 6 * n + 6 * i as u16);
+    }
+    for i in 0..n {
+        p16(&mut features, 0);
+        p16(&mut features, 1);
+        p16(&mut features, i);
+    }
+    // the lookup list
+    let mut list = Vec::new();
+    p16(&mut list, n);
+    let bodies: Vec<Vec<u8>> = lookups
+        .iter()
+        .map(|(_, l)| {
+            let kind = match l {
+                Lookup::Single(_) => 1,
+                Lookup::Ligature(_) => 4,
+            };
+            let mut body = Vec::new();
+            for v in [kind, 0, 1, 8] {
+                p16(&mut body, v);
+            }
+            body.extend(subtable(l));
+            body
+        })
+        .collect();
+    let mut at = 2 + 2 * bodies.len();
+    for b in &bodies {
+        p16(&mut list, at as u16);
+        at += b.len();
+    }
+    for b in bodies {
+        list.extend(b);
+    }
+    let mut out = Vec::new();
+    p16(&mut out, 1);
+    p16(&mut out, 0);
+    p16(&mut out, 10);
+    p16(&mut out, (10 + scripts.len()) as u16);
+    p16(&mut out, (10 + scripts.len() + features.len()) as u16);
+    out.extend(scripts);
+    out.extend(features);
+    out.extend(list);
     out
 }
 
@@ -316,6 +474,10 @@ impl Font {
             tables.push((*b"CBLC", cblc));
         }
 
+        if !self.gsub.is_empty() {
+            tables.push((*b"GSUB", gsub(&self.gsub)));
+        }
+
         if !self.colr.is_empty() {
             let mut colr = Vec::new();
             let layers: Vec<(u16, u16)> = self
@@ -417,6 +579,7 @@ pub fn test_mono() -> Font {
         colr: vec![(5, vec![(6, 0), (7, 1)])],
         palette: vec![[255, 0, 0, 255], [0, 0, 255, 128]],
         cbdt: None,
+        gsub: Vec::new(),
     }
 }
 
@@ -456,5 +619,101 @@ pub fn test_emoji() -> Font {
                 rgba,
             }],
         )),
+        gsub: Vec::new(),
     }
+}
+
+/// The family emoji, man ZWJ woman ZWJ girl.
+pub const FAMILY: [char; 5] = [
+    '\u{1f468}',
+    '\u{200d}',
+    '\u{1f469}',
+    '\u{200d}',
+    '\u{1f467}',
+];
+/// The flag of the United States.
+pub const FLAG: [char; 2] = ['\u{1f1fa}', '\u{1f1f8}'];
+
+/// `Test Mono` with shaping: the family emoji and the flag of the United
+/// States as color ligatures under `ccmp`; beh (U+0628) with its four
+/// forms under `isol`, `fina`, `medi` and `init`; lam (U+0644) and alef
+/// (U+0627) with theirs, and lam-alef as a ligature of their joined forms
+/// under `rlig`; and `e` with U+00E9, which `e` U+0301 composes to. Each
+/// form is a bar of its own extent, so each draws apart.
+pub fn test_shaping() -> Font {
+    let mut f = test_mono();
+    f.family = "Test Shaping".to_owned();
+    let bar = |x0, x1| Glyph::rect(600, x0, 0, x1, 500);
+    let at = |f: &mut Font, g: Glyph| {
+        f.glyphs.push(g);
+        (f.glyphs.len() - 1) as u16
+    };
+    let man = at(&mut f, Glyph::rect(1200, 100, 0, 1100, 300));
+    let woman = at(&mut f, Glyph::rect(1200, 100, 300, 1100, 600));
+    let girl = at(&mut f, Glyph::rect(1200, 100, 600, 1100, 700));
+    let zwj = at(&mut f, Glyph::empty(0));
+    let family = at(&mut f, Glyph::rect(1200, 100, -100, 1100, 700));
+    let ri_u = at(&mut f, Glyph::rect(1200, 100, 0, 500, 700));
+    let ri_s = at(&mut f, Glyph::rect(1200, 600, 0, 1100, 700));
+    let flag = at(&mut f, Glyph::rect(1200, 100, 0, 1100, 700));
+    let vs16 = at(&mut f, Glyph::empty(0));
+    let beh = [bar(100, 500), bar(300, 600), bar(0, 600), bar(0, 300)].map(|g| at(&mut f, g));
+    let lam = [bar(200, 300), bar(200, 600), bar(0, 600), bar(0, 300)].map(|g| at(&mut f, g));
+    let alef = [bar(250, 350), bar(0, 350)].map(|g| at(&mut f, g));
+    let lam_alef = [bar(100, 450), bar(0, 450)].map(|g| at(&mut f, g));
+    let e = at(&mut f, Glyph::rect(600, 100, 0, 500, 400));
+    let acute = at(&mut f, Glyph::rect(0, -400, 500, -200, 650));
+    let e_acute = at(&mut f, Glyph::rect(600, 100, 0, 500, 650));
+    f.cmap.extend([
+        (0x1f468, man),
+        (0x1f469, woman),
+        (0x1f467, girl),
+        (0x200d, zwj),
+        (0xfe0f, vs16),
+        (0x1f1fa, ri_u),
+        (0x1f1f8, ri_s),
+        (0x628, beh[0]),
+        (0x644, lam[0]),
+        (0x627, alef[0]),
+        (0x65, e),
+        (0x301, acute),
+        (0xe9, e_acute),
+    ]);
+    // the family and the flag are color glyphs: a red square under a
+    // half-transparent blue one, and the blue one alone
+    f.colr.push((family, vec![(6, 0), (7, 1)]));
+    f.colr.push((flag, vec![(7, 1)]));
+    f.colr.sort();
+    let [_, b_init, b_medi, b_fina] = beh;
+    let [_, l_init, l_medi, l_fina] = lam;
+    f.gsub = vec![
+        (
+            *b"ccmp",
+            Lookup::Ligature(vec![
+                (vec![man, zwj, woman, zwj, girl], family),
+                (vec![ri_u, ri_s], flag),
+            ]),
+        ),
+        (*b"isol", Lookup::Single(vec![])),
+        (
+            *b"fina",
+            Lookup::Single(vec![(beh[0], b_fina), (lam[0], l_fina), (alef[0], alef[1])]),
+        ),
+        (
+            *b"medi",
+            Lookup::Single(vec![(beh[0], b_medi), (lam[0], l_medi)]),
+        ),
+        (
+            *b"init",
+            Lookup::Single(vec![(beh[0], b_init), (lam[0], l_init)]),
+        ),
+        (
+            *b"rlig",
+            Lookup::Ligature(vec![
+                (vec![l_init, alef[1]], lam_alef[0]),
+                (vec![l_medi, alef[1]], lam_alef[1]),
+            ]),
+        ),
+    ];
+    f
 }

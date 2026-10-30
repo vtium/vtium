@@ -13,18 +13,22 @@ import tarfile
 
 from t3_common import RUNDIR, rel
 
-# The operator's size budget for the minspec binary, 2.50 MiB, raised from
-# 2.30 MiB when vtium reached 2,400,640 B with the pulse's colors, pointer
-# and selection (2026-10-27). The minspec link packs relative relocations
-# (DT_RELR, 2026-10-28), 2,627,808 -> 2,561,720 B. A run whose binary is larger fails, and raising
-# the budget is a decision recorded on vtium/vtium#22.
+# The operator's size budget for the minspec binary, 3 MiB, raised from
+# 2.50 MiB on 2026-10-29 by the operator's decision recorded in ADR-1200
+# D19, the 2.50 MiB figure being arbitrary, to be revisited after the
+# first cut of heads. A run whose binary is larger fails, and raising the
+# budget is a decision recorded in an ADR, this one ADR-1200 D19.
 BINARY = "usr/bin/vtium"
-BINARY_BUDGET = 2621440
+BINARY_BUDGET = 3145728
 # What the guest needs of a tree (README, "What the harness needs of the
 # build"): the VT unit the base image's autovt@.service links to, and the
 # binary it starts.
 VT_UNIT = "usr/lib/systemd/system/kmsconvt@.service"
 REQUIRED = (BINARY, VT_UNIT)
+# The directories udev reads rules and hwdb files from: vtium installs its
+# udev material as examples alone, under usr/share/doc/vtium/examples
+# (ADR-1401 D4), so a tree holding anything here is refused.
+UDEV_DIRS = ("usr/lib/udev", "lib/udev", "etc/udev")
 
 
 def tree(path, tar_path=None):
@@ -38,6 +42,11 @@ def tree(path, tar_path=None):
     if missing:
         raise SystemExit("the install tree at %s holds no %s, which the guest starts on each VT"
                          % (rel(path), ", ".join("/" + f for f in missing)))
+    active = [d for d in UDEV_DIRS if os.path.lexists(os.path.join(path, d))]
+    if active:
+        raise SystemExit("the install tree at %s installs %s, where udev reads its rules; vtium "
+                         "ships its udev material as examples alone (ADR-1401 D4)"
+                         % (rel(path), ", ".join("/" + d for d in active)))
     impl = {"path": path, "binary_bytes": files[BINARY],
             "installed_bytes": sum(files.values())}
     impl.update(pack_tree(path, tar_path or os.path.join(RUNDIR, "vtium-tree.tar")))

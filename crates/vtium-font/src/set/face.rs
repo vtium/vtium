@@ -61,6 +61,13 @@ impl SetFace {
     pub fn set(&self) -> &Arc<Set> {
         &self.set
     }
+
+    /// The glyph the set draws for `cluster` whole, at this face's cell and
+    /// scale: a cluster its `CLUS` maps, such as an emoji sequence or a
+    /// letter's joining form; `None` for one it does not map.
+    pub fn cluster(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+        self.set.cluster(self.cell, cluster, style, self.scale)
+    }
 }
 
 /// The decorations `d` of a strike `height` tall, drawn at `scale`. A

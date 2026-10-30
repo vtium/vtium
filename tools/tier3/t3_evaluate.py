@@ -6,6 +6,7 @@ import re
 import subprocess
 
 import t3_bench
+import t3_devices
 import t3_pointer
 import t3_power
 import t3img
@@ -62,6 +63,14 @@ KNOWN_BOTTLENECKS = {}
 # A case compared with another case's golden: back from the scrollback, and
 # back from tty3 (vt-restore, with the last screen's).
 SAME_AS = {"photo-scrollforward": "photo-scroll", "vt-restore": SCREENS[-1]}
+
+
+def same_as(case):
+    """The case whose golden `case` is compared with (SAME_AS), on the same
+    output (t3_devices.split)."""
+    screen, output = t3_devices.split(case)
+    return SAME_AS.get(screen, screen) + output
+
 # The screens that draw sixel or kitty pictures. Every variant with images
 # draws them: both renderers draw image placements, bbulk on the 2D variants
 # and gltex on the GL one, in the C reference. A variant
@@ -117,9 +126,10 @@ CHECKS = {
                   "instance. Correct: identical to the %s golden." % (SCREENS[-1], SCREENS[-1]),
     **t3_power.CHECKS,
     **t3_pointer.CHECKS,
+    **t3_devices.CHECKS,
 }
 # The checks without a golden: each passes when its capture was taken.
-NO_GOLDEN = {"vt-switch", *t3_power.CHECKS, *t3_pointer.CHECKS}
+NO_GOLDEN = {"vt-switch", *t3_power.CHECKS, *t3_pointer.CHECKS, *t3_devices.CHECKS}
 
 DEPARTURES_FILE = os.path.join(HERE, "departures.tsv")
 
@@ -242,7 +252,7 @@ def check_goldens(cases_of, root, provisional=()):
             if ext not in (".png", ".tol"):
                 continue
             variant, _, screen = stem.partition(os.sep)
-            used = {SAME_AS.get(c, c) for c in cases_of.get(variant, ())}
+            used = {same_as(c) for c in cases_of.get(variant, ())}
             if screen not in used:
                 errors.append("%s is a golden no case draws" % rel(path))
     for golden in provisional:
@@ -279,8 +289,14 @@ def describe(case):
     A check's caption is its entry in CHECKS. A screen's is the leading
     comment lines of its script; the "# look-for:" lines the local VT demo
     shows join it as "Correct: ...", and its "# wrong-looks-like:" lines are
-    the second part, or None for a script without them.
+    the second part, or None for a script without them. A case drawn on an
+    output after the first (t3_devices.split) is its screen's case,
+    captured there.
     """
+    screen, output = t3_devices.split(case)
+    if output:
+        caption, wrong = describe(screen)
+        return "%s Captured from the output %s." % (caption, output[1:]), wrong
     if case in CHECKS:
         return CHECKS[case], None
     fields = header(case)
@@ -300,7 +316,7 @@ def screen_text(case, log):
     captions a region, and losing it must never cost a case its verdict.
     A script whose "# screen-text:" line begins "none" is not run: its
     printed lines are not its rows, as when it scrolls."""
-    base = SAME_AS.get(case, case)
+    base = same_as(t3_devices.split(case)[0])
     if base not in SCREENS + SMALL_SCREENS:
         return None
     reason = " ".join(header(base)["screen-text"])
@@ -328,7 +344,7 @@ def golden_for(variant, case, root=None):
     (NO_GOLDEN)."""
     if case in NO_GOLDEN:
         return None, None
-    base = SAME_AS.get(case, case)
+    base = same_as(case)
     root = root or GOLDEN
     return (os.path.join(root, variant, base + ".png"),
             os.path.join(root, variant, base + ".tol"))
@@ -389,7 +405,7 @@ def evaluate(variant, case, ppm, meta, log, golden_root=None):
     departures = DEPARTURES.get(entry["name"])
     if departures:
         judge_departure(entry, departures, stats, points)
-    reviewed = "%s/%s" % (variant, SAME_AS.get(case, case))
+    reviewed = "%s/%s" % (variant, same_as(case))
     if golden_root and reviewed in PROVISIONAL:
         entry["note"] = ("provisional: not yet reviewed, so not judged; judged, it would be %s"
                          % entry["status"])

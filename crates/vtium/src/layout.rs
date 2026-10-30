@@ -1,9 +1,10 @@
-//! The grid and each display's font height, with several displays at
-//! different sizes, the zoom's direction and the rotation step
+//! A head's grid and each of its displays' font height, with several
+//! displays at different sizes, the zoom's direction and the rotation step
 //! (`src/terminal.c:961-1138, 1166-1203, 1325-1355` at kmscon b1f7a7c5).
 //! The heights a zoom steps through are the font's ([`crate::font::zoom`]).
 //!
-//! The grid is the smallest every display holds at the base font. A
+//! A head's grid is the smallest every display of the head holds at the
+//! base font, so displays mirror one grid within a head (ADR-1401 D1). A
 //! larger display then draws at the largest height that still holds that
 //! grid, tried from the height that would fill it and down a size step at
 //! a time, and at the base height when no larger one fits: the C

@@ -20,10 +20,15 @@ logind = ["vtium-platform/logind"]
 
 [dependencies]
 vtium-term.workspace = true
+# Without vtium-font's `deflate` feature: the console rewrites its store
+# raw, so it links no deflate (ADR-1200 D19).
 vtium-font.workspace = true
 vtium-render.workspace = true
 vtium-platform.workspace = true
 vtium-image = { workspace = true, optional = true }
+# The head file's reader, parser and evaluator, which `check-config` runs
+# as the start will (ADR-1401 D7, D12).
+vtium-config.workspace = true
 # The messages vtium-platform writes through it, and the binary's own,
 # which the binary routes to stderr.
 log = "0.4"

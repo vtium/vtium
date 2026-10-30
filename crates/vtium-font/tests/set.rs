@@ -304,6 +304,7 @@ fn the_same_inputs_give_the_same_bytes() {
 
 // compress=yes and compress=no draw every glyph identically, and the
 // deflated set is smaller (ADR-1200 D1, D10, D13)
+#[cfg(feature = "deflate")]
 #[test]
 fn deflated_and_raw_chunks_draw_alike() {
     let packed = small_set(true);
@@ -328,6 +329,21 @@ fn deflated_and_raw_chunks_draw_alike() {
             }
         }
     }
+}
+
+// Without the `deflate` feature, as the console builds vtium-font,
+// compress=yes stores every chunk raw, the same bytes as compress=no
+// (ADR-1200 D19)
+#[cfg(not(feature = "deflate"))]
+#[test]
+fn without_deflate_every_chunk_is_stored_raw() {
+    let (asked, raw) = (small_set(true), small_set(false));
+    assert!(
+        asked == raw,
+        "{} B against {} B raw",
+        asked.len(),
+        raw.len()
+    );
 }
 
 // Only the chunks drawn from are held (ADR-1200 D3)
@@ -499,6 +515,7 @@ fn a_face_picks_its_strike_by_height() {
 }
 
 /// A set's chunk index entry `i`: offset, stored, decoded, flags.
+#[cfg(feature = "deflate")]
 fn chunk_entry(set: &[u8], i: usize) -> (usize, usize, usize, u32) {
     let (_, _, secs) = sections(set);
     let glyf_at = {
@@ -522,7 +539,9 @@ fn chunk_entry(set: &[u8], i: usize) -> (usize, usize, usize, u32) {
 }
 
 // A deflated chunk that decodes to any length but its index's is refused:
-// it draws nothing, and is the set's fault (ADR-1200 D2, D10)
+// it draws nothing, and is the set's fault (ADR-1200 D2, D10); the writer
+// deflates the chunk with the `deflate` feature
+#[cfg(feature = "deflate")]
 #[test]
 fn a_deflated_chunk_of_another_length_is_refused() {
     let cell = Cell {

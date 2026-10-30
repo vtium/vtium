@@ -5,7 +5,8 @@ use std::any::Any;
 use std::io;
 
 use vtium_platform::display::{
-    Canvas, Card, Density, DisplayId, Dpms, Drm2d, Event, Fb, Fbdev, Rect, SwapError, Swapped,
+    Canvas, Card, Density, DisplayId, Dpms, Drm2d, Event, Fb, Fbdev, Identity, Rect, SwapError,
+    Swapped,
 };
 use vtium_render::Arrow;
 
@@ -76,6 +77,24 @@ pub trait Video: Any {
     fn dpi(&self, _: DisplayId) -> Option<(f64, f64)> {
         None
     }
+    /// What names a display to the head file's rules (ADR-1401 D4): its
+    /// connector, its card's `ID_PATH` and its EDID; `None` where the
+    /// device reads none, as a framebuffer, whose display the rules see
+    /// by its name alone.
+    fn identity(&self, _: DisplayId) -> Option<Identity> {
+        None
+    }
+    /// The identity of each connected display the device left dark at its
+    /// bind by the head file's rules, never announced: a DRM card's.
+    fn dark(&self) -> Vec<Identity> {
+        Vec::new()
+    }
+    /// Lets go of the dark display named `connector`, which the next
+    /// [`Video::hotplug`] asks the rules of again (ADR-1401 D9). Returns
+    /// whether it was dark.
+    fn release_dark(&mut self, _: &str) -> bool {
+        false
+    }
 }
 
 /// A video device's cursor plane, as the pointer drives it.
@@ -121,6 +140,9 @@ impl Video for Drm2d<Card> {
             .filter(Density::measured)
             .map(|d| d.dpi())
     }
+    fn identity(&self, id: DisplayId) -> Option<Identity> {
+        Drm2d::identity(self, id).cloned()
+    }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         Drm2d::canvas(self, id)
     }
@@ -147,6 +169,12 @@ impl Video for Drm2d<Card> {
     }
     fn hotplug(&mut self) -> io::Result<()> {
         Drm2d::poll(self)
+    }
+    fn dark(&self) -> Vec<Identity> {
+        Drm2d::dark(self).cloned().collect()
+    }
+    fn release_dark(&mut self, connector: &str) -> bool {
+        Drm2d::release_dark(self, connector)
     }
     fn as_any(&mut self) -> &mut dyn Any {
         self

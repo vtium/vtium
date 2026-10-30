@@ -19,3 +19,12 @@ sysvinit-two-vts/cjk	the recaptured 2d-640x480-psf16 golden of the same screen, 
 2d-640x480-frit/cjk	vtium/vtium#145: the cjk screen in the frit dejavu-mono, its Latin in DejaVu Sans Mono and its CJK, which the font lacks, in the built-in unifont (vtium/vtium#141); not yet reviewed
 2d-640x480-frit-held/small-console	vtium/vtium#145: the frit dejavu-mono with a helper that never answers, the screen before the helper's first answer, drawn in the built-in unifont; not yet reviewed
 2d-640x480-frit-held/cjk	vtium/vtium#145: the cjk screen with a helper that never answers, in the built-in unifont; not yet reviewed
+two-outputs-mirror/sgr	vtium's capture at 7da1d7a on one card with two outputs, the first output, pixel for pixel the 2d-640x480-psf16 golden of the same screen: one grid on every output (ADR-1401, checklist 11.12); not yet reviewed
+two-outputs-mirror/sgr@1	vtium's capture at 7da1d7a on one card with two outputs, from its second output, pixel for pixel the first output's: one grid on every output (ADR-1401, checklist 11.12); not yet reviewed
+two-outputs-mirror/cjk	vtium's capture at 7da1d7a on one card with two outputs, the first output, pixel for pixel the 2d-640x480-psf16 golden of the same screen, itself provisional: one grid on every output (ADR-1401, checklist 11.12); not yet reviewed
+two-outputs-mirror/cjk@1	vtium's capture at 7da1d7a on one card with two outputs, from its second output, pixel for pixel the first output's: one grid on every output (ADR-1401, checklist 11.12); not yet reviewed
+two-cards-mirror/sgr	vtium's capture at 7da1d7a on two cards, the first output, pixel for pixel the 2d-640x480-psf16 golden of the same screen: one grid on every output (ADR-1401, checklist 11.12); not yet reviewed
+two-cards-mirror/sgr@card1	vtium's capture at 7da1d7a on two cards, from the second card, pixel for pixel the first output's: one grid on every output (ADR-1401, checklist 11.12); not yet reviewed
+two-cards-mirror/cjk	vtium's capture at 7da1d7a on two cards, the first output, pixel for pixel the 2d-640x480-psf16 golden of the same screen, itself provisional: one grid on every output (ADR-1401, checklist 11.12); not yet reviewed
+two-cards-mirror/cjk@card1	vtium's capture at 7da1d7a on two cards, from the second card, pixel for pixel the first output's: one grid on every output (ADR-1401, checklist 11.12); not yet reviewed
+usb-keyboards/cjk	vtium's capture at 7da1d7a with a USB keyboard beside the PS/2 one, pixel for pixel the 2d-640x480-psf16 golden of the same screen, itself provisional; not yet reviewed

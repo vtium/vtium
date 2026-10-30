@@ -44,23 +44,28 @@ class Qemu:
     """One headless QEMU process and its QMP connection."""
 
     def __init__(self, workdir, disks, device, log, display="none", net=False,
-                 capture="screendump", cpus=CPUS, memory_mb=MEMORY_MB, extra=()):
+                 capture="screendump", cpus=CPUS, memory_mb=MEMORY_MB, extra=(), heads=()):
         os.makedirs(workdir, exist_ok=True)
         self.workdir = workdir
         self.log = log
         self.capture = capture
         self.sock_path = os.path.join(workdir, "qmp.sock")
         self.vnc_path = os.path.join(workdir, "vnc.sock")
+        # A head after a device's first is connected only once a display
+        # sets its size, so each in `heads`, (device id, head, (w, h)), gets
+        # a VNC server of its own, through which the size is set.
+        heads = [(dev, head, size, os.path.join(workdir, "vnc%d.sock" % n))
+                 for n, (dev, head, size) in enumerate(heads, 1)]
         # ttyS0 is the guest's console. ttyS1 carries the scenario's events
         # (guest/setup), so the driver can wait for a login or a drawn screen.
         self.serial = os.path.join(workdir, "serial.log")
         self.events = os.path.join(workdir, "events.log")
-        for p in (self.sock_path, self.vnc_path):
+        for p in (self.sock_path, self.vnc_path, *(h[3] for h in heads)):
             if len(os.fsencode(p)) > SUN_PATH_MAX:
                 raise RuntimeError("socket path is %d bytes, over the %d a unix "
                                    "socket allows; use a checkout with a shorter "
                                    "path: %s" % (len(os.fsencode(p)), SUN_PATH_MAX, p))
-        for p in (self.sock_path, self.vnc_path, self.serial, self.events):
+        for p in (self.sock_path, self.vnc_path, self.serial, self.events, *(h[3] for h in heads)):
             if os.path.exists(p):
                 os.unlink(p)
         args = ["qemu-system-x86_64", "-machine", "q35,accel=kvm", "-cpu", "host",
@@ -75,6 +80,8 @@ class Qemu:
         args += ["-nic", "user,model=virtio-net-pci"] if net else ["-nic", "none"]
         if capture == "vnc":
             args += ["-vnc", "unix:%s" % self.vnc_path]
+        for dev, head, _, path in heads:
+            args += ["-vnc", "unix:%s,id=vnc-%s-%d,display=%s,head=%d" % (path, dev, head, dev, head)]
         args += list(extra)
         log("starting: " + " ".join(args))
         self.qemu_log = open(os.path.join(workdir, "qemu.log"), "w")
@@ -94,6 +101,9 @@ class Qemu:
         self.qmp_events = []
         try:
             self._connect()
+            for dev, head, (w, h), path in heads:
+                vnc_set_size(path, w, h)
+                log("%s head %d connected at %dx%d" % (dev, head, w, h))
         except BaseException:  # a QEMU that cannot be driven is not left running
             self._kill()
             self._stopped()
@@ -160,14 +170,18 @@ class Qemu:
         for ch in text:
             self.keys(*char_qcodes(ch))
 
-    def screendump(self, path):
-        """Capture the screen to a PPM at `path` and return it."""
+    def screendump(self, path, output=None):
+        """Capture the screen to a PPM at `path` and return it: the first
+        output's, or `output`'s, a {"device", "head"} that QMP's screendump
+        takes (a device's qdev id, and the head of a device with several)."""
         if self.capture == "vnc":
+            if output:
+                raise RuntimeError("a VNC capture reads the first output alone")
             img = vnc_capture(self.vnc_path)
             write_ppm(path, img)
             return img
         tmp = path + ".tmp"
-        self.cmd("screendump", filename=tmp, format="ppm")
+        self.cmd("screendump", filename=tmp, format="ppm", **(output or {}))
         # screendump returns before the file is complete on some backends.
         for _ in range(100):
             try:
@@ -287,8 +301,10 @@ def _recv_exact(sock, n):
     return bytes(buf)
 
 
-def vnc_capture(path):
-    """Read one full frame from QEMU's VNC server (RFB 3.8, no auth, raw)."""
+def _vnc_open(path, encodings):
+    """A connection to QEMU's VNC server on the unix socket `path`, past
+    RFB 3.8's handshake with no auth, taking `encodings` (SetEncodings):
+    (the socket, width, height)."""
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(30)
     s.connect(path)
@@ -308,7 +324,66 @@ def vnc_capture(path):
         # 32 bpp little-endian XRGB, so each pixel arrives as B, G, R, X.
         s.sendall(struct.pack(">B3xBBBBHHHBBB3x", 0, 32, 24, 0, 1,
                               255, 255, 255, 16, 8, 0))
-        s.sendall(struct.pack(">BxHi", 2, 1, 0))  # raw encoding only
+        s.sendall(struct.pack(">BxH", 2, len(encodings))
+                  + b"".join(struct.pack(">i", e) for e in encodings))
+    except BaseException:
+        s.close()
+        raise
+    return s, w, h
+
+
+# RFB's ExtendedDesktopSize pseudo-encoding and SetDesktopSize message, by
+# which a client asks for the display's size; QEMU passes the size to the
+# display device as a display window's would be.
+EXTENDED_DESKTOP_SIZE = -308
+SET_DESKTOP_SIZE = 251
+
+
+def vnc_set_size(path, width, height):
+    """Ask the display of QEMU's VNC server on `path` for `width` by
+    `height`, as a client window of that size would. A virtio-gpu head
+    after the first reports itself connected only once asked for a size,
+    and offers that size as its mode. Raises unless QEMU took the request
+    (ExtendedDesktopSize's status "request forwarded")."""
+    s, _, _ = _vnc_open(path, [0, EXTENDED_DESKTOP_SIZE])
+    try:
+        s.sendall(struct.pack(">BxHHBxIHHHHI", SET_DESKTOP_SIZE, width, height, 1,
+                              0, 0, 0, width, height, 0))
+        while True:
+            kind = _recv_exact(s, 1)[0]
+            if kind == 2:  # bell
+                continue
+            if kind == 3:  # cut text
+                _recv_exact(s, 3)
+                _recv_exact(s, struct.unpack(">I", _recv_exact(s, 4))[0])
+                continue
+            if kind != 0:
+                raise RuntimeError("unexpected VNC message %d" % kind)
+            _recv_exact(s, 1)
+            (nrects,) = struct.unpack(">H", _recv_exact(s, 2))
+            for _ in range(nrects):
+                reason, status, rw, rh, enc = struct.unpack(">HHHHi", _recv_exact(s, 12))
+                if enc == EXTENDED_DESKTOP_SIZE:
+                    screens = _recv_exact(s, 4)[0]
+                    _recv_exact(s, 16 * screens)
+                    # reason 1: this client's request; status 0 or 4: taken
+                    if reason == 1:
+                        if status not in (0, 4):
+                            raise RuntimeError("the display at %s refused %dx%d: status %d"
+                                               % (rel(path), width, height, status))
+                        return
+                elif enc == 0:
+                    _recv_exact(s, rw * rh * 4)
+                else:
+                    raise RuntimeError("unexpected VNC encoding %d" % enc)
+    finally:
+        s.close()
+
+
+def vnc_capture(path):
+    """Read one full frame from QEMU's VNC server (RFB 3.8, no auth, raw)."""
+    s, w, h = _vnc_open(path, [0])  # raw encoding only
+    try:
         s.sendall(struct.pack(">BBHHHH", 3, 0, 0, 0, w, h))
         frame = bytearray(w * h * 3)
         covered = 0
@@ -371,16 +446,17 @@ def char_qcodes(ch):
     raise ValueError("cannot type %r" % ch)
 
 
-def wait_stable(vm, path, settle=1.0, timeout=60, want=None):
+def wait_stable(vm, path, settle=1.0, timeout=60, want=None, output=None):
     """Capture until two captures `settle` seconds apart are identical.
 
     `want`, if given, is a predicate the stable image must also satisfy.
-    Returns the stable image, saved at `path`.
+    `output` names the output captured (Qemu.screendump), by default the
+    first. Returns the stable image, saved at `path`.
     """
     deadline = time.time() + timeout
     last = None
     while True:
-        img = vm.screendump(path)
+        img = vm.screendump(path, output)
         digest = hashlib.sha256(img.data).digest()
         if digest == last and (want is None or want(img)):
             return img

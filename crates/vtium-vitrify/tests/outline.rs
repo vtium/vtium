@@ -3,12 +3,14 @@
 //! it as R8 coverage or premultiplied RGBA, one or two cells wide, the
 //! answer's check, and the same through the parser's child.
 
+#[path = "common/parser.rs"]
+mod parser;
 #[path = "common/ttf.rs"]
 mod ttf;
 
 use std::path::Path;
 
-use vtium_vitrify::child::Parser;
+use parser::Parser;
 use vtium_vitrify::outline::{Outline, OutlineRequest, rasterise};
 use vtium_vitrify::resample::{self, METHOD};
 
@@ -20,6 +22,7 @@ fn request(cells: &[(u32, u32)], cover: &[(u32, u32)]) -> OutlineRequest {
         family: "Test Mono".to_owned(),
         cells: cells.to_vec(),
         cover: cover.to_vec(),
+        clusters: Vec::new(),
     }
 }
 
@@ -208,6 +211,7 @@ fn a_color_bitmap_is_scaled_from_its_strike_by_the_chosen_method() {
         family: "Test Emoji".to_owned(),
         cells: vec![(0, 10)],
         cover: Vec::new(),
+        clusters: Vec::new(),
     };
     let o = rasterise(&req).expect("rasterised");
     let s = &o.strikes[0];

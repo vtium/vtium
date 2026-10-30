@@ -67,8 +67,10 @@ minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, 
 	$(call check-glibc,$(VTIUM_MINSPEC))
 
 # vtium as a system installs it, staged under DESTDIR: the minspec binary,
-# vtium-vitrify, the VT unit, the compiled terminfo entry and the example
-# configuration. Tier 3 installs this tree in its guest.
+# vtium-vitrify, the VT unit, the compiled terminfo entry, the example
+# configuration and the example udev rules and hwdb fragment, which are
+# documentation and never active (ADR-1401 D4). Tier 3 installs this tree in
+# its guest.
 DESTDIR ?= target/install-tree
 VTIUM_INSTALL := crates/vtium/install
 VTIUM_VITRIFY := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/release/vtium-vitrify
@@ -85,6 +87,7 @@ install-tree: minspec ## Stage vtium's install tree under DESTDIR (default targe
 	install -dm755 $(DESTDIR)/usr/share/terminfo
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/kmscon.ti
 	install -Dm644 $(VTIUM_INSTALL)/kmscon.conf.example $(DESTDIR)/etc/kmscon/kmscon.conf.example
+	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
 
 # The ARM single-board computers minspec is judged against
 # (docs/architecture.md): each target links against a pinned Debian sysroot
@@ -157,10 +160,12 @@ conformance-issues: ## Check that every issue the conformance lists say owes a c
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools and the tier 3 harness without a VT, sudo, logind or a VM (shellcheck when installed)
+test-tools: ## Test the VT review tools and the tier 3 harness without a VT, sudo, logind or a VM (shellcheck when installed), the set writer without its deflate, and that the console leaves the deflate out
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I -B tools/tier3/test_t3img.py
 	python3 -I -B tools/tier3/test_t3.py
+	cargo test -q -p vtium-font --test set
+	@if cargo tree -p vtium --target $(X86_TARGET) -e features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-vitrify takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
 	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 # The review targets block until the run ends, then print its answers. Their
@@ -318,3 +323,34 @@ tier3-nosystemd: tier3-image-nosystemd ## Tier 3 on the guest without systemd: v
 	T3_VTIUM_REV=$(T3_REV) T3_IMAGE=$(T3SV_IMAGE) T3_IMAGE_SHA256=$(T3SV_IMAGE_SHA256) \
 		T3_ARCHIVE=$(T3SV_SNAPSHOT) $(T3_PY) $(T3_DIR)/t3.py run --jobs $(JOBS) \
 		--deadline $(T3_DEADLINE) --tree-target install-tree $(or $(VARIANTS),sysvinit-640x480 sysvinit-no-udev sysvinit-reboot sysvinit-restart sysvinit-power-off)
+
+# AGENTS.md's gate line, one gate per line, in its order.
+define GATE_LINE
+cargo fmt --all --check
+cargo clippy --workspace --all-features --all-targets -- -D warnings
+cargo test --workspace --all-features
+cargo build --profile minspec
+docs/scripts/adr lint --check
+docs/scripts/adr cite --check
+docs/scripts/coverage
+make test-tools
+make conformance
+make conformance-probes
+make conformance-issues
+make tier2
+make arm
+endef
+export GATE_LINE
+
+.PHONY: gates
+gates: ## Run every gate of the gate line, each to the end, report each exit code and fail if any failed
+	@[ -n "$$(printf '%s' "$$GATE_LINE" | tr -d '[:space:]')" ] || { echo "gates: the gate list is empty" >&2; exit 1; }; \
+	summary=$$(mktemp); trap 'rm -f "$$summary"' EXIT; \
+	printf '%s\n' "$$GATE_LINE" | while IFS= read -r gate; do \
+		echo "==> $$gate"; \
+		sh -c "$$gate" </dev/null; code=$$?; \
+		echo "$$code  $$gate" >> "$$summary"; \
+	done; \
+	echo; echo "exit  gate"; cat "$$summary"; \
+	if grep -qv '^0  ' "$$summary"; then echo "gates: FAILED" >&2; exit 1; fi; \
+	echo "gates: all passed"

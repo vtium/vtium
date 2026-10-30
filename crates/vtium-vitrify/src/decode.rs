@@ -1,7 +1,8 @@
-//! The decoders the parser runs (ADR-1200 D6, D14): a compression found by
-//! its magic, as kbd finds it, the PSF font inside, and the Unicode map a
-//! font without its own table takes. Everything here reads bytes someone
-//! else supplied, and runs only in the parser's child process.
+//! The decoders the helper runs (ADR-1200 D6, D14): a compression found by
+//! its magic, as kbd finds it, the PSF font inside or the font a CPI file's
+//! `cp-size=` takes, and the Unicode map a font without its own table
+//! takes. Everything here reads bytes someone else supplied, and runs only
+//! in the helper or the parser's child process.
 //!
 //! gzip is decoded through `miniz_oxide`'s inflate, bzip2 through `bzip2`
 //! on its Rust port of libbzip2, xz through `lzma-rust2` and zstd through
@@ -314,21 +315,115 @@ fn codepoint(s: &str) -> Option<u32> {
         .filter(|&c| char::from_u32(c).is_some())
 }
 
+/// One font of a CPI file: its height, its width and its glyphs, rows of
+/// `width.div_ceil(8)` bytes.
+struct CpiFont<'a> {
+    height: u32,
+    width: u32,
+    count: u32,
+    glyphs: &'a [u8],
+}
+
+/// The bytes a CPI file's codepage entry takes before its fonts: its
+/// 28-byte entry header, and its info header's version, font count and
+/// size.
+const CPI_HEADER: usize = 0x22;
+/// The most fonts one codepage holds.
+const CPI_FONTS_MAX: usize = 8;
+/// The most glyphs a CPI font holds.
+const CPI_GLYPHS_MAX: u32 = 512;
+
+/// The fonts of a CPI file as kbd ships them (`.cp`, the form `setfont`
+/// reads): one screen codepage's entry header, device type 1, its info
+/// header with the count of fonts at 0x1e, then each font, a header of its
+/// height, width, two aspect bytes and 16-bit glyph count, and its glyphs,
+/// the last ending the file. `None` for any other file.
+fn cpi_fonts(bytes: &[u8]) -> Option<Vec<CpiFont<'_>>> {
+    let u16_at = |at: usize| {
+        let b = bytes.get(at..at.checked_add(2)?)?;
+        Some(u16::from_le_bytes([*b.first()?, *b.get(1)?]))
+    };
+    if u16_at(6)? != 1 {
+        return None;
+    }
+    let count = usize::from(u16_at(0x1e)?);
+    if !(1..=CPI_FONTS_MAX).contains(&count) {
+        return None;
+    }
+    let mut fonts = Vec::with_capacity(count);
+    let mut at = CPI_HEADER;
+    for _ in 0..count {
+        let (height, width) = (u32::from(*bytes.get(at)?), u32::from(*bytes.get(at + 1)?));
+        let glyphs = u32::from(u16_at(at + 4)?);
+        if height == 0 || !(1..=32).contains(&width) || !(1..=CPI_GLYPHS_MAX).contains(&glyphs) {
+            return None;
+        }
+        let size = (width.div_ceil(8) * height * glyphs) as usize;
+        let start = at.checked_add(6)?;
+        let end = start.checked_add(size)?;
+        fonts.push(CpiFont {
+            height,
+            width,
+            count: glyphs,
+            glyphs: bytes.get(start..end)?,
+        });
+        at = end;
+    }
+    (at == bytes.len()).then_some(fonts)
+}
+
+/// The font of `height` pixels in a CPI file, as `cp-size=` takes it
+/// (ADR-1200 D1), as a PSF2 font with no table: decompressed, its
+/// codepage's fonts read, and the one of that height taken.
+pub fn cpi(bytes: &[u8], height: u32) -> Result<Vec<u8>, String> {
+    let (plain, _) = decompress(bytes)?;
+    let fonts = cpi_fonts(&plain).ok_or("cp-size= is for a CPI font, and this is none")?;
+    let font = fonts.iter().find(|f| f.height == height).ok_or_else(|| {
+        let held: Vec<String> = fonts.iter().map(|f| f.height.to_string()).collect();
+        format!(
+            "cp-size={height}: the CPI font holds {} pixels high, none {height}",
+            held.join(", ")
+        )
+    })?;
+    let mut out = Vec::with_capacity(32 + font.glyphs.len());
+    for v in [
+        0x864a_b572u32,
+        0,
+        32,
+        0,
+        font.count,
+        font.width.div_ceil(8) * font.height,
+        font.height,
+        font.width,
+    ] {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    out.extend_from_slice(font.glyphs);
+    Ok(out)
+}
+
 /// A font file's bytes parsed into the glyph form: decompressed, read as
-/// PSF1 or PSF2, and mapped by `unimap` when the frit gives one, else by
+/// PSF1, PSF2 or a raw font, and mapped by `unimap` when the frit gives one, else by
 /// the font's own table, else by `def_uni`, kbd's default map. A font with
-/// none of them is refused, naming `unimap=`.
+/// none of them is refused, naming `unimap=`, and a CPI font, which holds
+/// several, is refused naming `cp-size=`.
 pub fn font(bytes: &[u8], unimap: Option<&[u8]>, def_uni: Option<&[u8]>) -> Result<Glyphs, String> {
     let (plain, compression) = decompress(bytes)?;
     let kind = match plain.as_slice() {
         [0x36, 0x04, ..] => "psf1",
         [0x72, 0xb5, 0x4a, 0x86, ..] => "psf2",
-        _ => {
+        [b'S', b'T', b'A', b'R', b'T', b'F', b'O', b'N', b'T', ..] => {
+            return Err("a BDF font, which a bdf: source names".to_owned());
+        }
+        _ if cpi_fonts(&plain).is_some() => {
             return Err(
-                "not a PSF font (CPI and raw fonts are read in a later slice of vtium/vtium#125)"
+                "a CPI font holds a font of each size: give the source a cp-size= of 8, 14 or 16"
                     .to_owned(),
             );
         }
+        // a file of no magic is a raw font when its size is one: Psf::parse
+        // refuses any other
+        _ => "raw",
     };
     let psf = Psf::parse(&plain).map_err(|e| e.to_string())?;
     let count = psf.glyph_count();
@@ -650,6 +745,101 @@ pub(crate) mod tests {
     #[test]
     fn not_a_psf_is_refused() {
         let e = font(b"STARTFONT 2.1\n", None, None).expect_err("bdf");
-        assert!(e.contains("not a PSF font"), "{e}");
+        assert!(e.contains("a bdf: source"), "{e}");
+        let e = font(b"\0\0\0\0", None, None).expect_err("no raw size");
+        assert!(e.contains("not a raw font of 256*N bytes"), "{e}");
+    }
+
+    // setfont(8): a raw font is 256*N bytes, one byte a row, 8 across; it
+    // holds no table, so a unimap= or kbd's def.uni maps it
+    #[test]
+    fn a_raw_font_is_read_with_the_map_it_is_given() {
+        let mut raw = vec![0u8; 256 * 16];
+        raw[16 * 3] = 0x81;
+        let e = font(&raw, None, None).expect_err("no table");
+        assert!(e.contains("unimap="), "{e}");
+        let g = font(&raw, Some(b"0x03 U+0041\n"), None).unwrap();
+        assert_eq!((g.width, g.height, g.count), (8, 16, 256));
+        assert_eq!(g.format, "raw+unimap");
+        assert_eq!(g.map, vec![(0x41, 3)]);
+        assert_eq!(g.glyph(3).and_then(|r| r.first()), Some(&0x81));
+        let g = font(&raw, None, Some(b"0x04 U+0042\n")).unwrap();
+        assert_eq!((g.format.as_str(), g.map), ("raw+def.uni", vec![(0x42, 4)]));
+        // gzipped, as kbd ships one
+        let g = font(&gzip(&raw), Some(b"0x03 U+0041\n"), None).unwrap();
+        assert_eq!(g.format, "raw+gzip+unimap");
+        // a size that is no raw font's is refused
+        for len in [255, 257, 256 * 33] {
+            let e = font(&vec![0u8; len], Some(b"0x00 U+0041\n"), None).expect_err("size");
+            assert!(e.contains("not a raw font of 256*N bytes"), "{len}: {e}");
+        }
+    }
+
+    /// A CPI file as kbd ships one: a screen codepage's 28-byte entry, its
+    /// info header, and a font for each of `heights`, 8 wide with 256
+    /// glyphs, glyph `g`'s rows each `g` plus the height.
+    pub(crate) fn cpi_file(heights: &[u8]) -> Vec<u8> {
+        let mut f = vec![0u8; 0x22];
+        f[0] = 0x1c;
+        f[6] = 1;
+        f[8..16].copy_from_slice(b"EGA     ");
+        f[0x10..0x12].copy_from_slice(&437u16.to_le_bytes());
+        f[0x1c] = 1;
+        f[0x1e] = heights.len() as u8;
+        for &h in heights {
+            f.extend_from_slice(&[h, 8, 0, 0, 0, 1]);
+            for g in 0..256u32 {
+                f.extend(std::iter::repeat_n(
+                    (g as u8).wrapping_add(h),
+                    usize::from(h),
+                ));
+            }
+        }
+        f
+    }
+
+    // ADR-1200 D1: cp-size= takes the CPI font of that height
+    #[test]
+    fn cp_size_takes_the_cpi_font_of_its_height() {
+        let file = cpi_file(&[16, 14, 8]);
+        assert_eq!(file.len(), 9780, "the size of kbd's three-font .cp files");
+        for (h, packed) in [(14, gzip(&file)), (8, file.clone()), (16, zstd(&file))] {
+            let psf = cpi(&packed, h).unwrap_or_else(|e| panic!("{h}: {e}"));
+            let g = font(&psf, None, Some(b"0x41 U+0041\n")).expect("parses");
+            assert_eq!(
+                (g.width, g.height, g.count, g.format.as_str()),
+                (8, h, 256, "psf2+def.uni")
+            );
+            let a = (0x41 + h) as u8;
+            assert_eq!(g.glyph(0x41), Some(&vec![a; h as usize][..]), "{h}");
+        }
+        let e = cpi(&cpi_file(&[16, 8]), 14).expect_err("no 14");
+        assert_eq!(
+            e,
+            "cp-size=14: the CPI font holds 16, 8 pixels high, none 14"
+        );
+        let e = cpi(&psf2(8, 16, 256, None), 16).expect_err("a PSF");
+        assert!(e.contains("cp-size= is for a CPI font"), "{e}");
+        // a CPI font with no cp-size= is refused, naming it
+        let e = font(&file, None, Some(b"0x41 U+0041\n")).expect_err("no cp-size=");
+        assert!(e.contains("cp-size="), "{e}");
+    }
+
+    #[test]
+    fn a_cpi_file_cut_short_or_longer_is_none() {
+        let file = cpi_file(&[16, 14, 8]);
+        for bad in [
+            file[..file.len() - 1].to_vec(),
+            [file.as_slice(), &[0]].concat(),
+            file[..0x21].to_vec(),
+        ] {
+            assert!(cpi(&bad, 16).expect_err("refused").contains("is none"));
+        }
+        let mut printer = file.clone();
+        printer[6] = 2;
+        assert!(cpi(&printer, 16).is_err(), "a printer's codepage");
+        let mut many = file;
+        many[0x1e] = 9;
+        assert!(cpi(&many, 16).is_err(), "more fonts than CPI_FONTS_MAX");
     }
 }

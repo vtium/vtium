@@ -2,9 +2,18 @@
 //! store of what the helper generated, and the face that draws a cell from
 //! it, falling back per character to the built-in font (#141).
 //!
-//! The lookup for a cell is the frit's generated glyph, then the built-in
-//! font for the cell size, then [`vtium_font::Font`]'s replacement chain
-//! through this same face: U+25A1 from the frit, else from the built-in.
+//! The store keys a glyph by its cluster's text at a cell (ADR-1200 D20),
+//! one codepoint or a cluster of more, in the regular style, so two cells
+//! holding the same cluster share its glyph however their clusters were
+//! made. The lookup for a cell is ADR-1200 D22's: the cluster's glyph in
+//! the store; the cluster's NFC form, where it precomposes to one
+//! codepoint the store holds; the base's glyph, the store's or the
+//! built-in font's, with each combining mark's glyph overstruck on it, the
+//! default ignorables and the rest of an emoji sequence left out; the
+//! built-in font for the cell size; and [`vtium_font::Font`]'s replacement
+//! chain through this same face, U+25A1 from the frit, else from the
+//! built-in. Asking the helper is the console's ([`crate::helper`]).
+//!
 //! Nothing here is written to disk. The store holds only the cells the
 //! displays draw at ([`Generated::retain`]), within a limit taken from the
 //! machine's memory ([`store_limit`]): a fill stops at it, and a request
@@ -14,16 +23,18 @@
 //! the limit bounds the memory the sets take. An evicted glyph is asked
 //! for again when the screen shows it.
 
-use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+
+use crate::font::DisplayFace;
 
 use vtium_font::set::{PixelFormat, Set, SetBuilder, SetFace, StrikeBuilder, StrikeInfo};
 use vtium_font::sprite::Range;
 use vtium_font::{
     Cell, Decorations, Face, Format, Glyph, RangeCoverage, SpritePolicy, Style, Width,
 };
+
+mod data;
 
 const GIB: u64 = 1 << 30;
 
@@ -38,19 +49,167 @@ pub fn store_limit(ram: u64) -> u64 {
     }
 }
 
+/// What a glyph is keyed by at a cell (ADR-1200 D20): its cluster's text,
+/// one codepoint or more, in the regular style.
+pub type Text = Vec<char>;
+
+/// What the displays show: each character, and each cluster of more than
+/// one, each sorted and once.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Shown {
+    pub chars: Vec<char>,
+    pub clusters: Vec<Text>,
+}
+
+/// Whether `c` is a combining mark, drawn over its base.
+fn is_mark(c: char) -> bool {
+    within(&data::MARKS, c)
+}
+
+/// Whether `c` is a default ignorable, drawn as nothing.
+fn is_ignorable(c: char) -> bool {
+    within(&data::IGNORABLES, c)
+}
+
+fn within(ranges: &[(u32, u32)], c: char) -> bool {
+    let c = u32::from(c);
+    let i = ranges.partition_point(|&(_, last)| last < c);
+    ranges.get(i).is_some_and(|&(first, _)| first <= c)
+}
+
+/// `c`'s canonical combining class.
+fn class(c: char) -> u8 {
+    let c = u32::from(c);
+    let i = data::CLASSES.partition_point(|&(_, last, _)| last < c);
+    match data::CLASSES.get(i) {
+        Some(&(first, _, class)) if first <= c => class,
+        _ => 0,
+    }
+}
+
+const HANGUL_S: u32 = 0xac00;
+const HANGUL_L: u32 = 0x1100;
+const HANGUL_V: u32 = 0x1161;
+const HANGUL_T: u32 = 0x11a7;
+const HANGUL_V_COUNT: u32 = 21;
+const HANGUL_T_COUNT: u32 = 28;
+const HANGUL_S_COUNT: u32 = 19 * HANGUL_V_COUNT * HANGUL_T_COUNT;
+
+/// The primary composite of `a` and `b`, a Hangul syllable by rule.
+fn compose(a: char, b: char) -> Option<char> {
+    let (a, b) = (u32::from(a), u32::from(b));
+    let l = a.wrapping_sub(HANGUL_L);
+    let v = b.wrapping_sub(HANGUL_V);
+    if l < 19 && v < HANGUL_V_COUNT {
+        let lv = l.checked_mul(HANGUL_V_COUNT)?.checked_add(v)?;
+        return char::from_u32(HANGUL_S.checked_add(lv.checked_mul(HANGUL_T_COUNT)?)?);
+    }
+    let s = a.wrapping_sub(HANGUL_S);
+    let t = b.wrapping_sub(HANGUL_T);
+    if s < HANGUL_S_COUNT && s % HANGUL_T_COUNT == 0 && (1..HANGUL_T_COUNT).contains(&t) {
+        return char::from_u32(a.checked_add(t)?);
+    }
+    let i = data::COMPOSE
+        .binary_search_by(|&(x, y, _)| (x, y).cmp(&(a, b)))
+        .ok()?;
+    data::COMPOSE
+        .get(i)
+        .and_then(|&(_, _, c)| char::from_u32(c))
+}
+
+/// `c`'s full canonical decomposition, `c` itself when it has none: a
+/// Hangul syllable by rule, the CJK compatibility ideographs' left out.
+fn decompose(c: char, out: &mut Vec<char>) {
+    let u = u32::from(c);
+    let s = u.wrapping_sub(HANGUL_S);
+    if s < HANGUL_S_COUNT {
+        let lv = s / HANGUL_T_COUNT;
+        let parts = [
+            HANGUL_L.checked_add(lv / HANGUL_V_COUNT),
+            HANGUL_V.checked_add(lv % HANGUL_V_COUNT),
+            (s % HANGUL_T_COUNT != 0)
+                .then(|| HANGUL_T.checked_add(s % HANGUL_T_COUNT))
+                .flatten(),
+        ];
+        out.extend(parts.into_iter().flatten().filter_map(char::from_u32));
+        return;
+    }
+    match data::DECOMPOSE.binary_search_by_key(&u, |&(cp, _, _)| cp) {
+        Ok(i) => {
+            for part in data::DECOMPOSE
+                .get(i)
+                .map(|&(_, a, b)| [a, b])
+                .into_iter()
+                .flatten()
+                .filter(|&p| p != 0)
+                .filter_map(char::from_u32)
+            {
+                decompose(part, out);
+            }
+        }
+        Err(_) => out.push(c),
+    }
+}
+
+/// The characters `c` decomposes to canonically, `c` among them: a cell
+/// whose cluster holds any of them may draw from `c`'s glyph (step 2).
+pub fn decomposition(c: char) -> Vec<char> {
+    let mut out = vec![c];
+    decompose(c, &mut out);
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// The one codepoint `cluster`'s NFC form is, when it is one: the cluster
+/// decomposed canonically, each run of marks of a class but 0 put in
+/// canonical order, then each composed into the base in turn, as none is
+/// left between to block the next.
+fn precomposed(cluster: &[char]) -> Option<char> {
+    if cluster.len() < 2 {
+        return None;
+    }
+    let mut chars = Vec::new();
+    for &c in cluster {
+        decompose(c, &mut chars);
+    }
+    let (&base, rest) = chars.split_first()?;
+    let mut marks = rest.to_vec();
+    for run in marks.split_mut(|&c| class(c) == 0) {
+        run.sort_by_key(|&c| class(c));
+    }
+    marks.into_iter().try_fold(base, compose)
+}
+
 /// One set the helper sent, or its rebuild: its cell, the face it draws
-/// through, each codepoint it maps with when the screen last showed it,
-/// and its bytes.
+/// through, each text it maps with when the screen last showed it, and its
+/// bytes.
 #[derive(Debug)]
 struct Entry {
     cell: Cell,
     face: SetFace,
-    /// Sorted by codepoint.
-    glyphs: Vec<(char, u64)>,
+    /// Sorted by text.
+    glyphs: Vec<(Text, u64)>,
     bytes: u64,
 }
 
+/// The glyph `face` draws for `text`: a codepoint's from the set's map, a
+/// cluster's from its cluster map, at the face's scale or at 1.
+fn draw_text(face: &SetFace, text: &[char], unscaled: bool) -> Option<Glyph> {
+    let style = Style::default();
+    match text {
+        [c] if unscaled => face.draw_unscaled(&[*c], style),
+        [c] => face.draw(&[*c], style),
+        _ => face.cluster(text, style),
+    }
+}
+
 impl Entry {
+    fn find(&self, text: &[char]) -> Result<usize, usize> {
+        self.glyphs
+            .binary_search_by(|(t, _)| t.as_slice().cmp(text))
+    }
+
     /// Each glyph's share of the set's bytes, rounded up: what dropping
     /// it is taken to free when the glyphs to evict are chosen.
     fn share(&self) -> u64 {
@@ -59,11 +218,11 @@ impl Entry {
     }
 
     /// Drops `gone`, sorted, and writes the set again without them: the
-    /// codepoints it no longer holds, every one of them when the set
-    /// cannot be written again or holds nothing after, and the entry
-    /// then left to be removed.
-    fn compact(&mut self, gone: &[char]) -> (Vec<char>, bool) {
-        self.glyphs.retain(|(c, _)| gone.binary_search(c).is_err());
+    /// texts it no longer holds, every one of them when the set cannot be
+    /// written again or holds nothing after, and the entry then left to be
+    /// removed.
+    fn compact(&mut self, gone: &[Text]) -> (Vec<Text>, bool) {
+        self.glyphs.retain(|(t, _)| gone.binary_search(t).is_err());
         if !self.glyphs.is_empty()
             && let Some((face, bytes)) = rewrite(&self.face, self.cell, &self.glyphs)
         {
@@ -72,7 +231,7 @@ impl Entry {
             return (gone.to_vec(), false);
         }
         let mut all = gone.to_vec();
-        all.extend(self.glyphs.iter().map(|&(c, _)| c));
+        all.extend(self.glyphs.iter().map(|(t, _)| t.clone()));
         all.sort_unstable();
         (all, true)
     }
@@ -80,12 +239,12 @@ impl Entry {
 
 /// The set `face` draws, written again through vtium-font's set writer
 /// with only `kept`'s glyphs at `cell`, as the helper writes an answer:
-/// a strike a pixel format, its chunks raw. Each glyph keeps its format:
-/// RGBA stays RGBA, and a mask whose every pixel is 0 or 255 in a set
-/// with a 1-bit strike stays 1-bit, every other mask R8. The new face
-/// and its bytes; `None` when a glyph cannot be drawn or the set cannot
-/// be written.
-fn rewrite(face: &SetFace, cell: Cell, kept: &[(char, u64)]) -> Option<(SetFace, u64)> {
+/// a strike a pixel format, its chunks raw, a codepoint in its map and a
+/// cluster in its cluster map. Each glyph keeps its format: RGBA stays
+/// RGBA, and a mask whose every pixel is 0 or 255 in a set with a 1-bit
+/// strike stays 1-bit, every other mask R8. The new face and its bytes;
+/// `None` when a glyph cannot be drawn or the set cannot be written.
+fn rewrite(face: &SetFace, cell: Cell, kept: &[(Text, u64)]) -> Option<(SetFace, u64)> {
     let set = face.set();
     let strikes: Vec<StrikeInfo> = set
         .strikes()
@@ -100,8 +259,8 @@ fn rewrite(face: &SetFace, cell: Cell, kept: &[(char, u64)]) -> Option<(SetFace,
         }
         (s, BTreeMap::<(bool, Vec<u8>), u32>::new())
     });
-    for &(c, _) in kept {
-        let glyph = face.draw_unscaled(&[c], Style::default())?;
+    for (text, _) in kept {
+        let glyph = draw_text(face, text, true)?;
         let pixels = glyph.pixels();
         let (slot, bytes) = match glyph.format() {
             Format::Rgba => (2, pixels.to_vec()),
@@ -112,7 +271,7 @@ fn rewrite(face: &SetFace, cell: Cell, kept: &[(char, u64)]) -> Option<(SetFace,
         };
         let (strike, placed) = builders.get_mut(slot)?;
         let wide = glyph.cells() == Width::Wide;
-        // codepoints that shared a glyph share it again
+        // texts that shared a glyph share it again
         let index = match placed.get(&(wide, bytes.clone())) {
             Some(&i) => i,
             None => {
@@ -121,7 +280,10 @@ fn rewrite(face: &SetFace, cell: Cell, kept: &[(char, u64)]) -> Option<(SetFace,
                 i
             }
         };
-        strike.map(c, index);
+        match text.as_slice() {
+            [c] => strike.map(*c, index),
+            cluster => strike.cluster(cluster, index),
+        }
     }
     let mut builder = SetBuilder::new(set.name()).policy(set.policy());
     for (key, value) in set.meta().filter(|(k, _)| !matches!(*k, "name" | "format")) {
@@ -161,8 +323,16 @@ pub struct Generated {
     tick: u64,
 }
 
-/// The store, shared between the console and its displays' faces.
-pub type Shared = Rc<RefCell<Generated>>;
+/// The store, shared between the console and its displays' faces, which
+/// draw on their heads' render threads: each lock is held for one lookup
+/// or one change, never across a frame.
+pub type Shared = Arc<Mutex<Generated>>;
+
+/// The store behind `shared`, locked. A panic while it was held ends the
+/// process (ADR-1401 D10), so a poisoned lock is never met outside a test.
+pub fn lock(shared: &Shared) -> MutexGuard<'_, Generated> {
+    shared.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// A set the helper sent, without the glyphs the store held at its cell
 /// when it was made ([`Generated::fresh`]): what adding it takes.
@@ -175,14 +345,15 @@ impl Fresh {
         self.0.bytes
     }
 
-    /// The codepoints it adds, in order.
-    pub fn chars(&self) -> impl Iterator<Item = char> + '_ {
-        self.0.glyphs.iter().map(|&(c, _)| c)
+    /// The texts it adds, in order.
+    pub fn texts(&self) -> impl Iterator<Item = &Text> + '_ {
+        self.0.glyphs.iter().map(|(t, _)| t)
     }
 }
 
 impl Generated {
-    /// A checked set of glyphs at `cell`, mapping `runs` and taking
+    /// A checked set of glyphs at `cell`, mapping the codepoints of `runs`
+    /// and the clusters its cluster map holds at `cell`, and taking
     /// `bytes`, without the glyphs the store holds at `cell` (ADR-1200
     /// D18): a set that carries some is written again without them, as
     /// compaction writes one ([`rewrite`]), and counts the bytes written.
@@ -195,19 +366,27 @@ impl Generated {
         runs: &[(u32, u32)],
         bytes: u64,
     ) -> Option<Fresh> {
+        let clusters: Vec<Text> = set
+            .clusters()
+            .filter(|(at, style, _)| *at == cell && *style == Style::default())
+            .map(|(_, _, key)| key)
+            .collect();
         let face = SetFace::new(set, cell.height)?;
-        let mut glyphs: Vec<(char, u64)> = runs
+        let mut glyphs: Vec<(Text, u64)> = runs
             .iter()
             .flat_map(|&(first, n)| (0..n).map(move |i| first.checked_add(i)))
             .filter_map(|c| char::from_u32(c?))
-            .map(|c| (c, self.tick))
+            .map(|c| vec![c])
+            .chain(clusters)
+            .map(|t| (t, self.tick))
             .collect();
         glyphs.sort_unstable();
-        glyphs.dedup_by_key(|&mut (c, _)| c);
-        let held: Vec<char> = glyphs
+        glyphs.dedup_by(|a, b| a.0 == b.0);
+        let held: Vec<Text> = glyphs
             .iter()
-            .map(|&(c, _)| c)
-            .filter(|&c| self.held(cell, c))
+            .map(|(t, _)| t)
+            .filter(|t| self.held(cell, t))
+            .cloned()
             .collect();
         let mut entry = Entry {
             cell,
@@ -234,11 +413,28 @@ impl Generated {
         Some(face)
     }
 
-    /// Whether the store holds `c`'s glyph at `cell`.
-    fn held(&self, cell: Cell, c: char) -> bool {
+    /// Whether the store holds at `cell` the glyph of a cluster `c` begins.
+    fn begins(&self, cell: Cell, c: char) -> bool {
+        self.entries.iter().filter(|e| e.cell == cell).any(|e| {
+            let at = e
+                .glyphs
+                .partition_point(|(t, _)| t.as_slice() <= [c].as_slice());
+            e.glyphs
+                .get(at)
+                .is_some_and(|(t, _)| t.len() > 1 && t.first() == Some(&c))
+        })
+    }
+
+    /// Whether the store holds `text`'s glyph at `cell`.
+    fn held(&self, cell: Cell, text: &[char]) -> bool {
+        self.entry(cell, text).is_some()
+    }
+
+    /// The entry holding `text`'s glyph at `cell`.
+    fn entry(&self, cell: Cell, text: &[char]) -> Option<&Entry> {
         self.entries
             .iter()
-            .any(|e| e.cell == cell && e.glyphs.binary_search_by_key(&c, |&(g, _)| g).is_ok())
+            .find(|e| e.cell == cell && e.find(text).is_ok())
     }
 
     /// The bytes held: each set's as the helper sent it or as compaction
@@ -252,34 +448,34 @@ impl Generated {
     /// share of their sets' bytes covers it, and writes each set they
     /// leave again without them ([`rewrite`]). When the rewritten sets
     /// free less than their share, the next least recently shown glyphs
-    /// go too. The codepoints no longer held, by cell; nothing is
-    /// redrawn, and each is asked for again when the screen shows it.
-    pub fn make_room(&mut self, overrun: u64) -> Vec<(Cell, Vec<char>)> {
-        let mut out: Vec<(Cell, Vec<char>)> = Vec::new();
+    /// go too. The texts no longer held, by cell; nothing is redrawn, and
+    /// each is asked for again when the screen shows it.
+    pub fn make_room(&mut self, overrun: u64) -> Vec<(Cell, Vec<Text>)> {
+        let mut out: Vec<(Cell, Vec<Text>)> = Vec::new();
         let mut short = overrun;
         while short > 0 && !self.entries.is_empty() {
             let held = self.bytes();
-            let mut oldest: Vec<(u64, usize, char)> = self
+            let mut oldest: Vec<(u64, usize, &Text)> = self
                 .entries
                 .iter()
                 .enumerate()
-                .flat_map(|(i, e)| e.glyphs.iter().map(move |&(c, used)| (used, i, c)))
+                .flat_map(|(i, e)| e.glyphs.iter().map(move |(t, used)| (*used, i, t)))
                 .collect();
             oldest.sort_unstable();
-            let mut gone: Vec<Vec<char>> = vec![Vec::new(); self.entries.len()];
+            let mut gone: Vec<Vec<Text>> = vec![Vec::new(); self.entries.len()];
             let mut freed = 0u64;
-            for (_, i, c) in oldest {
+            for (_, i, t) in oldest {
                 if freed >= short {
                     break;
                 }
                 let (Some(list), Some(e)) = (gone.get_mut(i), self.entries.get(i)) else {
                     continue;
                 };
-                list.push(c);
+                list.push(t.clone());
                 freed = freed.saturating_add(e.share());
             }
             if freed == 0 {
-                // no set maps a codepoint, so none draws a glyph
+                // no set maps a text, so none draws a glyph
                 self.entries.clear();
                 break;
             }
@@ -294,28 +490,32 @@ impl Generated {
                     self.entries.remove(i);
                 }
                 match out.iter_mut().find(|(at, _)| *at == cell) {
-                    Some((_, chars)) => chars.extend(lost),
+                    Some((_, texts)) => texts.extend(lost),
                     None => out.push((cell, lost)),
                 }
             }
             short = short.saturating_sub(held.saturating_sub(self.bytes()));
         }
-        for (_, chars) in &mut out {
-            chars.sort_unstable();
-            chars.dedup();
+        for (_, texts) in &mut out {
+            texts.sort_unstable();
+            texts.dedup();
         }
-        out.retain(|(_, chars)| !chars.is_empty());
+        out.retain(|(_, texts)| !texts.is_empty());
         out
     }
 
-    /// The screen shows `chars` at `cell`: their glyphs are the most
-    /// recently shown.
-    pub fn touch(&mut self, cell: Cell, chars: &[char]) {
+    /// The screen shows `shown` at `cell`: the glyphs of its characters
+    /// and its clusters are the most recently shown.
+    pub fn touch(&mut self, cell: Cell, shown: &Shown) {
         self.tick = self.tick.saturating_add(1);
         let tick = self.tick;
+        let singles = shown.chars.iter().map(std::slice::from_ref);
+        let texts: Vec<&[char]> = singles
+            .chain(shown.clusters.iter().map(Vec::as_slice))
+            .collect();
         for e in self.entries.iter_mut().filter(|e| e.cell == cell) {
-            for c in chars {
-                if let Ok(i) = e.glyphs.binary_search_by_key(c, |&(g, _)| g)
+            for &t in &texts {
+                if let Ok(i) = e.find(t)
                     && let Some((_, used)) = e.glyphs.get_mut(i)
                 {
                     *used = tick;
@@ -334,21 +534,24 @@ impl Generated {
         self.entries.iter().any(|e| e.cell == cell)
     }
 
-    fn face(&self, cell: Cell, c: char) -> Option<&SetFace> {
-        self.entries
-            .iter()
-            .find(|e| e.cell == cell && e.face.has_glyph(c))
-            .map(|e| &e.face)
+    /// `text`'s glyph at `cell`, from the store.
+    fn draw(&self, cell: Cell, text: &[char], style: Style) -> Option<Glyph> {
+        let face = &self.entry(cell, text)?.face;
+        match text {
+            [_] => face.draw(text, style),
+            _ => face.cluster(text, style),
+        }
     }
 }
 
 /// A display's face while the font is a frit: the generated glyph where
 /// the helper sent one, else the built-in font's, in the frit's cell
-/// (#145). Its cell never moves when glyphs arrive. A built-in glyph is
-/// centred in a larger cell and cropped to a smaller one, so both kinds
-/// come at the cell's size and the renderer stores them alike.
+/// (#145), a cluster found as the module says. Its cell never moves when
+/// glyphs arrive. A built-in glyph is centred in a larger cell and cropped
+/// to a smaller one, so both kinds come at the cell's size and the
+/// renderer stores them alike.
 pub struct DeferredFace {
-    builtin: Box<dyn Face>,
+    builtin: DisplayFace,
     cell: Cell,
     step: u32,
     generated: Shared,
@@ -356,7 +559,7 @@ pub struct DeferredFace {
 
 impl DeferredFace {
     /// `builtin` drawing in `cell`, which a zoom moves by `step`.
-    pub fn new(builtin: Box<dyn Face>, cell: Cell, step: u32, generated: Shared) -> DeferredFace {
+    pub fn new(builtin: DisplayFace, cell: Cell, step: u32, generated: Shared) -> DeferredFace {
         DeferredFace {
             builtin,
             cell,
@@ -366,7 +569,59 @@ impl DeferredFace {
     }
 
     fn generated_has(&self, c: char) -> bool {
-        self.generated.borrow().face(self.cell, c).is_some()
+        lock(&self.generated).held(self.cell, &[c])
+    }
+
+    /// `c`'s glyph: the store's, else the built-in font's in the cell.
+    fn single(&self, c: char, style: Style) -> Option<Glyph> {
+        let held = lock(&self.generated).draw(self.cell, &[c], style);
+        held.or_else(|| self.fit(self.builtin.draw(&[c], style)?))
+    }
+
+    /// A cluster the store does not hold drawn without its own glyph
+    /// (ADR-1200 D22, steps 2 to 4): its NFC form's, else its base's with
+    /// each combining mark's overstruck, the base and each mark centred
+    /// across the widest of them, so a mark two cells wide, as U+20E3 is in
+    /// unifont, makes the glyph two cells wide; the default ignorables and
+    /// the rest of the cluster left out. A color base takes no mark.
+    fn unshaped(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+        if let Some(c) = precomposed(cluster)
+            && let Some(g) = lock(&self.generated).draw(self.cell, &[c], style)
+        {
+            return Some(g);
+        }
+        let (&base, rest) = cluster.split_first()?;
+        let glyph = self.single(base, style)?;
+        if glyph.format() != Format::Mask {
+            return Some(glyph);
+        }
+        let marks: Vec<Glyph> = rest
+            .iter()
+            .filter(|&&c| is_mark(c) && !is_ignorable(c))
+            .filter_map(|&c| self.single(c, style))
+            .filter(|g| g.format() == Format::Mask)
+            .collect();
+        if marks.is_empty() {
+            return Some(glyph);
+        }
+        let parts: Vec<&Glyph> = std::iter::once(&glyph).chain(&marks).collect();
+        let w = parts.iter().map(|g| g.width()).max()?;
+        let h = glyph.height();
+        let wide = parts.iter().any(|g| g.cells() == Width::Wide);
+        let mut pixels = vec![0u8; usize::try_from(w.checked_mul(h)?).ok()?];
+        for part in parts {
+            let dx = w.saturating_sub(part.width()) / 2;
+            for (y, row) in (0..h).zip(part.rows()) {
+                for (x, &p) in (dx..w).zip(row) {
+                    let at = usize::try_from(y.checked_mul(w)?.checked_add(x)?).ok()?;
+                    if let Some(px) = pixels.get_mut(at) {
+                        *px = (*px).max(p);
+                    }
+                }
+            }
+        }
+        let cells = if wide { Width::Wide } else { glyph.cells() };
+        Glyph::from_pixels(w, h, Format::Mask, pixels).map(|g| g.with_cells(cells))
     }
 
     /// The built-in's `glyph` at the cell's size: centred, padded or
@@ -416,8 +671,13 @@ impl Face for DeferredFace {
         self.step
     }
 
+    /// Whether the store or the built-in font holds `c`, or the store a
+    /// cluster `c` begins: the renderer asks by a cluster's first
+    /// character before it draws the cluster.
     fn has_glyph(&self, c: char) -> bool {
-        self.generated_has(c) || self.builtin.has_glyph(c)
+        self.generated_has(c)
+            || self.builtin.has_glyph(c)
+            || lock(&self.generated).begins(self.cell, c)
     }
 
     /// The built-in font's, so the sprites draw the same ranges before the
@@ -431,11 +691,13 @@ impl Face for DeferredFace {
     }
 
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
-        let &first = cluster.first()?;
-        let generated = self.generated.borrow();
-        match generated.face(self.cell, first) {
-            Some(face) => face.draw(cluster, style),
-            None => self.fit(self.builtin.draw(cluster, style)?),
+        match cluster {
+            [] => None,
+            &[c] => self.single(c, style),
+            _ => {
+                let held = lock(&self.generated).draw(self.cell, cluster, style);
+                held.or_else(|| self.unshaped(cluster, style))
+            }
         }
     }
 
@@ -495,8 +757,21 @@ mod tests {
         store.add(fresh)
     }
 
+    /// The screen showing `chars`, no cluster.
+    fn shown(chars: &[char]) -> Shown {
+        Shown {
+            chars: chars.to_vec(),
+            clusters: Vec::new(),
+        }
+    }
+
+    /// Each of `chars` as a text of its own.
+    fn texts(chars: &[char]) -> Vec<Text> {
+        chars.iter().map(|&c| vec![c]).collect()
+    }
+
     fn face(generated: &Shared) -> DeferredFace {
-        DeferredFace::new(Box::new(Unifont::new(16)), CELL, 16, Rc::clone(generated))
+        DeferredFace::new(Box::new(Unifont::new(16)), CELL, 16, Arc::clone(generated))
     }
 
     fn covered(g: &Glyph) -> usize {
@@ -514,7 +789,7 @@ mod tests {
         let a = f.draw(&['A'], Style::default()).unwrap();
         assert_eq!(a, unifont.draw(&['A'], Style::default()).unwrap());
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             CELL,
             solid(CELL, &['A']),
             vec![(0x41, 1)],
@@ -530,7 +805,7 @@ mod tests {
     fn a_character_the_frit_lacks_draws_in_the_built_in_font() {
         let generated = Shared::default();
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             CELL,
             solid(CELL, &['A']),
             vec![(0x41, 1)],
@@ -553,7 +828,7 @@ mod tests {
             unifont_font.glyph(&['\u{10fffd}'], Width::Narrow, Style::default())
         );
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             CELL,
             solid(CELL, &['\u{25a1}']),
             vec![(0x25a1, 1)],
@@ -567,7 +842,7 @@ mod tests {
 
     /// The face drawing unifont at 16 in `cell`.
     fn face_in(generated: &Shared, cell: Cell) -> DeferredFace {
-        DeferredFace::new(Box::new(Unifont::new(16)), cell, 16, Rc::clone(generated))
+        DeferredFace::new(Box::new(Unifont::new(16)), cell, 16, Arc::clone(generated))
     }
 
     /// Whether `g` is `of` moved right by `dx` and down by `dy`, nothing
@@ -638,7 +913,7 @@ mod tests {
         assert_eq!((f.cell(), f.size_step()), (cell, 16));
         // glyphs at the built-in's own cell are not the frit's
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             CELL,
             solid(CELL, &['A']),
             vec![(0x41, 1)],
@@ -648,7 +923,7 @@ mod tests {
         assert_eq!((a.width(), a.height()), (10, 20));
         assert!(covered(&a) < 10 * 20);
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             cell,
             solid(cell, &['A']),
             vec![(0x41, 1)],
@@ -673,10 +948,10 @@ mod tests {
         add(&mut g, CELL, solid(CELL, &['B']), vec![(0x42, 1)], 20);
         assert_eq!(g.bytes(), 30);
         // A is on the screen, B is not
-        g.touch(CELL, &['A']);
-        assert_eq!(g.make_room(1), vec![(CELL, vec!['B'])]);
+        g.touch(CELL, &shown(&['A']));
+        assert_eq!(g.make_room(1), vec![(CELL, texts(&['B']))]);
         assert_eq!(g.bytes(), 10);
-        assert_eq!(g.make_room(1), vec![(CELL, vec!['A'])]);
+        assert_eq!(g.make_room(1), vec![(CELL, texts(&['A']))]);
         assert_eq!(g.make_room(1), vec![]);
         assert_eq!(g.bytes(), 0);
     }
@@ -750,24 +1025,24 @@ mod tests {
         let (d, e) = (('D', Width::Narrow, bits(5)), ('E', Width::Narrow, bits(6)));
         let generated = Shared::default();
         let before = {
-            let mut g = generated.borrow_mut();
+            let mut g = lock(&generated);
             put(&mut g, answer(&[], &[a.clone(), b, c.clone(), w.clone()]))
                 + put(&mut g, answer(&[d.clone(), e], &[]))
         };
-        assert_eq!(generated.borrow().bytes(), before);
+        assert_eq!(lock(&generated).bytes(), before);
         // shown: D, then A, then C and the wide one; B and E never
-        generated.borrow_mut().touch(CELL, &['D']);
-        generated.borrow_mut().touch(CELL, &['A']);
-        generated.borrow_mut().touch(CELL, &['C', wide]);
+        lock(&generated).touch(CELL, &shown(&['D']));
+        lock(&generated).touch(CELL, &shown(&['A']));
+        lock(&generated).touch(CELL, &shown(&['C', wide]));
         let f = face(&generated);
         let kept = ['A', 'C', wide, 'D'];
         let drawn = kept.map(|k| f.draw(&[k], Style::default()).unwrap());
         // the store after: the same answers written without B and E
         let after = answer(&[], &[a, c, w]).len() as u64 + answer(&[d], &[]).len() as u64;
         assert!(after < before);
-        let gone = generated.borrow_mut().make_room(before - after);
-        assert_eq!(gone, vec![(CELL, vec!['B', 'E'])]);
-        assert_eq!(generated.borrow().bytes(), after);
+        let gone = lock(&generated).make_room(before - after);
+        assert_eq!(gone, vec![(CELL, texts(&['B', 'E']))]);
+        assert_eq!(lock(&generated).bytes(), after);
         for (k, glyph) in kept.into_iter().zip(drawn) {
             assert_eq!(f.draw(&[k], Style::default()), Some(glyph), "{k}");
         }
@@ -789,8 +1064,8 @@ mod tests {
         let d = ('D', Width::Narrow, bits(5));
         let e = ('E', Width::Narrow, bits(6));
         put(&mut g, answer(&[d.clone(), e], std::slice::from_ref(&a)));
-        g.touch(CELL, &['A', 'D']);
-        assert_eq!(g.make_room(1), vec![(CELL, vec!['E'])]);
+        g.touch(CELL, &shown(&['A', 'D']));
+        assert_eq!(g.make_room(1), vec![(CELL, texts(&['E']))]);
         let strikes: Vec<_> = g.entries[0]
             .face
             .set()
@@ -810,14 +1085,14 @@ mod tests {
         let r8 = |c, seed| (c, Width::Narrow, shade(Width::Narrow, seed));
         let (a, b, c) = (r8('A', 1), r8('B', 2), r8('C', 3));
         let generated = Shared::default();
-        let first = put(&mut generated.borrow_mut(), answer(&[], &[a, b.clone()]));
+        let first = put(&mut lock(&generated), answer(&[], &[a, b.clone()]));
         let f = face(&generated);
         let drawn = ['A', 'B'].map(|k| f.draw(&[k], Style::default()).unwrap());
         // the frame's B differs from the held one, so a B drawn from it shows
         let frame = answer(&[], &[r8('B', 9), c.clone()]);
         let sent = Arc::new(Set::from_bytes(frame.clone()).unwrap());
         let added = add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             CELL,
             Arc::clone(&sent),
             vec![(0x42, 2)],
@@ -826,7 +1101,7 @@ mod tests {
         .unwrap();
         assert!(added.has_glyph('C') && !added.has_glyph('B'));
         let rebuilt = answer(&[], &[c]).len() as u64;
-        assert_eq!(generated.borrow().bytes(), first + rebuilt);
+        assert_eq!(lock(&generated).bytes(), first + rebuilt);
         for (k, glyph) in ['A', 'B'].into_iter().zip(drawn) {
             assert_eq!(f.draw(&[k], Style::default()), Some(glyph), "{k}");
         }
@@ -839,17 +1114,238 @@ mod tests {
         let held = answer(&[], &[b, r8('C', 3)]);
         let bytes = held.len() as u64;
         let held = Arc::new(Set::from_bytes(held).unwrap());
-        assert!(
-            add(
-                &mut generated.borrow_mut(),
-                CELL,
-                held,
-                vec![(0x42, 2)],
-                bytes
-            )
-            .is_none()
+        assert!(add(&mut lock(&generated), CELL, held, vec![(0x42, 2)], bytes).is_none());
+        assert_eq!(lock(&generated).bytes(), first + rebuilt);
+    }
+
+    /// A set at [`CELL`] mapping each of `chars` to a solid glyph and each
+    /// of `clusters` to a glyph of its own shade.
+    fn with_clusters(chars: &[char], clusters: &[(&[char], u8)]) -> Arc<Set> {
+        let mut s = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default());
+        let n = (CELL.width * CELL.height) as usize;
+        let solid = s.glyph(Width::Narrow, vec![255; n]);
+        for &c in chars {
+            s.map(c, solid);
+        }
+        for &(key, shade) in clusters {
+            let g = s.glyph(Width::Narrow, vec![shade; n]);
+            s.cluster(key, g);
+        }
+        Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap())
+    }
+
+    /// Whether every pixel of `g` is `shade`.
+    fn all(g: &Glyph, shade: u8) -> bool {
+        g.pixels().iter().all(|&p| p == shade)
+    }
+
+    const ACUTE: [char; 2] = ['e', '\u{301}'];
+
+    // ADR-1200 D20, D22 step 1: a cluster's glyph is keyed by its whole
+    // text, apart from its first codepoint's
+    #[test]
+    fn a_cluster_draws_its_own_generated_glyph() {
+        let generated = Shared::default();
+        add(
+            &mut lock(&generated),
+            CELL,
+            with_clusters(&['e'], &[(&ACUTE, 7)]),
+            vec![(0x65, 1)],
+            1,
         );
-        assert_eq!(generated.borrow().bytes(), first + rebuilt);
+        let f = face(&generated);
+        assert!(all(&f.draw(&ACUTE, Style::default()).unwrap(), 7));
+        assert!(all(&f.draw(&['e'], Style::default()).unwrap(), 255));
+    }
+
+    // ADR-1200 D20: the store compares a cluster's text whole: with e held,
+    // e U+0301 is new, and with e U+0301 held, e U+0300 is
+    #[test]
+    fn the_store_keys_a_cluster_by_its_whole_text() {
+        let mut g = Generated::default();
+        add(&mut g, CELL, with_clusters(&['e'], &[]), vec![(0x65, 1)], 1);
+        assert!(g.held(CELL, &['e']) && !g.held(CELL, &ACUTE));
+        let fresh = g
+            .fresh(CELL, with_clusters(&['e'], &[(&ACUTE, 7)]), &[(0x65, 1)], 1)
+            .unwrap();
+        assert_eq!(fresh.texts().cloned().collect::<Vec<_>>(), [ACUTE.to_vec()]);
+        assert!(g.add(fresh).is_some());
+        let grave = ['e', '\u{300}'];
+        assert!(g.held(CELL, &ACUTE) && !g.held(CELL, &grave));
+        let fresh = g
+            .fresh(CELL, with_clusters(&[], &[(&grave, 9)]), &[], 1)
+            .unwrap();
+        assert_eq!(fresh.texts().cloned().collect::<Vec<_>>(), [grave.to_vec()]);
+    }
+
+    #[test]
+    fn a_clusters_nfc_form_is_found_in_canonical_order() {
+        assert_eq!(precomposed(&ACUTE), Some('\u{e9}'));
+        // a with dot below and circumflex, in either order, is U+1EAD
+        assert_eq!(precomposed(&['a', '\u{323}', '\u{302}']), Some('\u{1ead}'));
+        assert_eq!(precomposed(&['a', '\u{302}', '\u{323}']), Some('\u{1ead}'));
+        // two marks of one class: the second is blocked, and stays
+        assert_eq!(precomposed(&['a', '\u{301}', '\u{300}']), None);
+        // Hangul by rule: L V is LV, LV T is LVT
+        assert_eq!(precomposed(&['\u{1100}', '\u{1161}']), Some('\u{ac00}'));
+        assert_eq!(
+            precomposed(&['\u{1100}', '\u{1161}', '\u{11a8}']),
+            Some('\u{ac01}')
+        );
+        // a composition exclusion: U+0958 is not composed again
+        assert_eq!(precomposed(&['\u{915}', '\u{93c}']), None);
+        // a precomposed base is decomposed first: ê and dot below is ệ, and
+        // ANGSTROM SIGN with acute composes through Å
+        assert_eq!(precomposed(&['\u{ea}', '\u{323}']), Some('\u{1ec7}'));
+        assert_eq!(precomposed(&['\u{212b}', '\u{301}']), Some('\u{1fa}'));
+        assert_eq!(precomposed(&['\u{ac00}', '\u{11a8}']), Some('\u{ac01}'));
+        assert_eq!(precomposed(&['e']), None);
+        assert_eq!(precomposed(&['q', '\u{301}']), None);
+    }
+
+    // ADR-1200 D22 step 2: a cluster the store does not hold draws its NFC
+    // form's glyph where the store holds that
+    #[test]
+    fn a_cluster_draws_its_precomposed_form_from_the_store() {
+        let generated = Shared::default();
+        add(
+            &mut lock(&generated),
+            CELL,
+            with_clusters(&['\u{e9}'], &[]),
+            vec![(0xe9, 1)],
+            1,
+        );
+        let f = face(&generated);
+        assert!(all(&f.draw(&ACUTE, Style::default()).unwrap(), 255));
+    }
+
+    // ADR-1200 D22 step 3, ADR-1301 D1: with neither its own glyph nor
+    // its NFC form held, a cluster draws unshaped: its base with each
+    // combining mark overstruck, each from the store or the built-in
+    // font; a default ignorable and the rest of an emoji sequence are not
+    // drawn
+    #[test]
+    fn a_mark_wider_than_its_base_is_drawn_whole() {
+        let generated = Shared::default();
+        let f = face(&generated);
+        let unifont = Unifont::new(16);
+        let regular = Style::default();
+        let keycap = unifont.draw(&['\u{20e3}'], regular).unwrap();
+        assert_eq!(keycap.cells(), Width::Wide, "unifont's keycap is two cells");
+        let one = unifont.draw(&['1'], regular).unwrap();
+        let drawn = f.draw(&['1', '\u{fe0f}', '\u{20e3}'], regular).unwrap();
+        assert_eq!((drawn.width(), drawn.cells()), (16, Width::Wide));
+        // the keycap whole, and the 1 centred in it
+        assert!({
+            (0..16).all(|y| {
+                (0..16).all(|x| {
+                    let k = keycap.pixel(x, y).unwrap()[0];
+                    let o = x
+                        .checked_sub(4)
+                        .filter(|&x| x < 8)
+                        .map_or(0, |x| one.pixel(x, y).unwrap()[0]);
+                    drawn.pixel(x, y).unwrap()[0] == k.max(o)
+                })
+            })
+        });
+    }
+
+    #[test]
+    fn a_base_draws_with_its_marks_overstruck() {
+        let generated = Shared::default();
+        let f = face(&generated);
+        let unifont = Unifont::new(16);
+        let regular = Style::default();
+        let q = unifont.draw(&['q'], regular).unwrap();
+        let acute = unifont.draw(&['\u{301}'], regular).unwrap();
+        let both = f.draw(&['q', '\u{301}'], regular).unwrap();
+        let over: Vec<u8> = q
+            .pixels()
+            .iter()
+            .zip(acute.pixels())
+            .map(|(&a, &b)| a.max(b))
+            .collect();
+        assert_eq!(both.pixels(), over.as_slice());
+        assert_ne!(both.pixels(), q.pixels());
+        // a variation selector is a default ignorable, not a mark
+        assert_eq!(f.draw(&['q', '\u{fe0f}'], regular), Some(q.clone()));
+        let family = ['\u{1f468}', '\u{200d}', '\u{1f469}'];
+        assert_eq!(f.draw(&family, regular), f.draw(&family[..1], regular));
+        // the base from the store, the mark from the built-in font
+        add(
+            &mut lock(&generated),
+            CELL,
+            with_clusters(&['q'], &[]),
+            vec![(0x71, 1)],
+            1,
+        );
+        assert!(all(&f.draw(&['q', '\u{301}'], regular).unwrap(), 255));
+        let held = f.draw(&['q', '\u{301}'], regular).unwrap();
+        assert_eq!(held.cells(), Width::Narrow);
+    }
+
+    // a cluster whose first character neither the store nor the built-in
+    // font holds still draws its own glyph through the font, which asks by
+    // that character first
+    #[test]
+    fn a_cluster_draws_though_no_font_holds_its_first_character() {
+        let generated = Shared::default();
+        let lead = '\u{10fffd}';
+        let cluster = [lead, '\u{301}'];
+        let f = face(&generated);
+        assert!(!f.has_glyph(lead));
+        add(
+            &mut lock(&generated),
+            CELL,
+            with_clusters(&[], &[(&cluster, 7)]),
+            vec![],
+            1,
+        );
+        assert!(f.has_glyph(lead));
+        assert!(!f.has_glyph('\u{10fffc}'));
+        let font = Font::new(face(&generated));
+        let drawn = font
+            .glyph(&cluster, Width::Narrow, Style::default())
+            .unwrap();
+        assert!(all(&drawn, 7));
+    }
+
+    // ADR-1200 D19: compaction keys a cluster as the store does, drops the
+    // one least recently shown and writes the one shown again
+    #[test]
+    fn compaction_keeps_the_clusters_shown_and_drops_the_rest() {
+        let generated = Shared::default();
+        let grave = ['e', '\u{300}'];
+        add(
+            &mut lock(&generated),
+            CELL,
+            with_clusters(&['e'], &[(&ACUTE, 7), (&grave, 9)]),
+            vec![(0x65, 1)],
+            // more than the set written again takes, so one pass frees it
+            1 << 20,
+        );
+        let shown = Shown {
+            chars: vec!['e'],
+            clusters: vec![ACUTE.to_vec()],
+        };
+        lock(&generated).touch(CELL, &shown);
+        assert_eq!(
+            lock(&generated).make_room(1),
+            vec![(CELL, vec![grave.to_vec()])]
+        );
+        let f = face(&generated);
+        assert!(all(&f.draw(&ACUTE, Style::default()).unwrap(), 7));
+        assert!(!lock(&generated).held(CELL, &grave));
+        // a frame of the held cluster and a new one adds the new one alone
+        let fresh = lock(&generated)
+            .fresh(
+                CELL,
+                with_clusters(&[], &[(&ACUTE, 3), (&grave, 9)]),
+                &[],
+                100,
+            )
+            .unwrap();
+        assert_eq!(fresh.texts().cloned().collect::<Vec<_>>(), [grave.to_vec()]);
     }
 
     #[test]
@@ -860,7 +1356,7 @@ mod tests {
             height: 32,
         };
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             other,
             solid(other, &['A']),
             vec![(0x41, 1)],
@@ -871,8 +1367,8 @@ mod tests {
             f.draw(&['A'], Style::default()),
             Unifont::new(16).draw(&['A'], Style::default())
         );
-        assert!(generated.borrow().holds(other));
-        generated.borrow_mut().retain(&[CELL]);
-        assert!(!generated.borrow().holds(other));
+        assert!(lock(&generated).holds(other));
+        lock(&generated).retain(&[CELL]);
+        assert!(!lock(&generated).holds(other));
     }
 }

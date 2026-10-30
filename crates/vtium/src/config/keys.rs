@@ -171,6 +171,49 @@ pub const ONESHOT: Key = Key {
     cite: "src/config.c:1367; src/misc/pty.c:752-756",
 };
 
+pub const HEAD_CONSOLES_MAX: Key = Key {
+    name: "head-consoles-max",
+    short: None,
+    kind: Kind::Number {
+        min: 1,
+        max: vtium_config::CONSOLES_MAX as u64,
+        unit: "consoles",
+        word: None,
+    },
+    default: Default::Number(4),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "The most consoles one head holds: the head file's `consoles` and Ctrl-Super-Return open no more.",
+    cite: "ADR-1401 D10; the C reference's `session-max` (src/config.c:1357) bounded the seat's sessions",
+};
+
+pub const FOCUS_MARK: Key = Key {
+    name: "focus-mark",
+    short: None,
+    kind: Kind::Choice(&["auto", "always", "off"]),
+    default: Default::Text("auto"),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Each head's focus mark over its top-right cell, filled on the head holding the focus and hollow on the others: `auto` shows the marks for a few seconds after the focus chord or the anti-lockout guard moves the focus, `always` shows them always, `off` never.",
+    cite: "ADR-1401 D5; the operator on vtium/vtium#156",
+};
+
+pub const CONSOLES_MAX: Key = Key {
+    name: "consoles-max",
+    short: None,
+    kind: Kind::Number {
+        min: 1,
+        max: vtium_config::CONSOLES_MAX as u64,
+        unit: "consoles",
+        word: None,
+    },
+    default: Default::Number(8),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "The most consoles every head holds together. Each head keeps its first console; the others open, in the head file's order, while the total is below this.",
+    cite: "ADR-1401 D10; the C reference's `session-max` (src/config.c:1357)",
+};
+
 pub const TERM: Key = Key {
     name: "term",
     short: Some('t'),
@@ -1031,7 +1074,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 79] = [
+pub const KEYS: [Key; 82] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1039,6 +1082,9 @@ pub const KEYS: [Key; 79] = [
     SWITCHVT,
     LOGIN,
     ONESHOT,
+    HEAD_CONSOLES_MAX,
+    CONSOLES_MAX,
+    FOCUS_MARK,
     TERM,
     RESET_ENV,
     BACKSPACE_DELETE,

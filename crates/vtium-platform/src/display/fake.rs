@@ -5,7 +5,12 @@
 //! modeset without DRM master is refused with EACCES, a commit while a
 //! flip is pending with EBUSY, and a commit asking for a flip event that
 //! names no CRTC (`prepare_signaling`) or a CRTC that is off and stays off
-//! (`drm_atomic_crtc_check`) with EINVAL. A framebuffer removed while a
+//! (`drm_atomic_crtc_check`) with EINVAL. A commit that leaves a CRTC in
+//! its state with a mode and no connector, or a connector and no mode
+//! (`drm_atomic_helper_check_modeset`), active with no mode, or with a
+//! plane on it and no mode (`drm_atomic_helper_check_plane_state`), is
+//! refused with EINVAL; a connector the commit moves puts the CRTC it
+//! leaves in the state, as `drm_atomic_set_crtc_for_connector` does. A framebuffer removed while a
 //! plane shows it takes the plane off its CRTC (`atomic_remove_fb`), and
 //! a dumb buffer keeps what its mappings wrote, for a test to read back.
 //! A connector's DPMS and its CRTC's `ACTIVE` are one state, as on an
@@ -111,6 +116,9 @@ pub(crate) struct State {
     /// each plane is on, as the commits so far left them.
     pub(crate) bound: BTreeMap<u32, u32>,
     pub(crate) active: BTreeMap<u32, bool>,
+    /// Each CRTC's mode is set, as the commits so far left it; a CRTC no
+    /// commit has named has one where [`State::crtc_modes`] shows one.
+    pub(crate) enabled: BTreeMap<u32, bool>,
     pub(crate) plane_crtc: BTreeMap<u32, u32>,
     /// The framebuffer each plane shows.
     pub(crate) plane_fb: BTreeMap<u32, u32>,
@@ -135,6 +143,8 @@ pub(crate) struct State {
     pub(crate) refused: Vec<u32>,
     pub(crate) page_flips: Vec<(u32, u32)>,
     pub(crate) set_crtcs: Vec<(u32, u32, u32, Mode)>,
+    /// The CRTCs the legacy calls turned off, in order.
+    pub(crate) disabled_crtcs: Vec<u32>,
     /// CRTCs with a flip pending, and those whose flip completed.
     pub(crate) pending: Vec<u32>,
     /// Flips complete without their events, as a driver that loses them.
@@ -143,6 +153,42 @@ pub(crate) struct State {
     pub(crate) blobs: BTreeMap<u32, Vec<u8>>,
     pub(crate) dumbs: BTreeMap<u32, (u32, u32)>,
     pub(crate) fbs: BTreeMap<u32, (u32, u32)>,
+}
+
+impl State {
+    /// Whether `crtc` passes the kernel's checks as `commit` leaves it:
+    /// a mode exactly where a connector is on it, and active or showing a
+    /// plane only with a mode.
+    fn consistent(&self, commit: &Commit, crtc: u32) -> bool {
+        let after = |object: u32, name: &str, before: Option<u32>| {
+            commit
+                .get(object, name)
+                .map_or(before, |v| u32::try_from(v).ok())
+                .unwrap_or(0)
+        };
+        let enabled = commit.get(crtc, "MODE_ID").map_or_else(
+            || {
+                self.enabled
+                    .get(&crtc)
+                    .copied()
+                    .unwrap_or_else(|| self.crtc_modes.contains_key(&crtc))
+            },
+            |v| v != 0,
+        );
+        let active = commit.get(crtc, "ACTIVE").map_or_else(
+            || self.active.get(&crtc).copied().unwrap_or(false),
+            |v| v != 0,
+        );
+        let connected = self
+            .connectors
+            .keys()
+            .any(|&c| after(c, "CRTC_ID", self.bound.get(&c).copied()) == crtc);
+        let planes = self
+            .planes
+            .keys()
+            .any(|&p| after(p, "CRTC_ID", self.plane_crtc.get(&p).copied()) == crtc);
+        enabled == connected && (enabled || !active && !planes)
+    }
 }
 
 /// The bytes of each dumb buffer, by handle: what its mappings wrote.
@@ -613,22 +659,28 @@ impl Kms for FakeCard {
         // The CRTCs in the commit's state: each set directly, each a plane
         // is put on, and each a plane in the commit was on. The kernel
         // sends a flip event for every one.
+        // A connector's CRTCs count the same way.
         let mut crtcs: Vec<u32> = commit
             .props
             .iter()
             .flat_map(|(o, n, v)| {
+                let on = s.planes.contains_key(o) || s.connectors.contains_key(o);
                 let set = if s.crtcs.contains(o) {
                     Some(*o)
-                } else if n == "CRTC_ID" && *v != 0 && s.planes.contains_key(o) {
+                } else if n == "CRTC_ID" && *v != 0 && on {
                     u32::try_from(*v).ok()
                 } else {
                     None
                 };
-                set.into_iter().chain(s.plane_crtc.get(o).copied())
+                let was = s.plane_crtc.get(o).or_else(|| s.bound.get(o));
+                set.into_iter().chain(was.copied().filter(|&c| c != 0))
             })
             .collect();
         crtcs.sort_unstable();
         crtcs.dedup();
+        if crtcs.iter().any(|&c| !s.consistent(&commit, c)) {
+            return Err(err(Errno::INVAL));
+        }
         let event = flags & DRM_MODE_PAGE_FLIP_EVENT != 0;
         let active = |c: u32| s.active.get(&c).copied().unwrap_or(false);
         let stays_off = crtcs.iter().any(|&c| {
@@ -659,6 +711,9 @@ impl Kms for FakeCard {
                 "ACTIVE" => {
                     s.active.insert(*o, *v != 0);
                 }
+                "MODE_ID" => {
+                    s.enabled.insert(*o, *v != 0);
+                }
                 _ => {}
             }
         }
@@ -688,6 +743,18 @@ impl Kms for FakeCard {
         s.bound.insert(connector, crtc);
         s.active.insert(crtc, true);
         s.dpms.insert(connector, 0);
+        Ok(())
+    }
+
+    fn disable_crtc(&self, crtc: u32) -> io::Result<()> {
+        let mut s = self.state.borrow_mut();
+        if !s.master {
+            return Err(err(Errno::ACCESS));
+        }
+        s.disabled_crtcs.push(crtc);
+        s.bound.retain(|_, c| *c != crtc);
+        s.active.insert(crtc, false);
+        s.enabled.insert(crtc, false);
         Ok(())
     }
 

@@ -42,6 +42,20 @@ pub(crate) fn keyboard() -> Bits {
     bits
 }
 
+/// A media-key device: Volume Down and Volume Up, above Mute.
+pub(crate) fn volume_keys() -> Bits {
+    let mut bits = Bits::default();
+    for ev in [EV_SYN, EV_KEY] {
+        set(&mut bits.ev, ev);
+    }
+    let mut key = KeyBits::default();
+    for code in [114, 115] {
+        set(&mut key, code);
+    }
+    bits.key = Some(key);
+    bits
+}
+
 /// A mouse: relative motion, a wheel, left and right buttons.
 pub(crate) fn mouse() -> Bits {
     let mut bits = Bits::default();
@@ -152,6 +166,10 @@ impl EventDevice for FakeDevice {
             return Err(io::Error::from(rustix::io::Errno::NOTTY));
         }
         Ok(n.bits)
+    }
+
+    fn id(&self) -> io::Result<(u16, u16)> {
+        Ok((0x1d6b, 0x0104))
     }
 
     fn abs_range(&self) -> io::Result<(Range, Range)> {

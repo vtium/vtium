@@ -41,6 +41,14 @@ const HEIGHT: Bound = Bound {
     cite: "`PSF_MAX_HEIGHT`, font_psf.c:66-67, 76, 200: PSF1 holds the height in a byte",
 };
 
+const RAW_HEIGHT: Bound = Bound {
+    name: "RAW_HEIGHT_MAX",
+    value: 32,
+    what: "A raw font glyph's height in pixels: a raw font is 256 glyphs of N bytes, one byte a row, 8 pixels across",
+    past: "The file is refused as a font",
+    cite: "setfont(8): \"Raw font files are binary files of size 256*N bytes ... (0 < N <= 32)\"; the C reference read no raw font (font_psf.c:154-205 refused a file with neither PSF magic)",
+};
+
 const BYTES: Bound = Bound {
     name: "PSF_BYTES_MAX",
     value: 16 << 20,
@@ -145,12 +153,29 @@ const SET_RECORD: Bound = Bound {
     cite: "vtium's own: format 2.0's largest record is 48 bytes, and a minor version adds fields at a record's end (ADR-1200 D2); it bounds what a table's counts can make the reader hold",
 };
 
+const SET_CLUSTERS: Bound = Bound {
+    name: "SET_CLUSTERS_MAX",
+    value: 1 << 16,
+    what: "Clusters a set's `CLUS` maps, over every strike",
+    past: "The set is refused",
+    cite: "vtium's own: Unicode 18.0's RGI emoji sequences other than single emoji are 2,563, or 3,536 with each keyed again without its U+FE0F; canonical decompositions 1,349 keys; a screen of 320 by 100 cells shows at most 32,000 clusters. A cluster takes 20 bytes in memory and its key at most 64, so the map holds at most 5.25 MiB",
+};
+
+const CLUSTER_SCALARS: Bound = Bound {
+    name: "CLUSTER_SCALARS_MAX",
+    value: 16,
+    what: "Scalar values in a cluster's key",
+    past: "The set is refused; a longer cluster is looked up as none",
+    cite: "vtium's own: Unicode 18.0's longest RGI emoji sequence, a kiss with two skin tones, is 10",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 16] = [
+pub(crate) const BOUNDS: [Bound; 19] = [
     GLYPHS,
     WIDTH,
     HEIGHT,
+    RAW_HEIGHT,
     BYTES,
     ENTRIES,
     GZIP,
@@ -164,6 +189,8 @@ pub(crate) const BOUNDS: [Bound; 16] = [
     SET_CHUNKS,
     SET_CHUNK,
     SET_RECORD,
+    SET_CLUSTERS,
+    CLUSTER_SCALARS,
 ];
 
 /// Glyphs a PSF font holds; a font with more is refused.
@@ -174,6 +201,10 @@ pub const PSF_WIDTH_MAX: u32 = WIDTH.value;
 
 /// A PSF glyph's height in pixels; a taller font is refused.
 pub const PSF_HEIGHT_MAX: u32 = HEIGHT.value;
+
+/// A raw font's glyph height in pixels, so a raw font is at most 256 times
+/// this many bytes; a file past it is not read as a font.
+pub const RAW_HEIGHT_MAX: u32 = RAW_HEIGHT.value;
 
 /// Bytes a PSF file holds, decompressed; a larger file is refused.
 pub const PSF_BYTES_MAX: u32 = BYTES.value;
@@ -217,6 +248,14 @@ pub const SET_CHUNK_BYTES: u32 = SET_CHUNK.value;
 
 /// Bytes a record of a set's tables declares; a larger one is refused.
 pub const SET_RECORD_BYTES_MAX: u32 = SET_RECORD.value;
+
+/// Clusters a set's `CLUS` maps over every strike; a set with more is
+/// refused.
+pub const SET_CLUSTERS_MAX: u32 = SET_CLUSTERS.value;
+
+/// Scalar values in a cluster's key; a set with a longer key is refused,
+/// and a longer cluster is looked up as none.
+pub const CLUSTER_SCALARS_MAX: u32 = CLUSTER_SCALARS.value;
 
 #[cfg(test)]
 #[expect(
@@ -275,6 +314,7 @@ mod tests {
         assert_eq!(PSF_WIDTH_MAX, 32);
         assert_eq!(PSF_HEIGHT_MAX, 256);
         assert_eq!(PSF_BYTES_MAX, 16 << 20);
+        assert_eq!(RAW_HEIGHT_MAX, 32);
         assert_eq!(PSF_ENTRIES_MAX, 0x11_0000);
     }
 }

@@ -3,9 +3,11 @@
 //! each answer as it arrives without ever waiting on it.
 //!
 //! It asks under the operator's fill model (2026-10-28). An ask names the
-//! characters a cell shows that the store does not hold, has not been told
-//! the frit lacks, and has not already asked for; the helper answers it
-//! ahead of anything else. A fill fills a cell's coverage while nothing is
+//! characters and the clusters a cell shows that the store does not hold,
+//! has not been told the frit lacks, and has not already asked for; the
+//! helper answers it ahead of anything else, each cluster shaped and drawn
+//! whole (ADR-1200 D21). The console's record of each cell keys a glyph as
+//! the store does (ADR-1200 D20), a cluster by its whole text. A fill fills a cell's coverage while nothing is
 //! asked: the screen's characters, then printable Latin and box drawing,
 //! then the rest, a batch at a time, a waiting ask answered before the
 //! next batch. The fill stops at the store's limit ([`crate::deferred`]),
@@ -19,19 +21,25 @@
 //! (ADR-1400 D2's last account before login), and sandboxes itself. A
 //! thread writes the requests and another reads the answers, so neither
 //! a slow nor a hung helper stalls the loop; the reader wakes the loop
-//! after each answer, and reaps the helper as it exits. Each frame is
+//! after each answer. A third reaps the helper as it exits, ending first
+//! each process it started in its process group, so none holds its
+//! output past it. Each frame is
 //! checked before it is trusted: its length against [`FRAME_BYTES_MAX`]
 //! before anything is allocated, a set through vtium-font's reader, which
 //! bounds every field, every strike at a cell asked for and regular in
-//! style, an ask's glyphs among those it asked for and not yet sent, and a
-//! fill's among those the cell does not hold. The helper says when it takes
+//! style, an ask's glyphs and clusters among those it asked for and not yet
+//! sent, and a fill's among those the cell does not hold, with no cluster. The helper says when it takes
 //! each stop, and a cell's fill frames before that belong to the fill
 //! stopped and are dropped, so a cell filled again at once takes only its
 //! new fill.
 //!
+//! A warning the frit's text gave as the helper read it, such as a key that
+//! does nothing, is logged once a boot, at most [`WARNINGS_MAX`] of them.
+//!
 //! A helper that answers what is not a frame, what was not asked, or a
 //! failure is given up for the boot, logged once, and the built-in font
-//! goes on drawing what it has not sent. One that crashes, reaches its CPU
+//! goes on drawing what it has not sent, its clusters unshaped, a glyph a
+//! codepoint (ADR-1301 D1). One that crashes, reaches its CPU
 //! limit, gives no answer for [`ANSWER_MS`], leaves an ask unanswered for
 //! [`REQUEST_MS`], or exits with work outstanding is started again, its
 //! asks and fills sent again, at most [`RESTARTS_MAX`] times a boot. One
@@ -53,18 +61,20 @@ use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
-use std::process::{Command as Process, ExitStatus, Stdio};
-use std::rc::Rc;
+use std::process::{Child, Command as Process, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use rustix::process::{Pid, PidfdFlags, Signal, pidfd_open, pidfd_send_signal};
+use rustix::process::{
+    Pid, PidfdFlags, Signal, WaitId, WaitIdOptions, kill_process_group, pidfd_open,
+    pidfd_send_signal, waitid,
+};
 use vtium_font::Cell;
 use vtium_font::set::{Set, SetFace};
 use vtium_platform::vt::font::ConsoleFont;
 
-use crate::deferred::Shared;
+use crate::deferred::{Shared, Shown, Text};
 
 /// How long the helper may take for each answer while work is
 /// outstanding: a CJK frit's first batch on a Cortex-A53 takes about a
@@ -81,14 +91,31 @@ pub const RESTARTS_MAX: u32 = 3;
 pub const FRAME_BYTES_MAX: u32 = 16 << 20;
 /// The most bytes of a failure's reason kept.
 pub const REASON_BYTES_MAX: u32 = 4096;
-/// The most codepoints one request names, the helper's `FIRST_MAX`.
+/// The most codepoints one request names, the helper's `FIRST_MAX`, and the
+/// most clusters.
 pub const FIRST_MAX: usize = 32_000;
+/// The most clusters a cell's record of those the frit lacks holds: past it
+/// the record is emptied, and a cluster shown again is asked for again.
+// A program can write clusters without end, each different; a screen shows at most FIRST_MAX, and 4,096 is a screen's worth of distinct ones on minspec's 80x25.
+pub const CLUSTERS_LACKED_MAX: usize = 4096;
+/// The most clusters a cell has asked for and not been answered: past it a
+/// cluster shown draws unshaped, and is asked for on a later change.
+pub const CLUSTERS_WAITING_MAX: usize = CLUSTERS_LACKED_MAX;
+/// The most asks the helper has not answered whole: past it nothing more
+/// is asked, and what the screen shows is asked for on a later change, so
+/// a program that writes faster than the helper answers grows no queue.
+// One ask a cell a turn, a few cells at most; 64 is many turns of a busy screen behind.
+pub const ASKS_MAX: usize = 64;
+/// The most warnings from the frit's text logged a boot; a helper that
+/// sends more is not given up, and the rest are not logged.
+// A frit's text gives a warning a line at most, and a frit worth drawing has few lines that do nothing; the bound keeps a helper that sends warnings without end out of the log.
+pub const WARNINGS_MAX: usize = 16;
 /// How long the console waits before its first frame for a frit's own
 /// cell.
 // The helper starts and reads a PSF well inside it on minspec, and a start that waits longer stalls visibly (the operator, 2026-10-28).
 pub const OWN_CELL_MS: u64 = 100;
 
-const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ2";
+const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ3";
 const ASK: u32 = 1;
 const FILL: u32 = 2;
 const STOP: u32 = 3;
@@ -101,6 +128,7 @@ const FRAME_FILLED: u32 = 5;
 const FRAME_OWN_CELL: u32 = 6;
 const FRAME_NO_OWN_CELL: u32 = 7;
 const FRAME_STOPPED: u32 = 8;
+const FRAME_WARNING: u32 = 9;
 
 /// `SIGXCPU`, which an exhausted `RLIMIT_CPU` sends.
 const SIGXCPU: i32 = 24;
@@ -188,14 +216,14 @@ impl FritText {
 }
 
 /// One request's bytes: `kind` at `cell` for `frit`, naming `codepoints`
-/// (cut at [`FIRST_MAX`]) and `held`, with the kernel's font. The display's
-/// capabilities are reserved, and sent empty.
+/// and `clusters` (each cut at [`FIRST_MAX`]) and `held`, with the
+/// kernel's font. The display's capabilities are reserved, and sent empty.
 fn encode(
     frit: &FritText,
     console: Option<&ConsoleFont>,
     kind: u32,
     cell: Cell,
-    codepoints: &[u32],
+    (codepoints, clusters): (&[u32], &[Text]),
     held: &[(u32, u32)],
 ) -> Vec<u8> {
     let mut out = REQUEST_MAGIC.to_vec();
@@ -211,6 +239,14 @@ fn encode(
     put32(&mut out, len32(codepoints.len()));
     for &c in codepoints {
         put32(&mut out, c);
+    }
+    let clusters = clusters.get(..FIRST_MAX).unwrap_or(clusters);
+    put32(&mut out, len32(clusters.len()));
+    for cluster in clusters {
+        put32(&mut out, len32(cluster.len()));
+        for &c in cluster {
+            put32(&mut out, u32::from(c));
+        }
     }
     put32(&mut out, len32(held.len()));
     for &(a, b) in held {
@@ -257,6 +293,8 @@ enum Event {
     OwnCell(Cell),
     /// The frit has no own cell: why.
     NoOwnCell(String),
+    /// A warning the frit's text gave as the helper read it.
+    Warning(String),
     Failed(String),
     /// Bytes that are not a frame, or a set its reader refused.
     Malformed(String),
@@ -359,7 +397,7 @@ fn frame(r: &mut impl Read) -> Option<Event> {
         FRAME_GLYPHS | FRAME_FILL => FRAME_BYTES_MAX,
         FRAME_DONE => 0,
         FRAME_FILLED | FRAME_OWN_CELL | FRAME_STOPPED => 8,
-        FRAME_FAILED | FRAME_NO_OWN_CELL => REASON_BYTES_MAX,
+        FRAME_FAILED | FRAME_NO_OWN_CELL | FRAME_WARNING => REASON_BYTES_MAX,
         other => return Some(Event::Malformed(format!("a frame of unknown kind {other}"))),
     };
     if len > max {
@@ -415,12 +453,15 @@ fn frame(r: &mut impl Read) -> Option<Event> {
             _ => Event::Malformed("an own cell without its size".to_owned()),
         },
         FRAME_NO_OWN_CELL => Event::NoOwnCell(String::from_utf8_lossy(&payload).into_owned()),
+        FRAME_WARNING => Event::Warning(String::from_utf8_lossy(&payload).into_owned()),
         _ => Event::Failed(String::from_utf8_lossy(&payload).into_owned()),
     })
 }
 
 /// An answer the console takes: glyphs now in the store at `cell`, drawn
-/// through `face`, for `chars`, sorted.
+/// through `face`, for `chars`, sorted: each codepoint it brought with
+/// those it decomposes to, and each character of each cluster, so the
+/// cells showing one, or a cluster that composes to one, redraw.
 #[derive(Debug)]
 pub struct Answer {
     pub cell: Cell,
@@ -429,7 +470,7 @@ pub struct Answer {
 }
 
 /// The helper's process: its pidfd, which ends it, the writer's queue and
-/// the reader's events. The reader thread owns the child and reaps it.
+/// the reader's events. The reaper thread owns the child.
 struct Running {
     pidfd: Option<OwnedFd>,
     requests: mpsc::Sender<Vec<u8>>,
@@ -497,14 +538,24 @@ enum Fill {
     Done,
 }
 
-/// What the console knows of one cell: the codepoints the store holds,
-/// those the frit lacks, those asked for and not yet answered, and its
-/// fill.
+/// What the console knows of one cell's clusters, as of its codepoints.
+#[derive(Default)]
+struct Clusters {
+    held: BTreeSet<Text>,
+    /// At most [`CLUSTERS_LACKED_MAX`].
+    absent: BTreeSet<Text>,
+    pending: BTreeSet<Text>,
+}
+
+/// What the console knows of one cell: the codepoints and clusters the
+/// store holds, those the frit lacks, those asked for and not yet
+/// answered, and its fill.
 struct CellState {
     cell: Cell,
     held: Bits,
     absent: Bits,
     pending: Bits,
+    clusters: Clusters,
     fill: Fill,
     /// The codepoints the fill asked for last has brought, held or not.
     brought: Bits,
@@ -516,12 +567,33 @@ struct CellState {
 }
 
 impl CellState {
+    /// The store holds `text`'s glyph at the cell.
+    fn hold(&mut self, text: Text) {
+        match *text.as_slice() {
+            [c] => self.held.put(u32::from(c), true),
+            _ => {
+                self.clusters.held.insert(text);
+            }
+        }
+    }
+
+    /// The store no longer holds `text`'s glyph at the cell.
+    fn forget(&mut self, text: Text) {
+        match *text.as_slice() {
+            [c] => self.held.put(u32::from(c), false),
+            _ => {
+                self.clusters.held.remove(&text);
+            }
+        }
+    }
+
     fn new(cell: Cell) -> CellState {
         CellState {
             cell,
             held: Bits::new(),
             absent: Bits::new(),
             pending: Bits::new(),
+            clusters: Clusters::default(),
             fill: Fill::None,
             brought: Bits::new(),
             first: Vec::new(),
@@ -531,11 +603,12 @@ impl CellState {
     }
 }
 
-/// An ask the helper has not answered whole: its cell, the codepoints it
-/// has yet to send, and when it was sent.
+/// An ask the helper has not answered whole: its cell, the codepoints and
+/// clusters it has yet to send, and when it was sent.
 struct Ask {
     cell: Cell,
     want: BTreeSet<u32>,
+    clusters: BTreeSet<Text>,
     sent: Instant,
 }
 
@@ -565,6 +638,8 @@ pub struct Helper {
     restarts: u32,
     /// The store reached its limit: logged once.
     full: bool,
+    /// The frit's warnings logged this boot, at most [`WARNINGS_MAX`].
+    warned: BTreeSet<String>,
     failed: Option<String>,
     answer: Duration,
     request: Duration,
@@ -603,6 +678,7 @@ impl Helper {
             due: None,
             restarts: 0,
             full: false,
+            warned: BTreeSet::new(),
             failed: None,
             answer: Duration::from_millis(ANSWER_MS),
             request: Duration::from_millis(REQUEST_MS),
@@ -651,35 +727,64 @@ impl Helper {
         state.started = Some(now);
         state.first_glyphs = None;
         let (codepoints, held) = (state.first.clone(), state.held.ranges());
-        self.send(FILL, cell, &codepoints, &held, now);
+        self.send(FILL, cell, (&codepoints, &[]), &held, now);
     }
 
-    /// Asks for each of `chars` at `cell` that the store does not hold,
-    /// the frit is not known to lack and no ask has named.
-    pub fn ask(&mut self, cell: Cell, chars: &[char], now: Instant) {
-        if self.failed.is_some() {
+    /// Asks for each character and each cluster `shown` at `cell` that the
+    /// store does not hold, the frit is not known to lack and no ask has
+    /// named: at most [`FIRST_MAX`] of each, at most
+    /// [`CLUSTERS_WAITING_MAX`] clusters waiting at the cell, and nothing
+    /// while [`ASKS_MAX`] asks wait; what is left is asked for on a later
+    /// change. A cluster longer than [`vtium_font::CLUSTER_SCALARS_MAX`]
+    /// is never asked for. A cluster not asked for draws unshaped.
+    pub fn ask(&mut self, cell: Cell, shown: &Shown, now: Instant) {
+        if self.failed.is_some() || self.asks.len() >= ASKS_MAX {
             return;
         }
         let Some(state) = self.state(cell) else {
             return;
         };
         let mut want = BTreeSet::new();
-        for c in chars.iter().map(|&c| u32::from(c)) {
+        for c in shown.chars.iter().map(|&c| u32::from(c)) {
+            if want.len() >= FIRST_MAX {
+                break;
+            }
             if !state.held.has(c) && !state.absent.has(c) && !state.pending.has(c) {
                 state.pending.put(c, true);
                 want.insert(c);
             }
         }
-        if want.is_empty() {
+        let longest = usize::try_from(vtium_font::CLUSTER_SCALARS_MAX).unwrap_or(usize::MAX);
+        let known = &mut state.clusters;
+        let room = CLUSTERS_WAITING_MAX
+            .saturating_sub(known.pending.len())
+            .min(FIRST_MAX);
+        let mut clusters = BTreeSet::new();
+        for t in shown
+            .clusters
+            .iter()
+            .filter(|t| (2..=longest).contains(&t.len()))
+        {
+            if clusters.len() >= room {
+                break;
+            }
+            if !known.held.contains(t) && !known.absent.contains(t) && !known.pending.contains(t) {
+                known.pending.insert(t.clone());
+                clusters.insert(t.clone());
+            }
+        }
+        if want.is_empty() && clusters.is_empty() {
             return;
         }
         let codepoints: Vec<u32> = want.iter().copied().collect();
+        let texts: Vec<Text> = clusters.iter().cloned().collect();
         self.asks.push_back(Ask {
             cell,
             want,
+            clusters,
             sent: now,
         });
-        self.send(ASK, cell, &codepoints, &[], now);
+        self.send(ASK, cell, (&codepoints, &texts), &[], now);
     }
 
     /// The frit's own cell, asked of the helper and waited for at most
@@ -693,7 +798,7 @@ impl Helper {
             height: 0,
         };
         if self.failed.is_none() {
-            self.send(OWN_CELL, none, &[], &[], now);
+            self.send(OWN_CELL, none, (&[], &[]), &[], now);
         }
         if let Some(why) = &self.failed {
             return Err(why.clone());
@@ -737,13 +842,13 @@ impl Helper {
             }
         }
         self.cells.retain(|c| cells.contains(&c.cell));
-        self.store.borrow_mut().retain(cells);
+        crate::deferred::lock(&self.store).retain(cells);
     }
 
     /// Tells the helper to stop `cell`'s fill, and drops that cell's fill
     /// frames until the helper says it took the stop.
     fn stop_fill(&mut self, cell: Cell, now: Instant) {
-        self.send(STOP, cell, &[], &[], now);
+        self.send(STOP, cell, (&[], &[]), &[], now);
         if self.running.is_some() {
             self.stopped.push(cell);
         }
@@ -755,7 +860,7 @@ impl Helper {
         &mut self,
         kind: u32,
         cell: Cell,
-        codepoints: &[u32],
+        named: (&[u32], &[Text]),
         held: &[(u32, u32)],
         now: Instant,
     ) {
@@ -765,14 +870,7 @@ impl Helper {
                 Err(why) => return self.fail(&why),
             }
         }
-        let bytes = encode(
-            &self.frit,
-            self.console.as_ref(),
-            kind,
-            cell,
-            codepoints,
-            held,
-        );
+        let bytes = encode(&self.frit, self.console.as_ref(), kind, cell, named, held);
         if let Some(r) = &self.running {
             // a send fails only once the writer is gone, which the reader
             // reports as the helper closing
@@ -805,15 +903,36 @@ impl Helper {
         let mut child = process
             .spawn()
             .map_err(|e| format!("cannot start {}: {e}", c.program.display()))?;
-        // a pidfd names this child alone, even once the reader has reaped it
+        // a pidfd names this child alone, even once the reaper has reaped it
         let pidfd = i32::try_from(child.id())
             .ok()
             .and_then(Pid::from_raw)
             .and_then(|pid| pidfd_open(pid, PidfdFlags::empty()).ok());
         let (stdin, stdout) = (child.stdin.take(), child.stdout.take());
+        // the reaper starts first, so the child is reaped whatever fails
+        // after
+        let (exited, status) = mpsc::channel();
+        let (give, given) = mpsc::channel::<Child>();
+        if let Err(e) = thread("reaper", move || {
+            if let Ok(child) = given.recv() {
+                let _ = exited.send(reap(child));
+            }
+        }) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("cannot start its reaper: {e}"));
+        }
+        let _ = give.send(child);
+        // a thread that cannot start ends the child, which its reaper reaps
+        let end = |what: &str, e: std::io::Error| {
+            if let Some(fd) = &pidfd {
+                let _ = pidfd_send_signal(fd, Signal::KILL);
+            }
+            format!("cannot start its {what}: {e}")
+        };
         let (requests, to_write) = mpsc::channel::<Vec<u8>>();
         if let Some(mut stdin) = stdin {
-            std::thread::spawn(move || {
+            thread("writer", move || {
                 for bytes in to_write {
                     if stdin
                         .write_all(&bytes)
@@ -823,11 +942,12 @@ impl Helper {
                         break;
                     }
                 }
-            });
+            })
+            .map_err(|e| end("writer", e))?;
         }
         let (tx, events) = mpsc::channel();
         let wake = Arc::clone(&self.wake);
-        std::thread::spawn(move || {
+        thread("reader", move || {
             if let Some(mut stdout) = stdout {
                 while let Some(e) = frame(&mut stdout) {
                     let malformed = matches!(e, Event::Malformed(_));
@@ -840,12 +960,14 @@ impl Helper {
                     }
                 }
             }
-            // reaped here, as it exits, so a helper that closes its output
-            // a moment before it exits is waited for, never ended
-            let status = child.wait().ok();
+            // its end is told once it has exited too, so a helper that
+            // closes its output a moment before it exits is waited for,
+            // never ended
+            let status = status.recv().ok().flatten();
             let _ = tx.send(Event::Closed(status));
             wake();
-        });
+        })
+        .map_err(|e| end("reader", e))?;
         Ok(Running {
             pidfd,
             requests,
@@ -866,14 +988,14 @@ impl Helper {
         self.due = None;
         if self.failed.is_none() {
             log::warn!(
-                "the font's glyphs are not generated ({why}): vtium draws its built-in font for them"
+                "the font's glyphs are not generated ({why}): vtium draws its built-in font for them, and each cluster unshaped, a glyph a codepoint"
             );
             self.failed = Some(why.to_owned());
         }
     }
 
-    /// Ends the helper's process, if it runs; its reader reaps it, and
-    /// nothing it sent is taken.
+    /// Ends the helper's process, if it runs; its reaper ends what it
+    /// started and reaps it, and nothing it sent is taken.
     fn stop(&mut self) {
         self.stopped.clear();
         self.querying = false;
@@ -897,16 +1019,17 @@ impl Helper {
             self.restarts
         );
         self.due = None;
-        let asks: Vec<(Cell, Vec<u32>)> = self
+        let asks: Vec<(Cell, Vec<u32>, Vec<Text>)> = self
             .asks
             .iter_mut()
             .map(|a| {
                 a.sent = now;
-                (a.cell, a.want.iter().copied().collect())
+                let want = a.want.iter().copied().collect();
+                (a.cell, want, a.clusters.iter().cloned().collect())
             })
             .collect();
-        for (cell, want) in asks {
-            self.send(ASK, cell, &want, &[], now);
+        for (cell, want, clusters) in asks {
+            self.send(ASK, cell, (&want, &clusters), &[], now);
         }
         let fills: Vec<Cell> = self
             .cells
@@ -920,7 +1043,7 @@ impl Helper {
             };
             state.brought = Bits::new();
             let (first, held) = (state.first.clone(), state.held.ranges());
-            self.send(FILL, cell, &first, &held, now);
+            self.send(FILL, cell, (&first, &[]), &held, now);
         }
     }
 
@@ -954,6 +1077,11 @@ impl Helper {
                 }
                 Event::OwnCell(_) | Event::NoOwnCell(_) => {
                     Err("the helper answered a cell query not made".to_owned())
+                }
+                // a warning answers nothing, so the answer is still due
+                Event::Warning(why) => {
+                    self.warn(why.trim());
+                    continue;
                 }
                 Event::Failed(why) => Err(format!("the helper failed: {}", why.trim())),
                 Event::Malformed(why) => Err(format!("the helper's answer was refused: {why}")),
@@ -989,15 +1117,16 @@ impl Helper {
     }
 
     /// Takes a frame of glyphs, or refuses it: an ask's must be at the
-    /// oldest ask's cell and among the codepoints it has yet to send; a
-    /// fill's at a cell filling and among those the fill has not brought.
-    /// The store takes the frame without the glyphs it holds, as a request
-    /// may send again a glyph an earlier one brought (ADR-1200 D18), and a
-    /// frame with nothing new adds nothing. An ask's past the store's limit
-    /// compacts the store by the overrun, the glyphs least recently shown
-    /// leaving ([`crate::deferred::Generated::make_room`]), and a frame
-    /// that then carries a glyph that left adds it again; a fill's past
-    /// the limit is dropped and the fill stopped.
+    /// oldest ask's cell and among the codepoints and clusters it has yet
+    /// to send; a fill's at a cell filling, among those the fill has not
+    /// brought, and with no cluster. The store takes the frame without the
+    /// glyphs it holds, as a request may send again a glyph an earlier one
+    /// brought (ADR-1200 D18), and a frame with nothing new adds nothing.
+    /// An ask's past the store's limit compacts the store by the overrun,
+    /// the glyphs least recently shown leaving
+    /// ([`crate::deferred::Generated::make_room`]), and a frame that then
+    /// carries a glyph that left adds it again; a fill's past the limit is
+    /// dropped and the fill stopped.
     fn glyphs(
         &mut self,
         fill: bool,
@@ -1017,14 +1146,17 @@ impl Helper {
         {
             return Err(not_asked());
         }
-        let store = Rc::clone(&self.store);
+        let clusters: Vec<Text> = set.clusters().map(|(_, _, key)| key).collect();
+        let store = Arc::clone(&self.store);
         let without_held = || {
-            store
-                .borrow()
+            crate::deferred::lock(&store)
                 .fresh(cell, Arc::clone(set), &runs, bytes)
                 .ok_or_else(not_asked)
         };
         let fresh = if fill {
+            if !clusters.is_empty() {
+                return Err("the helper's fill carries a cluster".to_owned());
+            }
             if self.stopped.contains(&cell) {
                 return Ok(None);
             }
@@ -1045,10 +1177,14 @@ impl Helper {
                 state.brought.put(c, true);
             }
             let fresh = without_held()?;
-            if fresh.chars().next().is_none() {
+            if fresh.texts().next().is_none() {
                 return Ok(None);
             }
-            if self.store.borrow().bytes().saturating_add(fresh.bytes()) > self.limit {
+            if crate::deferred::lock(&self.store)
+                .bytes()
+                .saturating_add(fresh.bytes())
+                > self.limit
+            {
                 self.store_full(cell, now);
                 return Ok(None);
             }
@@ -1063,6 +1199,11 @@ impl Helper {
                     return Err("the helper answered a glyph the ask did not name".to_owned());
                 }
             }
+            for t in &clusters {
+                if !ask.clusters.remove(t) {
+                    return Err("the helper answered a cluster the ask did not name".to_owned());
+                }
+            }
             let Some(state) = self.cells.iter_mut().find(|c| c.cell == cell) else {
                 // no display draws at the cell any more
                 return Ok(None);
@@ -1072,26 +1213,29 @@ impl Helper {
             for c in codepoints(&runs).flatten() {
                 state.pending.put(c, false);
             }
+            for t in &clusters {
+                state.clusters.pending.remove(t);
+            }
             let mut fresh = without_held()?;
             loop {
                 if fresh.bytes() > self.limit {
                     return Ok(None);
                 }
-                let held = self.store.borrow().bytes();
+                let held = crate::deferred::lock(&self.store).bytes();
                 let overrun = held
                     .saturating_add(fresh.bytes())
                     .saturating_sub(self.limit);
                 if overrun == 0 {
                     break fresh;
                 }
-                for (at, gone) in self.store.borrow_mut().make_room(overrun) {
+                for (at, gone) in crate::deferred::lock(&self.store).make_room(overrun) {
                     if let Some(state) = self.cells.iter_mut().find(|c| c.cell == at) {
-                        for c in gone {
-                            state.held.put(u32::from(c), false);
+                        for t in gone {
+                            state.forget(t);
                         }
                     }
                 }
-                if self.store.borrow().bytes() == held {
+                if crate::deferred::lock(&self.store).bytes() == held {
                     // nothing left to free
                     return Ok(None);
                 }
@@ -1100,24 +1244,49 @@ impl Helper {
                 fresh = without_held()?;
             }
         };
-        let mut added: Vec<char> = fresh.chars().collect();
-        added.sort_unstable();
-        let Some(face) = self.store.borrow_mut().add(fresh) else {
+        let added: Vec<Text> = fresh.texts().cloned().collect();
+        let Some(face) = crate::deferred::lock(&self.store).add(fresh) else {
             return Ok(None);
         };
+        // a cluster that decomposes from an arrived codepoint may draw it
+        // now (D22 step 2), so the cells showing its base redraw too
+        let mut chars: Vec<char> = added
+            .iter()
+            .flatten()
+            .flat_map(|&c| crate::deferred::decomposition(c))
+            .collect();
+        chars.sort_unstable();
+        chars.dedup();
         if let Some(state) = self.state(cell) {
-            for &c in &added {
-                state.held.put(u32::from(c), true);
+            for t in added {
+                state.hold(t);
             }
             if fill {
                 state.first_glyphs.get_or_insert(now);
             }
         }
-        Ok(Some(Answer {
-            cell,
-            face,
-            chars: added,
-        }))
+        Ok(Some(Answer { cell, face, chars }))
+    }
+
+    /// Logs the frit's warning `why`, once a boot and at most
+    /// [`WARNINGS_MAX`] of them: a helper started again reads the frit
+    /// again and sends its warnings again.
+    /// Its control characters are escaped, so the helper's text cannot
+    /// steer what shows the log.
+    fn warn(&mut self, why: &str) {
+        let why: String = why
+            .chars()
+            .flat_map(|c| {
+                let escaped = c.is_control().then(|| c.escape_default());
+                escaped
+                    .into_iter()
+                    .flatten()
+                    .chain((!c.is_control()).then_some(c))
+            })
+            .collect();
+        if self.warned.len() < WARNINGS_MAX && self.warned.insert(why.clone()) {
+            log::warn!("the frit {why}");
+        }
     }
 
     /// The store is full while `cell` fills: the fill stops there, logged
@@ -1137,7 +1306,7 @@ impl Helper {
     }
 
     /// The oldest ask is answered whole: what it did not send, the frit
-    /// lacks.
+    /// lacks or cannot shape.
     fn done(&mut self) -> Result<(), String> {
         let ask = self
             .asks
@@ -1147,6 +1316,14 @@ impl Helper {
             for &c in &ask.want {
                 state.pending.put(c, false);
                 state.absent.put(c, true);
+            }
+            let known = &mut state.clusters;
+            for t in ask.clusters {
+                known.pending.remove(&t);
+                if known.absent.len() >= CLUSTERS_LACKED_MAX {
+                    known.absent.clear();
+                }
+                known.absent.insert(t);
             }
         }
         Ok(())
@@ -1240,6 +1417,37 @@ impl Drop for Helper {
     fn drop(&mut self) {
         self.stop();
     }
+}
+
+/// Starts one of a helper's threads, `name` its role.
+fn thread(name: &str, f: impl FnOnce() + Send + 'static) -> std::io::Result<()> {
+    std::thread::Builder::new()
+        .name(format!("vtium-helper-{name}"))
+        .spawn(f)
+        .map(drop)
+}
+
+/// Waits for the helper `child` to exit, ends each process it started in
+/// its process group, and reaps it, how it exited. Until it is reaped its
+/// pid, and with it the group's id, names no other process, so the
+/// group's end reaches only what the helper started.
+fn reap(mut child: Child) -> Option<ExitStatus> {
+    if let Some(pid) = i32::try_from(child.id()).ok().and_then(Pid::from_raw) {
+        loop {
+            match waitid(
+                WaitId::Pid(pid),
+                WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
+            ) {
+                Err(rustix::io::Errno::INTR) => {}
+                Ok(_) => {
+                    let _ = kill_process_group(pid, Signal::KILL);
+                    break;
+                }
+                Err(_) => break,
+            }
+        }
+    }
+    child.wait().ok()
 }
 
 fn after(t: Instant, d: Duration) -> Instant {
@@ -1395,6 +1603,14 @@ mod tests {
         Instant::now()
     }
 
+    /// The screen showing `chars`, no cluster.
+    fn shown(chars: &[char]) -> Shown {
+        Shown {
+            chars: chars.to_vec(),
+            clusters: Vec::new(),
+        }
+    }
+
     /// The frit `t` of `text`.
     fn frit(text: &str) -> FritText {
         FritText {
@@ -1405,16 +1621,23 @@ mod tests {
 
     #[test]
     fn a_request_is_the_helpers_format() {
-        let bytes = encode(&frit("x=y\n"), None, ASK, CELL, &[0x41], &[(0x42, 0x43)]);
-        let mut want = b"VTVSREQ2".to_vec();
+        let bytes = encode(
+            &frit("x=y\n"),
+            None,
+            ASK,
+            CELL,
+            (&[0x41], &[vec!['e', '\u{301}']]),
+            &[(0x42, 0x43)],
+        );
+        let mut want = b"VTVSREQ3".to_vec();
         want.extend_from_slice(&ASK.to_le_bytes());
         want.extend_from_slice(&1u32.to_le_bytes());
         want.extend_from_slice(b"t");
         want.extend_from_slice(&4u32.to_le_bytes());
         want.extend_from_slice(b"x=y\n");
-        // the cell, the reserved capabilities, the codepoint, the held
-        // range, no console font
-        for v in [8u32, 16, 0, 1, 0x41, 1, 0x42, 0x43, 0] {
+        // the cell, the reserved capabilities, the codepoint, the cluster
+        // of two, the held range, no console font
+        for v in [8u32, 16, 0, 1, 0x41, 1, 2, 0x65, 0x301, 1, 0x42, 0x43, 0] {
             want.extend_from_slice(&v.to_le_bytes());
         }
         assert_eq!(bytes, want);
@@ -1445,7 +1668,7 @@ mod tests {
         fixture.extend(frame_bytes(FRAME_DONE, &[]));
         let mut s = StandIn::new("ask", ANSWERS, &fixture);
         let now = t0();
-        s.helper.ask(CELL, &['A', 'B'], now);
+        s.helper.ask(CELL, &shown(&['A', 'B']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 1);
@@ -1453,8 +1676,286 @@ mod tests {
         assert!(answers[0].face.has_glyph('A'));
         assert!(s.held('A'));
         // A is held and B is known lacking: nothing more is asked
-        s.helper.ask(CELL, &['A', 'B'], now);
+        s.helper.ask(CELL, &shown(&['A', 'B']), now);
         assert!(!s.helper.busy());
+    }
+
+    const ACUTE: [char; 2] = ['e', '\u{301}'];
+    const GRAVE: [char; 2] = ['e', '\u{300}'];
+
+    /// A set at `cell` mapping each of `clusters` to a solid glyph.
+    fn cluster_set(cell: Cell, clusters: &[&[char]]) -> Vec<u8> {
+        let mut s = StrikeBuilder::new(PixelFormat::R8, cell, Style::default()).compress(false);
+        let g = s.glyph(
+            Width::Narrow,
+            vec![255; (cell.width * cell.height) as usize],
+        );
+        for &k in clusters {
+            s.cluster(k, g);
+        }
+        SetBuilder::new("t").strike(s).write().unwrap()
+    }
+
+    /// The screen showing `clusters` whole, and each of their characters.
+    fn clustered(clusters: &[&[char]]) -> Shown {
+        let mut chars: Vec<char> = clusters.iter().flat_map(|k| k.iter().copied()).collect();
+        chars.sort_unstable();
+        chars.dedup();
+        Shown {
+            chars,
+            clusters: clusters.iter().map(|k| k.to_vec()).collect(),
+        }
+    }
+
+    // ADR-1200 D20, D21: a cluster is asked for by its whole text, its
+    // glyph held by that text, and one the helper did not shape is known
+    // lacking: neither is asked for again
+    #[test]
+    fn a_cluster_is_asked_for_whole_and_held_by_its_text() {
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &cluster_set(CELL, &[&ACUTE]));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let mut s = StandIn::new("cluster", ANSWERS, &fixture);
+        let now = t0();
+        let only_clusters = Shown {
+            chars: Vec::new(),
+            clusters: vec![ACUTE.to_vec(), GRAVE.to_vec()],
+        };
+        s.helper.ask(CELL, &only_clusters, now);
+        let answers = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(answers.len(), 1);
+        // the cells showing e or U+0301 redraw
+        assert_eq!(answers[0].chars, ['e', '\u{301}']);
+        let state = s.helper.cells.iter().find(|c| c.cell == CELL).unwrap();
+        assert!(state.clusters.held.contains(ACUTE.as_slice()));
+        assert!(state.clusters.absent.contains(GRAVE.as_slice()));
+        assert!(!state.held.has(u32::from('e')));
+        assert!(
+            crate::deferred::lock(&s.helper.store)
+                .fresh(
+                    CELL,
+                    Arc::new(Set::from_bytes(cluster_set(CELL, &[&ACUTE])).unwrap()),
+                    &[],
+                    1
+                )
+                .unwrap()
+                .texts()
+                .next()
+                .is_none(),
+            "the store holds it by its text"
+        );
+        s.helper.ask(CELL, &only_clusters, now);
+        assert!(!s.helper.busy());
+    }
+
+    // ADR-1200 D22 step 2: an arrived é redraws the cells whose cluster
+    // holds e or U+0301, as e U+0301 now draws é's glyph
+    #[test]
+    fn an_arrived_codepoint_redraws_the_clusters_it_composes_from() {
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, &['\u{e9}', 'A']));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let mut s = StandIn::new("decomposed", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.ask(CELL, &shown(&['\u{e9}', 'A']), now);
+        let answers = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(answers.len(), 1);
+        assert_eq!(answers[0].chars, ['A', 'e', '\u{e9}', '\u{301}']);
+    }
+
+    // ADR-1200 D15: a cluster the ask did not name, or one in a fill, is
+    // what was not asked, and gives the helper up
+    #[test]
+    fn a_cluster_not_asked_for_gives_the_helper_up() {
+        let mut s = StandIn::new(
+            "cluster-unasked",
+            ANSWERS,
+            &frame_bytes(FRAME_GLYPHS, &cluster_set(CELL, &[&GRAVE])),
+        );
+        let now = t0();
+        s.helper.ask(CELL, &clustered(&[&ACUTE]), now);
+        let _ = s.run(now);
+        let why = s.helper.failed().unwrap();
+        assert!(why.contains("cluster the ask did not name"), "{why}");
+        let (why, _) = given_up(
+            "cluster-fill",
+            ANSWERS,
+            &frame_bytes(FRAME_FILL, &cluster_set(CELL, &[&ACUTE])),
+            true,
+        );
+        assert!(why.contains("fill carries a cluster"), "{why}");
+    }
+
+    // the frit's warnings are logged once each, at most WARNINGS_MAX a
+    // boot, and none gives the helper up
+    #[test]
+    fn a_frits_warnings_are_kept_to_their_bound() {
+        let mut fixture = Vec::new();
+        for i in 0..WARNINGS_MAX + 4 {
+            fixture.extend(frame_bytes(
+                FRAME_WARNING,
+                format!("t:{i}: a key that does nothing").as_bytes(),
+            ));
+        }
+        fixture.extend(frame_bytes(FRAME_WARNING, b"t:0: a key that does nothing"));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let mut s = StandIn::new("warnings", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.ask(CELL, &shown(&['A']), now);
+        let _ = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(s.helper.warned.len(), WARNINGS_MAX);
+        assert!(s.helper.warned.contains("t:0: a key that does nothing"));
+        assert!(
+            !s.helper
+                .warned
+                .contains(&format!("t:{WARNINGS_MAX}: a key that does nothing"))
+        );
+    }
+
+    // a warning's control characters are escaped before the log, and a
+    // warning answers nothing: an ask the helper only warns on is still
+    // past due at ANSWER_MS, and the helper is started again
+    #[test]
+    fn a_warning_is_escaped_and_answers_nothing() {
+        let mut fixture = Vec::new();
+        for _ in 0..3 {
+            fixture.extend(frame_bytes(FRAME_WARNING, b"t:1: bad\x1b[2J\nline"));
+        }
+        let mut s = StandIn::new("warn-only", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.ask(CELL, &shown(&['A']), now);
+        for _ in 0..3 {
+            s.woke.recv_timeout(Duration::from_secs(10)).unwrap();
+        }
+        let late = now + Duration::from_millis(ANSWER_MS + 1);
+        let _ = s.helper.poll(late);
+        assert_eq!(
+            s.helper.warned.iter().collect::<Vec<_>>(),
+            ["t:1: bad\\u{1b}[2J\\nline"]
+        );
+        assert_eq!(s.helper.restarts, 1, "the ask was past due");
+        assert_eq!(s.helper.failed(), None);
+    }
+
+    // a cluster past CLUSTER_SCALARS_MAX is never asked for, as the helper
+    // refuses it; nor is a lone codepoint taken for a cluster
+    #[test]
+    fn a_cluster_past_its_bound_is_not_asked_for() {
+        let mut helper = Helper::new(
+            Command {
+                program: PathBuf::from("/nonexistent"),
+                args: Vec::new(),
+                account: None,
+            },
+            Arc::new(|| {}),
+            t0(),
+            frit("source=builtin:unscii-8\n"),
+            None,
+            Shared::default(),
+            1 << 20,
+        );
+        let long = vec!['e'; vtium_font::CLUSTER_SCALARS_MAX as usize + 1];
+        let shown = Shown {
+            chars: Vec::new(),
+            clusters: vec![long, vec!['e']],
+        };
+        helper.ask(CELL, &shown, t0());
+        assert!(helper.asks.is_empty());
+        assert_eq!(helper.failed(), None);
+    }
+
+    // a program that writes new clusters faster than the helper answers
+    // grows nothing without bound: at most ASKS_MAX asks wait, and at most
+    // CLUSTERS_WAITING_MAX clusters a cell; what is left is asked for on a
+    // later change
+    #[test]
+    fn asks_and_the_clusters_they_wait_on_are_bounded() {
+        let mut s = StandIn::new("flood-asks", "cat >/dev/null", b"");
+        let now = t0();
+        let cluster = |i: u32, j: u32| {
+            vec![
+                char::from_u32(0x4e00 + i).unwrap(),
+                char::from_u32(0x300 + j).unwrap(),
+            ]
+        };
+        for i in 0..1000 {
+            let shown = Shown {
+                chars: Vec::new(),
+                clusters: (0..10).map(|j| cluster(i, j)).collect(),
+            };
+            s.helper.ask(CELL, &shown, now);
+            assert!(s.helper.asks.len() <= ASKS_MAX);
+        }
+        assert_eq!(s.helper.asks.len(), ASKS_MAX);
+        let waiting = |h: &Helper, cell: Cell| {
+            h.cells
+                .iter()
+                .find(|c| c.cell == cell)
+                .map_or(0, |c| c.clusters.pending.len())
+        };
+        assert_eq!(waiting(&s.helper, CELL), ASKS_MAX * 10);
+        // one ask of more clusters than may wait at a cell
+        let other = Cell {
+            width: 16,
+            height: 32,
+        };
+        let mut t = StandIn::new("flood-one", "cat >/dev/null", b"");
+        let shown = Shown {
+            chars: Vec::new(),
+            clusters: (0..5000).map(|i| cluster(i / 10, i % 10)).collect(),
+        };
+        t.helper.ask(other, &shown, now);
+        assert_eq!(waiting(&t.helper, other), CLUSTERS_WAITING_MAX);
+        t.helper.ask(other, &shown, now);
+        assert_eq!(t.helper.asks.len(), 1, "nothing more fits");
+    }
+
+    // a codepoint past an ask's FIRST_MAX is not asked for, so its answer
+    // does not take it for one the frit lacks; a later change asks for it
+    #[test]
+    fn a_codepoint_past_an_asks_bound_is_not_taken_for_lacking() {
+        let mut s = StandIn::new("first-max", ANSWERS, &frame_bytes(FRAME_DONE, &[]));
+        let now = t0();
+        let n = u32::try_from(FIRST_MAX).unwrap() + 5;
+        let chars: Vec<char> = (0..n)
+            .map(|i| char::from_u32(0x4e00 + i).unwrap())
+            .collect();
+        s.helper.ask(CELL, &shown(&chars), now);
+        let _ = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        let state = s.helper.cells.iter().find(|c| c.cell == CELL).unwrap();
+        let last = u32::from(chars[FIRST_MAX - 1]);
+        assert!(state.absent.has(last));
+        for &c in &chars[FIRST_MAX..] {
+            let c = u32::from(c);
+            assert!(!state.absent.has(c) && !state.pending.has(c), "{c:x}");
+        }
+    }
+
+    // the record of clusters the frit lacks is bounded: past it, it is
+    // emptied, and a cluster shown again is asked for again
+    #[test]
+    fn the_record_of_clusters_lacked_is_bounded() {
+        let mut s = StandIn::new("lacked", ANSWERS, &frame_bytes(FRAME_DONE, &[]));
+        let now = t0();
+        {
+            let state = s.helper.state(CELL).unwrap();
+            for i in 0..u32::try_from(CLUSTERS_LACKED_MAX).unwrap() {
+                let c = char::from_u32(0x300 + i % 0x70).unwrap();
+                let d = char::from_u32(0x4e00 + i / 0x70).unwrap();
+                state.clusters.absent.insert(vec![d, c]);
+            }
+            assert_eq!(state.clusters.absent.len(), CLUSTERS_LACKED_MAX);
+        }
+        s.helper.ask(CELL, &clustered(&[&ACUTE]), now);
+        let _ = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        let state = s.helper.cells.iter().find(|c| c.cell == CELL).unwrap();
+        assert_eq!(
+            state.clusters.absent.iter().collect::<Vec<_>>(),
+            [&ACUTE.to_vec()]
+        );
     }
 
     #[test]
@@ -1477,7 +1978,7 @@ mod tests {
         fixture.extend(frame_bytes(FRAME_DONE, &[]));
         let mut s = StandIn::new("idle", "head -c 1 >/dev/null; cat \"$1\"", &fixture);
         let now = t0();
-        s.helper.ask(CELL, &['A'], now);
+        s.helper.ask(CELL, &shown(&['A']), now);
         assert_eq!(s.run(now).len(), 1);
         s.until_gone(now);
         assert_eq!(s.helper.failed(), None);
@@ -1486,7 +1987,7 @@ mod tests {
         // no helper running, the drop starts none
         s.helper.retain(&[], now);
         assert!(s.helper.running.is_none());
-        s.helper.ask(CELL, &['A'], now);
+        s.helper.ask(CELL, &shown(&['A']), now);
         assert_eq!(s.run(now).len(), 1);
         assert_eq!(s.helper.failed(), None);
     }
@@ -1503,7 +2004,7 @@ mod tests {
             &fixture,
         );
         let now = t0();
-        s.helper.ask(CELL, &['A'], now);
+        s.helper.ask(CELL, &shown(&['A']), now);
         assert_eq!(s.run(now).len(), 1);
         s.until_gone(now);
         assert_eq!(s.helper.failed(), None);
@@ -1516,12 +2017,12 @@ mod tests {
         if fill {
             s.helper.fill(CELL, &[], now);
         } else {
-            s.helper.ask(CELL, &['A'], now);
+            s.helper.ask(CELL, &shown(&['A']), now);
         }
         let _ = s.run(now);
         let why = s.helper.failed().unwrap().to_owned();
         // given up: nothing more is asked
-        s.helper.ask(CELL, &['Z'], now);
+        s.helper.ask(CELL, &shown(&['Z']), now);
         assert!(!s.helper.busy());
         (why, s.helper.restarts)
     }
@@ -1635,12 +2136,15 @@ mod tests {
         let mut s = StandIn::new("fillafterask", ANSWERS, &fixture);
         let now = t0();
         s.helper.fill(CELL, &[], now);
-        s.helper.ask(CELL, &['A'], now);
+        s.helper.ask(CELL, &shown(&['A']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 2);
         assert!(s.held('A') && s.held('B'));
-        assert_eq!(s.helper.store.borrow().bytes(), (a.len() + b.len()) as u64);
+        assert_eq!(
+            crate::deferred::lock(&s.helper.store).bytes(),
+            (a.len() + b.len()) as u64
+        );
         assert!(!s.helper.busy());
     }
 
@@ -1656,7 +2160,7 @@ mod tests {
         let mut s = StandIn::new("askinfill", ANSWERS, &fixture);
         let now = t0();
         s.helper.fill(CELL, &[], now);
-        s.helper.ask(CELL, &['A'], now);
+        s.helper.ask(CELL, &shown(&['A']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 2);
@@ -1664,7 +2168,10 @@ mod tests {
         assert!(answers[1].face.has_glyph('B') && !answers[1].face.has_glyph('A'));
         assert!(s.held('A') && s.held('B'));
         let (a, b) = (set(CELL, &['A']).len(), set(CELL, &['B']).len());
-        assert_eq!(s.helper.store.borrow().bytes(), (a + b) as u64);
+        assert_eq!(
+            crate::deferred::lock(&s.helper.store).bytes(),
+            (a + b) as u64
+        );
         assert!(!s.helper.busy());
     }
 
@@ -1680,12 +2187,15 @@ mod tests {
         let mut s = StandIn::new("fillbeforeask", ANSWERS, &fixture);
         let now = t0();
         s.helper.fill(CELL, &[], now);
-        s.helper.ask(CELL, &['A'], now);
+        s.helper.ask(CELL, &shown(&['A']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 1);
         assert!(s.held('A') && s.held('B'));
-        assert_eq!(s.helper.store.borrow().bytes(), ab.len() as u64);
+        assert_eq!(
+            crate::deferred::lock(&s.helper.store).bytes(),
+            ab.len() as u64
+        );
         assert!(!s.helper.busy());
         // answered, so A is neither pending nor lacking
         let state = s.helper.cells.iter().find(|c| c.cell == CELL).unwrap();
@@ -1705,12 +2215,12 @@ mod tests {
         let mut s = StandIn::limited("fillfits", ANSWERS, &fixture, limit);
         let now = t0();
         s.helper.fill(CELL, &[], now);
-        s.helper.ask(CELL, &['A'], now);
+        s.helper.ask(CELL, &shown(&['A']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 2);
         assert!(s.held('A') && s.held('C'));
-        assert_eq!(s.helper.store.borrow().bytes(), limit);
+        assert_eq!(crate::deferred::lock(&s.helper.store).bytes(), limit);
         assert!(!s.helper.full);
     }
 
@@ -1727,13 +2237,13 @@ mod tests {
         let mut s = StandIn::limited("evictheld", ANSWERS, &fixture, limit);
         let now = t0();
         s.helper.fill(CELL, &[], now);
-        s.helper.ask(CELL, &['B', 'C'], now);
+        s.helper.ask(CELL, &shown(&['B', 'C']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 2);
         assert!(answers[1].face.has_glyph('B') && answers[1].face.has_glyph('C'));
         assert!(!s.held('A') && s.held('B') && s.held('C'));
-        assert_eq!(s.helper.store.borrow().bytes(), limit);
+        assert_eq!(crate::deferred::lock(&s.helper.store).bytes(), limit);
     }
 
     /// A set of `chars` at `cell`, each glyph its own shade, its chunks
@@ -1775,10 +2285,13 @@ mod tests {
         let now = t0();
         s.helper.fill(CELL, &[], now);
         assert_eq!(s.run(now).len(), 1);
-        assert_eq!(s.helper.store.borrow().bytes(), abcd.len() as u64);
+        assert_eq!(
+            crate::deferred::lock(&s.helper.store).bytes(),
+            abcd.len() as u64
+        );
         // the screen shows A and B; C and D are the least recently shown
-        s.helper.store.borrow_mut().touch(CELL, &['A', 'B']);
-        s.helper.ask(CELL, &['E'], now);
+        crate::deferred::lock(&s.helper.store).touch(CELL, &shown(&['A', 'B']));
+        s.helper.ask(CELL, &shown(&['E']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 1);
@@ -1787,10 +2300,13 @@ mod tests {
         assert!(s.held('A') && s.held('B') && s.held('D') && s.held('E'));
         assert!(!s.held('C'));
         let rebuilt = shades(CELL, &['A', 'B', 'D']).len();
-        assert_eq!(s.helper.store.borrow().bytes(), (rebuilt + e.len()) as u64);
-        assert!(s.helper.store.borrow().bytes() <= limit);
+        assert_eq!(
+            crate::deferred::lock(&s.helper.store).bytes(),
+            (rebuilt + e.len()) as u64
+        );
+        assert!(crate::deferred::lock(&s.helper.store).bytes() <= limit);
         // C, evicted, is asked for again when the screen shows it
-        s.helper.ask(CELL, &['C'], now);
+        s.helper.ask(CELL, &shown(&['C']), now);
         assert!(s.helper.busy());
     }
 
@@ -1879,7 +2395,7 @@ mod tests {
             None,
             kind,
             CELL,
-            &[],
+            (&[], &[]),
             &[],
         )
         .len()
@@ -1937,7 +2453,7 @@ mod tests {
         s.helper.retain(&[], now);
         s.until_gone(now);
         assert_eq!(s.helper.failed(), None);
-        let stop = encode(&s.helper.frit, None, STOP, CELL, &[], &[]);
+        let stop = encode(&s.helper.frit, None, STOP, CELL, (&[], &[]), &[]);
         assert_eq!(std::fs::read(s.dir.join("answer.stop")).unwrap(), stop);
     }
 
@@ -1977,7 +2493,7 @@ mod tests {
         let mut s = StandIn::limited("limit", ANSWERS, &fixture, limit);
         let now = t0();
         s.helper.fill(CELL, &[], now);
-        s.helper.ask(CELL, &['D'], now);
+        s.helper.ask(CELL, &shown(&['D']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         // the fill took A and stopped; the ask's D evicted A, and the
@@ -1987,11 +2503,11 @@ mod tests {
         assert!(holds(&answers[0], 'A') && !holds(&answers[0], 'D'));
         assert!(holds(&answers[1], 'D') && !holds(&answers[1], 'A'));
         assert!(!s.held('A') && !s.held('B') && !s.held('C') && s.held('D'));
-        assert!(s.helper.store.borrow().bytes() <= limit);
+        assert!(crate::deferred::lock(&s.helper.store).bytes() <= limit);
         assert!(s.helper.stopped.is_empty());
         assert!(!s.helper.busy());
         // A, evicted, is asked for again when the screen shows it
-        s.helper.ask(CELL, &['A'], now);
+        s.helper.ask(CELL, &shown(&['A']), now);
         assert!(s.helper.busy());
     }
 
@@ -2005,12 +2521,12 @@ mod tests {
         fixture.extend(frame_bytes(FRAME_DONE, &[]));
         let mut s = StandIn::limited("toolarge", ANSWERS, &fixture, limit);
         let now = t0();
-        s.helper.ask(CELL, &['A'], now);
+        s.helper.ask(CELL, &shown(&['A']), now);
         assert!(s.run(now).is_empty());
         assert_eq!(s.helper.failed(), None);
         assert!(!s.held('A'));
         assert!(!s.helper.busy());
-        s.helper.ask(CELL, &['A'], now);
+        s.helper.ask(CELL, &shown(&['A']), now);
         assert!(s.helper.busy());
     }
 
@@ -2018,7 +2534,7 @@ mod tests {
     fn a_helper_that_hangs_is_started_again_then_given_up() {
         let mut s = StandIn::new("hangs", "exec sleep 30", b"");
         let mut now = t0();
-        s.helper.ask(CELL, &['A'], now);
+        s.helper.ask(CELL, &shown(&['A']), now);
         assert!(s.helper.poll(now).is_empty());
         assert_eq!(
             s.helper.deadline(),
@@ -2043,7 +2559,7 @@ mod tests {
         );
         let now = t0();
         s.helper.fill(CELL, &[], now);
-        s.helper.ask(CELL, &['A'], now);
+        s.helper.ask(CELL, &shown(&['A']), now);
         let _ = s.woke.recv_timeout(Duration::from_secs(10));
         let nearly = after(now, Duration::from_millis(REQUEST_MS - 1));
         let late = after(now, Duration::from_millis(REQUEST_MS));
@@ -2067,7 +2583,7 @@ mod tests {
         let now = t0();
         for round in 0..=RESTARTS_MAX {
             s.helper.retain(&[], now);
-            s.helper.ask(CELL, &['A'], now);
+            s.helper.ask(CELL, &shown(&['A']), now);
             assert_eq!(s.run(now).len(), 1, "round {round}");
             s.until_gone(now);
             if round < RESTARTS_MAX {
@@ -2117,7 +2633,7 @@ mod tests {
         s.run(t0());
         assert!(s.helper.failed().unwrap().contains("past CELL_SIDE_MAX"));
         let mut s = StandIn::new("own-cell-unasked", ANSWERS, &own_cell_frame(8, 16));
-        s.helper.ask(CELL, &['A'], t0());
+        s.helper.ask(CELL, &shown(&['A']), t0());
         s.run(t0());
         assert!(s.helper.failed().unwrap().contains("a cell query not made"));
     }
@@ -2137,7 +2653,7 @@ mod tests {
             Shared::default(),
             1 << 20,
         );
-        h.ask(CELL, &['A'], t0());
+        h.ask(CELL, &shown(&['A']), t0());
         assert!(h.failed().unwrap().contains("cannot start"));
     }
 

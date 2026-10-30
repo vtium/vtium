@@ -130,9 +130,25 @@ const RESOURCE_READS: Bound = Bound {
     cite: "vtium/vtium#89; drm-ffi's `get_resources` read twice and set each list's length to the count read, past its buffer",
 };
 
+const PROPERTIES: Bound = Bound {
+    name: "UDEV_PROPERTIES_MAX",
+    value: 128,
+    what: "udev properties an input device's identity keeps for a head file's `udev:` match",
+    past: "The device's later properties, in udev's order, are left out with a warning, so no rule matches them; the classes and the named keys are read first. The operator's devices carry at most 42 (measured under systemd 262)",
+    cite: "ADR-1401 D4; vtium/vtium#47",
+};
+
+const PROPERTY: Bound = Bound {
+    name: "UDEV_PROPERTY_MAX",
+    value: 512,
+    what: "Bytes of one udev property, its name and value, or of one sysfs attribute an input device's identity reads (its name, unique id, vendor and product)",
+    past: "The property or attribute is left out of the identity, so no rule matches it; it is never cut short, which a glob could match. The operator's longest property is 209 bytes",
+    cite: "ADR-1401 D4; vtium/vtium#47",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 14] = [
+pub(crate) const BOUNDS: [Bound; 16] = [
     READ,
     READS,
     HIGH,
@@ -147,6 +163,8 @@ pub(crate) const BOUNDS: [Bound; 14] = [
     INPUT_READS,
     RETAKE_QUIET,
     RESOURCE_READS,
+    PROPERTIES,
+    PROPERTY,
 ];
 
 // The stall ends below where it starts, and starts below the ceiling.
@@ -203,6 +221,13 @@ pub const RETAKE_QUIET_MS: usize = RETAKE_QUIET.value;
 
 /// Reads of a DRM card's CRTC and connector lists before one fails.
 pub const RESOURCE_READS_MAX: usize = RESOURCE_READS.value;
+
+/// udev properties an input device's identity keeps.
+pub(crate) const UDEV_PROPERTIES_MAX: usize = PROPERTIES.value;
+
+/// Bytes of one udev property or sysfs attribute an input device's
+/// identity keeps.
+pub(crate) const UDEV_PROPERTY_MAX: usize = PROPERTY.value;
 
 #[cfg(test)]
 #[expect(

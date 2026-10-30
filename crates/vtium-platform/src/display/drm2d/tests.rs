@@ -1988,3 +1988,393 @@ fn a_connector_with_an_implausible_size_assumes_the_density() {
     let v = sized((1, 1));
     assert_eq!(v.density(DisplayId(A)), Some(Density::ASSUMED));
 }
+
+/// Leaves connector `conn` on CRTC 100 + `at` as another master would: a
+/// mode set, active, and its primary plane showing a frame.
+fn left_lit(card: &FakeCard, conn: u32, at: u32) {
+    let mut s = card.state();
+    s.connectors.get_mut(&conn).unwrap().encoder = 200 + at;
+    s.encoders.get_mut(&(200 + at)).unwrap().crtc = 100 + at;
+    s.crtc_modes.insert(100 + at, mode(640, 480, 60, true));
+    s.bound.insert(conn, 100 + at);
+    s.active.insert(100 + at, true);
+    s.enabled.insert(100 + at, true);
+    s.plane_crtc.insert(300 + 2 * at, 100 + at);
+    s.plane_fb.insert(300 + 2 * at, 77);
+}
+
+/// A card with displays A and B at 640x480, B left lit by another master.
+fn dark_card() -> FakeCard {
+    let modes = vec![mode(640, 480, 60, true)];
+    let card = FakeCard::new(&[(A, modes.clone()), (B, modes)]);
+    left_lit(&card, B, 1);
+    card
+}
+
+/// [`dark_card`] with the policy leaving `dark` dark.
+fn with_dark(dark: &'static str) -> Drm2d<FakeCard> {
+    dark_on(dark_card(), dark)
+}
+
+/// `card`, with the policy leaving `dark` dark.
+fn dark_on(card: FakeCard, dark: &'static str) -> Drm2d<FakeCard> {
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    v.set_card_path(Some(String::from("pci-0000:03:00.0")));
+    v.set_dark(Box::new(move |d: &Identity| d.connector == dark));
+    v
+}
+
+/// The identity of connector `name` on the card `with_dark` makes.
+fn identity(name: &str, lit_at_start: bool) -> Identity {
+    Identity {
+        connector: String::from(name),
+        card: Some(String::from("pci-0000:03:00.0")),
+        edid: None,
+        lit_at_start,
+    }
+}
+
+// ADR-1401 D3: a display the rules send to dark is set off, a frame
+// another master left included
+#[test]
+fn a_connector_the_policy_leaves_dark_is_committed_off_and_announced_as_no_display() {
+    let mut v = with_dark("HDMI-A-2");
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
+    assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(A)]);
+    assert_eq!(v.name(DisplayId(B)), None);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(c.get(B, "CRTC_ID"), Some(0));
+    assert_eq!(
+        (c.get(101, "MODE_ID"), c.get(101, "ACTIVE")),
+        (Some(0), Some(0))
+    );
+    assert_eq!(
+        (c.get(302, "FB_ID"), c.get(302, "CRTC_ID")),
+        (Some(0), Some(0))
+    );
+    {
+        let s = v.card().state();
+        assert_eq!(s.active.get(&101), Some(&false));
+        assert_eq!(s.plane_crtc.get(&302), None);
+    }
+    assert_eq!(v.identity(DisplayId(A)), Some(&identity("HDMI-A-1", false)));
+    assert_eq!(v.identity(DisplayId(B)), None);
+    assert_eq!(v.dark().collect::<Vec<_>>(), [&identity("HDMI-A-2", true)]);
+}
+
+// A wake-up sets a dark connector off again, as another master may have
+// lit it while vtium slept.
+#[test]
+fn a_dark_connector_another_master_lit_again_is_set_off_at_the_wake_up() {
+    let mut v = awake(with_dark("HDMI-A-2"));
+    v.sleep();
+    flip(&mut v);
+    assert_eq!(events(&mut v), [Event::Asleep]);
+    left_lit(v.card(), B, 1);
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A)), Event::Awake]);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(c.get(B, "CRTC_ID"), Some(0));
+    assert_eq!(c.get(101, "ACTIVE"), Some(0));
+    assert_eq!(v.card().state().active.get(&101), Some(&false));
+}
+
+// A CRTC that shows nothing already is left out, so the commit asks no
+// flip event of a CRTC that stays off.
+#[test]
+fn a_dark_connector_on_a_crtc_already_off_stays_out_of_the_commit() {
+    let v = with_dark("HDMI-A-2");
+    v.card().state().active.insert(101, false);
+    let v = awake(v);
+    assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(A)]);
+    let c = v.card().last_commit().unwrap();
+    assert!(!c.mentions(B) && !c.mentions(101), "{c:?}");
+    assert_eq!(v.dark().count(), 1);
+}
+
+// A lit display may take the CRTC a dark connector leaves, here one
+// another master left powered down: the connector leaves it, so it shows
+// no copy of the display, and the CRTC comes on for the display.
+#[test]
+fn a_crtc_a_dark_connector_leaves_drives_a_lit_display() {
+    let modes = vec![mode(640, 480, 60, true)];
+    let card = FakeCard::new(&[(A, modes.clone()), (B, modes)]);
+    left_lit(&card, B, 0);
+    card.state().active.insert(100, false);
+    card.state().encoders.get_mut(&200).unwrap().possible_crtcs = 0b11;
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    v.set_dark(Box::new(|d: &Identity| d.connector == "HDMI-A-2"));
+    let v = awake(v);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(
+        (c.get(A, "CRTC_ID"), c.get(B, "CRTC_ID")),
+        (Some(100), Some(0))
+    );
+    assert_eq!(c.get(100, "ACTIVE"), Some(1));
+    assert_ne!(c.get(100, "MODE_ID"), Some(0));
+    let s = v.card().state();
+    assert_eq!((s.bound.get(&A), s.bound.get(&B)), (Some(&100), Some(&0)));
+}
+
+// With every display dark, vtium takes master to set them off and lets it
+// go, as with no display at all.
+#[test]
+fn every_display_dark_is_set_off_and_master_let_go() {
+    let card = FakeCard::new(&[(B, vec![mode(640, 480, 60, true)])]);
+    left_lit(&card, B, 0);
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    v.set_dark(Box::new(|_: &Identity| true));
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Awake]);
+    assert_eq!(v.displays().count(), 0);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(
+        c.flags,
+        DRM_MODE_ATOMIC_ALLOW_MODESET | DRM_MODE_ATOMIC_NONBLOCK
+    );
+    assert_eq!(
+        (c.get(B, "CRTC_ID"), c.get(100, "ACTIVE")),
+        (Some(0), Some(0))
+    );
+    assert_eq!(
+        (c.get(300, "FB_ID"), c.get(300, "CRTC_ID")),
+        (Some(0), Some(0))
+    );
+    let s = v.card().state();
+    assert!(!s.master);
+    assert_eq!(s.active.get(&100), Some(&false));
+}
+
+// A dark connector unplugged is forgotten, and plugged back it is asked
+// of the policy again, no longer lit at start.
+#[test]
+fn a_dark_connector_unplugged_is_forgotten_and_asked_again_when_back() {
+    let mut v = awake(with_dark("HDMI-A-2"));
+    v.card().state().connectors.get_mut(&B).unwrap().connected = false;
+    v.poll().unwrap();
+    assert_eq!(v.dark().count(), 0);
+    v.card().state().connectors.get_mut(&B).unwrap().connected = true;
+    v.poll().unwrap();
+    assert_eq!(v.dark().collect::<Vec<_>>(), [&identity("HDMI-A-2", false)]);
+    assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(A)]);
+}
+
+// ADR-1401 D9: a dark connector let go is asked of the policy again at
+// the next scan, which lights it once the policy does; until let go the
+// scan keeps it dark whatever the policy now says.
+#[test]
+fn a_dark_connector_let_go_is_asked_again_at_the_next_scan() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    let dark = Rc::new(Cell::new(true));
+    let mut v = Drm2d::with(dark_card(), ModePolicy::default()).unwrap();
+    v.set_card_path(Some(String::from("pci-0000:03:00.0")));
+    let policy = Rc::clone(&dark);
+    v.set_dark(Box::new(move |d: &Identity| {
+        policy.get() && d.connector == "HDMI-A-2"
+    }));
+    let mut v = awake(v);
+    dark.set(false);
+    v.poll().unwrap();
+    assert_eq!(v.dark().count(), 1, "kept until let go");
+    assert!(v.release_dark("HDMI-A-2"));
+    assert!(!v.release_dark("HDMI-A-2"), "let go once");
+    v.poll().unwrap();
+    assert_eq!(v.dark().count(), 0);
+    assert_eq!(
+        v.displays().collect::<Vec<_>>(),
+        [DisplayId(A), DisplayId(B)]
+    );
+    flip(&mut v);
+    assert!(events(&mut v).contains(&Event::Added(DisplayId(B))));
+}
+
+// The legacy calls turn the dark connector's CRTC off.
+#[test]
+fn a_dark_connector_on_a_legacy_card_has_its_crtc_turned_off() {
+    let card = dark_card();
+    card.state().atomic = false;
+    let v = awake(dark_on(card, "HDMI-A-2"));
+    assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(A)]);
+    let s = v.card().state();
+    assert_eq!(s.disabled_crtcs, [101]);
+    assert_eq!(s.set_crtcs.iter().map(|c| c.2).collect::<Vec<_>>(), [A]);
+    assert_eq!((s.bound.get(&B), s.active.get(&101)), (None, Some(&false)));
+}
+
+// ADR-1401 D4 and D9: a display's identity names its connector, its card
+// and its monitor, read from the EDID the density reads, and marks the
+// connector lit at start; with no policy every display is lit.
+#[test]
+fn a_displays_identity_names_its_connector_card_and_monitor() {
+    let dir = std::env::temp_dir().join(format!("vtium-drm2d-identity-{}", std::process::id()));
+    let conn = dir.join("card1-HDMI-A-2");
+    std::fs::create_dir_all(&conn).unwrap();
+    // maker AAA, product 1, serial string LARGE00001, 60 by 34 cm
+    let mut edid = vec![0u8; 128];
+    edid[..8].copy_from_slice(&[0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0]);
+    edid[8..12].copy_from_slice(&[0x04, 0x21, 0x01, 0x00]);
+    (edid[21], edid[22]) = (60, 34);
+    edid[54..72].copy_from_slice(b"\0\0\0\xff\0LARGE00001\n  ");
+    edid[127] = 0u8.wrapping_sub(edid.iter().fold(0u8, |s, &b| s.wrapping_add(b)));
+    std::fs::write(conn.join("edid"), &edid).unwrap();
+    let card = dark_card();
+    card.state().sysfs = Some(dir.clone());
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    v.set_card_path(Some(String::from("pci-0000:03:00.0")));
+    let v = awake(v);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        v.displays().collect::<Vec<_>>(),
+        [DisplayId(A), DisplayId(B)]
+    );
+    assert_eq!(v.identity(DisplayId(A)), Some(&identity("HDMI-A-1", false)));
+    let b = v.identity(DisplayId(B)).unwrap();
+    assert_eq!((b.connector.as_str(), b.lit_at_start), ("HDMI-A-2", true));
+    assert_eq!(b.card.as_deref(), Some("pci-0000:03:00.0"));
+    let id = b.edid.as_ref().unwrap();
+    assert_eq!(id.to_string(), "AAA:0x0001:LARGE00001");
+    // the same read gives the density, the connector reporting no size
+    assert_eq!(
+        v.density(DisplayId(B)).map(|d| d.dpi().0.round()),
+        Some(27.0)
+    );
+    assert_eq!(v.dark().count(), 0);
+}
+
+// With every display dark, master was let go; a dark connector plugged in
+// then takes it again for the commit that sets it off, and lets it go.
+#[test]
+fn a_dark_connector_plugged_in_with_master_let_go_takes_master_for_its_commit() {
+    let card = dark_card();
+    card.state().connectors.get_mut(&B).unwrap().connected = false;
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    v.set_dark(Box::new(|_: &Identity| true));
+    v.wake_up().unwrap();
+    let commits = v.card().state().commits.len();
+    assert!(!v.card().state().master);
+    v.card().state().connectors.get_mut(&B).unwrap().connected = true;
+    v.poll().unwrap();
+    let s = v.card().state();
+    assert_eq!(s.commits.len(), commits + 1);
+    let c = s.commits.last().unwrap();
+    assert_eq!(
+        (c.get(B, "CRTC_ID"), c.get(101, "ACTIVE")),
+        (Some(0), Some(0))
+    );
+    assert_eq!(s.active.get(&101), Some(&false));
+    assert!(!s.master);
+    assert_eq!(s.master_drops, 2);
+}
+
+// ADR-1401 D9: lit at start is visible at start. A CRTC another master
+// left with a mode and powered down, by ACTIVE on an atomic card or by
+// the connector's DPMS on a legacy one, is not lit.
+#[test]
+fn a_crtc_another_master_left_powered_down_is_not_lit_at_start() {
+    let lit = |legacy: bool, on: bool| {
+        let card = dark_card();
+        {
+            let mut s = card.state();
+            s.atomic = !legacy;
+            if legacy {
+                s.dpms.insert(B, if on { 0 } else { 3 });
+            } else {
+                s.active.insert(101, on);
+            }
+        }
+        let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+        v.identity(DisplayId(B)).unwrap().lit_at_start
+    };
+    assert!(lit(false, true));
+    assert!(!lit(false, false), "atomic, ACTIVE 0");
+    assert!(lit(true, true));
+    assert!(!lit(true, false), "legacy, DPMS off");
+}
+
+/// [`dark_card`] with connector 43, unplugged, still on B's CRTC as
+/// another master left it.
+fn shared_dark_card() -> FakeCard {
+    let card = dark_card();
+    {
+        let mut s = card.state();
+        s.listed.push(43);
+        s.dpms.insert(43, 0);
+        s.bound.insert(43, 101);
+        s.connectors.insert(
+            43,
+            Connector {
+                id: 43,
+                kind: 10,
+                kind_id: 1,
+                connected: false,
+                encoder: 201,
+                encoders: vec![201],
+                ..Connector::default()
+            },
+        );
+    }
+    card
+}
+
+// review-h1b: turning a dark connector's CRTC off unbinds every connector
+// on it, an unplugged one vtium neither binds nor darkens included, so the
+// commit passes the kernel's check and the lit display comes up.
+#[test]
+fn a_dark_crtc_is_turned_off_with_every_connector_on_it() {
+    let mut v = dark_on(shared_dark_card(), "HDMI-A-2");
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(
+        (c.get(B, "CRTC_ID"), c.get(43, "CRTC_ID")),
+        (Some(0), Some(0))
+    );
+    assert_eq!(c.get(101, "ACTIVE"), Some(0));
+    assert_eq!(v.card().state().active.get(&101), Some(&false));
+}
+
+// review-h1b: a dark rule never costs the lit displays. Where the commit
+// setting a dark connector off still fails, the modeset is tried again
+// without it, logged once, and the lit displays come up.
+#[test]
+fn a_dark_connector_that_cannot_be_set_off_leaves_the_lit_displays_up() {
+    logs::capture();
+    let card = dark_card();
+    card.state().refused.push(101);
+    let mut v = dark_on(card, "HDMI-A-2");
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(c.get(A, "CRTC_ID"), Some(100));
+    assert!(!c.mentions(B) && !c.mentions(101), "{c:?}");
+    assert_eq!(v.card().state().active.get(&101), Some(&true));
+    let warned = |logs: &[String]| logs.iter().filter(|l| l.contains("HDMI-A-2")).count();
+    assert_eq!(warned(&logs::at_least(Level::Warn)), 1);
+    // the next modeset that fails the same way logs nothing more
+    v.sleep();
+    flip(&mut v);
+    v.wake_up().unwrap();
+    assert_eq!(warned(&logs::at_least(Level::Warn)), 1);
+    assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(A)]);
+}
+
+// ADR-1401 D9: the boot display is the first connected one in the kernel's
+// order, so a display plugged back in keeps its place.
+#[test]
+fn the_displays_keep_the_cards_connector_order_across_a_replug() {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(800, 600, 60, true)]),
+    ]);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    let both = [DisplayId(A), DisplayId(B)];
+    assert_eq!(v.displays().collect::<Vec<_>>(), both);
+    v.card().state().listed.retain(|&c| c == B);
+    v.poll().unwrap();
+    assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(B)]);
+    v.card().state().listed = vec![A, B];
+    v.poll().unwrap();
+    assert_eq!(v.displays().collect::<Vec<_>>(), both);
+}

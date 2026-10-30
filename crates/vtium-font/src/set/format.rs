@@ -21,7 +21,21 @@
 //! GLYF     chunk count u32, record size u32, then each chunk:
 //!            offset u64, stored length u32, decoded length u32, flags u32
 //!          then the chunks' bytes
+//! CLUS     optional: cluster count u32, record size u32, key pool length
+//!          u32, chunk count u32, chunk record size u32, then each
+//!          cluster, sorted by strike and then by its key:
+//!            strike u16, key length u16, key u32, chunk u32, offset u32,
+//!            flags u32
+//!          then each scalar value of the key pool u32, then each chunk as
+//!          GLYF's, its offset from CLUS's start, then the chunks' bytes
 //! ```
+//!
+//! `CLUS` maps clusters, short sequences of scalar values, to glyphs drawn
+//! for them whole: a cluster's key is `key length` scalars of the pool
+//! from `key`, and its glyph lies `offset` bytes into its chunk, one or two
+//! cells wide by `RUN_WIDE`, in its strike's cell and pixel format. A set
+//! with no cluster has no `CLUS`, and a reader that does not know the
+//! section skips it, so the format stays 2.0.
 //!
 //! `STRK`'s strikes are sorted by cell height, width, style and format,
 //! no two alike, so one cell may hold a 1-bit, an R8 and an RGBA strike
@@ -48,6 +62,7 @@ pub(crate) const STRK: [u8; 4] = *b"STRK";
 pub(crate) const CMAP: [u8; 4] = *b"CMAP";
 pub(crate) const POLY: [u8; 4] = *b"POLY";
 pub(crate) const GLYF: [u8; 4] = *b"GLYF";
+pub(crate) const CLUS: [u8; 4] = *b"CLUS";
 
 /// The magic, the two versions and the section count.
 pub(crate) const PRELUDE_BYTES: u32 = 16;
@@ -61,6 +76,7 @@ pub(crate) const RUN_RECORD: u32 = 16;
 /// Six ranges' covered and total counts.
 pub(crate) const COVERAGE_RECORD: u32 = 48;
 pub(crate) const CHUNK_RECORD: u32 = 20;
+pub(crate) const CLUSTER_RECORD: u32 = 20;
 
 /// A run's flag: its glyphs are two cells wide.
 pub(crate) const RUN_WIDE: u32 = 1;
@@ -83,10 +99,6 @@ pub(crate) const STYLE_ITALIC: u8 = 2;
 pub(crate) const SOURCE_FONT: u8 = 0;
 pub(crate) const SOURCE_SPRITES: u8 = 1;
 pub(crate) const SOURCE_AUTO: u8 = 2;
-
-/// The deflate level the writer uses: fixed, so a set's bytes depend only
-/// on its inputs and the tool's version.
-pub(crate) const DEFLATE_LEVEL: u8 = 9;
 
 /// The bytes one glyph takes as stored, `cells` cells of `width` by
 /// `height` in `format`; `None` for an unknown format or past `u32`.

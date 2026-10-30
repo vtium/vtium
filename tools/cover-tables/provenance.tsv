@@ -1,0 +1,7 @@
+# Each named cover= set's source, fetched once by tools/cover-tables:
+# NAME URL VERSION SHA256 CODEPOINTS. Unicode's terms of use cover the files.
+gb2312	https://web.archive.org/web/20040618175143id_/http://www.unicode.org:80/Public/MAPPINGS/OBSOLETE/EASTASIA/GB/GB2312.TXT	1.0, 1999 October 8	52335c54396c41d3e04856cb6018bd600469f210556233aa9895b1f396b257ed	7445
+gbk	https://www.unicode.org/Public/MAPPINGS/VENDORS/MICSFT/WINDOWS/CP936.TXT	2.01, 1/7/2000	b86f601c575e9ab457380b6f7abef03c75499cc6075bdc8b4b27f3f2de74bf6a	21920
+big5	https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/OTHER/BIG5.TXT	2.0, 2011 October 14 (header updated: 2015 December 02)	d1b60c58a1d327918f1616a620162c60ad2079a229ee42a73488f186e11f3aac	13704
+jis-x-0208	https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/JIS/JIS0208.TXT	2.0, 2011 October 14 (header updated: 2015 December 02)	1c571870457f19c97720631fa83ee491549a96ba1436da1296786a67d8632e87	6879
+ks-x-1001	https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/KSC/KSX1001.TXT	1.1, 2011 October 14	d8d2a35206ac0ea2865f5d801c9d6717f735bf46f263a658a64a960abe59e371	8224

@@ -18,6 +18,9 @@ mod sha256;
 #[path = "src/set"]
 mod set {
     pub mod format;
+    // the deflate, whatever the crate's features: the built-in sets are
+    // always deflated
+    pub mod pack;
     pub mod write;
 }
 #[allow(dead_code)]
@@ -144,6 +147,7 @@ fn pack(b: &Builtin) -> Vec<u8> {
         compress: true,
         glyphs,
         map,
+        clusters: Vec::new(),
     };
     let meta = [
         ("name", b.name.to_owned()),

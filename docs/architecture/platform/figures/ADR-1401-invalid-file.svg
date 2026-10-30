@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="500" viewBox="0 0 960 500" font-family="DejaVu Sans Mono, monospace">
-<title>An invalid head file: the file left untouched, the error logged and shown in a notice on the console, the shipped rules running</title>
+<title>A head file with a bad rule: the file left untouched, the rule dropped, the error logged and shown in a notice on the console, what survives running with the shipped rules' tail</title>
 <defs>
 <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
 </defs>
@@ -7,48 +7,49 @@
 <g fill="#1f2933">
 <!-- the file -->
 <text x="16" y="30" font-size="13" font-weight="bold">/etc/vtium/heads.conf</text>
-<rect x="16" y="40" width="300" height="160" fill="#ffffff" stroke="#9aa5b1"/>
+<rect x="16" y="40" width="300" height="176" fill="#ffffff" stroke="#9aa5b1"/>
 <g font-size="12">
-<text x="26" y="64" fill="#9aa5b1">1</text><text x="46" y="64">[head desk]</text>
-<text x="26" y="84" fill="#9aa5b1">2</text><text x="46" y="84">profile = desk</text>
-<text x="26" y="104" fill="#9aa5b1">3</text><text x="46" y="104">[rules]</text>
-<text x="26" y="124" fill="#9aa5b1">4</text><text x="46" y="124">display * -&gt; desk</text>
-<rect x="20" y="130" width="292" height="20" fill="#fee2e2" stroke="#b91c1c"/>
-<text x="26" y="144" fill="#9aa5b1">5</text><text x="46" y="144">input path:...3.3 -&gt; desc</text>
-<text x="26" y="164" fill="#9aa5b1">6</text><text x="46" y="164">input class:keyboard -&gt; focus</text>
+<text x="26" y="64" fill="#9aa5b1">1</text><text x="46" y="64">version = 1</text>
+<text x="26" y="84" fill="#9aa5b1">2</text><text x="46" y="84">[head desk]</text>
+<text x="26" y="104" fill="#9aa5b1">3</text><text x="46" y="104">profile = desk</text>
+<text x="26" y="124" fill="#9aa5b1">4</text><text x="46" y="124">[rules]</text>
+<text x="26" y="144" fill="#9aa5b1">5</text><text x="46" y="144">display * -&gt; desk</text>
+<rect x="20" y="150" width="292" height="20" fill="#fee2e2" stroke="#b91c1c"/>
+<text x="26" y="164" fill="#9aa5b1">6</text><text x="46" y="164">input path:...3.3 -&gt; desc</text>
+<text x="26" y="184" fill="#9aa5b1">7</text><text x="46" y="184">input class:keyboard -&gt; roaming</text>
 </g>
-<text x="26" y="190" font-size="11" fill="#b91c1c">line 5 names a head no section declares</text>
-<text x="16" y="224" font-size="12">left as it is: its hash before</text>
-<text x="16" y="242" font-size="12">the boot equals its hash after</text>
+<text x="26" y="206" font-size="11" fill="#b91c1c">line 6 names a head no section declares</text>
+<text x="16" y="236" font-size="12">left as it is: its hash before</text>
+<text x="16" y="254" font-size="12">the boot equals its hash after</text>
 <line x1="318" y1="120" x2="348" y2="120" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <!-- vtium -->
 <rect x="350" y="40" width="260" height="210" fill="#e6eef7" stroke="#2f6fb0" stroke-width="2"/>
 <text x="364" y="62" font-size="14" font-weight="bold">vtium at start</text>
 <text x="364" y="88" font-size="12">1. reads the file whole</text>
-<text x="364" y="110" font-size="12">2. finds the error: invalid,</text>
-<text x="386" y="126" font-size="12">so no part of it applies</text>
+<text x="364" y="110" font-size="12">2. finds the error on line 6</text>
+<text x="386" y="126" font-size="12">and drops that rule alone</text>
 <text x="364" y="148" font-size="12">3. logs it with file and line</text>
-<text x="364" y="170" font-size="12">4. runs the shipped rules:</text>
-<text x="386" y="188" font-size="10">display * -&gt; console</text>
-<text x="386" y="204" font-size="10">class rules -&gt; focus, * -&gt; ignore</text>
+<text x="364" y="170" font-size="12">4. runs what survives, then</text>
+<text x="386" y="188" font-size="10">the shipped rules' tail:</text>
+<text x="386" y="204" font-size="10">class rules -&gt; roaming, * -&gt; ignore</text>
 <text x="364" y="226" font-size="12">5. shows the notice, keeps</text>
 <text x="386" y="242" font-size="12">running</text>
 <line x1="610" y1="140" x2="638" y2="140" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <!-- the console -->
 <rect x="640" y="40" width="304" height="210" fill="#f1f5f9" stroke="#9aa5b1"/>
-<text x="654" y="62" font-size="13">every display, one head</text>
+<text x="654" y="62" font-size="13">every display, head desk</text>
 <rect x="654" y="72" width="276" height="164" fill="#ffffff" stroke="#9aa5b1"/>
 <rect x="664" y="82" width="256" height="72" fill="#fee2e2" stroke="#b91c1c"/>
-<text x="792" y="102" font-size="11" text-anchor="middle">vtium: heads.conf:5: rule names</text>
-<text x="792" y="118" font-size="11" text-anchor="middle">undefined head "desc"; running</text>
-<text x="792" y="134" font-size="11" text-anchor="middle">the shipped rules</text>
+<text x="792" y="102" font-size="11" text-anchor="middle">config partly invalid, running</text>
+<text x="792" y="118" font-size="11" text-anchor="middle">what's valid; heads.conf:6:</text>
+<text x="792" y="134" font-size="11" text-anchor="middle">rule names undefined head "desc"</text>
 <text x="792" y="148" font-size="10" text-anchor="middle">drawn by vtium, never in the session</text>
 <text x="670" y="186" font-size="12">host login:</text>
 <text x="670" y="222" font-size="10" fill="#4a5568">the session starts as before</text>
 <!-- check-config -->
 <rect x="16" y="290" width="928" height="86" fill="#ffffff" stroke="#9aa5b1"/>
 <text x="30" y="312" font-size="12">$ vtium check-config /etc/vtium/heads.conf</text>
-<text x="30" y="332" font-size="12">/etc/vtium/heads.conf:5: the rule names undefined head "desc"</text>
+<text x="30" y="332" font-size="12">/etc/vtium/heads.conf:6: the rule names undefined head "desc"</text>
 <text x="30" y="352" font-size="12">$ echo $?</text>
 <text x="30" y="368" font-size="12">1</text>
 <text x="600" y="312" font-size="11" fill="#4a5568">the boot's parser and evaluator,</text>
@@ -63,6 +64,6 @@
 <text x="180" y="465" font-size="12">a device</text>
 <rect x="270" y="452" width="22" height="16" fill="#fee2e2" stroke="#b91c1c"/>
 <text x="300" y="465" font-size="12">an error or a notice</text>
-<text x="944" y="490" font-size="11" text-anchor="end">Proposed (ADR-1401, D7); the message's wording is illustrative</text>
+<text x="944" y="490" font-size="11" text-anchor="end">Not yet built (ADR-1401, D7); the message's wording is illustrative</text>
 </g>
 </svg>

@@ -1,0 +1,24 @@
+read	policy	rest	runs	effective	rescue	line	lit	fallback	dark-notice	display-wait	unplaced	anti-lockout	rescue-key	isolated	lockout
+missing	-	-	builtin	open	as-set	-	rules	first-head	-	as-set	shipped	on	on	off	-
+untrusted	-	-	builtin	open	as-set	invalid config skipped, using builtin	rules	first-head	-	as-set	shipped	on	on	off	-
+inaccessible	-	-	builtin	open	as-set	invalid config skipped, using builtin	rules	first-head	-	as-set	shipped	on	on	off	-
+trusted	unset	valid	file	open	as-set	-	rules	first-head	-	as-set	roaming	on	on	set|off	isolated
+trusted	unset	headless	no-head	open	as-set	-	rules	first-head	-	as-set	roaming	on	on	set|off	-
+trusted	unset	empty	builtin	open	as-set	-	rules	first-head	-	as-set	shipped	on	on	off	-
+trusted	unset	partly	survivors	open	forced	config partly invalid, running what's valid	rules	first-head	-	as-set	shipped	on	on	off	-
+trusted	unset	broken	builtin	open	as-set	invalid config skipped, using builtin	rules	first-head	-	as-set	shipped	on	on	off	-
+trusted	open	valid	file	open	as-set	-	rules	first-head	-	as-set	roaming	on	on	set|off	isolated
+trusted	open	headless	no-head	open	as-set	-	rules	first-head	-	as-set	roaming	on	on	set|off	-
+trusted	open	empty	builtin	open	as-set	-	rules	first-head	-	as-set	shipped	on	on	off	-
+trusted	open	partly	survivors	open	forced	config partly invalid, running what's valid	rules	first-head	-	as-set	shipped	on	on	off	-
+trusted	open	broken	builtin	open	as-set	invalid config skipped, using builtin	rules	first-head	-	as-set	shipped	on	on	off	-
+trusted	closed	valid	file	closed	as-set	-	rules	notice-only	vtium: no display for any head	forever	ignore	off	off	set|on	unset,shared,isolated
+trusted	closed	headless	no-head	closed	as-set	-	rules	notice-only	-	forever	ignore	off	off	set|on	unset
+trusted	closed	empty	no-head	closed	as-set	-	rules	notice-only	-	forever	ignore	off	off	set|on	unset
+trusted	closed	partly	survivors	closed	sticky	config partly invalid, running what's valid	rules	notice-only	config partly invalid, running what's valid	forever	ignore	off	off	set|on	unset,shared,isolated
+trusted	closed	broken	off	closed	as-set	vtium: config invalid, policy closed: input off	notice	notice-only	vtium: config invalid, policy closed: input off	forever	ignore	off	off	on	unset
+trusted	unreadable	valid	survivors	open	forced	config partly invalid, running what's valid	rules	first-head	-	as-set	shipped	on	on	off	-
+trusted	unreadable	headless	builtin	open	as-set	invalid config skipped, using builtin	rules	first-head	-	as-set	shipped	on	on	off	-
+trusted	unreadable	empty	builtin	open	as-set	invalid config skipped, using builtin	rules	first-head	-	as-set	shipped	on	on	off	-
+trusted	unreadable	partly	survivors	open	forced	config partly invalid, running what's valid	rules	first-head	-	as-set	shipped	on	on	off	-
+trusted	unreadable	broken	builtin	open	as-set	invalid config skipped, using builtin	rules	first-head	-	as-set	shipped	on	on	off	-

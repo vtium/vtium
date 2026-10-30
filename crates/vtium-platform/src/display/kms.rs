@@ -115,6 +115,12 @@ pub(crate) trait Kms {
     fn commit(&self, request: &Request, flags: u32) -> io::Result<()>;
     /// The legacy modeset of one CRTC.
     fn set_crtc(&self, crtc: u32, fb: u32, connector: u32, mode: &Mode) -> io::Result<()>;
+    /// The legacy modeset that turns a CRTC off: no framebuffer, no
+    /// connector and no mode. A card that cannot says so with
+    /// `Unsupported`.
+    fn disable_crtc(&self, _crtc: u32) -> io::Result<()> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
     /// The legacy page flip, with a completion event.
     fn page_flip(&self, crtc: u32, fb: u32) -> io::Result<()>;
     /// Hides the legacy cursor of a CRTC.

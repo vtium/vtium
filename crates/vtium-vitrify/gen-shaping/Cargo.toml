@@ -1,0 +1,13 @@
+# vtium-vitrify's shaping table generator, run by hand to move the pinned
+# Unicode version (README.md). Its own workspace, so the main workspace and
+# CI do not build it.
+[package]
+name = "vtium-vitrify-gen-shaping"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+
+[workspace]
+members = ["."]
