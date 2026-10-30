@@ -20,6 +20,13 @@
 //! use vtium_config::{Read, Rest, Stated, Trusted};
 //! let read = Read::Untrusted(Trusted { stated: Stated::Closed, rest: Rest::Valid });
 //! ```
+//!
+//! A problem that leaves the file unread is the first level's verdict, never a scope of a trusted file, so an untrusted file cannot reach [`Trusted::of`]:
+//!
+//! ```compile_fail,E0599
+//! use vtium_config::{Kept, Scope, Trusted};
+//! let trusted = Trusted::of(&[], &[Scope::Trust], Kept::Heads);
+//! ```
 
 use crate::error::Problem;
 
@@ -143,8 +150,6 @@ closed! {
 closed! {
     /// What one error takes down (open cell ?4).
     pub enum Scope {
-        /// The file is never read: the first level's verdict, which a parse never reports.
-        Trust = "trust",
         /// The file's structure or format cannot be trusted: nothing of it applies, but a readable `policy` line still states its policy, since a trusted file always fails to its policy.
         File = "file",
         /// One head, with every rule naming it, each of which falls through to the next rule.
@@ -525,7 +530,7 @@ impl Trusted {
     /// A trusted file's levels from what its parse found: every `policy` line, wherever it sits; the scope of every other error; and what survives the errors. Nothing here reads where a line sits, so no outcome depends on the order of the top-level keys, and a readable closed policy wins over every other line.
     pub fn of(policies: &[PolicyLine], scopes: &[Scope], kept: Kept) -> Trusted {
         let whole = scopes.iter().any(|s| match s {
-            Scope::Trust | Scope::File => true,
+            Scope::File => true,
             Scope::Head | Scope::Section | Scope::Line => false,
         });
         let closed = policies.iter().any(|d| match d {
@@ -564,10 +569,11 @@ impl Trusted {
     }
 }
 
-/// What the error `problem`, on a line `within` the file, takes down (open cell ?4): an error inside a head's section drops that head, a bad rule drops that rule alone, and an error that leaves the file's structure or format untrustworthy drops the whole file. No error leaves a readable `policy` line unread: a trusted file always fails to its policy, and only one that fails the trust check or cannot be opened fails open.
-pub fn scope(problem: &Problem, within: Within) -> Scope {
+/// What the error `problem`, on a line `within` the file, takes down (open cell ?4): an error inside a head's section drops that head, a bad rule drops that rule alone, and an error that leaves the file's structure or format untrustworthy drops the whole file. No error leaves a readable `policy` line unread: a trusted file always fails to its policy, and only one that fails the trust check or cannot be opened fails open. A problem that leaves the file unread is no scope: `scope` gives the first level's verdict as the error, [`Read::Untrusted`] or [`Read::Inaccessible`], so it never reaches [`Trusted::of`].
+pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
     let fixed = match problem {
-        Problem::NotAFile | Problem::Unreadable(_) | Problem::Untrusted(_) => Some(Scope::Trust),
+        Problem::NotAFile | Problem::Unreadable(_) => return Err(Read::Inaccessible),
+        Problem::Untrusted(_) => return Err(Read::Untrusted),
         Problem::TooLarge
         | Problem::MissingVersion
         | Problem::UnknownVersion(_)
@@ -592,14 +598,14 @@ pub fn scope(problem: &Problem, within: Within) -> Scope {
         | Problem::BadValue { .. }
         | Problem::OutOfRange { .. } => None,
     };
-    match fixed {
+    Ok(match fixed {
         Some(scope) => scope,
         None => match within {
             Within::Top | Within::Rules => Scope::Line,
             Within::Header => Scope::Section,
             Within::Head => Scope::Head,
         },
-    }
+    })
 }
 
 #[cfg(test)]

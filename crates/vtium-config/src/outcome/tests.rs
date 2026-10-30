@@ -672,15 +672,7 @@ fn the_policy_is_read_from_the_policy_lines() {
 #[test]
 fn every_problem_has_its_scope() {
     let q = || Quoted::new("x");
-    let untrusted = Untrusted::Owner { path: q(), uid: 1 };
     let cases = [
-        (Problem::NotAFile, Within::Top, Scope::Trust),
-        (
-            Problem::Unreadable(std::io::ErrorKind::PermissionDenied),
-            Within::Top,
-            Scope::Trust,
-        ),
-        (Problem::Untrusted(untrusted), Within::Top, Scope::Trust),
         (Problem::TooLarge, Within::Top, Scope::File),
         (Problem::NotUtf8, Within::Head, Scope::Head),
         (Problem::NotUtf8, Within::Top, Scope::Line),
@@ -774,7 +766,34 @@ fn every_problem_has_its_scope() {
         (Problem::TooManyTokens, Within::Rules, Scope::Line),
     ];
     for (problem, within, want) in cases {
-        assert_eq!(scope(&problem, within), want, "{problem:?} {within:?}");
+        assert_eq!(scope(&problem, within), Ok(want), "{problem:?} {within:?}");
+    }
+}
+
+#[test]
+fn a_problem_that_leaves_the_file_unread_is_a_verdict_that_skips_it() {
+    // an untrusted or unopenable file is never a trusted broken one, whose closed policy would show the panic screen
+    let untrusted = Untrusted::Owner {
+        path: Quoted::new("x"),
+        uid: 1,
+    };
+    let cases = [
+        (Problem::NotAFile, Read::Inaccessible),
+        (
+            Problem::Unreadable(std::io::ErrorKind::PermissionDenied),
+            Read::Inaccessible,
+        ),
+        (Problem::Untrusted(untrusted), Read::Untrusted),
+    ];
+    for (problem, verdict) in cases {
+        for &within in Within::ALL {
+            assert_eq!(
+                scope(&problem, within),
+                Err(verdict),
+                "{problem:?} {within:?}"
+            );
+        }
+        assert_eq!(resolve(&verdict).line, Some(Line::Skipped), "{problem:?}");
     }
 }
 
