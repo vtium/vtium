@@ -2813,6 +2813,49 @@ fn a_head_without_a_display_keeps_no_osd_for_its_return() {
     );
 }
 
+/// Three heads, each on a display of its own, and every keyboard roaming.
+const THREE_HEADS: &str = "version = 1
+[head a]
+[head b]
+[head c]
+[rules]
+display card:mem-a -> a
+display card:mem-b -> b
+display card:mem-c -> c
+input class:keyboard -> focus
+";
+
+/// D5: a head already without a display when the active head moves takes
+/// no on-screen display from the move, so none shows when its display
+/// comes back much later.
+// covers: platform.heads.focus
+#[test]
+fn a_head_dark_before_a_move_shows_no_osd_on_its_return() {
+    use vtium_render::Mark;
+    let displays = [
+        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-a").lit()),
+        ("/dev/mem1", Memory::new(320, 160, "MEM-2", "mem-b")),
+        ("/dev/mem2", Memory::new(320, 160, "MEM-3", "mem-c")),
+    ];
+    let mut s = Seat::with_heads(&[], Some(THREE_HEADS), displays, "echo ready; read x");
+    s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
+    assert!(s.until(SECOND, |a| a.cells().len() == 3));
+    assert_eq!(s.app.focus_head(), Some("a"));
+    let t = now();
+    s.unplug("/dev/mem2", t);
+    s.app.turn(t + Duration::from_secs(10));
+    s.app.device_input(Path::new(KBD_FOCUS), ctrl_super(UP), t);
+    s.app.turn(t + Duration::from_secs(10));
+    assert_eq!(s.app.focus_head(), Some("b"));
+    assert_eq!(
+        marks(&s.app),
+        [Some(Mark::NoFocus), Some(Mark::Focus), None]
+    );
+    s.app.turn(t + Duration::from_secs(20));
+    s.plug("/dev/mem2", t + Duration::from_secs(3600));
+    assert_eq!(marks(&s.app), [None, None, None], "nothing an hour later");
+}
+
 /// D5: a change on a head with no display waits for a frame to draw it,
 /// so its time never runs out while there is nothing to draw on.
 // covers: platform.heads.focus
