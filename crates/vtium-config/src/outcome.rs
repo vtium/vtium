@@ -16,7 +16,7 @@
 //!
 //! and an untrusted one has nowhere to carry it:
 //!
-//! ```compile_fail
+//! ```compile_fail,E0618
 //! use vtium_config::{Read, Rest, Stated, Trusted};
 //! let read = Read::Untrusted(Trusted { stated: Stated::Closed, rest: Rest::Valid });
 //! ```
