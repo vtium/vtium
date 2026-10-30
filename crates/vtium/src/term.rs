@@ -290,7 +290,8 @@ pub enum Prepared {
 pub struct Presented {
     /// A frame or a cursor change was queued.
     pub queued: bool,
-    /// The time the copy into the display's buffer took, when it ran.
+    /// The time the copy into the display's buffer took, when it copied
+    /// anything.
     pub copy: Option<std::time::Duration>,
 }
 
@@ -649,7 +650,7 @@ impl View {
         term.coalesce.drawn(&mut self.wait, start, end, queued);
         Presented {
             queued,
-            copy: Some(copy),
+            copy: (!rects.is_empty()).then_some(copy),
         }
     }
 
@@ -700,6 +701,7 @@ fn copy(shadow: &Canvas, target: &mut impl Target, rects: &[DisplayRect]) {
     clippy::arithmetic_side_effects,
     clippy::disallowed_methods,
     clippy::indexing_slicing,
+    clippy::panic,
     clippy::unwrap_used,
     reason = "a test's sizes are small, its clock is the host's, and a test fails by panicking"
 )]
@@ -1007,6 +1009,62 @@ mod tests {
         draw(&mut term, &mut view, &mut video, None);
         assert_eq!(video.sent, None);
         assert_eq!(video.swaps, [1, 0, 0]);
+    }
+
+    // A frame composed while the VT was ours that comes back after its
+    // release, or after the blank, is not shown, on a device that would
+    // still lend its buffer: nothing is swapped, and the display draws
+    // whole at the next frame.
+    #[test]
+    fn a_frame_back_once_asleep_is_not_shown() {
+        let (mut term, mut view) = view();
+        let mut video = Plane::new(false);
+        let key = (PathBuf::new(), ID);
+        let mut snapshot = None;
+        let state = DrawState::default();
+        let Prepared::Job(job) = view.prepare(
+            &key,
+            &mut term,
+            &mut snapshot,
+            &mut video,
+            &state,
+            None,
+            &Instant::now,
+        ) else {
+            panic!("a job");
+        };
+        let shown = view.present(job.compose(), &mut term, &mut video, false, &Instant::now);
+        assert_eq!(shown, Presented::default());
+        assert_eq!(video.swaps, [], "nothing swapped");
+        assert!(!lit(&video), "nothing copied");
+        assert!(view.lost, "drawn whole at the next frame");
+        assert!(!view.away(), "the drawing is back");
+    }
+
+    // A frame that changed nothing copies nothing, and the frame figures
+    // count no copy for it.
+    #[test]
+    fn a_frame_that_changed_nothing_copies_nothing() {
+        let (mut term, mut view) = view();
+        let mut video = Plane::new(false);
+        draw(&mut term, &mut view, &mut video, None);
+        let key = (PathBuf::new(), ID);
+        let mut snapshot = None;
+        let state = DrawState::default();
+        let Prepared::Job(job) = view.prepare(
+            &key,
+            &mut term,
+            &mut snapshot,
+            &mut video,
+            &state,
+            None,
+            &Instant::now,
+        ) else {
+            panic!("a job");
+        };
+        let shown = view.present(job.compose(), &mut term, &mut video, true, &Instant::now);
+        assert_eq!(shown, Presented::default());
+        assert_eq!(video.swaps, [1], "the first frame alone");
     }
 
     // A zoom or a rotation keeps the display's depth, which the device

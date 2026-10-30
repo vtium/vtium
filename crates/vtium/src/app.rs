@@ -53,8 +53,7 @@
 //! - **Drawing** (D2). Each head's render thread composes its frames
 //!   ([`crate::painter`]); the loop takes each frame from the screen,
 //!   and at the next turn's start, after the VT's events, copies it into
-//!   the display's buffer and presents it. A head's first frame is the
-//!   loop's own.
+//!   the display's buffer and presents it.
 //! - **Exit.** A request (SIGTERM, SIGINT, a hangup, the policy) switches
 //!   back to the VT shown at the start and serves the loop for up to
 //!   [`LEAVE_WAIT`] while the switch is pending.
@@ -1959,6 +1958,9 @@ impl App {
     }
 
     fn draw(&mut self, now: Instant) {
+        for h in 0..self.heads.len() {
+            self.painter(h);
+        }
         let App {
             heads,
             videos,
@@ -1968,16 +1970,12 @@ impl App {
         for head in heads.iter_mut() {
             draw_head(head, videos, &**clock, now);
         }
-        for h in 0..self.heads.len() {
-            self.painter(h);
-        }
     }
 
-    /// Starts head `h`'s render thread once the loop drew its first frame,
-    /// at the turn its first display came (ADR-1401 D2), so the start shows
-    /// a frame at its first turn; the thread composes the rest, each with
-    /// a wake-up into the loop. One that cannot start is logged once, and
-    /// the loop composes the head's frames.
+    /// Starts head `h`'s render thread at its first frame (ADR-1401 D2),
+    /// with a wake-up into the loop for each frame it composes. One that
+    /// cannot start is logged once, and the loop composes the head's
+    /// frames.
     fn painter(&mut self, h: usize) {
         let Some(head) = self.heads.get(h) else {
             return;
@@ -2043,8 +2041,7 @@ impl App {
     /// The render timer's line, once a second.
     fn report(&mut self, now: Instant) {
         for head in &mut self.heads {
-            let name = head.name().to_owned();
-            if let Some(line) = head.figures.line(&name, now) {
+            if let Some(line) = head.figures_line(now) {
                 log::debug!(target: "render", "{line}");
             }
         }

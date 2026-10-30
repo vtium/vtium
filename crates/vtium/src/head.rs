@@ -208,6 +208,11 @@ impl Head {
         &self.name
     }
 
+    /// The line of the head's frame times, once it is due at `now`.
+    pub(crate) fn figures_line(&mut self, now: std::time::Instant) -> Option<String> {
+        self.figures.line(&self.name, now)
+    }
+
     /// The head's grid.
     pub fn grid(&self) -> (usize, usize) {
         self.grid

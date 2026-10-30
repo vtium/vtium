@@ -574,11 +574,8 @@ impl DeferredFace {
 
     /// `c`'s glyph: the store's, else the built-in font's in the cell.
     fn single(&self, c: char, style: Style) -> Option<Glyph> {
-        let generated = lock(&self.generated);
-        match generated.draw(self.cell, &[c], style) {
-            Some(g) => Some(g),
-            None => self.fit(self.builtin.draw(&[c], style)?),
-        }
+        let held = lock(&self.generated).draw(self.cell, &[c], style);
+        held.or_else(|| self.fit(self.builtin.draw(&[c], style)?))
     }
 
     /// A cluster the store does not hold drawn without its own glyph
