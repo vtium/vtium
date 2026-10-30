@@ -100,10 +100,6 @@ pub(crate) const SOURCE_FONT: u8 = 0;
 pub(crate) const SOURCE_SPRITES: u8 = 1;
 pub(crate) const SOURCE_AUTO: u8 = 2;
 
-/// The deflate level the writer uses: fixed, so a set's bytes depend only
-/// on its inputs and the tool's version.
-pub(crate) const DEFLATE_LEVEL: u8 = 9;
-
 /// The bytes one glyph takes as stored, `cells` cells of `width` by
 /// `height` in `format`; `None` for an unknown format or past `u32`.
 pub(crate) fn glyph_bytes(format: u8, width: u32, height: u32, cells: u32) -> Option<u32> {

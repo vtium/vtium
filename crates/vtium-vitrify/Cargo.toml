@@ -14,8 +14,9 @@ workspace = true
 [dependencies]
 # The glyph chunk format's writer; the PSF reader; the built-in fonts a
 # frit may name as sources. The PSF reader is behind
-# vtium-font's `psf` feature, which only this tool enables.
-vtium-font = { workspace = true, features = ["psf"] }
+# vtium-font's `psf` feature and the writer's deflate behind its
+# `deflate` feature, which only this tool enables (ADR-1200 D19).
+vtium-font = { workspace = true, features = ["psf", "deflate"] }
 # KDGETMODE, KDFONTOP and GIO_UNIMAP for the console: source (ADR-1200 D8).
 vtium-platform.workspace = true
 # gzip's deflate, for compressed fonts and unimaps; vtium-font already

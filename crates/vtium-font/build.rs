@@ -18,6 +18,9 @@ mod sha256;
 #[path = "src/set"]
 mod set {
     pub mod format;
+    // the deflate, whatever the crate's features: the built-in sets are
+    // always deflated
+    pub mod pack;
     pub mod write;
 }
 #[allow(dead_code)]

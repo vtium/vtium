@@ -6,17 +6,19 @@
 //! The bytes depend only on what is given: strikes are sorted, each
 //! strike's map is sorted, glyphs are numbered in the order the map first
 //! reaches them, and every chunk is deflated at one fixed level, so the
-//! same set gives the same bytes on every host.
+//! same set gives the same bytes on every host. A build without the
+//! `deflate` feature, the console's, stores every chunk raw.
 
 use crate::bounds::{
     CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, SET_BYTES_MAX, SET_CHUNK_BYTES, SET_CHUNKS_MAX,
     SET_CLUSTERS_MAX, SET_GLYPHS_MAX, SET_META_BYTES_MAX, SET_RUNS_MAX, SET_STRIKES_MAX,
 };
 use crate::set::format::{
-    CHUNK_DEFLATED, CHUNK_RECORD, CLUS, CLUSTER_RECORD, CMAP, COVERAGE_RECORD, DEFLATE_LEVEL,
-    FORMAT_BITS, FORMAT_R8, FORMAT_RGBA, GLYF, MAGIC, MAJOR, META, MINOR, POLY, PRELUDE_BYTES,
-    RUN_RECORD, RUN_WIDE, SECTION_BYTES, SOURCE_AUTO, STRIKE_RECORD, STRK, glyph_bytes,
+    CHUNK_DEFLATED, CHUNK_RECORD, CLUS, CLUSTER_RECORD, CMAP, COVERAGE_RECORD, FORMAT_BITS,
+    FORMAT_R8, FORMAT_RGBA, GLYF, MAGIC, MAJOR, META, MINOR, POLY, PRELUDE_BYTES, RUN_RECORD,
+    RUN_WIDE, SECTION_BYTES, SOURCE_AUTO, STRIKE_RECORD, STRK, glyph_bytes,
 };
+use crate::set::pack::deflate;
 use std::collections::BTreeMap;
 
 use crate::sprite::spans;
@@ -192,8 +194,9 @@ struct Chunk {
 }
 
 /// A strike's glyph bytes cut into chunks of at most `SET_CHUNK_BYTES` on
-/// glyph boundaries, each deflated when `compress` asks and that makes it
-/// smaller; with each glyph's chunk, counted from 0, and its offset in it.
+/// glyph boundaries, each deflated when `compress` asks, the build
+/// deflates and that makes it smaller; with each glyph's chunk, counted
+/// from 0, and its offset in it.
 fn chunks(stream: &[Vec<u8>], compress: bool) -> Result<(Vec<Chunk>, Vec<Place>), WriteError> {
     let limit = usize::try_from(SET_CHUNK_BYTES).map_err(|_| "a chunk past usize")?;
     let mut raws: Vec<Vec<u8>> = Vec::new();
@@ -213,15 +216,14 @@ fn chunks(stream: &[Vec<u8>], compress: bool) -> Result<(Vec<Chunk>, Vec<Place>)
         .into_iter()
         .map(|raw| {
             let decoded = u32_of(raw.len())?;
-            if compress {
-                let packed = miniz_oxide::deflate::compress_to_vec(&raw, DEFLATE_LEVEL);
-                if packed.len() < raw.len() {
-                    return Ok(Chunk {
-                        flags: CHUNK_DEFLATED,
-                        stored: packed,
-                        decoded,
-                    });
-                }
+            if let Some(packed) = compress.then(|| deflate(&raw)).flatten()
+                && packed.len() < raw.len()
+            {
+                return Ok(Chunk {
+                    flags: CHUNK_DEFLATED,
+                    stored: packed,
+                    decoded,
+                });
             }
             Ok(Chunk {
                 flags: 0,

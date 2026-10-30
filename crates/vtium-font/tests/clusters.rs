@@ -170,7 +170,9 @@ fn a_reader_that_does_not_know_clus_skips_it() {
     assert_eq!(old.set().check_chunks().ok(), Some(()));
 }
 
-// Every chunk CLUS holds is checked as GLYF's are
+// Every chunk CLUS holds is checked as GLYF's are; the writer deflates
+// the chunk with the `deflate` feature
+#[cfg(feature = "deflate")]
 #[test]
 fn a_cluster_chunk_that_fails_to_inflate_is_refused() {
     let bad = with_section(&clustered(), b"CLUS", |c| {
