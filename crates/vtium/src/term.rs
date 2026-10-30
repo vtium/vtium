@@ -210,11 +210,15 @@ pub struct Drawing {
 }
 
 /// What vtium draws of its own over a display's frame, outside the
-/// terminal's cells (ADR-1401 D5, D7): a notice across the top and the
-/// focus mark over the top-right cell.
+/// terminal's cells (ADR-1401 D5, D7): a box across the top, of the
+/// on-screen display's line and the notices, and the on-screen display's
+/// dot over the top-right cell.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Overlay {
     pub notice: Option<Notice>,
+    /// The box holds a notice of a problem, and is drawn in the notice's
+    /// colors; else in the on-screen display's.
+    pub problem: bool,
     pub mark: Option<Mark>,
 }
 
@@ -240,10 +244,11 @@ impl Overlay {
             .mark
             .and_then(|_| top_right(surface, grid, font.cell()));
         let colors = Colors::NOTICE;
+        let boxed = if self.problem { colors } else { Colors::STATUS };
         let notice = self
             .notice
             .as_ref()
-            .and_then(|n| n.draw(font, surface, colors, cell, target));
+            .and_then(|n| n.draw(font, surface, boxed, cell, target));
         let mark = self
             .mark
             .zip(cell)

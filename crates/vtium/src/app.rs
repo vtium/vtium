@@ -114,6 +114,7 @@ use crate::head::session::{self, AfterExit, Caps};
 use crate::head::{Attached, Frit, Head, place_display};
 use crate::helper::{self, Answer, Helper};
 use crate::layout::{self, Zoom};
+use crate::osd::{self, Osd};
 use crate::painter::Painter;
 use crate::power::{self, Power, PowerKey};
 use crate::respawn;
@@ -202,11 +203,8 @@ pub struct App {
     routes: Routes,
     /// The head the focus moved to since [`App::take_focus_move`].
     focus_move: Option<usize>,
-    /// `focus-mark`: `Some(true)` always, `Some(false)` for
-    /// [`crate::head::MARK_SHOWN`] after the focus moves, `None` never.
-    focus_mark: Option<bool>,
-    /// When the focus marks hide, under `focus-mark = auto`.
-    mark_due: Option<Instant>,
+    /// The on-screen display, `osd` and `osd-timeout` (ADR-1401 D5).
+    osd: Osd,
     /// A key came or the focus chord moved the focus: the focus no longer
     /// follows a boot display lighting late.
     focus_settled: bool,
@@ -383,12 +381,7 @@ impl App {
             focus: None,
             routes: Routes::default(),
             focus_move: None,
-            focus_mark: match config.text(&keys::FOCUS_MARK) {
-                Some("always") => Some(true),
-                Some("off") => None,
-                _ => Some(false),
-            },
-            mark_due: None,
+            osd: Osd::configured(&config),
             focus_settled: false,
             focus_due: false,
             cards: BTreeMap::new(),
@@ -1745,7 +1738,7 @@ impl App {
     /// reaches a lit head each goes back to its rule. A keyboard the rescue
     /// key moved follows the focus throughout, and reaches it while the
     /// focus's head is lit.
-    fn guard(&mut self, now: Instant) {
+    fn guard(&mut self) {
         if !std::mem::take(&mut self.guard_due) {
             return;
         }
@@ -1852,13 +1845,19 @@ impl App {
         }
         if placement.anti_lockout {
             if let Some(to) = head_index(placement.focus).filter(|&h| Some(h) != self.focus) {
-                self.move_focus(to, now);
+                self.move_focus(to);
             }
             if !self.locked_out {
-                let line = "the anti-lockout guard: no keyboard reaches a head with a lit display, so every keyboard follows the focus";
-                log::warn!("{line}");
+                let to = self
+                    .focus
+                    .and_then(|h| self.heads.get(h))
+                    .map_or("", Head::name);
+                let line = format!(
+                    "No keyboard was reaching a screen that is on, so every keyboard now types into {to}."
+                );
+                log::warn!("the anti-lockout guard: {line}");
                 if let Some(head) = self.focus.and_then(|h| self.heads.get_mut(h)) {
-                    head.add_notice(line);
+                    head.add_notice(&line);
                 }
             }
         }
@@ -1894,6 +1893,7 @@ impl App {
     /// time.
     fn attachment(&mut self, now: Instant) {
         let several = self.heads.len() > 1;
+        let full = self.osd.mode == osd::Mode::Full;
         let mut changed = false;
         for head in &mut self.heads {
             let attached = if head.views.is_empty() {
@@ -1933,6 +1933,9 @@ impl App {
                 }
                 (Attached::Gone, Attached::Yes) => {
                     head.hangup_due = None;
+                    if full {
+                        head.show_osd();
+                    }
                     log::info!("a display{of} came: the session is drawn again at {cols}x{rows}");
                     changed = true;
                 }
@@ -2125,8 +2128,12 @@ impl App {
             return;
         };
         self.guard_due = true;
+        let to = self
+            .focus
+            .and_then(|h| self.heads.get(h))
+            .map_or("", Head::name);
         let line = format!(
-            "the rescue key: {} follows the focus until the next boot",
+            "The rescue key moved the keyboard at {}: it now types into {to}, and into whichever head is active, until the next boot.",
             node.display()
         );
         log::warn!("{line}");
@@ -2321,17 +2328,19 @@ impl App {
         let lit = |h: usize| heads.get(h).is_some_and(|head| !head.views.is_empty());
         self.focus_settled = true;
         if let Some(to) = chord::step(self.focus, heads.len(), back, lit) {
-            self.move_focus(to, now);
+            self.move_focus(to);
         }
     }
 
     /// The focus moves to head `h`, by the focus chord or the anti-lockout
-    /// guard, the only moves after its start (ADR-1401 D5): the focus marks
-    /// light.
-    fn move_focus(&mut self, h: usize, now: Instant) {
+    /// guard, the only moves after its start (ADR-1401 D5): every head's
+    /// on-screen display shows.
+    fn move_focus(&mut self, h: usize) {
         self.focus = Some(h);
         self.focus_move = Some(h);
-        self.mark_due = Some(after(now, crate::head::MARK_SHOWN));
+        for head in &mut self.heads {
+            head.show_osd();
+        }
         self.bound_pointers();
     }
 
@@ -2430,12 +2439,12 @@ impl App {
             }
         }
         if std::mem::take(&mut self.keyboard_check) && !self.routes.any_keyboard() {
-            let line = "no keyboard was found: one plugged in types";
+            let line = "No keyboard was found. Plug one in to type.";
             log::warn!("{line}");
             self.notice(line);
         }
         self.take_focus();
-        self.guard(now);
+        self.guard();
         self.attachment(now);
         self.first_start(now);
         if let Some(r) = &self.releasing {
@@ -2531,6 +2540,10 @@ impl App {
             if head.notice_due.is_some_and(|d| d <= now) {
                 head.end_notices();
             }
+            if head.osd_due.is_some_and(|d| d <= now) {
+                head.osd_due = None;
+                head.osd_shown = false;
+            }
             if let Some(due) = head.text_due.filter(|&d| d <= now) {
                 head.draw_now |= head.console.term.blink.fired(Timer::Text, awake);
                 head.text_due = Some(after(due, crate::blink::TEXT_PERIOD));
@@ -2555,26 +2568,10 @@ impl App {
         if self.blank.fire(now) {
             self.blank_now(now);
         }
-        if self.mark_due.is_some_and(|d| d <= now) {
-            self.mark_due = None;
-        }
     }
 
     fn draw(&mut self, now: Instant) {
-        let shown = self
-            .focus_mark
-            .is_some_and(|always| always || self.mark_due.is_some());
-        for (h, head) in self.heads.iter_mut().enumerate() {
-            let mark = shown.then_some(if self.focus == Some(h) {
-                vtium_render::Mark::Focus
-            } else {
-                vtium_render::Mark::NoFocus
-            });
-            if head.mark != mark {
-                head.mark = mark;
-                head.draw_now = true;
-            }
-        }
+        self.osd(now);
         for h in 0..self.heads.len() {
             self.painter(h);
         }
@@ -2586,6 +2583,43 @@ impl App {
         } = self;
         for head in heads.iter_mut() {
             draw_head(head, videos, &**clock, now);
+        }
+    }
+
+    /// Each head's on-screen display for this turn's frames (ADR-1401 D5):
+    /// under `osd = full` it shows after a change to the shown console or
+    /// the number of consoles, which `minimal`'s dot does not draw. It
+    /// shows for `osd-timeout` from the first frame that draws it, or
+    /// always under `never`.
+    fn osd(&mut self, now: Instant) {
+        let Osd { mode, timeout } = self.osd;
+        for (h, head) in self.heads.iter_mut().enumerate() {
+            let seen = (head.console.id, head.console_count());
+            let was = head.osd_seen.replace(seen);
+            if mode == osd::Mode::Full && was.is_some_and(|was| was != seen) {
+                head.show_osd();
+            }
+            let shown = mode != osd::Mode::Off && (timeout.is_none() || head.osd_shown);
+            if let Some(time) = timeout.filter(|_| shown && head.osd_due.is_none()) {
+                if !head.views.is_empty() {
+                    head.osd_due = Some(after(now, time));
+                }
+            }
+            let active = self.focus == Some(h);
+            let mark = (shown && mode == osd::Mode::Minimal).then_some(if active {
+                vtium_render::Mark::Focus
+            } else {
+                vtium_render::Mark::NoFocus
+            });
+            let status = (shown && mode == osd::Mode::Full).then(|| {
+                let at = head.shown_console().saturating_add(1);
+                osd::line(active, head.name(), at, head.console_count())
+            });
+            if head.mark != mark || head.status != status {
+                head.mark = mark;
+                head.status = status;
+                head.draw_now = true;
+            }
         }
     }
 
@@ -2720,7 +2754,6 @@ impl App {
         due.extend(self.timer_due);
         due.extend(self.wait.due());
         due.extend(self.blank.deadline());
-        due.extend(self.mark_due);
         for head in &self.heads {
             due.extend(head.text_due);
             due.extend(head.cursor_due.map(|(d, _)| d));
@@ -2729,6 +2762,7 @@ impl App {
             due.extend(head.figures.due);
             due.extend(head.hangup_due);
             due.extend(head.notice_due);
+            due.extend(head.osd_due);
         }
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));

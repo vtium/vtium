@@ -52,10 +52,6 @@ pub const NOTICE_SHOWN: Duration = Duration::from_secs(30);
 /// file's, no keyboard found, the anti-lockout guard's and a rescue.
 pub const NOTICES_MAX: usize = 4;
 
-/// How long `focus-mark = auto` shows the focus marks after the focus
-/// moves: a few seconds (the operator's answers on vtium/vtium#156).
-pub const MARK_SHOWN: Duration = Duration::from_secs(3);
-
 /// The lines of scrollback a wheel event scrolls (`src/terminal.c:1648`).
 const WHEEL_LINES: usize = 3;
 
@@ -128,8 +124,18 @@ pub struct Head {
     /// When the notices end, armed at their first frame; an ended head's
     /// notice keeps no time.
     pub(crate) notice_due: Option<Instant>,
-    /// Its focus mark, while the seat shows the marks.
+    /// The on-screen display shows (ADR-1401 D5): since a change, until
+    /// its time runs out.
+    pub(crate) osd_shown: bool,
+    /// When the on-screen display goes, armed at its first frame.
+    pub(crate) osd_due: Option<Instant>,
+    /// The shown console's id and the number of consoles at the last
+    /// frame: a difference is a change the on-screen display shows.
+    pub(crate) osd_seen: Option<(u64, usize)>,
+    /// The on-screen display's dot, while it shows under `osd = minimal`.
     pub(crate) mark: Option<vtium_render::Mark>,
+    /// The on-screen display's line, while it shows under `osd = full`.
+    pub(crate) status: Option<String>,
     /// What the head does when it loses its last display (ADR-1401 D8).
     pub(crate) on_loss: OnLoss,
     /// When its sessions hang up, while it has no display.
@@ -226,8 +232,10 @@ impl Ended {
     /// What the head shows in place of its session.
     pub fn notice(self) -> &'static str {
         match self {
-            Ended::Oneshot => "session ended",
-            Ended::TooQuick => "the session exited too quickly too many times running",
+            Ended::Oneshot => "The session ended, and vtium does not start it again.",
+            Ended::TooQuick => {
+                "The session kept ending as soon as it started, so vtium stopped starting it again."
+            }
         }
     }
 }
@@ -314,7 +322,11 @@ impl Head {
             notices: Vec::new(),
             shown: String::new(),
             notice_due: None,
+            osd_shown: false,
+            osd_due: None,
+            osd_seen: None,
             mark: None,
+            status: None,
             on_loss: OnLoss::Nohup,
             hangup_due: None,
             views: BTreeMap::new(),
@@ -427,9 +439,22 @@ impl Head {
             .or_else(|| (!self.shown.is_empty()).then_some(self.shown.as_str()))
     }
 
-    /// The head's focus mark, while it shows.
+    /// The on-screen display's dot, while it shows.
     pub fn mark(&self) -> Option<vtium_render::Mark> {
         self.mark
+    }
+
+    /// The on-screen display's line, while it shows.
+    pub fn status(&self) -> Option<&str> {
+        self.status.as_deref()
+    }
+
+    /// The on-screen display shows from the head's next frame, its time
+    /// afresh (ADR-1401 D5).
+    pub(crate) fn show_osd(&mut self) {
+        self.osd_shown = true;
+        self.osd_due = None;
+        self.draw_now = true;
     }
 
     /// Adds `text` to the head's notices, which show from its next frame
@@ -463,10 +488,18 @@ impl Head {
         }
     }
 
-    /// What vtium draws over the head's frames.
+    /// What vtium draws over the head's frames: one box at the top holding
+    /// the on-screen display's line and the notices beneath it, a problem
+    /// while a notice is in it, and the on-screen display's dot.
     pub(crate) fn overlay(&self) -> crate::term::Overlay {
+        let notice = self.notice();
+        let text = match (self.status.as_deref(), notice) {
+            (Some(line), Some(notice)) => Some(format!("{line}\n{notice}")),
+            (line, notice) => line.or(notice).map(str::to_owned),
+        };
         crate::term::Overlay {
-            notice: self.notice().map(vtium_render::Notice::new),
+            notice: text.map(vtium_render::Notice::new),
+            problem: notice.is_some(),
             mark: self.mark,
         }
     }
@@ -1035,7 +1068,8 @@ pub fn rules(
                 let more = format_args!("{} more errors", rejected.more);
                 lines.push(at(path, None, more).to_string());
             }
-            lines.push(at(path, None, "rejected whole: vtium runs the shipped rules").to_string());
+            let ignored = "this file has errors, so vtium ignores it and uses its built-in rules";
+            lines.push(at(path, None, ignored).to_string());
             for line in &lines {
                 log::error!("{line}");
             }
@@ -1198,7 +1232,7 @@ mod tests {
         let (bad, trust) = fixture("invalid", Some(invalid));
         let (ran, notice) = rules(&bad, &trust);
         assert_eq!(ran, vtium_config::Config::builtin());
-        assert!(notice.is_some_and(|n| n.contains(":4: ") && n.ends_with("shipped rules")));
+        assert!(notice.is_some_and(|n| n.contains(":4: ") && n.ends_with("built-in rules")));
         assert_eq!(std::fs::read_to_string(&bad).ok().as_deref(), Some(invalid));
         for f in [file, absent, bad] {
             if let Some(dir) = f.parent() {
@@ -1225,7 +1259,7 @@ mod tests {
         head.end_notices();
         assert_eq!(
             (head.notice(), head.notice_due),
-            (Some("session ended"), None)
+            (Some(Ended::Oneshot.notice()), None)
         );
         assert!(!head.has_notices());
     }

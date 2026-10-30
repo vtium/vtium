@@ -187,15 +187,42 @@ pub const HEAD_CONSOLES_MAX: Key = Key {
     cite: "ADR-1401 D10; the C reference's `session-max` (src/config.c:1357) bounded the seat's sessions",
 };
 
+pub const OSD: Key = Key {
+    name: "osd",
+    short: None,
+    kind: Kind::Choice(&["off", "minimal", "full"]),
+    default: Default::Text("minimal"),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "What vtium's on-screen display draws at the top of each head after a change: `minimal` a dot in the top-right cell, filled on the active head and hollow on the others; `full` a line across the top, such as `● desk · console 2 of 3`; `off` nothing. Notices of a problem show whatever this says.",
+    cite: "ADR-1401 D5; the operator on vtium/vtium#169",
+};
+
+pub const OSD_TIMEOUT: Key = Key {
+    name: "osd-timeout",
+    short: None,
+    kind: Kind::Number {
+        min: 1,
+        max: 600,
+        unit: "s",
+        word: Some("never"),
+    },
+    default: Default::Number(3),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "How long the on-screen display stays after a change, counted from the first frame that draws it. `never` keeps it up from the start.",
+    cite: "ADR-1401 D5; the operator on vtium/vtium#169",
+};
+
 pub const FOCUS_MARK: Key = Key {
     name: "focus-mark",
     short: None,
     kind: Kind::Choice(&["auto", "always", "off"]),
-    default: Default::Text("auto"),
+    default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Each head's focus mark over its top-right cell, filled on the head holding the focus and hollow on the others: `auto` shows the marks for a few seconds after the focus chord or the anti-lockout guard moves the focus, `always` shows them always, `off` never.",
-    cite: "ADR-1401 D5; the operator on vtium/vtium#156",
+    what: "The older name of `osd` and `osd-timeout`, read where they are unset: `auto` as `osd = minimal`, `always` as `osd = minimal` with `osd-timeout = never`, and `off` as `osd = off`. vtium logs a line naming the new keys when a file or the command line sets it.",
+    cite: "ADR-1401 D5; the operator on vtium/vtium#156, renamed on vtium/vtium#169",
 };
 
 pub const CONSOLES_MAX: Key = Key {
@@ -1074,7 +1101,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 82] = [
+pub const KEYS: [Key; 84] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1084,6 +1111,8 @@ pub const KEYS: [Key; 82] = [
     ONESHOT,
     HEAD_CONSOLES_MAX,
     CONSOLES_MAX,
+    OSD,
+    OSD_TIMEOUT,
     FOCUS_MARK,
     TERM,
     RESET_ENV,
