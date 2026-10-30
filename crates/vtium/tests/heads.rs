@@ -2211,8 +2211,8 @@ fn focus_mark_always_shows_every_heads_mark_and_off_none() {
     assert_eq!(marks(&s.app), [None, None]);
 }
 
-/// Two heads, each keyboard claimed by `small`, which [`stranded`] gives
-/// no display, with the head file's `guards`.
+/// Two heads, each keyboard but `kbd-large` claimed by `small`, which
+/// [`stranded`] gives no display, with the head file's `guards`.
 fn stranded_file(guards: &str) -> String {
     format!(
         "version = 1
@@ -2221,6 +2221,7 @@ fn stranded_file(guards: &str) -> String {
 [rules]
 display card:mem-small -> small
 display card:mem-large -> large
+input path:kbd-large -> large
 input class:keyboard -> small
 {guards}"
     )
@@ -2497,4 +2498,153 @@ fn with_no_keyboard_at_start_the_notice_says_so() {
     s.app.scanned();
     s.app.turn(now());
     assert_eq!(notice(&s.app, "console"), None);
+}
+
+/// The operator's answers (2026-10-30) and D7: an ended head's notice
+/// stays and keeps no time, so once 30 s have passed the loop still
+/// sleeps, where a timer left in the past would wake it at once forever.
+#[test]
+fn an_ended_heads_notice_leaves_the_loop_asleep() {
+    let mut s = claimed_with(&["--oneshot"]);
+    s.type_on(KBD_SMALL, "q\r");
+    assert!(s.until(SECOND, |a| notice(a, "small").as_deref()
+        == Some("session ended")));
+    assert!(s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)));
+    let t = now() + Duration::from_secs(31);
+    for i in 0..400u64 {
+        s.app.turn(t + Duration::from_millis(i));
+    }
+    let wake = s.app.next_wake(t + Duration::from_millis(400));
+    assert!(wake.is_none_or(|w| w > Duration::ZERO), "spins: {wake:?}");
+    assert_eq!(notice(&s.app, "small").as_deref(), Some("session ended"));
+}
+
+/// D8 and D9: with no keyboard-class device present the anti-lockout
+/// guard neither moves the focus nor shows its notice; D8's no-keyboard
+/// notice says what there is to say.
+#[test]
+fn with_no_keyboard_the_anti_lockout_guard_does_nothing() {
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let mut s = Seat::with_heads(&[], Some(TWO_HEADS), displays, "read x");
+    s.app.scanned();
+    assert!(s.until(SECOND, |a| a.cells().len() == 2));
+    assert_eq!(s.app.focus_head(), Some("large"));
+    s.unplug("/dev/mem1", now());
+    s.app.turn(now());
+    assert_eq!(s.app.focus_head(), Some("large"), "not moved");
+    for name in ["small", "large"] {
+        let shown = notice(&s.app, name).unwrap_or_default();
+        assert!(!shown.contains("anti-lockout"), "{name}: {shown:?}");
+    }
+    assert!(notice(&s.app, "small").is_some_and(|n| n.contains("no keyboard")));
+}
+
+/// D7 and D9: a file with `version = 1` alone runs its default head, which
+/// a keyboard following the focus reaches, so the anti-lockout guard never
+/// acts, through a second keyboard too, and a keyboard a rule ignores
+/// stays ignored.
+#[test]
+fn a_file_with_no_heads_runs_its_default_head_with_no_false_lockout() {
+    let displays = [(
+        "/dev/mem1",
+        Memory::new(640, 320, "MEM-2", "mem-large").lit(),
+    )];
+    let script = "echo ready; while read a; do echo \"got:$a\"; done";
+    let text = "version = 1\n[rules]\ninput path:kbd-ignored -> ignore\n";
+    let mut s = Seat::with_heads(&[], Some(text), displays, script);
+    s.app.add_input(Path::new(KBD_A), keyboard("kbd-a"));
+    s.app
+        .add_input(Path::new(KBD_IGNORED), keyboard("kbd-ignored"));
+    assert!(s.until(SECOND, |a| shows(a, "ready")));
+    s.until(Duration::from_millis(100), |_| false);
+    assert_eq!(notice(&s.app, "console"), None);
+    s.type_on(KBD_IGNORED, "i\r");
+    s.type_on(KBD_A, "a\r");
+    assert!(s.until(SECOND, |a| shows(a, "got:a")), "types");
+    assert!(
+        !shows(&s.app, "got:i"),
+        "the ignored keyboard types nowhere"
+    );
+    s.app.add_input(Path::new(KBD_B), keyboard("kbd-b"));
+    s.until(Duration::from_millis(100), |_| false);
+    assert_eq!(notice(&s.app, "console"), None);
+}
+
+/// A head's notices keep each line once and the last few: a keyboard
+/// plugged and unplugged again and again shows the anti-lockout notice
+/// once, and its repeats restart no time, so it ends 30 s after it is
+/// first drawn.
+#[test]
+fn a_flapping_keyboard_shows_the_anti_lockout_notice_once() {
+    let mut s = stranded("");
+    let first = now();
+    s.app.turn(first);
+    for _ in 0..20 {
+        s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
+        s.app.turn(now());
+        s.app.remove_input(Path::new(KBD_LARGE));
+        s.app.turn(now());
+    }
+    let shown = notice(&s.app, "large").unwrap_or_default();
+    assert_eq!(shown.lines().count(), 1, "{shown:?}");
+    s.app.turn(first + Duration::from_secs(31));
+    assert_eq!(notice(&s.app, "large"), None, "its first time holds");
+}
+
+/// D9: the rescue lasts for the rest of the boot: the keyboard unplugged
+/// and plugged again still follows the focus.
+#[test]
+fn a_rescued_keyboard_plugged_again_still_follows_the_focus() {
+    let file = HeadFile::new("rescue-replug", RESCUE);
+    let mut s = rescue_seat(file.rules());
+    s.app
+        .device_input(Path::new(KBD_IGNORED), ctrl_alt_f(1), now());
+    s.app.remove_input(Path::new(KBD_IGNORED));
+    s.app
+        .add_input(Path::new(KBD_IGNORED), keyboard("kbd-ignored"));
+    s.app.turn(now());
+    s.type_on(KBD_IGNORED, "r\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "large", "got:r")));
+}
+
+/// D9: a keyboard the rescue key moved reaches no lit head while the
+/// focus's head is unlit, so the anti-lockout guard still acts and moves
+/// the focus to a lit head.
+#[test]
+fn a_rescued_keyboard_on_an_unlit_focus_leaves_the_anti_lockout_guard_on() {
+    let displays = [
+        (
+            "/dev/mem0",
+            Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+        ),
+        ("/dev/mem1", Memory::new(640, 320, "MEM-2", "mem-large")),
+    ];
+    let script = "echo ready; while read a; do echo \"got:$a\"; done";
+    let mut s = Seat::with_heads(&[], Some(CLAIMED), displays, script);
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
+    assert_eq!(s.app.focus_head(), Some("small"));
+    s.app
+        .device_input(Path::new(KBD_LARGE), ctrl_alt_f(1), now());
+    s.unplug("/dev/mem0", now());
+    s.app.turn(now());
+    assert_eq!(s.app.focus_head(), Some("large"), "moved to the lit head");
+}
+
+/// D9: only the shown VT's own key rescues: Ctrl-Alt-F2 pressed on a
+/// claimed keyboard while vtium is on VT 1 moves nothing.
+#[test]
+fn another_vts_key_rescues_nothing() {
+    let file = HeadFile::new("rescue-other-vt", RESCUE);
+    let mut s = rescue_seat(file.rules());
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_alt_f(2), now());
+    assert_eq!(notice(&s.app, "large"), None);
+    s.type_on(KBD_SMALL, "\rs\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", "got:s")),
+        "still small's"
+    );
 }

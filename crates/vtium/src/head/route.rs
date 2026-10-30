@@ -38,14 +38,22 @@ impl Route {
     }
 }
 
+/// The most devices the rescue key's move is kept for through an unplug,
+/// for the rest of the boot; past it the oldest is forgotten.
+pub const RESCUED_MAX: usize = 16;
+
 /// Every input device the rules placed, by its node.
 #[derive(Debug, Default)]
 pub(crate) struct Routes {
     devices: BTreeMap<PathBuf, Route>,
+    /// The identities the rescue key moved, kept for the boot, at most
+    /// [`RESCUED_MAX`]: such a device plugged in again follows the focus.
+    rescued: Vec<Identity>,
 }
 
 impl Routes {
     /// Places the device at `node` by the first rule matching `identity`,
+    /// or at the focus where the rescue key moved it earlier in the boot,
     /// and returns whether vtium opens it.
     pub(crate) fn add(
         &mut self,
@@ -53,19 +61,17 @@ impl Routes {
         node: &Path,
         identity: &Identity,
     ) -> Disposition {
-        let placed = rules.walk(identity);
-        self.devices.insert(
-            node.to_owned(),
-            Route {
-                id: None,
-                identity: identity.clone(),
-                keyboard: identity.classes.has(Class::Keyboard),
-                place: placed.place,
-                rescued: false,
-                guarded: false,
-            },
-        );
-        disposition(rules, placed.place, identity)
+        let route = Route {
+            id: None,
+            identity: identity.clone(),
+            keyboard: identity.classes.has(Class::Keyboard),
+            place: rules.walk(identity).place,
+            rescued: self.rescued.contains(identity),
+            guarded: false,
+        };
+        let opened = disposition(rules, route.place(), identity);
+        self.devices.insert(node.to_owned(), route);
+        opened
     }
 
     /// The identities of the devices the rescue key has not moved, which
@@ -136,7 +142,16 @@ impl Routes {
             by: vtium_config::By::NoMatch,
         };
         route.rescued = rules.rescue(&placed);
-        route.rescued.then_some(route.id)
+        if !route.rescued {
+            return None;
+        }
+        if !self.rescued.contains(&route.identity) {
+            if self.rescued.len() >= RESCUED_MAX {
+                self.rescued.remove(0);
+            }
+            self.rescued.push(route.identity.clone());
+        }
+        Some(route.id)
     }
 
     pub(crate) fn remove(&mut self, node: &Path) {
@@ -312,5 +327,32 @@ mod tests {
             "the focus's, none"
         );
         assert_eq!(routes.head(Some(Path::new("/x")), Some(0)), Some(0));
+    }
+
+    // ADR-1401 D9: the rescue holds for the boot through an unplug, for the
+    // newest RESCUED_MAX devices.
+    #[test]
+    fn the_rescue_holds_through_an_unplug_for_the_newest_few() {
+        let rules = vtium_config::parse("version = 1\n[rules]\ninput * -> ignore\n")
+            .map(|p| p.config)
+            .unwrap_or_default();
+        let mut routes = Routes::default();
+        for n in 0..=RESCUED_MAX {
+            let node = format!("/k{n}");
+            routes.add(&rules, Path::new(&node), &keyboard(&format!("p-{n}")));
+            assert_eq!(routes.rescue(&rules, Path::new(&node)), Some(None));
+            routes.remove(Path::new(&node));
+        }
+        let back = |routes: &mut Routes, n: usize| {
+            routes.add(&rules, Path::new("/again"), &keyboard(&format!("p-{n}")))
+        };
+        assert_eq!(back(&mut routes, RESCUED_MAX), Disposition::Deliver);
+        assert_eq!(routes.head(Some(Path::new("/again")), Some(0)), Some(0));
+        assert_eq!(
+            back(&mut routes, 0),
+            Disposition::Rescue,
+            "the oldest forgotten"
+        );
+        assert_eq!(routes.head(Some(Path::new("/again")), Some(0)), None);
     }
 }

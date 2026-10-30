@@ -1761,8 +1761,18 @@ impl App {
             .and_then(|h| self.heads.get(h))
             .is_some_and(|head| !head.views.is_empty());
         let mut rules = self.rules.clone();
-        rules.guards.anti_lockout &= !(focus_lit && self.routes.rescued_keyboard());
-        let focus = self.focus.map(vtium_config::Place::Head);
+        // With no keyboard there is none to strand, and D8's notice says
+        // so; a keyboard the rescue key moved reaches the focus's head.
+        rules.guards.anti_lockout &=
+            self.routes.any_keyboard() && !(focus_lit && self.routes.rescued_keyboard());
+        // The default head is the head of a file that declares none.
+        let focus = self.focus.map(|h| {
+            if self.rules.heads.is_empty() {
+                vtium_config::Place::DefaultHead
+            } else {
+                vtium_config::Place::Head(h)
+            }
+        });
         let placement = rules.place(&devices, focus);
         let (shown, inputs) = placement
             .placed
@@ -1960,15 +1970,7 @@ impl App {
                 }
             },
             DeviceEvent::Removed { kind, node } => match kind {
-                DeviceKind::Input => {
-                    self.routes.remove(&node);
-                    self.guard_due = true;
-                    if let Some(input) = &mut self.input {
-                        if let Some(id) = input.find(&node) {
-                            input.remove(id);
-                        }
-                    }
-                }
+                DeviceKind::Input => self.remove_input(&node),
                 DeviceKind::Drm | DeviceKind::Fbdev => self.remove_video(&node),
             },
             DeviceEvent::Hotplug { node, .. } => {
@@ -1994,6 +1996,17 @@ impl App {
         {
             self.routes.opened(node, id);
             self.bound_pointers();
+        }
+    }
+
+    /// The input device at `node` went.
+    pub fn remove_input(&mut self, node: &Path) {
+        self.routes.remove(node);
+        self.guard_due = true;
+        if let Some(input) = &mut self.input {
+            if let Some(id) = input.find(node) {
+                input.remove(id);
+            }
         }
     }
 
@@ -2766,7 +2779,7 @@ fn draw_head(
 ) {
     let state = head.draw_state();
     let overlay = head.overlay();
-    if overlay.notice.is_some() && head.notice_due.is_none() && !head.views.is_empty() {
+    if head.has_notices() && head.notice_due.is_none() && !head.views.is_empty() {
         head.notice_due = Some(after(now, crate::head::NOTICE_SHOWN));
     }
     let present = std::mem::take(&mut head.console.term.present);

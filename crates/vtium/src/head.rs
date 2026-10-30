@@ -48,6 +48,10 @@ pub const GRID: (usize, usize) = (80, 24);
 /// probe 5).
 pub const NOTICE_SHOWN: Duration = Duration::from_secs(30);
 
+/// The most notices a head shows at once, the newest: an invalid head
+/// file's, no keyboard found, the anti-lockout guard's and a rescue.
+pub const NOTICES_MAX: usize = 4;
+
 /// How long `focus-mark = auto` shows the focus marks after the focus
 /// moves: a few seconds (the operator's answers on vtium/vtium#156).
 pub const MARK_SHOWN: Duration = Duration::from_secs(3);
@@ -114,10 +118,14 @@ pub struct Head {
     pub(crate) login: Option<Config>,
     /// Why the head runs no session any more.
     pub(crate) ended: Option<Ended>,
-    /// vtium's notices to the head, a line each (ADR-1401 D7), until a
-    /// key reaches the head or [`NOTICE_SHOWN`] after they are first
-    /// drawn, when they end.
-    notices: String,
+    /// vtium's notices to the head (ADR-1401 D7), each once and at most
+    /// [`NOTICES_MAX`], the oldest going first, until a key reaches the
+    /// head or [`NOTICE_SHOWN`] after they are first drawn, when they end.
+    notices: Vec<String>,
+    /// The notices as one text, a notice a line.
+    shown: String,
+    /// When the notices end, armed at their first frame; an ended head's
+    /// notice keeps no time.
     pub(crate) notice_due: Option<Instant>,
     /// Its focus mark, while the seat shows the marks.
     pub(crate) mark: Option<vtium_render::Mark>,
@@ -280,7 +288,8 @@ impl Head {
             wanted: 1,
             login: None,
             ended: None,
-            notices: String::new(),
+            notices: Vec::new(),
+            shown: String::new(),
             notice_due: None,
             mark: None,
             on_loss: OnLoss::Nohup,
@@ -392,7 +401,7 @@ impl Head {
     pub fn notice(&self) -> Option<&str> {
         self.ended
             .map(Ended::notice)
-            .or_else(|| (!self.notices.is_empty()).then_some(self.notices.as_str()))
+            .or_else(|| (!self.shown.is_empty()).then_some(self.shown.as_str()))
     }
 
     /// The head's focus mark, while it shows.
@@ -400,21 +409,33 @@ impl Head {
         self.mark
     }
 
-    /// Adds `text` to the head's notices, which show from its next frame.
+    /// Adds `text` to the head's notices, which show from its next frame
+    /// for [`NOTICE_SHOWN`] afresh; a notice the head already shows is
+    /// left as it is, its time with it.
     pub(crate) fn add_notice(&mut self, text: &str) {
-        if !self.notices.is_empty() {
-            self.notices.push('\n');
+        if self.notices.iter().any(|n| n == text) {
+            return;
         }
-        self.notices.push_str(text);
+        if self.notices.len() >= NOTICES_MAX {
+            self.notices.remove(0);
+        }
+        self.notices.push(text.to_owned());
+        self.shown = self.notices.join("\n");
         self.notice_due = None;
         self.draw_now = true;
     }
 
+    /// Whether the head has notices that end.
+    pub(crate) fn has_notices(&self) -> bool {
+        !self.notices.is_empty()
+    }
+
     /// The head's notices end: a key reached it, or their time ran out.
     pub(crate) fn end_notices(&mut self) {
+        self.notice_due = None;
         if !self.notices.is_empty() {
             self.notices.clear();
-            self.notice_due = None;
+            self.shown.clear();
             self.draw_now = true;
         }
     }
@@ -1167,6 +1188,29 @@ mod tests {
                 std::fs::remove_dir_all(dir).ok();
             }
         }
+    }
+
+    // A head shows each notice once and the newest NOTICES_MAX; an ended
+    // head's notice stays when they end.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn a_head_keeps_each_notice_once_and_the_newest_few() {
+        let config = crate::config::load(&[], None, &mut |_: &std::path::Path| Ok(None)).config;
+        let term = terminal(&config, (0, 0), 0, std::rc::Rc::new(Instant::now));
+        let mut head = Head::new("h", &config, &vtium_config::Font::default(), term);
+        for n in 0..6 {
+            head.add_notice(&format!("n{n}"));
+            head.add_notice(&format!("n{n}"));
+        }
+        assert_eq!(head.notice(), Some("n2\nn3\nn4\nn5"));
+        head.ended = Some(Ended::Oneshot);
+        head.notice_due = Some(Instant::now());
+        head.end_notices();
+        assert_eq!(
+            (head.notice(), head.notice_due),
+            (Some("session ended"), None)
+        );
+        assert!(!head.has_notices());
     }
 
     // ADR-1401 D9 and D11's switch row: each guard the file turns off is a
