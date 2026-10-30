@@ -2228,39 +2228,35 @@ impl App {
         self.exiting(now);
     }
 
-    /// What head `h`'s program asked this turn: its OSC 52 selection, its
-    /// OSC 50 font, its exit, and its blank sequences.
+    /// What head `h`'s programs asked this turn: each console's OSC 52
+    /// selection; the shown console's OSC 50 font and blank sequences,
+    /// which a hidden console's wait for it to be shown, since the font
+    /// and the displays are the head's; and their exits.
     fn session_turn(&mut self, h: usize, now: Instant) {
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
-        let mut fonts = Vec::new();
+        // The console has no system clipboard: a selection OSC 52 set is
+        // held for a paste, or dropped under `no-clipboard-write`.
         for console in head.consoles_mut() {
-            let terminal = &mut console.term.terminal;
-            // The console has no system clipboard: a selection OSC 52 set
-            // is held for a paste, or dropped under `no-clipboard-write`.
-            if let Some(selection) = terminal.take_clipboard_write() {
+            if let Some(selection) = console.term.terminal.take_clipboard_write() {
                 if self.clipboard_write {
                     self.selection = Some(selection);
                 }
             }
-            // The terminal takes OSC 50 only under `allow-font-ops`.
-            fonts.extend(terminal.take_font_request());
         }
-        for name in fonts {
+        // The terminal takes OSC 50 only under `allow-font-ops`.
+        if let Some(name) = head.console.term.terminal.take_font_request() {
             self.switch_font(h, &name);
         }
         // After the exit, whose respawn's RIS returns the blank to
         // `dpms-timeout` for the next session.
         self.child_exited(h, now);
-        let requests: Vec<BlankRequest> = self
+        let request = self
             .heads
             .get_mut(h)
-            .into_iter()
-            .flat_map(Head::consoles_mut)
-            .filter_map(|c| c.term.terminal.take_blank_request())
-            .collect();
-        for request in requests {
+            .and_then(|head| head.console.term.terminal.take_blank_request());
+        if let Some(request) = request {
             if self.program_blank {
                 self.blank_request(request, now);
             }

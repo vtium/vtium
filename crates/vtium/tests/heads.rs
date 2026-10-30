@@ -1364,3 +1364,37 @@ input path:kbd-small -> small
     s.until(Duration::from_millis(100), |_| false);
     assert_eq!(consoles(&s.app, "small"), Some((1, 0)), "no console opened");
 }
+
+/// A hidden console's OSC 50 waits until it is shown: the font is the
+/// head's, and only the console shown switches it.
+#[test]
+fn a_hidden_consoles_font_request_waits_until_it_is_shown() {
+    let heads = "version = 1
+[head one]
+consoles = 2
+[rules]
+display card:mem-small -> one
+";
+    let script =
+        "echo ready; read a; sleep 0.3; printf '\\033]50;unscii-8\\007'; echo asked; read b";
+    let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::with_heads(&[], Some(heads), displays, script);
+    assert!(s.until(SECOND, |a| head_shows(a, "one", "ready")));
+    let chord = |s: &mut Seat, keysym: u32| {
+        s.app.input_event(ctrl_super(keysym), now());
+        s.until(Duration::from_millis(50), |_| false);
+    };
+    chord(&mut s, RIGHT);
+    assert!(s.until(SECOND, |a| head_shows(a, "one", "ready")));
+    s.type_str("x\r");
+    chord(&mut s, RIGHT);
+    assert_eq!(consoles(&s.app, "one"), Some((2, 0)), "the second hidden");
+    s.until(Duration::from_millis(800), |_| false);
+    assert_eq!(s.app.font_name(), "unifont", "the request waits");
+    chord(&mut s, RIGHT);
+    assert!(
+        s.until(SECOND, |a| a.font_name() == "unscii-8"),
+        "shown, it switches the font"
+    );
+    assert!(s.until(SECOND, |a| head_shows(a, "one", "asked")));
+}
