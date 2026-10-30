@@ -3389,7 +3389,7 @@ fn logged() -> Vec<String> {
 /// removed when it is dropped, as its test ends or panics. A test holds it
 /// past its harness, so no helper starts in it once its removal begins; a
 /// recording stand-in's checker, which outlives its helper, may still move
-/// a file within it meanwhile, and the removal is tried again.
+/// a file within it meanwhile, and the removal is tried again a while.
 struct Scratch(PathBuf);
 
 impl Scratch {
@@ -3406,12 +3406,21 @@ impl Scratch {
 }
 
 impl Drop for Scratch {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the removal waits in real time for a checker's move to end"
+    )]
     fn drop(&mut self) {
         for _ in 0..100 {
             if std::fs::remove_dir_all(&self.0).is_ok() || !self.0.exists() {
                 return;
             }
+            std::thread::sleep(Duration::from_millis(10));
         }
+        eprintln!(
+            "{} is left behind: it could not be removed",
+            self.0.display()
+        );
     }
 }
 
@@ -3914,13 +3923,16 @@ fn glyphs_no_buffer_shows_start_no_draw() {
 
 /// The recording stand-in: it becomes `cat`, writing what it is sent to
 /// a file of its own as it arrives, so a helper the console stops at once
-/// has still recorded its request. A checker beside it, which outlives it,
-/// reads the first request's frit name and shows the file as `request.*`
+/// has still recorded its request. A checker beside it, in a process group
+/// of its own and holding none of the helper's pipes, so it outlives the
+/// helper's end and keeps the console waiting on nothing, reads the first
+/// request's frit name and shows the file as `request.*`
 /// only for a name of ADR-1200 D1's characters and at most 64 bytes, which
 /// the helper's request reader takes; any other it moves to `refused.*`.
 const RECORDER: &str = r#"
 part="$1/part.$$"
 : >"$part"
+set -m
 (
     has() {
         i=0
@@ -3941,7 +3953,8 @@ part="$1/part.$$"
         esac
     fi
     mv "$part" "$1/refused.$$"
-) </dev/null &
+) </dev/null >/dev/null &
+set +m
 exec cat >>"$part"
 "#;
 
@@ -4356,13 +4369,16 @@ fn osc_50_from_one_frit_to_another_starts_a_helper_for_it() {
 }
 
 /// [`RECORDER`]'s start for [`recording_held`]: the first helper started
-/// shows its pid as `held.*` and holds off reading for 5 s, a process it
-/// starts holding its output meanwhile, as the recorder's checker does;
-/// each later one shows its pid as `started.*`.
+/// holds off reading for 5 s, a process it starts holding its output
+/// meanwhile, as the recorder's checker does. It shows that process's pid
+/// as `descendant.*`, its output's pipe in `output`, and then its own pid
+/// as `held.*`; each later helper shows its pid as `started.*`.
 const HOLD: &str = r#"
 if mkdir "$1/held" 2>/dev/null; then
-    : >"$1/held.$$"
     sleep 5 &
+    : >"$1/descendant.$!"
+    readlink /proc/$$/fd/1 >"$1/output"
+    : >"$1/held.$$"
     wait
 fi
 : >"$1/started.$$"
@@ -4390,37 +4406,53 @@ fn shown_pids(fonts: &Sources, prefix: &str) -> Vec<u32> {
         .collect()
 }
 
-// vtium/vtium#160: a switch that ends the first frit's helper before it
-// has read its request starts the next frit's helper once, and the helper
-// ended is reaped as it exits, though a process it started still holds
-// its output
-#[test]
-fn osc_50_ending_a_helper_before_it_reads_starts_one_for_the_next_and_reaps_it() {
-    let (_dir, fonts) = recording_held("osc50-early");
+/// The one pid the stand-in in `fonts` showed as `prefix.*`.
+fn shown_pid(fonts: &Sources, prefix: &str) -> u32 {
+    let pids = shown_pids(fonts, prefix);
+    let &[pid] = pids.as_slice() else {
+        panic!("one {prefix}: {pids:?}");
+    };
+    pid
+}
+
+/// Whether the process `pid` is gone and reaped.
+fn gone(pid: u32) -> bool {
+    !Path::new(&format!("/proc/{pid}")).exists()
+}
+
+/// The seat drawing frit `a`, whose helper [`HOLD`] holds, switched by
+/// OSC 50 to frit `b` while it holds; the directory, the seat and the
+/// sources.
+fn switched_while_held(name: &str) -> (Scratch, Harness, Sources) {
+    let (dir, fonts) = recording_held(name);
     for (name, text) in [("a", "source=kbd:a\n"), ("b", "source=kbd:b\n")] {
         std::fs::write(fonts.frits.join(format!("{name}.vtfrit")), text).expect("a frit");
     }
-    // The switch waits for `a`'s helper to have started, and comes while
-    // it holds off reading.
     let before = format!(
         "while ! ls {}/held.* >/dev/null 2>&1; do sleep 0.01; done; ",
         fonts.frits.display()
     );
-    let mut h = osc50_after(
+    let h = osc50_after(
         &["--font-name=a"],
         &before,
         "\\033]50;b\\007",
         fonts.clone(),
     );
     assert_eq!(h.app.font_name(), "b");
+    (dir, h, fonts)
+}
+
+// vtium/vtium#160: a switch that ends the first frit's helper before it
+// has read its request starts the next frit's helper once, and the helper
+// ended is reaped as it exits, though a process it started held its
+// output
+#[test]
+fn osc_50_ending_a_helper_before_it_reads_starts_one_for_the_next_and_reaps_it() {
+    let (_dir, mut h, fonts) = switched_while_held("osc50-early");
     assert_eq!(recorded(&mut h, &fonts, 1), [pair("b", "source=kbd:b\n")]);
-    let held = shown_pids(&fonts, "held");
-    let &[a] = held.as_slice() else {
-        panic!("one helper held: {held:?}");
-    };
-    let reaped = || !Path::new(&format!("/proc/{a}")).exists();
+    let a = shown_pid(&fonts, "held");
     assert!(
-        h.until(Duration::from_secs(2), |_| reaped()),
+        h.until(Duration::from_secs(2), |_| gone(a)),
         "a's helper is reaped"
     );
     h.until(Duration::from_millis(500), |_| false);
@@ -4430,6 +4462,33 @@ fn osc_50_ending_a_helper_before_it_reads_starts_one_for_the_next_and_reaps_it()
         "b's helper starts once"
     );
     assert_eq!(recorded(&mut h, &fonts, 1), [pair("b", "source=kbd:b\n")]);
+}
+
+// A helper the console ends takes the processes it started in its process
+// group with it, so none holds its output, and the console's end of that
+// output closes as the helper exits
+#[test]
+fn ending_a_helper_ends_what_it_started_and_closes_its_output() {
+    let (_dir, mut h, fonts) = switched_while_held("osc50-group");
+    let descendant = shown_pid(&fonts, "descendant");
+    let output = std::fs::read_to_string(fonts.frits.join("output")).expect("the output's pipe");
+    let output = output.trim();
+    assert!(output.starts_with("pipe:["), "{output}");
+    let open = || {
+        std::fs::read_dir("/proc/self/fd")
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .any(|e| std::fs::read_link(e.path()).is_ok_and(|l| l.as_os_str() == output))
+    };
+    assert!(
+        h.until(Duration::from_secs(2), |_| gone(descendant)),
+        "what a's helper started is ended"
+    );
+    assert!(
+        h.until(Duration::from_secs(2), |_| !open()),
+        "the console's end of a's output is closed"
+    );
 }
 
 // ADR-1200 D5: a name no frit bears, a path, a frit whose cell cannot be

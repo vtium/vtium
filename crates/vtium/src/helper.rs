@@ -21,8 +21,9 @@
 //! (ADR-1400 D2's last account before login), and sandboxes itself. A
 //! thread writes the requests and another reads the answers, so neither
 //! a slow nor a hung helper stalls the loop; the reader wakes the loop
-//! after each answer. A third reaps the helper as it exits, though a
-//! process it started may still hold its output. Each frame is
+//! after each answer. A third reaps the helper as it exits, ending first
+//! each process it started in its process group, so none holds its
+//! output past it. Each frame is
 //! checked before it is trusted: its length against [`FRAME_BYTES_MAX`]
 //! before anything is allocated, a set through vtium-font's reader, which
 //! bounds every field, every strike at a cell asked for and regular in
@@ -60,12 +61,15 @@ use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
-use std::process::{Command as Process, ExitStatus, Stdio};
+use std::process::{Child, Command as Process, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use rustix::process::{Pid, PidfdFlags, Signal, pidfd_open, pidfd_send_signal};
+use rustix::process::{
+    Pid, PidfdFlags, Signal, WaitId, WaitIdOptions, kill_process_group, pidfd_open,
+    pidfd_send_signal, waitid,
+};
 use vtium_font::Cell;
 use vtium_font::set::{Set, SetFace};
 use vtium_platform::vt::font::ConsoleFont;
@@ -905,9 +909,30 @@ impl Helper {
             .and_then(Pid::from_raw)
             .and_then(|pid| pidfd_open(pid, PidfdFlags::empty()).ok());
         let (stdin, stdout) = (child.stdin.take(), child.stdout.take());
+        // the reaper starts first, so the child is reaped whatever fails
+        // after
+        let (exited, status) = mpsc::channel();
+        let (give, given) = mpsc::channel::<Child>();
+        if let Err(e) = thread("reaper", move || {
+            if let Ok(child) = given.recv() {
+                let _ = exited.send(reap(child));
+            }
+        }) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("cannot start its reaper: {e}"));
+        }
+        let _ = give.send(child);
+        // a thread that cannot start ends the child, which its reaper reaps
+        let end = |what: &str, e: std::io::Error| {
+            if let Some(fd) = &pidfd {
+                let _ = pidfd_send_signal(fd, Signal::KILL);
+            }
+            format!("cannot start its {what}: {e}")
+        };
         let (requests, to_write) = mpsc::channel::<Vec<u8>>();
         if let Some(mut stdin) = stdin {
-            std::thread::spawn(move || {
+            thread("writer", move || {
                 for bytes in to_write {
                     if stdin
                         .write_all(&bytes)
@@ -917,15 +942,12 @@ impl Helper {
                         break;
                     }
                 }
-            });
+            })
+            .map_err(|e| end("writer", e))?;
         }
-        let (exited, status) = mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = exited.send(child.wait().ok());
-        });
         let (tx, events) = mpsc::channel();
         let wake = Arc::clone(&self.wake);
-        std::thread::spawn(move || {
+        thread("reader", move || {
             if let Some(mut stdout) = stdout {
                 while let Some(e) = frame(&mut stdout) {
                     let malformed = matches!(e, Event::Malformed(_));
@@ -944,7 +966,8 @@ impl Helper {
             let status = status.recv().ok().flatten();
             let _ = tx.send(Event::Closed(status));
             wake();
-        });
+        })
+        .map_err(|e| end("reader", e))?;
         Ok(Running {
             pidfd,
             requests,
@@ -971,8 +994,8 @@ impl Helper {
         }
     }
 
-    /// Ends the helper's process, if it runs; its reaper reaps it, and
-    /// nothing it sent is taken.
+    /// Ends the helper's process, if it runs; its reaper ends what it
+    /// started and reaps it, and nothing it sent is taken.
     fn stop(&mut self) {
         self.stopped.clear();
         self.querying = false;
@@ -1394,6 +1417,37 @@ impl Drop for Helper {
     fn drop(&mut self) {
         self.stop();
     }
+}
+
+/// Starts one of a helper's threads, `name` its role.
+fn thread(name: &str, f: impl FnOnce() + Send + 'static) -> std::io::Result<()> {
+    std::thread::Builder::new()
+        .name(format!("vtium-helper-{name}"))
+        .spawn(f)
+        .map(drop)
+}
+
+/// Waits for the helper `child` to exit, ends each process it started in
+/// its process group, and reaps it, how it exited. Until it is reaped its
+/// pid, and with it the group's id, names no other process, so the
+/// group's end reaches only what the helper started.
+fn reap(mut child: Child) -> Option<ExitStatus> {
+    if let Some(pid) = i32::try_from(child.id()).ok().and_then(Pid::from_raw) {
+        loop {
+            match waitid(
+                WaitId::Pid(pid),
+                WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
+            ) {
+                Err(rustix::io::Errno::INTR) => {}
+                Ok(_) => {
+                    let _ = kill_process_group(pid, Signal::KILL);
+                    break;
+                }
+                Err(_) => break,
+            }
+        }
+    }
+    child.wait().ok()
 }
 
 fn after(t: Instant, d: Duration) -> Instant {
