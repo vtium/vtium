@@ -1734,7 +1734,7 @@ impl App {
     /// the rules light none, and lets it go dark once they light another.
     /// The anti-lockout guard sends every keyboard to the focus, opened to
     /// deliver, while none reaches a head with a lit display, and moves the
-    /// focus to a lit head, with a notice and the focus marks; once one
+    /// focus to a lit head, with a notice and the on-screen display; once one
     /// reaches a lit head each goes back to its rule. A keyboard the rescue
     /// key moved follows the focus throughout, and reaches it while the
     /// focus's head is lit.
@@ -2061,7 +2061,7 @@ impl App {
     }
 
     /// The head the focus chord last moved the focus to, by its name,
-    /// once: what draws the focus mark reads it (ADR-1401 D5).
+    /// once (ADR-1401 D5).
     pub fn take_focus_move(&mut self) -> Option<String> {
         let h = self.focus_move.take()?;
         self.heads.get(h).map(|head| head.name().to_owned())

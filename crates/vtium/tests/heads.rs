@@ -2562,7 +2562,7 @@ fn under_oneshot_a_head_whose_program_ended_shows_session_ended() {
     assert!(!s.memory("/dev/mem1").has(PAPER), "large runs on");
 }
 
-/// The focus marks of the heads, in the head file's order.
+/// The on-screen display's dots of the heads, in the head file's order.
 fn marks(app: &App) -> Vec<Option<vtium_render::Mark>> {
     app.heads().iter().map(Head::mark).collect()
 }
@@ -2809,7 +2809,7 @@ fn every_keyboard_claimed_by_a_head_with_no_display_types_into_the_focus() {
 }
 
 /// D9: when the anti-lockout guard fires it moves the focus to a lit head,
-/// the boot display's when lit, and the focus marks light.
+/// the boot display's when lit, and the on-screen display shows.
 #[test]
 fn the_anti_lockout_guard_moves_the_focus_to_a_lit_head() {
     let mut s = losing_with_focus();
