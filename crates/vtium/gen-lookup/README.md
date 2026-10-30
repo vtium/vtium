@@ -1,6 +1,6 @@
 # vtium's cluster lookup table generator
 
-Generates vtium's `src/deferred/data.rs` from the Unicode Character Database 18.0.0: the combining marks, the default ignorables, the canonical combining classes and the primary composites the console's lookup for a cluster reads (ADR-1200 D22, steps 2 and 3). The output is committed, so the crate builds without the UCD; rerun this only to move the pinned version, and commit the new pins and the regenerated file on their own. It is its own workspace with no dependencies, so the main workspace and CI never build it.
+Generates vtium's `src/deferred/data.rs` from the Unicode Character Database 18.0.0: the combining marks, the default ignorables, the canonical combining classes, the primary composites and the canonical decompositions the console's lookup for a cluster reads (ADR-1200 D22, steps 2 and 3). The output is committed, so the crate builds without the UCD; rerun this only to move the pinned version, and commit the new pins and the regenerated file on their own. It is its own workspace with no dependencies, so the main workspace and CI never build it.
 
 Fetch the three UCD files into a directory, then run it from the repository root:
 

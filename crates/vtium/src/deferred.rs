@@ -117,14 +117,63 @@ fn compose(a: char, b: char) -> Option<char> {
         .and_then(|&(_, _, c)| char::from_u32(c))
 }
 
-/// The one codepoint `cluster`'s NFC form is, when it is one: each run of
-/// its marks of a class but 0 in canonical order, then each composed into
-/// the base in turn, as none is left between to block the next.
+/// `c`'s full canonical decomposition, `c` itself when it has none: a
+/// Hangul syllable by rule, the CJK compatibility ideographs' left out.
+fn decompose(c: char, out: &mut Vec<char>) {
+    let u = u32::from(c);
+    let s = u.wrapping_sub(HANGUL_S);
+    if s < HANGUL_S_COUNT {
+        let lv = s / HANGUL_T_COUNT;
+        let parts = [
+            HANGUL_L.checked_add(lv / HANGUL_V_COUNT),
+            HANGUL_V.checked_add(lv % HANGUL_V_COUNT),
+            (s % HANGUL_T_COUNT != 0)
+                .then(|| HANGUL_T.checked_add(s % HANGUL_T_COUNT))
+                .flatten(),
+        ];
+        out.extend(parts.into_iter().flatten().filter_map(char::from_u32));
+        return;
+    }
+    match data::DECOMPOSE.binary_search_by_key(&u, |&(cp, _, _)| cp) {
+        Ok(i) => {
+            for part in data::DECOMPOSE
+                .get(i)
+                .map(|&(_, a, b)| [a, b])
+                .into_iter()
+                .flatten()
+                .filter(|&p| p != 0)
+                .filter_map(char::from_u32)
+            {
+                decompose(part, out);
+            }
+        }
+        Err(_) => out.push(c),
+    }
+}
+
+/// The characters `c` decomposes to canonically, `c` among them: a cell
+/// whose cluster holds any of them may draw from `c`'s glyph (step 2).
+pub fn decomposition(c: char) -> Vec<char> {
+    let mut out = vec![c];
+    decompose(c, &mut out);
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// The one codepoint `cluster`'s NFC form is, when it is one: the cluster
+/// decomposed canonically, each run of marks of a class but 0 put in
+/// canonical order, then each composed into the base in turn, as none is
+/// left between to block the next.
 fn precomposed(cluster: &[char]) -> Option<char> {
-    let (&base, rest) = cluster.split_first()?;
-    if rest.is_empty() {
+    if cluster.len() < 2 {
         return None;
     }
+    let mut chars = Vec::new();
+    for &c in cluster {
+        decompose(c, &mut chars);
+    }
+    let (&base, rest) = chars.split_first()?;
     let mut marks = rest.to_vec();
     for run in marks.split_mut(|&c| class(c) == 0) {
         run.sort_by_key(|&c| class(c));
@@ -1129,6 +1178,11 @@ mod tests {
         );
         // a composition exclusion: U+0958 is not composed again
         assert_eq!(precomposed(&['\u{915}', '\u{93c}']), None);
+        // a precomposed base is decomposed first: ê and dot below is ệ, and
+        // ANGSTROM SIGN with acute composes through Å
+        assert_eq!(precomposed(&['\u{ea}', '\u{323}']), Some('\u{1ec7}'));
+        assert_eq!(precomposed(&['\u{212b}', '\u{301}']), Some('\u{1fa}'));
+        assert_eq!(precomposed(&['\u{ac00}', '\u{11a8}']), Some('\u{ac01}'));
         assert_eq!(precomposed(&['e']), None);
         assert_eq!(precomposed(&['q', '\u{301}']), None);
     }

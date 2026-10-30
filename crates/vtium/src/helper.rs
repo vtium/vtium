@@ -455,8 +455,9 @@ fn frame(r: &mut impl Read) -> Option<Event> {
 }
 
 /// An answer the console takes: glyphs now in the store at `cell`, drawn
-/// through `face`, for `chars`, sorted: each codepoint it brought and each
-/// character of each cluster, so the cells showing one redraw.
+/// through `face`, for `chars`, sorted: each codepoint it brought with
+/// those it decomposes to, and each character of each cluster, so the
+/// cells showing one, or a cluster that composes to one, redraw.
 #[derive(Debug)]
 pub struct Answer {
     pub cell: Cell,
@@ -1215,7 +1216,13 @@ impl Helper {
         let Some(face) = self.store.borrow_mut().add(fresh) else {
             return Ok(None);
         };
-        let mut chars: Vec<char> = added.iter().flatten().copied().collect();
+        // a cluster that decomposes from an arrived codepoint may draw it
+        // now (D22 step 2), so the cells showing its base redraw too
+        let mut chars: Vec<char> = added
+            .iter()
+            .flatten()
+            .flat_map(|&c| crate::deferred::decomposition(c))
+            .collect();
         chars.sort_unstable();
         chars.dedup();
         if let Some(state) = self.state(cell) {
@@ -1666,6 +1673,21 @@ mod tests {
         );
         s.helper.ask(CELL, &only_clusters, now);
         assert!(!s.helper.busy());
+    }
+
+    // ADR-1200 D22 step 2: an arrived é redraws the cells whose cluster
+    // holds e or U+0301, as e U+0301 now draws é's glyph
+    #[test]
+    fn an_arrived_codepoint_redraws_the_clusters_it_composes_from() {
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, &['\u{e9}', 'A']));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let mut s = StandIn::new("decomposed", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.ask(CELL, &shown(&['\u{e9}', 'A']), now);
+        let answers = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(answers.len(), 1);
+        assert_eq!(answers[0].chars, ['A', 'e', '\u{e9}', '\u{301}']);
     }
 
     // ADR-1200 D15: a cluster the ask did not name, or one in a fill, is
