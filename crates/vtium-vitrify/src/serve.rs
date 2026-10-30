@@ -1303,6 +1303,10 @@ pub fn command(paths: &Paths) -> u8 {
 
 #[cfg(test)]
 #[path = "../tests/common/ttf.rs"]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the tests' font builder, shared with the integration tests"
+)]
 mod ttf;
 
 #[cfg(test)]
