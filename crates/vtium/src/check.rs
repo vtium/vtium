@@ -1141,7 +1141,9 @@ mod tests {
             }],
         };
         let devices = devices(&listing);
-        let shown: Vec<(Option<&str>, Option<&str>, bool, u32, u32)> = devices
+        // a device's connector else name, card, boot card, card order, order
+        type Shown<'a> = (Option<&'a str>, Option<&'a str>, bool, u32, u32);
+        let shown: Vec<Shown> = devices
             .iter()
             .map(|d| {
                 (
