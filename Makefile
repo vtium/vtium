@@ -344,7 +344,8 @@ export GATE_LINE
 
 .PHONY: gates
 gates: ## Run every gate of the gate line, each to the end, report each exit code and fail if any failed
-	@summary=$$(mktemp); trap 'rm -f "$$summary"' EXIT; \
+	@[ -n "$$(printf '%s' "$$GATE_LINE" | tr -d '[:space:]')" ] || { echo "gates: the gate list is empty" >&2; exit 1; }; \
+	summary=$$(mktemp); trap 'rm -f "$$summary"' EXIT; \
 	printf '%s\n' "$$GATE_LINE" | while IFS= read -r gate; do \
 		echo "==> $$gate"; \
 		sh -c "$$gate" </dev/null; code=$$?; \
