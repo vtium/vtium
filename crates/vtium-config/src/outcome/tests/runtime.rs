@@ -10,8 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::paths;
 use crate::outcome::{
-    Fallback, Landing, Outcome, Read, Rescue, Rest, Runs, Stated, SwitchKey, Trusted, Unplaced,
-    resolve,
+    Fallback, Line, Outcome, Read, Rest, Runs, Stated, SwitchKey, Trusted, Unplaced, resolve,
 };
 
 const H1: u8 = 1;
@@ -223,17 +222,14 @@ impl Config {
         self.o.switch(key).of(None)
     }
 
-    /// Whether `h` may be the active head while the heads `lit` are lit.
-    fn takes(&self, h: u8, lit: u8) -> bool {
-        let first_lit = ORDER
-            .into_iter()
-            .find(|&x| x != DEF && self.scene.heads & x != 0 && lit & x != 0);
-        !self.isolated(h) || (self.o.landing == Landing::FirstLitSurvivor && Some(h) == first_lit)
+    /// Whether `h` may be the active head.
+    fn takes(&self, h: u8) -> bool {
+        !self.isolated(h)
     }
 
     /// Whether the rescue key reaches a keyboard its rule gives to `h`.
     fn rescuable(&self, h: u8) -> bool {
-        !self.isolated(h) || self.o.rescue == Rescue::Forced
+        !self.isolated(h)
     }
 
     /// Whether an input of `kind` that no running rule places roams.
@@ -321,12 +317,13 @@ fn describe(bits: u64) -> String {
 #[derive(Clone, Copy)]
 struct View {
     heads: u8,
-    lit: u8,
     active: Option<u8>,
     roams: u16,
     claims: [Option<u8>; 9],
     anti_lockout: bool,
     display_guard: bool,
+    /// The notice on the boot display, under a policy whose display guard lights no head.
+    notice: Option<Line>,
     reach: u64,
 }
 
@@ -353,6 +350,7 @@ fn settle(c: &Config, present: u16, rescued: u16, active: Option<u8>) -> View {
     }
     // the display guard is always on
     let mut display_guard = false;
+    let mut notice = None;
     if let (0, Some(boot)) = (lit, boot) {
         match c.o.fallback {
             Fallback::FirstHead => {
@@ -363,14 +361,18 @@ fn settle(c: &Config, present: u16, rescued: u16, active: Option<u8>) -> View {
                 shown |= shows(boot, h);
             }
             // the boot display for the notice alone, and dark for a valid closed file with no head
-            Fallback::NoticeOnly => display_guard = c.o.line.is_some() || c.scene.heads != 0,
+            Fallback::NoticeOnly if c.o.line.is_some() || c.scene.heads != 0 => {
+                display_guard = true;
+                notice = c.o.dark_notice();
+            }
+            Fallback::NoticeOnly => {}
         }
     }
     let heads = c.scene.heads | (lit & DEF);
     let lit_taker = || {
         boot_head
-            .filter(|&h| lit & h != 0 && c.takes(h, lit))
-            .or_else(|| ORDER.into_iter().find(|&h| lit & h != 0 && c.takes(h, lit)))
+            .filter(|&h| lit & h != 0 && c.takes(h))
+            .or_else(|| ORDER.into_iter().find(|&h| lit & h != 0 && c.takes(h)))
     };
     let mut roams = 0u16;
     let mut claims = [None; 9];
@@ -390,7 +392,7 @@ fn settle(c: &Config, present: u16, rescued: u16, active: Option<u8>) -> View {
             To::None => {}
         }
     }
-    let mut active = active.filter(|&h| heads & h != 0 && c.takes(h, lit));
+    let mut active = active.filter(|&h| heads & h != 0 && c.takes(h));
     if active.is_none() {
         active = lit_taker();
     }
@@ -437,12 +439,12 @@ fn settle(c: &Config, present: u16, rescued: u16, active: Option<u8>) -> View {
     }
     View {
         heads,
-        lit,
         active,
         roams,
         claims,
         anti_lockout,
         display_guard,
+        notice,
         reach,
     }
 }
@@ -464,11 +466,7 @@ fn allowed(start: &Config, by_text: bool) -> u64 {
     let open = !by_text && o.policy == crate::outcome::Policy::Open;
     // the open policy's display guard may light the default head; a closed file never grants it
     let heads = start.scene.heads | if open { DEF } else { 0 };
-    let takes = |h: u8| {
-        h == DEF
-            || !isolated(h)
-            || (!by_text && o.landing == Landing::FirstLitSurvivor && start.scene.heads & h != 0)
-    };
+    let takes = |h: u8| h == DEF || !isolated(h);
     let mut out = 0u64;
     for i in 0..3 {
         if let To::Head(h) = start.scene.to(i) {
@@ -483,7 +481,7 @@ fn allowed(start: &Config, by_text: bool) -> u64 {
         let keyboard = d.kind == Kind::Keyboard;
         let to = start.scene.to(i);
         let rescuable = match to {
-            To::Head(h) => !isolated(h) || (!by_text && o.rescue == Rescue::Forced),
+            To::Head(h) => !isolated(h),
             To::Roaming | To::Ignore | To::None => true,
         };
         let roams = to == To::Roaming
@@ -661,7 +659,7 @@ fn explore(read: &Read, iso: Isolation, found: &mut Found) {
                             .skip(after.saturating_add(1))
                             .take(ORDER.len())
                             .copied()
-                            .find(|&h| v.heads & h != 0 && c.takes(h, v.lit));
+                            .find(|&h| v.heads & h != 0 && c.takes(h));
                     }
                 }
                 // only a valid trusted file is applied, and these are none
@@ -746,6 +744,30 @@ fn a_valid_closed_file_that_declares_nothing_is_dark_and_silent() {
     let v = settle(&c, EVERY, 0, None);
     assert_eq!(o.line, None);
     assert!(v.reach == 0 && !v.display_guard, "{}", describe(v.reach));
+}
+
+#[test]
+fn a_valid_closed_file_whose_heads_lose_every_display_shows_its_one_notice() {
+    let read = Read::Trusted(Trusted {
+        stated: Stated::Closed,
+        rest: Rest::Valid,
+    });
+    let o = resolve(&read);
+    let c = Config {
+        o,
+        scene: scene(&o, Rest::Valid),
+        iso: (None, None),
+    };
+    let displays = DEVICES
+        .iter()
+        .filter(|d| d.kind == Kind::Display)
+        .fold(0, |all, d| all | d.bit);
+    // one display left, which no rule claims
+    let v = settle(&c, EVERY & !displays | 4, 0, None);
+    assert_eq!(o.line, None);
+    assert_eq!(v.notice, Some(Line::NoDisplay));
+    assert_eq!(Line::NoDisplay.text(), "vtium: no display for any head");
+    assert_eq!(v.reach & (session(H1) | session(H2) | session(DEF)), 0);
 }
 
 #[test]

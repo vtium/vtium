@@ -166,24 +166,14 @@ closed! {
 }
 
 closed! {
-    /// How the rescue key treats an isolated head's keyboards.
+    /// How a run holds `isolated`, and with it the rescue.
     pub enum Rescue {
-        /// It leaves them where they are.
+        /// As the file writes it, else as the policy leaves it.
         AsSet = "as-set",
-        /// A partly broken open run: it reaches them too, since nothing that would prevent the rescue is honoured.
+        /// A partly broken open run: every surviving head acts as not isolated, so the rescue key reaches its keyboards, its VT keys switch the VT, and it may be the active head, as the shipped rules isolate no head.
         Forced = "forced",
-        /// A partly broken closed run: the rescue key is off, as the policy says, since a readable closed policy is sticky, so a keyboard may land nowhere.
+        /// A partly broken closed run: isolation as written and the rescue key off, as the policy says, since a readable closed policy is sticky, so a keyboard may land nowhere.
         Sticky = "sticky",
-    }
-}
-
-closed! {
-    /// Which heads may be the active head.
-    pub enum Landing {
-        /// Every head that is not isolated.
-        AsSet = "as-set",
-        /// Also the first surviving head that is lit, so a rescued keyboard has somewhere to land.
-        FirstLitSurvivor = "first-lit-survivor",
     }
 }
 
@@ -193,6 +183,8 @@ closed! {
         Skipped = "skipped",
         Partly = "partly",
         ClosedOff = "closed-off",
+        /// A run that declares a head has no display for any of them, under a policy whose display guard lights no head.
+        NoDisplay = "no-display",
     }
 }
 
@@ -222,7 +214,7 @@ closed! {
     pub enum Fallback {
         /// The boot display, for the first head the running text declares, else for the default head, the compiled-in configuration's `[head console]`.
         FirstHead = "first-head",
-        /// Never a head on a display its rules do not claim: the boot display for the notice alone, when the run declares a head or has failed, and nothing for a valid closed file with no head, which is dark and silent, loaded but off.
+        /// Never a head on a display its rules do not claim: the boot display for the notice alone, [`Outcome::dark_notice`], when the run declares a head or has failed, and nothing for a valid closed file with no head, which is dark and silent, loaded but off.
         NoticeOnly = "notice-only",
     }
 }
@@ -276,6 +268,8 @@ impl Line {
             Line::Skipped => "invalid config skipped, using builtin",
             Line::Partly => "config partly invalid, running what's valid",
             Line::ClosedOff => "config invalid, closed: input off",
+            // nothing about input: each head's own keyboards still deliver to it while it is unlit
+            Line::NoDisplay => "vtium: no display for any head",
         }
     }
 }
@@ -306,7 +300,6 @@ pub struct Outcome {
     pub runs: Runs,
     pub policy: Policy,
     pub rescue: Rescue,
-    pub landing: Landing,
     /// The console line, `None` for a silent start.
     pub line: Option<Line>,
     pub lit: Lit,
@@ -331,9 +324,20 @@ impl Outcome {
             (Runs::File | Runs::Survivors, SwitchKey::AntiLockout | SwitchKey::RescueKey) => {
                 fixed(self.policy.unset(key))
             }
-            (Runs::File | Runs::Survivors, SwitchKey::Isolated) => Switch::Written {
-                unset: self.policy.unset(key),
+            (Runs::File | Runs::Survivors, SwitchKey::Isolated) => match self.rescue {
+                Rescue::Forced => Switch::Off,
+                Rescue::AsSet | Rescue::Sticky => Switch::Written {
+                    unset: self.policy.unset(key),
+                },
             },
+        }
+    }
+
+    /// The notice the display guard shows on the boot display when no head the running text declares has a display: the run's own line, else `vtium: no display for any head`, the one notice a valid file shows. Under open the guard lights a head instead.
+    pub fn dark_notice(&self) -> Option<Line> {
+        match self.fallback {
+            Fallback::FirstHead => None,
+            Fallback::NoticeOnly => Some(self.line.unwrap_or(Line::NoDisplay)),
         }
     }
 
@@ -367,7 +371,6 @@ fn builtin(line: Option<Line>) -> Outcome {
         runs: Runs::Builtin,
         policy: Policy::Open,
         rescue: Rescue::AsSet,
-        landing: Landing::AsSet,
         line,
         lit: Lit::Rules,
         fallback: Fallback::FirstHead,
@@ -388,17 +391,16 @@ fn file(policy: Policy) -> Outcome {
     }
 }
 
-/// A partly broken run: what survives, under `policy`. Under open nothing that would prevent the rescue is honoured, and the shipped rules' tail places what no surviving rule does; under closed nothing opens, since a readable closed policy is sticky.
+/// A partly broken run: what survives, under `policy`. Under open nothing that would prevent the rescue is honoured, so no head is isolated, and the shipped rules' tail places what no surviving rule does; under closed nothing opens, since a readable closed policy is sticky.
 fn survivors(policy: Policy) -> Outcome {
-    let (rescue, landing, unplaced) = match policy {
-        Policy::Open => (Rescue::Forced, Landing::FirstLitSurvivor, Unplaced::Shipped),
-        Policy::Closed => (Rescue::Sticky, Landing::AsSet, Unplaced::Ignore),
+    let (rescue, unplaced) = match policy {
+        Policy::Open => (Rescue::Forced, Unplaced::Shipped),
+        Policy::Closed => (Rescue::Sticky, Unplaced::Ignore),
     };
     Outcome {
         runs: Runs::Survivors,
         policy,
         rescue,
-        landing,
         line: Some(Line::Partly),
         lit: Lit::Rules,
         fallback: policy.fallback(),

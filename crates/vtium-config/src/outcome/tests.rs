@@ -133,17 +133,12 @@ impl Run {
 
     /// Whether some head may be the active head.
     fn lands(&self) -> bool {
-        let first = match self.outcome.landing {
-            Landing::AsSet => false,
-            Landing::FirstLitSurvivor => true,
-        };
-        first || !self.on(SwitchKey::Isolated)
+        !self.on(SwitchKey::Isolated)
     }
 
     /// Whether a keyboard the rescue key moves lands on a lit head.
     fn rescued(&self) -> bool {
-        let reached = !self.on(SwitchKey::Isolated) || self.outcome.rescue == Rescue::Forced;
-        self.lit() && self.lands() && self.on(SwitchKey::RescueKey) && reached
+        self.lit() && self.lands() && self.on(SwitchKey::RescueKey)
     }
 
     /// Whether some keyboard reaches a lit head however the rules place the keyboards.
@@ -242,7 +237,7 @@ const TABLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/outcomes.tsv");
 /// The outcome table: one row a path, its inputs, its outcome, each switch's rule, and the extremes of its text under which a lockout can occur.
 fn table() -> String {
     let mut out = String::from(
-        "read\tpolicy\trest\truns\teffective\trescue\tlanding\tline\tlit\tfallback\tunplaced",
+        "read\tpolicy\trest\truns\teffective\trescue\tline\tlit\tfallback\tdark-notice\tunplaced",
     );
     for key in SwitchKey::ALL {
         out.push('\t');
@@ -256,10 +251,10 @@ fn table() -> String {
             o.runs.name(),
             o.policy.name(),
             o.rescue.name(),
-            o.landing.name(),
             o.line.map_or("-", Line::text),
             o.lit.name(),
             o.fallback.name(),
+            o.dark_notice().map_or("-", Line::text),
             o.unplaced.name(),
         ]);
         row.extend(SwitchKey::ALL.iter().map(|&k| o.switch(k).name()));
@@ -499,7 +494,6 @@ fn a_readable_closed_policy_is_sticky_within_the_file() {
         }));
         assert_eq!(o.policy, Policy::Closed, "{rest:?}");
         assert_ne!(o.rescue, Rescue::Forced, "{rest:?}");
-        assert_eq!(o.landing, Landing::AsSet, "{rest:?}");
         assert_eq!(o.fallback, Fallback::NoticeOnly, "{rest:?}");
         for &key in SwitchKey::ALL {
             for written in [None, Some(false), Some(true)] {
