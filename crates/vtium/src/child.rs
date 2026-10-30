@@ -6,8 +6,8 @@
 //! empty, and off it starts as vtium's own. Over it vtium sets `TERM`,
 //! `COLORTERM=truecolor`, `XDG_SEAT` and `XDG_VTNR` when it knows them,
 //! `TERM_SESSION_TYPE`: `kms` on a DRM display, or `fb` on fbdev, and
-//! `VTIUM_HEAD` and `VTIUM_CONSOLE`, the session's head and its console's
-//! own id (ADR-1401 D5), when it runs in a head's console. Then each word
+//! `VTIUM_HEAD` and `VTIUM_CONSOLE`, the session's head and the console's
+//! id (ADR-1401 D5), when it runs in a head's console. Then each word
 //! of the command that is `$NAME` becomes that variable of the
 //! environment, empty when it is unset, and a word starting `$$` loses one
 //! `$` (`src/misc/pty.c:252-302` and `src/shl/misc.h:395-449` at kmscon

@@ -53,6 +53,12 @@ impl Osd {
         };
         Osd { mode, timeout }
     }
+
+    /// Whether a change shows the OSD for a time: not under `off`, which
+    /// draws none, nor under `never`, which keeps it up.
+    pub fn shows_on_change(self) -> bool {
+        self.mode != Mode::Off && self.timeout.is_some()
+    }
 }
 
 /// The full line of a head, such as `● desk · console 2 of 3`: a filled

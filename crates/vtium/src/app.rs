@@ -1893,7 +1893,7 @@ impl App {
     /// time.
     fn attachment(&mut self, now: Instant) {
         let several = self.heads.len() > 1;
-        let full = self.osd.mode == osd::Mode::Full;
+        let full = self.osd.mode == osd::Mode::Full && self.osd.shows_on_change();
         let mut changed = false;
         for head in &mut self.heads {
             let attached = if head.views.is_empty() {
@@ -1912,6 +1912,7 @@ impl App {
             };
             match (head.attached, attached) {
                 (Attached::Yes, Attached::Gone) => {
+                    head.drop_osd();
                     let hangup = match head.on_loss {
                         OnLoss::Nohup => None,
                         OnLoss::Hangup => Some(0),
@@ -2127,23 +2128,32 @@ impl App {
         let Some(id) = self.routes.rescue(&self.rules, node) else {
             return;
         };
-        self.guard_due = true;
-        let to = self
-            .focus
-            .and_then(|h| self.heads.get(h))
-            .map_or("", Head::name);
-        let line = format!(
-            "The rescue key moved the keyboard at {}: it now types into {to}, and into whichever head is active, until the next boot.",
-            node.display()
-        );
-        log::warn!("{line}");
-        if let Some(head) = self.focus.and_then(|h| self.heads.get_mut(h)) {
-            head.add_notice(&line);
-        }
         if let (Some(input), Some(id)) = (&mut self.input, id) {
             input.set_disposition(id, vtium_platform::input::Disposition::Deliver);
         }
-        self.bound_pointers();
+        // The guards run at once, so the notice names the head the keyboard
+        // types into after them, which the anti-lockout guard may move.
+        self.guard_due = true;
+        self.guard();
+        let moved = format!("The rescue key moved the keyboard at {}.", node.display());
+        let line = match self.focus.and_then(|h| self.heads.get(h)) {
+            Some(head) => format!(
+                "{moved} It now types into the active head, {} now, until the next boot.",
+                head.name()
+            ),
+            None => format!(
+                "{moved} It types into the active head until the next boot. No head is active now."
+            ),
+        };
+        log::warn!("{line}");
+        match self.focus {
+            Some(h) => {
+                if let Some(head) = self.heads.get_mut(h) {
+                    head.add_notice(&line);
+                }
+            }
+            None => self.notice(&line),
+        }
     }
 
     /// A pointer event, with the modifiers held on the keyboards as it
@@ -2338,8 +2348,10 @@ impl App {
     fn move_focus(&mut self, h: usize) {
         self.focus = Some(h);
         self.focus_move = Some(h);
-        for head in &mut self.heads {
-            head.show_osd();
+        if self.osd.shows_on_change() {
+            for head in self.heads.iter_mut().filter(|head| !head.views.is_empty()) {
+                head.show_osd();
+            }
         }
         self.bound_pointers();
     }
@@ -2588,15 +2600,20 @@ impl App {
 
     /// Each head's on-screen display for this turn's frames (ADR-1401 D5):
     /// under `osd = full` it shows after a change to the shown console or
-    /// the number of consoles, which `minimal`'s dot does not draw. It
-    /// shows for `osd-timeout` from the first frame that draws it, or
-    /// always under `never`.
+    /// the number of consoles once the head's sessions have started, which
+    /// `minimal`'s dot does not draw. It shows for `osd-timeout` from the
+    /// first frame that draws it, or always under `never`.
     fn osd(&mut self, now: Instant) {
         let Osd { mode, timeout } = self.osd;
+        let changes = mode == osd::Mode::Full && self.osd.shows_on_change();
         for (h, head) in self.heads.iter_mut().enumerate() {
-            let seen = (head.console.id, head.console_count());
-            let was = head.osd_seen.replace(seen);
-            if mode == osd::Mode::Full && was.is_some_and(|was| was != seen) {
+            // A head opens its other consoles as it starts, which is no
+            // change to show.
+            let seen = head
+                .started()
+                .then(|| (head.console.id, head.console_count()));
+            let was = std::mem::replace(&mut head.osd_seen, seen);
+            if changes && was.is_some_and(|was| Some(was) != seen) {
                 head.show_osd();
             }
             let shown = mode != osd::Mode::Off && (timeout.is_none() || head.osd_shown);

@@ -2748,6 +2748,155 @@ fn osd_off_still_shows_a_notice_of_a_problem() {
     );
 }
 
+/// [`CLAIMED`] with two consoles in `large`.
+const LARGE_OF_TWO: &str = "version = 1
+[head small]
+[head large]
+consoles = 2
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+input path:kbd-small -> small
+input path:kbd-large -> large
+input class:keyboard -> focus
+";
+
+/// D5: a head's first start is no change the on-screen display shows,
+/// though the head opens its other consoles only as its display first
+/// lights.
+// covers: platform.heads.focus
+#[test]
+fn osd_full_shows_nothing_when_a_head_first_starts() {
+    let displays = [(
+        "/dev/mem0",
+        Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+    )];
+    let mut s = Seat::with_heads(&["--osd=full"], Some(LARGE_OF_TWO), displays, ECHO);
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
+    s.app.add_video(
+        PathBuf::from("/dev/mem1"),
+        Box::new(Memory::new(640, 320, "MEM-2", "mem-large")),
+    );
+    assert!(s.until(SECOND, |a| consoles(a, "large") == Some((2, 0))
+        && head_shows(a, "large", "ready")));
+    s.app.turn(now());
+    assert_eq!(statuses(&s.app), [None, None]);
+}
+
+/// D5: when the active head moves, the on-screen display shows on the
+/// heads with a lit display alone, and a head that loses its last display
+/// drops the display it showed, so neither shows when the display comes
+/// back.
+// covers: platform.heads.focus
+#[test]
+fn a_head_without_a_display_keeps_no_osd_for_its_return() {
+    use vtium_render::Mark;
+    let mut s = losing_with_focus();
+    let t = now();
+    s.unplug("/dev/mem0", t);
+    assert_eq!(s.app.focus_head(), Some("large"), "the guard moved it");
+    assert_eq!(marks(&s.app), [None, Some(Mark::Focus)]);
+    s.app.turn(t + Duration::from_secs(10));
+    s.plug("/dev/mem0", t + Duration::from_secs(3600));
+    assert_eq!(marks(&s.app), [None, None], "nothing an hour later");
+    let mut s = claimed();
+    let t = now();
+    s.app.device_input(Path::new(KBD_FOCUS), ctrl_super(UP), t);
+    s.app.turn(t);
+    assert_eq!(marks(&s.app), [Some(Mark::Focus), Some(Mark::NoFocus)]);
+    s.unplug("/dev/mem0", t + Duration::from_secs(1));
+    s.plug("/dev/mem0", t + Duration::from_secs(2));
+    assert_eq!(
+        marks(&s.app),
+        [None, Some(Mark::NoFocus)],
+        "dropped at the loss, within its time"
+    );
+}
+
+/// D5: a change on a head with no display waits for a frame to draw it,
+/// so its time never runs out while there is nothing to draw on.
+// covers: platform.heads.focus
+#[test]
+fn osd_time_waits_for_a_display() {
+    let mut s = claimed_with(&["--osd=full"]);
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
+    assert!(s.until(SECOND, |a| consoles(a, "small") == Some((2, 1))
+        && head_shows(a, "small", "ready")));
+    let t = now() + Duration::from_secs(10);
+    s.unplug("/dev/mem0", t);
+    s.type_on(KBD_SMALL, "q\r");
+    assert!(s.until(SECOND, |a| consoles(a, "small") == Some((1, 0))));
+    s.app.turn(t + Duration::from_secs(60));
+    let line = "○ small · console 1 of 1";
+    assert_eq!(statuses(&s.app)[0].as_deref(), Some(line), "not run out");
+    s.plug("/dev/mem0", t + Duration::from_secs(61));
+    assert_eq!(statuses(&s.app)[0].as_deref(), Some(line), "drawn");
+    s.app.turn(t + Duration::from_secs(70));
+    assert_eq!(statuses(&s.app)[0], None, "gone after its time");
+}
+
+/// D5: a change while the on-screen display shows starts its time again.
+// covers: platform.heads.focus
+#[test]
+fn a_change_while_the_osd_shows_starts_its_time_again() {
+    use vtium_render::Mark;
+    let mut s = claimed();
+    let t = now();
+    s.app.device_input(Path::new(KBD_FOCUS), ctrl_super(UP), t);
+    s.app.turn(t);
+    s.app
+        .device_input(Path::new(KBD_FOCUS), ctrl_super(DOWN), t);
+    s.app.turn(t + Duration::from_secs(2));
+    s.app.turn(t + Duration::from_secs(4));
+    assert_eq!(
+        marks(&s.app),
+        [Some(Mark::NoFocus), Some(Mark::Focus)],
+        "3 s from the second move"
+    );
+    s.app.turn(t + Duration::from_secs(6));
+    assert_eq!(marks(&s.app), [None, None]);
+}
+
+/// D5: an idle seat wakes to take the on-screen display down when its
+/// time has passed.
+#[test]
+fn an_idle_seat_wakes_to_take_the_osd_down() {
+    let mut s = claimed_with(&["--no-blink"]);
+    s.until(Duration::from_millis(100), |_| false);
+    let t = now();
+    s.app.device_input(Path::new(KBD_FOCUS), ctrl_super(UP), t);
+    s.app.turn(t);
+    let wake = s.app.next_wake(t + Duration::from_millis(2900));
+    assert!(
+        wake.is_some_and(|w| w <= Duration::from_millis(100)),
+        "wakes by 3 s: {wake:?}"
+    );
+}
+
+/// D5: under `osd = off` the active head's move composes no frame, since
+/// it leaves the picture as it was; under `minimal` it composes one with
+/// the dot, the control.
+#[test]
+fn under_osd_off_a_move_composes_no_frame() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    for (osd, drawn) in [("--osd=off", false), ("--osd=minimal", true)] {
+        let mut s = claimed_with(&[osd, "--no-blink"]);
+        s.until(Duration::from_millis(200), |_| false);
+        let composed = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&composed);
+        let hook = move || {
+            count.fetch_add(1, Ordering::SeqCst);
+        };
+        s.app.set_draw_hook("large", Some(Arc::new(hook)));
+        s.app
+            .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+        s.until(Duration::from_millis(200), |_| false);
+        assert_eq!(composed.load(Ordering::SeqCst) > 0, drawn, "{osd}");
+    }
+}
+
 /// Two heads, each keyboard but `kbd-large` claimed by `small`, which
 /// [`stranded`] gives no display, with the head file's `guards`.
 fn stranded_file(guards: &str) -> String {
@@ -2809,7 +2958,8 @@ fn every_keyboard_claimed_by_a_head_with_no_display_types_into_the_focus() {
 }
 
 /// D9: when the anti-lockout guard fires it moves the focus to a lit head,
-/// the boot display's when lit, and the on-screen display shows.
+/// the boot display's when lit, and the on-screen display shows on the
+/// lit head; the head that lost its display shows none.
 #[test]
 fn the_anti_lockout_guard_moves_the_focus_to_a_lit_head() {
     let mut s = losing_with_focus();
@@ -2817,13 +2967,7 @@ fn the_anti_lockout_guard_moves_the_focus_to_a_lit_head() {
     s.unplug("/dev/mem0", now());
     s.app.turn(now());
     assert_eq!(s.app.focus_head(), Some("large"), "moved to the lit head");
-    assert_eq!(
-        marks(&s.app),
-        [
-            Some(vtium_render::Mark::NoFocus),
-            Some(vtium_render::Mark::Focus)
-        ]
-    );
+    assert_eq!(marks(&s.app), [None, Some(vtium_render::Mark::Focus)]);
     s.type_on(KBD_FOCUS, "f\r");
     assert!(s.until(SECOND, |a| head_shows(a, "large", "got:f")));
 }
@@ -3167,6 +3311,56 @@ fn a_rescued_keyboard_on_an_unlit_focus_leaves_the_anti_lockout_guard_on() {
     s.unplug("/dev/mem0", now());
     s.app.turn(now());
     assert_eq!(s.app.focus_head(), Some("large"), "moved to the lit head");
+}
+
+/// D9: the rescue key's notice names the head the keyboard types into
+/// once the guards have run: here the anti-lockout guard moves the active
+/// head away from an unlit head as the rescue lands.
+#[test]
+fn the_rescue_notice_names_the_head_typing_goes_to() {
+    let displays = [
+        (
+            "/dev/mem0",
+            Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+        ),
+        ("/dev/mem1", Memory::new(640, 320, "MEM-2", "mem-large")),
+    ];
+    let script = "echo ready; while read a; do echo \"got:$a\"; done";
+    let mut s = Seat::with_heads(&[], Some(CLAIMED), displays, script);
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
+    s.unplug("/dev/mem0", now());
+    assert_eq!(s.app.focus_head(), Some("small"), "kbd-large reaches large");
+    s.app
+        .device_input(Path::new(KBD_LARGE), ctrl_alt_f(1), now());
+    s.app.turn(now());
+    assert_eq!(s.app.focus_head(), Some("large"));
+    let shown = notice(&s.app, "large").unwrap_or_default();
+    assert!(
+        shown.contains("It now types into the active head, large now, until the next boot."),
+        "{shown:?}"
+    );
+}
+
+/// D9: with no active head the rescue key's notice says so, on every
+/// head.
+#[test]
+fn the_rescue_notice_says_when_no_head_is_active() {
+    let mut s = Seat::with_heads(&[], Some(CLAIMED), [], "read x");
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    s.app.turn(now());
+    assert_eq!(s.app.focus_head(), None);
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_alt_f(1), now());
+    s.app.turn(now());
+    for name in ["small", "large"] {
+        let shown = notice(&s.app, name).unwrap_or_default();
+        assert!(
+            shown.contains("No head is active now."),
+            "{name}: {shown:?}"
+        );
+    }
 }
 
 /// D9: only the shown VT's own key rescues: Ctrl-Alt-F2 pressed on a

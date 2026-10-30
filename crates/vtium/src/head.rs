@@ -457,6 +457,13 @@ impl Head {
         self.draw_now = true;
     }
 
+    /// The on-screen display the head showed, or was to show, is dropped:
+    /// its last display went (ADR-1401 D5).
+    pub(crate) fn drop_osd(&mut self) {
+        self.osd_shown = false;
+        self.osd_due = None;
+    }
+
     /// Adds `text` to the head's notices, which show from its next frame
     /// for [`NOTICE_SHOWN`] afresh; a notice the head already shows is
     /// left as it is, its time with it.
@@ -1068,7 +1075,7 @@ pub fn rules(
                 let more = format_args!("{} more errors", rejected.more);
                 lines.push(at(path, None, more).to_string());
             }
-            let ignored = "this file has errors, so vtium ignores it and uses its built-in rules";
+            let ignored = "This file has errors, so vtium ignores it and uses its built-in rules.";
             lines.push(at(path, None, ignored).to_string());
             for line in &lines {
                 log::error!("{line}");
@@ -1232,7 +1239,7 @@ mod tests {
         let (bad, trust) = fixture("invalid", Some(invalid));
         let (ran, notice) = rules(&bad, &trust);
         assert_eq!(ran, vtium_config::Config::builtin());
-        assert!(notice.is_some_and(|n| n.contains(":4: ") && n.ends_with("built-in rules")));
+        assert!(notice.is_some_and(|n| n.contains(":4: ") && n.ends_with("built-in rules.")));
         assert_eq!(std::fs::read_to_string(&bad).ok().as_deref(), Some(invalid));
         for f in [file, absent, bad] {
             if let Some(dir) = f.parent() {

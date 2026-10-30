@@ -194,7 +194,7 @@ pub const OSD: Key = Key {
     default: Default::Text("minimal"),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "What vtium's on-screen display draws at the top of each head after a change: `minimal` a dot in the top-right cell, filled on the active head and hollow on the others; `full` a line across the top, such as `● desk · console 2 of 3`; `off` nothing. Notices of a problem show whatever this says.",
+    what: "What vtium's on-screen display draws at the top of each head after a change. With `minimal`, it draws a dot in the top-right cell, filled on the active head and hollow on the others. With `full`, it draws a line across the top, such as `● desk · console 2 of 3`. With `off`, it draws nothing. A notice of a problem shows whatever this key says.",
     cite: "ADR-1401 D5; the operator on vtium/vtium#169",
 };
 
@@ -221,7 +221,7 @@ pub const FOCUS_MARK: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "The older name of `osd` and `osd-timeout`, read where they are unset: `auto` as `osd = minimal`, `always` as `osd = minimal` with `osd-timeout = never`, and `off` as `osd = off`. vtium logs a line naming the new keys when a file or the command line sets it.",
+    what: "The older name of `osd` and `osd-timeout`. vtium reads it only where `osd` or `osd-timeout` is not set: `auto` reads as `osd = minimal`, `always` as `osd = minimal` with `osd-timeout = never`, and `off` as `osd = off`. vtium logs a line naming the new keys when a file or the command line sets it.",
     cite: "ADR-1401 D5; the operator on vtium/vtium#156, renamed on vtium/vtium#169",
 };
 

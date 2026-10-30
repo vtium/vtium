@@ -361,10 +361,19 @@ const fn edges(name: &'static str, orientation: Orientation) -> Case {
     }
 }
 
-/// Every case, in the order the report lists them.
 /// A light theme set by OSC 10 and 11, for a 1-bit display: default
 /// text, a red word, colored and reversed cells, decorations and sprites
 /// (vtium/vtium#135).
+const LIGHT: &[u8] = concat!(
+    "\x1b]10;rgb:20/20/20\x1b\\\x1b]11;rgb:f0/f0/f0\x1b\\",
+    "default text on a light background\r\n",
+    "\x1b[31mred\x1b[0m \x1b[44mon blue\x1b[0m \x1b[7mreversed\x1b[0m\r\n",
+    "\x1b[4munder\x1b[0m \x1b[9mstruck\x1b[0m \x1b[4:3mcurly\x1b[0m \x1b[4:4mdots\x1b[0m\r\n",
+    "\x1b[47mon grey\x1b[0m \x1b[40mon black\x1b[0m \x1b[30;107mblack on white\x1b[0m\r\n",
+    "\u{2591}\u{2592}\u{2593}\u{2588} \u{2500}\u{2500}\u{252c}\u{2500}\u{2500} \u{2502}ok\u{2502}",
+)
+.as_bytes();
+
 /// A shell session beneath the on-screen display (ADR-1401 D5,
 /// vtium/vtium#169).
 const OSD_SHELL: &[u8] = concat!(
@@ -376,16 +385,7 @@ const OSD_SHELL: &[u8] = concat!(
 )
 .as_bytes();
 
-const LIGHT: &[u8] = concat!(
-    "\x1b]10;rgb:20/20/20\x1b\\\x1b]11;rgb:f0/f0/f0\x1b\\",
-    "default text on a light background\r\n",
-    "\x1b[31mred\x1b[0m \x1b[44mon blue\x1b[0m \x1b[7mreversed\x1b[0m\r\n",
-    "\x1b[4munder\x1b[0m \x1b[9mstruck\x1b[0m \x1b[4:3mcurly\x1b[0m \x1b[4:4mdots\x1b[0m\r\n",
-    "\x1b[47mon grey\x1b[0m \x1b[40mon black\x1b[0m \x1b[30;107mblack on white\x1b[0m\r\n",
-    "\u{2591}\u{2592}\u{2593}\u{2588} \u{2500}\u{2500}\u{252c}\u{2500}\u{2500} \u{2502}ok\u{2502}",
-)
-.as_bytes();
-
+/// Every case, in the order the report lists them.
 pub const CASES: &[Case] = &[
     Case {
         screen: Screen {
@@ -839,7 +839,7 @@ pub const CASES: &[Case] = &[
             osd: Some(Osd::Dot(vtium_render::Mark::Focus)),
             ..Screen::new(
                 "osd-minimal",
-                "vtium's on-screen display under `osd = minimal`, the default, over the same shell session (ADR-1401 D5, vtium/vtium#169). Correct: the session as the terminal drew it, and a filled dot in the top-right cell, dark on the notice's pale red, meaning this head is the active head; every other cell untouched.",
+                "vtium's on-screen display under `osd = minimal`, the default, over the same shell session (ADR-1401 D5, vtium/vtium#169). Correct: the session as the terminal drew it, and a filled circle in the top-right cell, dark on the notice's pale red and cut at the cell's right edge, meaning this head is the active head; every other cell untouched.",
                 OSD_SHELL,
                 40,
                 6,
