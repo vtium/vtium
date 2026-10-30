@@ -1,6 +1,6 @@
 # Heads, by scenario
 
-This page shows the head file, `/etc/vtium/heads.conf`, in the setups it is made for: each scenario's purpose, a complete head file, and what to expect, on an unplug and of what stays shared. Heads are the design [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) decided, and neither heads nor `vtiumctl` is built yet ([architecture.md](architecture.md)): vtium today reads no head file and draws one grid mirrored across every display. ADR-1401 holds every rule; this page applies them.
+This page shows the head file, `/etc/vtium/heads.conf`, in the setups it is made for: each scenario's purpose, a complete head file, and what to expect, on an unplug and of what stays shared. Heads are in vtium, as [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) decided them; two pieces this page uses are not built yet: the head key `vt-keys`, which stations need, and `vtiumctl`. ADR-1401 holds every rule; this page applies them.
 
 ## Reading a head file
 
@@ -154,7 +154,7 @@ rescue-key = off
 - A station is a USB port: a hub on it carries that station's keyboard and mouse, and anything plugged into the hub joins the station. A device bound by `serial:` in place of `path:` follows its unit to any port.
 - Each station's display shows its own head, with its own login, and its keyboard and mouse work only there. A device on no station's port is ignored, and a display no rule names is set off.
 - `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>` for another VT, pressed on a station's keyboard, switch nothing and reach that station's session as keys, as a serial terminal sends them. The focus chord reaches the session the same way. The rescue key moves nothing.
-- `vtium check-config` warns of this file that no keyboard can switch the VT, and exits 1 as for any warning about the file. `vtium.heads=builtin` on the kernel command line is the way back to the compiled-in rules.
+- `vtium check-config` notes of this file that no keyboard can switch the VT, and exits 0, as for a guard turned off. `vtium.heads=builtin` on the kernel command line is the way back to the compiled-in rules.
 - A station's display unplugged leaves its sessions running unseen (`nohup`, the default), and its keyboard still reaches them; they come back when that display returns. For stations people walk away from, `on-loss = hangup` ends the sessions when the display goes, and `on-loss = hangup 30s` after a grace period.
 - A station's keyboard unplugged leaves its session running, and the keyboard plugged into the same port returns to it. With every station's keyboard gone, the anti-lockout guard sends every keyboard to the focused station until one returns.
 - The default caps allow 4 consoles a head and 8 in total, so more than 8 stations need the total raised, up to the hard maxima of 16 heads and 50 consoles.
