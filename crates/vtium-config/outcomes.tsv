@@ -16,7 +16,7 @@ trusted	closed	valid	file	closed	as-set	-	rules	notice-only	vtium: no display fo
 trusted	closed	headless	file	closed	as-set	-	rules	notice-only	vtium: no display for any head	ignore	off	off	set|on	unset
 trusted	closed	empty	file	closed	as-set	-	rules	notice-only	vtium: no display for any head	ignore	off	off	set|on	unset
 trusted	closed	partly	survivors	closed	sticky	config partly invalid, running what's valid	rules	notice-only	config partly invalid, running what's valid	ignore	off	off	set|on	unset,shared,isolated
-trusted	closed	broken	off	closed	as-set	config invalid, closed: input off	notice	notice-only	config invalid, closed: input off	ignore	off	off	on	unset
+trusted	closed	broken	off	closed	as-set	vtium: config invalid, policy closed: input off	notice	notice-only	vtium: config invalid, policy closed: input off	ignore	off	off	on	unset
 trusted	unreadable	valid	survivors	open	forced	config partly invalid, running what's valid	rules	first-head	-	shipped	on	on	off	-
 trusted	unreadable	headless	builtin	open	as-set	invalid config skipped, using builtin	rules	first-head	-	shipped	on	on	off	-
 trusted	unreadable	empty	builtin	open	as-set	invalid config skipped, using builtin	rules	first-head	-	shipped	on	on	off	-

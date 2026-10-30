@@ -267,7 +267,7 @@ impl Line {
         match self {
             Line::Skipped => "invalid config skipped, using builtin",
             Line::Partly => "config partly invalid, running what's valid",
-            Line::ClosedOff => "config invalid, closed: input off",
+            Line::ClosedOff => "vtium: config invalid, policy closed: input off",
             // nothing about input: each head's own keyboards still deliver to it while it is unlit
             Line::NoDisplay => "vtium: no display for any head",
         }
