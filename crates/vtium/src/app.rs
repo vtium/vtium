@@ -81,7 +81,9 @@ use std::time::{Duration, Instant};
 
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::display::{Blank, DPI_ASSUMED, DisplayId, Dpms, Event};
-use vtium_platform::input::{DeviceInput, InputEvent, KeyEvent, Mods as InputMods, PointerEvent};
+use vtium_platform::input::{
+    DeviceId, DeviceInput, InputEvent, KeyEvent, Mods as InputMods, PointerEvent,
+};
 use vtium_platform::pty::{Erase, Pty};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
 use vtium_platform::vt::{Switch, Vt, VtEvent};
@@ -1132,8 +1134,15 @@ impl App {
     /// keyboard delivers to has it, lit or not, so several hold it at
     /// once; each change goes to a program that asked for it.
     fn report_focus(&mut self) {
+        // A keyboard that could not be opened, or went at a wake-up, is
+        // gone from the seat's input; with no seat input, as a test drives
+        // the seat, a device counts as open.
+        let input = self.input.as_ref();
+        let open = |id: Option<DeviceId>| {
+            input.is_none_or(|i| id.is_some_and(|id| i.disposition(id).is_some()))
+        };
         for (h, head) in self.heads.iter_mut().enumerate() {
-            let focused = self.routes.keyboard_reaches(h, self.focus);
+            let focused = self.routes.keyboard_reaches(h, self.focus, open);
             if focused != head.focused {
                 head.focused = focused;
                 if head.console.term.terminal.focus(focused) {
@@ -3143,6 +3152,22 @@ mod tests {
         app.set_heads(vtium_config::parse(&text).unwrap().config);
         let cap = usize::try_from(crate::config::budget::sb_memory_cap()).unwrap();
         assert_eq!(app.scrollback_bytes, cap / 9);
+    }
+
+    // ADR-1401 D5: mode 1004's focus goes to a head a keyboard delivers
+    // to; a keyboard that could not be opened delivers nothing.
+    #[test]
+    fn a_keyboard_that_failed_to_open_gives_no_head_the_focus() {
+        use vtium_platform::input::{Direct, Input, InputConfig, Keymap};
+        let (_lp, mut app) = seat(None, no_fonts());
+        let mut input = Input::new(Direct, Keymap::fallback().unwrap(), InputConfig::default());
+        input.wake_up();
+        app.input = Some(input);
+        app.focus = Some(0);
+        let keyboard = vtium_config::Identity::input().with_class(vtium_config::Class::Keyboard);
+        app.add_input(Path::new("/nonexistent/vtium-test/event9"), keyboard);
+        app.report_focus();
+        assert_eq!(app.heads.first().map(|h| h.focused), Some(false));
     }
 
     #[test]

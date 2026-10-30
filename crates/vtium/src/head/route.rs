@@ -86,11 +86,16 @@ impl Routes {
             .collect()
     }
 
-    /// Whether a keyboard's events go to head `h`.
-    pub(crate) fn keyboard_reaches(&self, h: usize, focus: Option<usize>) -> bool {
+    /// Whether the events of a keyboard `open` holds open go to head `h`.
+    pub(crate) fn keyboard_reaches(
+        &self,
+        h: usize,
+        focus: Option<usize>,
+        open: impl Fn(Option<DeviceId>) -> bool,
+    ) -> bool {
         self.devices
             .values()
-            .any(|r| r.keyboard && head_of(r.place, focus) == Some(h))
+            .any(|r| r.keyboard && head_of(r.place, focus) == Some(h) && open(r.id))
     }
 }
 
@@ -138,7 +143,8 @@ mod tests {
             assert_eq!(routes.head(Some(Path::new("/x")), focus), None);
             assert_eq!(routes.head(None, focus), focus, "no device named");
         }
-        assert!(routes.keyboard_reaches(1, Some(1)));
-        assert!(!routes.keyboard_reaches(1, Some(0)));
+        assert!(routes.keyboard_reaches(1, Some(1), |_| true));
+        assert!(!routes.keyboard_reaches(1, Some(0), |_| true));
+        assert!(!routes.keyboard_reaches(1, Some(1), |_| false), "none open");
     }
 }
