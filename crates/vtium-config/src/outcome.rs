@@ -2,7 +2,7 @@
 //!
 //! Failure is resolved at three levels, each asked only once the one before it has passed: whether the file can be trusted ([`Read`]), whether it states a policy ([`Stated`]), and how much of the rest is good ([`Rest`]). A trusted file's policy and content exist only inside [`Read::Trusted`], so nothing can consult an untrusted file's content. [`resolve`] maps every path to one [`Outcome`], by exhaustive matches with no wildcard arm, so a new variant fails to compile until it has an answer. The module reads no file and holds no state: the loader classifies what it found with [`scope`] and [`Trusted::of`] and asks [`resolve`], and a reload asks [`Outcome::reload`].
 //!
-//! A readable closed policy is sticky. Once a trusted file states a readable `policy = closed`, nothing opens anything up: no other line of the file, no broken line in it, and no event while vtium runs. A reload under it applies only a valid closed file, so going from closed to open takes a vtium restart.
+//! A readable closed policy is sticky. Once a trusted file states a readable `policy = closed`, nothing opens anything up: no other line of the file, no broken line in it, and no event while vtium runs. A reload under it applies only a valid closed file, the owner's change, which keeps the policy closed; going from closed to open takes a vtium restart.
 //!
 //! `outcomes.tsv`, beside the crate's manifest, lists every path with its outcome; `outcome_table_matches_resolve` fails when it differs from [`resolve`], and `VTIUM_CONFIG_BLESS=1 cargo test -p vtium-config outcome_table` rewrites it.
 //!
@@ -125,7 +125,7 @@ closed! {
 }
 
 closed! {
-    /// What survives of a trusted file once its errors have dropped what they take (open cell ?4).
+    /// What survives of a trusted file once its errors have dropped what they take (ADR-1401 D7, "The rest").
     pub enum Kept {
         Nothing = "nothing",
         /// Rules, but no head.
@@ -148,7 +148,7 @@ closed! {
 }
 
 closed! {
-    /// What one error takes down (open cell ?4).
+    /// What one error takes down (ADR-1401 D7, "The rest").
     pub enum Scope {
         /// The file's structure or format cannot be trusted: nothing of it applies, but a readable `policy` line still states its policy, since a trusted file always fails to its policy.
         File = "file",
@@ -569,7 +569,7 @@ impl Trusted {
     }
 }
 
-/// What the error `problem`, on a line `within` the file, takes down (open cell ?4): an error inside a head's section drops that head, a bad rule drops that rule alone, and an error that leaves the file's structure or format untrustworthy drops the whole file. No error leaves a readable `policy` line unread: a trusted file always fails to its policy, and only one that fails the trust check or cannot be opened fails open. A problem that leaves the file unread is no scope: `scope` gives the first level's verdict as the error, [`Read::Untrusted`] or [`Read::Inaccessible`], so it never reaches [`Trusted::of`].
+/// What the error `problem`, on a line `within` the file, takes down (ADR-1401 D7, "The rest"): an error inside a head's section drops that head, a bad rule drops that rule alone, and an error that leaves the file's structure or format untrustworthy drops the whole file. No error leaves a readable `policy` line unread: a trusted file always fails to its policy, and only one that fails the trust check or cannot be opened fails open. A problem that leaves the file unread is no scope: `scope` gives the first level's verdict as the error, [`Read::Untrusted`] or [`Read::Inaccessible`], so it never reaches [`Trusted::of`].
 pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
     let fixed = match problem {
         Problem::NotAFile | Problem::Unreadable(_) => return Err(Read::Inaccessible),
