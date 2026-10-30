@@ -79,8 +79,8 @@ use crate::config::keys;
 use crate::config::{Config, ModeSpec};
 use crate::font::{self, Chosen};
 use crate::grab::{self, Chord, Grab};
-use crate::head::identity::Card;
-use crate::head::{Attached, Head};
+use crate::head::identity::{self, Card};
+use crate::head::{Attached, Head, place_display};
 use crate::helper::{self, Answer, Helper};
 use crate::layout::{self, Zoom};
 use crate::power::{self, Power, PowerKey};
@@ -164,6 +164,10 @@ pub struct App {
     focus: Option<usize>,
     /// What the rules and the display guard read of each card.
     cards: BTreeMap<PathBuf, Card>,
+    /// Each display lit in a head, as the rules saw it.
+    lit: BTreeMap<(PathBuf, DisplayId), vtium_config::Identity>,
+    /// The displays a device announced that the rules leave dark.
+    dark: BTreeSet<(PathBuf, DisplayId)>,
     /// The scrollback cap and length each session takes.
     scrollback: (usize, usize),
     config: Config,
@@ -185,8 +189,6 @@ pub struct App {
     releasing: Option<BTreeSet<PathBuf>>,
     /// The start's wait for a display.
     wait: Wait,
-    /// `display-wait=forever`.
-    forever: bool,
     /// A frame has been on screen since the start.
     presented: bool,
     timer_due: Option<Instant>,
@@ -301,6 +303,8 @@ impl App {
             rules,
             focus: None,
             cards: BTreeMap::new(),
+            lit: BTreeMap::new(),
+            dark: BTreeSet::new(),
             scrollback: (cap, lines),
             assumed: BTreeSet::new(),
             font_sources: font::Sources::default(),
@@ -316,7 +320,6 @@ impl App {
             retaking: BTreeSet::new(),
             releasing: None,
             wait,
-            forever,
             presented: false,
             timer_due: None,
             exit: None,
@@ -332,6 +335,8 @@ impl App {
         self.heads = heads(&rules, &self.config, self.scrollback, &self.clock);
         self.rules = rules;
         self.focus = None;
+        self.lit.clear();
+        self.dark.clear();
     }
 
     /// Puts the power keys' actions through `power`, a test's stand-in
@@ -400,9 +405,11 @@ impl App {
             return;
         }
         for h in 0..self.heads.len() {
+            // A head whose displays never appear starts no session, under
+            // `forever` too (ADR-1401 D1).
             let due = self.heads.get(h).is_some_and(|head| {
                 !head.started()
-                    && respawn::first_start_due(self.awake, !head.views.is_empty(), self.forever)
+                    && respawn::first_start_due(self.awake, !head.views.is_empty(), false)
             });
             if due {
                 if let Some(head) = self.heads.get_mut(h) {
@@ -449,6 +456,8 @@ impl App {
     pub fn remove_video(&mut self, node: &Path) {
         self.videos.remove(node);
         self.cards.remove(node);
+        self.lit.retain(|(n, _), _| n != node);
+        self.dark.retain(|(n, _)| n != node);
         for h in 0..self.heads.len() {
             let lost = self.heads.get_mut(h).is_some_and(|head| {
                 let before = head.views.len();
@@ -707,9 +716,46 @@ impl App {
         matches!(self.config.text(&keys::RENDER_TIMER), Some("log" | "both"))
     }
 
-    /// The head a display joins, by the first rule that matches it.
-    fn head_for(&self, _node: &Path, _id: DisplayId) -> Option<usize> {
-        (!self.heads.is_empty()).then_some(0)
+    /// The rules' identity of the display `id` of `node`.
+    fn identity(&self, node: &Path, id: DisplayId) -> Option<vtium_config::Identity> {
+        let video = self.videos.get(node)?;
+        let card = self.cards.get(node).cloned().unwrap_or_default();
+        Some(match video.identity(id) {
+            Some(named) => identity::display(&named, &card, id.0),
+            None => identity::unnamed_display(&video.name(id), &card, id.0),
+        })
+    }
+
+    /// The head the display `id` of `node` joins, by the first rule that
+    /// matches it; a display the rules leave dark is set off and logged
+    /// ([`place_display`]).
+    fn head_for(&mut self, node: &Path, id: DisplayId) -> Option<usize> {
+        let display = self.identity(node, id)?;
+        match place_display(&self.rules, &display) {
+            Ok(h) => {
+                self.lit.insert((node.to_owned(), id), display);
+                Some(h)
+            }
+            Err(line) => {
+                log::info!("{line}");
+                self.dark.insert((node.to_owned(), id));
+                self.darken();
+                None
+            }
+        }
+    }
+
+    /// Sets off each display a device announced that the rules leave
+    /// dark, after a wake-up or an unblank lit it: a DRM card never
+    /// announces one ([`open_video`]), a framebuffer does.
+    fn darken(&mut self) {
+        for (node, id) in &self.dark {
+            if let Some(video) = self.videos.get_mut(node) {
+                if let Err(e) = video.set_dpms(*id, Dpms::Off) {
+                    log::warn!("cannot set display {} off: {e}", video.name(*id));
+                }
+            }
+        }
     }
 
     fn add_display(&mut self, node: &Path, id: DisplayId) {
@@ -1198,6 +1244,7 @@ impl App {
                     }
                 }
             }
+            self.darken();
             if self.vt.is_active() {
                 self.activate(now);
             }
@@ -1229,6 +1276,7 @@ impl App {
                         log::warn!("cannot wake {}: {e}", node.display());
                     }
                 }
+                self.darken();
                 self.wait.shown(now);
                 self.activate(now);
             }
@@ -1262,6 +1310,7 @@ impl App {
                         log::warn!("cannot set up {} again: {e}", node.display());
                     }
                 }
+                self.darken();
                 self.lose_every_view();
             }
             VtEvent::Hangup => self.request_exit(Exit::Hangup),
@@ -1280,6 +1329,8 @@ impl App {
         match event {
             Event::Added(id) => self.add_display(node, id),
             Event::Removed(id) => {
+                self.lit.remove(&(node.to_owned(), id));
+                self.dark.remove(&(node.to_owned(), id));
                 if let Some(h) = self.head_of(node, id) {
                     if let Some(head) = self.heads.get_mut(h) {
                         head.views.remove(&(node.to_owned(), id));
@@ -1337,12 +1388,27 @@ impl App {
     }
 
     /// The focus, once a head has a display (ADR-1401 D5): it starts on
-    /// the first head with one, and stays there.
+    /// the head holding the boot display, the connector lit at start, else
+    /// the first connected one on the boot card, else on the other cards,
+    /// in the kernel's order; else on the first head in the file with a
+    /// display. It stays there.
     fn take_focus(&mut self) {
-        if self.focus.is_some() {
+        if self.focus.is_some() || self.lit.is_empty() {
             return;
         }
-        self.focus = self.heads.iter().position(|head| !head.views.is_empty());
+        // The guards are H3d's: with them off the placement is the rules'
+        // alone, and its focus where D5 starts it.
+        let mut rules = self.rules.clone();
+        rules.guards = vtium_config::Guards {
+            anti_lockout: false,
+            rescue_key: false,
+            never_dark: false,
+        };
+        let lit: Vec<vtium_config::Identity> = self.lit.values().cloned().collect();
+        self.focus = match rules.place(&lit, None).focus {
+            Some(vtium_config::Place::Head(h)) => Some(h),
+            _ => None,
+        };
         let Some(head) = self.focus.and_then(|h| self.heads.get(h)) else {
             return;
         };
@@ -2071,6 +2137,15 @@ pub fn open_video(app: &mut App, node: &Path, kind: DeviceKind, card: Card) -> i
             };
             let mut drm = Drm2d::new(Drm::new(fd)?, policy)?;
             drm.set_card_path(card.id_path.clone());
+            // A display the rules leave dark is set off before it is
+            // announced, a frame another master left included (D3).
+            let (rules, at) = (app.rules.clone(), card.clone());
+            drm.set_dark(Box::new(move |named| {
+                let display = identity::display(named, &at, 0);
+                place_display(&rules, &display)
+                    .map_err(|line| log::info!("{line}"))
+                    .is_err()
+            }));
             let k = key.clone();
             drm.insert(&app.handle, move |app: &mut App| {
                 app.videos

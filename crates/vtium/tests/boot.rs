@@ -3068,10 +3068,11 @@ fn under_a_wait_the_child_starts_when_the_first_display_comes() {
     assert_eq!(h.app.finished(), None);
 }
 
-/// Under `display-wait=forever` with no display, the child starts once
-/// the VT is shown, on 80x24; the first display resizes it once.
+/// Under `display-wait=forever` with no display, the head has no display,
+/// so its child does not start (ADR-1401 D1); the first display starts it
+/// on its grid, with no SIGWINCH.
 #[test]
-fn under_forever_with_no_display_the_child_starts_on_80x24() {
+fn under_forever_with_no_display_the_child_starts_at_the_first_display() {
     let mut h = Harness::bare(&[
         "--display-wait=forever",
         "--login",
@@ -3080,17 +3081,18 @@ fn under_forever_with_no_display_the_child_starts_on_80x24() {
         "-c",
         FIRST,
     ]);
-    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
-    assert_eq!(first(&h.app).map(|f| f.0), Some("24 80".to_owned()));
+    h.until(Duration::from_millis(300), |_| false);
+    assert!(!h.app.started(), "no child before a display");
     h.app
         .add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
-    assert!(h.until(SECOND, |a| a.grid() == (40, 10)));
+    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+    assert_eq!(first(&h.app).map(|f| f.0), Some("10 40".to_owned()));
     h.type_str("a\r");
     assert!(h.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "a")));
     assert_eq!(
         got(&h.app),
-        Some(("a".into(), 1, "10 40".into())),
-        "one SIGWINCH"
+        Some(("a".into(), 0, "10 40".into())),
+        "no SIGWINCH"
     );
 }
 

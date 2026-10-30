@@ -12,6 +12,8 @@
 
 pub mod identity;
 
+use vtium_config::{By, Place};
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -633,6 +635,35 @@ impl Head {
     }
 }
 
+/// The head a display joins: the one the first rule matching `display`
+/// names (ADR-1401 D3), by its index. A display a rule sends `dark`, or
+/// that no rule claims, joins none: the error is its log line, which for
+/// a display no rule claims carries the rule that would give it the first
+/// head, ready to paste.
+pub fn place_display(
+    rules: &vtium_config::Config,
+    display: &vtium_config::Identity,
+) -> Result<usize, String> {
+    let placed = rules.walk(display);
+    let name = display.connector.as_deref().unwrap_or("?").escape_debug();
+    match (placed.place, placed.by) {
+        (Place::Head(h), _) => Ok(h),
+        (_, By::Rule(line)) => Err(format!(
+            "display {name} is left dark by the head file's rule on line {line}"
+        )),
+        _ => {
+            let target = rules.heads.first().map_or("console", |h| h.name.as_str());
+            let rule = vtium_config::rule_for(display, target).map_or_else(
+                || "it offers no value a rule can name".to_owned(),
+                |rule| format!("the rule `{rule}` gives it a head"),
+            );
+            Err(format!(
+                "display {name} matches no rule of the head file and is left dark; {rule}"
+            ))
+        }
+    }
+}
+
 /// What a wheel event does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Wheel {
@@ -675,6 +706,37 @@ fn mouse_button(b: Button) -> MouseButton {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_display_left_dark_is_logged_and_one_no_rule_claims_with_the_rule_to_paste() {
+        let rules = vtium_config::parse(
+            "version = 1\n[head desk]\n[rules]\ndisplay connector:pci-0000:03:00.0/DP-1 -> dark\ndisplay connector:pci-0000:03:00.0/DP-2 -> desk\n",
+        )
+        .map(|p| p.config)
+        .unwrap_or_default();
+        let display = |connector: &str| vtium_config::Identity {
+            connector: Some(connector.to_owned()),
+            card: Some("pci-0000:03:00.0".to_owned()),
+            ..vtium_config::Identity::display()
+        };
+        assert_eq!(place_display(&rules, &display("DP-2")), Ok(0));
+        assert_eq!(
+            place_display(&rules, &display("DP-1")),
+            Err("display DP-1 is left dark by the head file's rule on line 4".to_owned())
+        );
+        assert_eq!(
+            place_display(&rules, &display("HDMI-A-1")),
+            Err("display HDMI-A-1 matches no rule of the head file and is left dark; the rule `display connector:pci-0000:03:00.0/HDMI-A-1 -> desk` gives it a head".to_owned())
+        );
+        let bare = vtium_config::Identity {
+            connector: Some("fb\u{1b}".to_owned()),
+            ..vtium_config::Identity::display()
+        };
+        assert_eq!(
+            place_display(&rules, &bare),
+            Err("display fb\\u{1b} matches no rule of the head file and is left dark; it offers no value a rule can name".to_owned())
+        );
+    }
 
     #[test]
     fn a_wheel_event_is_one_report_a_zoom_or_a_scroll_whatever_its_steps() {
