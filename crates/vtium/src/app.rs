@@ -1848,7 +1848,15 @@ impl App {
             PointerEvent::Moved { .. } | PointerEvent::Button { .. } | PointerEvent::Wheel(_) => {
                 self.activity(now);
             }
-            PointerEvent::Sync | PointerEvent::Hide => {}
+            PointerEvent::Sync => {}
+            // The seat's pointers hide together, on every head: the hide
+            // comes from no one device.
+            PointerEvent::Hide => {
+                for head in &mut self.heads {
+                    head.pointer_event(event, Mods::empty(), &mut self.selection);
+                }
+                return;
+            }
         }
         let Some(h) = h else {
             return;

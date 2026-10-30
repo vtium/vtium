@@ -1281,7 +1281,8 @@ fn a_zoom_changes_the_grid_of_the_console_shown_alone() {
 }
 
 /// D5: pointers follow the same rules: a pointer a rule sends to a head
-/// moves on that head's displays, whichever head holds the focus.
+/// moves on that head's displays, whichever head holds the focus; the
+/// pointer's hide reaches every head.
 #[test]
 fn a_claimed_pointer_moves_on_its_heads_display_alone() {
     let heads = "version = 1
@@ -1312,6 +1313,11 @@ input class:mouse -> focus
     assert_eq!(s.app.focus_head(), Some("large"));
     assert_eq!(s.app.head("small").and_then(Head::pointer), Some((24, 40)));
     assert_eq!(s.app.head("large").and_then(Head::pointer), None);
+    // The hide comes from no one device: it hides the pointer on every
+    // head.
+    let hide = InputEvent::Pointer(vtium_platform::input::PointerEvent::Hide);
+    s.app.input_event(hide, now());
+    assert_eq!(s.app.head("small").and_then(Head::pointer), None);
 }
 
 /// The operator's answers (2026-10-30), with the team lead's steering of
