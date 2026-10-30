@@ -1,6 +1,6 @@
 //! Every path through [`resolve`], its table, and the invariants over all of them (ADR-1401 D7).
 //!
-//! A path's outcome leaves the switches the running text writes open, so each invariant is checked under the extremes of what that text can write ([`Ways`]): nothing, every switch on, every switch off. Each check is monotone in each switch, so a text that writes some on and some off lies between the extremes. Keyboards are present on every path, and a rule may strand every one of them, so a keyboard reaches a lit head only where the shipped rules run or a guard or the rescue key gives it a way.
+//! A path's outcome leaves a head's `isolated`, the one switch the running text writes, open, so each invariant is checked under the extremes of what that text can write ([`Ways`]): nothing, every head shared, every head isolated. Each check is monotone in each head's isolation, so a text that isolates some heads lies between the extremes. Keyboards are present on every path, and a rule may strand every one of them, so a keyboard reaches a lit head only where the shipped rules run or the anti-lockout guard or the rescue key gives it a way.
 
 use std::collections::BTreeSet;
 
@@ -13,7 +13,7 @@ use crate::place::Place;
 
 mod runtime;
 
-/// Every path: the three verdicts that read nothing, and each disposition with each rest of a trusted file.
+/// Every path: the three verdicts that read nothing, and each policy with each rest of a trusted file.
 fn paths() -> Vec<Read> {
     let seeds = [
         Read::Missing,
@@ -40,43 +40,36 @@ fn paths() -> Vec<Read> {
     out
 }
 
-/// What the running text writes of the switches, at its extremes.
+/// What the running text writes of its heads' `isolated`, at its extremes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Ways {
-    /// Nothing: each switch takes the run's value for unset.
+    /// Nothing: each head takes the policy's value.
     Unset,
-    /// Every switch on, as an operator's own head under deny writes them.
-    Granted,
-    /// Every switch off.
-    Revoked,
-    /// The operator's own way in under deny: the first head writes `focus`, `vt-keys` and `rescue` on, and nothing else is written.
-    Admin,
+    /// Every head `isolated = no`, as an operator's own head under closed writes it.
+    Shared,
+    /// Every head `isolated = yes`.
+    Isolated,
 }
 
 impl Ways {
     fn name(self) -> &'static str {
         match self {
             Ways::Unset => "unset",
-            Ways::Granted => "granted",
-            Ways::Revoked => "revoked",
-            Ways::Admin => "admin",
+            Ways::Shared => "shared",
+            Ways::Isolated => "isolated",
         }
     }
 }
 
-/// The extremes a path's text can write: none where nothing of the file runs or nothing survives.
+/// The extremes a path's text can write: none where no head of the file runs.
 fn ways(read: &Read) -> &'static [Ways] {
     match read {
         Read::Trusted(Trusted {
             rest: Rest::Valid | Rest::Partly,
             ..
-        }) => &[Ways::Unset, Ways::Granted, Ways::Revoked, Ways::Admin],
+        }) => &[Ways::Unset, Ways::Shared, Ways::Isolated],
         Read::Trusted(Trusted {
-            rest: Rest::Headless,
-            ..
-        }) => &[Ways::Unset, Ways::Granted, Ways::Revoked],
-        Read::Trusted(Trusted {
-            rest: Rest::Empty | Rest::Broken,
+            rest: Rest::Headless | Rest::Empty | Rest::Broken,
             ..
         })
         | Read::Missing
@@ -85,28 +78,28 @@ fn ways(read: &Read) -> &'static [Ways] {
     }
 }
 
-/// What the text writes of `key` on some head: a file with no head writes no head's right.
-fn written(read: &Read, ways: Ways, key: SwitchKey) -> Option<bool> {
-    let headless = matches!(
-        read,
-        Read::Trusted(Trusted {
-            rest: Rest::Headless,
-            ..
-        })
-    );
-    let head_right = match key {
-        SwitchKey::Focus | SwitchKey::VtKeys | SwitchKey::Rescue => true,
-        SwitchKey::AntiLockout | SwitchKey::RescueKey | SwitchKey::NeverDark => false,
-    };
-    // the posture alone sets `anti-lockout` and `rescue-key`, which the file cannot write
-    let posture_only = matches!(key, SwitchKey::AntiLockout | SwitchKey::RescueKey);
+fn written(ways: Ways) -> Option<bool> {
     match ways {
         Ways::Unset => None,
-        Ways::Granted | Ways::Revoked | Ways::Admin if posture_only => None,
-        Ways::Granted | Ways::Revoked | Ways::Admin if headless && head_right => None,
-        Ways::Admin if key == SwitchKey::NeverDark => None,
-        Ways::Granted | Ways::Admin => Some(true),
-        Ways::Revoked => Some(false),
+        Ways::Shared => Some(false),
+        Ways::Isolated => Some(true),
+    }
+}
+
+/// Whether `key`'s value in `o` opens a way: a guard on, or a head not isolated.
+fn opens(o: &Outcome, key: SwitchKey, written: Option<bool>) -> bool {
+    let value = o.switch(key).of(written);
+    match key {
+        SwitchKey::AntiLockout | SwitchKey::RescueKey => value,
+        SwitchKey::Isolated => !value,
+    }
+}
+
+/// Whether `key` opens a way under `policy` where the file writes nothing.
+fn grants(policy: Policy, key: SwitchKey) -> bool {
+    match key {
+        SwitchKey::AntiLockout | SwitchKey::RescueKey => policy.unset(key),
+        SwitchKey::Isolated => !policy.unset(key),
     }
 }
 
@@ -119,39 +112,38 @@ struct Run {
 
 impl Run {
     fn on(&self, key: SwitchKey) -> bool {
-        self.outcome
-            .switch(key)
-            .of(written(&self.read, self.ways, key))
+        self.outcome.switch(key).of(written(self.ways))
     }
 
-    /// Whether a head's display is lit whatever the rules place: by the shipped rules or the display guard, which under deny lights no head of its own.
+    /// Whether a head's display is lit whatever the rules place: by the shipped rules or the display guard, which under closed lights no head of its own.
     fn lit(&self) -> bool {
         match (self.outcome.lit, self.outcome.fallback) {
-            (Lit::Rules, Fallback::FirstHead) => self.on(SwitchKey::NeverDark),
+            (Lit::Rules, Fallback::FirstHead) => true,
             (Lit::Rules, Fallback::NoticeOnly) | (Lit::Notice, _) => false,
         }
     }
 
-    /// Whether the console line has a lit display to show on.
+    /// Whether the console line has a lit display to show on: the display guard lights the first head under open, and the boot display for the notice of a failed run under closed.
     fn shown(&self) -> bool {
-        match self.outcome.lit {
-            Lit::Rules => self.on(SwitchKey::NeverDark),
-            Lit::Notice => true,
+        match (self.outcome.lit, self.outcome.fallback) {
+            (Lit::Rules, Fallback::FirstHead) | (Lit::Notice, _) => true,
+            (Lit::Rules, Fallback::NoticeOnly) => self.outcome.line.is_some(),
         }
     }
 
-    /// Whether some head takes the focus.
+    /// Whether some head may be the active head.
     fn lands(&self) -> bool {
         let first = match self.outcome.landing {
             Landing::AsSet => false,
             Landing::FirstLitSurvivor => true,
         };
-        first || self.on(SwitchKey::Focus)
+        first || !self.on(SwitchKey::Isolated)
     }
 
     /// Whether a keyboard the rescue key moves lands on a lit head.
     fn rescued(&self) -> bool {
-        self.lit() && self.lands() && self.on(SwitchKey::RescueKey) && self.on(SwitchKey::Rescue)
+        let reached = !self.on(SwitchKey::Isolated) || self.outcome.rescue == Rescue::Forced;
+        self.lit() && self.lands() && self.on(SwitchKey::RescueKey) && reached
     }
 
     /// Whether some keyboard reaches a lit head however the rules place the keyboards.
@@ -164,9 +156,9 @@ impl Run {
         (shipped && self.lit()) || guard || self.rescued()
     }
 
-    /// Whether the file's own valid text runs and writes every way off: what "anything written explicitly wins" lets a file do.
-    fn revokes_as_written(&self) -> bool {
-        self.ways == Ways::Revoked && self.outcome.runs == Runs::File
+    /// Whether the file's own valid text runs and isolates every head: what "anything written explicitly wins" lets a file do.
+    fn isolates_as_written(&self) -> bool {
+        self.ways == Ways::Isolated && self.outcome.runs == Runs::File
     }
 }
 
@@ -183,7 +175,7 @@ fn runs() -> Vec<Run> {
         .collect()
 }
 
-/// A trusted file with errors: partly broken while a usable head survives, broken once none does. The `default` line vtium cannot read is one of the errors.
+/// A trusted file with errors: partly broken while a usable head survives, broken once none does. The `policy` line vtium cannot read is one of the errors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Degraded {
     Partly,
@@ -198,41 +190,41 @@ fn degraded(read: &Read) -> Option<Degraded> {
             Some(Degraded::Broken)
         }
         (
-            Stated::Unset | Stated::Allow | Stated::Deny,
+            Stated::Unset | Stated::Open | Stated::Closed,
             Rest::Valid | Rest::Headless | Rest::Empty,
         ) => None,
     }
 }
 
-/// The disposition a trusted file gives: deny as written, else open.
-fn disposition(read: &Read) -> Option<Posture> {
+/// The policy a trusted file gives: closed as written, else open.
+fn disposition(read: &Read) -> Option<Policy> {
     let Read::Trusted(t) = read else { return None };
     Some(match t.stated {
-        Stated::Deny => Posture::Deny,
-        Stated::Unset | Stated::Allow | Stated::Unreadable => Posture::Allow,
+        Stated::Closed => Policy::Closed,
+        Stated::Unset | Stated::Open | Stated::Unreadable => Policy::Open,
     })
 }
 
-/// How far an input no rule names in particular reaches: the shipped rules give the focus to the keyboard, pointer and key classes and ignore the rest, while an open run gives it to every input.
+/// How far an input no rule names in particular reaches: the shipped rules let the keyboard, pointer and key classes roam and ignore the rest, while an open run lets every input roam.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Inputs {
     Ignored,
     Shipped,
-    Focus,
+    Roaming,
 }
 
 fn inputs(o: &Outcome) -> Inputs {
     match o.unplaced {
-        Unplaced::Focus => Inputs::Focus,
+        Unplaced::Roaming => Inputs::Roaming,
         Unplaced::Shipped => Inputs::Shipped,
         Unplaced::Ignore => Inputs::Ignored,
     }
 }
 
-fn granted_inputs(posture: Posture) -> Inputs {
-    match posture {
-        Posture::Allow => Inputs::Focus,
-        Posture::Deny => Inputs::Ignored,
+fn granted_inputs(policy: Policy) -> Inputs {
+    match policy {
+        Policy::Open => Inputs::Roaming,
+        Policy::Closed => Inputs::Ignored,
     }
 }
 
@@ -250,7 +242,7 @@ const TABLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/outcomes.tsv");
 /// The outcome table: one row a path, its inputs, its outcome, each switch's rule, and the extremes of its text under which a lockout can occur.
 fn table() -> String {
     let mut out = String::from(
-        "read\tdefault\trest\truns\tposture\trescue\tlanding\tline\tlit\tfallback\tunplaced",
+        "read\tpolicy\trest\truns\teffective\trescue\tlanding\tline\tlit\tfallback\tunplaced",
     );
     for key in SwitchKey::ALL {
         out.push('\t');
@@ -262,7 +254,7 @@ fn table() -> String {
         let mut row: Vec<&str> = read_name(&read).to_vec();
         row.extend([
             o.runs.name(),
-            o.posture.name(),
+            o.policy.name(),
             o.rescue.name(),
             o.landing.name(),
             o.line.map_or("-", Line::text),
@@ -335,7 +327,7 @@ fn missing_and_valid_paths_are_silent_and_every_other_shows_one_line_on_a_lit_di
             Read::Untrusted | Read::Inaccessible => false,
             Read::Trusted(t) => match (t.stated, t.rest) {
                 (
-                    Stated::Unset | Stated::Allow | Stated::Deny,
+                    Stated::Unset | Stated::Open | Stated::Closed,
                     Rest::Valid | Rest::Headless | Rest::Empty,
                 ) => true,
                 (Stated::Unreadable, _) | (_, Rest::Partly | Rest::Broken) => false,
@@ -360,45 +352,46 @@ fn missing_and_valid_paths_are_silent_and_every_other_shows_one_line_on_a_lit_di
 fn no_open_outcome_locks_out() {
     let mut explicit = BTreeSet::new();
     for run in runs() {
-        if run.outcome.posture != Posture::Allow || run.reaches() {
+        if run.outcome.policy != Policy::Open || run.reaches() {
             continue;
         }
         assert!(
-            run.revokes_as_written(),
+            run.isolates_as_written(),
             "{:?} under {:?} is open and locks out",
             run.read,
             run.ways
         );
         explicit.insert(run.read);
     }
-    // contradiction: a valid open file that writes every way off locks out, since anything written explicitly wins
-    let want: BTreeSet<Read> = [Stated::Unset, Stated::Allow]
+    // contradiction: a valid open file that isolates every head can lock out, since anything written explicitly wins
+    let want: BTreeSet<Read> = [Stated::Unset, Stated::Open]
         .into_iter()
-        .flat_map(|stated| {
-            [Rest::Valid, Rest::Headless]
-                .into_iter()
-                .map(move |rest| Read::Trusted(Trusted { stated, rest }))
+        .map(|stated| {
+            Read::Trusted(Trusted {
+                stated,
+                rest: Rest::Valid,
+            })
         })
         .collect();
     assert_eq!(explicit, want);
 }
 
 #[test]
-fn a_lockout_needs_a_trusted_file_that_wrote_deny() {
+fn a_lockout_needs_a_trusted_file_that_wrote_closed() {
     for run in runs() {
         if run.reaches() {
             continue;
         }
-        let deny = matches!(
+        let closed = matches!(
             run.read,
             Read::Trusted(Trusted {
-                stated: Stated::Deny,
+                stated: Stated::Closed,
                 ..
             })
         );
         assert!(
-            deny || run.revokes_as_written(),
-            "{:?} under {:?} locks out without a deny",
+            closed || run.isolates_as_written(),
+            "{:?} under {:?} locks out without a closed policy",
             run.read,
             run.ways
         );
@@ -410,12 +403,12 @@ fn a_lockout_needs_a_trusted_file_that_wrote_deny() {
 enum Half {
     /// More open than the shipped rules.
     MoreOpen,
-    /// Closes a right its disposition grants.
+    /// Closes a right its policy grants.
     Closes,
 }
 
 #[test]
-fn a_degraded_run_is_never_more_open_than_builtin_and_never_closes_what_its_disposition_grants() {
+fn a_degraded_run_is_never_more_open_than_builtin_and_never_closes_what_its_policy_grants() {
     let mut broken = BTreeSet::new();
     for read in paths() {
         let (Some(_), Some(granted)) = (degraded(&read), disposition(&read)) else {
@@ -430,30 +423,30 @@ fn a_degraded_run_is_never_more_open_than_builtin_and_never_closes_what_its_disp
         }
         for &key in SwitchKey::ALL {
             assert!(
-                o.switch(key).of(None) || !granted.unset(key),
-                "{read:?} closes {} its disposition grants",
+                opens(&o, key, None) || !grants(granted, key),
+                "{read:?} closes {} its policy grants",
                 key.name()
             );
         }
     }
-    // the shipped rules ignore the inputs no class names, which an open disposition gives the focus: every open degraded run, partly broken or broken, keeps to the shipped rules and closes them, and none is more open
+    // the shipped rules ignore the inputs no class names, which an open policy lets roam: every open degraded run, partly broken or broken, keeps to the shipped rules and closes them, and none is more open
     let want: BTreeSet<(Read, Half)> = paths()
         .into_iter()
         .filter_map(|read| match (degraded(&read), disposition(&read)) {
-            (Some(_), Some(Posture::Allow)) => Some((read, Half::Closes)),
-            (Some(_), Some(Posture::Deny)) | (None, _) | (_, None) => None,
+            (Some(_), Some(Policy::Open)) => Some((read, Half::Closes)),
+            (Some(_), Some(Policy::Closed)) | (None, _) | (_, None) => None,
         })
         .collect();
     assert_eq!(broken, want);
 }
 
 #[test]
-fn a_degraded_run_keeps_the_disposition_its_file_states() {
+fn a_degraded_run_keeps_the_policy_its_file_states() {
     for read in paths() {
         let (Some(_), Some(granted)) = (degraded(&read), disposition(&read)) else {
             continue;
         };
-        assert_eq!(resolve(&read).posture, granted, "{read:?}");
+        assert_eq!(resolve(&read).policy, granted, "{read:?}");
     }
 }
 
@@ -463,7 +456,7 @@ fn every_partly_broken_run_leaves_a_rescued_keyboard_somewhere_to_land_or_names_
         if degraded(&run.read) != Some(Degraded::Partly) {
             continue;
         }
-        // a partly broken deny run names why not: a readable deny is sticky, so the rescue goes only where the file grants it
+        // a partly broken closed run names why not: a readable closed policy is sticky, so the rescue key stays off
         assert!(
             run.rescued() || run.outcome.rescue == Rescue::Sticky,
             "{:?} under {:?}: a rescued keyboard lands nowhere lit",
@@ -474,49 +467,45 @@ fn every_partly_broken_run_leaves_a_rescued_keyboard_somewhere_to_land_or_names_
 }
 
 #[test]
-fn a_readable_deny_is_sticky_within_the_file() {
-    // no other `default` line and no broken line moves a readable deny, and a second `default` line beside it leaves the file partly broken at best; a trusted file always fails to its disposition
-    for defaults in sequences(DefaultLine::ALL, 3) {
-        if !defaults.contains(&DefaultLine::Deny) {
+fn a_readable_closed_policy_is_sticky_within_the_file() {
+    // no other `policy` line and no broken line moves a readable closed policy, and a second `policy` line beside it leaves the file partly broken at best; a trusted file always fails to its policy
+    for policies in sequences(PolicyLine::ALL, 3) {
+        if !policies.contains(&PolicyLine::Closed) {
             continue;
         }
         for scopes in sequences(Scope::ALL, 2) {
             for &kept in Kept::ALL {
-                let t = Trusted::of(&defaults, &scopes, kept);
-                assert_eq!(t.stated, Stated::Deny, "{defaults:?} {scopes:?} {kept:?}");
-                if defaults.len() > 1 {
+                let t = Trusted::of(&policies, &scopes, kept);
+                assert_eq!(t.stated, Stated::Closed, "{policies:?} {scopes:?} {kept:?}");
+                if policies.len() > 1 {
                     assert!(
                         matches!(t.rest, Rest::Partly | Rest::Broken),
-                        "{defaults:?} {scopes:?} {kept:?} reads as {:?}",
+                        "{policies:?} {scopes:?} {kept:?} reads as {:?}",
                         t.rest
                     );
                 }
             }
         }
     }
-    // and no rest of a deny file runs past what a valid deny file grants
+    // and no rest of a closed file runs past what a valid closed file grants
     let valid = resolve(&Read::Trusted(Trusted {
-        stated: Stated::Deny,
+        stated: Stated::Closed,
         rest: Rest::Valid,
     }));
     for &rest in Rest::ALL {
         let o = resolve(&Read::Trusted(Trusted {
-            stated: Stated::Deny,
+            stated: Stated::Closed,
             rest,
         }));
-        assert_eq!(o.posture, Posture::Deny, "{rest:?}");
+        assert_eq!(o.policy, Policy::Closed, "{rest:?}");
         assert_ne!(o.rescue, Rescue::Forced, "{rest:?}");
         assert_eq!(o.landing, Landing::AsSet, "{rest:?}");
         assert_eq!(o.fallback, Fallback::NoticeOnly, "{rest:?}");
-        // `never-dark` lights a display and grants no input: a degraded deny run keeps its notice on a lit display
-        for &key in SwitchKey::ALL
-            .iter()
-            .filter(|&&k| k != SwitchKey::NeverDark)
-        {
+        for &key in SwitchKey::ALL {
             for written in [None, Some(false), Some(true)] {
                 assert!(
-                    !o.switch(key).of(written) || valid.switch(key).of(written),
-                    "{rest:?} opens {} past a valid deny file",
+                    !opens(&o, key, written) || opens(&valid, key, written),
+                    "{rest:?} opens {} past a valid closed file",
                     key.name()
                 );
             }
@@ -568,16 +557,16 @@ fn orders<T: Copy>(items: &[T]) -> Vec<Vec<T>> {
 #[test]
 fn no_outcome_depends_on_where_a_top_level_key_sits() {
     // `resolve` takes no line, so only `Trusted::of` could read an order
-    for defaults in sequences(DefaultLine::ALL, 3) {
+    for policies in sequences(PolicyLine::ALL, 3) {
         for scopes in sequences(Scope::ALL, 2) {
             for &kept in Kept::ALL {
-                let want = Trusted::of(&defaults, &scopes, kept);
-                for d in orders(&defaults) {
+                let want = Trusted::of(&policies, &scopes, kept);
+                for d in orders(&policies) {
                     for s in orders(&scopes) {
                         assert_eq!(
                             Trusted::of(&d, &s, kept),
                             want,
-                            "{d:?} {s:?} {kept:?} differs from {defaults:?} {scopes:?}"
+                            "{d:?} {s:?} {kept:?} differs from {policies:?} {scopes:?}"
                         );
                     }
                 }
@@ -587,47 +576,43 @@ fn no_outcome_depends_on_where_a_top_level_key_sits() {
 }
 
 #[test]
-fn the_disposition_is_read_from_the_default_lines() {
-    let of =
-        |defaults: &[DefaultLine], scopes: &[Scope]| Trusted::of(defaults, scopes, Kept::Heads);
+fn the_policy_is_read_from_the_policy_lines() {
+    let of = |policies: &[PolicyLine], scopes: &[Scope]| Trusted::of(policies, scopes, Kept::Heads);
     assert_eq!(of(&[], &[]).stated, Stated::Unset);
     assert_eq!(
-        of(&[DefaultLine::Deny], &[]),
+        of(&[PolicyLine::Closed], &[]),
         Trusted {
-            stated: Stated::Deny,
+            stated: Stated::Closed,
             rest: Rest::Valid
         }
     );
-    assert_eq!(of(&[DefaultLine::Allow], &[]).stated, Stated::Allow);
-    // a readable deny wins, and the duplicate leaves the file partly broken
+    assert_eq!(of(&[PolicyLine::Open], &[]).stated, Stated::Open);
+    // a readable closed policy wins, and the duplicate leaves the file partly broken
     for lines in [
-        [DefaultLine::Deny, DefaultLine::Deny],
-        [DefaultLine::Allow, DefaultLine::Deny],
-        [DefaultLine::Deny, DefaultLine::Unknown],
-        [DefaultLine::InSection, DefaultLine::Deny],
+        [PolicyLine::Closed, PolicyLine::Closed],
+        [PolicyLine::Open, PolicyLine::Closed],
+        [PolicyLine::Closed, PolicyLine::Unknown],
+        [PolicyLine::InSection, PolicyLine::Closed],
     ] {
         let want = Trusted {
-            stated: Stated::Deny,
+            stated: Stated::Closed,
             rest: Rest::Partly,
         };
         assert_eq!(of(&lines, &[]), want, "{lines:?}");
     }
-    // with no readable deny, conflicting or unreadable lines state nothing
+    // with no readable closed policy, conflicting or unreadable lines state nothing
     for lines in [
-        [DefaultLine::Allow, DefaultLine::Allow],
-        [DefaultLine::Allow, DefaultLine::Unknown],
+        [PolicyLine::Open, PolicyLine::Open],
+        [PolicyLine::Open, PolicyLine::Unknown],
     ] {
         assert_eq!(of(&lines, &[]).stated, Stated::Unreadable, "{lines:?}");
     }
+    assert_eq!(of(&[PolicyLine::InSection], &[]).stated, Stated::Unreadable);
+    // a structure vtium cannot trust drops the file, and a readable closed policy still stands
     assert_eq!(
-        of(&[DefaultLine::InSection], &[]).stated,
-        Stated::Unreadable
-    );
-    // a structure vtium cannot trust drops the file, and a readable deny still stands
-    assert_eq!(
-        of(&[DefaultLine::Deny], &[Scope::File]),
+        of(&[PolicyLine::Closed], &[Scope::File]),
         Trusted {
-            stated: Stated::Deny,
+            stated: Stated::Closed,
             rest: Rest::Broken
         }
     );
@@ -685,15 +670,11 @@ fn every_problem_has_its_scope() {
             Scope::Head,
         ),
         (
-            Problem::Syntax("expected `key = value`"),
-            Within::Guards,
-            Scope::Line,
-        ),
-        (
             Problem::Syntax("a rule is `KIND MATCH -> TARGET`"),
             Within::Rules,
             Scope::Line,
         ),
+        // a `[guards]` section is unknown, since the head file has none
         (Problem::UnknownSection(q()), Within::Header, Scope::Section),
         (
             Problem::DuplicateSection("rules"),
@@ -702,21 +683,15 @@ fn every_problem_has_its_scope() {
         ),
         (Problem::UnknownKey(q()), Within::Top, Scope::Line),
         (Problem::UnknownKey(q()), Within::Head, Scope::Head),
-        (Problem::UnknownKey(q()), Within::Guards, Scope::Line),
-        (Problem::DuplicateKey("default"), Within::Top, Scope::Line),
+        (Problem::DuplicateKey("policy"), Within::Top, Scope::Line),
         (Problem::DuplicateKey("login"), Within::Head, Scope::Head),
-        (
-            Problem::DuplicateKey("rescue-key"),
-            Within::Guards,
-            Scope::Line,
-        ),
         (Problem::BadName(q()), Within::Header, Scope::Head),
         (Problem::BadName(q()), Within::Head, Scope::Head),
         (Problem::ReservedName(q()), Within::Header, Scope::Head),
         (Problem::DuplicateHead(q()), Within::Header, Scope::Head),
         (
             Problem::BadValue {
-                key: "default",
+                key: "policy",
                 value: q(),
             },
             Within::Top,
@@ -724,19 +699,11 @@ fn every_problem_has_its_scope() {
         ),
         (
             Problem::BadValue {
-                key: "rescue",
+                key: "isolated",
                 value: q(),
             },
             Within::Head,
             Scope::Head,
-        ),
-        (
-            Problem::BadValue {
-                key: "never-dark",
-                value: q(),
-            },
-            Within::Guards,
-            Scope::Line,
         ),
         (
             Problem::OutOfRange {

@@ -1,24 +1,24 @@
-read	default	rest	runs	posture	rescue	landing	line	lit	fallback	unplaced	anti-lockout	rescue-key	never-dark	focus	vt-keys	rescue	lockout
-missing	-	-	builtin	allow	as-set	as-set	-	rules	first-head	shipped	on	on	on	on	on	on	-
-untrusted	-	-	builtin	allow	as-set	as-set	invalid config skipped, using builtin	rules	first-head	shipped	on	on	on	on	on	on	-
-inaccessible	-	-	builtin	allow	as-set	as-set	invalid config skipped, using builtin	rules	first-head	shipped	on	on	on	on	on	on	-
-trusted	unset	valid	file	allow	as-set	as-set	-	rules	first-head	focus	on	on	set|on	set|on	set|on	set|on	revoked
-trusted	unset	headless	file	allow	as-set	as-set	-	rules	first-head	focus	on	on	set|on	set|on	set|on	set|on	revoked
-trusted	unset	empty	builtin	allow	as-set	as-set	-	rules	first-head	shipped	on	on	on	on	on	on	-
-trusted	unset	partly	survivors	allow	forced	first-lit-survivor	config partly invalid, running what's valid	rules	first-head	shipped	on	on	on	set|on	set|on	on	-
-trusted	unset	broken	builtin	allow	as-set	as-set	invalid config skipped, using builtin	rules	first-head	shipped	on	on	on	on	on	on	-
-trusted	allow	valid	file	allow	as-set	as-set	-	rules	first-head	focus	on	on	set|on	set|on	set|on	set|on	revoked
-trusted	allow	headless	file	allow	as-set	as-set	-	rules	first-head	focus	on	on	set|on	set|on	set|on	set|on	revoked
-trusted	allow	empty	builtin	allow	as-set	as-set	-	rules	first-head	shipped	on	on	on	on	on	on	-
-trusted	allow	partly	survivors	allow	forced	first-lit-survivor	config partly invalid, running what's valid	rules	first-head	shipped	on	on	on	set|on	set|on	on	-
-trusted	allow	broken	builtin	allow	as-set	as-set	invalid config skipped, using builtin	rules	first-head	shipped	on	on	on	on	on	on	-
-trusted	deny	valid	file	deny	as-set	as-set	-	rules	notice-only	ignore	off	off	set|on	set|off	set|off	set|off	unset,granted,revoked,admin
-trusted	deny	headless	file	deny	as-set	as-set	-	rules	notice-only	ignore	off	off	set|on	set|off	set|off	set|off	unset,granted,revoked
-trusted	deny	empty	file	deny	as-set	as-set	-	rules	notice-only	ignore	off	off	set|on	set|off	set|off	set|off	unset
-trusted	deny	partly	survivors	deny	sticky	as-set	config partly invalid, running what's valid	rules	notice-only	ignore	off	off	on	set|off	set|off	set|off	unset,granted,revoked,admin
-trusted	deny	broken	off	deny	as-set	as-set	config invalid, deny: input off	notice	notice-only	ignore	off	off	on	off	off	off	unset
-trusted	unreadable	valid	survivors	allow	forced	first-lit-survivor	config partly invalid, running what's valid	rules	first-head	shipped	on	on	on	set|on	set|on	on	-
-trusted	unreadable	headless	builtin	allow	as-set	as-set	invalid config skipped, using builtin	rules	first-head	shipped	on	on	on	on	on	on	-
-trusted	unreadable	empty	builtin	allow	as-set	as-set	invalid config skipped, using builtin	rules	first-head	shipped	on	on	on	on	on	on	-
-trusted	unreadable	partly	survivors	allow	forced	first-lit-survivor	config partly invalid, running what's valid	rules	first-head	shipped	on	on	on	set|on	set|on	on	-
-trusted	unreadable	broken	builtin	allow	as-set	as-set	invalid config skipped, using builtin	rules	first-head	shipped	on	on	on	on	on	on	-
+read	policy	rest	runs	effective	rescue	landing	line	lit	fallback	unplaced	anti-lockout	rescue-key	isolated	lockout
+missing	-	-	builtin	open	as-set	as-set	-	rules	first-head	shipped	on	on	off	-
+untrusted	-	-	builtin	open	as-set	as-set	invalid config skipped, using builtin	rules	first-head	shipped	on	on	off	-
+inaccessible	-	-	builtin	open	as-set	as-set	invalid config skipped, using builtin	rules	first-head	shipped	on	on	off	-
+trusted	unset	valid	file	open	as-set	as-set	-	rules	first-head	roaming	on	on	set|off	isolated
+trusted	unset	headless	file	open	as-set	as-set	-	rules	first-head	roaming	on	on	set|off	-
+trusted	unset	empty	builtin	open	as-set	as-set	-	rules	first-head	shipped	on	on	off	-
+trusted	unset	partly	survivors	open	forced	first-lit-survivor	config partly invalid, running what's valid	rules	first-head	shipped	on	on	set|off	-
+trusted	unset	broken	builtin	open	as-set	as-set	invalid config skipped, using builtin	rules	first-head	shipped	on	on	off	-
+trusted	open	valid	file	open	as-set	as-set	-	rules	first-head	roaming	on	on	set|off	isolated
+trusted	open	headless	file	open	as-set	as-set	-	rules	first-head	roaming	on	on	set|off	-
+trusted	open	empty	builtin	open	as-set	as-set	-	rules	first-head	shipped	on	on	off	-
+trusted	open	partly	survivors	open	forced	first-lit-survivor	config partly invalid, running what's valid	rules	first-head	shipped	on	on	set|off	-
+trusted	open	broken	builtin	open	as-set	as-set	invalid config skipped, using builtin	rules	first-head	shipped	on	on	off	-
+trusted	closed	valid	file	closed	as-set	as-set	-	rules	notice-only	ignore	off	off	set|on	unset,shared,isolated
+trusted	closed	headless	file	closed	as-set	as-set	-	rules	notice-only	ignore	off	off	set|on	unset
+trusted	closed	empty	file	closed	as-set	as-set	-	rules	notice-only	ignore	off	off	set|on	unset
+trusted	closed	partly	survivors	closed	sticky	as-set	config partly invalid, running what's valid	rules	notice-only	ignore	off	off	set|on	unset,shared,isolated
+trusted	closed	broken	off	closed	as-set	as-set	config invalid, closed: input off	notice	notice-only	ignore	off	off	on	unset
+trusted	unreadable	valid	survivors	open	forced	first-lit-survivor	config partly invalid, running what's valid	rules	first-head	shipped	on	on	set|off	-
+trusted	unreadable	headless	builtin	open	as-set	as-set	invalid config skipped, using builtin	rules	first-head	shipped	on	on	off	-
+trusted	unreadable	empty	builtin	open	as-set	as-set	invalid config skipped, using builtin	rules	first-head	shipped	on	on	off	-
+trusted	unreadable	partly	survivors	open	forced	first-lit-survivor	config partly invalid, running what's valid	rules	first-head	shipped	on	on	set|off	-
+trusted	unreadable	broken	builtin	open	as-set	as-set	invalid config skipped, using builtin	rules	first-head	shipped	on	on	off	-
