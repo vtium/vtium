@@ -521,6 +521,14 @@ impl View {
         self.pointer.reset();
     }
 
+    /// Draws another screen from the next frame, as a console switch
+    /// shows: the checkpoint the view kept is the other screen's history,
+    /// so the next frame draws every cell and copies the whole picture.
+    pub fn show_another(&mut self) {
+        self.since = Age::NEVER;
+        self.lost = true;
+    }
+
     /// The font's cell.
     pub fn cell(&self) -> vtium_font::Cell {
         self.cell

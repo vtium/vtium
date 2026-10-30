@@ -956,6 +956,9 @@ const KBD_SMALL: &str = "/dev/input/event0";
 const KBD_LARGE: &str = "/dev/input/event1";
 const KBD_FOCUS: &str = "/dev/input/event2";
 
+/// A session echoing each line it reads, and ending at `q`.
+const ECHO: &str = "echo ready; while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done";
+
 /// Two heads booted on [`CLAIMED`], the large display the boot display,
 /// with [`KBD_SMALL`], [`KBD_LARGE`] and [`KBD_FOCUS`], each head's
 /// session echoing each line it reads, and ending at `q`.
@@ -972,8 +975,7 @@ fn claimed_with(args: &[&str]) -> Seat {
             Memory::new(640, 320, "MEM-2", "mem-large").lit(),
         ),
     ];
-    let script = "echo ready; while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done";
-    let mut s = Seat::with_heads(args, Some(CLAIMED), displays, script);
+    let mut s = Seat::with_heads(args, Some(CLAIMED), displays, ECHO);
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
     s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
     s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
@@ -1155,6 +1157,154 @@ fn the_console_chords_open_switch_and_close_a_heads_consoles() {
         "the last console is not closed"
     );
     assert_eq!(consoles(&s.app, "large"), Some((1, 0)));
+}
+
+/// The key events xkb makes of a chord pressed as a keyboard sends it:
+/// Left Ctrl, then Left Super, then the key `code` (evdev's), each press
+/// an event with the modifiers as they then stand; the releases make
+/// none. Each event is the built-in keymap's and the system keymap's
+/// alike, `unicode` the key's character, Return's and Backspace's
+/// control characters.
+fn pressed_chord(code: u32, keysym: u32, unicode: Option<char>) -> [InputEvent; 3] {
+    let press = |code: u32, mods: Mods, keysym: u32, unicode: Option<char>| {
+        InputEvent::Key(KeyEvent {
+            keycode: code + 8,
+            ascii: 0,
+            mods,
+            keysyms: vec![keysym],
+            codepoints: vec![unicode],
+            repeat: false,
+        })
+    };
+    let ctrl_super = Mods::CTRL.union(Mods::LOGO);
+    [
+        press(29, Mods::CTRL, 0xffe3, None),
+        press(125, ctrl_super, 0xffeb, None),
+        press(code, ctrl_super, keysym, unicode),
+    ]
+}
+
+/// The two mirrored displays of [`two_displays`].
+const MIRRORED: [&str; 2] = ["/dev/mem0", "/dev/mem1"];
+
+/// Whether the shown screen of `app` holds `got:line`, the session's
+/// answer to `line`, with the cursor at the start of the row below it:
+/// the screen the answer leaves, whatever reads the pty split.
+fn answered(app: &App, line: &str) -> bool {
+    let rows = app.screen_text();
+    let want = format!("got:{line}");
+    let at = rows.iter().position(|l| l.contains(&want));
+    let cursor = app.term().map(|t| t.terminal.screen().cursor());
+    at.is_some_and(|row| cursor == Some((0, row + 1)))
+}
+
+/// The pixels of each display of `s` after the frames the turn just run
+/// asked for: each display's frame count is taken before the turn, and
+/// the loop runs until the head's render thread has handed each display
+/// its next frame, which [`SECOND`] bounds.
+fn next_frames(s: &mut Seat, turn: impl FnOnce(&mut Seat)) -> [Vec<u8>; 2] {
+    let before = MIRRORED.map(|node| s.memory(node).frames);
+    turn(s);
+    for (node, before) in MIRRORED.into_iter().zip(before) {
+        assert!(
+            s.until_memory(node, SECOND, |m| m.frames > before),
+            "{node} draws a frame"
+        );
+    }
+    MIRRORED.map(|node| s.memory(node).pixels.clone())
+}
+
+/// The pixels of both displays of `s` drawn from the screen as it is
+/// now. Each display is asked to draw whole twice, and the second frame
+/// is the one: a display has one frame on its way at a time, so the
+/// second is taken from the screen after the first came back, and a
+/// frame of an older screen, still on its way, can only be the first.
+fn drawn_now(s: &mut Seat) -> [Vec<u8>; 2] {
+    let redraw = |s: &mut Seat| {
+        for node in MIRRORED {
+            s.memory(node).events.push(Event::Redraw(ID));
+        }
+        s.app.turn(now());
+    };
+    next_frames(s, redraw);
+    next_frames(s, redraw)
+}
+
+/// What both displays show of a seat with no head file and one console
+/// whose session was sent `line`: the picture of a console with that
+/// screen, drawn by a seat that never switched.
+fn drawn_alone(line: &str) -> [Vec<u8>; 2] {
+    let mut s = Seat::boot(&["--no-blink"], two_displays(), ECHO);
+    assert!(s.until(SECOND, |a| a.cells().len() == 2 && shows(a, "ready")));
+    s.type_str(&format!("{line}\r"));
+    assert!(s.until(SECOND, |a| answered(a, line)));
+    drawn_now(&mut s)
+}
+
+/// The maintainer's VT review (2026-10-30): with no head file, so one
+/// head on two mirrored displays, Ctrl-Super-Right, Ctrl-Super-Left and
+/// Ctrl-Super-Backspace, pressed as a keyboard sends them, switch the
+/// shown console at once, and the frame of the turn that took the keys
+/// draws the console now shown on both displays, pixel for pixel as a
+/// seat that never switched draws that screen. The only wait after a
+/// chord is for that frame to come back from the head's render thread.
+#[test]
+fn the_console_chords_draw_the_console_they_show() {
+    const KBD: &str = "/dev/input/event0";
+    let one = drawn_alone("one");
+    let two = drawn_alone("two");
+    assert_ne!(one, two, "the two screens draw apart");
+    let mut s = Seat::boot(&["--no-blink"], two_displays(), ECHO);
+    s.app.add_input(Path::new(KBD), keyboard("kbd"));
+    assert!(s.until(SECOND, |a| a.cells().len() == 2 && shows(a, "ready")));
+    let shown = |s: &Seat| {
+        s.app
+            .heads()
+            .first()
+            .map(|h| (h.console_count(), h.shown_console()))
+    };
+    let press = |s: &mut Seat, code: u32, keysym: u32| {
+        let unicode = match keysym {
+            RETURN => Some('\r'),
+            BACKSPACE => Some('\u{8}'),
+            _ => None,
+        };
+        for event in pressed_chord(code, keysym, unicode) {
+            s.app.device_input(Path::new(KBD), event, now());
+        }
+    };
+    // The chord's keys, the console then shown, and the frame of the turn
+    // that took them.
+    let chord = |s: &mut Seat, code: u32, keysym: u32| {
+        let mut state = None;
+        let frame = next_frames(s, |s| {
+            press(s, code, keysym);
+            state = shown(s);
+            s.app.turn(now());
+        });
+        (state, frame)
+    };
+    s.type_on(KBD, "one\r");
+    assert!(s.until(SECOND, |a| answered(a, "one")));
+    assert!(drawn_now(&mut s) == one, "the first console");
+    press(&mut s, 28, RETURN);
+    assert_eq!(shown(&s), Some((2, 1)), "Return opens and shows");
+    assert!(s.until(SECOND, |a| shows(a, "ready")));
+    s.type_on(KBD, "two\r");
+    assert!(s.until(SECOND, |a| answered(a, "two")));
+    assert!(drawn_now(&mut s) == two, "the new console");
+    let (state, frame) = chord(&mut s, 106, RIGHT);
+    assert_eq!(state, Some((2, 0)), "Right wraps to the first");
+    assert!(frame == one, "Right's frame draws the first console");
+    let (state, frame) = chord(&mut s, 105, LEFT);
+    assert_eq!(state, Some((2, 1)), "Left wraps to the second");
+    assert!(frame == two, "Left's frame draws the second console");
+    let (state, frame) = chord(&mut s, 14, BACKSPACE);
+    assert_eq!(state, Some((1, 0)), "Backspace closes it");
+    assert!(
+        frame == one,
+        "Backspace's frame draws the console shown next"
+    );
 }
 
 /// D3 and D10: a head starts the consoles its file asks for, at most 4 a

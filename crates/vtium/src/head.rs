@@ -480,7 +480,10 @@ impl Head {
     /// head takes `new`'s fit, and the old keeps the head's. While
     /// `visible`, the new one is potentially visible (mode 2033), and it
     /// takes mode 1004's focus from the old while a keyboard delivers to
-    /// the head. Every display draws whole.
+    /// the head. Every display draws the new one whole, as the C reference
+    /// redrew a session's displays at its activation
+    /// (`src/terminal.c:1750-1762` at kmscon b1f7a7c5), each drawing kept
+    /// per session there and per head here.
     fn swap_shown(&mut self, new: Console, visible: bool) -> Console {
         let fit = self.fit();
         self.grid = new.fit.grid;
@@ -499,7 +502,7 @@ impl Head {
         self.send_user_bytes();
         self.pointer.drag = None;
         for v in self.views.values_mut() {
-            v.lost = true;
+            v.show_another();
         }
         self.draw_now = true;
         old
