@@ -16,7 +16,7 @@ The defaults give every keyboard every right, as today's console does. Each rout
 
 | Route | Disturbs | Governed by |
 |---|---|---|
-| The VT keys, `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>` | every display, which leaves for another VT | the head's `vt-keys` |
+| The VT keys, `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>` | every display, which leaves for another VT | the `vt-keys` of the head the keyboard asks: its own, or the focused head for a keyboard following the focus; with no focus, none |
 | The console chords | the console the head shows | the head's `consoles`: with 1 there is nothing to switch |
 | The focus chord | where the keyboards following the focus type | taken only from keyboards following the focus |
 | The rescue key | takes a keyboard off its head, or brings an ignored one into the focus | `[guards] rescue-key` and the head's `rescue` |
@@ -24,7 +24,13 @@ The defaults give every keyboard every right, as today's console does. Each rout
 | Unclaimed keyboards | type into the focused head | the rules, ending in `input * -> ignore` |
 | Arrival through the focus | the head the focus rests on | the head's `focus` |
 
+Every keyboard asks a head: a claimed keyboard asks its own head, a keyboard following the focus asks the head holding the focus, and with no head to ask the answer is no. A keyboard following the focus therefore switches the VT only where the focused head's `vt-keys` is on, and with no focus it delivers nothing, the VT keys included.
+
 Each right a head file removes is a note in `vtium check-config`, which still exits 0. The machine is the operator's, and so is a deliberate lockout: a machine its head file locks out is recovered as any misconfigured Linux system is, over ssh, from a serial getty, through out-of-band management, or by booting other media and editing the file. vtium has no rescue boot of its own.
+
+## Open and closed files
+
+The same switches give two postures. The shipped rules are open by default: every keyboard and pointer follows the focus, and every display lights. A file can be closed by default: it declares each display and each input, ends in `display * -> dark` and `input * -> ignore`, and sets `focus = off` and `vt-keys = off` on each head, so anything it does not name goes nowhere. The kiosk and the stations below are closed files.
 
 ## The default: no file
 
@@ -128,9 +134,9 @@ input * -> ignore
 
 - The kiosk's display runs the program `login` names; any other display is set off.
 - The keyboard at port 2 types only into the kiosk. It has one console and nothing to switch; `Ctrl-Alt-F<n>` for another VT reaches the program as keys; the rescue key pressed on it moves nothing.
-- The focus never rests on the kiosk, and no other head takes it, so there is no focus. A keyboard plugged into another port is ignored; one the rescue key moves, or every keyboard the anti-lockout guard moves while the kiosk's own is unplugged, follows the focus and types nowhere.
-- `vtium check-config` notes that no head takes the focus, and exits 0.
-- The machine-wide guards stay on, and a keyboard following the focus keeps the VT keys whatever any head says. A keyboard on another port, after the rescue key, can therefore switch the VT away from the kiosk, to a getty on another VT. That is what the operator still has at the machine; with `rescue-key` and `anti-lockout` off under `[guards]`, only the out-of-band routes remain.
+- The focus never rests on the kiosk, and no other head takes it, so there is no focus. A keyboard plugged into another port is ignored; one the rescue key moves, or every keyboard the anti-lockout guard moves while the kiosk's own is unplugged, follows the focus and delivers nothing, the VT keys included.
+- `vtium check-config` notes that no keyboard can switch the VT and that no head takes the focus, and exits 0.
+- The machine-wide guards stay on and move no keyboard anywhere it can act. No head keeps its rights, so the operator has no keyboard at the machine, only the out-of-band routes; a head of the operator's own, on a display of its own with `vt-keys` and `focus` left on, gives one back.
 - The display unplugged leaves the program running, and it comes back when the display returns.
 
 ## Stations: one person to each head
@@ -174,9 +180,9 @@ input * -> ignore
 - A station is a USB port: a hub on it carries that station's keyboard and mouse, and anything plugged into the hub joins the station. A device bound by `serial:` in place of `path:` follows its unit to any port.
 - Each station's display shows its own head, with its own login, and its keyboard and mouse work only there. A device on no station's port is ignored, and a display no rule names is set off.
 - `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>` for another VT, pressed on a station's keyboard, switch nothing and reach that station's session as keys, as a serial terminal sends them. The focus chord reaches the session the same way. The rescue key pressed on a station's keyboard moves nothing.
-- No station takes the focus, so there is no focus: a keyboard the rescue key moves, and every keyboard the anti-lockout guard moves once every station's keyboard is gone, type nowhere.
+- No station takes the focus, so there is no focus: a keyboard the rescue key moves, and every keyboard the anti-lockout guard moves once every station's keyboard is gone, deliver nothing, the VT keys included.
 - `vtium check-config` notes that no keyboard can switch the VT and that no head takes the focus, and exits 0.
-- The machine-wide guards stay on, and a keyboard following the focus keeps the VT keys. A keyboard on a port no station claims, after the rescue key, can therefore switch the VT, and with it every station's display, to a getty on another VT. That is what the operator still has at the machine, and what anyone with a free port has; with `rescue-key` and `anti-lockout` off under `[guards]`, only the out-of-band routes remain.
+- The machine-wide guards stay on and move no keyboard anywhere it can act, so no station's user can switch the others' displays away. No head keeps its rights, so the operator has no keyboard at the machine, only the out-of-band routes; a head of the operator's own, on a display of its own with `vt-keys` and `focus` left on, gives one back.
 - A station's display unplugged leaves its sessions running unseen (`nohup`, the default), and its keyboard still reaches them; they come back when that display returns. For stations people walk away from, `on-loss = hangup` ends the sessions when the display goes, and `on-loss = hangup 30s` after a grace period.
 - A station's keyboard unplugged leaves its session running, and the keyboard plugged into the same port returns to it.
 - The default caps allow 4 consoles a head and 8 in total, so more than 8 stations need the total raised, up to the hard maxima of 16 heads and 50 consoles.

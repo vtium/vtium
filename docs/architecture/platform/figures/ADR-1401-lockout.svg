@@ -60,7 +60,7 @@
 <rect x="16" y="506" width="928" height="56" fill="#ffffff" stroke="#9aa5b1"/>
 <text x="30" y="526" font-size="12" font-weight="bold">[guards]</text>
 <text x="110" y="526" font-size="11">anti-lockout = on, rescue-key = on, never-dark = on by default; a head's rescue = off keeps its keyboards</text>
-<text x="30" y="546" font-size="11">Each off is a note in check-config. vtium.heads=builtin on the kernel command line runs the compiled-in rules, every guard on.</text>
+<text x="30" y="546" font-size="11">Each off is a note in check-config. A deliberate lockout is recovered out of band: ssh, a serial getty, other boot media.</text>
 <!-- legend -->
 <rect x="16" y="576" width="22" height="16" fill="#e6eef7" stroke="#2f6fb0"/>
 <text x="46" y="589" font-size="12">vtium, root</text>
