@@ -5,7 +5,8 @@ use std::any::Any;
 use std::io;
 
 use vtium_platform::display::{
-    Canvas, Card, Density, DisplayId, Dpms, Drm2d, Event, Fb, Fbdev, Rect, SwapError, Swapped,
+    Canvas, Card, Density, DisplayId, Dpms, Drm2d, Event, Fb, Fbdev, Identity, Rect, SwapError,
+    Swapped,
 };
 use vtium_render::Arrow;
 
@@ -76,6 +77,13 @@ pub trait Video: Any {
     fn dpi(&self, _: DisplayId) -> Option<(f64, f64)> {
         None
     }
+    /// What names a display to the head file's rules (ADR-1401 D4): its
+    /// connector, its card's `ID_PATH` and its EDID; `None` where the
+    /// device reads none, as a framebuffer, whose display the rules see
+    /// by its name alone.
+    fn identity(&self, _: DisplayId) -> Option<Identity> {
+        None
+    }
 }
 
 /// A video device's cursor plane, as the pointer drives it.
@@ -120,6 +128,9 @@ impl Video for Drm2d<Card> {
         Drm2d::density(self, id)
             .filter(Density::measured)
             .map(|d| d.dpi())
+    }
+    fn identity(&self, id: DisplayId) -> Option<Identity> {
+        Drm2d::identity(self, id).cloned()
     }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         Drm2d::canvas(self, id)

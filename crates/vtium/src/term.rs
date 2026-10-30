@@ -1,6 +1,6 @@
-//! The terminal of the seat's one session: the terminal state the child's
+//! The terminal of a head's session: the terminal state the child's
 //! output drives, when it presents (mode 2026 and coalescing), the blink
-//! phases, and a [`View`] per display that draws it.
+//! phases, and a [`View`] per display of the head that draws it.
 
 use std::process::ExitStatus;
 use std::rc::Rc;
@@ -20,7 +20,7 @@ use crate::video::Video;
 /// The clock the terminal reads while it parses: the loop's, or a test's.
 pub type Clock = Rc<dyn Fn() -> Instant>;
 
-/// The session's terminal and the rules for when it presents.
+/// A session's terminal and the rules for when it presents.
 pub struct Term {
     pub terminal: Terminal,
     pub sync: Sync,
@@ -31,7 +31,7 @@ pub struct Term {
     pub unparsed: bool,
     /// Output changed the screen this turn.
     pub changed: bool,
-    /// A frame end or a timeout asks every display to present.
+    /// A frame end or a timeout asks every display of the head to present.
     pub present: bool,
     /// The child exited and its output has been read.
     pub exited: Option<ExitStatus>,
