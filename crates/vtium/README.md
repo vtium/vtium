@@ -22,12 +22,12 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/video.rs` | A video device behind one trait: drm2d, fbdev, or a test's stand-in |
 | `src/app.rs` | The seat: the VT's events, the devices and the head each display joins, the keys and the focus, the pointer's selection, copy and paste, the blank, each head's child, the exit |
 | `src/logger.rs` | The log on stderr |
-| `src/check.rs` | `vtium check-config`, and the warnings the start gives beyond the reports; its note of the density points convert at, on standard output and outside its status |
+| `src/check.rs` | `vtium check-config`, and the warnings the start gives beyond the reports; on standard output and outside its status, its note of the density points convert at and the findings of the devices present, which it reads from `/sys` and `/run/udev/data`, opening nothing under `/dev`; `--help` reads no device. A rule noted as matching nothing, for want of a udev daemon or of a connector's `PATH`, gets that one line |
 | `src/warn.rs` | Where the operator's warnings go: the configuration's reports and a font's partial ranges |
 | `src/hook.rs` | The panic hook, which puts the VT back before the panic prints |
 | `src/main.rs` | Start-up and the loop |
 | `src/blank.rs` | The blank and wake from outside the session: the signals the loop takes, and `vtium blank` and `vtium wake`, which find the vtium on a VT and signal it |
-| `tests/check_config.rs` | `vtium check-config` run as a binary: its warnings, exit status and help, and with strace on the machine, that it opens nothing but the configuration |
+| `tests/check_config.rs` | `vtium check-config` run as a binary: its warnings, exit status and help, and with strace on the machine, that it reads `/sys`, opens nothing under `/dev` and writes nothing, and that `--help` reads no device |
 | `tests/panic_hook.rs` | The panic hook's order, in a process of its own |
 | `tests/blank_wake.rs` | The blank and wake signals through the seat's loop, on a display in memory |
 | `tests/power_keys.rs` | The power keys through the key order, acting on a stand-in for PID 1, logind and the kernel |

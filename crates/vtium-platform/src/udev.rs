@@ -100,8 +100,9 @@ pub struct InputIdentity {
 }
 
 impl InputIdentity {
-    /// The identity of an event node udev describes.
-    fn of(dev: &Uevent) -> InputIdentity {
+    /// The identity of an event node udev describes, as the monitor reads
+    /// it or as [`crate::listing`] reads it from sysfs and udev's database.
+    pub(crate) fn of(dev: &Uevent) -> InputIdentity {
         let property = |name: &str| dev.properties.get(name).map(String::as_str);
         let tags = Classes::from_properties(property);
         let classes = tags.unwrap_or_else(|| {
@@ -382,13 +383,18 @@ fn numbered(name: &str, prefix: &str) -> bool {
 }
 
 /// A card is primary when its PCI parent was the boot VGA device, or when
-/// it is a platform display controller not on USB; it is auxiliary when
-/// its driver is `udl` (monitor.c:232-350).
-fn drm_flags(dev: &Uevent, node: &Path, probe: &mut dyn Probe) -> DeviceFlags {
-    let primary = match dev.pci_boot_vga {
+/// it is a platform display controller not on USB (monitor.c:232-350).
+pub(crate) fn primary(dev: &Uevent) -> bool {
+    match dev.pci_boot_vga {
         Some(boot_vga) => boot_vga,
         None => !dev.usb_parent && dev.platform_parent,
-    };
+    }
+}
+
+/// A card is [`primary`], and auxiliary when its driver is `udl`
+/// (monitor.c:232-350).
+fn drm_flags(dev: &Uevent, node: &Path, probe: &mut dyn Probe) -> DeviceFlags {
+    let primary = primary(dev);
     let aux = match probe.drm_driver(node) {
         Ok(driver) => {
             log::debug!(target: "monitor", "DRM device {} uses driver {driver}", node.display());
@@ -410,21 +416,28 @@ fn drm_flags(dev: &Uevent, node: &Path, probe: &mut dyn Probe) -> DeviceFlags {
 /// driver's ends in `drmfb`, or is `nouveaufb` or `psbfb`
 /// (monitor.c:190-230).
 fn fb_flags(node: &Path, probe: &mut dyn Probe) -> DeviceFlags {
+    match probe.fb_id(node) {
+        Ok(id) => fb_id_flags(Some(&id)),
+        Err(e) => {
+            log::warn!(target: "monitor", "cannot read the id of {}: {e}", node.display());
+            fb_id_flags(None)
+        }
+    }
+}
+
+/// [`fb_flags`] of a framebuffer whose id is `id`, `None` where it cannot
+/// be read, which leaves it DRM-backed.
+pub(crate) fn fb_id_flags(id: Option<&str>) -> DeviceFlags {
     let mut flags = DeviceFlags {
         drm_backed: true,
         ..DeviceFlags::default()
     };
-    match probe.fb_id(node) {
-        Ok(id) => {
-            if !id.ends_with("drmfb") && id != "nouveaufb" && id != "psbfb" {
-                flags.drm_backed = false;
-            }
-            flags.aux = id == "udlfb";
-            flags.primary = id == "VESA VGA";
+    if let Some(id) = id {
+        if !id.ends_with("drmfb") && id != "nouveaufb" && id != "psbfb" {
+            flags.drm_backed = false;
         }
-        Err(e) => {
-            log::warn!(target: "monitor", "cannot read the id of {}: {e}", node.display());
-        }
+        flags.aux = id == "udlfb";
+        flags.primary = id == "VESA VGA";
     }
     flags
 }

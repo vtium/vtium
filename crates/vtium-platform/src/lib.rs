@@ -45,6 +45,9 @@
 //!   with `VT_PROCESS` switching whose release waits for the displays.
 //! - [`udev`]: the seat's cards, framebuffers and input devices, found at
 //!   start and followed as they come and go ([`udev::Udev`]).
+//! - [`listing`]: the seat's input devices, cards and connected displays
+//!   as a head file's rules see them, read from sysfs and udev's database
+//!   without opening a device ([`listing::list`]).
 //! - [`input`]: every keyboard and pointer through evdev, keys through
 //!   libxkbcommon with compose and a repeat timer ([`input::Input`]).
 //! - [`power`]: the reboot, power-off and suspend requests the power keys
@@ -61,6 +64,7 @@ pub mod event_loop;
 mod fds;
 pub mod input;
 mod ioctl;
+pub mod listing;
 #[cfg(feature = "logind")]
 pub mod logind;
 mod mmap;
