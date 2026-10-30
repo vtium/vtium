@@ -187,6 +187,17 @@ pub const HEAD_CONSOLES_MAX: Key = Key {
     cite: "ADR-1401 D10; the C reference's `session-max` (src/config.c:1357) bounded the seat's sessions",
 };
 
+pub const FOCUS_MARK: Key = Key {
+    name: "focus-mark",
+    short: None,
+    kind: Kind::Choice(&["auto", "always", "off"]),
+    default: Default::Text("auto"),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Each head's focus mark over its top-right cell, filled on the head holding the focus and hollow on the others: `auto` shows the marks for a few seconds after the focus chord or the anti-lockout guard moves the focus, `always` shows them always, `off` never.",
+    cite: "ADR-1401 D5; the operator on vtium/vtium#156",
+};
+
 pub const CONSOLES_MAX: Key = Key {
     name: "consoles-max",
     short: None,
@@ -1063,7 +1074,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 81] = [
+pub const KEYS: [Key; 82] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1073,6 +1084,7 @@ pub const KEYS: [Key; 81] = [
     ONESHOT,
     HEAD_CONSOLES_MAX,
     CONSOLES_MAX,
+    FOCUS_MARK,
     TERM,
     RESET_ENV,
     BACKSPACE_DELETE,

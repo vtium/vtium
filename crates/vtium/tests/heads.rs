@@ -2138,3 +2138,65 @@ fn under_oneshot_a_head_whose_program_ended_shows_session_ended() {
     );
     assert!(!s.memory("/dev/mem1").has(PAPER), "large runs on");
 }
+
+/// The focus marks of the heads, in the head file's order.
+fn marks(app: &App) -> Vec<Option<vtium_render::Mark>> {
+    app.heads().iter().map(Head::mark).collect()
+}
+
+/// D5 and the operator's answers (2026-10-30): with `focus-mark = auto`,
+/// the default, no head shows a mark in normal use; the focus chord lights
+/// every head's, filled on the head that took the focus and hollow on the
+/// other, over its top-right cell, and they hide a few seconds later, the
+/// test's clock driving the time.
+#[test]
+fn the_focus_mark_lights_when_the_focus_moves_and_hides_after_a_few_seconds() {
+    use vtium_render::Mark;
+    let mut s = claimed();
+    s.until(Duration::from_millis(100), |_| false);
+    assert_eq!(marks(&s.app), [None, None], "none in normal use");
+    assert!(!s.memory("/dev/mem0").has(PAPER));
+    s.app
+        .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+    let moved = now();
+    s.app.turn(moved);
+    assert_eq!(marks(&s.app), [Some(Mark::Focus), Some(Mark::NoFocus)]);
+    assert!(
+        s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)),
+        "drawn on small"
+    );
+    assert!(
+        s.until_memory("/dev/mem1", SECOND, |m| m.has(PAPER)),
+        "and on large"
+    );
+    s.app.turn(moved + Duration::from_secs(1));
+    assert_eq!(
+        marks(&s.app),
+        [Some(Mark::Focus), Some(Mark::NoFocus)],
+        "shown at 1 s"
+    );
+    s.app.turn(moved + Duration::from_secs(10));
+    assert_eq!(marks(&s.app), [None, None], "hidden after a few seconds");
+}
+
+/// The operator's answers (2026-10-30): `focus-mark = always` shows every
+/// head's mark in normal use, and `off` shows none, the chord's move
+/// included.
+#[test]
+fn focus_mark_always_shows_every_heads_mark_and_off_none() {
+    use vtium_render::Mark;
+    let mut s = claimed_with(&["--focus-mark=always"]);
+    s.until(Duration::from_millis(50), |_| false);
+    assert_eq!(marks(&s.app), [Some(Mark::NoFocus), Some(Mark::Focus)]);
+    s.app.turn(now() + Duration::from_secs(60));
+    assert_eq!(
+        marks(&s.app),
+        [Some(Mark::NoFocus), Some(Mark::Focus)],
+        "never hidden"
+    );
+    let mut s = claimed_with(&["--focus-mark=off"]);
+    s.app
+        .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+    s.app.turn(now());
+    assert_eq!(marks(&s.app), [None, None]);
+}

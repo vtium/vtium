@@ -48,6 +48,10 @@ pub const GRID: (usize, usize) = (80, 24);
 /// probe 5).
 pub const NOTICE_SHOWN: Duration = Duration::from_secs(30);
 
+/// How long `focus-mark = auto` shows the focus marks after the focus
+/// moves: a few seconds (the operator's answers on vtium/vtium#156).
+pub const MARK_SHOWN: Duration = Duration::from_secs(3);
+
 /// The lines of scrollback a wheel event scrolls (`src/terminal.c:1648`).
 const WHEEL_LINES: usize = 3;
 
@@ -115,6 +119,8 @@ pub struct Head {
     /// drawn, when they end.
     notices: String,
     pub(crate) notice_due: Option<Instant>,
+    /// Its focus mark, while the seat shows the marks.
+    pub(crate) mark: Option<vtium_render::Mark>,
     /// What the head does when it loses its last display (ADR-1401 D8).
     pub(crate) on_loss: OnLoss,
     /// When its sessions hang up, while it has no display.
@@ -276,6 +282,7 @@ impl Head {
             ended: None,
             notices: String::new(),
             notice_due: None,
+            mark: None,
             on_loss: OnLoss::Nohup,
             hangup_due: None,
             views: BTreeMap::new(),
@@ -388,6 +395,11 @@ impl Head {
             .or_else(|| (!self.notices.is_empty()).then_some(self.notices.as_str()))
     }
 
+    /// The head's focus mark, while it shows.
+    pub fn mark(&self) -> Option<vtium_render::Mark> {
+        self.mark
+    }
+
     /// Adds `text` to the head's notices, which show from its next frame.
     pub(crate) fn add_notice(&mut self, text: &str) {
         if !self.notices.is_empty() {
@@ -411,7 +423,7 @@ impl Head {
     pub(crate) fn overlay(&self) -> crate::term::Overlay {
         crate::term::Overlay {
             notice: self.notice().map(vtium_render::Notice::new),
-            mark: None,
+            mark: self.mark,
         }
     }
 

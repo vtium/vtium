@@ -202,6 +202,11 @@ pub struct App {
     routes: Routes,
     /// The head the focus moved to since [`App::take_focus_move`].
     focus_move: Option<usize>,
+    /// `focus-mark`: `Some(true)` always, `Some(false)` for
+    /// [`crate::head::MARK_SHOWN`] after the focus moves, `None` never.
+    focus_mark: Option<bool>,
+    /// When the focus marks hide, under `focus-mark = auto`.
+    mark_due: Option<Instant>,
     /// A key came or the focus chord moved the focus: the focus no longer
     /// follows a boot display lighting late.
     focus_settled: bool,
@@ -364,6 +369,12 @@ impl App {
             focus: None,
             routes: Routes::default(),
             focus_move: None,
+            focus_mark: match config.text(&keys::FOCUS_MARK) {
+                Some("always") => Some(true),
+                Some("off") => None,
+                _ => Some(false),
+            },
+            mark_due: None,
             focus_settled: false,
             focus_due: false,
             cards: BTreeMap::new(),
@@ -2112,10 +2123,18 @@ impl App {
         let lit = |h: usize| heads.get(h).is_some_and(|head| !head.views.is_empty());
         self.focus_settled = true;
         if let Some(to) = chord::step(self.focus, heads.len(), back, lit) {
-            self.focus = Some(to);
-            self.focus_move = Some(to);
-            self.bound_pointers();
+            self.move_focus(to, now);
         }
+    }
+
+    /// The focus moves to head `h`, by the focus chord or the anti-lockout
+    /// guard, the only moves after its start (ADR-1401 D5): the focus marks
+    /// light.
+    fn move_focus(&mut self, h: usize, now: Instant) {
+        self.focus = Some(h);
+        self.focus_move = Some(h);
+        self.mark_due = Some(after(now, crate::head::MARK_SHOWN));
+        self.bound_pointers();
     }
 
     /// A zoom of head `h`: the base height the font's next step, larger or
@@ -2332,9 +2351,26 @@ impl App {
         if self.blank.fire(now) {
             self.blank_now(now);
         }
+        if self.mark_due.is_some_and(|d| d <= now) {
+            self.mark_due = None;
+        }
     }
 
     fn draw(&mut self, now: Instant) {
+        let shown = self
+            .focus_mark
+            .is_some_and(|always| always || self.mark_due.is_some());
+        for (h, head) in self.heads.iter_mut().enumerate() {
+            let mark = shown.then_some(if self.focus == Some(h) {
+                vtium_render::Mark::Focus
+            } else {
+                vtium_render::Mark::NoFocus
+            });
+            if head.mark != mark {
+                head.mark = mark;
+                head.draw_now = true;
+            }
+        }
         for h in 0..self.heads.len() {
             self.painter(h);
         }
@@ -2480,6 +2516,7 @@ impl App {
         due.extend(self.timer_due);
         due.extend(self.wait.due());
         due.extend(self.blank.deadline());
+        due.extend(self.mark_due);
         for head in &self.heads {
             due.extend(head.text_due);
             due.extend(head.cursor_due.map(|(d, _)| d));
