@@ -156,6 +156,10 @@ considered:
     said: "The panic screen stays for as long as vtium runs, with no timeout, and its first line reads 'vtium: config invalid, closed: input off'. Under closed, vtium opens no ignored keyboard. An operator's head is reached by a port of its own or by a roaming rule that lets any keyboard in, and by no other path. In a partly broken open run isolated is ignored, so every surviving head acts as not isolated and the rescue key and the active head always have somewhere to land; a partly broken closed run keeps isolation as written."
     via: the team lead's answers to this record's open questions, 2026-10-30, with the model agent's latest pass on feat/heads-outcomes; the wording is the team lead's
     paraphrase: true
+  - operator: aaronsb
+    said: "The panic screen's first line stays as the record words it, 'vtium: config invalid, policy closed: input off', and the model is to match it. In the head file, # starts a comment at the start of a line or after whitespace; a # inside a word is literal, and \\# gives a literal # after whitespace, so a login command such as cmd --x#1 keeps its #."
+    via: the team lead's answers, 2026-10-30; the wording is the team lead's
+    paraphrase: true
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and a roaming keyboard types into whichever head the roaming chord makes active"
@@ -287,9 +291,9 @@ The later extension of two seats, drawn so its boundary is clear:
 
 ### D3: the head file
 
-One file, `/etc/vtium/heads.conf`, holds the heads and an ordered list of rules. Its top-level keys, before the first section and in any order among themselves, are `version = 1` and `policy` (below); a file with no version, or a version vtium does not know, is invalid, and still fails to its policy (D7). vtium reads no drop-ins beside it. Its lines are bounded as kmscon.conf's are (65536 bytes a file, 8192 a line); a CRLF line ending is a newline; `#` starts a comment; spaces around `=` and between tokens are dropped.
+One file, `/etc/vtium/heads.conf`, holds the heads and an ordered list of rules. Its top-level keys, before the first section and in any order among themselves, are `version = 1` and `policy` (below); a file with no version, or a version vtium does not know, is invalid, and still fails to its policy (D7). vtium reads no drop-ins beside it. Its lines are bounded as kmscon.conf's are (65536 bytes a file, 8192 a line); a CRLF line ending is a newline; `#` starts a comment at the start of a line or after whitespace, a `#` inside a word is literal, and `\#` gives a literal `#` after whitespace, so a login command such as `cmd --x#1` keeps its `#`; spaces around `=` and between tokens are dropped.
 
-> Edited 2026-10-30: the operator set the top-level keys in any order and resolved an invalid file by its posture (`considered`). The paragraph read: "Its first line that is not a comment is `version = 1`; a file with no version, or a version vtium does not know, is invalid (D7) and falls back whole.", and named no CRLF.
+> Edited 2026-10-30: the operator set the top-level keys in any order and resolved an invalid file by its posture (`considered`). The paragraph read: "Its first line that is not a comment is `version = 1`; a file with no version, or a version vtium does not know, is invalid (D7) and falls back whole.", and named no CRLF. It said only that `#` starts a comment, which left a `#` inside a value unsettled.
 
 #### The policy: open or closed
 
@@ -553,7 +557,7 @@ A machine with no configuration at all:
 - **The panic screen.** A broken closed file with no head left means vtium has started correctly and can serve nothing. The boot display shows vtium's own report, in this form, the wording illustrative:
 
   ```text
-  vtium: config invalid, closed: input off
+  vtium: config invalid, policy closed: input off
   no possible paths for terminal: no head in /etc/vtium/heads.conf survives
   /etc/vtium/heads.conf:4: unknown key "focs" in [head kiosk]
   nothing on this console takes input; the full report: vtium check-config /etc/vtium/heads.conf
