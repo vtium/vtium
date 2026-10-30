@@ -300,8 +300,7 @@ fn a_sets_clusters_are_listed_with_their_cells() {
         let mut s = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default());
         let a = s.glyph(Width::Narrow, vec![10; 16]);
         s.map('A', a);
-        Set::from_bytes(SetBuilder::new("plain").strike(s).write().expect("writes"))
-            .expect("reads")
+        Set::from_bytes(SetBuilder::new("plain").strike(s).write().expect("writes")).expect("reads")
     };
     assert_eq!(plain.clusters().count(), 0);
 }

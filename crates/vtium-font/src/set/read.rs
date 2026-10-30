@@ -13,16 +13,15 @@ use crate::face::{Cell, Decorations, Style, Width};
 use crate::glyph::{Format, Glyph};
 use crate::policy::{Coverage, RangeCoverage, SpritePolicy};
 use crate::set::format::{
-    CHUNK_RECORD, CLUS, CMAP, FORMAT_BITS, FORMAT_R8, FORMAT_RGBA, GLYF, MAGIC, MAJOR, META,
-    POLY, PRELUDE_BYTES, SECTION_BYTES, STRK, TABLE_HEAD_BYTES, glyph_bytes,
+    CHUNK_RECORD, CLUS, CMAP, FORMAT_BITS, FORMAT_R8, FORMAT_RGBA, GLYF, MAGIC, MAJOR, META, POLY,
+    PRELUDE_BYTES, SECTION_BYTES, STRK, TABLE_HEAD_BYTES, glyph_bytes,
 };
 use crate::sprite::Range;
 
 mod parse;
 
 use parse::{
-    ClusterMap, parse_clusters, parse_cmap, parse_index,
-    parse_meta, parse_poly, parse_strikes,
+    ClusterMap, parse_clusters, parse_cmap, parse_index, parse_meta, parse_poly, parse_strikes,
 };
 
 /// Why a set was refused, or a chunk of it.
