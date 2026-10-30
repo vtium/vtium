@@ -850,7 +850,9 @@ fn a_valid_closed_file_whose_heads_lose_every_display_shows_its_one_notice() {
 }
 
 #[test]
-fn no_event_opens_past_its_start_outcome() {
+fn the_guards_reach_nothing_past_a_static_reading_of_the_start_outcome() {
+    // both sides are this harness's: `settle` steps the guards and `allowed` reads the start outcome's switches and rules without them, so this proves the guards' dynamics never outrun the outcome's own switches; whether those switches are right is for the table and the invariants over the paths
+
     let found = explore_all();
     assert!(
         found.policy_breaches.is_empty(),

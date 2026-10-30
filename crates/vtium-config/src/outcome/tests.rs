@@ -268,7 +268,8 @@ fn table() -> String {
 fn outcome_table_matches_resolve() {
     let want = table();
     if std::env::var_os("VTIUM_CONFIG_BLESS").is_some() {
-        std::fs::write(TABLE, &want).unwrap_or_default();
+        let wrote = std::fs::write(TABLE, &want);
+        assert!(wrote.is_ok(), "outcomes.tsv not rewritten: {wrote:?}");
         return;
     }
     let committed = std::fs::read_to_string(TABLE).unwrap_or_default();
@@ -297,11 +298,23 @@ fn the_committed_table_lists_every_path_once() {
 }
 
 #[test]
-fn an_untrusted_files_content_is_never_consulted() {
-    // `Read::Untrusted` and `Read::Inaccessible` carry nothing, which the module's compile_fail example proves: the outcome is a constant of the verdict
-    let skipped = resolve(&Read::Untrusted);
+fn an_untrusted_or_unopenable_file_runs_the_shipped_rules_with_the_skipped_line() {
+    // that their content is never consulted is the module's compile_fail example: `Read::Untrusted` and `Read::Inaccessible` carry nothing
+    let skipped = Outcome {
+        runs: Runs::Builtin,
+        policy: Policy::Open,
+        rescue: Rescue::AsSet,
+        line: Some(Line::Skipped),
+        lit: Lit::Rules,
+        fallback: Fallback::FirstHead,
+        unplaced: Unplaced::Shipped,
+    };
+    assert_eq!(resolve(&Read::Untrusted), skipped);
     assert_eq!(resolve(&Read::Inaccessible), skipped);
-    assert_eq!(skipped, builtin(Some(Line::Skipped)));
+    assert_eq!(
+        Line::Skipped.text(),
+        "invalid config skipped, using builtin"
+    );
 }
 
 #[test]
