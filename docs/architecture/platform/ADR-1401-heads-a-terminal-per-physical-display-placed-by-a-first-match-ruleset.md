@@ -431,39 +431,9 @@ One keyboard and two heads, before and after the focus chord:
 
 ![One keyboard, two heads, in two rows. Before the chord, head desk with the large monitor holds the focus, a filled mark, and its session reads the keys typed; head panel with the small panel shows a hollow mark, its session running on with no keys reaching it; the keyboard's arrow points to head desk. Between the rows, the focus chord, pressed on the keyboard, a grab key whose default chord is vtium/vtium#82's. After the chord, head desk shows no focus and head panel holds it, and the keyboard's arrow points to head panel. The caption says focus moves only by the chord, never at a hotplug, a new keyboard never takes it, it rests only on a head with a lit display, and each head draws its mark outside the session's output. A legend marks vtium as root, a device, holds the focus and no focus.](figures/ADR-1401-focus.svg)
 
-**Stations.** With every display and input declared in the head file, each head serves one station, so several people work at once on one machine, each at their own display and keyboard. Each station's head sets `vt-keys = off`, so no station's keyboard switches every display away, and `rescue = off` with `[guards] rescue-key = off` keeps the rescue key from pulling a station's keyboard to the focus; `display * -> dark` and `input * -> ignore` leave nothing undeclared. A `path:` match takes every interface behind that port, so a station is a USB port, a hub on it carrying the station's keyboard and mouse; `serial:` binds the device instead, wherever it is plugged. `vtium check-config` warns of such a file that no keyboard can switch the VT (D9).
+**Stations.** `vt-keys = off` exists so that heads with every display and input declared can each serve one person at their own display and keyboard, several at once on one machine. Stations are off by default; [heads.md](../../heads.md) carries their configuration beside the other scenarios.
 
-```ini
-# /etc/vtium/heads.conf: three stations on one machine; the identity values are illustrative
-version = 1
-
-[head station1]
-rescue = off
-vt-keys = off
-
-[head station2]
-rescue = off
-vt-keys = off
-
-[head station3]
-rescue = off
-vt-keys = off
-
-[rules]
-display edid:AAA:0x0001:STATION001 -> station1
-display edid:AAA:0x0001:STATION002 -> station2
-display edid:AAA:0x0001:STATION003 -> station3
-input path:pci-0000:15:00.0-usb-0:1 -> station1
-input path:pci-0000:15:00.0-usb-0:2 -> station2
-input path:pci-0000:15:00.0-usb-0:3 -> station3
-display * -> dark
-input * -> ignore
-
-[guards]
-rescue-key = off
-```
-
-> Edited 2026-10-30: the operator added stations (`considered`). D5 named no stations.
+> Edited 2026-10-30: the operator added stations as a scenario the user guide configures (`considered`). D5 named no stations.
 
 ### D6: defaults that always type
 
