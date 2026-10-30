@@ -302,7 +302,11 @@ impl App {
             head: config.number(&keys::HEAD_CONSOLES_MAX).map_or(4, to_usize),
             total: config.number(&keys::CONSOLES_MAX).map_or(8, to_usize),
         };
-        let bytes = crate::config::budget::sb_memory(&config);
+        let bytes = crate::head::console_scrollback(
+            crate::config::budget::sb_memory(&config),
+            crate::config::budget::sb_memory_cap(),
+            caps.total,
+        );
         let heads = heads(&rules, &config, ((cap, lines), bytes), caps, &clock);
         let dpms = config
             .number(&keys::DPMS_TIMEOUT)
@@ -1287,7 +1291,10 @@ impl App {
                         frit.frit.clone(),
                         self.console_font.clone(),
                         std::sync::Arc::clone(&frit.generated),
-                        crate::deferred::store_limit(physical_memory()),
+                        crate::head::frit_store(
+                            crate::deferred::store_limit(physical_memory()),
+                            self.heads.len(),
+                        ),
                     ))
                 }
                 Err(why) => {

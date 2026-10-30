@@ -203,6 +203,26 @@ impl Ended {
     }
 }
 
+/// The scrollback memory each console takes (ADR-1401 D10): `sb-memory`,
+/// at most `cap`, the most `sb-memory` may be on the machine, shared
+/// among the `consoles` every head may hold, so all of them together
+/// stay within `cap`.
+pub(crate) fn console_scrollback(sb_memory: usize, cap: u64, consoles: usize) -> usize {
+    let share = cap
+        .checked_div(u64::try_from(consoles).unwrap_or(u64::MAX))
+        .unwrap_or(cap);
+    sb_memory.min(usize::try_from(share).unwrap_or(usize::MAX))
+}
+
+/// The bytes each frit's glyph store holds: `store`, the machine's store
+/// limit, shared among the `heads`, since a head draws one frit at a
+/// time, so every frit's store together stays within `store`.
+pub(crate) fn frit_store(store: u64, heads: usize) -> u64 {
+    store
+        .checked_div(u64::try_from(heads).unwrap_or(u64::MAX))
+        .unwrap_or(store)
+}
+
 /// What [`Head`]'s `draw_hook` runs.
 pub type DrawHook = std::sync::Arc<dyn Fn() + Send + std::marker::Sync>;
 
@@ -1059,6 +1079,23 @@ mod tests {
             place_display(&rules, &bare),
             Err("display fb\\u{1b} matches no rule of the head file and is left dark; it offers no value a rule can name".to_owned())
         );
+    }
+
+    // ADR-1401 D10: every console's scrollback together stays within the
+    // most `sb-memory` may be on the machine, and every frit's store within
+    // the machine's store limit.
+    #[test]
+    fn the_memory_of_every_console_and_frit_together_is_bounded() {
+        const MIB: u64 = 1 << 20;
+        // 512 MiB: `sb-memory` may be 128 MiB. The default, 5,963,776
+        // bytes, fits 8 times; 50 consoles take 2,684,354 bytes each.
+        assert_eq!(console_scrollback(5_963_776, 128 * MIB, 8), 5_963_776);
+        assert_eq!(console_scrollback(5_963_776, 128 * MIB, 50), 2_684_354);
+        assert_eq!(console_scrollback(64 << 20, 128 * MIB, 8), 16 << 20);
+        assert_eq!(console_scrollback(5_963_776, 128 * MIB, 0), 5_963_776);
+        assert_eq!(frit_store(16 * MIB, 1), 16 * MIB);
+        assert_eq!(frit_store(16 * MIB, 16), MIB);
+        assert_eq!(frit_store(16 * MIB, 0), 16 * MIB);
     }
 
     #[test]
