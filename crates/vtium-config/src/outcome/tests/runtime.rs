@@ -10,8 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::paths;
 use crate::outcome::{
-    Fallback, Line, Outcome, Policy, Read, Rest, Runs, Stated, SwitchKey, Trusted, Unplaced,
-    resolve,
+    Fallback, Line, Lit, Outcome, Policy, Read, Rescue, Rest, Runs, Stated, SwitchKey, Trusted,
+    Unplaced, resolve,
 };
 
 const H1: u8 = 1;
@@ -155,7 +155,7 @@ fn scene(o: &Outcome, rest: Rest) -> Scene {
             heads: 0,
             to: [Unmatched; 9],
         },
-        Runs::File | Runs::Survivors => match rest {
+        Runs::File | Runs::NoHead | Runs::Survivors => match rest {
             Rest::Valid => Scene {
                 heads: H1 | H2,
                 to: full,
@@ -362,11 +362,10 @@ fn settle(c: &Config, present: u16, rescued: u16, active: Option<u8>) -> View {
                 shown |= shows(boot, h);
             }
             // the boot display for the notice alone, and dark for a valid closed file with no head
-            Fallback::NoticeOnly if c.o.line.is_some() || c.scene.heads != 0 => {
-                display_guard = true;
+            Fallback::NoticeOnly => {
+                display_guard = c.o.line.is_some() || c.scene.heads != 0;
                 notice = c.o.dark_notice();
             }
-            Fallback::NoticeOnly => {}
         }
     }
     let heads = c.scene.heads | (lit & DEF);
@@ -586,6 +585,7 @@ struct Found {
     text_breaches: Vec<String>,
     policy_breaches: Vec<String>,
     reload_breaches: Vec<String>,
+    notice_breaches: Vec<String>,
     /// Reloads that changed what runs.
     applied: usize,
     anti_lockout: usize,
@@ -641,6 +641,15 @@ fn explore(read: &Read, iso: Isolation, found: &mut Found) {
             found
                 .text_breaches
                 .push(format!("{}: {}", at(), describe(v.reach & !by_text)));
+        }
+        // under closed the display guard lights the boot display exactly when there is a notice to show
+        if c.o.fallback == Fallback::NoticeOnly && v.display_guard != v.notice.is_some() {
+            found.notice_breaches.push(format!(
+                "{}: the display guard {} with the notice {:?}",
+                at(),
+                if v.display_guard { "fires" } else { "rests" },
+                v.notice
+            ));
         }
         if v.reach & !by_policy != 0 {
             found
@@ -773,19 +782,47 @@ fn a_reload_runs_a_valid_file_its_running_policy_accepts_and_nothing_else() {
 
 #[test]
 fn a_valid_closed_file_that_declares_nothing_is_dark_and_silent() {
-    let read = Read::Trusted(Trusted {
-        stated: Stated::Closed,
-        rest: Rest::Empty,
-    });
-    let o = resolve(&read);
-    let c = Config {
-        o,
-        scene: scene(&o, Rest::Empty),
-        iso: (None, None),
-    };
-    let v = settle(&c, EVERY, 0, None);
-    assert_eq!(o.line, None);
-    assert!(v.reach == 0 && !v.display_guard, "{}", describe(v.reach));
+    for rest in [Rest::Headless, Rest::Empty] {
+        let read = Read::Trusted(Trusted {
+            stated: Stated::Closed,
+            rest,
+        });
+        let o = resolve(&read);
+        assert_eq!(o.dark_notice(), None, "{rest:?}");
+        let dark = Outcome {
+            runs: Runs::NoHead,
+            policy: Policy::Closed,
+            rescue: Rescue::AsSet,
+            line: None,
+            lit: Lit::Rules,
+            fallback: Fallback::NoticeOnly,
+            unplaced: Unplaced::Ignore,
+        };
+        assert_eq!(o, dark, "{rest:?}");
+        let c = Config {
+            o,
+            scene: scene(&o, rest),
+            iso: (None, None),
+        };
+        let v = settle(&c, EVERY, 0, None);
+        assert_eq!(o.line, None, "{rest:?}");
+        assert!(
+            v.reach == 0 && !v.display_guard && v.notice.is_none(),
+            "{rest:?}: {}",
+            describe(v.reach)
+        );
+    }
+}
+
+#[test]
+fn under_closed_the_display_guard_lights_the_boot_display_exactly_for_a_notice() {
+    let found = explore_all();
+    assert!(
+        found.notice_breaches.is_empty(),
+        "{} states: {:#?}",
+        found.notice_breaches.len(),
+        firsts(&found.notice_breaches)
+    );
 }
 
 #[test]

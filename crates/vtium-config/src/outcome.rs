@@ -144,8 +144,10 @@ closed! {
 closed! {
     /// Which rules run.
     pub enum Runs {
-        /// The file's own rules, as written.
+        /// The file's own rules, as written, declaring at least one head.
         File = "file",
+        /// The file, which declares no head, so no head of its own runs: under closed every display stays dark, loaded but off (ADR-1401 D7), and under open the display guard lights the default head.
+        NoHead = "no-head",
         /// What survives of the file.
         Survivors = "survivors",
         /// The shipped rules, [`Config::builtin`](crate::Config::builtin).
@@ -339,10 +341,12 @@ impl Outcome {
             (Runs::Off, SwitchKey::AntiLockout | SwitchKey::RescueKey | SwitchKey::Isolated) => {
                 fixed(Policy::Closed.unset(key))
             }
-            (Runs::File | Runs::Survivors, SwitchKey::AntiLockout | SwitchKey::RescueKey) => {
-                fixed(self.policy.unset(key))
-            }
-            (Runs::File | Runs::Survivors, SwitchKey::Isolated) => match self.rescue {
+            (
+                Runs::File | Runs::NoHead | Runs::Survivors,
+                SwitchKey::AntiLockout | SwitchKey::RescueKey,
+            ) => fixed(self.policy.unset(key)),
+            (Runs::File | Runs::NoHead | Runs::Survivors, SwitchKey::Isolated) => match self.rescue
+            {
                 Rescue::Forced => Switch::Off,
                 Rescue::AsSet | Rescue::Sticky => Switch::Written {
                     unset: self.policy.unset(key),
@@ -356,11 +360,20 @@ impl Outcome {
         self.policy.display_wait()
     }
 
-    /// The notice the display guard shows on the boot display when no head the running text declares has a display: the run's own line, else `vtium: no display for any head`, the one notice a valid file shows. Under open the guard lights a head instead.
+    /// Whether the running text declares a head: the shipped rules declare the default head, and a file that declares none or a run of nothing declares none.
+    pub fn declares_head(&self) -> bool {
+        match self.runs {
+            Runs::File | Runs::Survivors | Runs::Builtin => true,
+            Runs::NoHead | Runs::Off => false,
+        }
+    }
+
+    /// The notice the display guard shows on the boot display when no head the running text declares has a display: the run's own line, else `vtium: no display for any head`, the one notice a valid file shows, and none for a valid closed file that declares no head, which is dark and silent. Under open the guard lights a head instead.
     pub fn dark_notice(&self) -> Option<Line> {
-        match self.fallback {
-            Fallback::FirstHead => None,
-            Fallback::NoticeOnly => Some(self.line.unwrap_or(Line::NoDisplay)),
+        match (self.fallback, self.line) {
+            (Fallback::FirstHead, _) => None,
+            (Fallback::NoticeOnly, Some(line)) => Some(line),
+            (Fallback::NoticeOnly, None) => self.declares_head().then_some(Line::NoDisplay),
         }
     }
 
@@ -395,6 +408,7 @@ impl Outcome {
 #[derive(Clone, Copy)]
 enum Class {
     Valid,
+    Headless,
     Empty,
     Partly,
     Broken,
@@ -456,14 +470,24 @@ pub fn resolve(read: &Read) -> Outcome {
     };
     // the `policy` line vtium cannot read is an error of its own
     let class = match (trusted.rest, readable) {
-        (Rest::Valid | Rest::Headless, true) => Class::Valid,
+        (Rest::Valid, true) => Class::Valid,
+        (Rest::Headless, true) => Class::Headless,
         (Rest::Empty, true) => Class::Empty,
         (Rest::Valid, false) | (Rest::Partly, true | false) => Class::Partly,
         (Rest::Headless | Rest::Empty, false) | (Rest::Broken, true | false) => Class::Broken,
     };
     match (class, policy) {
         (Class::Valid, Policy::Open) => file(Policy::Open),
-        (Class::Valid | Class::Empty, Policy::Closed) => file(Policy::Closed),
+        (Class::Valid, Policy::Closed) => file(Policy::Closed),
+        (Class::Headless, Policy::Open) => Outcome {
+            runs: Runs::NoHead,
+            ..file(Policy::Open)
+        },
+        // dark and silent, loaded but off
+        (Class::Headless | Class::Empty, Policy::Closed) => Outcome {
+            runs: Runs::NoHead,
+            ..file(Policy::Closed)
+        },
         // a valid open file that declares nothing behaves as the shipped rules
         (Class::Empty, Policy::Open) => builtin(None),
         (Class::Partly, Policy::Open) => survivors(Policy::Open),

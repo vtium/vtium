@@ -145,7 +145,7 @@ impl Run {
     fn reaches(&self) -> bool {
         let shipped = match self.outcome.runs {
             Runs::Builtin => true,
-            Runs::File | Runs::Survivors | Runs::Off => false,
+            Runs::File | Runs::NoHead | Runs::Survivors | Runs::Off => false,
         };
         let guard = self.lit() && self.lands() && self.on(SwitchKey::AntiLockout);
         (shipped && self.lit()) || guard || self.rescued()
