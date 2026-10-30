@@ -283,7 +283,8 @@ fn entry(dir: &Path) -> Option<String> {
 /// each replacing one of the same name, `DEVLINKS` (`S:`, each under
 /// `/dev`, joined by spaces), and `TAGS` (`G:`) and `CURRENT_TAGS` (`Q:`),
 /// as `:a:b:`. sd-device joins the links and tags in a hash order that
-/// changes from process to process; these are in the entry's order.
+/// changes from process to process; `udev::properties` sorts them, for the
+/// start and the lister alike.
 fn properties(roots: &Roots, dir: &Path, subsystem: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let devpath = roots
