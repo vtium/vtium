@@ -1860,7 +1860,9 @@ fn under_oneshot_a_hang_up_ends_the_head_and_then_vtium() {
 
 /// A head file on disk, in a directory of its own that only the test's
 /// user can write, read as the start reads root's: the file, and the trust
-/// that reads it. The directory goes when it is dropped.
+/// that reads it. The directory goes when it is dropped. Each head file
+/// has its own directory, however many tests make one of the same name at
+/// once.
 struct HeadFile {
     dir: PathBuf,
     path: PathBuf,
@@ -1869,7 +1871,11 @@ struct HeadFile {
 impl HeadFile {
     fn new(test: &str, text: &str) -> HeadFile {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("vtium-heads-{test}-{}", std::process::id()));
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static MADE: AtomicUsize = AtomicUsize::new(0);
+        let n = MADE.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("vtium-heads-{test}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("the directory");
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("0700");
