@@ -107,16 +107,9 @@ impl<K: Kms> Drm2d<K> {
         Props::new(&props).set(part, id, "CRTC_ID", 0)
     }
 
-    /// Sets the dark connectors off while no display is online, taking
-    /// DRM master for it.
+    /// Sets the dark connectors off while no display is online, under the
+    /// DRM master an awake card holds.
     pub(super) fn darken(&mut self) {
-        if !self.master {
-            if let Err(e) = self.card.set_master() {
-                log::warn!("cannot take DRM master to set the dark displays off: {e}");
-                return;
-            }
-            self.master = true;
-        }
         if self.legacy {
             self.legacy_dark();
             return;

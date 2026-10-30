@@ -18,7 +18,7 @@ use rustix::io::Errno;
 use super::output::signed;
 use super::*;
 use crate::display::blank::Due;
-use crate::display::fake::{Commit, FakeCard, Plane, logs};
+use crate::display::fake::{Commit, FakeCard, Plane, RemoveFb, logs};
 use crate::display::mode::mode;
 use crate::display::{Blank, DPMS_TIMEOUT, Wanted};
 
@@ -2466,4 +2466,134 @@ fn a_display_a_console_lit_while_away_is_set_anew_and_shows() {
     assert_eq!(off.get(B, "CRTC_ID"), Some(0));
     let fb = drawn(&mut v, B, 0x33);
     assert!(v.card().shows(101, fb), "{:?}", v.card().state());
+}
+
+/// Whether a commit `v`'s card took sets `crtc` off.
+fn sets_off(v: &Drm2d<FakeCard>, crtc: u32) -> bool {
+    v.card()
+        .real_commits()
+        .iter()
+        .any(|c| c.get(crtc, "ACTIVE") == Some(0))
+}
+
+// On a driver that allows a CRTC with no primary plane, i915 among them,
+// the unplug leaves the panel's CRTC on, with its mode and the unplugged
+// connector still on it. The return sets that CRTC off first, then sets
+// the display anew, and its first frame shows.
+#[test]
+fn a_display_plugged_back_in_on_a_crtc_left_on_shows_its_first_frame() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.state().remove_fb = RemoveFb::PlaneOff;
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x11);
+    v.card().state().connectors.get_mut(&A).unwrap().connected = false;
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Removed(DisplayId(A))]);
+    {
+        let s = v.card().state();
+        assert_eq!(s.active.get(&100), Some(&true), "the CRTC stayed on");
+        assert_eq!(s.bound.get(&A), Some(&100));
+    }
+    v.card().state().connectors.get_mut(&A).unwrap().connected = true;
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A))]);
+    let off = v
+        .card()
+        .real_commits()
+        .into_iter()
+        .find(|c| c.get(100, "ACTIVE") == Some(0))
+        .expect("a commit that sets the CRTC off");
+    assert_eq!(off.get(A, "CRTC_ID"), Some(0));
+    let fb = drawn(&mut v, A, 0x22);
+    assert!(v.card().shows(100, fb), "{:?}", v.card().state());
+}
+
+/// [`a_then_b`]'s card with B's connector on A's CRTC, 100, as another
+/// master left the two cloned there, and the card's calls atomic or not.
+fn b_cloned_on_a(atomic: bool) -> Drm2d<FakeCard> {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(800, 600, 60, true)]),
+    ]);
+    {
+        let mut s = card.state();
+        s.atomic = atomic;
+        s.listed.retain(|&c| c == A);
+        s.encoders.get_mut(&201).unwrap().possible_crtcs = 0b11;
+    }
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    v.card().state().bind(B, 100);
+    v
+}
+
+// A display that returns on a CRTC a display online drives only leaves
+// that CRTC: the display online stays on, and the one returning is set on
+// a CRTC of its own.
+#[test]
+fn a_display_returning_on_a_crtc_another_display_drives_leaves_it_on() {
+    let mut v = b_cloned_on_a(true);
+    let shown = drawn(&mut v, A, 0x44);
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
+    assert!(!sets_off(&v, 100), "A's CRTC is never set off");
+    assert!(v.card().shows(100, shown), "{:?}", v.card().state());
+    assert_eq!(v.card().state().bound.get(&B), Some(&101));
+}
+
+// The legacy calls keep the same rule: a CRTC a display online drives is
+// never turned off for a display that returns, while one only the
+// returning display's connector is on is.
+#[test]
+fn a_legacy_display_returning_turns_off_only_a_crtc_no_display_drives() {
+    let mut v = b_cloned_on_a(false);
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    assert!(
+        v.card().state().disabled_crtcs.is_empty(),
+        "A's CRTC stays on"
+    );
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    card.state().atomic = false;
+    card.state().listed.retain(|&c| c == A);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    left_lit(v.card(), B, 1);
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    assert_eq!(v.card().state().disabled_crtcs, [101]);
+}
+
+// The first scan's displays are set without an off commit first: a boot
+// display keeps the frame the console left on it until vtium's first
+// modeset puts vtium's own there.
+#[test]
+fn the_first_scans_displays_are_set_without_an_off_commit() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    left_lit(&card, A, 0);
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    let commits = v.card().real_commits();
+    assert_eq!(commits.len(), 1, "the modeset alone");
+    assert_eq!(commits[0].get(100, "ACTIVE"), Some(1));
+}
+
+// A display that returns is set from off once: its modeset clears the mark,
+// so the next wake-up sets it as any display online, with no off commit.
+#[test]
+fn a_returned_display_is_set_from_off_only_once() {
+    let mut v = awake(one());
+    v.card().state().connectors.get_mut(&A).unwrap().connected = false;
+    v.poll().unwrap();
+    v.card().state().connectors.get_mut(&A).unwrap().connected = true;
+    v.poll().unwrap();
+    flip(&mut v);
+    assert!(v.outputs.iter().all(|o| !o.returning));
+    v.sleep();
+    flip(&mut v);
+    let before = v.card().real_commits().len();
+    v.wake_up().unwrap();
+    let after = &v.card().real_commits()[before..];
+    assert_eq!(after.len(), 1, "the wake-up's modeset alone: {after:?}");
 }

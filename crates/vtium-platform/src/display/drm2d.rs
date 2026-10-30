@@ -956,6 +956,9 @@ impl<K: Kms> Drm2d<K> {
         if !self.awake {
             return Ok(());
         }
+        // The card takes master as it wakes and lets it go only as it
+        // falls asleep, so a scan always runs under master.
+        debug_assert!(self.master, "an awake card holds DRM master");
         let res = self.card.resources()?;
         for o in &mut self.outputs {
             o.available = false;
@@ -1039,12 +1042,6 @@ impl<K: Kms> Drm2d<K> {
                 self.darken();
             }
             return Ok(());
-        }
-        // A wake-up that failed let master go; the scan takes it again
-        // before its modeset (aaronsb/kmscon#237).
-        if !self.master {
-            self.card.set_master()?;
-            self.master = true;
         }
         if needs && self.blanked && scan != Scan::WakeUp {
             // Blanked, a hotplug commits nothing: the modeset waits for the
@@ -1545,17 +1542,18 @@ impl<K: Kms> Drm2d<K> {
         }
     }
 
-    /// Sets off each display that returns where the card shows it on a
-    /// CRTC, or shows a mode on the CRTC it takes: the CRTC its connector
-    /// is on and the CRTC it takes, their planes and every connector on
-    /// them, in a commit of its own. The modeset after it then sets the
-    /// display's mode, CRTC and connector from off, a full modeset,
+    /// Turns off what a returning display might still be shown on, in a
+    /// blocking commit of its own: the CRTC its connector is on, and the
+    /// CRTC it is about to take if that one shows a mode, with their
+    /// planes and every connector on them. The modeset after it then sets
+    /// the display's mode, CRTC and connector anew, a full modeset,
     /// whatever mode another master or the kernel's console left there.
-    /// The test seat's small panel showed nothing under frames committed
-    /// on the mode the console set at its return, until a VT switch set
-    /// its mode anew. A CRTC a display online drives only loses the
-    /// returning connector. A display on no CRTC, taking one with no mode,
-    /// is set from off already, and needs no such commit.
+    /// On this machine's amdgpu cards the small panel showed nothing under
+    /// frames committed on the mode the console set at its return, until a
+    /// VT switch set its mode again. A CRTC that a display online also
+    /// drives stays on, and only loses the returning connector. A display
+    /// on no CRTC, about to take one with no mode, starts from off already
+    /// and needs no such commit.
     fn set_returning_off(&self) -> Result<(), Failure> {
         let mut ids = Vec::new();
         let mut off = Vec::new();
@@ -1729,6 +1727,11 @@ impl<K: Kms> Drm2d<K> {
     fn legacy_modeset(&mut self) {
         self.legacy_dark();
         let mut outputs = std::mem::take(&mut self.outputs);
+        let driven: Vec<u32> = outputs
+            .iter()
+            .filter(|o| !o.returning)
+            .map(|o| o.crtc)
+            .collect();
         for o in &mut outputs {
             log::info!(
                 "preparing the modeset of {} at {}x{}",
@@ -1744,9 +1747,11 @@ impl<K: Kms> Drm2d<K> {
                 }
             };
             // A display that returns is set from off, as the atomic
-            // modeset sets it, where the card can turn its CRTC off.
+            // modeset sets it, where the card can turn its CRTC off; a
+            // CRTC a display online drives stays on.
             if o.returning {
-                if let Some(crtc) = self.connector_crtc(o.id.0) {
+                let on = self.connector_crtc(o.id.0);
+                if let Some(crtc) = on.filter(|c| !driven.contains(c)) {
                     if let Err(e) = self.card.disable_crtc(crtc) {
                         log::debug!("cannot turn the CRTC of {} off first: {e}", o.name);
                     }

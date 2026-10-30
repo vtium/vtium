@@ -10,23 +10,33 @@
 //! (`drm_atomic_helper_check_modeset`), active with no mode, or with a
 //! plane on it and no mode (`drm_atomic_helper_check_plane_state`), is
 //! refused with EINVAL; a connector the commit moves puts the CRTC it
-//! leaves in the state, as `drm_atomic_set_crtc_for_connector` does. A framebuffer removed while a
-//! plane shows it takes the plane off its CRTC (`atomic_remove_fb`); on
-//! a primary plane it turns the CRTC off too and takes every connector
-//! off it, as on a driver that refuses a CRTC with no primary plane,
-//! amdgpu's, which retries the removal with the CRTC off. A dumb buffer
-//! keeps what its mappings wrote, for a test to read back.
-//! A connector's DPMS and its CRTC's `ACTIVE` are one state, as on an
-//! atomic driver: setting either sets the other.
+//! leaves in the state, as `drm_atomic_set_crtc_for_connector` does. What
+//! a commit sets is what the card reports after it: a connector's encoder
+//! and that encoder's CRTC, and a CRTC's mode, as the kernel's getters
+//! read them back.
 //!
-//! The kernel's console stands in too: at a hotplug while no process
-//! holds master ([`FakeCard::hotplug`]) it lights each connected
-//! connector on no CRTC with its own framebuffer, as the kernel's fbdev
-//! emulation does (`drm_fb_helper_hotplug_event`). A CRTC whose mode it
-//! set shows nothing until a commit sets the CRTC's mode, its `ACTIVE` or
-//! its connectors anew, a full modeset (`drm_atomic_crtc_needs_modeset`),
-//! as the small panel on vtium's test seat stayed dark under the frames
-//! committed on the console's mode.
+//! A framebuffer removed while a plane shows it takes the plane off its
+//! CRTC (`atomic_remove_fb`). What happens to the CRTC depends on the
+//! driver, which [`State::remove_fb`] picks. On amdgpu, the default, the
+//! driver refuses a CRTC with no primary plane, so the kernel's
+//! `atomic_remove_fb` tries again with the CRTC off and every connector
+//! taken off it; the captures of the test seat's amdgpu cards showed
+//! exactly that. Drivers that allow a CRTC with no primary plane, i915
+//! among them, leave the CRTC on. A dumb buffer keeps what its mappings
+//! wrote, for a test to read back. A connector's DPMS and its CRTC's
+//! `ACTIVE` are one state, as on an atomic driver: setting either sets
+//! the other.
+//!
+//! The kernel's console stands in too. At a hotplug while no process
+//! holds master ([`FakeCard::hotplug`]), it lights each connected
+//! connector that is on no CRTC with its own framebuffer, as the kernel's
+//! fbdev emulation does (`drm_fb_helper_hotplug_event`). A CRTC whose mode
+//! the console set then shows nothing until a commit sets the CRTC's mode,
+//! its `ACTIVE` or its connectors anew, which is a full modeset
+//! (`drm_atomic_crtc_needs_modeset`). That is not a rule the kernel
+//! states. It is what the operator saw on this machine's amdgpu cards on
+//! 2026-10-30: the small panel stayed dark under vtium's frames committed
+//! on the console's mode, until a VT switch set its mode again.
 
 #![expect(
     clippy::arithmetic_side_effects,
@@ -44,7 +54,7 @@ use std::rc::Rc;
 use drm_ffi::{
     DRM_CAP_CURSOR_HEIGHT, DRM_CAP_CURSOR_WIDTH, DRM_CAP_DUMB_BUFFER, DRM_CLIENT_CAP_ATOMIC,
     DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT, DRM_CLIENT_CAP_UNIVERSAL_PLANES,
-    DRM_MODE_ATOMIC_TEST_ONLY, DRM_MODE_PAGE_FLIP_EVENT,
+    DRM_MODE_ATOMIC_TEST_ONLY, DRM_MODE_PAGE_FLIP_EVENT, drm_mode_modeinfo,
 };
 use rustix::io::Errno;
 
@@ -168,13 +178,72 @@ pub(crate) struct State {
     /// Each CRTC's mode, as the commits and the console set it.
     pub(crate) modes: BTreeMap<u32, Vec<u8>>,
     /// The CRTCs whose mode the console set and no full modeset has set
-    /// since: they show nothing.
+    /// since. They show nothing, as the operator saw on this machine's
+    /// amdgpu cards; the kernel states no such rule.
     pub(crate) console_lit: Vec<u32>,
     /// The framebuffers the console put on a plane.
     pub(crate) console_fbs: Vec<u32>,
+    /// What removing a framebuffer a primary plane shows does to its CRTC.
+    pub(crate) remove_fb: RemoveFb,
+}
+
+/// What removing the framebuffer a primary plane shows does to the plane's
+/// CRTC, which depends on the driver.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum RemoveFb {
+    /// The CRTC goes off and its connectors leave it, as on amdgpu.
+    #[default]
+    CrtcOff,
+    /// Only the plane goes off, and the CRTC stays on with its mode and
+    /// connectors, as on i915.
+    PlaneOff,
 }
 
 impl State {
+    /// Puts connector `conn` on `crtc`, or on none when 0, as the card
+    /// reports it afterwards: the connector's encoder, and that encoder's
+    /// CRTC.
+    pub(crate) fn bind(&mut self, conn: u32, crtc: u32) {
+        self.bound.insert(conn, crtc);
+        let Some(c) = self.connectors.get(&conn) else {
+            return;
+        };
+        let (old, encoders) = (c.encoder, c.encoders.clone());
+        let bit = self
+            .crtcs
+            .iter()
+            .position(|&x| x == crtc)
+            .map_or(0, |i| 1u32 << i);
+        let can = |s: &State, e: u32| {
+            s.encoders
+                .get(&e)
+                .is_some_and(|e| e.possible_crtcs & bit != 0)
+        };
+        let new = if crtc == 0 {
+            0
+        } else if old != 0 && can(self, old) {
+            old
+        } else {
+            encoders.into_iter().find(|&e| can(self, e)).unwrap_or(0)
+        };
+        if let Some(c) = self.connectors.get_mut(&conn) {
+            c.encoder = new;
+        }
+        let shared = |s: &State, e: u32| {
+            s.connectors
+                .values()
+                .any(|c| c.id != conn && c.encoder == e)
+        };
+        if old != 0 && old != new && !shared(self, old) {
+            if let Some(e) = self.encoders.get_mut(&old) {
+                e.crtc = 0;
+            }
+        }
+        if let Some(e) = self.encoders.get_mut(&new) {
+            e.crtc = crtc;
+        }
+    }
+
     /// Whether `crtc` passes the kernel's checks as `commit` leaves it:
     /// a mode exactly where a connector is on it, and active or showing a
     /// plane only with a mode.
@@ -384,14 +453,11 @@ impl FakeCard {
             if let Some(c) = s.connectors.get_mut(&conn) {
                 c.encoder = encoder;
             }
-            if let Some(e) = s.encoders.get_mut(&encoder) {
-                e.crtc = crtc;
-            }
-            s.bound.insert(conn, crtc);
+            s.bind(conn, crtc);
             s.active.insert(crtc, true);
             s.enabled.insert(crtc, true);
             s.modes.insert(crtc, mode.to_vec());
-            if let Some(&m) = s.connectors.get(&conn).and_then(|c| c.modes.first()) {
+            if let Some(m) = mode_of(mode) {
                 s.crtc_modes.insert(crtc, m);
             }
             s.plane_crtc.insert(primary, crtc);
@@ -481,6 +547,34 @@ impl FakeCard {
             })
             .collect()
     }
+}
+
+/// The mode in `bytes`, a mode blob as drm2d sends it: the kernel's
+/// `drm_mode_modeinfo` in memory order.
+fn mode_of(bytes: &[u8]) -> Option<Mode> {
+    let word = |at: usize| Some(u32::from_ne_bytes(bytes.get(at..at + 4)?.try_into().ok()?));
+    let half = |at: usize| Some(u16::from_ne_bytes(bytes.get(at..at + 2)?.try_into().ok()?));
+    let mut name = [0; 32];
+    for (to, from) in name.iter_mut().zip(bytes.get(36..68)?) {
+        *to = std::ffi::c_char::from_ne_bytes([*from]);
+    }
+    Some(Mode(drm_mode_modeinfo {
+        clock: word(0)?,
+        hdisplay: half(4)?,
+        hsync_start: half(6)?,
+        hsync_end: half(8)?,
+        htotal: half(10)?,
+        hskew: half(12)?,
+        vdisplay: half(14)?,
+        vsync_start: half(16)?,
+        vsync_end: half(18)?,
+        vtotal: half(20)?,
+        vscan: half(22)?,
+        vrefresh: word(24)?,
+        flags: word(28)?,
+        type_: word(32)?,
+        name,
+    }))
 }
 
 fn err(e: Errno) -> io::Error {
@@ -685,9 +779,10 @@ impl Kms for FakeCard {
 
     /// Removing a framebuffer a plane shows takes the plane off its CRTC,
     /// as the kernel's `drm_mode_rmfb` does (`atomic_remove_fb`). On a
-    /// primary plane the CRTC goes off with it, every connector on it
-    /// taken off, as amdgpu's refusal of a CRTC without its primary plane
-    /// makes the kernel retry (`disable_crtcs`).
+    /// primary plane under [`RemoveFb::CrtcOff`] the CRTC goes off too,
+    /// with every connector taken off it, as the kernel's second try does
+    /// once amdgpu refuses a CRTC without its primary plane
+    /// (`disable_crtcs`).
     fn rm_fb(&self, id: u32) -> io::Result<()> {
         let mut s = self.state.borrow_mut();
         s.fbs.remove(&id).ok_or_else(|| err(Errno::NOENT))?;
@@ -701,7 +796,8 @@ impl Kms for FakeCard {
             s.plane_fb.remove(&plane);
             let crtc = s.plane_crtc.remove(&plane);
             let primary = s.planes.get(&plane).is_some_and(|p| p.kind == PRIMARY);
-            if let Some(crtc) = crtc.filter(|_| primary) {
+            let off = primary && s.remove_fb == RemoveFb::CrtcOff;
+            if let Some(crtc) = crtc.filter(|_| off) {
                 s.active.insert(crtc, false);
                 s.enabled.insert(crtc, false);
                 s.modes.remove(&crtc);
@@ -714,13 +810,7 @@ impl Kms for FakeCard {
                     .map(|(&conn, _)| conn)
                     .collect();
                 for conn in on {
-                    s.bound.insert(conn, 0);
-                    if let Some(c) = s.connectors.get_mut(&conn) {
-                        c.encoder = 0;
-                    }
-                }
-                for e in s.encoders.values_mut().filter(|e| e.crtc == crtc) {
-                    e.crtc = 0;
+                    s.bind(conn, 0);
                 }
             }
         }
@@ -832,7 +922,7 @@ impl Kms for FakeCard {
             let v32 = u32::try_from(*v).unwrap_or(0);
             match n.as_str() {
                 "CRTC_ID" if s.connectors.contains_key(o) => {
-                    s.bound.insert(*o, v32);
+                    s.bind(*o, v32);
                 }
                 "CRTC_ID" if s.planes.contains_key(o) => {
                     s.plane_crtc.insert(*o, v32);
@@ -845,10 +935,18 @@ impl Kms for FakeCard {
                 }
                 "MODE_ID" => {
                     s.enabled.insert(*o, *v != 0);
-                    match commit.blobs.get(v) {
-                        Some(bytes) if *v != 0 => s.modes.insert(*o, bytes.clone()),
-                        _ => s.modes.remove(o),
-                    };
+                    match commit.blobs.get(v).filter(|_| *v != 0) {
+                        Some(bytes) => {
+                            s.modes.insert(*o, bytes.clone());
+                            if let Some(m) = mode_of(bytes) {
+                                s.crtc_modes.insert(*o, m);
+                            }
+                        }
+                        None => {
+                            s.modes.remove(o);
+                            s.crtc_modes.remove(o);
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -881,7 +979,8 @@ impl Kms for FakeCard {
             return Err(err(Errno::ACCESS));
         }
         s.set_crtcs.push((crtc, fb, connector, *mode));
-        s.bound.insert(connector, crtc);
+        s.bind(connector, crtc);
+        s.crtc_modes.insert(crtc, *mode);
         s.active.insert(crtc, true);
         s.dpms.insert(connector, 0);
         Ok(())
@@ -893,7 +992,17 @@ impl Kms for FakeCard {
             return Err(err(Errno::ACCESS));
         }
         s.disabled_crtcs.push(crtc);
-        s.bound.retain(|_, c| *c != crtc);
+        let on: Vec<u32> = s
+            .bound
+            .iter()
+            .filter(|&(_, &c)| c == crtc)
+            .map(|(&conn, _)| conn)
+            .collect();
+        for conn in on {
+            s.bind(conn, 0);
+        }
+        s.bound.retain(|_, c| *c != 0);
+        s.crtc_modes.remove(&crtc);
         s.active.insert(crtc, false);
         s.enabled.insert(crtc, false);
         Ok(())
