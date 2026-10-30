@@ -145,9 +145,25 @@ const SET_RECORD: Bound = Bound {
     cite: "vtium's own: format 2.0's largest record is 48 bytes, and a minor version adds fields at a record's end (ADR-1200 D2); it bounds what a table's counts can make the reader hold",
 };
 
+const SET_CLUSTERS: Bound = Bound {
+    name: "SET_CLUSTERS_MAX",
+    value: 1 << 16,
+    what: "Clusters a set's `CLUS` maps, over every strike",
+    past: "The set is refused",
+    cite: "vtium's own: Unicode 18.0's RGI emoji sequences other than single emoji are 2,563, or 3,536 with each keyed again without its U+FE0F; canonical decompositions 1,349 keys; a screen of 320 by 100 cells shows at most 32,000 clusters. A cluster takes 20 bytes in memory and its key at most 64, so the map holds at most 5.25 MiB",
+};
+
+const CLUSTER_SCALARS: Bound = Bound {
+    name: "CLUSTER_SCALARS_MAX",
+    value: 16,
+    what: "Scalar values in a cluster's key",
+    past: "The set is refused; a longer cluster is looked up as none",
+    cite: "vtium's own: Unicode 18.0's longest RGI emoji sequence, a kiss with two skin tones, is 10",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 16] = [
+pub(crate) const BOUNDS: [Bound; 18] = [
     GLYPHS,
     WIDTH,
     HEIGHT,
@@ -164,6 +180,8 @@ pub(crate) const BOUNDS: [Bound; 16] = [
     SET_CHUNKS,
     SET_CHUNK,
     SET_RECORD,
+    SET_CLUSTERS,
+    CLUSTER_SCALARS,
 ];
 
 /// Glyphs a PSF font holds; a font with more is refused.
@@ -217,6 +235,14 @@ pub const SET_CHUNK_BYTES: u32 = SET_CHUNK.value;
 
 /// Bytes a record of a set's tables declares; a larger one is refused.
 pub const SET_RECORD_BYTES_MAX: u32 = SET_RECORD.value;
+
+/// Clusters a set's `CLUS` maps over every strike; a set with more is
+/// refused.
+pub const SET_CLUSTERS_MAX: u32 = SET_CLUSTERS.value;
+
+/// Scalar values in a cluster's key; a set with a longer key is refused,
+/// and a longer cluster is looked up as none.
+pub const CLUSTER_SCALARS_MAX: u32 = CLUSTER_SCALARS.value;
 
 #[cfg(test)]
 #[expect(

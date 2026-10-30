@@ -20,6 +20,7 @@ fn request(cells: &[(u32, u32)], cover: &[(u32, u32)]) -> OutlineRequest {
         family: "Test Mono".to_owned(),
         cells: cells.to_vec(),
         cover: cover.to_vec(),
+        clusters: Vec::new(),
     }
 }
 
@@ -208,6 +209,7 @@ fn a_color_bitmap_is_scaled_from_its_strike_by_the_chosen_method() {
         family: "Test Emoji".to_owned(),
         cells: vec![(0, 10)],
         cover: Vec::new(),
+        clusters: Vec::new(),
     };
     let o = rasterise(&req).expect("rasterised");
     let s = &o.strikes[0];

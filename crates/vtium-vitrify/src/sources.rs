@@ -578,6 +578,7 @@ fn outline(font: Vec<u8>, family: &str) -> Resolved {
             family: family.to_owned(),
             cells: Vec::new(),
             cover: Vec::new(),
+            clusters: Vec::new(),
         }),
     }
 }

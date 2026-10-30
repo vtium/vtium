@@ -72,6 +72,7 @@ use crate::blink::{Blink, Timer};
 use crate::child::{self, Display as SessionDisplay, Place};
 use crate::config::keys;
 use crate::config::{Config, ModeSpec};
+use crate::deferred::Shown;
 use crate::font::{self, Chosen};
 use crate::grab::{self, Chord, Grab};
 use crate::helper::{self, Answer, Helper};
@@ -934,26 +935,32 @@ impl App {
             .unwrap_or(DPI_ASSUMED)
     }
 
-    /// The characters the displays show, sorted, each once: read from the
-    /// view each buffer draws, scrolled back or not, every character of a
-    /// cluster among them (#149).
-    fn visible_chars(&self) -> Vec<char> {
+    /// What the displays show, read from the view each buffer draws,
+    /// scrolled back or not (#149): the characters, every character of a
+    /// cluster among them, and the clusters whole (ADR-1200 D21), each
+    /// sorted and once.
+    fn visible(&self) -> Shown {
         let palette = self.term.terminal.palette();
         let frame = self.term.terminal.screen().frame(palette, Age::NEVER);
-        let mut chars: Vec<char> = Vec::new();
+        let mut shown = Shown::default();
         for row in 0..frame.rows() {
             for cell in frame.cells(row) {
                 match cell.glyph {
-                    Glyph::Char(c) => chars.push(c),
-                    Glyph::Cluster(text) => chars.extend(text.chars()),
+                    Glyph::Char(c) => shown.chars.push(c),
+                    Glyph::Cluster(text) => {
+                        shown.chars.extend(text.chars());
+                        shown.clusters.push(text.chars().collect());
+                    }
                     Glyph::Empty => {}
                 }
             }
         }
-        chars.retain(|c| !c.is_whitespace());
-        chars.sort_unstable();
-        chars.dedup();
-        chars
+        shown.chars.retain(|c| !c.is_whitespace());
+        shown.chars.sort_unstable();
+        shown.chars.dedup();
+        shown.clusters.sort_unstable();
+        shown.clusters.dedup();
+        shown
     }
 
     /// While the font is a frit, fills each cell a display draws at and
@@ -983,20 +990,20 @@ impl App {
         if new.is_empty() {
             return;
         }
-        let visible = self.visible_chars();
+        let visible = self.visible();
         let Some(helper) = self.helper() else {
             return;
         };
         for &cell in &new {
             helper.ask(cell, &visible, now);
-            helper.fill(cell, &visible, now);
+            helper.fill(cell, &visible.chars, now);
         }
         self.asked.extend(new);
     }
 
     /// While the font is a frit and the screen changed, asks for each
-    /// character it shows that the store does not hold, and marks the sets
-    /// that hold the others as used.
+    /// character and cluster it shows that the store does not hold, and
+    /// marks the glyphs of the others as used.
     fn ask_visible(&mut self, now: Instant) {
         let Some(Chosen::Frit { generated, .. }) = &self.font else {
             return;
@@ -1005,7 +1012,7 @@ impl App {
         if self.helper.is_none() {
             return;
         }
-        let visible = self.visible_chars();
+        let visible = self.visible();
         let cells = self.asked.clone();
         for cell in cells {
             generated.borrow_mut().touch(cell, &visible);
@@ -1059,7 +1066,7 @@ impl App {
                 }
                 Err(why) => {
                     log::warn!(
-                        "the font's glyphs are not generated ({why}): vtium draws its built-in font"
+                        "the font's glyphs are not generated ({why}): vtium draws its built-in font, and each cluster unshaped, a glyph a codepoint"
                     );
                     self.helper_refused = true;
                 }
@@ -1086,7 +1093,7 @@ impl App {
         // Arrival is damage, as program output is: the answers since the
         // last turn merge into one set per cell, which the next frame draws
         // once, and only the cells showing their characters draw.
-        let visible = self.visible_chars();
+        let visible = self.visible().chars;
         let mut arrived: Vec<(vtium_font::Cell, Vec<char>)> = Vec::new();
         for Answer { cell, chars, .. } in answers {
             match arrived.iter_mut().find(|(at, _)| *at == cell) {

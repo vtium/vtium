@@ -34,5 +34,6 @@ pub mod glyphs;
 pub mod outline;
 pub mod resample;
 pub mod serve;
+pub mod shaping;
 pub mod sources;
 pub mod switch;
