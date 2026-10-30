@@ -297,7 +297,7 @@ impl App {
             physical_memory(),
             config.number(&keys::SB_SIZE_CAP).map(to_usize),
         );
-        let rules = vtium_config::Config::builtin();
+        let rules = in_force(vtium_config::Config::builtin(), &config);
         let caps = Caps {
             head: config.number(&keys::HEAD_CONSOLES_MAX).map_or(4, to_usize),
             total: config.number(&keys::CONSOLES_MAX).map_or(8, to_usize),
@@ -389,6 +389,7 @@ impl App {
     /// configuration, before any display comes: its heads, each with no
     /// session yet, and its rules for each display that comes.
     pub fn set_heads(&mut self, rules: vtium_config::Config) {
+        let rules = in_force(rules, &self.config);
         let caps = Caps {
             head: self.head_consoles_max,
             total: self.consoles_max,
@@ -2504,6 +2505,21 @@ fn shown<'a>(heads: impl Iterator<Item = &'a &'a Head>) -> crate::deferred::Show
     all
 }
 
+/// The rules in force: `rules`, less the shipped rules' pointer rules
+/// under kmscon.conf's `mouse` off, its shorthand (ADR-1401 D3), so a
+/// pointer falls to `input * -> ignore`.
+fn in_force(mut rules: vtium_config::Config, config: &Config) -> vtium_config::Config {
+    use vtium_config::{Match, Token};
+    if config.switch(&keys::MOUSE) || rules != vtium_config::Config::builtin() {
+        return rules;
+    }
+    rules.rules.retain(|r| {
+        !matches!(&r.matcher, Match::All(tokens)
+            if matches!(tokens.as_slice(), [Token::Class(c)] if c.is_pointer()))
+    });
+    rules
+}
+
 /// The console caps (ADR-1401 D10): `head-consoles-max` and
 /// `consoles-max`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3039,6 +3055,34 @@ mod tests {
         assert_eq!(asked(&app), [(16, 32)], "b's cell alone");
         drop(app);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ADR-1401 D3: kmscon.conf's `mouse` off drops the pointer rules from
+    // the shipped rules, so a mouse falls to `input * -> ignore` and is
+    // never opened; a keyboard still follows the focus.
+    #[test]
+    fn mouse_off_closes_a_pointer_the_shipped_rules_would_deliver() {
+        let args: Vec<OsString> = ["--no-mouse"].iter().map(OsString::from).collect();
+        let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let mut app = App::new(
+            loaded.config,
+            Box::new(FakeVt::new()),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        let input = vtium_config::Identity::input;
+        app.add_input(
+            Path::new("/m"),
+            input().with_class(vtium_config::Class::Mouse),
+        );
+        app.add_input(
+            Path::new("/k"),
+            input().with_class(vtium_config::Class::Keyboard),
+        );
+        assert_eq!(app.routes.head(Some(Path::new("/m")), Some(0)), None);
+        assert_eq!(app.routes.head(Some(Path::new("/k")), Some(0)), Some(0));
     }
 
     #[test]
