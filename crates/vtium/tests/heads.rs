@@ -208,6 +208,17 @@ impl Seat {
         displays: impl IntoIterator<Item = (&'static str, Memory)>,
         script: &str,
     ) -> Seat {
+        Seat::with_fonts(args, heads, displays, script, no_fonts())
+    }
+
+    /// [`Seat::with_heads`], its fonts' sets read from `fonts`.
+    fn with_fonts(
+        args: &[&str],
+        heads: Option<&str>,
+        displays: impl IntoIterator<Item = (&'static str, Memory)>,
+        script: &str,
+        fonts: Sources,
+    ) -> Seat {
         let args: Vec<OsString> = ["--font-size=16"]
             .iter()
             .chain(args)
@@ -225,7 +236,7 @@ impl Seat {
             Rc::new(now),
             env,
         );
-        app.set_font_sources(no_fonts());
+        app.set_font_sources(fonts);
         if let Some(text) = heads {
             app.set_heads(vtium_config::parse(text).expect("a valid head file").config);
         }
@@ -522,4 +533,66 @@ fn a_head_with_no_display_starts_no_session() {
         "its first display starts it"
     );
     assert_eq!(grid(&s.app, "large"), Some((80, 20)));
+}
+
+/// D1: one glyph helper for each frit in use. Two heads drawing the frit
+/// `t` share its helper, and a head drawing the frit `u` has its own; each
+/// helper the stand-in starts writes a line.
+#[test]
+fn heads_drawing_one_frit_share_its_helper_and_another_frit_has_its_own() {
+    let dir = std::env::temp_dir().join(format!("vtium-heads-frits-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the frits' directory");
+    for name in ["t", "u"] {
+        std::fs::write(
+            dir.join(format!("{name}.vtfrit")),
+            "source=builtin:unifont\n",
+        )
+        .expect("a frit");
+    }
+    let starts = dir.join("starts");
+    let helper = vtium::helper::Command {
+        program: PathBuf::from("/bin/sh"),
+        args: ["-c", "echo started >> \"$1\"; exec sleep 30", "helper"]
+            .into_iter()
+            .map(OsString::from)
+            .chain([starts.clone().into_os_string()])
+            .collect(),
+        account: None,
+    };
+    let fonts = Sources {
+        frits: dir.clone(),
+        helper: Some(helper),
+        ..no_fonts()
+    };
+    let heads = "version = 1
+[head a]
+font-name = t
+[head b]
+font-name = t
+[head c]
+font-name = u
+[rules]
+display card:mem-a -> a
+display card:mem-b -> b
+display card:mem-c -> c
+";
+    let displays = [
+        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-a")),
+        ("/dev/mem1", Memory::new(320, 160, "MEM-2", "mem-b")),
+        ("/dev/mem2", Memory::new(320, 160, "MEM-3", "mem-c")),
+    ];
+    let mut s = Seat::with_fonts(&[], Some(heads), displays, "read x", fonts);
+    assert!(s.until(SECOND, |a| a.cells().len() == 3));
+    assert_eq!(s.app.font_name(), "t");
+    let started = || {
+        std::fs::read_to_string(&starts)
+            .map(|t| t.lines().count())
+            .unwrap_or(0)
+    };
+    assert!(s.until(SECOND, |_| started() >= 2), "the helpers started");
+    s.until(Duration::from_millis(300), |_| false);
+    assert_eq!(started(), 2, "one helper for t, one for u");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
 }

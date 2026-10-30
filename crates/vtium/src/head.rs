@@ -31,7 +31,6 @@ use crate::blink::Blink;
 use crate::config::{Config, keys};
 use crate::deferred::Shown;
 use crate::font::{self, Chosen};
-use crate::helper::Helper;
 use crate::layout::Zoom;
 use crate::respawn::Respawn;
 use crate::sync::Sync;
@@ -116,19 +115,13 @@ pub struct Head {
     /// The base font's cell, the grid's and the pty's.
     pub(crate) cell: (u32, u32),
     /// The font set, chosen at the head's first display and switched by
-    /// OSC 50.
+    /// OSC 50; a frit's store is the one every head drawing it shares
+    /// ([`Frit`]).
     pub(crate) font: Option<Chosen>,
     /// The font changed: every display's renderer is rebuilt.
     pub(crate) refont: bool,
     /// OSC 50's refusals since its last switch: only the first is logged.
     pub(crate) font_refused: u64,
-    /// The helper that generates a frit's glyphs, started on the first
-    /// need (ADR-1301 D2).
-    pub(crate) helper: Option<Helper>,
-    /// The helper cannot start: logged once, and the built-in font draws.
-    pub(crate) helper_refused: bool,
-    /// The cells whose glyphs the helper was asked for.
-    pub(crate) asked: Vec<vtium_font::Cell>,
     pub(crate) orientation: Orientation,
     pub(crate) grid: (usize, usize),
 }
@@ -189,9 +182,6 @@ impl Head {
             font: None,
             refont: false,
             font_refused: 0,
-            helper: None,
-            helper_refused: false,
-            asked: Vec::new(),
             orientation: Orientation::Normal,
             grid: GRID,
         }
@@ -631,6 +621,33 @@ impl Head {
     pub(crate) fn paste(&mut self, selection: Option<&[u8]>) {
         if let Some(text) = selection {
             self.term.terminal.paste(text);
+        }
+    }
+}
+
+/// One frit in use, shared by every head that draws it (ADR-1401 D1):
+/// one glyph helper for each frit, started on the first need (ADR-1301
+/// D2), the store its glyphs go into, the cells it was asked for, and its
+/// fonts' own cell once asked.
+pub(crate) struct Frit {
+    pub(crate) frit: crate::helper::FritText,
+    pub(crate) generated: crate::deferred::Shared,
+    pub(crate) helper: Option<crate::helper::Helper>,
+    /// The helper cannot start: logged once, and the built-in font draws.
+    pub(crate) refused: bool,
+    /// The cells whose glyphs the helper was asked for, over every head
+    /// drawing the frit.
+    pub(crate) asked: Vec<vtium_font::Cell>,
+    /// The fonts' own cell, or why it is not known, once asked.
+    pub(crate) own: Option<Result<vtium_font::Cell, String>>,
+}
+
+impl Head {
+    /// The name of the frit the head draws, a frit's as it was given.
+    pub(crate) fn frit(&self) -> Option<&str> {
+        match &self.font {
+            Some(Chosen::Frit { name, .. }) => Some(name),
+            _ => None,
         }
     }
 }

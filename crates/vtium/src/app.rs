@@ -80,7 +80,7 @@ use crate::config::{Config, ModeSpec};
 use crate::font::{self, Chosen};
 use crate::grab::{self, Chord, Grab};
 use crate::head::identity::{self, Card};
-use crate::head::{Attached, Head, place_display};
+use crate::head::{Attached, Frit, Head, place_display};
 use crate::helper::{self, Answer, Helper};
 use crate::layout::{self, Zoom};
 use crate::power::{self, Power, PowerKey};
@@ -196,6 +196,8 @@ pub struct App {
     assumed: BTreeSet<(PathBuf, DisplayId)>,
     /// Where the font's sets come from.
     font_sources: font::Sources,
+    /// Each frit a head draws, by its name, with its one helper.
+    frits: BTreeMap<String, Frit>,
     /// The kernel's font, read from the VT at start for a frit's
     /// `console:` source (vtium/vtium#145).
     console_font: Option<vtium_platform::vt::font::ConsoleFont>,
@@ -308,6 +310,7 @@ impl App {
             scrollback: (cap, lines),
             assumed: BTreeSet::new(),
             font_sources: font::Sources::default(),
+            frits: BTreeMap::new(),
             console_font: None,
             locale: locale(&inherited),
             config,
@@ -337,6 +340,7 @@ impl App {
         self.focus = None;
         self.lit.clear();
         self.dark.clear();
+        self.frits.clear();
     }
 
     /// Puts the power keys' actions through `power`, a test's stand-in
@@ -353,6 +357,7 @@ impl App {
         for head in &mut self.heads {
             head.font = None;
         }
+        self.frits.clear();
     }
 
     /// The kernel's font, read from the VT while it was in text mode, for
@@ -577,6 +582,7 @@ impl App {
                     if let Some(head) = self.heads.get_mut(h) {
                         head.font = Some(chosen);
                     }
+                    self.share(h);
                     self.own_cell(h);
                     return;
                 }
@@ -598,33 +604,84 @@ impl App {
         let wants = self.heads.get(h).is_some_and(|head| {
             !head.sized() && head.font.as_ref().is_some_and(Chosen::wants_own_cell)
         });
+        let Some(name) = self.heads.get(h).and_then(Head::frit).map(str::to_owned) else {
+            return;
+        };
         if !wants {
             return;
         }
-        let now = (self.clock)();
-        let Some(helper) = self.helper(h) else {
-            return;
-        };
-        let own = helper.own_cell(Duration::from_millis(helper::OWN_CELL_MS), now);
-        let Some(head) = self.heads.get_mut(h) else {
-            return;
-        };
-        let name = head.chosen().name(0, &self.locale).to_owned();
-        match own {
-            Ok(cell) => {
-                log::info!(
-                    "the frit {name} draws in its fonts' own {}x{} cell",
-                    cell.width,
-                    cell.height
-                );
-                if let Some(font) = &mut head.font {
-                    font.set_own_cell(cell);
+        let known = self.frits.get(&name).and_then(|f| f.own.clone());
+        let own = match known {
+            Some(own) => own,
+            None => {
+                let now = (self.clock)();
+                let Some(helper) = self.helper(&name) else {
+                    return;
+                };
+                let own = helper.own_cell(Duration::from_millis(helper::OWN_CELL_MS), now);
+                match &own {
+                    Ok(cell) => log::info!(
+                        "the frit {name} draws in its fonts' own {}x{} cell",
+                        cell.width,
+                        cell.height
+                    ),
+                    Err(why) => log::warn!(
+                        "the frit {name}'s own cell is not known ({why}): it draws in the display's cell"
+                    ),
                 }
+                if let Some(frit) = self.frits.get_mut(&name) {
+                    frit.own = Some(own.clone());
+                }
+                own
             }
-            Err(why) => log::warn!(
-                "the frit {name}'s own cell is not known ({why}): it draws in the display's cell"
-            ),
+        };
+        if let (Ok(cell), Some(head)) = (own, self.heads.get_mut(h)) {
+            if let Some(font) = &mut head.font {
+                font.set_own_cell(cell);
+            }
         }
+    }
+
+    /// Head `h`'s frit joins the frits in use: a frit another head draws
+    /// already gives the head its store, and one no head draws yet is
+    /// added, its helper started at its first need.
+    fn share(&mut self, h: usize) {
+        let Some(Chosen::Frit {
+            name,
+            frit,
+            generated,
+            ..
+        }) = self.heads.get_mut(h).and_then(|head| head.font.as_mut())
+        else {
+            return;
+        };
+        match self.frits.get(name.as_str()) {
+            Some(shared) => *generated = Rc::clone(&shared.generated),
+            None => {
+                self.frits.insert(
+                    name.clone(),
+                    Frit {
+                        frit: frit.clone(),
+                        generated: Rc::clone(generated),
+                        helper: None,
+                        refused: false,
+                        asked: Vec::new(),
+                        own: None,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Drops each frit no head draws any more, and with it its helper.
+    fn prune(&mut self) {
+        let used: BTreeSet<String> = self
+            .heads
+            .iter()
+            .filter_map(Head::frit)
+            .map(str::to_owned)
+            .collect();
+        self.frits.retain(|name, _| used.contains(name));
     }
 
     /// The name of the font set the shown head draws, as OSC 50's query
@@ -637,7 +694,8 @@ impl App {
 
     /// OSC 50 asked head `h` for the font `name` (ADR-1200 D5): a frit or
     /// a built-in switches the head's live console as a zoom does, on a
-    /// new grid, a frit with a helper and a store of its own; anything
+    /// new grid, a frit with the helper and the store every head drawing
+    /// it shares; anything
     /// else leaves the font. The first refusal since the last switch is
     /// logged and the rest counted, so a program's flood of requests logs
     /// one line.
@@ -664,9 +722,7 @@ impl App {
                 return Ok(());
             };
             let old = head.font.replace(new);
-            let helper = head.helper.take();
-            let refused = std::mem::take(&mut head.helper_refused);
-            let asked = std::mem::take(&mut head.asked);
+            self.share(h);
             self.own_cell(h);
             if let Some(head) = self.heads.get_mut(h) {
                 head.refont = true;
@@ -678,14 +734,12 @@ impl App {
                 return Ok(());
             };
             head.font = old;
-            head.helper = helper;
-            head.helper_refused = refused;
-            head.asked = asked;
             head.refont = true;
             let size = head.font_size;
             self.relayout(h);
             Err(format!("it draws nothing at {size} pixels"))
         });
+        self.prune();
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
@@ -945,86 +999,94 @@ impl App {
             .unwrap_or(DPI_ASSUMED)
     }
 
-    /// While head `h`'s font is a frit, fills each cell a display of the
-    /// head draws at and that was not filled yet, the screen's characters
-    /// first, and asks for the screen's characters there; drops the glyphs
-    /// of cells no display draws at any more (ADR-1301 D2, the operator's
-    /// fill model).
+    /// While head `h`'s font is a frit, fills each cell a display of a
+    /// head drawing that frit draws at and that was not filled yet, the
+    /// screen's characters first, and asks for the screen's characters
+    /// there; drops the glyphs of cells no display draws at any more
+    /// (ADR-1301 D2, the operator's fill model).
     fn ask_glyphs(&mut self, h: usize) {
-        let Some(head) = self.heads.get_mut(h) else {
+        let Some(name) = self.heads.get(h).and_then(Head::frit).map(str::to_owned) else {
             return;
         };
-        if !matches!(head.font, Some(Chosen::Frit { .. })) {
-            return;
-        }
-        let mut cells: Vec<vtium_font::Cell> = head
-            .views
-            .values()
-            .map(|v| v.renderer.font().cell())
+        let drawing: Vec<&Head> = self
+            .heads
+            .iter()
+            .filter(|head| head.frit() == Some(name.as_str()))
+            .collect();
+        let mut cells: Vec<vtium_font::Cell> = drawing
+            .iter()
+            .flat_map(|head| head.views.values().map(|v| v.renderer.font().cell()))
             .collect();
         cells.sort_unstable_by_key(|c| (c.height, c.width));
         cells.dedup();
         let now = (self.clock)();
-        if let Some(helper) = &mut head.helper {
+        let Some(frit) = self.frits.get_mut(&name) else {
+            return;
+        };
+        if let Some(helper) = &mut frit.helper {
             helper.retain(&cells, now);
         }
-        head.asked.retain(|c| cells.contains(c));
-        let new: Vec<vtium_font::Cell> = cells
+        frit.asked.retain(|c| cells.contains(c));
+        let new: Vec<(vtium_font::Cell, crate::deferred::Shown)> = cells
             .into_iter()
-            .filter(|c| !head.asked.contains(c))
+            .filter(|c| !frit.asked.contains(c))
+            .map(|cell| {
+                let at = drawing.iter().filter(|head| {
+                    head.views
+                        .values()
+                        .any(|v| v.renderer.font().cell() == cell)
+                });
+                (cell, shown(at))
+            })
             .collect();
         if new.is_empty() {
             return;
         }
-        let visible = head.visible();
-        let Some(helper) = self.helper(h) else {
+        let Some(helper) = self.helper(&name) else {
             return;
         };
-        for &cell in &new {
-            helper.ask(cell, &visible, now);
-            helper.fill(cell, &visible.chars, now);
+        for (cell, visible) in &new {
+            helper.ask(*cell, visible, now);
+            helper.fill(*cell, &visible.chars, now);
         }
-        if let Some(head) = self.heads.get_mut(h) {
-            head.asked.extend(new);
+        if let Some(frit) = self.frits.get_mut(&name) {
+            frit.asked.extend(new.into_iter().map(|(cell, _)| cell));
         }
     }
 
     /// While head `h`'s font is a frit and its screen changed, asks for
     /// each character and cluster it shows that the store does not hold,
-    /// and marks the glyphs of the others as used.
+    /// at each cell its displays draw at, and marks the glyphs of the
+    /// others as used.
     fn ask_visible(&mut self, h: usize, now: Instant) {
-        let Some(head) = self.heads.get_mut(h) else {
+        let Some(head) = self.heads.get(h) else {
             return;
         };
-        let Some(Chosen::Frit { generated, .. }) = &head.font else {
+        let Some(frit) = head.frit().and_then(|name| self.frits.get_mut(name)) else {
             return;
         };
-        let generated = Rc::clone(generated);
-        if head.helper.is_none() {
+        let Some(helper) = &mut frit.helper else {
             return;
-        }
+        };
         let visible = head.visible();
-        for &cell in &head.asked {
-            generated.borrow_mut().touch(cell, &visible);
-            if let Some(helper) = &mut head.helper {
+        for &cell in &frit.asked {
+            if head
+                .views
+                .values()
+                .any(|v| v.renderer.font().cell() == cell)
+            {
+                frit.generated.borrow_mut().touch(cell, &visible);
                 helper.ask(cell, &visible, now);
             }
         }
     }
 
-    /// Head `h`'s helper, started on the first need with a wake-up into
-    /// the loop for its answers and the store its glyphs go into; `None`,
-    /// logged once, when it cannot be.
-    fn helper(&mut self, h: usize) -> Option<&mut Helper> {
-        let head = self.heads.get(h)?;
-        let Some(Chosen::Frit {
-            frit, generated, ..
-        }) = &head.font
-        else {
-            return None;
-        };
-        let (frit, generated) = (frit.clone(), Rc::clone(generated));
-        if head.helper.is_none() && !head.helper_refused {
+    /// The helper of the frit `name`, started on the first need with a
+    /// wake-up into the loop for its answers and the store its glyphs go
+    /// into; `None`, logged once, when it cannot be.
+    fn helper(&mut self, name: &str) -> Option<&mut Helper> {
+        let frit = self.frits.get(name)?;
+        if frit.helper.is_none() && !frit.refused {
             let command = self
                 .font_sources
                 .helper
@@ -1049,9 +1111,9 @@ impl App {
                             }
                         }),
                         self.epoch,
-                        frit,
+                        frit.frit.clone(),
                         self.console_font.clone(),
-                        generated,
+                        Rc::clone(&frit.generated),
                         crate::deferred::store_limit(physical_memory()),
                     ))
                 }
@@ -1062,28 +1124,27 @@ impl App {
                     Err(())
                 }
             };
-            let head = self.heads.get_mut(h)?;
+            let frit = self.frits.get_mut(name)?;
             match started {
-                Ok(helper) => head.helper = Some(helper),
-                Err(()) => head.helper_refused = true,
+                Ok(helper) => frit.helper = Some(helper),
+                Err(()) => frit.refused = true,
             }
         }
-        self.heads.get_mut(h)?.helper.as_mut()
+        self.frits.get_mut(name)?.helper.as_mut()
     }
 
-    /// Takes each helper's answers: each display at a set's cell forgets
-    /// the glyphs it cached for the set's characters, so none draws the
-    /// built-in font once the frit sent it (ADR-1200 D7), and redraws the
-    /// cells that show one.
+    /// Takes each helper's answers: each display at a set's cell, of every
+    /// head drawing the frit, forgets the glyphs it cached for the set's
+    /// characters, so none draws the built-in font once the frit sent it
+    /// (ADR-1200 D7), and redraws the cells that show one.
     fn helper_turn(&mut self, now: Instant) {
         for h in 0..self.heads.len() {
             if self.heads.get(h).is_some_and(|head| head.term.changed) {
                 self.ask_visible(h, now);
             }
-            let Some(head) = self.heads.get_mut(h) else {
-                continue;
-            };
-            let Some(helper) = &mut head.helper else {
+        }
+        for (name, frit) in &mut self.frits {
+            let Some(helper) = &mut frit.helper else {
                 continue;
             };
             let answers = helper.poll(now);
@@ -1094,7 +1155,6 @@ impl App {
             // the last turn merge into one set per cell, which the next
             // frame draws once, and only the cells showing their
             // characters draw.
-            let visible = head.visible().chars;
             let mut arrived: Vec<(vtium_font::Cell, Vec<char>)> = Vec::new();
             for Answer { cell, chars, .. } in answers {
                 match arrived.iter_mut().find(|(at, _)| *at == cell) {
@@ -1102,19 +1162,24 @@ impl App {
                     None => arrived.push((cell, chars)),
                 }
             }
-            for (cell, chars) in arrived {
-                let (shown, hidden): (Vec<char>, Vec<char>) = chars
-                    .into_iter()
-                    .partition(|c| visible.binary_search(c).is_ok());
-                for v in head.views.values_mut() {
-                    if v.renderer.font().cell() == cell {
-                        v.renderer.forget_glyphs(&hidden);
-                        if !shown.is_empty() {
-                            v.renderer.glyphs_changed(&shown);
+            for head in &mut self.heads {
+                if head.frit() != Some(name.as_str()) {
+                    continue;
+                }
+                let visible = head.visible().chars;
+                for (cell, chars) in &arrived {
+                    let (shown, hidden): (Vec<char>, Vec<char>) =
+                        chars.iter().partition(|c| visible.binary_search(c).is_ok());
+                    for v in head.views.values_mut() {
+                        if v.renderer.font().cell() == *cell {
+                            v.renderer.forget_glyphs(&hidden);
+                            if !shown.is_empty() {
+                                v.renderer.glyphs_changed(&shown);
+                            }
                         }
                     }
+                    head.draw_now |= !shown.is_empty();
                 }
-                head.draw_now |= !shown.is_empty();
             }
         }
     }
@@ -1923,7 +1988,9 @@ impl App {
             due.extend(head.cursor_due.map(|(d, _)| d));
             due.extend(head.term.sync.deadline());
             due.extend(head.views.values().filter_map(|v| v.wait.due()));
-            due.extend(head.helper.as_ref().and_then(Helper::deadline));
+        }
+        for frit in self.frits.values() {
+            due.extend(frit.helper.as_ref().and_then(Helper::deadline));
         }
         if let Some(Leaving::Until(d)) = self.leaving {
             due.push(d);
@@ -1978,6 +2045,22 @@ impl App {
     pub fn screen_text(&self) -> Vec<String> {
         self.shown().map(Head::screen_text).unwrap_or_default()
     }
+}
+
+/// What the screens of `heads` show, merged: each character and cluster
+/// any of them shows, sorted and once.
+fn shown<'a>(heads: impl Iterator<Item = &'a &'a Head>) -> crate::deferred::Shown {
+    let mut all = crate::deferred::Shown::default();
+    for head in heads {
+        let one = head.visible();
+        all.chars.extend(one.chars);
+        all.clusters.extend(one.clusters);
+    }
+    all.chars.sort_unstable();
+    all.chars.dedup();
+    all.clusters.sort_unstable();
+    all.clusters.dedup();
+    all
 }
 
 /// The heads of `rules`, each with its font keys (ADR-1401 D3) and the
