@@ -121,6 +121,11 @@ fn a_display_opens_in_its_preferred_mode() {
     let blob = c.blob(100, "MODE_ID").unwrap();
     assert_eq!(*blob, mode_bytes(&mode(640, 480, 60, true).0));
     assert_eq!(blob.len(), size_of::<drm_mode_modeinfo>());
+    // The card reports the mode vtium set, as a later scan reads it.
+    assert_eq!(
+        v.card().crtc_mode(100).unwrap(),
+        Some(mode(640, 480, 60, true))
+    );
     let plane = primary(&v, A);
     assert_eq!(c.get(plane, "SRC_W"), Some(640 << 16));
     assert_eq!(c.get(plane, "CRTC_H"), Some(480));
