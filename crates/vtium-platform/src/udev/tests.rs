@@ -571,3 +571,33 @@ fn an_input_devices_sysfs_attributes_are_bounded() {
     );
     assert_eq!(kept.get("name").map(String::len), Some(UDEV_PROPERTY_MAX));
 }
+
+// ADR-1401 D3, determinism: libudev joins the multi-valued
+// properties in a hash order; the start presents them sorted, so two orders
+// of the same links give one value
+#[test]
+fn the_starts_links_and_tags_are_sorted_whatever_order_libudev_joins_them() {
+    let all = |links: &str, tags: &str| {
+        vec![
+            ("DEVLINKS".to_owned(), links.to_owned()),
+            ("TAGS".to_owned(), tags.to_owned()),
+            ("CURRENT_TAGS".to_owned(), tags.to_owned()),
+        ]
+        .into_iter()
+    };
+    let one = properties(|_| None, all("/dev/b /dev/a", ":seat:power-switch:"));
+    let two = properties(|_| None, all("/dev/a /dev/b", ":power-switch:seat:"));
+    assert_eq!(one, two);
+    assert_eq!(
+        one.get("DEVLINKS").map(String::as_str),
+        Some("/dev/a /dev/b")
+    );
+    assert_eq!(
+        one.get("TAGS").map(String::as_str),
+        Some(":power-switch:seat:")
+    );
+    assert_eq!(
+        one.get("CURRENT_TAGS").map(String::as_str),
+        Some(":power-switch:seat:")
+    );
+}

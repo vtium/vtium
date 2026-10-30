@@ -41,6 +41,14 @@ const HEIGHT: Bound = Bound {
     cite: "`PSF_MAX_HEIGHT`, font_psf.c:66-67, 76, 200: PSF1 holds the height in a byte",
 };
 
+const RAW_HEIGHT: Bound = Bound {
+    name: "RAW_HEIGHT_MAX",
+    value: 32,
+    what: "A raw font glyph's height in pixels: a raw font is 256 glyphs of N bytes, one byte a row, 8 pixels across",
+    past: "The file is refused as a font",
+    cite: "setfont(8): \"Raw font files are binary files of size 256*N bytes ... (0 < N <= 32)\"; the C reference read no raw font (font_psf.c:154-205 refused a file with neither PSF magic)",
+};
+
 const BYTES: Bound = Bound {
     name: "PSF_BYTES_MAX",
     value: 16 << 20,
@@ -163,10 +171,11 @@ const CLUSTER_SCALARS: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 18] = [
+pub(crate) const BOUNDS: [Bound; 19] = [
     GLYPHS,
     WIDTH,
     HEIGHT,
+    RAW_HEIGHT,
     BYTES,
     ENTRIES,
     GZIP,
@@ -192,6 +201,10 @@ pub const PSF_WIDTH_MAX: u32 = WIDTH.value;
 
 /// A PSF glyph's height in pixels; a taller font is refused.
 pub const PSF_HEIGHT_MAX: u32 = HEIGHT.value;
+
+/// A raw font's glyph height in pixels, so a raw font is at most 256 times
+/// this many bytes; a file past it is not read as a font.
+pub const RAW_HEIGHT_MAX: u32 = RAW_HEIGHT.value;
 
 /// Bytes a PSF file holds, decompressed; a larger file is refused.
 pub const PSF_BYTES_MAX: u32 = BYTES.value;
@@ -301,6 +314,7 @@ mod tests {
         assert_eq!(PSF_WIDTH_MAX, 32);
         assert_eq!(PSF_HEIGHT_MAX, 256);
         assert_eq!(PSF_BYTES_MAX, 16 << 20);
+        assert_eq!(RAW_HEIGHT_MAX, 32);
         assert_eq!(PSF_ENTRIES_MAX, 0x11_0000);
     }
 }

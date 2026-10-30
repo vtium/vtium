@@ -323,3 +323,34 @@ tier3-nosystemd: tier3-image-nosystemd ## Tier 3 on the guest without systemd: v
 	T3_VTIUM_REV=$(T3_REV) T3_IMAGE=$(T3SV_IMAGE) T3_IMAGE_SHA256=$(T3SV_IMAGE_SHA256) \
 		T3_ARCHIVE=$(T3SV_SNAPSHOT) $(T3_PY) $(T3_DIR)/t3.py run --jobs $(JOBS) \
 		--deadline $(T3_DEADLINE) --tree-target install-tree $(or $(VARIANTS),sysvinit-640x480 sysvinit-no-udev sysvinit-reboot sysvinit-restart sysvinit-power-off)
+
+# AGENTS.md's gate line, one gate per line, in its order.
+define GATE_LINE
+cargo fmt --all --check
+cargo clippy --workspace --all-features --all-targets -- -D warnings
+cargo test --workspace --all-features
+cargo build --profile minspec
+docs/scripts/adr lint --check
+docs/scripts/adr cite --check
+docs/scripts/coverage
+make test-tools
+make conformance
+make conformance-probes
+make conformance-issues
+make tier2
+make arm
+endef
+export GATE_LINE
+
+.PHONY: gates
+gates: ## Run every gate of the gate line, each to the end, report each exit code and fail if any failed
+	@[ -n "$$(printf '%s' "$$GATE_LINE" | tr -d '[:space:]')" ] || { echo "gates: the gate list is empty" >&2; exit 1; }; \
+	summary=$$(mktemp); trap 'rm -f "$$summary"' EXIT; \
+	printf '%s\n' "$$GATE_LINE" | while IFS= read -r gate; do \
+		echo "==> $$gate"; \
+		sh -c "$$gate" </dev/null; code=$$?; \
+		echo "$$code  $$gate" >> "$$summary"; \
+	done; \
+	echo; echo "exit  gate"; cat "$$summary"; \
+	if grep -qv '^0  ' "$$summary"; then echo "gates: FAILED" >&2; exit 1; fi; \
+	echo "gates: all passed"

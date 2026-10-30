@@ -383,7 +383,7 @@ fn an_attribute_past_its_bound_is_left_out_and_no_sysfs_lists_nothing() {
 /// them under systemd 262: its database entry, and the properties
 /// `udevadm info --query=property --name=/dev/input/event3` printed. udevadm
 /// joins `DEVLINKS`, `TAGS` and `CURRENT_TAGS` in a hash order that
-/// changes from run to run; here they are in the entry's order. The unit
+/// changes from run to run; here they are sorted. The unit
 /// has no serial of its own: `ID_SERIAL` is its model's.
 const RECEIVER_ENTRY: &str = "S:input/by-id/usb-Logitech_USB_Receiver-event-if01
 S:input/by-path/pci-0000:13:00.0-usb-0:1:1.1-event
@@ -477,10 +477,10 @@ const RECEIVER_PROPERTIES: [(&str, &str); 39] = [
         "DEVLINKS",
         "/dev/input/by-id/usb-Logitech_USB_Receiver-event-if01 /dev/input/by-path/pci-0000:13:00.0-usb-0:1:1.1-event /dev/input/by-path/pci-0000:13:00.0-usbv2-0:1:1.1-event",
     ),
-    ("TAGS", ":seat:uaccess:Logitech_HID_20:power-switch:"),
+    ("TAGS", ":Logitech_HID_20:power-switch:seat:uaccess:"),
     (
         "CURRENT_TAGS",
-        ":seat:uaccess:Logitech_HID_20:power-switch:",
+        ":Logitech_HID_20:power-switch:seat:uaccess:",
     ),
 ];
 
@@ -506,6 +506,34 @@ fn an_inputs_properties_are_the_ones_udevadm_prints() {
         .collect();
     assert_eq!(listing.inputs.len(), 1);
     assert_eq!(listing.inputs[0].properties, expected);
+}
+
+// ADR-1401 D3, determinism: a `udev:` glob on a multi-valued property
+// places a device the same way whatever order udev recorded the links in
+#[test]
+fn the_links_and_tags_are_sorted_whatever_order_the_entry_has_them() {
+    let one = "S:input/by-path/b\nS:input/by-id/a\nG:seat\nG:power-switch\nQ:uaccess\nQ:seat\n";
+    let two = "S:input/by-id/a\nS:input/by-path/b\nG:power-switch\nG:seat\nQ:seat\nQ:uaccess\n";
+    let props = |name: &str, entry: &str| {
+        let t = Tree::new(name);
+        t.input(USB, "input1", "event0", 64, &[("name", "K")]);
+        t.udev_raw("c13:64", entry);
+        list(&t.roots(), "seat0").inputs[0].properties.clone()
+    };
+    let (a, b) = (props("order-one", one), props("order-two", two));
+    assert_eq!(a, b);
+    assert_eq!(
+        a.get("DEVLINKS").map(String::as_str),
+        Some("/dev/input/by-id/a /dev/input/by-path/b")
+    );
+    assert_eq!(
+        a.get("TAGS").map(String::as_str),
+        Some(":power-switch:seat:")
+    );
+    assert_eq!(
+        a.get("CURRENT_TAGS").map(String::as_str),
+        Some(":seat:uaccess:")
+    );
 }
 
 // a database property replaces the kernel's of the same name, as in

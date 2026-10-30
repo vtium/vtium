@@ -4,13 +4,15 @@
 //! does not ligate is left out, the answer's clusters are checked, and a
 //! built set draws them whole.
 
+#[path = "common/parser.rs"]
+mod parser;
 #[path = "common/ttf.rs"]
 mod ttf;
 
 use std::path::Path;
 
+use parser::Parser;
 use ttf::{FAMILY, FLAG};
-use vtium_vitrify::child::Parser;
 use vtium_vitrify::outline::{Outline, OutlineRequest, Placed, rasterise};
 use vtium_vitrify::shaping::{Ask, Kind};
 
