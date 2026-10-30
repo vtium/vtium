@@ -567,7 +567,7 @@ fn the_fonts_policy_follows_the_keys() {
 fn a_named_palette_reaches_the_terminal() {
     let h = Harness::new(&["--palette=solarized-white"]);
     assert_eq!(
-        Some(h.app.term.terminal.palette()),
+        Some(h.app.term().expect("a head").terminal.palette()),
         vtium_term::Palette::named("solarized-white").as_ref()
     );
 }
@@ -580,14 +580,14 @@ fn a_custom_palette_reaches_the_terminal() {
         "--palette-red=1,2,3",
         "--palette-background=4,5,6",
     ]);
-    let p = h.app.term.terminal.palette();
+    let p = h.app.term().expect("a head").terminal.palette();
     assert_eq!(p.color(1), Rgb::new(1, 2, 3));
     assert_eq!(p.bg(), Rgb::new(4, 5, 6));
     // Unset keys keep the C reference's custom defaults.
     assert_eq!(p.color(4), Rgb::new(0, 0, 238));
     let h = Harness::new(&[]);
     assert_eq!(
-        h.app.term.terminal.palette(),
+        h.app.term().expect("a head").terminal.palette(),
         &vtium_term::Palette::default()
     );
 }
@@ -936,7 +936,12 @@ fn a_respawned_session_blanks_after_dpms_timeout() {
             .min(Duration::from_millis(20));
         h.lp.dispatch(Some(wait), &mut h.app).expect("dispatch");
         h.app.turn(h.at());
-        let left = h.app.term.terminal.take_blank_request();
+        let left = h
+            .app
+            .term_mut()
+            .expect("a head")
+            .terminal
+            .take_blank_request();
         assert_eq!(left, None, "a request left for a later turn");
         if h.memory().dpms == Some(Dpms::Off) {
             blanked = Some(now());
@@ -1326,7 +1331,7 @@ fn button_reports_are_queued_whole_while_the_child_does_not_read() {
          awk 'BEGIN{RS=\"q\"}{p=gsub(/<0;[0-9]+;[0-9]+M/,\"\");r=gsub(/<0;[0-9]+;[0-9]+m/,\"\");printf \"press=%d release=%d\\r\\n\",p,r;exit}'; read x",
     ]);
     assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "ready")));
-    let queued = |h: &Harness| h.app.pty.as_ref().map_or(0, |p| p.queued());
+    let queued = |h: &Harness| h.app.pty().map_or(0, |p| p.queued());
     // Keys fill the pty and then the queue past the point motion
     // coalesces from.
     let mut keys = 0;
@@ -1409,9 +1414,25 @@ fn a_wheel_event_is_one_report_or_three_lines() {
     assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "line39")));
     h.app
         .input_event(pointer(PointerEvent::Wheel(i32::MAX)), now());
-    assert_eq!(h.app.term.terminal.screen().scrolled_back(), 3);
+    assert_eq!(
+        h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .scrolled_back(),
+        3
+    );
     h.app.input_event(pointer(PointerEvent::Wheel(-1)), now());
-    assert_eq!(h.app.term.terminal.screen().scrolled_back(), 0);
+    assert_eq!(
+        h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .scrolled_back(),
+        0
+    );
 }
 
 /// The pointer in the middle of cell `col`, `row` (8 by 16 pixels), with
@@ -1517,9 +1538,23 @@ fn a_double_click_selects_a_word_and_a_triple_click_a_line() {
     );
     assert_eq!(h.app.selection(), Some(&b"beta"[..]));
     // A key clears the selection, and the buffer keeps it.
-    assert!(h.app.term.terminal.screen().has_selection());
+    assert!(
+        h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .has_selection()
+    );
     h.app.input_event(key(Mods::SHIFT, 0xff63), now());
-    assert!(!h.app.term.terminal.screen().has_selection());
+    assert!(
+        !h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .has_selection()
+    );
     h.type_str("\r");
     h.point(
         [
@@ -1616,7 +1651,14 @@ fn shift_and_the_wheel_scroll_back_while_the_program_tracks_the_pointer() {
     assert!(h.until(SECOND, |a| {
         a.screen_text().iter().any(|l| l.ends_with("ready"))
     }));
-    let back = |h: &Harness| h.app.term.terminal.screen().scrolled_back();
+    let back = |h: &Harness| {
+        h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .scrolled_back()
+    };
     h.point([PointerEvent::Wheel(1)], Mods::SHIFT);
     assert_eq!(back(&h), 3);
     h.point([PointerEvent::Wheel(-1)], Mods::SHIFT);
@@ -1654,7 +1696,15 @@ fn shift_pressed_during_a_reported_drag_changes_nothing() {
     );
     h.point([over(4, 0, Some(Button::Left))], Mods::SHIFT);
     h.point([release(Button::Left)], Mods::empty());
-    assert_eq!(h.app.term.terminal.screen().selection_text(), None);
+    assert_eq!(
+        h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .selection_text(),
+        None
+    );
     h.type_str("q");
     assert!(
         h.until(SECOND, |a| shows(a, "E[<0;1;1ME[<36;5;1ME[<0;5;1m")),
@@ -1836,7 +1886,14 @@ fn a_drag_ends_without_its_button_and_at_a_vt_release() {
     ]);
     assert!(h.until(SECOND, |a| shows(a, "second one")));
     let none = Mods::empty();
-    let selected = |h: &Harness| h.app.term.terminal.screen().selection_text();
+    let selected = |h: &Harness| {
+        h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .selection_text()
+    };
     h.point(
         [
             over(0, 0, None),
@@ -1936,10 +1993,17 @@ fn a_change_of_mouse_tracking_clears_the_selection() {
         ],
         Mods::empty(),
     );
-    assert!(h.app.term.terminal.screen().has_selection());
+    assert!(
+        h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .has_selection()
+    );
     std::fs::write(&go, b"").expect("the go file");
     let cleared = h.until(SECOND, |a| {
-        shows(a, "on") && !a.term.terminal.screen().has_selection()
+        shows(a, "on") && !a.term().expect("a head").terminal.screen().has_selection()
     });
     let _ = std::fs::remove_file(&go);
     assert!(cleared, "{:?}", h.app.screen_text());
@@ -2279,7 +2343,7 @@ fn a_restart_draws_the_reset_screen() {
         h.until_memory(SECOND, |m| !irst(m)),
         "the reset screen is drawn"
     );
-    assert!(!h.app.term.unparsed);
+    assert!(!h.app.term().expect("a head").unparsed);
     std::fs::remove_file(&flag).ok();
 }
 
@@ -2419,7 +2483,11 @@ fn osc_52_is_held_or_dropped_as_clipboard_write_says() {
     assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "set")));
     assert_eq!(h.app.selection(), None);
     assert_eq!(
-        h.app.term.terminal.take_clipboard_write(),
+        h.app
+            .term_mut()
+            .expect("a head")
+            .terminal
+            .take_clipboard_write(),
         None,
         "taken and dropped"
     );
@@ -2851,7 +2919,7 @@ fn a_selection_follows_a_wrapped_line() {
     assert!(h.until_memory(SECOND, |m| m.frames > 0));
     h.type_str("\r");
     assert!(h.until(SECOND, |a| shows(a, "cdef end")));
-    let cols = h.app.term.terminal.screen().cols();
+    let cols = h.app.term().expect("a head").terminal.screen().cols();
     let last = i32::try_from(cols).unwrap() - 1;
     let text = h.app.screen_text();
     let row = text.iter().position(|l| l == "cdef end").unwrap();
@@ -2988,7 +3056,7 @@ fn the_child_starts_on_the_grid_of_every_display_at_the_start() {
 fn under_a_wait_the_child_starts_when_the_first_display_comes() {
     let mut h = Harness::bare(&["--display-wait=5", "--login", "--", "/bin/sh", "-c", FIRST]);
     h.until(Duration::from_millis(500), |_| false);
-    assert!(h.app.pty.is_none(), "no child before a display");
+    assert!(h.app.pty().is_none(), "no child before a display");
     assert_eq!(first(&h.app), None);
     h.app
         .add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
@@ -3774,7 +3842,15 @@ fn a_scrolled_back_cell_draws_the_helpers_glyph_once_it_lands() {
         [PointerEvent::Wheel(1), PointerEvent::Wheel(1)],
         Mods::empty(),
     );
-    assert_eq!(h.app.term.terminal.screen().scrolled_back(), 4);
+    assert_eq!(
+        h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .scrolled_back(),
+        4
+    );
     assert!(
         h.until_memory(Duration::from_secs(10), |m| !solid(&top_cell(m, 0))),
         "the built-in font's A, scrolled back"

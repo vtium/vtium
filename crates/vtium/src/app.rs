@@ -1,44 +1,55 @@
-//! The seat and its one session, wired: the VT's events, the video
-//! devices and their displays, the input, the DPMS blank, the pty and its
-//! child, and when the terminal draws. The loop calls [`App::turn`] after
-//! each dispatch with the time, and waits at most [`App::next_wake`].
+//! The seat and its heads, wired: the VT's events, the video devices and
+//! their displays, the input, the DPMS blank, each head's pty and child,
+//! and when each head draws. The loop calls [`App::turn`] after each
+//! dispatch with the time, and waits at most [`App::next_wake`].
 //!
 //! Each step follows the C reference's flow (docs/c-reference.md, parts 1,
 //! 2 and 5) and vtium-platform's host list:
 //!
+//! - **Heads** (ADR-1401 D1). The head file's heads, or the compiled-in
+//!   configuration's one `console` head, each a [`Head`] with its own
+//!   session, grid, density, zoom and rotation. Each display walks the
+//!   rules alone when it comes, and joins the head the first match names;
+//!   a display the rules send `dark`, or none claims, is left off and
+//!   logged, with the rule line that would claim it ready to paste. Within
+//!   a head the displays mirror one grid by the scaled rule
+//!   ([`crate::layout`]).
 //! - **The VT.** `Acquired` wakes the input and every device, which draw
-//!   whole; `Release` deactivates the terminal, puts the input and every
+//!   whole; `Release` deactivates the terminals, puts the input and every
 //!   device to sleep, and acknowledges once each reported `Asleep`;
 //!   `Retaken` sets every device's displays up again, or while blanked
 //!   at the input that ends the blank, and keeps the blank and its timer;
 //!   `Hangup` exits.
 //! - **Keys**, in order: the VT's, then the seat's (the power keys, which
 //!   act on a press and never on its repeat), then the terminal's grabs,
-//!   then DECARM's drop of a repeat, then the encoder. A key draws at once
-//!   and holds the cursor's blink.
-//! - **The pointer.** While the program tracks it, its events are
-//!   reported, but a button pressed, a move without a button and the
-//!   wheel with Shift held, as xterm's are. The others select, copy,
-//!   paste and scroll ([`App::pointer_event`]).
-//! - **The blank.** Each key press and pointer action (a move, a button
-//!   or the wheel) goes to every device's `input`, which retries a failed
-//!   wake-up, and to [`Blank::input`]; a device's `Awake` goes to
-//!   [`Blank::input`] too, but a re-take's, and whenever it says the
-//!   displays were blanked every device unblanks. The first display, the
-//!   last going and the next after none count too, as a display change,
-//!   which wakes nothing while the VT is not ours; another hotplug or a
-//!   re-take never counts. The seat's clock drives the blank's countdown
-//!   ([`App::next_wake`]). A signal from outside the session
-//!   ([`crate::blank`]) blanks at once, or wakes as a program's
+//!   then DECARM's drop of a repeat, then the encoder. Every keyboard types
+//!   into the head holding the focus (D5), which starts on the head of the
+//!   boot display, else the first head in the file with a display, and
+//!   rests there. A key draws at once and holds the cursor's blink.
+//! - **The pointer.** It moves on the head holding the focus. While the
+//!   program tracks it, its events are reported, but a button pressed, a
+//!   move without a button and the wheel with Shift held, as xterm's are.
+//!   The others select, copy, paste and scroll ([`Head::pointer_event`]).
+//! - **The blank** is the seat's. Each key press and pointer action (a
+//!   move, a button or the wheel) goes to every device's `input`, which
+//!   retries a failed wake-up, and to [`Blank::input`]; a device's `Awake`
+//!   goes to [`Blank::input`] too, but a re-take's, and whenever it says
+//!   the displays were blanked every device unblanks. A head's first
+//!   display, its last going and its next after none count too, as a
+//!   display change, which wakes nothing while the VT is not ours; another
+//!   hotplug or a re-take never counts. The seat's clock drives the
+//!   blank's countdown ([`App::next_wake`]). A signal from outside the
+//!   session ([`crate::blank`]) blanks at once, or wakes as a program's
 //!   `CSI 13 ]` does, at the turn's end.
-//! - **The child.** It first starts once a display is set up, on the
-//!   grid's size ([`respawn::first_start_due`]); when it exits the respawn
-//!   policy starts it again or ends vtium.
+//! - **The child.** A head's first starts once one of its displays is set
+//!   up, on its grid ([`respawn::first_start_due`]); when it exits the
+//!   respawn policy starts it again or ends vtium.
 //! - **No display.** From the first acquire, vtium waits `display-wait`
 //!   for a frame on a display's screen, and with none by then it ends
-//!   ([`crate::wait`]). Once one has come, the last going leaves the
-//!   session running on the grid it had, with the keys reaching it and
-//!   no blank, until the next comes and is drawn whole.
+//!   ([`crate::wait`]). Once one has come, a head's last going leaves its
+//!   session running on the grid it had, with the keys reaching it while
+//!   it holds the focus and no blank, until the next comes and is drawn
+//!   whole.
 //! - **Exit.** A request (SIGTERM, SIGINT, a hangup, the policy) switches
 //!   back to the VT shown at the start and serves the loop for up to
 //!   [`LEAVE_WAIT`] while the switch is pending.
@@ -48,38 +59,33 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use vtium_font::{Face, Font};
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::display::{Blank, DPI_ASSUMED, DisplayId, Dpms, Event};
-use vtium_platform::input::{Button, InputEvent, KeyEvent, Mods as InputMods, PointerEvent};
-use vtium_platform::pty::{Erase, Pty, Size};
+use vtium_platform::input::{InputEvent, KeyEvent, Mods as InputMods, PointerEvent};
+use vtium_platform::pty::{Erase, Pty};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
 use vtium_platform::vt::{Switch, Vt, VtEvent};
-use vtium_render::{
-    Config as RenderConfig, DecorationColors, Depth, DrawState, Orientation, PointerShape, Profile,
-};
-use vtium_term::{
-    Age, BlankRequest, BlankTimeout, Content, Glyph, Mods, MouseButton, MouseEvent, MouseTracking,
-    Terminal,
-};
+use vtium_render::{Config as RenderConfig, Depth, DrawState, Orientation};
+use vtium_term::{BlankRequest, BlankTimeout, Mods};
 
 use crate::blank::Order;
-use crate::blink::{Blink, Timer};
+use crate::blink::Timer;
 use crate::child::{self, Display as SessionDisplay, Place};
 use crate::config::keys;
 use crate::config::{Config, ModeSpec};
-use crate::deferred::Shown;
 use crate::font::{self, Chosen};
 use crate::grab::{self, Chord, Grab};
+use crate::head::identity::Card;
+use crate::head::{Attached, Head};
 use crate::helper::{self, Answer, Helper};
 use crate::layout::{self, Zoom};
 use crate::power::{self, Power, PowerKey};
 use crate::respawn::{self, Next, Respawn};
-use crate::sync::{Action, Sync};
+use crate::sync::Action;
 use crate::term::{Clock, Term, View};
 use crate::video::Video;
 use crate::wait::Wait;
@@ -88,21 +94,18 @@ use crate::wait::Wait;
 /// (`src/main.c:203-209` at kmscon b1f7a7c5).
 pub const LEAVE_WAIT: Duration = Duration::from_millis(100);
 
-/// The grid before any display is known.
-const GRID: (usize, usize) = (80, 24);
-
 /// Why vtium ends, and its exit status.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Exit {
     /// SIGTERM or SIGINT.
     Signal,
-    /// The session's command exited under `oneshot`.
+    /// A session's command exited under `oneshot`.
     Oneshot,
-    /// The session's command exited quickly too many times running.
+    /// A session's command exited quickly too many times running.
     TooQuick,
     /// The VT hung up.
     Hangup,
-    /// The session's command could not be started.
+    /// A session's command could not be started.
     Spawn,
     /// No display came within `display-wait` of the start.
     NoDisplay,
@@ -117,48 +120,12 @@ impl Exit {
     }
 }
 
-/// Whether the seat has a display to draw on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Attached {
-    /// None yet since the start.
-    NotYet,
-    Yes,
-    /// The last one went.
-    Gone,
-}
-
 /// Where the exit stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Leaving {
     /// The switch back is pending until this time.
     Until(Instant),
     Done,
-}
-
-/// The pointer, in the grid's pixels.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Pointer {
-    x: u32,
-    y: u32,
-    visible: bool,
-    held: Option<Button>,
-    /// The held button selects or pastes, until its release, rather than
-    /// being reported: its press came while the program did not track the
-    /// pointer, or with Shift.
-    ours: bool,
-    /// The left button's drag extends the selection.
-    drag: Option<Drag>,
-    /// Left presses in a row, each soon after the last: one selects
-    /// characters, two a word, three a line, and a fourth starts again.
-    clicks: u8,
-}
-
-/// A drag that extends the selection from the cell it started in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Drag {
-    from: (usize, usize),
-    /// It left that cell.
-    moved: bool,
 }
 
 /// A seat's VT, which the app holds behind one type: compiled once, and
@@ -181,22 +148,30 @@ impl dyn SeatVt {
     }
 }
 
-/// The seat, its devices and its session.
+/// The seat, its devices and its heads.
 pub struct App {
     pub vt: Box<dyn SeatVt>,
     pub videos: BTreeMap<PathBuf, Box<dyn Video>>,
     pub input: Option<vtium_platform::input::Input>,
     pub udev: Option<vtium_platform::udev::Udev>,
     pub blank: Blank,
-    pub term: Term,
-    pub pty: Option<Pty>,
-    views: BTreeMap<(PathBuf, DisplayId), View>,
+    /// The heads, in the head file's order.
+    heads: Vec<Head>,
+    /// The head file in force: the file's, or the compiled-in
+    /// configuration.
+    rules: vtium_config::Config,
+    /// The head every keyboard types into.
+    focus: Option<usize>,
+    /// What the rules and the display guard read of each card.
+    cards: BTreeMap<PathBuf, Card>,
+    /// The scrollback cap and length each session takes.
+    scrollback: (usize, usize),
     config: Config,
     handle: LoopHandle<'static, App>,
     clock: Clock,
     epoch: Instant,
-    respawn: Option<Respawn>,
-    /// [`App::start`] was called and the command has not started yet.
+    /// [`App::start`] was called: each head's command starts at its first
+    /// display.
     start_due: bool,
     /// The VT is ours and the devices awake.
     awake: bool,
@@ -212,59 +187,23 @@ pub struct App {
     wait: Wait,
     /// `display-wait=forever`.
     forever: bool,
-    attached: Attached,
     /// A frame has been on screen since the start.
     presented: bool,
-    /// Every display draws at once at the end of the turn.
-    draw_now: bool,
-    text_due: Option<Instant>,
-    cursor_due: Option<(Instant, Duration)>,
     timer_due: Option<Instant>,
-    pointer: Pointer,
-    /// The base font's height; each display may draw larger
-    /// ([`layout::layout`]).
-    font_size: u32,
-    /// `font-size` in points: the base height follows the displays'
-    /// density ([`App::dpi`]), until a zoom.
-    points: Option<u32>,
-    /// `font-size=0`: the base height follows the smallest display, until
-    /// a zoom.
-    auto_size: bool,
     /// The displays whose density is assumed, each warned of once.
     assumed: BTreeSet<(PathBuf, DisplayId)>,
-    /// The base font was found once: a later failure keeps it.
-    has_font: bool,
-    /// The base font's size step, which a zoom takes.
-    step: u32,
-    /// The base font's cell, the grid's and the pty's.
-    cell: (u32, u32),
-    /// The font set, chosen at the first display and switched by OSC 50.
-    font: Option<Chosen>,
     /// Where the font's sets come from.
     font_sources: font::Sources,
-    /// The font changed: every display's renderer is rebuilt.
-    refont: bool,
-    /// OSC 50's refusals since its last switch: only the first is logged.
-    font_refused: u64,
-    /// The helper that generates a frit's glyphs, started on the first
-    /// need (ADR-1301 D2).
-    helper: Option<Helper>,
-    /// The helper cannot start: logged once, and the built-in font draws.
-    helper_refused: bool,
-    /// The cells whose glyphs the helper was asked for.
-    asked: Vec<vtium_font::Cell>,
     /// The kernel's font, read from the VT at start for a frit's
     /// `console:` source (vtium/vtium#145).
     console_font: Option<vtium_platform::vt::font::ConsoleFont>,
     /// The locale, which keeps the built-in Unscii-8 from a zh, ja or ko
     /// locale (ADR-1200 D7).
     locale: String,
-    orientation: Orientation,
-    grid: (usize, usize),
     exit: Option<Exit>,
     leaving: Option<Leaving>,
     inherited: Vec<(OsString, OsString)>,
-    /// `oneshot`: the child's exit ends vtium.
+    /// `oneshot`: a child's exit ends vtium.
     oneshot: bool,
     /// The `mode` lines, for each DRM device opened.
     modes: Vec<ModeSpec>,
@@ -278,12 +217,9 @@ pub struct App {
     dpms_timeout: Option<Duration>,
     /// A blank or wake sent by signal, taken at the turn's end.
     order: Option<Order>,
-    /// The selection buffer: what the user copied last, or OSC 52 set
-    /// last, held for a paste.
+    /// The seat's selection buffer: what the user copied last, or OSC 52
+    /// set last, held for a paste.
     selection: Option<Vec<u8>>,
-    /// The mouse tracking the program asked for, last seen: a change
-    /// clears the selection.
-    tracking: MouseTracking,
     /// The keys `grab-paste` binds.
     paste_keys: Vec<Chord>,
     /// `pointer-hide-while-typing`.
@@ -297,8 +233,9 @@ pub struct App {
 }
 
 impl App {
-    /// The seat for `config` on `vt`, with the session's terminal; the
-    /// child starts at [`App::start`].
+    /// The seat for `config` on `vt`, with the compiled-in configuration's
+    /// heads ([`App::set_heads`] gives the head file's); each head's child
+    /// starts at [`App::start`].
     pub fn new(
         config: Config,
         vt: Box<dyn SeatVt>,
@@ -311,7 +248,6 @@ impl App {
             physical_memory(),
             config.number(&keys::SB_SIZE_CAP).map(to_usize),
         );
-        let mut terminal = Terminal::new(GRID.0, GRID.1, cap);
         let lines = vtium_term::sb_size(
             config
                 .number(&keys::SB_SIZE)
@@ -319,20 +255,8 @@ impl App {
             physical_memory(),
             config.number(&keys::SB_SIZE_CAP).map(to_usize),
         );
-        terminal.screen_mut().set_scrollback_max(lines);
-        terminal
-            .screen_mut()
-            .set_scrollback_memory(crate::config::budget::sb_memory(&config));
-        terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
-        terminal.set_palette(config.palette());
-        terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
-        if let Ok(table) = crate::termcap::termcap() {
-            terminal.set_termcap(table);
-        }
-        let timeout = Duration::from_millis(config.number(&keys::SYNC_TIMEOUT).unwrap_or(200));
-        terminal.set_sync_enabled(!timeout.is_zero());
-        let sync = Sync::new(timeout, terminal.sync_frames());
-        let blink = Blink::configured(&config);
+        let rules = vtium_config::Config::builtin();
+        let heads = heads(&rules, &config, (cap, lines), &clock);
         let dpms = config
             .number(&keys::DPMS_TIMEOUT)
             .map(Duration::from_secs)
@@ -361,7 +285,6 @@ impl App {
             dpms_timeout: dpms,
             order: None,
             selection: None,
-            tracking: MouseTracking::Off,
             paste_keys: config.chords(&keys::GRAB_PASTE).to_vec(),
             hide_while_typing: config.switch(&keys::POINTER_HIDE_WHILE_TYPING),
             power_keys,
@@ -374,34 +297,19 @@ impl App {
             input: None,
             udev: None,
             blank: Blank::new(dpms, now),
-            term: Term::new(terminal, sync, blink, clock.clone()),
-            pty: None,
-            views: BTreeMap::new(),
-            font_size: 0,
-            points: config
-                .number(&keys::FONT_SIZE)
-                .filter(|&n| n != 0)
-                .map(to_u32),
-            auto_size: config.number(&keys::FONT_SIZE).unwrap_or(0) == 0,
+            heads,
+            rules,
+            focus: None,
+            cards: BTreeMap::new(),
+            scrollback: (cap, lines),
             assumed: BTreeSet::new(),
-            has_font: false,
-            step: 16,
-            cell: (8, 16),
-            font: None,
             font_sources: font::Sources::default(),
-            refont: false,
-            font_refused: 0,
-            helper: None,
-            helper_refused: false,
-            asked: Vec::new(),
             console_font: None,
             locale: locale(&inherited),
-            orientation: Orientation::Normal,
             config,
             handle,
             clock,
             epoch: now,
-            respawn: None,
             start_due: false,
             awake: false,
             retake_owed: false,
@@ -409,18 +317,21 @@ impl App {
             releasing: None,
             wait,
             forever,
-            attached: Attached::NotYet,
             presented: false,
-            draw_now: false,
-            text_due: None,
-            cursor_due: None,
             timer_due: None,
-            pointer: Pointer::default(),
-            grid: GRID,
             exit: None,
             leaving: None,
             inherited,
         }
+    }
+
+    /// Runs the head file `rules` in place of the compiled-in
+    /// configuration, before any display comes: its heads, each with no
+    /// session yet, and its rules for each display that comes.
+    pub fn set_heads(&mut self, rules: vtium_config::Config) {
+        self.heads = heads(&rules, &self.config, self.scrollback, &self.clock);
+        self.rules = rules;
+        self.focus = None;
     }
 
     /// Puts the power keys' actions through `power`, a test's stand-in
@@ -430,11 +341,13 @@ impl App {
     }
 
     /// Reads the font's sets from `sources` in place of the system's store
-    /// and vconsole files: a test's stand-in. The font is chosen again at
-    /// the next display.
+    /// and vconsole files: a test's stand-in. Each head's font is chosen
+    /// again at its next display.
     pub fn set_font_sources(&mut self, sources: font::Sources) {
         self.font_sources = sources;
-        self.font = None;
+        for head in &mut self.heads {
+            head.font = None;
+        }
     }
 
     /// The kernel's font, read from the VT while it was in text mode, for
@@ -454,24 +367,49 @@ impl App {
         &self.config
     }
 
-    /// Starts the session's command at the end of the first turn
-    /// [`respawn::first_start_due`] allows.
+    /// The heads, in the head file's order.
+    pub fn heads(&self) -> &[Head] {
+        &self.heads
+    }
+
+    /// The head named `name`.
+    pub fn head(&self, name: &str) -> Option<&Head> {
+        self.heads.iter().find(|h| h.name() == name)
+    }
+
+    /// The head the keys type into, else the first: the one whose session
+    /// [`App::grid`], [`App::screen_text`] and [`App::term`] read.
+    fn shown(&self) -> Option<&Head> {
+        self.heads.get(self.focus.unwrap_or(0))
+    }
+
+    /// Starts each head's command at the end of the first turn
+    /// [`respawn::first_start_due`] allows it.
     pub fn start(&mut self) {
         self.start_due = true;
     }
 
-    /// Whether the session's command has started since [`App::start`].
+    /// Whether any head's command has started since [`App::start`].
     pub fn started(&self) -> bool {
-        self.respawn.is_some()
+        self.heads.iter().any(Head::started)
     }
 
-    /// The command's first start, when it is due.
+    /// Each head's first start, when it is due.
     fn first_start(&mut self, now: Instant) {
-        let display = !self.views.is_empty();
-        if self.start_due && respawn::first_start_due(self.awake, display, self.forever) {
-            self.start_due = false;
-            self.respawn = Some(Respawn::new(now.saturating_duration_since(self.epoch)));
-            self.spawn();
+        if !self.start_due {
+            return;
+        }
+        for h in 0..self.heads.len() {
+            let due = self.heads.get(h).is_some_and(|head| {
+                !head.started()
+                    && respawn::first_start_due(self.awake, !head.views.is_empty(), self.forever)
+            });
+            if due {
+                if let Some(head) = self.heads.get_mut(h) {
+                    head.respawn = Some(Respawn::new(now.saturating_duration_since(self.epoch)));
+                }
+                self.spawn(h);
+            }
         }
     }
 
@@ -508,14 +446,23 @@ impl App {
     }
 
     /// Removes a video device and its displays.
-    pub fn remove_video(&mut self, node: &std::path::Path) {
+    pub fn remove_video(&mut self, node: &Path) {
         self.videos.remove(node);
-        self.views.retain(|(n, _), _| n != node);
+        self.cards.remove(node);
+        for h in 0..self.heads.len() {
+            let lost = self.heads.get_mut(h).is_some_and(|head| {
+                let before = head.views.len();
+                head.views.retain(|(n, _), _| n != node);
+                head.views.len() != before
+            });
+            if lost {
+                self.relayout(h);
+            }
+        }
         self.retaking.remove(node);
         if let Some(r) = &mut self.releasing {
             r.remove(node);
         }
-        self.relayout();
     }
 
     fn place(&self) -> Place<'_> {
@@ -531,17 +478,8 @@ impl App {
         }
     }
 
-    fn pty_size(&self) -> Size {
-        let cell = self.cell;
-        Size {
-            cols: u16::try_from(self.grid.0).unwrap_or(u16::MAX),
-            rows: u16::try_from(self.grid.1).unwrap_or(u16::MAX),
-            cell_width: cell.0,
-            cell_height: cell.1,
-        }
-    }
-
-    fn spawn(&mut self) {
+    /// Starts head `h`'s session.
+    fn spawn(&mut self, h: usize) {
         let spec = child::child(&self.config, &self.place(), self.inherited.clone());
         let Some(command) = spec.command() else {
             log::error!("no command to run");
@@ -553,7 +491,10 @@ impl App {
         } else {
             Erase::Backspace
         };
-        let mut pty = match Pty::spawn(command, self.pty_size(), erase) {
+        let Some(size) = self.heads.get(h).map(Head::pty_size) else {
+            return;
+        };
+        let mut pty = match Pty::spawn(command, size, erase) {
             Ok(pty) => pty,
             Err(e) => {
                 log::error!("cannot start the session: {e}");
@@ -561,8 +502,8 @@ impl App {
                 return;
             }
         };
-        let inserted = pty.insert(&self.handle, |app: &mut App| {
-            let App { pty, term, .. } = app;
+        let inserted = pty.insert(&self.handle, move |app: &mut App| {
+            let Head { pty, term, .. } = app.heads.get_mut(h)?;
             pty.as_mut().map(|p| (p, term))
         });
         if let Err(e) = inserted {
@@ -570,52 +511,71 @@ impl App {
             self.request_exit(Exit::Spawn);
             return;
         }
-        self.pty = Some(pty);
+        if let Some(head) = self.heads.get_mut(h) {
+            head.pty = Some(pty);
+        }
     }
 
-    /// Chooses the font once, at the first display (ADR-1200 D9): the
-    /// frit `font-name` or vconsole names, or the one-source frit made on
-    /// the fly for a kbd name, a path or vconsole's font, generated at run
-    /// time (ADR-1301 D2); else the built-in font, with one line naming
-    /// the font and why.
-    fn choose_font(&mut self) {
-        if self.font.is_some() {
+    /// Chooses head `h`'s font once, at its first display (ADR-1200 D9,
+    /// ADR-1401 D3): the head's own font, else the frit `font-name` or
+    /// vconsole names, or the one-source frit made on the fly for a kbd
+    /// name, a path or vconsole's font, generated at run time (ADR-1301
+    /// D2); else the built-in font, with one line naming the font and why.
+    fn choose_font(&mut self, h: usize) {
+        let Some(head) = self.heads.get(h) else {
+            return;
+        };
+        if head.font.is_some() {
             return;
         }
         let s = &self.font_sources;
-        let Some(wanted) = font::wanted(
-            &self.config,
-            &font::read_text(&s.vconsole_conf),
-            &font::read_text(&s.kernel_cmdline),
-        ) else {
-            self.font = Some(Chosen::Builtin(None));
-            return;
+        let wanted = match &head.font_name {
+            Some(name) => Some(font::Wanted {
+                name: name.clone(),
+                came: font::Came::Config,
+            }),
+            None => font::wanted(
+                &self.config,
+                &font::read_text(&s.vconsole_conf),
+                &font::read_text(&s.kernel_cmdline),
+            ),
         };
-        if let Some(builtin) = font::builtin_named(&wanted.name) {
-            self.font = Some(builtin);
-            return;
+        let chosen = match wanted {
+            None => Chosen::Builtin(None),
+            Some(wanted) => match font::builtin_named(&wanted.name) {
+                Some(builtin) => builtin,
+                None => {
+                    // The frit's cell is read as text before the first
+                    // frame; its fonts are the helper's to parse (#145).
+                    let chosen = font::frit_named(&s.frits, &wanted)
+                        .and_then(|frit| Chosen::frit(frit, head.sized()));
+                    let chosen = match chosen {
+                        Ok(chosen) => {
+                            log::info!(
+                                "the font is the frit {}, drawn in the built-in font until its glyphs are generated",
+                                chosen.name(0, &self.locale)
+                            );
+                            chosen
+                        }
+                        Err(why) => {
+                            log::warn!(
+                                "the font {} is not drawn ({why}): vtium draws its built-in font",
+                                wanted.name
+                            );
+                            Chosen::Builtin(None)
+                        }
+                    };
+                    if let Some(head) = self.heads.get_mut(h) {
+                        head.font = Some(chosen);
+                    }
+                    self.own_cell(h);
+                    return;
+                }
+            },
+        };
+        if let Some(head) = self.heads.get_mut(h) {
+            head.font = Some(chosen);
         }
-        // The frit's cell is read as text before the first frame; its
-        // fonts are the helper's to parse (#145).
-        let sized = self.sized();
-        let chosen = font::frit_named(&s.frits, &wanted).and_then(|frit| Chosen::frit(frit, sized));
-        self.font = Some(match chosen {
-            Ok(chosen) => {
-                log::info!(
-                    "the font is the frit {}, drawn in the built-in font until its glyphs are generated",
-                    chosen.name(0, &self.locale)
-                );
-                chosen
-            }
-            Err(why) => {
-                log::warn!(
-                    "the font {} is not drawn ({why}): vtium draws its built-in font",
-                    wanted.name
-                );
-                Chosen::Builtin(None)
-            }
-        });
-        self.own_cell();
     }
 
     /// A frit of bitmap sources that states no cell, with no `font-size`
@@ -625,16 +585,22 @@ impl App {
     /// [`helper::OWN_CELL_MS`], the one wait on the helper before a frame.
     /// A refusal, or no answer in time, leaves the display's cell, with
     /// one line saying why.
-    fn own_cell(&mut self) {
-        if self.sized() || !self.font.as_ref().is_some_and(Chosen::wants_own_cell) {
+    fn own_cell(&mut self, h: usize) {
+        let wants = self.heads.get(h).is_some_and(|head| {
+            !head.sized() && head.font.as_ref().is_some_and(Chosen::wants_own_cell)
+        });
+        if !wants {
             return;
         }
         let now = (self.clock)();
-        let Some(helper) = self.helper() else {
+        let Some(helper) = self.helper(h) else {
             return;
         };
         let own = helper.own_cell(Duration::from_millis(helper::OWN_CELL_MS), now);
-        let name = self.chosen().name(0, &self.locale).to_owned();
+        let Some(head) = self.heads.get_mut(h) else {
+            return;
+        };
+        let name = head.chosen().name(0, &self.locale).to_owned();
         match own {
             Ok(cell) => {
                 log::info!(
@@ -642,7 +608,7 @@ impl App {
                     cell.width,
                     cell.height
                 );
-                if let Some(font) = &mut self.font {
+                if let Some(font) = &mut head.font {
                     font.set_own_cell(cell);
                 }
             }
@@ -652,42 +618,26 @@ impl App {
         }
     }
 
-    /// Whether `font-size` is configured, which wins over a frit's cell
-    /// (ADR-1200 D16); `font-size=0` is the automatic size.
-    fn sized(&self) -> bool {
-        self.config.number(&keys::FONT_SIZE).unwrap_or(0) != 0
-    }
-
-    /// The font set in use, the built-ins before one is chosen.
-    fn chosen(&self) -> &Chosen {
-        const BUILTIN: &Chosen = &Chosen::Builtin(None);
-        self.font.as_ref().unwrap_or(BUILTIN)
-    }
-
-    /// The name of the font set in use, as OSC 50's query reports it.
+    /// The name of the font set the shown head draws, as OSC 50's query
+    /// reports it.
     pub fn font_name(&self) -> &str {
-        self.chosen().name(self.font_size, &self.locale)
-    }
-
-    /// The font set's face at `height`.
-    fn face(&self, height: u32) -> Result<Box<dyn Face>, String> {
-        let chosen = self.chosen();
-        chosen.face(height, &self.locale).ok_or_else(|| {
-            format!(
-                "the set {} draws nothing at {height} pixels",
-                chosen.name(height, &self.locale)
-            )
+        self.shown().map_or("unifont", |head| {
+            head.chosen().name(head.font_size, &self.locale)
         })
     }
 
-    /// OSC 50 asked for the font `name` (ADR-1200 D5): a frit or a
-    /// built-in switches the live console as a zoom does, on a new grid, a
-    /// frit with a helper and a store of its own; anything else leaves the
-    /// font. The first refusal since the last switch is logged and the
-    /// rest counted, so a program's flood of requests logs one line.
-    fn switch_font(&mut self, name: &str) {
-        self.choose_font();
-        let same = match self.chosen() {
+    /// OSC 50 asked head `h` for the font `name` (ADR-1200 D5): a frit or
+    /// a built-in switches the head's live console as a zoom does, on a
+    /// new grid, a frit with a helper and a store of its own; anything
+    /// else leaves the font. The first refusal since the last switch is
+    /// logged and the rest counted, so a program's flood of requests logs
+    /// one line.
+    fn switch_font(&mut self, h: usize, name: &str) {
+        self.choose_font(h);
+        let Some(head) = self.heads.get(h) else {
+            return;
+        };
+        let same = match head.chosen() {
             Chosen::Frit { name: now, .. } => now == name,
             Chosen::Builtin(Some(n)) => *n == name,
             Chosen::Builtin(None) => false,
@@ -695,85 +645,61 @@ impl App {
         if same {
             return;
         }
-        let sized = self.sized();
+        let sized = head.sized();
         let new = font::by_name(&self.font_sources, name).and_then(|new| {
             let new = match new {
                 Chosen::Frit { frit, .. } => Chosen::frit(frit, sized)?,
                 builtin => builtin,
             };
-            let old = self.font.replace(new);
-            let helper = self.helper.take();
-            let refused = std::mem::take(&mut self.helper_refused);
-            let asked = std::mem::take(&mut self.asked);
-            self.own_cell();
-            self.refont = true;
-            if self.relayout() {
+            let Some(head) = self.heads.get_mut(h) else {
+                return Ok(());
+            };
+            let old = head.font.replace(new);
+            let helper = head.helper.take();
+            let refused = std::mem::take(&mut head.helper_refused);
+            let asked = std::mem::take(&mut head.asked);
+            self.own_cell(h);
+            if let Some(head) = self.heads.get_mut(h) {
+                head.refont = true;
+            }
+            if self.relayout(h) {
                 return Ok(());
             }
-            self.font = old;
-            self.helper = helper;
-            self.helper_refused = refused;
-            self.asked = asked;
-            self.refont = true;
-            self.relayout();
-            Err(format!("it draws nothing at {} pixels", self.font_size))
+            let Some(head) = self.heads.get_mut(h) else {
+                return Ok(());
+            };
+            head.font = old;
+            head.helper = helper;
+            head.helper_refused = refused;
+            head.asked = asked;
+            head.refont = true;
+            let size = head.font_size;
+            self.relayout(h);
+            Err(format!("it draws nothing at {size} pixels"))
         });
+        let Some(head) = self.heads.get_mut(h) else {
+            return;
+        };
+        let current = head.chosen().name(head.font_size, &self.locale).to_owned();
         match new {
             Ok(()) => {
-                let refused = std::mem::take(&mut self.font_refused);
+                let refused = std::mem::take(&mut head.font_refused);
                 if refused > 1 {
                     log::info!(
                         "OSC 50 was refused {} more times before this switch",
                         refused.saturating_sub(1)
                     );
                 }
-                log::info!("OSC 50: the font is now {}", self.font_name());
+                log::info!("OSC 50: the font is now {current}");
             }
             Err(why) => {
-                if self.font_refused == 0 {
+                if head.font_refused == 0 {
                     log::warn!(
-                        "OSC 50 asked for the font {name}: {why}; the font stays {}, and OSC 50's further refusals are counted until a switch",
-                        self.font_name()
+                        "OSC 50 asked for the font {name}: {why}; the font stays {current}, and OSC 50's further refusals are counted until a switch"
                     );
                 }
-                self.font_refused = self.font_refused.saturating_add(1);
+                head.font_refused = head.font_refused.saturating_add(1);
             }
-        }
-    }
-
-    /// The font at `height`, with the frit's sprite policy and the
-    /// configuration's over it, and the missing glyph.
-    fn font_at(&self, face: Box<dyn Face>) -> Font<Box<dyn Face>> {
-        let font = Font::new(face);
-        let own = match self.chosen() {
-            Chosen::Frit { frit, .. } => font::frit_policy(&frit.text, font.policy()),
-            Chosen::Builtin(_) => font.policy(),
-        };
-        let policy = font::policy(&self.config, own);
-        font.with_policy(policy)
-            .with_missing(font::missing(&self.config))
-    }
-
-    fn render_config(&self) -> RenderConfig {
-        let profile = match self.config.text(&keys::GLYPH_CACHE) {
-            Some("performance") => Profile::Performance,
-            Some("minspec") => Profile::Minspec,
-            _ => Profile::default(),
-        };
-        RenderConfig {
-            profile,
-            orientation: self.orientation,
-            blink: crate::blink::text_blink(&self.config),
-            decorations: DecorationColors {
-                underline: self.config.deco_color(&keys::UNDERLINE_COLOR),
-                strike: self.config.deco_color(&keys::STRIKE_COLOR),
-                force: self.config.switch(&keys::FORCE_DECORATION_COLORS),
-            },
-            pointer: self
-                .config
-                .char(&keys::POINTER_CHAR)
-                .map_or(PointerShape::Arrow, PointerShape::Glyph),
-            ..RenderConfig::default()
         }
     }
 
@@ -781,7 +707,12 @@ impl App {
         matches!(self.config.text(&keys::RENDER_TIMER), Some("log" | "both"))
     }
 
-    fn add_display(&mut self, node: &PathBuf, id: DisplayId) {
+    /// The head a display joins, by the first rule that matches it.
+    fn head_for(&self, _node: &Path, _id: DisplayId) -> Option<usize> {
+        (!self.heads.is_empty()).then_some(0)
+    }
+
+    fn add_display(&mut self, node: &Path, id: DisplayId) {
         let Some(video) = self.videos.get(node) else {
             return;
         };
@@ -792,20 +723,26 @@ impl App {
         let (backend, name) = (video.backend(), video.name(id));
         let levels = video.levels(id);
         let measured = video.dpi(id).is_some();
+        let Some(h) = self.head_for(node, id) else {
+            return;
+        };
         if !measured
             && self.config.number(&keys::DISPLAY_DPI).is_none()
-            && self.assumed.insert((node.clone(), id))
+            && self.assumed.insert((node.to_owned(), id))
         {
             crate::warn::warn(format_args!(
                 "display {name} reports no physical size: vtium assumes {DPI_ASSUMED} DPI, which display-dpi can state"
             ));
         }
-        self.choose_font();
-        let Ok(face) = self.face(self.font_size.max(1)) else {
+        self.choose_font(h);
+        let Some(head) = self.heads.get(h) else {
+            return;
+        };
+        let Ok(face) = head.face(head.font_size.max(1), &self.locale) else {
             log::error!("cannot load the font for display {name}");
             return;
         };
-        let font = self.font_at(face);
+        let font = head.font_at(face, &self.config);
         let mut view = View::new(
             id,
             font,
@@ -813,19 +750,24 @@ impl App {
             refresh,
             RenderConfig {
                 depth: depth(&self.config, levels),
-                ..self.render_config()
+                ..head.render_config(&self.config)
             },
             self.measure(),
         );
         if self.config.switch(&keys::SOFT_CURSOR) {
             view.pointer = crate::pointer::Pointer::software();
         }
-        self.views.insert((node.clone(), id), view);
-        if !self.relayout() {
-            self.views.remove(&(node.clone(), id));
+        let key = (node.to_owned(), id);
+        if let Some(head) = self.heads.get_mut(h) {
+            head.views.insert(key.clone(), view);
+        }
+        if !self.relayout(h) {
+            if let Some(head) = self.heads.get_mut(h) {
+                head.views.remove(&key);
+            }
             return;
         }
-        if let Some(v) = self.views.get(&(node.clone(), id)) {
+        if let Some(v) = self.heads.get(h).and_then(|head| head.views.get(&key)) {
             let cell = v.renderer.font().cell();
             log::info!(
                 "Display {name} with backend [{backend}] text renderer [bbulk], cell size {}x{}",
@@ -835,28 +777,41 @@ impl App {
         }
     }
 
-    /// Sets every display's font and the grid from the base height, as
-    /// [`layout::layout`] decides, and the terminal and the pty at the
-    /// grid. Returns false, changing nothing, when the base font cannot be
-    /// found.
-    fn relayout(&mut self) -> bool {
-        let sizes: Vec<(u32, u32)> = self.views.values().map(|v| v.size).collect();
-        if sizes.is_empty() {
+    /// Sets each of head `h`'s displays' font and its grid from the base
+    /// height, as [`layout::layout`] decides, and its terminal and its pty
+    /// at the grid. Returns false, changing nothing, when the base font
+    /// cannot be found.
+    fn relayout(&mut self, h: usize) -> bool {
+        if self.heads.get(h).is_none_or(|head| head.views.is_empty()) {
             return true;
         }
-        self.choose_font();
-        let dpi = self.dpi();
-        if let Some(points) = self.points {
-            self.font_size = font::points_to_pixels(points, dpi);
-        } else if self.auto_size {
+        self.choose_font(h);
+        let dpi = self.dpi(h);
+        let focused = self.focus == Some(h);
+        let App {
+            heads,
+            config,
+            locale,
+            input,
+            ..
+        } = self;
+        let Some(head) = heads.get_mut(h) else {
+            return true;
+        };
+        let locale = locale.as_str();
+        let sizes: Vec<(u32, u32)> = head.views.values().map(|v| v.size).collect();
+        if let Some(points) = head.points {
+            head.font_size = font::points_to_pixels(points, dpi);
+        } else if head.auto_size {
             let w = sizes.iter().map(|s| s.0).min().unwrap_or(0);
-            let h = sizes.iter().map(|s| s.1).min().unwrap_or(0);
-            self.font_size = self.chosen().auto_height(w, h, &self.locale, dpi);
+            let ht = sizes.iter().map(|s| s.1).min().unwrap_or(0);
+            head.font_size = head.chosen().auto_height(w, ht, locale, dpi);
         }
-        self.font_size = self.chosen().snap(self.font_size);
-        let base = match font::select(self.font_size, self.has_font, |h| self.face(h)) {
-            Ok((face, h)) => {
-                if !self.has_font {
+        head.font_size = head.chosen().snap(head.font_size);
+        let selected = font::select(head.font_size, head.has_font, |x| head.face(x, locale));
+        let base = match selected {
+            Ok((face, base)) => {
+                if !head.has_font {
                     for (range, n) in vtium_font::Coverage::new(|r| face.coverage(r)).partial() {
                         crate::warn::warn(format_args!(
                             "the font covers {} of {} characters of {range:?}; that range draws the sprites unless glyph-source says otherwise",
@@ -864,65 +819,74 @@ impl App {
                         ));
                     }
                 }
-                self.has_font = true;
-                self.step = face.size_step();
-                h
+                head.has_font = true;
+                head.step = face.size_step();
+                base
             }
             Err(e) => {
                 log::error!("cannot load the font: {e}");
                 return false;
             }
         };
-        self.font_size = base;
-        let name = self.chosen().name(base, &self.locale).to_owned();
-        self.term.terminal.set_font_name(&name);
-        let cell = |h: u32| {
-            self.face(h).ok().map(|f| {
+        head.font_size = base;
+        let name = head.chosen().name(base, locale).to_owned();
+        head.term.terminal.set_font_name(&name);
+        let cell = |head: &Head, at: u32| {
+            head.face(at, locale).ok().map(|f| {
                 let c = f.cell();
                 (c.width, c.height)
             })
         };
-        let turned = matches!(self.orientation, Orientation::Right | Orientation::Left);
-        let Some(l) = layout::layout(&sizes, turned, base, self.step, cell) else {
+        let turned = matches!(head.orientation, Orientation::Right | Orientation::Left);
+        let Some(l) = layout::layout(&sizes, turned, base, head.step, |at| cell(head, at)) else {
             return true;
         };
-        self.cell = cell(base).unwrap_or(self.cell);
-        let config = self.render_config();
-        let heights: Vec<u32> = l.heights.clone();
-        let keys: Vec<(PathBuf, DisplayId)> = self.views.keys().cloned().collect();
-        let refont = std::mem::take(&mut self.refont);
-        for (key, height) in keys.into_iter().zip(heights) {
-            let stale = self
+        head.cell = cell(head, base).unwrap_or(head.cell);
+        let render = head.render_config(config);
+        let keys: Vec<(PathBuf, DisplayId)> = head.views.keys().cloned().collect();
+        let refont = std::mem::take(&mut head.refont);
+        for (key, height) in keys.into_iter().zip(l.heights) {
+            let orientation = head.orientation;
+            let stale = head
                 .views
                 .get(&key)
-                .is_some_and(|v| refont || v.height != height || v.orientation != self.orientation);
+                .is_some_and(|v| refont || v.height != height || v.orientation != orientation);
             if !stale {
                 continue;
             }
-            let Ok(face) = self.face(height) else {
+            let Ok(face) = head.face(height, locale) else {
                 continue;
             };
-            let font = self.font_at(face);
-            if let Some(v) = self.views.get_mut(&key) {
-                v.rebuild(font, height, config);
+            let font = head.font_at(face, config);
+            if let Some(v) = head.views.get_mut(&key) {
+                v.rebuild(font, height, render);
             }
         }
-        self.resize(l.grid);
-        self.ask_glyphs();
+        head.resize(l.grid);
+        if focused {
+            if let Some(input) = input {
+                let (w, ht) = head.pixels(head.grid);
+                input.set_pointer_max(w, ht);
+            }
+        }
+        self.ask_glyphs(h);
         true
     }
 
-    /// The density points convert at (the operator's decision on
-    /// vtium/vtium#145): `display-dpi`; else the lowest of the displays',
-    /// each one's measured down its rows as vtium draws it, or
+    /// The density head `h`'s points convert at (the operator's decision
+    /// on vtium/vtium#145): `display-dpi`; else the lowest of the head's
+    /// displays', each one's measured down its rows as vtium draws it, or
     /// [`DPI_ASSUMED`] where it measures none; [`DPI_ASSUMED`] with no
     /// display.
-    fn dpi(&self) -> f64 {
+    fn dpi(&self, h: usize) -> f64 {
         if let Some(dpi) = self.config.number(&keys::DISPLAY_DPI) {
             return dpi as f64;
         }
-        let turned = matches!(self.orientation, Orientation::Right | Orientation::Left);
-        self.views
+        let Some(head) = self.heads.get(h) else {
+            return DPI_ASSUMED;
+        };
+        let turned = matches!(head.orientation, Orientation::Right | Orientation::Left);
+        head.views
             .keys()
             .map(|(node, id)| {
                 let measured = self.videos.get(node).and_then(|v| v.dpi(*id));
@@ -935,43 +899,19 @@ impl App {
             .unwrap_or(DPI_ASSUMED)
     }
 
-    /// What the displays show, read from the view each buffer draws,
-    /// scrolled back or not (#149): the characters, every character of a
-    /// cluster among them, and the clusters whole (ADR-1200 D21), each
-    /// sorted and once.
-    fn visible(&self) -> Shown {
-        let palette = self.term.terminal.palette();
-        let frame = self.term.terminal.screen().frame(palette, Age::NEVER);
-        let mut shown = Shown::default();
-        for row in 0..frame.rows() {
-            for cell in frame.cells(row) {
-                match cell.glyph {
-                    Glyph::Char(c) => shown.chars.push(c),
-                    Glyph::Cluster(text) => {
-                        shown.chars.extend(text.chars());
-                        shown.clusters.push(text.chars().collect());
-                    }
-                    Glyph::Empty => {}
-                }
-            }
-        }
-        shown.chars.retain(|c| !c.is_whitespace());
-        shown.chars.sort_unstable();
-        shown.chars.dedup();
-        shown.clusters.sort_unstable();
-        shown.clusters.dedup();
-        shown
-    }
-
-    /// While the font is a frit, fills each cell a display draws at and
-    /// that was not filled yet, the screen's characters first, and asks for
-    /// the screen's characters there; drops the glyphs of cells no display
-    /// draws at any more (ADR-1301 D2, the operator's fill model).
-    fn ask_glyphs(&mut self) {
-        if !matches!(self.font, Some(Chosen::Frit { .. })) {
+    /// While head `h`'s font is a frit, fills each cell a display of the
+    /// head draws at and that was not filled yet, the screen's characters
+    /// first, and asks for the screen's characters there; drops the glyphs
+    /// of cells no display draws at any more (ADR-1301 D2, the operator's
+    /// fill model).
+    fn ask_glyphs(&mut self, h: usize) {
+        let Some(head) = self.heads.get_mut(h) else {
+            return;
+        };
+        if !matches!(head.font, Some(Chosen::Frit { .. })) {
             return;
         }
-        let mut cells: Vec<vtium_font::Cell> = self
+        let mut cells: Vec<vtium_font::Cell> = head
             .views
             .values()
             .map(|v| v.renderer.font().cell())
@@ -979,61 +919,66 @@ impl App {
         cells.sort_unstable_by_key(|c| (c.height, c.width));
         cells.dedup();
         let now = (self.clock)();
-        if let Some(helper) = &mut self.helper {
+        if let Some(helper) = &mut head.helper {
             helper.retain(&cells, now);
         }
-        self.asked.retain(|c| cells.contains(c));
+        head.asked.retain(|c| cells.contains(c));
         let new: Vec<vtium_font::Cell> = cells
             .into_iter()
-            .filter(|c| !self.asked.contains(c))
+            .filter(|c| !head.asked.contains(c))
             .collect();
         if new.is_empty() {
             return;
         }
-        let visible = self.visible();
-        let Some(helper) = self.helper() else {
+        let visible = head.visible();
+        let Some(helper) = self.helper(h) else {
             return;
         };
         for &cell in &new {
             helper.ask(cell, &visible, now);
             helper.fill(cell, &visible.chars, now);
         }
-        self.asked.extend(new);
+        if let Some(head) = self.heads.get_mut(h) {
+            head.asked.extend(new);
+        }
     }
 
-    /// While the font is a frit and the screen changed, asks for each
-    /// character and cluster it shows that the store does not hold, and
-    /// marks the glyphs of the others as used.
-    fn ask_visible(&mut self, now: Instant) {
-        let Some(Chosen::Frit { generated, .. }) = &self.font else {
+    /// While head `h`'s font is a frit and its screen changed, asks for
+    /// each character and cluster it shows that the store does not hold,
+    /// and marks the glyphs of the others as used.
+    fn ask_visible(&mut self, h: usize, now: Instant) {
+        let Some(head) = self.heads.get_mut(h) else {
+            return;
+        };
+        let Some(Chosen::Frit { generated, .. }) = &head.font else {
             return;
         };
         let generated = Rc::clone(generated);
-        if self.helper.is_none() {
+        if head.helper.is_none() {
             return;
         }
-        let visible = self.visible();
-        let cells = self.asked.clone();
-        for cell in cells {
+        let visible = head.visible();
+        for &cell in &head.asked {
             generated.borrow_mut().touch(cell, &visible);
-            if let Some(helper) = &mut self.helper {
+            if let Some(helper) = &mut head.helper {
                 helper.ask(cell, &visible, now);
             }
         }
     }
 
-    /// The helper, started on the first need with a wake-up into the loop
-    /// for its answers and the store its glyphs go into; `None`, logged
-    /// once, when it cannot be.
-    fn helper(&mut self) -> Option<&mut Helper> {
+    /// Head `h`'s helper, started on the first need with a wake-up into
+    /// the loop for its answers and the store its glyphs go into; `None`,
+    /// logged once, when it cannot be.
+    fn helper(&mut self, h: usize) -> Option<&mut Helper> {
+        let head = self.heads.get(h)?;
         let Some(Chosen::Frit {
             frit, generated, ..
-        }) = &self.font
+        }) = &head.font
         else {
             return None;
         };
         let (frit, generated) = (frit.clone(), Rc::clone(generated));
-        if self.helper.is_none() && !self.helper_refused {
+        if head.helper.is_none() && !head.helper_refused {
             let command = self
                 .font_sources
                 .helper
@@ -1047,10 +992,10 @@ impl App {
                         .map_err(|e| format!("cannot watch its wake-up: {e}"))?;
                     Ok(ping)
                 });
-            match command.and_then(|c| wake.map(|w| (c, w))) {
+            let started = match command.and_then(|c| wake.map(|w| (c, w))) {
                 Ok((command, ping)) => {
                     let wake = std::sync::Mutex::new(ping);
-                    self.helper = Some(Helper::new(
+                    Ok(Helper::new(
                         command,
                         std::sync::Arc::new(move || {
                             if let Ok(p) = wake.lock() {
@@ -1062,133 +1007,117 @@ impl App {
                         self.console_font.clone(),
                         generated,
                         crate::deferred::store_limit(physical_memory()),
-                    ));
+                    ))
                 }
                 Err(why) => {
                     log::warn!(
                         "the font's glyphs are not generated ({why}): vtium draws its built-in font, and each cluster unshaped, a glyph a codepoint"
                     );
-                    self.helper_refused = true;
+                    Err(())
                 }
+            };
+            let head = self.heads.get_mut(h)?;
+            match started {
+                Ok(helper) => head.helper = Some(helper),
+                Err(()) => head.helper_refused = true,
             }
         }
-        self.helper.as_mut()
+        self.heads.get_mut(h)?.helper.as_mut()
     }
 
-    /// Takes the helper's answers: each display at a set's cell forgets
+    /// Takes each helper's answers: each display at a set's cell forgets
     /// the glyphs it cached for the set's characters, so none draws the
     /// built-in font once the frit sent it (ADR-1200 D7), and redraws the
     /// cells that show one.
     fn helper_turn(&mut self, now: Instant) {
-        if self.term.changed {
-            self.ask_visible(now);
-        }
-        let Some(helper) = &mut self.helper else {
-            return;
-        };
-        let answers = helper.poll(now);
-        if answers.is_empty() {
-            return;
-        }
-        // Arrival is damage, as program output is: the answers since the
-        // last turn merge into one set per cell, which the next frame draws
-        // once, and only the cells showing their characters draw.
-        let visible = self.visible().chars;
-        let mut arrived: Vec<(vtium_font::Cell, Vec<char>)> = Vec::new();
-        for Answer { cell, chars, .. } in answers {
-            match arrived.iter_mut().find(|(at, _)| *at == cell) {
-                Some((_, all)) => all.extend(chars),
-                None => arrived.push((cell, chars)),
+        for h in 0..self.heads.len() {
+            if self.heads.get(h).is_some_and(|head| head.term.changed) {
+                self.ask_visible(h, now);
+            }
+            let Some(head) = self.heads.get_mut(h) else {
+                continue;
+            };
+            let Some(helper) = &mut head.helper else {
+                continue;
+            };
+            let answers = helper.poll(now);
+            if answers.is_empty() {
+                continue;
+            }
+            // Arrival is damage, as program output is: the answers since
+            // the last turn merge into one set per cell, which the next
+            // frame draws once, and only the cells showing their
+            // characters draw.
+            let visible = head.visible().chars;
+            let mut arrived: Vec<(vtium_font::Cell, Vec<char>)> = Vec::new();
+            for Answer { cell, chars, .. } in answers {
+                match arrived.iter_mut().find(|(at, _)| *at == cell) {
+                    Some((_, all)) => all.extend(chars),
+                    None => arrived.push((cell, chars)),
+                }
+            }
+            for (cell, chars) in arrived {
+                let (shown, hidden): (Vec<char>, Vec<char>) = chars
+                    .into_iter()
+                    .partition(|c| visible.binary_search(c).is_ok());
+                for v in head.views.values_mut() {
+                    if v.renderer.font().cell() == cell {
+                        v.renderer.forget_glyphs(&hidden);
+                        if !shown.is_empty() {
+                            v.renderer.glyphs_changed(&shown);
+                        }
+                    }
+                }
+                head.draw_now |= !shown.is_empty();
             }
         }
-        for (cell, chars) in arrived {
-            let (shown, hidden): (Vec<char>, Vec<char>) = chars
-                .into_iter()
-                .partition(|c| visible.binary_search(c).is_ok());
-            for v in self.views.values_mut() {
-                if v.renderer.font().cell() == cell {
-                    v.renderer.forget_glyphs(&hidden);
-                    if !shown.is_empty() {
-                        v.renderer.glyphs_changed(&shown);
+    }
+
+    /// The terminals start drawing and blinking.
+    fn activate(&mut self, now: Instant) {
+        self.awake = true;
+        for head in &mut self.heads {
+            head.set_visible(true);
+            if let Some(arms) = head.term.blink.activate() {
+                for (timer, arm) in arms {
+                    match timer {
+                        Timer::Text => head.text_due = Some(after(now, arm.first)),
+                        Timer::Cursor => {
+                            head.cursor_due = Some((after(now, arm.first), arm.every));
+                        }
                     }
                 }
             }
-            self.draw_now |= !shown.is_empty();
-        }
-    }
-
-    /// The terminal and the pty at `grid`, the pointer within it.
-    fn resize(&mut self, grid: (usize, usize)) {
-        let (cw, ch) = self.cell;
-        let px = |n: usize, c: u32| u32::try_from(n).unwrap_or(u32::MAX).saturating_mul(c);
-        if let Some(input) = &mut self.input {
-            input.set_pointer_max(px(grid.0, cw), px(grid.1, ch));
-        }
-        self.term.terminal.set_cell_size(cw, ch);
-        self.term
-            .terminal
-            .set_display_size(px(grid.0, cw), px(grid.1, ch));
-        for v in self.views.values_mut() {
-            v.lost = true;
-        }
-        self.draw_now = true;
-        if grid != self.grid {
-            self.grid = grid;
-            let size = self.pty_size();
-            if let Some(pty) = &mut self.pty {
-                if let Err(e) = pty.resize(size) {
-                    log::warn!("cannot resize the pty: {e}");
-                }
+            for v in head.views.values_mut() {
+                v.lost = true;
             }
-        }
-        // Last, so mode 2048 reports the resize once it is complete, a new
-        // font on the same grid included; the report goes out at once.
-        self.term.terminal.resize(grid.0, grid.1);
-        self.send_user_bytes();
-    }
-
-    /// The terminal starts drawing and blinking.
-    fn activate(&mut self, now: Instant) {
-        self.awake = true;
-        self.set_visible(true);
-        if let Some(arms) = self.term.blink.activate() {
-            for (timer, arm) in arms {
-                match timer {
-                    Timer::Text => self.text_due = Some(after(now, arm.first)),
-                    Timer::Cursor => self.cursor_due = Some((after(now, arm.first), arm.every)),
-                }
-            }
+            head.draw_now = true;
         }
         if self.measure() {
             self.timer_due = Some(after(now, Duration::from_secs(1)));
         }
-        for v in self.views.values_mut() {
-            v.lost = true;
-        }
-        self.draw_now = true;
     }
 
-    /// The terminal stops drawing and blinking.
+    /// The terminals stop drawing and blinking.
     fn deactivate(&mut self) {
         self.awake = false;
-        self.set_visible(false);
-        self.text_due = None;
-        self.cursor_due = None;
+        for head in &mut self.heads {
+            head.set_visible(false);
+            head.text_due = None;
+            head.cursor_due = None;
+        }
         self.timer_due = None;
     }
 
-    /// The console is potentially visible while it draws: not while the
-    /// VT is another's or the displays are blanked. Mode 2033's report
-    /// goes out at once, to a program that may be waiting in a read.
-    fn set_visible(&mut self, visible: bool) {
-        self.term.terminal.set_visible(visible);
-        self.send_user_bytes();
+    /// Whether any head has a display.
+    fn any_display(&self) -> bool {
+        self.heads.iter().any(|head| !head.views.is_empty())
     }
 
     /// The blank is due: every display powers down. With none, the
     /// countdown starts again.
     fn blank_now(&mut self, now: Instant) {
-        if self.views.is_empty() {
+        if !self.any_display() {
             self.blank.input(now);
             return;
         }
@@ -1275,6 +1204,16 @@ impl App {
         }
     }
 
+    /// Every display of every head draws whole at the turn's end.
+    fn lose_every_view(&mut self) {
+        for head in &mut self.heads {
+            for v in head.views.values_mut() {
+                v.lost = true;
+            }
+            head.draw_now = true;
+        }
+    }
+
     fn vt_event(&mut self, event: VtEvent, now: Instant) {
         match event {
             VtEvent::Acquired => {
@@ -1298,7 +1237,9 @@ impl App {
                 // to the VT that is not ours.
                 self.retake_owed = false;
                 // The drag's release reaches the VT that is ours next.
-                self.pointer.drag = None;
+                for head in &mut self.heads {
+                    head.pointer.drag = None;
+                }
                 self.deactivate();
                 if let Some(input) = &mut self.input {
                     input.sleep();
@@ -1321,37 +1262,52 @@ impl App {
                         log::warn!("cannot set up {} again: {e}", node.display());
                     }
                 }
-                for v in self.views.values_mut() {
-                    v.lost = true;
-                }
-                self.draw_now = true;
+                self.lose_every_view();
             }
             VtEvent::Hangup => self.request_exit(Exit::Hangup),
         }
     }
 
-    fn video_event(&mut self, node: &PathBuf, event: Event, now: Instant) {
+    /// The head holding the display `id` of `node`.
+    fn head_of(&self, node: &Path, id: DisplayId) -> Option<usize> {
+        let key = (node.to_owned(), id);
+        self.heads
+            .iter()
+            .position(|head| head.views.contains_key(&key))
+    }
+
+    fn video_event(&mut self, node: &Path, event: Event, now: Instant) {
         match event {
             Event::Added(id) => self.add_display(node, id),
             Event::Removed(id) => {
-                self.views.remove(&(node.clone(), id));
-                self.relayout();
+                if let Some(h) = self.head_of(node, id) {
+                    if let Some(head) = self.heads.get_mut(h) {
+                        head.views.remove(&(node.to_owned(), id));
+                    }
+                    self.relayout(h);
+                }
             }
             Event::Redraw(id) => {
-                if let Some(v) = self.views.get_mut(&(node.clone(), id)) {
-                    v.lost = true;
+                let key = (node.to_owned(), id);
+                for head in &mut self.heads {
+                    if let Some(v) = head.views.get_mut(&key) {
+                        v.lost = true;
+                        head.draw_now = true;
+                    }
                 }
-                self.draw_now = true;
             }
             // A frame waiting on this flip is drawn at the turn's end,
             // as a pending view is; the other displays keep their own
             // coalescing.
             // A frame on screen ends the start's wait.
             Event::Flipped(id) => {
-                if let Some(v) = self.views.get_mut(&(node.clone(), id)) {
-                    self.presented = true;
-                    if let Some(t) = v.timer.as_mut() {
-                        t.flip();
+                let key = (node.to_owned(), id);
+                for head in &mut self.heads {
+                    if let Some(v) = head.views.get_mut(&key) {
+                        self.presented = true;
+                        if let Some(t) = v.timer.as_mut() {
+                            t.flip();
+                        }
                     }
                 }
             }
@@ -1380,37 +1336,65 @@ impl App {
         }
     }
 
-    /// The first display came, the last went, or the next came. With none
-    /// the session runs on at the grid it had, which no display resizes,
-    /// and the blank does not run: the blank in force ends, and the
-    /// countdown starts afresh when a display comes, as at the user's
-    /// input for now (vtium/vtium#87 tells the two apart). The next is
-    /// drawn whole, and resizes the grid when its own differs.
-    fn attachment(&mut self, now: Instant) {
-        let attached = if self.views.is_empty() {
-            match self.attached {
-                Attached::NotYet => Attached::NotYet,
-                Attached::Yes | Attached::Gone => Attached::Gone,
-            }
-        } else {
-            Attached::Yes
-        };
-        let (cols, rows) = self.grid;
-        match (self.attached, attached) {
-            (Attached::Yes, Attached::Gone) => {
-                log::warn!(
-                    "the last display is gone: the session runs on at {cols}x{rows} until the next comes"
-                );
-                self.wake(now);
-            }
-            (Attached::Gone, Attached::Yes) => {
-                log::info!("a display came: the session is drawn again at {cols}x{rows}");
-                self.wake(now);
-            }
-            (Attached::NotYet, Attached::Yes) => self.wake(now),
-            _ => {}
+    /// The focus, once a head has a display (ADR-1401 D5): it starts on
+    /// the first head with one, and stays there.
+    fn take_focus(&mut self) {
+        if self.focus.is_some() {
+            return;
         }
-        self.attached = attached;
+        self.focus = self.heads.iter().position(|head| !head.views.is_empty());
+        let Some(head) = self.focus.and_then(|h| self.heads.get(h)) else {
+            return;
+        };
+        if let Some(input) = &mut self.input {
+            let (w, h) = head.pixels(head.grid);
+            input.set_pointer_max(w, h);
+        }
+    }
+
+    /// A head's first display came, its last went, or its next came. With
+    /// none the head's session runs on at the grid it had, which no
+    /// display resizes, and the blank does not run: the blank in force
+    /// ends, and the countdown starts afresh when a display comes, as at
+    /// the user's input for now (vtium/vtium#87 tells the two apart). The
+    /// next is drawn whole, and resizes the grid when its own differs.
+    fn attachment(&mut self, now: Instant) {
+        let several = self.heads.len() > 1;
+        let mut changed = false;
+        for head in &mut self.heads {
+            let attached = if head.views.is_empty() {
+                match head.attached {
+                    Attached::NotYet => Attached::NotYet,
+                    Attached::Yes | Attached::Gone => Attached::Gone,
+                }
+            } else {
+                Attached::Yes
+            };
+            let (cols, rows) = head.grid;
+            let of = if several {
+                format!(" of head {}", head.name())
+            } else {
+                String::new()
+            };
+            match (head.attached, attached) {
+                (Attached::Yes, Attached::Gone) => {
+                    log::warn!(
+                        "the last display{of} is gone: the session runs on at {cols}x{rows} until the next comes"
+                    );
+                    changed = true;
+                }
+                (Attached::Gone, Attached::Yes) => {
+                    log::info!("a display{of} came: the session is drawn again at {cols}x{rows}");
+                    changed = true;
+                }
+                (Attached::NotYet, Attached::Yes) => changed = true,
+                _ => {}
+            }
+            head.attached = attached;
+        }
+        if changed {
+            self.wake(now);
+        }
     }
 
     /// A device of the seat came, went or changed. A framebuffer a DRM
@@ -1427,7 +1411,8 @@ impl App {
                     log::debug!("{}: backed by a DRM card, skipped", dev.node.display());
                 }
                 kind => {
-                    if let Err(e) = open_video(self, &dev.node, kind, dev.id_path.as_deref()) {
+                    let card = Card::at(&dev.node, dev.id_path.as_deref(), dev.flags.primary);
+                    if let Err(e) = open_video(self, &dev.node, kind, card) {
                         log::warn!("cannot open {}: {e}", dev.node.display());
                     }
                 }
@@ -1469,9 +1454,10 @@ impl App {
     }
 
     /// A pointer event, with the modifiers held on the keyboards as it
-    /// came. A move, a button or the wheel is the user's activity; the
-    /// end of a frame and the hide are vtium's own, as the C reference
-    /// counted them (`src/seat.c:578-590` at kmscon b1f7a7c5).
+    /// came, for the head holding the focus. A move, a button or the wheel
+    /// is the user's activity; the end of a frame and the hide are vtium's
+    /// own, as the C reference counted them (`src/seat.c:578-590` at
+    /// kmscon b1f7a7c5).
     pub fn pointer_event(&mut self, event: PointerEvent, mods: InputMods, now: Instant) {
         match event {
             PointerEvent::Moved { .. } | PointerEvent::Button { .. } | PointerEvent::Wheel(_) => {
@@ -1479,7 +1465,16 @@ impl App {
             }
             PointerEvent::Sync | PointerEvent::Hide => {}
         }
-        self.pointer(event, Mods::from_bits(mods.bits()));
+        let Some(h) = self.focus else {
+            return;
+        };
+        let Some(head) = self.heads.get_mut(h) else {
+            return;
+        };
+        let zoom = head.pointer_event(event, Mods::from_bits(mods.bits()), &mut self.selection);
+        if let Some(dir) = zoom {
+            self.zoom(h, dir);
+        }
     }
 
     /// The user's input reaches every device, which retries a failed
@@ -1493,10 +1488,10 @@ impl App {
         self.user_input(now);
     }
 
-    /// The key order: the VT's keys, the seat's, the terminal's grabs,
-    /// DECARM, the encoder. Each key that passes the seat's clears the
-    /// selection, as the C reference's did (`src/terminal.c:1370` at
-    /// kmscon b1f7a7c5).
+    /// The key order: the VT's keys, the seat's, then the focused head's
+    /// terminal: its grabs, DECARM, the encoder. Each key that passes the
+    /// seat's clears the selection, as the C reference's did
+    /// (`src/terminal.c:1370` at kmscon b1f7a7c5).
     fn key(&mut self, key: &KeyEvent, now: Instant) {
         if self.vt.key(key) || !self.awake {
             return;
@@ -1521,41 +1516,41 @@ impl App {
             }
             return;
         }
-        self.term.terminal.screen_mut().clear_selection();
+        let Some(h) = self.focus else {
+            return;
+        };
+        let Some(head) = self.heads.get_mut(h) else {
+            return;
+        };
+        head.term.terminal.screen_mut().clear_selection();
         if grab::matches(&self.paste_keys, bits, &key.keysyms) {
             // One paste a press, however long the key repeats.
             if !key.repeat {
-                self.paste();
-                self.send_user_bytes();
+                head.paste(self.selection.as_deref());
+                head.send_user_bytes();
             }
-            self.draw_now = true;
+            head.draw_now = true;
             return;
         }
         if let Some(g) = grab::grab(bits, &key.keysyms) {
-            let screen = self.term.terminal.screen_mut();
-            let page = self.grid.1.saturating_sub(1).max(1);
+            let screen = head.term.terminal.screen_mut();
+            let page = head.grid.1.saturating_sub(1).max(1);
+            head.draw_now = true;
             match g {
                 Grab::ScrollUp => screen.scroll_view_up(1),
                 Grab::ScrollDown => screen.scroll_view_down(1),
                 Grab::PageUp => screen.scroll_view_up(page),
                 Grab::PageDown => screen.scroll_view_down(page),
-                Grab::ZoomIn | Grab::ZoomOut => {
-                    let dir = if g == Grab::ZoomIn {
-                        Zoom::In
-                    } else {
-                        Zoom::Out
-                    };
-                    self.zoom(dir);
-                }
+                Grab::ZoomIn => self.zoom(h, Zoom::In),
+                Grab::ZoomOut => self.zoom(h, Zoom::Out),
                 Grab::RotateCw | Grab::RotateCcw => {
-                    self.orientation = layout::rotate(self.orientation, g == Grab::RotateCw);
-                    self.relayout();
+                    head.orientation = layout::rotate(head.orientation, g == Grab::RotateCw);
+                    self.relayout(h);
                 }
             }
-            self.draw_now = true;
             return;
         }
-        if key.repeat && !self.term.terminal.auto_repeat() {
+        if key.repeat && !head.term.terminal.auto_repeat() {
             return;
         }
         let Some(&keysym) = key.keysyms.first() else {
@@ -1563,35 +1558,39 @@ impl App {
         };
         let unicode = key.codepoints.first().copied().flatten();
         let mods = Mods::from_bits(key.mods.bits());
-        if self.term.terminal.key(keysym, key.ascii, mods, unicode) {
-            self.send_user_bytes();
-            self.term.terminal.screen_mut().reset_view();
+        if head.term.terminal.key(keysym, key.ascii, mods, unicode) {
+            head.send_user_bytes();
+            head.term.terminal.screen_mut().reset_view();
             if self.hide_while_typing {
-                self.pointer.visible = false;
+                head.pointer.visible = false;
             }
         }
-        let rate = self
+        let rate = head
             .term
             .terminal
             .cursor_blink_ms()
             .map_or(crate::blink::TEXT_PERIOD, |ms| {
                 Duration::from_millis(ms.into())
             });
-        if let Some(arm) = self.term.blink.key(rate) {
-            self.cursor_due = Some((after(now, arm.first), arm.every));
+        if let Some(arm) = head.term.blink.key(rate) {
+            head.cursor_due = Some((after(now, arm.first), arm.every));
         }
-        self.draw_now = true;
+        head.draw_now = true;
     }
 
-    /// A zoom: the base height the font's next step, larger or smaller
-    /// ([`Chosen::zoom`]), which ends `font-size`'s following of the
-    /// displays (ADR-1200 D9). Below the smallest it stops, with a line
-    /// naming the set and its smallest height. A height with no font keeps
-    /// the one in use.
-    fn zoom(&mut self, dir: Zoom) {
-        self.choose_font();
-        let chosen = self.chosen();
-        let Some(size) = chosen.zoom(self.font_size, dir, &self.locale, self.dpi()) else {
+    /// A zoom of head `h`: the base height the font's next step, larger or
+    /// smaller ([`Chosen::zoom`]), which ends `font-size`'s following of
+    /// the displays (ADR-1200 D9). Below the smallest it stops, with a
+    /// line naming the set and its smallest height. A height with no font
+    /// keeps the one in use.
+    fn zoom(&mut self, h: usize, dir: Zoom) {
+        self.choose_font(h);
+        let dpi = self.dpi(h);
+        let Some(head) = self.heads.get_mut(h) else {
+            return;
+        };
+        let chosen = head.chosen();
+        let Some(size) = chosen.zoom(head.font_size, dir, &self.locale, dpi) else {
             if dir == Zoom::Out {
                 let smallest = chosen.smallest(&self.locale);
                 log::info!(
@@ -1601,243 +1600,33 @@ impl App {
             }
             return;
         };
-        let (old, auto, points) = (self.font_size, self.auto_size, self.points);
-        self.auto_size = false;
-        self.points = None;
-        self.font_size = size;
-        if !self.relayout() {
-            self.font_size = old;
-            self.auto_size = auto;
-            self.points = points;
-        }
-    }
-
-    fn send_user_bytes(&mut self) {
-        let bytes = self.term.terminal.take_replies();
-        if let Some(pty) = &mut self.pty {
-            if !bytes.is_empty() {
-                pty.write(&bytes);
+        let (old, auto, points) = (head.font_size, head.auto_size, head.points);
+        head.auto_size = false;
+        head.points = None;
+        head.font_size = size;
+        if !self.relayout(h) {
+            if let Some(head) = self.heads.get_mut(h) {
+                head.font_size = old;
+                head.auto_size = auto;
+                head.points = points;
             }
         }
     }
 
-    /// A pointer event: reported to a program that tracks the pointer,
-    /// unless Shift is held, as xterm's `ShiftOverride` lets it select,
-    /// paste and scroll (`button.c`); otherwise it selects, copies, pastes
-    /// and scrolls. A button keeps to the side its press took until its
-    /// release, whatever Shift does meanwhile.
-    fn pointer(&mut self, event: PointerEvent, mods: Mods) {
-        let tracking = self.term.terminal.mouse_tracking() != MouseTracking::Off;
-        let shift = mods.contains(Mods::SHIFT);
-        let moved = matches!(event, PointerEvent::Moved { .. });
-        match event {
-            PointerEvent::Moved { x, y, held } => {
-                self.pointer.x = u32::try_from(x).unwrap_or(0);
-                self.pointer.y = u32::try_from(y).unwrap_or(0);
-                self.pointer.visible = true;
-                self.pointer.held = held;
-                // A drag whose release was lost ends with the left button
-                // no longer held.
-                if held != Some(Button::Left) {
-                    self.pointer.drag = None;
-                }
-                let (col, row) = self.pointer_cell();
-                if let Some(drag) = &mut self.pointer.drag {
-                    drag.moved |= (col, row) != drag.from;
-                    self.term.terminal.screen_mut().select_to(col, row);
-                } else if tracking
-                    && if held.is_some() {
-                        !self.pointer.ours
-                    } else {
-                        !shift
-                    }
-                {
-                    let button = held.map_or(MouseButton::None, mouse_button);
-                    self.report_pointer(button, MouseEvent::Move, mods);
-                }
-            }
-            PointerEvent::Button {
-                button,
-                pressed,
-                double_click,
-            } => {
-                if pressed {
-                    self.pointer.ours = !tracking || shift;
-                }
-                if self.pointer.ours {
-                    self.select_button(button, pressed, double_click);
-                } else {
-                    self.pointer.clicks = 0;
-                    let event = if pressed {
-                        MouseEvent::Press
-                    } else {
-                        MouseEvent::Release
-                    };
-                    self.report_pointer(mouse_button(button), event, mods);
-                }
-            }
-            PointerEvent::Wheel(steps) => {
-                let ctrl = mods.contains(Mods::CTRL);
-                match wheel(steps, tracking && !shift, ctrl) {
-                    Wheel::Report(button) => self.report_pointer(button, MouseEvent::Press, mods),
-                    Wheel::Zoom(dir) => self.zoom(dir),
-                    Wheel::Scroll { up: true } => {
-                        self.term.terminal.screen_mut().scroll_view_up(WHEEL_LINES);
-                    }
-                    Wheel::Scroll { up: false } => {
-                        self.term
-                            .terminal
-                            .screen_mut()
-                            .scroll_view_down(WHEEL_LINES);
-                    }
-                }
-            }
-            PointerEvent::Sync => {}
-            // The C reference cleared the selection as it hid the pointer
-            // (`src/terminal.c:1655-1659` at kmscon b1f7a7c5).
-            PointerEvent::Hide => {
-                self.pointer.visible = false;
-                self.term.terminal.screen_mut().clear_selection();
-            }
-        }
-        // Only motion may be coalesced while the child does not read; a
-        // press, a release, a wheel report or a paste is queued whole.
-        let bytes = self.term.terminal.take_replies();
-        if let Some(pty) = self.pty.as_mut().filter(|_| !bytes.is_empty()) {
-            if moved {
-                pty.write_motion(&bytes);
-            } else {
-                pty.write(&bytes);
-            }
-        }
-        self.draw_now = true;
-    }
-
-    /// A change of the mouse tracking the program asked for clears the
-    /// selection, as the C reference's did (`src/terminal.c:890-897` at
-    /// kmscon b1f7a7c5).
-    fn tracking_changed(&mut self) {
-        let tracking = self.term.terminal.mouse_tracking();
-        if tracking != self.tracking {
-            self.tracking = tracking;
-            self.pointer.drag = None;
-            self.term.terminal.screen_mut().clear_selection();
-        }
-    }
-
-    /// The cell under the pointer, or the grid's nearest when the pointer
-    /// is in the strip a display leaves past the grid, as the C reference
-    /// kept it (`src/terminal.c:173-190` at kmscon b1f7a7c5).
-    fn pointer_cell(&self) -> (usize, usize) {
-        let cell = |p: u32, size: u32, cells: usize| {
-            usize::try_from(p.checked_div(size).unwrap_or(0))
-                .unwrap_or(0)
-                .min(cells.saturating_sub(1))
+    /// Head `h`'s child exited: start it again, or end vtium.
+    fn child_exited(&mut self, h: usize, now: Instant) {
+        let oneshot = self.oneshot;
+        let since = now.saturating_duration_since(self.epoch);
+        let Some(head) = self.heads.get_mut(h) else {
+            return;
         };
-        (
-            cell(self.pointer.x, self.cell.0, self.grid.0),
-            cell(self.pointer.y, self.cell.1, self.grid.1),
-        )
-    }
-
-    /// Reports a pointer event at the pointer to the program.
-    fn report_pointer(&mut self, button: MouseButton, event: MouseEvent, mods: Mods) {
-        let (col, row) = self.pointer_cell();
-        let (x, y) = (self.pointer.x, self.pointer.y);
-        self.term
-            .terminal
-            .mouse(col, row, x, y, button, event, mods);
-    }
-
-    /// A button that selects or pastes, as the C reference's did
-    /// (`src/terminal.c:1509-1542` at kmscon b1f7a7c5): the left button
-    /// starts a selection that its drag extends and its release copies, a
-    /// double click selects and copies a word, and a triple click a line,
-    /// as xterm's does; the middle button pastes at its release, as
-    /// xterm's does, and the right clears the selection. A release that
-    /// ends no drag clears the selection and leaves the buffer as it was,
-    /// as xterm takes no empty selection.
-    fn select_button(&mut self, button: Button, pressed: bool, double_click: bool) {
-        let (col, row) = self.pointer_cell();
-        match (button, pressed) {
-            (Button::Left, true) => {
-                self.pointer.clicks = match self.pointer.clicks {
-                    1 if double_click => 2,
-                    2 if double_click => 3,
-                    _ => 1,
-                };
-                self.pointer.drag = None;
-                let screen = self.term.terminal.screen_mut();
-                match self.pointer.clicks {
-                    1 => {
-                        screen.select_start(col, row);
-                        self.pointer.drag = Some(Drag {
-                            from: (col, row),
-                            moved: false,
-                        });
-                    }
-                    2 => {
-                        screen.select_word(col, row);
-                        self.copy();
-                    }
-                    _ => {
-                        screen.select_line(col, row);
-                        self.copy();
-                    }
-                }
-            }
-            (Button::Left, false) => match self.pointer.drag.take() {
-                Some(Drag { moved: true, .. }) => self.copy(),
-                Some(Drag { moved: false, .. }) => {
-                    self.term.terminal.screen_mut().clear_selection();
-                }
-                None => {}
-            },
-            (Button::Middle, true) => {}
-            (Button::Middle, false) => {
-                self.paste();
-                self.term.terminal.screen_mut().clear_selection();
-            }
-            (Button::Right, _) => {
-                self.pointer.drag = None;
-                self.term.terminal.screen_mut().clear_selection();
-            }
-        }
-    }
-
-    /// Copies the selected text into the selection buffer; with nothing
-    /// selected the buffer keeps what it holds.
-    fn copy(&mut self) {
-        if let Some(text) = self
-            .term
-            .terminal
-            .screen()
-            .selection_text()
-            .filter(|t| !t.is_empty())
-        {
-            self.selection = Some(text.into_bytes());
-        }
-    }
-
-    /// Pastes the selection buffer to the program, filtered, and
-    /// bracketed while it asks (`Terminal::paste`).
-    fn paste(&mut self) {
-        if let Some(text) = &self.selection {
-            self.term.terminal.paste(text);
-        }
-    }
-
-    /// The child exited: start it again, or end vtium.
-    fn child_exited(&mut self, now: Instant) {
-        let Some(status) = self.term.exited.take() else {
+        let Some(status) = head.term.exited.take() else {
             return;
         };
         log::info!("child exited: {status}");
         // The pty closes with what is queued for the child.
-        self.pty = None;
-        let oneshot = self.oneshot;
-        let since = now.saturating_duration_since(self.epoch);
-        let next = self
+        head.pty = None;
+        let next = head
             .respawn
             .as_mut()
             .map_or(Next::Restart, |r| r.exited(since, oneshot));
@@ -1846,30 +1635,17 @@ impl App {
                 // A new session starts from a hard reset (RIS), drawn at
                 // once, with nothing of the last session's output left
                 // (`terminal_close` at kmscon b1f7a7c5).
-                self.term.terminal.input(b"\x1bc");
-                self.term.terminal.take_replies();
-                self.term.unparsed = false;
-                self.draw_now = true;
-                self.spawn();
+                head.term.terminal.input(b"\x1bc");
+                head.term.terminal.take_replies();
+                head.term.unparsed = false;
+                head.draw_now = true;
+                self.spawn(h);
             }
             Next::Oneshot => self.request_exit(Exit::Oneshot),
             Next::TooQuick => {
                 log::error!("the session exited too quickly too many times running");
                 self.request_exit(Exit::TooQuick);
             }
-        }
-    }
-
-    fn draw_state(&self) -> DrawState {
-        let palette = self.term.terminal.palette();
-        DrawState {
-            cursor_on: self.term.blink.cursor_shown(),
-            blink_hidden: !self.term.blink.text_shown(),
-            background: palette.bg(),
-            pointer: self
-                .pointer
-                .visible
-                .then_some((self.pointer.x, self.pointer.y)),
         }
     }
 
@@ -1899,6 +1675,7 @@ impl App {
                 self.video_event(&node, e, now);
             }
         }
+        self.take_focus();
         self.attachment(now);
         self.first_start(now);
         if let Some(r) = &self.releasing {
@@ -1914,28 +1691,14 @@ impl App {
             .as_mut()
             .map(|i| i.events().collect())
             .unwrap_or_default();
-        self.tracking_changed();
+        for head in &mut self.heads {
+            head.tracking_changed();
+        }
         for e in inputs {
             self.input_event(e, now);
         }
-        // The console has no system clipboard: a selection OSC 52 set is
-        // held for a paste, or dropped under `no-clipboard-write`.
-        if let Some(selection) = self.term.terminal.take_clipboard_write() {
-            if self.clipboard_write {
-                self.selection = Some(selection);
-            }
-        }
-        // The terminal takes OSC 50 only under `allow-font-ops`.
-        if let Some(name) = self.term.terminal.take_font_request() {
-            self.switch_font(&name);
-        }
-        // After the exit, whose respawn's RIS returns the blank to
-        // `dpms-timeout` for the next session.
-        self.child_exited(now);
-        if let Some(request) = self.term.terminal.take_blank_request() {
-            if self.program_blank {
-                self.blank_request(request, now);
-            }
+        for h in 0..self.heads.len() {
+            self.session_turn(h, now);
         }
         if let Some(order) = self.order.take() {
             self.outside_order(order, now);
@@ -1946,12 +1709,15 @@ impl App {
             self.draw(now);
         }
         self.report(now);
-        self.term.coalesce.turn_end();
-        self.term.changed = false;
-        let flipping = self
-            .views
-            .iter()
-            .any(|((node, _), v)| self.videos.get(node).is_some_and(|d| d.is_flipping(v.id)));
+        for head in &mut self.heads {
+            head.term.coalesce.turn_end();
+            head.term.changed = false;
+        }
+        let flipping = self.heads.iter().any(|head| {
+            head.views
+                .iter()
+                .any(|((node, _), v)| self.videos.get(node).is_some_and(|d| d.is_flipping(v.id)))
+        });
         if let Some(wait) = self.wait.turn(now, self.presented, flipping) {
             log::error!("no display appeared within {} s", wait.as_secs());
             self.request_exit(Exit::NoDisplay);
@@ -1959,25 +1725,57 @@ impl App {
         self.exiting(now);
     }
 
+    /// What head `h`'s program asked this turn: its OSC 52 selection, its
+    /// OSC 50 font, its exit, and its blank sequences.
+    fn session_turn(&mut self, h: usize, now: Instant) {
+        let Some(head) = self.heads.get_mut(h) else {
+            return;
+        };
+        // The console has no system clipboard: a selection OSC 52 set is
+        // held for a paste, or dropped under `no-clipboard-write`.
+        if let Some(selection) = head.term.terminal.take_clipboard_write() {
+            if self.clipboard_write {
+                self.selection = Some(selection);
+            }
+        }
+        // The terminal takes OSC 50 only under `allow-font-ops`.
+        if let Some(name) = head.term.terminal.take_font_request() {
+            self.switch_font(h, &name);
+        }
+        // After the exit, whose respawn's RIS returns the blank to
+        // `dpms-timeout` for the next session.
+        self.child_exited(h, now);
+        let request = self
+            .heads
+            .get_mut(h)
+            .and_then(|head| head.term.terminal.take_blank_request());
+        if let Some(request) = request {
+            if self.program_blank {
+                self.blank_request(request, now);
+            }
+        }
+    }
+
     fn timers(&mut self, now: Instant) {
-        if let Some(due) = self.text_due.filter(|&d| d <= now) {
-            self.draw_now |= self.term.blink.fired(Timer::Text, self.awake);
-            self.text_due = Some(after(due, crate::blink::TEXT_PERIOD));
-        }
-        if let Some((due, every)) = self.cursor_due.filter(|&(d, _)| d <= now) {
-            self.draw_now |= self.term.blink.fired(Timer::Cursor, self.awake);
-            self.cursor_due = Some((after(due, every), every));
-        }
-        if self.term.sync.deadline().is_some_and(|d| d <= now) {
-            let action = self
-                .term
-                .sync
-                .timer(&mut self.term.terminal, now, self.term.unparsed);
-            self.term.act(action);
-            if action == Action::Expired {
-                for v in self.views.values_mut() {
-                    if let Some(t) = &mut v.timer {
-                        t.expired();
+        let awake = self.awake;
+        for head in &mut self.heads {
+            if let Some(due) = head.text_due.filter(|&d| d <= now) {
+                head.draw_now |= head.term.blink.fired(Timer::Text, awake);
+                head.text_due = Some(after(due, crate::blink::TEXT_PERIOD));
+            }
+            if let Some((due, every)) = head.cursor_due.filter(|&(d, _)| d <= now) {
+                head.draw_now |= head.term.blink.fired(Timer::Cursor, awake);
+                head.cursor_due = Some((after(due, every), every));
+            }
+            let term = &mut head.term;
+            if term.sync.deadline().is_some_and(|d| d <= now) {
+                let action = term.sync.timer(&mut term.terminal, now, term.unparsed);
+                term.act(action);
+                if action == Action::Expired {
+                    for v in head.views.values_mut() {
+                        if let Some(t) = &mut v.timer {
+                            t.expired();
+                        }
                     }
                 }
             }
@@ -1988,64 +1786,14 @@ impl App {
     }
 
     fn draw(&mut self, now: Instant) {
-        let state = self.draw_state();
-        let present = std::mem::take(&mut self.term.present);
-        let now_all = std::mem::take(&mut self.draw_now) || present;
-        let changed = self.term.changed;
-        let holding = self.term.sync.holding(&self.term.terminal);
-        let base = self.cell;
         let App {
-            views,
+            heads,
             videos,
-            term,
             clock,
             ..
         } = self;
-        for ((node, _), view) in views.iter_mut() {
-            let Some(video) = videos.get_mut(node) else {
-                continue;
-            };
-            let due = view.wait.due().is_some_and(|d| d <= now);
-            if due {
-                view.wait.end();
-            }
-            let owed = view.owed && !holding;
-            let wants = now_all
-                || view.lost
-                || owed
-                || due
-                || (view.pending && !video.is_flipping(view.id));
-            if !wants {
-                if !changed {
-                    continue;
-                }
-                if term
-                    .coalesce
-                    .decide(holding, &mut view.wait, term.unparsed, now, view.refresh)
-                    .is_some()
-                {
-                    continue;
-                }
-            }
-            if holding && !view.lost {
-                if !view.owed {
-                    if let Some(t) = &mut view.timer {
-                        t.held();
-                    }
-                }
-                view.owed = true;
-                continue;
-            }
-            // The pointer is kept in the base cell's pixels; a display
-            // drawing larger cells draws it where its own cells put it.
-            let c = view.renderer.font().cell();
-            let state = DrawState {
-                pointer: state
-                    .pointer
-                    .map(|(x, y)| (scale(x, c.width, base.0), scale(y, c.height, base.1))),
-                ..state
-            };
-            view.draw(term, video.as_mut(), &state, &**clock);
+        for head in heads.iter_mut() {
+            draw_head(head, videos, &**clock, now);
         }
     }
 
@@ -2055,14 +1803,16 @@ impl App {
             return;
         };
         self.timer_due = Some(after(due, Duration::from_secs(1)));
-        for ((node, id), view) in &mut self.views {
-            let px = u64::from(view.size.0).saturating_mul(u64::from(view.size.1));
-            if let Some(report) = view
-                .timer
-                .as_mut()
-                .and_then(|t| t.report(Duration::from_secs(1), px))
-            {
-                log::info!(target: "terminal", "{}", render_timer_line(&report, node, *id));
+        for head in &mut self.heads {
+            for ((node, id), view) in &mut head.views {
+                let px = u64::from(view.size.0).saturating_mul(u64::from(view.size.1));
+                if let Some(report) = view
+                    .timer
+                    .as_mut()
+                    .and_then(|t| t.report(Duration::from_secs(1), px))
+                {
+                    log::info!(target: "terminal", "{}", render_timer_line(&report, node, *id));
+                }
             }
         }
     }
@@ -2074,7 +1824,9 @@ impl App {
         match self.leaving {
             None => {
                 self.deactivate();
-                self.pty = None;
+                for head in &mut self.heads {
+                    head.pty = None;
+                }
                 self.leaving = Some(match self.vt.leave() {
                     Ok(Switch::Pending) => Leaving::Until(after(now, LEAVE_WAIT)),
                     Ok(Switch::Done) => Leaving::Done,
@@ -2097,14 +1849,16 @@ impl App {
     /// timer the app keeps is due.
     pub fn next_wake(&self, now: Instant) -> Option<Duration> {
         let mut due: Vec<Instant> = Vec::new();
-        due.extend(self.text_due);
-        due.extend(self.cursor_due.map(|(d, _)| d));
         due.extend(self.timer_due);
         due.extend(self.wait.due());
-        due.extend(self.term.sync.deadline());
         due.extend(self.blank.deadline());
-        due.extend(self.views.values().filter_map(|v| v.wait.due()));
-        due.extend(self.helper.as_ref().and_then(Helper::deadline));
+        for head in &self.heads {
+            due.extend(head.text_due);
+            due.extend(head.cursor_due.map(|(d, _)| d));
+            due.extend(head.term.sync.deadline());
+            due.extend(head.views.values().filter_map(|v| v.wait.due()));
+            due.extend(head.helper.as_ref().and_then(Helper::deadline));
+        }
         if let Some(Leaving::Until(d)) = self.leaving {
             due.push(d);
         }
@@ -2118,45 +1872,123 @@ impl App {
 
     /// The sprite policy and missing glyph of the first display's font.
     pub fn font_policy(&self) -> Option<(vtium_font::SpritePolicy, vtium_font::Missing)> {
-        let font = self.views.values().next()?.renderer.font();
+        let font = self
+            .heads
+            .iter()
+            .find_map(|head| head.views.values().next())?
+            .renderer
+            .font();
         Some((font.policy(), font.missing()))
     }
 
-    /// Each display's font cell, in the order of the displays.
+    /// Each display's font cell, head by head in the head file's order,
+    /// each head's in the order of its displays.
     pub fn cells(&self) -> Vec<(u32, u32)> {
-        self.views
-            .values()
-            .map(|v| {
-                let c = v.renderer.font().cell();
-                (c.width, c.height)
-            })
-            .collect()
+        self.heads.iter().flat_map(Head::cells).collect()
     }
 
-    /// The terminal's grid.
+    /// The shown head's grid.
     pub fn grid(&self) -> (usize, usize) {
-        self.grid
+        self.shown().map_or(crate::head::GRID, Head::grid)
     }
 
-    /// The text of the screen's rows, for tests and logs.
+    /// The shown head's terminal.
+    pub fn term(&self) -> Option<&Term> {
+        self.shown().map(Head::term)
+    }
+
+    /// The shown head's terminal, for a test to take what it queued.
+    pub fn term_mut(&mut self) -> Option<&mut Term> {
+        let h = self.focus.unwrap_or(0);
+        self.heads.get_mut(h).map(|head| &mut head.term)
+    }
+
+    /// The shown head's pty, while its command runs.
+    pub fn pty(&self) -> Option<&Pty> {
+        self.shown().and_then(Head::pty)
+    }
+
+    /// The text of the shown head's screen rows, for tests and logs.
     pub fn screen_text(&self) -> Vec<String> {
-        self.term
-            .terminal
-            .screen()
-            .lines()
-            .iter()
-            .map(|line| {
-                line.cells()
-                    .iter()
-                    .map(|c| match c.content() {
-                        Content::Char(ch) => ch,
-                        Content::Empty | Content::Cluster(_) => ' ',
-                    })
-                    .collect::<String>()
-                    .trim_end()
-                    .to_owned()
-            })
-            .collect()
+        self.shown().map(Head::screen_text).unwrap_or_default()
+    }
+}
+
+/// The heads of `rules`, each with its font keys (ADR-1401 D3) and the
+/// scrollback cap and length `scrollback`.
+fn heads(
+    rules: &vtium_config::Config,
+    config: &Config,
+    scrollback: (usize, usize),
+    clock: &Clock,
+) -> Vec<Head> {
+    let (cap, lines) = scrollback;
+    rules
+        .heads
+        .iter()
+        .map(|h| {
+            let font = h.font(&vtium_config::Font::default());
+            Head::new(&h.name, config, &font, cap, lines, Rc::clone(clock))
+        })
+        .collect()
+}
+
+/// Draws each of `head`'s displays that something asks to.
+fn draw_head(
+    head: &mut Head,
+    videos: &mut BTreeMap<PathBuf, Box<dyn Video>>,
+    clock: &dyn Fn() -> Instant,
+    now: Instant,
+) {
+    let state = head.draw_state();
+    let present = std::mem::take(&mut head.term.present);
+    let now_all = std::mem::take(&mut head.draw_now) || present;
+    let term = &mut head.term;
+    let changed = term.changed;
+    let holding = term.sync.holding(&term.terminal);
+    let base = head.cell;
+    for ((node, _), view) in head.views.iter_mut() {
+        let Some(video) = videos.get_mut(node) else {
+            continue;
+        };
+        let due = view.wait.due().is_some_and(|d| d <= now);
+        if due {
+            view.wait.end();
+        }
+        let owed = view.owed && !holding;
+        let wants =
+            now_all || view.lost || owed || due || (view.pending && !video.is_flipping(view.id));
+        if !wants {
+            if !changed {
+                continue;
+            }
+            if term
+                .coalesce
+                .decide(holding, &mut view.wait, term.unparsed, now, view.refresh)
+                .is_some()
+            {
+                continue;
+            }
+        }
+        if holding && !view.lost {
+            if !view.owed {
+                if let Some(t) = &mut view.timer {
+                    t.held();
+                }
+            }
+            view.owed = true;
+            continue;
+        }
+        // The pointer is kept in the base cell's pixels; a display
+        // drawing larger cells draws it where its own cells put it.
+        let c = view.renderer.font().cell();
+        let state = DrawState {
+            pointer: state
+                .pointer
+                .map(|(x, y)| (scale(x, c.width, base.0), scale(y, c.height, base.1))),
+            ..state
+        };
+        view.draw(term, video.as_mut(), &state, clock);
     }
 }
 
@@ -2172,54 +2004,8 @@ fn power_down(video: &mut dyn Video) {
 /// The render timer's log text for a display, after the `terminal:`
 /// target: the figures, then `display=NODE[ID]` (tier 3's `t3_bench.py`
 /// reads each `key=value`).
-pub fn render_timer_line(
-    report: &vtium_render::Report,
-    node: &std::path::Path,
-    id: DisplayId,
-) -> String {
+pub fn render_timer_line(report: &vtium_render::Report, node: &Path, id: DisplayId) -> String {
     format!("{report} display={}[{}]", node.display(), id.0)
-}
-
-/// The lines of scrollback a wheel event scrolls (`src/terminal.c:1648`).
-const WHEEL_LINES: usize = 3;
-
-/// What a wheel event does.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Wheel {
-    /// A report of the wheel's button to the program tracking the pointer.
-    Report(MouseButton),
-    Zoom(Zoom),
-    /// [`WHEEL_LINES`] of scrollback.
-    Scroll {
-        up: bool,
-    },
-}
-
-/// What a wheel event of `steps` does: one report while the program
-/// tracks the pointer, else a zoom with Ctrl, else a scroll, whatever
-/// the number of steps (`src/terminal.c:1492-1497, 1639-1650` at kmscon
-/// b1f7a7c5).
-fn wheel(steps: i32, tracking: bool, ctrl: bool) -> Wheel {
-    let up = steps > 0;
-    if tracking {
-        Wheel::Report(if up {
-            MouseButton::WheelUp
-        } else {
-            MouseButton::WheelDown
-        })
-    } else if ctrl {
-        Wheel::Zoom(if up { Zoom::In } else { Zoom::Out })
-    } else {
-        Wheel::Scroll { up }
-    }
-}
-
-fn mouse_button(b: Button) -> MouseButton {
-    match b {
-        Button::Left => MouseButton::Left,
-        Button::Middle => MouseButton::Middle,
-        Button::Right => MouseButton::Right,
-    }
 }
 
 /// `v`, a position in cells of `from` pixels, in cells of `to` pixels.
@@ -2255,10 +2041,6 @@ fn locale(env: &[(OsString, OsString)]) -> String {
         .to_owned()
 }
 
-fn to_u32(n: u64) -> u32 {
-    u32::try_from(n).unwrap_or(u32::MAX)
-}
-
 /// The machine's memory in bytes; 0 when unread, which takes the
 /// smallest scrollback cap.
 fn physical_memory() -> u64 {
@@ -2266,20 +2048,15 @@ fn physical_memory() -> u64 {
 }
 
 /// Opens a device and wraps it as a video device in the loop, for
-/// [`App::add_video`].
-pub fn open_video(
-    app: &mut App,
-    node: &std::path::Path,
-    kind: DeviceKind,
-    id_path: Option<&str>,
-) -> io::Result<()> {
-    use vtium_platform::display::{Card, Drm2d, Fb, Fbdev, ModeLookup, ModePolicy, Wanted};
+/// [`App::add_video`], keeping what the rules read of its `card`.
+pub fn open_video(app: &mut App, node: &Path, kind: DeviceKind, card: Card) -> io::Result<()> {
+    use vtium_platform::display::{Card as Drm, Drm2d, Fb, Fbdev, ModeLookup, ModePolicy, Wanted};
     let fd = app.vt.open_device(node)?;
     let key = node.to_owned();
     let video: Box<dyn Video> = match kind {
         DeviceKind::Drm => {
             let modes = app.modes.clone();
-            let gpu = id_path.map(str::to_owned);
+            let gpu = card.id_path.clone();
             let policy = ModePolicy {
                 use_original: app.use_original,
                 wanted: (!modes.is_empty()).then(|| {
@@ -2292,12 +2069,13 @@ pub fn open_video(
                     }) as Box<ModeLookup>
                 }),
             };
-            let mut drm = Drm2d::new(Card::new(fd)?, policy)?;
+            let mut drm = Drm2d::new(Drm::new(fd)?, policy)?;
+            drm.set_card_path(card.id_path.clone());
             let k = key.clone();
             drm.insert(&app.handle, move |app: &mut App| {
                 app.videos
                     .get_mut(&k)
-                    .and_then(|v| v.as_any().downcast_mut::<Drm2d<Card>>())
+                    .and_then(|v| v.as_any().downcast_mut::<Drm2d<Drm>>())
             })?;
             Box::new(drm)
         }
@@ -2313,6 +2091,7 @@ pub fn open_video(
         }
         DeviceKind::Input => return Err(io::Error::from(io::ErrorKind::InvalidInput)),
     };
+    app.cards.insert(key.clone(), card);
     app.add_video(key, video);
     Ok(())
 }
@@ -2355,26 +2134,6 @@ mod tests {
             (&["--display-depth=color"][..], Some(2), Depth::Color),
         ] {
             assert_eq!(depth(&config(args), levels), want, "{args:?} {levels:?}");
-        }
-    }
-
-    #[test]
-    fn a_wheel_event_is_one_report_a_zoom_or_a_scroll_whatever_its_steps() {
-        for steps in [1, 7, i32::MAX] {
-            assert_eq!(
-                wheel(steps, true, true),
-                Wheel::Report(MouseButton::WheelUp)
-            );
-            assert_eq!(wheel(steps, false, true), Wheel::Zoom(Zoom::In));
-            assert_eq!(wheel(steps, false, false), Wheel::Scroll { up: true });
-        }
-        for steps in [-1, -7, i32::MIN] {
-            assert_eq!(
-                wheel(steps, true, false),
-                Wheel::Report(MouseButton::WheelDown)
-            );
-            assert_eq!(wheel(steps, false, true), Wheel::Zoom(Zoom::Out));
-            assert_eq!(wheel(steps, false, false), Wheel::Scroll { up: false });
         }
     }
 }
