@@ -242,9 +242,8 @@ impl<K: Kms> Drm2d<K> {
         self.events.drain(..)
     }
 
-    /// The displays online, in the order they came online: the card's
-    /// connector order at the first scan, then each one plugged in later
-    /// after them.
+    /// The displays online, in the card's connector order, whatever order
+    /// they were plugged in.
     pub fn displays(&self) -> impl Iterator<Item = DisplayId> + '_ {
         self.outputs.iter().filter(|o| o.announced).map(|o| o.id)
     }
@@ -1019,7 +1018,8 @@ impl<K: Kms> Drm2d<K> {
         });
         self.dark
             .sort_by_key(|d| res.connectors.iter().position(|&c| c == d.id));
-        let (kept, gone): (Vec<_>, Vec<_>) = self.outputs.drain(..).partition(|o| o.available);
+        let (mut kept, gone): (Vec<_>, Vec<_>) = self.outputs.drain(..).partition(|o| o.available);
+        kept.sort_by_key(|o| res.connectors.iter().position(|&c| c == o.id.0));
         self.outputs = kept;
         for o in gone {
             log::info!("display {} is gone", o.name);
