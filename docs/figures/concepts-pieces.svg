@@ -21,15 +21,15 @@
 <text x="436" y="124" font-size="17" text-anchor="middle" fill="#1f2933">vtium</text>
 <text x="436" y="145" font-size="13" text-anchor="middle" fill="#1f2933">the console</text>
 <rect x="632" y="56" width="200" height="56" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
-<text x="732" y="80" font-size="14" text-anchor="middle" fill="#1f2933">the store</text>
-<text x="732" y="100" font-size="13" text-anchor="middle" fill="#1f2933">sets and manifest</text>
+<text x="732" y="80" font-size="14" text-anchor="middle" fill="#1f2933">the frits</text>
+<text x="732" y="100" font-size="13" text-anchor="middle" fill="#1f2933">/etc/vtium/fonts</text>
 <rect x="632" y="168" width="200" height="56" fill="#ffffff" stroke="#9aa5b1" stroke-width="1" stroke-dasharray="6 4"/>
 <text x="732" y="192" font-size="14" text-anchor="middle" fill="#1f2933">vtium-vitrify</text>
-<text x="732" y="212" font-size="13" text-anchor="middle" fill="#1f2933">create, install</text>
+<text x="732" y="212" font-size="13" text-anchor="middle" fill="#1f2933">new, under sudo</text>
 <line x1="732" y1="166" x2="732" y2="114" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
-<text x="742" y="145" font-size="13" fill="#1f2933">font sets</text>
+<text x="742" y="145" font-size="13" fill="#1f2933">a frit</text>
 <line x1="632" y1="92" x2="538" y2="114" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
-<text x="586" y="90" font-size="13" text-anchor="middle" fill="#1f2933">checked sets</text>
+<text x="586" y="90" font-size="13" text-anchor="middle" fill="#1f2933">frits, read</text>
 <line x1="436" y1="158" x2="436" y2="274" stroke="#2f6fb0" stroke-width="2" marker-start="url(#arrow-blue)" marker-end="url(#arrow-blue)"/>
 <text x="448" y="222" font-size="13" fill="#2f6fb0">bytes, both ways</text>
 <rect x="376" y="276" width="120" height="36" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>

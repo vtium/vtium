@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" font-family="DejaVu Sans Mono, monospace">
-<title>Lockout and rescue: the anti-lockout guard sending stranded keyboards to the focus, and the rescue key pulling a real keyboard to the focus when a head is left with only a numpad</title>
+<title>Lockout and rescue: the anti-lockout guard sending stranded keyboards to roam, and the rescue key making a real keyboard roam when a head is left with only a numpad</title>
 <defs>
 <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
 <marker id="arrow-red" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#b91c1c"/></marker>
@@ -21,15 +21,15 @@
 <rect x="340" y="70" width="280" height="80" fill="#fee2e2" stroke="#b91c1c"/>
 <text x="480" y="92" font-size="13" text-anchor="middle" font-weight="bold">the anti-lockout guard</text>
 <text x="480" y="112" font-size="11" text-anchor="middle">no keyboard-class device reaches</text>
-<text x="480" y="128" font-size="11" text-anchor="middle">a lit head: every one follows the</text>
-<text x="480" y="144" font-size="11" text-anchor="middle">focus until one does</text>
+<text x="480" y="128" font-size="11" text-anchor="middle">a lit head: every one roams,</text>
+<text x="480" y="144" font-size="11" text-anchor="middle">until one does</text>
 <line x1="302" y1="188" x2="420" y2="152" stroke="#b91c1c" stroke-width="1.5" marker-end="url(#arrow-red)"/>
 <rect x="660" y="44" width="284" height="96" fill="#e6eef7" stroke="#2f6fb0" stroke-width="2"/>
 <text x="674" y="64" font-size="14" font-weight="bold">head desk</text>
 <text x="674" y="86" font-size="12">the large monitor, lit</text>
 <rect x="674" y="96" width="256" height="34" fill="#fee2e2" stroke="#b91c1c"/>
 <text x="802" y="111" font-size="11" text-anchor="middle">notice: no keyboard reached a lit</text>
-<text x="802" y="125" font-size="11" text-anchor="middle">head; every keyboard follows focus</text>
+<text x="802" y="125" font-size="11" text-anchor="middle">head; every keyboard roams</text>
 <line x1="620" y1="110" x2="658" y2="100" stroke="#b91c1c" stroke-width="1.5" marker-end="url(#arrow-red)"/>
 <text x="16" y="236" font-size="11">It moves every stranded keyboard at once, so it chooses none, and lets go once a rule's keyboard reaches a lit head.</text>
 <line x1="16" y1="254" x2="944" y2="254" stroke="#9aa5b1"/>
@@ -52,15 +52,15 @@
 <text x="772" y="422" font-size="13" text-anchor="middle" font-weight="bold">the rescue key</text>
 <text x="772" y="442" font-size="11" text-anchor="middle">Ctrl-Alt-F&lt;n&gt; for vtium's own VT, while</text>
 <text x="772" y="458" font-size="11" text-anchor="middle">it is shown, pressed on keyboard A:</text>
-<text x="772" y="474" font-size="11" text-anchor="middle">keyboard A follows the focus for the boot</text>
+<text x="772" y="474" font-size="11" text-anchor="middle">keyboard A roams for the boot</text>
 <line x1="560" y1="442" x2="598" y2="442" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <path d="M772,400 L772,342 L304,342" fill="none" stroke="#b91c1c" stroke-width="1.5" marker-end="url(#arrow-red)"/>
 <text x="760" y="364" font-size="11" fill="#b91c1c" text-anchor="end">a notice; heads.conf unchanged</text>
 <!-- the switches -->
 <rect x="16" y="506" width="928" height="56" fill="#ffffff" stroke="#9aa5b1"/>
-<text x="30" y="526" font-size="12" font-weight="bold">[guards]</text>
-<text x="110" y="526" font-size="11">anti-lockout = on, rescue-key = on, never-dark = on by default; a head's rescue = off keeps its keyboards</text>
-<text x="30" y="546" font-size="11">Each off is a note in check-config. vtium.heads=builtin on the kernel command line runs the compiled-in rules, every guard on.</text>
+<text x="30" y="526" font-size="12" font-weight="bold">the guards</text>
+<text x="110" y="526" font-size="11">the display guard always on; the anti-lockout guard and the rescue key on under open, off under closed</text>
+<text x="30" y="546" font-size="11">No switch in the file. A deliberate lockout is recovered out of band: ssh, a serial getty, other boot media.</text>
 <!-- legend -->
 <rect x="16" y="576" width="22" height="16" fill="#e6eef7" stroke="#2f6fb0"/>
 <text x="46" y="589" font-size="12">vtium, root</text>
@@ -70,6 +70,6 @@
 <text x="300" y="589" font-size="12">a guard or a notice</text>
 <rect x="470" y="576" width="22" height="16" fill="#e6eef7" stroke="#2f6fb0" stroke-dasharray="6 4"/>
 <text x="500" y="589" font-size="12">a head with no lit display</text>
-<text x="944" y="612" font-size="11" text-anchor="end">Proposed (ADR-1401, D9)</text>
+<text x="944" y="612" font-size="11" text-anchor="end">Not yet built (ADR-1401, D9)</text>
 </g>
 </svg>

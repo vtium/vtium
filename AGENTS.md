@@ -24,6 +24,12 @@ Upstream `kmscon/kmscon` and `kmscon/libtsm` are never written to: no issue, PR 
 - A spec describes behaviour vtium implements. C function names belong in a marked C-notes section, not in a behaviour spec.
 - Never scope vtium work as "what the C reference does". It does that and more, and follows the specification where the C reference departed from it, listing each departure.
 - Say each fact once. Prose is one line per paragraph.
+- Write the way a person explains it to a colleague out loud: whole sentences with a subject and a verb, in plain words. The test is that a reader new to the project understands it on the first read; packing more meaning into fewer words is not the goal.
+- Unpack a compressed phrase into what it means. "A frit of bitmap sources that states no cell takes its fonts' own cell" becomes "A frit made only of bitmap fonts, with no `cell=` line, draws at the fonts' own glyph size."
+- Define a project term the first time a section uses it, in the words a newcomer would use: "a frit (a font set file)". Prefer the everyday word where one exists.
+- Name who does what: "vtium ignores the keyboard", not "the keyboard falls to the policy's input default".
+- A sentence you had to read twice gets rewritten before it is committed.
+- A brief to a subagent that writes prose a person will read carries these rules, so the subagent writes to them.
 - The name is "vtium" in running text, code, paths and commands, and "VTium" in a title or heading that names the project, with VT capitalized as the hardware terminals printed it. Spell it "color", not "colour".
 
 ## The gates
@@ -95,12 +101,17 @@ A delegated agent proves its branch through the gates and tiers 1 to 3 in its wo
 
 The work runs local-first: GitHub's runners are slow, so they are waited on only at merge points.
 
-1. **A worktree per branch,** beside the repositories. From the vtium checkout: `git worktree add -b feat/<topic> ../vtium-<topic> integration`. The forks get no worktrees; they are read only. Each worktree has its own `target/`, so parallel builds never contend for a lock. No two agents edit the same file; a crate has one owner at a time.
-2. **The branch starts from `integration`,** a branch in the maintainer's checkout that collects reviewed work, so later work builds on earlier work before main sees it. It reaches GitHub at each merge point; a fresh clone with no `integration` branches from main.
-3. **The author commits locally and runs the gates.** It does not push or open a PR. Its report gives the branch, the head commit, the gate results and the departures, as a PR body would.
-4. **A fresh reviewer reads the diff** (`git diff integration...<branch>`), runs the gates, and plants the defects the change claims to catch. Its findings are fixed in a round on the same branch. A fix round after the second goes to a freshly briefed agent.
-5. **The reviewed branch merges into `integration`** with `git merge --no-ff`, and the full gates run again on the merged tree.
-6. **At a merge point,** such as the end of a wave, `integration` is pushed, one PR goes to main, and its CI is waited on. A PR merges by a regular merge commit, never squash or rebase.
+1. **The record comes first.** A change a decision governs starts from its ADR, written or amended before the build; a gap-check then reads the code against the record, statement by statement, and the build works from the gaps it finds.
+2. **A worktree per branch,** beside the repositories. From the vtium checkout: `git worktree add -b feat/<topic> ../vtium-<topic> integration`. The forks get no worktrees; they are read only. Each worktree has its own `target/`, so parallel builds never contend for a lock. No two agents edit the same file; a crate has one owner at a time.
+3. **The branch starts from `integration`,** a branch in the maintainer's checkout that collects reviewed work, so later work builds on earlier work before main sees it. It reaches GitHub at each merge point; a fresh clone with no `integration` branches from main.
+4. **The author commits locally and runs the gates.** It does not push or open a PR. Its report gives the branch, the head commit, the gate results and the departures, as a PR body would.
+5. **A fresh reviewer reads the diff** (`git diff integration...<branch>`), runs the gates, and plants the defects the change claims to catch. Its findings are fixed in a round on the same branch. A fix round after the second goes to a freshly briefed agent.
+6. **The reviewed branch merges into `integration`** with `git merge --no-ff`, and the full gates run again on the merged tree.
+7. **At a merge point,** such as the end of a wave, `integration` is pushed, one PR goes to main, and its CI is waited on. A PR merges by a regular merge commit, never squash or rebase.
+
+A provisional golden judges nothing. Before a test is deleted because its oracle goes away, find what else would fail without it.
+
+A test's stand-in checks what the real side checks. A stand-in helper that accepted any name hid the real helper's refusal until tier 3.
 
 ### Cooperating across worktrees
 
@@ -112,6 +123,8 @@ Several agents work at once, each in its own worktree, and the steering session 
 - **Order follows the dependency graph.** A wave runs only items whose dependencies have landed on `integration`. Work that unblocks others, such as a contract several branches cite, merges first.
 - **Scratch is per agent.** An agent keeps scratch files in a directory named for it, never at a shared path another agent might also write.
 - **Reports, not chatter.** An agent messages the steering session when it finishes, when it is blocked, or when it needs a file it does not own. The steering session relays what one agent needs from another.
+- **The brief carries everything.** A message reaches a delegated agent only when it ends a turn, so a follow-up sent mid-turn crosses its report. The steering session puts every instruction in the brief.
+- **Gates run in the foreground.** A delegated agent runs every gate in the foreground and never ends its turn to wait on a Monitor or a background task of its own, since their notices go to the steering session.
 
 A decision that sets direction, such as a new ADR, is read by the maintainer before it merges. ADRs are created and changed with `docs/scripts/adr` (contract adr/v1; domains term 1000, image 1100, font 1200, render 1300, platform 1400, project 1500).
 
