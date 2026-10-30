@@ -1,6 +1,8 @@
 //! What vtium runs for each state its head file can be in (ADR-1401 D7).
 //!
-//! Failure is resolved at three levels, each asked only once the one before it has passed: whether the file can be trusted ([`Read`]), whether it states a disposition ([`Stated`]), and how much of the rest is good ([`Rest`]). A trusted file's disposition and content exist only inside [`Read::Trusted`], so nothing can consult an untrusted file's content. [`resolve`] maps every path to one [`Outcome`], by exhaustive matches with no wildcard arm, so a new variant fails to compile until it has an answer. The module reads no file and holds no state: the loader classifies what it found with [`scope`] and [`Trusted::of`] and asks [`resolve`].
+//! Failure is resolved at three levels, each asked only once the one before it has passed: whether the file can be trusted ([`Read`]), whether it states a disposition ([`Stated`]), and how much of the rest is good ([`Rest`]). A trusted file's disposition and content exist only inside [`Read::Trusted`], so nothing can consult an untrusted file's content. [`resolve`] maps every path to one [`Outcome`], by exhaustive matches with no wildcard arm, so a new variant fails to compile until it has an answer. The module reads no file and holds no state: the loader classifies what it found with [`scope`] and [`Trusted::of`] and asks [`resolve`], and a reload asks [`Outcome::reload`].
+//!
+//! A readable deny is sticky. Once a trusted file states a readable `default = deny`, nothing opens anything up: no other line of the file, no error in it, and no change of state while vtium runs, a reload included.
 //!
 //! `outcomes.tsv`, beside the crate's manifest, lists every path with its outcome; `outcome_table_matches_resolve` fails when it differs from [`resolve`], and `VTIUM_CONFIG_BLESS=1 cargo test -p vtium-config outcome_table` rewrites it.
 //!
@@ -61,13 +63,13 @@ pub struct Trusted {
 }
 
 closed! {
-    /// The second level: the disposition the file states with its `default` line, anywhere among the top-level keys.
+    /// The second level: the disposition the file states with its `default` line, anywhere among the top-level keys. A readable `default = deny` wins over every other `default` line.
     pub enum Stated {
         /// No `default` line: open.
         Unset = "unset",
         Allow = "allow",
         Deny = "deny",
-        /// A `default` line vtium cannot read: an unknown value, a line misplaced inside a section, or more than one `default` line. It counts as no disposition, and the file is at least partly broken.
+        /// No readable `default = deny`, and a `default` line vtium cannot read: an unknown value, a line misplaced inside a section, or a second `default` line. It counts as no disposition, and the file is at least partly broken.
         Unreadable = "unreadable",
     }
 }
@@ -127,11 +129,9 @@ closed! {
 closed! {
     /// What one error takes down (open cell ?4).
     pub enum Scope {
-        /// The file is never read: the first level's verdict.
+        /// The file is never read: the first level's verdict, which a parse never reports.
         Trust = "trust",
-        /// The text, or the format its version names, cannot be read: nothing applies, the disposition included.
-        Text = "text",
-        /// The file's structure cannot be trusted: nothing of it applies, but its disposition is read.
+        /// The file's structure or format cannot be trusted: nothing of it applies, but a readable `default` line still states its disposition, so a readable deny stays deny.
         File = "file",
         /// One head, with every rule naming it, each of which falls through to the next rule.
         Head = "head",
@@ -172,6 +172,8 @@ closed! {
         AsSet = "as-set",
         /// `rescue-key = off` and a head's `rescue = off` are ignored, as is everything else [`Outcome::switch`] forces on.
         Forced = "forced",
+        /// A partly broken deny run: the rescue stays as the file sets it, since a readable deny is sticky, so a keyboard the file does not grant the rescue may land nowhere; `never-dark = off` alone is ignored, as in a partly broken open run, since a lit display grants no input.
+        Sticky = "sticky",
     }
 }
 
@@ -201,8 +203,16 @@ closed! {
         Rules = "rules",
         /// The boot display alone, for the notice; no session is reached through it.
         Notice = "notice",
-        /// None.
-        Dark = "dark",
+    }
+}
+
+closed! {
+    /// What the display guard lights on the boot display when the running rules light no display (ADR-1401 D9): the first head the running text declares, else this.
+    pub enum Fallback {
+        /// The default head, the compiled-in configuration's `[head console]`.
+        DefaultHead = "default-head",
+        /// The boot display alone, for the notice: under deny the default head would be a head and a session the file never granted.
+        Notice = "notice",
     }
 }
 
@@ -276,6 +286,14 @@ impl Posture {
             },
         }
     }
+
+    /// What the display guard lights when no head the running text declares has a display.
+    pub fn fallback(self) -> Fallback {
+        match self {
+            Posture::Allow => Fallback::DefaultHead,
+            Posture::Deny => Fallback::Notice,
+        }
+    }
 }
 
 /// What vtium does with its head file on one path.
@@ -288,6 +306,7 @@ pub struct Outcome {
     /// The console line, `None` for a silent start.
     pub line: Option<Line>,
     pub lit: Lit,
+    pub fallback: Fallback,
 }
 
 impl Outcome {
@@ -314,47 +333,41 @@ impl Outcome {
 
     /// Whether this run ignores the file's `off` for `key`: in a partly broken run, nothing that would prevent the rescue is honoured.
     fn forces(&self, key: SwitchKey) -> bool {
-        match self.rescue {
-            Rescue::AsSet => false,
-            Rescue::Forced => match key {
-                SwitchKey::RescueKey | SwitchKey::Rescue => true,
-                SwitchKey::NeverDark => DEGRADED_NEVER_DARK,
-                SwitchKey::AntiLockout | SwitchKey::Focus | SwitchKey::VtKeys => false,
-            },
+        // a sticky deny forces nothing that reaches an input
+        let open = match self.rescue {
+            Rescue::AsSet => return false,
+            Rescue::Forced => true,
+            Rescue::Sticky => false,
+        };
+        match key {
+            SwitchKey::RescueKey | SwitchKey::Rescue => open,
+            SwitchKey::NeverDark => DEGRADED_NEVER_DARK,
+            SwitchKey::AntiLockout | SwitchKey::Focus | SwitchKey::VtKeys => false,
         }
+    }
+
+    /// What runs once a reload reads `read` while this outcome runs (vtium/vtium#86): a valid file runs as it would at start; a file vtium cannot run whole leaves the running configuration as it is (ADR-1401 D7); a missing file runs the shipped rules, but for a running deny, which is sticky.
+    pub fn reload(&self, read: &Read) -> Outcome {
+        let valid = match read {
+            Read::Missing => match self.posture {
+                Posture::Allow => true,
+                Posture::Deny => false,
+            },
+            Read::Untrusted | Read::Inaccessible => false,
+            Read::Trusted(t) => matches!(
+                (t.stated, t.rest),
+                (
+                    Stated::Unset | Stated::Allow | Stated::Deny,
+                    Rest::Valid | Rest::Headless | Rest::Empty
+                )
+            ),
+        };
+        if valid { resolve(read) } else { *self }
     }
 }
 
-/// What a valid open file that declares nothing does (open cell ?1).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum EmptyOpen {
-    /// It is valid and runs the shipped rules, silently.
-    Builtin,
-    /// It is valid and runs as written: no rules.
-    AsWritten,
-    /// It counts as broken.
-    Invalid,
-}
-
-/// Which partly broken runs let the focus rest on the first surviving head (open cell ?3).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Lands {
-    /// None: the focus rests where the file and the posture let it.
-    AsSet,
-    /// Those under deny.
-    UnderDeny,
-    /// Every one, so a file that writes `focus = off` on every head still leaves the rescue a landing.
-    Always,
-}
-
-/// Open cell ?1, recommended: a valid open file that declares nothing behaves as the shipped rules.
-pub(crate) const EMPTY_OPEN: EmptyOpen = EmptyOpen::Builtin;
-
-/// Open cell ?2, recommended: a broken deny file lights the boot display for its notice alone.
-pub(crate) const DENY_BROKEN: Lit = Lit::Notice;
-
-/// Open cell ?3, recommended for deny and proposed for allow too: the focus may also rest on the first surviving head.
-pub(crate) const RESCUE_LANDS: Lands = Lands::Always;
+/// Open cell ?3, recommended and extended from deny, which stickiness closes, to allow: in a partly broken open run the focus may also rest on the first surviving head, so a rescued keyboard has somewhere to land.
+pub(crate) const RESCUE_LANDS: Landing = Landing::FirstSurvivor;
 
 /// Proposed: a partly broken run ignores `never-dark = off` too, so its console line and a rescued keyboard have a lit display.
 pub(crate) const DEGRADED_NEVER_DARK: bool = true;
@@ -376,6 +389,7 @@ fn builtin(line: Option<Line>) -> Outcome {
         landing: Landing::AsSet,
         line,
         lit: Lit::Rules,
+        fallback: Fallback::DefaultHead,
     }
 }
 
@@ -383,29 +397,25 @@ fn file(posture: Posture) -> Outcome {
     Outcome {
         runs: Runs::File,
         posture,
+        fallback: posture.fallback(),
         ..builtin(None)
     }
 }
 
-/// A partly broken run: what survives, under `posture`, with the rescue forced on.
+/// A partly broken run: what survives, under `posture`. Under allow nothing that would prevent the rescue is honoured; under deny the rescue stays as the file sets it, since a readable deny is sticky.
 fn survivors(posture: Posture) -> Outcome {
-    let first = match (RESCUE_LANDS, posture) {
-        (Lands::Always, Posture::Allow | Posture::Deny) | (Lands::UnderDeny, Posture::Deny) => true,
-        (Lands::AsSet, Posture::Allow | Posture::Deny) | (Lands::UnderDeny, Posture::Allow) => {
-            false
-        }
+    let (rescue, landing) = match posture {
+        Posture::Allow => (Rescue::Forced, RESCUE_LANDS),
+        Posture::Deny => (Rescue::Sticky, Landing::AsSet),
     };
     Outcome {
         runs: Runs::Survivors,
         posture,
-        rescue: Rescue::Forced,
-        landing: if first {
-            Landing::FirstSurvivor
-        } else {
-            Landing::AsSet
-        },
+        rescue,
+        landing,
         line: Some(Line::Partly),
         lit: Lit::Rules,
+        fallback: posture.fallback(),
     }
 }
 
@@ -431,50 +441,49 @@ pub fn resolve(read: &Read) -> Outcome {
     match (class, posture) {
         (Class::Valid, Posture::Allow) => file(Posture::Allow),
         (Class::Valid | Class::Empty, Posture::Deny) => file(Posture::Deny),
-        (Class::Empty, Posture::Allow) => match EMPTY_OPEN {
-            EmptyOpen::Builtin => builtin(None),
-            EmptyOpen::AsWritten => file(Posture::Allow),
-            EmptyOpen::Invalid => builtin(Some(Line::Skipped)),
-        },
+        // a valid open file that declares nothing behaves as the shipped rules
+        (Class::Empty, Posture::Allow) => builtin(None),
         (Class::Partly, Posture::Allow) => survivors(Posture::Allow),
         (Class::Partly, Posture::Deny) => survivors(Posture::Deny),
         (Class::Broken, Posture::Allow) => builtin(Some(Line::Skipped)),
+        // the boot display lights for the notice alone, and nothing is delivered
         (Class::Broken, Posture::Deny) => Outcome {
             runs: Runs::Off,
             posture: Posture::Deny,
             line: Some(Line::DenyOff),
-            lit: DENY_BROKEN,
+            lit: Lit::Notice,
+            fallback: Fallback::Notice,
             ..builtin(None)
         },
     }
 }
 
 impl Trusted {
-    /// A trusted file's levels from what its parse found: every `default` line, wherever it sits; the scope of every other error; and what survives the errors. Nothing here reads where a line sits, so no outcome depends on the order of the top-level keys.
+    /// A trusted file's levels from what its parse found: every `default` line, wherever it sits; the scope of every other error; and what survives the errors. Nothing here reads where a line sits, so no outcome depends on the order of the top-level keys, and a readable deny wins over every other line.
     pub fn of(defaults: &[DefaultLine], scopes: &[Scope], kept: Kept) -> Trusted {
-        let mut unread = false;
-        let mut whole = false;
-        for s in scopes {
-            match s {
-                Scope::Trust | Scope::Text => unread = true,
-                Scope::File => whole = true,
-                Scope::Head | Scope::Section | Scope::Line => {}
-            }
-        }
-        let stated = if unread {
-            Stated::Unreadable
+        let whole = scopes.iter().any(|s| match s {
+            Scope::Trust | Scope::File => true,
+            Scope::Head | Scope::Section | Scope::Line => false,
+        });
+        let deny = defaults.iter().any(|d| match d {
+            DefaultLine::Deny => true,
+            DefaultLine::Allow | DefaultLine::Unknown | DefaultLine::InSection => false,
+        });
+        let stated = if deny {
+            Stated::Deny
         } else {
             match defaults {
                 [] => Stated::Unset,
                 [only] => match only {
                     DefaultLine::Allow => Stated::Allow,
-                    DefaultLine::Deny => Stated::Deny,
-                    DefaultLine::Unknown | DefaultLine::InSection => Stated::Unreadable,
+                    DefaultLine::Deny | DefaultLine::Unknown | DefaultLine::InSection => {
+                        Stated::Unreadable
+                    }
                 },
                 [_, _, ..] => Stated::Unreadable,
             }
         };
-        let kept = if unread || whole { Kept::Nothing } else { kept };
+        let kept = if whole { Kept::Nothing } else { kept };
         let clean = scopes.is_empty();
         let rest = match (clean, kept) {
             (true, Kept::Heads) => Rest::Valid,
@@ -487,21 +496,16 @@ impl Trusted {
     }
 }
 
-/// What the error `problem`, on a line `within` the file, takes down (open cell ?4): an error inside a head's section drops that head, a bad rule drops that rule alone, and an error that leaves the file's structure untrustworthy drops the whole file.
+/// What the error `problem`, on a line `within` the file, takes down (open cell ?4): an error inside a head's section drops that head, a bad rule drops that rule alone, and an error that leaves the file's structure or format untrustworthy drops the whole file. No error leaves a readable `default` line unread, so a broken line never turns a readable deny open.
 pub fn scope(problem: &Problem, within: Within) -> Scope {
     let fixed = match problem {
         Problem::NotAFile | Problem::Unreadable(_) | Problem::Untrusted(_) => Some(Scope::Trust),
         Problem::TooLarge
-        | Problem::NotUtf8
-        | Problem::ControlCharacter(_)
         | Problem::MissingVersion
-        | Problem::UnknownVersion(_) => Some(Scope::Text),
-        // a line too long is unread, and among the top-level keys it may be the `default` line
-        Problem::LineTooLong => Some(match within {
-            Within::Top => Scope::Text,
-            Within::Header | Within::Head | Within::Rules | Within::Guards => Scope::File,
-        }),
-        Problem::TooManyHeads | Problem::TooManyRules => Some(Scope::File),
+        | Problem::UnknownVersion(_)
+        | Problem::LineTooLong
+        | Problem::TooManyHeads
+        | Problem::TooManyRules => Some(Scope::File),
         Problem::UnknownSection(_) | Problem::DuplicateSection(_) => Some(Scope::Section),
         Problem::BadName(_) | Problem::ReservedName(_) | Problem::DuplicateHead(_) => {
             Some(Scope::Head)
@@ -511,7 +515,10 @@ pub fn scope(problem: &Problem, within: Within) -> Scope {
         | Problem::UndefinedHead(_)
         | Problem::WrongKind { .. }
         | Problem::TooManyTokens => Some(Scope::Line),
-        Problem::Syntax(_)
+        // a line that is not UTF-8 or holds a control character is a bad line of its section
+        Problem::NotUtf8
+        | Problem::ControlCharacter(_)
+        | Problem::Syntax(_)
         | Problem::UnknownKey(_)
         | Problem::DuplicateKey(_)
         | Problem::BadValue { .. }

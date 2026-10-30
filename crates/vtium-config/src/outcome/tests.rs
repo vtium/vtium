@@ -11,6 +11,8 @@ use crate::identity::{Class, Identity};
 use crate::parse::parse;
 use crate::place::Place;
 
+mod runtime;
+
 /// Every path: the three verdicts that read nothing, and each disposition with each rest of a trusted file.
 fn paths() -> Vec<Read> {
     let seeds = [
@@ -47,6 +49,8 @@ enum Ways {
     Granted,
     /// Every switch off.
     Revoked,
+    /// The operator's own way in under deny: the first head writes `focus`, `vt-keys` and `rescue` on, the guards `anti-lockout` and `rescue-key` on, and nothing else is written.
+    Admin,
 }
 
 impl Ways {
@@ -55,6 +59,7 @@ impl Ways {
             Ways::Unset => "unset",
             Ways::Granted => "granted",
             Ways::Revoked => "revoked",
+            Ways::Admin => "admin",
         }
     }
 }
@@ -63,7 +68,11 @@ impl Ways {
 fn ways(read: &Read) -> &'static [Ways] {
     match read {
         Read::Trusted(Trusted {
-            rest: Rest::Valid | Rest::Headless | Rest::Partly,
+            rest: Rest::Valid | Rest::Partly,
+            ..
+        }) => &[Ways::Unset, Ways::Granted, Ways::Revoked, Ways::Admin],
+        Read::Trusted(Trusted {
+            rest: Rest::Headless,
             ..
         }) => &[Ways::Unset, Ways::Granted, Ways::Revoked],
         Read::Trusted(Trusted {
@@ -76,7 +85,7 @@ fn ways(read: &Read) -> &'static [Ways] {
     }
 }
 
-/// What the text writes of `key`: a file with no head writes no head's right.
+/// What the text writes of `key` on some head: a file with no head writes no head's right.
 fn written(read: &Read, ways: Ways, key: SwitchKey) -> Option<bool> {
     let headless = matches!(
         read,
@@ -91,8 +100,9 @@ fn written(read: &Read, ways: Ways, key: SwitchKey) -> Option<bool> {
     };
     match ways {
         Ways::Unset => None,
-        Ways::Granted | Ways::Revoked if headless && head_right => None,
-        Ways::Granted => Some(true),
+        Ways::Granted | Ways::Revoked | Ways::Admin if headless && head_right => None,
+        Ways::Admin if key == SwitchKey::NeverDark => None,
+        Ways::Granted | Ways::Admin => Some(true),
         Ways::Revoked => Some(false),
     }
 }
@@ -115,7 +125,7 @@ impl Run {
     fn lit(&self) -> bool {
         match self.outcome.lit {
             Lit::Rules => self.on(SwitchKey::NeverDark),
-            Lit::Notice | Lit::Dark => false,
+            Lit::Notice => false,
         }
     }
 
@@ -124,7 +134,6 @@ impl Run {
         match self.outcome.lit {
             Lit::Rules => self.on(SwitchKey::NeverDark),
             Lit::Notice => true,
-            Lit::Dark => false,
         }
     }
 
@@ -238,7 +247,8 @@ const TABLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/outcomes.tsv");
 
 /// The outcome table: one row a path, its inputs, its outcome, each switch's rule, and the extremes of its text under which a lockout can occur.
 fn table() -> String {
-    let mut out = String::from("read\tdefault\trest\truns\tposture\trescue\tlanding\tline\tlit");
+    let mut out =
+        String::from("read\tdefault\trest\truns\tposture\trescue\tlanding\tline\tlit\tfallback");
     for key in SwitchKey::ALL {
         out.push('\t');
         out.push_str(key.name());
@@ -254,6 +264,7 @@ fn table() -> String {
             o.landing.name(),
             o.line.map_or("-", Line::text),
             o.lit.name(),
+            o.fallback.name(),
         ]);
         row.extend(SwitchKey::ALL.iter().map(|&k| o.switch(k).name()));
         let locked: Vec<&str> = ways(&read)
@@ -414,10 +425,8 @@ fn a_degraded_run_is_never_more_open_than_builtin_and_never_closes_what_its_disp
             broken.insert((read, Half::Closes));
         }
         for &key in SwitchKey::ALL {
-            let dark = key == SwitchKey::NeverDark && o.lit == Lit::Dark;
-            let unset = o.switch(key).of(None) && !dark;
             assert!(
-                unset || !granted.unset(key),
+                o.switch(key).of(None) || !granted.unset(key),
                 "{read:?} closes {} its disposition grants",
                 key.name()
             );
@@ -446,17 +455,62 @@ fn a_degraded_run_keeps_the_disposition_its_file_states() {
 }
 
 #[test]
-fn every_partly_broken_run_leaves_a_rescued_keyboard_somewhere_to_land() {
+fn every_partly_broken_run_leaves_a_rescued_keyboard_somewhere_to_land_or_names_why_not() {
     for run in runs() {
         if degraded(&run.read) != Some(Degraded::Partly) {
             continue;
         }
+        // a partly broken deny run names why not: a readable deny is sticky, so the rescue goes only where the file grants it
         assert!(
-            run.rescued(),
+            run.rescued() || run.outcome.rescue == Rescue::Sticky,
             "{:?} under {:?}: a rescued keyboard lands nowhere lit",
             run.read,
             run.ways
         );
+    }
+}
+
+#[test]
+fn a_readable_deny_is_sticky_within_the_file() {
+    // no other `default` line and no error moves a readable deny
+    for defaults in sequences(DefaultLine::ALL, 3) {
+        if !defaults.contains(&DefaultLine::Deny) {
+            continue;
+        }
+        for scopes in sequences(Scope::ALL, 2) {
+            for &kept in Kept::ALL {
+                let t = Trusted::of(&defaults, &scopes, kept);
+                assert_eq!(t.stated, Stated::Deny, "{defaults:?} {scopes:?} {kept:?}");
+            }
+        }
+    }
+    // and no rest of a deny file runs past what a valid deny file grants
+    let valid = resolve(&Read::Trusted(Trusted {
+        stated: Stated::Deny,
+        rest: Rest::Valid,
+    }));
+    for &rest in Rest::ALL {
+        let o = resolve(&Read::Trusted(Trusted {
+            stated: Stated::Deny,
+            rest,
+        }));
+        assert_eq!(o.posture, Posture::Deny, "{rest:?}");
+        assert_ne!(o.rescue, Rescue::Forced, "{rest:?}");
+        assert_eq!(o.landing, Landing::AsSet, "{rest:?}");
+        assert_eq!(o.fallback, Fallback::Notice, "{rest:?}");
+        // `never-dark` lights a display and grants no input: a degraded deny run keeps its notice on a lit display
+        for &key in SwitchKey::ALL
+            .iter()
+            .filter(|&&k| k != SwitchKey::NeverDark)
+        {
+            for written in [None, Some(false), Some(true)] {
+                assert!(
+                    !o.switch(key).of(written) || valid.switch(key).of(written),
+                    "{rest:?} opens {} past a valid deny file",
+                    key.name()
+                );
+            }
+        }
     }
 }
 
@@ -523,11 +577,10 @@ fn no_outcome_depends_on_where_a_top_level_key_sits() {
 }
 
 #[test]
-fn the_disposition_is_read_from_one_default_line() {
+fn the_disposition_is_read_from_the_default_lines() {
     let of =
         |defaults: &[DefaultLine], scopes: &[Scope]| Trusted::of(defaults, scopes, Kept::Heads);
     assert_eq!(of(&[], &[]).stated, Stated::Unset);
-    assert_eq!(of(&[DefaultLine::Deny], &[]).stated, Stated::Deny);
     assert_eq!(
         of(&[DefaultLine::Deny], &[]),
         Trusted {
@@ -535,25 +588,25 @@ fn the_disposition_is_read_from_one_default_line() {
             rest: Rest::Valid
         }
     );
-    for two in [
-        [DefaultLine::Deny, DefaultLine::Deny],
-        [DefaultLine::Allow, DefaultLine::Deny],
+    assert_eq!(of(&[DefaultLine::Allow], &[]).stated, Stated::Allow);
+    for (lines, want) in [
+        ([DefaultLine::Deny, DefaultLine::Deny], Stated::Deny),
+        ([DefaultLine::Allow, DefaultLine::Deny], Stated::Deny),
+        ([DefaultLine::Deny, DefaultLine::Unknown], Stated::Deny),
+        ([DefaultLine::InSection, DefaultLine::Deny], Stated::Deny),
+        ([DefaultLine::Allow, DefaultLine::Allow], Stated::Unreadable),
+        (
+            [DefaultLine::Allow, DefaultLine::Unknown],
+            Stated::Unreadable,
+        ),
     ] {
-        assert_eq!(of(&two, &[]).stated, Stated::Unreadable, "{two:?}");
+        assert_eq!(of(&lines, &[]).stated, want, "{lines:?}");
     }
     assert_eq!(
         of(&[DefaultLine::InSection], &[]).stated,
         Stated::Unreadable
     );
-    // a deny file whose text or format cannot be read states nothing vtium can trust
-    assert_eq!(
-        of(&[DefaultLine::Deny], &[Scope::Text]),
-        Trusted {
-            stated: Stated::Unreadable,
-            rest: Rest::Broken
-        }
-    );
-    // a structure vtium cannot trust drops the file, and its disposition stands
+    // a structure or format vtium cannot trust drops the file, and a readable deny still stands
     assert_eq!(
         of(&[DefaultLine::Deny], &[Scope::File]),
         Trusted {
@@ -579,12 +632,18 @@ fn every_problem_has_its_scope() {
             Scope::Trust,
         ),
         (Problem::Untrusted(untrusted), Within::Top, Scope::Trust),
-        (Problem::TooLarge, Within::Top, Scope::Text),
-        (Problem::NotUtf8, Within::Head, Scope::Text),
-        (Problem::ControlCharacter('\r'), Within::Rules, Scope::Text),
-        (Problem::MissingVersion, Within::Top, Scope::Text),
-        (Problem::UnknownVersion(q()), Within::Top, Scope::Text),
-        (Problem::LineTooLong, Within::Top, Scope::Text),
+        (Problem::TooLarge, Within::Top, Scope::File),
+        (Problem::NotUtf8, Within::Head, Scope::Head),
+        (Problem::NotUtf8, Within::Top, Scope::Line),
+        (Problem::ControlCharacter('\r'), Within::Rules, Scope::Line),
+        (
+            Problem::ControlCharacter('\r'),
+            Within::Header,
+            Scope::Section,
+        ),
+        (Problem::MissingVersion, Within::Top, Scope::File),
+        (Problem::UnknownVersion(q()), Within::Top, Scope::File),
+        (Problem::LineTooLong, Within::Top, Scope::File),
         (Problem::LineTooLong, Within::Rules, Scope::File),
         (Problem::TooManyHeads, Within::Header, Scope::File),
         (Problem::TooManyRules, Within::Rules, Scope::File),
