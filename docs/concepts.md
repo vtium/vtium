@@ -109,12 +109,13 @@ A head file in `/etc/vtium` declares the heads and an ordered list of rules, rea
 
 The console can always be typed on. With no file, vtium runs its compiled-in configuration and writes nothing; a broken one is reported on the screen and in the log, left as it is, and replaced in memory by the shipped rules. Whatever the rules say, a keyboard that reaches no lit head follows the focus, and `Ctrl-Alt-F<n>` for the VT already shown moves the keyboard that pressed it to the focus until the next boot.
 
-Each head is a terminal of its own. Ctrl-Super-Up and Ctrl-Super-Down move the focus to the next and the previous head with a lit display; a keyboard a rule gives a head keeps typing into it. Ctrl-Super-Return opens a console in the head the keyboard types into, Ctrl-Super-Right and Ctrl-Super-Left show its next and previous console, and Ctrl-Super-Backspace closes the one shown. A head holds 4 consoles and every head 8 together, unless the configuration raises them. vtium ends only when no head has anything left to run. The figure follows one head's consoles.
+Each head is a terminal of its own. Ctrl-Super-Up and Ctrl-Super-Down move the focus to the next and the previous head with a lit display; a keyboard a rule gives a head keeps typing into it. Ctrl-Super-Return opens a console in the head the keyboard types into, Ctrl-Super-Right and Ctrl-Super-Left show its next and previous console, and Ctrl-Super-Backspace closes the one shown. A head holds 4 consoles and every head 8 together, unless the configuration raises them. vtium ends only when no head has anything left to run; a head whose display never lit has nothing to run, so it never holds the exit up. The figure follows one head's consoles.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Waiting: the head file declares the head
     Waiting --> Running: its first display lights,<br>and its consoles start
+    Waiting --> [*]: no display yet: it holds up<br>no exit, having nothing to run
     state Running {
         [*] --> Shown
         Shown --> Shown: Ctrl-Super-Right or Left<br>shows the next or the previous

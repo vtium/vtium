@@ -2114,11 +2114,17 @@ impl App {
             head.ended = Some(ended);
             head.draw_now = true;
         }
-        // Under `oneshot` no head gives up, and under the respawn policy
-        // none ends otherwise.
-        let ended: Vec<Option<Ended>> = self.heads.iter().map(|head| head.ended).collect();
-        if ended.iter().all(Option::is_some) {
-            let quick = ended.contains(&Some(Ended::TooQuick));
+        // A head whose display never lit has nothing left to run: it holds
+        // up no exit (the team lead's steering of 2026-10-30). Under
+        // `oneshot` no head gives up, and under the respawn policy none
+        // ends otherwise.
+        let ended: Vec<Ended> = self.heads.iter().filter_map(|head| head.ended).collect();
+        let running = self
+            .heads
+            .iter()
+            .any(|head| head.started() && head.ended.is_none());
+        if !ended.is_empty() && !running {
+            let quick = ended.contains(&Ended::TooQuick);
             self.request_exit(if quick { Exit::TooQuick } else { Exit::Oneshot });
         }
     }

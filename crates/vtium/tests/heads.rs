@@ -1157,6 +1157,16 @@ fn a_console_exiting_shows_the_heads_next_console() {
 /// Two heads whose consoles run the head file's own `login`: small runs
 /// `small`, large runs `large`, each a shell command.
 fn logins(args: &[&str], small: &str, large: &str) -> Seat {
+    logins_on(args, small, large, two_displays())
+}
+
+/// [`logins`] on `displays`.
+fn logins_on(
+    args: &[&str],
+    small: &str,
+    large: &str,
+    displays: impl IntoIterator<Item = (&'static str, Memory)>,
+) -> Seat {
     let heads = format!(
         "version = 1
 [head small]
@@ -1168,7 +1178,7 @@ display card:mem-small -> small
 display card:mem-large -> large
 "
     );
-    Seat::with_heads(args, Some(&heads), two_displays(), "read x")
+    Seat::with_heads(args, Some(&heads), displays, "read x")
 }
 
 /// D3, and the operator's answers (2026-10-30): each head runs its own
@@ -1302,4 +1312,27 @@ input class:mouse -> focus
     assert_eq!(s.app.focus_head(), Some("large"));
     assert_eq!(s.app.head("small").and_then(Head::pointer), Some((24, 40)));
     assert_eq!(s.app.head("large").and_then(Head::pointer), None);
+}
+
+/// The operator's answers (2026-10-30), with the team lead's steering of
+/// 2026-10-30: a head whose display never lit has nothing left to run, so
+/// it holds up no exit. With the large display unplugged, the small
+/// head's login failing too quickly ends vtium for the getty fallback, and
+/// under `oneshot` its program ending ends vtium.
+#[test]
+fn a_head_that_never_lit_holds_up_no_exit() {
+    let small = || [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut quick = logins_on(&[], "exit 1", "read x", small());
+    assert!(
+        quick.until(Duration::from_secs(3), |a| a.finished().is_some()),
+        "the small head gave up, and the large never lit"
+    );
+    assert_eq!(quick.app.finished(), Some(vtium::app::Exit::TooQuick));
+    assert_eq!(quick.app.head("large").map(Head::started), Some(false));
+    let mut once = logins_on(&["--oneshot"], "echo bye", "read x", small());
+    assert!(
+        once.until(Duration::from_secs(3), |a| a.finished().is_some()),
+        "the small head's program ended, and the large never lit"
+    );
+    assert_eq!(once.app.finished(), Some(vtium::app::Exit::Oneshot));
 }
