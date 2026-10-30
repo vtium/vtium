@@ -227,15 +227,18 @@ impl Seat {
         script: &str,
         fonts: Sources,
     ) -> Seat {
-        let rules = heads.map(|text| vtium_config::parse(text).expect("a valid head file").config);
+        let rules = heads.map(|text| {
+            let parsed = vtium_config::parse(text).expect("a valid head file");
+            (parsed.config, None)
+        });
         Seat::with_rules(args, rules, displays, script, fonts)
     }
 
-    /// [`Seat::with_fonts`], running `rules` as the head file in force, on
-    /// VT 1.
+    /// [`Seat::with_fonts`], running the head file in force and the notice
+    /// of its start, as [`vtium::head::rules`] gives them, on VT 1.
     fn with_rules(
         args: &[&str],
-        rules: Option<vtium_config::Config>,
+        rules: Option<(vtium_config::Config, Option<String>)>,
         displays: impl IntoIterator<Item = (&'static str, Memory)>,
         script: &str,
         fonts: Sources,
@@ -258,8 +261,11 @@ impl Seat {
             env,
         );
         app.set_font_sources(fonts);
-        if let Some(rules) = rules {
+        if let Some((rules, notice)) = rules {
             app.set_heads(rules);
+            if let Some(text) = notice {
+                app.notice(&text);
+            }
         }
         for (node, memory) in displays {
             app.add_video(PathBuf::from(node), Box::new(memory));
@@ -918,6 +924,11 @@ const KBD_FOCUS: &str = "/dev/input/event2";
 /// with [`KBD_SMALL`], [`KBD_LARGE`] and [`KBD_FOCUS`], each head's
 /// session echoing each line it reads, and ending at `q`.
 fn claimed() -> Seat {
+    claimed_with(&[])
+}
+
+/// [`claimed`], booted with `args`.
+fn claimed_with(args: &[&str]) -> Seat {
     let displays = [
         ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
         (
@@ -926,7 +937,7 @@ fn claimed() -> Seat {
         ),
     ];
     let script = "echo ready; while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done";
-    let mut s = Seat::with_heads(&[], Some(CLAIMED), displays, script);
+    let mut s = Seat::with_heads(args, Some(CLAIMED), displays, script);
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
     s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
     s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
@@ -1830,8 +1841,8 @@ impl HeadFile {
         vtium_config::Trust::owner(uid).below(&self.dir)
     }
 
-    /// The rules the start runs from the file.
-    fn rules(&self) -> vtium_config::Config {
+    /// The rules the start runs from the file, and the notice it shows.
+    fn rules(&self) -> (vtium_config::Config, Option<String>) {
         vtium::head::rules(&self.path, &self.trust())
     }
 
@@ -1888,7 +1899,7 @@ const KBD_IGNORED: &str = "/dev/input/event3";
 
 /// Two heads booted on `rules`, the large display the boot display, so
 /// the focus rests on `large`, with [`KBD_SMALL`] and [`KBD_IGNORED`].
-fn rescue_seat(rules: vtium_config::Config) -> Seat {
+fn rescue_seat(rules: (vtium_config::Config, Option<String>)) -> Seat {
     let displays = [
         ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
         (
@@ -1928,6 +1939,15 @@ fn the_rescue_key_moves_a_claimed_keyboard_and_an_ignored_one_to_the_focus_and_w
         .device_input(Path::new(KBD_SMALL), ctrl_alt_f(1), now());
     s.app
         .device_input(Path::new(KBD_IGNORED), ctrl_alt_f(1), now());
+    let shown = s
+        .app
+        .head("large")
+        .and_then(Head::notice)
+        .unwrap_or_default();
+    assert!(
+        shown.contains(KBD_SMALL) && shown.contains(KBD_IGNORED),
+        "a notice on the focus's head: {shown:?}"
+    );
     s.type_on(KBD_SMALL, "s\r");
     s.type_on(KBD_IGNORED, "j\r");
     assert!(
@@ -1937,4 +1957,184 @@ fn the_rescue_key_moves_a_claimed_keyboard_and_an_ignored_one_to_the_focus_and_w
     );
     assert!(!head_shows(&s.app, "small", "got:s"));
     assert_eq!(file.listing(), before, "nothing written");
+}
+
+/// The paper of vtium's notice, as a display's bytes hold it: blue,
+/// green, red.
+const PAPER: [u8; 3] = [0xe2, 0xe2, 0xfe];
+
+impl Memory {
+    /// Whether a pixel of the frame is `bgr`.
+    fn has(&self, bgr: [u8; 3]) -> bool {
+        self.pixels.chunks_exact(4).any(|p| p[..3] == bgr)
+    }
+}
+
+/// The text of head `name`'s notice.
+fn notice(app: &App, name: &str) -> Option<String> {
+    app.head(name).and_then(Head::notice).map(str::to_owned)
+}
+
+/// D7 and D11: a boot with each kind of invalid head file, each row of
+/// D7's first outcome, runs the shipped rules, shows the notice naming the
+/// error's line on the display, outside the session's screen, and leaves
+/// the file's bytes, by their hash, and its directory as they were.
+#[test]
+fn a_boot_with_an_invalid_head_file_runs_the_shipped_rules_shows_the_notice_and_leaves_its_bytes() {
+    use std::os::unix::fs::PermissionsExt;
+    let rules = "[rules]\ndisplay * -> desk\n";
+    let invalid: [(&str, String, &str); 12] = [
+        ("no-version", format!("[head desk]\n{rules}"), ":1: "),
+        (
+            "version",
+            format!("version = 2\n[head desk]\n{rules}"),
+            ":1: ",
+        ),
+        (
+            "syntax",
+            format!("version = 1\n[head desk]\n{rules}desk\n"),
+            ":5: ",
+        ),
+        (
+            "key",
+            format!("version = 1\n[head desk]\ncolour = red\n{rules}"),
+            ":3: ",
+        ),
+        (
+            "undefined",
+            "version = 1\n[head desk]\n[rules]\ndisplay * -> desc\n".into(),
+            ":4: ",
+        ),
+        (
+            "kind",
+            "version = 1\n[head desk]\n[rules]\ninput * -> dark\n".into(),
+            ":4: ",
+        ),
+        (
+            "two-heads",
+            format!("version = 1\n[head desk]\n[head desk]\n{rules}"),
+            ":3: ",
+        ),
+        (
+            "key-twice",
+            format!("version = 1\n[head desk]\nconsoles = 2\nconsoles = 2\n{rules}"),
+            ":4: ",
+        ),
+        (
+            "two-rules",
+            format!("version = 1\n[head desk]\n{rules}{rules}"),
+            ":5: ",
+        ),
+        (
+            "two-guards",
+            format!("version = 1\n[head desk]\n{rules}[guards]\n[guards]\n"),
+            ":6: ",
+        ),
+        (
+            "range",
+            format!("version = 1\n[head desk]\nfont-size = 100000\n{rules}"),
+            ":3: ",
+        ),
+        (
+            "owner",
+            format!("version = 1\n[head desk]\n{rules}"),
+            "writable by its group or others",
+        ),
+    ];
+    for (test, text, says) in invalid {
+        let file = HeadFile::new(&format!("invalid-{test}"), &text);
+        if test == "owner" {
+            std::fs::set_permissions(&file.path, std::fs::Permissions::from_mode(0o664))
+                .expect("0664");
+        }
+        let before = file.listing();
+        let start = file.rules();
+        assert_eq!(
+            start.0,
+            vtium_config::Config::builtin(),
+            "{test}: the shipped rules"
+        );
+        let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+        let mut s = Seat::with_rules(&[], Some(start), displays, "echo ready; read x", no_fonts());
+        assert_eq!(
+            s.app.heads().iter().map(Head::name).collect::<Vec<_>>(),
+            ["console"],
+            "{test}"
+        );
+        assert!(
+            s.until(SECOND, |a| head_shows(a, "console", "ready")),
+            "{test}: the session starts"
+        );
+        let shown = notice(&s.app, "console").unwrap_or_default();
+        assert!(shown.contains(says), "{test}: {shown:?}");
+        assert!(shown.contains("shipped rules"), "{test}: {shown:?}");
+        assert!(
+            s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)),
+            "{test}: drawn"
+        );
+        assert!(
+            !s.app.screen_text().iter().any(|l| l.contains("shipped")),
+            "{test}: not in the session"
+        );
+        assert_eq!(file.listing(), before, "{test}: the file as it was");
+    }
+}
+
+/// An invalid head file's notice, on one display.
+fn noticed() -> (Seat, HeadFile) {
+    let file = HeadFile::new(
+        "noticed",
+        "version = 1\n[head desk]\n[rules]\ndisplay * -> desc\n",
+    );
+    let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::with_rules(
+        &[],
+        Some(file.rules()),
+        displays,
+        "echo ready; read x",
+        no_fonts(),
+    );
+    assert!(s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)));
+    (s, file)
+}
+
+/// D7 and the operator's answer to probe 5: the notice ends on any key
+/// that reaches its head, and the display draws whole without it.
+#[test]
+fn the_notice_ends_on_a_key_reaching_its_head() {
+    let (mut s, _file) = noticed();
+    s.type_str("k");
+    assert_eq!(notice(&s.app, "console"), None);
+    assert!(
+        s.until_memory("/dev/mem0", SECOND, |m| !m.has(PAPER)),
+        "gone from the display"
+    );
+}
+
+/// D7 and the operator's answer to probe 5: with no key the notice ends
+/// 30 s after it is first shown, the test's clock driving the time.
+#[test]
+fn the_notice_ends_after_30_s() {
+    let (mut s, _file) = noticed();
+    let shown = now();
+    s.app.turn(shown + Duration::from_secs(29));
+    assert!(notice(&s.app, "console").is_some(), "shown at 29 s");
+    s.app.turn(shown + Duration::from_secs(31));
+    assert_eq!(notice(&s.app, "console"), None, "ended at 30 s");
+}
+
+/// The operator's answers (2026-10-30): under `oneshot` a head whose
+/// program ended shows "session ended" on its display, drawn by vtium,
+/// while the other head runs on.
+#[test]
+fn under_oneshot_a_head_whose_program_ended_shows_session_ended() {
+    let mut s = claimed_with(&["--oneshot"]);
+    s.type_on(KBD_SMALL, "q\r");
+    assert!(s.until(SECOND, |a| notice(a, "small").as_deref()
+        == Some("session ended")));
+    assert!(
+        s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)),
+        "drawn"
+    );
+    assert!(!s.memory("/dev/mem1").has(PAPER), "large runs on");
 }

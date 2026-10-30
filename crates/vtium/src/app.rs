@@ -413,6 +413,15 @@ impl App {
         self.frits.clear();
     }
 
+    /// Shows vtium's notice `text` on every head, before its login, until
+    /// a key reaches the head or for [`crate::head::NOTICE_SHOWN`]
+    /// (ADR-1401 D7).
+    pub fn notice(&mut self, text: &str) {
+        for head in &mut self.heads {
+            head.add_notice(text);
+        }
+    }
+
     /// Puts the power keys' actions through `power`, a test's stand-in
     /// for PID 1, logind and the kernel.
     pub fn set_power(&mut self, power: Box<dyn Power>) {
@@ -1879,8 +1888,12 @@ impl App {
         });
         match event {
             InputEvent::Key(key) => {
-                // Only a key reaching a head settles the focus's start.
+                // Only a key reaching a head settles the focus's start, and
+                // ends its notices.
                 self.focus_settled |= h.is_some();
+                if let Some(head) = h.and_then(|h| self.heads.get_mut(h)) {
+                    head.end_notices();
+                }
                 self.activity(now);
                 self.key(h, &key, now);
             }
@@ -1903,10 +1916,14 @@ impl App {
         let Some(id) = self.routes.rescue(&self.rules, node) else {
             return;
         };
-        log::warn!(
+        let line = format!(
             "the rescue key: {} follows the focus until the next boot",
             node.display()
         );
+        log::warn!("{line}");
+        if let Some(head) = self.focus.and_then(|h| self.heads.get_mut(h)) {
+            head.add_notice(&line);
+        }
         if let (Some(input), Some(id)) = (&mut self.input, id) {
             input.set_disposition(id, vtium_platform::input::Disposition::Deliver);
         }
@@ -2288,6 +2305,9 @@ impl App {
     fn timers(&mut self, now: Instant) {
         let awake = self.awake;
         for head in &mut self.heads {
+            if head.notice_due.is_some_and(|d| d <= now) {
+                head.end_notices();
+            }
             if let Some(due) = head.text_due.filter(|&d| d <= now) {
                 head.draw_now |= head.console.term.blink.fired(Timer::Text, awake);
                 head.text_due = Some(after(due, crate::blink::TEXT_PERIOD));
@@ -2467,6 +2487,7 @@ impl App {
             due.extend(head.views.values().filter_map(|v| v.wait.due()));
             due.extend(head.figures.due);
             due.extend(head.hangup_due);
+            due.extend(head.notice_due);
         }
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));
@@ -2549,6 +2570,10 @@ fn draw_head(
     now: Instant,
 ) {
     let state = head.draw_state();
+    let overlay = head.overlay();
+    if overlay.notice.is_some() && head.notice_due.is_none() && !head.views.is_empty() {
+        head.notice_due = Some(after(now, crate::head::NOTICE_SHOWN));
+    }
     let present = std::mem::take(&mut head.console.term.present);
     let now_all = std::mem::take(&mut head.draw_now) || present;
     let term = &mut head.console.term;
@@ -2598,6 +2623,7 @@ fn draw_head(
             ..state
         };
         let hook = head.draw_hook.as_ref();
+        view.overlay.clone_from(&overlay);
         let Prepared::Job(job) = view.prepare(
             key,
             term,

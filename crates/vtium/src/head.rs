@@ -44,6 +44,10 @@ use crate::term::{Clock, Term, View};
 /// The grid before any display is known.
 pub const GRID: (usize, usize) = (80, 24);
 
+/// How long a notice shows with no key reaching its head (ADR-1401 D7,
+/// probe 5).
+pub const NOTICE_SHOWN: Duration = Duration::from_secs(30);
+
 /// The lines of scrollback a wheel event scrolls (`src/terminal.c:1648`).
 const WHEEL_LINES: usize = 3;
 
@@ -106,6 +110,11 @@ pub struct Head {
     pub(crate) login: Option<Config>,
     /// Why the head runs no session any more.
     pub(crate) ended: Option<Ended>,
+    /// vtium's notices to the head, a line each (ADR-1401 D7), until a
+    /// key reaches the head or [`NOTICE_SHOWN`] after they are first
+    /// drawn, when they end.
+    notices: String,
+    pub(crate) notice_due: Option<Instant>,
     /// What the head does when it loses its last display (ADR-1401 D8).
     pub(crate) on_loss: OnLoss,
     /// When its sessions hang up, while it has no display.
@@ -265,6 +274,8 @@ impl Head {
             wanted: 1,
             login: None,
             ended: None,
+            notices: String::new(),
+            notice_due: None,
             on_loss: OnLoss::Nohup,
             hangup_due: None,
             views: BTreeMap::new(),
@@ -369,10 +380,39 @@ impl Head {
             .then_some((self.pointer.x, self.pointer.y))
     }
 
-    /// What the head shows of itself in place of a session, once its
-    /// session has ended for good.
+    /// What vtium shows on the head of its own: why its session ended
+    /// for good, else its notices.
     pub fn notice(&self) -> Option<&str> {
-        self.ended.map(Ended::notice)
+        self.ended
+            .map(Ended::notice)
+            .or_else(|| (!self.notices.is_empty()).then_some(self.notices.as_str()))
+    }
+
+    /// Adds `text` to the head's notices, which show from its next frame.
+    pub(crate) fn add_notice(&mut self, text: &str) {
+        if !self.notices.is_empty() {
+            self.notices.push('\n');
+        }
+        self.notices.push_str(text);
+        self.notice_due = None;
+        self.draw_now = true;
+    }
+
+    /// The head's notices end: a key reached it, or their time ran out.
+    pub(crate) fn end_notices(&mut self) {
+        if !self.notices.is_empty() {
+            self.notices.clear();
+            self.notice_due = None;
+            self.draw_now = true;
+        }
+    }
+
+    /// What vtium draws over the head's frames.
+    pub(crate) fn overlay(&self) -> crate::term::Overlay {
+        crate::term::Overlay {
+            notice: self.notice().map(vtium_render::Notice::new),
+            mark: None,
+        }
     }
 
     /// How the shown console fits the displays.
@@ -917,35 +957,39 @@ impl Head {
 /// The head file the start runs (ADR-1401 D3, D7): the file at `path`
 /// read under `trust`, each warning logged with its line; the compiled-in
 /// configuration when there is none; and the compiled-in configuration in
-/// place of a file that fails a check, each error logged with its line.
-/// The file is never written.
-pub fn rules(path: &std::path::Path, trust: &vtium_config::Trust) -> vtium_config::Config {
+/// place of a file that fails a check, each error logged with its line and
+/// shown on the console, the notice returned beside the rules. The file is
+/// never written.
+pub fn rules(
+    path: &std::path::Path,
+    trust: &vtium_config::Trust,
+) -> (vtium_config::Config, Option<String>) {
     use vtium_config::at;
     let parsed = vtium_config::read(path, trust)
         .and_then(|text| text.map(|text| vtium_config::parse(&text)).transpose());
     match parsed {
-        Ok(None) => vtium_config::Config::builtin(),
+        Ok(None) => (vtium_config::Config::builtin(), None),
         Ok(Some(parsed)) => {
             for w in &parsed.warnings {
                 log::warn!("{}", at(path, Some(w.line()), w));
             }
-            parsed.config
+            (parsed.config, None)
         }
         Err(rejected) => {
-            for e in &rejected.errors {
-                log::error!("{}", at(path, e.line(), e));
-            }
+            let mut lines: Vec<String> = rejected
+                .errors
+                .iter()
+                .map(|e| at(path, e.line(), e).to_string())
+                .collect();
             if rejected.more > 0 {
-                log::error!(
-                    "{}",
-                    at(path, None, format_args!("{} more errors", rejected.more))
-                );
+                let more = format_args!("{} more errors", rejected.more);
+                lines.push(at(path, None, more).to_string());
             }
-            log::error!(
-                "{}",
-                at(path, None, "rejected whole: vtium runs the shipped rules")
-            );
-            vtium_config::Config::builtin()
+            lines.push(at(path, None, "rejected whole: vtium runs the shipped rules").to_string());
+            for line in &lines {
+                log::error!("{line}");
+            }
+            (vtium_config::Config::builtin(), Some(lines.join("\n")))
         }
     }
 }
@@ -1048,7 +1092,8 @@ mod tests {
         let valid = "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\n";
         let invalid = "version = 1\n[head desk]\n[rules]\ndisplay * -> desc\n";
         let (file, trust) = fixture("valid", Some(valid));
-        let ran = rules(&file, &trust);
+        let (ran, notice) = rules(&file, &trust);
+        assert_eq!(notice, None);
         assert_eq!(
             ran.heads
                 .iter()
@@ -1057,10 +1102,15 @@ mod tests {
             ["desk"]
         );
         let (absent, trust) = fixture("absent", None);
-        assert_eq!(rules(&absent, &trust), vtium_config::Config::builtin());
+        assert_eq!(
+            rules(&absent, &trust),
+            (vtium_config::Config::builtin(), None)
+        );
         assert!(!absent.exists(), "nothing written");
         let (bad, trust) = fixture("invalid", Some(invalid));
-        assert_eq!(rules(&bad, &trust), vtium_config::Config::builtin());
+        let (ran, notice) = rules(&bad, &trust);
+        assert_eq!(ran, vtium_config::Config::builtin());
+        assert!(notice.is_some_and(|n| n.contains(":4: ") && n.ends_with("shipped rules")));
         assert_eq!(std::fs::read_to_string(&bad).ok().as_deref(), Some(invalid));
         for f in [file, absent, bad] {
             if let Some(dir) = f.parent() {
