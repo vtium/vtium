@@ -139,6 +139,7 @@ Work happens on this machine first. GitHub's runners are slow, so the steering s
 
 - Before you delete a test because the golden or other reference it compared against is going away, check which defects only that test would catch, and keep a test that still catches each of them.
 - A stand-in (a stub or fake) that a test uses in place of a real part must check what the real part checks. A test's stand-in for the glyph helper once accepted any frit (font set file) name, so the real helper's refusal of a bad name surfaced only in tier 3.
+- Fix a bug by fixing the state that is wrong, never with timing: no delays, retries or "redraw a moment later". A test checks that state right after the event that should change it, and counts turns or frames instead of measuring wall time. When a test has to wait for another thread, bound the wait only so the test fails instead of hanging. A console switch that kept drawing the old console was fixed by resetting what each display remembered drawing, not by redrawing later.
 
 ### Cooperating across worktrees
 
