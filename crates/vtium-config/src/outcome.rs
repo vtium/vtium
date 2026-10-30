@@ -42,17 +42,32 @@ macro_rules! closed {
     };
 }
 
-/// The first level: whether the file can be trusted (ADR-1401 D10).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Read {
-    /// No file at the path: the shipped rules run, silently.
-    Missing,
-    /// The file fails the ownership check, not root's or writable by anyone else, or a directory above it does. It is never read.
-    Untrusted,
-    /// Something is at the path that vtium cannot open and read as a regular file: a directory, a FIFO, an I/O error. It is never read.
-    Inaccessible,
-    /// The file passes the ownership check and its text is read.
-    Trusted(Trusted),
+/// [`Read`] with every verdict that reads nothing in [`UNREAD`](Read::UNREAD), so the paths' enumeration cannot miss one; a verdict carrying anything but [`Read::Trusted`]'s levels does not match the macro.
+macro_rules! read {
+    ($(#[$meta:meta])* pub enum Read { $(#[$tmeta:meta])* Trusted(Trusted), $($(#[$vmeta:meta])* $unread:ident,)+ }) => {
+        $(#[$meta])*
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+        pub enum Read { $(#[$tmeta])* Trusted(Trusted), $($(#[$vmeta])* $unread,)+ }
+
+        impl Read {
+            /// Every verdict that reads nothing, in declaration order.
+            pub const UNREAD: &'static [Read] = &[$(Read::$unread,)+];
+        }
+    };
+}
+
+read! {
+    /// The first level: whether the file can be trusted (ADR-1401 D10).
+    pub enum Read {
+        /// The file passes the ownership check and its text is read.
+        Trusted(Trusted),
+        /// No file at the path: the shipped rules run, silently.
+        Missing,
+        /// The file fails the ownership check, not root's or writable by anyone else, or a directory above it does. It is never read.
+        Untrusted,
+        /// Something is at the path that vtium cannot open and read as a regular file: a directory, a FIFO, an I/O error. It is never read.
+        Inaccessible,
+    }
 }
 
 /// The second and third levels of a trusted file.

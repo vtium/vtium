@@ -13,31 +13,14 @@ use crate::place::Place;
 
 mod runtime;
 
-/// Every path: the three verdicts that read nothing, and each policy with each rest of a trusted file.
+/// Every path: each verdict that reads nothing, and each policy with each rest of a trusted file.
 fn paths() -> Vec<Read> {
-    let seeds = [
-        Read::Missing,
-        Read::Untrusted,
-        Read::Inaccessible,
-        Read::Trusted(Trusted {
-            stated: Stated::Unset,
-            rest: Rest::Valid,
-        }),
-    ];
-    let mut out = Vec::new();
-    for seed in seeds {
-        match seed {
-            Read::Missing | Read::Untrusted | Read::Inaccessible => out.push(seed),
-            Read::Trusted(_) => {
-                for &stated in Stated::ALL {
-                    for &rest in Rest::ALL {
-                        out.push(Read::Trusted(Trusted { stated, rest }));
-                    }
-                }
-            }
-        }
-    }
-    out
+    let trusted = Stated::ALL.iter().flat_map(|&stated| {
+        Rest::ALL
+            .iter()
+            .map(move |&rest| Read::Trusted(Trusted { stated, rest }))
+    });
+    Read::UNREAD.iter().copied().chain(trusted).collect()
 }
 
 /// What the running text writes of its heads' `isolated`, at its extremes.
@@ -296,15 +279,21 @@ fn outcome_table_matches_resolve() {
 }
 
 #[test]
-fn every_path_yields_exactly_one_outcome() {
+fn the_committed_table_lists_every_path_once() {
+    // `resolve` is a total function, so a path has one outcome by its type; the witness here is the committed table, read as data, which names each path in its first three columns
+    let committed = std::fs::read_to_string(TABLE).unwrap_or_default();
+    let rows: Vec<Vec<&str>> = committed
+        .lines()
+        .skip(1)
+        .map(|row| row.split('\t').take(3).collect())
+        .collect();
+    let listed: BTreeSet<&[&str]> = rows.iter().map(Vec::as_slice).collect();
+    assert_eq!(listed.len(), rows.len(), "the table lists a path twice");
     let paths = paths();
-    let distinct: BTreeSet<Read> = paths.iter().copied().collect();
-    let trusted = Stated::ALL.len().saturating_mul(Rest::ALL.len());
-    assert_eq!(paths.len(), trusted.saturating_add(3));
-    assert_eq!(distinct.len(), paths.len(), "a path is listed twice");
-    for read in &paths {
-        assert_eq!(resolve(read), resolve(read), "{read:?} answers twice");
-    }
+    let names: Vec<[&str; 3]> = paths.iter().map(read_name).collect();
+    let named: BTreeSet<&[&str]> = names.iter().map(|n| n.as_slice()).collect();
+    assert_eq!(named.len(), paths.len(), "two paths share a name");
+    assert_eq!(listed, named);
 }
 
 #[test]
