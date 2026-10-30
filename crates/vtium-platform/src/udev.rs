@@ -217,6 +217,28 @@ pub(crate) fn attributes(read: impl Fn(&str) -> Option<String>) -> BTreeMap<Stri
         .collect()
 }
 
+/// The multi-valued udev properties with their separators: `DEVLINKS` joins
+/// links by spaces, and `TAGS` and `CURRENT_TAGS` as `:a:b:`.
+/// sd-device joins them in a hash order that changes from process to process.
+/// A `udev:` glob matches the joined value, so every value is presented
+/// sorted, here and in the lister, and a glob places a device the same way
+/// on every run.
+pub(crate) fn ordered(name: &str, value: String) -> String {
+    let (sep, wrap) = match name {
+        "DEVLINKS" => (' ', false),
+        "TAGS" | "CURRENT_TAGS" => (':', true),
+        _ => return value,
+    };
+    let mut items: Vec<&str> = value.split(sep).filter(|i| !i.is_empty()).collect();
+    items.sort_unstable();
+    let joined = items.join(&sep.to_string());
+    if wrap && !items.is_empty() {
+        format!(":{joined}:")
+    } else {
+        joined
+    }
+}
+
 /// An event node's properties, bounded: those its identity reads by name
 /// (`named`) first, then the rest in udev's order (`all`), each name and
 /// value at most `UDEV_PROPERTY_MAX` bytes together and at most
@@ -232,6 +254,7 @@ pub(crate) fn properties(
     let mut kept = BTreeMap::new();
     let mut dropped: usize = 0;
     for (name, value) in first.chain(all) {
+        let value = ordered(&name, value);
         if kept.contains_key(&name) {
             continue;
         }

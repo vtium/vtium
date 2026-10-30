@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 
 use crate::bounds::{UDEV_PROPERTIES_MAX, UDEV_PROPERTY_MAX};
 use crate::display::{self, Edid};
-use crate::udev::{self, InputIdentity, Uevent};
+use crate::udev::{self, InputIdentity, Uevent, ordered};
 
 /// Bytes read of one udev database entry or `uevent` file: as many
 /// properties as an identity keeps, each as long as one may be. A longer
@@ -283,7 +283,8 @@ fn entry(dir: &Path) -> Option<String> {
 /// each replacing one of the same name, `DEVLINKS` (`S:`, each under
 /// `/dev`, joined by spaces), and `TAGS` (`G:`) and `CURRENT_TAGS` (`Q:`),
 /// as `:a:b:`. sd-device joins the links and tags in a hash order that
-/// changes from process to process; these are in the entry's order.
+/// changes from process to process; these are sorted, as the start's are
+/// ([`udev::ordered`]).
 fn properties(roots: &Roots, dir: &Path, subsystem: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let devpath = roots
@@ -324,11 +325,15 @@ fn properties(roots: &Roots, dir: &Path, subsystem: &str) -> Vec<(String, String
         }
     }
     if !links.is_empty() {
-        set(&mut out, "DEVLINKS", links.join(" "));
+        set(&mut out, "DEVLINKS", ordered("DEVLINKS", links.join(" ")));
     }
     for (name, tags) in [("TAGS", tags), ("CURRENT_TAGS", current)] {
         if !tags.is_empty() {
-            set(&mut out, name, format!(":{}:", tags.join(":")));
+            set(
+                &mut out,
+                name,
+                ordered(name, format!(":{}:", tags.join(":"))),
+            );
         }
     }
     out
