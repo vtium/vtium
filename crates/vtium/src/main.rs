@@ -2,8 +2,8 @@
 //!
 //! Start-up runs in the C reference's order (`src/main.c:161-222` at
 //! kmscon b1f7a7c5): the configuration, the loop and its signals, the VT,
-//! the seat's devices, the session, then the loop until something asks it
-//! to end; at the end the VT switches back, the loop is served while that
+//! the head file (ADR-1401 D3), the seat's devices, the sessions, then the
+//! loop until something asks it to end; at the end the VT switches back, the loop is served while that
 //! is pending, and the VT is put back before the loop goes.
 
 use std::ffi::OsString;
@@ -176,6 +176,10 @@ fn run(
     if let Some(font) = console {
         app.set_console_font(font);
     }
+    app.set_heads(vtium::head::rules(
+        Path::new(vtium_config::HEAD_FILE),
+        &vtium_config::Trust::ROOT,
+    ));
 
     match start.input() {
         Some(mut input) => {

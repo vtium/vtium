@@ -635,6 +635,42 @@ impl Head {
     }
 }
 
+/// The head file the start runs (ADR-1401 D3, D7): the file at `path`
+/// read under `trust`, each warning logged with its line; the compiled-in
+/// configuration when there is none; and the compiled-in configuration in
+/// place of a file that fails a check, each error logged with its line.
+/// The file is never written.
+pub fn rules(path: &std::path::Path, trust: &vtium_config::Trust) -> vtium_config::Config {
+    use vtium_config::at;
+    let parsed = vtium_config::read(path, trust)
+        .and_then(|text| text.map(|text| vtium_config::parse(&text)).transpose());
+    match parsed {
+        Ok(None) => vtium_config::Config::builtin(),
+        Ok(Some(parsed)) => {
+            for w in &parsed.warnings {
+                log::warn!("{}", at(path, Some(w.line()), w));
+            }
+            parsed.config
+        }
+        Err(rejected) => {
+            for e in &rejected.errors {
+                log::error!("{}", at(path, e.line(), e));
+            }
+            if rejected.more > 0 {
+                log::error!(
+                    "{}",
+                    at(path, None, format_args!("{} more errors", rejected.more))
+                );
+            }
+            log::error!(
+                "{}",
+                at(path, None, "rejected whole: vtium runs the shipped rules")
+            );
+            vtium_config::Config::builtin()
+        }
+    }
+}
+
 /// The head a display joins: the one the first rule matching `display`
 /// names (ADR-1401 D3), by its index. A display a rule sends `dark`, or
 /// that no rule claims, joins none: the error is its log line, which for
@@ -706,6 +742,53 @@ fn mouse_button(b: Button) -> MouseButton {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A head file in a fixture directory of its own, and the trust that
+    /// reads it as the start reads root's files.
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn fixture(name: &str, text: Option<&str>) -> (PathBuf, vtium_config::Trust) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("vtium-head-rules-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let file = dir.join("heads.conf");
+        if let Some(text) = text {
+            std::fs::write(&file, text).unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let trust = vtium_config::Trust::owner(rustix::process::geteuid().as_raw()).below(&dir);
+        (file, trust)
+    }
+
+    // ADR-1401 D7: the start runs a valid file, the compiled-in
+    // configuration without one, and the compiled-in configuration in place
+    // of an invalid one, whose bytes it leaves as they were.
+    #[test]
+    fn the_start_runs_the_head_file_else_the_shipped_rules_and_writes_none() {
+        let valid = "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\n";
+        let invalid = "version = 1\n[head desk]\n[rules]\ndisplay * -> desc\n";
+        let (file, trust) = fixture("valid", Some(valid));
+        let ran = rules(&file, &trust);
+        assert_eq!(
+            ran.heads
+                .iter()
+                .map(|h| h.name.as_str())
+                .collect::<Vec<_>>(),
+            ["desk"]
+        );
+        let (absent, trust) = fixture("absent", None);
+        assert_eq!(rules(&absent, &trust), vtium_config::Config::builtin());
+        assert!(!absent.exists(), "nothing written");
+        let (bad, trust) = fixture("invalid", Some(invalid));
+        assert_eq!(rules(&bad, &trust), vtium_config::Config::builtin());
+        assert_eq!(std::fs::read_to_string(&bad).ok().as_deref(), Some(invalid));
+        for f in [file, absent, bad] {
+            if let Some(dir) = f.parent() {
+                std::fs::remove_dir_all(dir).ok();
+            }
+        }
+    }
 
     #[test]
     fn a_display_left_dark_is_logged_and_one_no_rule_claims_with_the_rule_to_paste() {
