@@ -2160,6 +2160,36 @@ fn a_dark_connector_unplugged_is_forgotten_and_asked_again_when_back() {
     assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(A)]);
 }
 
+// ADR-1401 D9: a dark connector let go is asked of the policy again at
+// the next scan, which lights it once the policy does; until let go the
+// scan keeps it dark whatever the policy now says.
+#[test]
+fn a_dark_connector_let_go_is_asked_again_at_the_next_scan() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    let dark = Rc::new(Cell::new(true));
+    let mut v = Drm2d::with(dark_card(), ModePolicy::default()).unwrap();
+    v.set_card_path(Some(String::from("pci-0000:03:00.0")));
+    let policy = Rc::clone(&dark);
+    v.set_dark(Box::new(move |d: &Identity| {
+        policy.get() && d.connector == "HDMI-A-2"
+    }));
+    let mut v = awake(v);
+    dark.set(false);
+    v.poll().unwrap();
+    assert_eq!(v.dark().count(), 1, "kept until let go");
+    assert!(v.release_dark("HDMI-A-2"));
+    assert!(!v.release_dark("HDMI-A-2"), "let go once");
+    v.poll().unwrap();
+    assert_eq!(v.dark().count(), 0);
+    assert_eq!(
+        v.displays().collect::<Vec<_>>(),
+        [DisplayId(A), DisplayId(B)]
+    );
+    flip(&mut v);
+    assert!(events(&mut v).contains(&Event::Added(DisplayId(B))));
+}
+
 // The legacy calls turn the dark connector's CRTC off.
 #[test]
 fn a_dark_connector_on_a_legacy_card_has_its_crtc_turned_off() {
