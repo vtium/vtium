@@ -120,6 +120,10 @@ considered:
     said: "Accepted: the head file is /etc/vtium/heads.conf, one file, with no drop-ins; consoles and login are set per head in the head file; a weak-only match on a head with sessions is a check-config note, not a warning, exit 0; the notice ends on any key reaching that head or after 30 s; the caps are 4 consoles a head and 8 in total by default, with hard maxima of 50 consoles and 16 heads, and the scrollback budget is set in H3b from measurement; no writable configuration directory is read on a read-only root; drafts go to $XDG_STATE_HOME/vtium/drafts/<time>/; the parameter is vtium.heads=builtin; the properties are VTIUM_HEAD, VTIUM_ROLE and VTIUM_IGNORE; kmscon.conf's mouse key stays as a shorthand that drops the pointer rules. Still open: the focus mark's placement, on-loss's duration form, OSC 50 preview of a draft frit, and the example file's missing class:key."
     via: the operator's answers in conversation with the team lead, 2026-10-29, relayed in the team lead's brief; the wording is the team lead's
     paraphrase: true
+  - operator: aaronsb
+    said: "With every display and input declared in the head file, each head serves one station, so several people work at once on one machine, each on their own display and keyboard; the shared VT switch stands in the way. A head key vt-keys = on | off, on when unset: with off, Ctrl-Alt-F<n> and XF86Switch_VT_<n> for another VT, pressed on the keyboards that head's rules claim, switch nothing and continue down the key order to that head's session as ordinary keys, as a serial terminal would send them. Keyboards following the focus keep the VT keys whatever any head says. The rescue key is unchanged and separate, governed by rescue-key and a head's rescue. vtium check-config and vtiumctl check warn when every head has vt-keys = off and no input follows the focus, with vtium.heads=builtin as the way out. The focus chord pressed on a keyboard a rule claims for a head moves nothing and reaches that head's session as an ordinary key; only keyboards following the focus take the focus chord."
+    via: the operator's decision in conversation with the team lead, 2026-10-30, relayed in the team lead's brief; the wording is the team lead's
+    paraphrase: true
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and an unclaimed keyboard follows the focus chord"
@@ -128,6 +132,7 @@ observable:
   - "With every keyboard claimed by a head whose display is absent, every keyboard types into the focused head, with a notice"
   - "Ctrl-Alt-F<n> for the shown VT, pressed on a keyboard claimed elsewhere or ignored, moves that keyboard to the focus for the boot, and the head file is unchanged"
   - "`vtiumctl detect` as an unprivileged user lists every display and input with a rule line ready to paste"
+  - "On a head with `vt-keys = off`, `Ctrl-Alt-F<n>` for another VT pressed on a keyboard its rules claim switches no display and reaches its session; pressed on a keyboard following the focus, it switches the VT"
 status: accepted
 date: 2026-10-29
 deciders:
@@ -139,12 +144,16 @@ related: []
 
 ## Summary
 
-- **Decided:** vtium drives every display it can see from one process, as a set of **heads**. A head is a terminal for one or more displays: its displays, its inputs, a profile, and a stack of virtual consoles, each a session with its own pty, screen, scrollback and grid. A head's grid is its own, so each head draws at its own displays' density. Heads serve machines where vtium is the only thing on screen: servers, kiosks, and single-board computers with a panel and an HDMI display. One kernel VT spans every display, so a vtium console beside a running desktop on another monitor is the seat extension of D2, not heads. One optional, root-owned head file declares the heads and an ordered ruleset; each display and each input walks the rules alone, top to bottom, and the first match places it: in a head, in the focus, ignored, or dark. The shipped ruleset, one head for every display with every keyboard, pointer and other key device typing into it and every other input ignored, is today's console with udev's input classes as its allowlist. With no file present vtium runs its compiled-in configuration, and it never writes one; an invalid file is reported, never altered, and replaced in memory by the shipped default; and three guards, on unless the file turns them off, keep a keyboard typing whatever the rules say, the last of them a key the user presses: `Ctrl-Alt-F<n>` for the VT already shown. `vtiumctl`, a small binary of its own, is the configuration tool: it detects, sets up, reports and checks, with or without privilege, from the console or a desktop.
+- **Decided:** vtium drives every display it can see from one process, as a set of **heads**. A head is a terminal for one or more displays: its displays, its inputs, a profile, and a stack of virtual consoles, each a session with its own pty, screen, scrollback and grid. A head's grid is its own, so each head draws at its own displays' density. Heads serve machines where vtium is the only thing on screen: servers, kiosks, and single-board computers with a panel and an HDMI display. One kernel VT spans every display, so a vtium console beside a running desktop on another monitor is the seat extension of D2, not heads. One optional, root-owned head file declares the heads and an ordered ruleset; each display and each input walks the rules alone, top to bottom, and the first match places it: in a head, in the focus, ignored, or dark. The shipped ruleset, one head for every display with every keyboard, pointer and other key device typing into it and every other input ignored, is today's console with udev's input classes as its allowlist. With no file present vtium runs its compiled-in configuration, and it never writes one; an invalid file is reported, never altered, and replaced in memory by the shipped default; and three guards, on unless the file turns them off, keep a keyboard typing whatever the rules say, the last of them a key the user presses: `Ctrl-Alt-F<n>` for the VT already shown. `vtiumctl`, a small binary of its own, is the configuration tool: it detects, sets up, reports and checks, with or without privilege, from the console or a desktop. With every display and input declared and each head's `vt-keys` off, each head serves a station, so several people work at once on one machine, each at their own display and keyboard (D5).
 > Edited 2026-10-29: the operator accepted an independent advisor's review (`considered`): the Summary names the use case heads serve. It did not say which machines they are for. The configuration tool is `vtiumctl`; the Summary read "`vtium-vitrify` becomes the configuration tool".
 
 > Edited 2026-10-29: the operator answered C1 (`considered`): the shipped rules gain `input class:key -> focus`. The Summary read: "with every keyboard and pointer typing into it and every other input ignored".
 
-- **Trades away:** One process holds every display of the seat, so a fault in one head's session handling reaches every head. Several terminals share one kernel VT, which the C reference refused. The console takes on device routing, a ruleset parser and a notice of its own, and opens keyboards the rules ignore. Mirroring across heads with different densities, which today's single grid gives, needs a head that claims both displays.
+> Edited 2026-10-30: the operator added stations and the head key `vt-keys` (`considered`). The Summary named no stations.
+
+- **Trades away:** One process holds every display of the seat, so a fault in one head's session handling reaches every head. Several terminals share one kernel VT, which the C reference refused. The console takes on device routing, a ruleset parser and a notice of its own, and opens keyboards the rules ignore. Mirroring across heads with different densities, which today's single grid gives, needs a head that claims both displays. A station's login has no logind seat (Context), so no seat-bound device such as audio reaches it; a fully independent station is D2's seat extension.
+
+> Edited 2026-10-30: the operator added stations (`considered`). Trades away did not name what a station's login lacks.
 - **One-way?** Expensive once a release ships the head file: its syntax, its match keys and its targets become the format users' files are written in. Everything behind the file changes in a session.
 - **Probes:**
   - *Not confident (losing a display):* when a head you set up for one monitor loses it, its sessions stay for 10 seconds and then hang up, as a line losing its carrier; the monitor coming back within the 10 seconds resumes them. The shipped one-head console keeps today's behaviour, running on with no display. Is a hang-up after a short wait what you want for a head whose monitor goes away? (Answered 2026-10-29: `on-loss`, `nohup` by default; see `considered` and D8.)
@@ -280,7 +289,7 @@ The example's placement: two heads, each with its own display and keyboard, and 
 
 ![Two heads with bound keyboards. Head desk holds the large monitor, 7680x2160 at about 138 DPI with its own grid, on DP-8 of the discrete GPU, and two inputs its rules claim, keyboard A at path ...usb-0:3.3 and a mouse at path ...usb-0:3.4.4; it holds the focus, shown by a filled mark. Head panel holds the small panel, 800x480 at about 185 DPI with its own grid, on HDMI-A-2 of the integrated GPU, and keyboard B at path ...usb-0:3.2; it shows a hollow mark, no focus. Below, three devices go to the focus: a numpad and a USB receiver by input class:keyboard -> focus, and an OTP token sent there by its rule; the focus delivers them to head desk, drawn as a dashed arrow. Media-key devices, drawn dashed, stay closed by input * -> ignore. The caption says displays and keyboard A, the mouse and keyboard B are placed by their rules, keyboards and pointers no rule claims follow the focus by class, media keys stay closed, and keyboard A types into head desk alone. A legend marks vtium as root, a device, holds the focus and no focus.](figures/ADR-1401-two-heads.svg)
 
-- **Heads.** `[head NAME]` declares a head; a name is 1 to 64 characters of `A-Z a-z 0-9 . _ + -`, and `focus`, `ignore` and `dark` are reserved. A head's keys: `profile` (the profile's name, unset `default`), `consoles` (the number of virtual consoles, unset 1, at most the cap of D10), `login` (the consoles' command, as kmscon.conf's `login` takes it, unset kmscon.conf's), `on-loss` (D8), `rescue` (D9), and the font keys `font-name` and `font-size`, as kmscon.conf carries them, for that head alone. A head names no other head; what it names is its profile and, with its own `font-name`, a font.
+- **Heads.** `[head NAME]` declares a head; a name is 1 to 64 characters of `A-Z a-z 0-9 . _ + -`, and `focus`, `ignore` and `dark` are reserved. A head's keys: `profile` (the profile's name, unset `default`), `consoles` (the number of virtual consoles, unset 1, at most the cap of D10), `login` (the consoles' command, as kmscon.conf's `login` takes it, unset kmscon.conf's), `on-loss` (D8), `rescue` (D9), `vt-keys` (D5), and the font keys `font-name` and `font-size`, as kmscon.conf carries them, for that head alone. A head names no other head; what it names is its profile and, with its own `font-name`, a font.
 - **Rules.** Under `[rules]`, one rule a line: `display MATCH -> TARGET` or `input MATCH -> TARGET`. A match is `*`, every device of that kind, or one or more `key:value` tokens, every one of which must hold (D4).
 - **One of each.** A key given twice in one section, a second `[rules]` section or a second `[guards]` section makes the file invalid (D7).
 - **Targets.** A head's name. `focus`, for an input: it follows the focus chord (D5). `ignore`, for an input: vtium never opens it, but for a keyboard watched for the rescue key alone (D9). `dark`, for a display: vtium sets its connector off, so it shows nothing, a frame another master left included, and logs it.
@@ -290,6 +299,8 @@ The example's placement: two heads, each with its own display and keyboard, and 
 
 > Edited 2026-10-29: the operator answered (`considered`): the head file is `/etc/vtium/heads.conf`, one file with no drop-ins (probe 1); consoles and `login` are set per head in the head file (probe 2); and kmscon.conf's `mouse` key stays as a shorthand that drops the pointer rules. D3 cited probe 1 for the path, and the `mouse` key was an agent call.
 > Edited 2026-10-29: the operator answered C1 (`considered`): the shipped rules gain `input class:key -> focus`. The shipped rules went from the pointer classes straight to `input * -> ignore`, which closed numpads and macro pads without letters, and the bullet ended: "A user customises by adding rules above them: `input class:key -> focus` above the last line lets media keys through."
+
+> Edited 2026-10-30: the operator added the head key `vt-keys` (`considered`). A head's keys read: "`on-loss` (D8), `rescue` (D9), and the font keys".
 
 - **A head names a profile,** the profile of ADR-1200 D16, which names a frit; the head file says where devices go. Until a profile file format exists (#121, #136, #137), a head's `profile` resolves to the compiled-in default profile for `default`, and to the frit of that name for any other name.
 - **The more specific setting wins.** The configuration file's font keys, `font-name` and `font-size` as kmscon.conf carries them, are the base for every head; a head's profile overrides them for that head; and a font key in the head's own section overrides both. A profile overrides only what it states, so a head with the default profile takes the configuration's keys (ADR-1200 D16). A single `font-size` in the configuration no longer sets every head's size.
@@ -392,7 +403,8 @@ The hwdb fragment uses udev's own `evdev:` prefix, which systemd's stock `60-evd
 
 - An input no rule claims, or one a rule sends to `focus`, follows the focus. Focus starts on the head holding the boot display (D9), else the first head in the file with a lit display. The focus chord moves it only to a head with a lit display, and it never moves because a head's display left or came back (D8). The one other move is the anti-lockout guard's, which takes the focus to a lit head when it fires (D9).
 - Focus moves only by the focus chord, never at a hotplug, and a new keyboard never takes it. Every head shows whether it holds the focus, drawn by vtium outside the session's output.
-- A keyboard a rule sends to a head types into that head alone, and its console chords switch that head's consoles. The focus chord moves only the devices following the focus.
+- A keyboard a rule sends to a head types into that head alone, and its console chords switch that head's consoles. Only keyboards following the focus take the focus chord, and it moves only the devices following the focus; pressed on a keyboard a rule sends to a head, it moves nothing and reaches that head's session as an ordinary key.
+- **The VT keys, per head (`vt-keys`).** With `vt-keys = on`, the value when unset and in the compiled-in configuration and the template, the keyboards a head's rules claim switch the VT as every keyboard does today. With `vt-keys = off`, `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>` for another VT, pressed on those keyboards, switch nothing: the press goes on down the key order and reaches that head's session as an ordinary key, as a serial terminal sends it. Keyboards following the focus keep the VT keys whatever any head says, so a keyboard the anti-lockout guard moves to the focus can always switch. The shown VT's own key stays the rescue key, governed by `rescue-key` and the head's `rescue` whatever `vt-keys` says (D9).
 - Pointers follow the same rules: a pointer claimed by a head moves on that head's displays; one following the focus moves on the focused head's.
 - Each keyboard's lock LEDs show that keyboard's own lock state, within its head. A program's DECLL stays ignored, and vtium-term leaves the LEDs as the user set them (ADR-1000 `ctl.decll`).
 - Spreading spare keyboards one per head happens only on an explicit `input * -> HEAD` rule, never inferred; inferring would misplace an OTP token or a media-key device.
@@ -400,6 +412,8 @@ The hwdb fragment uses udev's own `evdev:` prefix, which systemd's stock `60-evd
 - The terminal of each head's shown console has mode 1004's focus while a keyboard delivers to its head, lit or not (D8), so several terminals hold it at once, one a head.
 
 > Edited 2026-10-29: the operator answered C10 (`considered`): keys follow the kernel console. D5 read: "and rests only on a head with a lit display." The anti-lockout guard's move of the focus (D9) joined the focus rules later the same day., and mode 1004's focus held "while its head has a lit display and a keyboard delivering to it".
+
+> Edited 2026-10-30: the operator settled the focus chord on a claimed keyboard and added the head key `vt-keys` (`considered`). The bullet ended: "The focus chord moves only the devices following the focus.", and D5 had no `vt-keys`.
 
 Two layers of switching, and the focus between heads:
 
@@ -416,6 +430,40 @@ Two layers of switching, and the focus between heads:
 One keyboard and two heads, before and after the focus chord:
 
 ![One keyboard, two heads, in two rows. Before the chord, head desk with the large monitor holds the focus, a filled mark, and its session reads the keys typed; head panel with the small panel shows a hollow mark, its session running on with no keys reaching it; the keyboard's arrow points to head desk. Between the rows, the focus chord, pressed on the keyboard, a grab key whose default chord is vtium/vtium#82's. After the chord, head desk shows no focus and head panel holds it, and the keyboard's arrow points to head panel. The caption says focus moves only by the chord, never at a hotplug, a new keyboard never takes it, it rests only on a head with a lit display, and each head draws its mark outside the session's output. A legend marks vtium as root, a device, holds the focus and no focus.](figures/ADR-1401-focus.svg)
+
+**Stations.** With every display and input declared in the head file, each head serves one station, so several people work at once on one machine, each at their own display and keyboard. Each station's head sets `vt-keys = off`, so no station's keyboard switches every display away, and `rescue = off` with `[guards] rescue-key = off` keeps the rescue key from pulling a station's keyboard to the focus; `display * -> dark` and `input * -> ignore` leave nothing undeclared. A `path:` match takes every interface behind that port, so a station is a USB port, a hub on it carrying the station's keyboard and mouse; `serial:` binds the device instead, wherever it is plugged. `vtium check-config` warns of such a file that no keyboard can switch the VT (D9).
+
+```ini
+# /etc/vtium/heads.conf: three stations on one machine; the identity values are illustrative
+version = 1
+
+[head station1]
+rescue = off
+vt-keys = off
+
+[head station2]
+rescue = off
+vt-keys = off
+
+[head station3]
+rescue = off
+vt-keys = off
+
+[rules]
+display edid:AAA:0x0001:STATION001 -> station1
+display edid:AAA:0x0001:STATION002 -> station2
+display edid:AAA:0x0001:STATION003 -> station3
+input path:pci-0000:15:00.0-usb-0:1 -> station1
+input path:pci-0000:15:00.0-usb-0:2 -> station2
+input path:pci-0000:15:00.0-usb-0:3 -> station3
+display * -> dark
+input * -> ignore
+
+[guards]
+rescue-key = off
+```
+
+> Edited 2026-10-30: the operator added stations (`considered`). D5 named no stations.
 
 ### D6: defaults that always type
 
@@ -508,7 +556,10 @@ A boot with nothing attached, each device added after it, and the display remove
 ### D9: guards against lockout
 
 - **The classes are udev's** (D4). The anti-lockout guard counts `class:keyboard` as udev defines it, `ID_INPUT_KEYBOARD`, a device with every key code from Escape through S; a device marked `VTIUM_ROLE=token` or `VTIUM_ROLE=numpad`, by a rule or hwdb entry an administrator copied from the examples (D4), does not count, which closes the numpad gap for the devices it marks; an unmarked numpad or token still passes as a keyboard, and the rescue key covers that case. This replaces the record's own class of 26 letters and Enter, so vtium and the desktop agree on what a keyboard is.
-- **Layer 1, warnings.** `vtium check-config` and `vtiumctl check` warn of a head that claims only pointers while every keyboard is claimed elsewhere, of every keyboard ignored, and of a head whose only keyboard is one device; each names the device as reported.
+- **Layer 1, warnings.** `vtium check-config` and `vtiumctl check` warn of a head that claims only pointers while every keyboard is claimed elsewhere, of every keyboard ignored, and of a head whose only keyboard is one device, each naming the device as reported; and of a file in which every head has `vt-keys = off` and no input follows the focus (D5), so no keyboard can switch the VT, naming `vtium.heads=builtin` as the way out (below).
+
+> Edited 2026-10-30: the operator added the warning that no keyboard can switch the VT (`considered`). Layer 1 ended: "and of a head whose only keyboard is one device; each names the device as reported."
+
 - **Layer 2, the anti-lockout guard (`anti-lockout`),** as pfSense keeps its administration port open: while no keyboard-class device reaches a head with a lit display, every keyboard-class device follows the focus, with a notice, until one does. It moves every stranded keyboard at once, so it chooses none and stays deterministic. When it fires it also moves the focus to a lit head, the boot display's head when that is lit, else the first lit head in file order, and logs the move with the notice; besides the chord, it is the only thing that moves the focus, and it does so only for anti-lockout. A head it leaves unlit keeps its sessions under `nohup` (D8). When a lit head already holds a keyboard the guard does not fire, and the focus stays where the chord put it, lit or not.
 
 > Edited 2026-10-29: the team lead's answer, from the guard's stated purpose: when the anti-lockout guard fires it also moves the focus to a lit head. Under D8's keys, which follow the kernel console, the focus can rest on a head whose display left, where the stranded keyboards would type into an unlit head. The bullet ended: "It moves every stranded keyboard at once, so it chooses none and stays deterministic."
@@ -586,6 +637,7 @@ flowchart TD
 - **udev properties:** a `udev:` match takes a device by a stand-in property; a rule using the example's `VTIUM_IGNORE=1` ignores the device; the anti-lockout guard skips a device with `VTIUM_ROLE=token`; and in tier 3, `udevadm test` runs on the example rules in the guest.
 - **The classes:** every device of the Evidence table gets the same class from udev's tags and from vtium's own application of `input_id` to its bitmaps, and a hwdb correction changes the class vtium reads; the compiled-in configuration places the Evidence devices the same with udev's tags and with vtium's own rule; with the shipped rules, keyboards, pointers, a numpad or macro pad without letters and a media-key device reach the focus, and a joystick stays closed.
 - **The switches:** with `anti-lockout = off` a ruleset that strands every keyboard is left as it is; with `rescue-key = off` the rescue key moves nothing; with `never-dark = off` a file with `version = 1` and no rules leaves every display dark; a head with `rescue = off` keeps its keyboard through the rescue key while another head's moves; each guard that is off is a note in `check-config` and a line in the start's log.
+- **The VT keys:** on a head with `vt-keys = off`, `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>` for another VT, pressed on a keyboard its rules claim, switch nothing and reach its session as keys, while the same press on a keyboard following the focus switches the VT; the shown VT's own key on that keyboard acts as `rescue-key` and `rescue` say; the focus chord pressed on a claimed keyboard moves nothing and reaches its head's session; and a file in which every head has `vt-keys = off` and no input follows the focus draws `check-config`'s warning.
 - **The escape:** with `vtium.heads=builtin` on the kernel command line, a head file that turns every guard off is ignored for that boot, and the compiled-in rules run with every guard on.
 - A boot with no file present writes nothing under `/etc/vtium`, its listing the same before and after.
 - **One source** (D6): the compiled-in configuration equals the parse of the template; the file `vtiumctl template` writes is byte-identical to the template; the templates committed for cross-built images (D12) are byte-identical to what the tool writes; and docs/architecture.md's template-drift row checks the same.
@@ -593,6 +645,8 @@ flowchart TD
 - **The verification plan:** tier 3 proves heads before any VT review on the operator's hardware. Its QEMU guest exposes two virtual outputs (virtio-gpu's `max_outputs=2`), with a second virtio-gpu device for the case of two cards, and the guest runs two heads at two sizes against them: the ruleset placing each display and each emulated keyboard, an emulated keyboard added and removed through QEMU's monitor as the hotplug case, and each guard, with screens captured and compared as tier 3 compares them. A display unplugged on the virtual card, where QEMU cannot raise it, is left to the VT review, which then runs on the operator's two cards.
 
 > Edited 2026-10-29: the operator accepted an independent advisor's review (`considered`): a first cut of heads gets a VT review before the rest of the format is fixed. D11 set no build order.
+
+> Edited 2026-10-30: the operator added the head key `vt-keys` (`considered`), and D11 gained its test.
 
 ### D12: `vtiumctl`, the configuration tool
 
@@ -731,6 +785,9 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - Placement is a function of each device and the file, so tests can enumerate it and a hotplug behaves as a boot does.
 - vtium writes nothing under `/etc`, so a read-only root, an image build and a package-managed `/etc` need no switch and see no file appear.
 - `vtiumctl` gives a user a correct file without reading this record, from the console or a desktop, with or without privilege.
+- One machine serves several stations at once, each person at their own display and keyboard, with no station's keyboard switching another's display away (D5).
+
+> Edited 2026-10-30: the operator added stations (`considered`).
 
 ### Negative
 
