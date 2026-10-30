@@ -100,8 +100,9 @@ pub struct InputIdentity {
 }
 
 impl InputIdentity {
-    /// The identity of an event node udev describes.
-    fn of(dev: &Uevent) -> InputIdentity {
+    /// The identity of an event node udev describes, as the monitor reads
+    /// it or as [`crate::listing`] reads it from sysfs and udev's database.
+    pub(crate) fn of(dev: &Uevent) -> InputIdentity {
         let property = |name: &str| dev.properties.get(name).map(String::as_str);
         let tags = Classes::from_properties(property);
         let classes = tags.unwrap_or_else(|| {
@@ -382,13 +383,18 @@ fn numbered(name: &str, prefix: &str) -> bool {
 }
 
 /// A card is primary when its PCI parent was the boot VGA device, or when
-/// it is a platform display controller not on USB; it is auxiliary when
-/// its driver is `udl` (monitor.c:232-350).
-fn drm_flags(dev: &Uevent, node: &Path, probe: &mut dyn Probe) -> DeviceFlags {
-    let primary = match dev.pci_boot_vga {
+/// it is a platform display controller not on USB (monitor.c:232-350).
+pub(crate) fn primary(dev: &Uevent) -> bool {
+    match dev.pci_boot_vga {
         Some(boot_vga) => boot_vga,
         None => !dev.usb_parent && dev.platform_parent,
-    };
+    }
+}
+
+/// A card is [`primary`], and auxiliary when its driver is `udl`
+/// (monitor.c:232-350).
+fn drm_flags(dev: &Uevent, node: &Path, probe: &mut dyn Probe) -> DeviceFlags {
+    let primary = primary(dev);
     let aux = match probe.drm_driver(node) {
         Ok(driver) => {
             log::debug!(target: "monitor", "DRM device {} uses driver {driver}", node.display());

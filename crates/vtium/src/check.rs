@@ -1,8 +1,7 @@
 //! `vtium check-config`: the configuration read as vtium would read it at
 //! start, with every warning, and nothing applied. It opens nothing
-//! under `/dev` and writes nothing, so it runs unprivileged; ADR-1401 D7
-//! lets it read the devices present, read-only, which this build does
-//! not, since vtium-platform lists none without opening a device.
+//! under `/dev` and writes nothing, so it runs unprivileged: the devices
+//! present it reads from sysfs and udev's database (ADR-1401 D7).
 //!
 //! The head file goes through vtium-config's reader, parser and
 //! evaluator, the ones the start runs (ADR-1401 D7): the file's own
@@ -17,8 +16,11 @@ use vtium_config::{
     Config as Heads, Identity, Lockout, Match, Note, Parsed, Problem, Rejected, Token, Trust, at,
 };
 
+use vtium_platform::listing::{self, Listing, Roots};
+
 use crate::config::{Config, Loaded, keys};
 use crate::font;
+use crate::head::identity;
 
 /// The subcommand's name, which stands among the options.
 pub const SUBCOMMAND: &str = "check-config";
@@ -46,11 +48,14 @@ of the head file's errors and warnings, and exits 1 when there is any,\n\
 0 when there is none. It notes on standard output what it does not\n\
 count: the density font sizes in points convert at, which the start\n\
 reads from each display, and of the head file a guard turned off, a\n\
-weak match, a rule that needs a udev daemon where none runs, and a\n\
-rule using connector-path:, which this build matches to nothing.\n\
-It only checks: it opens no VT, display or input device, applies\n\
-nothing, and reads nothing but the configuration files and the frit\n\
-font-name names.\n";
+weak match, a rule that needs a udev daemon where none runs, a rule\n\
+using connector-path:, which this build matches to nothing, and, of\n\
+the devices present, each rule matching none, a head claiming pointers\n\
+while every keyboard is claimed elsewhere, every keyboard ignored, and\n\
+a head whose only keyboard is one device.\n\
+It only checks: it opens nothing under /dev, writes nothing and applies\n\
+nothing. It reads the configuration files, the frit font-name names,\n\
+and the devices present from /sys and udev's database, /run/udev/data.\n";
 
 /// What a value means beyond its own key, which the start reports too.
 pub fn semantics(config: &Config) -> Vec<String> {
@@ -166,22 +171,38 @@ pub fn run(loaded: &Loaded) -> (Vec<String>, i32) {
 pub struct Host {
     pub head_file: PathBuf,
     pub udev_control: PathBuf,
-    /// The devices present as the rules see them, through
-    /// [`crate::head::identity`]; `None` where none is read, as the
-    /// binary reads none until vtium-platform lists them without opening
-    /// a device.
-    pub devices: Option<Vec<Identity>>,
+    /// The devices present as the rules see them.
+    pub devices: Vec<Identity>,
 }
 
 impl Host {
-    /// The machine's own, which the binary takes and nothing overrides.
+    /// The machine's own, which the binary takes and nothing overrides:
+    /// its devices listed from `/sys` and `/run/udev/data`.
     pub fn system() -> Host {
         Host {
             head_file: PathBuf::from(vtium_config::HEAD_FILE),
             udev_control: PathBuf::from(UDEV_CONTROL),
-            devices: None,
+            devices: devices(&listing::list(&Roots::system(), SEAT)),
         }
     }
+}
+
+/// The seat whose devices are listed: the kernel VTs', which vtium runs on.
+const SEAT: &str = "seat0";
+
+/// The devices `listing` holds as the rules see them, through the mapping
+/// the start walks them through ([`crate::head::identity`]): each display
+/// with its card and its place among the card's displays, then each input.
+pub fn devices(listing: &Listing) -> Vec<Identity> {
+    let displays = listing.cards.iter().flat_map(|c| {
+        let card = identity::Card::at(&c.node, c.id_path.as_deref(), c.primary);
+        (0u32..)
+            .zip(&c.displays)
+            .map(move |(order, d)| identity::display(d, &card, order))
+    });
+    displays
+        .chain(listing.inputs.iter().map(identity::input))
+        .collect()
 }
 
 /// What the head file is checked against of the machine.
@@ -189,7 +210,8 @@ impl Host {
 pub struct Machine<'a> {
     /// A udev daemon runs ([`udev_daemon_runs`]).
     pub udev_daemon: bool,
-    /// The devices present, as [`Host::devices`].
+    /// The devices present, as [`Host::devices`]; `None` checks the file
+    /// alone, as away from its machine.
     pub devices: Option<&'a [Identity]>,
 }
 
@@ -227,7 +249,7 @@ pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
     }
     let machine = Machine {
         udev_daemon: udev_daemon_runs(&host.udev_control),
-        devices: host.devices.as_deref(),
+        devices: Some(&host.devices),
     };
     let heads = match loaded.candidate.as_deref() {
         Some(path) => head_file(path, true, &Trust::ROOT, &machine),
@@ -363,7 +385,7 @@ fn reject(out: &mut HeadCheck, path: &Path, rejected: &Rejected) {
 
 /// A valid file's warnings, counted, and its notes: each rule that needs
 /// a udev daemon where none runs, each `connector-path:` rule, and what
-/// the devices present find, else that none is read (ADR-1401 D4, D7, D9).
+/// the devices present find (ADR-1401 D4, D7, D9).
 fn findings(out: &mut HeadCheck, path: &Path, parsed: &Parsed, machine: &Machine) {
     for w in &parsed.warnings {
         out.counted.push(at(path, Some(w.line()), w).to_string());
@@ -413,18 +435,9 @@ fn findings(out: &mut HeadCheck, path: &Path, parsed: &Parsed, machine: &Machine
             .to_string(),
         );
     }
-    match machine.devices {
-        Some(devices) => out
-            .notes
-            .extend(device_findings(path, &parsed.config, devices)),
-        None => out.notes.push(
-            at(
-                path,
-                None,
-                "no device is read, so no rule is checked against the devices present",
-            )
-            .to_string(),
-        ),
+    if let Some(devices) = machine.devices {
+        out.notes
+            .extend(device_findings(path, &parsed.config, devices));
     }
 }
 
@@ -743,12 +756,7 @@ mod tests {
                 "{f}:6: the rule on line 5 takes every device this one matches"
             )]
         );
-        assert_eq!(
-            out.notes,
-            [format!(
-                "{f}: no device is read, so no rule is checked against the devices present"
-            )]
-        );
+        assert_eq!(out.notes, [] as [String; 0]);
     }
 
     // ADR-1401 D9: each guard turned off, and a head's rescue = off, is a
@@ -769,9 +777,6 @@ mod tests {
                 format!("{f}:7: the anti-lockout guard is off"),
                 format!("{f}:8: the rescue-key guard is off"),
                 format!("{f}:9: the never-dark guard is off"),
-                format!(
-                    "{f}: no device is read, so no rule is checked against the devices present"
-                ),
             ]
         );
     }
@@ -793,16 +798,7 @@ mod tests {
                 "{f}:{line}: input reaches a head by `id` or `name` alone, which any device can claim"
             )
         };
-        assert_eq!(
-            out.notes,
-            [
-                weak(5),
-                weak(6),
-                format!(
-                    "{f}: no device is read, so no rule is checked against the devices present"
-                ),
-            ]
-        );
+        assert_eq!(out.notes, [weak(5), weak(6),]);
     }
 
     // ADR-1401 D4: with no udev daemon, each rule using a key that reads
@@ -1052,7 +1048,7 @@ mod tests {
         let host = Host {
             head_file: file.clone(),
             udev_control: file.with_file_name("no-udev"),
-            devices: None,
+            devices: Vec::new(),
         };
         let out = outcome_on(&[], &host);
         assert_eq!(out.status, 1);
@@ -1099,17 +1095,17 @@ mod tests {
         std::fs::remove_dir_all(file.parent().unwrap()).ok();
     }
 
-    // ADR-1401 D7, D9: the devices present, through the mapping the start
-    // uses, give the hardware findings on standard output, outside the
-    // status
+    // ADR-1401 D7, D9: the devices vtium-platform lists, through the
+    // mapping the start uses, give the hardware findings on standard
+    // output, outside the status
     #[test]
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn the_devices_present_give_hardware_findings_outside_the_status() {
         use vtium_platform::display::Identity as Display;
         use vtium_platform::input::{Class as Udev, Classes as UdevClasses};
+        use vtium_platform::listing::Card;
         use vtium_platform::udev::InputIdentity;
 
-        use crate::head::identity;
         let (file, _) = heads_fixture(
             "devices",
             "version = 1\n[head desk]\n[head panel]\n[rules]\n\
@@ -1120,30 +1116,57 @@ mod tests {
             0o644,
         );
         let f = file.display().to_string();
-        let input = |class: Udev, name: &str| {
-            identity::input(&InputIdentity {
-                classes: UdevClasses::empty().with(class),
-                tagged: true,
-                name: Some(name.to_owned()),
-                ..InputIdentity::default()
-            })
+        let input = |class: Udev, name: &str| InputIdentity {
+            classes: UdevClasses::empty().with(class),
+            tagged: true,
+            name: Some(name.to_owned()),
+            ..InputIdentity::default()
         };
-        let card = identity::Card::at(Path::new("/dev/dri/card0"), None, true);
-        let display = Display {
-            connector: "HDMI-A-1".to_owned(),
-            card: None,
+        let display = |connector: &str| Display {
+            connector: connector.to_owned(),
+            card: Some("pci-0000:03:00.0".to_owned()),
             edid: None,
-            lit_at_start: true,
+            lit_at_start: false,
         };
-        let devices = vec![
-            identity::display(&display, &card, 0),
-            input(Udev::Keyboard, "Keyboard A"),
-            input(Udev::Mouse, "A mouse"),
-        ];
+        let listing = Listing {
+            inputs: vec![
+                input(Udev::Keyboard, "Keyboard A"),
+                input(Udev::Mouse, "A mouse"),
+            ],
+            cards: vec![Card {
+                node: PathBuf::from("/dev/dri/card1"),
+                id_path: Some("pci-0000:03:00.0".to_owned()),
+                primary: true,
+                displays: vec![display("DP-2"), display("DP-1")],
+            }],
+        };
+        let devices = devices(&listing);
+        let shown: Vec<(Option<&str>, Option<&str>, bool, u32, u32)> = devices
+            .iter()
+            .map(|d| {
+                (
+                    d.connector.as_deref().or(d.name.as_deref()),
+                    d.card.as_deref(),
+                    d.on_boot_card,
+                    d.card_order,
+                    d.order,
+                )
+            })
+            .collect();
+        let gpu = Some("pci-0000:03:00.0");
+        assert_eq!(
+            shown,
+            [
+                (Some("DP-2"), gpu, true, 1, 0),
+                (Some("DP-1"), gpu, true, 1, 1),
+                (Some("Keyboard A"), None, false, 0, 0),
+                (Some("A mouse"), None, false, 0, 0),
+            ]
+        );
         let host = Host {
             head_file: file.with_file_name("absent.conf"),
             udev_control: file.clone(),
-            devices: Some(devices),
+            devices,
         };
         let out = outcome_on(&[file.to_str().unwrap()], &host);
         assert_eq!((out.status, out.stderr), (0, Vec::new()));

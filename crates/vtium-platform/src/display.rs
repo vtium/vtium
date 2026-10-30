@@ -37,6 +37,7 @@ pub use blank::{Blank, DPMS_TIMEOUT};
 pub use card::Card;
 pub use density::{DPI_ASSUMED, DPI_MAX, DPI_MIN, Density};
 pub use drm2d::{CURSOR_MAX, Drm2d};
+pub(crate) use edid::Edid;
 pub use edid::{EdidId, Serial};
 pub use fbdev::{Fb, Fbdev};
 pub use mode::{Mode, ModeLookup, ModePolicy, Wanted};
