@@ -2,7 +2,7 @@
 //! configuration directory of its own and a head file of its own, given
 //! as the candidate, so no test reads the machine's `/etc/vtium`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 /// A head file that checks clean, but for the notes outside the status.
@@ -134,46 +134,19 @@ fn syscall(line: &str) -> Option<(&str, &str)> {
 /// so and is skipped.
 #[test]
 fn it_opens_nothing_under_dev_and_writes_nothing() {
-    if Command::new("strace").arg("-V").output().is_err() {
-        eprintln!("strace is not installed: the open check is skipped");
-        return;
-    }
     let d = dir("strace", "font-size=16\n");
-    let out = Command::new("strace")
-        .args(["-f", "-o", "/dev/stderr", "-e"])
-        .arg(format!("trace=%file,{}", WRITES.join(",")))
-        .arg(env!("CARGO_BIN_EXE_vtium"))
-        .args(["check-config", "-c"])
-        .arg(&d)
-        .arg(d.join("heads.conf"))
-        .output()
-        .expect("strace runs");
-    let trace = String::from_utf8_lossy(&out.stderr);
-    let calls: Vec<(&str, &str, &str)> = trace
-        .lines()
-        .filter_map(|l| syscall(l).map(|(call, path)| (call, path, l)))
-        .collect();
-    let opened: Vec<&str> = calls
-        .iter()
-        .filter(|(call, _, l)| call.starts_with("open") && !l.contains("ENOENT"))
-        .map(|(_, path, _)| *path)
-        .collect();
-    if let (Some(qemu), Some(prefix)) = (
-        std::env::var_os("VTIUM_QEMU_USER"),
-        std::env::var("QEMU_LD_PREFIX")
-            .ok()
-            .filter(|p| !p.is_empty()),
-    ) && opened.iter().any(|p| p.starts_with(&prefix))
-    {
-        eprintln!(
-            "strace traced {}, which opens the target's files under {prefix}: the open check is skipped",
-            qemu.display()
-        );
+    let Some(trace) = traced(&d, &[]) else {
         std::fs::remove_dir_all(d).ok();
         return;
-    }
+    };
+    let calls = calls(&trace);
+    let opened = opened(&calls);
     assert!(opened.iter().any(|p| p.ends_with("kmscon.conf")), "{trace}");
     assert!(opened.iter().any(|p| p.ends_with("heads.conf")), "{trace}");
+    assert!(
+        calls.iter().any(|(_, path, _)| path.starts_with("/sys/")),
+        "the devices are read from /sys: {trace}"
+    );
     assert!(
         !opened.iter().any(|p| p.starts_with("/etc/vtium")),
         "{trace}"
@@ -192,6 +165,85 @@ fn it_opens_nothing_under_dev_and_writes_nothing() {
         assert!(!WRITES.contains(call), "changed {path}: {line}");
     }
     std::fs::remove_dir_all(d).ok();
+}
+
+/// The check's help lists no device: it reads the configuration, and
+/// nothing of sysfs or udev's database.
+#[test]
+fn help_lists_no_device() {
+    let d = dir("strace-help", "font-size=16\n");
+    let Some(trace) = traced(&d, &["--help"]) else {
+        std::fs::remove_dir_all(d).ok();
+        return;
+    };
+    let calls = calls(&trace);
+    assert!(
+        opened(&calls).iter().any(|p| p.ends_with("kmscon.conf")),
+        "{trace}"
+    );
+    for (_, path, line) in &calls {
+        assert!(
+            !path.starts_with("/sys/") && !path.starts_with("/run/udev/data"),
+            "read {path}: {line}"
+        );
+    }
+    std::fs::remove_dir_all(d).ok();
+}
+
+/// The trace of `vtium check-config -c DIR DIR/heads.conf`, then `extra`,
+/// of the syscalls that name a file and of [`WRITES`]; `None`, saying
+/// why, where strace is not installed, or where it traced qemu-user
+/// (tools/arm), whose opens of the target's files carry the
+/// QEMU_LD_PREFIX it translates them to.
+fn traced(d: &Path, extra: &[&str]) -> Option<String> {
+    if Command::new("strace").arg("-V").output().is_err() {
+        eprintln!("strace is not installed: the trace check is skipped");
+        return None;
+    }
+    let out = Command::new("strace")
+        .args(["-f", "-o", "/dev/stderr", "-e"])
+        .arg(format!("trace=%file,{}", WRITES.join(",")))
+        .arg(env!("CARGO_BIN_EXE_vtium"))
+        .args(["check-config", "-c"])
+        .arg(d)
+        .arg(d.join("heads.conf"))
+        .args(extra)
+        .output()
+        .expect("strace runs");
+    let trace = String::from_utf8_lossy(&out.stderr).into_owned();
+    if let (Some(qemu), Some(prefix)) = (
+        std::env::var_os("VTIUM_QEMU_USER"),
+        std::env::var("QEMU_LD_PREFIX")
+            .ok()
+            .filter(|p| !p.is_empty()),
+    ) && opened(&calls(&trace))
+        .iter()
+        .any(|p| p.starts_with(&prefix))
+    {
+        eprintln!(
+            "strace traced {}, which opens the target's files under {prefix}: the trace check is skipped",
+            qemu.to_string_lossy()
+        );
+        return None;
+    }
+    Some(trace)
+}
+
+/// Each traced syscall: its name, its path and its line.
+fn calls(trace: &str) -> Vec<(&str, &str, &str)> {
+    trace
+        .lines()
+        .filter_map(|l| syscall(l).map(|(call, path)| (call, path, l)))
+        .collect()
+}
+
+/// The paths `calls` opened.
+fn opened<'a>(calls: &[(&str, &'a str, &str)]) -> Vec<&'a str> {
+    calls
+        .iter()
+        .filter(|(call, _, l)| call.starts_with("open") && !l.contains("ENOENT"))
+        .map(|(_, path, _)| *path)
+        .collect()
 }
 
 /// The subcommand is found after the options too: this is the check's

@@ -165,24 +165,23 @@ pub fn run(loaded: &Loaded) -> (Vec<String>, i32) {
     (lines, status)
 }
 
-/// Where the subcommand finds the machine's files, the installed head
-/// file and the udev daemon's control socket, and the devices present.
+/// Where the subcommand finds the machine's files: the installed head
+/// file, the udev daemon's control socket, and sysfs and udev's database,
+/// which list the devices present.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Host {
     pub head_file: PathBuf,
     pub udev_control: PathBuf,
-    /// The devices present as the rules see them.
-    pub devices: Vec<Identity>,
+    pub roots: Roots,
 }
 
 impl Host {
-    /// The machine's own, which the binary takes and nothing overrides:
-    /// its devices listed from `/sys` and `/run/udev/data`.
+    /// The machine's own, which the binary takes and nothing overrides.
     pub fn system() -> Host {
         Host {
             head_file: PathBuf::from(vtium_config::HEAD_FILE),
             udev_control: PathBuf::from(UDEV_CONTROL),
-            devices: devices(&listing::list(&Roots::system(), SEAT)),
+            roots: Roots::system(),
         }
     }
 }
@@ -191,8 +190,15 @@ impl Host {
 const SEAT: &str = "seat0";
 
 /// The devices `listing` holds as the rules see them, through the mapping
-/// the start walks them through ([`crate::head::identity`]): each display
-/// with its card and its place among the card's displays, then each input.
+/// the start walks them through ([`crate::head::identity`]): each card's
+/// displays with the card and their place among its displays, each
+/// framebuffer's display as the start names it, `fb`, then each input.
+///
+/// A display's place is the lister's connector-id order, which can differ
+/// from the order the start registers a card's displays in, and no finding
+/// depends on it: a rule matching no device and the layer 1 warnings read
+/// only which rule each device walks to, and the place feeds only where the
+/// display guard puts a display, which the check does not run.
 pub fn devices(listing: &Listing) -> Vec<Identity> {
     let displays = listing.cards.iter().flat_map(|c| {
         let card = identity::Card::at(&c.node, c.id_path.as_deref(), c.primary);
@@ -200,7 +206,12 @@ pub fn devices(listing: &Listing) -> Vec<Identity> {
             .zip(&c.displays)
             .map(move |(order, d)| identity::display(d, &card, order))
     });
+    let framebuffers = listing
+        .framebuffers
+        .iter()
+        .map(|f| identity::unnamed_display("fb", &identity::Card::at(&f.node, None, f.primary), 0));
     displays
+        .chain(framebuffers)
         .chain(listing.inputs.iter().map(identity::input))
         .collect()
 }
@@ -210,8 +221,8 @@ pub fn devices(listing: &Listing) -> Vec<Identity> {
 pub struct Machine<'a> {
     /// A udev daemon runs ([`udev_daemon_runs`]).
     pub udev_daemon: bool,
-    /// The devices present, as [`Host::devices`]; `None` checks the file
-    /// alone, as away from its machine.
+    /// The devices present, as [`devices`] gives them; `None` checks the
+    /// file alone, as away from its machine.
     pub devices: Option<&'a [Identity]>,
 }
 
@@ -247,9 +258,10 @@ pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
             status: 0,
         };
     }
+    let devices = devices(&listing::list(&host.roots, SEAT));
     let machine = Machine {
         udev_daemon: udev_daemon_runs(&host.udev_control),
-        devices: Some(&host.devices),
+        devices: Some(&devices),
     };
     let heads = match loaded.candidate.as_deref() {
         Some(path) => head_file(path, true, &Trust::ROOT, &machine),
@@ -412,8 +424,11 @@ fn findings(out: &mut HeadCheck, path: &Path, parsed: &Parsed, machine: &Machine
         out.notes
             .push(at(path, None, format_args!("{} more notes", parsed.more_notes)).to_string());
     }
+    // each rule noted as matching nothing here takes no second note
+    let mut noted = Vec::new();
     if !machine.udev_daemon {
         for (line, key) in parsed.config.needs_udev() {
+            noted.push(line);
             out.notes.push(
                 at(
                     path,
@@ -425,6 +440,7 @@ fn findings(out: &mut HeadCheck, path: &Path, parsed: &Parsed, machine: &Machine
         }
     }
     for line in connector_path_rules(&parsed.config) {
+        noted.push(line);
         out.notes.push(
             at(
                 path,
@@ -437,7 +453,7 @@ fn findings(out: &mut HeadCheck, path: &Path, parsed: &Parsed, machine: &Machine
     }
     if let Some(devices) = machine.devices {
         out.notes
-            .extend(device_findings(path, &parsed.config, devices));
+            .extend(device_findings(path, &parsed.config, devices, &noted));
     }
 }
 
@@ -468,14 +484,21 @@ fn reported(id: &Identity) -> String {
 }
 
 /// What depends on the devices present (ADR-1401 D7, D9): each rule no
-/// device matches, and the layer 1 warnings, each naming its device as
+/// device matches, but those on the lines `noted`, already noted as
+/// matching nothing, and the layer 1 warnings, each naming its device as
 /// reported. Each is a note outside the status, so a file can be checked
 /// away from its machine.
-pub fn device_findings(path: &Path, config: &Heads, devices: &[Identity]) -> Vec<String> {
+pub fn device_findings(
+    path: &Path,
+    config: &Heads,
+    devices: &[Identity],
+    noted: &[usize],
+) -> Vec<String> {
     let head = |i: usize| config.heads.get(i).map_or("?", |h| h.name.as_str());
     let mut out: Vec<String> = config
         .idle_rules(devices)
         .into_iter()
+        .filter(|line| !noted.contains(line))
         .map(|line| at(path, Some(line), "the rule matches no device present").to_string())
         .collect();
     for l in config.lockout(devices) {
@@ -499,6 +522,8 @@ pub fn device_findings(path: &Path, config: &Heads, devices: &[Identity]) -> Vec
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
+
+    use std::path::PathBuf;
 
     use super::*;
     use crate::config;
@@ -941,7 +966,7 @@ mod tests {
         let mouse = Identity::input().with_class(Class::Mouse);
         let path = Path::new("/etc/vtium/heads.conf");
         assert_eq!(
-            device_findings(path, &config, &[Identity::display(), keyboard, mouse]),
+            device_findings(path, &config, &[Identity::display(), keyboard, mouse], &[]),
             [
                 "/etc/vtium/heads.conf:8: the rule matches no device present",
                 "/etc/vtium/heads.conf: head desk's only keyboard is one device, \"Keyb\\u{1b}[2J\"",
@@ -1048,7 +1073,7 @@ mod tests {
         let host = Host {
             head_file: file.clone(),
             udev_control: file.with_file_name("no-udev"),
-            devices: Vec::new(),
+            roots: nowhere(),
         };
         let out = outcome_on(&[], &host);
         assert_eq!(out.status, 1);
@@ -1095,27 +1120,23 @@ mod tests {
         std::fs::remove_dir_all(file.parent().unwrap()).ok();
     }
 
-    // ADR-1401 D7, D9: the devices vtium-platform lists, through the
-    // mapping the start uses, give the hardware findings on standard
-    // output, outside the status
+    /// Roots under which nothing is listed.
+    fn nowhere() -> Roots {
+        Roots {
+            sys: PathBuf::from("/nonexistent/vtium/sys"),
+            udev_data: PathBuf::from("/nonexistent/vtium/udev"),
+        }
+    }
+
+    // the devices vtium-platform lists, through the mapping the start uses:
+    // each card's displays, each framebuffer's as `fb`, then each input
     #[test]
-    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
-    fn the_devices_present_give_hardware_findings_outside_the_status() {
+    fn listed_devices_map_as_the_start_maps_them() {
         use vtium_platform::display::Identity as Display;
         use vtium_platform::input::{Class as Udev, Classes as UdevClasses};
-        use vtium_platform::listing::Card;
+        use vtium_platform::listing::{Card, Framebuffer};
         use vtium_platform::udev::InputIdentity;
 
-        let (file, _) = heads_fixture(
-            "devices",
-            "version = 1\n[head desk]\n[head panel]\n[rules]\n\
-             display * -> desk\n\
-             input class:keyboard -> desk\n\
-             input class:mouse -> panel\n\
-             input name:Gone -> panel\n",
-            0o644,
-        );
-        let f = file.display().to_string();
         let input = |class: Udev, name: &str| InputIdentity {
             classes: UdevClasses::empty().with(class),
             tagged: true,
@@ -1139,10 +1160,14 @@ mod tests {
                 primary: true,
                 displays: vec![display("DP-2"), display("DP-1")],
             }],
+            framebuffers: vec![Framebuffer {
+                node: PathBuf::from("/dev/fb2"),
+                primary: false,
+            }],
         };
-        let devices = devices(&listing);
         // a device's connector else name, card, boot card, card order, order
         type Shown<'a> = (Option<&'a str>, Option<&'a str>, bool, u32, u32);
+        let devices = devices(&listing);
         let shown: Vec<Shown> = devices
             .iter()
             .map(|d| {
@@ -1161,14 +1186,77 @@ mod tests {
             [
                 (Some("DP-2"), gpu, true, 1, 0),
                 (Some("DP-1"), gpu, true, 1, 1),
+                (Some("fb"), None, false, 2, 0),
                 (Some("Keyboard A"), None, false, 0, 0),
                 (Some("A mouse"), None, false, 0, 0),
             ]
         );
+    }
+
+    /// A stand-in machine under `dir`: a card with one lit connector, a
+    /// keyboard udev has not tagged, and a mouse it has.
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn stand_in_machine(dir: &Path) -> Roots {
+        let sys = dir.join("sys");
+        let write = |path: &str, text: &str| {
+            let path = sys.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        let link = |path: &str, target: &str| {
+            let path = sys.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::os::unix::fs::symlink(target, path).unwrap();
+        };
+        let card = "devices/platform/gpu/drm/card0";
+        write(&format!("{card}/dev"), "226:0\n");
+        write(&format!("{card}/card0-HDMI-A-1/status"), "connected\n");
+        write(&format!("{card}/card0-HDMI-A-1/modes"), "1920x1080\n");
+        link("class/drm/card0", &format!("../../{card}"));
+        for (input, event, name, caps) in [
+            ("input0", "event0", "Keyboard A", "fffffffe"),
+            ("input1", "event1", "A mouse", "0"),
+        ] {
+            let dir = format!("devices/platform/{input}/input/{input}");
+            link(&format!("{dir}/subsystem"), "../../../../class/input");
+            write(&format!("{dir}/name"), &format!("{name}\n"));
+            write(&format!("{dir}/capabilities/ev"), "3\n");
+            write(&format!("{dir}/capabilities/key"), &format!("{caps}\n"));
+            let minor = if event == "event0" { 64 } else { 65 };
+            write(&format!("{dir}/{event}/dev"), &format!("13:{minor}\n"));
+            link(
+                &format!("class/input/{event}"),
+                &format!("../../{dir}/{event}"),
+            );
+        }
+        let udev = dir.join("udev");
+        std::fs::create_dir_all(&udev).unwrap();
+        std::fs::write(udev.join("c13:65"), "E:ID_INPUT=1\nE:ID_INPUT_MOUSE=1\n").unwrap();
+        Roots {
+            sys,
+            udev_data: udev,
+        }
+    }
+
+    // ADR-1401 D7, D9: the devices listed from sysfs and udev's database
+    // give the hardware findings on standard output, outside the status
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn the_devices_present_give_hardware_findings_outside_the_status() {
+        let (file, _) = heads_fixture(
+            "devices",
+            "version = 1\n[head desk]\n[head panel]\n[rules]\n\
+             display * -> desk\n\
+             input class:keyboard -> desk\n\
+             input class:mouse -> panel\n\
+             input class:joystick -> panel\n",
+            0o644,
+        );
+        let f = file.display().to_string();
         let host = Host {
             head_file: file.with_file_name("absent.conf"),
             udev_control: file.clone(),
-            devices,
+            roots: stand_in_machine(file.parent().unwrap()),
         };
         let out = outcome_on(&[file.to_str().unwrap()], &host);
         assert_eq!((out.status, out.stderr), (0, Vec::new()));
@@ -1180,9 +1268,6 @@ mod tests {
                     "{f}: not trusted: \"{f}\" is owned by uid {}, not root; the start reads it only once it is installed as root's",
                     rustix::process::geteuid().as_raw()
                 ),
-                &format!(
-                    "{f}:8: input reaches a head by `id` or `name` alone, which any device can claim"
-                ),
                 &format!("{f}:8: the rule matches no device present"),
                 &format!("{f}: head desk's only keyboard is one device, \"Keyboard A\""),
                 &format!(
@@ -1191,6 +1276,34 @@ mod tests {
             ]
         );
         std::fs::remove_dir_all(file.parent().unwrap()).ok();
+    }
+
+    // a rule noted as matching nothing here, for want of a udev daemon or
+    // of a connector's PATH, takes no second note as idle
+    #[test]
+    fn a_rule_noted_as_matching_nothing_is_noted_once() {
+        let text = "version = 1\n[head desk]\n[rules]\n\
+                    display connector-path:mst:63-1 -> desk\n\
+                    input path:pci-0000:15:00.0-usb-0:3.3 -> desk\n\
+                    input class:joystick -> desk\n";
+        let (file, trust) = heads_fixture("once", text, 0o644);
+        let f = file.display().to_string();
+        let machine = Machine {
+            udev_daemon: false,
+            devices: Some(&[]),
+        };
+        let out = head_file(&file, false, &trust, &machine);
+        std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
+        assert_eq!(
+            out.notes,
+            [
+                format!("{f}:5: no udev daemon runs, so `path:` matches nothing"),
+                format!(
+                    "{f}:4: this build reads no connector's PATH, so `connector-path:` matches nothing (vtium/vtium#157)"
+                ),
+                format!("{f}:6: the rule matches no device present"),
+            ]
+        );
     }
 
     // a newline or an escape in FILE never splits a line or reaches the

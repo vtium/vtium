@@ -416,21 +416,28 @@ fn drm_flags(dev: &Uevent, node: &Path, probe: &mut dyn Probe) -> DeviceFlags {
 /// driver's ends in `drmfb`, or is `nouveaufb` or `psbfb`
 /// (monitor.c:190-230).
 fn fb_flags(node: &Path, probe: &mut dyn Probe) -> DeviceFlags {
+    match probe.fb_id(node) {
+        Ok(id) => fb_id_flags(Some(&id)),
+        Err(e) => {
+            log::warn!(target: "monitor", "cannot read the id of {}: {e}", node.display());
+            fb_id_flags(None)
+        }
+    }
+}
+
+/// [`fb_flags`] of a framebuffer whose id is `id`, `None` where it cannot
+/// be read, which leaves it DRM-backed.
+pub(crate) fn fb_id_flags(id: Option<&str>) -> DeviceFlags {
     let mut flags = DeviceFlags {
         drm_backed: true,
         ..DeviceFlags::default()
     };
-    match probe.fb_id(node) {
-        Ok(id) => {
-            if !id.ends_with("drmfb") && id != "nouveaufb" && id != "psbfb" {
-                flags.drm_backed = false;
-            }
-            flags.aux = id == "udlfb";
-            flags.primary = id == "VESA VGA";
+    if let Some(id) = id {
+        if !id.ends_with("drmfb") && id != "nouveaufb" && id != "psbfb" {
+            flags.drm_backed = false;
         }
-        Err(e) => {
-            log::warn!(target: "monitor", "cannot read the id of {}: {e}", node.display());
-        }
+        flags.aux = id == "udlfb";
+        flags.primary = id == "VESA VGA";
     }
     flags
 }

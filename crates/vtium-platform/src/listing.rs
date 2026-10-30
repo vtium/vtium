@@ -7,11 +7,14 @@
 //! device's identity is the monitor's ([`InputIdentity`]): udev's classes
 //! where its database has them, else udev's rule applied to the bitmaps
 //! sysfs shows, with the properties the kernel's `uevent` gives and those
-//! udev recorded. A card's `ID_PATH` is its database entry's, and it is
-//! primary by the monitor's rule. A display is a connector whose sysfs
-//! `status` is `connected`, named as the kernel names it, with the monitor
-//! its sysfs `edid` names; whether it was lit at start takes opening the
-//! card, so a listed display was never lit at start.
+//! udev recorded, as libudev builds them ([`properties`]). A card's
+//! `ID_PATH` is its database entry's, and it is primary by the monitor's
+//! rule. A display is a connector whose sysfs `status` is `connected` and
+//! whose `modes` lists a mode, named as the kernel names it, with the
+//! monitor its sysfs `edid` names; whether it was lit at start takes
+//! opening the card, so a listed display was never lit at start. A
+//! framebuffer no DRM driver backs is listed by the monitor's rule, read
+//! from the id its sysfs `name` shows.
 
 #[cfg(test)]
 mod tests;
@@ -58,21 +61,32 @@ pub struct Card {
     pub displays: Vec<display::Identity>,
 }
 
+/// A framebuffer no DRM driver backs, the one display it shows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Framebuffer {
+    /// Its node, as `/dev/fb0`: a name, never opened.
+    pub node: PathBuf,
+    /// The framebuffer the firmware set up (`VESA VGA`).
+    pub primary: bool,
+}
+
 /// The seat's devices.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Listing {
     pub inputs: Vec<InputIdentity>,
     pub cards: Vec<Card>,
+    pub framebuffers: Vec<Framebuffer>,
 }
 
 /// The devices of `seat` under `roots`, each kept as the monitor keeps it:
-/// an event node with a parent input device, and a card, by the seat its
-/// `ID_SEAT` names, `seat0` when unset. A directory that cannot be read
-/// lists nothing.
+/// an event node with a parent input device, a card, and a framebuffer no
+/// DRM driver backs, by the seat its `ID_SEAT` names, `seat0` when unset.
+/// A directory that cannot be read lists nothing.
 pub fn list(roots: &Roots, seat: &str) -> Listing {
     Listing {
         inputs: inputs(roots, seat),
         cards: cards(roots, seat),
+        framebuffers: framebuffers(roots, seat),
     }
 }
 
@@ -88,8 +102,7 @@ fn inputs(roots: &Roots, seat: &str) -> Vec<InputIdentity> {
             if value(&parent_db, "ID_SEAT").unwrap_or("seat0") != seat {
                 return None;
             }
-            let mut all = kernel(roots, &node, "input");
-            all.extend(entry(&node).map_or_else(Vec::new, |e| database(roots, &e)));
+            let all = properties(roots, &node, "input");
             let properties = udev::properties(
                 |name| value(&all, name).map(str::to_owned),
                 all.iter().cloned(),
@@ -122,11 +135,7 @@ fn cards(roots: &Roots, seat: &str) -> Vec<Card> {
                 platform_parent: parent_on(&roots.sys, &dir, "platform").is_some(),
                 ..Uevent::default()
             });
-            let uevent = lines(&dir.join("uevent"));
-            let node = value(&pairs(&uevent, ""), "DEVNAME").map_or_else(
-                || Path::new("/dev/dri").join(&name),
-                |n| Path::new("/dev").join(n),
-            );
+            let node = node(&dir, &name);
             let displays = displays(&dir, &name, id_path.as_deref());
             Some(Card {
                 node,
@@ -138,14 +147,47 @@ fn cards(roots: &Roots, seat: &str) -> Vec<Card> {
         .collect()
 }
 
-/// The connected displays of the card `name` whose sysfs directory is
-/// `dir`, by connector id, which is the kernel's order of connectors.
+fn framebuffers(roots: &Roots, seat: &str) -> Vec<Framebuffer> {
+    let class = roots.sys.join("class/graphics");
+    numbered(&class, "fb")
+        .into_iter()
+        .filter_map(|name| {
+            let dir = class.join(&name);
+            let db = database(roots, &entry(&dir)?);
+            if value(&db, "ID_SEAT").unwrap_or("seat0") != seat {
+                return None;
+            }
+            let flags = udev::fb_id_flags(attribute(&dir.join("name")).as_deref());
+            (!flags.drm_backed).then(|| Framebuffer {
+                node: node(&dir, &name),
+                primary: flags.primary,
+            })
+        })
+        .collect()
+}
+
+/// The node of the device `name` at `dir`: its `uevent`'s `DEVNAME` under
+/// `/dev`, else `/dev/dri/<name>` for a card and `/dev/<name>` for a
+/// framebuffer.
+fn node(dir: &Path, name: &str) -> PathBuf {
+    let uevent = pairs(&lines(&dir.join("uevent")), "");
+    match value(&uevent, "DEVNAME") {
+        Some(devname) => Path::new("/dev").join(devname),
+        None if name.starts_with("card") => Path::new("/dev/dri").join(name),
+        None => Path::new("/dev").join(name),
+    }
+}
+
+/// The displays of the card `name` whose sysfs directory is `dir`: each
+/// connector whose `status` is `connected` and whose `modes` lists one, as
+/// the start needs a mode to light it, by connector id, the kernel's order
+/// of connectors, then by name in natural order (`DP-2` before `DP-10`).
 fn displays(dir: &Path, name: &str, id_path: Option<&str>) -> Vec<display::Identity> {
     let prefix = format!("{name}-");
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
-    let mut connected: Vec<(u32, String)> = entries
+    let connected = entries
         .filter_map(Result::ok)
         .filter_map(|e| e.file_name().into_string().ok())
         .filter_map(|d| {
@@ -153,18 +195,20 @@ fn displays(dir: &Path, name: &str, id_path: Option<&str>) -> Vec<display::Ident
                 .strip_prefix(&prefix)
                 .filter(|c| !c.is_empty())?
                 .to_owned();
-            (attribute(&dir.join(&d).join("status")).as_deref() == Some("connected")).then(|| {
-                let id = attribute(&dir.join(&d).join("connector_id"))
+            let at = dir.join(&d);
+            let lit = attribute(&at.join("status")).as_deref() == Some("connected")
+                && bytes(&at.join("modes"), 0).is_some_and(|b| !b.is_empty());
+            lit.then(|| {
+                let id = attribute(&at.join("connector_id"))
                     .and_then(|id| id.parse().ok())
-                    .unwrap_or(u32::MAX);
-                (id, connector)
+                    .unwrap_or(u64::MAX);
+                (key(id, &connector), connector)
             })
         })
         .collect();
-    connected.sort();
-    connected
+    sorted(connected)
         .into_iter()
-        .map(|(_, connector)| display::Identity {
+        .map(|connector| display::Identity {
             edid: Edid::sysfs(dir, &connector).map(|e| e.id),
             connector,
             card: id_path.map(str::to_owned),
@@ -179,17 +223,34 @@ fn numbered(dir: &Path, prefix: &str) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
-    let mut found: Vec<(u64, String)> = entries
+    let found = entries
         .filter_map(Result::ok)
         .filter_map(|e| e.file_name().into_string().ok())
-        .filter_map(|name| {
-            let number = name.strip_prefix(prefix)?;
-            if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
-                return None;
-            }
-            Some((number.parse().ok()?, name))
+        .filter(|name| {
+            name.strip_prefix(prefix)
+                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
         })
+        .map(|name| (key(0, &name), name))
         .collect();
+    sorted(found)
+}
+
+/// How every list sorts: by a number, then by a name in natural order, its
+/// text and then the number that ends it.
+type Key = (u64, String, u64);
+
+/// The key of `name`, after `first`.
+fn key(first: u64, name: &str) -> Key {
+    let text = name.trim_end_matches(|c: char| c.is_ascii_digit());
+    let number = name
+        .get(text.len()..)
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(u64::MAX);
+    (first, text.to_owned(), number)
+}
+
+/// The names of `found` in the order of their keys.
+fn sorted(mut found: Vec<(Key, String)>) -> Vec<String> {
     found.sort();
     found.into_iter().map(|(_, name)| name).collect()
 }
@@ -215,22 +276,70 @@ fn entry(dir: &Path) -> Option<String> {
     Some(format!("c{}", attribute(&dir.join("dev"))?))
 }
 
-/// The properties the kernel gives the device at `dir` on `subsystem`, as
-/// libudev reads them: its `DEVPATH` and `SUBSYSTEM`, and its `uevent`'s.
-fn kernel(roots: &Roots, dir: &Path, subsystem: &str) -> Vec<(String, String)> {
+/// The properties of the device at `dir` on `subsystem`, as sd-device,
+/// behind libudev, gives them to the start: its `DEVPATH`; its `uevent`'s,
+/// with `DEVNAME` under `/dev`; its `SUBSYSTEM` and `DRIVER`; and from its
+/// udev database entry, `USEC_INITIALIZED` (`I:`), its properties (`E:`),
+/// each replacing one of the same name, `DEVLINKS` (`S:`, each under
+/// `/dev`, joined by spaces), and `TAGS` (`G:`) and `CURRENT_TAGS` (`Q:`),
+/// as `:a:b:`. sd-device joins the links and tags in a hash order that
+/// changes from process to process; these are in the entry's order.
+fn properties(roots: &Roots, dir: &Path, subsystem: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
     let devpath = roots
         .sys
         .canonicalize()
         .ok()
         .zip(dir.canonicalize().ok())
         .and_then(|(sys, dir)| Some(format!("/{}", dir.strip_prefix(sys).ok()?.display())));
-    let mut out: Vec<(String, String)> = devpath
-        .map(|p| ("DEVPATH".to_owned(), p))
-        .into_iter()
-        .collect();
-    out.push(("SUBSYSTEM".to_owned(), subsystem.to_owned()));
-    out.extend(pairs(&lines(&dir.join("uevent")), ""));
+    if let Some(devpath) = devpath {
+        set(&mut out, "DEVPATH", devpath);
+    }
+    for (name, value) in pairs(&lines(&dir.join("uevent")), "") {
+        let value = match name.as_str() {
+            "DEVNAME" if !value.starts_with('/') => format!("/dev/{value}"),
+            _ => value,
+        };
+        set(&mut out, &name, value);
+    }
+    set(&mut out, "SUBSYSTEM", subsystem.to_owned());
+    let driver = std::fs::read_link(dir.join("driver")).ok();
+    if let Some(driver) = driver.as_deref().and_then(Path::file_name) {
+        set(&mut out, "DRIVER", driver.to_string_lossy().into_owned());
+    }
+    let entry = entry(dir).map_or_else(Vec::new, |e| lines(&roots.udev_data.join(e)));
+    let (mut links, mut tags, mut current) = (Vec::new(), Vec::new(), Vec::new());
+    for line in &entry {
+        match line.split_at_checked(2) {
+            Some(("I:", usec)) => set(&mut out, "USEC_INITIALIZED", usec.to_owned()),
+            Some(("E:", property)) => {
+                if let Some((name, value)) = property.split_once('=') {
+                    set(&mut out, name, value.to_owned());
+                }
+            }
+            Some(("S:", link)) => links.push(format!("/dev/{link}")),
+            Some(("G:", tag)) => tags.push(tag),
+            Some(("Q:", tag)) => current.push(tag),
+            _ => {}
+        }
+    }
+    if !links.is_empty() {
+        set(&mut out, "DEVLINKS", links.join(" "));
+    }
+    for (name, tags) in [("TAGS", tags), ("CURRENT_TAGS", current)] {
+        if !tags.is_empty() {
+            set(&mut out, name, format!(":{}:", tags.join(":")));
+        }
+    }
     out
+}
+
+/// Sets `name` to `value` among `pairs`, in its place where it is there.
+fn set(pairs: &mut Vec<(String, String)>, name: &str, value: String) {
+    match pairs.iter_mut().find(|(n, _)| n == name) {
+        Some((_, v)) => *v = value,
+        None => pairs.push((name.to_owned(), value)),
+    }
 }
 
 /// The `E:` properties of udev's database entry `name`, in its order; none
