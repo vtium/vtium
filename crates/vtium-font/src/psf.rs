@@ -1,5 +1,5 @@
 //! [`Psf`]: PC Screen Fonts, PSF1 and PSF2, the Linux console's bitmap
-//! fonts, plain or gzipped (feature `gzip`).
+//! fonts, and its raw headerless fonts, plain or gzipped (feature `gzip`).
 //!
 //! The format is kbd's, written down in Andries Brouwer's "The PSF font
 //! format" (kbd's `doc/font-formats`): a header, the glyph bitmaps, and an
@@ -29,7 +29,7 @@ use std::path::Path;
 
 use crate::bounds::{
     CELL_SIDE_MAX, GZIP_BYTES_MAX, PSF_BYTES_MAX, PSF_ENTRIES_MAX, PSF_GLYPHS_MAX, PSF_HEIGHT_MAX,
-    PSF_WIDTH_MAX,
+    PSF_WIDTH_MAX, RAW_HEIGHT_MAX,
 };
 use crate::face::{Cell, Face, Style};
 use crate::glyph::Glyph;
@@ -53,7 +53,8 @@ const PSF2_END: u8 = 0xff;
 pub enum PsfError {
     /// The file could not be read.
     Io(std::io::Error),
-    /// The file starts with neither PSF magic nor gzip's.
+    /// The file starts with neither PSF magic nor gzip's, and is not the
+    /// size of a raw font: 256 times a height of 1 to [`RAW_HEIGHT_MAX`].
     NotPsf,
     /// The header asks for a font past a bound, or describes itself
     /// inconsistently.
@@ -75,7 +76,10 @@ impl fmt::Display for PsfError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PsfError::Io(e) => write!(f, "cannot read the font: {e}"),
-            PsfError::NotPsf => f.write_str("not a PSF font"),
+            PsfError::NotPsf => write!(
+                f,
+                "not a PSF font, and not a raw font of 256*N bytes, 0 < N <= {RAW_HEIGHT_MAX}"
+            ),
             PsfError::BadHeader(why) => write!(f, "bad PSF header: {why}"),
             PsfError::Truncated => f.write_str("the font is shorter than its header says"),
             PsfError::TooLarge => write!(
@@ -153,7 +157,7 @@ impl Psf {
         Psf::parse(&bytes)
     }
 
-    /// Parses a PSF1 or PSF2 font, gzipped or not, drawn at its own size
+    /// Parses a PSF1 or PSF2 font, or a raw one, gzipped or not, drawn at its own size
     /// until [`Psf::set_height`] scales it.
     pub fn parse(bytes: &[u8]) -> Result<Psf, PsfError> {
         if bytes.len() > usize::try_from(PSF_BYTES_MAX).unwrap_or(usize::MAX) {
@@ -221,7 +225,7 @@ impl Psf {
             _ if starts_magic(bytes, &PSF1_MAGIC) || starts_magic(bytes, &PSF2_MAGIC) => {
                 return Err(PsfError::Truncated);
             }
-            _ => return Err(PsfError::NotPsf),
+            _ => return Psf::parse_raw(bytes),
         };
         if count == 0 || count > PSF_GLYPHS_MAX {
             return Err(PsfError::BadHeader("no glyphs, or more than 65535"));
@@ -259,6 +263,25 @@ impl Psf {
             row_bytes,
             glyphs: glyphs.into(),
             table,
+            scale: 1,
+        })
+    }
+
+    /// A raw (headerless) console font, as setfont and the kernel take it:
+    /// 256 glyphs, one byte a row, 8 pixels across, so a file of 256 times
+    /// the glyph's height in bytes. It has no unicode table.
+    fn parse_raw(bytes: &[u8]) -> Result<Psf, PsfError> {
+        let height = u32::try_from(bytes.len() >> 8).unwrap_or(u32::MAX);
+        if bytes.len() & 0xff != 0 || height == 0 || height > RAW_HEIGHT_MAX {
+            return Err(PsfError::NotPsf);
+        }
+        Ok(Psf {
+            count: 256,
+            width: 8,
+            height,
+            row_bytes: 1,
+            glyphs: bytes.into(),
+            table: None,
             scale: 1,
         })
     }

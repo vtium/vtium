@@ -595,8 +595,9 @@ impl Engine {
         for source in &frit.sources {
             let loaded = resolve(source, &host)
                 .map_err(|e| e.to_string())
-                .and_then(|r| match r.input {
-                    Input::Builtin(font) => Ok(Loaded::Bitmap(font)),
+                .and_then(|input| match input {
+                    Input::Bitmap(font) => Ok(Loaded::Bitmap(font)),
+                    Input::Bdf(bytes) => crate::bdf::font(&bytes).map(Loaded::Bitmap),
                     Input::Font(req) => crate::decode::font(
                         &req.font,
                         req.unimap.as_deref(),
@@ -635,13 +636,9 @@ impl Engine {
             .collect();
         coverage.sort_unstable();
         coverage.dedup();
-        let name = if crate::frit::valid_name(&frit.name) {
-            frit.name
-        } else {
-            "generated".to_owned()
-        };
+        // `Frit::parse` refuses a name that is not valid
         Ok(Engine {
-            name,
+            name: frit.name,
             sources,
             coverage,
             failed: RefCell::default(),
@@ -1540,6 +1537,40 @@ mod tests {
         assert_eq!(frames.first().map(|f| f.0), Some(FRAME_WARNING));
         let quiet = run(&[request(ASK, frit("source=builtin:unifont\n"), &['A'])]);
         assert!(quiet.iter().all(|(k, _)| *k != FRAME_WARNING));
+    }
+
+    // a bdf: source is parsed where the other fonts are, not as it is read
+    #[test]
+    fn a_bdf_source_is_parsed_when_the_frit_loads() {
+        let dir = std::env::temp_dir().join(format!("vtium-serve-bdf-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (good, bad) = (dir.join("good.bdf"), dir.join("bad.bdf"));
+        std::fs::write(&good, crate::bdf::tests::bdf("")).unwrap();
+        std::fs::write(&bad, "STARTFONT 2.1\nCHARS 1\n").unwrap();
+        let load = |p: &std::path::Path| {
+            Engine::load(
+                &frit(&format!("source=bdf:{}\n", p.display())),
+                &Paths::default(),
+                None,
+            )
+        };
+        let (good, bad) = (load(&good), load(&bad));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(good.unwrap().coverage().contains(&0x41));
+        let e = bad.err().unwrap();
+        assert!(e.contains("CHARSET_REGISTRY"), "{e}");
+    }
+
+    // `Frit::parse` refuses a name that is not valid, so no engine is
+    // named anything but the frit's own name
+    #[test]
+    fn a_frit_with_an_invalid_name_does_not_load() {
+        let bad = FritText {
+            name: "a b".to_owned(),
+            text: "source=builtin:unifont\n".to_owned(),
+        };
+        let e = Engine::load(&bad, &Paths::default(), None).err().unwrap();
+        assert!(e.contains("is not a set name"), "{e}");
     }
 
     // a set past its frame's bound, of one codepoint and a cluster, is cut

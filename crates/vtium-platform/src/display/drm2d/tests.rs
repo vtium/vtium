@@ -2359,3 +2359,22 @@ fn a_dark_connector_that_cannot_be_set_off_leaves_the_lit_displays_up() {
     assert_eq!(warned(&logs::at_least(Level::Warn)), 1);
     assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(A)]);
 }
+
+// ADR-1401 D9: the boot display is the first connected one in the kernel's
+// order, so a display plugged back in keeps its place.
+#[test]
+fn the_displays_keep_the_cards_connector_order_across_a_replug() {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(800, 600, 60, true)]),
+    ]);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    let both = [DisplayId(A), DisplayId(B)];
+    assert_eq!(v.displays().collect::<Vec<_>>(), both);
+    v.card().state().listed.retain(|&c| c == B);
+    v.poll().unwrap();
+    assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(B)]);
+    v.card().state().listed = vec![A, B];
+    v.poll().unwrap();
+    assert_eq!(v.displays().collect::<Vec<_>>(), both);
+}
