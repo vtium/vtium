@@ -14,6 +14,7 @@ pub(crate) mod chord;
 pub mod console;
 pub mod identity;
 pub(crate) mod route;
+pub(crate) mod session;
 
 use vtium_config::{By, Place};
 

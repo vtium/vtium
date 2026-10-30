@@ -17,8 +17,9 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/power.rs` | The power keys, the seat's, second in the key order: what each asks of PID 1, logind and the kernel |
 | `src/layout.rs` | A head's grid and each of its displays' font height, the zoom's direction and the rotation step |
 | `src/head.rs` | A head: its session's terminal and pty, its displays, grid, font and pointer; where the rules place a display; the head file the start runs; a frit's one helper |
-| `src/head/route.rs` | Where each input device's events go: the head its rule names, or the focus's |
+| `src/head/route.rs` | Where each input device's events go: the head its rule names, or the focus's; `mouse` off in the shipped rules |
 | `src/head/chord.rs` | The heads' chords: the console chords and the focus chord |
+| `src/head/session.rs` | A head's consoles over their lives: the share each head opens within the caps, the console chords, a console's exit and when vtium ends |
 | `src/head/console.rs` | A head's console: its session's terminal and pty, its respawn count and its fit |
 | `src/head/identity.rs` | vtium-platform's identities of a display and an input mapped into the head file's, which the start and `vtium check-config` read alike |
 | `src/term.rs` | A head's terminal as the pty's consumer, and a view per display of the head that draws it: the frame it takes, composes into the display's shadow buffer and presents |

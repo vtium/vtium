@@ -98,15 +98,16 @@ use crate::config::{Config, ModeSpec};
 use crate::font::{self, Chosen};
 use crate::grab::{self, Chord, Grab};
 use crate::head::chord::{self, HeadChord};
-use crate::head::console::{self, Console};
+use crate::head::console::Console;
 use crate::head::identity::{self, Card};
-use crate::head::route::Routes;
-use crate::head::{Attached, Ended, Frit, Head, place_display};
+use crate::head::route::{self, Routes};
+use crate::head::session::{self, AfterExit, Caps};
+use crate::head::{Attached, Frit, Head, place_display};
 use crate::helper::{self, Answer, Helper};
 use crate::layout::{self, Zoom};
 use crate::painter::Painter;
 use crate::power::{self, Power, PowerKey};
-use crate::respawn::{self, Next, Respawn};
+use crate::respawn;
 use crate::sync::Action;
 use crate::term::{Clock, Prepared, Term, View};
 use crate::video::Video;
@@ -208,8 +209,7 @@ pub struct App {
     /// The scrollback memory each console takes.
     scrollback_bytes: usize,
     /// `head-consoles-max` and `consoles-max`.
-    head_consoles_max: usize,
-    consoles_max: usize,
+    caps: Caps,
     config: Config,
     handle: LoopHandle<'static, App>,
     clock: Clock,
@@ -299,13 +299,13 @@ impl App {
             physical_memory(),
             config.number(&keys::SB_SIZE_CAP).map(to_usize),
         );
-        let rules = in_force(vtium_config::Config::builtin(), &config);
+        let rules = route::in_force(vtium_config::Config::builtin(), &config);
         let caps = Caps {
             head: config.number(&keys::HEAD_CONSOLES_MAX).map_or(4, to_usize),
             total: config.number(&keys::CONSOLES_MAX).map_or(8, to_usize),
         };
-        let bytes = scrollback_bytes(&config, caps, rules.heads.len());
-        let heads = heads(&rules, &config, ((cap, lines), bytes), caps, &clock);
+        let bytes = session::scrollback_bytes(&config, caps, rules.heads.len());
+        let heads = session::heads(&rules, &config, ((cap, lines), bytes), caps, &clock);
         let dpms = config
             .number(&keys::DPMS_TIMEOUT)
             .map(Duration::from_secs)
@@ -358,8 +358,7 @@ impl App {
             dark: BTreeSet::new(),
             scrollback: (cap, lines),
             scrollback_bytes: bytes,
-            head_consoles_max: caps.head,
-            consoles_max: caps.total,
+            caps,
             assumed: BTreeSet::new(),
             font_sources: font::Sources::default(),
             frits: BTreeMap::new(),
@@ -387,14 +386,11 @@ impl App {
     /// configuration, before any display comes: its heads, each with no
     /// session yet, and its rules for each display that comes.
     pub fn set_heads(&mut self, rules: vtium_config::Config) {
-        let rules = in_force(rules, &self.config);
-        let caps = Caps {
-            head: self.head_consoles_max,
-            total: self.consoles_max,
-        };
-        self.scrollback_bytes = scrollback_bytes(&self.config, caps, rules.heads.len());
+        let rules = route::in_force(rules, &self.config);
+        let caps = self.caps;
+        self.scrollback_bytes = session::scrollback_bytes(&self.config, caps, rules.heads.len());
         let scrollback = (self.scrollback, self.scrollback_bytes);
-        self.heads = heads(&rules, &self.config, scrollback, caps, &self.clock);
+        self.heads = session::heads(&rules, &self.config, scrollback, caps, &self.clock);
         self.rules = rules;
         self.focus = None;
         self.lit.clear();
@@ -471,97 +467,60 @@ impl App {
         self.heads.iter().any(Head::started)
     }
 
-    /// Each head's first start, when it is due.
+    /// Each head's first start, when it is due: its consoles open and
+    /// their sessions start.
     fn first_start(&mut self, now: Instant) {
         if !self.start_due {
             return;
         }
+        let since = now.saturating_duration_since(self.epoch);
         for h in 0..self.heads.len() {
             let due = self.heads.get(h).is_some_and(|head| {
                 !head.started() && respawn::first_start_due(self.awake, !head.views.is_empty())
             });
-            if due {
-                self.open_consoles(h);
-                let since = now.saturating_duration_since(self.epoch);
-                let ids: Vec<u64> = self
-                    .heads
-                    .get_mut(h)
-                    .into_iter()
-                    .flat_map(Head::consoles_mut)
-                    .filter(|c| !c.started())
-                    .map(|c| {
-                        c.respawn = Some(Respawn::new(since));
-                        c.id
-                    })
-                    .collect();
-                for id in ids {
-                    self.spawn(h, id);
-                }
+            let App {
+                heads,
+                config,
+                scrollback,
+                scrollback_bytes,
+                clock,
+                ..
+            } = self;
+            let Some(head) = heads.get_mut(h).filter(|_| due) else {
+                continue;
+            };
+            head.open_wanted(|| {
+                crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock))
+            });
+            for id in head.start_consoles(since) {
+                self.spawn(h, id);
             }
-        }
-    }
-
-    /// Opens head `h`'s consoles past its first up to those it wants at
-    /// its start, behind the one shown.
-    fn open_consoles(&mut self, h: usize) {
-        let Some(head) = self.heads.get_mut(h) else {
-            return;
-        };
-        let bytes = self.scrollback_bytes;
-        while head.console_count() < head.wanted {
-            let id = head.next_id();
-            let term =
-                crate::head::terminal(&self.config, self.scrollback, bytes, Rc::clone(&self.clock));
-            head.hidden.push(Console::new(id, term, head.fresh_fit()));
         }
     }
 
     /// Opens a console in head `h` and shows it, within the caps
     /// (ADR-1401 D10); its session starts at once once the head's has.
     fn new_console(&mut self, h: usize, now: Instant) {
-        let total: usize = self
-            .heads
-            .iter()
-            .map(|head| head.console_count().max(head.wanted))
-            .sum();
-        let Some(head) = self.heads.get_mut(h) else {
-            return;
-        };
-        if let Some(ended) = head.ended {
-            log::info!("head {}: no new console: {}", head.name(), ended.notice());
-            return;
-        }
-        if head.console_count() >= self.head_consoles_max {
-            log::warn!(
-                "head {}: no new console past head-consoles-max, {}",
-                head.name(),
-                self.head_consoles_max
-            );
-            return;
-        }
-        if total >= self.consoles_max {
-            log::warn!(
-                "head {}: no new console past consoles-max, {}",
-                head.name(),
-                self.consoles_max
-            );
-            return;
-        }
-        let id = head.next_id();
+        let total = session::console_total(&self.heads);
+        let caps = self.caps;
         let term = crate::head::terminal(
             &self.config,
             self.scrollback,
             self.scrollback_bytes,
             Rc::clone(&self.clock),
         );
-        let mut console = Console::new(id, term, head.fresh_fit());
-        let started = head.started();
-        if started {
-            console.respawn = Some(Respawn::new(now.saturating_duration_since(self.epoch)));
-        }
-        head.push(console, self.awake);
+        let since = now.saturating_duration_since(self.epoch);
+        let Some(head) = self
+            .heads
+            .get_mut(h)
+            .filter(|head| head.may_open(caps, total))
+        else {
+            return;
+        };
+        let id = head.next_id();
+        let starts = head.open(id, term, since, self.awake);
         self.relayout(h);
-        if started {
+        if starts {
             self.spawn(h, id);
         }
     }
@@ -2010,24 +1969,10 @@ impl App {
                 return;
             }
             HeadChord::NextConsole | HeadChord::PreviousConsole | HeadChord::CloseConsole => {
-                let Some(head) = h.and_then(|h| self.heads.get_mut(h)) else {
-                    return;
-                };
-                // A head of one console keeps it, as the C reference's
-                // seat kept its last session (`src/seat.c:610-620` at
-                // kmscon b1f7a7c5).
-                if head.console_count() < 2 {
-                    return;
-                }
-                if chord == HeadChord::CloseConsole {
-                    // Its pty closes: its programs get SIGHUP.
-                    drop(head.close_shown(visible));
-                } else {
-                    let back = chord == HeadChord::PreviousConsole;
-                    let to = console::step(head.at, head.console_count(), back);
-                    head.show(to, visible);
-                }
-                if let Some(h) = h {
+                let changed = h
+                    .and_then(|h| self.heads.get_mut(h))
+                    .is_some_and(|head| head.console_chord(chord, visible));
+                if let Some(h) = h.filter(|_| changed) {
                     self.relayout(h);
                 }
                 return;
@@ -2078,75 +2023,33 @@ impl App {
         }
     }
 
-    /// The programs of head `h`'s consoles that exited (the operator's
-    /// answers on vtium/vtium#156). A console whose program exits while
-    /// others stay open closes, and the head shows its next; the last
-    /// console's exit follows the respawn policy, counted per console: its
-    /// program starts again, or the head ends, showing why, and vtium ends
-    /// once every head has.
+    /// The programs of head `h`'s consoles that exited
+    /// ([`session`]): each closes its console, starts again or ends the
+    /// head, and vtium ends once no head that started still runs.
     fn child_exited(&mut self, h: usize, now: Instant) {
-        let oneshot = self.oneshot;
         let since = now.saturating_duration_since(self.epoch);
-        let visible = self.awake;
-        let Some(head) = self.heads.get_mut(h) else {
-            return;
-        };
-        let exited: Vec<(u64, std::process::ExitStatus)> = head
-            .consoles_mut()
+        let exited: Vec<(u64, std::process::ExitStatus)> = self
+            .heads
+            .get_mut(h)
+            .into_iter()
+            .flat_map(Head::consoles_mut)
             .filter_map(|c| c.term.exited.take().map(|status| (c.id, status)))
             .collect();
         for (id, status) in exited {
+            log::info!("child exited: {status}");
             let Some(head) = self.heads.get_mut(h) else {
                 return;
             };
-            log::info!("child exited: {status}");
-            if head.console_count() > 1 {
-                // The pty closes with what is queued for the child.
-                if head.console.id == id {
-                    drop(head.close_shown(visible));
+            match head.exited(id, since, self.oneshot, self.awake) {
+                AfterExit::Closed { shown: true } => {
                     self.relayout(h);
-                } else {
-                    drop(head.remove_hidden(id));
                 }
-                continue;
+                AfterExit::Restart => self.spawn(h, id),
+                AfterExit::Closed { shown: false } | AfterExit::Ended => {}
             }
-            head.console.pty = None;
-            let next = head
-                .console
-                .respawn
-                .as_mut()
-                .map_or(Next::Restart, |r| r.exited(since, oneshot));
-            let ended = match next {
-                Next::Restart => {
-                    // A new session starts from a hard reset (RIS), drawn
-                    // at once, with nothing of the last session's output
-                    // left (`terminal_close` at kmscon b1f7a7c5).
-                    head.console.term.terminal.input(b"\x1bc");
-                    head.console.term.terminal.take_replies();
-                    head.console.term.unparsed = false;
-                    head.draw_now = true;
-                    self.spawn(h, id);
-                    continue;
-                }
-                Next::Oneshot => Ended::Oneshot,
-                Next::TooQuick => Ended::TooQuick,
-            };
-            log::warn!("head {}: {}", head.name(), ended.notice());
-            head.ended = Some(ended);
-            head.draw_now = true;
         }
-        // A head whose display never lit has nothing left to run: it holds
-        // up no exit (the team lead's steering of 2026-10-30). Under
-        // `oneshot` no head gives up, and under the respawn policy none
-        // ends otherwise.
-        let ended: Vec<Ended> = self.heads.iter().filter_map(|head| head.ended).collect();
-        let running = self
-            .heads
-            .iter()
-            .any(|head| head.started() && head.ended.is_none());
-        if !ended.is_empty() && !running {
-            let quick = ended.contains(&Ended::TooQuick);
-            self.request_exit(if quick { Exit::TooQuick } else { Exit::Oneshot });
+        if let Some(exit) = session::exit_due(&self.heads) {
+            self.request_exit(exit);
         }
     }
 
@@ -2523,114 +2426,6 @@ fn shown<'a>(heads: impl Iterator<Item = &'a &'a Head>) -> crate::deferred::Show
     all.clusters.sort_unstable();
     all.clusters.dedup();
     all
-}
-
-/// The rules in force: `rules`, with the shipped rules' pointer rules
-/// sending pointers to `ignore` under kmscon.conf's `mouse` off, its
-/// shorthand (ADR-1401 D3), so a pointer is never opened, one with udev's
-/// key class on its node too.
-fn in_force(mut rules: vtium_config::Config, config: &Config) -> vtium_config::Config {
-    use vtium_config::{Match, Target, Token};
-    if config.switch(&keys::MOUSE) || rules != vtium_config::Config::builtin() {
-        return rules;
-    }
-    for rule in &mut rules.rules {
-        if matches!(&rule.matcher, Match::All(tokens)
-            if matches!(tokens.as_slice(), [Token::Class(c)] if c.is_pointer()))
-        {
-            rule.target = Target::Ignore;
-        }
-    }
-    rules
-}
-
-/// The scrollback memory each console of `heads` heads takes under
-/// `config` and `caps` ([`crate::head::console_scrollback`]).
-fn scrollback_bytes(config: &Config, caps: Caps, heads: usize) -> usize {
-    crate::head::console_scrollback(
-        crate::config::budget::sb_memory(config),
-        crate::config::budget::sb_memory_cap(),
-        caps.total,
-        heads,
-    )
-}
-
-/// The console caps (ADR-1401 D10): `head-consoles-max` and
-/// `consoles-max`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Caps {
-    head: usize,
-    total: usize,
-}
-
-/// The consoles each head of `rules` opens at its start: its `consoles`,
-/// at most `caps.head`, with a warning past it. Each head keeps its
-/// first; the others open, in the file's order, while the total is below
-/// `caps.total`, so the share is the file's alone, whatever order the
-/// displays come in.
-fn console_shares(rules: &vtium_config::Config, caps: Caps) -> Vec<usize> {
-    let mut spare = caps.total.saturating_sub(rules.heads.len());
-    rules
-        .heads
-        .iter()
-        .map(|h| {
-            let asked = usize::try_from(h.consoles).unwrap_or(usize::MAX).max(1);
-            if asked > caps.head {
-                log::warn!(
-                    "head {}: consoles = {asked} is past head-consoles-max: it opens {}",
-                    h.name,
-                    caps.head
-                );
-            }
-            let more = asked.min(caps.head).saturating_sub(1);
-            let given = more.min(spare);
-            if given < more {
-                log::warn!(
-                    "head {}: consoles-max, {}, leaves it {} consoles",
-                    h.name,
-                    caps.total,
-                    given.saturating_add(1)
-                );
-            }
-            spare = spare.saturating_sub(given);
-            given.saturating_add(1)
-        })
-        .collect()
-}
-
-/// The heads of `rules`, each with its font keys and its `login` (ADR-1401
-/// D3), the consoles `caps` give it, and the scrollback cap and length
-/// and the bytes `scrollback` gives each console.
-fn heads(
-    rules: &vtium_config::Config,
-    config: &Config,
-    scrollback: ((usize, usize), usize),
-    caps: Caps,
-    clock: &Clock,
-) -> Vec<Head> {
-    let (lines, bytes) = scrollback;
-    rules
-        .heads
-        .iter()
-        .zip(console_shares(rules, caps))
-        .map(|(h, wanted)| {
-            let font = h.font(&vtium_config::Font::default());
-            let term = crate::head::terminal(config, lines, bytes, Rc::clone(clock));
-            let mut head = Head::new(&h.name, config, &font, term);
-            head.wanted = wanted;
-            head.login = h.login.as_deref().and_then(|text| {
-                config
-                    .with_login(text)
-                    .map_err(|reports| {
-                        for r in reports {
-                            log::warn!("head {}: login: {}, kmscon.conf's runs", h.name, r.problem);
-                        }
-                    })
-                    .ok()
-            });
-            head
-        })
-        .collect()
 }
 
 /// Draws each of `head`'s displays that something asks to: its render

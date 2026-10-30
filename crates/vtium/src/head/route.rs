@@ -109,6 +109,28 @@ fn head_of(place: Place, focus: Option<usize>) -> Option<usize> {
     }
 }
 
+/// The rules in force: `rules`, with the shipped rules' pointer rules
+/// sending pointers to `ignore` under kmscon.conf's `mouse` off, its
+/// shorthand (ADR-1401 D3), so a pointer is never opened, one with udev's
+/// key class on its node too.
+pub(crate) fn in_force(
+    mut rules: vtium_config::Config,
+    config: &crate::config::Config,
+) -> vtium_config::Config {
+    use vtium_config::{Match, Target, Token};
+    if config.switch(&crate::config::keys::MOUSE) || rules != vtium_config::Config::builtin() {
+        return rules;
+    }
+    for rule in &mut rules.rules {
+        if matches!(&rule.matcher, Match::All(tokens)
+            if matches!(tokens.as_slice(), [Token::Class(c)] if c.is_pointer()))
+        {
+            rule.target = Target::Ignore;
+        }
+    }
+    rules
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
