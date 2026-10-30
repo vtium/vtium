@@ -15,6 +15,7 @@ use vtium::config;
 use vtium::font::Sources;
 use vtium::head::Head;
 use vtium::video::Video;
+use vtium_config::Class;
 use vtium_platform::display::{Canvas, DisplayId, Dpms, Event, Identity, Rect, SwapError, Swapped};
 use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{InputEvent, KeyEvent, Mods};
@@ -306,17 +307,37 @@ impl Seat {
     /// Types `text` as a keyboard does.
     fn type_str(&mut self, text: &str) {
         for c in text.chars() {
-            let keysym = if c == '\r' { 0xff0d } else { u32::from(c) };
-            let key = KeyEvent {
-                keycode: 0,
-                ascii: 0,
-                mods: Mods::empty(),
-                keysyms: vec![keysym],
-                codepoints: vec![(c != '\r').then_some(c)],
-                repeat: false,
-            };
-            self.app.input_event(InputEvent::Key(key), now());
+            self.app.input_event(InputEvent::Key(char_key(c)), now());
         }
+    }
+
+    /// Types `text` on the keyboard at `node`.
+    fn type_on(&mut self, node: &str, text: &str) {
+        for c in text.chars() {
+            self.app
+                .device_input(Path::new(node), InputEvent::Key(char_key(c)), now());
+        }
+    }
+}
+
+/// The key that types `c`, `\r` Return.
+fn char_key(c: char) -> KeyEvent {
+    let keysym = if c == '\r' { 0xff0d } else { u32::from(c) };
+    KeyEvent {
+        keycode: 0,
+        ascii: 0,
+        mods: Mods::empty(),
+        keysyms: vec![keysym],
+        codepoints: vec![(c != '\r').then_some(c)],
+        repeat: false,
+    }
+}
+
+/// A keyboard at the USB port `path`, as the rules read it.
+fn keyboard(path: &str) -> vtium_config::Identity {
+    vtium_config::Identity {
+        path: Some(path.to_owned()),
+        ..vtium_config::Identity::input().with_class(Class::Keyboard)
     }
 }
 
@@ -859,4 +880,521 @@ fn a_frame_composing_holds_up_no_vt_release() {
             && m.frames > before),
         "the acquire draws the display again"
     );
+}
+
+/// Two heads, a keyboard claimed by each, and every other keyboard
+/// following the focus.
+const CLAIMED: &str = "version = 1
+[head small]
+[head large]
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+input path:kbd-small -> small
+input path:kbd-large -> large
+input class:keyboard -> focus
+";
+
+/// The keyboards [`claimed`] adds: one claimed by each head, and one
+/// following the focus.
+const KBD_SMALL: &str = "/dev/input/event0";
+const KBD_LARGE: &str = "/dev/input/event1";
+const KBD_FOCUS: &str = "/dev/input/event2";
+
+/// Two heads booted on [`CLAIMED`], the large display the boot display,
+/// with [`KBD_SMALL`], [`KBD_LARGE`] and [`KBD_FOCUS`], each head's
+/// session echoing each line it reads, and ending at `q`.
+fn claimed() -> Seat {
+    let displays = [
+        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
+        (
+            "/dev/mem1",
+            Memory::new(640, 320, "MEM-2", "mem-large").lit(),
+        ),
+    ];
+    let script = "echo ready; while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done";
+    let mut s = Seat::with_heads(&[], Some(CLAIMED), displays, script);
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
+    s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")
+        && head_shows(a, "large", "ready")));
+    s
+}
+
+/// D5: a keyboard a rule sends to a head types into that head alone,
+/// whichever head holds the focus.
+#[test]
+fn a_claimed_keyboard_types_into_its_head_alone() {
+    let mut s = claimed();
+    s.type_on(KBD_SMALL, "c\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", "got:c")),
+        "the claimed keyboard types into its head"
+    );
+    s.type_on(KBD_FOCUS, "f\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "large", "got:f")),
+        "the keyboard following the focus types into the boot display's head"
+    );
+    s.until(Duration::from_millis(200), |_| false);
+    assert!(!head_shows(&s.app, "large", "got:c"), "nor elsewhere");
+    assert!(!head_shows(&s.app, "small", "got:f"));
+}
+
+/// The key `keysym` held with Ctrl and Super.
+fn ctrl_super(keysym: u32) -> InputEvent {
+    InputEvent::Key(KeyEvent {
+        keycode: 0,
+        ascii: 0,
+        mods: Mods::CTRL.union(Mods::LOGO),
+        keysyms: vec![keysym],
+        codepoints: vec![None],
+        repeat: false,
+    })
+}
+
+const UP: u32 = 0xff52;
+const DOWN: u32 = 0xff54;
+
+/// D5 and the operator's chord (2026-10-30): Ctrl-Super-Up moves the
+/// focus to the next head with a lit display, and Ctrl-Super-Down to the
+/// previous. The chord moves only the devices following the focus; a
+/// claimed keyboard keeps typing into its head.
+#[test]
+fn the_focus_chord_moves_only_the_devices_following_the_focus() {
+    let mut s = claimed();
+    s.app
+        .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+    assert_eq!(s.app.take_focus_move().as_deref(), Some("small"));
+    s.type_on(KBD_FOCUS, "f\r");
+    s.type_on(KBD_LARGE, "c\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", "got:f")
+            && head_shows(a, "large", "got:c")),
+        "the focus's keyboard types into small, the claimed one into large"
+    );
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(DOWN), now());
+    assert_eq!(s.app.take_focus_move().as_deref(), Some("large"));
+    s.type_on(KBD_FOCUS, "g\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "large", "got:g")));
+    s.until(Duration::from_millis(200), |_| false);
+    assert!(!head_shows(&s.app, "small", "got:c"));
+    assert!(!head_shows(&s.app, "small", "got:g"));
+    assert_eq!(s.app.take_focus_move(), None, "taken once");
+}
+
+/// D5: the terminal of each head a keyboard delivers to has mode 1004's
+/// focus, several at once, one a head. A keyboard following the focus
+/// gives it to the boot display's head; the focus chord takes it from
+/// that head and gives it to the next.
+#[test]
+fn mode_1004_follows_the_keyboards_delivering_to_each_head() {
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let script = "stty -icanon -echo; printf '\\033[?1004h'; echo ready; \
+                  while :; do echo \"k:$(head -c 3 | od -An -tx1)\"; done";
+    let mut s = Seat::with_heads(&[], Some(TWO_HEADS), displays, script);
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")
+        && head_shows(a, "large", "ready")));
+    let (focus_in, focus_out) = ("1b 5b 49", "1b 5b 4f");
+    s.until(Duration::from_millis(100), |_| false);
+    assert!(!head_shows(&s.app, "large", "k:"), "no keyboard yet");
+    s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "large", focus_in)),
+        "the keyboard gives the boot display's head the focus"
+    );
+    assert!(!head_shows(&s.app, "small", "k:"));
+    s.app
+        .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", focus_in)
+            && head_shows(a, "large", focus_out)),
+        "the chord moves it"
+    );
+}
+
+/// D5 and the operator's answer of 2026-10-30: the focus starts on the
+/// boot display's head even when that display lights a turn late, until
+/// the first key; after a key it stays where it is.
+#[test]
+fn the_focus_waits_for_a_late_boot_display_until_the_first_key() {
+    let late = |key: bool| {
+        let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+        let mut s = Seat::with_heads(&[], Some(TWO_HEADS), displays, "read x");
+        assert!(s.until(SECOND, |a| a.cells().len() == 1));
+        assert_eq!(s.app.focus_head(), Some("small"), "the only lit head");
+        if key {
+            s.type_str("k");
+        }
+        s.app.add_video(
+            PathBuf::from("/dev/mem1"),
+            Box::new(Memory::new(640, 320, "MEM-2", "mem-large").lit()),
+        );
+        assert!(s.until(SECOND, |a| a.cells().len() == 2));
+        s.app.focus_head().map(str::to_owned)
+    };
+    assert_eq!(late(false).as_deref(), Some("large"), "the boot display's");
+    assert_eq!(late(true).as_deref(), Some("small"), "a key settled it");
+}
+
+const RIGHT: u32 = 0xff53;
+const LEFT: u32 = 0xff51;
+const RETURN: u32 = 0xff0d;
+const BACKSPACE: u32 = 0xff08;
+
+/// The console count and the shown console of head `name`.
+fn consoles(app: &App, name: &str) -> Option<(usize, usize)> {
+    app.head(name)
+        .map(|h| (h.console_count(), h.shown_console()))
+}
+
+/// #82 and the operator's chords (2026-10-30): Ctrl-Super-Return opens a
+/// console in the head the keyboard delivers to and shows it,
+/// Ctrl-Super-Right and Ctrl-Super-Left show the next and the previous,
+/// wrapping, and Ctrl-Super-Backspace closes the shown one and shows the
+/// next. Each console is a session of its own; the other head's consoles
+/// stay as they were.
+#[test]
+fn the_console_chords_open_switch_and_close_a_heads_consoles() {
+    let mut s = claimed();
+    let chord = |s: &mut Seat, keysym: u32| {
+        s.app
+            .device_input(Path::new(KBD_SMALL), ctrl_super(keysym), now());
+        s.until(Duration::from_millis(50), |_| false);
+    };
+    chord(&mut s, RETURN);
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)), "opened and shown");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
+    s.type_on(KBD_SMALL, "two\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:two")));
+    chord(&mut s, RIGHT);
+    assert_eq!(
+        consoles(&s.app, "small"),
+        Some((2, 0)),
+        "wraps to the first"
+    );
+    assert!(!head_shows(&s.app, "small", "got:two"), "its own screen");
+    s.type_on(KBD_SMALL, "one\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:one")));
+    chord(&mut s, LEFT);
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)));
+    assert!(head_shows(&s.app, "small", "got:two"));
+    chord(&mut s, BACKSPACE);
+    assert_eq!(consoles(&s.app, "small"), Some((1, 0)), "closed");
+    assert!(head_shows(&s.app, "small", "got:one"), "the next shows");
+    chord(&mut s, BACKSPACE);
+    assert_eq!(
+        consoles(&s.app, "small"),
+        Some((1, 0)),
+        "the last console is not closed"
+    );
+    assert_eq!(consoles(&s.app, "large"), Some((1, 0)));
+}
+
+/// D3 and D10: a head starts the consoles its file asks for, at most 4 a
+/// head by default and 8 in all, each a session; a head asking for more
+/// gets its cap. Each head keeps its first console whatever the total.
+#[test]
+fn a_head_starts_the_consoles_its_file_asks_for_within_the_caps() {
+    let heads = "version = 1
+[head a]
+consoles = 6
+[head b]
+consoles = 4
+[head c]
+consoles = 3
+[rules]
+display card:mem-a -> a
+display card:mem-b -> b
+display card:mem-c -> c
+";
+    let displays = [
+        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-a")),
+        ("/dev/mem1", Memory::new(320, 160, "MEM-2", "mem-b")),
+        ("/dev/mem2", Memory::new(320, 160, "MEM-3", "mem-c")),
+    ];
+    let mut s = Seat::with_heads(&[], Some(heads), displays, "echo ready; read x");
+    assert!(s.until(SECOND, |a| a.cells().len() == 3));
+    let counts = |a: &App| -> Vec<usize> { a.heads().iter().map(Head::console_count).collect() };
+    assert_eq!(counts(&s.app), [4, 3, 1], "a's cap, then the total's");
+    assert!(s.until(SECOND, |a| a.heads().iter().all(Head::started)));
+    let raised = Seat::with_heads(
+        &["--head-consoles-max=6", "--consoles-max=12"],
+        Some(heads),
+        [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-a"))],
+        "read x",
+    );
+    assert_eq!(
+        counts(&raised.app)[0],
+        6,
+        "the configuration raises the caps"
+    );
+}
+
+/// The operator's answers (2026-10-30): a console whose program exits
+/// while others stay open closes, and the head shows its next console.
+#[test]
+fn a_console_exiting_shows_the_heads_next_console() {
+    let mut s = claimed();
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
+    assert!(s.until(SECOND, |a| consoles(a, "small") == Some((2, 1))
+        && head_shows(a, "small", "ready")));
+    s.type_on(KBD_SMALL, "x\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:x")));
+    s.type_on(KBD_SMALL, "q\r");
+    assert!(
+        s.until(SECOND, |a| consoles(a, "small") == Some((1, 0))),
+        "the console closed"
+    );
+    assert!(!head_shows(&s.app, "small", "got:x"), "the first shows");
+    assert!(s.app.finished().is_none());
+}
+
+/// Two heads whose consoles run the head file's own `login`: small runs
+/// `small`, large runs `large`, each a shell command.
+fn logins(args: &[&str], small: &str, large: &str) -> Seat {
+    logins_on(args, small, large, two_displays())
+}
+
+/// [`logins`] on `displays`.
+fn logins_on(
+    args: &[&str],
+    small: &str,
+    large: &str,
+    displays: impl IntoIterator<Item = (&'static str, Memory)>,
+) -> Seat {
+    let heads = format!(
+        "version = 1
+[head small]
+login = /bin/sh -c \"{small}\"
+[head large]
+login = /bin/sh -c \"{large}\"
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+"
+    );
+    Seat::with_heads(args, Some(&heads), displays, "read x")
+}
+
+/// D3, and the operator's answers (2026-10-30): each head runs its own
+/// `login`; under respawn, a session ending brings back that head's
+/// login alone, and the other head's session runs on.
+#[test]
+fn under_respawn_a_session_ending_restarts_its_head_alone() {
+    let marker = std::env::temp_dir().join(format!("vtium-heads-respawn-{}", std::process::id()));
+    let _ = std::fs::remove_file(&marker);
+    let small = format!(
+        "if [ -e {m} ]; then echo again; read x; else : > {m}; echo first; fi",
+        m = marker.display()
+    );
+    let mut s = logins(&[], &small, "echo large; read x");
+    assert!(
+        s.until(Duration::from_secs(3), |a| head_shows(a, "small", "again")),
+        "small's login came back"
+    );
+    assert!(head_shows(&s.app, "large", "large"), "large runs on");
+    assert!(!head_shows(&s.app, "large", "again"));
+    let _ = std::fs::remove_file(&marker);
+}
+
+/// The operator's answers (2026-10-30): under oneshot a head whose
+/// program ends shows "session ended" and stays dark; vtium exits when the
+/// last head's program ends.
+#[test]
+fn under_oneshot_vtium_exits_when_the_last_heads_program_ends() {
+    let mut s = logins(&["--oneshot"], "echo bye", "sleep 1");
+    assert!(
+        s.until(SECOND, |a| a.head("small").and_then(Head::notice)
+            == Some("session ended")),
+        "small's program ended"
+    );
+    s.until(Duration::from_millis(200), |_| false);
+    assert_eq!(s.app.finished(), None, "large's runs on");
+    assert_eq!(s.app.head("large").and_then(Head::notice), None);
+    assert!(
+        s.until(Duration::from_secs(3), |a| a.finished()
+            == Some(vtium::app::Exit::Oneshot)),
+        "the last head's program ended"
+    );
+}
+
+/// The operator's answers (2026-10-30): a session restarting too fast
+/// gives up on its head alone, with a notice; when every head has given
+/// up vtium exits with status 1, for the getty fallback.
+#[test]
+fn a_head_restarting_too_fast_gives_up_alone_and_vtium_exits_after_every_head() {
+    let gave_up = |a: &App, name: &str| {
+        a.head(name)
+            .and_then(Head::notice)
+            .is_some_and(|n| n.contains("too quickly"))
+    };
+    let mut s = logins(&[], "exit 1", "echo large; read x");
+    assert!(
+        s.until(Duration::from_secs(3), |a| gave_up(a, "small")),
+        "small gave up"
+    );
+    s.until(Duration::from_millis(200), |_| false);
+    assert_eq!(s.app.finished(), None, "large's runs on");
+    assert!(head_shows(&s.app, "large", "large"));
+    let mut both = logins(&[], "exit 1", "exit 1");
+    assert!(
+        both.until(Duration::from_secs(3), |a| a.finished().is_some()),
+        "every head gave up"
+    );
+    assert_eq!(both.app.finished(), Some(vtium::app::Exit::TooQuick));
+    assert_eq!(both.app.finished().map(vtium::app::Exit::status), Some(1));
+}
+
+/// D1: a zoom changes the grid of the console shown alone; each console
+/// keeps its own grid, which shows again with it.
+#[test]
+fn a_zoom_changes_the_grid_of_the_console_shown_alone() {
+    let mut s = claimed();
+    let key = |s: &mut Seat, event: InputEvent| {
+        s.app.device_input(Path::new(KBD_SMALL), event, now());
+        s.until(Duration::from_millis(50), |_| false);
+    };
+    key(&mut s, ctrl_super(RETURN));
+    let equal = InputEvent::Key(KeyEvent {
+        mods: Mods::CTRL,
+        ..char_key('=')
+    });
+    key(&mut s, equal);
+    assert_eq!(grid(&s.app, "small"), Some((20, 5)), "zoomed to 16x32");
+    key(&mut s, ctrl_super(RIGHT));
+    assert_eq!(
+        grid(&s.app, "small"),
+        Some((40, 10)),
+        "the first console's own"
+    );
+    key(&mut s, ctrl_super(RIGHT));
+    assert_eq!(
+        grid(&s.app, "small"),
+        Some((20, 5)),
+        "the second keeps its zoom"
+    );
+}
+
+/// D5: pointers follow the same rules: a pointer a rule sends to a head
+/// moves on that head's displays, whichever head holds the focus; the
+/// pointer's hide reaches every head.
+#[test]
+fn a_claimed_pointer_moves_on_its_heads_display_alone() {
+    let heads = "version = 1
+[head small]
+[head large]
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+input path:mouse-small -> small
+input class:mouse -> focus
+";
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let mut s = Seat::with_heads(&[], Some(heads), displays, "read x");
+    assert!(s.until(SECOND, |a| a.cells().len() == 2));
+    let mouse = vtium_config::Identity {
+        path: Some("mouse-small".to_owned()),
+        ..vtium_config::Identity::input().with_class(Class::Mouse)
+    };
+    s.app.add_input(Path::new("/dev/input/event5"), mouse);
+    let moved = InputEvent::Pointer(vtium_platform::input::PointerEvent::Moved {
+        x: 24,
+        y: 40,
+        held: None,
+    });
+    s.app
+        .device_input(Path::new("/dev/input/event5"), moved, now());
+    assert_eq!(s.app.focus_head(), Some("large"));
+    assert_eq!(s.app.head("small").and_then(Head::pointer), Some((24, 40)));
+    assert_eq!(s.app.head("large").and_then(Head::pointer), None);
+    // The hide comes from no one device: it hides the pointer on every
+    // head.
+    let hide = InputEvent::Pointer(vtium_platform::input::PointerEvent::Hide);
+    s.app.input_event(hide, now());
+    assert_eq!(s.app.head("small").and_then(Head::pointer), None);
+}
+
+/// The operator's answers (2026-10-30), with the team lead's steering of
+/// 2026-10-30: a head whose display never lit has nothing left to run, so
+/// it holds up no exit. With the large display unplugged, the small
+/// head's login failing too quickly ends vtium for the getty fallback, and
+/// under `oneshot` its program ending ends vtium.
+#[test]
+fn a_head_that_never_lit_holds_up_no_exit() {
+    let small = || [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut quick = logins_on(&[], "exit 1", "read x", small());
+    assert!(
+        quick.until(Duration::from_secs(3), |a| a.finished().is_some()),
+        "the small head gave up, and the large never lit"
+    );
+    assert_eq!(quick.app.finished(), Some(vtium::app::Exit::TooQuick));
+    assert_eq!(quick.app.head("large").map(Head::started), Some(false));
+    let mut once = logins_on(&["--oneshot"], "echo bye", "read x", small());
+    assert!(
+        once.until(Duration::from_secs(3), |a| a.finished().is_some()),
+        "the small head's program ended, and the large never lit"
+    );
+    assert_eq!(once.app.finished(), Some(vtium::app::Exit::Oneshot));
+}
+
+/// A head that ended runs no session, so Ctrl-Super-Return opens no
+/// console in it.
+#[test]
+fn an_ended_head_opens_no_console() {
+    let heads = "version = 1
+[head small]
+login = /bin/sh -c \"echo bye\"
+[head large]
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+input path:kbd-small -> small
+";
+    let mut s = Seat::with_heads(&["--oneshot"], Some(heads), two_displays(), "read x");
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    assert!(s.until(SECOND, |a| a.head("small").and_then(Head::notice).is_some()));
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
+    s.until(Duration::from_millis(100), |_| false);
+    assert_eq!(consoles(&s.app, "small"), Some((1, 0)), "no console opened");
+}
+
+/// A hidden console's OSC 50 waits until it is shown: the font is the
+/// head's, and only the console shown switches it.
+#[test]
+fn a_hidden_consoles_font_request_waits_until_it_is_shown() {
+    let heads = "version = 1
+[head one]
+consoles = 2
+[rules]
+display card:mem-small -> one
+";
+    let script =
+        "echo ready; read a; sleep 0.3; printf '\\033]50;unscii-8\\007'; echo asked; read b";
+    let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::with_heads(&[], Some(heads), displays, script);
+    assert!(s.until(SECOND, |a| head_shows(a, "one", "ready")));
+    let chord = |s: &mut Seat, keysym: u32| {
+        s.app.input_event(ctrl_super(keysym), now());
+        s.until(Duration::from_millis(50), |_| false);
+    };
+    chord(&mut s, RIGHT);
+    assert!(s.until(SECOND, |a| head_shows(a, "one", "ready")));
+    s.type_str("x\r");
+    chord(&mut s, RIGHT);
+    assert_eq!(consoles(&s.app, "one"), Some((2, 0)), "the second hidden");
+    s.until(Duration::from_millis(800), |_| false);
+    assert_eq!(s.app.font_name(), "unifont", "the request waits");
+    chord(&mut s, RIGHT);
+    assert!(
+        s.until(SECOND, |a| a.font_name() == "unscii-8"),
+        "shown, it switches the font"
+    );
+    assert!(s.until(SECOND, |a| head_shows(a, "one", "asked")));
 }

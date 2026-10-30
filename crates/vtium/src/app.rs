@@ -20,16 +20,25 @@
 //!   `Retaken` sets every device's displays up again, or while blanked
 //!   at the input that ends the blank, and keeps the blank and its timer;
 //!   `Hangup` exits.
+//! - **Inputs** (D3, D5). Each input device walks the rules alone when it
+//!   comes, by its identity: a device a rule sends to a head delivers to
+//!   that head alone, one sent to `focus` or claimed by no rule delivers
+//!   to the head holding the focus, and one sent to `ignore` is never
+//!   opened, or opened for the rescue key alone. The focus starts on the
+//!   head of the boot display, else the first head in the file with a
+//!   display, starting again as each display lights until the first key or
+//!   focus chord; then only the focus chord moves it. The terminal of each
+//!   head a keyboard delivers to has mode 1004's focus.
 //! - **Keys**, in order: the VT's, then the seat's (the power keys, which
-//!   act on a press and never on its repeat), then the terminal's grabs,
-//!   then DECARM's drop of a repeat, then the encoder. Every keyboard types
-//!   into the head holding the focus (D5), which starts on the head of the
-//!   boot display, else the first head in the file with a display, and
-//!   rests there. A key draws at once and holds the cursor's blink.
-//! - **The pointer.** It moves on the head holding the focus. While the
-//!   program tracks it, its events are reported, but a button pressed, a
-//!   move without a button and the wheel with Shift held, as xterm's are.
-//!   The others select, copy, paste and scroll ([`Head::pointer_event`]).
+//!   act on a press and never on its repeat), then the heads' chords
+//!   ([`chord`]), then the terminal's grabs, then DECARM's drop of a
+//!   repeat, then the encoder. A key draws at once and holds the cursor's
+//!   blink.
+//! - **The pointer.** It moves on the head it delivers to, within that
+//!   head's grid. While the program tracks it, its events are reported,
+//!   but a button pressed, a move without a button and the wheel with
+//!   Shift held, as xterm's are. The others select, copy, paste and scroll
+//!   ([`Head::pointer_event`]).
 //! - **The blank** is the seat's. Each key press and pointer action (a
 //!   move, a button or the wheel) goes to every device's `input`, which
 //!   retries a failed wake-up, and to [`Blank::input`]; a device's `Awake`
@@ -41,9 +50,12 @@
 //!   blank's countdown ([`App::next_wake`]). A signal from outside the
 //!   session ([`crate::blank`]) blanks at once, or wakes as a program's
 //!   `CSI 13 ]` does, at the turn's end.
-//! - **The child.** A head's first starts once one of its displays is set
-//!   up, on its grid ([`respawn::first_start_due`]); when it exits the
-//!   respawn policy starts it again or ends vtium.
+//! - **The consoles** (D1). A head's consoles start once one of its
+//!   displays is set up, on its grid ([`respawn::first_start_due`]); the
+//!   console chords open, show and close them. A console's program exiting
+//!   closes it while others stay open; the last's exit follows the respawn
+//!   policy, which starts it again or ends the head, and vtium ends once
+//!   every head has.
 //! - **No display.** From the first acquire, vtium waits `display-wait`
 //!   for a frame on a display's screen, and with none by then it ends
 //!   ([`crate::wait`]). Once one has come, a head's last going leaves its
@@ -69,7 +81,9 @@ use std::time::{Duration, Instant};
 
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::display::{Blank, DPI_ASSUMED, DisplayId, Dpms, Event};
-use vtium_platform::input::{InputEvent, KeyEvent, Mods as InputMods, PointerEvent};
+use vtium_platform::input::{
+    DeviceId, DeviceInput, InputEvent, KeyEvent, Mods as InputMods, PointerEvent,
+};
 use vtium_platform::pty::{Erase, Pty};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
 use vtium_platform::vt::{Switch, Vt, VtEvent};
@@ -83,13 +97,17 @@ use crate::config::keys;
 use crate::config::{Config, ModeSpec};
 use crate::font::{self, Chosen};
 use crate::grab::{self, Chord, Grab};
+use crate::head::chord::{self, HeadChord};
+use crate::head::console::Console;
 use crate::head::identity::{self, Card};
+use crate::head::route::{self, Routes};
+use crate::head::session::{self, AfterExit, Caps};
 use crate::head::{Attached, Frit, Head, place_display};
 use crate::helper::{self, Answer, Helper};
 use crate::layout::{self, Zoom};
 use crate::painter::Painter;
 use crate::power::{self, Power, PowerKey};
-use crate::respawn::{self, Next, Respawn};
+use crate::respawn;
 use crate::sync::Action;
 use crate::term::{Clock, Prepared, Term, View};
 use crate::video::Video;
@@ -138,10 +156,14 @@ enum Leaving {
 /// VT's signals do.
 pub trait SeatVt: Vt + Any {
     fn as_any(&mut self) -> &mut dyn Any;
+    fn as_vt(&self) -> &dyn Vt;
 }
 
 impl<T: Vt + Any> SeatVt for T {
     fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn as_vt(&self) -> &dyn Vt {
         self
     }
 }
@@ -165,16 +187,29 @@ pub struct App {
     /// The head file in force: the file's, or the compiled-in
     /// configuration.
     rules: vtium_config::Config,
-    /// The head every keyboard types into.
+    /// The head the inputs following the focus deliver to.
     focus: Option<usize>,
+    /// Where each input device's events go.
+    routes: Routes,
+    /// The head the focus moved to since [`App::take_focus_move`].
+    focus_move: Option<usize>,
+    /// A key came or the focus chord moved the focus: the focus no longer
+    /// follows a boot display lighting late.
+    focus_settled: bool,
+    /// A display lit since the focus was last placed.
+    focus_due: bool,
     /// What the rules and the display guard read of each card.
     cards: BTreeMap<PathBuf, Card>,
     /// Each display lit in a head, as the rules saw it.
     lit: BTreeMap<(PathBuf, DisplayId), vtium_config::Identity>,
     /// The displays a device announced that the rules leave dark.
     dark: BTreeSet<(PathBuf, DisplayId)>,
-    /// The scrollback cap and length each session takes.
+    /// The scrollback cap and length each console takes.
     scrollback: (usize, usize),
+    /// The scrollback memory each console takes.
+    scrollback_bytes: usize,
+    /// `head-consoles-max` and `consoles-max`.
+    caps: Caps,
     config: Config,
     handle: LoopHandle<'static, App>,
     clock: Clock,
@@ -212,7 +247,7 @@ pub struct App {
     exit: Option<Exit>,
     leaving: Option<Leaving>,
     inherited: Vec<(OsString, OsString)>,
-    /// `oneshot`: a child's exit ends vtium.
+    /// `oneshot`: a head's last console's exit ends the head.
     oneshot: bool,
     /// The `mode` lines, for each DRM device opened.
     modes: Vec<ModeSpec>,
@@ -264,8 +299,13 @@ impl App {
             physical_memory(),
             config.number(&keys::SB_SIZE_CAP).map(to_usize),
         );
-        let rules = vtium_config::Config::builtin();
-        let heads = heads(&rules, &config, (cap, lines), &clock);
+        let rules = route::in_force(vtium_config::Config::builtin(), &config);
+        let caps = Caps {
+            head: config.number(&keys::HEAD_CONSOLES_MAX).map_or(4, to_usize),
+            total: config.number(&keys::CONSOLES_MAX).map_or(8, to_usize),
+        };
+        let bytes = session::scrollback_bytes(&config, caps, rules.heads.len());
+        let heads = session::heads(&rules, &config, ((cap, lines), bytes), caps, &clock);
         let dpms = config
             .number(&keys::DPMS_TIMEOUT)
             .map(Duration::from_secs)
@@ -309,10 +349,16 @@ impl App {
             heads,
             rules,
             focus: None,
+            routes: Routes::default(),
+            focus_move: None,
+            focus_settled: false,
+            focus_due: false,
             cards: BTreeMap::new(),
             lit: BTreeMap::new(),
             dark: BTreeSet::new(),
             scrollback: (cap, lines),
+            scrollback_bytes: bytes,
+            caps,
             assumed: BTreeSet::new(),
             font_sources: font::Sources::default(),
             frits: BTreeMap::new(),
@@ -340,7 +386,11 @@ impl App {
     /// configuration, before any display comes: its heads, each with no
     /// session yet, and its rules for each display that comes.
     pub fn set_heads(&mut self, rules: vtium_config::Config) {
-        self.heads = heads(&rules, &self.config, self.scrollback, &self.clock);
+        let rules = route::in_force(rules, &self.config);
+        let caps = self.caps;
+        self.scrollback_bytes = session::scrollback_bytes(&self.config, caps, rules.heads.len());
+        let scrollback = (self.scrollback, self.scrollback_bytes);
+        self.heads = session::heads(&rules, &self.config, scrollback, caps, &self.clock);
         self.rules = rules;
         self.focus = None;
         self.lit.clear();
@@ -417,21 +467,61 @@ impl App {
         self.heads.iter().any(Head::started)
     }
 
-    /// Each head's first start, when it is due.
+    /// Each head's first start, when it is due: its consoles open and
+    /// their sessions start.
     fn first_start(&mut self, now: Instant) {
         if !self.start_due {
             return;
         }
+        let since = now.saturating_duration_since(self.epoch);
         for h in 0..self.heads.len() {
             let due = self.heads.get(h).is_some_and(|head| {
                 !head.started() && respawn::first_start_due(self.awake, !head.views.is_empty())
             });
-            if due {
-                if let Some(head) = self.heads.get_mut(h) {
-                    head.respawn = Some(Respawn::new(now.saturating_duration_since(self.epoch)));
-                }
-                self.spawn(h);
+            let App {
+                heads,
+                config,
+                scrollback,
+                scrollback_bytes,
+                clock,
+                ..
+            } = self;
+            let Some(head) = heads.get_mut(h).filter(|_| due) else {
+                continue;
+            };
+            head.open_wanted(|| {
+                crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock))
+            });
+            for id in head.start_consoles(since) {
+                self.spawn(h, id);
             }
+        }
+    }
+
+    /// Opens a console in head `h` and shows it, within the caps
+    /// (ADR-1401 D10); its session starts at once once the head's has.
+    fn new_console(&mut self, h: usize, now: Instant) {
+        let total = session::console_total(&self.heads);
+        let caps = self.caps;
+        let term = crate::head::terminal(
+            &self.config,
+            self.scrollback,
+            self.scrollback_bytes,
+            Rc::clone(&self.clock),
+        );
+        let since = now.saturating_duration_since(self.epoch);
+        let Some(head) = self
+            .heads
+            .get_mut(h)
+            .filter(|head| head.may_open(caps, total))
+        else {
+            return;
+        };
+        let id = head.next_id();
+        let starts = head.open(id, term, since, self.awake);
+        self.relayout(h);
+        if starts {
+            self.spawn(h, id);
         }
     }
 
@@ -502,9 +592,14 @@ impl App {
         }
     }
 
-    /// Starts head `h`'s session.
-    fn spawn(&mut self, h: usize) {
-        let spec = child::child(&self.config, &self.place(), self.inherited.clone());
+    /// Starts the session of head `h`'s console `id`.
+    fn spawn(&mut self, h: usize, id: u64) {
+        let config = self
+            .heads
+            .get(h)
+            .and_then(|head| head.login.as_ref())
+            .unwrap_or(&self.config);
+        let spec = child::child(config, &self.place(), self.inherited.clone());
         let Some(command) = spec.command() else {
             log::error!("no command to run");
             self.request_exit(Exit::Spawn);
@@ -527,7 +622,7 @@ impl App {
             }
         };
         let inserted = pty.insert(&self.handle, move |app: &mut App| {
-            let Head { pty, term, .. } = app.heads.get_mut(h)?;
+            let Console { pty, term, .. } = app.heads.get_mut(h)?.console_mut(id)?;
             pty.as_mut().map(|p| (p, term))
         });
         if let Err(e) = inserted {
@@ -535,8 +630,8 @@ impl App {
             self.request_exit(Exit::Spawn);
             return;
         }
-        if let Some(head) = self.heads.get_mut(h) {
-            head.pty = Some(pty);
+        if let Some(console) = self.heads.get_mut(h).and_then(|head| head.console_mut(id)) {
+            console.pty = Some(pty);
         }
     }
 
@@ -894,6 +989,7 @@ impl App {
         // Lit once it draws, so the focus never starts on a head whose
         // display could not be set up.
         self.lit.insert(key.clone(), display);
+        self.focus_due = true;
         if let Some(v) = self.heads.get(h).and_then(|head| head.views.get(&key)) {
             let cell = v.cell();
             log::info!(
@@ -914,12 +1010,10 @@ impl App {
         }
         self.choose_font(h);
         let dpi = self.dpi(h);
-        let focused = self.focus == Some(h);
         let App {
             heads,
             config,
             locale,
-            input,
             ..
         } = self;
         let Some(head) = heads.get_mut(h) else {
@@ -957,7 +1051,7 @@ impl App {
         };
         head.font_size = base;
         let name = head.chosen().name(base, locale).to_owned();
-        head.term.terminal.set_font_name(&name);
+        head.console.term.terminal.set_font_name(&name);
         let cell = |head: &Head, at: u32| {
             head.face(at, locale).ok().map(|f| {
                 let c = f.cell();
@@ -990,14 +1084,46 @@ impl App {
             }
         }
         head.resize(l.grid);
-        if focused {
-            if let Some(input) = input {
-                let (w, ht) = head.pixels(head.grid);
-                input.set_pointer_max(w, ht);
-            }
-        }
+        self.bound_pointers();
         self.ask_glyphs(h);
         true
+    }
+
+    /// Mode 1004's focus (ADR-1401 D5): the terminal of each head a
+    /// keyboard delivers to has it, lit or not, so several hold it at
+    /// once; each change goes to a program that asked for it.
+    fn report_focus(&mut self) {
+        // A keyboard that could not be opened, or went at a wake-up, is
+        // gone from the seat's input; with no seat input, as a test drives
+        // the seat, a device counts as open.
+        let input = self.input.as_ref();
+        let open = |id: Option<DeviceId>| {
+            input.is_none_or(|i| id.is_some_and(|id| i.disposition(id).is_some()))
+        };
+        for (h, head) in self.heads.iter_mut().enumerate() {
+            let focused = self.routes.keyboard_reaches(h, self.focus, open);
+            if focused != head.focused {
+                head.focused = focused;
+                if head.console.term.terminal.focus(focused) {
+                    head.send_user_bytes();
+                }
+            }
+        }
+    }
+
+    /// Each pointer moves within the grid of the head it delivers to, and
+    /// a pointer added later within the focus's until it is placed.
+    fn bound_pointers(&mut self) {
+        let Some(input) = &mut self.input else {
+            return;
+        };
+        for (h, head) in self.heads.iter().enumerate() {
+            let (w, ht) = head.pixels(head.grid);
+            if self.focus == Some(h) {
+                input.set_pointer_max(w, ht);
+            }
+            input.set_pointer_max_of(&self.routes.devices_of(h, self.focus), w, ht);
+        }
     }
 
     /// The density head `h`'s points convert at (the operator's decision
@@ -1135,7 +1261,10 @@ impl App {
                         frit.frit.clone(),
                         self.console_font.clone(),
                         std::sync::Arc::clone(&frit.generated),
-                        crate::deferred::store_limit(physical_memory()),
+                        crate::head::frit_store(
+                            crate::deferred::store_limit(physical_memory()),
+                            self.heads.len(),
+                        ),
                     ))
                 }
                 Err(why) => {
@@ -1160,7 +1289,11 @@ impl App {
     /// (ADR-1200 D7), and redraws the cells that show one.
     fn helper_turn(&mut self, now: Instant) {
         for h in 0..self.heads.len() {
-            if self.heads.get(h).is_some_and(|head| head.term.changed) {
+            if self
+                .heads
+                .get(h)
+                .is_some_and(|head| head.console.term.changed)
+            {
                 self.ask_visible(h, now);
             }
         }
@@ -1210,7 +1343,7 @@ impl App {
         self.awake = true;
         for head in &mut self.heads {
             head.set_visible(true);
-            if let Some(arms) = head.term.blink.activate() {
+            if let Some(arms) = head.console.term.blink.activate() {
                 for (timer, arm) in arms {
                     match timer {
                         Timer::Text => head.text_due = Some(after(now, arm.first)),
@@ -1494,9 +1627,13 @@ impl App {
     /// the head holding the boot display, the connector lit at start, else
     /// the first connected one on the boot card, else on the other cards,
     /// in the kernel's order; else on the first head in the file with a
-    /// display. It stays there.
+    /// display. Until the first key or the first focus chord it starts
+    /// again as each display lights, so a boot display lighting a turn late
+    /// takes it whatever order the displays came in (the operator's answer
+    /// on vtium/vtium#156); after, it moves only by the chord.
     fn take_focus(&mut self) {
-        if self.focus.is_some() || self.lit.is_empty() {
+        let due = std::mem::take(&mut self.focus_due);
+        if self.lit.is_empty() || self.focus.is_some() && (self.focus_settled || !due) {
             return;
         }
         // The guards are H3d's: with them off the placement is the rules'
@@ -1512,13 +1649,7 @@ impl App {
             Some(vtium_config::Place::Head(h)) => Some(h),
             _ => None,
         };
-        let Some(head) = self.focus.and_then(|h| self.heads.get(h)) else {
-            return;
-        };
-        if let Some(input) = &mut self.input {
-            let (w, h) = head.pixels(head.grid);
-            input.set_pointer_max(w, h);
-        }
+        self.bound_pointers();
     }
 
     /// A head's first display came, its last went, or its next came. With
@@ -1572,9 +1703,11 @@ impl App {
         match event {
             DeviceEvent::Added(dev) => match dev.kind {
                 DeviceKind::Input => {
-                    if let Some(input) = &mut self.input {
-                        input.add(&dev.node);
-                    }
+                    let identity = dev
+                        .input
+                        .as_deref()
+                        .map_or_else(vtium_config::Identity::input, identity::input);
+                    self.add_input(&dev.node, identity);
                 }
                 DeviceKind::Fbdev if dev.flags.drm_backed => {
                     log::debug!("{}: backed by a DRM card, skipped", dev.node.display());
@@ -1588,6 +1721,7 @@ impl App {
             },
             DeviceEvent::Removed { kind, node } => match kind {
                 DeviceKind::Input => {
+                    self.routes.remove(&node);
                     if let Some(input) = &mut self.input {
                         if let Some(id) = input.find(&node) {
                             input.remove(id);
@@ -1606,35 +1740,93 @@ impl App {
         }
     }
 
-    /// A key press or pointer event from the input devices. A key press
+    /// An input device udev reported, placed by the first rule matching
+    /// `identity` (ADR-1401 D3): opened to deliver, opened for the rescue
+    /// key alone, or never opened.
+    pub fn add_input(&mut self, node: &Path, identity: vtium_config::Identity) {
+        let disposition = self.routes.add(&self.rules, node, &identity);
+        if let Some(id) = self
+            .input
+            .as_mut()
+            .and_then(|i| i.add_with(node, disposition))
+        {
+            self.routes.opened(node, id);
+            self.bound_pointers();
+        }
+    }
+
+    /// The name of the head holding the focus.
+    pub fn focus_head(&self) -> Option<&str> {
+        self.heads.get(self.focus?).map(Head::name)
+    }
+
+    /// The head the focus chord last moved the focus to, by its name,
+    /// once: what draws the focus mark reads it (ADR-1401 D5).
+    pub fn take_focus_move(&mut self) -> Option<String> {
+        let h = self.focus_move.take()?;
+        self.heads.get(h).map(|head| head.name().to_owned())
+    }
+
+    /// A key press or pointer event from no one device, which follows the
+    /// focus.
+    pub fn input_event(&mut self, event: InputEvent, now: Instant) {
+        self.deliver(None, event, now);
+    }
+
+    /// A key press or pointer event from the input device at `node`.
+    pub fn device_input(&mut self, node: &Path, event: InputEvent, now: Instant) {
+        self.deliver(Some(node), event, now);
+    }
+
+    /// An event from the device at `node`, or from none, for the head its
+    /// rule names or the head holding the focus (ADR-1401 D5). A key press
     /// is the user's activity; a pointer event is when
     /// [`App::pointer_event`] says so.
-    pub fn input_event(&mut self, event: InputEvent, now: Instant) {
+    fn deliver(&mut self, node: Option<&Path>, event: InputEvent, now: Instant) {
+        let h = self.routes.head(node, self.focus);
         match event {
             InputEvent::Key(key) => {
+                self.focus_settled = true;
                 self.activity(now);
-                self.key(&key, now);
+                self.key(h, &key, now);
             }
             InputEvent::Pointer(p) => {
-                let mods = self.input.as_ref().map_or(InputMods::empty(), |i| i.mods());
-                self.pointer_event(p, mods, now);
+                let mods = match (&self.input, h) {
+                    (Some(input), Some(h)) => input.mods_of(&self.routes.devices_of(h, self.focus)),
+                    _ => InputMods::empty(),
+                };
+                self.pointer_to(h, p, mods, now);
             }
         }
     }
 
     /// A pointer event, with the modifiers held on the keyboards as it
-    /// came, for the head holding the focus. A move, a button or the wheel
-    /// is the user's activity; the end of a frame and the hide are vtium's
-    /// own, as the C reference counted them (`src/seat.c:578-590` at
-    /// kmscon b1f7a7c5).
+    /// came, for the head holding the focus.
     pub fn pointer_event(&mut self, event: PointerEvent, mods: InputMods, now: Instant) {
+        self.pointer_to(self.focus, event, mods, now);
+    }
+
+    /// A pointer event for head `h`, with the modifiers held on the
+    /// keyboards delivering to it. A move, a button or the wheel is the
+    /// user's activity; the end of a frame and the hide are vtium's own,
+    /// as the C reference counted them (`src/seat.c:578-590` at kmscon
+    /// b1f7a7c5).
+    fn pointer_to(&mut self, h: Option<usize>, event: PointerEvent, mods: InputMods, now: Instant) {
         match event {
             PointerEvent::Moved { .. } | PointerEvent::Button { .. } | PointerEvent::Wheel(_) => {
                 self.activity(now);
             }
-            PointerEvent::Sync | PointerEvent::Hide => {}
+            PointerEvent::Sync => {}
+            // The seat's pointers hide together, on every head: the hide
+            // comes from no one device.
+            PointerEvent::Hide => {
+                for head in &mut self.heads {
+                    head.pointer_event(event, Mods::empty(), &mut self.selection);
+                }
+                return;
+            }
         }
-        let Some(h) = self.focus else {
+        let Some(h) = h else {
             return;
         };
         let Some(head) = self.heads.get_mut(h) else {
@@ -1657,11 +1849,12 @@ impl App {
         self.user_input(now);
     }
 
-    /// The key order: the VT's keys, the seat's, then the focused head's
-    /// terminal: its grabs, DECARM, the encoder. Each key that passes the
-    /// seat's clears the selection, as the C reference's did
-    /// (`src/terminal.c:1370` at kmscon b1f7a7c5).
-    fn key(&mut self, key: &KeyEvent, now: Instant) {
+    /// The key order: the VT's keys, the seat's, then the terminal of
+    /// head `h`, the head the key's device delivers to: its grabs, DECARM,
+    /// the encoder. Each key that passes the seat's clears the selection,
+    /// as the C reference's did (`src/terminal.c:1370` at kmscon
+    /// b1f7a7c5).
+    fn key(&mut self, h: Option<usize>, key: &KeyEvent, now: Instant) {
         if self.vt.key(key) || !self.awake {
             return;
         }
@@ -1685,13 +1878,20 @@ impl App {
             }
             return;
         }
-        let Some(h) = self.focus else {
+        if let Some(chord) = chord::chord(bits, &key.keysyms) {
+            // One action a press, as the power keys.
+            if !key.repeat {
+                self.chord(h, chord, now);
+            }
+            return;
+        }
+        let Some(h) = h else {
             return;
         };
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
-        head.term.terminal.screen_mut().clear_selection();
+        head.console.term.terminal.screen_mut().clear_selection();
         if grab::matches(&self.paste_keys, bits, &key.keysyms) {
             // One paste a press, however long the key repeats.
             if !key.repeat {
@@ -1702,7 +1902,7 @@ impl App {
             return;
         }
         if let Some(g) = grab::grab(bits, &key.keysyms) {
-            let screen = head.term.terminal.screen_mut();
+            let screen = head.console.term.terminal.screen_mut();
             let page = head.grid.1.saturating_sub(1).max(1);
             head.draw_now = true;
             match g {
@@ -1719,7 +1919,7 @@ impl App {
             }
             return;
         }
-        if key.repeat && !head.term.terminal.auto_repeat() {
+        if key.repeat && !head.console.term.terminal.auto_repeat() {
             return;
         }
         let Some(&keysym) = key.keysyms.first() else {
@@ -1727,24 +1927,65 @@ impl App {
         };
         let unicode = key.codepoints.first().copied().flatten();
         let mods = Mods::from_bits(key.mods.bits());
-        if head.term.terminal.key(keysym, key.ascii, mods, unicode) {
+        if head
+            .console
+            .term
+            .terminal
+            .key(keysym, key.ascii, mods, unicode)
+        {
             head.send_user_bytes();
-            head.term.terminal.screen_mut().reset_view();
+            head.console.term.terminal.screen_mut().reset_view();
             if self.hide_while_typing {
                 head.pointer.visible = false;
             }
         }
         let rate = head
+            .console
             .term
             .terminal
             .cursor_blink_ms()
             .map_or(crate::blink::TEXT_PERIOD, |ms| {
                 Duration::from_millis(ms.into())
             });
-        if let Some(arm) = head.term.blink.key(rate) {
+        if let Some(arm) = head.console.term.blink.key(rate) {
             head.cursor_due = Some((after(now, arm.first), arm.every));
         }
         head.draw_now = true;
+    }
+
+    /// A head's chord (ADR-1401 D5): a console chord acts on head `h`'s
+    /// consoles, the head the key's device delivers to; the focus chord
+    /// moves the focus to the next or the previous head with a lit
+    /// display.
+    fn chord(&mut self, h: Option<usize>, chord: HeadChord, now: Instant) {
+        let visible = self.awake;
+        let back = match chord {
+            HeadChord::NextHead => false,
+            HeadChord::PreviousHead => true,
+            HeadChord::NewConsole => {
+                if let Some(h) = h {
+                    self.new_console(h, now);
+                }
+                return;
+            }
+            HeadChord::NextConsole | HeadChord::PreviousConsole | HeadChord::CloseConsole => {
+                let changed = h
+                    .and_then(|h| self.heads.get_mut(h))
+                    .is_some_and(|head| head.console_chord(chord, visible));
+                if let Some(h) = h.filter(|_| changed) {
+                    self.relayout(h);
+                }
+                return;
+            }
+        };
+        let heads = &self.heads;
+        let lit = |h: usize| heads.get(h).is_some_and(|head| !head.views.is_empty());
+        self.focus_settled = true;
+        if let Some(to) = chord::step(self.focus, heads.len(), back, lit) {
+            self.focus = Some(to);
+            self.focus_move = Some(to);
+            self.bound_pointers();
+        }
     }
 
     /// A zoom of head `h`: the base height the font's next step, larger or
@@ -1782,39 +2023,33 @@ impl App {
         }
     }
 
-    /// Head `h`'s child exited: start it again, or end vtium.
+    /// The programs of head `h`'s consoles that exited
+    /// ([`session`]): each closes its console, starts again or ends the
+    /// head, and vtium ends once no head that started still runs.
     fn child_exited(&mut self, h: usize, now: Instant) {
-        let oneshot = self.oneshot;
         let since = now.saturating_duration_since(self.epoch);
-        let Some(head) = self.heads.get_mut(h) else {
-            return;
-        };
-        let Some(status) = head.term.exited.take() else {
-            return;
-        };
-        log::info!("child exited: {status}");
-        // The pty closes with what is queued for the child.
-        head.pty = None;
-        let next = head
-            .respawn
-            .as_mut()
-            .map_or(Next::Restart, |r| r.exited(since, oneshot));
-        match next {
-            Next::Restart => {
-                // A new session starts from a hard reset (RIS), drawn at
-                // once, with nothing of the last session's output left
-                // (`terminal_close` at kmscon b1f7a7c5).
-                head.term.terminal.input(b"\x1bc");
-                head.term.terminal.take_replies();
-                head.term.unparsed = false;
-                head.draw_now = true;
-                self.spawn(h);
+        let exited: Vec<(u64, std::process::ExitStatus)> = self
+            .heads
+            .get_mut(h)
+            .into_iter()
+            .flat_map(Head::consoles_mut)
+            .filter_map(|c| c.term.exited.take().map(|status| (c.id, status)))
+            .collect();
+        for (id, status) in exited {
+            log::info!("child exited: {status}");
+            let Some(head) = self.heads.get_mut(h) else {
+                return;
+            };
+            match head.exited(id, since, self.oneshot, self.awake) {
+                AfterExit::Closed { shown: true } => {
+                    self.relayout(h);
+                }
+                AfterExit::Restart => self.spawn(h, id),
+                AfterExit::Closed { shown: false } | AfterExit::Ended => {}
             }
-            Next::Oneshot => self.request_exit(Exit::Oneshot),
-            Next::TooQuick => {
-                log::error!("the session exited too quickly too many times running");
-                self.request_exit(Exit::TooQuick);
-            }
+        }
+        if let Some(exit) = session::exit_due(&self.heads) {
+            self.request_exit(exit);
         }
     }
 
@@ -1858,17 +2093,25 @@ impl App {
                 }
             }
         }
-        let inputs: Vec<InputEvent> = self
-            .input
-            .as_mut()
-            .map(|i| i.events().collect())
-            .unwrap_or_default();
+        let inputs: Vec<DeviceInput> = match &mut self.input {
+            Some(input) => input.device_events(self.vt.as_vt()).collect(),
+            None => Vec::new(),
+        };
         for head in &mut self.heads {
             head.tracking_changed();
         }
         for e in inputs {
-            self.input_event(e, now);
+            // The rescue key's move is not built: its press does nothing.
+            if e.rescue {
+                continue;
+            }
+            let node = e
+                .device
+                .and_then(|id| self.routes.node(id))
+                .map(Path::to_owned);
+            self.deliver(node.as_deref(), e.event, now);
         }
+        self.report_focus();
         for h in 0..self.heads.len() {
             self.session_turn(h, now);
         }
@@ -1881,9 +2124,9 @@ impl App {
             self.draw(now);
         }
         self.report(now);
-        for head in &mut self.heads {
-            head.term.coalesce.turn_end();
-            head.term.changed = false;
+        for console in self.heads.iter_mut().flat_map(Head::consoles_mut) {
+            console.term.coalesce.turn_end();
+            console.term.changed = false;
         }
         let flipping = self.heads.iter().any(|head| {
             head.views.iter().any(|((node, _), v)| {
@@ -1897,21 +2140,25 @@ impl App {
         self.exiting(now);
     }
 
-    /// What head `h`'s program asked this turn: its OSC 52 selection, its
-    /// OSC 50 font, its exit, and its blank sequences.
+    /// What head `h`'s programs asked this turn: each console's OSC 52
+    /// selection; the shown console's OSC 50 font and blank sequences,
+    /// which a hidden console's wait for it to be shown, since the font
+    /// and the displays are the head's; and their exits.
     fn session_turn(&mut self, h: usize, now: Instant) {
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
         // The console has no system clipboard: a selection OSC 52 set is
         // held for a paste, or dropped under `no-clipboard-write`.
-        if let Some(selection) = head.term.terminal.take_clipboard_write() {
-            if self.clipboard_write {
-                self.selection = Some(selection);
+        for console in head.consoles_mut() {
+            if let Some(selection) = console.term.terminal.take_clipboard_write() {
+                if self.clipboard_write {
+                    self.selection = Some(selection);
+                }
             }
         }
         // The terminal takes OSC 50 only under `allow-font-ops`.
-        if let Some(name) = head.term.terminal.take_font_request() {
+        if let Some(name) = head.console.term.terminal.take_font_request() {
             self.switch_font(h, &name);
         }
         // After the exit, whose respawn's RIS returns the blank to
@@ -1920,7 +2167,7 @@ impl App {
         let request = self
             .heads
             .get_mut(h)
-            .and_then(|head| head.term.terminal.take_blank_request());
+            .and_then(|head| head.console.term.terminal.take_blank_request());
         if let Some(request) = request {
             if self.program_blank {
                 self.blank_request(request, now);
@@ -1932,14 +2179,14 @@ impl App {
         let awake = self.awake;
         for head in &mut self.heads {
             if let Some(due) = head.text_due.filter(|&d| d <= now) {
-                head.draw_now |= head.term.blink.fired(Timer::Text, awake);
+                head.draw_now |= head.console.term.blink.fired(Timer::Text, awake);
                 head.text_due = Some(after(due, crate::blink::TEXT_PERIOD));
             }
             if let Some((due, every)) = head.cursor_due.filter(|&(d, _)| d <= now) {
-                head.draw_now |= head.term.blink.fired(Timer::Cursor, awake);
+                head.draw_now |= head.console.term.blink.fired(Timer::Cursor, awake);
                 head.cursor_due = Some((after(due, every), every));
             }
-            let term = &mut head.term;
+            let term = &mut head.console.term;
             if term.sync.deadline().is_some_and(|d| d <= now) {
                 let action = term.sync.timer(&mut term.terminal, now, term.unparsed);
                 term.act(action);
@@ -2029,8 +2276,13 @@ impl App {
                     continue;
                 };
                 let compose = composed.stats.cpu;
-                let shown =
-                    view.present(composed, &mut head.term, video.as_mut(), *awake, &**clock);
+                let shown = view.present(
+                    composed,
+                    &mut head.console.term,
+                    video.as_mut(),
+                    *awake,
+                    &**clock,
+                );
                 if let Some(copy) = shown.copy {
                     head.figures.frame(compose, copy, now);
                 }
@@ -2070,8 +2322,8 @@ impl App {
         match self.leaving {
             None => {
                 self.deactivate();
-                for head in &mut self.heads {
-                    head.pty = None;
+                for console in self.heads.iter_mut().flat_map(Head::consoles_mut) {
+                    console.pty = None;
                 }
                 self.leaving = Some(match self.vt.leave() {
                     Ok(Switch::Pending) => Leaving::Until(after(now, LEAVE_WAIT)),
@@ -2101,7 +2353,7 @@ impl App {
         for head in &self.heads {
             due.extend(head.text_due);
             due.extend(head.cursor_due.map(|(d, _)| d));
-            due.extend(head.term.sync.deadline());
+            due.extend(head.console.term.sync.deadline());
             due.extend(head.views.values().filter_map(|v| v.wait.due()));
             due.extend(head.figures.due);
         }
@@ -2146,7 +2398,7 @@ impl App {
     /// The shown head's terminal, for a test to take what it queued.
     pub fn term_mut(&mut self) -> Option<&mut Term> {
         let h = self.focus.unwrap_or(0);
-        self.heads.get_mut(h).map(|head| &mut head.term)
+        self.heads.get_mut(h).map(|head| &mut head.console.term)
     }
 
     /// The shown head's pty, while its command runs.
@@ -2176,25 +2428,6 @@ fn shown<'a>(heads: impl Iterator<Item = &'a &'a Head>) -> crate::deferred::Show
     all
 }
 
-/// The heads of `rules`, each with its font keys (ADR-1401 D3) and the
-/// scrollback cap and length `scrollback`.
-fn heads(
-    rules: &vtium_config::Config,
-    config: &Config,
-    scrollback: (usize, usize),
-    clock: &Clock,
-) -> Vec<Head> {
-    let (cap, lines) = scrollback;
-    rules
-        .heads
-        .iter()
-        .map(|h| {
-            let font = h.font(&vtium_config::Font::default());
-            Head::new(&h.name, config, &font, cap, lines, Rc::clone(clock))
-        })
-        .collect()
-}
-
 /// Draws each of `head`'s displays that something asks to: its render
 /// thread composes the frame, or the loop where the thread could not
 /// start.
@@ -2205,9 +2438,9 @@ fn draw_head(
     now: Instant,
 ) {
     let state = head.draw_state();
-    let present = std::mem::take(&mut head.term.present);
+    let present = std::mem::take(&mut head.console.term.present);
     let now_all = std::mem::take(&mut head.draw_now) || present;
-    let term = &mut head.term;
+    let term = &mut head.console.term;
     let changed = term.changed;
     let holding = term.sync.holding(&term.terminal);
     let base = head.cell;
@@ -2652,6 +2885,84 @@ mod tests {
         assert_eq!(asked(&app), [(16, 32)], "b's cell alone");
         drop(app);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ADR-1401 D3: kmscon.conf's `mouse` off drops the pointer rules from
+    // the shipped rules, so a mouse falls to `input * -> ignore` and is
+    // never opened; a keyboard still follows the focus.
+    #[test]
+    fn mouse_off_closes_a_pointer_the_shipped_rules_would_deliver() {
+        let args: Vec<OsString> = ["--no-mouse"].iter().map(OsString::from).collect();
+        let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let mut app = App::new(
+            loaded.config,
+            Box::new(FakeVt::new()),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        let input = vtium_config::Identity::input;
+        app.add_input(
+            Path::new("/m"),
+            input().with_class(vtium_config::Class::Mouse),
+        );
+        app.add_input(
+            Path::new("/k"),
+            input().with_class(vtium_config::Class::Keyboard),
+        );
+        assert_eq!(app.routes.head(Some(Path::new("/m")), Some(0)), None);
+        assert_eq!(app.routes.head(Some(Path::new("/k")), Some(0)), Some(0));
+        // A mouse whose node also has udev's key class, its consumer keys,
+        // is still a pointer the shipped rules leave closed.
+        let keyed = input()
+            .with_class(vtium_config::Class::Mouse)
+            .with_class(vtium_config::Class::Key);
+        let rules = app.rules.clone();
+        assert_eq!(
+            app.routes.add(&rules, Path::new("/mk"), &keyed),
+            vtium_platform::input::Disposition::Closed
+        );
+    }
+
+    // ADR-1401 D10: a head file's heads past `consoles-max` each keep a
+    // console, and every console's scrollback together stays within the
+    // most `sb-memory` may be: 9 heads take a ninth each.
+    #[test]
+    fn a_head_file_sets_each_consoles_scrollback_by_its_heads() {
+        let args: Vec<OsString> = ["--sb-memory=1G"].iter().map(OsString::from).collect();
+        let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let mut app = App::new(
+            loaded.config,
+            Box::new(FakeVt::new()),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        let mut text = String::from("version = 1\n");
+        for n in 0..9 {
+            text.push_str(&format!("[head h{n}]\n"));
+        }
+        app.set_heads(vtium_config::parse(&text).unwrap().config);
+        let cap = usize::try_from(crate::config::budget::sb_memory_cap()).unwrap();
+        assert_eq!(app.scrollback_bytes, cap / 9);
+    }
+
+    // ADR-1401 D5: mode 1004's focus goes to a head a keyboard delivers
+    // to; a keyboard that could not be opened delivers nothing.
+    #[test]
+    fn a_keyboard_that_failed_to_open_gives_no_head_the_focus() {
+        use vtium_platform::input::{Direct, Input, InputConfig, Keymap};
+        let (_lp, mut app) = seat(None, no_fonts());
+        let mut input = Input::new(Direct, Keymap::fallback().unwrap(), InputConfig::default());
+        input.wake_up();
+        app.input = Some(input);
+        app.focus = Some(0);
+        let keyboard = vtium_config::Identity::input().with_class(vtium_config::Class::Keyboard);
+        app.add_input(Path::new("/nonexistent/vtium-test/event9"), keyboard);
+        app.report_focus();
+        assert_eq!(app.heads.first().map(|h| h.focused), Some(false));
     }
 
     #[test]

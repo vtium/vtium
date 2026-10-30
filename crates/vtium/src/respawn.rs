@@ -1,5 +1,5 @@
-//! When the session's command first starts ([`first_start_due`]), and
-//! whether it starts again when it exits.
+//! When a head's sessions first start ([`first_start_due`]), and whether
+//! the command of a head's last console starts again when it exits.
 //!
 //! It starts again unless `oneshot` is set, or it has exited within
 //! [`QUICK`] of its start more than [`QUICK_RESTARTS`] times running:
@@ -35,13 +35,13 @@ pub const QUICK_RESTARTS: u32 = 5;
 pub enum Next {
     /// Start the command again.
     Restart,
-    /// Exit vtium: `oneshot` is set.
+    /// End the head: `oneshot` is set.
     Oneshot,
-    /// Exit vtium: the command exited quickly too many times running.
+    /// End the head: the command exited quickly too many times running.
     TooQuick,
 }
 
-/// The command's starts and quick exits.
+/// A console's command's starts and quick exits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Respawn {
     started: Duration,
