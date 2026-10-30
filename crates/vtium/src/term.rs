@@ -50,6 +50,8 @@ pub struct Term {
     pub present: bool,
     /// The child exited and its output has been read.
     pub exited: Option<ExitStatus>,
+    /// Bytes of the child's output parsed since the start.
+    pub parsed: u64,
 }
 
 impl Term {
@@ -64,6 +66,7 @@ impl Term {
             changed: false,
             present: false,
             exited: None,
+            parsed: 0,
         }
     }
 
@@ -93,6 +96,9 @@ impl Consumer for Term {
         self.coalesce.input(start, end, taken);
         self.unparsed = taken < output.len();
         self.changed |= taken > 0;
+        self.parsed = self
+            .parsed
+            .saturating_add(u64::try_from(taken).unwrap_or(u64::MAX));
         let action = self.sync.input(&mut self.terminal, end, self.unparsed);
         self.act(action);
         taken
@@ -519,6 +525,14 @@ impl View {
         self.since = Age::NEVER;
         self.lost = true;
         self.pointer.reset();
+    }
+
+    /// Draws another screen from the next frame, as a console switch
+    /// shows: the checkpoint the view kept is the other screen's history,
+    /// so the next frame draws every cell and copies the whole picture.
+    pub fn show_another(&mut self) {
+        self.since = Age::NEVER;
+        self.lost = true;
     }
 
     /// The font's cell.

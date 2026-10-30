@@ -34,6 +34,14 @@ const READS: Bound = Bound {
     cite: "pty.c:627-651",
 };
 
+const BUDGET: Bound = Bound {
+    name: "READ_BUDGET",
+    value: 64 * 1024,
+    what: "Bytes one readiness event reads from the pty before the loop serves its other sources",
+    past: "The pty's registration is renewed, so the next turn reads on, and the loop serves every other head's keys, output and frames in between",
+    cite: "ADR-1401 D2, where one head cannot delay another head's frames or any input; the C reference bounded the reads alone (pty.c:627-651)",
+};
+
 const HIGH: Bound = Bound {
     name: "REPLY_HIGH",
     value: 64 * 1024,
@@ -148,9 +156,10 @@ const PROPERTY: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 16] = [
+pub(crate) const BOUNDS: [Bound; 17] = [
     READ,
     READS,
+    BUDGET,
     HIGH,
     LOW,
     CEILING,
@@ -167,6 +176,9 @@ pub(crate) const BOUNDS: [Bound; 16] = [
     PROPERTY,
 ];
 
+// A turn's share of a pty is whole reads at the largest.
+const _: () = assert!(BUDGET.value % READ.value == 0);
+
 // The stall ends below where it starts, and starts below the ceiling.
 const _: () = assert!(LOW.value < HIGH.value && HIGH.value < CEILING.value);
 
@@ -181,6 +193,10 @@ pub const READ_MAX: usize = READ.value;
 /// Reads one readiness event makes before the loop serves its other
 /// sources.
 pub const READS_PER_TURN: usize = READS.value;
+
+/// Bytes one readiness event reads from the pty before the loop serves
+/// its other sources.
+pub const READ_BUDGET: usize = BUDGET.value;
 
 /// Replies queued for the child, past which its output is no longer read.
 pub const REPLY_HIGH: usize = HIGH.value;

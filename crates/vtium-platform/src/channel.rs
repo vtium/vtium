@@ -11,7 +11,9 @@
 
 use std::io;
 
-use crate::bounds::{EXIT_FEED_MAX, READ_MAX, READS_PER_TURN, REPLY_HIGH, REPLY_LOW, REPLY_MAX};
+use crate::bounds::{
+    EXIT_FEED_MAX, READ_BUDGET, READ_MAX, READS_PER_TURN, REPLY_HIGH, REPLY_LOW, REPLY_MAX,
+};
 use crate::queue::{Kind, WriteQueue};
 
 /// What reads the child's output: the terminal.
@@ -363,18 +365,28 @@ impl<E: Endpoint> Channel<E> {
     }
 
     /// Reads and feeds until the pty has no more, the consumer holds some
-    /// back, or [`READS_PER_TURN`] reads are done.
+    /// back, or [`READS_PER_TURN`] reads or [`READ_BUDGET`] bytes are done.
     fn read<C: Consumer + ?Sized>(&mut self, consumer: &mut C) -> Next {
         if self.held() || self.stalled() || self.exit_left == Some(0) {
             return Next::default();
         }
+        let mut left = READ_BUDGET;
         for _ in 0..READS_PER_TURN {
-            match self.writer.end.read(&mut self.buf) {
+            if left == 0 {
+                break;
+            }
+            let room = self.buf.len().min(left);
+            match self
+                .writer
+                .end
+                .read(self.buf.get_mut(..room).unwrap_or_default())
+            {
                 Ok(0) => {
                     self.drained = true;
                     return Next::default();
                 }
                 Ok(n) => {
+                    left = left.saturating_sub(n);
                     self.drained = false;
                     self.start = 0;
                     self.end = n.min(self.buf.len());
