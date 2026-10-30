@@ -535,15 +535,14 @@ fn a_head_with_no_display_starts_no_session() {
     assert_eq!(grid(&s.app, "large"), Some((80, 20)));
 }
 
-/// D1: one glyph helper for each frit in use. Two heads drawing the frit
-/// `t` share its helper, and a head drawing the frit `u` has its own; each
-/// helper the stand-in starts writes a line.
-#[test]
-fn heads_drawing_one_frit_share_its_helper_and_another_frit_has_its_own() {
-    let dir = std::env::temp_dir().join(format!("vtium-heads-frits-{}", std::process::id()));
+/// The frits `names`, each of one built-in source, in a directory of its
+/// own, and a stand-in helper that writes a line to the directory's
+/// `starts` as it starts and answers nothing; the sources and the file.
+fn frits(test: &str, names: &[&str]) -> (Sources, PathBuf) {
+    let dir = std::env::temp_dir().join(format!("vtium-heads-{test}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("the frits' directory");
-    for name in ["t", "u"] {
+    for name in names {
         std::fs::write(
             dir.join(format!("{name}.vtfrit")),
             "source=builtin:unifont\n",
@@ -561,10 +560,67 @@ fn heads_drawing_one_frit_share_its_helper_and_another_frit_has_its_own() {
         account: None,
     };
     let fonts = Sources {
-        frits: dir.clone(),
+        frits: dir,
         helper: Some(helper),
         ..no_fonts()
     };
+    (fonts, starts)
+}
+
+/// D3 and D6: the more specific setting wins. A head's profile names its
+/// frit, and its own `font-size` wins over kmscon.conf's; a head with the
+/// default profile and no font key of its own takes kmscon.conf's, the
+/// built-in font here.
+#[test]
+fn a_heads_profile_names_its_frit_and_its_own_font_size_wins() {
+    let (fonts, starts) = frits("profile", &["t"]);
+    let heads = "version = 1
+[head small]
+[head large]
+profile = t
+font-size = 32
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+";
+    let mut s = Seat::with_fonts(&[], Some(heads), two_displays(), "read x", fonts);
+    assert!(s.until(SECOND, |a| a.cells().len() == 2));
+    assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(8, 16)]));
+    assert_eq!(s.app.head("large").map(Head::cells), Some(vec![(16, 32)]));
+    assert_eq!(grid(&s.app, "large"), Some((40, 10)));
+    assert_eq!(
+        s.app.font_name(),
+        "unifont",
+        "the small head draws the built-in"
+    );
+    assert!(
+        s.until(SECOND, |_| starts.exists()),
+        "the large head's frit started its helper"
+    );
+    drop(s);
+    if let Some(dir) = starts.parent() {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+/// D6: with no head file the seat runs the compiled-in configuration,
+/// the parse of the template: its one `console` head.
+#[test]
+fn with_no_head_file_the_seat_runs_the_compiled_in_heads() {
+    let s = Seat::boot(&[], two_displays(), "read x");
+    let names: Vec<&str> = s.app.heads().iter().map(Head::name).collect();
+    let builtin = vtium_config::Config::builtin();
+    let want: Vec<&str> = builtin.heads.iter().map(|h| h.name.as_str()).collect();
+    assert_eq!(names, want);
+    assert_eq!(names, ["console"]);
+}
+
+/// D1: one glyph helper for each frit in use. Two heads drawing the frit
+/// `t` share its helper, and a head drawing the frit `u` has its own; each
+/// helper the stand-in starts writes a line.
+#[test]
+fn heads_drawing_one_frit_share_its_helper_and_another_frit_has_its_own() {
+    let (fonts, starts) = frits("share", &["t", "u"]);
     let heads = "version = 1
 [head a]
 font-name = t
@@ -594,5 +650,7 @@ display card:mem-c -> c
     s.until(Duration::from_millis(300), |_| false);
     assert_eq!(started(), 2, "one helper for t, one for u");
     drop(s);
-    let _ = std::fs::remove_dir_all(&dir);
+    if let Some(dir) = starts.parent() {
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
