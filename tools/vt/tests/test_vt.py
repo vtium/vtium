@@ -429,7 +429,8 @@ class RunVt(Case):
                 "--image-storage-limit=auto", "--sync-timeout=500", "--dpms-timeout=15",
                 "--grab-paste=<Ctrl><Shift>V", "--pointer-hide-timeout=5",
                 "--pointer-hide-while-typing", "--no-pointer-hide-while-typing",
-                "--pointer-char=+"]
+                "--pointer-char=+", "--osd=full", "--osd-timeout=never", "--osd-timeout=10",
+                "--focus-mark=always"]
         p = self.run_vt("--dry-run", "8", "--", *opts)
         self.assertEqual(p.returncode, 0, p.stderr)
 
