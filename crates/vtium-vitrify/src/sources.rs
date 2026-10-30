@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use vtium_font::PSF_BYTES_MAX;
-use vtium_platform::vt::font::{ConsoleFont, ConsoleTty};
+use vtium_platform::vt::font::ConsoleFont;
 
 use crate::child::Request;
 use crate::font::Font;
@@ -51,25 +51,10 @@ pub struct Host<'a> {
     pub consoles: &'a dyn Consoles,
 }
 
-/// The kernel's VT fonts: [`KernelConsoles`] reads them, a test stands in.
+/// The kernel's VT fonts, as the console hands them to the helper; a test
+/// stands in.
 pub trait Consoles {
     fn font(&self, vt: u16) -> Result<ConsoleFont, String>;
-}
-
-/// The kernel's VTs, through `/dev/tty<N>` and vtium-platform's ioctls.
-pub struct KernelConsoles;
-
-impl Consoles for KernelConsoles {
-    fn font(&self, vt: u16) -> Result<ConsoleFont, String> {
-        let path = PathBuf::from(format!("/dev/tty{vt}"));
-        let tty = ConsoleTty::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        vtium_platform::vt::font::read(&tty).map_err(|e| match e {
-            vtium_platform::vt::font::FontError::Graphics => {
-                format!("VT {vt} is in graphics mode, as vtium's own VT is: name a VT in text mode")
-            }
-            e => format!("VT {vt}: {e}"),
-        })
-    }
 }
 
 /// A source read: what the parser is to be given, or glyphs already read.
@@ -81,15 +66,12 @@ pub enum Input {
     /// An outline font, its cells and coverage filled in when the cell is
     /// known.
     Outline(OutlineRequest),
-    /// A bitmap font's glyphs at its own cell, read here: a built-in
-    /// font's, or a BDF font's.
-    Builtin(Font),
-}
-
-/// A source ready to draw from.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Resolved {
-    pub input: Input,
+    /// A BDF font's bytes, for the parser: read here, parsed by
+    /// [`crate::bdf`] where the other untrusted fonts are.
+    Bdf(Vec<u8>),
+    /// A bitmap font's glyphs at its own cell, already read: a built-in
+    /// font's.
+    Bitmap(Font),
 }
 
 /// Reads `path`, at most `limit` bytes: opened once, without blocking on
@@ -444,7 +426,7 @@ fn contained(path: &Path, data_dirs: &[PathBuf], sub: &str) -> Result<PathBuf, S
 }
 
 /// Reads `source` for the parser.
-pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, SourceError> {
+pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Input, SourceError> {
     let limit = u64::from(PSF_BYTES_MAX);
     let dirs = || {
         host.kbd_dirs
@@ -479,10 +461,10 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, SourceError
     let not_here =
         |path: &Path| SourceError::Missing(format!("{}: not on this machine", path.display()));
     let (font, unimap_name) = match &source.origin {
-        Origin::Builtin(name) => return Ok(bitmap(Font::from_builtin(name)?)),
+        Origin::Builtin(name) => return Ok(Input::Bitmap(Font::from_builtin(name)?)),
         Origin::Bdf(path) if !path.exists() => return Err(not_here(path)),
         Origin::Bdf(path) => {
-            return Ok(bitmap(crate::bdf::font(&read_bounded(path, limit)?)?));
+            return Ok(Input::Bdf(read_bounded(path, limit)?));
         }
         Origin::Kbd(name) => (
             read_bounded(&find_font(name)?, limit)?,
@@ -552,35 +534,24 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Resolved, SourceError
     };
     let unimap = unimap_name.as_deref().map(read_unimap).transpose()?;
     let def_uni = if unimap.is_none() { def_uni()? } else { None };
-    Ok(Resolved {
-        input: Input::Font(Request {
-            font,
-            unimap,
-            def_uni,
-        }),
-    })
-}
-
-/// A bitmap font's glyphs, read here.
-fn bitmap(font: Font) -> Resolved {
-    Resolved {
-        input: Input::Builtin(font),
-    }
+    Ok(Input::Font(Request {
+        font,
+        unimap,
+        def_uni,
+    }))
 }
 
 /// An outline font's bytes as the parser's input: the family the parser
 /// is to find in it, the cells and coverage filled in once the cell is
 /// known.
-fn outline(font: Vec<u8>, family: &str) -> Resolved {
-    Resolved {
-        input: Input::Outline(OutlineRequest {
-            font: font.into(),
-            family: family.to_owned(),
-            cells: Vec::new(),
-            cover: Vec::new(),
-            clusters: Vec::new(),
-        }),
-    }
+fn outline(font: Vec<u8>, family: &str) -> Input {
+    Input::Outline(OutlineRequest {
+        font: font.into(),
+        family: family.to_owned(),
+        cells: Vec::new(),
+        cover: Vec::new(),
+        clusters: Vec::new(),
+    })
 }
 
 #[cfg(test)]
@@ -761,8 +732,8 @@ mod tests {
     }
 
     /// The request a source resolves to.
-    fn request(r: Resolved) -> Request {
-        match r.input {
+    fn request(r: Input) -> Request {
+        match r {
             Input::Font(request) => request,
             other => panic!("not a font: {other:?}"),
         }
@@ -865,7 +836,7 @@ mod tests {
         )
         .unwrap();
         let font = crate::font::Font::from_builtin("unscii-8").unwrap();
-        assert_eq!(r.input, Input::Builtin(font));
+        assert_eq!(r, Input::Bitmap(font));
     }
 
     // ADR-1200 D1: cp-size= hands the parser the CPI font of that height
@@ -907,9 +878,10 @@ mod tests {
         let consoles = Graphics;
         let h = host(&t, &consoles);
         let r = resolve(&source("bdf:", Origin::Bdf(path), None), &h).unwrap();
-        let Input::Builtin(font) = r.input else {
-            panic!("not glyphs: {:?}", r.input)
+        let Input::Bdf(bytes) = r else {
+            panic!("not a BDF font's bytes: {r:?}")
         };
+        let font = crate::bdf::font(&bytes).unwrap();
         assert_eq!(
             (font.cell.width, font.cell.height, font.format.as_str()),
             (4, 6, "bdf+xz")
@@ -918,11 +890,10 @@ mod tests {
         let e = resolve(&source("bdf:", Origin::Bdf(gone), None), &h).unwrap_err();
         assert!(matches!(e, SourceError::Missing(_)), "{e}");
         let bad = t.file("fonts/bad.bdf", b"STARTFONT 2.1\nCHARS 1\n");
-        let e = resolve(&source("bdf:", Origin::Bdf(bad), None), &h).unwrap_err();
-        assert!(
-            matches!(&e, SourceError::Failed(w) if w.contains("CHARSET_REGISTRY")),
-            "{e}"
-        );
+        // reading the bytes does not parse them: the parse is the
+        // sandboxed side's
+        let r = resolve(&source("bdf:", Origin::Bdf(bad), None), &h).unwrap();
+        assert!(matches!(r, Input::Bdf(ref b) if b.starts_with(b"STARTFONT")));
     }
 
     #[test]
@@ -1023,8 +994,8 @@ mod tests {
         let consoles = Graphics;
         let h = host(&t, &consoles);
         let r = resolve(&source("font:Test", Origin::Font("Test".into()), None), &h).unwrap();
-        let Input::Outline(req) = &r.input else {
-            panic!("not an outline: {:?}", r.input);
+        let Input::Outline(req) = &r else {
+            panic!("not an outline: {r:?}");
         };
         assert_eq!(
             (&req.font[..], req.family.as_str()),
@@ -1041,7 +1012,7 @@ mod tests {
         );
         let path = t.0.join("fonts/Test-Regular.otf");
         let r = resolve(&source("outline:", Origin::Outline(path), None), &h).unwrap();
-        assert!(matches!(&r.input, Input::Outline(req) if req.family.is_empty()));
+        assert!(matches!(&r, Input::Outline(req) if req.family.is_empty()));
         let gone = t.0.join("fonts/Gone.ttf");
         let e = resolve(&source("outline:", Origin::Outline(gone), None), &h).unwrap_err();
         assert!(matches!(e, SourceError::Missing(_)), "{e}");
