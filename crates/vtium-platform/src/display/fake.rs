@@ -13,7 +13,9 @@
 //! leaves in the state, as `drm_atomic_set_crtc_for_connector` does. What
 //! a commit sets is what the card reports after it: a connector's encoder
 //! and that encoder's CRTC, and a CRTC's mode, as the kernel's getters
-//! read them back.
+//! read them back. A wait for a CRTC's next vblank is refused with EINVAL
+//! where the CRTC is not active, and its event comes when a test says the
+//! vblank passed.
 //!
 //! A framebuffer removed while a plane shows it takes the plane off its
 //! CRTC (`atomic_remove_fb`). What happens to the CRTC depends on the
@@ -59,7 +61,7 @@ use drm_ffi::{
 use rustix::io::Errno;
 
 use super::Mode;
-use super::kms::{Connector, Dumb, Encoder, Kms, Object, Property, Request, Resources};
+use super::kms::{Connector, CrtcEvent, Dumb, Encoder, Kms, Object, Property, Request, Resources};
 
 pub(crate) const PRIMARY: u64 = 1;
 pub(crate) const CURSOR: u64 = 2;
@@ -171,7 +173,10 @@ pub(crate) struct State {
     pub(crate) pending: Vec<u32>,
     /// Flips complete without their events, as a driver that loses them.
     pub(crate) lose_flips: bool,
-    pub(crate) completed: Vec<u32>,
+    /// The CRTCs whose next vblank was asked for, and the events read
+    /// next: the flips completed and the vblanks passed.
+    pub(crate) vblanks: Vec<u32>,
+    pub(crate) completed: Vec<CrtcEvent>,
     pub(crate) blobs: BTreeMap<u32, Vec<u8>>,
     pub(crate) dumbs: BTreeMap<u32, (u32, u32)>,
     pub(crate) fbs: BTreeMap<u32, (u32, u32)>,
@@ -500,7 +505,19 @@ impl FakeCard {
         if !pending.is_empty() {
             let _ = (&self.events.1).write(b"e");
         }
-        s.completed.extend(pending);
+        s.completed
+            .extend(pending.into_iter().map(CrtcEvent::Flipped));
+    }
+
+    /// The next vblank passes: each wait for it is reported, and nothing
+    /// else, as each flip pending stays pending.
+    pub(crate) fn vblank(&self) {
+        let mut s = self.state.borrow_mut();
+        let waits = std::mem::take(&mut s.vblanks);
+        if !waits.is_empty() {
+            let _ = (&self.events.1).write(b"e");
+        }
+        s.completed.extend(waits.into_iter().map(CrtcEvent::Vblank));
     }
 
     /// The commits that were not test-only.
@@ -1037,11 +1054,28 @@ impl Kms for FakeCard {
         Ok(())
     }
 
-    fn read_events(&self, flipped: &mut Vec<u32>) -> io::Result<()> {
+    /// Refused with EINVAL for a CRTC that is not active, whose vblank
+    /// interrupt is off (`drm_queue_vblank_event`), and where
+    /// [`State::failing`] holds `wait_vblank`.
+    fn wait_vblank(&self, index: usize) -> io::Result<()> {
+        let mut s = self.state.borrow_mut();
+        let crtc = s
+            .crtcs
+            .get(index)
+            .copied()
+            .ok_or_else(|| err(Errno::INVAL))?;
+        if s.failing.contains(&"wait_vblank") || !s.active.get(&crtc).copied().unwrap_or(false) {
+            return Err(err(Errno::INVAL));
+        }
+        s.vblanks.push(crtc);
+        Ok(())
+    }
+
+    fn read_events(&self, events: &mut Vec<CrtcEvent>) -> io::Result<()> {
         let mut drained = [0u8; 64];
         let mut watched = UnixStream::from(self.events.0.try_clone()?);
         while watched.read(&mut drained).is_ok_and(|n| n > 0) {}
-        flipped.append(&mut self.state.borrow_mut().completed);
+        events.append(&mut self.state.borrow_mut().completed);
         Ok(())
     }
 

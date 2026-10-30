@@ -18,8 +18,9 @@
 //! Each device collects its [`Event`]s, and the owner drains them once a
 //! turn of the loop, where the terminal draws (`Loop::run`'s callback).
 //! Nothing here blocks: a modeset or a sleep that finds a page flip in
-//! flight waits for the flip's completion event, and each flip in flight
-//! is taken as done after [`crate::FLIP_WAIT_MS`] without one.
+//! flight waits for the flip's completion event, a frame the card refused
+//! as busy waits for the display's next vblank, and each wait is taken as
+//! done after [`crate::FLIP_WAIT_MS`] without its event.
 
 mod blank;
 mod card;
@@ -177,7 +178,14 @@ pub enum Swapped {
 /// into holds it: lent again, its age is 1.
 #[derive(Debug)]
 pub enum SwapError {
-    /// A flip is in flight, or a modeset or a sleep waits for one.
+    /// A flip is in flight, or a modeset or a sleep waits for one. Or the
+    /// card refused the commit as busy while no flip of vtium's was in
+    /// flight, as while a commit vtium does not track holds the CRTC: the
+    /// display then waits for its next vblank as for a flip in flight, so
+    /// [`Drm2d::is_flipping`] holds until the vblank's event, which wakes
+    /// the loop, and no [`Event::Flipped`] follows. Where the card will not
+    /// wait for the vblank either, the display has nothing to wait for and
+    /// the frame goes with the next swap the owner tries.
     Busy,
     /// The display is not on: offline, asleep, or powered down.
     Off,

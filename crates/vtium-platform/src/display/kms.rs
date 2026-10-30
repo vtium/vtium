@@ -77,6 +77,15 @@ impl Request {
     }
 }
 
+/// An event the card reported, with the CRTC it names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CrtcEvent {
+    /// A page flip completed.
+    Flipped(u32),
+    /// The vblank [`Kms::wait_vblank`] asked for passed.
+    Vblank(u32),
+}
+
 /// The operations of a DRM card drm2d uses. Ids are the kernel's.
 pub(crate) trait Kms {
     /// A dumb buffer mapped into memory.
@@ -127,9 +136,12 @@ pub(crate) trait Kms {
     fn hide_cursor(&self, crtc: u32) -> io::Result<()>;
     fn set_connector_property(&self, connector: u32, property: u32, value: u64) -> io::Result<()>;
 
-    /// Reads the pending events, adding the CRTC of each completed flip to
-    /// `flipped`.
-    fn read_events(&self, flipped: &mut Vec<u32>) -> io::Result<()>;
+    /// Asks for an event at the next vblank of the CRTC at `index` into
+    /// [`Resources::crtcs`], which [`Kms::read_events`] reads.
+    fn wait_vblank(&self, index: usize) -> io::Result<()>;
+
+    /// Reads the pending events, adding each to `events`.
+    fn read_events(&self, events: &mut Vec<CrtcEvent>) -> io::Result<()>;
 
     /// The levels of the 1-bit or gray panel the card drives, `None` for
     /// a color display ([`super::depth`]).

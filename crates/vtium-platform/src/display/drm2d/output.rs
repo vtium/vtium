@@ -207,6 +207,8 @@ pub(super) struct Output<M> {
     pub(super) id: DisplayId,
     pub(super) name: String,
     pub(super) crtc: u32,
+    /// The CRTC's index into the card's list of CRTCs.
+    pub(super) pipe: usize,
     /// `None` on a device without atomic commits.
     pub(super) planes: Option<Planes>,
     pub(super) choice: Choice,
@@ -236,6 +238,9 @@ pub(super) struct Output<M> {
     /// next announcement asks for a redraw.
     pub(super) redraw: bool,
     pub(super) flipping: bool,
+    /// The flip in flight is the display's next vblank, waited for after
+    /// the card refused a commit as busy: it shows no frame.
+    pub(super) vblank: bool,
     /// Flips started, so the bound's timer names the flip it bounds.
     pub(super) flips: u64,
     /// The timer bounding the flip in flight, and the flip it was armed

@@ -5,16 +5,20 @@ use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::path::Path;
 use std::rc::Rc;
 
+use drm_ffi::drm_vblank_seq_type::{
+    _DRM_VBLANK_EVENT, _DRM_VBLANK_HIGH_CRTC_MASK, _DRM_VBLANK_RELATIVE,
+};
 use drm_ffi::mode::dumbbuffer;
 use drm_ffi::{
-    DRM_EVENT_FLIP_COMPLETE, DRM_MODE_OBJECT_CONNECTOR, DRM_MODE_OBJECT_CRTC,
-    DRM_MODE_OBJECT_PLANE, DRM_MODE_PAGE_FLIP_EVENT,
+    _DRM_VBLANK_HIGH_CRTC_SHIFT, DRM_EVENT_FLIP_COMPLETE, DRM_EVENT_VBLANK,
+    DRM_MODE_OBJECT_CONNECTOR, DRM_MODE_OBJECT_CRTC, DRM_MODE_OBJECT_PLANE,
+    DRM_MODE_PAGE_FLIP_EVENT,
 };
 use rustix::fs::{Mode as FileMode, OFlags, open};
 use rustix::io::Errno;
 
 use super::Mode;
-use super::kms::{Connector, Dumb, Encoder, Kms, Object, Property, Request, Resources};
+use super::kms::{Connector, CrtcEvent, Dumb, Encoder, Kms, Object, Property, Request, Resources};
 use crate::bounds::RESOURCE_READS_MAX;
 use crate::mmap::Mapping;
 
@@ -300,14 +304,30 @@ impl Kms for Card {
         Ok(())
     }
 
-    fn read_events(&self, flipped: &mut Vec<u32>) -> io::Result<()> {
+    fn wait_vblank(&self, index: usize) -> io::Result<()> {
+        // The CRTC's index goes in the request's high bits, at most 31.
+        let high = u32::try_from(index)
+            .ok()
+            .and_then(|i| i.checked_shl(_DRM_VBLANK_HIGH_CRTC_SHIFT))
+            .filter(|&h| h & !_DRM_VBLANK_HIGH_CRTC_MASK == 0)
+            .ok_or(io::ErrorKind::InvalidInput)?;
+        drm_ffi::wait_vblank(
+            self.raw(),
+            _DRM_VBLANK_RELATIVE | _DRM_VBLANK_EVENT | high,
+            1,
+            0,
+        )?;
+        Ok(())
+    }
+
+    fn read_events(&self, events: &mut Vec<CrtcEvent>) -> io::Result<()> {
         let mut buf = [0u8; 1024];
         let n = match rustix::io::read(&*self.fd, &mut buf) {
             Ok(n) => n,
             Err(Errno::AGAIN | Errno::INTR) => return Ok(()),
             Err(e) => return Err(e.into()),
         };
-        flip_events(buf.get(..n).unwrap_or_default(), flipped);
+        crtc_events(buf.get(..n).unwrap_or_default(), events);
         Ok(())
     }
 
@@ -358,25 +378,29 @@ impl Kms for Card {
     }
 }
 
-/// Adds the CRTC of each flip completed in `events`, the bytes a read of
-/// the card returned: `struct drm_event` headers, each followed by its
-/// body, the CRTC at byte 28 of a `struct drm_event_vblank`.
-fn flip_events(mut events: &[u8], flipped: &mut Vec<u32>) {
+/// Adds each flip completed and each vblank passed in `bytes`, what a read
+/// of the card returned: `struct drm_event` headers, each followed by its
+/// body, the CRTC at byte 28 of a `struct drm_event_vblank`, which both
+/// events carry.
+fn crtc_events(mut bytes: &[u8], events: &mut Vec<CrtcEvent>) {
     let word = |bytes: &[u8], at: usize| -> Option<u32> {
         let end = at.checked_add(4)?;
         Some(u32::from_ne_bytes(bytes.get(at..end)?.try_into().ok()?))
     };
-    while let (Some(kind), Some(length)) = (word(events, 0), word(events, 4)) {
+    while let (Some(kind), Some(length)) = (word(bytes, 0), word(bytes, 4)) {
         let Ok(length) = usize::try_from(length) else {
             return;
         };
-        let Some(event) = events.get(..length).filter(|_| length >= 8) else {
+        let Some(event) = bytes.get(..length).filter(|_| length >= 8) else {
             return;
         };
-        if kind == DRM_EVENT_FLIP_COMPLETE {
-            flipped.extend(word(event, 28));
+        let crtc = word(event, 28);
+        match kind {
+            DRM_EVENT_FLIP_COMPLETE => events.extend(crtc.map(CrtcEvent::Flipped)),
+            DRM_EVENT_VBLANK => events.extend(crtc.map(CrtcEvent::Vblank)),
+            _ => {}
         }
-        events = events.get(length..).unwrap_or_default();
+        bytes = bytes.get(length..).unwrap_or_default();
     }
 }
 
@@ -457,26 +481,34 @@ mod tests {
     }
 
     #[test]
-    fn flip_events_name_their_crtcs() {
+    fn flip_and_vblank_events_name_their_crtcs() {
         let mut bytes = event(DRM_EVENT_FLIP_COMPLETE, 41);
-        bytes.extend(event(1, 99));
+        bytes.extend(event(DRM_EVENT_VBLANK, 99));
+        bytes.extend(event(3, 98));
         bytes.extend(event(DRM_EVENT_FLIP_COMPLETE, 42));
-        let mut flipped = Vec::new();
-        flip_events(&bytes, &mut flipped);
-        assert_eq!(flipped, [41, 42]);
+        let mut events = Vec::new();
+        crtc_events(&bytes, &mut events);
+        assert_eq!(
+            events,
+            [
+                CrtcEvent::Flipped(41),
+                CrtcEvent::Vblank(99),
+                CrtcEvent::Flipped(42)
+            ]
+        );
     }
 
     #[test]
     fn a_truncated_event_ends_the_read() {
         let mut bytes = event(DRM_EVENT_FLIP_COMPLETE, 41);
         bytes.extend(&event(DRM_EVENT_FLIP_COMPLETE, 42)[..20]);
-        let mut flipped = Vec::new();
-        flip_events(&bytes, &mut flipped);
-        assert_eq!(flipped, [41]);
+        let mut events = Vec::new();
+        crtc_events(&bytes, &mut events);
+        assert_eq!(events, [CrtcEvent::Flipped(41)]);
         let mut zero = event(DRM_EVENT_FLIP_COMPLETE, 41);
         zero[4..8].copy_from_slice(&0u32.to_ne_bytes());
-        flip_events(&zero, &mut flipped);
-        assert_eq!(flipped, [41]);
+        crtc_events(&zero, &mut events);
+        assert_eq!(events, [CrtcEvent::Flipped(41)]);
     }
 
     /// The real ioctls on a render node, which needs no DRM master and
@@ -517,9 +549,14 @@ mod tests {
         assert_eq!(e.raw_os_error(), Some(Errno::ACCESS.raw_os_error()));
         // a render node's driver is a GPU's, never a 1-bit or gray panel's
         assert_eq!(card.levels(), None);
-        let mut flipped = Vec::new();
-        card.read_events(&mut flipped).expect("read no events");
-        assert!(flipped.is_empty());
+        let mut events = Vec::new();
+        card.read_events(&mut events).expect("read no events");
+        assert!(events.is_empty());
+        // WAIT_VBLANK is kept to primary nodes too.
+        let e = card
+            .wait_vblank(0)
+            .expect_err("WAIT_VBLANK on a render node");
+        assert_eq!(e.raw_os_error(), Some(Errno::ACCESS.raw_os_error()));
         match card.create_dumb(64, 32) {
             Ok(dumb) => {
                 assert!(dumb.pitch >= 64 * 4);
