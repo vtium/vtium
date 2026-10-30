@@ -2,9 +2,11 @@
 //! `--no-switch`, the one-letter forms (`-c DIR`, `-cDIR`), and
 //! `--login -- COMMAND...`, whose words after `--` are the session's
 //! command, and the subcommand `check-config` wherever it stands among
-//! the options. Each name is matched whole.
+//! the options, with the head file it checks in place of the installed
+//! one. Each name is matched whole.
 
 use std::ffi::OsString;
+use std::path::PathBuf;
 
 use super::keys::{self, Kind};
 use super::{Assignment, Origin, Problem, Reports, Value, value};
@@ -16,14 +18,18 @@ pub(super) struct Parsed {
     pub(super) assignments: Vec<Assignment>,
     /// The subcommand `check-config` stands among the options.
     pub(super) check: bool,
+    /// The head file `check-config` checks in place of the installed one.
+    pub(super) candidate: Option<PathBuf>,
 }
 
 /// The values `args` gives, in order, with what they could not give
 /// reported. A word that is no option is the subcommand when it is
-/// [`SUBCOMMAND`], wherever it stands before `--`.
+/// [`SUBCOMMAND`], wherever it stands before `--`, and the first such word
+/// after the subcommand is the head file it checks (ADR-1401 D7).
 pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Parsed {
     let mut out = Vec::new();
     let mut check = false;
+    let mut candidate = None;
     let mut login = false;
     // `--login`'s command is the words after `--`.
     let mut dashes = false;
@@ -87,8 +93,11 @@ pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Parsed {
                     continue;
                 }
             }
-        } else if word == SUBCOMMAND {
+        } else if word == SUBCOMMAND && !check {
             check = true;
+            continue;
+        } else if check && candidate.is_none() {
+            candidate = Some(PathBuf::from(word));
             continue;
         } else {
             reports.push(origin, Problem::StrayArgument(word.to_owned()));
@@ -144,5 +153,6 @@ pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Parsed {
     Parsed {
         assignments: out,
         check,
+        candidate,
     }
 }

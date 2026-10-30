@@ -7,10 +7,10 @@
 //! target directory sits, `/tmp` included.
 
 use std::fs;
-use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 
-use vtium_config::{FILE_MAX, Problem, Trust, Untrusted, read, text};
+use vtium_config::{FILE_MAX, Inspected, Problem, Trust, Untrusted, inspect, read, text};
 
 /// A fresh fixture directory of its own for one test, mode 0755.
 fn fixture(name: &str) -> PathBuf {
@@ -132,6 +132,84 @@ fn a_missing_file_is_none_and_anything_but_a_regular_file_is_refused() {
     )
     .expect("the FIFO");
     assert_eq!(problem(read(&fifo, &me(&dir))), Problem::NotAFile);
+}
+
+// ADR-1401 D7: `vtium check-config` checks a candidate before it is
+// installed, so the reader gives its text and the ownership verdict apart
+#[test]
+fn inspect_gives_the_text_and_the_ownership_verdict_together() {
+    let dir = fixture("inspect");
+    let file = dir.join("heads.conf");
+    write(&file, "version = 1\n", 0o664);
+    let Some(Inspected { text, trusted }) = inspect(&file, &me(&dir)).expect("read") else {
+        panic!("the file is present");
+    };
+    assert_eq!(text, Ok("version = 1\n".to_owned()));
+    assert!(
+        matches!(trusted, Err(Untrusted::Writable { .. })),
+        "{trusted:?}"
+    );
+    assert!(matches!(
+        problem(read(&file, &me(&dir))),
+        Problem::Untrusted(Untrusted::Writable { .. })
+    ));
+    write(&file, "version = 1\n", 0o644);
+    let inspected = inspect(&file, &me(&dir)).expect("read").expect("present");
+    assert_eq!(inspected.trusted, Ok(()));
+}
+
+/// Whether the inotify descriptor `fd` holds an event.
+fn has_event(fd: &rustix::fd::OwnedFd) -> bool {
+    let mut buf = [0_u8; 1024];
+    rustix::io::read(fd, &mut buf).is_ok_and(|n| n > 0)
+}
+
+// Opening a FIFO, a watchdog or a serial port acts on it, so anything but
+// a regular file is refused before it is opened
+#[test]
+fn a_fifo_is_refused_without_being_opened() {
+    use rustix::fs::inotify;
+    let dir = fixture("unopened");
+    let fifo = dir.join("fifo.conf");
+    rustix::fs::mknodat(
+        rustix::fs::CWD,
+        &fifo,
+        rustix::fs::FileType::Fifo,
+        rustix::fs::Mode::from_raw_mode(0o644),
+        0,
+    )
+    .expect("the FIFO");
+    let link = dir.join("link.conf");
+    symlink(&fifo, &link).expect("the link");
+    let watch = inotify::init(inotify::CreateFlags::NONBLOCK | inotify::CreateFlags::CLOEXEC)
+        .expect("inotify");
+    inotify::add_watch(&watch, &fifo, inotify::WatchFlags::OPEN).expect("the watch");
+    assert!(!has_event(&watch), "no event before the read");
+    assert_eq!(problem(read(&fifo, &me(&dir))), Problem::NotAFile);
+    assert_eq!(problem(read(&link, &me(&dir))), Problem::NotAFile);
+    assert!(!has_event(&watch), "the FIFO was opened");
+    // the watch sees an open: the test's own
+    let _reader = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(rustix::fs::OFlags::NONBLOCK.bits() as i32)
+        .open(&fifo)
+        .expect("the FIFO opens");
+    assert!(has_event(&watch), "the watch sees an open");
+}
+
+// A file whose size is far past FILE_MAX is read no further than the
+// bound: the test's 1 GiB of holes reads FILE_MAX bytes and one
+#[test]
+fn a_sparse_file_far_past_the_bound_is_refused_from_its_first_bytes() {
+    let dir = fixture("sparse");
+    let file = dir.join("heads.conf");
+    write(&file, "version = 1\n", 0o644);
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&file)
+        .and_then(|f| f.set_len(1 << 30))
+        .expect("the holes");
+    assert_eq!(problem(read(&file, &me(&dir))), Problem::TooLarge);
 }
 
 #[test]

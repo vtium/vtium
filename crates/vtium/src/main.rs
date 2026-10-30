@@ -26,7 +26,7 @@ use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty};
 
 fn help() -> String {
     let mut out = String::from(
-        "Usage: vtium [OPTION]... [--login -- COMMAND...]\n       vtium check-config [OPTION]...   check the configuration, apply nothing\n       vtium blank --vt N               blank the displays of the vtium on VT N now\n       vtium wake --vt N                wake the displays of the vtium on VT N\n\n",
+        "Usage: vtium [OPTION]... [--login -- COMMAND...]\n       vtium check-config [OPTION]... [FILE]   check the configuration, apply nothing\n       vtium blank --vt N                      blank the displays of the vtium on VT N now\n       vtium wake --vt N                       wake the displays of the vtium on VT N\n\n",
     );
     for k in &KEYS {
         let arg = match k.kind {
@@ -57,16 +57,7 @@ fn main() -> ExitCode {
     }
     let loaded = config::load(&args, Some("seat0"), &mut config::read_file);
     if loaded.check {
-        let (lines, status) = check::run(&loaded);
-        for line in lines {
-            eprintln!("{line}");
-        }
-        if !loaded.config.switch(&keys::HELP) {
-            for note in check::notes(&loaded.config) {
-                println!("{note}");
-            }
-        }
-        return ExitCode::from(u8::try_from(status).unwrap_or(1));
+        return ExitCode::from(check::main(&loaded));
     }
     for w in check::warnings(&loaded) {
         vtium::warn::warn(w);

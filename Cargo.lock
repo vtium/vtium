@@ -498,6 +498,7 @@ version = "0.0.0"
 dependencies = [
  "log",
  "rustix",
+ "vtium-config",
  "vtium-font",
  "vtium-image",
  "vtium-platform",

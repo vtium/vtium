@@ -450,6 +450,9 @@ pub struct Loaded {
     pub reports: Vec<Report>,
     /// The command line names the subcommand `check-config`.
     pub check: bool,
+    /// The head file the command line gives `check-config` to check in
+    /// place of the installed one.
+    pub candidate: Option<PathBuf>,
 }
 
 impl Loaded {
@@ -505,6 +508,7 @@ pub fn load(
     let cmdline::Parsed {
         assignments: given,
         check,
+        candidate,
     } = cmdline::parse(args, &mut reports);
 
     let mut config = Config::default();
@@ -557,6 +561,7 @@ pub fn load(
         config,
         reports: reports.finish(),
         check,
+        candidate,
     }
 }
 
