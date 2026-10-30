@@ -410,11 +410,8 @@ impl App {
             return;
         }
         for h in 0..self.heads.len() {
-            // A head whose displays never appear starts no session, under
-            // `forever` too (ADR-1401 D1).
             let due = self.heads.get(h).is_some_and(|head| {
-                !head.started()
-                    && respawn::first_start_due(self.awake, !head.views.is_empty(), false)
+                !head.started() && respawn::first_start_due(self.awake, !head.views.is_empty())
             });
             if due {
                 if let Some(head) = self.heads.get_mut(h) {
@@ -713,6 +710,7 @@ impl App {
             return;
         }
         let sized = head.sized();
+        let was = head.frit().map(str::to_owned);
         let new = font::by_name(&self.font_sources, name).and_then(|new| {
             let new = match new {
                 Chosen::Frit { frit, .. } => Chosen::frit(frit, sized)?,
@@ -740,6 +738,15 @@ impl App {
             Err(format!("it draws nothing at {size} pixels"))
         });
         self.prune();
+        // The frit the head left, where another head still draws it, keeps
+        // the cells of the heads drawing it alone.
+        if let Some(other) = was.and_then(|was| {
+            self.heads
+                .iter()
+                .position(|head| head.frit() == Some(was.as_str()))
+        }) {
+            self.ask_glyphs(other);
+        }
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
@@ -770,26 +777,30 @@ impl App {
         matches!(self.config.text(&keys::RENDER_TIMER), Some("log" | "both"))
     }
 
-    /// The rules' identity of the display `id` of `node`.
+    /// The rules' identity of the display `id` of `node`, its place in
+    /// its card's list the place among the displays its device lists, in
+    /// the kernel's order of connectors, whatever their object ids.
     fn identity(&self, node: &Path, id: DisplayId) -> Option<vtium_config::Identity> {
         let video = self.videos.get(node)?;
         let card = self.cards.get(node).cloned().unwrap_or_default();
+        let order = video
+            .displays()
+            .iter()
+            .position(|&d| d == id)
+            .map_or(u32::MAX, |i| u32::try_from(i).unwrap_or(u32::MAX));
         Some(match video.identity(id) {
-            Some(named) => identity::display(&named, &card, id.0),
-            None => identity::unnamed_display(&video.name(id), &card, id.0),
+            Some(named) => identity::display(&named, &card, order),
+            None => identity::unnamed_display(&video.name(id), &card, order),
         })
     }
 
     /// The head the display `id` of `node` joins, by the first rule that
-    /// matches it; a display the rules leave dark is set off and logged
-    /// ([`place_display`]).
-    fn head_for(&mut self, node: &Path, id: DisplayId) -> Option<usize> {
+    /// matches it, with the display as the rules saw it; a display the
+    /// rules leave dark is set off and logged ([`place_display`]).
+    fn head_for(&mut self, node: &Path, id: DisplayId) -> Option<(usize, vtium_config::Identity)> {
         let display = self.identity(node, id)?;
         match place_display(&self.rules, &display) {
-            Ok(h) => {
-                self.lit.insert((node.to_owned(), id), display);
-                Some(h)
-            }
+            Ok(h) => Some((h, display)),
             Err(line) => {
                 log::info!("{line}");
                 self.dark.insert((node.to_owned(), id));
@@ -823,7 +834,7 @@ impl App {
         let (backend, name) = (video.backend(), video.name(id));
         let levels = video.levels(id);
         let measured = video.dpi(id).is_some();
-        let Some(h) = self.head_for(node, id) else {
+        let Some((h, display)) = self.head_for(node, id) else {
             return;
         };
         if !measured
@@ -867,6 +878,9 @@ impl App {
             }
             return;
         }
+        // Lit once it draws, so the focus never starts on a head whose
+        // display could not be set up.
+        self.lit.insert(key.clone(), display);
         if let Some(v) = self.heads.get(h).and_then(|head| head.views.get(&key)) {
             let cell = v.renderer.font().cell();
             log::info!(
@@ -1300,7 +1314,24 @@ impl App {
         if self.blank.input(now) {
             let retake = std::mem::take(&mut self.retake_owed);
             for (node, video) in &mut self.videos {
-                if let Err(e) = video.unblank() {
+                // A display the rules leave dark is never unblanked: a
+                // device holding one powers up its other displays alone.
+                let dark: Vec<DisplayId> = self
+                    .dark
+                    .iter()
+                    .filter(|(n, _)| n == node)
+                    .map(|&(_, id)| id)
+                    .collect();
+                let unblanked = if dark.is_empty() {
+                    video.unblank()
+                } else {
+                    video
+                        .displays()
+                        .into_iter()
+                        .filter(|id| !dark.contains(id))
+                        .try_for_each(|id| video.set_dpms(id, Dpms::On))
+                };
+                if let Err(e) = unblanked {
                     log::warn!("cannot unblank: {e}");
                 }
                 if retake {
@@ -2271,8 +2302,248 @@ fn depth(config: &Config, levels: Option<u8>) -> Depth {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    clippy::disallowed_methods,
+    clippy::expect_used,
+    clippy::unwrap_used,
+    reason = "a test's sizes are small, its clock is the host's, and a test fails by panicking"
+)]
 mod tests {
+    use std::any::Any;
+
+    use vtium_platform::display::{Canvas, Identity, Rect, SwapError, Swapped};
+    use vtium_platform::event_loop::Loop;
+    use vtium_platform::vt::FakeVt;
+
     use super::*;
+
+    /// A device in memory with the displays `ids`, in the order it lists
+    /// them, each 320x160 and named for the rules by its connector on the
+    /// card `mem`.
+    struct Still {
+        ids: Vec<(DisplayId, &'static str)>,
+        pixels: Vec<u8>,
+        events: Vec<Event>,
+        awake: bool,
+    }
+
+    impl Still {
+        fn new(ids: &[(u32, &'static str)]) -> Still {
+            Still {
+                ids: ids
+                    .iter()
+                    .map(|&(id, name)| (DisplayId(id), name))
+                    .collect(),
+                pixels: vec![0; 320 * 160 * 4],
+                events: Vec::new(),
+                awake: false,
+            }
+        }
+    }
+
+    impl Video for Still {
+        fn backend(&self) -> &'static str {
+            "still"
+        }
+        fn events(&mut self) -> Vec<Event> {
+            std::mem::take(&mut self.events)
+        }
+        fn displays(&self) -> Vec<DisplayId> {
+            if self.awake {
+                self.ids.iter().map(|&(id, _)| id).collect()
+            } else {
+                Vec::new()
+            }
+        }
+        fn name(&self, id: DisplayId) -> String {
+            self.ids
+                .iter()
+                .find(|&&(i, _)| i == id)
+                .map_or("?", |&(_, n)| n)
+                .to_owned()
+        }
+        fn size(&self, _: DisplayId) -> Option<(u32, u32)> {
+            Some((320, 160))
+        }
+        fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
+            None
+        }
+        fn dpi(&self, _: DisplayId) -> Option<(f64, f64)> {
+            Some((72.0, 72.0))
+        }
+        fn identity(&self, id: DisplayId) -> Option<Identity> {
+            Some(Identity {
+                connector: self.name(id),
+                card: Some("mem".to_owned()),
+                edid: None,
+                lit_at_start: false,
+            })
+        }
+        fn canvas(&mut self, _: DisplayId) -> Option<Canvas<'_>> {
+            Some(Canvas {
+                pixels: &mut self.pixels,
+                width: 320,
+                height: 160,
+                stride: 320 * 4,
+                age: 0,
+            })
+        }
+        fn swap(&mut self, _: DisplayId, _: &[Rect]) -> Result<Swapped, SwapError> {
+            Ok(Swapped::Frame)
+        }
+        fn is_flipping(&self, _: DisplayId) -> bool {
+            false
+        }
+        fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
+            Ok(())
+        }
+        fn sleep(&mut self) {
+            self.awake = false;
+        }
+        fn wake_up(&mut self) -> io::Result<()> {
+            if !self.awake {
+                self.awake = true;
+                self.events
+                    .extend(self.ids.iter().map(|&(id, _)| Event::Added(id)));
+            }
+            Ok(())
+        }
+        fn unblank(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn input(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn hotplug(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn as_any(&mut self) -> &mut dyn Any {
+            self
+        }
+    }
+
+    /// The seat at 16 points on 72 DPI, with the head file `heads`, the
+    /// font sources `fonts` and the device `video` at `/dev/mem0`, before
+    /// its first turn.
+    fn seat(heads: Option<&str>, fonts: font::Sources) -> (Loop<App>, App) {
+        let args: Vec<OsString> = ["--font-size=16", "--login", "--", "/bin/true"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let mut app = App::new(
+            loaded.config,
+            Box::new(FakeVt::new()),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        app.set_font_sources(fonts);
+        if let Some(text) = heads {
+            app.set_heads(vtium_config::parse(text).unwrap().config);
+        }
+        (lp, app)
+    }
+
+    fn no_fonts() -> font::Sources {
+        font::Sources {
+            frits: PathBuf::from("/nonexistent/vtium-test-frits"),
+            helper: None,
+            vconsole_conf: PathBuf::from("/dev/null"),
+            kernel_cmdline: PathBuf::from("/dev/null"),
+        }
+    }
+
+    /// Shows the VT and runs a turn, which sets every device up.
+    fn shown(app: &mut App) {
+        app.vt.activate().unwrap();
+        app.turn(Instant::now());
+    }
+
+    // ADR-1401 D9 and vtium-config's Identity: a display's order is its
+    // place in its card's connector list, which the boot display is picked
+    // by, whatever its KMS object id.
+    #[test]
+    fn a_displays_order_is_its_place_in_the_list_not_its_object_id() {
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(9, "A"), (3, "B")])),
+        );
+        shown(&mut app);
+        let order = |id: u32| {
+            app.lit
+                .get(&(PathBuf::from("/dev/mem0"), DisplayId(id)))
+                .map(|d| d.order)
+        };
+        assert_eq!((order(9), order(3)), (Some(0), Some(1)));
+    }
+
+    // ADR-1401 D5: the focus starts on a head with a display that draws; a
+    // display whose font cannot be set up is no lit display of its head.
+    #[test]
+    fn a_display_whose_font_fails_takes_no_focus() {
+        let heads = "version = 1\n[head a]\n[head b]\n[rules]\ndisplay connector:mem/A -> a\ndisplay connector:mem/B -> b\n";
+        let (_lp, mut app) = seat(Some(heads), no_fonts());
+        if let Some(head) = app.heads.first_mut() {
+            head.font = Some(Chosen::Builtin(Some("no-such-set")));
+        }
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A"), (2, "B")])),
+        );
+        shown(&mut app);
+        assert!(
+            app.heads.first().is_some_and(|h| h.views.is_empty()),
+            "a draws nothing"
+        );
+        assert_eq!(app.lit.len(), 1);
+        assert_eq!(app.focus, Some(1), "the focus starts on b");
+    }
+
+    // ADR-1401 D1: a frit's helper fills the cells of the heads drawing
+    // it. Once one of two heads drawing `t` switches away by OSC 50, `t`
+    // keeps the other head's cell alone.
+    #[test]
+    fn a_frit_a_head_left_keeps_the_cells_of_the_heads_still_drawing_it() {
+        let dir = std::env::temp_dir().join(format!("vtium-app-left-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("t.vtfrit"), "source=builtin:unifont\n").unwrap();
+        let fonts = font::Sources {
+            frits: dir.clone(),
+            helper: Some(helper::Command {
+                program: PathBuf::from("/bin/sh"),
+                args: vec!["-c".into(), "exec sleep 30".into()],
+                account: None,
+            }),
+            ..no_fonts()
+        };
+        let heads = "version = 1\n[head a]\nfont-name = t\n[head b]\nfont-name = t\nfont-size = 32\n[rules]\ndisplay connector:mem/A -> a\ndisplay connector:mem/B -> b\n";
+        let (_lp, mut app) = seat(Some(heads), fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A"), (2, "B")])),
+        );
+        shown(&mut app);
+        let asked = |app: &App| {
+            let mut cells: Vec<(u32, u32)> = app
+                .frits
+                .get("t")
+                .map(|f| f.asked.iter().map(|c| (c.width, c.height)).collect())
+                .unwrap_or_default();
+            cells.sort_unstable();
+            cells
+        };
+        assert_eq!(asked(&app), [(8, 16), (16, 32)]);
+        app.switch_font(0, "unifont");
+        assert_eq!(app.heads.first().and_then(Head::frit), None);
+        assert_eq!(asked(&app), [(16, 32)], "b's cell alone");
+        drop(app);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn display_depth_overrides_what_the_device_says() {

@@ -38,6 +38,9 @@ struct Memory {
     awake: bool,
     dpms: Option<Dpms>,
     frames: u32,
+    /// Each unblank of the device, and each power state set, in order.
+    unblanks: u32,
+    dpms_sets: Vec<Dpms>,
 }
 
 impl Memory {
@@ -56,6 +59,8 @@ impl Memory {
             awake: false,
             dpms: None,
             frames: 0,
+            unblanks: 0,
+            dpms_sets: Vec::new(),
         }
     }
 
@@ -125,6 +130,7 @@ impl Video for Memory {
     }
     fn set_dpms(&mut self, _: DisplayId, dpms: Dpms) -> io::Result<()> {
         self.dpms = Some(dpms);
+        self.dpms_sets.push(dpms);
         Ok(())
     }
     fn sleep(&mut self) {
@@ -145,6 +151,7 @@ impl Video for Memory {
         Ok(())
     }
     fn unblank(&mut self) -> io::Result<()> {
+        self.unblanks += 1;
         self.set_dpms(ID, Dpms::On)
     }
     fn input(&mut self) -> io::Result<()> {
@@ -276,6 +283,24 @@ impl Seat {
             .get_mut(Path::new(node))
             .and_then(|v| v.as_any().downcast_mut::<Memory>())
             .expect("a memory device")
+    }
+
+    /// Turns the loop until the memory device at `node` satisfies `done`,
+    /// at most `limit`.
+    fn until_memory(
+        &mut self,
+        node: &str,
+        limit: Duration,
+        done: impl Fn(&Memory) -> bool,
+    ) -> bool {
+        let end = now() + limit;
+        while !done(self.memory(node)) {
+            if now() > end {
+                return false;
+            }
+            self.until(Duration::from_millis(20), |_| false);
+        }
+        true
     }
 
     /// Types `text` as a keyboard does.
@@ -536,7 +561,7 @@ fn a_head_with_no_display_starts_no_session() {
 }
 
 /// The frits `names`, each of one built-in source, in a directory of its
-/// own, and a stand-in helper that writes a line to the directory's
+/// own, and a stand-in helper that writes its pid to the directory's
 /// `starts` as it starts and answers nothing; the sources and the file.
 fn frits(test: &str, names: &[&str]) -> (Sources, PathBuf) {
     let dir = std::env::temp_dir().join(format!("vtium-heads-{test}-{}", std::process::id()));
@@ -552,7 +577,7 @@ fn frits(test: &str, names: &[&str]) -> (Sources, PathBuf) {
     let starts = dir.join("starts");
     let helper = vtium::helper::Command {
         program: PathBuf::from("/bin/sh"),
-        args: ["-c", "echo started >> \"$1\"; exec sleep 30", "helper"]
+        args: ["-c", "echo $$ >> \"$1\"; exec sleep 30", "helper"]
             .into_iter()
             .map(OsString::from)
             .chain([starts.clone().into_os_string()])
@@ -617,7 +642,8 @@ fn with_no_head_file_the_seat_runs_the_compiled_in_heads() {
 
 /// D1: one glyph helper for each frit in use. Two heads drawing the frit
 /// `t` share its helper, and a head drawing the frit `u` has its own; each
-/// helper the stand-in starts writes a line.
+/// helper the stand-in starts writes a line. The seat gone, each helper is
+/// killed and reaped, so no process, a zombie included, keeps its pid.
 #[test]
 fn heads_drawing_one_frit_share_its_helper_and_another_frit_has_its_own() {
     let (fonts, starts) = frits("share", &["t", "u"]);
@@ -649,8 +675,63 @@ display card:mem-c -> c
     assert!(s.until(SECOND, |_| started() >= 2), "the helpers started");
     s.until(Duration::from_millis(300), |_| false);
     assert_eq!(started(), 2, "one helper for t, one for u");
+    let pids: Vec<String> = std::fs::read_to_string(&starts)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_owned)
+        .collect();
     drop(s);
+    let gone = |pid: &String| !Path::new(&format!("/proc/{pid}")).exists();
+    let end = now() + SECOND;
+    while now() < end && !pids.iter().all(gone) {
+        std::thread::yield_now();
+    }
+    assert!(
+        pids.iter().all(gone),
+        "each helper killed and reaped: {pids:?}"
+    );
     if let Some(dir) = starts.parent() {
         let _ = std::fs::remove_dir_all(dir);
     }
+}
+
+/// D3: a display the rules leave dark is never unblanked. A framebuffer's
+/// display left dark stays off when the blank ends, and only the lit
+/// display powers up again.
+#[test]
+fn the_end_of_the_blank_never_unblanks_a_dark_display() {
+    let heads = "version = 1
+[head small]
+[rules]
+display card:mem-small -> small
+display card:mem-large -> dark
+";
+    let mut s = Seat::with_heads(&["--dpms-timeout=1"], Some(heads), two_displays(), "read x");
+    assert!(s.until(SECOND, |a| a.cells().len() == 1));
+    assert!(
+        s.until_memory("/dev/mem0", Duration::from_secs(4), |m| m.dpms
+            == Some(Dpms::Off)),
+        "blanked after dpms-timeout"
+    );
+    let before = (
+        s.memory("/dev/mem1").unblanks,
+        s.memory("/dev/mem1").dpms_sets.len(),
+    );
+    s.type_str("x");
+    assert_eq!(
+        s.memory("/dev/mem0").dpms,
+        Some(Dpms::On),
+        "the lit display wakes"
+    );
+    let dark = s.memory("/dev/mem1");
+    assert_eq!(
+        dark.unblanks, before.0,
+        "the dark display is never unblanked"
+    );
+    assert!(
+        !dark.dpms_sets.iter().skip(before.1).any(|&d| d == Dpms::On),
+        "nor powered on: {:?}",
+        dark.dpms_sets
+    );
+    assert_eq!(dark.dpms, Some(Dpms::Off));
 }
