@@ -24,7 +24,9 @@
 //! device by the first rule that matches it, reading nothing but the
 //! device's [`Identity`] and the rules, and [`Config::place`] places a set
 //! of devices and runs the guards over the result. [`Config::builtin`] is
-//! the compiled-in configuration, the parse of [`TEMPLATE`].
+//! the compiled-in configuration, the parse of [`TEMPLATE`]. [`resolve`]
+//! decides what runs for each state the file can be in: missing,
+//! untrusted, valid, partly broken or broken.
 //!
 //! ```
 //! use vtium_config::{Class, Identity, Place, parse};
@@ -42,6 +44,7 @@ mod error;
 mod file;
 mod identity;
 mod matching;
+mod outcome;
 mod parse;
 mod place;
 
@@ -55,5 +58,9 @@ pub use error::{At, Error, Note, Problem, Quoted, Rejected, Warning, at};
 pub use file::{HEAD_FILE, Inspected, Trust, Untrusted, inspect, read, text};
 pub use identity::{Class, Classes, Edid, Identity, Kind, UsbSerial};
 pub use matching::{Match, Token, glob};
+pub use outcome::{
+    DisplayWait, Fallback, Kept, Line, Lit, Outcome, Policy, PolicyLine, Read, Rescue, Rest, Runs,
+    Scope, Stated, Switch, SwitchKey, Trusted, Unplaced, Within, resolve, scope,
+};
 pub use parse::{Parsed, parse};
 pub use place::{By, Disposition, Lockout, Place, Placed, Placement, rule_for};
