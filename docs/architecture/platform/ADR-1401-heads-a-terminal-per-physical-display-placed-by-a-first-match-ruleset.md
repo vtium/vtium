@@ -140,11 +140,16 @@ considered:
     said: "A keyboard following the focus acts as a keyboard of the head that holds the focus: if that head has vt-keys = on its VT keys switch the VT, if vt-keys = off the press reaches that head's session as a key, and with no focus the keyboard delivers nothing, VT keys included. Every keyboard asks a head: a claimed keyboard its own, a following keyboard the focused one, and with no head to ask the answer is no. This replaces the rule that keyboards following the focus keep the VT keys whatever any head says. If no lit head takes the focus and later a head that takes it lights, the focus lands on it at once, the one move besides the focus chord and the anti-lockout guard, and only out of having none."
     via: the operator's decision in conversation with the team lead, 2026-10-30, relayed in the team lead's message; the wording is the team lead's
     paraphrase: true
+  - operator: aaronsb
+    said: "The head file works like a firewall's default policy: the rules read the same under either policy, and the only difference is what happens to anything no rule mentions. Under default allow, anything the file does not mention gets everything, rules take rights away, and a file fails by leaking; this is today's console and the shipped default. Under default deny, anything the file does not mention gets nothing, rules grant rights, and a file fails by lockout; a kiosk and stations are deny files. Both are one rules engine with one rule language, and neither is a special mode; every keyboard asks a head under both. A top-level key default = allow | deny, on the line after version, allow when unset. Under deny an input no rule matches is ignored, a display no rule matches stays dark as under allow, a head key the file leaves unset takes its closed value (focus = off, vt-keys = off, rescue = off), anything the file writes explicitly still wins, and the guards are unchanged. vtium check-config and vtiumctl check list what fell to the default as notes, exit 0, with a prominent note under deny when no keyboard can reach any head. An invalid file follows its posture: vtium reads version and default first; a file that declares default = deny and is invalid after that fails closed, the never-dark guard lighting the boot display with the error notice and no keyboard delivering anything; an error before vtium knows the posture, or in a file under allow, falls back to the shipped rules as today; a deliberate or broken deny file is recovered out of band."
+    via: the operator's decision in conversation with the team lead, 2026-10-30, relayed in the team lead's brief; the wording is the team lead's
+    paraphrase: true
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and an unclaimed keyboard follows the focus chord"
   - "The same devices reported in any order reach the same heads"
-  - "A boot with an invalid head file runs the shipped rules, shows the notice, and leaves the file's bytes as they were"
+  - "A boot with an invalid head file that does not declare `default = deny` runs the shipped rules, shows the notice, and leaves the file's bytes as they were"
+  - "Under `default = deny`, a keyboard no rule names delivers nothing, and a deny file made invalid after its `default` line lights the boot display with the notice while no keyboard delivers anything"
   - "With every keyboard claimed by a head whose display is absent, every keyboard types into the focused head, with a notice"
   - "Ctrl-Alt-F<n> for the shown VT, pressed on a keyboard claimed elsewhere or ignored, moves that keyboard to the focus for the boot, and the head file is unchanged"
   - "`vtiumctl detect` as an unprivileged user lists every display and input with a rule line ready to paste"
@@ -160,12 +165,14 @@ related: []
 
 ## Summary
 
-- **Decided:** vtium drives every display it can see from one process, as a set of **heads**. A head is a terminal for one or more displays: its displays, its inputs, a profile, and a stack of virtual consoles, each a session with its own pty, screen, scrollback and grid. A head's grid is its own, so each head draws at its own displays' density. Heads serve machines where vtium is the only thing on screen: servers, kiosks, and single-board computers with a panel and an HDMI display. One kernel VT spans every display, so a vtium console beside a running desktop on another monitor is the seat extension of D2, not heads. One optional, root-owned head file declares the heads and an ordered ruleset; each display and each input walks the rules alone, top to bottom, and the first match places it: in a head, in the focus, ignored, or dark. The shipped ruleset, one head for every display with every keyboard, pointer and other key device typing into it and every other input ignored, is today's console with udev's input classes as its allowlist. With no file present vtium runs its compiled-in configuration, and it never writes one; an invalid file is reported, never altered, and replaced in memory by the shipped default; and three guards, on unless the file turns them off, keep a keyboard typing whatever the rules say, the last of them a key the user presses: `Ctrl-Alt-F<n>` for the VT already shown. `vtiumctl`, a small binary of its own, is the configuration tool: it detects, sets up, reports and checks, with or without privilege, from the console or a desktop. With every display and input declared and each head's `vt-keys` off, each head serves a station, so several people work at once on one machine, each at their own display and keyboard (D5). Each route by which one input can reach another person's session has a switch of its own, defaulting to today's console, and recovery from a lockout a head file builds is outside vtium (D9).
+- **Decided:** vtium drives every display it can see from one process, as a set of **heads**. A head is a terminal for one or more displays: its displays, its inputs, a profile, and a stack of virtual consoles, each a session with its own pty, screen, scrollback and grid. A head's grid is its own, so each head draws at its own displays' density. Heads serve machines where vtium is the only thing on screen: servers, kiosks, and single-board computers with a panel and an HDMI display. One kernel VT spans every display, so a vtium console beside a running desktop on another monitor is the seat extension of D2, not heads. One optional, root-owned head file declares the heads and an ordered ruleset; each display and each input walks the rules alone, top to bottom, and the first match places it: in a head, in the focus, ignored, or dark. The file declares a posture, as a firewall declares its default policy, and the rules read the same under either: under `default = allow`, the value when unset, an input no rule matches follows the focus and each head right the file leaves unset is on, so rules take rights away; under `default = deny`, an input no rule matches is ignored and each head right left unset is off, so rules grant rights (D3). The shipped ruleset, one head for every display with every keyboard, pointer and other key device typing into it and every other input ignored, is today's console with udev's input classes as its allowlist. With no file present vtium runs its compiled-in configuration, and it never writes one; an invalid file is reported, never altered, and replaced in memory by the shipped default, unless it declares `default = deny`, when it fails closed (D7); and three guards, on unless the file turns them off, keep a keyboard typing whatever the rules say, the last of them a key the user presses: `Ctrl-Alt-F<n>` for the VT already shown. `vtiumctl`, a small binary of its own, is the configuration tool: it detects, sets up, reports and checks, with or without privilege, from the console or a desktop. A deny file that declares every display and input gives each head a station, so several people work at once on one machine, each at their own display and keyboard (D5). Each route by which one input can reach another person's session has a switch of its own, and recovery from a lockout a head file builds is outside vtium (D9).
 > Edited 2026-10-29: the operator accepted an independent advisor's review (`considered`): the Summary names the use case heads serve. It did not say which machines they are for. The configuration tool is `vtiumctl`; the Summary read "`vtium-vitrify` becomes the configuration tool".
 
 > Edited 2026-10-29: the operator answered C1 (`considered`): the shipped rules gain `input class:key -> focus`. The Summary read: "with every keyboard and pointer typing into it and every other input ignored".
 
 > Edited 2026-10-30: the operator added stations, the per-route switches and recovery outside vtium (`considered`). The Summary named no stations and no routes.
+
+> Edited 2026-10-30: the operator added the head file's posture, the key `default`, and made an invalid deny file fail closed (`considered`). The Summary named no posture, and its sentence on invalid files read: "an invalid file is reported, never altered, and replaced in memory by the shipped default;".
 
 - **Trades away:** One process holds every display of the seat, so a fault in one head's session handling reaches every head. Several terminals share one kernel VT, which the C reference refused. The console takes on device routing, a ruleset parser and a notice of its own, and opens keyboards the rules ignore. Mirroring across heads with different densities, which today's single grid gives, needs a head that claims both displays. A station's login has no logind seat (Context), so no seat-bound device such as audio reaches it; a fully independent station is D2's seat extension.
 
@@ -222,7 +229,7 @@ flowchart TB
     VT --- CARDS
     RULES -->|"claimed"| H1
     RULES -->|"claimed"| H2
-    RULES -->|"unclaimed, or focus"| FOCUS
+    RULES -->|"focus, or unclaimed<br>under allow"| FOCUS
     FOCUS -.->|"one head at a time"| H1
     FOCUS -.-> H2
     classDef core fill:#7c3aed,color:#ffffff,stroke:#94a3b8
@@ -237,6 +244,8 @@ flowchart TB
     style H1 fill:#f6821f1a,stroke:#d97706
     style H2 fill:#f6821f1a,stroke:#d97706
 ```
+
+> Edited 2026-10-30: the operator added the posture (`considered`): an unclaimed input follows the focus only under `default = allow`. The edge to the focus read "unclaimed, or focus".
 
 ### D1: heads
 
@@ -266,6 +275,31 @@ The later extension of two seats, drawn so its boundary is clear:
 ### D3: the head file
 
 One file, `/etc/vtium/heads.conf`, holds the heads and an ordered list of rules. Its first line that is not a comment is `version = 1`; a file with no version, or a version vtium does not know, is invalid (D7) and falls back whole. vtium reads no drop-ins beside it. Its lines are bounded as kmscon.conf's are (65536 bytes a file, 8192 a line); `#` starts a comment; spaces around `=` and between tokens are dropped.
+
+#### The posture: `default`
+
+The head file declares a posture, as a firewall declares its default policy: `default = allow` or `default = deny`, on the first line after `version` that is not a comment, and `allow` when the file does not set it, which is what the shipped rules and the compiled-in configuration mean. Both postures run one rules engine over one rule language, and neither is a special mode. The rules read the same under either; the posture decides what happens to a device no rule matches and to a head key the file leaves unset.
+
+| | `default = allow` | `default = deny` |
+|---|---|---|
+| An input no rule matches | follows the focus | is ignored |
+| A display no rule matches | stays dark, logged with the rule line that would claim it | the same |
+| A head's `focus`, `vt-keys` and `rescue`, left unset | `on` | `off` |
+| A head key the file writes | wins | wins |
+| The guards (D9) | as `[guards]` says | the same |
+| What rules do | take rights away: this keyboard belongs to head A, head B cannot switch VTs | grant rights: this keyboard belongs to head A, head A may switch VTs |
+| How a file fails | by leaking: a forgotten rule leaves a stranger's keyboard following the focus, or a head's VT keys on | by lockout: a forgotten rule leaves the author's own keyboard dead |
+| The author's question | what must I stop from reaching everything? | what must I let in, so I don't shut myself out? |
+| An invalid file (D7) | runs the shipped rules | fails closed |
+| Used for | today's console, the shipped default, and heads with bound keyboards | a kiosk, and stations |
+
+- Under both postures every keyboard asks a head: a claimed keyboard asks its own, a keyboard following the focus asks the focused head, and with no head to ask the answer is no (D5).
+- Under `deny`, a head that writes `vt-keys = on` takes the VT switch back, and one that writes `focus = on` lets the focus rest on it; an operator keeps a way in at the machine with such a head of their own, and otherwise only out of band (D9).
+- `vtium check-config` and `vtiumctl check` list what fell to the default under each posture (D9).
+
+> Edited 2026-10-30: the operator added the head file's posture and its key `default` (`considered`). The head file had no `default` key, and every file behaved as an allow file does.
+
+#### Heads and rules
 
 ```ini
 # /etc/vtium/heads.conf for the machine under Evidence; the EDID values are illustrative
@@ -310,13 +344,15 @@ The example's placement: two heads, each with its own display and keyboard, and 
 - **One of each.** A key given twice in one section, a second `[rules]` section or a second `[guards]` section makes the file invalid (D7).
 - **Targets.** A head's name. `focus`, for an input: it follows the focus chord (D5). `ignore`, for an input: vtium never opens it, but for a keyboard watched for the rescue key alone (D9). `dark`, for a display: vtium sets its connector off, so it shows nothing, a frame another master left included, and logs it.
 - **First match, alone.** Each device walks the rules top to bottom and takes the first that matches it. The walk reads only the device's own identity and the rules, never another device or the order devices were reported, so a hotplugged device lands where it would at start (D11's determinism row).
-- **No match.** A display goes dark, and the log names it with the rule line that would claim it, ready to paste. An input follows the focus.
-- **The shipped default** is one head, `[head console]` with the default profile, and the rules `display * -> console`, `input class:keyboard -> focus` and the same for `mouse`, `touchpad`, `touchscreen`, `trackball` and `pointingstick`, then `input class:key -> focus`, then `input * -> ignore`: one head mirroring every display, every keyboard, pointer and other key device typing into it as vtium does today, numpads and macro pads without letters and media-key devices among them, and joysticks, tablets, switches and accelerometers left closed. The shipped rules match by `class:` alone, so the compiled-in configuration means the same with or without a udev daemon: the classes come from udev's tags where udev runs and from vtium's own `input_id` rule where it does not (D4). Tokens are not ignored by default: a console login may use an OTP, so a token follows the focus like any keyboard. The rules are the allowlist; there is no separate one. A user customises by adding rules above them. kmscon.conf's `mouse` key stays as a shorthand: `mouse` off drops the pointer rules from the shipped rules.
+- **No match.** A display goes dark, and the log names it with the rule line that would claim it, ready to paste. An input follows the focus under `default = allow` and is ignored under `default = deny`.
+- **The shipped default** is one head, `[head console]` with the default profile, and the rules `display * -> console`, `input class:keyboard -> focus` and the same for `mouse`, `touchpad`, `touchscreen`, `trackball` and `pointingstick`, then `input class:key -> focus`, then `input * -> ignore`: one head mirroring every display, every keyboard, pointer and other key device typing into it as vtium does today, numpads and macro pads without letters and media-key devices among them, and joysticks, tablets, switches and accelerometers left closed. It sets no `default`, so it is an allow file whose last rule closes the inputs no class names. The shipped rules match by `class:` alone, so the compiled-in configuration means the same with or without a udev daemon: the classes come from udev's tags where udev runs and from vtium's own `input_id` rule where it does not (D4). Tokens are not ignored by default: a console login may use an OTP, so a token follows the focus like any keyboard. The rules are the allowlist; there is no separate one. A user customises by adding rules above them. kmscon.conf's `mouse` key stays as a shorthand: `mouse` off drops the pointer rules from the shipped rules.
 
 > Edited 2026-10-29: the operator answered (`considered`): the head file is `/etc/vtium/heads.conf`, one file with no drop-ins (probe 1); consoles and `login` are set per head in the head file (probe 2); and kmscon.conf's `mouse` key stays as a shorthand that drops the pointer rules. D3 cited probe 1 for the path, and the `mouse` key was an agent call.
 > Edited 2026-10-29: the operator answered C1 (`considered`): the shipped rules gain `input class:key -> focus`. The shipped rules went from the pointer classes straight to `input * -> ignore`, which closed numpads and macro pads without letters, and the bullet ended: "A user customises by adding rules above them: `input class:key -> focus` above the last line lets media keys through."
 
 > Edited 2026-10-30: the operator added the head keys `vt-keys` and `focus` (`considered`). A head's keys read: "`on-loss` (D8), `rescue` (D9), and the font keys".
+
+> Edited 2026-10-30: the operator added the posture (`considered`). "**No match.**" ended: "An input follows the focus."; the shipped default named no posture; and the walk's diagram below drew `Implicit --> Focus: an input`.
 
 - **A head names a profile,** the profile of ADR-1200 D16, which names a frit; the head file says where devices go. Until a profile file format exists (#121, #136, #137), a head's `profile` resolves to the compiled-in default profile for `default`, and to the frit of that name for any other name.
 - **The more specific setting wins.** The configuration file's font keys, `font-name` and `font-size` as kmscon.conf carries them, are the base for every head; a head's profile overrides them for that head; and a font key in the head's own section overrides both. A profile overrides only what it states, so a head with the default profile takes the configuration's keys (ADR-1200 D16). A single `font-size` in the configuration no longer sets every head's size.
@@ -340,7 +376,8 @@ stateDiagram-v2
     Rule --> Dark: first match is dark (displays)
     Rule --> Implicit: no rule matched
     Implicit --> Dark: a display, logged with<br>the rule line to paste
-    Implicit --> Focus: an input
+    Implicit --> Focus: an input, under allow
+    Implicit --> Ignore: an input, under deny
     Head --> Placed
     Focus --> Placed
     Ignore --> Placed: a keyboard is watched<br>for the rescue key only
@@ -417,14 +454,16 @@ The hwdb fragment uses udev's own `evdev:` prefix, which systemd's stock `60-evd
 
 ### D5: focus and input
 
-- An input no rule claims, or one a rule sends to `focus`, follows the focus. Focus starts on the head holding the boot display (D9), else the first head in the file with a lit display, taking only a head that takes the focus (`focus`, below). The focus chord moves it only to a head with a lit display that takes the focus, and it never moves because a head's display left or came back (D8). The other moves are the anti-lockout guard's, which takes the focus to a lit head when it fires (D9), and the one out of having none: while no lit head takes the focus there is no focus, and when a head that takes it lights, the focus lands on it at once.
+- An input a rule sends to `focus` follows the focus, and so does an input no rule claims under `default = allow`; under `default = deny` an input no rule claims is ignored (D3). Focus starts on the head holding the boot display (D9), else the first head in the file with a lit display, taking only a head that takes the focus (`focus`, below). The focus chord moves it only to a head with a lit display that takes the focus, and it never moves because a head's display left or came back (D8). The other moves are the anti-lockout guard's, which takes the focus to a lit head when it fires (D9), and the one out of having none: while no lit head takes the focus there is no focus, and when a head that takes it lights, the focus lands on it at once.
 - A hotplug moves the focus only out of having none, and a new keyboard never takes it. Every head shows whether it holds the focus, drawn by vtium outside the session's output.
+
+> Edited 2026-10-30: the operator added the posture (`considered`). The first bullet began: "An input no rule claims, or one a rule sends to `focus`, follows the focus."
 
 > Edited 2026-10-30: the operator decided that the focus lands on a head out of having none (`considered`). The bullets read: "The one other move is the anti-lockout guard's, which takes the focus to a lit head when it fires (D9)." and "Focus moves only by the focus chord, never at a hotplug, and a new keyboard never takes it."
 
 - A keyboard a rule sends to a head types into that head alone, and its console chords switch that head's consoles. Only keyboards following the focus take the focus chord, and it moves only the devices following the focus; pressed on a keyboard a rule sends to a head, it moves nothing and reaches that head's session as an ordinary key.
-- **The VT keys, per head (`vt-keys`).** With `vt-keys = on`, the value when unset and in the compiled-in configuration and the template, the keyboards a head's rules claim switch the VT as every keyboard does today. With `vt-keys = off`, `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>` for another VT, pressed on those keyboards, switch nothing: the press goes on down the key order and reaches that head's session as an ordinary key, as a serial terminal sends it. A keyboard following the focus acts as a keyboard of the head holding the focus: where that head has `vt-keys = on` its VT keys switch the VT, where it has `vt-keys = off` the press reaches that head's session as a key, and with no focus the keyboard delivers nothing, the VT keys included. Every keyboard asks a head: a claimed keyboard its own, a following keyboard the focused one, and with no head to ask the answer is no. The shown VT's own key stays the rescue key, governed by `rescue-key` and the head's `rescue` whatever `vt-keys` says (D9).
-- **Arrival through the focus, per head (`focus`).** With `focus = on`, the value when unset and in the compiled-in configuration and the template, the head takes the focus as every head does today. With `focus = off`, the focus never rests on that head, so no input reaches it through the focus: neither a keyboard no rule claims, nor one the rescue key moves, nor those the anti-lockout guard moves. Its own claimed keyboards still type into it. Where the focus would start on such a head, or the anti-lockout guard would move it there, it goes to the next head in that order that takes it (D9). With no lit head taking the focus there is no focus: the inputs following it deliver nowhere, and the anti-lockout guard has nothing to move them to, until a head that takes the focus lights (above).
+- **The VT keys, per head (`vt-keys`).** With `vt-keys = on`, the value when unset under `default = allow`, as in the compiled-in configuration and the template, the keyboards a head's rules claim switch the VT as every keyboard does today. With `vt-keys = off`, the value when unset under `default = deny`, `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>` for another VT, pressed on those keyboards, switch nothing: the press goes on down the key order and reaches that head's session as an ordinary key, as a serial terminal sends it. A keyboard following the focus acts as a keyboard of the head holding the focus: where that head has `vt-keys = on` its VT keys switch the VT, where it has `vt-keys = off` the press reaches that head's session as a key, and with no focus the keyboard delivers nothing, the VT keys included. Every keyboard asks a head: a claimed keyboard its own, a following keyboard the focused one, and with no head to ask the answer is no. The shown VT's own key stays the rescue key, governed by `rescue-key` and the head's `rescue` whatever `vt-keys` says (D9).
+- **Arrival through the focus, per head (`focus`).** With `focus = on`, the value when unset under `default = allow`, as in the compiled-in configuration and the template, the head takes the focus as every head does today. With `focus = off`, the value when unset under `default = deny`, the focus never rests on that head, so no input reaches it through the focus: neither a keyboard no rule claims, nor one the rescue key moves, nor those the anti-lockout guard moves. Its own claimed keyboards still type into it. Where the focus would start on such a head, or the anti-lockout guard would move it there, it goes to the next head in that order that takes it (D9). With no lit head taking the focus there is no focus: the inputs following it deliver nowhere, and the anti-lockout guard has nothing to move them to, until a head that takes the focus lights (above).
 - Pointers follow the same rules: a pointer claimed by a head moves on that head's displays; one following the focus moves on the focused head's.
 - Each keyboard's lock LEDs show that keyboard's own lock state, within its head. A program's DECLL stays ignored, and vtium-term leaves the LEDs as the user set them (ADR-1000 `ctl.decll`).
 - Spreading spare keyboards one per head happens only on an explicit `input * -> HEAD` rule, never inferred; inferring would misplace an OTP token or a media-key device.
@@ -451,7 +490,7 @@ One keyboard and two heads, before and after the focus chord:
 
 ![One keyboard, two heads, in two rows. Before the chord, head desk with the large monitor holds the focus, a filled mark, and its session reads the keys typed; head panel with the small panel shows a hollow mark, its session running on with no keys reaching it; the keyboard's arrow points to head desk. Between the rows, the focus chord, pressed on the keyboard, a grab key whose default chord is vtium/vtium#82's. After the chord, head desk shows no focus and head panel holds it, and the keyboard's arrow points to head panel. The caption says focus moves only by the chord, never at a hotplug, a new keyboard never takes it, it rests only on a head with a lit display, and each head draws its mark outside the session's output. A legend marks vtium as root, a device, holds the focus and no focus.](figures/ADR-1401-focus.svg)
 
-**Stations.** `vt-keys = off` and `focus = off` exist so that heads with every display and input declared can each serve one person at their own display and keyboard, several at once on one machine. Stations are off by default; [heads.md](../../heads.md) carries their configuration beside the other scenarios.
+**Stations.** A file under `default = deny` that declares every display and input lets each head serve one person at their own display and keyboard, several at once on one machine, since each head's unset `vt-keys`, `focus` and `rescue` are off. Stations are off by default; [heads.md](../../heads.md) carries their configuration beside the other scenarios.
 
 > Edited 2026-10-30: the operator added stations as a scenario the user guide configures (`considered`). D5 named no stations.
 
@@ -474,7 +513,8 @@ A machine with no configuration at all:
 
 - **Three outcomes.** *Invalid:* a missing or unknown `version`, a syntax error, an unknown key, a rule targeting an undefined head or a target of the wrong kind, two heads of one name, a key given twice in one section, a second `[rules]` or `[guards]` section, a value out of range, or a file that fails D10's ownership check; the file is rejected whole and no part of it applies. *Valid with warnings:* a rule matching no connected device, a rule an earlier one shadows, a profile naming a missing frit; the file applies and the warnings are logged. *Valid but unusable on the hardware present:* the guards of D9 act.
 - Missing hardware never makes a file invalid.
-- **The fallback is per file:** an invalid head file runs the shipped default; an invalid profile gives the heads naming it the default profile; an invalid frit draws the default frit, as an unreadable `cell=` or `size=` does today.
+- **The fallback is per file:** an invalid head file runs the shipped default, unless it declares `default = deny` (below); an invalid profile gives the heads naming it the default profile; an invalid frit draws the default frit, as an unreadable `cell=` or `size=` does today.
+- **An invalid head file follows its posture.** vtium reads `version` and `default` before the rest of the file. A file that declares `default = deny` and is invalid after that line fails closed: no part of it applies, the display guard (D9) lights the boot display with the error notice, and no keyboard delivers anything. An error before vtium knows the posture, such as a missing `version` or an unknown value of `default`, and an error in a file under `allow`, fall back to the shipped rules. A deny file, deliberate or broken, is recovered out of band (D9).
 - **vtium never fixes, comments out, renames or replaces a present file,** broken or empty. An empty head file has no `version`, so it is invalid and falls back whole to the shipped rules. A file with `version = 1` and no rules is a valid ruleset with no rules: every display goes dark, and D9's display guard lights the boot display in a default head.
 - **Every error is logged** with its file and line, and a notice shows on the console before the login: vtium's own message, drawn as a getty prints its banner, never written to the session's pty or kept in its scrollback; it ends on any key that reaches that head, or after 30 s. Text the notice quotes from a file is escaped first, so a control byte or an escape sequence in the file never reaches the screen. vtium keeps running.
 - **`vtium check-config`** runs the boot's parser and evaluator, lists every error with its line, and exits non-zero; given a candidate file's path, it checks that file before it is installed, as `nft -c`, `visudo -c` and `sshd -t` do. It exits 1 on an error or a warning about the file itself, as it does for kmscon.conf; a finding that depends on the hardware present, such as a rule matching no connected device, is noted on standard output outside the exit status, so a file can be checked away from its machine.
@@ -488,6 +528,8 @@ A machine with no configuration at all:
 
 > Edited 2026-10-29: the team lead's correction from the heads gap-check: the notice quotes a file's own text, which can carry control bytes. D7 said nothing of escaping it.
 
+> Edited 2026-10-30: the operator decided that an invalid head file follows its posture (`considered`). The fallback read: "an invalid head file runs the shipped default;", with no exception, and the default chain's diagram below drew one edge for an invalid head file, to the shipped rules.
+
 An invalid head file at boot:
 
 ![An invalid head file. On the left, /etc/vtium/heads.conf with seven numbered lines: version = 1, [head desk], profile = desk, [rules], display * -> desk, input path:...3.3 -> desc highlighted as the error, and input class:keyboard -> focus; line 6 names a head no section declares, and the file is left as it is, its hash before the boot equal to its hash after. In the middle, vtium at start reads the file whole, finds the error so no part of it applies, logs it with file and line, runs the shipped rules, display * -> console, the keyboard, pointer and key classes -> focus and input * -> ignore, shows the notice and keeps running. On the right, every display as one head shows the notice in a red box, vtium: heads.conf:6: rule names undefined head "desc"; running the shipped rules, drawn by vtium and never in the session, above the login prompt, and the session starts as before. Below, vtium check-config /etc/vtium/heads.conf prints the same error with its line and exits 1, the boot's parser and evaluator run on a candidate before install. The caption says vtium never fixes, comments out, renames or replaces a present file, an invalid profile gives its heads the default profile, an invalid frit draws the default frit, and missing hardware never makes a file invalid; the message's wording is illustrative. A legend marks vtium as root, a device, and an error or a notice.](figures/ADR-1401-invalid-file.svg)
@@ -497,10 +539,12 @@ The default chain and each file's fallback, from the head file to the built-in f
 ```mermaid
 flowchart LR
     HF{"the head file"} -->|"missing"| HFI["the compiled-in default,<br>nothing written"]
-    HF -->|"invalid"| HFS["the shipped rules,<br>logged, notice"]
+    HF -->|"invalid, under allow<br>or before the posture"| HFS["the shipped rules,<br>logged, notice"]
+    HF -->|"invalid after<br>default = deny"| HFC["fails closed: the boot display<br>lit with the notice,<br>no keyboard delivering"]
     HF -->|"valid"| HFV["its heads and rules"]
     HFI --> PR
     HFS --> PR
+    HFC --> PR
     HFV --> PR{"each head's profile"}
     PR -->|"missing default"| PRI["the compiled-in<br>default profile"]
     PR -->|"missing, by name"| PRD["the default profile,<br>logged"]
@@ -522,7 +566,7 @@ flowchart LR
     classDef done fill:#2d8e5e,color:#ffffff,stroke:#94a3b8
     class HF,PR,FR check
     class HFV,PRV,FRV step
-    class HFI,HFS,PRI,PRD,FRI,FRD fall
+    class HFI,HFS,HFC,PRI,PRD,FRI,FRD fall
     class BI done
 ```
 
@@ -565,25 +609,29 @@ A boot with nothing attached, each device added after it, and the display remove
   - `rescue-key = off`: `Ctrl-Alt-F<n>` on the shown VT moves no keyboard.
   - `never-dark = off`: a ruleset may leave every display dark, and the machine can end with nothing on screen.
 - **Per head, `rescue = off`** keeps the keyboards that head claims from being pulled to the focus by the rescue key, for a kiosk. It is the only guard that also works per head, since it is the only one that takes a keyboard from a configured head.
+- **The guards under each posture.** The guards and their switches are the same under `default = allow` and `default = deny`. Under `deny` the focus rests only on a head whose section writes `focus = on`, so the anti-lockout guard and the rescue key, which move keyboards to the focus, reach no other head and cannot leak, and with no such head a keyboard they move delivers nothing.
 - A guard that is off is a note in `vtium check-config` and `vtiumctl check`, never an error, and the start's log names it. So, with exit status 0, is each right a head file removes from the keyboards: a file in which every head has `vt-keys = off`, so no keyboard can switch the VT, and a file in which no head takes the focus (D5).
+- **What fell to the default.** `vtium check-config` and `vtiumctl check` list, as notes with exit status 0, the devices present that no rule matches. Under `default = allow` the note counts the inputs that follow the focus and the displays that stay dark, which shows where the file may leak. Under `default = deny` it counts the inputs that are ignored, which shows what the file denies, and a prominent note says when no keyboard present can reach any head, so a lockout is visible before the file is installed. These depend on the hardware present, so they stand outside the exit status, as D7 says.
 
 > Edited 2026-10-30: the operator added the notes that no keyboard can switch the VT and that no head takes the focus (`considered`), each a note with exit status 0, as a guard turned off is, so a file written for stations passes `check-config`.
 
-- **Recovery is outside vtium.** The operator owns the machine: the defaults give every keyboard every right, and a deliberate lockout is the operator's choice. A machine its head file locks out is recovered as any misconfigured Linux system is: over ssh, from a serial getty, through out-of-band management, or by booting other media and editing the file. vtium provides no rescue boot of its own.
+> Edited 2026-10-30: the operator added the posture (`considered`). D9 named no posture, and `check-config` listed nothing that fell to the default.
+
+- **Recovery is outside vtium.** The operator owns the machine: an allow file gives every keyboard every right it does not take away, a deny file gives a keyboard only what it grants, and a deliberate lockout is the operator's choice. A machine its head file locks out, a deny file left invalid among them (D7), is recovered as any misconfigured Linux system is: over ssh, from a serial getty, through out-of-band management, or by booting other media and editing the file. vtium provides no rescue boot of its own.
 
 > Edited 2026-10-30: the operator dropped the kernel command-line escape (`considered`): recovery from a lockout is outside vtium. The bullet read: "**The escape when they are off:** the kernel command-line parameter `vtium.heads=builtin` makes vtium ignore the head file for that boot and run the compiled-in rules with every guard on, as `systemd.unit=rescue.target` does for a system; vtium already reads the kernel command line for `vconsole.font=` (ADR-1200 D9). Physical access to the bootloader is the trust boundary, as for any rescue boot."
 
-Each route by which one input can disturb another person's session has its switch, each defaulting to today's console, and an operator builds a kiosk or stations by combining them:
+Each route by which one input can disturb another person's session has its switch. Under `default = allow` a route the file leaves unset is open, as on today's console; under `default = deny` a route the posture or a head key governs is closed until the file opens it, and the guards' routes are the same under both. A kiosk and stations are deny files:
 
 | Route | Disturbs | Governed by |
 |---|---|---|
-| The VT keys, `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>` | every display, which leaves for another VT | the `vt-keys` of the head the keyboard asks: its own, or the focused head for a keyboard following the focus; with no focus, none (D5) |
+| The VT keys, `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>` | every display, which leaves for another VT | the `vt-keys` of the head the keyboard asks: its own, or the focused head for a keyboard following the focus; with no focus, none (D5); unset, `on` under allow and `off` under deny |
 | The console chords | the console the head shows | the head's `consoles`: with 1 there is nothing to switch |
 | The focus chord | where the keyboards following the focus type | taken only from keyboards following the focus (D5) |
-| The rescue key | takes a keyboard off its head, or brings an ignored one into the focus | `[guards] rescue-key` and the head's `rescue` |
+| The rescue key | takes a keyboard off its head, or brings an ignored one into the focus | `[guards] rescue-key`, and the head's `rescue`, unset `on` under allow and `off` under deny |
 | The anti-lockout guard | sends every keyboard to the focus | `[guards] anti-lockout` |
-| Unclaimed keyboards | type into the focused head | the rules, ending in `input * -> ignore` |
-| Arrival through the focus | the head the focus rests on | the head's `focus` (D5) |
+| Unclaimed keyboards | type into the focused head | the rules and the posture: under allow they follow the focus unless a rule such as `input * -> ignore` closes them, and under deny they are ignored (D3) |
+| Arrival through the focus | the head the focus rests on | the head's `focus`, unset `on` under allow and `off` under deny (D5) |
 
 > Edited 2026-10-30: the operator added the routes and their switches (`considered`).
 
@@ -599,7 +647,9 @@ The guards run after every device added or removed, and the rescue key from a ru
 flowchart TD
     EV["a device added or removed,<br>or the start"] --> VALID{"the head file<br>valid?"}
     VALID -->|"yes"| EVAL["walk each device<br>through the file's rules"]
-    VALID -->|"no: logged, notice,<br>file left as it is"| SHIP["walk each device through<br>the shipped rules"]
+    VALID -->|"no, under allow or before<br>the posture: logged, notice,<br>file left as it is"| SHIP["walk each device through<br>the shipped rules"]
+    VALID -->|"no, after default = deny:<br>logged, file left as it is"| CLOSED["fail closed: no keyboard<br>delivers; the boot display<br>shows the notice"]
+    CLOSED --> NZ
     SHIP --> EVAL2["placement"]
     EVAL --> EVAL2
     EVAL2 --> LIT{"any display lit?"}
@@ -617,10 +667,13 @@ flowchart TD
     classDef guard fill:#f6821f,color:#1a1a1a,stroke:#94a3b8
     classDef done fill:#2d8e5e,color:#ffffff,stroke:#94a3b8
     class EV,EVAL,SHIP,EVAL2 step
+    class CLOSED guard
     class VALID,LIT,KB check
     class NZ,AL,RES guard
     class RUN done
 ```
+
+> Edited 2026-10-30: the operator decided that an invalid head file follows its posture (`considered`). The diagram's invalid branch read: "no: logged, notice, file left as it is", to the shipped rules alone.
 
 ### D10: security
 
@@ -639,7 +692,7 @@ flowchart TD
 ### D11: how it is judged
 
 - A boot with no head file lights every display and types from every keyboard, as today; this test is written first, against today's code, and pins the behaviour the shipped default keeps.
-- A boot with each kind of invalid file (each row of D7's first outcome) runs the shipped default, shows the notice, and leaves the file's bytes unchanged, by its hash before and after.
+- A boot with each kind of invalid file (each row of D7's first outcome) that does not declare `default = deny` runs the shipped default, shows the notice, and leaves the file's bytes unchanged, by its hash before and after.
 - `vtium check-config` lists every planted error with its line.
 - **Determinism row** (docs/architecture.md): a property test walks a generated set of devices through a generated ruleset in every order and at every hotplug point, and the placement of each device is the same.
 - The anti-lockout guard, the display guard and the rescue each have a boot test: every keyboard claimed by a head with no display types into the focus; a file with `version = 1` and no rules lights the boot display; the rescue moves a claimed keyboard and an ignored one and writes nothing; and a rescue-only device is closed while another VT is shown.
@@ -649,6 +702,7 @@ flowchart TD
 - **The switches:** with `anti-lockout = off` a ruleset that strands every keyboard is left as it is; with `rescue-key = off` the rescue key moves nothing; with `never-dark = off` a file with `version = 1` and no rules leaves every display dark; a head with `rescue = off` keeps its keyboard through the rescue key while another head's moves; each guard that is off is a note in `check-config` and a line in the start's log.
 - **The VT keys:** on a head with `vt-keys = off`, `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>` for another VT, pressed on a keyboard its rules claim, switch nothing and reach its session as keys, while the same press on a keyboard following the focus switches the VT when the focused head has `vt-keys = on`, reaches the focused head's session when it has `vt-keys = off`, and does nothing with no focus; the shown VT's own key on that keyboard acts as `rescue-key` and `rescue` say; the focus chord pressed on a claimed keyboard moves nothing and reaches its head's session; and a file in which every head has `vt-keys = off` draws `check-config`'s note and exits 0.
 - **The focus key:** on a head with `focus = off`, the focus never rests there: it starts on the next head that takes it, the focus chord never moves it there, and the anti-lockout guard moves it to the next lit head that takes it; the head's claimed keyboard still types into it; with no lit head taking the focus, a keyboard no rule claims, one the rescue key moves and those the anti-lockout guard moves deliver nowhere, the VT keys included, until a head that takes the focus lights and the focus lands on it at once; and a file in which no head takes the focus draws `check-config`'s note and exits 0.
+- **The posture:** under `default = deny`, an input no rule matches is ignored, a display no rule matches stays dark, and a head that leaves `focus`, `vt-keys` and `rescue` unset behaves as one that writes each `off`, while a head that writes `vt-keys = on` and `focus = on` switches the VT from its keyboards and takes the focus; the same rules with `default = allow`, and with no `default`, send the unmatched input to the focus; a file that declares `default = deny` and is invalid after it lights the boot display with the notice, delivers nothing from any keyboard, and keeps its bytes, while a file whose `default` value is unknown runs the shipped rules; and `check-config` lists what fell to the default under each posture, with the prominent note when no keyboard present can reach any head, and exits 0.
 - A boot with no file present writes nothing under `/etc/vtium`, its listing the same before and after.
 - **One source** (D6): the compiled-in configuration equals the parse of the template; the file `vtiumctl template` writes is byte-identical to the template; the templates committed for cross-built images (D12) are byte-identical to what the tool writes; and docs/architecture.md's template-drift row checks the same.
 - **The build order.** A first cut of heads comes first: the strong match keys (`edid`, `connector-path`, `path`, `serial`) and `class`, focus, and the three guards with each switch on, proven in tier 3. A VT review on the operator's two displays follows, before the rest of the head file's format is fixed; then D13's sessions that survive a restart; then `udev:`, `vtiumctl` with its trial and revert, the overlay socket and the drafts directory.
@@ -657,6 +711,8 @@ flowchart TD
 > Edited 2026-10-29: the operator accepted an independent advisor's review (`considered`): a first cut of heads gets a VT review before the rest of the format is fixed. D11 set no build order.
 
 > Edited 2026-10-30: the operator added the head keys `vt-keys` and `focus` (`considered`), and D11 gained their tests.
+
+> Edited 2026-10-30: the operator added the posture (`considered`), and D11 gained its tests. The invalid-file test read: "A boot with each kind of invalid file (each row of D7's first outcome) runs the shipped default,".
 
 > Edited 2026-10-30: the operator dropped the kernel command-line escape (`considered`). D11 read: "**The escape:** with `vtium.heads=builtin` on the kernel command line, a head file that turns every guard off is ignored for that boot, and the compiled-in rules run with every guard on."
 
@@ -795,6 +851,7 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - Each display draws at its own density, and a small panel and a large monitor each get a readable grid.
 - The default is today's console, and every customisation is a rule added above it; a machine with one display never sees heads.
 - No ruleset, file or hardware change can leave the console with no keyboard typing into a lit display while the guards are on and a lit head takes the focus.
+- A kiosk or stations file states its posture in one line, `default = deny`, and what it forgets stays closed, where an allow file would have to close each route by hand.
 - A monitor that sleeps and drops off its link, a KVM switch or a pulled cable leaves every session running under the default `nohup`, as on the kernel's console.
 - Placement is a function of each device and the file, so tests can enumerate it and a hotplug behaves as a boot does.
 - vtium writes nothing under `/etc`, so a read-only root, an image build and a package-managed `/etc` need no switch and see no file appear.
@@ -803,13 +860,15 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 
 > Edited 2026-10-30: the operator added stations (`considered`).
 
+> Edited 2026-10-30: the operator added the posture (`considered`), and the bullet on deny files with it.
+
 > Edited 2026-10-30: the operator dropped the kernel command-line escape and added the head key `focus` (`considered`). The guards' bullet read: "No ruleset, file or hardware change can leave the console with no keyboard typing into a lit display while the guards are on, and `vtium.heads=builtin` turns them back on for a boot."
 
 ### Negative
 
 - vtium carries a ruleset parser, a notice, the guards and the configuration crate; the parser and evaluator count against the binary's budget, which leaves less for other features.
 - **A crash's blast radius.** vtium is one process for every head (D2) and is built with `panic=abort`, so a panic takes down every head and every virtual console, closing every pty and hanging up every session, after which the unit restarts vtium or its `OnFailure=` starts a getty. Today a crash costs one session; with heads it costs all of them, and a program in one session that crashes vtium with crafted output takes the others down with it, a denial of service across sessions. The C reference had the same property. A program crashing in a session costs only that session, which the respawn policy starts again, and a glyph helper crash costs nothing: it is sandboxed, restarted at most 3 times, and the built-in fonts draw meanwhile (ADR-1200 D15). D10's requirement answers it, and D13, built directly after heads, lets the sessions survive the restart, so a crash costs the screens and the scrollback.
-- A guard or a right a head file turns off can lock a machine out, and it is then recovered out of band (D9).
+- A guard or a right a head file turns off, a right a deny file does not grant, or a deny file left invalid can lock a machine out, and it is then recovered out of band (D9).
 
 > Edited 2026-10-30: the operator dropped the kernel command-line escape (`considered`). The bullet read: "A guard turned off can lock a machine out until someone with the bootloader passes `vtium.heads=builtin`."
 
