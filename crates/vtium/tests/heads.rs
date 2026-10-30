@@ -2443,3 +2443,58 @@ fn the_display_guard_lights_the_boot_display_while_the_rules_light_none() {
     );
     assert_eq!(s.app.cells().len(), 1);
 }
+
+/// D9 and D11's escape row: with `vtium.heads=builtin` on the kernel
+/// command line, a head file that turns every guard off is ignored for
+/// that boot, and the compiled-in rules run with every guard on.
+#[test]
+fn vtium_heads_builtin_ignores_a_head_file_that_turns_every_guard_off() {
+    let off = "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\n\
+               [guards]\nanti-lockout = off\nrescue-key = off\nnever-dark = off\n";
+    let file = HeadFile::new("escape", off);
+    let (read, _) = vtium::head::start_rules(&file.path, &file.trust(), "quiet");
+    assert!(!read.guards.anti_lockout, "the file without the escape");
+    let cmdline = "BOOT_IMAGE=/vmlinuz vtium.heads=builtin quiet";
+    let (ran, notice) = vtium::head::start_rules(&file.path, &file.trust(), cmdline);
+    assert_eq!(ran, vtium_config::Config::builtin());
+    assert_eq!(
+        ran.guards,
+        vtium_config::Guards::default(),
+        "every guard on"
+    );
+    assert_eq!(notice, None);
+}
+
+/// D11: a boot with no head file present writes nothing where the head
+/// file lives, its listing the same before and after.
+#[test]
+fn a_boot_with_no_head_file_writes_nothing_where_it_lives() {
+    let file = HeadFile::new("absent", "");
+    std::fs::remove_file(&file.path).expect("no head file");
+    let before = file.listing();
+    let start = vtium::head::start_rules(&file.path, &file.trust(), "");
+    assert_eq!(start, (vtium_config::Config::builtin(), None));
+    let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::with_rules(&[], Some(start), displays, "echo ready; read x", no_fonts());
+    assert!(s.until(SECOND, |a| shows(a, "ready")));
+    assert_eq!(file.listing(), before);
+    assert!(before.is_empty());
+}
+
+/// D8: with no keyboard among the devices the start found, vtium runs and
+/// its notice says no keyboard was found; with one, it says nothing.
+#[test]
+fn with_no_keyboard_at_start_the_notice_says_so() {
+    let displays = || [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::boot(&[], displays(), "echo ready; read x");
+    s.app.scanned();
+    s.app.turn(now());
+    let shown = notice(&s.app, "console").unwrap_or_default();
+    assert!(shown.contains("no keyboard"), "{shown:?}");
+    assert!(s.until(SECOND, |a| shows(a, "ready")), "vtium runs");
+    let mut s = Seat::boot(&[], displays(), "echo ready; read x");
+    s.app.add_input(Path::new(KBD_A), keyboard("kbd-a"));
+    s.app.scanned();
+    s.app.turn(now());
+    assert_eq!(notice(&s.app, "console"), None);
+}

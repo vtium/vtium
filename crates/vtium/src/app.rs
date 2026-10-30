@@ -229,6 +229,9 @@ pub struct App {
     guard_due: bool,
     /// The anti-lockout guard holds every keyboard on the focus.
     locked_out: bool,
+    /// The start's scan is queued: the turn says whether it found a
+    /// keyboard.
+    keyboard_check: bool,
     /// A display is lit, which a DRM card's dark rule reads: while none
     /// is, a display the rules leave dark is announced for the display
     /// guard to light.
@@ -395,6 +398,7 @@ impl App {
             guard_lit: None,
             guard_due: false,
             locked_out: false,
+            keyboard_check: false,
             any_lit: Rc::default(),
             scrollback: (cap, lines),
             scrollback_bytes: bytes,
@@ -427,14 +431,8 @@ impl App {
     /// session yet, and its rules for each display that comes.
     pub fn set_heads(&mut self, rules: vtium_config::Config) {
         let rules = route::in_force(rules, &self.config);
-        for (on, name) in [
-            (rules.guards.anti_lockout, "anti-lockout"),
-            (rules.guards.rescue_key, "rescue-key"),
-            (rules.guards.never_dark, "never-dark"),
-        ] {
-            if !on {
-                log::warn!("the head file turns the {name} guard off");
-            }
+        for line in crate::head::guards_off(rules.guards) {
+            log::warn!("{line}");
         }
         // The display guard's default head, where the file declares none
         // (D9).
@@ -452,6 +450,13 @@ impl App {
         self.start_lit.clear();
         self.dark.clear();
         self.frits.clear();
+    }
+
+    /// The start's device scan is queued: once the turn has placed its
+    /// devices, a seat with no keyboard among them says so on every head
+    /// (ADR-1401 D8).
+    pub fn scanned(&mut self) {
+        self.keyboard_check = true;
     }
 
     /// Shows vtium's notice `text` on every head, before its login, until
@@ -2368,6 +2373,11 @@ impl App {
             for e in events {
                 self.video_event(&node, e, now);
             }
+        }
+        if std::mem::take(&mut self.keyboard_check) && !self.routes.any_keyboard() {
+            let line = "no keyboard was found: one plugged in types";
+            log::warn!("{line}");
+            self.notice(line);
         }
         self.take_focus();
         self.guard(now);

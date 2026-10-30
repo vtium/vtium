@@ -77,6 +77,11 @@ impl Routes {
             .map(|r| &r.identity)
     }
 
+    /// Whether a keyboard-class device is present.
+    pub(crate) fn any_keyboard(&self) -> bool {
+        self.devices.values().any(|r| r.keyboard)
+    }
+
     /// Whether a keyboard the rescue key moved counts toward the
     /// anti-lockout guard (D9).
     pub(crate) fn rescued_keyboard(&self) -> bool {
