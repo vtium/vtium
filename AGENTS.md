@@ -24,6 +24,12 @@ Upstream `kmscon/kmscon` and `kmscon/libtsm` are never written to: no issue, PR 
 - A spec describes behaviour vtium implements. C function names belong in a marked C-notes section, not in a behaviour spec.
 - Never scope vtium work as "what the C reference does". It does that and more, and follows the specification where the C reference departed from it, listing each departure.
 - Say each fact once. Prose is one line per paragraph.
+- Write the way a person explains it to a colleague out loud: whole sentences with a subject and a verb, in plain words. The test is that a reader new to the project understands it on the first read; packing more meaning into fewer words is not the goal.
+- Unpack a compressed phrase into what it means. "A frit of bitmap sources that states no cell takes its fonts' own cell" becomes "A frit made only of bitmap fonts, with no `cell=` line, draws at the fonts' own glyph size."
+- Define a project term the first time a section uses it, in the words a newcomer would use: "a frit (a font set file)". Prefer the everyday word where one exists.
+- Name who does what: "vtium ignores the keyboard", not "the keyboard falls to the policy's input default".
+- A sentence you had to read twice gets rewritten before it is committed.
+- A brief to a subagent that writes prose a person will read carries these rules, so the subagent writes to them.
 - The name is "vtium" in running text, code, paths and commands, and "VTium" in a title or heading that names the project, with VT capitalized as the hardware terminals printed it. Spell it "color", not "colour".
 
 ## The gates
