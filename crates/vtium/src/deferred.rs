@@ -356,6 +356,18 @@ impl Generated {
         Some(face)
     }
 
+    /// Whether the store holds at `cell` the glyph of a cluster `c` begins.
+    fn begins(&self, cell: Cell, c: char) -> bool {
+        self.entries.iter().filter(|e| e.cell == cell).any(|e| {
+            let at = e
+                .glyphs
+                .partition_point(|(t, _)| t.as_slice() <= [c].as_slice());
+            e.glyphs
+                .get(at)
+                .is_some_and(|(t, _)| t.len() > 1 && t.first() == Some(&c))
+        })
+    }
+
     /// Whether the store holds `text`'s glyph at `cell`.
     fn held(&self, cell: Cell, text: &[char]) -> bool {
         self.entry(cell, text).is_some()
@@ -600,8 +612,13 @@ impl Face for DeferredFace {
         self.step
     }
 
+    /// Whether the store or the built-in font holds `c`, or the store a
+    /// cluster `c` begins: the renderer asks by a cluster's first
+    /// character before it draws the cluster.
     fn has_glyph(&self, c: char) -> bool {
-        self.generated_has(c) || self.builtin.has_glyph(c)
+        self.generated_has(c)
+            || self.builtin.has_glyph(c)
+            || self.generated.borrow().begins(self.cell, c)
     }
 
     /// The built-in font's, so the sprites draw the same ranges before the
@@ -1164,6 +1181,32 @@ mod tests {
         assert!(all(&f.draw(&['q', '\u{301}'], regular).unwrap(), 255));
         let held = f.draw(&['q', '\u{301}'], regular).unwrap();
         assert_eq!(held.cells(), Width::Narrow);
+    }
+
+    // a cluster whose first character neither the store nor the built-in
+    // font holds still draws its own glyph through the font, which asks by
+    // that character first
+    #[test]
+    fn a_cluster_draws_though_no_font_holds_its_first_character() {
+        let generated = Shared::default();
+        let lead = '\u{10fffd}';
+        let cluster = [lead, '\u{301}'];
+        let f = face(&generated);
+        assert!(!f.has_glyph(lead));
+        add(
+            &mut generated.borrow_mut(),
+            CELL,
+            with_clusters(&[], &[(&cluster, 7)]),
+            vec![],
+            1,
+        );
+        assert!(f.has_glyph(lead));
+        assert!(!f.has_glyph('\u{10fffc}'));
+        let font = Font::new(face(&generated));
+        let drawn = font
+            .glyph(&cluster, Width::Narrow, Style::default())
+            .unwrap();
+        assert!(all(&drawn, 7));
     }
 
     // ADR-1200 D19: compaction keys a cluster as the store does, drops the
