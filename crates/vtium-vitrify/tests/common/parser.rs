@@ -1,7 +1,9 @@
 //! The parent's side of the parser's child (ADR-1200 D14), as the tests
 //! run it: the binary started as `vtium-vitrify --parse` with an empty
-//! environment, `/` as its directory and no descriptor but its three
-//! pipes, a request written to it and its answer checked field by field.
+//! environment, `/` as its directory, no descriptor but its three pipes
+//! and a process group of its own, a request written to it and its answer
+//! checked field by field. A thread of its own reaps the child as it
+//! exits, though a process it started may still hold its pipes.
 //! Nothing in the shipped binary starts the child (`serve` parses in its
 //! own sandbox), so the parent's side lives with the tests.
 
@@ -10,12 +12,15 @@
 
 use std::ffi::OsString;
 use std::io::{Read, Write};
-use std::os::unix::process::ExitStatusExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::Duration;
 
-use rustix::process::{Pid, PidfdFlags, Signal, pidfd_open, pidfd_send_signal};
+use rustix::process::{
+    Pid, PidfdFlags, Signal, WaitId, WaitIdOptions, kill_process_group, pidfd_open,
+    pidfd_send_signal, waitid,
+};
 use vtium_vitrify::child::{PARSER_WALL_SECONDS, Request};
 use vtium_vitrify::glyphs::{GLYPHS_BYTES_MAX, Glyphs};
 use vtium_vitrify::outline::{OUTLINE_ANSWER_BYTES_MAX, Outline, OutlineRequest};
@@ -76,19 +81,24 @@ impl Parser {
             .args(&self.args)
             .env_clear()
             .current_dir("/")
+            .process_group(0)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let mut child = command
             .spawn()
             .map_err(|e| format!("cannot start the parser: {e}"))?;
-        // a pidfd names this child alone, even after it is reaped
+        // a pidfd names this child alone, even once the reaper has reaped it
         let pidfd = i32::try_from(child.id())
             .ok()
             .and_then(Pid::from_raw)
             .map(|pid| pidfd_open(pid, PidfdFlags::empty()));
         let (stdin, stdout, stderr) =
             (child.stdin.take(), child.stdout.take(), child.stderr.take());
+        let (exited, status) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = exited.send(reap(child));
+        });
         // stderr is read on its own thread, so a parser that fills it
         // cannot stall the read of stdout
         let message = std::thread::spawn(move || {
@@ -114,7 +124,12 @@ impl Parser {
                     )
                     .read_to_end(&mut out)
             });
-            let _ = tx.send((wrote, read, out, child.wait()));
+            // its end is told once it has exited too, so a parser that
+            // closes its stdout a moment before it exits is waited for
+            let status = status
+                .recv()
+                .unwrap_or_else(|_| Err(std::io::Error::other("its reaper ended")));
+            let _ = tx.send((wrote, read, out, status));
         });
         let (wrote, read, out, status) = match rx.recv_timeout(self.deadline) {
             Ok(done) => done,
@@ -122,7 +137,7 @@ impl Parser {
                 if let Some(Ok(fd)) = &pidfd {
                     let _ = pidfd_send_signal(fd, Signal::KILL);
                 }
-                // the thread reaps it once its pipes close
+                // its reaper ends what it started and reaps it
                 return Err(format!(
                     "the parser took longer than {} s and was ended",
                     self.deadline.as_secs_f32()
@@ -150,4 +165,27 @@ impl Parser {
         }
         Ok(out)
     }
+}
+
+/// Waits for the parser `child` to exit, ends each process it started in
+/// its process group, and reaps it, how it exited. Until it is reaped its
+/// pid, and with it the group's id, names no other process, so the
+/// group's end reaches only what the parser started.
+fn reap(mut child: Child) -> std::io::Result<ExitStatus> {
+    if let Some(pid) = i32::try_from(child.id()).ok().and_then(Pid::from_raw) {
+        loop {
+            match waitid(
+                WaitId::Pid(pid),
+                WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
+            ) {
+                Err(rustix::io::Errno::INTR) => {}
+                Ok(_) => {
+                    let _ = kill_process_group(pid, Signal::KILL);
+                    break;
+                }
+                Err(_) => break,
+            }
+        }
+    }
+    child.wait()
 }
