@@ -16,3 +16,5 @@
 2d-potato-min-psf	strike	crates/vtium/README.md	A character the frit lacks draws in the built-in font.	155,96,187,112;227,96,275,112
 2d-potato-min-psf	underline-styles	crates/vtium/README.md	A character the frit lacks draws in the built-in font.	123,208,155,224;195,208,243,224
 2d-potato-min-psf	wide-margin	crates/vtium/README.md	A character the frit lacks draws in the built-in font.	1347,16,1363,32;3,48,19,64;3,80,19,96;1347,96,1363,112;3,144,19,160
+2d-potato-min-psf	combining	crates/vtium/README.md	A cluster draws its own glyph, keyed by its whole text.	227,16,235,128;147,160,155,176;179,160,187,176
+2d-potato-min-psf	emoji	crates/vtium/README.md	A cluster draws its own glyph, keyed by its whole text.	291,48,307,64
