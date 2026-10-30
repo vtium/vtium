@@ -1269,3 +1269,37 @@ fn a_zoom_changes_the_grid_of_the_console_shown_alone() {
         "the second keeps its zoom"
     );
 }
+
+/// D5: pointers follow the same rules: a pointer a rule sends to a head
+/// moves on that head's displays, whichever head holds the focus.
+#[test]
+fn a_claimed_pointer_moves_on_its_heads_display_alone() {
+    let heads = "version = 1
+[head small]
+[head large]
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+input path:mouse-small -> small
+input class:mouse -> focus
+";
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let mut s = Seat::with_heads(&[], Some(heads), displays, "read x");
+    assert!(s.until(SECOND, |a| a.cells().len() == 2));
+    let mouse = vtium_config::Identity {
+        path: Some("mouse-small".to_owned()),
+        ..vtium_config::Identity::input().with_class(Class::Mouse)
+    };
+    s.app.add_input(Path::new("/dev/input/event5"), mouse);
+    let moved = InputEvent::Pointer(vtium_platform::input::PointerEvent::Moved {
+        x: 24,
+        y: 40,
+        held: None,
+    });
+    s.app
+        .device_input(Path::new("/dev/input/event5"), moved, now());
+    assert_eq!(s.app.focus_head(), Some("large"));
+    assert_eq!(s.app.head("small").and_then(Head::pointer), Some((24, 40)));
+    assert_eq!(s.app.head("large").and_then(Head::pointer), None);
+}

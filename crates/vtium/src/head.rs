@@ -350,6 +350,13 @@ impl Head {
         self.at
     }
 
+    /// Where the pointer is on the head's grid, in its pixels, while shown.
+    pub fn pointer(&self) -> Option<(u32, u32)> {
+        self.pointer
+            .visible
+            .then_some((self.pointer.x, self.pointer.y))
+    }
+
     /// What the head shows of itself in place of a session, once its
     /// session has ended for good.
     pub fn notice(&self) -> Option<&str> {
