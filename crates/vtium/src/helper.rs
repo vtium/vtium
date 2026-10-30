@@ -21,7 +21,8 @@
 //! (ADR-1400 D2's last account before login), and sandboxes itself. A
 //! thread writes the requests and another reads the answers, so neither
 //! a slow nor a hung helper stalls the loop; the reader wakes the loop
-//! after each answer, and reaps the helper as it exits. Each frame is
+//! after each answer. A third reaps the helper as it exits, though a
+//! process it started may still hold its output. Each frame is
 //! checked before it is trusted: its length against [`FRAME_BYTES_MAX`]
 //! before anything is allocated, a set through vtium-font's reader, which
 //! bounds every field, every strike at a cell asked for and regular in
@@ -465,7 +466,7 @@ pub struct Answer {
 }
 
 /// The helper's process: its pidfd, which ends it, the writer's queue and
-/// the reader's events. The reader thread owns the child and reaps it.
+/// the reader's events. The reaper thread owns the child.
 struct Running {
     pidfd: Option<OwnedFd>,
     requests: mpsc::Sender<Vec<u8>>,
@@ -898,7 +899,7 @@ impl Helper {
         let mut child = process
             .spawn()
             .map_err(|e| format!("cannot start {}: {e}", c.program.display()))?;
-        // a pidfd names this child alone, even once the reader has reaped it
+        // a pidfd names this child alone, even once the reaper has reaped it
         let pidfd = i32::try_from(child.id())
             .ok()
             .and_then(Pid::from_raw)
@@ -918,6 +919,10 @@ impl Helper {
                 }
             });
         }
+        let (exited, status) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = exited.send(child.wait().ok());
+        });
         let (tx, events) = mpsc::channel();
         let wake = Arc::clone(&self.wake);
         std::thread::spawn(move || {
@@ -933,9 +938,10 @@ impl Helper {
                     }
                 }
             }
-            // reaped here, as it exits, so a helper that closes its output
-            // a moment before it exits is waited for, never ended
-            let status = child.wait().ok();
+            // its end is told once it has exited too, so a helper that
+            // closes its output a moment before it exits is waited for,
+            // never ended
+            let status = status.recv().ok().flatten();
             let _ = tx.send(Event::Closed(status));
             wake();
         });
@@ -965,7 +971,7 @@ impl Helper {
         }
     }
 
-    /// Ends the helper's process, if it runs; its reader reaps it, and
+    /// Ends the helper's process, if it runs; its reaper reaps it, and
     /// nothing it sent is taken.
     fn stop(&mut self) {
         self.stopped.clear();

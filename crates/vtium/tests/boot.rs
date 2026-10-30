@@ -4355,6 +4355,83 @@ fn osc_50_from_one_frit_to_another_starts_a_helper_for_it() {
     );
 }
 
+/// [`RECORDER`]'s start for [`recording_held`]: the first helper started
+/// shows its pid as `held.*` and holds off reading for 5 s, a process it
+/// starts holding its output meanwhile, as the recorder's checker does;
+/// each later one shows its pid as `started.*`.
+const HOLD: &str = r#"
+if mkdir "$1/held" 2>/dev/null; then
+    : >"$1/held.$$"
+    sleep 5 &
+    wait
+fi
+: >"$1/started.$$"
+"#;
+
+/// [`recording`], its first helper held by [`HOLD`].
+fn recording_held(name: &str) -> (Scratch, Sources) {
+    let (scratch, mut fonts) = recording(name);
+    if let Some(helper) = &mut fonts.helper {
+        helper.args[1] = OsString::from(format!("{HOLD}{RECORDER}"));
+    }
+    (scratch, fonts)
+}
+
+/// The pids the stand-in in `fonts` showed as `prefix.*`.
+fn shown_pids(fonts: &Sources, prefix: &str) -> Vec<u32> {
+    std::fs::read_dir(&fonts.frits)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            name.strip_prefix(prefix)?.strip_prefix('.')?.parse().ok()
+        })
+        .collect()
+}
+
+// vtium/vtium#160: a switch that ends the first frit's helper before it
+// has read its request starts the next frit's helper once, and the helper
+// ended is reaped as it exits, though a process it started still holds
+// its output
+#[test]
+fn osc_50_ending_a_helper_before_it_reads_starts_one_for_the_next_and_reaps_it() {
+    let (_dir, fonts) = recording_held("osc50-early");
+    for (name, text) in [("a", "source=kbd:a\n"), ("b", "source=kbd:b\n")] {
+        std::fs::write(fonts.frits.join(format!("{name}.vtfrit")), text).expect("a frit");
+    }
+    // The switch waits for `a`'s helper to have started, and comes while
+    // it holds off reading.
+    let before = format!(
+        "while ! ls {}/held.* >/dev/null 2>&1; do sleep 0.01; done; ",
+        fonts.frits.display()
+    );
+    let mut h = osc50_after(
+        &["--font-name=a"],
+        &before,
+        "\\033]50;b\\007",
+        fonts.clone(),
+    );
+    assert_eq!(h.app.font_name(), "b");
+    assert_eq!(recorded(&mut h, &fonts, 1), [pair("b", "source=kbd:b\n")]);
+    let held = shown_pids(&fonts, "held");
+    let &[a] = held.as_slice() else {
+        panic!("one helper held: {held:?}");
+    };
+    let reaped = || !Path::new(&format!("/proc/{a}")).exists();
+    assert!(
+        h.until(Duration::from_secs(2), |_| reaped()),
+        "a's helper is reaped"
+    );
+    h.until(Duration::from_millis(500), |_| false);
+    assert_eq!(
+        shown_pids(&fonts, "started").len(),
+        1,
+        "b's helper starts once"
+    );
+    assert_eq!(recorded(&mut h, &fonts, 1), [pair("b", "source=kbd:b\n")]);
+}
+
 // ADR-1200 D5: a name no frit bears, a path, a frit whose cell cannot be
 // read, or OSC 50 under `no-allow-font-ops` leaves the font as it was
 #[test]
