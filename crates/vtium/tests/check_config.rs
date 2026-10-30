@@ -74,20 +74,74 @@ fn help_says_it_only_checks() {
     std::fs::remove_dir_all(d).ok();
 }
 
-/// With strace on the machine, the files it opens are only the
-/// configuration's and the loader's: no VT, DRM node, input device or tty.
-/// Under qemu-user (tools/arm), strace traces qemu, whose opens of the
-/// target's files carry the QEMU_LD_PREFIX it translates them to: such a
-/// trace says so and is skipped.
+/// The syscalls that change a file or its metadata by name or by a
+/// descriptor, besides an open for writing.
+const WRITES: [&str; 37] = [
+    "creat",
+    "rename",
+    "renameat",
+    "renameat2",
+    "unlink",
+    "unlinkat",
+    "rmdir",
+    "mkdir",
+    "mkdirat",
+    "mknod",
+    "mknodat",
+    "link",
+    "linkat",
+    "symlink",
+    "symlinkat",
+    "truncate",
+    "ftruncate",
+    "chmod",
+    "fchmod",
+    "fchmodat",
+    "fchmodat2",
+    "chown",
+    "fchown",
+    "lchown",
+    "fchownat",
+    "utime",
+    "utimes",
+    "utimensat",
+    "futimesat",
+    "setxattr",
+    "lsetxattr",
+    "fsetxattr",
+    "removexattr",
+    "lremovexattr",
+    "fremovexattr",
+    "name_to_handle_at",
+    "open_by_handle_at",
+];
+
+/// What a line of `strace -f` names: the syscall, and its first quoted
+/// argument, a path.
+fn syscall(line: &str) -> Option<(&str, &str)> {
+    let call = line.split('(').next()?.split_whitespace().last()?;
+    let path = line.split('"').nth(1).unwrap_or("");
+    Some((call, path))
+}
+
+/// With strace on the machine, the check opens nothing under `/dev` (no
+/// VT, DRM node, input device or tty) and writes nothing: no open for
+/// writing or creating, and no rename, unlink or other change to a file
+/// (ADR-1401 D7, which lets it read sysfs and udev's database, governing
+/// over vtium/vtium#21's "reads only the configuration files"). Under
+/// qemu-user (tools/arm), strace traces qemu, whose opens of the target's
+/// files carry the QEMU_LD_PREFIX it translates them to: such a trace says
+/// so and is skipped.
 #[test]
-fn it_opens_nothing_but_the_configuration() {
+fn it_opens_nothing_under_dev_and_writes_nothing() {
     if Command::new("strace").arg("-V").output().is_err() {
         eprintln!("strace is not installed: the open check is skipped");
         return;
     }
     let d = dir("strace", "font-size=16\n");
     let out = Command::new("strace")
-        .args(["-f", "-e", "trace=open,openat", "-o", "/dev/stderr"])
+        .args(["-f", "-o", "/dev/stderr", "-e"])
+        .arg(format!("trace=%file,{}", WRITES.join(",")))
         .arg(env!("CARGO_BIN_EXE_vtium"))
         .args(["check-config", "-c"])
         .arg(&d)
@@ -95,10 +149,14 @@ fn it_opens_nothing_but_the_configuration() {
         .output()
         .expect("strace runs");
     let trace = String::from_utf8_lossy(&out.stderr);
-    let opened: Vec<&str> = trace
+    let calls: Vec<(&str, &str, &str)> = trace
         .lines()
-        .filter(|l| l.contains("open") && !l.contains("ENOENT"))
-        .filter_map(|l| l.split('"').nth(1))
+        .filter_map(|l| syscall(l).map(|(call, path)| (call, path, l)))
+        .collect();
+    let opened: Vec<&str> = calls
+        .iter()
+        .filter(|(call, _, l)| call.starts_with("open") && !l.contains("ENOENT"))
+        .map(|(_, path, _)| *path)
         .collect();
     if let (Some(qemu), Some(prefix)) = (
         std::env::var_os("VTIUM_QEMU_USER"),
@@ -120,11 +178,18 @@ fn it_opens_nothing_but_the_configuration() {
         !opened.iter().any(|p| p.starts_with("/etc/vtium")),
         "{trace}"
     );
-    for p in &opened {
+    for (call, path, line) in &calls {
+        let open = matches!(*call, "open" | "openat" | "openat2");
+        let flags = line.rsplit_once('"').map_or("", |(_, rest)| rest);
+        let writing = ["O_WRONLY", "O_RDWR", "O_CREAT", "O_TRUNC"]
+            .iter()
+            .any(|f| flags.contains(f));
         assert!(
-            !p.starts_with("/dev/") && !p.starts_with("/sys/") && !p.starts_with("/run/udev"),
-            "opened {p}: {trace}"
+            !(open && path.starts_with("/dev/")),
+            "opened {path}: {line}"
         );
+        assert!(!(open && writing), "opened {path} to write: {line}");
+        assert!(!WRITES.contains(call), "changed {path}: {line}");
     }
     std::fs::remove_dir_all(d).ok();
 }
