@@ -3923,17 +3923,17 @@ fn glyphs_no_buffer_shows_start_no_draw() {
 
 /// The recording stand-in: it becomes `cat`, writing what it is sent to
 /// a file of its own as it arrives, so a helper the console stops at once
-/// has still recorded its request. A checker beside it, in a process group
-/// of its own and holding none of the helper's pipes, so it outlives the
-/// helper's end and keeps the console waiting on nothing, reads the first
+/// has still recorded its request. A checker beside it, in a session and
+/// process group of its own (`setsid`) and holding none of the helper's
+/// pipes, so it outlives the helper's end and keeps the console waiting on nothing, reads the first
 /// request's frit name and shows the file as `request.*`
 /// only for a name of ADR-1200 D1's characters and at most 64 bytes, which
 /// the helper's request reader takes; any other it moves to `refused.*`.
 const RECORDER: &str = r#"
 part="$1/part.$$"
 : >"$part"
-set -m
-(
+check='
+    part=$1 dir=$2 pid=$3
     has() {
         i=0
         while [ "$(wc -c <"$part")" -lt "$1" ]; do
@@ -3943,18 +3943,18 @@ set -m
         done
     }
     has 16
-    n=$(od -An -tu4 -j12 -N4 "$part" | tr -d ' ')
+    n=$(od -An -tu4 -j12 -N4 "$part" | tr -d " ")
     if [ "$n" -ge 1 ] && [ "$n" -le 64 ]; then
         has $((16 + n))
         name=$(dd if="$part" bs=1 skip=16 count="$n" status=none)
         case $name in
         .* | *[!A-Za-z0-9._+-]*) ;;
-        *) [ ${#name} -eq "$n" ] && exec mv "$part" "$1/request.$$" ;;
+        *) [ ${#name} -eq "$n" ] && exec mv "$part" "$dir/request.$pid" ;;
         esac
     fi
-    mv "$part" "$1/refused.$$"
-) </dev/null >/dev/null &
-set +m
+    mv "$part" "$dir/refused.$pid"
+'
+setsid sh -c "$check" checker "$part" "$1" $$ </dev/null >/dev/null &
 exec cat >>"$part"
 "#;
 
@@ -4377,7 +4377,7 @@ const HOLD: &str = r#"
 if mkdir "$1/held" 2>/dev/null; then
     sleep 5 &
     : >"$1/descendant.$!"
-    readlink /proc/$$/fd/1 >"$1/output"
+    readlink /proc/$!/fd/1 >"$1/output"
     : >"$1/held.$$"
     wait
 fi
