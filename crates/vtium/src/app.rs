@@ -2502,18 +2502,22 @@ fn shown<'a>(heads: impl Iterator<Item = &'a &'a Head>) -> crate::deferred::Show
     all
 }
 
-/// The rules in force: `rules`, less the shipped rules' pointer rules
-/// under kmscon.conf's `mouse` off, its shorthand (ADR-1401 D3), so a
-/// pointer falls to `input * -> ignore`.
+/// The rules in force: `rules`, with the shipped rules' pointer rules
+/// sending pointers to `ignore` under kmscon.conf's `mouse` off, its
+/// shorthand (ADR-1401 D3), so a pointer is never opened, one with udev's
+/// key class on its node too.
 fn in_force(mut rules: vtium_config::Config, config: &Config) -> vtium_config::Config {
-    use vtium_config::{Match, Token};
+    use vtium_config::{Match, Target, Token};
     if config.switch(&keys::MOUSE) || rules != vtium_config::Config::builtin() {
         return rules;
     }
-    rules.rules.retain(|r| {
-        !matches!(&r.matcher, Match::All(tokens)
+    for rule in &mut rules.rules {
+        if matches!(&rule.matcher, Match::All(tokens)
             if matches!(tokens.as_slice(), [Token::Class(c)] if c.is_pointer()))
-    });
+        {
+            rule.target = Target::Ignore;
+        }
+    }
     rules
 }
 
@@ -3091,6 +3095,16 @@ mod tests {
         );
         assert_eq!(app.routes.head(Some(Path::new("/m")), Some(0)), None);
         assert_eq!(app.routes.head(Some(Path::new("/k")), Some(0)), Some(0));
+        // A mouse whose node also has udev's key class, its consumer keys,
+        // is still a pointer the shipped rules leave closed.
+        let keyed = input()
+            .with_class(vtium_config::Class::Mouse)
+            .with_class(vtium_config::Class::Key);
+        let rules = app.rules.clone();
+        assert_eq!(
+            app.routes.add(&rules, Path::new("/mk"), &keyed),
+            vtium_platform::input::Disposition::Closed
+        );
     }
 
     // ADR-1401 D10: a head file's heads past `consoles-max` each keep a
