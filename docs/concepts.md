@@ -101,9 +101,9 @@ The other VT's owner can be a desktop, a getty or another vtium.
 
 ## Heads: a terminal per display
 
-This section describes the design [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) proposes; none of it is built.
+This section describes the design of [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md). Built so far: heads placed by the head file's rules, each with a grid of its own, and the head file read at start. Still to be built: inputs routed to their own heads and the focus chord, several consoles a head, the guards, the notice drawn on the console, and `vtiumctl`; until then every keyboard types into one head.
 
-The kernel shows one VT on every display, so vtium today draws one grid mirrored across them all. In the design, vtium keeps its one VT and drives every display from one process as a set of heads. A head is a terminal for one or more displays, with its own inputs, its own look and a stack of virtual consoles, each a session of its own, so a small panel and a large monitor each get a grid sized for them, with a keyboard typing into each.
+The kernel shows one VT on every display, so vtium keeps its one VT and drives every display from one process as a set of heads. A head is a terminal for one or more displays, with its own inputs, its own look and a stack of virtual consoles, each a session of its own, so a small panel and a large monitor each get a grid sized for them, with a keyboard typing into each.
 
 A head file in `/etc/vtium` declares the heads and an ordered list of rules, read as a firewall reads its rules: each display and each keyboard or pointer walks them from the top, and the first that matches places it in a head, in the focus, which a chord moves between heads, or out of use. A rule names a device by its port, its serial number or its monitor's identity, or more weakly by its name. The rules vtium ships put every display in one head and every keyboard and pointer in the focus, by the input classes udev gives each device, and leave media keys, joysticks and the like closed; that is the console as it is today, and a user adds rules above them.
 

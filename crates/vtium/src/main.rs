@@ -3,8 +3,9 @@
 //! Start-up runs in the C reference's order (`src/main.c:161-222` at
 //! kmscon b1f7a7c5): the configuration, the loop and its signals, the VT,
 //! the head file (ADR-1401 D3), the seat's devices, the sessions, then the
-//! loop until something asks it to end; at the end the VT switches back, the loop is served while that
-//! is pending, and the VT is put back before the loop goes.
+//! loop until something asks it to end; at the end the VT switches back,
+//! the loop is served while that is pending, and the VT is put back before
+//! the loop goes.
 
 use std::ffi::OsString;
 use std::io;
