@@ -1,8 +1,8 @@
 //! The parent's side of the parser's child (ADR-1200 D14), as the tests
 //! run it: the binary started as `vtium-vitrify --parse` with an empty
-//! environment, `/` as its directory, no descriptor but its three pipes
-//! and a process group of its own, a request written to it and its answer
-//! checked field by field. A thread of its own reaps the child as it
+//! environment, `/` as its directory, with no descriptor but its three
+//! pipes, in a process group of its own, a request written to it and its
+//! answer checked field by field. A thread of its own reaps the child as it
 //! exits, though a process it started may still hold its pipes.
 //! Nothing in the shipped binary starts the child (`serve` parses in its
 //! own sandbox), so the parent's side lives with the tests.
@@ -124,8 +124,9 @@ impl Parser {
                     )
                     .read_to_end(&mut out)
             });
-            // its end is told once it has exited too, so a parser that
-            // closes its stdout a moment before it exits is waited for
+            // the reader reports only once the reaper has the exit status,
+            // so a parser that closes its stdout a moment before it exits
+            // is waited for
             let status = status
                 .recv()
                 .unwrap_or_else(|_| Err(std::io::Error::other("its reaper ended")));
@@ -168,7 +169,7 @@ impl Parser {
 }
 
 /// Waits for the parser `child` to exit, ends each process it started in
-/// its process group, and reaps it, how it exited. Until it is reaped its
+/// its process group, and reaps it. It returns how the parser exited. Until it is reaped its
 /// pid, and with it the group's id, names no other process, so the
 /// group's end reaches only what the parser started.
 fn reap(mut child: Child) -> std::io::Result<ExitStatus> {

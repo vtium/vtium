@@ -7,12 +7,17 @@
 #[path = "common/parser.rs"]
 mod parser;
 
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use parser::Parser;
+use rustix::process::{
+    Pid, PidfdFlags, Signal, WaitId, WaitIdOptions, pidfd_open, pidfd_send_signal, waitid,
+};
 use vtium_vitrify::child::Request;
+use vtium_vitrify::glyphs::Glyphs;
 
 fn stand_in(script: &str) -> Parser {
     Parser::with_program(Path::new("/bin/sh"), &["-c", script])
@@ -58,73 +63,112 @@ fn a_malformed_answer_is_refused() {
     assert!(e.contains("refused") || e.contains("write"), "{e}");
 }
 
+/// A deadline long enough for a test to watch the stand-in's processes
+/// before it passes.
+const WATCHED_DEADLINE: Duration = Duration::from_secs(2);
+
+// a parser that overruns its deadline is ended, and the test ends it
+// itself should the parent fail to
 #[test]
 fn a_parser_past_its_deadline_is_ended() {
-    let e = stand_in("sleep 30")
-        .deadline(std::time::Duration::from_millis(300))
-        .parse(&Request::default())
-        .expect_err("ended");
+    let dir = scratch("parser-deadline");
+    let parsing = parse_on_a_thread(
+        in_dir(&dir, r#"echo $$ >"$1/child"; sleep 30"#).deadline(WATCHED_DEADLINE),
+    );
+    let child = watch(&dir, "child");
+    assert!(running(&child), "the stand-in runs as the test watches it");
+    let e = parsing.join().unwrap().expect_err("ended");
     assert!(e.contains("longer than"), "{e}");
 }
 
-/// A stand-in that starts a process holding its pipes, `sleep 30`, then
-/// runs `then`. It shows its own pid in `child` and that process's in
-/// `descendant`, in the directory it is given.
+/// The start of a stand-in that starts a process holding its pipes,
+/// `sleep 30`. It writes that process's pid to the file `descendant`, and
+/// then its own pid to the file `child`, in the directory it is given.
 const HOLDS: &str = r#"sleep 30 & echo $! >"$1/descendant"; echo $$ >"$1/child"; "#;
 
-/// The directory a [`HOLDS`] stand-in named `name` shows its pids in.
-fn holds_dir(name: &str) -> PathBuf {
+/// An empty directory for the stand-in named `name` to write to.
+fn scratch(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("vtium-vitrify-{name}"));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
 
-/// A [`HOLDS`] stand-in that then runs `then`, showing its pids in `dir`.
-fn holding(dir: &Path, then: &str) -> Parser {
-    let script = format!("{HOLDS}{then}");
+/// A stand-in that runs `script` with `dir` as its `$1`.
+fn in_dir(dir: &Path, script: &str) -> Parser {
     Parser::with_program(
         Path::new("/bin/sh"),
-        &["-c", &script, "sh", &dir.to_string_lossy()],
+        &["-c", script, "sh", &dir.to_string_lossy()],
     )
 }
 
-/// The pid the stand-in showed in `dir`'s `file`, and a pidfd that ends
-/// that process when it drops, so a failing test leaves nothing behind.
-fn shown(dir: &Path, file: &str) -> (i32, Ending) {
-    let pid: i32 = std::fs::read_to_string(dir.join(file))
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
-    let fd = rustix::process::pidfd_open(
-        rustix::process::Pid::from_raw(pid).unwrap(),
-        rustix::process::PidfdFlags::empty(),
-    )
-    .ok();
-    (pid, Ending(fd))
+/// `parser` parsing an empty request on a thread of its own, so the test
+/// can watch it meanwhile.
+fn parse_on_a_thread(parser: Parser) -> JoinHandle<Result<Glyphs, String>> {
+    std::thread::spawn(move || parser.parse(&Request::default()))
 }
 
-/// Ends the process its pidfd names when it drops.
-struct Ending(Option<rustix::fd::OwnedFd>);
+/// A process the stand-in started, with a pidfd that ends it when the
+/// test ends, so a failing test leaves nothing behind.
+struct Watched {
+    pid: i32,
+    fd: OwnedFd,
+}
 
-impl Drop for Ending {
+impl Drop for Watched {
     fn drop(&mut self) {
-        if let Some(fd) = &self.0 {
-            let _ = rustix::process::pidfd_send_signal(fd, rustix::process::Signal::KILL);
-        }
+        let _ = pidfd_send_signal(&self.fd, Signal::KILL);
     }
 }
 
+/// The process whose pid the stand-in writes to `dir`'s `file`, waited
+/// for at most 10 s. The pidfd names the process the pid named as it
+/// opened, so a test checks with [`running`] that it opened in time.
+fn watch(dir: &Path, file: &str) -> Watched {
+    let path = dir.join(file);
+    let read = || {
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| s.trim().parse::<i32>().ok())
+    };
+    assert!(
+        within(Duration::from_secs(10), || read().is_some()),
+        "the stand-in writes {file}"
+    );
+    let pid = read().unwrap();
+    let fd = pidfd_open(Pid::from_raw(pid).unwrap(), PidfdFlags::empty()).unwrap();
+    Watched { pid, fd }
+}
+
+/// Whether `child` is this process's child and has yet to exit. While it
+/// has not, its process group has not been ended, so a process of that
+/// group watched before this check was the stand-in's.
+fn running(child: &Watched) -> bool {
+    matches!(
+        waitid(
+            WaitId::PidFd(child.fd.as_fd()),
+            WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT,
+        ),
+        Ok(None)
+    )
+}
+
 /// Whether the process `pid` is gone and reaped, waited for at most 2 s.
+fn gone(pid: i32) -> bool {
+    within(Duration::from_secs(2), || {
+        !Path::new(&format!("/proc/{pid}")).exists()
+    })
+}
+
+/// Whether `done` holds within `bound`, checked every 10 ms.
 #[expect(
     clippy::disallowed_methods,
-    reason = "the test bounds its wait on a process's state"
+    reason = "the test bounds its wait on a state"
 )]
-fn gone(pid: i32) -> bool {
-    let until = Instant::now() + Duration::from_secs(2);
+fn within(bound: Duration, mut done: impl FnMut() -> bool) -> bool {
+    let until = Instant::now() + bound;
     loop {
-        if !Path::new(&format!("/proc/{pid}")).exists() {
+        if done() {
             return true;
         }
         if Instant::now() > until {
@@ -138,32 +182,36 @@ fn gone(pid: i32) -> bool {
 // process it started holds its stdout, and that process is ended with it
 #[test]
 fn a_parser_that_exits_is_reaped_though_a_process_it_started_holds_its_stdout() {
-    let dir = holds_dir("parser-exits-held");
-    let e = holding(&dir, "echo 'bad PSF header' >&2; exit 1")
-        .deadline(Duration::from_secs(5))
-        .parse(&Request::default())
-        .expect_err("failed");
-    let (child, _c) = shown(&dir, "child");
-    let (descendant, _d) = shown(&dir, "descendant");
+    let dir = scratch("parser-exits-held");
+    // the stand-in exits once the test has watched it and written `go`
+    let script = format!(
+        r#"{HOLDS}while [ ! -e "$1/go" ]; do sleep 0.01; done; echo 'bad PSF header' >&2; exit 1"#
+    );
+    let parsing = parse_on_a_thread(in_dir(&dir, &script).deadline(Duration::from_secs(5)));
+    let descendant = watch(&dir, "descendant");
+    let child = watch(&dir, "child");
+    assert!(running(&child), "the stand-in runs as the test watches it");
+    std::fs::write(dir.join("go"), "").unwrap();
+    let e = parsing.join().unwrap().expect_err("failed");
     assert_eq!(e, "bad PSF header");
-    assert!(gone(child), "the parser is reaped");
-    assert!(gone(descendant), "what the parser started is ended");
+    assert!(gone(child.pid), "the parser is reaped");
+    assert!(gone(descendant.pid), "what the parser started is ended");
 }
 
 // vtium/vtium#163: a parser ended at its deadline is reaped, though a
 // process it started holds its stdout, and its process group is ended
 #[test]
 fn a_parser_past_its_deadline_is_reaped_with_what_it_started() {
-    let dir = holds_dir("parser-deadline-held");
-    let e = holding(&dir, "sleep 30")
-        .deadline(Duration::from_millis(300))
-        .parse(&Request::default())
-        .expect_err("ended");
-    let (child, _c) = shown(&dir, "child");
-    let (descendant, _d) = shown(&dir, "descendant");
+    let dir = scratch("parser-deadline-held");
+    let parsing =
+        parse_on_a_thread(in_dir(&dir, &format!("{HOLDS}sleep 30")).deadline(WATCHED_DEADLINE));
+    let descendant = watch(&dir, "descendant");
+    let child = watch(&dir, "child");
+    assert!(running(&child), "the stand-in runs as the test watches it");
+    let e = parsing.join().unwrap().expect_err("ended");
     assert!(e.contains("longer than"), "{e}");
-    assert!(gone(child), "the parser is reaped");
-    assert!(gone(descendant), "what the parser started is ended");
+    assert!(gone(child.pid), "the parser is reaped");
+    assert!(gone(descendant.pid), "what the parser started is ended");
 }
 
 #[test]
