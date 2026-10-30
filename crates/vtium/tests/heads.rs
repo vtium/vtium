@@ -34,6 +34,11 @@ struct Memory {
     dpi: f64,
     /// Its connector was lit at start, so it is the boot display.
     lit: bool,
+    /// Left dark at its bind, as a DRM card leaves a display the rules
+    /// leave dark while another is lit: never announced until let go.
+    held: bool,
+    /// Let go: the next hotplug announces it.
+    released: bool,
     pixels: Vec<u8>,
     events: Vec<Event>,
     awake: bool,
@@ -55,6 +60,8 @@ impl Memory {
             card,
             dpi: 72.0,
             lit: false,
+            held: false,
+            released: false,
             pixels: Vec::new(),
             events: Vec::new(),
             awake: false,
@@ -74,6 +81,11 @@ impl Memory {
     fn lit(self) -> Memory {
         Memory { lit: true, ..self }
     }
+
+    /// This display, left dark at its bind.
+    fn held(self) -> Memory {
+        Memory { held: true, ..self }
+    }
 }
 
 impl Video for Memory {
@@ -84,7 +96,11 @@ impl Video for Memory {
         std::mem::take(&mut self.events)
     }
     fn displays(&self) -> Vec<DisplayId> {
-        if self.awake { vec![ID] } else { Vec::new() }
+        if self.awake && !self.held {
+            vec![ID]
+        } else {
+            Vec::new()
+        }
     }
     fn name(&self, _: DisplayId) -> String {
         self.connector.to_owned()
@@ -143,11 +159,13 @@ impl Video for Memory {
         self.pixels = vec![0; (self.w * self.h * 4) as usize];
         self.awake = true;
         self.dpms = Some(Dpms::On);
-        self.events.push(if first {
-            Event::Added(ID)
-        } else {
-            Event::Redraw(ID)
-        });
+        if !self.held {
+            self.events.push(if first {
+                Event::Added(ID)
+            } else {
+                Event::Redraw(ID)
+            });
+        }
         self.events.push(Event::Awake);
         Ok(())
     }
@@ -159,10 +177,28 @@ impl Video for Memory {
         Ok(())
     }
     fn hotplug(&mut self) -> io::Result<()> {
+        if std::mem::take(&mut self.released) {
+            self.events.push(Event::Added(ID));
+        }
         Ok(())
     }
     fn as_any(&mut self) -> &mut dyn Any {
         self
+    }
+    fn dark(&self) -> Vec<Identity> {
+        (self.awake && self.held)
+            .then(|| self.identity(ID))
+            .flatten()
+            .into_iter()
+            .collect()
+    }
+    fn release_dark(&mut self, connector: &str) -> bool {
+        let let_go = self.held && connector == self.connector;
+        if let_go {
+            self.held = false;
+            self.released = true;
+        }
+        let_go
     }
 }
 
@@ -2647,4 +2683,35 @@ fn another_vts_key_rescues_nothing() {
         s.until(SECOND, |a| head_shows(a, "small", "got:s")),
         "still small's"
     );
+}
+
+/// D9: a connected display always lights. The rules light the large
+/// display alone, and the small one, left dark at its bind while the large
+/// was lit, is never announced; once the large goes the display guard lets
+/// the small go for its device to announce and lights it, and once the
+/// large is back the small goes dark again.
+#[test]
+fn a_display_left_dark_at_its_bind_lights_when_the_lit_one_goes() {
+    let displays = [
+        (
+            "/dev/mem0",
+            Memory::new(320, 160, "MEM-1", "mem-small").held(),
+        ),
+        ("/dev/mem1", Memory::new(640, 320, "MEM-2", "mem-large")),
+    ];
+    let text = "version = 1\n[head desk]\n[rules]\ndisplay card:mem-large -> desk\n";
+    let mut s = Seat::with_heads(&[], Some(text), displays, "echo ready; read x");
+    assert!(s.until(SECOND, |a| a.grid() == (80, 20)), "the large alone");
+    s.unplug("/dev/mem1", now());
+    assert!(s.until(SECOND, |a| a.grid() == (40, 10)), "the small lit");
+    assert_eq!(s.memory("/dev/mem0").dpms, Some(Dpms::On));
+    assert_eq!(s.app.cells().len(), 1);
+    s.plug("/dev/mem1", now());
+    assert!(s.until(SECOND, |a| a.grid() == (80, 20)), "the large again");
+    assert_eq!(
+        s.memory("/dev/mem0").dpms,
+        Some(Dpms::Off),
+        "the small dark again"
+    );
+    assert_eq!(s.app.cells().len(), 1);
 }

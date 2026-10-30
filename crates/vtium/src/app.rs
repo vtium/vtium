@@ -1749,10 +1749,25 @@ impl App {
         }
         let displays: Vec<(PathBuf, DisplayId)> =
             self.lit.keys().chain(self.dark.keys()).cloned().collect();
+        // The displays a device left dark at its bind and never announced,
+        // each with its device and connector; their place among their
+        // card's connectors is unknown, so they sort last on it.
+        let held: Vec<(PathBuf, String, vtium_config::Identity)> = self
+            .videos
+            .iter()
+            .flat_map(|(node, video)| {
+                let card = self.cards.get(node).cloned().unwrap_or_default();
+                video.dark().into_iter().map(move |named| {
+                    let display = identity::display(&named, &card, u32::MAX);
+                    (node.clone(), named.connector, display)
+                })
+            })
+            .collect();
         let devices: Vec<vtium_config::Identity> = self
             .lit
             .values()
             .chain(self.dark.values())
+            .chain(held.iter().map(|(_, _, d)| d))
             .chain(self.routes.unrescued())
             .cloned()
             .collect();
@@ -1774,9 +1789,10 @@ impl App {
             }
         });
         let placement = rules.place(&devices, focus);
-        let (shown, inputs) = placement
+        let (shown, rest) = placement
             .placed
             .split_at(displays.len().min(placement.placed.len()));
+        let (unannounced, inputs) = rest.split_at(held.len().min(rest.len()));
         let lighting = displays
             .iter()
             .zip(shown)
@@ -1800,6 +1816,30 @@ impl App {
                     }
                 }
                 self.add_display(&key.0, key.1);
+            }
+        }
+        // A display the guard lights that its device never announced is
+        // let go and scanned again, announced while none is lit, and lit
+        // once it comes.
+        let release = held
+            .iter()
+            .zip(unannounced)
+            .find(|(_, p)| p.by == vtium_config::By::NeverDark);
+        if let Some(((node, connector, _), _)) = release {
+            if let Some((key, _)) = self.guard_lit.take() {
+                self.unlight(key);
+            }
+            self.any_lit.set(!self.lit.is_empty());
+            if let Some(video) = self.videos.get_mut(node) {
+                if video.release_dark(connector) {
+                    log::warn!(
+                        "the display guard asks {} for display {connector} again",
+                        node.display()
+                    );
+                    if let Err(e) = video.hotplug() {
+                        log::warn!("{}: hotplug: {e}", node.display());
+                    }
+                }
             }
         }
         let guarded = inputs.iter().map(|p| p.by == vtium_config::By::AntiLockout);
