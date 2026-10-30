@@ -879,35 +879,52 @@ input class:keyboard -> focus
     assert!(now() - started >= slow, "after its slow compose");
 }
 
-/// D2: a flood in one head's pty takes a bounded share of each turn.
-/// While `desk`'s program writes as fast as it can, a key typed on
-/// `panel`'s keyboard reaches panel's session, and panel's display draws
-/// the echo, within 12 turns; no turn parses more than 64 KiB of desk's
-/// output, and desk's output keeps coming.
-#[test]
-fn a_flood_in_one_head_leaves_another_heads_keys_and_frames_their_turn() {
-    let heads = "version = 1
+/// Two heads, `desk` on the large display and `panel` on the small one,
+/// each with a keyboard of its own: the head `flood`'s program writes as
+/// fast as it can, and the other's echoes each line it reads.
+fn flooding(flood: &str) -> Seat {
+    const YES: &str =
+        "exec yes 0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";
+    const ECHO: &str = "echo ready; while read a; do echo got:$a; done";
+    let login = |head: &str| if head == flood { YES } else { ECHO };
+    let heads = format!(
+        "version = 1
 [head desk]
-login = /bin/sh -c \"exec yes 0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz\"
+login = /bin/sh -c \"{desk}\"
 [head panel]
-login = /bin/sh -c \"echo ready; while read a; do echo got:$a; done\"
+login = /bin/sh -c \"{panel}\"
 [rules]
 display card:mem-large -> desk
 display card:mem-small -> panel
+input path:kbd-desk -> desk
 input path:kbd-panel -> panel
-";
+",
+        desk = login("desk"),
+        panel = login("panel"),
+    );
     let [small, (node, large)] = two_displays();
     let displays = [small, (node, large.lit())];
-    let mut s = Seat::with_heads(&[], Some(heads), displays, "read x");
+    let mut s = Seat::with_heads(&[], Some(&heads), displays, "read x");
+    s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-desk"));
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-panel"));
-    let parsed = |a: &App| a.head("desk").map_or(0, |h| h.term().parsed);
+    s
+}
+
+/// D2: a flood in one head's pty takes a bounded share of each turn.
+/// While head `flood`'s program writes as fast as it can, a key typed on
+/// head `quiet`'s keyboard `kbd` reaches quiet's session, and quiet's
+/// display `node` draws the echo, within 12 turns; no turn parses more
+/// than 64 KiB of flood's output, and flood's output keeps coming.
+fn a_flood_leaves_the_other_head_its_turn(flood: &str, quiet: &str, kbd: &str, node: &str) {
+    let mut s = flooding(flood);
+    let parsed = |a: &App| a.head(flood).map_or(0, |h| h.term().parsed);
     assert!(
-        s.until(SECOND, |a| head_shows(a, "panel", "ready")
+        s.until(SECOND, |a| head_shows(a, quiet, "ready")
             && parsed(a) > 1 << 20),
-        "panel's session runs and desk floods"
+        "{quiet}'s session runs and {flood} floods"
     );
     let flooded = parsed(&s.app);
-    s.type_on(KBD_SMALL, "k\r");
+    s.type_on(kbd, "k\r");
     let mut echoed = None;
     let mut turns = 0;
     while turns < 12 {
@@ -919,21 +936,37 @@ input path:kbd-panel -> panel
         let share = parsed(&s.app) - before;
         assert!(
             share <= 64 * 1024,
-            "turn {turns} parsed {share} bytes of desk's output"
+            "turn {turns} parsed {share} bytes of {flood}'s output"
         );
-        let frames = s.memory("/dev/mem0").frames;
+        let frames = s.memory(node).frames;
         match echoed {
-            None if head_shows(&s.app, "panel", "got:k") => echoed = Some(frames),
+            None if head_shows(&s.app, quiet, "got:k") => echoed = Some(frames),
             Some(at) if frames > at => break,
             _ => {}
         }
     }
     assert!(
         echoed.is_some(),
-        "the key's echo reached panel's screen within 12 turns"
+        "the key's echo reached {quiet}'s screen within 12 turns"
     );
-    assert!(turns < 12, "panel's display drew the echo within 12 turns");
-    assert!(parsed(&s.app) > flooded, "desk's output keeps coming");
+    assert!(
+        turns < 12,
+        "{quiet}'s display drew the echo within 12 turns"
+    );
+    assert!(parsed(&s.app) > flooded, "{flood}'s output keeps coming");
+}
+
+/// The large head's flood leaves the small head its turn.
+#[test]
+fn a_flood_in_the_large_head_leaves_the_small_head_its_keys_and_frames() {
+    a_flood_leaves_the_other_head_its_turn("desk", "panel", KBD_SMALL, "/dev/mem0");
+}
+
+/// The small head's flood leaves the large head its turn: the share is
+/// the pty's, whatever the size of either head's displays.
+#[test]
+fn a_flood_in_the_small_head_leaves_the_large_head_its_keys_and_frames() {
+    a_flood_leaves_the_other_head_its_turn("panel", "desk", KBD_LARGE, "/dev/mem1");
 }
 
 /// D2: a frame composing holds up no VT switch. While the slow head's
