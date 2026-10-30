@@ -205,12 +205,17 @@ impl Ended {
 
 /// The scrollback memory each console takes (ADR-1401 D10): `sb-memory`,
 /// at most `cap`, the most `sb-memory` may be on the machine, shared
-/// among the `consoles` every head may hold, so all of them together
-/// stay within `cap`.
-pub(crate) fn console_scrollback(sb_memory: usize, cap: u64, consoles: usize) -> usize {
-    let share = cap
-        .checked_div(u64::try_from(consoles).unwrap_or(u64::MAX))
-        .unwrap_or(cap);
+/// among the most consoles every head may hold: `consoles`, or the
+/// `heads` when more, since each head keeps its first console. All of
+/// them together stay within `cap`.
+pub(crate) fn console_scrollback(
+    sb_memory: usize,
+    cap: u64,
+    consoles: usize,
+    heads: usize,
+) -> usize {
+    let most = u64::try_from(consoles.max(heads)).unwrap_or(u64::MAX);
+    let share = cap.checked_div(most).unwrap_or(cap);
     sb_memory.min(usize::try_from(share).unwrap_or(usize::MAX))
 }
 
@@ -1096,10 +1101,12 @@ mod tests {
         const MIB: u64 = 1 << 20;
         // 512 MiB: `sb-memory` may be 128 MiB. The default, 5,963,776
         // bytes, fits 8 times; 50 consoles take 2,684,354 bytes each.
-        assert_eq!(console_scrollback(5_963_776, 128 * MIB, 8), 5_963_776);
-        assert_eq!(console_scrollback(5_963_776, 128 * MIB, 50), 2_684_354);
-        assert_eq!(console_scrollback(64 << 20, 128 * MIB, 8), 16 << 20);
-        assert_eq!(console_scrollback(5_963_776, 128 * MIB, 0), 5_963_776);
+        assert_eq!(console_scrollback(5_963_776, 128 * MIB, 8, 1), 5_963_776);
+        assert_eq!(console_scrollback(5_963_776, 128 * MIB, 50, 1), 2_684_354);
+        assert_eq!(console_scrollback(64 << 20, 128 * MIB, 8, 1), 16 << 20);
+        assert_eq!(console_scrollback(5_963_776, 128 * MIB, 0, 0), 5_963_776);
+        // 9 heads past `consoles-max`'s 8 each keep a console: 9 shares.
+        assert_eq!(console_scrollback(64 << 20, 128 * MIB, 8, 9), 14_913_080);
         assert_eq!(frit_store(16 * MIB, 1), 16 * MIB);
         assert_eq!(frit_store(16 * MIB, 16), MIB);
         assert_eq!(frit_store(16 * MIB, 0), 16 * MIB);

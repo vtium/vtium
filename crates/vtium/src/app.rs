@@ -302,11 +302,7 @@ impl App {
             head: config.number(&keys::HEAD_CONSOLES_MAX).map_or(4, to_usize),
             total: config.number(&keys::CONSOLES_MAX).map_or(8, to_usize),
         };
-        let bytes = crate::head::console_scrollback(
-            crate::config::budget::sb_memory(&config),
-            crate::config::budget::sb_memory_cap(),
-            caps.total,
-        );
+        let bytes = scrollback_bytes(&config, caps, rules.heads.len());
         let heads = heads(&rules, &config, ((cap, lines), bytes), caps, &clock);
         let dpms = config
             .number(&keys::DPMS_TIMEOUT)
@@ -394,6 +390,7 @@ impl App {
             head: self.head_consoles_max,
             total: self.consoles_max,
         };
+        self.scrollback_bytes = scrollback_bytes(&self.config, caps, rules.heads.len());
         let scrollback = (self.scrollback, self.scrollback_bytes);
         self.heads = heads(&rules, &self.config, scrollback, caps, &self.clock);
         self.rules = rules;
@@ -2520,6 +2517,17 @@ fn in_force(mut rules: vtium_config::Config, config: &Config) -> vtium_config::C
     rules
 }
 
+/// The scrollback memory each console of `heads` heads takes under
+/// `config` and `caps` ([`crate::head::console_scrollback`]).
+fn scrollback_bytes(config: &Config, caps: Caps, heads: usize) -> usize {
+    crate::head::console_scrollback(
+        crate::config::budget::sb_memory(config),
+        crate::config::budget::sb_memory_cap(),
+        caps.total,
+        heads,
+    )
+}
+
 /// The console caps (ADR-1401 D10): `head-consoles-max` and
 /// `consoles-max`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3083,6 +3091,30 @@ mod tests {
         );
         assert_eq!(app.routes.head(Some(Path::new("/m")), Some(0)), None);
         assert_eq!(app.routes.head(Some(Path::new("/k")), Some(0)), Some(0));
+    }
+
+    // ADR-1401 D10: a head file's heads past `consoles-max` each keep a
+    // console, and every console's scrollback together stays within the
+    // most `sb-memory` may be: 9 heads take a ninth each.
+    #[test]
+    fn a_head_file_sets_each_consoles_scrollback_by_its_heads() {
+        let args: Vec<OsString> = ["--sb-memory=1G"].iter().map(OsString::from).collect();
+        let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let mut app = App::new(
+            loaded.config,
+            Box::new(FakeVt::new()),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        let mut text = String::from("version = 1\n");
+        for n in 0..9 {
+            text.push_str(&format!("[head h{n}]\n"));
+        }
+        app.set_heads(vtium_config::parse(&text).unwrap().config);
+        let cap = usize::try_from(crate::config::budget::sb_memory_cap()).unwrap();
+        assert_eq!(app.scrollback_bytes, cap / 9);
     }
 
     #[test]
