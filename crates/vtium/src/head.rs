@@ -44,6 +44,18 @@ use crate::term::{Clock, Term, View};
 /// The grid before any display is known.
 pub const GRID: (usize, usize) = (80, 24);
 
+/// How long a notice shows with no key reaching its head (ADR-1401 D7,
+/// probe 5).
+pub const NOTICE_SHOWN: Duration = Duration::from_secs(30);
+
+/// The most notices a head shows at once, the newest: an invalid head
+/// file's, no keyboard found, the anti-lockout guard's and a rescue.
+pub const NOTICES_MAX: usize = 4;
+
+/// How long `focus-mark = auto` shows the focus marks after the focus
+/// moves: a few seconds (the operator's answers on vtium/vtium#156).
+pub const MARK_SHOWN: Duration = Duration::from_secs(3);
+
 /// The lines of scrollback a wheel event scrolls (`src/terminal.c:1648`).
 const WHEEL_LINES: usize = 3;
 
@@ -106,6 +118,17 @@ pub struct Head {
     pub(crate) login: Option<Config>,
     /// Why the head runs no session any more.
     pub(crate) ended: Option<Ended>,
+    /// vtium's notices to the head (ADR-1401 D7), each once and at most
+    /// [`NOTICES_MAX`], the oldest going first, until a key reaches the
+    /// head or [`NOTICE_SHOWN`] after they are first drawn, when they end.
+    notices: Vec<String>,
+    /// The notices as one text, a notice a line.
+    shown: String,
+    /// When the notices end, armed at their first frame; an ended head's
+    /// notice keeps no time.
+    pub(crate) notice_due: Option<Instant>,
+    /// Its focus mark, while the seat shows the marks.
+    pub(crate) mark: Option<vtium_render::Mark>,
     /// What the head does when it loses its last display (ADR-1401 D8).
     pub(crate) on_loss: OnLoss,
     /// When its sessions hang up, while it has no display.
@@ -265,6 +288,10 @@ impl Head {
             wanted: 1,
             login: None,
             ended: None,
+            notices: Vec::new(),
+            shown: String::new(),
+            notice_due: None,
+            mark: None,
             on_loss: OnLoss::Nohup,
             hangup_due: None,
             views: BTreeMap::new(),
@@ -369,10 +396,56 @@ impl Head {
             .then_some((self.pointer.x, self.pointer.y))
     }
 
-    /// What the head shows of itself in place of a session, once its
-    /// session has ended for good.
+    /// What vtium shows on the head of its own: why its session ended
+    /// for good, else its notices.
     pub fn notice(&self) -> Option<&str> {
-        self.ended.map(Ended::notice)
+        self.ended
+            .map(Ended::notice)
+            .or_else(|| (!self.shown.is_empty()).then_some(self.shown.as_str()))
+    }
+
+    /// The head's focus mark, while it shows.
+    pub fn mark(&self) -> Option<vtium_render::Mark> {
+        self.mark
+    }
+
+    /// Adds `text` to the head's notices, which show from its next frame
+    /// for [`NOTICE_SHOWN`] afresh; a notice the head already shows is
+    /// left as it is, its time with it.
+    pub(crate) fn add_notice(&mut self, text: &str) {
+        if self.notices.iter().any(|n| n == text) {
+            return;
+        }
+        if self.notices.len() >= NOTICES_MAX {
+            self.notices.remove(0);
+        }
+        self.notices.push(text.to_owned());
+        self.shown = self.notices.join("\n");
+        self.notice_due = None;
+        self.draw_now = true;
+    }
+
+    /// Whether the head has notices that end.
+    pub(crate) fn has_notices(&self) -> bool {
+        !self.notices.is_empty()
+    }
+
+    /// The head's notices end: a key reached it, or their time ran out.
+    pub(crate) fn end_notices(&mut self) {
+        self.notice_due = None;
+        if !self.notices.is_empty() {
+            self.notices.clear();
+            self.shown.clear();
+            self.draw_now = true;
+        }
+    }
+
+    /// What vtium draws over the head's frames.
+    pub(crate) fn overlay(&self) -> crate::term::Overlay {
+        crate::term::Overlay {
+            notice: self.notice().map(vtium_render::Notice::new),
+            mark: self.mark,
+        }
     }
 
     /// How the shown console fits the displays.
@@ -917,37 +990,79 @@ impl Head {
 /// The head file the start runs (ADR-1401 D3, D7): the file at `path`
 /// read under `trust`, each warning logged with its line; the compiled-in
 /// configuration when there is none; and the compiled-in configuration in
-/// place of a file that fails a check, each error logged with its line.
-/// The file is never written.
-pub fn rules(path: &std::path::Path, trust: &vtium_config::Trust) -> vtium_config::Config {
+/// place of a file that fails a check, each error logged with its line and
+/// shown on the console, the notice returned beside the rules. The file is
+/// never written.
+pub fn rules(
+    path: &std::path::Path,
+    trust: &vtium_config::Trust,
+) -> (vtium_config::Config, Option<String>) {
     use vtium_config::at;
     let parsed = vtium_config::read(path, trust)
         .and_then(|text| text.map(|text| vtium_config::parse(&text)).transpose());
     match parsed {
-        Ok(None) => vtium_config::Config::builtin(),
+        Ok(None) => (vtium_config::Config::builtin(), None),
         Ok(Some(parsed)) => {
             for w in &parsed.warnings {
                 log::warn!("{}", at(path, Some(w.line()), w));
             }
-            parsed.config
+            (parsed.config, None)
         }
         Err(rejected) => {
-            for e in &rejected.errors {
-                log::error!("{}", at(path, e.line(), e));
-            }
+            let mut lines: Vec<String> = rejected
+                .errors
+                .iter()
+                .map(|e| at(path, e.line(), e).to_string())
+                .collect();
             if rejected.more > 0 {
-                log::error!(
-                    "{}",
-                    at(path, None, format_args!("{} more errors", rejected.more))
-                );
+                let more = format_args!("{} more errors", rejected.more);
+                lines.push(at(path, None, more).to_string());
             }
-            log::error!(
-                "{}",
-                at(path, None, "rejected whole: vtium runs the shipped rules")
-            );
-            vtium_config::Config::builtin()
+            lines.push(at(path, None, "rejected whole: vtium runs the shipped rules").to_string());
+            for line in &lines {
+                log::error!("{line}");
+            }
+            (vtium_config::Config::builtin(), Some(lines.join("\n")))
         }
     }
+}
+
+/// The head file the start runs, as [`rules`] reads it, unless `cmdline`,
+/// the kernel command line, carries `vtium.heads=builtin` (ADR-1401 D9):
+/// then the file is not read for this boot and the compiled-in
+/// configuration runs, every guard on.
+pub fn start_rules(
+    path: &std::path::Path,
+    trust: &vtium_config::Trust,
+    cmdline: &str,
+) -> (vtium_config::Config, Option<String>) {
+    match vtium_config::heads_word(cmdline) {
+        vtium_config::HeadsWord::Builtin => {
+            log::warn!(
+                "vtium.heads=builtin: the head file is not read for this boot; the compiled-in rules run, every guard on"
+            );
+            return (vtium_config::Config::builtin(), None);
+        }
+        vtium_config::HeadsWord::Unknown => {
+            log::warn!("vtium.heads= takes builtin alone: the head file is read");
+        }
+        vtium_config::HeadsWord::File => {}
+    }
+    rules(path, trust)
+}
+
+/// The start's log line for each guard the head file turns off
+/// (ADR-1401 D9).
+pub(crate) fn guards_off(guards: vtium_config::Guards) -> Vec<String> {
+    [
+        (guards.anti_lockout, "anti-lockout"),
+        (guards.rescue_key, "rescue-key"),
+        (guards.never_dark, "never-dark"),
+    ]
+    .into_iter()
+    .filter(|&(on, _)| !on)
+    .map(|(_, name)| format!("the head file turns the {name} guard off"))
+    .collect()
 }
 
 /// The head a display joins: the one the first rule matching `display`
@@ -1048,7 +1163,8 @@ mod tests {
         let valid = "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\n";
         let invalid = "version = 1\n[head desk]\n[rules]\ndisplay * -> desc\n";
         let (file, trust) = fixture("valid", Some(valid));
-        let ran = rules(&file, &trust);
+        let (ran, notice) = rules(&file, &trust);
+        assert_eq!(notice, None);
         assert_eq!(
             ran.heads
                 .iter()
@@ -1057,16 +1173,66 @@ mod tests {
             ["desk"]
         );
         let (absent, trust) = fixture("absent", None);
-        assert_eq!(rules(&absent, &trust), vtium_config::Config::builtin());
+        assert_eq!(
+            rules(&absent, &trust),
+            (vtium_config::Config::builtin(), None)
+        );
         assert!(!absent.exists(), "nothing written");
         let (bad, trust) = fixture("invalid", Some(invalid));
-        assert_eq!(rules(&bad, &trust), vtium_config::Config::builtin());
+        let (ran, notice) = rules(&bad, &trust);
+        assert_eq!(ran, vtium_config::Config::builtin());
+        assert!(notice.is_some_and(|n| n.contains(":4: ") && n.ends_with("shipped rules")));
         assert_eq!(std::fs::read_to_string(&bad).ok().as_deref(), Some(invalid));
         for f in [file, absent, bad] {
             if let Some(dir) = f.parent() {
                 std::fs::remove_dir_all(dir).ok();
             }
         }
+    }
+
+    // A head shows each notice once and the newest NOTICES_MAX; an ended
+    // head's notice stays when they end.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn a_head_keeps_each_notice_once_and_the_newest_few() {
+        let config = crate::config::load(&[], None, &mut |_: &std::path::Path| Ok(None)).config;
+        let term = terminal(&config, (0, 0), 0, std::rc::Rc::new(Instant::now));
+        let mut head = Head::new("h", &config, &vtium_config::Font::default(), term);
+        for n in 0..6 {
+            head.add_notice(&format!("n{n}"));
+            head.add_notice(&format!("n{n}"));
+        }
+        assert_eq!(head.notice(), Some("n2\nn3\nn4\nn5"));
+        head.ended = Some(Ended::Oneshot);
+        head.notice_due = Some(Instant::now());
+        head.end_notices();
+        assert_eq!(
+            (head.notice(), head.notice_due),
+            (Some("session ended"), None)
+        );
+        assert!(!head.has_notices());
+    }
+
+    // ADR-1401 D9 and D11's switch row: each guard the file turns off is a
+    // line in the start's log.
+    #[test]
+    fn each_guard_turned_off_is_a_line_in_the_starts_log() {
+        let off = |text: &str| {
+            let parsed = vtium_config::parse(&format!("version = 1\n[guards]\n{text}"));
+            guards_off(parsed.map(|p| p.config.guards).unwrap_or_default())
+        };
+        assert_eq!(off(""), Vec::<String>::new());
+        assert_eq!(
+            off("never-dark = off\nanti-lockout = off\n"),
+            [
+                "the head file turns the anti-lockout guard off",
+                "the head file turns the never-dark guard off"
+            ]
+        );
+        assert_eq!(
+            off("rescue-key = off\n"),
+            ["the head file turns the rescue-key guard off"]
+        );
     }
 
     #[test]

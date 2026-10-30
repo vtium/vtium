@@ -84,6 +84,17 @@ pub trait Video: Any {
     fn identity(&self, _: DisplayId) -> Option<Identity> {
         None
     }
+    /// The identity of each connected display the device left dark at its
+    /// bind by the head file's rules, never announced: a DRM card's.
+    fn dark(&self) -> Vec<Identity> {
+        Vec::new()
+    }
+    /// Lets go of the dark display named `connector`, which the next
+    /// [`Video::hotplug`] asks the rules of again (ADR-1401 D9). Returns
+    /// whether it was dark.
+    fn release_dark(&mut self, _: &str) -> bool {
+        false
+    }
 }
 
 /// A video device's cursor plane, as the pointer drives it.
@@ -158,6 +169,12 @@ impl Video for Drm2d<Card> {
     }
     fn hotplug(&mut self) -> io::Result<()> {
         Drm2d::poll(self)
+    }
+    fn dark(&self) -> Vec<Identity> {
+        Drm2d::dark(self).cloned().collect()
+    }
+    fn release_dark(&mut self, connector: &str) -> bool {
+        Drm2d::release_dark(self, connector)
     }
     fn as_any(&mut self) -> &mut dyn Any {
         self

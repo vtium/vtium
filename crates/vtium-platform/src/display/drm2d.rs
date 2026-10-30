@@ -227,6 +227,16 @@ impl<K: Kms> Drm2d<K> {
         self.dark.iter().map(|d| &d.identity)
     }
 
+    /// Lets go of the connector `connector` the policy left dark, so the
+    /// next scan asks the policy of it again, as of one just plugged in:
+    /// the head file's display guard lights it so (ADR-1401 D9). Returns
+    /// whether it was dark.
+    pub fn release_dark(&mut self, connector: &str) -> bool {
+        let before = self.dark.len();
+        self.dark.retain(|d| d.identity.connector != connector);
+        self.dark.len() != before
+    }
+
     /// The events since the last drain, in order.
     pub fn events(&mut self) -> std::vec::Drain<'_, Event> {
         self.events.drain(..)

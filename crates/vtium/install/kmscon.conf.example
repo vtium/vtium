@@ -23,6 +23,9 @@
 ## The most consoles every head holds together. Each head keeps its first console; the others open, in the head file's order, while the total is below this.
 #consoles-max=8
 
+## Each head's focus mark over its top-right cell, filled on the head holding the focus and hollow on the others: `auto` shows the marks for a few seconds after the focus chord or the anti-lockout guard moves the focus, `always` shows them always, `off` never.
+#focus-mark=auto
+
 ## `TERM` in the session's environment.
 #term=kmscon
 

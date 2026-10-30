@@ -20,8 +20,8 @@ use vtium_font::{Font, Missing, SpritePolicy};
 use vtium_platform::display::{DisplayId, Rect as DisplayRect, SwapError, Swapped};
 use vtium_platform::pty::{Consumer, Replies};
 use vtium_render::{
-    Arrow, Canvas, Config as RenderConfig, Depth, DrawState, Mapped, RenderTimer, Renderer, Stats,
-    Target,
+    Arrow, Canvas, Colors, Config as RenderConfig, Depth, DrawState, Mapped, Mark, Notice,
+    Orientation, Rect as RenderRect, RenderTimer, Renderer, Stats, Surface, Target,
 };
 use vtium_term::{Age, Cursor, Damage, Frame, Line, LinkId, Palette, Terminal};
 
@@ -203,6 +203,93 @@ pub struct Drawing {
     shadow: Option<Canvas>,
 }
 
+/// What vtium draws of its own over a display's frame, outside the
+/// terminal's cells (ADR-1401 D5, D7): a notice across the top and the
+/// focus mark over the top-right cell.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Overlay {
+    pub notice: Option<Notice>,
+    pub mark: Option<Mark>,
+}
+
+impl Overlay {
+    /// Draws the overlay over the `grid` that `renderer` drew into
+    /// `target`, turned as `orientation` says, and returns the areas it
+    /// covers.
+    fn draw(
+        &self,
+        renderer: &Renderer<DisplayFace>,
+        grid: (usize, usize),
+        orientation: Orientation,
+        target: &mut Canvas,
+    ) -> Vec<DisplayRect> {
+        let font = renderer.font();
+        let surface = Surface {
+            width: target.width(),
+            height: target.height(),
+            orientation,
+            depth: renderer.depth(),
+        };
+        let cell = self
+            .mark
+            .and_then(|_| top_right(surface, grid, font.cell()));
+        let colors = Colors::NOTICE;
+        let notice = self
+            .notice
+            .as_ref()
+            .and_then(|n| n.draw(font, surface, colors, cell, target));
+        let mark = self
+            .mark
+            .zip(cell)
+            .and_then(|(m, c)| m.draw(font, surface, c, colors, target));
+        [notice, mark]
+            .into_iter()
+            .flatten()
+            .map(|r| DisplayRect {
+                x: r.x,
+                y: r.y,
+                width: r.width,
+                height: r.height,
+            })
+            .collect()
+    }
+}
+
+/// The display rectangle of the top-right cell of a `grid` of `cell`s,
+/// centred on `surface` and turned with it as the renderer places it.
+fn top_right(surface: Surface, grid: (usize, usize), cell: vtium_font::Cell) -> Option<RenderRect> {
+    let n = |v: usize| u32::try_from(v).unwrap_or(u32::MAX);
+    let (cols, rows) = (n(grid.0), n(grid.1));
+    let (cw, ch) = (cell.width, cell.height);
+    if cols == 0 || rows == 0 || cw == 0 || ch == 0 {
+        return None;
+    }
+    let turned = matches!(surface.orientation, Orientation::Right | Orientation::Left);
+    let (gw, gh) = (cols.saturating_mul(cw), rows.saturating_mul(ch));
+    let (across, down) = if turned { (gh, gw) } else { (gw, gh) };
+    let off_x = surface.width.saturating_sub(across) / 2;
+    let off_y = surface.height.saturating_sub(down) / 2;
+    let (max_x, max_y) = (off_x.saturating_add(across), off_y.saturating_add(down));
+    // the cell's left edge, along the grid's rows
+    let lx = cols.saturating_sub(1).saturating_mul(cw);
+    let (x, y) = match surface.orientation {
+        Orientation::Normal => (off_x.saturating_add(lx), off_y),
+        Orientation::UpsideDown => (
+            max_x.saturating_sub(lx.saturating_add(cw)),
+            max_y.saturating_sub(ch),
+        ),
+        Orientation::Right => (max_x.saturating_sub(ch), off_y.saturating_add(lx)),
+        Orientation::Left => (off_x, max_y.saturating_sub(lx.saturating_add(cw))),
+    };
+    let (width, height) = if turned { (ch, cw) } else { (cw, ch) };
+    Some(RenderRect {
+        x,
+        y,
+        width,
+        height,
+    })
+}
+
 /// A frame for a head's render thread to compose: a display's drawing,
 /// the screen and what the frame shows beyond it.
 pub struct Job {
@@ -216,6 +303,10 @@ pub struct Job {
     /// The pointer's tip, wherever it is drawn.
     tip: Option<(u32, u32)>,
     hook: Option<DrawHook>,
+    overlay: Overlay,
+    orientation: Orientation,
+    /// The overlay changed: the frame is drawn whole beneath it.
+    redraw: bool,
 }
 
 impl Job {
@@ -231,13 +322,14 @@ impl Job {
             .shadow
             .take()
             .filter(|c| (c.width(), c.height()) == (w, h));
-        let whole = kept.is_none();
+        let whole = kept.is_none() || self.redraw;
         let mut shadow = kept.unwrap_or_else(|| Canvas::new(w, h, 0));
         let frame = self.snapshot.frame(self.since);
+        let grid = (frame.cols(), frame.rows());
         let age = u32::from(!whole);
         let drawn = drawing.renderer.draw(&frame, &mut shadow, age, &self.state);
         let stats = drawn.stats;
-        let damage = drawn
+        let mut damage: Vec<DisplayRect> = drawn
             .damage
             .iter()
             .map(|r| DisplayRect {
@@ -247,6 +339,12 @@ impl Job {
                 height: r.height,
             })
             .collect();
+        let (most_cols, most_rows) = drawing.renderer.grid_size();
+        let grid = (grid.0.min(most_cols), grid.1.min(most_rows));
+        damage.extend(
+            self.overlay
+                .draw(&drawing.renderer, grid, self.orientation, &mut shadow),
+        );
         let at = self.tip.and_then(|t| drawing.renderer.pointer_at(t));
         drawing.shadow = Some(shadow);
         Composed {
@@ -339,6 +437,10 @@ pub struct View {
     history: Vec<Vec<DisplayRect>>,
     /// When the frame composing was taken.
     sent: Option<Instant>,
+    /// What vtium draws over the next frame.
+    pub overlay: Overlay,
+    /// The overlay the last frame took, `None` when unknown.
+    overlay_sent: Option<Overlay>,
 }
 
 impl View {
@@ -379,6 +481,8 @@ impl View {
             fresh_whole: true,
             history: Vec::new(),
             sent: None,
+            overlay: Overlay::default(),
+            overlay_sent: None,
         };
         view.install(renderer);
         view
@@ -501,6 +605,8 @@ impl View {
         self.owed = false;
         self.lost = false;
         self.sent = Some(clock());
+        let redraw = self.overlay_sent.as_ref() != Some(&self.overlay);
+        self.overlay_sent = Some(self.overlay.clone());
         Prepared::Job(Job {
             key: key.clone(),
             generation: self.generation,
@@ -511,6 +617,9 @@ impl View {
             state,
             tip,
             hook: hook.cloned(),
+            overlay: self.overlay.clone(),
+            orientation: self.orientation,
+            redraw,
         })
     }
 
@@ -521,6 +630,7 @@ impl View {
             self.drawing = Some(job.drawing);
             self.since = job.since;
             self.pending = true;
+            self.overlay_sent = None;
         }
     }
 
@@ -841,6 +951,68 @@ mod tests {
         fn need_commit(&self, _: DisplayId) -> bool {
             self.shown != self.sent
         }
+    }
+
+    // The focus mark's cell is where the renderer draws the grid's top-right
+    // cell, in each orientation: a full block there, drawn, lights exactly
+    // the rectangle `top_right` gives.
+    #[test]
+    fn top_right_is_the_cell_the_renderer_draws_top_right() {
+        for (o, w, h) in [
+            (Orientation::Normal, 100, 60),
+            (Orientation::UpsideDown, 100, 60),
+            (Orientation::Right, 60, 100),
+            (Orientation::Left, 60, 100),
+        ] {
+            let mut terminal = Terminal::new(10, 3, 0);
+            terminal.input("\x1b[1;10H\u{2588}".as_bytes());
+            let face: DisplayFace = Box::new(Unifont::new(16));
+            let config = RenderConfig {
+                orientation: o,
+                ..RenderConfig::default()
+            };
+            let mut renderer = Renderer::new(Font::new(face), w, h, config);
+            let mut canvas = vtium_render::Canvas::new(w, h, 0);
+            let snapshot = Snapshot::take(&terminal);
+            renderer.draw(
+                &snapshot.frame(Age::NEVER),
+                &mut canvas,
+                0,
+                &DrawState::default(),
+            );
+            let bg = canvas.pixel(0, 0);
+            let lit: Vec<(u32, u32)> = (0..h)
+                .flat_map(|y| (0..w).map(move |x| (x, y)))
+                .filter(|&(x, y)| canvas.pixel(x, y) != bg)
+                .collect();
+            let (x0, y0) = (lit.iter().map(|p| p.0).min(), lit.iter().map(|p| p.1).min());
+            let (x1, y1) = (lit.iter().map(|p| p.0).max(), lit.iter().map(|p| p.1).max());
+            let drawn = RenderRect {
+                x: x0.unwrap(),
+                y: y0.unwrap(),
+                width: x1.unwrap() - x0.unwrap() + 1,
+                height: y1.unwrap() - y0.unwrap() + 1,
+            };
+            let surface = Surface {
+                width: w,
+                height: h,
+                orientation: o,
+                depth: renderer.depth(),
+            };
+            let cell = renderer.font().cell();
+            assert_eq!(top_right(surface, (10, 3), cell), Some(drawn), "{o:?}");
+        }
+        let surface = Surface {
+            width: 100,
+            height: 60,
+            orientation: Orientation::Normal,
+            depth: Depth::Color,
+        };
+        let cell = vtium_font::Cell {
+            width: 8,
+            height: 16,
+        };
+        assert_eq!(top_right(surface, (0, 3), cell), None, "an empty grid");
     }
 
     /// A terminal of 4 by 2 cells and its view on a display of 36 by 34,

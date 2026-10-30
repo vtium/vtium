@@ -177,10 +177,15 @@ fn run(
     if let Some(font) = console {
         app.set_console_font(font);
     }
-    app.set_heads(vtium::head::rules(
+    let (rules, notice) = vtium::head::start_rules(
         Path::new(vtium_config::HEAD_FILE),
         &vtium_config::Trust::ROOT,
-    ));
+        &vtium::font::read_text(Path::new("/proc/cmdline")),
+    );
+    app.set_heads(rules);
+    if let Some(text) = notice {
+        app.notice(&text);
+    }
 
     match start.input() {
         Some(mut input) => {
@@ -194,6 +199,7 @@ fn run(
             if let Err(e) = udev.scan() {
                 log::warn!("cannot scan the seat's devices: {e}");
             }
+            app.scanned();
             udev.insert(&lp.handle(), |app: &mut App| app.udev.as_mut())?;
             app.udev = Some(udev);
         }
