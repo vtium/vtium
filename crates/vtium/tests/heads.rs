@@ -1336,3 +1336,25 @@ fn a_head_that_never_lit_holds_up_no_exit() {
     );
     assert_eq!(once.app.finished(), Some(vtium::app::Exit::Oneshot));
 }
+
+/// A head that ended runs no session, so Ctrl-Super-Return opens no
+/// console in it.
+#[test]
+fn an_ended_head_opens_no_console() {
+    let heads = "version = 1
+[head small]
+login = /bin/sh -c \"echo bye\"
+[head large]
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+input path:kbd-small -> small
+";
+    let mut s = Seat::with_heads(&["--oneshot"], Some(heads), two_displays(), "read x");
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    assert!(s.until(SECOND, |a| a.head("small").and_then(Head::notice).is_some()));
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
+    s.until(Duration::from_millis(100), |_| false);
+    assert_eq!(consoles(&s.app, "small"), Some((1, 0)), "no console opened");
+}

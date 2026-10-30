@@ -525,6 +525,10 @@ impl App {
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
+        if let Some(ended) = head.ended {
+            log::info!("head {}: no new console: {}", head.name(), ended.notice());
+            return;
+        }
         if head.console_count() >= self.head_consoles_max {
             log::warn!(
                 "head {}: no new console past head-consoles-max, {}",
@@ -549,7 +553,7 @@ impl App {
             Rc::clone(&self.clock),
         );
         let mut console = Console::new(id, term, head.fresh_fit());
-        let started = head.started() && head.ended.is_none();
+        let started = head.started();
         if started {
             console.respawn = Some(Respawn::new(now.saturating_duration_since(self.epoch)));
         }
