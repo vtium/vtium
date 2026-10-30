@@ -243,6 +243,9 @@ pub(super) struct Output<M> {
     pub(super) flip_timer: Option<(RegistrationToken, u64)>,
     pub(super) available: bool,
     pub(super) announced: bool,
+    /// Bound after the card's first scan, as a display plugged in or
+    /// back: until a modeset sets it, its first sets it from off.
+    pub(super) returning: bool,
 }
 
 impl<M: AsMut<[u8]>> Output<M> {
