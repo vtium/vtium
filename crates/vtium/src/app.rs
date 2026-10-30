@@ -50,6 +50,10 @@
 //!   session running on the grid it had, with the keys reaching it while
 //!   it holds the focus and no blank, until the next comes and is drawn
 //!   whole.
+//! - **Drawing** (D2). Each head's render thread composes its frames
+//!   ([`crate::painter`]); the loop takes each frame from the screen,
+//!   and at the next turn's start, after the VT's events, copies it into
+//!   the display's buffer and presents it.
 //! - **Exit.** A request (SIGTERM, SIGINT, a hangup, the policy) switches
 //!   back to the VT shown at the start and serves the loop for up to
 //!   [`LEAVE_WAIT`] while the switch is pending.
@@ -83,10 +87,11 @@ use crate::head::identity::{self, Card};
 use crate::head::{Attached, Frit, Head, place_display};
 use crate::helper::{self, Answer, Helper};
 use crate::layout::{self, Zoom};
+use crate::painter::Painter;
 use crate::power::{self, Power, PowerKey};
 use crate::respawn::{self, Next, Respawn};
 use crate::sync::Action;
-use crate::term::{Clock, Term, View};
+use crate::term::{Clock, Prepared, Term, View};
 use crate::video::Video;
 use crate::wait::Wait;
 
@@ -347,6 +352,14 @@ impl App {
     /// for PID 1, logind and the kernel.
     pub fn set_power(&mut self, power: Box<dyn Power>) {
         self.power = power;
+    }
+
+    /// Runs `hook` before each frame of the head `name` is composed, a
+    /// test's stand-in for a head whose frames are slow to draw.
+    pub fn set_draw_hook(&mut self, name: &str, hook: Option<crate::head::DrawHook>) {
+        if let Some(head) = self.heads.iter_mut().find(|h| h.name() == name) {
+            head.draw_hook = hook;
+        }
     }
 
     /// Reads the font's sets from `sources` in place of the system's store
@@ -653,13 +666,13 @@ impl App {
             return;
         };
         match self.frits.get(name.as_str()) {
-            Some(shared) => *generated = Rc::clone(&shared.generated),
+            Some(shared) => *generated = std::sync::Arc::clone(&shared.generated),
             None => {
                 self.frits.insert(
                     name.clone(),
                     Frit {
                         frit: frit.clone(),
-                        generated: Rc::clone(generated),
+                        generated: std::sync::Arc::clone(generated),
                         helper: None,
                         refused: false,
                         asked: Vec::new(),
@@ -882,7 +895,7 @@ impl App {
         // display could not be set up.
         self.lit.insert(key.clone(), display);
         if let Some(v) = self.heads.get(h).and_then(|head| head.views.get(&key)) {
-            let cell = v.renderer.font().cell();
+            let cell = v.cell();
             log::info!(
                 "Display {name} with backend [{backend}] text renderer [bbulk], cell size {}x{}",
                 cell.width,
@@ -1029,7 +1042,7 @@ impl App {
             .collect();
         let mut cells: Vec<vtium_font::Cell> = drawing
             .iter()
-            .flat_map(|head| head.views.values().map(|v| v.renderer.font().cell()))
+            .flat_map(|head| head.views.values().map(View::cell))
             .collect();
         cells.sort_unstable_by_key(|c| (c.height, c.width));
         cells.dedup();
@@ -1045,11 +1058,9 @@ impl App {
             .into_iter()
             .filter(|c| !frit.asked.contains(c))
             .map(|cell| {
-                let at = drawing.iter().filter(|head| {
-                    head.views
-                        .values()
-                        .any(|v| v.renderer.font().cell() == cell)
-                });
+                let at = drawing
+                    .iter()
+                    .filter(|head| head.views.values().any(|v| v.cell() == cell));
                 (cell, shown(at))
             })
             .collect();
@@ -1084,12 +1095,8 @@ impl App {
         };
         let visible = head.visible();
         for &cell in &frit.asked {
-            if head
-                .views
-                .values()
-                .any(|v| v.renderer.font().cell() == cell)
-            {
-                frit.generated.borrow_mut().touch(cell, &visible);
+            if head.views.values().any(|v| v.cell() == cell) {
+                crate::deferred::lock(&frit.generated).touch(cell, &visible);
                 helper.ask(cell, &visible, now);
             }
         }
@@ -1127,7 +1134,7 @@ impl App {
                         self.epoch,
                         frit.frit.clone(),
                         self.console_font.clone(),
-                        Rc::clone(&frit.generated),
+                        std::sync::Arc::clone(&frit.generated),
                         crate::deferred::store_limit(physical_memory()),
                     ))
                 }
@@ -1185,10 +1192,10 @@ impl App {
                     let (shown, hidden): (Vec<char>, Vec<char>) =
                         chars.iter().partition(|c| visible.binary_search(c).is_ok());
                     for v in head.views.values_mut() {
-                        if v.renderer.font().cell() == *cell {
-                            v.renderer.forget_glyphs(&hidden);
+                        if v.cell() == *cell {
+                            v.forget_glyphs(&hidden);
                             if !shown.is_empty() {
-                                v.renderer.glyphs_changed(&shown);
+                                v.glyphs_changed(&shown);
                             }
                         }
                     }
@@ -1818,6 +1825,9 @@ impl App {
         for e in events {
             self.vt_event(e, now);
         }
+        // After the VT's events, so none shows once the VT is released, and
+        // before the devices', so a flip they queue is read this turn.
+        self.frames(now);
         let devices: Vec<DeviceEvent> = self
             .udev
             .as_mut()
@@ -1876,9 +1886,9 @@ impl App {
             head.term.changed = false;
         }
         let flipping = self.heads.iter().any(|head| {
-            head.views
-                .iter()
-                .any(|((node, _), v)| self.videos.get(node).is_some_and(|d| d.is_flipping(v.id)))
+            head.views.iter().any(|((node, _), v)| {
+                v.away() || self.videos.get(node).is_some_and(|d| d.is_flipping(v.id))
+            })
         });
         if let Some(wait) = self.wait.turn(now, self.presented, flipping) {
             log::error!("no display appeared within {} s", wait.as_secs());
@@ -1948,6 +1958,9 @@ impl App {
     }
 
     fn draw(&mut self, now: Instant) {
+        for h in 0..self.heads.len() {
+            self.painter(h);
+        }
         let App {
             heads,
             videos,
@@ -1959,8 +1972,79 @@ impl App {
         }
     }
 
+    /// Starts head `h`'s render thread at its first frame (ADR-1401 D2),
+    /// with a wake-up into the loop for each frame it composes. One that
+    /// cannot start is logged once, and the loop composes the head's
+    /// frames.
+    fn painter(&mut self, h: usize) {
+        let Some(head) = self.heads.get(h) else {
+            return;
+        };
+        if head.painter.is_some() || head.painter_refused || head.views.is_empty() {
+            return;
+        }
+        let started = vtium_platform::calloop::ping::make_ping()
+            .map_err(|e| format!("cannot make its wake-up: {e}"))
+            .and_then(|(ping, source)| {
+                self.handle
+                    .insert_source(source, |(), (), _: &mut App| {})
+                    .map_err(|e| format!("cannot watch its wake-up: {e}"))?;
+                Painter::start(head.name(), move || ping.ping()).map_err(|e| e.to_string())
+            });
+        let Some(head) = self.heads.get_mut(h) else {
+            return;
+        };
+        match started {
+            Ok(painter) => head.painter = Some(painter),
+            Err(why) => {
+                log::warn!(
+                    "head {}: the render thread cannot start ({why}): the loop draws its frames",
+                    head.name()
+                );
+                head.painter_refused = true;
+            }
+        }
+    }
+
+    /// Takes the frames each head's render thread composed: each display
+    /// gets its drawing back and, while the VT is ours and awake, shows
+    /// its frame.
+    fn frames(&mut self, now: Instant) {
+        let App {
+            heads,
+            videos,
+            clock,
+            awake,
+            ..
+        } = self;
+        for head in heads.iter_mut() {
+            let Some(painter) = &mut head.painter else {
+                continue;
+            };
+            for composed in painter.take() {
+                let (Some(view), Some(video)) = (
+                    head.views.get_mut(&composed.key),
+                    videos.get_mut(&composed.key.0),
+                ) else {
+                    continue;
+                };
+                let compose = composed.stats.cpu;
+                let shown =
+                    view.present(composed, &mut head.term, video.as_mut(), *awake, &**clock);
+                if let Some(copy) = shown.copy {
+                    head.figures.frame(compose, copy, now);
+                }
+            }
+        }
+    }
+
     /// The render timer's line, once a second.
     fn report(&mut self, now: Instant) {
+        for head in &mut self.heads {
+            if let Some(line) = head.figures_line(now) {
+                log::debug!(target: "render", "{line}");
+            }
+        }
         let Some(due) = self.timer_due.filter(|&d| d <= now) else {
             return;
         };
@@ -2019,6 +2103,7 @@ impl App {
             due.extend(head.cursor_due.map(|(d, _)| d));
             due.extend(head.term.sync.deadline());
             due.extend(head.views.values().filter_map(|v| v.wait.due()));
+            due.extend(head.figures.due);
         }
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));
@@ -2036,13 +2121,10 @@ impl App {
 
     /// The sprite policy and missing glyph of the first display's font.
     pub fn font_policy(&self) -> Option<(vtium_font::SpritePolicy, vtium_font::Missing)> {
-        let font = self
-            .heads
+        self.heads
             .iter()
-            .find_map(|head| head.views.values().next())?
-            .renderer
-            .font();
-        Some((font.policy(), font.missing()))
+            .find_map(|head| head.views.values().next())
+            .map(View::font_policy)
     }
 
     /// Each display's font cell, head by head in the head file's order,
@@ -2113,7 +2195,9 @@ fn heads(
         .collect()
 }
 
-/// Draws each of `head`'s displays that something asks to.
+/// Draws each of `head`'s displays that something asks to: its render
+/// thread composes the frame, or the loop where the thread could not
+/// start.
 fn draw_head(
     head: &mut Head,
     videos: &mut BTreeMap<PathBuf, Box<dyn Video>>,
@@ -2127,8 +2211,9 @@ fn draw_head(
     let changed = term.changed;
     let holding = term.sync.holding(&term.terminal);
     let base = head.cell;
-    for ((node, _), view) in head.views.iter_mut() {
-        let Some(video) = videos.get_mut(node) else {
+    let mut snapshot = None;
+    for (key, view) in head.views.iter_mut() {
+        let Some(video) = videos.get_mut(&key.0) else {
             continue;
         };
         let due = view.wait.due().is_some_and(|d| d <= now);
@@ -2161,14 +2246,40 @@ fn draw_head(
         }
         // The pointer is kept in the base cell's pixels; a display
         // drawing larger cells draws it where its own cells put it.
-        let c = view.renderer.font().cell();
+        let c = view.cell();
         let state = DrawState {
             pointer: state
                 .pointer
                 .map(|(x, y)| (scale(x, c.width, base.0), scale(y, c.height, base.1))),
             ..state
         };
-        view.draw(term, video.as_mut(), &state, clock);
+        let hook = head.draw_hook.as_ref();
+        let Prepared::Job(job) = view.prepare(
+            key,
+            term,
+            &mut snapshot,
+            video.as_mut(),
+            &state,
+            hook,
+            clock,
+        ) else {
+            continue;
+        };
+        match &head.painter {
+            Some(painter) => {
+                if let Some(job) = painter.send(job) {
+                    view.refused(job);
+                }
+            }
+            None => {
+                let composed = job.compose();
+                let compose = composed.stats.cpu;
+                let shown = view.present(composed, term, video.as_mut(), true, clock);
+                if let Some(copy) = shown.copy {
+                    head.figures.frame(compose, copy, now);
+                }
+            }
+        }
     }
 }
 

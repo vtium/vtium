@@ -452,8 +452,10 @@ fn the_seat_boots_draws_takes_keys_and_exits() {
         a.screen_text().iter().any(|l| l.contains("hello from"))
     }));
     assert!(h.until(SECOND, |a| a.vt.is_active()));
-    let frames = h.memory().frames;
-    assert!(frames > 0, "a frame was presented");
+    assert!(
+        h.until_memory(SECOND, |m| m.frames > 0),
+        "a frame was presented"
+    );
     assert!(
         h.memory().pixels.iter().any(|&b| b != 0),
         "something was drawn"
@@ -3339,15 +3341,21 @@ fn zoom_steps_through_the_built_ins_and_stops_at_the_smallest() {
 /// The seat with `args` whose session writes `script` with printf, then
 /// `done`, and waits.
 fn osc50(args: &[&str], script: &str, fonts: Sources) -> Harness {
-    let command = format!("printf '{script}done'; read x");
+    osc50_after(args, "", script, fonts)
+}
+
+/// [`osc50`], the session running the shell command `before` first.
+fn osc50_after(args: &[&str], before: &str, script: &str, fonts: Sources) -> Harness {
+    let command = format!("{before}printf '{script}done'; read x");
     let args: Vec<&str> = args
         .iter()
         .copied()
         .chain(["--login", "--", "/bin/sh", "-c", &command])
         .collect();
     let mut h = Harness::fonts(&args, Memory::default(), fonts);
+    // The tty echoes the reply to `read`, after `done` on its line.
     assert!(h.until(SECOND, |a| {
-        a.screen_text().iter().any(|l| l.ends_with("done"))
+        a.screen_text().iter().any(|l| l.contains("done"))
     }));
     h
 }
@@ -4316,11 +4324,20 @@ fn osc_50_switches_to_a_frit_and_its_helper_is_asked() {
 #[test]
 fn osc_50_from_one_frit_to_another_starts_a_helper_for_it() {
     let fonts = recording("osc50-two");
-    let mut h = osc50_frits(
+    for (name, text) in [("a", "source=kbd:a\n"), ("b", "source=kbd:b\n")] {
+        std::fs::write(fonts.frits.join(format!("{name}.vtfrit")), text).expect("a frit");
+    }
+    // The switch waits for `a`'s helper to have its request, which the
+    // switch's end of `a` would otherwise cut short.
+    let before = format!(
+        "while ! ls {}/request.* >/dev/null 2>&1; do sleep 0.01; done; ",
+        fonts.frits.display()
+    );
+    let mut h = osc50_after(
         &["--font-name=a"],
+        &before,
         "\\033]50;b\\007",
-        &fonts,
-        &[("a", "source=kbd:a\n"), ("b", "source=kbd:b\n")],
+        fonts.clone(),
     );
     assert_eq!(h.app.font_name(), "b");
     assert_eq!(

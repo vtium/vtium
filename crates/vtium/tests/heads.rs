@@ -735,3 +735,128 @@ display card:mem-large -> dark
     );
     assert_eq!(dark.dpms, Some(Dpms::Off));
 }
+
+/// D2: one render thread per head. The slow head, first in the file,
+/// takes 3 s to compose each frame once a stand-in slows it; while it
+/// composes a frame, a key reaches the session of the fast head, which
+/// holds the focus, and the fast head's display shows its echo, both
+/// within a second. The slow head's frame comes once it is composed.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the stand-in's slow draw is a sleep"
+)]
+fn a_slow_head_delays_neither_another_heads_frame_nor_input() {
+    let heads = "version = 1
+[head slow]
+[head fast]
+[rules]
+display card:mem-small -> slow
+display card:mem-large -> fast
+input class:keyboard -> focus
+";
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let script = "read a; echo \"got:$a\"; read b";
+    let mut s = Seat::with_heads(&[], Some(heads), displays, script);
+    assert!(s.until(SECOND, |a| a.cells().len() == 2), "both lit");
+    assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
+    assert!(s.until_memory("/dev/mem1", SECOND, |m| m.frames > 0));
+    assert!(
+        s.until(SECOND, |a| a.head("fast").is_some_and(Head::started)),
+        "the fast head's session runs"
+    );
+    let slow = Duration::from_secs(3);
+    s.app.set_draw_hook(
+        "slow",
+        Some(std::sync::Arc::new(move || std::thread::sleep(slow))),
+    );
+    let (slow_before, fast_before) = (s.memory("/dev/mem0").frames, s.memory("/dev/mem1").frames);
+    let started = now();
+    s.memory("/dev/mem0").events.push(Event::Redraw(ID));
+    // The turn that starts the slow head's frame.
+    s.until(Duration::from_millis(30), |_| false);
+    s.type_str("x\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "fast", "got:x")),
+        "the key reached the fast head's session"
+    );
+    assert!(
+        s.until_memory("/dev/mem1", SECOND, |m| m.frames > fast_before),
+        "the fast head drew"
+    );
+    let fast = now() - started;
+    assert_eq!(
+        s.memory("/dev/mem0").frames,
+        slow_before,
+        "the slow head's frame is still composing"
+    );
+    assert!(
+        fast < Duration::from_secs(1),
+        "the key and the fast head's frame waited on the slow head: {fast:?}"
+    );
+    assert!(
+        s.until_memory("/dev/mem0", Duration::from_secs(5), |m| m.frames
+            > slow_before),
+        "the slow head's frame comes"
+    );
+    assert!(now() - started >= slow, "after its slow compose");
+}
+
+/// D2: a frame composing holds up no VT switch. While the slow head's
+/// frame takes 2 s to compose, the VT's release is acknowledged within a
+/// second, the device asleep; the acquire draws the display again.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the stand-in's slow draw is a sleep"
+)]
+fn a_frame_composing_holds_up_no_vt_release() {
+    let display = (
+        "/dev/mem0",
+        Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+    );
+    let mut s = Seat::boot(&[], [display], "read x");
+    assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
+    let slow = Duration::from_secs(2);
+    s.app.set_draw_hook(
+        "console",
+        Some(std::sync::Arc::new(move || std::thread::sleep(slow))),
+    );
+    let started = now();
+    s.memory("/dev/mem0").events.push(Event::Redraw(ID));
+    // The turn that starts the slow frame.
+    s.until(Duration::from_millis(30), |_| false);
+    let ctrl_super_f12 = KeyEvent {
+        keycode: 0,
+        ascii: 0,
+        mods: Mods::CTRL.union(Mods::LOGO),
+        keysyms: vec![0xffc9],
+        codepoints: vec![None],
+        repeat: false,
+    };
+    s.app
+        .input_event(InputEvent::Key(ctrl_super_f12.clone()), now());
+    assert!(
+        s.until_memory("/dev/mem0", SECOND, |m| !m.awake),
+        "asleep for the release"
+    );
+    assert!(
+        s.until(SECOND, |a| !a.vt.is_active()),
+        "the release acknowledged"
+    );
+    let released = now() - started;
+    assert!(
+        released < Duration::from_secs(1),
+        "the release waited on the frame: {released:?}"
+    );
+    s.app.set_draw_hook("console", None);
+    let before = s.memory("/dev/mem0").frames;
+    s.app.input_event(InputEvent::Key(ctrl_super_f12), now());
+    assert!(s.until(SECOND, |a| a.vt.is_active()));
+    assert!(
+        s.until_memory("/dev/mem0", Duration::from_secs(5), |m| m.awake
+            && m.frames > before),
+        "the acquire draws the display again"
+    );
+}

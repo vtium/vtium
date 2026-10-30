@@ -38,6 +38,7 @@ pub mod helper;
 pub mod hook;
 pub mod layout;
 pub mod logger;
+pub mod painter;
 pub mod pointer;
 pub mod power;
 pub mod respawn;

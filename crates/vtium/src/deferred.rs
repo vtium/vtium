@@ -23,10 +23,10 @@
 //! the limit bounds the memory the sets take. An evicted glyph is asked
 //! for again when the screen shows it.
 
-use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+
+use crate::font::DisplayFace;
 
 use vtium_font::set::{PixelFormat, Set, SetBuilder, SetFace, StrikeBuilder, StrikeInfo};
 use vtium_font::sprite::Range;
@@ -323,8 +323,16 @@ pub struct Generated {
     tick: u64,
 }
 
-/// The store, shared between the console and its displays' faces.
-pub type Shared = Rc<RefCell<Generated>>;
+/// The store, shared between the console and its displays' faces, which
+/// draw on their heads' render threads: each lock is held for one lookup
+/// or one change, never across a frame.
+pub type Shared = Arc<Mutex<Generated>>;
+
+/// The store behind `shared`, locked. A panic while it was held ends the
+/// process (ADR-1401 D10), so a poisoned lock is never met outside a test.
+pub fn lock(shared: &Shared) -> MutexGuard<'_, Generated> {
+    shared.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// A set the helper sent, without the glyphs the store held at its cell
 /// when it was made ([`Generated::fresh`]): what adding it takes.
@@ -543,7 +551,7 @@ impl Generated {
 /// to a smaller one, so both kinds come at the cell's size and the
 /// renderer stores them alike.
 pub struct DeferredFace {
-    builtin: Box<dyn Face>,
+    builtin: DisplayFace,
     cell: Cell,
     step: u32,
     generated: Shared,
@@ -551,7 +559,7 @@ pub struct DeferredFace {
 
 impl DeferredFace {
     /// `builtin` drawing in `cell`, which a zoom moves by `step`.
-    pub fn new(builtin: Box<dyn Face>, cell: Cell, step: u32, generated: Shared) -> DeferredFace {
+    pub fn new(builtin: DisplayFace, cell: Cell, step: u32, generated: Shared) -> DeferredFace {
         DeferredFace {
             builtin,
             cell,
@@ -561,16 +569,13 @@ impl DeferredFace {
     }
 
     fn generated_has(&self, c: char) -> bool {
-        self.generated.borrow().held(self.cell, &[c])
+        lock(&self.generated).held(self.cell, &[c])
     }
 
     /// `c`'s glyph: the store's, else the built-in font's in the cell.
     fn single(&self, c: char, style: Style) -> Option<Glyph> {
-        let generated = self.generated.borrow();
-        match generated.draw(self.cell, &[c], style) {
-            Some(g) => Some(g),
-            None => self.fit(self.builtin.draw(&[c], style)?),
-        }
+        let held = lock(&self.generated).draw(self.cell, &[c], style);
+        held.or_else(|| self.fit(self.builtin.draw(&[c], style)?))
     }
 
     /// A cluster the store does not hold drawn without its own glyph
@@ -581,7 +586,7 @@ impl DeferredFace {
     /// the rest of the cluster left out. A color base takes no mark.
     fn unshaped(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         if let Some(c) = precomposed(cluster)
-            && let Some(g) = self.generated.borrow().draw(self.cell, &[c], style)
+            && let Some(g) = lock(&self.generated).draw(self.cell, &[c], style)
         {
             return Some(g);
         }
@@ -672,7 +677,7 @@ impl Face for DeferredFace {
     fn has_glyph(&self, c: char) -> bool {
         self.generated_has(c)
             || self.builtin.has_glyph(c)
-            || self.generated.borrow().begins(self.cell, c)
+            || lock(&self.generated).begins(self.cell, c)
     }
 
     /// The built-in font's, so the sprites draw the same ranges before the
@@ -690,7 +695,7 @@ impl Face for DeferredFace {
             [] => None,
             &[c] => self.single(c, style),
             _ => {
-                let held = self.generated.borrow().draw(self.cell, cluster, style);
+                let held = lock(&self.generated).draw(self.cell, cluster, style);
                 held.or_else(|| self.unshaped(cluster, style))
             }
         }
@@ -766,7 +771,7 @@ mod tests {
     }
 
     fn face(generated: &Shared) -> DeferredFace {
-        DeferredFace::new(Box::new(Unifont::new(16)), CELL, 16, Rc::clone(generated))
+        DeferredFace::new(Box::new(Unifont::new(16)), CELL, 16, Arc::clone(generated))
     }
 
     fn covered(g: &Glyph) -> usize {
@@ -784,7 +789,7 @@ mod tests {
         let a = f.draw(&['A'], Style::default()).unwrap();
         assert_eq!(a, unifont.draw(&['A'], Style::default()).unwrap());
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             CELL,
             solid(CELL, &['A']),
             vec![(0x41, 1)],
@@ -800,7 +805,7 @@ mod tests {
     fn a_character_the_frit_lacks_draws_in_the_built_in_font() {
         let generated = Shared::default();
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             CELL,
             solid(CELL, &['A']),
             vec![(0x41, 1)],
@@ -823,7 +828,7 @@ mod tests {
             unifont_font.glyph(&['\u{10fffd}'], Width::Narrow, Style::default())
         );
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             CELL,
             solid(CELL, &['\u{25a1}']),
             vec![(0x25a1, 1)],
@@ -837,7 +842,7 @@ mod tests {
 
     /// The face drawing unifont at 16 in `cell`.
     fn face_in(generated: &Shared, cell: Cell) -> DeferredFace {
-        DeferredFace::new(Box::new(Unifont::new(16)), cell, 16, Rc::clone(generated))
+        DeferredFace::new(Box::new(Unifont::new(16)), cell, 16, Arc::clone(generated))
     }
 
     /// Whether `g` is `of` moved right by `dx` and down by `dy`, nothing
@@ -908,7 +913,7 @@ mod tests {
         assert_eq!((f.cell(), f.size_step()), (cell, 16));
         // glyphs at the built-in's own cell are not the frit's
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             CELL,
             solid(CELL, &['A']),
             vec![(0x41, 1)],
@@ -918,7 +923,7 @@ mod tests {
         assert_eq!((a.width(), a.height()), (10, 20));
         assert!(covered(&a) < 10 * 20);
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             cell,
             solid(cell, &['A']),
             vec![(0x41, 1)],
@@ -1020,24 +1025,24 @@ mod tests {
         let (d, e) = (('D', Width::Narrow, bits(5)), ('E', Width::Narrow, bits(6)));
         let generated = Shared::default();
         let before = {
-            let mut g = generated.borrow_mut();
+            let mut g = lock(&generated);
             put(&mut g, answer(&[], &[a.clone(), b, c.clone(), w.clone()]))
                 + put(&mut g, answer(&[d.clone(), e], &[]))
         };
-        assert_eq!(generated.borrow().bytes(), before);
+        assert_eq!(lock(&generated).bytes(), before);
         // shown: D, then A, then C and the wide one; B and E never
-        generated.borrow_mut().touch(CELL, &shown(&['D']));
-        generated.borrow_mut().touch(CELL, &shown(&['A']));
-        generated.borrow_mut().touch(CELL, &shown(&['C', wide]));
+        lock(&generated).touch(CELL, &shown(&['D']));
+        lock(&generated).touch(CELL, &shown(&['A']));
+        lock(&generated).touch(CELL, &shown(&['C', wide]));
         let f = face(&generated);
         let kept = ['A', 'C', wide, 'D'];
         let drawn = kept.map(|k| f.draw(&[k], Style::default()).unwrap());
         // the store after: the same answers written without B and E
         let after = answer(&[], &[a, c, w]).len() as u64 + answer(&[d], &[]).len() as u64;
         assert!(after < before);
-        let gone = generated.borrow_mut().make_room(before - after);
+        let gone = lock(&generated).make_room(before - after);
         assert_eq!(gone, vec![(CELL, texts(&['B', 'E']))]);
-        assert_eq!(generated.borrow().bytes(), after);
+        assert_eq!(lock(&generated).bytes(), after);
         for (k, glyph) in kept.into_iter().zip(drawn) {
             assert_eq!(f.draw(&[k], Style::default()), Some(glyph), "{k}");
         }
@@ -1080,14 +1085,14 @@ mod tests {
         let r8 = |c, seed| (c, Width::Narrow, shade(Width::Narrow, seed));
         let (a, b, c) = (r8('A', 1), r8('B', 2), r8('C', 3));
         let generated = Shared::default();
-        let first = put(&mut generated.borrow_mut(), answer(&[], &[a, b.clone()]));
+        let first = put(&mut lock(&generated), answer(&[], &[a, b.clone()]));
         let f = face(&generated);
         let drawn = ['A', 'B'].map(|k| f.draw(&[k], Style::default()).unwrap());
         // the frame's B differs from the held one, so a B drawn from it shows
         let frame = answer(&[], &[r8('B', 9), c.clone()]);
         let sent = Arc::new(Set::from_bytes(frame.clone()).unwrap());
         let added = add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             CELL,
             Arc::clone(&sent),
             vec![(0x42, 2)],
@@ -1096,7 +1101,7 @@ mod tests {
         .unwrap();
         assert!(added.has_glyph('C') && !added.has_glyph('B'));
         let rebuilt = answer(&[], &[c]).len() as u64;
-        assert_eq!(generated.borrow().bytes(), first + rebuilt);
+        assert_eq!(lock(&generated).bytes(), first + rebuilt);
         for (k, glyph) in ['A', 'B'].into_iter().zip(drawn) {
             assert_eq!(f.draw(&[k], Style::default()), Some(glyph), "{k}");
         }
@@ -1109,17 +1114,8 @@ mod tests {
         let held = answer(&[], &[b, r8('C', 3)]);
         let bytes = held.len() as u64;
         let held = Arc::new(Set::from_bytes(held).unwrap());
-        assert!(
-            add(
-                &mut generated.borrow_mut(),
-                CELL,
-                held,
-                vec![(0x42, 2)],
-                bytes
-            )
-            .is_none()
-        );
-        assert_eq!(generated.borrow().bytes(), first + rebuilt);
+        assert!(add(&mut lock(&generated), CELL, held, vec![(0x42, 2)], bytes).is_none());
+        assert_eq!(lock(&generated).bytes(), first + rebuilt);
     }
 
     /// A set at [`CELL`] mapping each of `chars` to a solid glyph and each
@@ -1151,7 +1147,7 @@ mod tests {
     fn a_cluster_draws_its_own_generated_glyph() {
         let generated = Shared::default();
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             CELL,
             with_clusters(&['e'], &[(&ACUTE, 7)]),
             vec![(0x65, 1)],
@@ -1213,7 +1209,7 @@ mod tests {
     fn a_cluster_draws_its_precomposed_form_from_the_store() {
         let generated = Shared::default();
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             CELL,
             with_clusters(&['\u{e9}'], &[]),
             vec![(0xe9, 1)],
@@ -1277,7 +1273,7 @@ mod tests {
         assert_eq!(f.draw(&family, regular), f.draw(&family[..1], regular));
         // the base from the store, the mark from the built-in font
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             CELL,
             with_clusters(&['q'], &[]),
             vec![(0x71, 1)],
@@ -1299,7 +1295,7 @@ mod tests {
         let f = face(&generated);
         assert!(!f.has_glyph(lead));
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             CELL,
             with_clusters(&[], &[(&cluster, 7)]),
             vec![],
@@ -1321,7 +1317,7 @@ mod tests {
         let generated = Shared::default();
         let grave = ['e', '\u{300}'];
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             CELL,
             with_clusters(&['e'], &[(&ACUTE, 7), (&grave, 9)]),
             vec![(0x65, 1)],
@@ -1332,17 +1328,16 @@ mod tests {
             chars: vec!['e'],
             clusters: vec![ACUTE.to_vec()],
         };
-        generated.borrow_mut().touch(CELL, &shown);
+        lock(&generated).touch(CELL, &shown);
         assert_eq!(
-            generated.borrow_mut().make_room(1),
+            lock(&generated).make_room(1),
             vec![(CELL, vec![grave.to_vec()])]
         );
         let f = face(&generated);
         assert!(all(&f.draw(&ACUTE, Style::default()).unwrap(), 7));
-        assert!(!generated.borrow().held(CELL, &grave));
+        assert!(!lock(&generated).held(CELL, &grave));
         // a frame of the held cluster and a new one adds the new one alone
-        let fresh = generated
-            .borrow()
+        let fresh = lock(&generated)
             .fresh(
                 CELL,
                 with_clusters(&[], &[(&ACUTE, 3), (&grave, 9)]),
@@ -1361,7 +1356,7 @@ mod tests {
             height: 32,
         };
         add(
-            &mut generated.borrow_mut(),
+            &mut lock(&generated),
             other,
             solid(other, &['A']),
             vec![(0x41, 1)],
@@ -1372,8 +1367,8 @@ mod tests {
             f.draw(&['A'], Style::default()),
             Unifont::new(16).draw(&['A'], Style::default())
         );
-        assert!(generated.borrow().holds(other));
-        generated.borrow_mut().retain(&[CELL]);
-        assert!(!generated.borrow().holds(other));
+        assert!(lock(&generated).holds(other));
+        lock(&generated).retain(&[CELL]);
+        assert!(!lock(&generated).holds(other));
     }
 }
