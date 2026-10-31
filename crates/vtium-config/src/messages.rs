@@ -1,7 +1,8 @@
 //! The catalog of the head file's messages (ADR-1401 D7): every error,
-//! warning and note a check of the file shows a person, in one place, so
-//! they can be reviewed and reworded together. vtium shows an error on the
-//! screen in the notice of a file it ignores, and `vtium check-config`
+//! warning and note a check of the file shows a person, and the console
+//! line of each outcome, in one place, so they can be reviewed and
+//! reworded together. vtium shows an error on the screen in the notice of
+//! a file it ignores, and `vtium check-config`
 //! prints every one, each after the file and the line it names, as
 //! `/etc/vtium/heads.conf:4: ...`. Text quoted from the file goes through
 //! [`Quoted`], which escapes it.
@@ -16,9 +17,10 @@
 
 use std::fmt;
 
-use crate::error::{Note, Problem, Syntax, Untrusted, Warning};
+use crate::error::{Note, Problem, Renamed, Syntax, Untrusted, Warning};
 use crate::identity::{Class, Kind};
 use crate::matching::Token;
+use crate::outcome::Line;
 use crate::parse::{Takes, range, takes};
 
 /// The file's own words `items`, each in backticks, separated by commas:
@@ -43,7 +45,11 @@ pub mod syntax {
     pub const HEAD_HEADING: &str = "[head NAME]";
     pub const RULES_HEADING: &str = "[rules]";
     pub const GUARDS_HEADING: &str = "[guards]";
+    pub const VERSION: &str = "version";
     pub const VERSION_LINE: &str = "version = 1";
+    pub const POLICY: &str = "policy";
+    pub const POLICY_OPEN: &str = "policy = open";
+    pub const POLICY_CLOSED: &str = "policy = closed";
     pub const KEY_VALUE: &str = "key = value";
     pub const EQUALS: &str = "=";
     pub const CLOSING: &str = "]";
@@ -56,7 +62,16 @@ pub mod syntax {
     pub const TOKEN: &str = "key:value";
     pub const DARK: &str = "dark";
     pub const FOCUS: &str = "focus";
+    pub const OFF: &str = "off";
+    pub const ROAMING: &str = "roaming";
     pub const IGNORE: &str = "ignore";
+    pub const ON_LOSS: &str = "on-loss";
+    pub const WHEN_DISPLAY_LOST: &str = "when-display-lost";
+    pub const NOHUP: &str = "nohup";
+    pub const KEEP: &str = "keep";
+    pub const RESCUE: &str = "rescue";
+    pub const ISOLATED_YES: &str = "isolated = yes";
+    pub const PROFILE: &str = "profile";
     pub const ID: &str = "id";
     pub const NAME: &str = "name";
     /// The characters a name takes beyond letters and digits.
@@ -70,10 +85,11 @@ impl fmt::Display for Syntax {
         match self {
             Syntax::OutsideSection => write!(
                 f,
-                "This line is not under a section heading such as `{head}`, `{rules}` or `{guards}`. Move it under the heading it belongs to.",
+                "Above the first section the file takes only `{version}` and `{policy}`, and this line is neither. Move it under the heading it belongs to, such as `{head}` or `{rules}`.",
+                version = VERSION,
+                policy = POLICY,
                 head = HEAD_HEADING,
                 rules = RULES_HEADING,
-                guards = GUARDS_HEADING,
             ),
             Syntax::UnclosedHeading => write!(
                 f,
@@ -161,33 +177,34 @@ impl fmt::Display for Problem {
             ),
             Problem::MissingVersion => write!(
                 f,
-                "The file must start with `{version}`, before anything but comments. Add that line at the top.",
+                "The file needs `{version}` above its first section. Add that line at the top.",
                 version = VERSION_LINE,
             ),
             Problem::UnknownVersion(v) => write!(
                 f,
-                "vtium knows only `{version}`, not version {v}. Change the first line to `{version}`.",
+                "vtium knows only `{version}`, not version {v}. Change the version line to `{version}`.",
                 version = VERSION_LINE,
             ),
             Problem::Syntax(syntax) => write!(f, "{syntax}"),
             Problem::UnknownSection(s) => write!(
                 f,
-                "vtium knows no section {s}. Rename it to `{head}`, `{rules}` or `{guards}`, the sections vtium knows.",
+                "vtium knows no section {s}. Rename it to `{head}` or `{rules}`, the sections vtium knows.",
                 head = HEAD_HEADING,
                 rules = RULES_HEADING,
-                guards = GUARDS_HEADING,
             ),
-            Problem::DuplicateSection(section) => write!(
+            Problem::DuplicateSection(_) => write!(
                 f,
-                "The file already has a `{heading}` section, and may have only one. Move this section's lines into the first one.",
-                heading = match *section {
-                    "rules" => RULES_HEADING,
-                    _ => GUARDS_HEADING,
-                },
+                "The file already has a `{rules}` section, and may have only one. Move this section's lines into the first one.",
+                rules = RULES_HEADING,
             ),
             Problem::UnknownKey(k) => write!(
                 f,
                 "This section takes no key named {k}. Check the key's spelling, or remove the line."
+            ),
+            // the top-level keys sit above every section
+            Problem::DuplicateKey(k) if *k == VERSION || *k == POLICY => write!(
+                f,
+                "`{k}` is already set above the first section. Keep one of the two lines."
             ),
             Problem::DuplicateKey(k) => write!(
                 f,
@@ -285,16 +302,16 @@ impl fmt::Display for Problem {
                 kind: Kind::Display,
             } => write!(
                 f,
-                "A display rule cannot have `{target}` as its target. Send it to a head or to `{dark}`.",
-                dark = DARK,
+                "A display rule cannot have `{target}` as its target. Send it to a head or to `{off}`.",
+                off = OFF,
             ),
             Problem::WrongKind {
                 target,
                 kind: Kind::Input,
             } => write!(
                 f,
-                "An input rule cannot have `{target}` as its target. Send it to a head, to `{focus}` or to `{ignore}`.",
-                focus = FOCUS,
+                "An input rule cannot have `{target}` as its target. Send it to a head, to `{roaming}` or to `{ignore}`.",
+                roaming = ROAMING,
                 ignore = IGNORE,
             ),
             Problem::TooManyHeads => write!(
@@ -311,6 +328,13 @@ impl fmt::Display for Problem {
                 f,
                 "This rule matches on more than {max} tokens, the most one rule may use. Match on fewer.",
                 max = crate::TOKENS_MAX,
+            ),
+            Problem::Renamed(renamed) => write!(f, "{renamed}"),
+            Problem::PolicyInSection => write!(
+                f,
+                "vtium reads `{policy}` only above the first section, so it ignores this line, and the file's policy comes from the lines above the first section. Move it there, beside `{version}`.",
+                policy = POLICY,
+                version = VERSION,
             ),
         }
     }
@@ -332,11 +356,84 @@ impl fmt::Display for Warning {
     }
 }
 
+impl fmt::Display for Renamed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Renamed::Focus => write!(
+                f,
+                "The target `{focus}` is now called `{roaming}`. Change this rule's target to `{roaming}`.",
+                focus = FOCUS,
+                roaming = ROAMING,
+            ),
+            Renamed::Dark => write!(
+                f,
+                "The target `{dark}` is now called `{off}`. Change this rule's target to `{off}`.",
+                dark = DARK,
+                off = OFF,
+            ),
+            Renamed::FocusHead => write!(
+                f,
+                "A head cannot be named `{focus}`, the old name of the target `{roaming}`. Choose another name.",
+                focus = FOCUS,
+                roaming = ROAMING,
+            ),
+            Renamed::DarkHead => write!(
+                f,
+                "A head cannot be named `{dark}`, the old name of the target `{off}`. Choose another name.",
+                dark = DARK,
+                off = OFF,
+            ),
+            Renamed::OnLoss => write!(
+                f,
+                "The key `{on_loss}` is now called `{when_display_lost}`. Rename the key.",
+                on_loss = ON_LOSS,
+                when_display_lost = WHEN_DISPLAY_LOST,
+            ),
+            Renamed::Nohup => write!(
+                f,
+                "The value `{nohup}` is now called `{keep}`. Change it to `{keep}`.",
+                nohup = NOHUP,
+                keep = KEEP,
+            ),
+            Renamed::Rescue => write!(
+                f,
+                "The key `{rescue}` is gone: `{isolated}` now keeps the rescue key away from this head's keyboards, and also keeps them from switching the VT. Write that instead, or remove the line.",
+                rescue = RESCUE,
+                isolated = ISOLATED_YES,
+            ),
+            Renamed::HeadFont(key) => write!(
+                f,
+                "A head has no `{key}` of its own: its `{profile}` sets its font. Set the font in the head's profile, or remove the line.",
+                profile = PROFILE,
+            ),
+            Renamed::Guards => write!(
+                f,
+                "The `{guards}` section is gone: the file's `{policy}` now sets the guards, on under `{open}` and off under `{closed}`. Remove the section and its lines.",
+                guards = GUARDS_HEADING,
+                policy = POLICY,
+                open = POLICY_OPEN,
+                closed = POLICY_CLOSED,
+            ),
+        }
+    }
+}
+
+impl Line {
+    /// The line as the console shows it.
+    pub fn text(self) -> &'static str {
+        match self {
+            Line::Skipped => "invalid config skipped, using builtin",
+            Line::Partly => "config partly invalid, running what's valid",
+            Line::ClosedOff => "vtium: config invalid, policy closed: input off",
+            // nothing about input: each head's own keyboards still deliver to it while it is unlit
+            Line::NoDisplay => "vtium: no display for any head",
+        }
+    }
+}
+
 impl fmt::Display for Note {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Note::GuardOff { guard, .. } => write!(f, "the {guard} guard is off"),
-            Note::RescueOff { .. } => f.write_str("the rescue key leaves this head's keyboards"),
             Note::WeakMatch { .. } => write!(
                 f,
                 "input reaches a head by `{id}` or `{name}` alone, which any device can claim",

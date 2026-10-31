@@ -16,7 +16,7 @@ pub mod identity;
 pub(crate) mod route;
 pub(crate) mod session;
 
-use vtium_config::{By, OnLoss, Place};
+use vtium_config::{By, Place, WhenDisplayLost};
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -143,7 +143,7 @@ pub struct Head {
     /// kmscon.conf sets for every head (ADR-1401 D5).
     overlay_colors: crate::term::OverlayColors,
     /// What the head does when it loses its last display (ADR-1401 D8).
-    pub(crate) on_loss: OnLoss,
+    pub(crate) when_display_lost: WhenDisplayLost,
     /// When its sessions hang up, while it has no display.
     pub(crate) hangup_due: Option<Instant>,
     pub(crate) views: BTreeMap<(PathBuf, DisplayId), View>,
@@ -312,7 +312,7 @@ impl Head {
             mark: None,
             status: None,
             overlay_colors: crate::term::OverlayColors::configured(config),
-            on_loss: OnLoss::Nohup,
+            when_display_lost: WhenDisplayLost::Keep,
             hangup_due: None,
             views: BTreeMap::new(),
             attached: Attached::NotYet,
@@ -1067,44 +1067,6 @@ pub fn rules(
     }
 }
 
-/// The head file the start runs, as [`rules`] reads it, unless `cmdline`,
-/// the kernel command line, carries `vtium.heads=builtin` (ADR-1401 D9):
-/// then the file is not read for this boot and the compiled-in
-/// configuration runs, every guard on.
-pub fn start_rules(
-    path: &std::path::Path,
-    trust: &vtium_config::Trust,
-    cmdline: &str,
-) -> (vtium_config::Config, Option<String>) {
-    match vtium_config::heads_word(cmdline) {
-        vtium_config::HeadsWord::Builtin => {
-            log::warn!(
-                "vtium.heads=builtin: the head file is not read for this boot; the compiled-in rules run, every guard on"
-            );
-            return (vtium_config::Config::builtin(), None);
-        }
-        vtium_config::HeadsWord::Unknown => {
-            log::warn!("vtium.heads= takes builtin alone: the head file is read");
-        }
-        vtium_config::HeadsWord::File => {}
-    }
-    rules(path, trust)
-}
-
-/// The start's log line for each guard the head file turns off
-/// (ADR-1401 D9).
-pub(crate) fn guards_off(guards: vtium_config::Guards) -> Vec<String> {
-    [
-        (guards.anti_lockout, "anti-lockout"),
-        (guards.rescue_key, "rescue-key"),
-        (guards.never_dark, "never-dark"),
-    ]
-    .into_iter()
-    .filter(|&(on, _)| !on)
-    .map(|(_, name)| format!("the head file turns the {name} guard off"))
-    .collect()
-}
-
 /// The head a display joins: the one the first rule matching `display`
 /// names (ADR-1401 D3), by its index. A display a rule sends `dark`, or
 /// that no rule claims, joins none: the error is its log line, which for
@@ -1366,32 +1328,10 @@ mod tests {
         }
     }
 
-    // ADR-1401 D9 and D11's switch row: each guard the file turns off is a
-    // line in the start's log.
-    #[test]
-    fn each_guard_turned_off_is_a_line_in_the_starts_log() {
-        let off = |text: &str| {
-            let parsed = vtium_config::parse(&format!("version = 1\n[guards]\n{text}"));
-            guards_off(parsed.map(|p| p.config.guards).unwrap_or_default())
-        };
-        assert_eq!(off(""), Vec::<String>::new());
-        assert_eq!(
-            off("never-dark = off\nanti-lockout = off\n"),
-            [
-                "the head file turns the anti-lockout guard off",
-                "the head file turns the never-dark guard off"
-            ]
-        );
-        assert_eq!(
-            off("rescue-key = off\n"),
-            ["the head file turns the rescue-key guard off"]
-        );
-    }
-
     #[test]
     fn a_display_left_dark_is_logged_and_one_no_rule_claims_with_the_rule_to_paste() {
         let rules = vtium_config::parse(
-            "version = 1\n[head desk]\n[rules]\ndisplay connector:pci-0000:03:00.0/DP-1 -> dark\ndisplay connector:pci-0000:03:00.0/DP-2 -> desk\n",
+            "version = 1\n[head desk]\n[rules]\ndisplay connector:pci-0000:03:00.0/DP-1 -> off\ndisplay connector:pci-0000:03:00.0/DP-2 -> desk\n",
         )
         .map(|p| p.config)
         .unwrap_or_default();

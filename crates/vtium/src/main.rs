@@ -177,10 +177,9 @@ fn run(
     if let Some(font) = console {
         app.set_console_font(font);
     }
-    let (rules, notice) = vtium::head::start_rules(
+    let (rules, notice) = vtium::head::rules(
         Path::new(vtium_config::HEAD_FILE),
         &vtium_config::Trust::ROOT,
-        &vtium::font::read_text(Path::new("/proc/cmdline")),
     );
     app.set_heads(rules);
     if let Some(text) = notice {

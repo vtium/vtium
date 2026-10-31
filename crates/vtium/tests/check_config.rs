@@ -7,7 +7,7 @@ use std::process::{Command, Output};
 
 /// A head file that checks clean, but for the notes outside the status.
 const CLEAN_HEADS: &str =
-    "version = 1\n[head console]\n[rules]\ndisplay * -> console\ninput * -> focus\n";
+    "version = 1\n[head console]\n[rules]\ndisplay * -> console\ninput * -> roaming\n";
 
 fn dir(name: &str, conf: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("vtium-check-{name}-{}", std::process::id()));
@@ -284,7 +284,7 @@ fn check_config_lists_each_planted_head_file_error_with_its_line_and_exits_1() {
          frob = 1\n\
          [head desk]\n\
          [rules]\n\
-         display * -> focus\n\
+         display * -> roaming\n\
          input path:pci-0000:15:00.0-usb-0:3.3 -> desc\n\
          [rules]\n",
     );
@@ -301,7 +301,7 @@ fn check_config_lists_each_planted_head_file_error_with_its_line_and_exits_1() {
     };
     at(4, "This section takes no key named \"frob\".");
     at(5, "The file already declares a head named \"desk\".");
-    at(7, "A display rule cannot have `focus` as its target.");
+    at(7, "A display rule cannot have `roaming` as its target.");
     at(
         8,
         "This rule sends devices to the head \"desc\", which the file does not declare.",
@@ -314,19 +314,22 @@ fn check_config_lists_each_planted_head_file_error_with_its_line_and_exits_1() {
     std::fs::remove_dir_all(d).ok();
 }
 
-// ADR-1401 D7, D9: a guard turned off is a note on standard output,
-// outside the exit status
+// ADR-1401 D4, D7: input sent to a head by `name` alone is a note on
+// standard output, outside the exit status
 #[test]
 fn a_candidate_with_only_notes_exits_0_and_prints_them_on_stdout() {
     let (d, file) = head_file(
         "notes",
-        "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\n[guards]\nnever-dark = off\n",
+        "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\ninput name:Foo* -> desk\n",
     );
     let out = check(&d, &[]);
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(String::from_utf8_lossy(&out.stderr), "");
     let notes = String::from_utf8_lossy(&out.stdout);
-    let guard = format!("{}:6: the never-dark guard is off", file.display());
-    assert!(notes.lines().any(|l| l == guard), "{notes}");
+    let weak = format!(
+        "{}:5: input reaches a head by `id` or `name` alone, which any device can claim",
+        file.display()
+    );
+    assert!(notes.lines().any(|l| l == weak), "{notes}");
     std::fs::remove_dir_all(d).ok();
 }

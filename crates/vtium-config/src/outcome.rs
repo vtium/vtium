@@ -28,7 +28,7 @@
 //! let trusted = Trusted::of(&[], &[Scope::Trust], Kept::Heads);
 //! ```
 
-use crate::error::Problem;
+use crate::error::{Problem, Renamed};
 
 /// A fieldless enum with every value in [`ALL`](Self::ALL) and its name in the outcome table, so the table's enumeration cannot miss a value.
 macro_rules! closed {
@@ -187,6 +187,13 @@ closed! {
     }
 }
 
+impl Default for Policy {
+    /// `open`, what a file that sets no `policy` means.
+    fn default() -> Policy {
+        Policy::Open
+    }
+}
+
 closed! {
     /// How a run holds `isolated`, and with it the rescue.
     pub enum Rescue {
@@ -289,19 +296,6 @@ impl Switch {
             Switch::Off => "off",
             Switch::Written { unset: true } => "set|on",
             Switch::Written { unset: false } => "set|off",
-        }
-    }
-}
-
-impl Line {
-    /// The line as the console shows it.
-    pub fn text(self) -> &'static str {
-        match self {
-            Line::Skipped => "invalid config skipped, using builtin",
-            Line::Partly => "config partly invalid, running what's valid",
-            Line::ClosedOff => "vtium: config invalid, policy closed: input off",
-            // nothing about input: each head's own keyboards still deliver to it while it is unlit
-            Line::NoDisplay => "vtium: no display for any head",
         }
     }
 }
@@ -580,15 +574,20 @@ pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
         | Problem::LineTooLong
         | Problem::TooManyHeads
         | Problem::TooManyRules => Some(Scope::File),
-        Problem::UnknownSection(_) | Problem::DuplicateSection(_) => Some(Scope::Section),
-        Problem::BadName(_) | Problem::ReservedName(_) | Problem::DuplicateHead(_) => {
-            Some(Scope::Head)
+        // a second section of a head's name is dropped, and the first stays
+        Problem::UnknownSection(_) | Problem::DuplicateSection(_) | Problem::DuplicateHead(_) => {
+            Some(Scope::Section)
         }
+        Problem::BadName(_)
+        | Problem::ReservedName(_)
+        | Problem::Renamed(Renamed::FocusHead | Renamed::DarkHead) => Some(Scope::Head),
+        // a misplaced `policy` line counts through its `PolicyLine`, and drops only itself
         Problem::UnknownMatchKey(_)
         | Problem::BadToken(_)
         | Problem::UndefinedHead(_)
         | Problem::WrongKind { .. }
-        | Problem::TooManyTokens => Some(Scope::Line),
+        | Problem::TooManyTokens
+        | Problem::PolicyInSection => Some(Scope::Line),
         // a line that is not UTF-8 or holds a control character but a CRLF's carriage return is a bad line of its section
         Problem::NotUtf8
         | Problem::ControlCharacter(_)
@@ -596,7 +595,8 @@ pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
         | Problem::UnknownKey(_)
         | Problem::DuplicateKey(_)
         | Problem::BadValue { .. }
-        | Problem::OutOfRange { .. } => None,
+        | Problem::OutOfRange { .. }
+        | Problem::Renamed(_) => None,
     };
     Ok(match fixed {
         Some(scope) => scope,

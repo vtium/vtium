@@ -530,7 +530,6 @@ name = "vtium-config"
 version = "0.0.0"
 dependencies = [
  "rustix",
- "vtium-font",
 ]
 
 [[package]]

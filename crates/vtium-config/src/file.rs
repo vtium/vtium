@@ -4,10 +4,12 @@
 //! followed, root owns it and neither its group nor others can write it,
 //! and each directory above it, on the path given and above every link
 //! of its symlink chain, is owned by root and writable by neither, as `sshd`'s
-//! `StrictModes` refuses a writable file. Its bytes are then bounded,
-//! UTF-8, and free of control characters but tab and newline, so nothing
-//! the parser quotes can carry one. A file that fails any check is invalid
-//! and rejected whole (D7).
+//! `StrictModes` refuses a writable file. A file that fails the ownership
+//! check is never read (D7). [`text`] checks a trusted file's bytes whole:
+//! bounded, UTF-8, and free of control characters but tab, newline and a
+//! carriage return ending a line, so nothing the parser quotes can carry
+//! one; [`reading`](crate::reading) checks them line by line instead, so a
+//! bad line drops what its scope takes.
 
 pub use crate::error::Untrusted;
 
@@ -130,6 +132,9 @@ fn directories(path: &Path) -> Result<BTreeSet<PathBuf>, Rejected> {
 /// candidate before it is installed (D7).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Inspected {
+    /// The bytes read, at most [`FILE_MAX`] and one, for
+    /// [`reading`](crate::reading).
+    pub bytes: Vec<u8>,
     /// The file's text once [`text`]'s checks pass.
     pub text: Result<String, Rejected>,
     /// The ownership check of the file and every directory above it.
@@ -176,6 +181,7 @@ pub fn inspect(path: &Path, trust: &Trust) -> Result<Option<Inspected>, Rejected
         .map_err(|e| unreadable(&e))?;
     Ok(Some(Inspected {
         text: text(&bytes).map(str::to_owned),
+        bytes,
         trusted,
     }))
 }
@@ -194,7 +200,8 @@ pub fn read(path: &Path, trust: &Trust) -> Result<Option<String>, Rejected> {
 }
 
 /// Checks a head file's bytes: at most [`FILE_MAX`], UTF-8, and no
-/// control character but tab and newline, each line holding one named.
+/// control character but tab, newline and a carriage return ending a
+/// line, each line holding one named.
 pub fn text(bytes: &[u8]) -> Result<&str, Rejected> {
     if bytes.len() > FILE_MAX {
         return Err(Rejected::one(None, Problem::TooLarge));
@@ -212,9 +219,16 @@ pub fn text(bytes: &[u8]) -> Result<&str, Rejected> {
         }
     };
     let mut rejected = Rejected::default();
-    for (n, line) in s.split('\n').enumerate() {
+    let mut lines = s.split('\n').peekable();
+    let mut n = 0_usize;
+    while let Some(line) = lines.next() {
+        n = n.saturating_add(1);
+        let line = match lines.peek() {
+            Some(_) => line.strip_suffix('\r').unwrap_or(line),
+            None => line,
+        };
         if let Some(c) = line.chars().find(|&c| c.is_control() && c != '\t') {
-            rejected.push(Some(n.saturating_add(1)), Problem::ControlCharacter(c));
+            rejected.push(Some(n), Problem::ControlCharacter(c));
         }
     }
     if rejected.is_empty() {

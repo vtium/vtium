@@ -259,7 +259,7 @@ mod tests {
     #[test]
     fn a_device_delivers_to_its_rules_head_or_the_focus() {
         let rules = vtium_config::parse(
-            "version = 1\n[head a]\n[head b]\n[rules]\ninput path:p-a -> a\ninput path:p-x -> ignore\ninput class:keyboard -> focus\n",
+            "version = 1\n[head a]\n[head b]\n[rules]\ninput path:p-a -> a\ninput path:p-x -> ignore\ninput class:keyboard -> roaming\n",
         )
         .map(|p| p.config)
         .unwrap_or_default();

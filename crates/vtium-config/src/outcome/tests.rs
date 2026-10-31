@@ -726,7 +726,6 @@ fn every_problem_has_its_scope() {
             Within::Rules,
             Scope::Line,
         ),
-        // a `[guards]` section is unknown, since the head file has none
         (Problem::UnknownSection(q()), Within::Header, Scope::Section),
         (
             Problem::DuplicateSection("rules"),
@@ -740,7 +739,24 @@ fn every_problem_has_its_scope() {
         (Problem::BadName(q()), Within::Header, Scope::Head),
         (Problem::BadName(q()), Within::Head, Scope::Head),
         (Problem::ReservedName(q()), Within::Header, Scope::Head),
-        (Problem::DuplicateHead(q()), Within::Header, Scope::Head),
+        // a second section of a head's name is dropped, and the first stays
+        (Problem::DuplicateHead(q()), Within::Header, Scope::Section),
+        (
+            Problem::Renamed(crate::error::Renamed::Guards),
+            Within::Header,
+            Scope::Section,
+        ),
+        (
+            Problem::Renamed(crate::error::Renamed::Focus),
+            Within::Rules,
+            Scope::Line,
+        ),
+        (
+            Problem::Renamed(crate::error::Renamed::OnLoss),
+            Within::Head,
+            Scope::Head,
+        ),
+        (Problem::PolicyInSection, Within::Head, Scope::Line),
         (
             Problem::BadValue {
                 key: "policy",
