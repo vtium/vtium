@@ -44,6 +44,9 @@ use crate::term::{Clock, Term, View};
 /// The grid before any display is known.
 pub const GRID: (usize, usize) = (80, 24);
 
+/// The base font's cell before any font is chosen.
+const CELL: (u32, u32) = (8, 16);
+
 /// How long a notice shows with no key reaching its head (ADR-1401 D7,
 /// probe 5).
 pub const NOTICE_SHOWN: Duration = Duration::from_secs(30);
@@ -113,16 +116,17 @@ pub struct Head {
     /// The configuration its consoles' command is read from: kmscon.conf's
     /// with the head's own `login` over it.
     pub(crate) login: Option<Config>,
-    /// Its last console's program ended under `oneshot`, so the head runs
-    /// no session any more.
-    pub(crate) ended: bool,
-    /// What the head shows once its session has ended, from the catalog.
-    pub(crate) ended_notice: String,
+    /// What the head shows while its shown console's session has ended,
+    /// from the catalog: the roaming chord's keys while no other console of
+    /// the head runs, else the console chord's.
+    ended_notice: String,
+    ended_notice_console: String,
     /// vtium's notices to the head (ADR-1401 D7), each once and at most
     /// [`NOTICES_MAX`], the oldest going first, until a key reaches the
     /// head or [`NOTICE_SHOWN`] after they are first drawn, when they end.
     notices: Vec<String>,
-    /// The notices as one text, a notice a line.
+    /// What the head shows of its own as one text, a line each: that the
+    /// shown console's session ended, above the notices.
     shown: String,
     /// When the notices end, armed at their first frame; an ended head's
     /// notice keeps no time.
@@ -248,6 +252,16 @@ pub(crate) fn frit_store(store: u64, heads: usize) -> u64 {
         .unwrap_or(store)
 }
 
+/// A pty's size for `grid` in cells of `cell` pixels.
+fn pty_size(grid: (usize, usize), cell: (u32, u32)) -> Size {
+    Size {
+        cols: u16::try_from(grid.0).unwrap_or(u16::MAX),
+        rows: u16::try_from(grid.1).unwrap_or(u16::MAX),
+        cell_width: cell.0,
+        cell_height: cell.1,
+    }
+}
+
 /// The text of `console`'s screen rows.
 fn screen_text(console: &Console) -> Vec<String> {
     console
@@ -289,6 +303,7 @@ impl Head {
         let fit = Fit {
             grid: GRID,
             font_size: 0,
+            cell: CELL,
             points,
             auto_size,
         };
@@ -301,8 +316,8 @@ impl Head {
             configured: (points, auto_size),
             wanted: 1,
             login: None,
-            ended: false,
             ended_notice: crate::notice::session_ended(),
+            ended_notice_console: crate::notice::session_ended_console(),
             notices: Vec::new(),
             shown: String::new(),
             notice_due: None,
@@ -329,7 +344,7 @@ impl Head {
             sized: size.unwrap_or(0) != 0,
             has_font: false,
             step: 16,
-            cell: (8, 16),
+            cell: CELL,
             font: None,
             refont: false,
             font_refused: 0,
@@ -383,6 +398,12 @@ impl Head {
         self.consoles().any(Console::started)
     }
 
+    /// Whether every console's program ended under `oneshot`, so the head
+    /// runs no session any more (ADR-1401 D1).
+    pub(crate) fn ended(&self) -> bool {
+        self.consoles().all(|c| c.ended)
+    }
+
     /// The head's consoles, the shown one first.
     pub(crate) fn consoles(&self) -> impl Iterator<Item = &Console> {
         std::iter::once(&self.console).chain(&self.hidden)
@@ -416,12 +437,33 @@ impl Head {
             .then_some((self.pointer.x, self.pointer.y))
     }
 
-    /// What vtium shows on the head of its own: why its session ended
-    /// for good, else its notices.
+    /// What vtium shows on the head of its own: that the shown console's
+    /// session ended for good, above its notices, which always show too
+    /// (ADR-1401 D5).
     pub fn notice(&self) -> Option<&str> {
-        self.ended
-            .then_some(self.ended_notice.as_str())
-            .or_else(|| (!self.shown.is_empty()).then_some(self.shown.as_str()))
+        (!self.shown.is_empty()).then_some(self.shown.as_str())
+    }
+
+    /// Writes what the head shows of its own again, after its notices,
+    /// its shown console or a console's session changed.
+    pub(crate) fn compose_notices(&mut self) {
+        let ended = self.console.ended.then(|| {
+            if self.hidden.iter().any(|c| !c.ended) {
+                &self.ended_notice_console
+            } else {
+                &self.ended_notice
+            }
+        });
+        let text = ended
+            .into_iter()
+            .chain(&self.notices)
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join("\n");
+        if text != self.shown {
+            self.shown = text;
+            self.draw_now = true;
+        }
     }
 
     /// The on-screen display's dot, while it shows.
@@ -460,9 +502,8 @@ impl Head {
             self.notices.remove(0);
         }
         self.notices.push(text.to_owned());
-        self.shown = self.notices.join("\n");
         self.notice_due = None;
-        self.draw_now = true;
+        self.compose_notices();
     }
 
     /// Whether the head has notices that end.
@@ -473,11 +514,8 @@ impl Head {
     /// The head's notices end: a key reached it, or their time ran out.
     pub(crate) fn end_notices(&mut self) {
         self.notice_due = None;
-        if !self.notices.is_empty() {
-            self.notices.clear();
-            self.shown.clear();
-            self.draw_now = true;
-        }
+        self.notices.clear();
+        self.compose_notices();
     }
 
     /// What vtium draws over the head's frames: one box at the top holding
@@ -499,6 +537,7 @@ impl Head {
         Fit {
             grid: self.grid,
             font_size: self.font_size,
+            cell: self.cell,
             points: self.points,
             auto_size: self.auto_size,
         }
@@ -534,6 +573,7 @@ impl Head {
         let fit = self.fit();
         self.grid = new.fit.grid;
         self.font_size = new.fit.font_size;
+        self.cell = new.fit.cell;
         self.points = new.fit.points;
         self.auto_size = new.fit.auto_size;
         let mut old = std::mem::replace(&mut self.console, new);
@@ -565,38 +605,7 @@ impl Head {
         let back = console::hidden_index(self.at, to).min(self.hidden.len());
         self.hidden.insert(back, old);
         self.at = to;
-    }
-
-    /// Opens `console` at the ring's end and shows it.
-    pub(crate) fn push(&mut self, console: Console, visible: bool) {
-        self.hidden.push(console);
-        self.show(self.hidden.len(), visible);
-    }
-
-    /// Takes the shown console out and shows the next, the ring's first
-    /// after the last; `None`, changing nothing, when it is the only one.
-    pub(crate) fn close_shown(&mut self, visible: bool) -> Option<Console> {
-        if self.hidden.is_empty() {
-            return None;
-        }
-        let next = if self.at < self.hidden.len() {
-            self.at
-        } else {
-            0
-        };
-        let new = self.hidden.remove(next);
-        let old = self.swap_shown(new, visible);
-        self.at = next;
-        Some(old)
-    }
-
-    /// Takes the hidden console `id` out.
-    pub(crate) fn remove_hidden(&mut self, id: u64) -> Option<Console> {
-        let k = self.hidden.iter().position(|c| c.id == id)?;
-        if k < self.at {
-            self.at = self.at.saturating_sub(1);
-        }
-        Some(self.hidden.remove(k))
+        self.compose_notices();
     }
 
     /// The text of the shown console's screen rows, for tests and logs.
@@ -670,14 +679,22 @@ impl Head {
         }
     }
 
+    /// The shown console's pty size: the head's grid and cell.
     pub(crate) fn pty_size(&self) -> Size {
-        let cell = self.cell;
-        Size {
-            cols: u16::try_from(self.grid.0).unwrap_or(u16::MAX),
-            rows: u16::try_from(self.grid.1).unwrap_or(u16::MAX),
-            cell_width: cell.0,
-            cell_height: cell.1,
+        pty_size(self.grid, self.cell)
+    }
+
+    /// The pty size of console `id`: the shown console's, or a hidden
+    /// one's own grid and cell, which its zoom may have set apart from the
+    /// shown console's.
+    pub(crate) fn console_pty_size(&self, id: u64) -> Option<Size> {
+        if self.console.id == id {
+            return Some(self.pty_size());
         }
+        self.hidden
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| pty_size(c.fit.grid, c.fit.cell))
     }
 
     /// The shown console's replies go to its program.
@@ -1200,7 +1217,7 @@ mod tests {
     }
 
     // A head shows each notice once and the newest NOTICES_MAX; an ended
-    // head's notice stays when they end.
+    // console's notice stands above them and stays when they end.
     #[test]
     #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
     fn a_head_keeps_each_notice_once_and_the_newest_few() {
@@ -1212,7 +1229,14 @@ mod tests {
             head.add_notice(&format!("n{n}"));
         }
         assert_eq!(head.notice(), Some("n2\nn3\nn4\nn5"));
-        head.ended = true;
+        head.console.ended = true;
+        head.compose_notices();
+        let ended = crate::notice::session_ended();
+        assert_eq!(
+            head.notice(),
+            Some(format!("{ended}\nn2\nn3\nn4\nn5").as_str()),
+            "the ended session's notice above the others"
+        );
         head.notice_due = Some(Instant::now());
         head.end_notices();
         assert_eq!(

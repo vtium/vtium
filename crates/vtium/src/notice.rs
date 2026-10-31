@@ -42,12 +42,23 @@ pub fn rescue_no_head(device: impl Display) -> String {
     )
 }
 
-/// What a head whose session ended under `oneshot` shows in place of its
-/// session, which vtium does not start again (vtium/vtium#156).
+/// What a console whose session ended under `oneshot` shows while no
+/// other console of its head runs: the roaming chord's keys, which switch
+/// to another screen (vtium/vtium#156, ADR-1401 D1).
 pub fn session_ended() -> String {
     format!(
         "This session has ended and will not start again. To keep working, press {} to switch to another screen.",
         chord::keys(HeadChord::NextHead)
+    )
+}
+
+/// What a console whose session ended under `oneshot` shows while another
+/// console of its head still runs: the console chord's keys, which show
+/// that console (ADR-1401 D1, D5).
+pub fn session_ended_console() -> String {
+    format!(
+        "This session has ended and will not start again. To keep working, press {} to show another console on this screen.",
+        chord::keys(HeadChord::NextConsole)
     )
 }
 
@@ -284,6 +295,16 @@ mod tests {
         assert_eq!(
             session_ended(),
             "This session has ended and will not start again. To keep working, press Ctrl+Super+↑ to switch to another screen."
+        );
+    }
+
+    // While another console of the head runs, the notice names the console
+    // chord's keys as vtium binds them.
+    #[test]
+    fn the_ended_session_names_the_keys_that_show_another_console() {
+        assert_eq!(
+            session_ended_console(),
+            "This session has ended and will not start again. To keep working, press Ctrl+Super+→ to show another console on this screen."
         );
     }
 

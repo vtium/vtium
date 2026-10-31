@@ -1,12 +1,16 @@
 //! The heads' chords (ADR-1401 D5, vtium/vtium#82): the console chords,
-//! which switch the consoles of the head the keyboard delivers to, and
-//! the focus chord, which moves the focus between the heads. Each is held
+//! which switch among the consoles of the head the keyboard delivers to
+//! and never open or close one, and the focus chord, which moves the
+//! focus between the heads. Each is held
 //! with Ctrl and Super exactly, as the grabs match their modifiers, and is
 //! matched after the VT's keys and the power keys and before the
 //! terminal's grabs, the C reference's place for its session keys
 //! (`src/seat.c:584-640` at kmscon b1f7a7c5). The console chords are the
-//! C reference's defaults (`src/config.c:1288-1299`); the focus chord's
-//! keys are the operator's (vtium/vtium#156, 2026-10-30).
+//! C reference's defaults for its next and previous session
+//! (`src/config.c:1288-1299`); its chords that opened and closed a
+//! session have none in vtium, so Ctrl-Super-Return and
+//! Ctrl-Super-Backspace reach the session as keys (ADR-1401 D1). The
+//! focus chord's keys are the operator's (vtium/vtium#156, 2026-10-30).
 
 /// What a chord does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15,10 +19,6 @@ pub(crate) enum HeadChord {
     NextConsole,
     /// The head's previous console.
     PreviousConsole,
-    /// A new console in the head, shown.
-    NewConsole,
-    /// The shown console closed, the next shown.
-    CloseConsole,
     /// The focus to the next head with a lit display.
     NextHead,
     /// The focus to the previous head with a lit display.
@@ -32,11 +32,9 @@ const CTRL_SUPER: u8 = CTRL | LOGO;
 
 /// Each chord and the key that makes it, held with [`CTRL_SUPER`]: the one
 /// binding the matcher reads and the notices name.
-const BINDINGS: [(HeadChord, u32); 6] = [
+const BINDINGS: [(HeadChord, u32); 4] = [
     (HeadChord::NextConsole, 0xff53),
     (HeadChord::PreviousConsole, 0xff51),
-    (HeadChord::NewConsole, 0xff0d),
-    (HeadChord::CloseConsole, 0xff08),
     (HeadChord::NextHead, 0xff52),
     (HeadChord::PreviousHead, 0xff54),
 ];
@@ -147,13 +145,11 @@ mod tests {
             chord(ctrl_super, &[sym("Left")]),
             Some(HeadChord::PreviousConsole)
         );
-        assert_eq!(
-            chord(ctrl_super, &[sym("Return")]),
-            Some(HeadChord::NewConsole)
-        );
+        assert_eq!(chord(ctrl_super, &[sym("Return")]), None, "no new console");
         assert_eq!(
             chord(ctrl_super, &[sym("BackSpace")]),
-            Some(HeadChord::CloseConsole)
+            None,
+            "no console closed"
         );
         assert_eq!(chord(4, &[sym("Up")]), None, "Ctrl alone");
         assert_eq!(chord(ctrl_super | 1, &[sym("Up")]), None, "with Shift");
@@ -165,8 +161,6 @@ mod tests {
         assert_eq!(keys(HeadChord::PreviousHead), "Ctrl+Super+↓");
         assert_eq!(keys(HeadChord::NextConsole), "Ctrl+Super+→");
         assert_eq!(keys(HeadChord::PreviousConsole), "Ctrl+Super+←");
-        assert_eq!(keys(HeadChord::NewConsole), "Ctrl+Super+Return");
-        assert_eq!(keys(HeadChord::CloseConsole), "Ctrl+Super+BackSpace");
     }
 
     // The keys a notice names are the keys the matcher takes: each

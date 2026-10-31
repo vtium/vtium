@@ -194,7 +194,7 @@ pub const HEAD_CONSOLES_MAX: Key = Key {
     default: Default::Number(4),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "The most consoles one head holds: the head file's `consoles` and Ctrl-Super-Return open no more.",
+    what: "The most consoles one head holds: the head file's `consoles` opens no more.",
     cite: "ADR-1401 D10; the C reference's `session-max` (src/config.c:1357) bounded the seat's sessions",
 };
 

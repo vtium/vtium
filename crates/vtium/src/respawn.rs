@@ -1,9 +1,9 @@
 //! When a head's sessions first start ([`first_start_due`]), and whether
-//! the command of a head's last console starts again when it exits.
+//! a console's command starts again when it exits.
 //!
-//! It starts again unless `oneshot` is set, which ends the head, or it has
-//! exited within [`QUICK`] of its start more than [`QUICK_RESTARTS`] times
-//! running, which ends vtium (ADR-1401 D1): the C reference's limit of 5
+//! It starts again unless `oneshot` is set, which ends the console, or it
+//! has exited within [`QUICK`] of its start more than [`QUICK_RESTARTS`]
+//! times running, which ends vtium (ADR-1401 D1): the C reference's limit of 5
 //! restarts within 2 seconds
 //! (`src/misc/pty.c:52-53, 737-768` at kmscon b1f7a7c5). The time is an
 //! argument, read from the monotonic clock by the loop when the child
@@ -36,7 +36,7 @@ pub const QUICK_RESTARTS: u32 = 5;
 pub enum Next {
     /// Start the command again.
     Restart,
-    /// End the head: `oneshot` is set.
+    /// End the console: `oneshot` is set.
     Oneshot,
     /// End vtium: the command exited quickly too many times running.
     TooQuick,

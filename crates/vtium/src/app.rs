@@ -277,7 +277,8 @@ pub struct App {
     exit: Option<Exit>,
     leaving: Option<Leaving>,
     inherited: Vec<(OsString, OsString)>,
-    /// `oneshot`: a head's last console's exit ends the head.
+    /// `oneshot`: a console's exit ends that console, and a head ends once
+    /// every one of its consoles has.
     oneshot: bool,
     /// The `mode` lines, for each DRM device opened.
     modes: Vec<ModeSpec>,
@@ -558,33 +559,6 @@ impl App {
         }
     }
 
-    /// Opens a console in head `h` and shows it, within the caps
-    /// (ADR-1401 D10); its session starts at once once the head's has.
-    fn new_console(&mut self, h: usize, now: Instant) {
-        let total = session::console_total(&self.heads);
-        let caps = self.caps;
-        let term = crate::head::terminal(
-            &self.config,
-            self.scrollback,
-            self.scrollback_bytes,
-            Rc::clone(&self.clock),
-        );
-        let since = now.saturating_duration_since(self.epoch);
-        let Some(head) = self
-            .heads
-            .get_mut(h)
-            .filter(|head| head.may_open(caps, total))
-        else {
-            return;
-        };
-        let id = head.next_id();
-        let starts = head.open(id, term, since, self.awake);
-        self.relayout(h);
-        if starts {
-            self.spawn(h, id);
-        }
-    }
-
     /// Asks vtium to end, as SIGTERM does.
     pub fn request_exit(&mut self, why: Exit) {
         self.exit.get_or_insert(why);
@@ -674,7 +648,7 @@ impl App {
         } else {
             Erase::Backspace
         };
-        let Some(size) = self.heads.get(h).map(Head::pty_size) else {
+        let Some(size) = self.heads.get(h).and_then(|head| head.console_pty_size(id)) else {
             return;
         };
         let mut pty = match Pty::spawn(command, size, erase) {
@@ -1948,32 +1922,19 @@ impl App {
     }
 
     /// Hangs up head `h`'s sessions, which lost their last display under
-    /// `when-display-lost = hangup` (ADR-1401 D8); the head then follows the respawn
-    /// policy, coming back with the consoles its file asks for, as at its
-    /// start.
+    /// `when-display-lost = hangup` (ADR-1401 D8); each console then
+    /// follows the respawn policy, its session starting again in the same
+    /// console.
     fn hang_up(&mut self, h: usize, now: Instant) {
         let since = now.saturating_duration_since(self.epoch);
-        let App {
-            heads,
-            config,
-            scrollback,
-            scrollback_bytes,
-            clock,
-            ..
-        } = self;
-        let Some(head) = heads.get_mut(h) else {
-            return;
-        };
-        if head.hang_up(since, self.oneshot) {
-            head.open_wanted(|| {
-                crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock))
-            });
-            let ids: Vec<u64> = std::iter::once(head.console.id)
-                .chain(head.start_consoles(since))
-                .collect();
-            for id in ids {
-                self.spawn(h, id);
-            }
+        let oneshot = self.oneshot;
+        let again = self
+            .heads
+            .get_mut(h)
+            .map(|head| head.hang_up(since, oneshot))
+            .unwrap_or_default();
+        for id in again {
+            self.spawn(h, id);
         }
         if let Some(exit) = session::exit_due(&self.heads) {
             self.request_exit(exit);
@@ -2218,7 +2179,7 @@ impl App {
         if let Some(chord) = chord::chord(bits, &key.keysyms) {
             // One action a press, as the power keys.
             if !key.repeat {
-                self.chord(h, chord, now);
+                self.chord(h, chord);
             }
             return;
         }
@@ -2290,22 +2251,16 @@ impl App {
         head.draw_now = true;
     }
 
-    /// A head's chord (ADR-1401 D5): a console chord acts on head `h`'s
-    /// consoles, the head the key's device delivers to; the focus chord
-    /// moves the focus to the next or the previous head with a lit
-    /// display.
-    fn chord(&mut self, h: Option<usize>, chord: HeadChord, now: Instant) {
+    /// A head's chord (ADR-1401 D5): a console chord shows another of
+    /// head `h`'s consoles, the head the key's device delivers to; the
+    /// focus chord moves the focus to the next or the previous head with a
+    /// lit display.
+    fn chord(&mut self, h: Option<usize>, chord: HeadChord) {
         let visible = self.awake;
         let back = match chord {
             HeadChord::NextHead => false,
             HeadChord::PreviousHead => true,
-            HeadChord::NewConsole => {
-                if let Some(h) = h {
-                    self.new_console(h, now);
-                }
-                return;
-            }
-            HeadChord::NextConsole | HeadChord::PreviousConsole | HeadChord::CloseConsole => {
+            HeadChord::NextConsole | HeadChord::PreviousConsole => {
                 let changed = h
                     .and_then(|h| self.heads.get_mut(h))
                     .is_some_and(|head| head.console_chord(chord, visible));
@@ -2373,7 +2328,7 @@ impl App {
     }
 
     /// The programs of head `h`'s consoles that exited
-    /// ([`session`]): each closes its console, starts again, ends the head
+    /// ([`session`]): each starts again in its console, ends its console
     /// under `oneshot`, or ends vtium after too many quick exits; under
     /// `oneshot` vtium ends once no head that started still runs.
     fn child_exited(&mut self, h: usize, now: Instant) {
@@ -2390,15 +2345,12 @@ impl App {
             let Some(head) = self.heads.get_mut(h) else {
                 return;
             };
-            match head.exited(id, since, self.oneshot, self.awake) {
-                AfterExit::Closed { shown: true } => {
-                    self.relayout(h);
-                }
+            match head.exited(id, since, self.oneshot) {
                 // No login starts in the turn vtium exits, which hangs
                 // every session up.
-                AfterExit::Restart if self.exit.is_none() => self.spawn(h, id),
-                AfterExit::GaveUp => self.request_exit(Exit::TooQuick),
-                AfterExit::Restart | AfterExit::Closed { shown: false } | AfterExit::Ended => {}
+                Some(AfterExit::Restart) if self.exit.is_none() => self.spawn(h, id),
+                Some(AfterExit::GaveUp) => self.request_exit(Exit::TooQuick),
+                Some(AfterExit::Restart | AfterExit::Ended) | None => {}
             }
         }
         if let Some(exit) = session::exit_due(&self.heads) {
