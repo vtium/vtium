@@ -21,11 +21,11 @@ pub enum Grab {
     RotateCcw,
 }
 
-const SHIFT: u8 = 1;
+pub(crate) const SHIFT: u8 = 1;
 const LOCK: u8 = 2;
-const CTRL: u8 = 4;
-const ALT: u8 = 8;
-const LOGO: u8 = 16;
+pub(crate) const CTRL: u8 = 4;
+pub(crate) const ALT: u8 = 8;
+pub(crate) const LOGO: u8 = 16;
 
 const UP: u32 = 0xff52;
 const DOWN: u32 = 0xff54;

@@ -44,6 +44,7 @@ mod error;
 mod file;
 mod identity;
 mod matching;
+mod messages;
 mod outcome;
 mod parse;
 mod place;
@@ -54,7 +55,7 @@ pub use bounds::{
 };
 pub use cmdline::{HeadsWord, heads_word};
 pub use config::{Config, Font, Guards, Head, OnLoss, Rule, TEMPLATE, Target};
-pub use error::{At, Error, Note, Problem, Quoted, Rejected, Warning, at};
+pub use error::{At, Error, Note, Problem, Quoted, Rejected, Syntax, Warning, at};
 pub use file::{HEAD_FILE, Inspected, Trust, Untrusted, inspect, read, text};
 pub use identity::{Class, Classes, Edid, Identity, Kind, UsbSerial};
 pub use matching::{Match, Token, glob};

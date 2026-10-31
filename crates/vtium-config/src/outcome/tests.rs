@@ -702,27 +702,27 @@ fn every_problem_has_its_scope() {
         (Problem::TooManyHeads, Within::Header, Scope::File),
         (Problem::TooManyRules, Within::Rules, Scope::File),
         (
-            Problem::Syntax("a line outside a section"),
+            Problem::Syntax(crate::error::Syntax::OutsideSection),
             Within::Top,
             Scope::Line,
         ),
         (
-            Problem::Syntax("a section header with no closing `]`"),
+            Problem::Syntax(crate::error::Syntax::UnclosedHeading),
             Within::Header,
             Scope::Section,
         ),
         (
-            Problem::Syntax("`[head NAME]` takes one name"),
+            Problem::Syntax(crate::error::Syntax::HeadOneName),
             Within::Header,
             Scope::Section,
         ),
         (
-            Problem::Syntax("expected `key = value`"),
+            Problem::Syntax(crate::error::Syntax::NotKeyValue),
             Within::Head,
             Scope::Head,
         ),
         (
-            Problem::Syntax("a rule is `KIND MATCH -> TARGET`"),
+            Problem::Syntax(crate::error::Syntax::RuleArrow),
             Within::Rules,
             Scope::Line,
         ),

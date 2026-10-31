@@ -2427,7 +2427,7 @@ impl Memory {
 }
 
 /// The notice of a head whose session ended for good under `oneshot`.
-const ENDED: &str = "The session ended, and vtium does not start it again.";
+const ENDED: &str = "This session has ended and will not start again. To keep working, press Ctrl+Super+↑ to switch to another screen.";
 
 /// The start of the anti-lockout guard's notice.
 const LOCKED_OUT: &str = "No keyboard was reaching a screen that is on";
@@ -2500,7 +2500,7 @@ fn a_boot_with_an_invalid_head_file_runs_the_shipped_rules_shows_the_notice_and_
         (
             "owner",
             format!("version = 1\n[head desk]\n{rules}"),
-            "writable by its group or others",
+            "can be changed by its group or by other users",
         ),
     ];
     for (test, text, says) in invalid {
@@ -2613,13 +2613,18 @@ fn statuses(app: &App) -> Vec<Option<String>> {
         .collect()
 }
 
-/// The BGR of the box the on-screen display's line stands in alone.
+/// The BGR of the box the on-screen display's line stands in alone, and
+/// of the cell behind its dot.
 const STATUS_PAPER: [u8; 3] = [0x33, 0x29, 0x1f];
+
+/// The BGR of the on-screen display's text, and of its dot.
+const STATUS_INK: [u8; 3] = [0xeb, 0xe7, 0xe5];
 
 /// D5 and vtium/vtium#169: under `osd = minimal`, the default, no head
 /// shows the on-screen display in normal use; the roaming chord shows
 /// every head's dot, filled on the head that became active and hollow on
-/// the other, over its top-right cell, and it goes `osd-timeout`, 3 s,
+/// the other, over its top-right cell in the on-screen display's colors,
+/// and it goes `osd-timeout`, 3 s,
 /// after its first frame. The test turns the loop with its clock moved
 /// on, and never waits on the wall clock.
 // covers: platform.heads.focus
@@ -2629,7 +2634,7 @@ fn the_osd_dot_shows_when_the_active_head_moves_and_goes_after_its_timeout() {
     let mut s = claimed();
     s.until(Duration::from_millis(100), |_| false);
     assert_eq!(marks(&s.app), [None, None], "none in normal use");
-    assert!(!s.memory("/dev/mem0").has(PAPER));
+    assert!(!s.memory("/dev/mem0").has(STATUS_PAPER));
     s.app
         .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
     let moved = now();
@@ -2637,13 +2642,20 @@ fn the_osd_dot_shows_when_the_active_head_moves_and_goes_after_its_timeout() {
     assert_eq!(marks(&s.app), [Some(Mark::Focus), Some(Mark::NoFocus)]);
     assert_eq!(statuses(&s.app), [None, None], "no line under minimal");
     assert!(
-        s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)),
+        s.until_memory("/dev/mem0", SECOND, |m| m.has(STATUS_PAPER)),
         "drawn on small"
     );
     assert!(
-        s.until_memory("/dev/mem1", SECOND, |m| m.has(PAPER)),
+        s.until_memory("/dev/mem1", SECOND, |m| m.has(STATUS_PAPER)),
         "and on large"
     );
+    for mem in ["/dev/mem0", "/dev/mem1"] {
+        let m = s.memory(mem);
+        assert!(
+            m.has(STATUS_INK) && !m.has(PAPER),
+            "{mem}: the dot in the on-screen display's colors, not the notice's"
+        );
+    }
     s.app.turn(moved + Duration::from_millis(2900));
     assert_eq!(
         marks(&s.app),
@@ -3419,7 +3431,7 @@ fn the_rescue_notice_names_the_head_typing_goes_to() {
     assert_eq!(s.app.focus_head(), Some("large"));
     let shown = notice(&s.app, "large").unwrap_or_default();
     assert!(
-        shown.contains("It now types into the active head, large now, until the next boot."),
+        shown.contains("It types into the active screen, large, until the next boot."),
         "{shown:?}"
     );
 }
@@ -3438,7 +3450,7 @@ fn the_rescue_notice_says_when_no_head_is_active() {
     for name in ["small", "large"] {
         let shown = notice(&s.app, name).unwrap_or_default();
         assert!(
-            shown.contains("No head is active now."),
+            shown.contains("no screen is active now."),
             "{name}: {shown:?}"
         );
     }

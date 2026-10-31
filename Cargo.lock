@@ -600,6 +600,7 @@ dependencies = [
  "vtium-font",
  "vtium-render",
  "vtium-term",
+ "vtium-tier2",
  "vtium-vitrify",
 ]
 
@@ -621,6 +622,8 @@ dependencies = [
 name = "vtium-tier2"
 version = "0.0.0"
 dependencies = [
+ "vtium",
+ "vtium-config",
  "vtium-conformance",
  "vtium-font",
  "vtium-render",

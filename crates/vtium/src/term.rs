@@ -16,16 +16,18 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
-use vtium_font::{Font, Missing, SpritePolicy};
+use vtium_font::{Face, Font, Missing, SpritePolicy};
 use vtium_platform::display::{DisplayId, Rect as DisplayRect, SwapError, Swapped};
 use vtium_platform::pty::{Consumer, Replies};
 use vtium_render::{
     Arrow, Canvas, Colors, Config as RenderConfig, Depth, DrawState, Mapped, Mark, Notice,
     Orientation, Rect as RenderRect, RenderTimer, Renderer, Stats, Surface, Target,
 };
-use vtium_term::{Age, Cursor, Damage, Frame, Line, LinkId, Palette, Terminal};
+use vtium_term::{Age, Cursor, Damage, Frame, Line, LinkId, Palette, Rgb, Terminal};
 
 use crate::blink::Blink;
+use crate::config::Config;
+use crate::config::keys::{OVERLAY_COLORS, Scheme};
 use crate::font::DisplayFace;
 use crate::head::DrawHook;
 use crate::pointer::Pointer;
@@ -209,6 +211,50 @@ pub struct Drawing {
     shadow: Option<Canvas>,
 }
 
+/// The colors of what vtium draws of its own (ADR-1401 D5): a notice's
+/// box, and the on-screen display's line and dot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OverlayColors {
+    pub notice: Colors,
+    pub osd: Colors,
+}
+
+impl OverlayColors {
+    /// The colors kmscon.conf's six color keys set, each unset key at its
+    /// default, which is the color vtium draws with none set.
+    pub fn configured(config: &Config) -> OverlayColors {
+        let [notice, osd] =
+            OVERLAY_COLORS.map(|keys| colors(keys.map(|k| config.rgb(k).unwrap_or_default())));
+        OverlayColors { notice, osd }
+    }
+
+    /// The colors of `scheme`, one of the example configuration's.
+    pub fn scheme(scheme: &Scheme) -> OverlayColors {
+        OverlayColors {
+            notice: colors(scheme.notice),
+            osd: colors(scheme.osd),
+        }
+    }
+}
+
+/// The colors of a text, a box and its edge, in that order.
+fn colors([ink, paper, edge]: [[u8; 3]; 3]) -> Colors {
+    let rgb = |[r, g, b]: [u8; 3]| Rgb::new(r, g, b);
+    Colors {
+        ink: rgb(ink),
+        paper: rgb(paper),
+        edge: rgb(edge),
+    }
+}
+
+impl Default for OverlayColors {
+    /// The colors with none of the keys set: the keys' defaults, as a head
+    /// draws them.
+    fn default() -> OverlayColors {
+        OverlayColors::configured(&Config::default())
+    }
+}
+
 /// What vtium draws of its own over a display's frame, outside the
 /// terminal's cells (ADR-1401 D5, D7): a box across the top, of the
 /// on-screen display's line and the notices, and the on-screen display's
@@ -220,15 +266,37 @@ pub struct Overlay {
     /// colors; else in the on-screen display's.
     pub problem: bool,
     pub mark: Option<Mark>,
+    pub colors: OverlayColors,
 }
 
 impl Overlay {
+    /// What a head draws of its own: one box holding the on-screen
+    /// display's full line `status` and the `notices` beneath it, each
+    /// starting a line, in the notices' colors while a notice is in it and
+    /// else in the on-screen display's, and the on-screen display's dot
+    /// `mark` in the on-screen display's colors, all from `colors`. Tier 2
+    /// and the specimens build their pictures of the overlay with it too.
+    pub fn new(
+        status: Option<&str>,
+        notices: &[&str],
+        mark: Option<Mark>,
+        colors: OverlayColors,
+    ) -> Overlay {
+        let lines: Vec<&str> = status.into_iter().chain(notices.iter().copied()).collect();
+        Overlay {
+            notice: (!lines.is_empty()).then(|| Notice::new(lines.join("\n"))),
+            problem: !notices.is_empty(),
+            mark,
+            colors,
+        }
+    }
+
     /// Draws the overlay over the `grid` that `renderer` drew into
     /// `target`, turned as `orientation` says, and returns the areas it
-    /// covers.
-    fn draw(
+    /// covers. Tier 2 draws its pictures of the overlay through it.
+    pub fn draw<F: Face>(
         &self,
-        renderer: &Renderer<DisplayFace>,
+        renderer: &Renderer<F>,
         grid: (usize, usize),
         orientation: Orientation,
         target: &mut Canvas,
@@ -243,8 +311,11 @@ impl Overlay {
         let cell = self
             .mark
             .and_then(|_| top_right(surface, grid, font.cell()));
-        let colors = Colors::NOTICE;
-        let boxed = if self.problem { colors } else { Colors::STATUS };
+        let OverlayColors {
+            notice: problem,
+            osd,
+        } = self.colors;
+        let boxed = if self.problem { problem } else { osd };
         let notice = self
             .notice
             .as_ref()
@@ -252,7 +323,7 @@ impl Overlay {
         let mark = self
             .mark
             .zip(cell)
-            .and_then(|(m, c)| m.draw(font, surface, c, colors, target));
+            .and_then(|(m, c)| m.draw(font, surface, c, osd, target));
         [notice, mark]
             .into_iter()
             .flatten()
@@ -977,6 +1048,20 @@ mod tests {
         fn need_commit(&self, _: DisplayId) -> bool {
             self.shown != self.sent
         }
+    }
+
+    // ADR-1401 D5: with no color key set, the notices and the on-screen
+    // display draw in vtium-render's own colors for them, which its tests
+    // and figures use.
+    #[test]
+    fn unset_color_keys_are_vtium_renders_notice_and_status_colors() {
+        assert_eq!(
+            OverlayColors::default(),
+            OverlayColors {
+                notice: Colors::NOTICE,
+                osd: Colors::STATUS,
+            }
+        );
     }
 
     // The focus mark's cell is where the renderer draws the grid's top-right

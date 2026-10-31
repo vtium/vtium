@@ -37,6 +37,12 @@ pub fn provisional(dir: &Path) -> Result<Vec<String>, String> {
     Ok(names)
 }
 
+/// The screens `p` draws on `layout`: the card's pages, then the message
+/// bars'.
+pub fn screen_count(p: &Profile, layout: &crate::profiles::Layout) -> usize {
+    layout.pages + p.bar_screens
+}
+
 /// The screens' file names for a profile of `pages` screens.
 fn screen_names(pages: usize) -> Vec<String> {
     if pages == 1 {
@@ -95,8 +101,7 @@ pub fn files(provisional: &[String], sources: &Sources) -> Result<Drawn, String>
     let (mut rows, mut simulated) = (Vec::new(), Vec::new());
     for p in PROFILES {
         let d = dir(p);
-        let pages = p.layout()?.pages;
-        let names = screen_names(pages);
+        let names = screen_names(screen_count(p, &p.layout()?));
         match draw::skipped(p, sources) {
             Some(why) => skipped.push((p, why.to_owned())),
             None => {
@@ -149,7 +154,8 @@ fn row(p: &Profile, provisional: bool) -> Result<String, String> {
         (None, true) => "provisional",
         (None, false) => "accepted",
     };
-    let shot = preview(l.pages);
+    let screens = screen_count(p, &l);
+    let shot = preview(screens);
     Ok(format!(
         "| [{name}]({d}/) | {} | {}x{} | {}x{} | `{}` | {} | {status} | [<img src=\"{d}/{shot}\" width=\"160\">]({d}/{shot}) |",
         p.depth,
@@ -158,7 +164,7 @@ fn row(p: &Profile, provisional: bool) -> Result<String, String> {
         l.cols,
         l.rows,
         p.glyphs.set(),
-        l.pages,
+        screens,
         name = p.name,
         d = dir(p),
     ))
@@ -166,14 +172,16 @@ fn row(p: &Profile, provisional: bool) -> Result<String, String> {
 
 fn profile_readme(p: &Profile, names: &[String]) -> Result<String, String> {
     let l = p.layout()?;
-    let arrayed = if l.pages == 1 {
+    let card = if l.pages == 1 {
         "the whole card on one screen".to_owned()
     } else {
-        format!(
-            "the card on {} screens, shown together in the collage",
-            l.pages
-        )
+        format!("the card on {} screens", l.pages)
     };
+    let bars = match p.bar_screens {
+        1 => "vtium's message bars on one more",
+        _ => "vtium's message bars on two more",
+    };
+    let arrayed = format!("{card} and {bars}, shown together in the collage");
     let source = match p.glyphs {
         Glyphs::Builtin { .. } => {
             "The console chooses this set by itself once #126 and #118's rule land; the screens here draw vtium-font's built-in set directly."
@@ -221,7 +229,7 @@ fn profile_readme(p: &Profile, names: &[String]) -> Result<String, String> {
         cell = format!("{}x{}", p.cell.0, p.cell.1),
         grid = format!("{}x{}", l.cols, l.rows),
         font = font_cell(p),
-        preview = preview(l.pages),
+        preview = preview(screen_count(p, &l)),
         why = p.why,
         conf = p.conf,
     ))
@@ -236,7 +244,7 @@ fn index(rows: &[String], simulated: &[String]) -> String {
         .join("\n");
     format!(
         "# VTium specimens\n\n\
-         vtium's test card, drawn by vtium's renderer in memory for each display profile, from a 1-bit 320x240 panel up to a 2560x1440 monitor (#142). Each profile's directory holds the screens, the collage where the card takes several, the font and configuration vtium uses there and why, and its vtium.conf.\n\n\
+         vtium's test card, drawn by vtium's renderer in memory for each display profile, from a 1-bit 320x240 panel up to a 2560x1440 monitor (#142). Each profile's directory holds the screens and their collage, the font and configuration vtium uses there and why, and its vtium.conf.\n\n\
          | Profile | Depth | Cell | Grid | Font | Screens | Status | Preview |\n\
          |---|---|---|---|---|---|---|---|\n\
          {rows}\n\n\
@@ -250,6 +258,8 @@ fn index(rows: &[String], simulated: &[String]) -> String {
          The card is one byte stream of vtium's own, written by `tools/specimens`, in blocks of 40x30 cells. A block is one 320x240 screen at 8x8, and a page holds as many blocks as its grid fits, centered:\n\n\
          {titles}\n\n\
          `tools/specimens/README.md` lists what the card leaves out and why.\n\n\
+         ## The message bars\n\n\
+         After the card, each profile draws vtium's message bars, its notices and its on-screen display (ADR-1401 D5, D7), drawn by the console's own overlay code, on one screen, or on two on the 320x240 displays, where the four notices fill a screen of their own. A display shows one box, across its top, so the screens stack four bands, each the top of a drawing of its own with a line beneath the bar saying what it is: four notices at once, the most a head shows; the on-screen display's full line sharing the box with a notice; the full line alone; and the minimal dot in the top-right cell.\n\n\
          ## Drawing and judging\n\n\
          `make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and compare them with what is committed: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A difference in an accepted profile fails; one in a provisional profile is drift, reported and not failed; a stale simulation is reported as its own kind of fault. The outline profiles are drawn only where the pinned fonts are at hand, as `make specimens-fonts` gives them, and `cargo test` draws none; elsewhere a provisional one is skipped with why, and an accepted one fails. A branch that moves specimens regenerates them in their own commit, listing what moved; `provisional.tsv` is the only file here written by hand, and a conflict in the rest resolves by `make specimens-fonts && make specimens`.\n",
         rows = rows.join("\n"),

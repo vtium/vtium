@@ -5,12 +5,14 @@
 //! [`draw`] draws them through `vtium-term` and `vtium-render`, [`ppm`],
 //! [`tol`] and [`compare`] read and judge the images as tier 3 does, and
 //! [`runner`] runs them all and writes the [`report`]. [`colorset`] builds
-//! the vitrified set the color glyph screen draws with.
+//! the vitrified set the color glyph screen draws with, and [`notices`]
+//! the words of the screens of vtium's notices and on-screen display.
 
 pub mod colorset;
 pub mod compare;
 pub mod cref;
 pub mod draw;
+pub mod notices;
 pub mod ppm;
 pub mod report;
 pub mod runner;
