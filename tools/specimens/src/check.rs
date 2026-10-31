@@ -143,7 +143,7 @@ fn strays(dir: &Path, drawn: &Drawn) -> Result<Vec<String>, String> {
         drawn.skipped.iter().any(|(p, _)| {
             let d = docs::dir(p);
             p.layout().is_ok_and(|l| {
-                docs::image_names(l.pages)
+                docs::image_names(docs::screen_count(p, &l))
                     .iter()
                     .any(|n| f == format!("{d}/{n}"))
             })
@@ -262,7 +262,7 @@ mod tests {
         std::fs::write(dir.join("1920x1080/screen-1.png"), b"anything").unwrap();
         std::fs::write(dir.join("1920x1080/collage.png"), b"anything").unwrap();
         std::fs::write(dir.join("1920x1080/extra.png"), b"anything").unwrap();
-        std::fs::write(dir.join("1920x1080/screen-3.png"), b"anything").unwrap();
+        std::fs::write(dir.join("1920x1080/screen-4.png"), b"anything").unwrap();
         let faults = check(&dir, &sources()).unwrap();
         assert_eq!(
             faults.skipped,
@@ -275,7 +275,7 @@ mod tests {
             faults.drift,
             [
                 "1920x1080/extra.png: not drawn by the profile table",
-                "1920x1080/screen-3.png: not drawn by the profile table",
+                "1920x1080/screen-4.png: not drawn by the profile table",
             ]
         );
         assert!(!faults.failed(), "{faults:?}");

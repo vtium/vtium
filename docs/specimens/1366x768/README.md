@@ -1,12 +1,12 @@
 # 1366x768
 
-A common laptop panel: 1366x768, 24-bit color, drawn in `unifont` at 8x16, 170x48 cells, the card on 2 screens, shown together in the collage.
+A common laptop panel: 1366x768, 24-bit color, drawn in `unifont` at 8x16, 170x48 cells, the card on 2 screens and vtium's message bars on one more, shown together in the collage.
 
 ![1366x768](collage.png)
 
 | Display | Class | Cell | Grid | Font | Screens |
 |---|---|---|---|---|---|
-| 1366x768, 24-bit color | order unknown | 8x16 | 170x48 | `unifont`, built in | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png) |
+| 1366x768, 24-bit color | order unknown | 8x16 | 170x48 | `unifont`, built in | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png) |
 
 ## Why this font
 

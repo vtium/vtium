@@ -116,6 +116,8 @@ pub struct Head {
     /// Its last console's program ended under `oneshot`, so the head runs
     /// no session any more.
     pub(crate) ended: bool,
+    /// What the head shows once its session has ended, from the catalog.
+    pub(crate) ended_notice: String,
     /// vtium's notices to the head (ADR-1401 D7), each once and at most
     /// [`NOTICES_MAX`], the oldest going first, until a key reaches the
     /// head or [`NOTICE_SHOWN`] after they are first drawn, when they end.
@@ -218,10 +220,6 @@ pub(crate) fn terminal(
     Term::new(terminal, sync, Blink::configured(config), clock)
 }
 
-/// What a head whose session ended under `oneshot` shows in place of its
-/// session (the operator's answers on vtium/vtium#156).
-pub const ENDED: &str = "The session ended, and vtium does not start it again.";
-
 /// The scrollback memory each console takes (ADR-1401 D10): `sb-memory`,
 /// at most `cap`, the most `sb-memory` may be on the machine, shared
 /// among the most consoles every head may hold: `consoles`, or the
@@ -301,6 +299,7 @@ impl Head {
             wanted: 1,
             login: None,
             ended: false,
+            ended_notice: crate::notice::session_ended(),
             notices: Vec::new(),
             shown: String::new(),
             notice_due: None,
@@ -417,7 +416,7 @@ impl Head {
     /// for good, else its notices.
     pub fn notice(&self) -> Option<&str> {
         self.ended
-            .then_some(ENDED)
+            .then_some(self.ended_notice.as_str())
             .or_else(|| (!self.shown.is_empty()).then_some(self.shown.as_str()))
     }
 
@@ -481,16 +480,8 @@ impl Head {
     /// the on-screen display's line and the notices beneath it, a problem
     /// while a notice is in it, and the on-screen display's dot.
     pub(crate) fn overlay(&self) -> crate::term::Overlay {
-        let notice = self.notice();
-        let text = match (self.status.as_deref(), notice) {
-            (Some(line), Some(notice)) => Some(format!("{line}\n{notice}")),
-            (line, notice) => line.or(notice).map(str::to_owned),
-        };
-        crate::term::Overlay {
-            notice: text.map(vtium_render::Notice::new),
-            problem: notice.is_some(),
-            mark: self.mark,
-        }
+        let notices: Vec<&str> = self.notice().into_iter().collect();
+        crate::term::Overlay::new(self.status.as_deref(), &notices, self.mark)
     }
 
     /// How the shown console fits the displays.
@@ -1054,11 +1045,10 @@ pub fn rules(
                 .map(|e| at(path, e.line(), e).to_string())
                 .collect();
             if rejected.more > 0 {
-                let more = format_args!("{} more errors", rejected.more);
+                let more = crate::notice::more_errors(rejected.more);
                 lines.push(at(path, None, more).to_string());
             }
-            let ignored = "This file has errors, so vtium ignores it and uses its built-in rules.";
-            lines.push(at(path, None, ignored).to_string());
+            lines.push(at(path, None, crate::notice::head_file_ignored()).to_string());
             for line in &lines {
                 log::error!("{line}");
             }
@@ -1221,7 +1211,14 @@ mod tests {
         let (bad, trust) = fixture("invalid", Some(invalid));
         let (ran, notice) = rules(&bad, &trust);
         assert_eq!(ran, vtium_config::Config::builtin());
-        assert!(notice.is_some_and(|n| n.contains(":4: ") && n.ends_with("built-in rules.")));
+        assert!(
+            notice.as_deref().is_some_and(|n| n.contains(":4: ")
+                && n.lines().last()
+                    == Some(&*format!(
+                        "{}: This file has errors, so vtium ignored it and uses its built-in rules. Fix the errors above and check the file with `vtium check-config`, then restart vtium or reboot to use it.",
+                        bad.display()
+                    )))
+        );
         assert_eq!(std::fs::read_to_string(&bad).ok().as_deref(), Some(invalid));
         for f in [file, absent, bad] {
             if let Some(dir) = f.parent() {
@@ -1246,7 +1243,10 @@ mod tests {
         head.ended = true;
         head.notice_due = Some(Instant::now());
         head.end_notices();
-        assert_eq!((head.notice(), head.notice_due), (Some(ENDED), None));
+        assert_eq!(
+            (head.notice(), head.notice_due),
+            (Some(crate::notice::session_ended().as_str()), None)
+        );
         assert!(!head.has_notices());
     }
 

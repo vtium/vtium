@@ -59,6 +59,10 @@ pub struct Profile {
     /// For a gray panel, the conversion its driver applies to vtium's color
     /// drawing, which the profile's renders simulate.
     pub panel: Option<Panel>,
+    /// The screens vtium's message bars take after the card: one, or two
+    /// where the four notices fill a screen of their own
+    /// ([`crate::bars`]).
+    pub bar_screens: usize,
 }
 
 /// An XRGB8888 pixel's gray8, BT.601 luma in the kernel's integers:
@@ -194,6 +198,7 @@ pub const PROFILES: &[Profile] = &[
         why: ONE_BIT_WHY,
         conf: "# A panel the platform does not report as 1-bit takes the key.\ndisplay-depth=1\nfont-size=0\n",
         panel: None,
+        bar_screens: 2,
     },
     Profile {
         name: "320x240",
@@ -211,6 +216,7 @@ pub const PROFILES: &[Profile] = &[
         why: UNSCII_WHY,
         conf: "# vtium's defaults: font-size=0 picks 8 pixels here (#118), which\n# draws the built-in Unscii-8 (ADR-1200 D7).\nfont-size=0\n",
         panel: None,
+        bar_screens: 2,
     },
     Profile {
         name: "320x240-gray4",
@@ -228,6 +234,7 @@ pub const PROFILES: &[Profile] = &[
         why: GRAY_WHY,
         conf: "# vtium's defaults: font-size=0 picks 8 pixels here (#118), which\n# draws the built-in Unscii-8 (ADR-1200 D7). The panel converts.\nfont-size=0\n",
         panel: Some(Panel::St7586),
+        bar_screens: 2,
     },
     Profile {
         name: "320x240-gray16",
@@ -245,6 +252,7 @@ pub const PROFILES: &[Profile] = &[
         why: GRAY_WHY,
         conf: "# vtium's defaults: font-size=0 picks 8 pixels here (#118), which\n# draws the built-in Unscii-8 (ADR-1200 D7). The panel converts.\nfont-size=0\n",
         panel: Some(Panel::Ssd132x),
+        bar_screens: 2,
     },
     Profile {
         name: "640x480-gray16",
@@ -262,6 +270,7 @@ pub const PROFILES: &[Profile] = &[
         why: GRAY_WHY,
         conf: "# vtium's defaults: font-size=0 picks 16 pixels here, which draws\n# the built-in unifont (ADR-1200 D7). The panel converts.\nfont-size=0\n",
         panel: Some(Panel::Ssd132x),
+        bar_screens: 1,
     },
     Profile {
         name: "480x320",
@@ -279,6 +288,7 @@ pub const PROFILES: &[Profile] = &[
         why: UNSCII_WHY,
         conf: "# vtium's defaults: font-size=0 picks 8 pixels here (#118), which\n# draws the built-in Unscii-8 (ADR-1200 D7).\nfont-size=0\n",
         panel: None,
+        bar_screens: 1,
     },
     Profile {
         name: "640x480",
@@ -296,6 +306,7 @@ pub const PROFILES: &[Profile] = &[
         why: UNIFONT_WHY,
         conf: "# vtium's defaults: font-size=0 picks 16 pixels here, which draws\n# the built-in unifont (ADR-1200 D7).\nfont-size=0\n",
         panel: None,
+        bar_screens: 1,
     },
     Profile {
         name: "800x480",
@@ -313,6 +324,7 @@ pub const PROFILES: &[Profile] = &[
         why: UNIFONT_WHY,
         conf: "# vtium's defaults: font-size=0 picks 16 pixels here, which draws\n# the built-in unifont (ADR-1200 D7).\nfont-size=0\n",
         panel: None,
+        bar_screens: 1,
     },
     Profile {
         name: "1366x768",
@@ -330,6 +342,7 @@ pub const PROFILES: &[Profile] = &[
         why: "`font-size=0` asks 19 pixels here, and a bitmap set draws at the largest whole multiple of its cell that fits (ADR-1200 D9), so the built-in unifont (D7) draws at 16 pixels, 170x48 cells. 19 pixels is under 24, the smallest outline size D11 builds, so a default machine holds no outline set for this display. Emoji draw as unifont's monochrome glyphs where it has one, and Nerd Font symbols as the missing glyph; the outline profiles draw both from the desktop set.",
         conf: "# vtium's defaults: font-size=0 asks 19 pixels here, and unifont\n# draws at 16, its largest whole multiple that fits (ADR-1200 D9).\nfont-size=0\n",
         panel: None,
+        bar_screens: 1,
     },
     Profile {
         name: "1920x1080",
@@ -344,6 +357,7 @@ pub const PROFILES: &[Profile] = &[
         why: DESKTOP_WHY,
         conf: DESKTOP_CONF,
         panel: None,
+        bar_screens: 1,
     },
     Profile {
         name: "2560x1440",
@@ -358,6 +372,7 @@ pub const PROFILES: &[Profile] = &[
         why: DESKTOP_WHY,
         conf: DESKTOP_CONF,
         panel: None,
+        bar_screens: 1,
     },
 ];
 

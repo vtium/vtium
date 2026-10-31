@@ -64,18 +64,28 @@ pub enum Untrusted {
     Writable { path: Quoted, mode: u32 },
 }
 
-impl fmt::Display for Untrusted {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Untrusted::Owner { path, uid } => write!(f, "{path} is owned by uid {uid}, not root"),
-            Untrusted::Writable { path, mode } => {
-                write!(
-                    f,
-                    "{path} is writable by its group or others (mode {mode:o})"
-                )
-            }
-        }
-    }
+/// A line whose shape is not one the file's syntax takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Syntax {
+    /// A line outside every section, such as a key above the first
+    /// heading.
+    OutsideSection,
+    /// A section heading that does not end in `]`.
+    UnclosedHeading,
+    /// `[head]` with no name or with more than one.
+    HeadOneName,
+    /// A line of a section that takes keys with no `=` in it.
+    NotKeyValue,
+    /// A rule that starts with neither kind.
+    RuleKind,
+    /// A rule with no `->`.
+    RuleArrow,
+    /// A rule with no target, or more than one, after `->`.
+    RuleOneTarget,
+    /// A rule with nothing between its kind and `->`.
+    RuleMatch,
+    /// `*` beside other tokens.
+    StarAlone,
 }
 
 /// One thing that makes the file invalid.
@@ -100,7 +110,7 @@ pub enum Problem {
     /// A version vtium does not know.
     UnknownVersion(Quoted),
     /// A line that is not a section, a `key = value` or a rule.
-    Syntax(&'static str),
+    Syntax(Syntax),
     UnknownSection(Quoted),
     /// A second `[rules]` or `[guards]`.
     DuplicateSection(&'static str),
@@ -142,56 +152,6 @@ pub enum Problem {
     TooManyRules,
     /// More than [`TOKENS_MAX`](crate::TOKENS_MAX) tokens in one match.
     TooManyTokens,
-}
-
-impl fmt::Display for Problem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Problem::NotAFile => f.write_str("not a regular file"),
-            Problem::Unreadable(kind) => write!(f, "cannot be read: {kind}"),
-            Problem::Untrusted(why) => write!(f, "not trusted: {why}"),
-            Problem::TooLarge => write!(f, "longer than {} bytes", crate::FILE_MAX),
-            Problem::NotUtf8 => f.write_str("not UTF-8"),
-            Problem::LineTooLong => write!(f, "line longer than {} bytes", crate::LINE_MAX),
-            Problem::ControlCharacter(c) => {
-                write!(f, "control character {} in the line", c.escape_unicode())
-            }
-            Problem::MissingVersion => f.write_str("the first line is not `version = 1`"),
-            Problem::UnknownVersion(v) => write!(f, "unknown version {v}"),
-            Problem::Syntax(what) => f.write_str(what),
-            Problem::UnknownSection(s) => write!(f, "unknown section {s}"),
-            Problem::DuplicateSection(s) => write!(f, "a second [{s}] section"),
-            Problem::UnknownKey(k) => write!(f, "unknown key {k}"),
-            Problem::DuplicateKey(k) => write!(f, "`{k}` set twice"),
-            Problem::BadName(n) => write!(
-                f,
-                "name {n} is not 1 to {} of A-Z a-z 0-9 . _ + -",
-                crate::NAME_MAX
-            ),
-            Problem::ReservedName(n) => write!(f, "head name {n} is reserved"),
-            Problem::DuplicateHead(n) => write!(f, "a second head named {n}"),
-            Problem::BadValue { key, value } => write!(f, "`{key}` cannot take {value}"),
-            Problem::OutOfRange { key, value } => write!(f, "`{key}` {value} is out of range"),
-            Problem::UnknownMatchKey(t) => write!(f, "unknown match key in {t}"),
-            Problem::BadToken(t) => write!(f, "match token {t} has a value its key cannot take"),
-            Problem::UndefinedHead(n) => write!(f, "rule names undefined head {n}"),
-            Problem::WrongKind { target, kind } => {
-                write!(
-                    f,
-                    "`{target}` is no target for {} rule",
-                    match kind {
-                        Kind::Display => "a display",
-                        Kind::Input => "an input",
-                    }
-                )
-            }
-            Problem::TooManyHeads => write!(f, "more than {} heads", crate::HEADS_MAX),
-            Problem::TooManyRules => write!(f, "more than {} rules", crate::RULES_MAX),
-            Problem::TooManyTokens => {
-                write!(f, "more than {} tokens in one match", crate::TOKENS_MAX)
-            }
-        }
-    }
 }
 
 /// One error, with its line, or `None` for the file as a whole.
@@ -298,36 +258,6 @@ impl Note {
             Note::GuardOff { line, .. } | Note::RescueOff { line } | Note::WeakMatch { line } => {
                 *line
             }
-        }
-    }
-}
-
-impl fmt::Display for Warning {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Warning::ConsolesCapped { .. } => write!(
-                f,
-                "more consoles than the cap; the head gets {}",
-                crate::CONSOLES_MAX
-            ),
-            Warning::Shadowed { by, .. } => {
-                write!(
-                    f,
-                    "the rule on line {by} takes every device this one matches"
-                )
-            }
-        }
-    }
-}
-
-impl fmt::Display for Note {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Note::GuardOff { guard, .. } => write!(f, "the {guard} guard is off"),
-            Note::RescueOff { .. } => f.write_str("the rescue key leaves this head's keyboards"),
-            Note::WeakMatch { .. } => f.write_str(
-                "input reaches a head by `id` or `name` alone, which any device can claim",
-            ),
         }
     }
 }

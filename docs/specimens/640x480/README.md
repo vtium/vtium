@@ -1,12 +1,12 @@
 # 640x480
 
-VGA, the smallest display with 80 columns of 16-pixel text: 640x480, 24-bit color, drawn in `unifont` at 8x16, 80x30 cells, the card on 3 screens, shown together in the collage.
+VGA, the smallest display with 80 columns of 16-pixel text: 640x480, 24-bit color, drawn in `unifont` at 8x16, 80x30 cells, the card on 3 screens and vtium's message bars on one more, shown together in the collage.
 
 ![640x480](collage.png)
 
 | Display | Class | Cell | Grid | Font | Screens |
 |---|---|---|---|---|---|
-| 640x480, 24-bit color | small color LCD | 8x16 | 80x30 | `unifont`, built in | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png) |
+| 640x480, 24-bit color | small color LCD | 8x16 | 80x30 | `unifont`, built in | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png), [screen-4.png](screen-4.png) |
 
 ## Why this font
 
