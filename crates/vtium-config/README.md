@@ -8,10 +8,10 @@ The head file of ADR-1401: its reader, its parser, and the evaluator that places
 | `src/bounds.rs` | Every bound, with its value, what happens past it and its source: the one source for the constants and for the table below. |
 | `src/file.rs` | `HEAD_FILE`; `inspect`, the file from disk with its ownership verdict beside its bytes and text; `read`, the start's verdict from it; and `text`, the whole-file checks on its bytes. |
 | `src/parse.rs` | `reading`, the bytes line by line to what survives their errors, with every `policy` line and each error's scope for `Trusted::of`; `parse`, the strict reading, a `Config` only for a file with no error. |
-| `src/config.rs` | `Config`, `Head`, `Rule` and `Guards`; `TEMPLATE` and `Config::builtin`, its parse. |
+| `src/config.rs` | `Config`, `Head` and `Rule`; `TEMPLATE` and `Config::builtin`, its parse. |
 | `src/identity.rs` | `Identity`, a device as the rules see it, and udev's input classes. |
 | `src/matching.rs` | The match keys and the glob. |
-| `src/place.rs` | The first-match walk, the guards, the rescue key, the layer 1 warnings and the paste-ready rule for a dark display. |
+| `src/place.rs` | The first-match walk, the guards, the rescue key and isolation, each under the policy; the shipped rules' tail after what survives of an open file; the layer 1 warnings and the paste-ready rule for a dark display. |
 | `src/outcome.rs` | `resolve`, what runs for each state the file can be in, with the levels it reads (`Read`, `Stated`, `Rest`), `Trusted::of`, which classifies a parse's findings into them, and `scope`, what each error takes down; no I/O. |
 | `src/outcome/tests.rs` | Every path through `resolve`, the outcome table, and the invariants over every path. |
 | `src/outcome/tests/runtime.rs` | The run-time model: every state the events while vtium runs reach from each start outcome, and the invariants over them. |

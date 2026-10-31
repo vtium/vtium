@@ -3016,14 +3016,14 @@ input path:kbd-large -> large
 input class:keyboard -> small
 ";
 
-/// `text`'s head file with a guard turned off: no line of the head file
-/// turns one off, but the seat reads each switch (ADR-1401 D9).
+/// `text`'s head file, changed by `change`; under `policy = closed` the
+/// anti-lockout guard and the rescue key are off (ADR-1401 D9).
 fn guarded(
     text: &str,
-    off: fn(&mut vtium_config::Guards),
+    change: fn(&mut vtium_config::Config),
 ) -> (vtium_config::Config, Option<String>) {
     let mut config = vtium_config::parse(text).expect("valid").config;
-    off(&mut config.guards);
+    change(&mut config);
     (config, None)
 }
 
@@ -3109,7 +3109,9 @@ fn losing_with_focus() -> Seat {
 /// every keyboard is left as it is.
 #[test]
 fn with_anti_lockout_off_a_ruleset_stranding_every_keyboard_is_left_as_it_is() {
-    let mut s = stranded(guarded(STRANDED, |g| g.anti_lockout = false));
+    let mut s = stranded(guarded(STRANDED, |c| {
+        c.policy = vtium_config::Policy::Closed
+    }));
     s.type_on(KBD_A, "a\r");
     s.until(Duration::from_millis(200), |_| false);
     assert!(!head_shows(&s.app, "large", "got:a"));
@@ -3147,7 +3149,7 @@ fn with_never_dark_off_a_file_with_no_rules_leaves_every_display_dark() {
         "/dev/mem1",
         Memory::new(640, 320, "MEM-2", "mem-large").lit(),
     )];
-    let rules = guarded("version = 1\n", |g| g.never_dark = false);
+    let rules = guarded("version = 1\n", |c| c.policy = vtium_config::Policy::Closed);
     let mut s = Seat::with_rules(&[], Some(rules), displays, "echo ready; read x", no_fonts());
     s.until(Duration::from_millis(200), |_| false);
     assert_eq!(s.app.cells(), Vec::<(u32, u32)>::new());
@@ -3159,7 +3161,11 @@ fn with_never_dark_off_a_file_with_no_rules_leaves_every_display_dark() {
 /// move.
 #[test]
 fn rescue_key_off_moves_nothing_and_an_isolated_head_keeps_its_keyboard() {
-    let mut s = rescue_seat(guarded(RESCUE, |g| g.rescue_key = false));
+    // under closed a head isolated by default is never the active head
+    let open_heads = RESCUE.replace("]\n[", "]\nisolated = no\n[");
+    let mut s = rescue_seat(guarded(&open_heads, |c| {
+        c.policy = vtium_config::Policy::Closed;
+    }));
     s.app
         .device_input(Path::new(KBD_SMALL), ctrl_alt_f(1), now());
     s.type_on(KBD_SMALL, "s\r");
