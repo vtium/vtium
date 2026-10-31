@@ -3,7 +3,7 @@
 
 use std::fmt::Write as _;
 
-use super::keys::{Default, KEYS, Key, Kind, Scope, TEXT_MAX};
+use super::keys::{Default, KEYS, Key, Kind, OSD_BORDER, OVERLAY_COLORS, SCHEMES, Scope, TEXT_MAX};
 use super::{FILE_MAX, LINE_MAX};
 
 const SOURCE: &str = "crates/vtium/src/config/keys.rs";
@@ -107,6 +107,41 @@ pub(super) fn markdown() -> String {
             k.cite
         );
     }
+    out.push_str(
+        "\n## Other color schemes for the notices and the on-screen display\n\n\
+         The example carries these schemes for the six color keys, commented out, for color blindness and personal preference (ADR-1401 D5). vtium draws whatever colors are set and checks no contrast between a text and its box.\n\n\
+         | Scheme | What it is |",
+    );
+    for key in OVERLAY_COLORS.iter().flatten() {
+        let _ = write!(out, " `{}` |", key.name);
+    }
+    out.push_str("\n|---|---|");
+    out.push_str(&"---|".repeat(OVERLAY_COLORS.iter().flatten().count()));
+    out.push('\n');
+    for scheme in &SCHEMES {
+        let _ = write!(out, "| `{}` | {} |", scheme.name, scheme.what);
+        for [r, g, b] in scheme.notice.iter().chain(&scheme.osd) {
+            let _ = write!(out, " `{r},{g},{b}` |");
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// The example's schemes for the six color keys, each line commented out.
+fn schemes() -> String {
+    let mut out = String::from(
+        "\n## Other schemes for the six colors above. To use one, remove the # at\n\
+         ## the start of its six lines. vtium draws whatever colors are set and\n\
+         ## checks no contrast between a text and its box.\n",
+    );
+    for scheme in &SCHEMES {
+        let _ = write!(out, "\n## {}: {}\n", scheme.name, scheme.what);
+        let values = scheme.notice.iter().chain(&scheme.osd);
+        for (key, [r, g, b]) in OVERLAY_COLORS.iter().flatten().zip(values) {
+            let _ = writeln!(out, "#{}={r},{g},{b}", key.name);
+        }
+    }
     out
 }
 
@@ -131,6 +166,9 @@ pub(super) fn example() -> String {
             _ => format!("{}=", k.name),
         };
         let _ = write!(out, "\n## {}\n#{line}\n", k.what);
+        if k.name == OSD_BORDER.name {
+            out.push_str(&schemes());
+        }
     }
     out
 }
@@ -163,5 +201,33 @@ mod tests {
             stale.is_empty(),
             "{stale:?} differ from the key table; rerun with VTIUM_BLESS=1 to rewrite them"
         );
+    }
+
+    // ADR-1401 D5: each scheme the example carries, its six lines with the
+    // `#` taken off, is a kmscon.conf that draws the scheme's colors.
+    #[test]
+    fn each_scheme_in_the_example_uncommented_sets_its_colors() {
+        let example = example();
+        for scheme in &SCHEMES {
+            let head = format!("## {}: ", scheme.name);
+            let lines: Vec<&str> = example
+                .lines()
+                .skip_while(|l| !l.starts_with(&head))
+                .skip(1)
+                .take(6)
+                .map(|l| l.strip_prefix('#').unwrap_or(l))
+                .collect();
+            let file = format!("{}\n", lines.join("\n"));
+            let loaded = crate::config::load(&[], None, &mut |_: &std::path::Path| {
+                Ok(Some(file.clone().into_bytes()))
+            });
+            assert_eq!(loaded.reports, [], "{}", scheme.name);
+            assert_eq!(
+                crate::term::OverlayColors::configured(&loaded.config),
+                crate::term::OverlayColors::scheme(scheme),
+                "{}",
+                scheme.name
+            );
+        }
     }
 }

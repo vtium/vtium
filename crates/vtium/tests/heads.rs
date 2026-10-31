@@ -2613,13 +2613,15 @@ fn statuses(app: &App) -> Vec<Option<String>> {
         .collect()
 }
 
-/// The BGR of the box the on-screen display's line stands in alone.
+/// The BGR of the box the on-screen display's line stands in alone, and
+/// of the cell behind its dot.
 const STATUS_PAPER: [u8; 3] = [0x33, 0x29, 0x1f];
 
 /// D5 and vtium/vtium#169: under `osd = minimal`, the default, no head
 /// shows the on-screen display in normal use; the roaming chord shows
 /// every head's dot, filled on the head that became active and hollow on
-/// the other, over its top-right cell, and it goes `osd-timeout`, 3 s,
+/// the other, over its top-right cell in the on-screen display's colors,
+/// and it goes `osd-timeout`, 3 s,
 /// after its first frame. The test turns the loop with its clock moved
 /// on, and never waits on the wall clock.
 // covers: platform.heads.focus
@@ -2629,7 +2631,7 @@ fn the_osd_dot_shows_when_the_active_head_moves_and_goes_after_its_timeout() {
     let mut s = claimed();
     s.until(Duration::from_millis(100), |_| false);
     assert_eq!(marks(&s.app), [None, None], "none in normal use");
-    assert!(!s.memory("/dev/mem0").has(PAPER));
+    assert!(!s.memory("/dev/mem0").has(STATUS_PAPER));
     s.app
         .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
     let moved = now();
@@ -2637,11 +2639,11 @@ fn the_osd_dot_shows_when_the_active_head_moves_and_goes_after_its_timeout() {
     assert_eq!(marks(&s.app), [Some(Mark::Focus), Some(Mark::NoFocus)]);
     assert_eq!(statuses(&s.app), [None, None], "no line under minimal");
     assert!(
-        s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)),
+        s.until_memory("/dev/mem0", SECOND, |m| m.has(STATUS_PAPER)),
         "drawn on small"
     );
     assert!(
-        s.until_memory("/dev/mem1", SECOND, |m| m.has(PAPER)),
+        s.until_memory("/dev/mem1", SECOND, |m| m.has(STATUS_PAPER)),
         "and on large"
     );
     s.app.turn(moved + Duration::from_millis(2900));

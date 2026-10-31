@@ -445,6 +445,7 @@ const fn shown(notices: &'static [Words]) -> Overlay {
         line: None,
         notices,
         mark: None,
+        scheme: None,
     }
 }
 
@@ -452,6 +453,7 @@ const OSD_FULL: Overlay = Overlay {
     line: Some(notices::osd_active),
     notices: &[],
     mark: None,
+    scheme: None,
 };
 
 const OSD_FULL_OTHER: Overlay = Overlay {
@@ -463,6 +465,7 @@ const OSD_MINIMAL: Overlay = Overlay {
     line: None,
     notices: &[],
     mark: Some(Mark::Focus),
+    scheme: None,
 };
 
 const OSD_MINIMAL_OTHER: Overlay = Overlay {
@@ -506,9 +509,9 @@ const OSD_FULL_DESC: &str = "vtium's on-screen display under `osd = full` on the
 
 const OSD_FULL_OTHER_DESC: &str = "vtium's on-screen display under `osd = full` on a head that is not the active one (ADR-1401 D5, vtium/vtium#169). Correct: a dark box with a grey edge across the top, the width of the display, holding `○ side · console 1 of 1` in light text, the hollow dot meaning side is not the active head; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
-const OSD_MINIMAL_DESC: &str = "vtium's on-screen display under `osd = minimal`, the default, on the active head (ADR-1401 D5, vtium/vtium#169). Correct: the session as the terminal drew it, and a filled circle in the top-right cell, dark on the notice's pale red; every other cell untouched.";
+const OSD_MINIMAL_DESC: &str = "vtium's on-screen display under `osd = minimal`, the default, on the active head (ADR-1401 D5, vtium/vtium#169). Correct: the session as the terminal drew it, and a filled circle in the top-right cell, light on the on-screen display's dark grey; every other cell untouched.";
 
-const OSD_MINIMAL_OTHER_DESC: &str = "vtium's on-screen display under `osd = minimal` on a head that is not the active one (ADR-1401 D5, vtium/vtium#169). Correct: the session as the terminal drew it, and a hollow circle in the top-right cell, dark on the notice's pale red; every other cell untouched.";
+const OSD_MINIMAL_OTHER_DESC: &str = "vtium's on-screen display under `osd = minimal` on a head that is not the active one (ADR-1401 D5, vtium/vtium#169). Correct: the session as the terminal drew it, and a hollow circle in the top-right cell, light on the on-screen display's dark grey; every other cell untouched.";
 
 const OSD_FULL_NOTICE_DESC: &str = "vtium's on-screen display under `osd = full` sharing its box with the notice that no keyboard was found (ADR-1401 D5, D7). Correct: one box across the top in the notices' colors, pale red with a dark red edge and dark text, since a notice is in it: `● desk · console 2 of 3` on its first line and the notice on the line beneath; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
@@ -957,6 +960,7 @@ pub const CASES: &[Case] = &[
                 line: Some(notices::osd_active),
                 notices: &[],
                 mark: None,
+                scheme: None,
             }),
             ..Screen::new(
                 "osd-full",
@@ -975,10 +979,11 @@ pub const CASES: &[Case] = &[
                 line: None,
                 notices: &[],
                 mark: Some(Mark::Focus),
+                scheme: None,
             }),
             ..Screen::new(
                 "osd-minimal",
-                "vtium's on-screen display under `osd = minimal`, the default, over the same shell session (ADR-1401 D5, vtium/vtium#169). Correct: the session as the terminal drew it, and a filled circle in the top-right cell, dark on the notice's pale red and cut at the cell's right edge, meaning this head is the active head; every other cell untouched.",
+                "vtium's on-screen display under `osd = minimal`, the default, over the same shell session (ADR-1401 D5, vtium/vtium#169). Correct: the session as the terminal drew it, and a filled circle in the top-right cell, light on the on-screen display's dark grey and cut at the cell's right edge, meaning this head is the active head; every other cell untouched.",
                 OSD_SHELL,
                 40,
                 6,

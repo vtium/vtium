@@ -32,6 +32,52 @@
 ## The older name of `osd` and `osd-timeout`. vtium reads it only where `osd` or `osd-timeout` is not set: `auto` reads as `osd = minimal`, `always` as `osd = minimal` with `osd-timeout = never`, and `off` as `osd = off`. vtium logs a line naming the new keys when a file or the command line sets it.
 #focus-mark=
 
+## The color of a notice's text. A notice tells of a problem, such as an invalid head file, and shows whatever `osd` says.
+#notice-foreground=31,41,51
+
+## The color of a notice's box. While a notice shows, the on-screen display's full line shares its box and takes the notice's colors.
+#notice-background=254,226,226
+
+## The color of the edge around a notice's box.
+#notice-border=185,28,28
+
+## The color of the on-screen display's text: the words of `osd = full`'s line, and the dot of `osd = minimal`.
+#osd-foreground=229,231,235
+
+## The color of the on-screen display's box behind `osd = full`'s line, and of the cell behind `osd = minimal`'s dot.
+#osd-background=31,41,51
+
+## The color of the edge around `osd = full`'s box. The dot of `osd = minimal` has no edge.
+#osd-border=97,110,124
+
+## Other schemes for the six colors above. To use one, remove the # at
+## the start of its six lines. vtium draws whatever colors are set and
+## checks no contrast between a text and its box.
+
+## light: Both boxes are light, for a light terminal background: a notice is pale red with dark red text and a red edge, and the on-screen display pale grey with dark text and a grey edge.
+#notice-foreground=69,10,10
+#notice-background=254,202,202
+#notice-border=185,28,28
+#osd-foreground=31,41,51
+#osd-background=243,244,246
+#osd-border=156,163,175
+
+## dark: Both boxes are dark, for a dark terminal background: a notice is deep red with pale text and a light red edge, and the on-screen display near black with light grey text and a grey edge.
+#notice-foreground=254,226,226
+#notice-background=127,29,29
+#notice-border=248,113,113
+#osd-foreground=209,213,219
+#osd-background=17,24,39
+#osd-border=75,85,99
+
+## color-blind-safe: For color blindness, a problem differs from a status in brightness and in an orange and blue pair, never in red against green: a notice is a bright orange box with near-black text, and the on-screen display a dark blue box with near-white text.
+#notice-foreground=28,25,23
+#notice-background=255,176,0
+#notice-border=254,97,0
+#osd-foreground=238,242,255
+#osd-background=11,42,91
+#osd-border=100,143,255
+
 ## `TERM` in the session's environment.
 #term=kmscon
 

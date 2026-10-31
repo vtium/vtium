@@ -15,7 +15,9 @@
 
 use std::sync::Arc;
 
+use vtium::config::keys::Scheme;
 use vtium::head::NOTICES_MAX;
+use vtium::term::OverlayColors;
 use vtium_font::set::{Set, SetFace};
 use vtium_font::{Cell, Face, Font, Glyph, Psf, Style as FontStyle, Unifont};
 use vtium_render::{
@@ -193,8 +195,9 @@ pub type Words = fn() -> Result<String, String>;
 /// D7), as a head puts it together: one box across the top holding the
 /// on-screen display's full line and the notices beneath it, in the
 /// notices' colors while a notice is in it, and the on-screen display's
-/// dot in the grid's top-right cell. The console's own overlay draws it,
-/// with the screen's font, outside the terminal's cells.
+/// dot in the grid's top-right cell, in the on-screen display's colors.
+/// The console's own overlay draws it, with the screen's font, outside the
+/// terminal's cells.
 #[derive(Clone, Copy, Debug)]
 pub struct Overlay {
     /// `osd = full`'s line.
@@ -204,6 +207,9 @@ pub struct Overlay {
     pub notices: &'static [Words],
     /// `osd = minimal`'s dot.
     pub mark: Option<Mark>,
+    /// One of the example configuration's other color schemes; `None` for
+    /// the colors vtium draws with no color key set.
+    pub scheme: Option<&'static Scheme>,
 }
 
 impl Overlay {
@@ -223,10 +229,12 @@ impl Overlay {
             .map(|n| n())
             .collect::<Result<Vec<_>, _>>()?;
         let notices: Vec<&str> = notices.iter().map(String::as_str).collect();
+        let colors = self.scheme.map(OverlayColors::scheme).unwrap_or_default();
         Ok(vtium::term::Overlay::new(
             line.as_deref(),
             &notices,
             self.mark,
+            colors,
         ))
     }
 }
@@ -627,6 +635,7 @@ mod tests {
                 line: None,
                 notices: &FIVE[..NOTICES_MAX],
                 mark: None,
+                scheme: None,
             }),
             ..Screen::new("n", "notices", b"", 40, 6)
         };

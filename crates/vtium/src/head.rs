@@ -139,6 +139,9 @@ pub struct Head {
     pub(crate) mark: Option<vtium_render::Mark>,
     /// The on-screen display's line, while it shows under `osd = full`.
     pub(crate) status: Option<String>,
+    /// The colors of the notices and the on-screen display, which
+    /// kmscon.conf sets for every head (ADR-1401 D5).
+    overlay_colors: crate::term::OverlayColors,
     /// What the head does when it loses its last display (ADR-1401 D8).
     pub(crate) on_loss: OnLoss,
     /// When its sessions hang up, while it has no display.
@@ -308,6 +311,7 @@ impl Head {
             osd_seen: None,
             mark: None,
             status: None,
+            overlay_colors: crate::term::OverlayColors::configured(config),
             on_loss: OnLoss::Nohup,
             hangup_due: None,
             views: BTreeMap::new(),
@@ -478,10 +482,16 @@ impl Head {
 
     /// What vtium draws over the head's frames: one box at the top holding
     /// the on-screen display's line and the notices beneath it, a problem
-    /// while a notice is in it, and the on-screen display's dot.
+    /// while a notice is in it, and the on-screen display's dot, in the
+    /// colors kmscon.conf sets.
     pub(crate) fn overlay(&self) -> crate::term::Overlay {
         let notices: Vec<&str> = self.notice().into_iter().collect();
-        crate::term::Overlay::new(self.status.as_deref(), &notices, self.mark)
+        crate::term::Overlay::new(
+            self.status.as_deref(),
+            &notices,
+            self.mark,
+            self.overlay_colors,
+        )
     }
 
     /// How the shown console fits the displays.
@@ -1248,6 +1258,112 @@ mod tests {
             (Some(crate::notice::session_ended().as_str()), None)
         );
         assert!(!head.has_notices());
+    }
+
+    /// The colors a head built from the command line `args` draws its
+    /// overlay in, each read off a 320x96 display in unifont, 40 by 6
+    /// cells: a notice's text, box and edge; the full line's text, box and
+    /// edge; and the minimal dot's circle and the cell behind it.
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn overlay_colors(args: &[&str]) -> [[u8; 3]; 8] {
+        let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+        let loaded = crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None));
+        assert_eq!(loaded.reports, [], "{args:?}");
+        let config = loaded.config;
+        let term = terminal(&config, (0, 0), 0, std::rc::Rc::new(Instant::now));
+        let mut head = Head::new("h", &config, &vtium_config::Font::default(), term);
+        let draw = |head: &Head| {
+            let face: DisplayFace = Box::new(vtium_font::Unifont::new(16));
+            let renderer =
+                vtium_render::Renderer::new(Font::new(face), 320, 96, RenderConfig::default());
+            let mut canvas = vtium_render::Canvas::new(320, 96, 0);
+            head.overlay()
+                .draw(&renderer, (40, 6), Orientation::Normal, &mut canvas);
+            canvas
+        };
+        let rgb = |p: Option<u32>| {
+            let [_, r, g, b] = p.unwrap_or_default().to_be_bytes();
+            [r, g, b]
+        };
+        // the edge at the box's corner, the box inside the edge and above
+        // the text, and the first pixel of the text's row that is neither
+        let boxed = |c: &vtium_render::Canvas| {
+            let (edge, paper) = (c.pixel(0, 0), c.pixel(3, 3));
+            let ink = (6..22)
+                .flat_map(|y| (6..300).map(move |x| (x, y)))
+                .map(|(x, y)| c.pixel(x, y))
+                .find(|&p| p != paper && p != edge);
+            [rgb(ink.flatten()), rgb(paper), rgb(edge)]
+        };
+        head.add_notice("No keyboard was found.");
+        let [n_ink, n_paper, n_edge] = boxed(&draw(&head));
+        head.end_notices();
+        head.status = Some("desk · console 1 of 1".to_owned());
+        let [o_ink, o_paper, o_edge] = boxed(&draw(&head));
+        head.status = None;
+        head.mark = Some(vtium_render::Mark::Focus);
+        let dot = draw(&head);
+        let paper = dot.pixel(312, 0);
+        let ink = (0..16)
+            .flat_map(|y| (312..320).map(move |x| (x, y)))
+            .map(|(x, y)| dot.pixel(x, y))
+            .find(|&p| p != paper);
+        [
+            n_ink,
+            n_paper,
+            n_edge,
+            o_ink,
+            o_paper,
+            o_edge,
+            rgb(ink.flatten()),
+            rgb(paper),
+        ]
+    }
+
+    // ADR-1401 D5: with no color key set, a head draws the colors vtium
+    // drew before the keys, but for the dot, which takes the on-screen
+    // display's colors where it took the notice's.
+    #[test]
+    fn unset_color_keys_draw_vtiums_own_colors() {
+        assert_eq!(
+            overlay_colors(&[]),
+            [
+                [0x1f, 0x29, 0x33],
+                [0xfe, 0xe2, 0xe2],
+                [0xb9, 0x1c, 0x1c],
+                [0xe5, 0xe7, 0xeb],
+                [0x1f, 0x29, 0x33],
+                [0x61, 0x6e, 0x7c],
+                [0xe5, 0xe7, 0xeb],
+                [0x1f, 0x29, 0x33],
+            ]
+        );
+    }
+
+    // ADR-1401 D5: each of the six color keys sets its own part of what a
+    // head draws and no other: the notice's three, the full line's three,
+    // and the dot in the on-screen display's text and box.
+    #[test]
+    fn each_color_key_sets_its_part_of_what_a_head_draws() {
+        let unset = overlay_colors(&[]);
+        let parts: [(&crate::config::keys::Key, &[usize]); 6] = [
+            (&keys::NOTICE_FOREGROUND, &[0]),
+            (&keys::NOTICE_BACKGROUND, &[1]),
+            (&keys::NOTICE_BORDER, &[2]),
+            (&keys::OSD_FOREGROUND, &[3, 6]),
+            (&keys::OSD_BACKGROUND, &[4, 7]),
+            (&keys::OSD_BORDER, &[5]),
+        ];
+        for (key, at) in parts {
+            let mut want = unset;
+            for (i, part) in want.iter_mut().enumerate() {
+                if at.contains(&i) {
+                    *part = [1, 2, 3];
+                }
+            }
+            let arg = format!("--{}=1,2,3", key.name);
+            assert_eq!(overlay_colors(&[&arg]), want, "{}", key.name);
+        }
     }
 
     // ADR-1401 D9 and D11's switch row: each guard the file turns off is a

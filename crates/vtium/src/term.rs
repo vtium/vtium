@@ -23,9 +23,11 @@ use vtium_render::{
     Arrow, Canvas, Colors, Config as RenderConfig, Depth, DrawState, Mapped, Mark, Notice,
     Orientation, Rect as RenderRect, RenderTimer, Renderer, Stats, Surface, Target,
 };
-use vtium_term::{Age, Cursor, Damage, Frame, Line, LinkId, Palette, Terminal};
+use vtium_term::{Age, Cursor, Damage, Frame, Line, LinkId, Palette, Rgb, Terminal};
 
 use crate::blink::Blink;
+use crate::config::Config;
+use crate::config::keys::{OVERLAY_COLORS, Scheme};
 use crate::font::DisplayFace;
 use crate::head::DrawHook;
 use crate::pointer::Pointer;
@@ -209,6 +211,52 @@ pub struct Drawing {
     shadow: Option<Canvas>,
 }
 
+/// The colors of what vtium draws of its own (ADR-1401 D5): a notice's
+/// box, and the on-screen display's line and dot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OverlayColors {
+    pub notice: Colors,
+    pub osd: Colors,
+}
+
+impl OverlayColors {
+    /// The colors kmscon.conf's six color keys set, each unset key at its
+    /// default, which is the color vtium draws with none set.
+    pub fn configured(config: &Config) -> OverlayColors {
+        let [notice, osd] =
+            OVERLAY_COLORS.map(|keys| colors(keys.map(|k| config.rgb(k).unwrap_or_default())));
+        OverlayColors { notice, osd }
+    }
+
+    /// The colors of `scheme`, one of the example configuration's.
+    pub fn scheme(scheme: &Scheme) -> OverlayColors {
+        OverlayColors {
+            notice: colors(scheme.notice),
+            osd: colors(scheme.osd),
+        }
+    }
+}
+
+/// The colors of a text, a box and its edge, in that order.
+fn colors([ink, paper, edge]: [[u8; 3]; 3]) -> Colors {
+    let rgb = |[r, g, b]: [u8; 3]| Rgb::new(r, g, b);
+    Colors {
+        ink: rgb(ink),
+        paper: rgb(paper),
+        edge: rgb(edge),
+    }
+}
+
+impl Default for OverlayColors {
+    /// The colors with none of the keys set.
+    fn default() -> OverlayColors {
+        OverlayColors {
+            notice: Colors::NOTICE,
+            osd: Colors::STATUS,
+        }
+    }
+}
+
 /// What vtium draws of its own over a display's frame, outside the
 /// terminal's cells (ADR-1401 D5, D7): a box across the top, of the
 /// on-screen display's line and the notices, and the on-screen display's
@@ -220,20 +268,28 @@ pub struct Overlay {
     /// colors; else in the on-screen display's.
     pub problem: bool,
     pub mark: Option<Mark>,
+    pub colors: OverlayColors,
 }
 
 impl Overlay {
     /// What a head draws of its own: one box holding the on-screen
     /// display's full line `status` and the `notices` beneath it, each
-    /// starting a line, in the notices' colors while a notice is in it,
-    /// and the on-screen display's dot `mark`. Tier 2 and the specimens
-    /// build their pictures of the overlay with it too.
-    pub fn new(status: Option<&str>, notices: &[&str], mark: Option<Mark>) -> Overlay {
+    /// starting a line, in the notices' colors while a notice is in it and
+    /// else in the on-screen display's, and the on-screen display's dot
+    /// `mark` in the on-screen display's colors, all from `colors`. Tier 2
+    /// and the specimens build their pictures of the overlay with it too.
+    pub fn new(
+        status: Option<&str>,
+        notices: &[&str],
+        mark: Option<Mark>,
+        colors: OverlayColors,
+    ) -> Overlay {
         let lines: Vec<&str> = status.into_iter().chain(notices.iter().copied()).collect();
         Overlay {
             notice: (!lines.is_empty()).then(|| Notice::new(lines.join("\n"))),
             problem: !notices.is_empty(),
             mark,
+            colors,
         }
     }
 
@@ -257,8 +313,11 @@ impl Overlay {
         let cell = self
             .mark
             .and_then(|_| top_right(surface, grid, font.cell()));
-        let colors = Colors::NOTICE;
-        let boxed = if self.problem { colors } else { Colors::STATUS };
+        let OverlayColors {
+            notice: problem,
+            osd,
+        } = self.colors;
+        let boxed = if self.problem { problem } else { osd };
         let notice = self
             .notice
             .as_ref()
@@ -266,7 +325,7 @@ impl Overlay {
         let mark = self
             .mark
             .zip(cell)
-            .and_then(|(m, c)| m.draw(font, surface, c, colors, target));
+            .and_then(|(m, c)| m.draw(font, surface, c, osd, target));
         [notice, mark]
             .into_iter()
             .flatten()

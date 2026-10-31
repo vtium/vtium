@@ -135,15 +135,16 @@ pub struct Colors {
 }
 
 impl Colors {
-    /// ADR-1401's figure of the notice: dark text in a pale red box with a
-    /// red edge.
+    /// A notice's colors with none of the console's color keys set
+    /// (ADR-1401 D5): dark text in a pale red box with a red edge.
     pub const NOTICE: Colors = Colors {
         ink: Rgb::new(0x1f, 0x29, 0x33),
         paper: Rgb::new(0xfe, 0xe2, 0xe2),
         edge: Rgb::new(0xb9, 0x1c, 0x1c),
     };
 
-    /// The on-screen display's line alone, which reports no problem
+    /// The on-screen display's colors with none of the console's color
+    /// keys set, for its line alone and its dot, which report no problem
     /// (ADR-1401 D5): light text in a dark box with a grey edge.
     pub const STATUS: Colors = Colors {
         ink: Rgb::new(0xe5, 0xe7, 0xeb),
