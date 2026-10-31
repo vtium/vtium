@@ -17,9 +17,9 @@ use std::time::Duration;
 
 use crate::app::Exit;
 use crate::config::Config;
+use crate::head::Head;
 use crate::head::chord::HeadChord;
 use crate::head::console::{self, Console};
-use crate::head::{ENDED, Head};
 use crate::respawn::{Next, QUICK, QUICK_RESTARTS, Respawn};
 use crate::term::{Clock, Term};
 
@@ -173,7 +173,7 @@ impl Head {
     /// in every head, within `caps`; a line says why not.
     pub(crate) fn may_open(&self, caps: Caps, total: usize) -> bool {
         let refused = if self.ended {
-            Some(ENDED.to_owned())
+            Some(self.ended_notice.clone())
         } else if self.console_count() >= caps.head {
             Some(format!("past head-consoles-max, {}", caps.head))
         } else if total >= caps.total {
@@ -295,7 +295,7 @@ impl Head {
                 AfterExit::Restart
             }
             Next::Oneshot => {
-                log::warn!("head {}: {ENDED}", self.name());
+                log::warn!("head {}: {}", self.name(), self.ended_notice);
                 self.ended = true;
                 self.draw_now = true;
                 AfterExit::Ended

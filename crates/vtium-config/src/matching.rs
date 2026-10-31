@@ -70,6 +70,22 @@ impl Token {
         "udev",
     ];
 
+    /// How each key's token is written, in [`Token::KEYS`]' order, which
+    /// an error naming a value its key cannot take shows.
+    pub const FORMS: [&'static str; 11] = [
+        "path:PATH",
+        "serial:VENDOR:PRODUCT:SERIAL",
+        "bluetooth:ADDRESS",
+        "id:VENDOR:PRODUCT",
+        "name:NAME",
+        "class:CLASS",
+        "edid:MAKER:PRODUCT:SERIAL",
+        "connector:CARD/CONNECTOR",
+        "connector-path:PATH",
+        "card:CARD",
+        "udev:NAME=GLOB",
+    ];
+
     pub(crate) fn parse(token: &str) -> Result<Token, TokenError> {
         let (key, value) = token.split_once(':').ok_or(TokenError::NoKey)?;
         if !Token::KEYS.contains(&key) {

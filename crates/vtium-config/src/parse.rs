@@ -13,7 +13,7 @@ use crate::bounds::{
     CONSOLES_MAX, ERRORS_MAX, FONT_SIZE_MAX, HEADS_MAX, LINE_MAX, NAME_MAX, RULES_MAX, TOKENS_MAX,
 };
 use crate::config::{Config, Guards, Head, OnLoss, Rule, Target};
-use crate::error::{Error, Note, Problem, Quoted, Rejected, Warning};
+use crate::error::{Error, Note, Problem, Quoted, Rejected, Syntax, Warning};
 use crate::identity::Kind;
 use crate::matching::{Match, Token, TokenError};
 
@@ -107,10 +107,55 @@ fn keep_first<T>(findings: &mut Vec<T>) -> usize {
 
 /// `on` or `off`.
 fn switch(value: &str) -> Option<bool> {
+    let [on, off] = SWITCH;
     match value {
-        "on" => Some(true),
-        "off" => Some(false),
+        v if v == on => Some(true),
+        v if v == off => Some(false),
         _ => None,
+    }
+}
+
+/// The words a switch takes, on then off.
+pub(crate) const SWITCH: [&str; 2] = ["on", "off"];
+
+/// The forms `on-loss` takes (D8).
+pub(crate) const ON_LOSS: [&str; 3] = ["nohup", "hangup", "hangup DURATION"];
+
+/// What a key of the head file takes, as its parser reads it, which an
+/// error naming a value the key cannot take lists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Takes {
+    /// One of these words or forms.
+    Words(&'static [&'static str]),
+    /// A whole number from `min`, at most `max` where there is one.
+    Number { min: u32, max: Option<u32> },
+    /// A duration of at most `max` seconds.
+    Seconds { max: u32 },
+    /// Any text but none.
+    Text,
+}
+
+/// What `key` takes, by the parser's tables: the values a bad value is
+/// measured against.
+pub(crate) fn takes(key: &str) -> Takes {
+    match key {
+        "rescue" | "anti-lockout" | "rescue-key" | "never-dark" => Takes::Words(&SWITCH),
+        "on-loss" => Takes::Words(&ON_LOSS),
+        "consoles" => Takes::Number { min: 1, max: None },
+        "font-size" => Takes::Number {
+            min: 0,
+            max: Some(FONT_SIZE_MAX),
+        },
+        _ => Takes::Text,
+    }
+}
+
+/// The range `key` takes, where a value of the right shape lies outside
+/// it.
+pub(crate) fn range(key: &str) -> Takes {
+    match key {
+        "on-loss" => Takes::Seconds { max: u32::MAX },
+        _ => takes(key),
     }
 }
 
@@ -130,9 +175,9 @@ fn on_loss(value: &str) -> Result<OnLoss, Problem> {
     let mut words = blanks(value);
     let (first, second, rest) = (words.next(), words.next(), words.next());
     match (first, second, rest) {
-        (Some("nohup"), None, _) => Ok(OnLoss::Nohup),
-        (Some("hangup"), None, _) => Ok(OnLoss::Hangup),
-        (Some("hangup"), Some(duration), None) => {
+        (Some(w), None, _) if w == ON_LOSS[0] => Ok(OnLoss::Nohup),
+        (Some(w), None, _) if w == ON_LOSS[1] => Ok(OnLoss::Hangup),
+        (Some(w), Some(duration), None) if w == ON_LOSS[1] => {
             let (digits, unit) = match duration.strip_suffix(['s', 'm', 'h']) {
                 Some(digits) => (digits, duration.get(digits.len()..).unwrap_or_default()),
                 None => (duration, "s"),
@@ -194,14 +239,14 @@ impl Parser {
             Some(Section::Rules) => self.rule(n, line),
             Some(Section::Guards) => self.guard_key(n, line),
             Some(Section::Broken) => {}
-            Some(Section::Top) | None => self.error(n, Problem::Syntax("a line outside a section")),
+            Some(Section::Top) | None => self.error(n, Problem::Syntax(Syntax::OutsideSection)),
         }
     }
 
     fn section(&mut self, n: usize, inner: &str) {
         self.section = Some(Section::Broken);
         let Some(inner) = inner.strip_suffix(']') else {
-            self.error(n, Problem::Syntax("a section header with no closing `]`"));
+            self.error(n, Problem::Syntax(Syntax::UnclosedHeading));
             return;
         };
         let words: Vec<&str> = blanks(inner).collect();
@@ -221,7 +266,7 @@ impl Parser {
                 }
             }
             ["head", name] => self.head(n, name),
-            ["head", ..] => self.error(n, Problem::Syntax("`[head NAME]` takes one name")),
+            ["head", ..] => self.error(n, Problem::Syntax(Syntax::HeadOneName)),
             _ => self.error(n, Problem::UnknownSection(Quoted::new(inner))),
         }
     }
@@ -247,7 +292,7 @@ impl Parser {
     /// Splits `key = value`, naming the error when the line is not one.
     fn key_value<'a>(&mut self, n: usize, line: &'a str) -> Option<(&'a str, &'a str)> {
         let Some((key, value)) = line.split_once('=') else {
-            self.error(n, Problem::Syntax("expected `key = value`"));
+            self.error(n, Problem::Syntax(Syntax::NotKeyValue));
             return None;
         };
         Some((content(key), content(value)))
@@ -387,10 +432,7 @@ impl Parser {
             Some(&"display") => Kind::Display,
             Some(&"input") => Kind::Input,
             _ => {
-                self.error(
-                    n,
-                    Problem::Syntax("a rule starts with `display` or `input`"),
-                );
+                self.error(n, Problem::Syntax(Syntax::RuleKind));
                 return;
             }
         };
@@ -401,12 +443,12 @@ impl Parser {
                 words.get(at.saturating_add(1)..).unwrap_or_default(),
             ),
             None => {
-                self.error(n, Problem::Syntax("a rule is `KIND MATCH -> TARGET`"));
+                self.error(n, Problem::Syntax(Syntax::RuleArrow));
                 return;
             }
         };
         let [target] = target else {
-            self.error(n, Problem::Syntax("a rule names one target after `->`"));
+            self.error(n, Problem::Syntax(Syntax::RuleOneTarget));
             return;
         };
         if self.config.rules.len() >= RULES_MAX {
@@ -461,15 +503,12 @@ impl Parser {
     fn matcher(&mut self, n: usize, tokens: &[&str]) -> Option<Match> {
         match tokens {
             [] => {
-                self.error(
-                    n,
-                    Problem::Syntax("a rule matches `*` or `key:value` tokens"),
-                );
+                self.error(n, Problem::Syntax(Syntax::RuleMatch));
                 None
             }
             ["*"] => Some(Match::Any),
             _ if tokens.contains(&"*") => {
-                self.error(n, Problem::Syntax("`*` stands alone in a match"));
+                self.error(n, Problem::Syntax(Syntax::StarAlone));
                 None
             }
             _ if tokens.len() > TOKENS_MAX => {

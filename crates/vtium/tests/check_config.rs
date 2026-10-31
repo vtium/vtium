@@ -299,11 +299,17 @@ fn check_config_lists_each_planted_head_file_error_with_its_line_and_exits_1() {
             "no line {line} naming {what:?}: {err}"
         );
     };
-    at(4, "unknown key \"frob\"");
-    at(5, "a second head named \"desk\"");
-    at(7, "`focus` is no target for a display rule");
-    at(8, "rule names undefined head \"desc\"");
-    at(9, "a second [rules] section");
+    at(4, "This section takes no key named \"frob\".");
+    at(5, "The file already declares a head named \"desk\".");
+    at(7, "A display rule cannot have `focus` as its target.");
+    at(
+        8,
+        "This rule sends devices to the head \"desc\", which the file does not declare.",
+    );
+    at(
+        9,
+        "The file already has a `[rules]` section, and may have only one.",
+    );
     assert!(!err.contains("is no option"), "{err}");
     std::fs::remove_dir_all(d).ok();
 }
