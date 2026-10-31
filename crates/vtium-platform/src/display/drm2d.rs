@@ -324,16 +324,25 @@ impl<K: Kms> Drm2d<K> {
         self.output(id).and_then(|o| o.dpms).map(|(_, d)| d)
     }
 
+    /// Whether the display takes a frame now: the card is awake and waits
+    /// for no modeset or sleep, and the display is online, powered on and
+    /// waits for no flip or vblank. [`Drm2d::canvas`] lends the back buffer
+    /// only then.
+    pub fn ready_for_frame(&self, id: DisplayId) -> bool {
+        self.awake
+            && self.waiting.is_none()
+            && self
+                .output(id)
+                .is_some_and(|o| o.online && !o.flipping && o.dpms_on())
+    }
+
     /// Lends the back buffer for the next frame, while the display is
-    /// awake, online and no flip or modeset is pending.
+    /// ready for one ([`Drm2d::ready_for_frame`]).
     pub fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        if !self.awake || self.waiting.is_some() {
+        if !self.ready_for_frame(id) {
             return None;
         }
         let o = self.output_mut(id)?;
-        if !o.online || o.flipping || !o.dpms_on() {
-            return None;
-        }
         o.lent = true;
         let (width, height) = o.size();
         let age = o.ages.age(o.back);
@@ -471,8 +480,9 @@ impl<K: Kms> Drm2d<K> {
                         o.start_flip();
                         o.vblank = true;
                     }
-                    // A card with no vblank interrupt refuses the wait with
-                    // EOPNOTSUPP, and nothing then asks for the frame again
+                    // A card with no vblank interrupt and no software vblank
+                    // timer refuses the wait with EOPNOTSUPP, and nothing
+                    // then asks for the frame again
                     // until the next draw (vtium/vtium#176).
                     Err(v) => log::debug!("cannot wait for the next vblank of {}: {v}", o.name),
                 }

@@ -613,6 +613,77 @@ fn a_modeset_waits_for_the_pending_flip() {
     assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
 }
 
+/// Whether each of `ids` is ready for a frame, after checking that the
+/// display lends a canvas exactly when it says it is.
+fn ready(v: &mut Drm2d<FakeCard>, ids: &[u32]) -> Vec<bool> {
+    ids.iter()
+        .map(|&id| {
+            let ready = v.ready_for_frame(DisplayId(id));
+            assert_eq!(v.canvas(DisplayId(id)).is_some(), ready, "display {id}");
+            // A canvas asked for here draws nothing: the next swap sends
+            // no frame for it.
+            if let Some(o) = v.outputs.iter_mut().find(|o| o.id.0 == id) {
+                o.lent = false;
+            }
+            ready
+        })
+        .collect()
+}
+
+// vtium/vtium#174: a display says whether it takes a frame, and lends a
+// canvas exactly then. A display kept through a modeset that waits for
+// another display's flip takes none until that flip and the modeset's own
+// are done; a display powered down, one waiting for a vblank, and every
+// display of a card asleep take none either.
+#[test]
+fn a_display_lends_a_canvas_exactly_while_it_is_ready_for_a_frame() {
+    const C: u32 = 43;
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(800, 600, 60, true)]),
+        (C, vec![mode(1024, 768, 60, true)]),
+    ]);
+    card.state().listed.retain(|&c| c != C);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(ready(&mut v, &[A, B, C]), [true, true, false]);
+    frame(&mut v, &[DOT]).unwrap();
+    assert_eq!(ready(&mut v, &[A, B]), [false, true], "A's flip in flight");
+    v.card().state().listed.push(C);
+    v.poll().unwrap();
+    assert_eq!(v.waits(), (true, false));
+    assert_eq!(
+        ready(&mut v, &[A, B]),
+        [false, false],
+        "the modeset waits for A's flip"
+    );
+    flip(&mut v);
+    assert_eq!(v.waits(), (false, false));
+    assert_eq!(
+        ready(&mut v, &[A, B, C]),
+        [false, false, false],
+        "the modeset's flip"
+    );
+    flip(&mut v);
+    assert_eq!(ready(&mut v, &[A, B, C]), [true, true, true]);
+    v.set_dpms(DisplayId(B), Dpms::Off).unwrap();
+    assert_eq!(ready(&mut v, &[A, B]), [true, false], "B powered down");
+    v.set_dpms(DisplayId(B), Dpms::On).unwrap();
+    assert_eq!(ready(&mut v, &[B]), [true]);
+    v.card().state().commit_errors.push_back(Errno::BUSY);
+    assert!(matches!(frame(&mut v, &[DOT]), Err(SwapError::Busy)));
+    assert_eq!(
+        ready(&mut v, &[A, B]),
+        [false, true],
+        "A waits for a vblank"
+    );
+    vblank(&mut v);
+    assert_eq!(ready(&mut v, &[A]), [true]);
+    v.sleep();
+    assert_eq!(events(&mut v).last(), Some(&Event::Asleep));
+    assert_eq!(ready(&mut v, &[A, B, C]), [false, false, false], "asleep");
+    assert!(!v.ready_for_frame(DisplayId(99)), "no such display");
+}
+
 #[test]
 fn a_modeset_goes_ahead_when_the_flip_never_completes() {
     let card = FakeCard::new(&[
@@ -1215,7 +1286,8 @@ fn a_lost_vblank_event_is_taken_as_done_after_the_bound() {
     assert!(app.0.is_flipping(DisplayId(A)));
 }
 
-// A card with no vblank interrupt, as virtio-gpu, udl or simpledrm, refuses
+// A card with no vblank interrupt and no software vblank timer, as simpledrm,
+// udl or gud, or virtio-gpu before Linux 6.19, refuses
 // the wait for a vblank with EOPNOTSUPP while its commits can still be
 // refused as busy. The display then has nothing to wait for: it lends its
 // canvas again, and the frame goes with the next swap the owner tries,
