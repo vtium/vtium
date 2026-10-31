@@ -105,7 +105,7 @@ vtium reports, once at start, a key it does not know, however often it appears, 
 
 ## Other color schemes for the notices and the on-screen display
 
-The example carries these schemes for the six color keys, commented out, for color blindness and personal preference (ADR-1401 D5). vtium draws whatever colors are set and checks no contrast between a text and its box.
+`install/kmscon.conf.example` carries these schemes for the six color keys, commented out, for color blindness and personal preference (ADR-1401 D5). vtium draws whatever colors are set and checks no contrast between a text and its box.
 
 | Scheme | What it is | `notice-foreground` | `notice-background` | `notice-border` | `osd-foreground` | `osd-background` | `osd-border` |
 |---|---|---|---|---|---|---|---|

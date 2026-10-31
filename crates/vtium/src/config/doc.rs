@@ -109,7 +109,7 @@ pub(super) fn markdown() -> String {
     }
     out.push_str(
         "\n## Other color schemes for the notices and the on-screen display\n\n\
-         The example carries these schemes for the six color keys, commented out, for color blindness and personal preference (ADR-1401 D5). vtium draws whatever colors are set and checks no contrast between a text and its box.\n\n\
+         `install/kmscon.conf.example` carries these schemes for the six color keys, commented out, for color blindness and personal preference (ADR-1401 D5). vtium draws whatever colors are set and checks no contrast between a text and its box.\n\n\
          | Scheme | What it is |",
     );
     for key in OVERLAY_COLORS.iter().flatten() {
@@ -131,9 +131,7 @@ pub(super) fn markdown() -> String {
 /// The example's schemes for the six color keys, each line commented out.
 fn schemes() -> String {
     let mut out = String::from(
-        "\n## Other schemes for the six colors above. To use one, remove the # at\n\
-         ## the start of its six lines. vtium draws whatever colors are set and\n\
-         ## checks no contrast between a text and its box.\n",
+        "\n## Other schemes for the six colors above. To use one, remove the # at the start of its six lines. vtium draws whatever colors are set and checks no contrast between a text and its box.\n",
     );
     for scheme in &SCHEMES {
         let _ = write!(out, "\n## {}: {}\n", scheme.name, scheme.what);

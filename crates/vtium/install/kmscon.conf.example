@@ -50,9 +50,7 @@
 ## The color of the edge around `osd = full`'s box. The dot of `osd = minimal` has no edge.
 #osd-border=97,110,124
 
-## Other schemes for the six colors above. To use one, remove the # at
-## the start of its six lines. vtium draws whatever colors are set and
-## checks no contrast between a text and its box.
+## Other schemes for the six colors above. To use one, remove the # at the start of its six lines. vtium draws whatever colors are set and checks no contrast between a text and its box.
 
 ## light: For a light terminal background: the on-screen display is a pale grey box with dark text and a grey edge, and a notice a dark red box with white text and a darker edge, so a problem differs from a status in brightness as well as in hue.
 #notice-foreground=255,255,255
