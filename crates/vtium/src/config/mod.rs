@@ -376,16 +376,6 @@ impl Config {
         matches!(self.get(key), Some(Value::Switch(true)))
     }
 
-    /// The level the log shows: debug messages too under `debug`, else
-    /// information and above.
-    pub fn log_level(&self) -> log::Level {
-        if self.switch(&keys::DEBUG) {
-            log::Level::Debug
-        } else {
-            log::Level::Info
-        }
-    }
-
     /// A number key's value, if set.
     pub fn number(&self, key: &Key) -> Option<u64> {
         match self.get(key) {

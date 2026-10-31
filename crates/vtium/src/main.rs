@@ -57,7 +57,6 @@ fn main() -> ExitCode {
         return ExitCode::from(u8::try_from(status).unwrap_or(1));
     }
     let loaded = config::load(&args, Some("seat0"), &mut config::read_file);
-    log::set_max_level(loaded.config.log_level().to_level_filter());
     if loaded.check {
         return ExitCode::from(check::main(&loaded));
     }
@@ -79,6 +78,7 @@ fn main() -> ExitCode {
     }
     log::info!(target: "log", "{}", vtium::logger::revision());
     let start = Start::new(&config, locale());
+    log::set_max_level(start.log.to_level_filter());
     let path = match start.vt.clone() {
         Some(vt) => Some(vt),
         None => match Tty::find() {
