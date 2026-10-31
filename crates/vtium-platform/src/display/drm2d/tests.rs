@@ -1286,7 +1286,8 @@ fn a_lost_vblank_event_is_taken_as_done_after_the_bound() {
     assert!(app.0.is_flipping(DisplayId(A)));
 }
 
-// A card with no vblank interrupt, as virtio-gpu, udl or simpledrm, refuses
+// A card with no vblank interrupt and no software vblank timer, as simpledrm,
+// udl or gud, or virtio-gpu before Linux 6.19, refuses
 // the wait for a vblank with EOPNOTSUPP while its commits can still be
 // refused as busy. The display then has nothing to wait for: it lends its
 // canvas again, and the frame goes with the next swap the owner tries,

@@ -184,7 +184,8 @@ pub enum SwapError {
     /// CRTC: the display then waits for its next vblank as for a flip in
     /// flight, so [`Drm2d::is_flipping`] holds until the vblank's event,
     /// which wakes the loop, and no [`Event::Flipped`] follows. A card with
-    /// no vblank interrupt refuses that wait, and there the frame goes with
+    /// no vblank interrupt and no software vblank timer refuses that wait,
+    /// and there the frame goes with
     /// the next swap the owner tries, which nothing asks for until the next
     /// draw (vtium/vtium#176).
     Busy,

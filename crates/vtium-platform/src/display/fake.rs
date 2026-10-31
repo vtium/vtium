@@ -178,8 +178,9 @@ pub(crate) struct State {
     /// The CRTCs whose next vblank was asked for, and the events read
     /// next: the flips completed and the vblanks passed.
     pub(crate) vblanks: Vec<u32>,
-    /// The card has no vblank interrupt, as virtio-gpu, udl and simpledrm
-    /// have none: a wait for a vblank is refused with EOPNOTSUPP.
+    /// The card has no vblank interrupt and no software vblank timer, as
+    /// simpledrm, udl and gud have none: a wait for a vblank is refused
+    /// with EOPNOTSUPP.
     pub(crate) no_vblank: bool,
     pub(crate) completed: Vec<CrtcEvent>,
     pub(crate) blobs: BTreeMap<u32, Vec<u8>>,

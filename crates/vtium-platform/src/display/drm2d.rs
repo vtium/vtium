@@ -480,8 +480,9 @@ impl<K: Kms> Drm2d<K> {
                         o.start_flip();
                         o.vblank = true;
                     }
-                    // A card with no vblank interrupt refuses the wait with
-                    // EOPNOTSUPP, and nothing then asks for the frame again
+                    // A card with no vblank interrupt and no software vblank
+                    // timer refuses the wait with EOPNOTSUPP, and nothing
+                    // then asks for the frame again
                     // until the next draw (vtium/vtium#176).
                     Err(v) => log::debug!("cannot wait for the next vblank of {}: {v}", o.name),
                 }
