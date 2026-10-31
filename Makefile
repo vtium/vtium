@@ -167,12 +167,13 @@ conformance-issues: ## Check that every issue the conformance lists say owes a c
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools and the tier 3 harness without a VT, sudo, logind or a VM (shellcheck when installed), the set writer without its deflate, and that the console leaves the deflate out
+test-tools: ## Test the VT review tools and the tier 3 harness without a VT, sudo, logind or a VM (shellcheck when installed), the set writer without its deflate, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I -B tools/tier3/test_t3img.py
 	python3 -I -B tools/tier3/test_t3.py
 	cargo test -q -p vtium-font --test set
 	@if cargo tree -p vtium --target $(X86_TARGET) -e features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-vitrify takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
+	@$(check-gate-line)
 	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 # The review targets block until the run ends, then print its answers. Their
@@ -333,7 +334,8 @@ tier3-nosystemd: tier3-image-nosystemd ## Tier 3 on the guest without systemd: v
 		T3_ARCHIVE=$(T3SV_SNAPSHOT) $(T3_PY) $(T3_DIR)/t3.py run --jobs $(JOBS) \
 		--deadline $(T3_DEADLINE) --features '$(strip $(FEATURES))' --tree-target install-tree $(or $(VARIANTS),sysvinit-640x480 sysvinit-no-udev sysvinit-reboot sysvinit-restart sysvinit-power-off)
 
-# AGENTS.md's gate line, one gate per line, in its order.
+# AGENTS.md's gate line, one gate per line, in its order; make test-tools
+# fails when the two differ (check-gate-line).
 define GATE_LINE
 cargo fmt --all --check
 cargo clippy --workspace --all-features --all-targets -- -D warnings
@@ -351,6 +353,13 @@ make tier2
 make arm
 endef
 export GATE_LINE
+
+# check-gate-line reads the fenced block after "Every change runs the full
+# gate line" in AGENTS.md, one gate per line without its `&&` and `\`, and
+# fails unless it is GATE_LINE, which reaches awk through the environment.
+define check-gate-line
+awk 'f && /^```/ { f = 0; done = 1 } f { sub(/^ *(&& )?/, ""); sub(/ \\$$/, ""); got = got $$0 "\n" } /^Every change runs the full gate line/ { g = 1 } g && !done && /^```sh$$/ { f = 1 } END { want = ENVIRON["GATE_LINE"] "\n"; if (got == "" || got != want) { printf "make gates runs another gate line than AGENTS.md lists.\nAGENTS.md:\n%sGATE_LINE:\n%s", got, want > "/dev/stderr"; exit 1 } print "make gates runs AGENTS.md'"'"'s gate line" }' AGENTS.md
+endef
 
 .PHONY: gates
 gates: ## Run every gate of the gate line, each to the end, report each exit code and fail if any failed
