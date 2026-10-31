@@ -1,12 +1,12 @@
 # 1920x1080
 
-A full HD monitor: 1920x1080, 24-bit color, drawn in `desktop` at 11x24, 174x45 cells, the card on 2 screens, shown together in the collage.
+A full HD monitor: 1920x1080, 24-bit color, drawn in `desktop` at 11x24, 174x45 cells, the card on 2 screens and vtium's message bars on one more, shown together in the collage.
 
 ![1920x1080](collage.png)
 
 | Display | Class | Cell | Grid | Font | Screens |
 |---|---|---|---|---|---|
-| 1920x1080, 24-bit color | order unknown | 11x24 | 174x45 | `desktop`, the frit [`desktop.vtfrit`](../../../tools/specimens/frits/desktop.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png) |
+| 1920x1080, 24-bit color | order unknown | 11x24 | 174x45 | `desktop`, the frit [`desktop.vtfrit`](../../../tools/specimens/frits/desktop.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png) |
 
 ## Why this font
 

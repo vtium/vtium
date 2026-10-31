@@ -11,3 +11,31 @@ underline-unifont-1bit	vtium/vtium#135: a 1-bit display, drawn by vtium, not yet
 light-theme-1bit	vtium/vtium#135: polarity at 1 bit, drawn by vtium, not yet reviewed
 osd-full	vtium/vtium#169: the on-screen display's full line, drawn by vtium, not yet reviewed
 osd-minimal	vtium/vtium#169: the on-screen display's minimal dot, drawn by vtium, not yet reviewed
+notice-no-keyboard-800x480	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+notice-anti-lockout-800x480	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+notice-rescue-800x480	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+notice-rescue-no-head-800x480	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+notice-oneshot-800x480	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+notice-head-file-800x480	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+notice-head-file-two-800x480	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+osd-full-800x480	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+osd-full-other-800x480	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+osd-minimal-800x480	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+osd-minimal-other-800x480	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+osd-full-notice-800x480	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+osd-minimal-notice-800x480	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+notices-four-800x480	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+notice-no-keyboard-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+notice-anti-lockout-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+notice-rescue-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+notice-rescue-no-head-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+notice-oneshot-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+notice-head-file-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+notice-head-file-two-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+osd-full-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+osd-full-other-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+osd-minimal-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+osd-minimal-other-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+osd-full-notice-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+osd-minimal-notice-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+notices-four-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed

@@ -2427,7 +2427,7 @@ impl Memory {
 }
 
 /// The notice of a head whose session ended for good under `oneshot`.
-const ENDED: &str = "The session ended, and vtium does not start it again.";
+const ENDED: &str = "This session has ended and will not start again. To keep working, press Ctrl+Super+↑ to switch to another screen.";
 
 /// The start of the anti-lockout guard's notice.
 const LOCKED_OUT: &str = "No keyboard was reaching a screen that is on";
@@ -2500,7 +2500,7 @@ fn a_boot_with_an_invalid_head_file_runs_the_shipped_rules_shows_the_notice_and_
         (
             "owner",
             format!("version = 1\n[head desk]\n{rules}"),
-            "writable by its group or others",
+            "can be changed by its group or by other users",
         ),
     ];
     for (test, text, says) in invalid {
@@ -3419,7 +3419,7 @@ fn the_rescue_notice_names_the_head_typing_goes_to() {
     assert_eq!(s.app.focus_head(), Some("large"));
     let shown = notice(&s.app, "large").unwrap_or_default();
     assert!(
-        shown.contains("It now types into the active head, large now, until the next boot."),
+        shown.contains("It types into the active screen, large, until the next boot."),
         "{shown:?}"
     );
 }
@@ -3438,7 +3438,7 @@ fn the_rescue_notice_says_when_no_head_is_active() {
     for name in ["small", "large"] {
         let shown = notice(&s.app, name).unwrap_or_default();
         assert!(
-            shown.contains("No head is active now."),
+            shown.contains("no screen is active now."),
             "{name}: {shown:?}"
         );
     }
