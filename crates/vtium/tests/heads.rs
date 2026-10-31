@@ -1655,46 +1655,74 @@ fn under_oneshot_vtium_exits_when_the_last_heads_program_ends() {
     );
 }
 
+/// A seat whose head `looping` has one console whose program keeps
+/// exiting at once and whose other head has two consoles, each marking
+/// its SIGHUP in `dir`. The looping program's first start waits until both
+/// of the other head's consoles have set their trap, so the exit comes
+/// after them; every start after the first exits at once.
+fn crash_loop(dir: &Path, looping: &str) -> Seat {
+    let _ = std::fs::remove_dir_all(dir);
+    std::fs::create_dir_all(dir).expect("the marks' directory");
+    let script = format!(
+        "d={d}; if [ \"$VTIUM_HEAD\" = {looping} ]; then \
+         while [ ! -e $d/ready-1 ] || [ ! -e $d/ready-2 ]; do sleep 0.01; done; exit 1; fi; \
+         trap \"echo > $d/hup-$VTIUM_CONSOLE; exit 0\" HUP; : > $d/ready-$VTIUM_CONSOLE; \
+         while :; do read x; done",
+        d = dir.display()
+    );
+    let heads = format!(
+        "version = 1
+[head small]
+consoles = {small}
+[head large]
+consoles = {large}
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+",
+        small = if looping == "small" { 1 } else { 2 },
+        large = if looping == "large" { 1 } else { 2 },
+    );
+    Seat::with_heads(&[], Some(&heads), two_displays(), &script)
+}
+
 /// D1, the operator's decision of 2026-10-31: a session that keeps
 /// ending as soon as it starts, on any head, makes vtium exit with status
-/// 1, so the unit's getty takes the VT, and the exit hangs up the other
-/// head's session. No notice is drawn, since vtium leaves in that turn.
+/// 1, so the unit's getty takes the VT, and the exit hangs up every
+/// console of the other head, the hidden one included. No notice is
+/// drawn, since vtium leaves in that turn. The loop runs on the first head
+/// vtium reaches in a turn, then on the second.
 #[test]
 fn a_head_restarting_too_fast_ends_vtium_and_hangs_up_every_head() {
-    let path = |ext: &str| {
-        std::env::temp_dir().join(format!(
-            "vtium-heads-crash-loop-{}.{ext}",
+    for (looping, other) in [("small", "large"), ("large", "small")] {
+        let dir = std::env::temp_dir().join(format!(
+            "vtium-heads-crash-loop-{}-{looping}",
             std::process::id()
-        ))
-    };
-    let (ready, mark) = (path("ready"), path("hup"));
-    let _ = std::fs::remove_file(&ready);
-    let _ = std::fs::remove_file(&mark);
-    // small's first start waits until large has set its trap, so the
-    // exit comes after it; every start after the first exits at once.
-    let small = format!(
-        "while [ ! -e {r} ]; do sleep 0.01; done; exit 1",
-        r = ready.display()
-    );
-    let large = format!(
-        "trap 'echo > {m}; exit 0' HUP; : > {r}; echo large; while :; do read x; done",
-        m = mark.display(),
-        r = ready.display()
-    );
-    let mut s = logins(&[], &small, &large);
-    let finished = s.until(Duration::from_secs(3), |a| a.finished().is_some());
-    let hung_up = finished && s.until(SECOND, |_| mark.exists());
-    let _ = std::fs::remove_file(&ready);
-    let _ = std::fs::remove_file(&mark);
-    assert!(finished, "small's crash loop ended vtium");
-    assert_eq!(s.app.finished(), Some(vtium::app::Exit::TooQuick));
-    assert_eq!(s.app.finished().map(vtium::app::Exit::status), Some(1));
-    assert!(hung_up, "the exit hung large's session up");
-    assert_eq!(
-        s.app.head("small").and_then(Head::notice),
-        None,
-        "no notice"
-    );
+        ));
+        let mut s = crash_loop(&dir, looping);
+        let finished = s.until(Duration::from_secs(3), |a| a.finished().is_some());
+        let marks = [dir.join("hup-1"), dir.join("hup-2")];
+        let hung_up = finished && s.until(SECOND, |_| marks.iter().all(|m| m.exists()));
+        let marked = marks.iter().map(|m| m.exists()).collect::<Vec<_>>();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(finished, "{looping}'s crash loop ended vtium");
+        assert_eq!(
+            consoles(&s.app, other).map(|(n, _)| n),
+            Some(2),
+            "{other} has a hidden console"
+        );
+        assert_eq!(s.app.finished(), Some(vtium::app::Exit::TooQuick));
+        assert_eq!(s.app.finished().map(vtium::app::Exit::status), Some(1));
+        assert!(
+            hung_up,
+            "the exit hung up both of {other}'s consoles, shown and hidden: {marked:?}"
+        );
+        assert_eq!(
+            s.app.head(looping).and_then(Head::notice),
+            None,
+            "no notice on {looping}"
+        );
+    }
 }
 
 /// D1: a zoom changes the grid of the console shown alone; each console

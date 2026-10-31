@@ -2413,9 +2413,11 @@ impl App {
                 AfterExit::Closed { shown: true } => {
                     self.relayout(h);
                 }
-                AfterExit::Restart => self.spawn(h, id),
+                // No login starts in the turn vtium exits, which hangs
+                // every session up.
+                AfterExit::Restart if self.exit.is_none() => self.spawn(h, id),
                 AfterExit::GaveUp => self.request_exit(Exit::TooQuick),
-                AfterExit::Closed { shown: false } | AfterExit::Ended => {}
+                AfterExit::Restart | AfterExit::Closed { shown: false } | AfterExit::Ended => {}
             }
         }
         if let Some(exit) = session::exit_due(&self.heads) {
