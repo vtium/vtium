@@ -83,10 +83,12 @@ show-session)
 esac
 """
 
-# Drops nothing: runs what follows --, as setpriv would after dropping to the
-# user.
+# Drops no privilege: runs what follows --, as setpriv would after dropping
+# to the user. With --reset-env it drops vtium's own variables, as the real
+# reset does, so only what the run carries across reaches the session; the
+# tests' own variables stay, which the stand-ins read.
 SETPRIV = "#!/bin/bash\n" + RECORD + """
-while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done
+while [ $# -gt 0 ] && [ "$1" != -- ]; do [ "$1" != --reset-env ] || unset VTIUM_HEAD VTIUM_CONSOLE; shift; done
 shift
 exec "$@"
 """
@@ -109,7 +111,8 @@ printf '%s:x:%s:%s::%s:%s\\n' "$2" "$(id -u)" "$(id -g)" "$LOGIN_HOME" "$LOGIN_S
 LOGIN_SHELL = """#!/bin/bash
 printf 'login shell: %s as %s in %s\\n' "$*" "$(id -un)" "$PWD"
 printf 'env: %s\\n' "LANG=${LANG-}" "LC_TIME=${LC_TIME-}" "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR-}" \\
-	"DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS-}"
+	"DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS-}" "VTIUM_HEAD=${VTIUM_HEAD-}" \\
+	"VTIUM_CONSOLE=${VTIUM_CONSOLE-}"
 read -r line || true
 printf 'read: %s\\n' "$line"
 """
@@ -123,7 +126,10 @@ FORBIDDEN = "#!/bin/bash\n" + RECORD + "exit 1\n"
 
 # The stand-in vtium: records its arguments, prints $BIN_LOG, then as
 # $BIN_MODE says: exit (with $BIN_STATUS), wait (until a signal, recording
-# it), or session (runs the argv after --, with $BIN_STDIN as its input).
+# it), or session (runs the argv after --, with $BIN_STDIN as its input, as
+# vtium runs its first head's first console: VTIUM_HEAD=console and
+# VTIUM_CONSOLE=1 in its environment, and a word that is $VTIUM_HEAD or
+# $VTIUM_CONSOLE replaced by its value).
 BIN = """#!/bin/bash
 echo $$ >"$BIN_PID"
 # The run's lock is root's; vtium, and the login and shell it starts, never
@@ -141,7 +147,16 @@ wait)
 session)
 	while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done
 	shift
-	exec "$@" <"$BIN_STDIN" ;;
+	export VTIUM_HEAD=console VTIUM_CONSOLE=1
+	argv=()
+	for w; do
+		case $w in
+		'$VTIUM_HEAD') argv+=("$VTIUM_HEAD") ;;
+		'$VTIUM_CONSOLE') argv+=("$VTIUM_CONSOLE") ;;
+		*) argv+=("$w") ;;
+		esac
+	done
+	exec "${argv[@]}" <"$BIN_STDIN" ;;
 esac
 """
 
@@ -150,6 +165,14 @@ def write(path, text, mode=0o755):
     with open(path, "w") as f:
         f.write(text)
     os.chmod(path, mode)
+
+
+# The words run-vt.sh puts after setpriv, which vtium fills in with the head
+# and the console: they carry VTIUM_HEAD and VTIUM_CONSOLE across
+# --reset-env.
+CARRY = ["/bin/sh", "-c",
+         'h=$1 c=$2; shift 2; exec /usr/bin/env VTIUM_HEAD="$h" VTIUM_CONSOLE="$c" "$@"',
+         "sh", "$VTIUM_HEAD", "$VTIUM_CONSOLE"]
 
 
 def read(path):
@@ -429,7 +452,8 @@ class RunVt(Case):
                 "--image-storage-limit=auto", "--sync-timeout=500", "--dpms-timeout=15",
                 "--grab-paste=<Ctrl><Shift>V", "--pointer-hide-timeout=5",
                 "--pointer-hide-while-typing", "--no-pointer-hide-while-typing",
-                "--pointer-char=+"]
+                "--pointer-char=+", "--osd=full", "--osd-timeout=never", "--osd-timeout=10",
+                "--focus-mark=always"]
         p = self.run_vt("--dry-run", "8", "--", *opts)
         self.assertEqual(p.returncode, 0, p.stderr)
 
@@ -481,8 +505,8 @@ class RunVt(Case):
         at = argv.index("--")
         uid, gid = os.getuid(), os.getgid()
         self.assertEqual(argv[at + 1:], [os.path.join(self.s.standins, "setpriv"), f"--reuid={uid}", f"--regid={gid}",
-                                         "--init-groups", "--inh-caps=-all", "--reset-env", "--", "/usr/bin/env",
-                                         "DEMO_LABEL=vtium dev build abc", "/bin/bash",
+                                         "--init-groups", "--inh-caps=-all", "--reset-env", "--", *CARRY,
+                                         "/usr/bin/env", "DEMO_LABEL=vtium dev build abc", "/bin/bash",
                                          os.path.join(VT, "demo.sh")])
 
     def test_a_guide_runs_as_the_user_with_its_vt_and_steps(self):
@@ -528,7 +552,7 @@ class RunVt(Case):
         uid, gid = os.getuid(), os.getgid()
         self.assertEqual(argv[argv.index("--") + 1:],
                          [os.path.join(self.s.standins, "setpriv"), f"--reuid={uid}", f"--regid={gid}", "--init-groups",
-                          "--inh-caps=-all", "--reset-env", "--", "/usr/bin/env",
+                          "--inh-caps=-all", "--reset-env", "--", *CARRY, "/usr/bin/env",
                           "-C", self.s.home, SCRIPT, "-q", "-f", "-c", f"exec {self.s.login_shell} -l", t])
         self.assertIn(f"with {USER}'s shell", p.stdout)
         self.assertEqual(self.s.calls_of("getent"), [f"passwd {USER}"])
@@ -815,6 +839,9 @@ class VtSh(Case):
         self.assertIn("read: ls -l\n", text)
         self.assertIn("env: LANG=de_DE.UTF-8\n", text)
         self.assertIn(f"env: XDG_RUNTIME_DIR={self.s.runtime_dir_path}\n", text)
+        # vtium's variables cross setpriv's reset of the environment.
+        self.assertIn("env: VTIUM_HEAD=console\n", text)
+        self.assertIn("env: VTIUM_CONSOLE=1\n", text)
         self.assertEqual(self.s.calls_of("sudo")[0], "-v")
         self.assertEqual(self.s.changes(), ["stop getty@tty6.service", "start getty@tty6.service"])
 

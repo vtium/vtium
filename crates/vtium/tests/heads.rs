@@ -1171,6 +1171,135 @@ fn mode_1004_follows_the_keyboards_delivering_to_each_head() {
     );
 }
 
+/// Two heads of two consoles each, a keyboard claimed by each.
+const TWO_CONSOLES: &str = "version = 1
+[head small]
+consoles = 2
+[head large]
+consoles = 2
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+input path:kbd-small -> small
+input path:kbd-large -> large
+";
+
+/// The rows of every console of head `name`, in the ring's order.
+fn every_console(app: &App, name: &str) -> Vec<Vec<String>> {
+    app.head(name).map(Head::consoles_text).unwrap_or_default()
+}
+
+/// The line holding `prefix` on each console of head `name`, in the
+/// ring's order, `None` where none does.
+fn console_lines(app: &App, name: &str, prefix: &str) -> Vec<Option<String>> {
+    every_console(app, name)
+        .into_iter()
+        .map(|rows| rows.into_iter().find(|l| l.starts_with(prefix)))
+        .collect()
+}
+
+/// [`TWO_CONSOLES`] booted on both displays, every console running
+/// `script`.
+fn two_consoles(script: &str) -> Seat {
+    Seat::with_heads(&[], Some(TWO_CONSOLES), two_displays(), script)
+}
+
+/// Adds [`KBD_SMALL`] and [`KBD_LARGE`] to `s`.
+fn claim_keyboards(s: &mut Seat) {
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
+}
+
+/// vtium/vtium#167 and D5: each console's session is told its head and the
+/// console's own id, distinct in every console of every head; the id is
+/// not the console's place in the ring, so after a console closes the one
+/// left keeps its id and a console opened next takes a new one.
+// covers: platform.heads
+#[test]
+fn each_console_is_told_its_head_and_its_own_id_through_a_close() {
+    let script = "echo \"is:$VTIUM_HEAD:$VTIUM_CONSOLE\"; \
+                  while read a; do [ \"$a\" = q ] && exit; done";
+    let mut s = two_consoles(script);
+    claim_keyboards(&mut s);
+    let told = |a: &App, name: &str| console_lines(a, name, "is:");
+    let line = |text: &str| Some(text.to_owned());
+    assert!(
+        s.until(SECOND, |a| told(a, "small").iter().all(Option::is_some)
+            && told(a, "large").iter().all(Option::is_some))
+    );
+    assert_eq!(
+        told(&s.app, "small"),
+        [line("is:small:1"), line("is:small:2")]
+    );
+    assert_eq!(
+        told(&s.app, "large"),
+        [line("is:large:1"), line("is:large:2")]
+    );
+    s.type_on(KBD_SMALL, "q\r");
+    assert!(
+        s.until(SECOND, |a| consoles(a, "small") == Some((1, 0))),
+        "the first console closed"
+    );
+    assert_eq!(
+        told(&s.app, "small"),
+        [line("is:small:2")],
+        "2 keeps its id"
+    );
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
+    assert!(
+        s.until(SECOND, |a| told(a, "small").iter().all(Option::is_some)
+            && told(a, "small").len() == 2)
+    );
+    assert_eq!(
+        told(&s.app, "small"),
+        [line("is:small:2"), line("is:small:3")],
+        "a new console takes a new id, never the place 2 left"
+    );
+    assert_eq!(
+        told(&s.app, "large"),
+        [line("is:large:1"), line("is:large:2")]
+    );
+}
+
+/// vtium/vtium#167 and D5: focus reporting is the signal of a console
+/// switch. A head showing another console sends a focus-out to the one it
+/// leaves and a focus-in to the one it shows, while a keyboard delivers to
+/// the head.
+// covers: platform.heads
+#[test]
+fn a_console_switch_sends_a_focus_out_to_the_console_left_and_a_focus_in_to_the_one_shown() {
+    let script = "stty -icanon -echo; printf '\\033[?1004h'; echo ready; \
+                  while :; do echo \"k:$(head -c 3 | od -An -tx1)\"; done";
+    let (focus_in, focus_out) = ("k: 1b 5b 49", "k: 1b 5b 4f");
+    let mut s = two_consoles(script);
+    let ready = |a: &App| console_lines(a, "small", "ready");
+    assert!(s.until(SECOND, |a| ready(a).iter().all(Option::is_some)));
+    // Once both consoles report focus, so the keyboard's focus is seen.
+    claim_keyboards(&mut s);
+    let seen = |a: &App| -> Vec<Vec<String>> {
+        every_console(a, "small")
+            .into_iter()
+            .map(|rows| rows.into_iter().filter(|l| l.starts_with("k:")).collect())
+            .collect()
+    };
+    let lines = |texts: &[&str]| -> Vec<String> { texts.iter().map(|t| (*t).to_owned()).collect() };
+    assert!(
+        s.until(SECOND, |a| seen(a) == [lines(&[focus_in]), lines(&[])]),
+        "the shown console has the focus: {:?}",
+        seen(&s.app)
+    );
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RIGHT), now());
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)));
+    assert!(
+        s.until(SECOND, |a| seen(a)
+            == [lines(&[focus_in, focus_out]), lines(&[focus_in])]),
+        "out to the console left, in to the one shown: {:?}",
+        seen(&s.app)
+    );
+}
+
 /// D5 and the operator's answer of 2026-10-30: the focus starts on the
 /// boot display's head even when that display lights a turn late, until
 /// the first key; after a key it stays where it is. The key comes from a
@@ -1509,14 +1638,14 @@ fn under_respawn_a_session_ending_restarts_its_head_alone() {
 }
 
 /// The operator's answers (2026-10-30): under oneshot a head whose
-/// program ends shows "session ended" and stays dark; vtium exits when the
+/// program ends shows that the session ended and stays dark; vtium exits when the
 /// last head's program ends.
 #[test]
 fn under_oneshot_vtium_exits_when_the_last_heads_program_ends() {
     let mut s = logins(&["--oneshot"], "echo bye", "sleep 1");
     assert!(
         s.until(SECOND, |a| a.head("small").and_then(Head::notice)
-            == Some("session ended")),
+            == Some(ENDED)),
         "small's program ended"
     );
     s.until(Duration::from_millis(200), |_| false);
@@ -1537,7 +1666,7 @@ fn a_head_restarting_too_fast_gives_up_alone_and_vtium_exits_after_every_head() 
     let gave_up = |a: &App, name: &str| {
         a.head(name)
             .and_then(Head::notice)
-            .is_some_and(|n| n.contains("too quickly"))
+            .is_some_and(|n| n.contains("as soon as it started"))
     };
     let mut s = logins(&[], "exit 1", "echo large; read x");
     assert!(
@@ -2083,7 +2212,7 @@ fn a_head_hung_up_comes_back_with_the_consoles_its_file_asks_for() {
 }
 
 /// D8 and the operator's answers (2026-10-30): under `oneshot` a head
-/// hung up ends with "session ended", and vtium exits once no head has
+/// hung up ends with the notice that the session ended, and vtium exits once no head has
 /// anything left to run.
 #[test]
 fn under_oneshot_a_hang_up_ends_the_head_and_then_vtium() {
@@ -2091,10 +2220,7 @@ fn under_oneshot_a_hang_up_ends_the_head_and_then_vtium() {
     s.unplug("/dev/mem1", now());
     s.unplug("/dev/mem0", now());
     assert!(s.hung_up(&f.mark, SECOND));
-    assert_eq!(
-        s.app.head("small").and_then(Head::notice),
-        Some("session ended")
-    );
+    assert_eq!(s.app.head("small").and_then(Head::notice), Some(ENDED));
     assert!(
         s.until(SECOND, |a| a.finished() == Some(vtium::app::Exit::Oneshot)),
         "large never lit, so nothing is left to run"
@@ -2265,6 +2391,12 @@ impl Memory {
     }
 }
 
+/// The notice of a head whose session ended for good under `oneshot`.
+const ENDED: &str = "The session ended, and vtium does not start it again.";
+
+/// The start of the anti-lockout guard's notice.
+const LOCKED_OUT: &str = "No keyboard was reaching a screen that is on";
+
 /// The text of head `name`'s notice.
 fn notice(app: &App, name: &str) -> Option<String> {
     app.head(name).and_then(Head::notice).map(str::to_owned)
@@ -2362,7 +2494,7 @@ fn a_boot_with_an_invalid_head_file_runs_the_shipped_rules_shows_the_notice_and_
         );
         let shown = notice(&s.app, "console").unwrap_or_default();
         assert!(shown.contains(says), "{test}: {shown:?}");
-        assert!(shown.contains("shipped rules"), "{test}: {shown:?}");
+        assert!(shown.contains("built-in rules"), "{test}: {shown:?}");
         assert!(
             s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)),
             "{test}: drawn"
@@ -2419,14 +2551,13 @@ fn the_notice_ends_after_30_s() {
 }
 
 /// The operator's answers (2026-10-30): under `oneshot` a head whose
-/// program ended shows "session ended" on its display, drawn by vtium,
+/// program ended shows that the session ended on its display, drawn by vtium,
 /// while the other head runs on.
 #[test]
 fn under_oneshot_a_head_whose_program_ended_shows_session_ended() {
     let mut s = claimed_with(&["--oneshot"]);
     s.type_on(KBD_SMALL, "q\r");
-    assert!(s.until(SECOND, |a| notice(a, "small").as_deref()
-        == Some("session ended")));
+    assert!(s.until(SECOND, |a| notice(a, "small").as_deref() == Some(ENDED)));
     assert!(
         s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)),
         "drawn"
@@ -2434,18 +2565,31 @@ fn under_oneshot_a_head_whose_program_ended_shows_session_ended() {
     assert!(!s.memory("/dev/mem1").has(PAPER), "large runs on");
 }
 
-/// The focus marks of the heads, in the head file's order.
+/// The on-screen display's dots of the heads, in the head file's order.
 fn marks(app: &App) -> Vec<Option<vtium_render::Mark>> {
     app.heads().iter().map(Head::mark).collect()
 }
 
-/// D5 and the operator's answers (2026-10-30): with `focus-mark = auto`,
-/// the default, no head shows a mark in normal use; the focus chord lights
-/// every head's, filled on the head that took the focus and hollow on the
-/// other, over its top-right cell, and they hide a few seconds later, the
-/// test's clock driving the time.
+/// The on-screen display's lines of the heads, in the head file's order.
+fn statuses(app: &App) -> Vec<Option<String>> {
+    app.heads()
+        .iter()
+        .map(|h| h.status().map(str::to_owned))
+        .collect()
+}
+
+/// The BGR of the box the on-screen display's line stands in alone.
+const STATUS_PAPER: [u8; 3] = [0x33, 0x29, 0x1f];
+
+/// D5 and vtium/vtium#169: under `osd = minimal`, the default, no head
+/// shows the on-screen display in normal use; the roaming chord shows
+/// every head's dot, filled on the head that became active and hollow on
+/// the other, over its top-right cell, and it goes `osd-timeout`, 3 s,
+/// after its first frame. The test turns the loop with its clock moved
+/// on, and never waits on the wall clock.
+// covers: platform.heads.focus
 #[test]
-fn the_focus_mark_lights_when_the_focus_moves_and_hides_after_a_few_seconds() {
+fn the_osd_dot_shows_when_the_active_head_moves_and_goes_after_its_timeout() {
     use vtium_render::Mark;
     let mut s = claimed();
     s.until(Duration::from_millis(100), |_| false);
@@ -2456,6 +2600,7 @@ fn the_focus_mark_lights_when_the_focus_moves_and_hides_after_a_few_seconds() {
     let moved = now();
     s.app.turn(moved);
     assert_eq!(marks(&s.app), [Some(Mark::Focus), Some(Mark::NoFocus)]);
+    assert_eq!(statuses(&s.app), [None, None], "no line under minimal");
     assert!(
         s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)),
         "drawn on small"
@@ -2464,36 +2609,338 @@ fn the_focus_mark_lights_when_the_focus_moves_and_hides_after_a_few_seconds() {
         s.until_memory("/dev/mem1", SECOND, |m| m.has(PAPER)),
         "and on large"
     );
-    s.app.turn(moved + Duration::from_secs(1));
+    s.app.turn(moved + Duration::from_millis(2900));
     assert_eq!(
         marks(&s.app),
         [Some(Mark::Focus), Some(Mark::NoFocus)],
-        "shown at 1 s"
+        "shown at 2.9 s"
     );
     s.app.turn(moved + Duration::from_secs(10));
-    assert_eq!(marks(&s.app), [None, None], "hidden after a few seconds");
+    assert_eq!(marks(&s.app), [None, None], "gone after 3 s");
 }
 
-/// The operator's answers (2026-10-30): `focus-mark = always` shows every
-/// head's mark in normal use, and `off` shows none, the chord's move
-/// included.
+/// D5 and vtium/vtium#169: under `osd = full` the on-screen display
+/// shows on one head when that head shows another console, when its
+/// number of consoles changes, and when its display returns after it had
+/// none; each time it goes after `osd-timeout`, and the other head's
+/// never shows. Under `osd = minimal` the dot says nothing of consoles,
+/// and a console chord shows none.
+// covers: platform.heads.focus
 #[test]
-fn focus_mark_always_shows_every_heads_mark_and_off_none() {
-    use vtium_render::Mark;
-    let mut s = claimed_with(&["--focus-mark=always"]);
-    s.until(Duration::from_millis(50), |_| false);
-    assert_eq!(marks(&s.app), [Some(Mark::NoFocus), Some(Mark::Focus)]);
-    s.app.turn(now() + Duration::from_secs(60));
-    assert_eq!(
-        marks(&s.app),
-        [Some(Mark::NoFocus), Some(Mark::Focus)],
-        "never hidden"
-    );
-    let mut s = claimed_with(&["--focus-mark=off"]);
+fn the_osd_shows_on_a_head_whose_console_changes_or_whose_display_returns() {
+    let mut s = claimed_with(&["--osd=full"]);
+    s.until(Duration::from_millis(100), |_| false);
+    assert_eq!(statuses(&s.app), [None, None]);
+    // Each change at `t`, then the clock past the timeout.
+    let shows_then_goes = |s: &mut Seat, t: Instant, line: &str, what: &str| {
+        s.app.turn(t);
+        assert_eq!(
+            statuses(&s.app),
+            [Some(line.to_owned()), None],
+            "{what}: on small alone"
+        );
+        s.app.turn(t + Duration::from_secs(10));
+        assert_eq!(statuses(&s.app), [None, None], "{what}: gone");
+    };
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
+    let line = "○ small · console 2 of 2";
+    shows_then_goes(&mut s, now(), line, "a console opened");
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RIGHT), now());
+    let line = "○ small · console 1 of 2";
+    shows_then_goes(&mut s, now(), line, "the next console");
+    s.type_on(KBD_SMALL, "q\r");
+    assert!(s.until(SECOND, |a| consoles(a, "small") == Some((1, 0))));
+    let line = "○ small · console 1 of 1";
+    shows_then_goes(&mut s, now(), line, "a console's program exited");
+    let t = now();
+    s.unplug("/dev/mem0", t);
+    s.app.turn(t + Duration::from_secs(10));
+    assert_eq!(statuses(&s.app), [None, None], "nothing at the loss");
+    let back = t + Duration::from_secs(11);
+    s.plug("/dev/mem0", back);
+    shows_then_goes(&mut s, back, line, "the display returned");
+    let mut s = claimed();
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
+    s.app.turn(now());
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)));
+    assert_eq!(marks(&s.app), [None, None], "no dot for a console");
+}
+
+/// D5 and vtium/vtium#169: under `osd = full` the on-screen display is a
+/// line across the top of each head, the dot, the head's name and the
+/// shown console's place among the head's consoles, in a dark box; no dot
+/// in the top-right cell.
+// covers: platform.heads.focus
+#[test]
+fn osd_full_draws_a_line_naming_the_head_and_its_console() {
+    let mut s = claimed_with(&["--osd=full"]);
+    s.until(Duration::from_millis(100), |_| false);
+    assert_eq!(statuses(&s.app), [None, None], "none in normal use");
     s.app
         .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
     s.app.turn(now());
+    assert_eq!(
+        statuses(&s.app),
+        [
+            Some("● small · console 1 of 1".to_owned()),
+            Some("○ large · console 1 of 1".to_owned())
+        ]
+    );
     assert_eq!(marks(&s.app), [None, None]);
+    assert!(
+        s.until_memory("/dev/mem0", SECOND, |m| m.has(STATUS_PAPER)
+            && !m.has(PAPER)),
+        "drawn in the status box, never the notice's red"
+    );
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
+    s.app.turn(now());
+    assert_eq!(
+        statuses(&s.app)[0].as_deref(),
+        Some("● small · console 2 of 2")
+    );
+}
+
+/// D5 and vtium/vtium#169: `osd-timeout = never` keeps every head's
+/// on-screen display up from the start, and `osd = off` shows none, the
+/// roaming chord's move included; `focus-mark`, the older name, reads as
+/// them.
+// covers: platform.heads.focus
+#[test]
+fn osd_timeout_never_keeps_it_up_and_osd_off_draws_none() {
+    use vtium_render::Mark;
+    for args in [["--osd-timeout=never"], ["--focus-mark=always"]] {
+        let mut s = claimed_with(&args);
+        s.until(Duration::from_millis(50), |_| false);
+        assert_eq!(
+            marks(&s.app),
+            [Some(Mark::NoFocus), Some(Mark::Focus)],
+            "{args:?}"
+        );
+        s.app.turn(now() + Duration::from_secs(60));
+        assert_eq!(
+            marks(&s.app),
+            [Some(Mark::NoFocus), Some(Mark::Focus)],
+            "{args:?}: never gone"
+        );
+    }
+    for args in [["--osd=off"], ["--focus-mark=off"]] {
+        let mut s = claimed_with(&args);
+        s.app
+            .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+        s.app.turn(now());
+        assert_eq!(marks(&s.app), [None, None], "{args:?}");
+        assert_eq!(statuses(&s.app), [None, None], "{args:?}");
+    }
+}
+
+/// D5 and vtium/vtium#169: `osd = off` governs status alone, and a notice
+/// of a problem still shows: here a head's session that ended for good.
+#[test]
+fn osd_off_still_shows_a_notice_of_a_problem() {
+    let mut s = claimed_with(&["--osd=off", "--oneshot"]);
+    s.type_on(KBD_SMALL, "q\r");
+    assert!(s.until(SECOND, |a| notice(a, "small").is_some()));
+    assert!(
+        s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)),
+        "drawn"
+    );
+}
+
+/// [`CLAIMED`] with two consoles in `large`.
+const LARGE_OF_TWO: &str = "version = 1
+[head small]
+[head large]
+consoles = 2
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+input path:kbd-small -> small
+input path:kbd-large -> large
+input class:keyboard -> focus
+";
+
+/// D5: a head's first start is no change the on-screen display shows,
+/// though the head opens its other consoles only as its display first
+/// lights.
+// covers: platform.heads.focus
+#[test]
+fn osd_full_shows_nothing_when_a_head_first_starts() {
+    let displays = [(
+        "/dev/mem0",
+        Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+    )];
+    let mut s = Seat::with_heads(&["--osd=full"], Some(LARGE_OF_TWO), displays, ECHO);
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
+    s.app.add_video(
+        PathBuf::from("/dev/mem1"),
+        Box::new(Memory::new(640, 320, "MEM-2", "mem-large")),
+    );
+    assert!(s.until(SECOND, |a| consoles(a, "large") == Some((2, 0))
+        && head_shows(a, "large", "ready")));
+    s.app.turn(now());
+    assert_eq!(statuses(&s.app), [None, None]);
+}
+
+/// D5: when the active head moves, the on-screen display shows on the
+/// heads with a lit display alone, and a head that loses its last display
+/// drops the display it showed, so neither shows when the display comes
+/// back.
+// covers: platform.heads.focus
+#[test]
+fn a_head_without_a_display_keeps_no_osd_for_its_return() {
+    use vtium_render::Mark;
+    let mut s = losing_with_focus();
+    let t = now();
+    s.unplug("/dev/mem0", t);
+    assert_eq!(s.app.focus_head(), Some("large"), "the guard moved it");
+    assert_eq!(marks(&s.app), [None, Some(Mark::Focus)]);
+    s.app.turn(t + Duration::from_secs(10));
+    s.plug("/dev/mem0", t + Duration::from_secs(3600));
+    assert_eq!(marks(&s.app), [None, None], "nothing an hour later");
+    let mut s = claimed();
+    let t = now();
+    s.app.device_input(Path::new(KBD_FOCUS), ctrl_super(UP), t);
+    s.app.turn(t);
+    assert_eq!(marks(&s.app), [Some(Mark::Focus), Some(Mark::NoFocus)]);
+    s.unplug("/dev/mem0", t + Duration::from_secs(1));
+    s.plug("/dev/mem0", t + Duration::from_secs(2));
+    assert_eq!(
+        marks(&s.app),
+        [None, Some(Mark::NoFocus)],
+        "dropped at the loss, within its time"
+    );
+}
+
+/// Three heads, each on a display of its own, and every keyboard roaming.
+const THREE_HEADS: &str = "version = 1
+[head a]
+[head b]
+[head c]
+[rules]
+display card:mem-a -> a
+display card:mem-b -> b
+display card:mem-c -> c
+input class:keyboard -> focus
+";
+
+/// D5: a head already without a display when the active head moves takes
+/// no on-screen display from the move, so none shows when its display
+/// comes back much later.
+// covers: platform.heads.focus
+#[test]
+fn a_head_dark_before_a_move_shows_no_osd_on_its_return() {
+    use vtium_render::Mark;
+    let displays = [
+        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-a").lit()),
+        ("/dev/mem1", Memory::new(320, 160, "MEM-2", "mem-b")),
+        ("/dev/mem2", Memory::new(320, 160, "MEM-3", "mem-c")),
+    ];
+    let mut s = Seat::with_heads(&[], Some(THREE_HEADS), displays, "echo ready; read x");
+    s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
+    assert!(s.until(SECOND, |a| a.cells().len() == 3));
+    assert_eq!(s.app.focus_head(), Some("a"));
+    let t = now();
+    s.unplug("/dev/mem2", t);
+    s.app.turn(t + Duration::from_secs(10));
+    s.app.device_input(Path::new(KBD_FOCUS), ctrl_super(UP), t);
+    s.app.turn(t + Duration::from_secs(10));
+    assert_eq!(s.app.focus_head(), Some("b"));
+    assert_eq!(
+        marks(&s.app),
+        [Some(Mark::NoFocus), Some(Mark::Focus), None]
+    );
+    s.app.turn(t + Duration::from_secs(20));
+    s.plug("/dev/mem2", t + Duration::from_secs(3600));
+    assert_eq!(marks(&s.app), [None, None, None], "nothing an hour later");
+}
+
+/// D5: a change on a head with no display waits for a frame to draw it,
+/// so its time never runs out while there is nothing to draw on.
+// covers: platform.heads.focus
+#[test]
+fn osd_time_waits_for_a_display() {
+    let mut s = claimed_with(&["--osd=full"]);
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
+    assert!(s.until(SECOND, |a| consoles(a, "small") == Some((2, 1))
+        && head_shows(a, "small", "ready")));
+    let t = now() + Duration::from_secs(10);
+    s.unplug("/dev/mem0", t);
+    s.type_on(KBD_SMALL, "q\r");
+    assert!(s.until(SECOND, |a| consoles(a, "small") == Some((1, 0))));
+    s.app.turn(t + Duration::from_secs(60));
+    let line = "○ small · console 1 of 1";
+    assert_eq!(statuses(&s.app)[0].as_deref(), Some(line), "not run out");
+    s.plug("/dev/mem0", t + Duration::from_secs(61));
+    assert_eq!(statuses(&s.app)[0].as_deref(), Some(line), "drawn");
+    s.app.turn(t + Duration::from_secs(70));
+    assert_eq!(statuses(&s.app)[0], None, "gone after its time");
+}
+
+/// D5: a change while the on-screen display shows starts its time again.
+// covers: platform.heads.focus
+#[test]
+fn a_change_while_the_osd_shows_starts_its_time_again() {
+    use vtium_render::Mark;
+    let mut s = claimed();
+    let t = now();
+    s.app.device_input(Path::new(KBD_FOCUS), ctrl_super(UP), t);
+    s.app.turn(t);
+    s.app
+        .device_input(Path::new(KBD_FOCUS), ctrl_super(DOWN), t);
+    s.app.turn(t + Duration::from_secs(2));
+    s.app.turn(t + Duration::from_secs(4));
+    assert_eq!(
+        marks(&s.app),
+        [Some(Mark::NoFocus), Some(Mark::Focus)],
+        "3 s from the second move"
+    );
+    s.app.turn(t + Duration::from_secs(6));
+    assert_eq!(marks(&s.app), [None, None]);
+}
+
+/// D5: an idle seat wakes to take the on-screen display down when its
+/// time has passed.
+#[test]
+fn an_idle_seat_wakes_to_take_the_osd_down() {
+    let mut s = claimed_with(&["--no-blink"]);
+    s.until(Duration::from_millis(100), |_| false);
+    let t = now();
+    s.app.device_input(Path::new(KBD_FOCUS), ctrl_super(UP), t);
+    s.app.turn(t);
+    let wake = s.app.next_wake(t + Duration::from_millis(2900));
+    assert!(
+        wake.is_some_and(|w| w <= Duration::from_millis(100)),
+        "wakes by 3 s: {wake:?}"
+    );
+}
+
+/// D5: under `osd = off` the active head's move composes no frame, since
+/// it leaves the picture as it was; under `minimal` it composes one with
+/// the dot, the control.
+#[test]
+fn under_osd_off_a_move_composes_no_frame() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    for (osd, drawn) in [("--osd=off", false), ("--osd=minimal", true)] {
+        let mut s = claimed_with(&[osd, "--no-blink"]);
+        s.until(Duration::from_millis(200), |_| false);
+        let composed = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&composed);
+        let hook = move || {
+            count.fetch_add(1, Ordering::SeqCst);
+        };
+        s.app.set_draw_hook("large", Some(Arc::new(hook)));
+        s.app
+            .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+        s.until(Duration::from_millis(200), |_| false);
+        assert_eq!(composed.load(Ordering::SeqCst) > 0, drawn, "{osd}");
+    }
 }
 
 /// Two heads, each keyboard but `kbd-large` claimed by `small`, which
@@ -2535,7 +2982,7 @@ fn stranded(guards: &str) -> Seat {
 fn every_keyboard_claimed_by_a_head_with_no_display_types_into_the_focus() {
     let mut s = stranded("");
     let shown = notice(&s.app, "large").unwrap_or_default();
-    assert!(shown.contains("anti-lockout"), "a notice: {shown:?}");
+    assert!(shown.contains(LOCKED_OUT), "a notice: {shown:?}");
     s.type_on(KBD_A, "a\r");
     s.type_on(KBD_B, "b\r");
     assert!(
@@ -2557,7 +3004,8 @@ fn every_keyboard_claimed_by_a_head_with_no_display_types_into_the_focus() {
 }
 
 /// D9: when the anti-lockout guard fires it moves the focus to a lit head,
-/// the boot display's when lit, and the focus marks light.
+/// the boot display's when lit, and the on-screen display shows on the
+/// lit head; the head that lost its display shows none.
 #[test]
 fn the_anti_lockout_guard_moves_the_focus_to_a_lit_head() {
     let mut s = losing_with_focus();
@@ -2565,13 +3013,7 @@ fn the_anti_lockout_guard_moves_the_focus_to_a_lit_head() {
     s.unplug("/dev/mem0", now());
     s.app.turn(now());
     assert_eq!(s.app.focus_head(), Some("large"), "moved to the lit head");
-    assert_eq!(
-        marks(&s.app),
-        [
-            Some(vtium_render::Mark::NoFocus),
-            Some(vtium_render::Mark::Focus)
-        ]
-    );
+    assert_eq!(marks(&s.app), [None, Some(vtium_render::Mark::Focus)]);
     s.type_on(KBD_FOCUS, "f\r");
     assert!(s.until(SECOND, |a| head_shows(a, "large", "got:f")));
 }
@@ -2776,7 +3218,7 @@ fn with_no_keyboard_at_start_the_notice_says_so() {
     s.app.scanned();
     s.app.turn(now());
     let shown = notice(&s.app, "console").unwrap_or_default();
-    assert!(shown.contains("no keyboard"), "{shown:?}");
+    assert!(shown.contains("No keyboard was found."), "{shown:?}");
     assert!(s.until(SECOND, |a| shows(a, "ready")), "vtium runs");
     let mut s = Seat::boot(&[], displays(), "echo ready; read x");
     s.app.add_input(Path::new(KBD_A), keyboard("kbd-a"));
@@ -2792,8 +3234,7 @@ fn with_no_keyboard_at_start_the_notice_says_so() {
 fn an_ended_heads_notice_leaves_the_loop_asleep() {
     let mut s = claimed_with(&["--oneshot"]);
     s.type_on(KBD_SMALL, "q\r");
-    assert!(s.until(SECOND, |a| notice(a, "small").as_deref()
-        == Some("session ended")));
+    assert!(s.until(SECOND, |a| notice(a, "small").as_deref() == Some(ENDED)));
     assert!(s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)));
     let t = now() + Duration::from_secs(31);
     for i in 0..400u64 {
@@ -2801,7 +3242,7 @@ fn an_ended_heads_notice_leaves_the_loop_asleep() {
     }
     let wake = s.app.next_wake(t + Duration::from_millis(400));
     assert!(wake.is_none_or(|w| w > Duration::ZERO), "spins: {wake:?}");
-    assert_eq!(notice(&s.app, "small").as_deref(), Some("session ended"));
+    assert_eq!(notice(&s.app, "small").as_deref(), Some(ENDED));
 }
 
 /// D8 and D9: with no keyboard-class device present the anti-lockout
@@ -2820,9 +3261,9 @@ fn with_no_keyboard_the_anti_lockout_guard_does_nothing() {
     assert_eq!(s.app.focus_head(), Some("large"), "not moved");
     for name in ["small", "large"] {
         let shown = notice(&s.app, name).unwrap_or_default();
-        assert!(!shown.contains("anti-lockout"), "{name}: {shown:?}");
+        assert!(!shown.contains(LOCKED_OUT), "{name}: {shown:?}");
     }
-    assert!(notice(&s.app, "small").is_some_and(|n| n.contains("no keyboard")));
+    assert!(notice(&s.app, "small").is_some_and(|n| n.contains("No keyboard was found.")));
 }
 
 /// D7 and D9: a file with `version = 1` alone runs its default head, which
@@ -2916,6 +3357,56 @@ fn a_rescued_keyboard_on_an_unlit_focus_leaves_the_anti_lockout_guard_on() {
     s.unplug("/dev/mem0", now());
     s.app.turn(now());
     assert_eq!(s.app.focus_head(), Some("large"), "moved to the lit head");
+}
+
+/// D9: the rescue key's notice names the head the keyboard types into
+/// once the guards have run: here the anti-lockout guard moves the active
+/// head away from an unlit head as the rescue lands.
+#[test]
+fn the_rescue_notice_names_the_head_typing_goes_to() {
+    let displays = [
+        (
+            "/dev/mem0",
+            Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+        ),
+        ("/dev/mem1", Memory::new(640, 320, "MEM-2", "mem-large")),
+    ];
+    let script = "echo ready; while read a; do echo \"got:$a\"; done";
+    let mut s = Seat::with_heads(&[], Some(CLAIMED), displays, script);
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
+    s.unplug("/dev/mem0", now());
+    assert_eq!(s.app.focus_head(), Some("small"), "kbd-large reaches large");
+    s.app
+        .device_input(Path::new(KBD_LARGE), ctrl_alt_f(1), now());
+    s.app.turn(now());
+    assert_eq!(s.app.focus_head(), Some("large"));
+    let shown = notice(&s.app, "large").unwrap_or_default();
+    assert!(
+        shown.contains("It now types into the active head, large now, until the next boot."),
+        "{shown:?}"
+    );
+}
+
+/// D9: with no active head the rescue key's notice says so, on every
+/// head.
+#[test]
+fn the_rescue_notice_says_when_no_head_is_active() {
+    let mut s = Seat::with_heads(&[], Some(CLAIMED), [], "read x");
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    s.app.turn(now());
+    assert_eq!(s.app.focus_head(), None);
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_alt_f(1), now());
+    s.app.turn(now());
+    for name in ["small", "large"] {
+        let shown = notice(&s.app, name).unwrap_or_default();
+        assert!(
+            shown.contains("No head is active now."),
+            "{name}: {shown:?}"
+        );
+    }
 }
 
 /// D9: only the shown VT's own key rescues: Ctrl-Alt-F2 pressed on a
