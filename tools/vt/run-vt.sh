@@ -5,7 +5,7 @@
 # When the session ends, this script is interrupted or vtium fails, the units
 # that were running are started again. See docs/vt-review.md.
 #
-#   sudo tools/vt/run-vt.sh --bin=PATH [--dry-run] [--label=TEXT] [--login |
+#   sudo tools/vt/run-vt.sh --bin=PATH [--dry-run] [--label=TEXT] [--debug=DIR] [--login |
 #        --guide=FILE [--steps=LIST] | --shell [--transcript=FILE]] [N] [-- vtium-option...]
 #
 # --bin names the vtium binary, which runs as root: a regular file owned by
@@ -27,6 +27,12 @@
 # directory and bus. Exiting it ends the run. --transcript=FILE records the session into FILE
 # with script(1), which runs as the user; the user must be able to write FILE's
 # directory, and FILE must not be a symlink.
+# --debug=DIR runs vtium with --debug, so its log has its debug messages, and
+# copies the kernel's DRM state, /sys/kernel/debug/dri/<N>/state of every card,
+# into DIR: each time vtium logs that a display came or went, as
+# NNN-came-<N>.state or NNN-went-<N>.state, and as end-<N>.state once vtium has
+# stopped. Each copy is written as the user, who must be able to write DIR; a
+# line in vtium's log names it.
 # --dry-run asks what it would ask (the VT on screen, the sessions, the active
 # units) and prints every command that would change anything without running
 # it; it needs no root.
@@ -34,7 +40,8 @@
 # For the tests, VTIUM_VT_STANDINS names a directory holding stand-ins for
 # systemctl, loginctl, setpriv and getent, a file "active" in place of
 # /sys/class/tty/tty0/active, "shells" and "locale.conf" in place of
-# /etc/shells and /etc/locale.conf, and "run-user" in place of /run/user.
+# /etc/shells and /etc/locale.conf, "run-user" in place of /run/user, and
+# "debugfs-dri" in place of /sys/kernel/debug/dri.
 # Each is run from there by its full path, so no system command is reached,
 # and the run goes through without root. As root the variable is refused.
 set -euo pipefail
@@ -62,6 +69,7 @@ guide=
 steps=
 shell=
 transcript=
+debug=
 while [ $# -gt 0 ]; do
 	case $1 in
 	--dry-run) dry=1 ;;
@@ -72,6 +80,7 @@ while [ $# -gt 0 ]; do
 	--steps=*) steps=${1#*=} ;;
 	--shell) shell=1 ;;
 	--transcript=*) transcript=${1#*=}; [ -n "$transcript" ] || die "--transcript needs the file's path" ;;
+	--debug=*) debug=${1#*=}; [ -n "$debug" ] || die "--debug needs the directory the DRM state goes in" ;;
 	-h | --help) usage ;;
 	--) shift; extra=("$@"); break ;;
 	[0-9]*) [ -z "$vt" ] || usage; vt=$1 ;;
@@ -97,6 +106,7 @@ if [ -n "$standins" ]; then
 	shells_file=$standins/shells
 	locale_file=$standins/locale.conf
 	run_user=$standins/run-user
+	dri=$standins/debugfs-dri
 else
 	systemctl=systemctl
 	loginctl=loginctl
@@ -107,6 +117,7 @@ else
 	shells_file=/etc/shells
 	locale_file=/etc/locale.conf
 	run_user=/run/user
+	dri=/sys/kernel/debug/dri
 fi
 # The units that may hold the VT: the stock kmscon, a getty, and autovt@,
 # which logind starts on a switch to the VT and which is one of the other two.
@@ -187,6 +198,8 @@ if [ -n "$guide" ]; then
 elif [ -n "$steps" ]; then
 	die "--steps goes with --guide=FILE"
 fi
+# Absolute, and not resolved: a symlink is refused below.
+[ -z "$debug" ] || [[ $debug == /* ]] || debug=$PWD/$debug
 [ -n "$dry$standins" ] || [ "$(id -u)" -eq 0 ] || die "run as root, through sudo"
 
 user=${SUDO_USER:-}
@@ -261,6 +274,61 @@ if [ -n "$transcript" ] && [ -z "$dry" ]; then
 	"${drop[@]}" -- /usr/bin/test -d "${transcript%/*}/" -a -w "${transcript%/*}/" -a ! -h "$transcript" ||
 		die "$user cannot write the transcript $transcript"
 fi
+if [ -n "$debug" ] && [ -z "$dry" ]; then
+	"${drop[@]}" -- /usr/bin/test -d "$debug/" -a -w "$debug/" -a ! -h "$debug" ||
+		die "$user cannot write the directory $debug, which --debug names for the DRM state"
+fi
+
+# capture NAME copies each card's DRM state to $debug/NAME-<card>.state, as the
+# user, and names the copies in vtium's log. A card is a directory of $dri with
+# a state file; the same card under a second name (a symlink, or its bus id)
+# is copied once, under its number where it has one. It never fails: a copy
+# that cannot be made is named instead.
+capture() {
+	local name=$1 d e real seen=" " numbered=() named=() copied=()
+	for d in "$dri"/*/; do
+		[ -d "$d" ] || continue
+		e=${d%/}
+		e=${e##*/}
+		if [[ $e =~ ^[0-9]+$ ]]; then numbered+=("$e"); else named+=("$e"); fi
+	done
+	for e in "${numbered[@]}" "${named[@]}"; do
+		[ -f "$dri/$e/state" ] || continue
+		real=$(readlink -f -- "$dri/$e") || continue
+		[[ $seen != *" $real "* ]] || continue
+		seen+="$real "
+		if "${drop[@]}" -- /bin/sh -c 'umask 077 && set -C && cat >"$1"' sh "$debug/$name-$e.state" \
+			<"$dri/$e/state" 2>/dev/null; then
+			copied+=("$name-$e.state")
+		else
+			echo "run-vt: cannot copy $dri/$e/state to $debug/$name-$e.state" || true
+		fi
+	done
+	if [ ${#copied[@]} -gt 0 ]; then
+		echo "run-vt: the DRM state, in $debug: ${copied[*]}" || true
+	else
+		echo "run-vt: no card's DRM state to copy under $dri" || true
+	fi
+}
+
+# Copies vtium's log, line by line, to this script's output, and the DRM state
+# each time a line says a display came or went. It runs until vtium and
+# everything holding its output end, and ignores the signals that end a run,
+# so the lines before them all arrive; a closed output costs it nothing.
+watch_log() {
+	trap '' INT TERM HUP PIPE
+	local line n=0 what
+	while IFS= read -r line || [ -n "$line" ]; do
+		printf '%s\n' "$line" 2>/dev/null || true
+		what=
+		[[ ! $line =~ ^display\ [^\ ]+(,\ left\ dark,)?\ is\ gone$ ]] || what=went
+		[[ ! $line =~ ^display\ [^\ ]+\ at\ [0-9]+x[0-9]+$ || -n $what ]] || what=came
+		[[ ! $line =~ ^a\ display(\ of\ head\ [^\ ]+)?\ came: || -n $what ]] || what=came
+		[ -n "$what" ] || continue
+		n=$((n + 1))
+		capture "$(printf '%03d-%s' "$n" "$what")"
+	done
+}
 
 # One run at a time, whoever starts it: one build on a VT. The lock is held
 # until this script ends; it lives in /run, which only root can write, and is
@@ -317,6 +385,7 @@ for u in "${units[@]}"; do
 done
 
 child=
+watcher=
 # Whether vtium still runs, asked of this shell's job table rather than of its
 # PID: once bash has reaped it, the PID may be another process's. grep reads
 # all of jobs' output, so pipefail sees no SIGPIPE.
@@ -343,6 +412,22 @@ restore() {
 			kill -KILL "$child" 2>/dev/null || true
 		fi
 		wait "$child" 2>/dev/null || true
+	fi
+	# Under --debug, vtium's last lines reach the log before the state at the
+	# end is copied, and the console unit starts after it. Something vtium
+	# started may still hold its output open; the copy waits 5 s for it.
+	if [ -n "$watcher" ]; then
+		exec 8>&-
+		for _ in $(seq 50); do
+			kill -0 "$watcher" 2>/dev/null || break
+			sleep 0.1
+		done
+		if kill -0 "$watcher" 2>/dev/null; then
+			echo "run-vt: something vtium started still holds its log open; the DRM state at the end is copied now"
+		else
+			wait "$watcher" 2>/dev/null
+		fi
+		capture end
 	fi
 	if [ ${#active[@]} -gt 0 ] && ! act "$systemctl" start "${active[@]}"; then
 		echo "run-vt: restarting ${active[*]} failed; restore it with: sudo systemctl start ${active[*]}" >&2
@@ -431,19 +516,31 @@ fi
 carry=(/bin/sh -c 'h=$1 c=$2; shift 2; exec /usr/bin/env VTIUM_HEAD="$h" VTIUM_CONSOLE="$c" "$@"'
 	sh '$VTIUM_HEAD' '$VTIUM_CONSOLE')
 once=(--oneshot)
+debug_opt=()
+[ -z "$debug" ] || debug_opt=(--debug)
 login_argv=("${drop[@]}" -- "${carry[@]}" "${session[@]}")
 if [ -n "$login" ]; then
 	once=()
 	login_argv=(/bin/login -p)
 fi
-cmd=("$bin" --vt="tty$vt" --no-switchvt --configdir "$here/config" "${once[@]}" "${extra[@]}"
-	--login -- "${login_argv[@]}")
+cmd=("$bin" --vt="tty$vt" --no-switchvt --configdir "$here/config" "${once[@]}" "${debug_opt[@]}"
+	"${extra[@]}" --login -- "${login_argv[@]}")
 show "${cmd[@]}"
 [ -z "$dry" ] || exit 0
-# A signal in the moment between these two lines finds child still empty, so
-# restore() starts the units again without stopping vtium. The window is a few
-# microseconds and is left open.
-"${cmd[@]}" 9>&- &
+# Under --debug, vtium's output goes through watch_log, which closes the lock
+# too.
+if [ -n "$debug" ]; then
+	exec 8> >(exec 9>&-; watch_log)
+	watcher=$!
+fi
+# A signal in the moment between starting vtium and setting child finds child
+# still empty, so restore() starts the units again without stopping vtium. The
+# window is a few microseconds and is left open.
+if [ -n "$watcher" ]; then
+	"${cmd[@]}" >&8 2>&1 8>&- 9>&- &
+else
+	"${cmd[@]}" 9>&- &
+fi
 child=$!
 # With --login, the first logout ends the run, so a login left behind does
 # not keep a root dev build on the VT: once a session on VT $vt has been open,

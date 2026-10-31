@@ -172,11 +172,13 @@ test-tools: ## Test the VT review tools and the tier 3 harness without a VT, sud
 # variables reach tools/vt/vt.sh through the environment, unexpanded, never as
 # recipe text: VT=N picks the VT, DEMO_ARGS='...' passes vtium options (split
 # like shell words, quotes honoured, nothing expanded), DRY_RUN=1 prints the
-# commands without running them.
+# commands without running them, and VT_DEBUG=1 runs vtium with --debug and
+# copies the kernel's DRM state beside the log.
 $(VT_GOALS): export VTIUM_VT_BIN = $(value VTIUM_BIN)
 $(VT_GOALS): export VTIUM_VT_NR = $(value VT)
 $(VT_GOALS): export VTIUM_VT_ARGS = $(value DEMO_ARGS)
 $(VT_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
+$(VT_GOALS): export VTIUM_VT_DEBUG = $(value VT_DEBUG)
 # GUIDE and GUIDE_STEPS are make vt-check's; one exported in the shell does
 # not reach the others.
 $(VT_GOALS): export VTIUM_VT_GUIDE =
@@ -184,17 +186,17 @@ $(VT_GOALS): export VTIUM_VT_STEPS =
 
 .PHONY: vt-demo
 vt-demo: export VTIUM_VT_SESSION = demo
-vt-demo: $(vt_build) ## Run vtium with the demo on a free VT, then print the answers (VT=N, DEMO_ARGS='...', DRY_RUN=1)
+vt-demo: $(vt_build) ## Run vtium with the demo on a free VT, then print the answers (VT=N, DEMO_ARGS='...', DRY_RUN=1, VT_DEBUG=1)
 	tools/vt/vt.sh
 
 .PHONY: vt-login
 vt-login: export VTIUM_VT_SESSION = login
-vt-login: $(vt_build) ## Run vtium with a login prompt on a free VT, until the first logout (VT=N, DEMO_ARGS='...')
+vt-login: $(vt_build) ## Run vtium with a login prompt on a free VT, until the first logout (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 .PHONY: vt-shell
 vt-shell: export VTIUM_VT_SESSION = shell
-vt-shell: $(vt_build) ## Run your login shell, as you, in vtium on a free VT; exit it to end the run (VT=N, DEMO_ARGS='...')
+vt-shell: $(vt_build) ## Run your login shell, as you, in vtium on a free VT; exit it to end the run (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 # Without GUIDE it fails before the build, naming the guides.
@@ -207,7 +209,7 @@ endif
 vt-check: export VTIUM_VT_SESSION = guide
 vt-check: export VTIUM_VT_GUIDE = $(value GUIDE)
 vt-check: export VTIUM_VT_STEPS = $(value GUIDE_STEPS)
-vt-check: $(vt_build) ## Run a guide's checks on a free VT; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3')
+vt-check: $(vt_build) ## Run a guide's checks on a free VT; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 # Tier 2 against vtium's goldens and the C reference's, copied into

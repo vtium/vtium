@@ -248,6 +248,17 @@ class Stage:
     def active(self, tty):
         write(os.path.join(self.standins, "active"), tty + "\n", 0o644)
 
+    def cards(self):
+        """The stand-in /sys/kernel/debug/dri: cards 0 and 1 with their state,
+        a render node with none, and card 0 again under its bus id."""
+        dri = os.path.join(self.standins, "debugfs-dri")
+        for card, text in (("0", "crtc[51]: crtc-0\n\tactive=1\n"), ("1", "crtc[80]: crtc-0\n\tactive=0\n")):
+            os.makedirs(os.path.join(dri, card))
+            write(os.path.join(dri, card, "state"), text, 0o400)
+        os.makedirs(os.path.join(dri, "128"))
+        os.symlink("0", os.path.join(dri, "0000:03:00.0"))
+        return dri
+
     def calls_of(self, name):
         return [l.split(" ", 1)[1] if " " in l else "" for l in read(self.calls).splitlines()
                 if l.split(" ", 1)[0] == name]
@@ -635,6 +646,81 @@ class RunVt(Case):
                 self.refused(self.run_vt(*opts, "8"), why)
         self.assertEqual(self.s.changes(), [])
 
+    def test_debug_copies_the_drm_state_at_each_display_change_and_at_the_end(self):
+        dri = self.s.cards()
+        drm = os.path.join(self.s.tmp, "drm")
+        os.mkdir(drm, 0o700)
+        lines = ["display HDMI-A-2 at 800x480", "preparing the modeset of HDMI-A-2 at 800x480",
+                 "display HDMI-A-2 is gone",
+                 "the last display of head panel is gone: the session runs on at 100x30 until the next comes",
+                 "a display of head panel came: the session is drawn again at 100x30",
+                 "display DP-8, left dark, is gone", "not a display HDMI-A-2 is gone", "display HDMI-A-2 at 800x480 again"]
+        p = self.run_vt(f"--debug={drm}", "8", BIN_LOG="".join(l + "\\n" for l in lines))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("--debug", read(self.s.bin_args).splitlines())
+        names = [f"{n}-{c}.state" for n in ("001-came", "002-went", "003-came", "004-went", "end") for c in "01"]
+        self.assertEqual(sorted(os.listdir(drm)), names)
+        for name in names:
+            with self.subTest(name=name):
+                self.assertEqual(read(os.path.join(drm, name)), read(os.path.join(dri, name[-7], "state")))
+                self.assertEqual(stat.S_IMODE(os.stat(os.path.join(drm, name)).st_mode), 0o600)
+        # Every line of vtium's reaches the log, each copy named after the
+        # line that made it.
+        out = p.stdout.splitlines()
+        self.assertEqual([l for l in out if l in lines], lines)
+        for line, copy in ((lines[0], "001-came"), (lines[2], "002-went"), (lines[4], "003-came"),
+                           (lines[5], "004-went")):
+            self.assertEqual(out[out.index(line) + 1],
+                             f"run-vt: the DRM state, in {drm}: {copy}-0.state {copy}-1.state")
+        # vtium's output ends with vtium, so the copy at the end waits for its
+        # last line, and not for the timeout.
+        self.assertNotIn("still holds its log open", p.stdout)
+        # The state at the end is copied before the console unit starts again.
+        calls = read(self.s.calls).splitlines()
+        end = max(i for i, c in enumerate(calls) if c.startswith("setpriv ") and "end-1.state" in c)
+        self.assertLess(end, calls.index("systemctl start kmsconvt@tty8.service"))
+
+    def test_debug_copies_the_state_at_the_end_of_an_interrupted_run(self):
+        self.s.cards()
+        drm = os.path.join(self.s.tmp, "drm")
+        os.mkdir(drm, 0o700)
+        proc = subprocess.Popen(["bash", RUN_VT, f"--bin={self.s.bin}", f"--debug={drm}", "8"],
+                                env=self.s.env(BIN_MODE="wait", BIN_LOG="display HDMI-A-2 is gone\\n"),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=self.s.tmp)
+        end = time.monotonic() + 10
+        while not os.path.exists(os.path.join(drm, "001-went-1.state")) and time.monotonic() < end:
+            time.sleep(0.02)
+        proc.send_signal(signal.SIGTERM)
+        out, err = proc.communicate(timeout=15)
+        self.assertEqual(proc.returncode, 143, out + err)
+        self.assertEqual(read(self.s.signals), "TERM\n", "vtium was not stopped with SIGTERM")
+        self.assertEqual(sorted(os.listdir(drm)), ["001-went-0.state", "001-went-1.state", "end-0.state", "end-1.state"])
+        self.assertEqual(self.s.changes(), ["stop kmsconvt@tty8.service", "start kmsconvt@tty8.service"])
+
+    def test_debug_with_no_card_says_so(self):
+        drm = os.path.join(self.s.tmp, "drm")
+        os.mkdir(drm, 0o700)
+        p = self.run_vt(f"--debug={drm}", "8", BIN_LOG="display HDMI-A-2 is gone\\n")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        dri = os.path.join(self.s.standins, "debugfs-dri")
+        self.assertEqual(p.stdout.count(f"run-vt: no card's DRM state to copy under {dri}\n"), 2, p.stdout)
+        self.assertEqual(os.listdir(drm), [])
+
+    def test_debug_needs_a_directory_the_user_can_write(self):
+        os.symlink(self.s.tmp, os.path.join(self.s.tmp, "link"))
+        for where in ("none", "link"):
+            with self.subTest(where=where):
+                self.refused(self.run_vt("--debug=" + os.path.join(self.s.tmp, where), "8"),
+                             "cannot write the directory")
+        self.refused(self.run_vt("--debug=", "8"), "--debug needs the directory")
+        self.assertEqual(self.s.changes(), [])
+        self.assertFalse(os.path.exists(self.s.bin_args))
+        # A dry run names the option it would give vtium.
+        p = self.run_vt("--dry-run", "--debug=/nowhere", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"+ {self.s.bin} --vt=tty8 --no-switchvt --configdir {VT}/config --oneshot --debug --login --",
+                      p.stdout)
+
     def test_a_transcript_the_user_cannot_write_is_refused(self):
         self.refused(self.run_vt("--shell", "--transcript=" + os.path.join(self.s.tmp, "none", "t"), "8"),
                      "cannot write the transcript")
@@ -780,6 +866,31 @@ class VtSh(Case):
         self.assertEqual(p.returncode, 101, p.stdout + p.stderr)
         self.assertIn("transcript: " + self.s.dir, p.stdout)
 
+    def test_vt_debug_copies_the_drm_state_beside_the_log(self):
+        self.s.cards()
+        p = self.vt_sh(VTIUM_VT_DEBUG="1", VTIUM_VT_SESSION="shell", BIN_LOG="display HDMI-A-2 is gone\\n")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        log = os.path.join(self.s.dir, "vt-") + r"[0-9T]+-tty5-\w{6}"
+        self.assertRegex(p.stdout, f"vtium log: {log}\\.log\ntranscript: {log}\\.transcript\n"
+                                   f"DRM state: {log}\\.drm\n")
+        drm = p.stdout.split("DRM state: ")[1].split("\n")[0]
+        self.assertEqual(stat.S_IMODE(os.stat(drm).st_mode), 0o700)
+        self.assertEqual(sorted(os.listdir(drm)), ["001-went-0.state", "001-went-1.state", "end-0.state", "end-1.state"])
+        text = read(drm[:-len(".drm")] + ".log")
+        self.assertIn(f"display HDMI-A-2 is gone\nrun-vt: the DRM state, in {drm}: 001-went-0.state 001-went-1.state\n",
+                      text)
+        self.assertIn(" --debug ", text)
+        self.refused(self.vt_sh(VTIUM_VT_DEBUG="yes"), "VTIUM_VT_DEBUG=yes: 1 or nothing")
+
+    def test_a_vt_debug_dry_run_names_the_drm_directory(self):
+        p = self.vt_sh(VTIUM_VT_DEBUG="1", VTIUM_VT_DRY_RUN="1")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        line = next(l for l in p.stdout.splitlines() if l.startswith("+ "))
+        self.assertRegex(line, r" --debug=" + self.s.dir + r"/vt-[0-9T]+-tty5-XXXXXX\.drm ")
+        self.assertRegex(p.stdout, r"the DRM state would be copied into " + self.s.dir + r"/vt-[0-9T]+-tty5-XXXXXX\.drm")
+        self.assertIn(" --oneshot --debug --login -- ", p.stdout)
+        self.assertEqual(self.s.calls_of("sudo"), [])
+
     def test_the_start_guide_runs_and_its_log_reaches_the_caller(self):
         # Enter to begin; step 1: Enter, y, a note; step 2: Enter, the shell's
         # two lines, n and no note; Enter to end.
@@ -882,6 +993,18 @@ class Make(Case):
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank start vt wave-a.", p.stderr)
         self.assertNotIn("cargo", p.stdout)
+
+    def test_vt_debug_reaches_every_vt_target(self):
+        for target in ("vt-demo", "vt-login", "vt-shell"):
+            with self.subTest(target=target):
+                p = self.make(target, "DRY_RUN=1", "VT_DEBUG=1", f"VTIUM_BIN={self.s.bin}")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertIn(" --debug=" + self.s.dir, p.stdout)
+        p = self.make("vt-check", "GUIDE=start", "DRY_RUN=1", "VT_DEBUG=1", f"VTIUM_BIN={self.s.bin}")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(" --debug=" + self.s.dir, p.stdout)
+        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
+        self.assertNotIn("--debug", p.stdout)
 
     def test_a_guide_reaches_only_vt_check(self):
         # One exported in the shell does not turn vt-demo into a guided run.

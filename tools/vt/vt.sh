@@ -21,6 +21,10 @@
 #   VTIUM_VT_STEPS    for guide: only these steps (GUIDE_STEPS="4 8 9")
 #   VTIUM_VT_DRY_RUN  1: pick the VT and print the run-vt.sh command, and run
 #                     run-vt.sh --dry-run without sudo
+#   VTIUM_VT_DEBUG    1: vtium logs its debug messages too, and the kernel's
+#                     DRM state is copied into a directory beside the log
+#                     each time a display comes or goes and at the end
+#                     (run-vt.sh --debug)
 #
 # For the tests, VTIUM_VT_STANDINS names a directory of stand-ins: sudo, and
 # the file "active" in place of /sys/class/tty/tty0/active, come from there,
@@ -98,6 +102,8 @@ bin=$(readlink -m -- "$bin")
 
 dry=${VTIUM_VT_DRY_RUN:-}
 case $dry in '' | 1) ;; *) die "VTIUM_VT_DRY_RUN=$dry: 1 or nothing" ;; esac
+debug=${VTIUM_VT_DEBUG:-}
+case $debug in '' | 1) ;; *) die "VTIUM_VT_DEBUG=$debug: 1 or nothing" ;; esac
 active_file=/sys/class/tty/tty0/active
 sudo=sudo
 if [ -n "$standins" ]; then
@@ -159,13 +165,15 @@ fi
 label=$(git -C "$here" describe --always --dirty 2>/dev/null | tr -cd '[:alnum:] ._+:/@-' | cut -c1-60) || label=
 log=$vt_dir/vt-$(date +%Y%m%dT%H%M%S)-tty$vt-XXXXXX.log
 transcript=
+drm=
 
 # The command, once the log's name, and with it the transcript's, is final.
 build_cmd() {
-	local record=()
+	local record=() state=()
 	[ -z "$transcript" ] || record=(--transcript="$transcript")
-	cmd=("$here/run-vt.sh" --bin="$bin" --label="dev build ${label:-unknown}" "${session[@]}" "${record[@]}"
-		"$vt" -- "${extra[@]}")
+	[ -z "$drm" ] || state=(--debug="$drm")
+	cmd=("$here/run-vt.sh" --bin="$bin" --label="dev build ${label:-unknown}" "${state[@]}" "${session[@]}"
+		"${record[@]}" "$vt" -- "${extra[@]}")
 }
 
 banner() {
@@ -177,6 +185,7 @@ banner() {
 
 if [ -n "$dry" ]; then
 	[ "$mode" != shell ] || transcript=${log%.log}.transcript
+	[ -z "$debug" ] || drm=${log%.log}.drm
 	build_cmd
 	banner
 	show=("$sudo" "${cmd[@]}")
@@ -190,6 +199,7 @@ if [ -n "$dry" ]; then
 	else
 		echo "  (vtium's log would go to $log; the answers are read from $answers)"
 	fi
+	[ -z "$drm" ] || echo "  (the DRM state would be copied into $drm)"
 	echo "  run-vt.sh --dry-run, without sudo:"
 	"${cmd[0]}" --dry-run "${cmd[@]:1}"
 	exit
@@ -204,6 +214,11 @@ log=$(mktemp --suffix=.log "${log%.log}") || die "cannot create a log in $vt_dir
 if [ "$mode" = shell ]; then
 	transcript=${log%.log}.transcript
 	(umask 077 && set -C && : >"$transcript") || die "cannot create the transcript $transcript"
+fi
+# So is the directory the DRM state is copied into, as the user.
+if [ -n "$debug" ]; then
+	drm=${log%.log}.drm
+	mkdir -m 0700 -- "$drm" || die "cannot create the directory $drm for the DRM state"
 fi
 build_cmd
 # Ask for the password, if sudo wants one, here, before the operator leaves
@@ -247,6 +262,7 @@ else
 fi
 echo "vtium log: $log"
 [ -z "$transcript" ] || echo "transcript: $transcript"
+[ -z "$drm" ] || echo "DRM state: $drm"
 echo
 
 # The guided checks' lines, from the run's header on.
