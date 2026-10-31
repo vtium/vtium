@@ -82,8 +82,6 @@ impl Reading {
 /// within the bound.
 pub fn reading(bytes: &[u8]) -> Reading {
     let mut p = Parser::default();
-    // a byte-order mark is no part of the first line
-    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
     let within = if bytes.len() > FILE_MAX {
         p.error(None, Problem::TooLarge, Within::Top);
         let bounded = bytes.get(..FILE_MAX).unwrap_or_default();
@@ -97,6 +95,9 @@ pub fn reading(bytes: &[u8]) -> Reading {
     } else {
         bytes
     };
+    // a byte-order mark is no part of the first line, and counts toward
+    // the bound
+    let within = within.strip_prefix(b"\xef\xbb\xbf").unwrap_or(within);
     let mut lines = within.split(|&b| b == b'\n').peekable();
     let mut n = 0_usize;
     while let Some(raw) = lines.next() {

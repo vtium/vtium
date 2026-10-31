@@ -332,7 +332,7 @@ impl fmt::Display for Problem {
             Problem::Renamed(renamed) => write!(f, "{renamed}"),
             Problem::PolicyInSection => write!(
                 f,
-                "vtium reads `{policy}` only above the first section, so this line counts as no policy, which is open. Move it above the first section, beside `{version}`.",
+                "vtium reads `{policy}` only above the first section, so it ignores this line, and the file's policy comes from the lines above the first section. Move it there, beside `{version}`.",
                 policy = POLICY,
                 version = VERSION,
             ),

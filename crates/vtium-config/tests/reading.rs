@@ -244,6 +244,28 @@ fn a_crlf_policy_line_ending_at_the_bound_is_read_and_nothing_past_it() {
     assert_eq!(problems(&r), [(None, Problem::TooLarge)]);
     assert_eq!(r.policies, [PolicyLine::Closed]);
     assert_eq!(r.trusted(), trusted(Stated::Closed, Rest::Broken));
+    // a line whose newline is the first byte past the bound is cut, and
+    // so not read
+    let cut = format!("{} \r\n", text.get(..FILE_MAX - 2).unwrap_or_default());
+    assert_eq!(cut.as_bytes().get(FILE_MAX), Some(&b'\n'));
+    let r = read(&format!("{cut}policy = open\r\n"));
+    assert_eq!(problems(&r), [(None, Problem::TooLarge)]);
+    assert_eq!(r.policies, [], "the cut line is not read");
+}
+
+// a byte-order mark counts toward the bound: a file past it is dropped
+// whole whatever its first bytes are
+// covers: platform.heads.policy
+#[test]
+fn a_file_past_the_bound_with_a_byte_order_mark_is_dropped_whole() {
+    let mut bytes = b"\xef\xbb\xbfversion = 1\n[head a]\n".to_vec();
+    while bytes.len() <= FILE_MAX {
+        bytes.extend_from_slice(b"# padding\n");
+    }
+    bytes.truncate(FILE_MAX + 1);
+    let r = reading(&bytes);
+    assert_eq!(problems(&r), [(None, Problem::TooLarge)]);
+    assert!(heads(&r).is_empty());
 }
 
 // ADR-1401 D3: a readable `policy = closed` wins over every other line,

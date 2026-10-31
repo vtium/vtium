@@ -185,7 +185,9 @@ fn the_first_cuts_names_are_errors_that_name_the_new_word() {
     // a misplaced policy line says what it means for the file
     let shown = first_error("version = 1\npolicy = closed\n[head a]\npolicy = closed\n");
     assert!(
-        shown.contains("counts as no policy, which is open"),
+        shown.contains(
+            "so it ignores this line, and the file's policy comes from the lines above the first section"
+        ),
         "{shown}"
     );
     // a top-level key given twice is named as one above the first section
