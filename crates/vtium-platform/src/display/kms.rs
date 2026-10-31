@@ -114,8 +114,17 @@ pub(crate) trait Kms {
     fn create_dumb(&self, width: u32, height: u32) -> io::Result<Dumb>;
     fn destroy_dumb(&self, handle: u32) -> io::Result<()>;
     fn map_dumb(&self, dumb: &Dumb) -> io::Result<Self::Map>;
-    /// A framebuffer of `format`, a fourcc, over one dumb buffer.
-    fn add_fb(&self, dumb: &Dumb, width: u32, height: u32, format: u32) -> io::Result<u32>;
+    /// A framebuffer of `format`, a fourcc, over one buffer the card
+    /// holds: its handle and its pitch in bytes. The buffer is a dumb one
+    /// or any other the card can scan out.
+    fn add_fb(
+        &self,
+        handle: u32,
+        pitch: u32,
+        width: u32,
+        height: u32,
+        format: u32,
+    ) -> io::Result<u32>;
     fn rm_fb(&self, id: u32) -> io::Result<()>;
     fn create_blob(&self, data: &[u8]) -> io::Result<u32>;
     fn destroy_blob(&self, id: u32) -> io::Result<()>;

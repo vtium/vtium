@@ -1,14 +1,16 @@
 //! drm2d: a DRM card's displays, drawn on the CPU into dumb buffers.
 //!
-//! Each display has two dumb buffers in XRGB8888. The compositor draws into
-//! the back one and [`Drm2d::swap`] flips to it with a non-blocking commit
-//! that asks for a completion event; the display is busy until that event
-//! arrives. A device with atomic modesetting commits through atomic
-//! requests, carrying the frame's damage as `FB_DAMAGE_CLIPS` where the
-//! primary plane takes them and the hardware cursor on the cursor plane;
-//! any other device, a device with universal planes and no atomic commits
-//! among them, uses the legacy calls and presents whole frames.
+//! Each display has two dumb buffers in XRGB8888, which its buffer source
+//! makes ([`buffers`]). The compositor draws into the back one and
+//! [`Drm2d::swap`] flips to it with a non-blocking commit that asks for a
+//! completion event; the display is busy until that event arrives. A
+//! device with atomic modesetting commits through atomic requests,
+//! carrying the frame's damage as `FB_DAMAGE_CLIPS` where the primary plane
+//! takes them and the hardware cursor on the cursor plane; any other
+//! device, a device with universal planes and no atomic commits among
+//! them, uses the legacy calls and presents whole frames.
 
+mod buffers;
 mod dark;
 mod output;
 
@@ -32,10 +34,11 @@ use super::{
     Ages, Canvas, Damage, DarkPolicy, Density, DisplayId, Dpms, Event, Identity, Rect, SwapError,
     Swapped,
 };
+use buffers::{Buffer, Dumbs, Source};
 use dark::Dark;
 use output::{
-    ARGB8888, Buffer, Cursor, Output, PLANE_CURSOR, PLANE_OVERLAY, PLANE_PRIMARY, Planes, Props,
-    XRGB8888, clip_bytes, connector_name, dpms_value, invalid, mode_bytes, value,
+    ARGB8888, Cursor, Output, PLANE_CURSOR, PLANE_OVERLAY, PLANE_PRIMARY, Planes, Props,
+    clip_bytes, connector_name, dpms_value, invalid, mode_bytes, value,
 };
 use source::{Clock, Link, Timers};
 
@@ -94,11 +97,13 @@ enum Scan {
     WakeUp,
 }
 
-/// A DRM card's displays, drawn into dumb buffers. Outside the crate the
-/// card is a [`Card`]; the tests stand one in.
+/// A DRM card's displays, drawn into the buffers `S` makes, dumb buffers
+/// by default. Outside the crate the card is a [`Card`]; the tests stand
+/// one in.
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
-pub struct Drm2d<K: Kms> {
+pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     card: K,
+    source: S,
     /// The levels of the 1-bit or gray panel the card drives.
     levels: Option<u8>,
     /// No universal planes or no atomic commits: the legacy calls.
@@ -116,7 +121,7 @@ pub struct Drm2d<K: Kms> {
     /// The card has been scanned once: a connector lit from then on was
     /// not lit at start.
     scanned: bool,
-    outputs: Vec<Output<K::Map>>,
+    outputs: Vec<Output<S::Memory>>,
     /// The identity of each display bound.
     identities: Vec<(DisplayId, Identity)>,
     /// The connected connectors the policy leaves dark, in the card's
@@ -175,6 +180,7 @@ impl<K: Kms> Drm2d<K> {
         let levels = card.levels();
         Ok(Drm2d {
             card,
+            source: Dumbs,
             levels,
             legacy,
             hotspot,
@@ -201,7 +207,10 @@ impl<K: Kms> Drm2d<K> {
             link: None,
         })
     }
+}
 
+#[expect(private_bounds, reason = "the card is a Card outside the crate")]
+impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Sets udev's `ID_PATH` of the card, which the identity of each
     /// connector the scan finds from then on carries.
     pub fn set_card_path(&mut self, path: Option<String>) {
@@ -249,11 +258,11 @@ impl<K: Kms> Drm2d<K> {
         self.outputs.iter().filter(|o| o.announced).map(|o| o.id)
     }
 
-    fn output(&self, id: DisplayId) -> Option<&Output<K::Map>> {
+    fn output(&self, id: DisplayId) -> Option<&Output<S::Memory>> {
         self.outputs.iter().find(|o| o.id == id && o.announced)
     }
 
-    fn output_mut(&mut self, id: DisplayId) -> Option<&mut Output<K::Map>> {
+    fn output_mut(&mut self, id: DisplayId) -> Option<&mut Output<S::Memory>> {
         self.outputs.iter_mut().find(|o| o.id == id && o.announced)
     }
 
@@ -347,7 +356,7 @@ impl<K: Kms> Drm2d<K> {
         let (width, height) = o.size();
         let age = o.ages.age(o.back);
         let buffer = o.buffers.get_mut(o.back)?;
-        let stride = buffer.dumb.pitch;
+        let stride = buffer.pitch;
         let len = usize::try_from(u64::from(stride).saturating_mul(u64::from(height))).ok()?;
         let pixels = buffer.map.as_mut().get_mut(..len)?;
         Some(Canvas {
@@ -411,7 +420,7 @@ impl<K: Kms> Drm2d<K> {
                 _ => None,
             };
             let card = &self.card;
-            let commit = |o: &Output<K::Map>| {
+            let commit = |o: &Output<S::Memory>| {
                 let mut req = Request::default();
                 // A cursor-only commit leaves the primary plane as it is,
                 // so the kernel sees no damage to it.
@@ -634,24 +643,27 @@ impl<K: Kms> Drm2d<K> {
         }
         self.destroy_cursor(id);
         let dumb = self.card.create_dumb(cw, ch)?;
-        let made = self.card.add_fb(&dumb, cw, ch, ARGB8888).and_then(|fb| {
-            let mut map = self.card.map_dumb(&dumb).inspect_err(|_| {
-                let _ = self.card.rm_fb(fb);
-            })?;
-            let dst = map.as_mut();
-            dst.fill(0);
-            let pitch = usize::try_from(dumb.pitch).unwrap_or(0);
-            let cols = usize::try_from(width.min(cw)).unwrap_or(0);
-            let src_w = usize::try_from(width).unwrap_or(0);
-            for y in 0..usize::try_from(height.min(ch)).unwrap_or(0) {
-                let src = pixels.get(y.saturating_mul(src_w)..).unwrap_or_default();
-                let row = dst.get_mut(y.saturating_mul(pitch)..).unwrap_or_default();
-                for (px, out) in src.iter().take(cols).zip(row.chunks_exact_mut(4)) {
-                    out.copy_from_slice(&px.to_ne_bytes());
+        let made = self
+            .card
+            .add_fb(dumb.handle, dumb.pitch, cw, ch, ARGB8888)
+            .and_then(|fb| {
+                let mut map = self.card.map_dumb(&dumb).inspect_err(|_| {
+                    let _ = self.card.rm_fb(fb);
+                })?;
+                let dst = map.as_mut();
+                dst.fill(0);
+                let pitch = usize::try_from(dumb.pitch).unwrap_or(0);
+                let cols = usize::try_from(width.min(cw)).unwrap_or(0);
+                let src_w = usize::try_from(width).unwrap_or(0);
+                for y in 0..usize::try_from(height.min(ch)).unwrap_or(0) {
+                    let src = pixels.get(y.saturating_mul(src_w)..).unwrap_or_default();
+                    let row = dst.get_mut(y.saturating_mul(pitch)..).unwrap_or_default();
+                    for (px, out) in src.iter().take(cols).zip(row.chunks_exact_mut(4)) {
+                        out.copy_from_slice(&px.to_ne_bytes());
+                    }
                 }
-            }
-            Ok(fb)
-        });
+                Ok(fb)
+            });
         let fb = match made {
             Ok(fb) => fb,
             Err(e) => {
@@ -1176,7 +1188,7 @@ impl<K: Kms> Drm2d<K> {
 
     /// A display for a connected connector, or `None` when it has no free
     /// CRTC or no primary plane.
-    fn bind(&self, res: &Resources, conn: &Connector, found: Found) -> Option<Output<K::Map>> {
+    fn bind(&self, res: &Resources, conn: &Connector, found: Found) -> Option<Output<S::Memory>> {
         let Found {
             name,
             current,
@@ -1508,14 +1520,14 @@ impl<K: Kms> Drm2d<K> {
     /// New buffers for `o` where its mode needs them: two, cleared, the
     /// size of its mode. `None` where its buffers already fit, so a display
     /// online keeps what it shows.
-    fn stage(&self, o: &Output<K::Map>) -> io::Result<Option<Vec<Buffer<K::Map>>>> {
+    fn stage(&self, o: &Output<S::Memory>) -> io::Result<Option<Vec<Buffer<S::Memory>>>> {
         if o.buffers.len() == 2 && self.buffer_size_matches(o) {
             return Ok(None);
         }
         let (w, h) = o.size();
         let mut made = Vec::with_capacity(2);
         for _ in 0..2 {
-            match self.buffer(w, h) {
+            match self.source.create(&self.card, w, h) {
                 Ok(mut b) => {
                     b.map.as_mut().fill(0);
                     made.push(b);
@@ -1531,7 +1543,7 @@ impl<K: Kms> Drm2d<K> {
 
     /// The framebuffer a modeset puts on the primary plane: the first of
     /// the display's new buffers, or else the front buffer it shows.
-    fn staged_fb(o: &Output<K::Map>, made: Option<&Vec<Buffer<K::Map>>>) -> u32 {
+    fn staged_fb(o: &Output<S::Memory>, made: Option<&Vec<Buffer<S::Memory>>>) -> u32 {
         match made {
             Some(made) => made.first().map_or(0, |b| b.fb),
             None => o.buffers.get(o.front()).map_or(0, |b| b.fb),
@@ -1540,7 +1552,7 @@ impl<K: Kms> Drm2d<K> {
 
     /// Gives `o` the new buffers of a modeset that took: the first is on
     /// screen, and both hold nothing drawn.
-    fn install(&self, o: &mut Output<K::Map>, made: Option<Vec<Buffer<K::Map>>>) {
+    fn install(&self, o: &mut Output<S::Memory>, made: Option<Vec<Buffer<S::Memory>>>) {
         if let Some(made) = made {
             let old = std::mem::replace(&mut o.buffers, made);
             self.release(old);
@@ -1551,49 +1563,21 @@ impl<K: Kms> Drm2d<K> {
         }
     }
 
-    fn buffer_size_matches(&self, o: &Output<K::Map>) -> bool {
+    fn buffer_size_matches(&self, o: &Output<S::Memory>) -> bool {
         o.buffers.first().is_some_and(|b| b.size == o.size())
     }
 
-    fn buffer(&self, width: u32, height: u32) -> io::Result<Buffer<K::Map>> {
-        let dumb = self.card.create_dumb(width, height)?;
-        let fb = match self.card.add_fb(&dumb, width, height, XRGB8888) {
-            Ok(fb) => fb,
-            Err(e) => {
-                let _ = self.card.destroy_dumb(dumb.handle);
-                return Err(e);
-            }
-        };
-        match self.card.map_dumb(&dumb) {
-            Ok(map) => Ok(Buffer {
-                dumb,
-                fb,
-                map,
-                size: (width, height),
-            }),
-            Err(e) => {
-                let _ = self.card.rm_fb(fb);
-                let _ = self.card.destroy_dumb(dumb.handle);
-                Err(e)
-            }
-        }
-    }
-
-    fn free_buffers(&self, o: &mut Output<K::Map>) {
+    fn free_buffers(&self, o: &mut Output<S::Memory>) {
         self.release(std::mem::take(&mut o.buffers));
     }
 
-    fn release(&self, buffers: Vec<Buffer<K::Map>>) {
+    fn release(&self, buffers: Vec<Buffer<S::Memory>>) {
         for b in buffers {
-            drop(b.map);
-            let _ = self.card.rm_fb(b.fb);
-            if let Err(e) = self.card.destroy_dumb(b.dumb.handle) {
-                log::warn!("cannot destroy a dumb buffer: {e}");
-            }
+            self.source.destroy(&self.card, b);
         }
     }
 
-    fn free(&self, mut o: Output<K::Map>) {
+    fn free(&self, mut o: Output<S::Memory>) {
         if let (Some(link), Some((t, _))) = (&self.link, o.flip_timer.take()) {
             link.disarm(t);
         }
@@ -1874,7 +1858,7 @@ impl Failure {
     }
 }
 
-impl<K: Kms> Drop for Drm2d<K> {
+impl<K: Kms, S: Source<K>> Drop for Drm2d<K, S> {
     fn drop(&mut self) {
         if let Some(link) = &self.link {
             if let Some(token) = self.timers.wake_retry.take() {

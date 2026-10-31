@@ -12,6 +12,7 @@ use drm_ffi::{
 use super::super::kms::{Dumb, Property, Request};
 use super::super::mode::{Choice, Mode};
 use super::super::{Ages, Damage, DisplayId, Dpms, Rect};
+use super::buffers::Buffer;
 
 /// A DRM fourcc code.
 pub(super) const fn fourcc(code: &[u8; 4]) -> u32 {
@@ -159,15 +160,6 @@ pub(super) struct Planes {
     pub(super) cursor: Option<(u32, Props)>,
     /// Whether the primary plane takes `FB_DAMAGE_CLIPS`.
     pub(super) damage: bool,
-}
-
-/// A dumb buffer with its framebuffer, mapped.
-pub(super) struct Buffer<M> {
-    pub(super) dumb: Dumb,
-    pub(super) fb: u32,
-    pub(super) map: M,
-    /// The size it was made for.
-    pub(super) size: (u32, u32),
 }
 
 /// What a cursor plane shows: the image's framebuffer, where its corner
