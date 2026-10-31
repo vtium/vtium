@@ -176,6 +176,8 @@ DISPLAY_LINES = (
     ("crates/vtium-platform/src/display/drm2d.rs", "display {}, left dark, is gone", ("DP-8",), "went"),
     ("crates/vtium/src/app.rs", "a display{of} came: the session is drawn again at {cols}x{rows}",
      ("", "100", "30"), "came"),
+    ("crates/vtium-platform/src/display/drm2d.rs", "display {}: the first flip after its modeset is done",
+     ("HDMI-A-2",), "modeset"),
 )
 
 

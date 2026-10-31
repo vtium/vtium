@@ -913,6 +913,15 @@ impl<K: Kms> Drm2d<K> {
                 if std::mem::take(&mut o.vblank) || frame {
                     o.flipping = false;
                 }
+                // A display's first flip ends its modeset: the card
+                // scans the new mode out, which a capture of the card's
+                // state at this line shows.
+                if frame && o.flips == 1 {
+                    log::debug!(
+                        "display {}: the first flip after its modeset is done",
+                        o.name
+                    );
+                }
                 if frame && o.announced && ready {
                     self.events.push(Event::Flipped(o.id));
                 }

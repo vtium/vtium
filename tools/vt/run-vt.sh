@@ -30,8 +30,9 @@
 # --debug=DIR runs vtium with --debug, so its log has its debug messages, and
 # copies the kernel's DRM state, /sys/kernel/debug/dri/<N>/state of every card,
 # into DIR: each time vtium logs that a display came or went, as
-# NNN-came-<N>.state or NNN-went-<N>.state, and as end-<N>.state once vtium has
-# stopped. Each copy is written as the user, who must be able to write DIR; a
+# NNN-came-<N>.state or NNN-went-<N>.state, each time a display's first flip
+# after its modeset is done, as NNN-modeset-<N>.state, and as end-<N>.state once
+# vtium has stopped. Each copy is written as the user, who must be able to write DIR; a
 # line in vtium's log names it.
 # --dry-run asks what it would ask (the VT on screen, the sessions, the active
 # units) and prints every command that would change anything without running
@@ -312,7 +313,8 @@ capture() {
 }
 
 # Copies vtium's log, line by line, to this script's output, and the DRM state
-# each time a line says a display came or went. It runs until vtium and
+# each time a line says a display came or went, or that the card scans a
+# display's new mode out, which vtium logs at debug. It runs until vtium and
 # everything holding its output end, and ignores the signals that end a run,
 # so the lines before them all arrive; a closed output costs it nothing.
 watch_log() {
@@ -324,6 +326,7 @@ watch_log() {
 		[[ ! $line =~ ^display\ [^\ ]+(,\ left\ dark,)?\ is\ gone$ ]] || what=went
 		[[ ! $line =~ ^display\ [^\ ]+\ at\ [0-9]+x[0-9]+$ || -n $what ]] || what=came
 		[[ ! $line =~ ^a\ display(\ of\ head\ [^\ ]+)?\ came: || -n $what ]] || what=came
+		[[ ! $line =~ ^display\ [^\ ]+:\ the\ first\ flip\ after\ its\ modeset\ is\ done$ || -n $what ]] || what=modeset
 		[ -n "$what" ] || continue
 		n=$((n + 1))
 		capture "$(printf '%03d-%s' "$n" "$what")"
