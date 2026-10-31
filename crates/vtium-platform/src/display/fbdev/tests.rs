@@ -587,6 +587,31 @@ fn a_blanked_display_lends_no_canvas() {
     assert!(v.events().next().is_none(), "on already");
 }
 
+// vtium/vtium#174: the display takes a frame while it is awake and
+// powered on and no stand-in flip event is pending. It lends its buffer
+// during that flip, but the frame waits for the event.
+#[test]
+fn the_display_is_ready_for_a_frame_while_awake_on_and_not_flipping() {
+    let mut v = awake(FakeFb::new(32));
+    assert!(v.ready_for_frame(DISPLAY));
+    assert!(
+        !v.ready_for_frame(DisplayId(DISPLAY.0 + 1)),
+        "no such display"
+    );
+    v.canvas(DISPLAY).unwrap();
+    v.swap(DISPLAY, &[WHOLE]).unwrap();
+    assert!(v.is_flipping(DISPLAY) && !v.ready_for_frame(DISPLAY));
+    assert!(v.canvas(DISPLAY).is_some());
+    v.vblank();
+    assert!(v.ready_for_frame(DISPLAY));
+    v.set_dpms(DISPLAY, Dpms::Off).unwrap();
+    assert!(!v.ready_for_frame(DISPLAY) && v.canvas(DISPLAY).is_none());
+    v.unblank().unwrap();
+    assert!(v.ready_for_frame(DISPLAY));
+    v.sleep();
+    assert!(!v.ready_for_frame(DISPLAY) && v.canvas(DISPLAY).is_none());
+}
+
 /// A 320x240 device that reports `mm`.
 fn sized(mm: (u32, u32)) -> Fbdev<FakeFb> {
     let fb = FakeFb::new(32);

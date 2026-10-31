@@ -2838,8 +2838,10 @@ fn draw_head(
             view.wait.end();
         }
         let owed = view.owed && !holding;
+        // A pending view waits for its display to take a frame, so a
+        // display that lends no canvas never turns the loop.
         let wants =
-            now_all || view.lost || owed || due || (view.pending && !video.is_flipping(view.id));
+            now_all || view.lost || owed || due || (view.pending && video.ready_for_frame(view.id));
         if !wants {
             if !changed {
                 continue;
@@ -3127,6 +3129,9 @@ mod tests {
         }
         fn is_flipping(&self, _: DisplayId) -> bool {
             false
+        }
+        fn ready_for_frame(&self, id: DisplayId) -> bool {
+            !self.is_flipping(id)
         }
         fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
             Ok(())
