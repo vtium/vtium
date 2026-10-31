@@ -155,6 +155,26 @@ fn defaults() {
 }
 
 #[test]
+fn debug_sets_the_log_level_from_a_file_or_the_command_line() {
+    assert_eq!(
+        load_with(&[], None, &[]).config.log_level(),
+        log::Level::Info
+    );
+    assert_eq!(
+        load_with(&["--debug"], None, &[]).config.log_level(),
+        log::Level::Debug
+    );
+    assert_eq!(main_file("debug\n").config.log_level(), log::Level::Debug);
+    let l = load_with(
+        &["--no-debug"],
+        None,
+        &[("/etc/kmscon/kmscon.conf", b"debug\n")],
+    );
+    assert_eq!(l.reports, []);
+    assert_eq!(l.config.log_level(), log::Level::Info);
+}
+
+#[test]
 fn command_line_wins_over_the_seat_file_over_the_main_file() {
     let l = load_with(
         &["--sb-size=300"],

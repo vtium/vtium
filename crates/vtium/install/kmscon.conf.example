@@ -5,6 +5,9 @@
 # turn it off. Each key is shown at its default, commented out. The command
 # line wins over this file.
 
+## Log debug messages as well, to find what went wrong. Off, vtium logs its information messages, warnings and errors.
+#no-debug
+
 ## The VT to run on: a number N for `/dev/ttyN`, a name under `/dev`, or a path. Unset, the VT vtium was started on, or the next free one.
 #vt=
 
