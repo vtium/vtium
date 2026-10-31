@@ -185,7 +185,8 @@ impl Config {
     fn can_be_active(&self, place: Place) -> bool {
         match place {
             Place::Head(i) => i < self.heads.len() && !self.isolated(i),
-            Place::DefaultHead => self.heads.is_empty(),
+            // the display guard lights the default head under open alone
+            Place::DefaultHead => self.heads.is_empty() && self.policy == Policy::Open,
             Place::Roaming | Place::Ignore | Place::Off | Place::Notice => false,
         }
     }
@@ -266,9 +267,9 @@ impl Config {
     ///
     /// Under open, when no keyboard reaches a lit head, the anti-lockout
     /// guard makes every keyboard-class device roam and moves the active
-    /// head by the same rule as its start, to none when no lit head can be
-    /// the active head; otherwise the active head stays where it is, lit
-    /// or not. With no keyboard present there is none to strand. Under
+    /// head by the same rule as its start; while no lit head can be the
+    /// active head it has nothing to move them to and acts not. Otherwise
+    /// the active head stays where it is, lit or not. With no keyboard present there is none to strand. Under
     /// closed the guard is off.
     pub fn place_rescued(
         &self,
@@ -326,7 +327,10 @@ impl Config {
                             place => lit.contains(&place),
                         }
                 });
-            if present && !reaches {
+            // with no lit head that can be the active head there is none to
+            // move the keyboards to, and a head's own keyboards keep typing
+            // into it unlit (D8)
+            if present && !reaches && start.is_some() {
                 for (d, p) in devices.iter().zip(placed.iter_mut()) {
                     if keyboard_class(d) && p.place != Place::Roaming {
                         *p = Placed {

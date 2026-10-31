@@ -982,7 +982,7 @@ fn what_survives_of_a_partly_broken_open_file_runs_then_the_shipped_rules_tail()
 #[test]
 fn placement_runs_the_switches_and_the_unplaced_inputs_the_outcome_gives() {
     use vtium_config::{Read, Runs, SwitchKey, Unplaced, resolve};
-    let heads = "version = 1\n[head a]\nisolated = yes\n[head b]\nisolated = no\n[head c]\n[rules]\ndisplay * -> a\ninput class:keyboard -> b\n";
+    let heads = "version = 1\n[head a]\nisolated = yes\n[head b]\nisolated = no\n[head c]\n[rules]\ndisplay * -> c\ninput class:keyboard -> b\n";
     let bad = "input * -> nosuch\n";
     let joystick = Identity::input().with_class(Class::Joystick);
     for (text, runs) in [
@@ -1006,7 +1006,7 @@ fn placement_runs_the_switches_and_the_unplaced_inputs_the_outcome_gives() {
             };
             assert_eq!(c.rescue(&claimed), rescue, "{text} head {i}");
         }
-        // the only keyboard is b's, and only a's display is lit
+        // the only keyboard is b's, and only c's display is lit
         let stranded = [monitor("pci-0000:03:00.0", "DP-8"), keyboard()];
         assert_eq!(
             c.place(&stranded, None).anti_lockout,
@@ -1022,4 +1022,43 @@ fn placement_runs_the_switches_and_the_unplaced_inputs_the_outcome_gives() {
         assert_eq!(c.walk(&pad).place, keys, "{text}");
         assert_eq!(c.walk(&joystick).place, other, "{text}");
     }
+}
+
+// covers: platform.heads.guards, platform.heads.isolated
+#[test]
+fn with_no_lit_head_that_can_be_active_the_anti_lockout_guard_moves_nothing() {
+    // desk is lit and isolated; panel, unlit, claims the keyboard, which
+    // keeps typing into it (D8)
+    let mut devices = desk_and_panel();
+    devices.truncate(3);
+    let c = config(
+        "version = 1\n[head desk]\nisolated = yes\n[head panel]\n[rules]\ndisplay connector:*/DP-* -> desk\ndisplay * -> off\ninput class:keyboard -> panel\n",
+    );
+    for focus in [None, Some(Place::Head(1))] {
+        let p = c.place(&devices, focus);
+        assert!(!p.anti_lockout, "{focus:?}");
+        assert_eq!(
+            p.placed[2],
+            Placed {
+                place: Place::Head(1),
+                by: By::Rule(8)
+            }
+        );
+        assert_eq!(p.focus, focus, "panel can be the active head, unlit");
+    }
+}
+
+// covers: platform.heads.policy
+#[test]
+fn the_default_head_is_never_the_active_head_under_closed() {
+    let devices = desk_and_panel();
+    let shut = config(&closed("version = 1\n"));
+    let p = shut.place(&devices, Some(Place::DefaultHead));
+    assert_eq!(p.focus, None);
+    assert!(!shut.place(&devices, None).never_dark);
+    let open = config("version = 1\n");
+    assert_eq!(
+        open.place(&devices, Some(Place::DefaultHead)).focus,
+        Some(Place::DefaultHead)
+    );
 }
