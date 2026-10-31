@@ -248,12 +248,10 @@ fn colors([ink, paper, edge]: [[u8; 3]; 3]) -> Colors {
 }
 
 impl Default for OverlayColors {
-    /// The colors with none of the keys set.
+    /// The colors with none of the keys set: the keys' defaults, as a head
+    /// draws them.
     fn default() -> OverlayColors {
-        OverlayColors {
-            notice: Colors::NOTICE,
-            osd: Colors::STATUS,
-        }
+        OverlayColors::configured(&Config::default())
     }
 }
 
@@ -1050,6 +1048,20 @@ mod tests {
         fn need_commit(&self, _: DisplayId) -> bool {
             self.shown != self.sent
         }
+    }
+
+    // ADR-1401 D5: with no color key set, the notices and the on-screen
+    // display draw in vtium-render's own colors for them, which its tests
+    // and figures use.
+    #[test]
+    fn unset_color_keys_are_vtium_renders_notice_and_status_colors() {
+        assert_eq!(
+            OverlayColors::default(),
+            OverlayColors {
+                notice: Colors::NOTICE,
+                osd: Colors::STATUS,
+            }
+        );
     }
 
     // The focus mark's cell is where the renderer draws the grid's top-right
