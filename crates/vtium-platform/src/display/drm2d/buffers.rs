@@ -1,10 +1,10 @@
 //! Where a display's buffers come from. A buffer source makes each buffer
 //! a display shows, with the framebuffer over it, and frees both. The rest
-//! of drm2d, its modesets, flips, waits, DPMS, dark connectors, hotplug and
-//! cursor plane, sees a buffer only as that framebuffer and the memory a
+//! of drm2d (its modesets, flips, waits, DPMS, dark connectors, hotplug and
+//! cursor plane) sees a buffer only as that framebuffer and the memory a
 //! frame is drawn into. drm2d's own source is [`Dumbs`], which makes dumb
-//! buffers; the GPU path is to give the same logic GBM buffers through a
-//! source of its own (vtium/vtium#33, vtium/vtium#187).
+//! buffers; the GPU path (vtium/vtium#33) supplies GBM buffers to the same
+//! logic through a source of its own (vtium/vtium#187).
 //!
 //! The cursor plane's image is a dumb buffer whatever the source, and
 //! drm2d makes it itself.

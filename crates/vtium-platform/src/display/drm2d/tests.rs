@@ -18,7 +18,7 @@ use rustix::io::Errno;
 use super::output::signed;
 use super::*;
 use crate::display::blank::Due;
-use crate::display::fake::{Commit, FakeCard, Plane, RemoveFb, logs};
+use crate::display::fake::{BufferCall, Commit, FakeCard, Plane, RemoveFb, logs};
 use crate::display::mode::mode;
 use crate::display::{Blank, DPMS_TIMEOUT, Wanted};
 
@@ -993,6 +993,86 @@ fn a_gone_display_frees_what_it_held() {
     v.poll().unwrap();
     let s = v.card().state();
     assert!(s.dumbs.is_empty() && s.fbs.is_empty() && s.blobs.is_empty());
+}
+
+/// The calls on buffers since the `from`th, as `v`'s card logged them.
+fn buffer_calls(v: &Drm2d<FakeCard>, from: usize) -> Vec<BufferCall> {
+    v.card().state().buffer_calls[from..].to_vec()
+}
+
+// A framebuffer the card refuses: the dumb buffer made for it is
+// destroyed, and the display holds nothing.
+#[test]
+fn a_framebuffer_refused_destroys_its_dumb_buffer() {
+    let mut v = one();
+    v.card().state().fb_errors.push_back(Errno::INVAL);
+    let _ = v.wake_up();
+    let calls = buffer_calls(&v, 0);
+    let h = match calls.first() {
+        Some(&BufferCall::CreateDumb(h)) => h,
+        _ => 0,
+    };
+    assert_eq!(
+        calls[..3],
+        [
+            BufferCall::CreateDumb(h),
+            BufferCall::AddFb(h),
+            BufferCall::DestroyDumb(h)
+        ],
+        "{calls:?}"
+    );
+    let s = v.card().state();
+    assert!(s.dumbs.is_empty() && s.fbs.is_empty(), "{calls:?}");
+}
+
+// A dumb buffer the card cannot map: its framebuffer is removed before the
+// buffer is destroyed, and the display holds nothing.
+#[test]
+fn a_dumb_buffer_that_cannot_be_mapped_frees_its_framebuffer_first() {
+    let mut v = one();
+    v.card().state().map_errors.push_back(Errno::NOMEM);
+    let _ = v.wake_up();
+    let calls = buffer_calls(&v, 0);
+    let h = match calls.first() {
+        Some(&BufferCall::CreateDumb(h)) => h,
+        _ => 0,
+    };
+    let fb = match calls.get(3) {
+        Some(&BufferCall::RmFb(fb)) => fb,
+        _ => 0,
+    };
+    assert_eq!(
+        calls[..5],
+        [
+            BufferCall::CreateDumb(h),
+            BufferCall::AddFb(h),
+            BufferCall::MapDumb(h),
+            BufferCall::RmFb(fb),
+            BufferCall::DestroyDumb(h)
+        ],
+        "{calls:?}"
+    );
+    let s = v.card().state();
+    assert!(s.dumbs.is_empty() && s.fbs.is_empty(), "{calls:?}");
+}
+
+// A display's buffers freed: each one's framebuffer is removed before
+// its dumb buffer is destroyed.
+#[test]
+fn freed_buffers_lose_their_framebuffers_first() {
+    let mut v = awake(one());
+    let o = v.outputs.iter().find(|o| o.id.0 == A).unwrap();
+    let want: Vec<BufferCall> = o
+        .buffers
+        .iter()
+        .flat_map(|b| [BufferCall::RmFb(b.fb), BufferCall::DestroyDumb(b.handle)])
+        .collect();
+    let from = v.card().state().buffer_calls.len();
+    v.card().state().connectors.remove(&A);
+    v.poll().unwrap();
+    assert_eq!(buffer_calls(&v, from), want);
+    let s = v.card().state();
+    assert!(s.dumbs.is_empty() && s.fbs.is_empty());
 }
 
 #[test]

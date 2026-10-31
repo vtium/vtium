@@ -160,6 +160,13 @@ pub(crate) struct State {
     pub(crate) commit_errors: VecDeque<Errno>,
     /// Errors the next dumb buffers' creations return, one each.
     pub(crate) dumb_errors: VecDeque<Errno>,
+    /// Errors the next framebuffers' creations return, one each.
+    pub(crate) fb_errors: VecDeque<Errno>,
+    /// Errors the next dumb buffers' mappings return, one each.
+    pub(crate) map_errors: VecDeque<Errno>,
+    /// The calls on buffers and framebuffers, in order, failed ones
+    /// included.
+    pub(crate) buffer_calls: Vec<BufferCall>,
     /// The cursor plane's side the card reports; 0 reports 256.
     pub(crate) cursor_side: u64,
     /// The card's directory in sysfs, a stand-in one; none by default.
@@ -302,6 +309,17 @@ impl State {
             .any(|&p| after(p, "CRTC_ID", self.plane_crtc.get(&p).copied()) == crtc);
         enabled == connected && (enabled || !active && !planes)
     }
+}
+
+/// A call on a buffer or a framebuffer, with the id it names: the dumb
+/// buffer's handle, or for `RmFb` the framebuffer's id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BufferCall {
+    CreateDumb(u32),
+    AddFb(u32),
+    MapDumb(u32),
+    RmFb(u32),
+    DestroyDumb(u32),
 }
 
 /// The bytes of each dumb buffer, by handle: what its mappings wrote.
@@ -787,10 +805,10 @@ impl Kms for FakeCard {
             return Err(err(e));
         }
         let handle = self.id();
-        self.state
-            .borrow_mut()
-            .dumbs
-            .insert(handle, (width, height));
+        let mut s = self.state.borrow_mut();
+        s.buffer_calls.push(BufferCall::CreateDumb(handle));
+        s.dumbs.insert(handle, (width, height));
+        drop(s);
         let size = width * 4 * height;
         // A new buffer holds whatever the device memory held.
         self.memory
@@ -806,6 +824,7 @@ impl Kms for FakeCard {
     fn destroy_dumb(&self, handle: u32) -> io::Result<()> {
         self.memory.borrow_mut().remove(&handle);
         let mut s = self.state.borrow_mut();
+        s.buffer_calls.push(BufferCall::DestroyDumb(handle));
         s.dumbs
             .remove(&handle)
             .map(|_| ())
@@ -813,6 +832,12 @@ impl Kms for FakeCard {
     }
 
     fn map_dumb(&self, dumb: &Dumb) -> io::Result<Mapping> {
+        let mut s = self.state.borrow_mut();
+        s.buffer_calls.push(BufferCall::MapDumb(dumb.handle));
+        if let Some(e) = s.map_errors.pop_front() {
+            return Err(err(e));
+        }
+        drop(s);
         let bytes = self.memory(dumb.handle).ok_or_else(|| err(Errno::NOENT))?;
         Ok(Mapping {
             handle: dumb.handle,
@@ -821,21 +846,26 @@ impl Kms for FakeCard {
         })
     }
 
-    /// Refuses a handle that names no buffer with `ENOENT`, and with
-    /// `EINVAL` a pitch shorter than a line of `width` pixels or a buffer
-    /// too small for `height` lines of `pitch` bytes, as the kernel's
-    /// `framebuffer_check` and `drm_gem_fb_init_with_funcs` do.
+    /// Refuses, in the kernel's order, a pitch shorter than a line of
+    /// `width` pixels with `EINVAL` (`framebuffer_check`), a handle that
+    /// names no buffer with `ENOENT`, and a buffer too small for `height`
+    /// lines of `pitch` bytes with `EINVAL` (`drm_gem_fb_init_with_funcs`).
     fn add_fb(&self, handle: u32, pitch: u32, width: u32, height: u32, _: u32) -> io::Result<u32> {
-        let (w, h) = *self
-            .state
-            .borrow()
-            .dumbs
-            .get(&handle)
-            .ok_or_else(|| err(Errno::NOENT))?;
-        let needed = u64::from(height.saturating_sub(1)) * u64::from(pitch) + u64::from(width) * 4;
-        if pitch < width * 4 || needed > u64::from(w) * 4 * u64::from(h) {
+        let mut s = self.state.borrow_mut();
+        s.buffer_calls.push(BufferCall::AddFb(handle));
+        if let Some(e) = s.fb_errors.pop_front() {
+            return Err(err(e));
+        }
+        let line = u64::from(width) * 4;
+        if u64::from(pitch) < line {
             return Err(err(Errno::INVAL));
         }
+        let (w, h) = *s.dumbs.get(&handle).ok_or_else(|| err(Errno::NOENT))?;
+        let needed = u64::from(height.saturating_sub(1)) * u64::from(pitch) + line;
+        if needed > u64::from(w) * 4 * u64::from(h) {
+            return Err(err(Errno::INVAL));
+        }
+        drop(s);
         let fb = self.id();
         self.state.borrow_mut().fbs.insert(fb, (width, height));
         Ok(fb)
@@ -849,6 +879,7 @@ impl Kms for FakeCard {
     /// (`disable_crtcs`).
     fn rm_fb(&self, id: u32) -> io::Result<()> {
         let mut s = self.state.borrow_mut();
+        s.buffer_calls.push(BufferCall::RmFb(id));
         s.fbs.remove(&id).ok_or_else(|| err(Errno::NOENT))?;
         let shown: Vec<u32> = s
             .plane_fb

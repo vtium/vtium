@@ -35,7 +35,7 @@ pub trait Video: Any {
     fn is_flipping(&self, id: DisplayId) -> bool;
     /// Whether the display takes a frame now. On the CPU path a frame is
     /// the canvas the display lends. A frame the display does not take
-    /// waits until it is ready.
+    /// waits until the display is ready.
     fn ready_for_frame(&self, id: DisplayId) -> bool;
     fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()>;
     fn sleep(&mut self);
