@@ -311,27 +311,32 @@ pub struct Scheme {
     pub osd: [[u8; 3]; 3],
 }
 
+/// The example's scheme for a light terminal background.
+pub const LIGHT: Scheme = Scheme {
+    name: "light",
+    what: "For a light terminal background: the on-screen display is a pale grey box with dark text and a grey edge, and a notice a dark red box with white text and a darker edge, so a problem differs from a status in brightness as well as in hue.",
+    notice: [[255, 255, 255], [153, 27, 27], [69, 10, 10]],
+    osd: [[31, 41, 51], [243, 244, 246], [156, 163, 175]],
+};
+
+/// The example's scheme for a dark terminal background.
+pub const DARK: Scheme = Scheme {
+    name: "dark",
+    what: "Both boxes are dark, for a dark terminal background: a notice is deep red with pale text and a light red edge, and the on-screen display near black with light grey text and a grey edge.",
+    notice: [[254, 226, 226], [127, 29, 29], [248, 113, 113]],
+    osd: [[209, 213, 219], [17, 24, 39], [75, 85, 99]],
+};
+
+/// The example's scheme for color blindness.
+pub const COLOR_BLIND_SAFE: Scheme = Scheme {
+    name: "color-blind-safe",
+    what: "For color blindness, a problem differs from a status in brightness and in an orange and blue pair, never in red against green: a notice is a bright orange box with near-black text, and the on-screen display a dark blue box with near-white text.",
+    notice: [[28, 25, 23], [255, 176, 0], [254, 97, 0]],
+    osd: [[238, 242, 255], [11, 42, 91], [100, 143, 255]],
+};
+
 /// The other schemes, in the order the example lists them.
-pub const SCHEMES: [Scheme; 3] = [
-    Scheme {
-        name: "light",
-        what: "For a light terminal background: the on-screen display is a pale grey box with dark text and a grey edge, and a notice a dark red box with white text and a darker edge, so a problem differs from a status in brightness as well as in hue.",
-        notice: [[255, 255, 255], [153, 27, 27], [69, 10, 10]],
-        osd: [[31, 41, 51], [243, 244, 246], [156, 163, 175]],
-    },
-    Scheme {
-        name: "dark",
-        what: "Both boxes are dark, for a dark terminal background: a notice is deep red with pale text and a light red edge, and the on-screen display near black with light grey text and a grey edge.",
-        notice: [[254, 226, 226], [127, 29, 29], [248, 113, 113]],
-        osd: [[209, 213, 219], [17, 24, 39], [75, 85, 99]],
-    },
-    Scheme {
-        name: "color-blind-safe",
-        what: "For color blindness, a problem differs from a status in brightness and in an orange and blue pair, never in red against green: a notice is a bright orange box with near-black text, and the on-screen display a dark blue box with near-white text.",
-        notice: [[28, 25, 23], [255, 176, 0], [254, 97, 0]],
-        osd: [[238, 242, 255], [11, 42, 91], [100, 143, 255]],
-    },
-];
+pub const SCHEMES: [Scheme; 3] = [LIGHT, DARK, COLOR_BLIND_SAFE];
 
 pub const CONSOLES_MAX: Key = Key {
     name: "consoles-max",
