@@ -145,6 +145,9 @@ impl Video for Memory {
     fn is_flipping(&self, _: DisplayId) -> bool {
         false
     }
+    fn ready_for_frame(&self, _: DisplayId) -> bool {
+        self.awake && self.dpms == Some(Dpms::On)
+    }
     fn set_dpms(&mut self, _: DisplayId, dpms: Dpms) -> io::Result<()> {
         self.dpms = Some(dpms);
         self.dpms_sets.push(dpms);

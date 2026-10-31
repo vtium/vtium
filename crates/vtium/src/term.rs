@@ -929,6 +929,9 @@ mod tests {
         fn is_flipping(&self, _: DisplayId) -> bool {
             false
         }
+        fn ready_for_frame(&self, id: DisplayId) -> bool {
+            !self.is_flipping(id)
+        }
         fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
             Ok(())
         }
@@ -1135,6 +1138,9 @@ mod tests {
         }
         fn is_flipping(&self, _: DisplayId) -> bool {
             false
+        }
+        fn ready_for_frame(&self, id: DisplayId) -> bool {
+            !self.is_flipping(id)
         }
         fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
             Ok(())

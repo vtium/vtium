@@ -133,6 +133,9 @@ impl Video for Memory {
     fn is_flipping(&self, _: DisplayId) -> bool {
         false
     }
+    fn ready_for_frame(&self, _: DisplayId) -> bool {
+        self.awake && self.dpms == Some(Dpms::On)
+    }
     fn set_dpms(&mut self, _: DisplayId, dpms: Dpms) -> io::Result<()> {
         self.dpms = Some(dpms);
         self.dpms_sets.push(dpms);
@@ -1240,6 +1243,9 @@ impl Video for SlowFlip {
         self.swapped
             .is_some_and(|t| now() < t + Duration::from_millis(100))
     }
+    fn ready_for_frame(&self, id: DisplayId) -> bool {
+        !self.is_flipping(id) && self.memory.ready_for_frame(id)
+    }
     fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
         self.memory.set_dpms(id, dpms)
     }
@@ -2138,6 +2144,9 @@ impl Video for Late {
     fn is_flipping(&self, id: DisplayId) -> bool {
         self.memory.is_flipping(id)
     }
+    fn ready_for_frame(&self, id: DisplayId) -> bool {
+        self.memory.ready_for_frame(id)
+    }
     fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
         self.memory.set_dpms(id, dpms)
     }
@@ -2224,6 +2233,9 @@ impl Video for Planed {
     }
     fn is_flipping(&self, id: DisplayId) -> bool {
         self.memory.is_flipping(id)
+    }
+    fn ready_for_frame(&self, id: DisplayId) -> bool {
+        self.memory.ready_for_frame(id)
     }
     fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
         self.memory.set_dpms(id, dpms)
@@ -2392,6 +2404,9 @@ impl Video for Gate {
     fn is_flipping(&self, _: DisplayId) -> bool {
         self.flipping
     }
+    fn ready_for_frame(&self, id: DisplayId) -> bool {
+        !self.is_flipping(id) && self.memory.ready_for_frame(id)
+    }
     fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
         self.memory.set_dpms(id, dpms)
     }
@@ -2517,8 +2532,8 @@ impl Video for Withhold {
     fn is_flipping(&self, id: DisplayId) -> bool {
         self.memory.is_flipping(id)
     }
-    fn ready_for_frame(&self, _: DisplayId) -> bool {
-        !self.withholding
+    fn ready_for_frame(&self, id: DisplayId) -> bool {
+        !self.withholding && self.memory.ready_for_frame(id)
     }
     fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
         self.memory.set_dpms(id, dpms)
@@ -2543,8 +2558,8 @@ impl Video for Withhold {
     }
 }
 
-/// The seat on a device that withholds its canvas, once the session's
-/// line `got` was drawn while it withheld it.
+/// The seat on a device that withholds its canvas, once the session
+/// printed `got` while the device withheld its canvas.
 fn withheld() -> (Harness, u32, Vec<u8>) {
     let device = Withhold {
         memory: Memory::default(),
@@ -2767,6 +2782,9 @@ impl Video for Unusable {
         Err(SwapError::Off)
     }
     fn is_flipping(&self, _: DisplayId) -> bool {
+        false
+    }
+    fn ready_for_frame(&self, _: DisplayId) -> bool {
         false
     }
     fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
@@ -3341,6 +3359,9 @@ impl Video for Slow {
     }
     fn is_flipping(&self, _: DisplayId) -> bool {
         self.landed.is_some()
+    }
+    fn ready_for_frame(&self, id: DisplayId) -> bool {
+        !self.is_flipping(id) && self.memory.ready_for_frame(id)
     }
     fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
         self.memory.set_dpms(id, dpms)
