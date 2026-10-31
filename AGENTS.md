@@ -40,6 +40,7 @@ Every change runs the full gate line before review, on the machine that wrote it
 cargo fmt --all --check \
   && cargo clippy --workspace --all-features --all-targets -- -D warnings \
   && cargo test --workspace --all-features \
+  && cargo test --workspace \
   && cargo build --profile minspec \
   && docs/scripts/adr lint --check \
   && docs/scripts/adr cite --check \
