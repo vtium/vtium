@@ -245,6 +245,26 @@ mod tests {
         assert_eq!(c.argv, argv(&["/bin/sh", "desk", "3"]));
     }
 
+    // ADR-1401 D5: the default command keeps the head's variables for the
+    // shell only with the environment reset, where it is `login -p`; with
+    // `reset-env` off it is `login`, which clears the environment it gets.
+    #[test]
+    fn the_default_login_keeps_the_heads_variables_with_the_environment_reset() {
+        let place = Place {
+            console: Some(("desk", 2)),
+            ..TTY2
+        };
+        for (args, words) in [
+            (&[][..], &["/bin/login", "-p"][..]),
+            (&["--no-reset-env"][..], &["/bin/login"][..]),
+        ] {
+            let c = child(&config(args), &place, vtiums_own());
+            assert_eq!(c.argv, argv(words), "{args:?}");
+            assert_eq!(c.env.get(OsStr::new("VTIUM_HEAD")), Some(&"desk".into()));
+            assert_eq!(c.env.get(OsStr::new("VTIUM_CONSOLE")), Some(&"2".into()));
+        }
+    }
+
     #[test]
     fn the_command_runs_with_exactly_that_environment() {
         let c = child(&config(&[]), &TTY2, vtiums_own());

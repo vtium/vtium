@@ -421,8 +421,17 @@ elif [ -n "$shell" ]; then
 		session=(/usr/bin/env -C "$home" "${locale[@]}" "${runtime[@]}"
 			"$script" -q -f -c "exec $login_shell -l" "$transcript")
 fi
+# setpriv's --reset-env clears the environment vtium gave the session, so
+# the head and console it names (ADR-1401 D5) are carried across as words:
+# vtium replaces a word that is $VTIUM_HEAD or $VTIUM_CONSOLE with its value,
+# and the shell, already the user's, puts each back in the environment. The
+# values are arguments, never code, and a head name holds only A-Z a-z 0-9
+# . _ + and -.
+# shellcheck disable=SC2016 # expanded by the shell after setpriv
+carry=(/bin/sh -c 'h=$1 c=$2; shift 2; exec /usr/bin/env VTIUM_HEAD="$h" VTIUM_CONSOLE="$c" "$@"'
+	sh '$VTIUM_HEAD' '$VTIUM_CONSOLE')
 once=(--oneshot)
-login_argv=("${drop[@]}" -- "${session[@]}")
+login_argv=("${drop[@]}" -- "${carry[@]}" "${session[@]}")
 if [ -n "$login" ]; then
 	once=()
 	login_argv=(/bin/login -p)
