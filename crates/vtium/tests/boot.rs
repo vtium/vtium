@@ -381,6 +381,12 @@ impl Harness {
         if any.is::<Gate>() {
             return &mut any.downcast_mut::<Gate>().expect("a gated device").memory;
         }
+        if any.is::<Withhold>() {
+            return &mut any
+                .downcast_mut::<Withhold>()
+                .expect("a withholding device")
+                .memory;
+        }
         any.downcast_mut::<Memory>().expect("the memory device")
     }
 
@@ -2463,6 +2469,156 @@ fn a_flip_draws_only_its_own_display() {
         other(&mut h).ages.len(),
         lent,
         "the other display left alone"
+    );
+}
+
+/// A device that lends no canvas while the test withholds it, and reports
+/// nothing when it lends again, as a DRM display lends none while a
+/// modeset waits for another display's flip.
+struct Withhold {
+    memory: Memory,
+    withholding: bool,
+    /// The canvases asked for while withheld.
+    refused: u32,
+}
+
+impl Video for Withhold {
+    fn backend(&self) -> &'static str {
+        "memory"
+    }
+    fn events(&mut self) -> Vec<Event> {
+        self.memory.events()
+    }
+    fn displays(&self) -> Vec<DisplayId> {
+        self.memory.displays()
+    }
+    fn name(&self, id: DisplayId) -> String {
+        self.memory.name(id)
+    }
+    fn size(&self, id: DisplayId) -> Option<(u32, u32)> {
+        self.memory.size(id)
+    }
+    fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
+        self.memory.refresh_mhz(id)
+    }
+    fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
+        self.memory.dpi(id)
+    }
+    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
+        if self.withholding {
+            self.refused += 1;
+            return None;
+        }
+        self.memory.canvas(id)
+    }
+    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        self.memory.swap(id, damage)
+    }
+    fn is_flipping(&self, id: DisplayId) -> bool {
+        self.memory.is_flipping(id)
+    }
+    fn ready_for_frame(&self, _: DisplayId) -> bool {
+        !self.withholding
+    }
+    fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
+        self.memory.set_dpms(id, dpms)
+    }
+    fn sleep(&mut self) {
+        self.memory.sleep();
+    }
+    fn wake_up(&mut self) -> io::Result<()> {
+        self.memory.wake_up()
+    }
+    fn unblank(&mut self) -> io::Result<()> {
+        self.memory.unblank()
+    }
+    fn input(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn hotplug(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+/// The seat on a device that withholds its canvas, once the session's
+/// line `got` was drawn while it withheld it.
+fn withheld() -> (Harness, u32, Vec<u8>) {
+    let device = Withhold {
+        memory: Memory::default(),
+        withholding: false,
+        refused: 0,
+    };
+    let mut h = Harness::build(
+        &[
+            "--no-blink",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read x; echo got; read y",
+        ],
+        FakeVt::new(),
+        Box::new(device),
+    );
+    assert!(h.until(SECOND, |a| a.vt.is_active()));
+    h.until(Duration::from_millis(200), |_| false);
+    let (frames, shown) = (h.memory().frames, h.memory().pixels.clone());
+    withholding(&mut h).withholding = true;
+    h.type_str("\r");
+    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "got")));
+    h.until(Duration::from_millis(200), |_| false);
+    assert!(withholding(&mut h).refused > 0, "a frame found no canvas");
+    assert_eq!(h.memory().frames, frames, "nothing drawn while withheld");
+    (h, frames, shown)
+}
+
+fn withholding(h: &mut Harness) -> &mut Withhold {
+    h.app
+        .videos
+        .get_mut(Path::new("/dev/mem0"))
+        .and_then(|v| v.as_any().downcast_mut::<Withhold>())
+        .expect("the withholding device")
+}
+
+/// A frame that finds no canvas while the VT is shown waits for its
+/// display: once the display lends one again, the frame reaches the
+/// screen with no other event (vtium/vtium#174).
+#[test]
+fn a_frame_that_found_no_canvas_is_drawn_once_the_display_lends_again() {
+    let (mut h, frames, shown) = withheld();
+    withholding(&mut h).withholding = false;
+    assert!(
+        h.until_memory(SECOND, |m| m.frames > frames),
+        "the waiting frame drawn"
+    );
+    assert_ne!(h.memory().pixels, shown, "the screen shows the line");
+}
+
+/// A display that lends no canvas for a long run does not turn the loop at
+/// full speed: the waiting frame is composed again only once the display
+/// takes a frame.
+#[test]
+fn a_display_lending_no_canvas_does_not_spin_the_loop() {
+    let (mut h, _, _) = withheld();
+    let refused = withholding(&mut h).refused;
+    let end = now() + Duration::from_secs(1);
+    let mut turns = 0_u32;
+    while now() < end {
+        let wait = h
+            .app
+            .next_wake(now())
+            .map(|w| w.min(Duration::from_millis(200)));
+        h.lp.dispatch(wait, &mut h.app).expect("dispatch");
+        h.app.turn(now());
+        turns += 1;
+    }
+    let asked = withholding(&mut h).refused - refused;
+    assert!(
+        turns < 50 && asked < 5,
+        "{turns} turns and {asked} canvases asked for in 1 s"
     );
 }
 

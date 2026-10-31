@@ -373,10 +373,25 @@ impl<F: Framebuffer> Fbdev<F> {
         self.settle();
     }
 
+    /// Whether the display takes a frame now: it is awake and powered on,
+    /// and the last swap's stand-in flip event is not pending.
+    pub fn ready_for_frame(&self, id: DisplayId) -> bool {
+        self.lends(id) && !self.vblank
+    }
+
+    /// Whether [`Fbdev::canvas`] lends the buffer: the display is awake, set
+    /// up and powered on.
+    fn lends(&self, id: DisplayId) -> bool {
+        id == DISPLAY
+            && self.awake
+            && self.screen.is_some()
+            && self.dpms.is_none_or(|d| d == Dpms::On)
+    }
+
     /// Lends the buffer for the next frame. It is the framebuffer itself,
     /// or its copy, and holds the frame before this one.
     pub fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        if id != DISPLAY || !self.awake || self.dpms.is_some_and(|d| d != Dpms::On) {
+        if !self.lends(id) {
             return None;
         }
         let s = self.screen.as_mut()?;

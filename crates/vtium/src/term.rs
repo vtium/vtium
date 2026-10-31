@@ -410,7 +410,8 @@ pub struct View {
     /// The terminal's checkpoint after this view's last frame was taken.
     since: Age,
     pub wait: Wait,
-    /// A draw waits for the flip in flight, or the frame composing.
+    /// A draw waits for the display to take a frame, as after its flip in
+    /// flight, or for the frame composing.
     pub pending: bool,
     /// A draw waits for the hold's end.
     pub owed: bool,
@@ -691,6 +692,9 @@ impl View {
         }
         let start = clock();
         let Some(canvas) = video.canvas(self.id) else {
+            // A display that takes no frame now, as while a modeset waits
+            // for another display's flip, gets this one once it does.
+            self.pending |= !video.ready_for_frame(self.id);
             return Presented::default();
         };
         let (width, height, stride, age) = (canvas.width, canvas.height, canvas.stride, canvas.age);
