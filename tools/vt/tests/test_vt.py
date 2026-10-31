@@ -211,8 +211,12 @@ class Stage:
 
     def env(self, **extra):
         env = dict(os.environ)
+        # An enclosing make's command line, such as make test-tools
+        # FEATURES=images, reaches the make these run through MAKEFLAGS, so
+        # it is kept out.
         for k in list(env):
-            if k.startswith(("VTIUM_", "GUIDE", "DEMO_", "SUDO_", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")):
+            if k.startswith(("VTIUM_", "GUIDE", "DEMO_", "SUDO_", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")) or \
+                    k in ("MAKEFLAGS", "MFLAGS"):
                 del env[k]
         env.update(
             PATH=self.standins + os.pathsep + env["PATH"],
