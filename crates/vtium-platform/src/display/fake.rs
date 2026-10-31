@@ -821,7 +821,21 @@ impl Kms for FakeCard {
         })
     }
 
-    fn add_fb(&self, _: &Dumb, width: u32, height: u32, _: u32) -> io::Result<u32> {
+    /// Refuses a handle that names no buffer with `ENOENT`, and with
+    /// `EINVAL` a pitch shorter than a line of `width` pixels or a buffer
+    /// too small for `height` lines of `pitch` bytes, as the kernel's
+    /// `framebuffer_check` and `drm_gem_fb_init_with_funcs` do.
+    fn add_fb(&self, handle: u32, pitch: u32, width: u32, height: u32, _: u32) -> io::Result<u32> {
+        let (w, h) = *self
+            .state
+            .borrow()
+            .dumbs
+            .get(&handle)
+            .ok_or_else(|| err(Errno::NOENT))?;
+        let needed = u64::from(height.saturating_sub(1)) * u64::from(pitch) + u64::from(width) * 4;
+        if pitch < width * 4 || needed > u64::from(w) * 4 * u64::from(h) {
+            return Err(err(Errno::INVAL));
+        }
         let fb = self.id();
         self.state.borrow_mut().fbs.insert(fb, (width, height));
         Ok(fb)

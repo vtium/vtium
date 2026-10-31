@@ -13,6 +13,7 @@ use super::super::card::Card;
 use super::super::kms::Kms;
 use super::super::mode::ModePolicy;
 use super::Drm2d;
+use super::buffers::Source;
 
 /// The loop's timers, while armed, besides each display's flip bound.
 #[derive(Default)]
@@ -53,14 +54,14 @@ impl Drm2d<Card> {
 }
 
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
-impl<K: Kms + 'static> Drm2d<K> {
+impl<K: Kms + 'static, S: Source<K> + 'static> Drm2d<K, S> {
     /// Puts the card in the loop behind `handle`: its page flip events,
     /// the bound on each flip in flight and the wake-up retries. `access`
     /// finds the device in the loop's data, or `None` once it is gone.
     pub fn insert<D, A>(&mut self, handle: &LoopHandle<'static, D>, access: A) -> io::Result<()>
     where
         D: 'static,
-        A: Fn(&mut D) -> Option<&mut Drm2d<K>> + Clone + 'static,
+        A: Fn(&mut D) -> Option<&mut Drm2d<K, S>> + Clone + 'static,
     {
         let source = handle
             .insert_source(
@@ -87,25 +88,26 @@ impl<K: Kms + 'static> Drm2d<K> {
             handle: handle.clone(),
             source,
             access,
-            card: PhantomData::<fn(&K)>,
+            card: PhantomData::<fn(&K, &S)>,
         }));
         self.settle();
         Ok(())
     }
 }
 
-struct LoopLink<D: 'static, K, A> {
+struct LoopLink<D: 'static, K, S, A> {
     handle: LoopHandle<'static, D>,
     source: RegistrationToken,
     access: A,
-    card: PhantomData<fn(&K)>,
+    card: PhantomData<fn(&K, &S)>,
 }
 
-impl<D, K, A> Link for LoopLink<D, K, A>
+impl<D, K, S, A> Link for LoopLink<D, K, S, A>
 where
     D: 'static,
     K: Kms + 'static,
-    A: Fn(&mut D) -> Option<&mut Drm2d<K>> + Clone + 'static,
+    S: Source<K> + 'static,
+    A: Fn(&mut D) -> Option<&mut Drm2d<K, S>> + Clone + 'static,
 {
     fn arm(&self, clock: Clock) -> Option<RegistrationToken> {
         let access = self.access.clone();
@@ -131,7 +133,7 @@ where
     }
 }
 
-impl<D: 'static, K, A> Drop for LoopLink<D, K, A> {
+impl<D: 'static, K, S, A> Drop for LoopLink<D, K, S, A> {
     fn drop(&mut self) {
         self.handle.remove(self.source);
     }

@@ -9,6 +9,7 @@ use drm_ffi::{DRM_MODE_ATOMIC_ALLOW_MODESET, DRM_MODE_ATOMIC_NONBLOCK};
 use super::super::Identity;
 use super::super::kms::{Kms, Object, Request};
 use super::Drm2d;
+use super::buffers::Source;
 use super::output::{Props, value};
 
 /// A connected connector the policy leaves dark.
@@ -21,7 +22,7 @@ pub(super) struct Dark {
 }
 
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
-impl<K: Kms> Drm2d<K> {
+impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// The CRTC dark connector `d` is on, as another master left it.
     pub(super) fn dark_crtc(&self, d: &Dark) -> Option<u32> {
         self.connector_crtc(d.id)
