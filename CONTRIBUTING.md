@@ -16,6 +16,7 @@ CI runs these gates on every pull request. Run them locally before you push:
 cargo fmt --all --check
 cargo clippy --workspace --all-features --all-targets -- -D warnings
 cargo test --workspace --all-features
+cargo test --workspace
 cargo build --profile minspec
 docs/scripts/adr lint --check
 docs/scripts/coverage

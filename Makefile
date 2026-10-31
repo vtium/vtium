@@ -59,15 +59,22 @@ ARM_WRAP := $(CURDIR)/tools/arm
 minspec install-tree: export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = $(ARM_WRAP)/$(X86_TARGET)-cc
 minspec install-tree: export PKG_CONFIG_x86_64_unknown_linux_gnu = $(ARM_WRAP)/$(X86_TARGET)-pkg-config
 
+# The vtium crate's features the console binary is built with, named on
+# make's command line (make install-tree FEATURES='images logind'). None, the
+# default, builds the minspec console, the only binary tier 3's budget judges
+# (ADR-1200 D19). The assignment here outranks the environment, so a
+# FEATURES exported in the shell builds nothing different.
+FEATURES :=
+
 .PHONY: minspec
-minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/minspec/vtium (needs clang)
+minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...' when named (needs clang)
 	tools/arm/sysroot fetch amd64
-	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) -- $(RELR_LINK)
+	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
 	$(call check-relr,$(VTIUM_MINSPEC))
 	$(call check-glibc,$(VTIUM_MINSPEC))
 
-# vtium as a system installs it, staged under DESTDIR: the minspec binary,
-# vtium-vitrify, the VT unit, the compiled terminfo entry, the example
+# vtium as a system installs it, staged under DESTDIR: the console binary,
+# built with the minspec profile and FEATURES, vtium-vitrify, the VT unit, the compiled terminfo entry, the example
 # configuration and the example udev rules and hwdb fragment, which are
 # documentation and never active (ADR-1401 D4). Tier 3 installs this tree in
 # its guest.
@@ -76,7 +83,7 @@ VTIUM_INSTALL := crates/vtium/install
 VTIUM_VITRIFY := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/release/vtium-vitrify
 
 .PHONY: install-tree
-install-tree: minspec ## Stage vtium's install tree under DESTDIR (default target/install-tree; needs tic)
+install-tree: minspec ## Stage vtium's install tree under DESTDIR (default target/install-tree), its console built with FEATURES='...' when named (needs tic)
 	install -Dm755 $(VTIUM_MINSPEC) $(DESTDIR)/usr/bin/vtium
 	$(call check-relr,$(DESTDIR)/usr/bin/vtium)
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium)
@@ -160,12 +167,13 @@ conformance-issues: ## Check that every issue the conformance lists say owes a c
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools and the tier 3 harness without a VT, sudo, logind or a VM (shellcheck when installed), the set writer without its deflate, and that the console leaves the deflate out
+test-tools: ## Test the VT review tools and the tier 3 harness without a VT, sudo, logind or a VM (shellcheck when installed), the set writer without its deflate, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I -B tools/tier3/test_t3img.py
 	python3 -I -B tools/tier3/test_t3.py
 	cargo test -q -p vtium-font --test set
 	@if cargo tree -p vtium --target $(X86_TARGET) -e features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-vitrify takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
+	@$(check-gate-line)
 	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 # The review targets block until the run ends, then print its answers. Their
@@ -269,9 +277,15 @@ T3_ARCHIVE      := 2026/10/20
 # What a report records it measured and ran on: this checkout's commit, with
 # +dirty for uncommitted changes, and the guest's pins.
 T3_REV = $(shell git rev-parse --short HEAD 2>/dev/null)$(if $(shell git status --porcelain --untracked-files=no 2>/dev/null),+dirty)
+# FEATURES, when make's command line names it, even empty, names the
+# features the tree's console is built with, or was built with for
+# tier3-run; the budget judges a tree built without any. tier3-run on the
+# last run's tree takes them from that run's record and refuses a FEATURES
+# that differs.
+T3_FEATURES = $(if $(filter command line,$(origin FEATURES)),--features '$(strip $(FEATURES))')
 T3_RUN = T3_VTIUM_REV=$(T3_REV) T3_IMAGE=$(T3_IMAGE) T3_IMAGE_SHA256=$(T3_IMAGE_SHA256) \
 	T3_ARCHIVE=$(T3_ARCHIVE) $(T3_PY) $(T3_DIR)/t3.py run --jobs $(JOBS) \
-	--deadline $(T3_DEADLINE)
+	--deadline $(T3_DEADLINE) $(T3_FEATURES)
 
 .PHONY: tier3-image
 tier3-image: ## Fetch, verify and provision tier 3's guest image, unless the cache holds one built from the same inputs (T3_IMAGES=DIR)
@@ -283,7 +297,7 @@ tier3-image: ## Fetch, verify and provision tier 3's guest image, unless the cac
 # under the run lock, so a second run cannot rebuild the tree under a running
 # one. The recipes hold no $(MAKE), so `make -n` runs nothing.
 .PHONY: tier3
-tier3: tier3-image ## Tier 3: build the install tree, then run every variant, or VARIANTS="..." (JOBS=N)
+tier3: tier3-image ## Tier 3: build the install tree, then run every variant, or VARIANTS="..." (JOBS=N, FEATURES='...')
 	$(T3_RUN) --tree-target install-tree $(VARIANTS)
 
 .PHONY: tier3-minimal
@@ -297,7 +311,7 @@ tier3-provenance: ## Check tools/tier3's copies against their sources with git (
 	$(T3_PY) $(T3_DIR)/t3.py provenance --kmscon $(KMSCON)
 
 .PHONY: tier3-run
-tier3-run: ## Tier 3 on a tree built already: the last run's, or TREE=DIR (VARIANTS=, JOBS= as for tier3)
+tier3-run: ## Tier 3 on a tree built already: the last run's, or TREE=DIR (VARIANTS=, JOBS= as for tier3; FEATURES= the TREE was built with)
 	$(T3_RUN) $(if $(TREE),--tree $(TREE)) $(VARIANTS)
 
 # Tier 3 on the guest without systemd (tools/tier3/README.md, docs/systemd.md):
@@ -322,13 +336,15 @@ tier3-image-nosystemd: ## Fetch, verify and provision tier 3's guest without sys
 tier3-nosystemd: tier3-image-nosystemd ## Tier 3 on the guest without systemd: vtium under sysvinit, without udev, and its power keys
 	T3_VTIUM_REV=$(T3_REV) T3_IMAGE=$(T3SV_IMAGE) T3_IMAGE_SHA256=$(T3SV_IMAGE_SHA256) \
 		T3_ARCHIVE=$(T3SV_SNAPSHOT) $(T3_PY) $(T3_DIR)/t3.py run --jobs $(JOBS) \
-		--deadline $(T3_DEADLINE) --tree-target install-tree $(or $(VARIANTS),sysvinit-640x480 sysvinit-no-udev sysvinit-reboot sysvinit-restart sysvinit-power-off)
+		--deadline $(T3_DEADLINE) $(T3_FEATURES) --tree-target install-tree $(or $(VARIANTS),sysvinit-640x480 sysvinit-no-udev sysvinit-reboot sysvinit-restart sysvinit-power-off)
 
-# AGENTS.md's gate line, one gate per line, in its order.
+# AGENTS.md's gate line, one gate per line, in its order; make test-tools
+# fails when the two differ (check-gate-line).
 define GATE_LINE
 cargo fmt --all --check
 cargo clippy --workspace --all-features --all-targets -- -D warnings
 cargo test --workspace --all-features
+cargo test --workspace
 cargo build --profile minspec
 docs/scripts/adr lint --check
 docs/scripts/adr cite --check
@@ -341,6 +357,13 @@ make tier2
 make arm
 endef
 export GATE_LINE
+
+# check-gate-line reads the fenced block after "Every change runs the full
+# gate line" in AGENTS.md, one gate per line without its `&&` and `\`, and
+# fails unless it is GATE_LINE, which reaches awk through the environment.
+define check-gate-line
+awk 'f && /^```/ { f = 0; done = 1 } f { sub(/^ *(&& )?/, ""); sub(/ \\$$/, ""); got = got $$0 "\n" } /^Every change runs the full gate line/ { g = 1 } g && !done && /^```sh$$/ { f = 1 } END { want = ENVIRON["GATE_LINE"] "\n"; if (got == "" || got != want) { printf "make gates runs another gate line than AGENTS.md lists.\nAGENTS.md:\n%sGATE_LINE:\n%s", got, want > "/dev/stderr"; exit 1 } print "make gates runs AGENTS.md'"'"'s gate line" }' AGENTS.md
+endef
 
 .PHONY: gates
 gates: ## Run every gate of the gate line, each to the end, report each exit code and fail if any failed
