@@ -300,7 +300,7 @@ fn check_config_lists_each_planted_head_file_error_with_its_line_and_exits_1() {
         );
     };
     at(4, "This section takes no key named \"frob\".");
-    at(5, "The file already declares a head named \"desk\"");
+    at(5, "The file already declares a head named \"desk\".");
     at(7, "A display rule cannot have `roaming` as its target.");
     at(
         8,

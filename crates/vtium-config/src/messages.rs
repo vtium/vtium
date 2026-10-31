@@ -216,7 +216,7 @@ impl fmt::Display for Problem {
             ),
             Problem::DuplicateHead(n) => write!(
                 f,
-                "The file already declares a head named {n}, so vtium skips this second section. Give one of the two another name, or move this section's lines into the first."
+                "The file already declares a head named {n}. Give one of the two another name."
             ),
             Problem::BadValue { key, value } => match takes(key) {
                 Takes::Words(words) => write!(
