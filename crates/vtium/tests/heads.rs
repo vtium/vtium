@@ -1658,31 +1658,74 @@ fn under_oneshot_vtium_exits_when_the_last_heads_program_ends() {
     );
 }
 
-/// The operator's answers (2026-10-30): a session restarting too fast
-/// gives up on its head alone, with a notice; when every head has given
-/// up vtium exits with status 1, for the getty fallback.
+/// A seat whose head `looping` has one console whose program keeps
+/// exiting at once and whose other head has two consoles, each marking
+/// its SIGHUP in `dir`. The looping program's first start waits until both
+/// of the other head's consoles have set their trap, so the exit comes
+/// after them; every start after the first exits at once.
+fn crash_loop(dir: &Path, looping: &str) -> Seat {
+    let _ = std::fs::remove_dir_all(dir);
+    std::fs::create_dir_all(dir).expect("the marks' directory");
+    let script = format!(
+        "d={d}; if [ \"$VTIUM_HEAD\" = {looping} ]; then \
+         while [ ! -e $d/ready-1 ] || [ ! -e $d/ready-2 ]; do sleep 0.01; done; exit 1; fi; \
+         trap \"echo > $d/hup-$VTIUM_CONSOLE; exit 0\" HUP; : > $d/ready-$VTIUM_CONSOLE; \
+         while :; do read x; done",
+        d = dir.display()
+    );
+    let heads = format!(
+        "version = 1
+[head small]
+consoles = {small}
+[head large]
+consoles = {large}
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+",
+        small = if looping == "small" { 1 } else { 2 },
+        large = if looping == "large" { 1 } else { 2 },
+    );
+    Seat::with_heads(&[], Some(&heads), two_displays(), &script)
+}
+
+/// D1, the operator's decision of 2026-10-31: a session that keeps
+/// ending as soon as it starts, on any head, makes vtium exit with status
+/// 1, so the unit's getty takes the VT, and the exit hangs up every
+/// console of the other head, the hidden one included. No notice is
+/// drawn, since vtium leaves in that turn. The loop runs on the first head
+/// vtium reaches in a turn, then on the second.
 #[test]
-fn a_head_restarting_too_fast_gives_up_alone_and_vtium_exits_after_every_head() {
-    let gave_up = |a: &App, name: &str| {
-        a.head(name)
-            .and_then(Head::notice)
-            .is_some_and(|n| n.contains("as soon as it started"))
-    };
-    let mut s = logins(&[], "exit 1", "echo large; read x");
-    assert!(
-        s.until(Duration::from_secs(3), |a| gave_up(a, "small")),
-        "small gave up"
-    );
-    s.until(Duration::from_millis(200), |_| false);
-    assert_eq!(s.app.finished(), None, "large's runs on");
-    assert!(head_shows(&s.app, "large", "large"));
-    let mut both = logins(&[], "exit 1", "exit 1");
-    assert!(
-        both.until(Duration::from_secs(3), |a| a.finished().is_some()),
-        "every head gave up"
-    );
-    assert_eq!(both.app.finished(), Some(vtium::app::Exit::TooQuick));
-    assert_eq!(both.app.finished().map(vtium::app::Exit::status), Some(1));
+fn a_head_restarting_too_fast_ends_vtium_and_hangs_up_every_head() {
+    for (looping, other) in [("small", "large"), ("large", "small")] {
+        let dir = std::env::temp_dir().join(format!(
+            "vtium-heads-crash-loop-{}-{looping}",
+            std::process::id()
+        ));
+        let mut s = crash_loop(&dir, looping);
+        let finished = s.until(Duration::from_secs(3), |a| a.finished().is_some());
+        let marks = [dir.join("hup-1"), dir.join("hup-2")];
+        let hung_up = finished && s.until(SECOND, |_| marks.iter().all(|m| m.exists()));
+        let marked = marks.iter().map(|m| m.exists()).collect::<Vec<_>>();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(finished, "{looping}'s crash loop ended vtium");
+        assert_eq!(
+            consoles(&s.app, other).map(|(n, _)| n),
+            Some(2),
+            "{other} has a hidden console"
+        );
+        assert_eq!(s.app.finished(), Some(vtium::app::Exit::TooQuick));
+        assert_eq!(s.app.finished().map(vtium::app::Exit::status), Some(1));
+        assert!(
+            hung_up,
+            "the exit hung up both of {other}'s consoles, shown and hidden: {marked:?}"
+        );
+        assert_eq!(
+            s.app.head(looping).and_then(Head::notice),
+            None,
+            "no notice on {looping}"
+        );
+    }
 }
 
 /// D1: a zoom changes the grid of the console shown alone; each console
@@ -1758,18 +1801,10 @@ input class:mouse -> focus
 /// The operator's answers (2026-10-30), with the team lead's steering of
 /// 2026-10-30: a head whose display never lit has nothing left to run, so
 /// it holds up no exit. With the large display unplugged, the small
-/// head's login failing too quickly ends vtium for the getty fallback, and
-/// under `oneshot` its program ending ends vtium.
+/// head's program ending under `oneshot` ends vtium.
 #[test]
 fn a_head_that_never_lit_holds_up_no_exit() {
     let small = || [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
-    let mut quick = logins_on(&[], "exit 1", "read x", small());
-    assert!(
-        quick.until(Duration::from_secs(3), |a| a.finished().is_some()),
-        "the small head gave up, and the large never lit"
-    );
-    assert_eq!(quick.app.finished(), Some(vtium::app::Exit::TooQuick));
-    assert_eq!(quick.app.head("large").map(Head::started), Some(false));
     let mut once = logins_on(&["--oneshot"], "echo bye", "read x", small());
     assert!(
         once.until(Duration::from_secs(3), |a| a.finished().is_some()),
