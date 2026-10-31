@@ -17,6 +17,8 @@
 use vtium_render::{Depth, Mark, Orientation};
 use vtium_term::WidthMethod;
 
+use vtium::config::keys::{SCHEMES, Scheme};
+
 use crate::draw::{DecoSpec, Decorations, FontKind, Overlay, Screen, TestFont, Words};
 use crate::notices;
 
@@ -388,6 +390,18 @@ const OSD_SHELL: &[u8] = concat!(
 )
 .as_bytes();
 
+/// The same shell session on a light terminal, OSC 11's white behind
+/// OSC 10's dark grey, for the light color scheme (ADR-1401 D5).
+const OSD_SHELL_LIGHT: &[u8] = concat!(
+    "\x1b]10;rgb:1f/29/33\x1b\\\x1b]11;rgb:ff/ff/ff\x1b\\",
+    "desk login: pi\r\n",
+    "Password:\r\n",
+    "pi@desk:~$ ls\r\n",
+    "\x1b[1;34mbin\x1b[0m  notes.txt  \x1b[1;32mrun.sh\x1b[0m\r\n",
+    "pi@desk:~$ ",
+)
+.as_bytes();
+
 /// A longer shell session for the overlay screens at their two display
 /// sizes, so text shows beneath the tallest box and below it.
 const OVERLAY_SHELL: &[u8] = concat!(
@@ -433,6 +447,30 @@ const fn large(name: &'static str, desc: &'static str, overlay: Overlay) -> Case
             },
             overlay: Some(overlay),
             ..Screen::new(name, desc, OVERLAY_SHELL, 160, 10)
+        },
+        source: Source::Vtium,
+        ported: None,
+    }
+}
+
+/// One of the example configuration's other color schemes (ADR-1401 D5)
+/// on `overlay`, over the shell session `bytes` in unifont, 100 by 8
+/// cells: the width of the operator's small panel and the top of it,
+/// where the bars are.
+const fn scheme(
+    name: &'static str,
+    desc: &'static str,
+    bytes: &'static [u8],
+    overlay: Overlay,
+    scheme: &'static Scheme,
+) -> Case {
+    Case {
+        screen: Screen {
+            overlay: Some(Overlay {
+                scheme: Some(scheme),
+                ..overlay
+            }),
+            ..Screen::new(name, desc, bytes, 100, 8)
         },
         source: Source::Vtium,
         ported: None,
@@ -1108,4 +1146,46 @@ pub const CASES: &[Case] = &[
         OSD_MINIMAL_NOTICE,
     ),
     large("notices-four-3840x540", NOTICES_FOUR_DESC, shown(FOUR)),
+    scheme(
+        "scheme-light-notice",
+        "The example configuration's `light` color scheme (ADR-1401 D5) on the notice that no keyboard was found, with the on-screen display's dot under `osd = minimal`, over a shell session on a light terminal, OSC 11's white behind OSC 10's dark grey. Correct: a pale red `#fecaca` box with a red `#b91c1c` edge across the top, the width of the display, holding the notice in dark red `#450a0a`; the filled circle in dark `#1f2933` on pale grey `#f3f4f6` over the top-right cell, at the box's top right; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them, dark on white.",
+        OSD_SHELL_LIGHT,
+        OSD_MINIMAL_NOTICE,
+        &SCHEMES[0],
+    ),
+    scheme(
+        "scheme-light-osd",
+        "The example configuration's `light` color scheme (ADR-1401 D5) on the on-screen display's line under `osd = full`, over the same session on a light terminal. Correct: a pale grey `#f3f4f6` box with a grey `#9ca3af` edge across the top, the width of the display, holding `● desk · console 2 of 3` in dark `#1f2933`; the row just below the box partly covered, on purpose; and the rows below it as the terminal drew them, dark on white.",
+        OSD_SHELL_LIGHT,
+        OSD_FULL,
+        &SCHEMES[0],
+    ),
+    scheme(
+        "scheme-dark-notice",
+        "The example configuration's `dark` color scheme (ADR-1401 D5) on the notice that no keyboard was found, with the on-screen display's dot under `osd = minimal`, over a shell session. Correct: a deep red `#7f1d1d` box with a light red `#f87171` edge across the top, the width of the display, holding the notice in pale `#fee2e2`; the filled circle in light grey `#d1d5db` on near black `#111827` over the top-right cell, at the box's top right; the row just below the box partly covered, on purpose; and the rows below it as the terminal drew them.",
+        OSD_SHELL,
+        OSD_MINIMAL_NOTICE,
+        &SCHEMES[1],
+    ),
+    scheme(
+        "scheme-dark-osd",
+        "The example configuration's `dark` color scheme (ADR-1401 D5) on the on-screen display's line under `osd = full`, over a shell session. Correct: a near black `#111827` box with a grey `#4b5563` edge across the top, the width of the display, holding `● desk · console 2 of 3` in light grey `#d1d5db`; the row just below the box partly covered, on purpose; and the rows below it as the terminal drew them.",
+        OSD_SHELL,
+        OSD_FULL,
+        &SCHEMES[1],
+    ),
+    scheme(
+        "scheme-color-blind-safe-notice",
+        "The example configuration's `color-blind-safe` color scheme (ADR-1401 D5) on the notice that no keyboard was found, with the on-screen display's dot under `osd = minimal`, over a shell session. Correct: a bright orange `#ffb000` box with a darker orange `#fe6100` edge across the top, the width of the display, holding the notice in near black `#1c1917`; the filled circle in near white `#eef2ff` on dark blue `#0b2a5b` over the top-right cell, at the box's top right; the row just below the box partly covered, on purpose; and the rows below it as the terminal drew them.",
+        OSD_SHELL,
+        OSD_MINIMAL_NOTICE,
+        &SCHEMES[2],
+    ),
+    scheme(
+        "scheme-color-blind-safe-osd",
+        "The example configuration's `color-blind-safe` color scheme (ADR-1401 D5) on the on-screen display's line under `osd = full`, over a shell session. Correct: a dark blue `#0b2a5b` box with a blue `#648fff` edge across the top, the width of the display, holding `● desk · console 2 of 3` in near white `#eef2ff`; the row just below the box partly covered, on purpose; and the rows below it as the terminal drew them.",
+        OSD_SHELL,
+        OSD_FULL,
+        &SCHEMES[2],
+    ),
 ];

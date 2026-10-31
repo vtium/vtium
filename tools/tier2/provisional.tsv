@@ -39,3 +39,9 @@ osd-minimal-other-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by 
 osd-full-notice-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
 osd-minimal-notice-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
 notices-four-3840x540	ADR-1401 D5, D7: a message bar vtium draws, drawn by vtium, not yet reviewed
+scheme-light-notice	ADR-1401 D5: one of the example configuration's other color schemes, drawn by vtium, not yet reviewed
+scheme-light-osd	ADR-1401 D5: one of the example configuration's other color schemes, drawn by vtium, not yet reviewed
+scheme-dark-notice	ADR-1401 D5: one of the example configuration's other color schemes, drawn by vtium, not yet reviewed
+scheme-dark-osd	ADR-1401 D5: one of the example configuration's other color schemes, drawn by vtium, not yet reviewed
+scheme-color-blind-safe-notice	ADR-1401 D5: one of the example configuration's other color schemes, drawn by vtium, not yet reviewed
+scheme-color-blind-safe-osd	ADR-1401 D5: one of the example configuration's other color schemes, drawn by vtium, not yet reviewed
