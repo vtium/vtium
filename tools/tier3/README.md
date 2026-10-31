@@ -45,7 +45,7 @@ The image pins live in the Makefile, and the guest's package list in `guest/user
 
 `make install-tree DESTDIR=D` stages vtium as a system installs it, with vtium-vitrify beside it. `make tier3` and `make tier3-minimal` build it into `target/tier3/install`, emptied first, under the run lock.
 
-`FEATURES='...'` on make's command line names the vtium crate's features the tree's console is built with, such as `images` or `logind`, separated by spaces or commas. With none, the default, the tree is the minspec tree. A FEATURES exported in the shell is ignored. The tier 3 targets pass the list to `t3.py run --features`, which builds the tree with it and records it in the report; for `make tier3-run`, FEATURES names the features the tree was built with. The size budget judges the minspec tree alone (Size, below).
+`FEATURES='...'` on make's command line names the vtium crate's features the tree's console is built with, such as `images` or `logind`, separated by spaces or commas. With none, the default, the tree is the minspec tree. A FEATURES exported in the shell is ignored. The tier 3 targets pass the list to `t3.py run --features`, which builds the tree with it and records it in the report. The run that builds `target/tier3/install` also writes `target/tier3/run/tree.json`, the tree's features and digest, and removes it first, so a failed build leaves none. `make tier3-run` on that tree reads its features from there, and refuses a FEATURES that differs, a tree with no record, and a tree whose digest is not the recorded one. `make tier3-run TREE=DIR` runs a tree built elsewhere, which has no record, with the features FEATURES declares, none by default. The size budget judges the minspec tree alone (Size, below).
 
 | Path | From |
 |---|---|

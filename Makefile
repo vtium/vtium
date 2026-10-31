@@ -277,11 +277,15 @@ T3_ARCHIVE      := 2026/10/20
 # What a report records it measured and ran on: this checkout's commit, with
 # +dirty for uncommitted changes, and the guest's pins.
 T3_REV = $(shell git rev-parse --short HEAD 2>/dev/null)$(if $(shell git status --porcelain --untracked-files=no 2>/dev/null),+dirty)
-# FEATURES names the features the tree's console is built with, or was
-# built with for tier3-run; the budget judges a tree built without any.
+# FEATURES, when make's command line names it, even empty, names the
+# features the tree's console is built with, or was built with for
+# tier3-run; the budget judges a tree built without any. tier3-run on the
+# last run's tree takes them from that run's record and refuses a FEATURES
+# that differs.
+T3_FEATURES = $(if $(filter command line,$(origin FEATURES)),--features '$(strip $(FEATURES))')
 T3_RUN = T3_VTIUM_REV=$(T3_REV) T3_IMAGE=$(T3_IMAGE) T3_IMAGE_SHA256=$(T3_IMAGE_SHA256) \
 	T3_ARCHIVE=$(T3_ARCHIVE) $(T3_PY) $(T3_DIR)/t3.py run --jobs $(JOBS) \
-	--deadline $(T3_DEADLINE) --features '$(strip $(FEATURES))'
+	--deadline $(T3_DEADLINE) $(T3_FEATURES)
 
 .PHONY: tier3-image
 tier3-image: ## Fetch, verify and provision tier 3's guest image, unless the cache holds one built from the same inputs (T3_IMAGES=DIR)
@@ -307,7 +311,7 @@ tier3-provenance: ## Check tools/tier3's copies against their sources with git (
 	$(T3_PY) $(T3_DIR)/t3.py provenance --kmscon $(KMSCON)
 
 .PHONY: tier3-run
-tier3-run: ## Tier 3 on a tree built already: the last run's, or TREE=DIR (VARIANTS=, JOBS= as for tier3; FEATURES= the tree was built with)
+tier3-run: ## Tier 3 on a tree built already: the last run's, or TREE=DIR (VARIANTS=, JOBS= as for tier3; FEATURES= the TREE was built with)
 	$(T3_RUN) $(if $(TREE),--tree $(TREE)) $(VARIANTS)
 
 # Tier 3 on the guest without systemd (tools/tier3/README.md, docs/systemd.md):
@@ -332,7 +336,7 @@ tier3-image-nosystemd: ## Fetch, verify and provision tier 3's guest without sys
 tier3-nosystemd: tier3-image-nosystemd ## Tier 3 on the guest without systemd: vtium under sysvinit, without udev, and its power keys
 	T3_VTIUM_REV=$(T3_REV) T3_IMAGE=$(T3SV_IMAGE) T3_IMAGE_SHA256=$(T3SV_IMAGE_SHA256) \
 		T3_ARCHIVE=$(T3SV_SNAPSHOT) $(T3_PY) $(T3_DIR)/t3.py run --jobs $(JOBS) \
-		--deadline $(T3_DEADLINE) --features '$(strip $(FEATURES))' --tree-target install-tree $(or $(VARIANTS),sysvinit-640x480 sysvinit-no-udev sysvinit-reboot sysvinit-restart sysvinit-power-off)
+		--deadline $(T3_DEADLINE) $(T3_FEATURES) --tree-target install-tree $(or $(VARIANTS),sysvinit-640x480 sysvinit-no-udev sysvinit-reboot sysvinit-restart sysvinit-power-off)
 
 # AGENTS.md's gate line, one gate per line, in its order; make test-tools
 # fails when the two differ (check-gate-line).

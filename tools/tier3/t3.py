@@ -26,8 +26,11 @@ worker process.
                                           DESTDIR=target/tier3/install, under the run lock
     t3.py run --tree DIR                  install the tree at DIR, built already
     t3.py run --features LIST             the vtium features the tree's console is built
-                                          with, or was built with for --tree; the size
-                                          budget judges a tree built without any
+                                          with (default none), or was built with for
+                                          --tree DIR; the size budget judges a tree built
+                                          without any. On the last run's tree, they are
+                                          read from what that run recorded, and a LIST
+                                          that differs is refused
     t3.py provenance --kmscon DIR         check each row of provenance.tsv against its
                                           source in the kmscon checkout DIR, read with
                                           git; a review step, never a gate
@@ -39,6 +42,7 @@ import argparse
 import base64
 import fcntl
 import hashlib
+import json
 import os
 import shutil
 import signal
@@ -209,10 +213,16 @@ def run(args, log):
         if errors:
             raise SystemExit("\n".join(errors))
         tree = args.tree or TREE
-        features = feature_list(args.features)
+        declared = None if args.features is None else feature_list(args.features)
         if args.tree_target:
+            features = declared or []
             build_tree(args.tree_target, tree, features, log)
-        impl = t3_impl.tree(tree, features=features)
+            impl = t3_impl.tree(tree, features=features)
+            record_tree(impl)
+        elif args.tree:
+            impl = t3_impl.tree(tree, features=declared or [])
+        else:
+            impl = recorded_tree(tree, declared)
         impl["features"] = build_features(variants, log)
         impl["fonts"] = build_fonts(variants, log)
         log("tree: %s, binary %d B, %s installed"
@@ -243,14 +253,49 @@ def build_tree(target, tree, features, log):
     """Stage the tree afresh with make `target` DESTDIR=`tree`
     FEATURES=`features`, so nothing an earlier build left in it is
     installed. FEATURES is always given, so the tree is built with these
-    features alone, whatever make's own command line named."""
+    features alone, whatever make's own command line named. The record of
+    the tree it replaces goes first, so a failed build leaves none."""
     log("building the tree: make %s DESTDIR=%s FEATURES=%s"
         % (target, rel(tree), " ".join(features)))
+    if os.path.lexists(t3_common.TREE_RECORD):
+        os.unlink(t3_common.TREE_RECORD)
     shutil.rmtree(tree, ignore_errors=True)
     r = subprocess.run(["make", "--no-print-directory", target, "DESTDIR=" + tree,
                         "FEATURES=" + " ".join(features)], cwd=ROOT)
     if r.returncode:
         raise SystemExit("make %s failed with exit code %d" % (target, r.returncode))
+
+
+def record_tree(impl):
+    """Write TREE_RECORD for the tree `impl` describes, built by this run:
+    the features its console was built with and its digest."""
+    os.makedirs(os.path.dirname(t3_common.TREE_RECORD), exist_ok=True)
+    with open(t3_common.TREE_RECORD, "w") as f:
+        json.dump({"tree_sha256": impl["tree_sha256"], "features": impl["tree_features"]}, f)
+        f.write("\n")
+
+
+def recorded_tree(tree, declared):
+    """The last run's tree at `tree`, with the features that run recorded
+    (TREE_RECORD). A tree with no record, or one whose digest is not the
+    recorded one, is refused, as are `declared` features, when given, that
+    differ from the recorded ones."""
+    try:
+        with open(t3_common.TREE_RECORD) as f:
+            record = json.load(f)
+    except FileNotFoundError:
+        raise SystemExit("no record of the features the tree at %s was built with; make tier3 "
+                         "or make tier3-minimal builds a tree and records them, and TREE=DIR "
+                         "runs a tree with the features FEATURES declares" % rel(tree))
+    if declared is not None and declared != record["features"]:
+        raise SystemExit("the tree at %s was built with %s, and FEATURES names %s"
+                         % (rel(tree), " ".join(record["features"]) or "no features",
+                            " ".join(declared) or "none"))
+    impl = t3_impl.tree(tree, features=record["features"])
+    if impl["tree_sha256"] != record["tree_sha256"]:
+        raise SystemExit("the tree at %s is not the one the run that built it recorded; make "
+                         "tier3 or make tier3-minimal builds it afresh" % rel(tree))
+    return impl
 
 
 def build_features(variants, log):
@@ -375,10 +420,11 @@ def main(argv=None):
                         "first, into %s" % rel(TREE))
     r.add_argument("--tree", metavar="DIR",
                    help="the install tree to run, built already (default %s)" % rel(TREE))
-    r.add_argument("--features", default="", metavar="LIST",
+    r.add_argument("--features", metavar="LIST",
                    help="the vtium features the tree's console is built with, or was built "
                         "with for --tree, separated by commas or spaces (default none, the "
-                        "minspec tree, which alone the size budget judges)")
+                        "minspec tree, which alone the size budget judges); on the last "
+                        "run's tree, checked against what that run recorded")
     r.add_argument("variants", nargs="*", help="any of: " + ", ".join(t3_scenario.VARIANTS))
     args = ap.parse_args(argv)
     unknown = set(getattr(args, "variants", [])) - set(t3_scenario.VARIANTS)

@@ -430,16 +430,23 @@ class ImplementationTest(unittest.TestCase):
                 self.assertEqual(len(lines), 1)
                 self.assertNotIn("--features", lines[0])
         # the tier 3 targets hand the same list to t3.py, which builds the
-        # tree with it and judges the budget by it
+        # tree with it and judges the budget by it, and hand none when make's
+        # command line names none, so tier3-run reads the last run's record
         for goal in ("tier3-run", "tier3", "tier3-minimal", "tier3-nosystemd"):
-            with self.subTest(goal):
-                r = subprocess.run(["make", "-n", "--no-print-directory", goal,
-                                    "FEATURES=images"], cwd=t3_common.ROOT,
-                                   capture_output=True, text=True, check=True, env=bare)
-                lines = r.stdout.replace("\\\n", " ").splitlines()
-                runs = [l for l in lines if "/t3.py run " in l]
-                self.assertEqual(len(runs), 1)
-                self.assertRegex(runs[0], r" --features 'images'( |$)")
+            for argv, env, want in ((["FEATURES=images"], {}, r" --features 'images'( |$)"),
+                                    (["FEATURES="], {}, r" --features ''( |$)"),
+                                    ([], {"FEATURES": "images"}, None), ([], {}, None)):
+                with self.subTest(goal=goal, argv=argv, env=env):
+                    r = subprocess.run(["make", "-n", "--no-print-directory", goal] + argv,
+                                       cwd=t3_common.ROOT, capture_output=True, text=True,
+                                       check=True, env=dict(bare, **env))
+                    lines = r.stdout.replace("\\\n", " ").splitlines()
+                    runs = [l for l in lines if "/t3.py run " in l]
+                    self.assertEqual(len(runs), 1)
+                    if want:
+                        self.assertRegex(runs[0], want)
+                    else:
+                        self.assertNotIn("--features", runs[0])
 
     def test_refused(self):
         # No tree, a file in its place, or a tree without the binary or the
@@ -755,7 +762,7 @@ class ImplementationTest(unittest.TestCase):
         with mock.patch.object(t3, "run", side_effect=lambda args, log: args) as run:
             args = t3.main(["run", "--tree", "a", "2d-potato-min"])
         self.assertEqual((args.tree, args.tree_target, args.features, args.variants),
-                         ("a", None, "", ["2d-potato-min"]))
+                         ("a", None, None, ["2d-potato-min"]))
         self.assertTrue(run.called)
         # --features names them as cargo takes them, by commas or spaces
         for text, want in (("", []), ("images", ["images"]), ("logind,images", ["images", "logind"]),
@@ -923,6 +930,109 @@ class ProvenanceTest(unittest.TestCase):
                 mock.patch.object(t3, "build_tree", side_effect=AssertionError("built")):
             with self.assertRaisesRegex(SystemExit, "c/2d-potato-min/sgr.png differs"):
                 t3.run(args, LOG)
+
+    class Stop(Exception):
+        """Raised where the run would start its variants."""
+
+    def run_tree(self, **given):
+        """t3.run on 2d-potato-min with `given` arguments, up to the point it
+        starts the variants, in a scratch target/tier3: the tree is TREE,
+        make writes it, and the variants are not run. Returns the impl the
+        variants would get, or raises what run raised."""
+        out = os.path.join(self.root, "tier3")
+        args = argparse.Namespace(variants=["2d-potato-min"], tree=None, features=None,
+                                  tree_target=None, jobs=1, deadline=1)
+        vars(args).update(given)
+        base = os.path.join(self.root, "base.qcow2")
+        write_tree(self.root, {"base.qcow2": ""})
+        tree = os.path.join(out, "install")
+        seen = {}
+
+        def make(argv, cwd):
+            destdir = [a for a in argv if a.startswith("DESTDIR=")][0][len("DESTDIR="):]
+            write_tree(destdir, ImplementationTest.TREE)
+            return subprocess.CompletedProcess(argv, 0)
+
+        def variants(names, jobs, impl, deadline, log):
+            seen["impl"] = impl
+            raise self.Stop
+
+        with mock.patch.dict(t3_scenario.GUESTS["arch"], base=base), \
+                mock.patch.object(t3_runner, "raise_on_sigterm", lambda log: None), \
+                mock.patch.object(t3_runner, "run_lock", contextlib.nullcontext), \
+                mock.patch.object(t3, "preflight", lambda log: []), \
+                mock.patch.object(t3, "TREE", tree), \
+                mock.patch.object(t3_common, "TREE_RECORD", os.path.join(out, "run", "tree.json")), \
+                mock.patch.object(t3_impl, "RUNDIR", os.path.join(out, "run")), \
+                mock.patch.object(t3.subprocess, "run", side_effect=make), \
+                mock.patch.object(t3, "build_tree", wraps=t3.build_tree) as build, \
+                mock.patch.object(t3, "build_features", lambda variants, log: {}), \
+                mock.patch.object(t3, "build_fonts", lambda variants, log: None), \
+                mock.patch.object(t3_runner, "run_variants", side_effect=variants):
+            try:
+                t3.run(args, LOG)
+            except self.Stop:
+                pass
+        self.built = [c.args[2] for c in build.call_args_list]
+        return seen["impl"]
+
+    def test_run_builds_the_tree_with_its_features(self):
+        # run() hands --features to the build, and the tree the variants get
+        # is described with them, so the budget does not judge it.
+        impl = self.run_tree(tree_target="install-tree", features="logind,images")
+        self.assertEqual(self.built, [["images", "logind"]])
+        self.assertEqual(t3_impl.describe(impl)["features"], ["images", "logind"])
+        self.assertIsNone(t3_impl.describe(impl)["budget"])
+        # without --features the tree is the minspec tree, which it judges
+        impl = self.run_tree(tree_target="install-tree")
+        self.assertEqual(self.built, [[]])
+        self.assertEqual(t3_impl.describe(impl)["features"], [])
+        self.assertIsNotNone(t3_impl.describe(impl)["budget"])
+
+    def test_run_on_the_last_tree_reads_its_features(self):
+        # tier3-run on the last run's tree takes the features that run
+        # recorded and builds nothing; a --features that differs is refused,
+        # either way, and one that agrees is accepted.
+        self.run_tree(tree_target="install-tree", features="images")
+        for given in ({}, {"features": "images"}):
+            with self.subTest(given):
+                impl = self.run_tree(**given)
+                self.assertEqual(self.built, [])
+                self.assertEqual(t3_impl.describe(impl)["features"], ["images"])
+                self.assertIsNone(t3_impl.describe(impl)["budget"])
+        with self.assertRaisesRegex(SystemExit, "built with images, and FEATURES names none"):
+            self.run_tree(features="")
+        self.run_tree(tree_target="install-tree")
+        self.assertEqual(t3_impl.describe(self.run_tree())["features"], [])
+        with self.assertRaisesRegex(SystemExit, "built with no features, and FEATURES names "
+                                                "images"):
+            self.run_tree(features="images")
+        # a tree changed since its run, or one with no record, is refused
+        write_tree(os.path.join(self.root, "tier3", "install"), {"usr/share/doc/y": "new"})
+        with self.assertRaisesRegex(SystemExit, "is not the one the run that built it recorded"):
+            self.run_tree()
+        os.unlink(os.path.join(self.root, "tier3", "run", "tree.json"))
+        with self.assertRaisesRegex(SystemExit, "no record of the features the tree at"):
+            self.run_tree()
+        # a build that fails leaves no record of the tree it replaced
+        self.run_tree(tree_target="install-tree", features="images")
+        with mock.patch.object(t3.subprocess, "run",
+                               return_value=subprocess.CompletedProcess([], 2)), \
+                mock.patch.object(t3_common, "TREE_RECORD",
+                                  os.path.join(self.root, "tier3", "run", "tree.json")):
+            with self.assertRaisesRegex(SystemExit, "failed with exit code 2"):
+                t3.build_tree("install-tree", os.path.join(self.root, "tier3", "install"), [],
+                              LOG)
+        self.assertFalse(os.path.exists(os.path.join(self.root, "tier3", "run", "tree.json")))
+
+    def test_run_on_a_named_tree_takes_its_features_as_declared(self):
+        # TREE=DIR: a tree built elsewhere carries no record; its features
+        # are the ones --features declares, none by default.
+        named = os.path.join(self.root, "named")
+        write_tree(named, ImplementationTest.TREE)
+        self.assertEqual(t3_impl.describe(self.run_tree(tree=named))["features"], [])
+        impl = self.run_tree(tree=named, features="images")
+        self.assertEqual((self.built, t3_impl.describe(impl)["features"]), ([], ["images"]))
 
     def git(self, repo, *args):
         return subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t",
