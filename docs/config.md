@@ -109,6 +109,6 @@ The example carries these schemes for the six color keys, commented out, for col
 
 | Scheme | What it is | `notice-foreground` | `notice-background` | `notice-border` | `osd-foreground` | `osd-background` | `osd-border` |
 |---|---|---|---|---|---|---|---|
-| `light` | Both boxes are light, for a light terminal background: a notice is pale red with dark red text and a red edge, and the on-screen display pale grey with dark text and a grey edge. | `69,10,10` | `254,202,202` | `185,28,28` | `31,41,51` | `243,244,246` | `156,163,175` |
+| `light` | For a light terminal background: the on-screen display is a pale grey box with dark text and a grey edge, and a notice a dark red box with white text and a darker edge, so a problem differs from a status in brightness as well as in hue. | `255,255,255` | `153,27,27` | `69,10,10` | `31,41,51` | `243,244,246` | `156,163,175` |
 | `dark` | Both boxes are dark, for a dark terminal background: a notice is deep red with pale text and a light red edge, and the on-screen display near black with light grey text and a grey edge. | `254,226,226` | `127,29,29` | `248,113,113` | `209,213,219` | `17,24,39` | `75,85,99` |
 | `color-blind-safe` | For color blindness, a problem differs from a status in brightness and in an orange and blue pair, never in red against green: a notice is a bright orange box with near-black text, and the on-screen display a dark blue box with near-white text. | `28,25,23` | `255,176,0` | `254,97,0` | `238,242,255` | `11,42,91` | `100,143,255` |

@@ -1148,7 +1148,7 @@ pub const CASES: &[Case] = &[
     large("notices-four-3840x540", NOTICES_FOUR_DESC, shown(FOUR)),
     scheme(
         "scheme-light-notice",
-        "The example configuration's `light` color scheme (ADR-1401 D5) on the notice that no keyboard was found, with the on-screen display's dot under `osd = minimal`, over a shell session on a light terminal, OSC 11's white behind OSC 10's dark grey. Correct: a pale red `#fecaca` box with a red `#b91c1c` edge across the top, the width of the display, holding the notice in dark red `#450a0a`; the filled circle in dark `#1f2933` on pale grey `#f3f4f6` over the top-right cell, at the box's top right; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them, dark on white.",
+        "The example configuration's `light` color scheme (ADR-1401 D5) on the notice that no keyboard was found, with the on-screen display's dot under `osd = minimal`, over a shell session on a light terminal, OSC 11's white behind OSC 10's dark grey. Correct: a dark red `#991b1b` box with a darker `#450a0a` edge across the top, the width of the display, holding the notice in white `#ffffff`; the filled circle in dark `#1f2933` on pale grey `#f3f4f6` over the top-right cell, at the box's top right; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them, dark on white.",
         OSD_SHELL_LIGHT,
         OSD_MINIMAL_NOTICE,
         &SCHEMES[0],

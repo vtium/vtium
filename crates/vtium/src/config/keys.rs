@@ -315,8 +315,8 @@ pub struct Scheme {
 pub const SCHEMES: [Scheme; 3] = [
     Scheme {
         name: "light",
-        what: "Both boxes are light, for a light terminal background: a notice is pale red with dark red text and a red edge, and the on-screen display pale grey with dark text and a grey edge.",
-        notice: [[69, 10, 10], [254, 202, 202], [185, 28, 28]],
+        what: "For a light terminal background: the on-screen display is a pale grey box with dark text and a grey edge, and a notice a dark red box with white text and a darker edge, so a problem differs from a status in brightness as well as in hue.",
+        notice: [[255, 255, 255], [153, 27, 27], [69, 10, 10]],
         osd: [[31, 41, 51], [243, 244, 246], [156, 163, 175]],
     },
     Scheme {

@@ -54,10 +54,10 @@
 ## the start of its six lines. vtium draws whatever colors are set and
 ## checks no contrast between a text and its box.
 
-## light: Both boxes are light, for a light terminal background: a notice is pale red with dark red text and a red edge, and the on-screen display pale grey with dark text and a grey edge.
-#notice-foreground=69,10,10
-#notice-background=254,202,202
-#notice-border=185,28,28
+## light: For a light terminal background: the on-screen display is a pale grey box with dark text and a grey edge, and a notice a dark red box with white text and a darker edge, so a problem differs from a status in brightness as well as in hue.
+#notice-foreground=255,255,255
+#notice-background=153,27,27
+#notice-border=69,10,10
 #osd-foreground=31,41,51
 #osd-background=243,244,246
 #osd-border=156,163,175
