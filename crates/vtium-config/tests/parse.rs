@@ -437,7 +437,7 @@ fn the_records_example_file_is_valid_and_reads_every_key() {
     );
     assert_eq!(c.rules[0].target, Target::Head(0));
     assert_eq!(c.rules[4].target, Target::Head(1));
-    assert_eq!(c.rules[5].target, Target::Focus);
+    assert_eq!(c.rules[5].target, Target::Roaming);
     assert_eq!(
         c.rules[6].matcher,
         Match::All(vec![Token::Udev {

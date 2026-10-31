@@ -117,7 +117,7 @@ fn roaming_ignore_and_off_are_the_targets_and_the_reserved_names() {
         .expect("valid")
         .config;
     let targets: Vec<_> = c.rules.iter().map(|r| r.target).collect();
-    assert_eq!(targets, [Target::Focus, Target::Dark]);
+    assert_eq!(targets, [Target::Roaming, Target::Off]);
     for name in ["roaming", "ignore", "off"] {
         assert!(
             matches!(
@@ -208,14 +208,14 @@ fn a_heads_keys_take_their_words() {
         .config
         .heads
         .iter()
-        .map(|h| (h.isolated, h.rescue, h.when_display_lost))
+        .map(|h| (h.isolated, h.when_display_lost))
         .collect();
     assert_eq!(
         got,
         [
-            (Some(true), false, WhenDisplayLost::Keep),
-            (Some(false), true, WhenDisplayLost::HangupAfter(300)),
-            (None, true, WhenDisplayLost::Keep),
+            (Some(true), WhenDisplayLost::Keep),
+            (Some(false), WhenDisplayLost::HangupAfter(300)),
+            (None, WhenDisplayLost::Keep),
         ]
     );
     assert!(matches!(

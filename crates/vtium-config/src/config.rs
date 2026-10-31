@@ -49,11 +49,8 @@ pub struct Head {
     pub login: Option<String>,
     pub when_display_lost: WhenDisplayLost,
     /// `isolated` as the file writes it, `None` for unset, which the
-    /// policy decides (D5).
+    /// policy decides (D5); [`Config::isolated`] reads it.
     pub isolated: Option<bool>,
-    /// Whether the rescue key may take the keyboards this head claims: off
-    /// for a head the file writes `isolated = yes` (D9).
-    pub rescue: bool,
 }
 
 impl Head {
@@ -66,7 +63,6 @@ impl Head {
             login: None,
             when_display_lost: WhenDisplayLost::Keep,
             isolated: None,
-            rescue: true,
         }
     }
 
@@ -89,12 +85,12 @@ pub enum Target {
     /// The head at this index of [`Config::heads`].
     Head(usize),
     /// `roaming`: an input that types into the active head.
-    Focus,
+    Roaming,
     /// `ignore`: an input vtium never opens, but a keyboard watched for
     /// the rescue key alone.
     Ignore,
     /// `off`: a display vtium sets off.
-    Dark,
+    Off,
 }
 
 /// One rule of `[rules]`.
@@ -106,35 +102,21 @@ pub struct Rule {
     pub target: Target,
 }
 
-/// The guards placement runs (D9). No line of the head file sets them:
-/// each is on, as under `policy = open`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Guards {
-    pub anti_lockout: bool,
-    pub rescue_key: bool,
-    pub never_dark: bool,
-}
-
-impl Default for Guards {
-    fn default() -> Guards {
-        Guards {
-            anti_lockout: true,
-            rescue_key: true,
-            never_dark: true,
-        }
-    }
-}
-
 /// What a head file runs: a valid file, or what survives of one.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Config {
-    /// `closed` where a `policy = closed` line is readable, else `open`.
+    /// `closed` where a `policy = closed` line is readable, else `open`;
+    /// it sets the guards and what the rules leave unsaid (D3, D9).
     pub policy: Policy,
     /// The heads in the file's order.
     pub heads: Vec<Head>,
     /// The rules in the file's order, which each device walks.
     pub rules: Vec<Rule>,
-    pub guards: Guards,
+    /// Whether this is what survives of a file with errors (D7): under
+    /// open the shipped rules' tail runs after its rules and no head is
+    /// isolated, and under closed the display guard lights the boot display
+    /// for a notice when no head is left.
+    pub survivors: bool,
 }
 
 impl Config {

@@ -832,5 +832,5 @@ fn the_shipped_rules_close_inputs_an_open_file_gives_the_focus() {
     let joystick = Identity::input().with_class(Class::Joystick);
     assert_eq!(Config::builtin().walk(&joystick).place, Place::Ignore);
     let open = parse("version = 1\n").map(|p| p.config).unwrap_or_default();
-    assert_eq!(open.walk(&joystick).place, Place::Focus);
+    assert_eq!(open.walk(&joystick).place, Place::Roaming);
 }

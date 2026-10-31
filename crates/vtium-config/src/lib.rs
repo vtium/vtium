@@ -37,7 +37,7 @@
 //! let text = "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n";
 //! let config = parse(text).map(|p| p.config).unwrap_or_default();
 //! let keyboard = Identity::input().with_class(Class::Keyboard);
-//! assert_eq!(config.walk(&keyboard).place, Place::Focus);
+//! assert_eq!(config.walk(&keyboard).place, Place::Roaming);
 //! ```
 
 mod bounds;
@@ -55,7 +55,7 @@ pub use bounds::{
     CONSOLES_MAX, ERRORS_MAX, FILE_MAX, HEADS_MAX, LINE_MAX, NAME_MAX, QUOTE_MAX, RULES_MAX,
     TOKENS_MAX,
 };
-pub use config::{Config, Font, Guards, Head, Rule, TEMPLATE, Target, WhenDisplayLost};
+pub use config::{Config, Font, Head, Rule, TEMPLATE, Target, WhenDisplayLost};
 pub use error::{At, Error, Note, Problem, Quoted, Rejected, Renamed, Syntax, Warning, at};
 pub use file::{HEAD_FILE, Inspected, Trust, Untrusted, inspect, read, text};
 pub use identity::{Class, Classes, Edid, Identity, Kind, UsbSerial};

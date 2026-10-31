@@ -603,11 +603,7 @@ impl Parser {
                 "isolated" => {
                     let [yes, no] = YES_NO;
                     match value {
-                        v if v == yes || v == no => {
-                            let isolated = v == yes;
-                            head.isolated = Some(isolated);
-                            head.rescue = !isolated;
-                        }
+                        v if v == yes || v == no => head.isolated = Some(v == yes),
                         _ => problem = Some(bad()),
                     }
                 }
@@ -673,9 +669,9 @@ impl Parser {
                 self.error(Some(n), Problem::Renamed(Renamed::Dark), Within::Rules);
                 return;
             }
-            ("roaming", _) => Aim::Fixed(Target::Focus),
+            ("roaming", _) => Aim::Fixed(Target::Roaming),
             ("ignore", _) => Aim::Fixed(Target::Ignore),
-            ("off", _) => Aim::Fixed(Target::Dark),
+            ("off", _) => Aim::Fixed(Target::Off),
             (name, _) => Aim::Name(name.to_owned()),
         };
         self.rules.push(Read {
@@ -777,6 +773,7 @@ impl Parser {
             Parsed {
                 config: Config {
                     policy,
+                    survivors: true,
                     ..Config::default()
                 },
                 ..Parsed::default()
@@ -786,7 +783,7 @@ impl Parser {
                 policy,
                 heads,
                 rules,
-                ..Config::default()
+                survivors: !self.errors.is_empty(),
             };
             findings(config, self.warnings)
         };

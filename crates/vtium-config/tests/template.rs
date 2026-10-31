@@ -3,7 +3,7 @@
 //! template states the shipped rules.
 
 use vtium_config::{
-    Class, Config, Guards, Kind, Match, Policy, TEMPLATE, Target, Token, WhenDisplayLost, parse,
+    Class, Config, Kind, Match, Policy, TEMPLATE, Target, Token, WhenDisplayLost, parse,
 };
 
 #[test]
@@ -30,27 +30,20 @@ fn the_compiled_in_configuration_is_the_parse_of_the_template() {
     assert_eq!(head.login, None);
     assert_eq!(head.when_display_lost, WhenDisplayLost::Keep);
     assert_eq!(head.isolated, None);
-    assert!(head.rescue);
     assert_eq!(config.policy, Policy::Open);
-    assert_eq!(
-        config.guards,
-        Guards {
-            anti_lockout: true,
-            rescue_key: true,
-            never_dark: true,
-        }
-    );
+    assert!(!config.isolated(0));
+    assert!(!config.survivors);
 
     let class = |c| Match::All(vec![Token::Class(c)]);
     let want = [
         (Kind::Display, Match::Any, Target::Head(0)),
-        (Kind::Input, class(Class::Keyboard), Target::Focus),
-        (Kind::Input, class(Class::Mouse), Target::Focus),
-        (Kind::Input, class(Class::Touchpad), Target::Focus),
-        (Kind::Input, class(Class::Touchscreen), Target::Focus),
-        (Kind::Input, class(Class::Trackball), Target::Focus),
-        (Kind::Input, class(Class::Pointingstick), Target::Focus),
-        (Kind::Input, class(Class::Key), Target::Focus),
+        (Kind::Input, class(Class::Keyboard), Target::Roaming),
+        (Kind::Input, class(Class::Mouse), Target::Roaming),
+        (Kind::Input, class(Class::Touchpad), Target::Roaming),
+        (Kind::Input, class(Class::Touchscreen), Target::Roaming),
+        (Kind::Input, class(Class::Trackball), Target::Roaming),
+        (Kind::Input, class(Class::Pointingstick), Target::Roaming),
+        (Kind::Input, class(Class::Key), Target::Roaming),
         (Kind::Input, Match::Any, Target::Ignore),
     ];
     let got: Vec<_> = config
