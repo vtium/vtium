@@ -26,7 +26,7 @@ use drm_ffi::{
 use rustix::io::Errno;
 
 use super::edid::Edid;
-use super::kms::{Connector, Encoder, Kms, Object, Property, Request, Resources};
+use super::kms::{Connector, CrtcEvent, Encoder, Kms, Object, Property, Request, Resources};
 use super::mode::{self, Mode, ModePolicy};
 use super::{
     Ages, Canvas, Damage, DarkPolicy, Density, DisplayId, Dpms, Event, Identity, Rect, SwapError,
@@ -126,7 +126,8 @@ pub struct Drm2d<K: Kms> {
     /// displays, and that was logged as a warning.
     dark_refused: bool,
     waiting: Option<Waiting>,
-    /// A flip's event was lost, and that was logged as a warning.
+    /// A flip's or a vblank's event was lost, and that was logged as a
+    /// warning; the next event the card delivers clears it.
     lost_flip: bool,
     /// The blank powered every display down, and no input has come since:
     /// every display online was set to a DPMS state other than on, with
@@ -281,7 +282,8 @@ impl<K: Kms> Drm2d<K> {
                 .is_some_and(|p| p.damage)
     }
 
-    /// Whether a frame swapped is still waiting to reach the screen.
+    /// Whether a frame swapped is still waiting to reach the screen, or a
+    /// frame the card refused as busy waits for the display's next vblank.
     pub fn is_flipping(&self, id: DisplayId) -> bool {
         self.output(id).is_some_and(|o| o.flipping)
     }
@@ -456,7 +458,26 @@ impl<K: Kms> Drm2d<K> {
             sent
         };
         if let Err(e) = sent {
-            if errno(&e) != Some(Errno::BUSY) {
+            if errno(&e) == Some(Errno::BUSY) {
+                // Another commit holds the CRTC while vtium knows of no flip
+                // of its own in flight: a commit vtium does not track, or a
+                // flip of vtium's that the bound took as done while the
+                // kernel still had it. When the first lands, the kernel sends
+                // vtium no event. The display's next vblank stands in for
+                // that event: it is waited for as a flip in flight is, and
+                // the owner draws again after it.
+                match self.card.wait_vblank(o.pipe) {
+                    Ok(()) => {
+                        o.start_flip();
+                        o.vblank = true;
+                    }
+                    // A card with no vblank interrupt refuses the wait with
+                    // EOPNOTSUPP, and nothing then asks for the frame again
+                    // until the next draw (vtium/vtium#176).
+                    Err(v) => log::debug!("cannot wait for the next vblank of {}: {v}", o.name),
+                }
+                self.settle();
+            } else {
                 log::warn!("cannot flip {}: {e}", o.name);
             }
             return Err(e.into());
@@ -849,31 +870,44 @@ impl<K: Kms> Drm2d<K> {
         scanned
     }
 
-    /// Reads the card's events: the page flips completed.
+    /// Reads the card's events: the page flips completed and the vblanks
+    /// passed.
     pub fn dispatch(&mut self) -> io::Result<()> {
-        let mut flipped = Vec::new();
-        let read = self.card.read_events(&mut flipped);
-        for crtc in flipped {
-            self.flipped(crtc);
+        let mut events = Vec::new();
+        let read = self.card.read_events(&mut events);
+        // The card delivers events again, so the next one lost warns.
+        if !events.is_empty() {
+            self.lost_flip = false;
+        }
+        for e in events {
+            match e {
+                CrtcEvent::Flipped(crtc) => self.flipped(crtc, true),
+                CrtcEvent::Vblank(crtc) => self.flipped(crtc, false),
+            }
         }
         self.resolve();
         self.settle();
         read
     }
 
-    /// A flip's event arrived. One that comes after its flip was taken as
-    /// done still tells the owner it may draw, as a swap tried meanwhile
-    /// was busy.
-    fn flipped(&mut self, crtc: u32) {
+    /// A flip's event arrived, with `frame`, or the vblank a refused
+    /// commit waits for passed. A flip's event that comes after its flip
+    /// was taken as done still tells the owner it may draw, as a swap tried
+    /// meanwhile was busy. A vblank ends only the wait for it, and shows
+    /// no frame, so the owner is told nothing; it draws again at the turn
+    /// the vblank's event wakes.
+    fn flipped(&mut self, crtc: u32, frame: bool) {
         let ready = self.awake && self.waiting.is_none();
         match self.outputs.iter_mut().find(|o| o.crtc == crtc) {
             Some(o) => {
-                o.flipping = false;
-                if o.announced && ready {
+                if std::mem::take(&mut o.vblank) || frame {
+                    o.flipping = false;
+                }
+                if frame && o.announced && ready {
                     self.events.push(Event::Flipped(o.id));
                 }
             }
-            None => log::debug!("a page flip on CRTC {crtc}, which drives no display"),
+            None => log::debug!("an event for CRTC {crtc}, which drives no display"),
         }
     }
 
@@ -887,16 +921,21 @@ impl<K: Kms> Drm2d<K> {
         if !o.flipping {
             return;
         }
+        let (frame, event) = if o.vblank {
+            (false, "vblank")
+        } else {
+            (true, "page flip")
+        };
         if std::mem::replace(&mut self.lost_flip, true) {
-            log::debug!("no page flip event for {}; taking the flip as done", o.name);
+            log::debug!("no {event} event for {}; taking the flip as done", o.name);
         } else {
             log::warn!(
-                "no page flip event for {} within {} ms; taking the flip as done",
+                "no {event} event for {} within {} ms; taking the flip as done",
                 o.name,
                 crate::FLIP_WAIT_MS
             );
         }
-        self.flipped(crtc);
+        self.flipped(crtc, frame);
         self.resolve();
         self.settle();
     }
@@ -1160,6 +1199,7 @@ impl<K: Kms> Drm2d<K> {
             id: DisplayId(conn.id),
             name,
             crtc,
+            pipe: crtc_index,
             planes,
             mode: choice.current,
             mm,
@@ -1178,6 +1218,7 @@ impl<K: Kms> Drm2d<K> {
             online: false,
             redraw: false,
             flipping: false,
+            vblank: false,
             flips: 0,
             flip_timer: None,
             available: true,

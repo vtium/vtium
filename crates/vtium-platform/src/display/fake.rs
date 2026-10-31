@@ -13,7 +13,11 @@
 //! leaves in the state, as `drm_atomic_set_crtc_for_connector` does. What
 //! a commit sets is what the card reports after it: a connector's encoder
 //! and that encoder's CRTC, and a CRTC's mode, as the kernel's getters
-//! read them back.
+//! read them back. A wait for a CRTC's next vblank is refused with EINVAL
+//! where the CRTC is not active, and with EOPNOTSUPP on a card with no
+//! vblank interrupt. Its event comes when a test says the vblank passed,
+//! or at once when the CRTC stops being active, as `drm_crtc_vblank_off`
+//! sends the events still waiting.
 //!
 //! A framebuffer removed while a plane shows it takes the plane off its
 //! CRTC (`atomic_remove_fb`). What happens to the CRTC depends on the
@@ -59,7 +63,7 @@ use drm_ffi::{
 use rustix::io::Errno;
 
 use super::Mode;
-use super::kms::{Connector, Dumb, Encoder, Kms, Object, Property, Request, Resources};
+use super::kms::{Connector, CrtcEvent, Dumb, Encoder, Kms, Object, Property, Request, Resources};
 
 pub(crate) const PRIMARY: u64 = 1;
 pub(crate) const CURSOR: u64 = 2;
@@ -171,7 +175,13 @@ pub(crate) struct State {
     pub(crate) pending: Vec<u32>,
     /// Flips complete without their events, as a driver that loses them.
     pub(crate) lose_flips: bool,
-    pub(crate) completed: Vec<u32>,
+    /// The CRTCs whose next vblank was asked for, and the events read
+    /// next: the flips completed and the vblanks passed.
+    pub(crate) vblanks: Vec<u32>,
+    /// The card has no vblank interrupt, as virtio-gpu, udl and simpledrm
+    /// have none: a wait for a vblank is refused with EOPNOTSUPP.
+    pub(crate) no_vblank: bool,
+    pub(crate) completed: Vec<CrtcEvent>,
     pub(crate) blobs: BTreeMap<u32, Vec<u8>>,
     pub(crate) dumbs: BTreeMap<u32, (u32, u32)>,
     pub(crate) fbs: BTreeMap<u32, (u32, u32)>,
@@ -200,6 +210,20 @@ pub(crate) enum RemoveFb {
 }
 
 impl State {
+    /// Ends each wait for the vblank of a CRTC that is no longer active,
+    /// as `drm_crtc_vblank_off` does: its event is read next. Says whether
+    /// any ended.
+    fn vblank_off(&mut self) -> bool {
+        let (off, on): (Vec<u32>, Vec<u32>) = std::mem::take(&mut self.vblanks)
+            .into_iter()
+            .partition(|c| !self.active.get(c).copied().unwrap_or(false));
+        self.vblanks = on;
+        let ended = !off.is_empty();
+        self.completed
+            .extend(off.into_iter().map(CrtcEvent::Vblank));
+        ended
+    }
+
     /// Puts connector `conn` on `crtc`, or on none when 0, as the card
     /// reports it afterwards: the connector's encoder, and that encoder's
     /// CRTC.
@@ -500,7 +524,32 @@ impl FakeCard {
         if !pending.is_empty() {
             let _ = (&self.events.1).write(b"e");
         }
-        s.completed.extend(pending);
+        s.completed
+            .extend(pending.into_iter().map(CrtcEvent::Flipped));
+    }
+
+    /// The next vblank passes: each wait for it is reported, and nothing
+    /// else, as each flip pending stays pending.
+    pub(crate) fn vblank(&self) {
+        let mut s = self.state.borrow_mut();
+        let waits = std::mem::take(&mut s.vblanks);
+        if !waits.is_empty() {
+            self.wake();
+        }
+        s.completed.extend(waits.into_iter().map(CrtcEvent::Vblank));
+    }
+
+    /// Makes the descriptor the loop watches readable.
+    fn wake(&self) {
+        let _ = (&self.events.1).write(b"e");
+    }
+
+    /// Ends the waits of each CRTC that is no longer active, and wakes the
+    /// loop for their events.
+    fn vblank_off(&self, s: &mut State) {
+        if s.vblank_off() {
+            self.wake();
+        }
     }
 
     /// The commits that were not test-only.
@@ -814,6 +863,7 @@ impl Kms for FakeCard {
                 }
             }
         }
+        self.vblank_off(&mut s);
         Ok(())
     }
 
@@ -970,6 +1020,7 @@ impl Kms for FakeCard {
         if event {
             s.pending.extend(crtcs);
         }
+        self.vblank_off(&mut s);
         Ok(())
     }
 
@@ -1005,6 +1056,7 @@ impl Kms for FakeCard {
         s.crtc_modes.remove(&crtc);
         s.active.insert(crtc, false);
         s.enabled.insert(crtc, false);
+        self.vblank_off(&mut s);
         Ok(())
     }
 
@@ -1034,14 +1086,35 @@ impl Kms for FakeCard {
         if let Some(&crtc) = s.bound.get(&connector) {
             s.active.insert(crtc, value == 0);
         }
+        self.vblank_off(&mut s);
         Ok(())
     }
 
-    fn read_events(&self, flipped: &mut Vec<u32>) -> io::Result<()> {
+    /// Refused with EOPNOTSUPP on a card with no vblank interrupt
+    /// (`drm_wait_vblank_ioctl`), and with EINVAL for a CRTC that is not
+    /// active, whose vblank interrupt is off (`drm_queue_vblank_event`).
+    fn wait_vblank(&self, index: usize) -> io::Result<()> {
+        let mut s = self.state.borrow_mut();
+        if s.no_vblank {
+            return Err(err(Errno::OPNOTSUPP));
+        }
+        let crtc = s
+            .crtcs
+            .get(index)
+            .copied()
+            .ok_or_else(|| err(Errno::INVAL))?;
+        if !s.active.get(&crtc).copied().unwrap_or(false) {
+            return Err(err(Errno::INVAL));
+        }
+        s.vblanks.push(crtc);
+        Ok(())
+    }
+
+    fn read_events(&self, events: &mut Vec<CrtcEvent>) -> io::Result<()> {
         let mut drained = [0u8; 64];
         let mut watched = UnixStream::from(self.events.0.try_clone()?);
         while watched.read(&mut drained).is_ok_and(|n| n > 0) {}
-        flipped.append(&mut self.state.borrow_mut().completed);
+        events.append(&mut self.state.borrow_mut().completed);
         Ok(())
     }
 
