@@ -113,10 +113,8 @@ pub struct Head {
     /// The configuration its consoles' command is read from: kmscon.conf's
     /// with the head's own `login` over it.
     pub(crate) login: Option<Config>,
-    /// Its last console's program ended under `oneshot`, so the head runs
-    /// no session any more.
-    pub(crate) ended: bool,
-    /// What the head shows once its session has ended, from the catalog.
+    /// What the head shows while its shown console's session has ended,
+    /// from the catalog.
     pub(crate) ended_notice: String,
     /// vtium's notices to the head (ADR-1401 D7), each once and at most
     /// [`NOTICES_MAX`], the oldest going first, until a key reaches the
@@ -301,7 +299,6 @@ impl Head {
             configured: (points, auto_size),
             wanted: 1,
             login: None,
-            ended: false,
             ended_notice: crate::notice::session_ended(),
             notices: Vec::new(),
             shown: String::new(),
@@ -383,6 +380,12 @@ impl Head {
         self.consoles().any(Console::started)
     }
 
+    /// Whether every console's program ended under `oneshot`, so the head
+    /// runs no session any more (ADR-1401 D1).
+    pub(crate) fn ended(&self) -> bool {
+        self.consoles().all(|c| c.ended)
+    }
+
     /// The head's consoles, the shown one first.
     pub(crate) fn consoles(&self) -> impl Iterator<Item = &Console> {
         std::iter::once(&self.console).chain(&self.hidden)
@@ -416,10 +419,11 @@ impl Head {
             .then_some((self.pointer.x, self.pointer.y))
     }
 
-    /// What vtium shows on the head of its own: why its session ended
-    /// for good, else its notices.
+    /// What vtium shows on the head of its own: that the shown console's
+    /// session ended for good, else its notices.
     pub fn notice(&self) -> Option<&str> {
-        self.ended
+        self.console
+            .ended
             .then_some(self.ended_notice.as_str())
             .or_else(|| (!self.shown.is_empty()).then_some(self.shown.as_str()))
     }
@@ -565,38 +569,6 @@ impl Head {
         let back = console::hidden_index(self.at, to).min(self.hidden.len());
         self.hidden.insert(back, old);
         self.at = to;
-    }
-
-    /// Opens `console` at the ring's end and shows it.
-    pub(crate) fn push(&mut self, console: Console, visible: bool) {
-        self.hidden.push(console);
-        self.show(self.hidden.len(), visible);
-    }
-
-    /// Takes the shown console out and shows the next, the ring's first
-    /// after the last; `None`, changing nothing, when it is the only one.
-    pub(crate) fn close_shown(&mut self, visible: bool) -> Option<Console> {
-        if self.hidden.is_empty() {
-            return None;
-        }
-        let next = if self.at < self.hidden.len() {
-            self.at
-        } else {
-            0
-        };
-        let new = self.hidden.remove(next);
-        let old = self.swap_shown(new, visible);
-        self.at = next;
-        Some(old)
-    }
-
-    /// Takes the hidden console `id` out.
-    pub(crate) fn remove_hidden(&mut self, id: u64) -> Option<Console> {
-        let k = self.hidden.iter().position(|c| c.id == id)?;
-        if k < self.at {
-            self.at = self.at.saturating_sub(1);
-        }
-        Some(self.hidden.remove(k))
     }
 
     /// The text of the shown console's screen rows, for tests and logs.
@@ -1212,7 +1184,7 @@ mod tests {
             head.add_notice(&format!("n{n}"));
         }
         assert_eq!(head.notice(), Some("n2\nn3\nn4\nn5"));
-        head.ended = true;
+        head.console.ended = true;
         head.notice_due = Some(Instant::now());
         head.end_notices();
         assert_eq!(

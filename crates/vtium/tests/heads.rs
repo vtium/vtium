@@ -1061,6 +1061,16 @@ fn claimed() -> Seat {
 
 /// [`claimed`], booted with `args`.
 fn claimed_with(args: &[&str]) -> Seat {
+    claimed_on(args, CLAIMED)
+}
+
+/// [`CLAIMED`] with head small's `consoles` set to `n`.
+fn claimed_consoles(n: usize) -> String {
+    CLAIMED.replace("[head small]\n", &format!("[head small]\nconsoles = {n}\n"))
+}
+
+/// [`claimed`], booted with `args` on the head file `heads`.
+fn claimed_on(args: &[&str], heads: &str) -> Seat {
     let displays = [
         ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
         (
@@ -1068,7 +1078,7 @@ fn claimed_with(args: &[&str]) -> Seat {
             Memory::new(640, 320, "MEM-2", "mem-large").lit(),
         ),
     ];
-    let mut s = Seat::with_heads(args, Some(CLAIMED), displays, ECHO);
+    let mut s = Seat::with_heads(args, Some(heads), displays, ECHO);
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
     s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
     s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
@@ -1210,13 +1220,15 @@ fn claim_keyboards(s: &mut Seat) {
     s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
 }
 
-/// vtium/vtium#167 and D5: each console's session is told its head and the
-/// console's own id, distinct in every console of every head; the id is
-/// not the console's place in the ring, so after a console closes the one
-/// left keeps its id and a console opened next takes a new one.
+/// vtium/vtium#167, D1 and D5: each console's session is told its head
+/// and the console's own id, distinct in every console of every head.
+/// Under respawn a console whose program exits starts it again in the same
+/// console, from a hard reset, and the console keeps its id: the head
+/// keeps its two consoles, the shown one stays shown, and the other head
+/// is untouched.
 // covers: platform.heads
 #[test]
-fn each_console_is_told_its_head_and_its_own_id_through_a_close() {
+fn each_console_is_told_its_head_and_its_own_id_through_a_restart() {
     let script = "echo \"is:$VTIUM_HEAD:$VTIUM_CONSOLE\"; \
                   while read a; do [ \"$a\" = q ] && exit; done";
     let mut s = two_consoles(script);
@@ -1235,31 +1247,27 @@ fn each_console_is_told_its_head_and_its_own_id_through_a_close() {
         told(&s.app, "large"),
         [line("is:large:1"), line("is:large:2")]
     );
+    let typed = |a: &App| head_shows(a, "small", "typed");
+    s.type_on(KBD_SMALL, "typed\r");
+    assert!(s.until(SECOND, typed));
     s.type_on(KBD_SMALL, "q\r");
+    // The line typed goes only with the hard reset of the restart.
     assert!(
-        s.until(SECOND, |a| consoles(a, "small") == Some((1, 0))),
-        "the first console closed"
+        s.until(SECOND, |a| !typed(a)
+            && head_shows(a, "small", "is:small:1")),
+        "the first console's program started again"
     );
+    assert_eq!(consoles(&s.app, "small"), Some((2, 0)), "in its place");
     assert_eq!(
         told(&s.app, "small"),
-        [line("is:small:2")],
-        "2 keeps its id"
-    );
-    s.app
-        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
-    assert!(
-        s.until(SECOND, |a| told(a, "small").iter().all(Option::is_some)
-            && told(a, "small").len() == 2)
-    );
-    assert_eq!(
-        told(&s.app, "small"),
-        [line("is:small:2"), line("is:small:3")],
-        "a new console takes a new id, never the place 2 left"
+        [line("is:small:1"), line("is:small:2")],
+        "1 keeps its id"
     );
     assert_eq!(
         told(&s.app, "large"),
         [line("is:large:1"), line("is:large:2")]
     );
+    assert!(s.app.finished().is_none());
 }
 
 /// vtium/vtium#167 and D5: focus reporting is the signal of a console
@@ -1338,46 +1346,59 @@ fn consoles(app: &App, name: &str) -> Option<(usize, usize)> {
         .map(|h| (h.console_count(), h.shown_console()))
 }
 
-/// #82 and the operator's chords (2026-10-30): Ctrl-Super-Return opens a
-/// console in the head the keyboard delivers to and shows it,
-/// Ctrl-Super-Right and Ctrl-Super-Left show the next and the previous,
-/// wrapping, and Ctrl-Super-Backspace closes the shown one and shows the
-/// next. Each console is a session of its own; the other head's consoles
-/// stay as they were.
+/// #82, D1 and D5: a head has the consoles its `consoles` gives it from
+/// its start. Ctrl-Super-Right and Ctrl-Super-Left show the next and the
+/// previous, wrapping, each console a session with its own screen, and no
+/// chord opens or closes one: Ctrl-Super-Return and Ctrl-Super-Backspace
+/// reach the shown console's session as the keys Return and Backspace.
+/// The other head's console stays as it was.
+// covers: platform.heads
 #[test]
-fn the_console_chords_open_switch_and_close_a_heads_consoles() {
-    let mut s = claimed();
+fn the_console_chords_switch_a_heads_consoles_and_open_or_close_none() {
+    let mut s = claimed_on(&[], &claimed_consoles(3));
+    assert_eq!(
+        consoles(&s.app, "small"),
+        Some((3, 0)),
+        "three from the start"
+    );
     let chord = |s: &mut Seat, keysym: u32| {
         s.app
             .device_input(Path::new(KBD_SMALL), ctrl_super(keysym), now());
         s.until(Duration::from_millis(50), |_| false);
     };
+    s.type_on(KBD_SMALL, "one\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:one")));
+    chord(&mut s, RIGHT);
+    assert_eq!(consoles(&s.app, "small"), Some((3, 1)));
+    assert!(!head_shows(&s.app, "small", "got:one"), "its own screen");
+    s.type_on(KBD_SMALL, "two");
     chord(&mut s, RETURN);
-    assert_eq!(consoles(&s.app, "small"), Some((2, 1)), "opened and shown");
-    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
-    s.type_on(KBD_SMALL, "two\r");
-    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:two")));
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", "got:two")),
+        "Return reached the session"
+    );
+    assert_eq!(consoles(&s.app, "small"), Some((3, 1)), "none opened");
+    s.type_on(KBD_SMALL, "threx");
+    chord(&mut s, BACKSPACE);
+    s.type_on(KBD_SMALL, "e\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", "got:three")),
+        "Backspace reached the session"
+    );
+    assert_eq!(consoles(&s.app, "small"), Some((3, 1)), "none closed");
+    chord(&mut s, RIGHT);
+    assert_eq!(consoles(&s.app, "small"), Some((3, 2)));
     chord(&mut s, RIGHT);
     assert_eq!(
         consoles(&s.app, "small"),
-        Some((2, 0)),
+        Some((3, 0)),
         "wraps to the first"
     );
-    assert!(!head_shows(&s.app, "small", "got:two"), "its own screen");
-    s.type_on(KBD_SMALL, "one\r");
-    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:one")));
+    assert!(head_shows(&s.app, "small", "got:one"));
     chord(&mut s, LEFT);
-    assert_eq!(consoles(&s.app, "small"), Some((2, 1)));
-    assert!(head_shows(&s.app, "small", "got:two"));
-    chord(&mut s, BACKSPACE);
-    assert_eq!(consoles(&s.app, "small"), Some((1, 0)), "closed");
-    assert!(head_shows(&s.app, "small", "got:one"), "the next shows");
-    chord(&mut s, BACKSPACE);
-    assert_eq!(
-        consoles(&s.app, "small"),
-        Some((1, 0)),
-        "the last console is not closed"
-    );
+    assert_eq!(consoles(&s.app, "small"), Some((3, 2)), "wraps to the last");
+    chord(&mut s, LEFT);
+    assert!(head_shows(&s.app, "small", "got:three"));
     assert_eq!(consoles(&s.app, "large"), Some((1, 0)));
 }
 
@@ -1385,24 +1406,23 @@ fn the_console_chords_open_switch_and_close_a_heads_consoles() {
 /// Left Ctrl, then Left Super, then the key `code` (evdev's), each press
 /// an event with the modifiers as they then stand; the releases make
 /// none. Each event is the built-in keymap's and the system keymap's
-/// alike, `unicode` the key's character, Return's and Backspace's
-/// control characters.
-fn pressed_chord(code: u32, keysym: u32, unicode: Option<char>) -> [InputEvent; 3] {
-    let press = |code: u32, mods: Mods, keysym: u32, unicode: Option<char>| {
+/// alike, with no character, as for the arrow keys.
+fn pressed_chord(code: u32, keysym: u32) -> [InputEvent; 3] {
+    let press = |code: u32, mods: Mods, keysym: u32| {
         InputEvent::Key(KeyEvent {
             keycode: code + 8,
             ascii: 0,
             mods,
             keysyms: vec![keysym],
-            codepoints: vec![unicode],
+            codepoints: vec![None],
             repeat: false,
         })
     };
     let ctrl_super = Mods::CTRL.union(Mods::LOGO);
     [
-        press(29, Mods::CTRL, 0xffe3, None),
-        press(125, ctrl_super, 0xffeb, None),
-        press(code, ctrl_super, keysym, unicode),
+        press(29, Mods::CTRL, 0xffe3),
+        press(125, ctrl_super, 0xffeb),
+        press(code, ctrl_super, keysym),
     ]
 }
 
@@ -1463,20 +1483,30 @@ fn drawn_alone(line: &str) -> [Vec<u8>; 2] {
     drawn_now(&mut s)
 }
 
-/// The maintainer's VT review (2026-10-30): with no head file, so one
-/// head on two mirrored displays, Ctrl-Super-Right, Ctrl-Super-Left and
-/// Ctrl-Super-Backspace, pressed as a keyboard sends them, switch the
-/// shown console at once, and the frame of the turn that took the keys
-/// draws the console now shown on both displays, pixel for pixel as a
-/// seat that never switched draws that screen. The only wait after a
-/// chord is for that frame to come back from the head's render thread.
+/// One head of two consoles on both displays of [`two_displays`],
+/// mirrored, as the compiled-in configuration's one head mirrors them.
+const MIRRORED_TWO: &str = "version = 1
+[head console]
+consoles = 2
+[rules]
+display card:mem-small -> console
+display card:mem-large -> console
+";
+
+/// The maintainer's VT review (2026-10-30): one head of two consoles on
+/// two mirrored displays. Ctrl-Super-Right and Ctrl-Super-Left, pressed
+/// as a keyboard sends them, switch the shown console at once, and the
+/// frame of the turn that took the keys draws the console now shown on
+/// both displays, pixel for pixel as a seat of one console that never
+/// switched draws that screen. The only wait after a chord is for that
+/// frame to come back from the head's render thread.
 #[test]
 fn the_console_chords_draw_the_console_they_show() {
     const KBD: &str = "/dev/input/event0";
     let one = drawn_alone("one");
     let two = drawn_alone("two");
     assert_ne!(one, two, "the two screens draw apart");
-    let mut s = Seat::boot(&["--no-blink"], two_displays(), ECHO);
+    let mut s = Seat::with_heads(&["--no-blink"], Some(MIRRORED_TWO), two_displays(), ECHO);
     s.app.add_input(Path::new(KBD), keyboard("kbd"));
     assert!(s.until(SECOND, |a| a.cells().len() == 2 && shows(a, "ready")));
     let shown = |s: &Seat| {
@@ -1486,12 +1516,7 @@ fn the_console_chords_draw_the_console_they_show() {
             .map(|h| (h.console_count(), h.shown_console()))
     };
     let press = |s: &mut Seat, code: u32, keysym: u32| {
-        let unicode = match keysym {
-            RETURN => Some('\r'),
-            BACKSPACE => Some('\u{8}'),
-            _ => None,
-        };
-        for event in pressed_chord(code, keysym, unicode) {
+        for event in pressed_chord(code, keysym) {
             s.app.device_input(Path::new(KBD), event, now());
         }
     };
@@ -1509,24 +1534,18 @@ fn the_console_chords_draw_the_console_they_show() {
     s.type_on(KBD, "one\r");
     assert!(s.until(SECOND, |a| answered(a, "one")));
     assert!(drawn_now(&mut s) == one, "the first console");
-    press(&mut s, 28, RETURN);
-    assert_eq!(shown(&s), Some((2, 1)), "Return opens and shows");
+    press(&mut s, 106, RIGHT);
+    assert_eq!(shown(&s), Some((2, 1)), "Right shows the second");
     assert!(s.until(SECOND, |a| shows(a, "ready")));
     s.type_on(KBD, "two\r");
     assert!(s.until(SECOND, |a| answered(a, "two")));
-    assert!(drawn_now(&mut s) == two, "the new console");
+    assert!(drawn_now(&mut s) == two, "the second console");
     let (state, frame) = chord(&mut s, 106, RIGHT);
     assert_eq!(state, Some((2, 0)), "Right wraps to the first");
     assert!(frame == one, "Right's frame draws the first console");
     let (state, frame) = chord(&mut s, 105, LEFT);
     assert_eq!(state, Some((2, 1)), "Left wraps to the second");
     assert!(frame == two, "Left's frame draws the second console");
-    let (state, frame) = chord(&mut s, 14, BACKSPACE);
-    assert_eq!(state, Some((1, 0)), "Backspace closes it");
-    assert!(
-        frame == one,
-        "Backspace's frame draws the console shown next"
-    );
 }
 
 /// D3 and D10: a head starts the consoles its file asks for, at most 4 a
@@ -1569,24 +1588,106 @@ display card:mem-c -> c
     );
 }
 
-/// The operator's answers (2026-10-30): a console whose program exits
-/// while others stay open closes, and the head shows its next console.
+/// D1, pending the operator's read (ADR-1401's item 1): under respawn a
+/// hidden console whose program exits starts it again in its place, and
+/// the head keeps showing the console it showed. The hidden console's
+/// program exits once, at its first start.
+// covers: platform.heads
 #[test]
-fn a_console_exiting_shows_the_heads_next_console() {
-    let mut s = claimed();
-    s.app
-        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
-    assert!(s.until(SECOND, |a| consoles(a, "small") == Some((2, 1))
-        && head_shows(a, "small", "ready")));
+fn under_respawn_a_hidden_consoles_program_starts_again_in_its_place() {
+    let dir = std::env::temp_dir().join(format!("vtium-heads-hidden-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the marks' directory");
+    let script = format!(
+        "d={d}; echo $VTIUM_CONSOLE >> $d/starts; \
+         if [ $VTIUM_CONSOLE = 2 ] && [ ! -e $d/once ]; then : > $d/once; exit 0; fi; \
+         echo ready; while read a; do echo \"got:$a\"; done",
+        d = dir.display()
+    );
+    let mut s = Seat::with_heads(&[], Some(&claimed_consoles(2)), two_displays(), &script);
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    let starts = || -> Vec<String> {
+        let mut lines: Vec<String> = std::fs::read_to_string(dir.join("starts"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        lines.sort();
+        lines
+    };
+    let started = s.until(Duration::from_secs(3), |_| starts().len() == 4);
+    let seen = starts();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(started, "small's two, large's one, and 2 again: {seen:?}");
+    assert_eq!(seen, ["1", "1", "2", "2"], "2 started again as 2");
+    assert_eq!(
+        consoles(&s.app, "small"),
+        Some((2, 0)),
+        "the first still shown"
+    );
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
     s.type_on(KBD_SMALL, "x\r");
     assert!(s.until(SECOND, |a| head_shows(a, "small", "got:x")));
+}
+
+/// D1, pending the operator's read (ADR-1401's item 1): under `oneshot` a
+/// console whose program exits ends and keeps its place. The head shows
+/// that the shown console's session ended, its other console still runs
+/// and is shown by the chord with no notice, and the head ends only when
+/// that one has ended too. vtium runs on while large runs.
+// covers: platform.heads
+#[test]
+fn under_oneshot_a_console_whose_program_exits_ends_in_its_place() {
+    let mut s = claimed_on(&["--oneshot"], &claimed_consoles(2));
     s.type_on(KBD_SMALL, "q\r");
     assert!(
-        s.until(SECOND, |a| consoles(a, "small") == Some((1, 0))),
-        "the console closed"
+        s.until(SECOND, |a| notice(a, "small").as_deref() == Some(ENDED)),
+        "the shown console's session ended"
     );
-    assert!(!head_shows(&s.app, "small", "got:x"), "the first shows");
-    assert!(s.app.finished().is_none());
+    assert_eq!(consoles(&s.app, "small"), Some((2, 0)), "in its place");
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RIGHT), now());
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)));
+    assert_eq!(notice(&s.app, "small"), None, "the second runs");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
+    s.type_on(KBD_SMALL, "x\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:x")));
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(LEFT), now());
+    assert_eq!(
+        notice(&s.app, "small").as_deref(),
+        Some(ENDED),
+        "still ended"
+    );
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RIGHT), now());
+    s.type_on(KBD_SMALL, "q\r");
+    assert!(s.until(SECOND, |a| notice(a, "small").as_deref() == Some(ENDED)));
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)));
+    s.until(Duration::from_millis(200), |_| false);
+    assert_eq!(s.app.finished(), None, "large runs on");
+    s.type_on(KBD_LARGE, "q\r");
+    assert!(
+        s.until(SECOND, |a| a.finished() == Some(vtium::app::Exit::Oneshot)),
+        "every head ended"
+    );
+}
+
+/// D1, pending the operator's read (ADR-1401's item 1): every console
+/// starts again, so a crash loop counts the quick exits of any console of
+/// any head. A hidden console's program that keeps exiting at once, in a
+/// head whose shown console runs on, makes vtium exit with status 1.
+// covers: platform.heads
+#[test]
+fn a_hidden_consoles_crash_loop_ends_the_run() {
+    let script = "if [ \"$VTIUM_HEAD:$VTIUM_CONSOLE\" = small:2 ]; then exit 1; fi; read x";
+    let mut s = Seat::with_heads(&[], Some(&claimed_consoles(2)), two_displays(), script);
+    assert!(
+        s.until(Duration::from_secs(3), |a| a.finished().is_some()),
+        "the crash loop ended vtium"
+    );
+    assert_eq!(s.app.finished(), Some(vtium::app::Exit::TooQuick));
+    assert_eq!(consoles(&s.app, "small").map(|(n, _)| n), Some(2));
 }
 
 /// Two heads whose consoles run the head file's own `login`: small runs
@@ -1732,12 +1833,12 @@ fn a_head_restarting_too_fast_ends_vtium_and_hangs_up_every_head() {
 /// keeps its own grid, which shows again with it.
 #[test]
 fn a_zoom_changes_the_grid_of_the_console_shown_alone() {
-    let mut s = claimed();
+    let mut s = claimed_on(&[], &claimed_consoles(2));
     let key = |s: &mut Seat, event: InputEvent| {
         s.app.device_input(Path::new(KBD_SMALL), event, now());
         s.until(Duration::from_millis(50), |_| false);
     };
-    key(&mut s, ctrl_super(RETURN));
+    key(&mut s, ctrl_super(RIGHT));
     let equal = InputEvent::Key(KeyEvent {
         mods: Mods::CTRL,
         ..char_key('=')
@@ -1813,28 +1914,6 @@ fn a_head_that_never_lit_holds_up_no_exit() {
     assert_eq!(once.app.finished(), Some(vtium::app::Exit::Oneshot));
 }
 
-/// A head that ended runs no session, so Ctrl-Super-Return opens no
-/// console in it.
-#[test]
-fn an_ended_head_opens_no_console() {
-    let heads = "version = 1
-[head small]
-login = /bin/sh -c \"echo bye\"
-[head large]
-[rules]
-display card:mem-small -> small
-display card:mem-large -> large
-input path:kbd-small -> small
-";
-    let mut s = Seat::with_heads(&["--oneshot"], Some(heads), two_displays(), "read x");
-    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
-    assert!(s.until(SECOND, |a| a.head("small").and_then(Head::notice).is_some()));
-    s.app
-        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
-    s.until(Duration::from_millis(100), |_| false);
-    assert_eq!(consoles(&s.app, "small"), Some((1, 0)), "no console opened");
-}
-
 /// A hidden console's OSC 50 waits until it is shown: the font is the
 /// head's, and only the console shown switches it.
 #[test]
@@ -1875,14 +1954,25 @@ struct Files {
     script: PathBuf,
     /// Written at a session's SIGHUP.
     mark: PathBuf,
-    /// A line at each session's start.
+    /// A line at each session's start: its console's `VTIUM_CONSOLE`.
     starts: PathBuf,
 }
 
 impl Files {
     /// How many sessions have started.
     fn starts(&self) -> usize {
-        std::fs::read_to_string(&self.starts).map_or(0, |t| t.lines().count())
+        self.started().len()
+    }
+
+    /// The console of each session started, sorted.
+    fn started(&self) -> Vec<String> {
+        let mut ids: Vec<String> = std::fs::read_to_string(&self.starts)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        ids.sort();
+        ids
     }
 }
 
@@ -1915,7 +2005,7 @@ fn losing(test: &str, args: &[&str], keys: &str, mirrored: bool) -> (Seat, Files
     std::fs::write(
         &files.script,
         format!(
-            "echo >> {starts}\ntrap 'echo > {m}; exit 0' HUP\necho ready\n\
+            "echo $VTIUM_CONSOLE >> {starts}\ntrap 'echo > {m}; exit 0' HUP\necho ready\n\
              while :; do read a; [ \"$a\" = q ] && exit 0; echo \"got:$a\"; done\n",
             starts = files.starts.display(),
             m = files.mark.display()
@@ -2123,9 +2213,6 @@ fn a_head_whose_display_never_lit_receives_no_key() {
     s.type_on(KBD_LARGE, "never");
     s.until(Duration::from_millis(100), |_| false);
     assert!(!head_shows(&s.app, "large", "never"));
-    s.app
-        .device_input(Path::new(KBD_LARGE), ctrl_super(RETURN), now());
-    assert_eq!(consoles(&s.app, "large"), Some((1, 0)), "no console opened");
 }
 
 /// D5 and D8: before the first key the focus starts over every display
@@ -2234,7 +2321,9 @@ fn an_exit_read_before_a_hang_up_is_the_hung_up_sessions() {
 }
 
 /// D8 and the operator's answers (2026-10-30): a head hung up comes back
-/// with the consoles its file asks for, as at its start.
+/// with the consoles its file asks for, as at its start. Each session
+/// starts again in its own console, which keeps its `VTIUM_CONSOLE` id
+/// (D5).
 #[test]
 fn a_head_hung_up_comes_back_with_the_consoles_its_file_asks_for() {
     let (mut s, f) = losing(
@@ -2249,6 +2338,11 @@ fn a_head_hung_up_comes_back_with_the_consoles_its_file_asks_for() {
     assert!(s.hung_up(&f.mark, SECOND));
     assert!(s.until(SECOND, |_| f.starts() == 8), "four more");
     assert_eq!(consoles(&s.app, "small"), Some((4, 0)));
+    assert_eq!(
+        f.started(),
+        ["1", "1", "2", "2", "3", "3", "4", "4"],
+        "each console again with its id"
+    );
 }
 
 /// D8 and the operator's answers (2026-10-30): under `oneshot` a head
@@ -2681,15 +2775,16 @@ fn the_osd_dot_shows_when_the_active_head_moves_and_goes_after_its_timeout() {
 }
 
 /// D5 and vtium/vtium#169: under `osd = full` the on-screen display
-/// shows on one head when that head shows another console, when its
-/// number of consoles changes, and when its display returns after it had
-/// none; each time it goes after `osd-timeout`, and the other head's
-/// never shows. Under `osd = minimal` the dot says nothing of consoles,
-/// and a console chord shows none.
+/// shows on one head when that head shows another console and when its
+/// display returns after it had none; each time it goes after
+/// `osd-timeout`, and the other head's never shows. A console's program
+/// starting again changes neither the console shown nor the count, so it
+/// shows none (D1). Under `osd = minimal` the dot says nothing of
+/// consoles, and a console chord shows none.
 // covers: platform.heads.focus
 #[test]
 fn the_osd_shows_on_a_head_whose_console_changes_or_whose_display_returns() {
-    let mut s = claimed_with(&["--osd=full"]);
+    let mut s = claimed_on(&["--osd=full"], &claimed_consoles(2));
     s.until(Duration::from_millis(100), |_| false);
     assert_eq!(statuses(&s.app), [None, None]);
     // Each change at `t`, then the clock past the timeout.
@@ -2704,18 +2799,20 @@ fn the_osd_shows_on_a_head_whose_console_changes_or_whose_display_returns() {
         assert_eq!(statuses(&s.app), [None, None], "{what}: gone");
     };
     s.app
-        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
-    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
-    let line = "○ small · console 2 of 2";
-    shows_then_goes(&mut s, now(), line, "a console opened");
-    s.app
         .device_input(Path::new(KBD_SMALL), ctrl_super(RIGHT), now());
-    let line = "○ small · console 1 of 2";
+    let line = "○ small · console 2 of 2";
     shows_then_goes(&mut s, now(), line, "the next console");
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(LEFT), now());
+    let line = "○ small · console 1 of 2";
+    shows_then_goes(&mut s, now(), line, "the previous console");
+    s.type_on(KBD_SMALL, "x\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:x")));
     s.type_on(KBD_SMALL, "q\r");
-    assert!(s.until(SECOND, |a| consoles(a, "small") == Some((1, 0))));
-    let line = "○ small · console 1 of 1";
-    shows_then_goes(&mut s, now(), line, "a console's program exited");
+    assert!(s.until(SECOND, |a| !head_shows(a, "small", "got:x")
+        && head_shows(a, "small", "ready")));
+    s.app.turn(now());
+    assert_eq!(statuses(&s.app), [None, None], "a program started again");
     let t = now();
     s.unplug("/dev/mem0", t);
     s.app.turn(t + Duration::from_secs(10));
@@ -2723,9 +2820,9 @@ fn the_osd_shows_on_a_head_whose_console_changes_or_whose_display_returns() {
     let back = t + Duration::from_secs(11);
     s.plug("/dev/mem0", back);
     shows_then_goes(&mut s, back, line, "the display returned");
-    let mut s = claimed();
+    let mut s = claimed_on(&[], &claimed_consoles(2));
     s.app
-        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RIGHT), now());
     s.app.turn(now());
     assert_eq!(consoles(&s.app, "small"), Some((2, 1)));
     assert_eq!(marks(&s.app), [None, None], "no dot for a console");
@@ -2738,7 +2835,7 @@ fn the_osd_shows_on_a_head_whose_console_changes_or_whose_display_returns() {
 // covers: platform.heads.focus
 #[test]
 fn osd_full_draws_a_line_naming_the_head_and_its_console() {
-    let mut s = claimed_with(&["--osd=full"]);
+    let mut s = claimed_on(&["--osd=full"], &claimed_consoles(2));
     s.until(Duration::from_millis(100), |_| false);
     assert_eq!(statuses(&s.app), [None, None], "none in normal use");
     s.app
@@ -2747,7 +2844,7 @@ fn osd_full_draws_a_line_naming_the_head_and_its_console() {
     assert_eq!(
         statuses(&s.app),
         [
-            Some("● small · console 1 of 1".to_owned()),
+            Some("● small · console 1 of 2".to_owned()),
             Some("○ large · console 1 of 1".to_owned())
         ]
     );
@@ -2758,7 +2855,7 @@ fn osd_full_draws_a_line_naming_the_head_and_its_console() {
         "drawn in the status box, never the notice's red"
     );
     s.app
-        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RIGHT), now());
     s.app.turn(now());
     assert_eq!(
         statuses(&s.app)[0].as_deref(),
@@ -2925,17 +3022,17 @@ fn a_head_dark_before_a_move_shows_no_osd_on_its_return() {
 // covers: platform.heads.focus
 #[test]
 fn osd_time_waits_for_a_display() {
-    let mut s = claimed_with(&["--osd=full"]);
-    s.app
-        .device_input(Path::new(KBD_SMALL), ctrl_super(RETURN), now());
-    assert!(s.until(SECOND, |a| consoles(a, "small") == Some((2, 1))
-        && head_shows(a, "small", "ready")));
+    let mut s = claimed_on(&["--osd=full"], &claimed_consoles(2));
+    // A frame on a screen ends the start's wait, which the turns far ahead
+    // would otherwise run out.
+    assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
     let t = now() + Duration::from_secs(10);
     s.unplug("/dev/mem0", t);
-    s.type_on(KBD_SMALL, "q\r");
-    assert!(s.until(SECOND, |a| consoles(a, "small") == Some((1, 0))));
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RIGHT), t);
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)));
     s.app.turn(t + Duration::from_secs(60));
-    let line = "○ small · console 1 of 1";
+    let line = "○ small · console 2 of 2";
     assert_eq!(statuses(&s.app)[0].as_deref(), Some(line), "not run out");
     s.plug("/dev/mem0", t + Duration::from_secs(61));
     assert_eq!(statuses(&s.app)[0].as_deref(), Some(line), "drawn");

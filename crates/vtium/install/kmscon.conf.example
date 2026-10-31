@@ -17,7 +17,7 @@
 ## Exit when the session's command exits, in place of starting it again.
 #no-oneshot
 
-## The most consoles one head holds: the head file's `consoles` and Ctrl-Super-Return open no more.
+## The most consoles one head holds: the head file's `consoles` opens no more.
 #head-consoles-max=4
 
 ## The most consoles every head holds together. Each head keeps its first console; the others open, in the head file's order, while the total is below this.
