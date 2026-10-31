@@ -1852,9 +1852,7 @@ impl App {
                     .focus
                     .and_then(|h| self.heads.get(h))
                     .map_or("", Head::name);
-                let line = format!(
-                    "No keyboard was reaching a screen that is on, so every keyboard now types into {to}."
-                );
+                let line = crate::notice::anti_lockout(to);
                 log::warn!("the anti-lockout guard: {line}");
                 if let Some(head) = self.focus.and_then(|h| self.heads.get_mut(h)) {
                     head.add_notice(&line);
@@ -2135,15 +2133,9 @@ impl App {
         // types into after them, which the anti-lockout guard may move.
         self.guard_due = true;
         self.guard();
-        let moved = format!("The rescue key moved the keyboard at {}.", node.display());
         let line = match self.focus.and_then(|h| self.heads.get(h)) {
-            Some(head) => format!(
-                "{moved} It now types into the active head, {} now, until the next boot.",
-                head.name()
-            ),
-            None => format!(
-                "{moved} It types into the active head until the next boot. No head is active now."
-            ),
+            Some(head) => crate::notice::rescue(node.display(), head.name()),
+            None => crate::notice::rescue_no_head(node.display()),
         };
         log::warn!("{line}");
         match self.focus {
@@ -2392,8 +2384,9 @@ impl App {
     }
 
     /// The programs of head `h`'s consoles that exited
-    /// ([`session`]): each closes its console, starts again or ends the
-    /// head, and vtium ends once no head that started still runs.
+    /// ([`session`]): each closes its console, starts again, ends the head
+    /// under `oneshot`, or ends vtium after too many quick exits; under
+    /// `oneshot` vtium ends once no head that started still runs.
     fn child_exited(&mut self, h: usize, now: Instant) {
         let since = now.saturating_duration_since(self.epoch);
         let exited: Vec<(u64, std::process::ExitStatus)> = self
@@ -2412,8 +2405,11 @@ impl App {
                 AfterExit::Closed { shown: true } => {
                     self.relayout(h);
                 }
-                AfterExit::Restart => self.spawn(h, id),
-                AfterExit::Closed { shown: false } | AfterExit::Ended => {}
+                // No login starts in the turn vtium exits, which hangs
+                // every session up.
+                AfterExit::Restart if self.exit.is_none() => self.spawn(h, id),
+                AfterExit::GaveUp => self.request_exit(Exit::TooQuick),
+                AfterExit::Restart | AfterExit::Closed { shown: false } | AfterExit::Ended => {}
             }
         }
         if let Some(exit) = session::exit_due(&self.heads) {
@@ -2451,7 +2447,7 @@ impl App {
             }
         }
         if std::mem::take(&mut self.keyboard_check) && !self.routes.any_keyboard() {
-            let line = "No keyboard was found. Plug one in to type.";
+            let line = crate::notice::NO_KEYBOARD;
             log::warn!("{line}");
             self.notice(line);
         }
@@ -2630,7 +2626,7 @@ impl App {
             });
             let status = (shown && mode == osd::Mode::Full).then(|| {
                 let at = head.shown_console().saturating_add(1);
-                osd::line(active, head.name(), at, head.console_count())
+                crate::notice::osd_line(active, head.name(), at, head.console_count())
             });
             if head.mark != mark || head.status != status {
                 head.mark = mark;

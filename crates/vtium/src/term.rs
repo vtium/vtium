@@ -16,7 +16,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
-use vtium_font::{Font, Missing, SpritePolicy};
+use vtium_font::{Face, Font, Missing, SpritePolicy};
 use vtium_platform::display::{DisplayId, Rect as DisplayRect, SwapError, Swapped};
 use vtium_platform::pty::{Consumer, Replies};
 use vtium_render::{
@@ -223,12 +223,26 @@ pub struct Overlay {
 }
 
 impl Overlay {
+    /// What a head draws of its own: one box holding the on-screen
+    /// display's full line `status` and the `notices` beneath it, each
+    /// starting a line, in the notices' colors while a notice is in it,
+    /// and the on-screen display's dot `mark`. Tier 2 and the specimens
+    /// build their pictures of the overlay with it too.
+    pub fn new(status: Option<&str>, notices: &[&str], mark: Option<Mark>) -> Overlay {
+        let lines: Vec<&str> = status.into_iter().chain(notices.iter().copied()).collect();
+        Overlay {
+            notice: (!lines.is_empty()).then(|| Notice::new(lines.join("\n"))),
+            problem: !notices.is_empty(),
+            mark,
+        }
+    }
+
     /// Draws the overlay over the `grid` that `renderer` drew into
     /// `target`, turned as `orientation` says, and returns the areas it
-    /// covers.
-    fn draw(
+    /// covers. Tier 2 draws its pictures of the overlay through it.
+    pub fn draw<F: Face>(
         &self,
-        renderer: &Renderer<DisplayFace>,
+        renderer: &Renderer<F>,
         grid: (usize, usize),
         orientation: Orientation,
         target: &mut Canvas,

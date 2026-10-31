@@ -24,3 +24,6 @@ vtium-vitrify = { path = "../../crates/vtium-vitrify" }
 # deflates the PNGs written and inflates the ones checked; vtium-font
 # already links this version
 miniz_oxide = "0.8.9"
+# the message bars' screen: the console's overlay, through the overlay
+# screens and notice words tier 2 draws
+vtium-tier2 = { path = "../tier2" }

@@ -24,7 +24,10 @@ fn a_rule_naming_an_undefined_head_rejects_the_file_at_its_line() {
     let error = &rejected.errors[0];
     assert_eq!(error.line, Some(6));
     assert!(matches!(&error.problem, Problem::UndefinedHead(name) if name.raw() == "desc"));
-    assert_eq!(error.to_string(), "rule names undefined head \"desc\"");
+    assert_eq!(
+        error.to_string(),
+        "This rule sends devices to the head \"desc\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section."
+    );
 }
 
 // ADR-1401 D7's figure: the error at its file and line, as kmscon.conf's
@@ -36,7 +39,7 @@ fn a_finding_is_shown_at_its_file_and_line_with_the_path_escaped() {
     let heads = Path::new(vtium_config::HEAD_FILE);
     assert_eq!(
         at(heads, error.line(), error).to_string(),
-        "/etc/vtium/heads.conf:6: rule names undefined head \"desc\""
+        "/etc/vtium/heads.conf:6: This rule sends devices to the head \"desc\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section."
     );
     assert_eq!(
         at(heads, None, "absent").to_string(),
@@ -671,4 +674,48 @@ fn warnings_and_notes_past_the_bound_are_counted() {
     assert_eq!(p.notes.len(), ERRORS_MAX);
     assert_eq!(p.more_notes, 3);
     assert_eq!(p.notes[0], Note::WeakMatch { line: 5 });
+}
+
+/// The first error's text for a file of `version = 1` then `lines`.
+fn first_error(lines: &str) -> String {
+    let rejected = parse(&format!("version = 1\n{lines}")).expect_err("an error");
+    rejected.errors[0].to_string()
+}
+
+// Review round 1: an error saying what to change lists what the key takes,
+// from the parser's own tables.
+#[test]
+fn an_error_lists_what_its_key_takes() {
+    let switch = first_error("[head a]\nrescue = maybe\n[rules]\ndisplay * -> a\n");
+    assert!(
+        switch.ends_with("Change it to one of `on`, `off`."),
+        "{switch}"
+    );
+    let loss = first_error("[head a]\non-loss = never\n[rules]\ndisplay * -> a\n");
+    assert!(
+        loss.ends_with("Change it to one of `nohup`, `hangup`, `hangup DURATION`."),
+        "{loss}"
+    );
+    let size = first_error("[head a]\nfont-size = 100000\n[rules]\ndisplay * -> a\n");
+    assert!(size.contains("takes, 0 to "), "{size}");
+    let key = first_error("[head a]\n[rules]\ndisplay frob:x -> a\n");
+    assert!(key.contains("Use one of `path`, `serial`, "), "{key}");
+    let class = first_error("[head a]\n[rules]\ninput class:toaster -> a\n");
+    assert!(class.contains("Use one of `keyboard`, "), "{class}");
+    let serial = first_error("[head a]\n[rules]\ninput serial:zz -> a\n");
+    assert!(
+        serial.ends_with("Write it as `serial:VENDOR:PRODUCT:SERIAL`."),
+        "{serial}"
+    );
+}
+
+// Each token form is written for its own key, in KEYS' order.
+#[test]
+fn each_token_form_starts_with_its_key() {
+    for (key, form) in vtium_config::Token::KEYS
+        .iter()
+        .zip(vtium_config::Token::FORMS)
+    {
+        assert!(form.starts_with(&format!("{key}:")), "{key}: {form}");
+    }
 }

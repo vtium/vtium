@@ -29,3 +29,8 @@ vtium-vitrify = { path = "../../crates/vtium-vitrify" }
 vtium-testfont = { path = "../testfont" }
 # provenance.tsv's reading and checks, which tier 1's copies use too
 vtium-conformance = { path = "../conformance" }
+# the head file's trust, for the notice of a head file with errors
+vtium-config.workspace = true
+# the console's own overlay, which draws the notices and the on-screen
+# display, and the words of its notices and of the OSD's line
+vtium = { path = "../../crates/vtium" }
