@@ -1,23 +1,33 @@
-//! The head file's text to a [`Config`], or rejected whole (ADR-1401 D3,
-//! D7).
+//! The head file's bytes to what survives of them (ADR-1401 D3, D7).
 //!
-//! The first line that is not blank or a comment is `version = 1`. Then
-//! come sections: `[head NAME]` with a head's keys, `[rules]` with one
-//! rule a line, and `[guards]` with the guards' switches. `#` starts a
-//! comment anywhere on a line; blanks (spaces and tabs) around `=` and
-//! between tokens are dropped. Every line is read however many errors come
-//! before it, so a check names every error the file holds, each with its
-//! line, and no part of an invalid file applies.
+//! Above the first section come the top-level keys, `version = 1` and
+//! `policy`, in either order. Then come sections: `[head NAME]` with a
+//! head's keys, and `[rules]` with one rule a line. A CRLF line ending is a
+//! newline. `#` starts a comment at the start of a line or after a blank
+//! (a space or a tab), a `#` inside a word is literal, and `\#` after a
+//! blank is a literal `#`; blanks around `=` and between tokens are
+//! dropped.
+//!
+//! [`reading`] reads every line however many errors come before it, so a
+//! check names every error the file holds, each with its line. Each error
+//! drops what [`scope`] says it takes: a bad rule drops that rule, an
+//! error inside a head's section drops the head with every rule naming
+//! it, and an error that leaves the file's structure untrustworthy drops
+//! everything but the `policy` lines. What survives is a [`Config`], and
+//! the `policy` lines, the scopes and what survives classify the file for
+//! [`Trusted::of`]. [`parse`] is the strict reading: a [`Config`] only for
+//! a file with no error.
 
 use crate::bounds::{
-    CONSOLES_MAX, ERRORS_MAX, FONT_SIZE_MAX, HEADS_MAX, LINE_MAX, NAME_MAX, RULES_MAX, TOKENS_MAX,
+    CONSOLES_MAX, ERRORS_MAX, FILE_MAX, HEADS_MAX, LINE_MAX, NAME_MAX, RULES_MAX, TOKENS_MAX,
 };
-use crate::config::{Config, Guards, Head, OnLoss, Rule, Target};
-use crate::error::{Error, Note, Problem, Quoted, Rejected, Syntax, Warning};
+use crate::config::{Config, Head, Rule, Target, WhenDisplayLost};
+use crate::error::{Error, Note, Problem, Quoted, Rejected, Renamed, Syntax, Warning};
 use crate::identity::Kind;
 use crate::matching::{Match, Token, TokenError};
+use crate::outcome::{Kept, Policy, PolicyLine, Scope, Trusted, Within, scope};
 
-/// A valid head file and what its check found.
+/// A valid head file, or what survives of one, and what its check found.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Parsed {
     pub config: Config,
@@ -31,60 +41,173 @@ pub struct Parsed {
     pub more_notes: usize,
 }
 
-/// Parses a head file's text; [`text`](crate::text) checks its bytes
-/// first.
-pub fn parse(text: &str) -> Result<Parsed, Rejected> {
+/// A head file read line by line: what survives its errors, the errors,
+/// and what [`Trusted::of`] classifies it by.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Reading {
+    /// What survives, with the warnings and notes of what survives.
+    pub parsed: Parsed,
+    /// Every error in the file's order, at most
+    /// [`ERRORS_MAX`](crate::ERRORS_MAX) of them kept.
+    pub errors: Rejected,
+    /// Every `policy` line, wherever it sits, in the file's order.
+    pub policies: Vec<PolicyLine>,
+    /// What the errors take down, each scope once.
+    pub scopes: Vec<Scope>,
+}
+
+impl Reading {
+    /// What survives the errors.
+    pub fn kept(&self) -> Kept {
+        let config = &self.parsed.config;
+        if !config.heads.is_empty() {
+            Kept::Heads
+        } else if !config.rules.is_empty() {
+            Kept::Headless
+        } else {
+            Kept::Nothing
+        }
+    }
+
+    /// The file's second and third levels (ADR-1401 D7).
+    pub fn trusted(&self) -> Trusted {
+        Trusted::of(&self.policies, &self.scopes, self.kept())
+    }
+}
+
+/// Reads a head file's bytes: at most [`FILE_MAX`] of them, each line
+/// checked on its own for UTF-8, control characters and its length, so a
+/// bad line drops what its scope takes and no more. Past [`FILE_MAX`] the
+/// file is dropped whole, and its `policy` lines are read from the lines
+/// within the bound.
+pub fn reading(bytes: &[u8]) -> Reading {
     let mut p = Parser::default();
-    for (n, line) in text.split('\n').enumerate() {
-        p.line(n.saturating_add(1), line);
+    let within = if bytes.len() > FILE_MAX {
+        p.error(None, Problem::TooLarge, Within::Top);
+        let bounded = bytes.get(..FILE_MAX).unwrap_or_default();
+        // the line the bound cuts is not read
+        let end = bounded.iter().rposition(|&b| b == b'\n').unwrap_or(0);
+        bounded.get(..end).unwrap_or_default()
+    } else {
+        bytes
+    };
+    let mut lines = within.split(|&b| b == b'\n').peekable();
+    let mut n = 0_usize;
+    while let Some(raw) = lines.next() {
+        n = n.saturating_add(1);
+        // a carriage return ending a line is part of its newline
+        let raw = match (lines.peek(), raw.split_last()) {
+            (Some(_), Some((b'\r', rest))) => rest,
+            _ => raw,
+        };
+        p.raw_line(n, raw);
     }
     p.finish()
 }
 
+/// Parses a head file's text, strictly: its [`Config`] when it holds no
+/// error, else every error.
+pub fn parse(text: &str) -> Result<Parsed, Rejected> {
+    let r = reading(text.as_bytes());
+    if r.errors.is_empty() {
+        Ok(r.parsed)
+    } else {
+        Err(r.errors)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Section {
-    /// After the version, before any section.
+    /// Before any section, where the top-level keys sit.
     Top,
     /// The head at this index of `heads`.
     Head(usize),
     Rules,
-    Guards,
-    /// A section that did not parse; its lines are skipped.
+    /// A section an error dropped; its lines are skipped.
     Broken,
 }
 
-/// A rule whose target names a head, resolved once every head is known.
-struct Pending {
-    rule: usize,
-    name: String,
+/// Where a rule sends what it matches, before every head is known.
+enum Aim {
+    Fixed(Target),
+    /// A head's name, or a word of the first cut.
+    Name(String),
+}
+
+/// A rule as read, its target resolved once every head is known.
+struct Read {
+    line: usize,
+    kind: Kind,
+    matcher: Match,
+    aim: Aim,
+}
+
+/// A head as read, with the keys it has set.
+struct Declared {
+    head: Head,
+    keys: Vec<&'static str>,
+    /// An error inside its section dropped it.
+    dropped: bool,
 }
 
 #[derive(Default)]
 struct Parser {
     errors: Rejected,
+    /// Errors found once every line is read, merged in by line.
+    late: Vec<Error>,
+    scopes: Vec<Scope>,
+    policies: Vec<PolicyLine>,
     warnings: Vec<Warning>,
-    notes: Vec<Note>,
-    versioned: bool,
     section: Option<Section>,
-    config: Config,
-    pending: Vec<Pending>,
-    /// The keys each head has set, by its index.
-    head_keys: Vec<Vec<&'static str>>,
-    guard_keys: Vec<&'static str>,
+    versioned: bool,
+    /// The top-level keys set.
+    top_keys: Vec<&'static str>,
+    heads: Vec<Declared>,
+    /// The names of heads whose heading an error dropped.
+    dropped_names: Vec<String>,
+    rules: Vec<Read>,
     seen_rules: bool,
-    seen_guards: bool,
     heads_over: bool,
     rules_over: bool,
+    /// An error dropped the whole file but its `policy` lines.
+    whole: bool,
 }
 
-/// A line with its comment and its outer blanks dropped.
-fn content(line: &str) -> &str {
-    let code = line.split_once('#').map_or(line, |(code, _)| code);
-    code.trim_matches(|c| c == ' ' || c == '\t')
+/// `s` without its outer blanks.
+fn trim(s: &str) -> &str {
+    s.trim_matches(|c| c == ' ' || c == '\t')
+}
+
+/// A line with its comment and its outer blanks dropped: `#` at the start
+/// of the line or after a blank starts the comment, and `\#` there is a
+/// literal `#`.
+fn content(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut after_blank = true;
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '#' if after_blank => break,
+            '\\' if after_blank && chars.peek() == Some(&'#') => {
+                chars.next();
+                out.push('#');
+                after_blank = false;
+                continue;
+            }
+            _ => out.push(c),
+        }
+        after_blank = matches!(c, ' ' | '\t');
+    }
+    trim(&out).to_owned()
 }
 
 fn blanks(s: &str) -> impl Iterator<Item = &str> {
     s.split([' ', '\t']).filter(|t| !t.is_empty())
+}
+
+/// `key = value`, each trimmed, where the line has an `=`.
+fn key_value(line: &str) -> Option<(&str, &str)> {
+    line.split_once('=').map(|(k, v)| (trim(k), trim(v)))
 }
 
 /// Whether `name` keeps the name rule: 1 to [`NAME_MAX`] of
@@ -105,21 +228,17 @@ fn keep_first<T>(findings: &mut Vec<T>) -> usize {
     past
 }
 
-/// `on` or `off`.
-fn switch(value: &str) -> Option<bool> {
-    let [on, off] = SWITCH;
-    match value {
-        v if v == on => Some(true),
-        v if v == off => Some(false),
-        _ => None,
-    }
-}
+/// The words `policy` takes.
+pub(crate) const POLICY: [&str; 2] = ["open", "closed"];
 
-/// The words a switch takes, on then off.
-pub(crate) const SWITCH: [&str; 2] = ["on", "off"];
+/// The words `isolated` takes, yes then no.
+pub(crate) const YES_NO: [&str; 2] = ["yes", "no"];
 
-/// The forms `on-loss` takes (D8).
-pub(crate) const ON_LOSS: [&str; 3] = ["nohup", "hangup", "hangup DURATION"];
+/// The forms `when-display-lost` takes (D8).
+pub(crate) const WHEN_DISPLAY_LOST: [&str; 3] = ["keep", "hangup", "hangup DURATION"];
+
+/// The reserved names, a head's name no head may take: the targets.
+const RESERVED: [&str; 3] = ["roaming", "ignore", "off"];
 
 /// What a key of the head file takes, as its parser reads it, which an
 /// error naming a value the key cannot take lists.
@@ -139,13 +258,10 @@ pub(crate) enum Takes {
 /// measured against.
 pub(crate) fn takes(key: &str) -> Takes {
     match key {
-        "rescue" | "anti-lockout" | "rescue-key" | "never-dark" => Takes::Words(&SWITCH),
-        "on-loss" => Takes::Words(&ON_LOSS),
+        "policy" => Takes::Words(&POLICY),
+        "isolated" => Takes::Words(&YES_NO),
+        "when-display-lost" => Takes::Words(&WHEN_DISPLAY_LOST),
         "consoles" => Takes::Number { min: 1, max: None },
-        "font-size" => Takes::Number {
-            min: 0,
-            max: Some(FONT_SIZE_MAX),
-        },
         _ => Takes::Text,
     }
 }
@@ -154,7 +270,7 @@ pub(crate) fn takes(key: &str) -> Takes {
 /// it.
 pub(crate) fn range(key: &str) -> Takes {
     match key {
-        "on-loss" => Takes::Seconds { max: u32::MAX },
+        "when-display-lost" => Takes::Seconds { max: u32::MAX },
         _ => takes(key),
     }
 }
@@ -165,19 +281,23 @@ fn decimal(value: &str) -> Option<Option<u32>> {
     (!value.is_empty() && value.bytes().all(|b| b.is_ascii_digit())).then(|| value.parse().ok())
 }
 
-/// `on-loss`'s value (D8): `nohup`, `hangup`, or `hangup DURATION`, the
-/// duration in seconds or with an `s`, `m` or `h` suffix.
-fn on_loss(value: &str) -> Result<OnLoss, Problem> {
+/// `when-display-lost`'s value (D8): `keep`, `hangup`, or
+/// `hangup DURATION`, the duration in seconds or with an `s`, `m` or `h`
+/// suffix.
+fn when_display_lost(value: &str) -> Result<WhenDisplayLost, Problem> {
+    const KEY: &str = "when-display-lost";
     let bad = || Problem::BadValue {
-        key: "on-loss",
+        key: KEY,
         value: Quoted::new(value),
     };
+    let [keep, hangup, _] = WHEN_DISPLAY_LOST;
     let mut words = blanks(value);
     let (first, second, rest) = (words.next(), words.next(), words.next());
     match (first, second, rest) {
-        (Some(w), None, _) if w == ON_LOSS[0] => Ok(OnLoss::Nohup),
-        (Some(w), None, _) if w == ON_LOSS[1] => Ok(OnLoss::Hangup),
-        (Some(w), Some(duration), None) if w == ON_LOSS[1] => {
+        (Some(w), None, _) if w == keep => Ok(WhenDisplayLost::Keep),
+        (Some(w), None, _) if w == hangup => Ok(WhenDisplayLost::Hangup),
+        (Some("nohup"), None, _) => Err(Problem::Renamed(Renamed::Nohup)),
+        (Some(w), Some(duration), None) if w == hangup => {
             let (digits, unit) = match duration.strip_suffix(['s', 'm', 'h']) {
                 Some(digits) => (digits, duration.get(digits.len()..).unwrap_or_default()),
                 None => (duration, "s"),
@@ -190,9 +310,9 @@ fn on_loss(value: &str) -> Result<OnLoss, Problem> {
             let number = decimal(digits).ok_or_else(bad)?;
             number
                 .and_then(|n| n.checked_mul(scale))
-                .map(OnLoss::HangupAfter)
+                .map(WhenDisplayLost::HangupAfter)
                 .ok_or(Problem::OutOfRange {
-                    key: "on-loss",
+                    key: KEY,
                     value: Quoted::new(value),
                 })
         }
@@ -200,134 +320,238 @@ fn on_loss(value: &str) -> Result<OnLoss, Problem> {
     }
 }
 
+/// A `policy` line's value as the model reads it.
+fn policy_line(value: &str) -> PolicyLine {
+    match value {
+        "open" => PolicyLine::Open,
+        "closed" => PolicyLine::Closed,
+        _ => PolicyLine::Unknown,
+    }
+}
+
 impl Parser {
-    fn error(&mut self, line: usize, problem: Problem) {
-        self.errors.push(Some(line), problem);
+    /// Records `problem` at `line`, `within` the part of the file the line
+    /// sits in, and drops what its scope takes but a section, which the
+    /// caller skips.
+    fn error(&mut self, line: Option<usize>, problem: Problem, within: Within) {
+        // the parser meets no problem of the trust level
+        let scope = scope(&problem, within).unwrap_or(Scope::File);
+        if !self.scopes.contains(&scope) {
+            self.scopes.push(scope);
+        }
+        match (scope, self.section) {
+            (Scope::File, _) => self.whole = true,
+            (Scope::Head, Some(Section::Head(index))) if within == Within::Head => {
+                if let Some(declared) = self.heads.get_mut(index) {
+                    declared.dropped = true;
+                }
+            }
+            _ => {}
+        }
+        self.errors.push(line, problem);
+    }
+
+    /// Where a line sits, from the section it is read in.
+    fn within(&self) -> Within {
+        match self.section {
+            None | Some(Section::Top) => Within::Top,
+            Some(Section::Head(_)) => Within::Head,
+            Some(Section::Rules | Section::Broken) => Within::Rules,
+        }
+    }
+
+    /// One line's bytes, its newline apart.
+    fn raw_line(&mut self, n: usize, raw: &[u8]) {
+        if raw.len() > LINE_MAX {
+            self.error(Some(n), Problem::LineTooLong, self.within());
+            return;
+        }
+        // a heading vtium cannot read drops its section
+        let heading = raw
+            .iter()
+            .find(|b| !matches!(b, b' ' | b'\t'))
+            .is_some_and(|&b| b == b'[');
+        let within = if heading {
+            Within::Header
+        } else {
+            self.within()
+        };
+        let unreadable = match std::str::from_utf8(raw) {
+            Err(_) => Err(Problem::NotUtf8),
+            Ok(text) => match text.chars().find(|&c| c.is_control() && c != '\t') {
+                Some(c) => Err(Problem::ControlCharacter(c)),
+                None => Ok(text),
+            },
+        };
+        match unreadable {
+            Ok(text) => self.line(n, text),
+            Err(problem) => {
+                if heading {
+                    self.section = Some(Section::Broken);
+                }
+                self.error(Some(n), problem, within);
+            }
+        }
     }
 
     fn line(&mut self, n: usize, raw: &str) {
-        if raw.len() > LINE_MAX {
-            self.error(n, Problem::LineTooLong);
-            return;
-        }
         let line = content(raw);
         if line.is_empty() {
             return;
-        }
-        if !self.versioned {
-            self.versioned = true;
-            self.section = Some(Section::Top);
-            match line.split_once('=') {
-                Some((key, value)) if content(key) == "version" => {
-                    let value = content(value);
-                    if value != "1" {
-                        self.error(n, Problem::UnknownVersion(Quoted::new(value)));
-                    }
-                    return;
-                }
-                // the line is still read for what it is, so its own
-                // errors are named too
-                _ => self.error(n, Problem::MissingVersion),
-            }
         }
         if let Some(inner) = line.strip_prefix('[') {
             self.section(n, inner);
             return;
         }
-        match self.section {
-            Some(Section::Head(index)) => self.head_key(n, index, line),
-            Some(Section::Rules) => self.rule(n, line),
-            Some(Section::Guards) => self.guard_key(n, line),
-            Some(Section::Broken) => {}
-            Some(Section::Top) | None => self.error(n, Problem::Syntax(Syntax::OutsideSection)),
+        let section = *self.section.get_or_insert(Section::Top);
+        if section != Section::Top && matches!(key_value(&line), Some(("policy", _))) {
+            self.policies.push(PolicyLine::InSection);
+            self.error(Some(n), Problem::PolicyInSection, self.within());
+            return;
+        }
+        match section {
+            Section::Top => self.top_key(n, &line),
+            Section::Head(index) => self.head_key(n, index, &line),
+            Section::Rules => self.rule(n, &line),
+            Section::Broken => {}
+        }
+    }
+
+    /// Records `key` as set in `seen`, naming the error when it was.
+    fn once(&mut self, n: usize, seen_in: Option<usize>, key: &'static str) -> bool {
+        let seen = match seen_in {
+            Some(index) => self.heads.get(index).map(|d| &d.keys),
+            None => Some(&self.top_keys),
+        };
+        if seen.is_some_and(|keys| keys.contains(&key)) {
+            self.error(Some(n), Problem::DuplicateKey(key), self.within());
+            return false;
+        }
+        match seen_in {
+            Some(index) => {
+                if let Some(declared) = self.heads.get_mut(index) {
+                    declared.keys.push(key);
+                }
+            }
+            None => self.top_keys.push(key),
+        }
+        true
+    }
+
+    fn top_key(&mut self, n: usize, line: &str) {
+        match key_value(line) {
+            Some(("version", value)) => {
+                if self.once(n, None, "version") {
+                    self.versioned = true;
+                    if value != "1" {
+                        self.error(
+                            Some(n),
+                            Problem::UnknownVersion(Quoted::new(value)),
+                            Within::Top,
+                        );
+                    }
+                }
+            }
+            Some(("policy", value)) => {
+                let read = policy_line(value);
+                self.policies.push(read);
+                if self.once(n, None, "policy") && read == PolicyLine::Unknown {
+                    let problem = Problem::BadValue {
+                        key: "policy",
+                        value: Quoted::new(value),
+                    };
+                    self.error(Some(n), problem, Within::Top);
+                }
+            }
+            _ => self.error(
+                Some(n),
+                Problem::Syntax(Syntax::OutsideSection),
+                Within::Top,
+            ),
         }
     }
 
     fn section(&mut self, n: usize, inner: &str) {
         self.section = Some(Section::Broken);
         let Some(inner) = inner.strip_suffix(']') else {
-            self.error(n, Problem::Syntax(Syntax::UnclosedHeading));
+            self.error(
+                Some(n),
+                Problem::Syntax(Syntax::UnclosedHeading),
+                Within::Header,
+            );
             return;
         };
         let words: Vec<&str> = blanks(inner).collect();
         match words.as_slice() {
             ["rules"] => {
                 if std::mem::replace(&mut self.seen_rules, true) {
-                    self.error(n, Problem::DuplicateSection("rules"));
+                    self.error(Some(n), Problem::DuplicateSection("rules"), Within::Header);
                 } else {
                     self.section = Some(Section::Rules);
                 }
             }
-            ["guards"] => {
-                if std::mem::replace(&mut self.seen_guards, true) {
-                    self.error(n, Problem::DuplicateSection("guards"));
-                } else {
-                    self.section = Some(Section::Guards);
-                }
-            }
+            ["guards"] => self.error(Some(n), Problem::Renamed(Renamed::Guards), Within::Header),
             ["head", name] => self.head(n, name),
-            ["head", ..] => self.error(n, Problem::Syntax(Syntax::HeadOneName)),
-            _ => self.error(n, Problem::UnknownSection(Quoted::new(inner))),
+            ["head", ..] => self.error(
+                Some(n),
+                Problem::Syntax(Syntax::HeadOneName),
+                Within::Header,
+            ),
+            _ => self.error(
+                Some(n),
+                Problem::UnknownSection(Quoted::new(inner)),
+                Within::Header,
+            ),
         }
     }
 
     fn head(&mut self, n: usize, name: &str) {
-        if !good_name(name) {
-            self.error(n, Problem::BadName(Quoted::new(name)));
-        } else if matches!(name, "focus" | "ignore" | "dark") {
-            self.error(n, Problem::ReservedName(Quoted::new(name)));
-        } else if self.config.head(name).is_some() {
-            self.error(n, Problem::DuplicateHead(Quoted::new(name)));
-        } else if self.config.heads.len() >= HEADS_MAX {
+        let problem = if !good_name(name) {
+            Problem::BadName(Quoted::new(name))
+        } else if RESERVED.contains(&name) {
+            Problem::ReservedName(Quoted::new(name))
+        } else if self.heads.iter().any(|d| d.head.name == name) {
+            Problem::DuplicateHead(Quoted::new(name))
+        } else if self.heads.len() >= HEADS_MAX {
             if !std::mem::replace(&mut self.heads_over, true) {
-                self.error(n, Problem::TooManyHeads);
+                self.error(Some(n), Problem::TooManyHeads, Within::Header);
             }
+            return;
         } else {
-            self.section = Some(Section::Head(self.config.heads.len()));
-            self.config.heads.push(Head::new(name, n));
-            self.head_keys.push(Vec::new());
-        }
-    }
-
-    /// Splits `key = value`, naming the error when the line is not one.
-    fn key_value<'a>(&mut self, n: usize, line: &'a str) -> Option<(&'a str, &'a str)> {
-        let Some((key, value)) = line.split_once('=') else {
-            self.error(n, Problem::Syntax(Syntax::NotKeyValue));
-            return None;
+            self.section = Some(Section::Head(self.heads.len()));
+            self.heads.push(Declared {
+                head: Head::new(name, n),
+                keys: Vec::new(),
+                dropped: false,
+            });
+            return;
         };
-        Some((content(key), content(value)))
-    }
-
-    /// Records `key` as set in `seen`, naming the error when it was.
-    fn once(&mut self, n: usize, seen_in: Option<usize>, key: &'static str) -> bool {
-        let seen = match seen_in {
-            Some(index) => self.head_keys.get_mut(index),
-            None => Some(&mut self.guard_keys),
-        };
-        let Some(seen) = seen else { return false };
-        if seen.contains(&key) {
-            self.error(n, Problem::DuplicateKey(key));
-            return false;
+        if !matches!(problem, Problem::DuplicateHead(_)) {
+            // the rules naming it go with it
+            self.dropped_names.push(name.to_owned());
         }
-        seen.push(key);
-        true
+        self.error(Some(n), problem, Within::Header);
     }
 
     fn head_key(&mut self, n: usize, index: usize, line: &str) {
-        const KEYS: [&str; 7] = [
+        const KEYS: [&str; 5] = [
             "profile",
             "consoles",
             "login",
-            "on-loss",
-            "rescue",
-            "font-name",
-            "font-size",
+            "when-display-lost",
+            "isolated",
         ];
-        let Some((key, value)) = self.key_value(n, line) else {
+        let Some((key, value)) = key_value(line) else {
+            self.error(Some(n), Problem::Syntax(Syntax::NotKeyValue), Within::Head);
             return;
         };
         let Some(&key) = KEYS.iter().find(|k| **k == key) else {
-            self.error(n, Problem::UnknownKey(Quoted::new(key)));
+            let problem = match key {
+                "on-loss" => Problem::Renamed(Renamed::OnLoss),
+                "rescue" => Problem::Renamed(Renamed::Rescue),
+                _ => Problem::UnknownKey(Quoted::new(key)),
+            };
+            self.error(Some(n), problem, Within::Head);
             return;
         };
         if !self.once(n, Some(index), key) {
@@ -337,19 +561,19 @@ impl Parser {
             key,
             value: Quoted::new(value),
         };
-        let out_of_range = || Problem::OutOfRange {
-            key,
-            value: Quoted::new(value),
-        };
         let mut problem = None;
         let mut capped = false;
-        let mut rescue_off = false;
-        if let Some(head) = self.config.heads.get_mut(index) {
+        if let Some(head) = self.heads.get_mut(index).map(|d| &mut d.head) {
             match key {
                 "profile" if good_name(value) => head.profile = value.to_owned(),
                 "profile" => problem = Some(Problem::BadName(Quoted::new(value))),
                 "consoles" => match decimal(value) {
-                    Some(Some(0)) => problem = Some(out_of_range()),
+                    Some(Some(0)) => {
+                        problem = Some(Problem::OutOfRange {
+                            key,
+                            value: Quoted::new(value),
+                        });
+                    }
                     Some(Some(count)) if count <= CONSOLES_MAX => head.consoles = count,
                     Some(_) => {
                         head.consoles = CONSOLES_MAX;
@@ -358,71 +582,29 @@ impl Parser {
                     None => problem = Some(bad()),
                 },
                 "login" if !value.is_empty() => head.login = Some(value.to_owned()),
-                "on-loss" => match on_loss(value) {
-                    Ok(v) => head.on_loss = v,
+                "when-display-lost" => match when_display_lost(value) {
+                    Ok(v) => head.when_display_lost = v,
                     Err(e) => problem = Some(e),
                 },
-                "rescue" => match switch(value) {
-                    Some(on) => {
-                        head.rescue = on;
-                        rescue_off = !on;
+                "isolated" => {
+                    let [yes, no] = YES_NO;
+                    match value {
+                        v if v == yes || v == no => {
+                            let isolated = v == yes;
+                            head.isolated = Some(isolated);
+                            head.rescue = !isolated;
+                        }
+                        _ => problem = Some(bad()),
                     }
-                    None => problem = Some(bad()),
-                },
-                "font-name" if !value.is_empty() => head.font.name = Some(value.to_owned()),
-                "font-size" => match decimal(value) {
-                    Some(Some(size)) if size <= FONT_SIZE_MAX => head.font.size = Some(size),
-                    Some(_) => problem = Some(out_of_range()),
-                    None => problem = Some(bad()),
-                },
+                }
                 _ => problem = Some(bad()),
             }
         }
         if let Some(problem) = problem {
-            self.error(n, problem);
+            self.error(Some(n), problem, Within::Head);
         }
         if capped {
             self.warnings.push(Warning::ConsolesCapped { line: n });
-        }
-        if rescue_off {
-            self.notes.push(Note::RescueOff { line: n });
-        }
-    }
-
-    fn guard_key(&mut self, n: usize, line: &str) {
-        let Some((key, value)) = self.key_value(n, line) else {
-            return;
-        };
-        let guard: &'static str = match key {
-            "anti-lockout" => "anti-lockout",
-            "rescue-key" => "rescue-key",
-            "never-dark" => "never-dark",
-            _ => {
-                self.error(n, Problem::UnknownKey(Quoted::new(key)));
-                return;
-            }
-        };
-        if !self.once(n, None, guard) {
-            return;
-        }
-        let Some(on) = switch(value) else {
-            self.error(
-                n,
-                Problem::BadValue {
-                    key: guard,
-                    value: Quoted::new(value),
-                },
-            );
-            return;
-        };
-        let g: &mut Guards = &mut self.config.guards;
-        match guard {
-            "anti-lockout" => g.anti_lockout = on,
-            "rescue-key" => g.rescue_key = on,
-            _ => g.never_dark = on,
-        }
-        if !on {
-            self.notes.push(Note::GuardOff { line: n, guard });
         }
     }
 
@@ -432,180 +614,209 @@ impl Parser {
             Some(&"display") => Kind::Display,
             Some(&"input") => Kind::Input,
             _ => {
-                self.error(n, Problem::Syntax(Syntax::RuleKind));
+                self.error(Some(n), Problem::Syntax(Syntax::RuleKind), Within::Rules);
                 return;
             }
         };
-        let arrow = words.iter().position(|w| *w == "->");
-        let (tokens, target) = match arrow {
-            Some(at) => (
-                words.get(1..at).unwrap_or_default(),
-                words.get(at.saturating_add(1)..).unwrap_or_default(),
-            ),
-            None => {
-                self.error(n, Problem::Syntax(Syntax::RuleArrow));
-                return;
-            }
-        };
-        let [target] = target else {
-            self.error(n, Problem::Syntax(Syntax::RuleOneTarget));
+        let Some(at) = words.iter().position(|w| *w == "->") else {
+            self.error(Some(n), Problem::Syntax(Syntax::RuleArrow), Within::Rules);
             return;
         };
-        if self.config.rules.len() >= RULES_MAX {
+        let tokens = words.get(1..at).unwrap_or_default();
+        let target = words.get(at.saturating_add(1)..).unwrap_or_default();
+        let [target] = target else {
+            self.error(
+                Some(n),
+                Problem::Syntax(Syntax::RuleOneTarget),
+                Within::Rules,
+            );
+            return;
+        };
+        if self.rules.len() >= RULES_MAX {
             if !std::mem::replace(&mut self.rules_over, true) {
-                self.error(n, Problem::TooManyRules);
+                self.error(Some(n), Problem::TooManyRules, Within::Rules);
             }
             return;
         }
         let Some(matcher) = self.matcher(n, tokens) else {
             return;
         };
-        let target = match *target {
-            "focus" | "ignore" if kind == Kind::Display => {
-                let target = if *target == "focus" {
-                    "focus"
-                } else {
-                    "ignore"
+        let aim = match (*target, kind) {
+            (word @ ("roaming" | "ignore"), Kind::Display) | (word @ "off", Kind::Input) => {
+                let target = match word {
+                    "roaming" => "roaming",
+                    "ignore" => "ignore",
+                    _ => "off",
                 };
-                self.error(n, Problem::WrongKind { target, kind });
+                self.error(Some(n), Problem::WrongKind { target, kind }, Within::Rules);
                 return;
             }
-            "dark" if kind == Kind::Input => {
-                self.error(
-                    n,
-                    Problem::WrongKind {
-                        target: "dark",
-                        kind,
-                    },
-                );
-                return;
-            }
-            "focus" => Target::Focus,
-            "ignore" => Target::Ignore,
-            "dark" => Target::Dark,
-            name => {
-                self.pending.push(Pending {
-                    rule: self.config.rules.len(),
-                    name: name.to_owned(),
-                });
-                // resolved in `finish`, once every head is declared
-                Target::Head(usize::MAX)
-            }
+            ("roaming", _) => Aim::Fixed(Target::Focus),
+            ("ignore", _) => Aim::Fixed(Target::Ignore),
+            ("off", _) => Aim::Fixed(Target::Dark),
+            (name, _) => Aim::Name(name.to_owned()),
         };
-        self.config.rules.push(Rule {
+        self.rules.push(Read {
             line: n,
             kind,
             matcher,
-            target,
+            aim,
         });
     }
 
     fn matcher(&mut self, n: usize, tokens: &[&str]) -> Option<Match> {
-        match tokens {
-            [] => {
-                self.error(n, Problem::Syntax(Syntax::RuleMatch));
-                None
-            }
-            ["*"] => Some(Match::Any),
-            _ if tokens.contains(&"*") => {
-                self.error(n, Problem::Syntax(Syntax::StarAlone));
-                None
-            }
-            _ if tokens.len() > TOKENS_MAX => {
-                self.error(n, Problem::TooManyTokens);
-                None
-            }
+        let problem = match tokens {
+            [] => Problem::Syntax(Syntax::RuleMatch),
+            ["*"] => return Some(Match::Any),
+            _ if tokens.contains(&"*") => Problem::Syntax(Syntax::StarAlone),
+            _ if tokens.len() > TOKENS_MAX => Problem::TooManyTokens,
             _ => {
                 let mut parsed = Vec::with_capacity(tokens.len());
                 let mut good = true;
                 for token in tokens {
                     match Token::parse(token) {
                         Ok(t) => parsed.push(t),
-                        Err(TokenError::UnknownKey | TokenError::NoKey) => {
-                            self.error(n, Problem::UnknownMatchKey(Quoted::new(token)));
-                            good = false;
-                        }
-                        Err(TokenError::BadValue) => {
-                            self.error(n, Problem::BadToken(Quoted::new(token)));
+                        Err(e) => {
+                            let problem = match e {
+                                TokenError::UnknownKey | TokenError::NoKey => {
+                                    Problem::UnknownMatchKey(Quoted::new(token))
+                                }
+                                TokenError::BadValue => Problem::BadToken(Quoted::new(token)),
+                            };
+                            self.error(Some(n), problem, Within::Rules);
                             good = false;
                         }
                     }
                 }
-                good.then_some(Match::All(parsed))
+                return good.then_some(Match::All(parsed));
             }
-        }
+        };
+        self.error(Some(n), problem, Within::Rules);
+        None
     }
 
-    fn finish(mut self) -> Result<Parsed, Rejected> {
-        // errors found once every line is read, merged in by line
-        let mut late = Vec::new();
+    /// A late error, found once every line is read.
+    fn late(&mut self, line: Option<usize>, problem: Problem, within: Within) {
+        let scope = scope(&problem, within).unwrap_or(Scope::File);
+        if !self.scopes.contains(&scope) {
+            self.scopes.push(scope);
+        }
+        if scope == Scope::File {
+            self.whole = true;
+        }
+        self.late.push(Error { line, problem });
+    }
+
+    fn finish(mut self) -> Reading {
         if !self.versioned {
-            late.push(Error {
-                line: None,
-                problem: Problem::MissingVersion,
+            self.late(None, Problem::MissingVersion, Within::Top);
+        }
+        let mut heads = Vec::new();
+        for declared in std::mem::take(&mut self.heads) {
+            if declared.dropped {
+                self.dropped_names.push(declared.head.name);
+            } else {
+                heads.push(declared.head);
+            }
+        }
+        let mut rules = Vec::new();
+        for read in std::mem::take(&mut self.rules) {
+            let target = match read.aim {
+                Aim::Fixed(target) => target,
+                Aim::Name(name) => {
+                    let declared = heads.iter().position(|h| h.name == name);
+                    match declared {
+                        Some(i) => Target::Head(i),
+                        // a rule naming a dropped head goes with it
+                        None if self.dropped_names.contains(&name) => continue,
+                        None => {
+                            let problem = match name.as_str() {
+                                "focus" => Problem::Renamed(Renamed::Focus),
+                                "dark" => Problem::Renamed(Renamed::Dark),
+                                _ => Problem::UndefinedHead(Quoted::new(&name)),
+                            };
+                            self.late(Some(read.line), problem, Within::Rules);
+                            continue;
+                        }
+                    }
+                }
+            };
+            rules.push(Rule {
+                line: read.line,
+                kind: read.kind,
+                matcher: read.matcher,
+                target,
             });
         }
-        for pending in std::mem::take(&mut self.pending) {
-            let index = self
-                .config
-                .heads
-                .iter()
-                .position(|h| h.name == pending.name);
-            let line = self.config.rules.get(pending.rule).map_or(0, |r| r.line);
-            match (index, self.config.rules.get_mut(pending.rule)) {
-                (Some(index), Some(rule)) => rule.target = Target::Head(index),
-                _ => late.push(Error {
-                    line: Some(line),
-                    problem: Problem::UndefinedHead(Quoted::new(&pending.name)),
-                }),
-            }
-        }
+        let late = std::mem::take(&mut self.late);
         self.errors.merge(late);
-        if !self.errors.is_empty() {
-            return Err(self.errors);
+        let policy = if self.policies.contains(&PolicyLine::Closed) {
+            Policy::Closed
+        } else {
+            Policy::Open
+        };
+        let parsed = if self.whole {
+            Parsed {
+                config: Config {
+                    policy,
+                    ..Config::default()
+                },
+                ..Parsed::default()
+            }
+        } else {
+            let config = Config {
+                policy,
+                heads,
+                rules,
+                ..Config::default()
+            };
+            findings(config, self.warnings)
+        };
+        Reading {
+            parsed,
+            errors: self.errors,
+            policies: self.policies,
+            scopes: self.scopes,
         }
-        let config = self.config;
-        let mut warnings = self.warnings;
-        let mut notes = self.notes;
-        for (i, rule) in config.rules.iter().enumerate() {
-            let earlier = config.rules.get(..i).unwrap_or_default();
-            if let Some(by) = earlier
+    }
+}
+
+/// What survives, with the warnings its reading found and the findings
+/// over its rules.
+fn findings(config: Config, mut warnings: Vec<Warning>) -> Parsed {
+    let mut notes = Vec::new();
+    for (i, rule) in config.rules.iter().enumerate() {
+        let earlier = config.rules.get(..i).unwrap_or_default();
+        if let Some(by) = earlier
+            .iter()
+            .find(|e| e.kind == rule.kind && rule.matcher.within(&e.matcher))
+        {
+            warnings.push(Warning::Shadowed {
+                line: rule.line,
+                by: by.line,
+            });
+        }
+        let weak = matches!(rule.target, Target::Head(_))
+            && rule.kind == Kind::Input
+            && !rule.matcher.tokens().is_empty()
+            && rule
+                .matcher
+                .tokens()
                 .iter()
-                .find(|e| e.kind == rule.kind && rule.matcher.within(&e.matcher))
-            {
-                warnings.push(Warning::Shadowed {
-                    line: rule.line,
-                    by: by.line,
-                });
-            }
-            let weak = matches!(rule.target, Target::Head(_))
-                && rule.kind == Kind::Input
-                && !rule.matcher.tokens().is_empty()
-                && rule
-                    .matcher
-                    .tokens()
-                    .iter()
-                    .all(|t| matches!(t, Token::Id(..) | Token::Name(_)));
-            if weak {
-                notes.push(Note::WeakMatch { line: rule.line });
-            }
+                .all(|t| matches!(t, Token::Id(..) | Token::Name(_)));
+        if weak {
+            notes.push(Note::WeakMatch { line: rule.line });
         }
-        warnings.sort_by_key(|w| match w {
-            Warning::ConsolesCapped { line } | Warning::Shadowed { line, .. } => *line,
-        });
-        notes.sort_by_key(|n| match n {
-            Note::GuardOff { line, .. } | Note::RescueOff { line } | Note::WeakMatch { line } => {
-                *line
-            }
-        });
-        let more_warnings = keep_first(&mut warnings);
-        let more_notes = keep_first(&mut notes);
-        Ok(Parsed {
-            config,
-            warnings,
-            notes,
-            more_warnings,
-            more_notes,
-        })
+    }
+    warnings.sort_by_key(Warning::line);
+    notes.sort_by_key(Note::line);
+    let more_warnings = keep_first(&mut warnings);
+    let more_notes = keep_first(&mut notes);
+    Parsed {
+        config,
+        warnings,
+        notes,
+        more_warnings,
+        more_notes,
     }
 }

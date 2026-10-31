@@ -97,7 +97,7 @@ pub(crate) fn heads(
             let term = crate::head::terminal(config, lines, bytes, Rc::clone(clock));
             let mut head = Head::new(&h.name, config, &font, term);
             head.wanted = wanted;
-            head.on_loss = h.on_loss;
+            head.when_display_lost = h.when_display_lost;
             head.login = h.login.as_deref().and_then(|text| {
                 config
                     .with_login(text)
@@ -236,7 +236,7 @@ impl Head {
             return false;
         }
         log::warn!(
-            "head {}: its last display is gone: on-loss hangs its sessions up",
+            "head {}: its last display is gone: when-display-lost hangs its sessions up",
             self.name()
         );
         self.hidden.clear();

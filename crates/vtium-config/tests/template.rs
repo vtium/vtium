@@ -3,7 +3,7 @@
 //! template states the shipped rules.
 
 use vtium_config::{
-    Class, Config, Font, Guards, Kind, Match, OnLoss, TEMPLATE, Target, Token, parse,
+    Class, Config, Guards, Kind, Match, Policy, TEMPLATE, Target, Token, WhenDisplayLost, parse,
 };
 
 #[test]
@@ -28,9 +28,10 @@ fn the_compiled_in_configuration_is_the_parse_of_the_template() {
     assert_eq!(head.profile, "default");
     assert_eq!(head.consoles, 1);
     assert_eq!(head.login, None);
-    assert_eq!(head.on_loss, OnLoss::Nohup);
+    assert_eq!(head.when_display_lost, WhenDisplayLost::Keep);
+    assert_eq!(head.isolated, None);
     assert!(head.rescue);
-    assert_eq!(head.font, Font::default());
+    assert_eq!(config.policy, Policy::Open);
     assert_eq!(
         config.guards,
         Guards {
@@ -61,20 +62,16 @@ fn the_compiled_in_configuration_is_the_parse_of_the_template() {
 }
 
 #[test]
-fn the_template_writes_every_head_and_guard_key_as_a_commented_line() {
+fn the_template_writes_the_policy_and_every_head_key_as_a_commented_line() {
     // every setting is a commented line, so a file written from the
     // template changes nothing until edited (D6)
     for key in [
+        "policy",
         "profile",
         "consoles",
         "login",
-        "on-loss",
-        "rescue",
-        "font-name",
-        "font-size",
-        "anti-lockout",
-        "rescue-key",
-        "never-dark",
+        "when-display-lost",
+        "isolated",
     ] {
         let commented = format!("\n# {key} = ");
         assert!(
@@ -84,5 +81,28 @@ fn the_template_writes_every_head_and_guard_key_as_a_commented_line() {
         let live = format!("\n{key} =");
         assert!(!TEMPLATE.contains(&live), "the template sets `{key}` live");
     }
-    assert!(TEMPLATE.contains("\n# [guards]\n"));
+}
+
+/// `config` with every line number 0, so two files that state the same
+/// configuration compare equal.
+fn unlined(mut config: Config) -> Config {
+    for head in &mut config.heads {
+        head.line = 0;
+    }
+    for rule in &mut config.rules {
+        rule.line = 0;
+    }
+    config
+}
+
+// ADR-1401 D6: docs/heads/default.conf writes the compiled-in
+// configuration out, and docs/heads/reference.conf runs it as it stands
+#[test]
+fn the_user_guides_default_and_reference_files_state_the_compiled_in_configuration() {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/heads");
+    for name in ["default.conf", "reference.conf"] {
+        let text = std::fs::read_to_string(format!("{dir}/{name}")).expect("the file");
+        let parsed = parse(&text).unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        assert_eq!(unlined(parsed.config), unlined(Config::builtin()), "{name}");
+    }
 }

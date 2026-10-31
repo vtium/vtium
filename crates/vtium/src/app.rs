@@ -61,7 +61,7 @@
 //! - **No display.** From the first acquire, vtium waits `display-wait`
 //!   for a frame on a display's screen, and with none by then it ends
 //!   ([`crate::wait`]). Once one has come, a head's last going does what
-//!   its `on-loss` says (D8): under `nohup` its sessions run on at the
+//!   its `when-display-lost` says (D8): under `keep` its sessions run on at the
 //!   grid they had, with the keys of the devices reaching it and no
 //!   blank, until a display its rules match comes and is drawn whole;
 //!   under `hangup` their ptys close at once, and under `hangup
@@ -87,7 +87,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use vtium_config::OnLoss;
+use vtium_config::WhenDisplayLost;
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::display::{Blank, DPI_ASSUMED, DisplayId, Dpms, Event};
 use vtium_platform::input::{
@@ -424,9 +424,6 @@ impl App {
     /// session yet, and its rules for each display that comes.
     pub fn set_heads(&mut self, rules: vtium_config::Config) {
         let rules = route::in_force(rules, &self.config);
-        for line in crate::head::guards_off(rules.guards) {
-            log::warn!("{line}");
-        }
         // The display guard's default head, where the file declares none
         // (D9).
         let mut declared = rules.clone();
@@ -1883,7 +1880,7 @@ impl App {
 
     /// A head's first display came, its last went, or its next came. With
     /// none the head's session runs on at the grid it had, which no
-    /// display resizes, until its `on-loss` hangs it up (ADR-1401 D8), and
+    /// display resizes, until its `when-display-lost` hangs it up (ADR-1401 D8), and
     /// the blank does not run: the blank in force ends, and the countdown
     /// starts afresh when a display comes, as at the user's input for now
     /// (vtium/vtium#87 tells the two apart). The next is drawn whole, and
@@ -1911,10 +1908,10 @@ impl App {
             match (head.attached, attached) {
                 (Attached::Yes, Attached::Gone) => {
                     head.drop_osd();
-                    let hangup = match head.on_loss {
-                        OnLoss::Nohup => None,
-                        OnLoss::Hangup => Some(0),
-                        OnLoss::HangupAfter(secs) => Some(secs),
+                    let hangup = match head.when_display_lost {
+                        WhenDisplayLost::Keep => None,
+                        WhenDisplayLost::Hangup => Some(0),
+                        WhenDisplayLost::HangupAfter(secs) => Some(secs),
                     };
                     head.hangup_due =
                         hangup.map(|secs| after(now, Duration::from_secs(secs.into())));
@@ -1959,7 +1956,7 @@ impl App {
     }
 
     /// Hangs up head `h`'s sessions, which lost their last display under
-    /// `on-loss = hangup` (ADR-1401 D8); the head then follows the respawn
+    /// `when-display-lost = hangup` (ADR-1401 D8); the head then follows the respawn
     /// policy, coming back with the consoles its file asks for, as at its
     /// start.
     fn hang_up(&mut self, h: usize, now: Instant) {
@@ -3291,8 +3288,9 @@ mod tests {
     }
 
     // ADR-1401 D1: a frit's helper fills the cells of the heads drawing
-    // it. Once one of two heads drawing `t` switches away by OSC 50, `t`
-    // keeps the other head's cell alone.
+    // it, here `t` for both heads' profile, b zoomed to a cell of its own.
+    // Once one of the two switches away by OSC 50, `t` keeps the other
+    // head's cell alone.
     #[test]
     fn a_frit_a_head_left_keeps_the_cells_of_the_heads_still_drawing_it() {
         let dir = std::env::temp_dir().join(format!("vtium-app-left-{}", std::process::id()));
@@ -3308,13 +3306,14 @@ mod tests {
             }),
             ..no_fonts()
         };
-        let heads = "version = 1\n[head a]\nfont-name = t\n[head b]\nfont-name = t\nfont-size = 32\n[rules]\ndisplay connector:mem/A -> a\ndisplay connector:mem/B -> b\n";
+        let heads = "version = 1\n[head a]\nprofile = t\n[head b]\nprofile = t\n[rules]\ndisplay connector:mem/A -> a\ndisplay connector:mem/B -> b\n";
         let (_lp, mut app) = seat(Some(heads), fonts);
         app.add_video(
             PathBuf::from("/dev/mem0"),
             Box::new(Still::new(&[(1, "A"), (2, "B")])),
         );
         shown(&mut app);
+        app.zoom(1, Zoom::In);
         let asked = |app: &App| {
             let mut cells: Vec<(u32, u32)> = app
                 .frits
@@ -3394,7 +3393,7 @@ mod tests {
         assert_eq!(app.scrollback_bytes, cap / 9);
     }
 
-    // ADR-1401 D8: the loop wakes when a head's `on-loss` time runs out.
+    // ADR-1401 D8: the loop wakes when a head's `when-display-lost` time runs out.
     #[test]
     fn the_loop_wakes_when_a_heads_hangup_falls_due() {
         let (_lp, mut app) = seat(Some("version = 1\n[head a]\n"), no_fonts());

@@ -1,5 +1,6 @@
-//! What a check of the head file finds: errors, which reject the file
-//! whole, and warnings and notes, which let it apply (ADR-1401 D7).
+//! What a check of the head file finds: errors, each of which drops what
+//! [`scope`](crate::scope) says it takes, and warnings and notes, which
+//! drop nothing (ADR-1401 D7).
 
 use std::fmt::{self, Write as _};
 
@@ -67,8 +68,8 @@ pub enum Untrusted {
 /// A line whose shape is not one the file's syntax takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Syntax {
-    /// A line outside every section, such as a key above the first
-    /// heading.
+    /// A line above the first section that is neither `version` nor
+    /// `policy`, such as a head's key above its heading.
     OutsideSection,
     /// A section heading that does not end in `]`.
     UnclosedHeading,
@@ -88,6 +89,24 @@ pub enum Syntax {
     StarAlone,
 }
 
+/// A name of the head file's first cut, which a later word replaced
+/// (ADR-1401 D3): each is an error whose message names the new word.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Renamed {
+    /// The target `focus`, now `roaming`.
+    Focus,
+    /// The target `dark`, now `off`.
+    Dark,
+    /// The head key `on-loss`, now `when-display-lost`.
+    OnLoss,
+    /// `when-display-lost`'s value `nohup`, now `keep`.
+    Nohup,
+    /// The head key `rescue`, which `isolated` replaced.
+    Rescue,
+    /// The `[guards]` section, which the policy replaced.
+    Guards,
+}
+
 /// One thing that makes the file invalid.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Problem {
@@ -99,20 +118,21 @@ pub enum Problem {
     Untrusted(Untrusted),
     /// More than [`FILE_MAX`](crate::FILE_MAX) bytes.
     TooLarge,
-    /// Not UTF-8 from this line.
+    /// A line that is not UTF-8.
     NotUtf8,
     /// A line longer than [`LINE_MAX`](crate::LINE_MAX) bytes.
     LineTooLong,
-    /// A control character other than tab and newline.
+    /// A control character other than tab, and other than a carriage
+    /// return ending a line.
     ControlCharacter(char),
-    /// No `version = 1` as the first line that is not a comment.
+    /// No `version` line above the first section.
     MissingVersion,
     /// A version vtium does not know.
     UnknownVersion(Quoted),
     /// A line that is not a section, a `key = value` or a rule.
     Syntax(Syntax),
     UnknownSection(Quoted),
-    /// A second `[rules]` or `[guards]`.
+    /// A second `[rules]`.
     DuplicateSection(&'static str),
     /// A key a section does not take.
     UnknownKey(Quoted),
@@ -120,7 +140,7 @@ pub enum Problem {
     DuplicateKey(&'static str),
     /// A head's or a profile's name outside the name rule.
     BadName(Quoted),
-    /// `focus`, `ignore` or `dark` as a head's name.
+    /// `roaming`, `ignore` or `off` as a head's name.
     ReservedName(Quoted),
     /// Two heads of one name.
     DuplicateHead(Quoted),
@@ -140,8 +160,8 @@ pub enum Problem {
     BadToken(Quoted),
     /// A rule naming a head no section declares.
     UndefinedHead(Quoted),
-    /// A target the rule's kind cannot take: `focus` or `ignore` for a
-    /// display, `dark` for an input.
+    /// A target the rule's kind cannot take: `roaming` or `ignore` for a
+    /// display, `off` for an input.
     WrongKind {
         target: &'static str,
         kind: Kind,
@@ -152,6 +172,11 @@ pub enum Problem {
     TooManyRules,
     /// More than [`TOKENS_MAX`](crate::TOKENS_MAX) tokens in one match.
     TooManyTokens,
+    /// A name of the first cut.
+    Renamed(Renamed),
+    /// A `policy` line inside a section, which counts as no policy
+    /// (D3).
+    PolicyInSection,
 }
 
 /// One error, with its line, or `None` for the file as a whole.
@@ -176,8 +201,8 @@ impl fmt::Display for Error {
     }
 }
 
-/// A head file rejected whole: its errors in the file's order, at most
-/// [`ERRORS_MAX`], and how many more there were.
+/// A head file's errors in the file's order, at most [`ERRORS_MAX`], and
+/// how many more there were.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Rejected {
     pub errors: Vec<Error>,
@@ -234,10 +259,6 @@ pub enum Warning {
 /// file (D4, D9).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Note {
-    /// A guard of `[guards]` is off.
-    GuardOff { line: usize, guard: &'static str },
-    /// A head's `rescue = off`.
-    RescueOff { line: usize },
     /// A rule sends input to a head by `id` or `name` alone (probe 4).
     WeakMatch { line: usize },
 }
@@ -255,9 +276,7 @@ impl Note {
     /// The line the note names.
     pub fn line(&self) -> usize {
         match self {
-            Note::GuardOff { line, .. } | Note::RescueOff { line } | Note::WeakMatch { line } => {
-                *line
-            }
+            Note::WeakMatch { line } => *line,
         }
     }
 }

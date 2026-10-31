@@ -1,5 +1,5 @@
-//! The head file's parser: what makes a file invalid, each error named
-//! with its line, and what a valid file says (ADR-1401 D3, D7).
+//! The head file's parser: each error named with its line, and what a
+//! valid file says (ADR-1401 D3, D7).
 
 use std::path::Path;
 
@@ -14,7 +14,7 @@ profile = desk
 [rules]
 display * -> desk
 input path:pci-0000:15:00.0-usb-0:3.3 -> desc
-input class:keyboard -> focus
+input class:keyboard -> roaming
 ";
 
 #[test]
@@ -45,8 +45,9 @@ fn a_finding_is_shown_at_its_file_and_line_with_the_path_escaped() {
         at(heads, None, "absent").to_string(),
         "/etc/vtium/heads.conf: absent"
     );
-    let parsed = parse("version = 1\n[head a]\nrescue = off\n[rules]\ndisplay * -> a\n[guards]\nnever-dark = off\n")
-        .expect("valid");
+    let parsed =
+        parse("version = 1\n[head a]\n[rules]\ndisplay * -> a\ninput name:Keyboard -> a\n")
+            .expect("valid");
     let notes: Vec<String> = parsed
         .notes
         .iter()
@@ -55,8 +56,7 @@ fn a_finding_is_shown_at_its_file_and_line_with_the_path_escaped() {
     assert_eq!(
         notes,
         [
-            "/etc/vtium/heads.conf:3: the rescue key leaves this head's keyboards",
-            "/etc/vtium/heads.conf:7: the never-dark guard is off",
+            "/etc/vtium/heads.conf:5: input reaches a head by `id` or `name` alone, which any device can claim"
         ]
     );
     let odd = Path::new("/tmp/a\nb\u{1b}[2J\u{202e}c\\d\"e.conf");
@@ -69,16 +69,28 @@ fn a_finding_is_shown_at_its_file_and_line_with_the_path_escaped() {
 /// A file, the line its one error names, and a test of the error.
 type Case = (&'static str, Option<usize>, fn(&Problem) -> bool);
 
-/// Each kind of invalid file D7 names, and the line its error names.
+/// Each kind of error D7 names, and the line it names.
 #[test]
-fn each_kind_of_invalid_file_is_rejected_whole_at_its_line() {
+fn each_kind_of_error_is_named_at_its_line() {
     let cases: &[Case] = &[
         ("", None, |p| matches!(p, Problem::MissingVersion)),
         ("# only a comment\n", None, |p| {
             matches!(p, Problem::MissingVersion)
         }),
-        ("[head a]\n", Some(1), |p| {
-            matches!(p, Problem::MissingVersion)
+        ("[head a]\n", None, |p| matches!(p, Problem::MissingVersion)),
+        ("version = 1\nversion = 1\n", Some(2), |p| {
+            matches!(p, Problem::DuplicateKey("version"))
+        }),
+        ("version = 1\npolicy = x\n", Some(2), |p| {
+            matches!(p, Problem::BadValue { key: "policy", .. })
+        }),
+        (
+            "version = 1\npolicy = open\npolicy = open\n",
+            Some(3),
+            |p| matches!(p, Problem::DuplicateKey("policy")),
+        ),
+        ("version = 1\n[head a]\npolicy = open\n", Some(3), |p| {
+            matches!(p, Problem::PolicyInSection)
         }),
         (
             "version = 2\n",
@@ -105,10 +117,10 @@ fn each_kind_of_invalid_file_is_rejected_whole_at_its_line() {
         ("version = 1\n[head a]\n[head a]\n", Some(3), |p| {
             matches!(p, Problem::DuplicateHead(_))
         }),
-        ("version = 1\n[head focus]\n", Some(2), |p| {
+        ("version = 1\n[head roaming]\n", Some(2), |p| {
             matches!(p, Problem::ReservedName(_))
         }),
-        ("version = 1\n[head dark]\n", Some(2), |p| {
+        ("version = 1\n[head off]\n", Some(2), |p| {
             matches!(p, Problem::ReservedName(_))
         }),
         ("version = 1\n[head a/b]\n", Some(2), |p| {
@@ -135,73 +147,76 @@ fn each_kind_of_invalid_file_is_rejected_whole_at_its_line() {
                 }
             )
         }),
-        ("version = 1\n[head a]\nfont-size = 2049\n", Some(3), |p| {
+        (
+            "version = 1\n[head a]\nwhen-display-lost = never\n",
+            Some(3),
+            |p| {
+                matches!(
+                    p,
+                    Problem::BadValue {
+                        key: "when-display-lost",
+                        ..
+                    }
+                )
+            },
+        ),
+        (
+            "version = 1\n[head a]\nwhen-display-lost = hangup 4294967296\n",
+            Some(3),
+            |p| {
+                matches!(
+                    p,
+                    Problem::OutOfRange {
+                        key: "when-display-lost",
+                        ..
+                    }
+                )
+            },
+        ),
+        ("version = 1\n[head a]\nisolated = maybe\n", Some(3), |p| {
             matches!(
                 p,
-                Problem::OutOfRange {
-                    key: "font-size",
+                Problem::BadValue {
+                    key: "isolated",
                     ..
                 }
             )
-        }),
-        ("version = 1\n[head a]\non-loss = never\n", Some(3), |p| {
-            matches!(p, Problem::BadValue { key: "on-loss", .. })
-        }),
-        (
-            "version = 1\n[head a]\non-loss = hangup 4294967296\n",
-            Some(3),
-            |p| matches!(p, Problem::OutOfRange { key: "on-loss", .. }),
-        ),
-        ("version = 1\n[head a]\nrescue = no\n", Some(3), |p| {
-            matches!(p, Problem::BadValue { key: "rescue", .. })
         }),
         (
             "version = 1\n[head a]\nconsoles = 2\nconsoles = 3\n",
             Some(4),
             |p| matches!(p, Problem::DuplicateKey("consoles")),
         ),
+        ("version = 1\n[rules]\n[rules]\n", Some(3), |p| {
+            matches!(p, Problem::DuplicateSection("rules"))
+        }),
+        ("version = 1\n[rules]\nscreen * -> off\n", Some(3), |p| {
+            matches!(p, Problem::Syntax(_))
+        }),
+        ("version = 1\n[rules]\ndisplay * off\n", Some(3), |p| {
+            matches!(p, Problem::Syntax(_))
+        }),
+        ("version = 1\n[rules]\ndisplay -> off\n", Some(3), |p| {
+            matches!(p, Problem::Syntax(_))
+        }),
         (
-            "version = 1\n[guards]\nnever-dark = maybe\n",
+            "version = 1\n[rules]\ndisplay * class:key -> off\n",
+            Some(3),
+            |p| matches!(p, Problem::Syntax(_)),
+        ),
+        (
+            "version = 1\n[rules]\ndisplay * -> roaming\n",
             Some(3),
             |p| {
                 matches!(
                     p,
-                    Problem::BadValue {
-                        key: "never-dark",
+                    Problem::WrongKind {
+                        target: "roaming",
                         ..
                     }
                 )
             },
         ),
-        ("version = 1\n[guards]\nlockout = off\n", Some(3), |p| {
-            matches!(p, Problem::UnknownKey(_))
-        }),
-        ("version = 1\n[rules]\n[rules]\n", Some(3), |p| {
-            matches!(p, Problem::DuplicateSection("rules"))
-        }),
-        ("version = 1\n[rules]\nscreen * -> dark\n", Some(3), |p| {
-            matches!(p, Problem::Syntax(_))
-        }),
-        ("version = 1\n[rules]\ndisplay * dark\n", Some(3), |p| {
-            matches!(p, Problem::Syntax(_))
-        }),
-        ("version = 1\n[rules]\ndisplay -> dark\n", Some(3), |p| {
-            matches!(p, Problem::Syntax(_))
-        }),
-        (
-            "version = 1\n[rules]\ndisplay * class:key -> dark\n",
-            Some(3),
-            |p| matches!(p, Problem::Syntax(_)),
-        ),
-        ("version = 1\n[rules]\ndisplay * -> focus\n", Some(3), |p| {
-            matches!(
-                p,
-                Problem::WrongKind {
-                    target: "focus",
-                    ..
-                }
-            )
-        }),
         (
             "version = 1\n[rules]\ndisplay * -> ignore\n",
             Some(3),
@@ -215,56 +230,56 @@ fn each_kind_of_invalid_file_is_rejected_whole_at_its_line() {
                 )
             },
         ),
-        ("version = 1\n[rules]\ninput * -> dark\n", Some(3), |p| {
-            matches!(p, Problem::WrongKind { target: "dark", .. })
+        ("version = 1\n[rules]\ninput * -> off\n", Some(3), |p| {
+            matches!(p, Problem::WrongKind { target: "off", .. })
         }),
         (
-            "version = 1\n[rules]\ninput colour:red -> focus\n",
+            "version = 1\n[rules]\ninput colour:red -> roaming\n",
             Some(3),
             |p| matches!(p, Problem::UnknownMatchKey(_)),
         ),
         (
-            "version = 1\n[rules]\ninput keyboard -> focus\n",
+            "version = 1\n[rules]\ninput keyboard -> roaming\n",
             Some(3),
             |p| matches!(p, Problem::UnknownMatchKey(_)),
         ),
         (
-            "version = 1\n[rules]\ninput class:printer -> focus\n",
+            "version = 1\n[rules]\ninput class:printer -> roaming\n",
             Some(3),
             |p| matches!(p, Problem::BadToken(_)),
         ),
         (
-            "version = 1\n[rules]\ninput id:zzzz:0001 -> focus\n",
+            "version = 1\n[rules]\ninput id:zzzz:0001 -> roaming\n",
             Some(3),
             |p| matches!(p, Problem::BadToken(_)),
         ),
         (
-            "version = 1\n[rules]\ndisplay edid:aaa:0x1:S -> dark\n",
+            "version = 1\n[rules]\ndisplay edid:aaa:0x1:S -> off\n",
             Some(3),
             |p| matches!(p, Problem::BadToken(_)),
         ),
         (
-            "version = 1\n[rules]\ninput serial:aaaa:0002 -> focus\n",
+            "version = 1\n[rules]\ninput serial:aaaa:0002 -> roaming\n",
             Some(3),
             |p| matches!(p, Problem::BadToken(_)),
         ),
         (
-            "version = 1\n[rules]\ninput udev:=x -> focus\n",
+            "version = 1\n[rules]\ninput udev:=x -> roaming\n",
             Some(3),
             |p| matches!(p, Problem::BadToken(_)),
         ),
         (
-            "version = 1\n[rules]\ndisplay connector:DP-8 -> dark\n",
+            "version = 1\n[rules]\ndisplay connector:DP-8 -> off\n",
             Some(3),
             |p| matches!(p, Problem::BadToken(_)),
         ),
         (
-            "version = 1\n[rules]\ninput path: -> focus\n",
+            "version = 1\n[rules]\ninput path: -> roaming\n",
             Some(3),
             |p| matches!(p, Problem::BadToken(_)),
         ),
         (
-            "version = 1\n[rules]\ninput name:a name:b name:c name:d name:e name:f name:g name:h name:i -> focus\n",
+            "version = 1\n[rules]\ninput name:a name:b name:c name:d name:e name:f name:g name:h name:i -> roaming\n",
             Some(3),
             |p| matches!(p, Problem::TooManyTokens),
         ),
@@ -285,7 +300,7 @@ fn each_kind_of_invalid_file_is_rejected_whole_at_its_line() {
 }
 
 #[test]
-fn a_file_past_a_bound_is_rejected_whole() {
+fn a_file_past_a_bound_names_its_line() {
     let long = format!("version = 1\n# {}\n", "x".repeat(vtium_config::LINE_MAX));
     let r = parse(&long).expect_err("a line past LINE_MAX");
     assert_eq!(
@@ -304,7 +319,7 @@ fn a_file_past_a_bound_is_rejected_whole() {
 
     let mut rules = String::from("version = 1\n[rules]\n");
     for _ in 0..=vtium_config::RULES_MAX {
-        rules.push_str("input * -> focus\n");
+        rules.push_str("input * -> roaming\n");
     }
     let r = parse(&rules).expect_err("a rule past RULES_MAX");
     assert_eq!(r.errors.len(), 1);
@@ -320,7 +335,7 @@ version = 1
 consoles = 0
 [rules]
 display * -> nowhere
-input class:printer -> focus
+input class:printer -> roaming
 [head desk]
 ";
     let r = parse(text).expect_err("four errors");
@@ -372,7 +387,7 @@ profile = desk
 [head panel]
 profile = small
 consoles = 2
-on-loss = hangup 30s
+when-display-lost = hangup 30s
 
 [rules]
 display edid:AAA:0x0001:LARGE00001 -> desk
@@ -380,24 +395,19 @@ display edid:BBB:0x0002:SMALL00001 -> panel
 input path:pci-0000:15:00.0-usb-0:3.3 -> desk
 input path:pci-0000:15:00.0-usb-0:3.4.4 -> desk
 input path:pci-0000:15:00.0-usb-0:3.2 -> panel
-input path:pci-0000:15:00.0-usb-0:3.4.2 -> focus
+input path:pci-0000:15:00.0-usb-0:3.4.2 -> roaming
 # needs the example udev rule that sets VTIUM_HEAD (D4)
 input udev:VTIUM_HEAD=panel -> panel
 display * -> desk
-input class:keyboard -> focus
-input class:mouse -> focus
+input class:keyboard -> roaming
+input class:mouse -> roaming
+# no class:key rule, unlike the shipped rules: media-key devices stay closed
 input * -> ignore
-
-[guards]
-# each guard is on; turning one off is a choice to risk a lockout
-anti-lockout = on
-rescue-key = on
-never-dark = on
 ";
 
 #[test]
 fn the_records_example_file_is_valid_and_reads_every_key() {
-    use vtium_config::{Edid, Kind, Match, OnLoss, Target, Token};
+    use vtium_config::{Edid, Kind, Match, Target, Token, WhenDisplayLost};
     let parsed = parse(EXAMPLE).expect("the record's example is valid");
     assert!(parsed.warnings.is_empty(), "{:?}", parsed.warnings);
     assert!(parsed.notes.is_empty(), "{:?}", parsed.notes);
@@ -406,13 +416,13 @@ fn the_records_example_file_is_valid_and_reads_every_key() {
     assert_eq!(names, ["desk", "panel"]);
     assert_eq!(c.heads[0].profile, "desk");
     assert_eq!(
-        (c.heads[0].consoles, c.heads[0].on_loss),
-        (1, OnLoss::Nohup)
+        (c.heads[0].consoles, c.heads[0].when_display_lost),
+        (1, WhenDisplayLost::Keep)
     );
     assert_eq!(c.heads[1].profile, "small");
     assert_eq!(
-        (c.heads[1].consoles, c.heads[1].on_loss),
-        (2, OnLoss::HangupAfter(30))
+        (c.heads[1].consoles, c.heads[1].when_display_lost),
+        (2, WhenDisplayLost::HangupAfter(30))
     );
     assert_eq!(c.rules.len(), 11);
     assert_eq!(c.rules[0].line, 13);
@@ -439,8 +449,8 @@ fn the_records_example_file_is_valid_and_reads_every_key() {
 }
 
 #[test]
-fn blanks_and_comments_are_dropped_anywhere() {
-    let text = "  # lead\n\tversion\t=\t1   # the format\n\n[ head  a ]\n  consoles=3#three\n[rules]\n display\t*  ->   a # all\n";
+fn blanks_and_comments_are_dropped() {
+    let text = "  # lead\n\tversion\t=\t1   # the format\n\n[ head  a ]\n  consoles=3\t#three\n[rules]\n display\t*  ->   a # all\n";
     let c = parse(text).expect("valid").config;
     assert_eq!(c.heads[0].name, "a");
     assert_eq!(c.heads[0].consoles, 3);
@@ -456,32 +466,32 @@ fn a_rule_may_name_a_head_declared_after_it() {
 }
 
 #[test]
-fn on_loss_takes_seconds_or_a_suffix() {
-    use vtium_config::OnLoss;
+fn when_display_lost_takes_seconds_or_a_suffix() {
+    use vtium_config::WhenDisplayLost;
     for (value, want) in [
-        ("nohup", OnLoss::Nohup),
-        ("hangup", OnLoss::Hangup),
-        ("hangup 30", OnLoss::HangupAfter(30)),
-        ("hangup 30s", OnLoss::HangupAfter(30)),
-        ("hangup   5m", OnLoss::HangupAfter(300)),
-        ("hangup 1h", OnLoss::HangupAfter(3600)),
-        ("hangup 0", OnLoss::HangupAfter(0)),
+        ("keep", WhenDisplayLost::Keep),
+        ("hangup", WhenDisplayLost::Hangup),
+        ("hangup 30", WhenDisplayLost::HangupAfter(30)),
+        ("hangup 30s", WhenDisplayLost::HangupAfter(30)),
+        ("hangup   5m", WhenDisplayLost::HangupAfter(300)),
+        ("hangup 1h", WhenDisplayLost::HangupAfter(3600)),
+        ("hangup 0", WhenDisplayLost::HangupAfter(0)),
     ] {
-        let text = format!("version = 1\n[head a]\non-loss = {value}\n");
+        let text = format!("version = 1\n[head a]\nwhen-display-lost = {value}\n");
         let c = parse(&text)
             .unwrap_or_else(|e| panic!("{value}: {e:?}"))
             .config;
-        assert_eq!(c.heads[0].on_loss, want, "{value}");
+        assert_eq!(c.heads[0].when_display_lost, want, "{value}");
     }
     for value in [
         "hangup 5x",
         "hangup 1 2",
         "hangup s",
         "hangup -1",
-        "nohup 5",
+        "keep 5",
         "hangup 1193047h",
     ] {
-        let text = format!("version = 1\n[head a]\non-loss = {value}\n");
+        let text = format!("version = 1\n[head a]\nwhen-display-lost = {value}\n");
         assert!(parse(&text).is_err(), "{value} parsed");
     }
 }
@@ -507,9 +517,9 @@ version = 1
 [head a]
 [rules]
 input class:keyboard -> a
-input class:keyboard name:Numpad -> focus
+input class:keyboard name:Numpad -> roaming
 display * -> a
-display edid:AAA:0x0001:X -> dark
+display edid:AAA:0x0001:X -> off
 input name:Numpad -> ignore
 ";
     let p = parse(text).expect("valid");
@@ -523,43 +533,24 @@ input name:Numpad -> ignore
 }
 
 #[test]
-fn guards_turned_off_weak_matches_and_rescue_off_are_notes() {
+fn input_sent_to_a_head_by_id_or_name_alone_is_a_note() {
     use vtium_config::Note;
     let text = "\
 version = 1
 [head kiosk]
-rescue = off
+isolated = yes
 [rules]
 input id:aaaa:0001 -> kiosk
 input name:Keyboard* id:aaaa:0002 -> kiosk
 input id:aaaa:0003 path:pci-0000:15:00.0-usb-0:3.3 -> kiosk
-input name:Token -> focus
-[guards]
-anti-lockout = off
-rescue-key = on
-never-dark = off
+input name:Token -> roaming
 ";
     let p = parse(text).expect("valid");
     assert!(p.warnings.is_empty(), "{:?}", p.warnings);
     assert_eq!(
         p.notes,
-        [
-            Note::RescueOff { line: 3 },
-            Note::WeakMatch { line: 5 },
-            Note::WeakMatch { line: 6 },
-            Note::GuardOff {
-                line: 10,
-                guard: "anti-lockout"
-            },
-            Note::GuardOff {
-                line: 12,
-                guard: "never-dark"
-            },
-        ]
+        [Note::WeakMatch { line: 5 }, Note::WeakMatch { line: 6 }]
     );
-    let g = p.config.guards;
-    assert!(!g.anti_lockout && g.rescue_key && !g.never_dark);
-    assert!(!p.config.heads[0].rescue);
 }
 
 #[test]
@@ -588,17 +579,13 @@ input udev:VTIUM_HEAD=a -> a
 }
 
 #[test]
-fn a_heads_font_is_its_own_over_its_profile_over_the_configuration() {
+fn a_heads_font_is_its_profiles_over_the_configuration() {
     use vtium_config::Font;
     let text = "\
 version = 1
 [head plain]
 [head named]
 profile = desk
-[head own]
-profile = desk
-font-name = terminus
-font-size = 12
 ";
     let c = parse(text).expect("valid").config;
     let base = Font {
@@ -613,19 +600,7 @@ font-size = 12
             size: Some(10),
         }
     );
-    assert_eq!(
-        c.heads[2].font(&base),
-        Font {
-            name: Some("terminus".into()),
-            size: Some(12),
-        }
-    );
     assert_eq!(c.heads[0].font(&Font::default()), Font::default());
-}
-
-#[test]
-fn font_size_max_is_vtium_fonts_cell_bound() {
-    assert_eq!(vtium_config::FONT_SIZE_MAX, vtium_font::CELL_SIDE_MAX);
 }
 
 #[test]
@@ -686,18 +661,23 @@ fn first_error(lines: &str) -> String {
 // from the parser's own tables.
 #[test]
 fn an_error_lists_what_its_key_takes() {
-    let switch = first_error("[head a]\nrescue = maybe\n[rules]\ndisplay * -> a\n");
+    let isolated = first_error("[head a]\nisolated = maybe\n[rules]\ndisplay * -> a\n");
     assert!(
-        switch.ends_with("Change it to one of `on`, `off`."),
-        "{switch}"
+        isolated.ends_with("Change it to one of `yes`, `no`."),
+        "{isolated}"
     );
-    let loss = first_error("[head a]\non-loss = never\n[rules]\ndisplay * -> a\n");
+    let lost = first_error("[head a]\nwhen-display-lost = never\n[rules]\ndisplay * -> a\n");
     assert!(
-        loss.ends_with("Change it to one of `nohup`, `hangup`, `hangup DURATION`."),
-        "{loss}"
+        lost.ends_with("Change it to one of `keep`, `hangup`, `hangup DURATION`."),
+        "{lost}"
     );
-    let size = first_error("[head a]\nfont-size = 100000\n[rules]\ndisplay * -> a\n");
-    assert!(size.contains("takes, 0 to "), "{size}");
+    let policy = first_error("policy = maybe\n[head a]\n");
+    assert!(
+        policy.ends_with("Change it to one of `open`, `closed`."),
+        "{policy}"
+    );
+    let range = first_error("[head a]\nconsoles = 0\n");
+    assert!(range.contains("takes, 1 or more."), "{range}");
     let key = first_error("[head a]\n[rules]\ndisplay frob:x -> a\n");
     assert!(key.contains("Use one of `path`, `serial`, "), "{key}");
     let class = first_error("[head a]\n[rules]\ninput class:toaster -> a\n");

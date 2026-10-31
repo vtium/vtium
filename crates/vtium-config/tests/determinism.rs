@@ -112,7 +112,7 @@ fn ruleset(rng: &mut Rng) -> Config {
                 ["DP-*", "HDMI-A-?", "*"][rng.below(3)],
                 heads[rng.below(2)]
             ),
-            2 => format!("display card:{} -> dark", CARDS[rng.below(2)]),
+            2 => format!("display card:{} -> off", CARDS[rng.below(2)]),
             3 => format!(
                 "input path:{} -> {}",
                 PATHS[rng.below(3)],
@@ -127,24 +127,30 @@ fn ruleset(rng: &mut Rng) -> Config {
             5 => format!(
                 "input class:{} -> {}",
                 CLASSES[rng.below(6)].name(),
-                ["focus", "ignore", "desk"][rng.below(3)]
+                ["roaming", "ignore", "desk"][rng.below(3)]
             ),
             6 => "input name:*pad -> panel".to_owned(),
             7 => "input * -> ignore".to_owned(),
-            _ => format!("display * -> {}", ["desk", "dark"][rng.below(2)]),
+            _ => format!("display * -> {}", ["desk", "off"][rng.below(2)]),
         };
         text.push_str(&line);
         text.push('\n');
     }
-    text.push_str("[guards]\n");
-    for guard in ["anti-lockout", "rescue-key", "never-dark"] {
-        let on = if rng.below(4) == 0 { "off" } else { "on" };
-        text.push_str(&format!("{guard} = {on}\n"));
-    }
-    match parse(&text) {
+    let mut config = match parse(&text) {
         Ok(p) => p.config,
         Err(e) => panic!("the generated ruleset parses: {e:?}\n{text}"),
+    };
+    // no line of the head file turns a guard off, but placement reads each
+    // switch
+    let guards = &mut config.guards;
+    for on in [
+        &mut guards.anti_lockout,
+        &mut guards.rescue_key,
+        &mut guards.never_dark,
+    ] {
+        *on = rng.below(4) != 0;
     }
+    config
 }
 
 /// Every order of `0..n`, by Heap's algorithm.

@@ -446,7 +446,7 @@ const TWO_HEADS: &str = "version = 1
 [rules]
 display card:mem-small -> small
 display card:mem-large -> large
-input class:keyboard -> focus
+input class:keyboard -> roaming
 ";
 
 /// The grid of the head `name`.
@@ -519,7 +519,7 @@ fn a_display_sent_dark_or_claimed_by_no_rule_is_left_off() {
 [head small]
 [rules]
 display card:mem-small -> small
-display card:mem-large -> dark
+display card:mem-large -> off
 ";
     let displays = [
         ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
@@ -672,17 +672,16 @@ fn frits(test: &str, names: &[&str]) -> (Sources, PathBuf) {
 }
 
 /// D3 and D6: the more specific setting wins. A head's profile names its
-/// frit, and its own `font-size` wins over kmscon.conf's; a head with the
-/// default profile and no font key of its own takes kmscon.conf's, the
-/// built-in font here.
+/// frit, over kmscon.conf's font; a head with the default profile takes
+/// kmscon.conf's, the built-in font here. A head has no font key of its
+/// own.
 #[test]
-fn a_heads_profile_names_its_frit_and_its_own_font_size_wins() {
+fn a_heads_profile_names_its_frit_over_kmscon_confs_font() {
     let (fonts, starts) = frits("profile", &["t"]);
     let heads = "version = 1
 [head small]
 [head large]
 profile = t
-font-size = 32
 [rules]
 display card:mem-small -> small
 display card:mem-large -> large
@@ -690,8 +689,9 @@ display card:mem-large -> large
     let mut s = Seat::with_fonts(&[], Some(heads), two_displays(), "read x", fonts);
     assert!(s.until(SECOND, |a| a.cells().len() == 2));
     assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(8, 16)]));
-    assert_eq!(s.app.head("large").map(Head::cells), Some(vec![(16, 32)]));
-    assert_eq!(grid(&s.app, "large"), Some((40, 10)));
+    // both at kmscon.conf's size, 16
+    assert_eq!(s.app.head("large").map(Head::cells), Some(vec![(8, 16)]));
+    assert_eq!(grid(&s.app, "large"), Some((80, 20)));
     assert_eq!(
         s.app.font_name(),
         "unifont",
@@ -728,11 +728,11 @@ fn heads_drawing_one_frit_share_its_helper_and_another_frit_has_its_own() {
     let (fonts, starts) = frits("share", &["t", "u"]);
     let heads = "version = 1
 [head a]
-font-name = t
+profile = t
 [head b]
-font-name = t
+profile = t
 [head c]
-font-name = u
+profile = u
 [rules]
 display card:mem-a -> a
 display card:mem-b -> b
@@ -783,7 +783,7 @@ fn the_end_of_the_blank_never_unblanks_a_dark_display() {
 [head small]
 [rules]
 display card:mem-small -> small
-display card:mem-large -> dark
+display card:mem-large -> off
 ";
     let mut s = Seat::with_heads(&["--dpms-timeout=1"], Some(heads), two_displays(), "read x");
     assert!(s.until(SECOND, |a| a.cells().len() == 1));
@@ -832,7 +832,7 @@ fn a_slow_head_delays_neither_another_heads_frame_nor_input() {
 [rules]
 display card:mem-small -> slow
 display card:mem-large -> fast
-input class:keyboard -> focus
+input class:keyboard -> roaming
 ";
     let [small, (node, large)] = two_displays();
     let displays = [small, (node, large.lit())];
@@ -1040,7 +1040,7 @@ display card:mem-small -> small
 display card:mem-large -> large
 input path:kbd-small -> small
 input path:kbd-large -> large
-input class:keyboard -> focus
+input class:keyboard -> roaming
 ";
 
 /// The keyboards [`claimed`] adds: one claimed by each head, and one
@@ -1770,7 +1770,7 @@ fn a_claimed_pointer_moves_on_its_heads_display_alone() {
 display card:mem-small -> small
 display card:mem-large -> large
 input path:mouse-small -> small
-input class:mouse -> focus
+input class:mouse -> roaming
 ";
     let [small, (node, large)] = two_displays();
     let displays = [small, (node, large.lit())];
@@ -1977,13 +1977,13 @@ impl Seat {
     }
 }
 
-/// D8: under `on-loss = hangup` a head losing its last display hangs its
+/// D8: under `when-display-lost = hangup` a head losing its last display hangs its
 /// sessions up at once, as a line losing its carrier: the pty closes and
 /// the session gets SIGHUP. The head then follows the respawn policy,
 /// which starts its login again; the other head runs on.
 #[test]
 fn under_hangup_a_head_losing_its_last_display_hangs_its_sessions_up_at_once() {
-    let (mut s, f) = losing("hangup", &[], "on-loss = hangup", false);
+    let (mut s, f) = losing("hangup", &[], "when-display-lost = hangup", false);
     let before = s.session("small");
     let large = s.session("large");
     s.unplug("/dev/mem0", now());
@@ -1997,13 +1997,13 @@ fn under_hangup_a_head_losing_its_last_display_hangs_its_sessions_up_at_once() {
     assert!(s.app.finished().is_none());
 }
 
-/// D8: under `nohup`, the default, a head losing its last display keeps
+/// D8: under `keep`, the default, a head losing its last display keeps
 /// its session, however long the display stays away, and the keys of the
 /// devices reaching it still type into it, as the kernel console's tty
 /// does; a display of the head coming back draws it again.
 #[test]
-fn under_nohup_a_head_losing_its_last_display_runs_on_and_shows_again_on_its_return() {
-    let (mut s, f) = losing("nohup", &[], "on-loss = nohup", false);
+fn under_keep_a_head_losing_its_last_display_runs_on_and_shows_again_on_its_return() {
+    let (mut s, f) = losing("keep", &[], "when-display-lost = keep", false);
     let before = s.session("small");
     let t = now();
     s.unplug("/dev/mem0", t);
@@ -2030,7 +2030,7 @@ fn under_nohup_a_head_losing_its_last_display_runs_on_and_shows_again_on_its_ret
 /// after it. The time is the loop's, which the test gives.
 #[test]
 fn under_hangup_30s_a_return_within_the_time_resumes_and_after_it_hangs_up() {
-    let (mut s, f) = losing("hangup-30s", &[], "on-loss = hangup 30s", false);
+    let (mut s, f) = losing("hangup-30s", &[], "when-display-lost = hangup 30s", false);
     let before = s.session("small");
     let t = now();
     let at = |secs: u64| t + Duration::from_secs(secs);
@@ -2055,7 +2055,7 @@ fn under_hangup_30s_a_return_within_the_time_resumes_and_after_it_hangs_up() {
 /// remains, under `hangup` too; its last going hangs them up.
 #[test]
 fn a_mirrored_head_keeps_its_sessions_while_one_display_remains() {
-    let (mut s, f) = losing("mirrored", &[], "on-loss = hangup", true);
+    let (mut s, f) = losing("mirrored", &[], "when-display-lost = hangup", true);
     assert_eq!(s.app.head("small").map(|h| h.cells().len()), Some(2));
     let before = s.session("small");
     s.unplug("/dev/mem1", now());
@@ -2073,7 +2073,7 @@ fn a_mirrored_head_keeps_its_sessions_while_one_display_remains() {
 /// display coming back reattaches it.
 #[test]
 fn a_head_reattaches_only_to_a_display_its_rules_match() {
-    let (mut s, f) = losing("reattach", &[], "on-loss = hangup 30s", false);
+    let (mut s, f) = losing("reattach", &[], "when-display-lost = hangup 30s", false);
     let t = now();
     s.unplug("/dev/mem0", t);
     s.app.add_video(
@@ -2195,7 +2195,7 @@ input path:kbd-unlit -> unlit
 /// time and never gives the head up as exiting too quickly.
 #[test]
 fn a_display_flapping_under_hangup_brings_the_login_back_each_time() {
-    let (mut s, f) = losing("flap", &[], "on-loss = hangup", false);
+    let (mut s, f) = losing("flap", &[], "when-display-lost = hangup", false);
     for n in 1..=7 {
         s.unplug("/dev/mem0", now());
         assert!(s.hung_up(&f.mark, SECOND), "hang-up {n}");
@@ -2214,7 +2214,7 @@ fn a_display_flapping_under_hangup_brings_the_login_back_each_time() {
 /// no quick exit is counted, so seven in a row never give the head up.
 #[test]
 fn an_exit_read_before_a_hang_up_is_the_hung_up_sessions() {
-    let (mut s, _files) = losing("exit-and-hangup", &[], "on-loss = hangup", false);
+    let (mut s, _files) = losing("exit-and-hangup", &[], "when-display-lost = hangup", false);
     for n in 1..=7 {
         s.type_on(KBD_SMALL, "q\r");
         // The loop reads the exit, and no turn takes it before the hang-up.
@@ -2237,7 +2237,12 @@ fn an_exit_read_before_a_hang_up_is_the_hung_up_sessions() {
 /// with the consoles its file asks for, as at its start.
 #[test]
 fn a_head_hung_up_comes_back_with_the_consoles_its_file_asks_for() {
-    let (mut s, f) = losing("consoles", &[], "on-loss = hangup\nconsoles = 4", false);
+    let (mut s, f) = losing(
+        "consoles",
+        &[],
+        "when-display-lost = hangup\nconsoles = 4",
+        false,
+    );
     assert!(s.until(SECOND, |a| consoles(a, "small") == Some((4, 0))));
     assert!(s.until(SECOND, |_| f.starts() == 4));
     s.unplug("/dev/mem0", now());
@@ -2251,7 +2256,12 @@ fn a_head_hung_up_comes_back_with_the_consoles_its_file_asks_for() {
 /// anything left to run.
 #[test]
 fn under_oneshot_a_hang_up_ends_the_head_and_then_vtium() {
-    let (mut s, f) = losing("oneshot", &["--oneshot"], "on-loss = hangup", true);
+    let (mut s, f) = losing(
+        "oneshot",
+        &["--oneshot"],
+        "when-display-lost = hangup",
+        true,
+    );
     s.unplug("/dev/mem1", now());
     s.unplug("/dev/mem0", now());
     assert!(s.hung_up(&f.mark, SECOND));
@@ -2348,7 +2358,7 @@ display card:mem-small -> small
 display card:mem-large -> large
 input path:kbd-small -> small
 input path:kbd-ignored -> ignore
-input class:keyboard -> focus
+input class:keyboard -> roaming
 ";
 
 const KBD_IGNORED: &str = "/dev/input/event3";
@@ -2446,7 +2456,11 @@ fn a_boot_with_an_invalid_head_file_runs_the_shipped_rules_shows_the_notice_and_
     use std::os::unix::fs::PermissionsExt;
     let rules = "[rules]\ndisplay * -> desk\n";
     let invalid: [(&str, String, &str); 12] = [
-        ("no-version", format!("[head desk]\n{rules}"), ":1: "),
+        (
+            "no-version",
+            format!("[head desk]\n{rules}"),
+            "above its first section",
+        ),
         (
             "version",
             format!("version = 2\n[head desk]\n{rules}"),
@@ -2469,7 +2483,7 @@ fn a_boot_with_an_invalid_head_file_runs_the_shipped_rules_shows_the_notice_and_
         ),
         (
             "kind",
-            "version = 1\n[head desk]\n[rules]\ninput * -> dark\n".into(),
+            "version = 1\n[head desk]\n[rules]\ninput * -> off\n".into(),
             ":4: ",
         ),
         (
@@ -2494,7 +2508,7 @@ fn a_boot_with_an_invalid_head_file_runs_the_shipped_rules_shows_the_notice_and_
         ),
         (
             "range",
-            format!("version = 1\n[head desk]\nfont-size = 100000\n{rules}"),
+            format!("version = 1\n[head desk]\nconsoles = 0\n{rules}"),
             ":3: ",
         ),
         (
@@ -2808,7 +2822,7 @@ display card:mem-small -> small
 display card:mem-large -> large
 input path:kbd-small -> small
 input path:kbd-large -> large
-input class:keyboard -> focus
+input class:keyboard -> roaming
 ";
 
 /// D5: a head's first start is no change the on-screen display shows,
@@ -2872,7 +2886,7 @@ const THREE_HEADS: &str = "version = 1
 display card:mem-a -> a
 display card:mem-b -> b
 display card:mem-c -> c
-input class:keyboard -> focus
+input class:keyboard -> roaming
 ";
 
 /// D5: a head already without a display when the active head moves takes
@@ -2991,10 +3005,8 @@ fn under_osd_off_a_move_composes_no_frame() {
 }
 
 /// Two heads, each keyboard but `kbd-large` claimed by `small`, which
-/// [`stranded`] gives no display, with the head file's `guards`.
-fn stranded_file(guards: &str) -> String {
-    format!(
-        "version = 1
+/// [`stranded`] gives no display.
+const STRANDED: &str = "version = 1
 [head small]
 [head large]
 [rules]
@@ -3002,19 +3014,29 @@ display card:mem-small -> small
 display card:mem-large -> large
 input path:kbd-large -> large
 input class:keyboard -> small
-{guards}"
-    )
+";
+
+/// `text`'s head file with a guard turned off: no line of the head file
+/// turns one off, but the seat reads each switch (ADR-1401 D9).
+fn guarded(
+    text: &str,
+    off: fn(&mut vtium_config::Guards),
+) -> (vtium_config::Config, Option<String>) {
+    let mut config = vtium_config::parse(text).expect("valid").config;
+    off(&mut config.guards);
+    (config, None)
 }
 
 const KBD_A: &str = "/dev/input/event4";
 const KBD_B: &str = "/dev/input/event5";
 
-/// [`stranded_file`] booted with only the large display, two keyboards
-/// claimed by `small`, each head's session echoing each line it reads.
-fn stranded(guards: &str) -> Seat {
+/// [`STRANDED`], with the guards `rules` gives them, booted with only the
+/// large display, two keyboards claimed by `small`, each head's session
+/// echoing each line it reads.
+fn stranded(rules: (vtium_config::Config, Option<String>)) -> Seat {
     let displays = [("/dev/mem1", Memory::new(640, 320, "MEM-2", "mem-large"))];
     let script = "echo ready; while read a; do echo \"got:$a\"; done";
-    let mut s = Seat::with_heads(&[], Some(&stranded_file(guards)), displays, script);
+    let mut s = Seat::with_rules(&[], Some(rules), displays, script, no_fonts());
     s.app.add_input(Path::new(KBD_A), keyboard("kbd-a"));
     s.app.add_input(Path::new(KBD_B), keyboard("kbd-b"));
     assert!(s.until(SECOND, |a| head_shows(a, "large", "ready")));
@@ -3027,7 +3049,7 @@ fn stranded(guards: &str) -> Seat {
 /// keyboard types into its rule's head again.
 #[test]
 fn every_keyboard_claimed_by_a_head_with_no_display_types_into_the_focus() {
-    let mut s = stranded("");
+    let mut s = stranded(guarded(STRANDED, |_| {}));
     let shown = notice(&s.app, "large").unwrap_or_default();
     assert!(shown.contains(LOCKED_OUT), "a notice: {shown:?}");
     s.type_on(KBD_A, "a\r");
@@ -3083,11 +3105,11 @@ fn losing_with_focus() -> Seat {
     s
 }
 
-/// D9's switch: with `anti-lockout = off` a ruleset that strands every
-/// keyboard is left as it is.
+/// D9's switch: with the anti-lockout guard off a ruleset that strands
+/// every keyboard is left as it is.
 #[test]
 fn with_anti_lockout_off_a_ruleset_stranding_every_keyboard_is_left_as_it_is() {
-    let mut s = stranded("[guards]\nanti-lockout = off\n");
+    let mut s = stranded(guarded(STRANDED, |g| g.anti_lockout = false));
     s.type_on(KBD_A, "a\r");
     s.until(Duration::from_millis(200), |_| false);
     assert!(!head_shows(&s.app, "large", "got:a"));
@@ -3117,29 +3139,27 @@ fn a_file_with_version_1_and_no_rules_lights_the_boot_display() {
     );
 }
 
-/// D9's switch: with `never-dark = off` a file with `version = 1` and no
-/// rules leaves every display dark.
+/// D9's switch: with the display guard off a file with `version = 1` and
+/// no rules leaves every display dark.
 #[test]
 fn with_never_dark_off_a_file_with_no_rules_leaves_every_display_dark() {
     let displays = [(
         "/dev/mem1",
         Memory::new(640, 320, "MEM-2", "mem-large").lit(),
     )];
-    let text = "version = 1\n[guards]\nnever-dark = off\n";
-    let mut s = Seat::with_heads(&[], Some(text), displays, "echo ready; read x");
+    let rules = guarded("version = 1\n", |g| g.never_dark = false);
+    let mut s = Seat::with_rules(&[], Some(rules), displays, "echo ready; read x", no_fonts());
     s.until(Duration::from_millis(200), |_| false);
     assert_eq!(s.app.cells(), Vec::<(u32, u32)>::new());
     assert_eq!(s.memory("/dev/mem1").dpms, Some(Dpms::Off));
 }
 
-/// D9's switches: with `rescue-key = off` the rescue key moves nothing,
-/// and a head's `rescue = off` keeps the keyboards it claims while another
-/// head's move.
+/// D9's switches: with the rescue key off it moves nothing, and a head's
+/// `isolated = yes` keeps the keyboards it claims while another head's
+/// move.
 #[test]
-fn rescue_key_off_moves_nothing_and_a_heads_rescue_off_keeps_its_keyboard() {
-    let off = RESCUE.replace("[rules]", "[guards]\nrescue-key = off\n[rules]");
-    let file = HeadFile::new("rescue-off", &off);
-    let mut s = rescue_seat(file.rules());
+fn rescue_key_off_moves_nothing_and_an_isolated_head_keeps_its_keyboard() {
+    let mut s = rescue_seat(guarded(RESCUE, |g| g.rescue_key = false));
     s.app
         .device_input(Path::new(KBD_SMALL), ctrl_alt_f(1), now());
     s.type_on(KBD_SMALL, "s\r");
@@ -3150,7 +3170,7 @@ fn rescue_key_off_moves_nothing_and_a_heads_rescue_off_keeps_its_keyboard() {
     // small keeps its keyboard; spare, a head with no display, lets its
     // keyboard go to the focus's head, large
     let kiosk = RESCUE
-        .replace("[head small]", "[head small]\nrescue = off")
+        .replace("[head small]", "[head small]\nisolated = yes")
         .replace("[head large]", "[head large]\n[head spare]")
         .replace(
             "input path:kbd-ignored -> ignore",
@@ -3166,7 +3186,7 @@ fn rescue_key_off_moves_nothing_and_a_heads_rescue_off_keeps_its_keyboard() {
     s.type_on(KBD_IGNORED, "m\r");
     assert!(
         s.until(SECOND, |a| head_shows(a, "small", "got:k")),
-        "small's kept: rescue = off"
+        "small's kept: isolated = yes"
     );
     assert!(
         s.until(SECOND, |a| head_shows(a, "large", "got:m")),
@@ -3179,7 +3199,7 @@ fn rescue_key_off_moves_nothing_and_a_heads_rescue_off_keeps_its_keyboard() {
 /// here `small`, which has no display and receives nothing.
 #[test]
 fn a_keyboard_the_rescue_key_moved_lets_the_anti_lockout_guard_go() {
-    let mut s = stranded("");
+    let mut s = stranded(guarded(STRANDED, |_| {}));
     s.app.device_input(Path::new(KBD_A), ctrl_alt_f(1), now());
     s.app.turn(now());
     s.type_on(KBD_A, "a\r");
@@ -3219,27 +3239,6 @@ fn the_display_guard_lights_the_boot_display_while_the_rules_light_none() {
     assert_eq!(s.app.cells().len(), 1);
 }
 
-/// D9 and D11's escape row: with `vtium.heads=builtin` on the kernel
-/// command line, a head file that turns every guard off is ignored for
-/// that boot, and the compiled-in rules run with every guard on.
-#[test]
-fn vtium_heads_builtin_ignores_a_head_file_that_turns_every_guard_off() {
-    let off = "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\n\
-               [guards]\nanti-lockout = off\nrescue-key = off\nnever-dark = off\n";
-    let file = HeadFile::new("escape", off);
-    let (read, _) = vtium::head::start_rules(&file.path, &file.trust(), "quiet");
-    assert!(!read.guards.anti_lockout, "the file without the escape");
-    let cmdline = "BOOT_IMAGE=/vmlinuz vtium.heads=builtin quiet";
-    let (ran, notice) = vtium::head::start_rules(&file.path, &file.trust(), cmdline);
-    assert_eq!(ran, vtium_config::Config::builtin());
-    assert_eq!(
-        ran.guards,
-        vtium_config::Guards::default(),
-        "every guard on"
-    );
-    assert_eq!(notice, None);
-}
-
 /// D11: a boot with no head file present writes nothing where the head
 /// file lives, its listing the same before and after.
 #[test]
@@ -3247,7 +3246,7 @@ fn a_boot_with_no_head_file_writes_nothing_where_it_lives() {
     let file = HeadFile::new("absent", "");
     std::fs::remove_file(&file.path).expect("no head file");
     let before = file.listing();
-    let start = vtium::head::start_rules(&file.path, &file.trust(), "");
+    let start = file.rules();
     assert_eq!(start, (vtium_config::Config::builtin(), None));
     let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
     let mut s = Seat::with_rules(&[], Some(start), displays, "echo ready; read x", no_fonts());
@@ -3350,7 +3349,7 @@ fn a_file_with_no_heads_runs_its_default_head_with_no_false_lockout() {
 /// first drawn.
 #[test]
 fn a_flapping_keyboard_shows_the_anti_lockout_notice_once() {
-    let mut s = stranded("");
+    let mut s = stranded(guarded(STRANDED, |_| {}));
     let first = now();
     s.app.turn(first);
     for _ in 0..20 {

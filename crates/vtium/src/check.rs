@@ -716,7 +716,7 @@ mod tests {
     fn a_head_file_warning_counts_and_its_notes_do_not() {
         let (out, f) = checked(
             "warn",
-            "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\ninput * -> focus\ninput class:keyboard -> desk\n",
+            "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\ninput * -> roaming\ninput class:keyboard -> desk\n",
             true,
         );
         assert_eq!(
@@ -728,26 +728,26 @@ mod tests {
         assert_eq!(out.notes, [] as [String; 0]);
     }
 
-    // ADR-1401 D9: each guard turned off, and a head's rescue = off, is a
-    // note, never an error
+    // ADR-1401 D3, D9: the head file has no `[guards]` and no `rescue`, so
+    // a file in the first cut's names counts against itself, each error
+    // naming the word that replaced the old one
     #[test]
-    fn each_guard_turned_off_is_a_note_outside_the_status() {
+    fn the_first_cuts_guards_and_rescue_count_against_the_file() {
         let (out, f) = checked(
             "guards",
             "version = 1\n[head kiosk]\nrescue = off\n[rules]\ndisplay * -> kiosk\n\
-             [guards]\nanti-lockout = off\nrescue-key = off\nnever-dark = off\n",
+             [guards]\nanti-lockout = off\n",
             true,
         );
-        assert_eq!(out.counted, [] as [String; 0]);
-        assert_eq!(
-            out.notes,
-            [
-                format!("{f}:3: the rescue key leaves this head's keyboards"),
-                format!("{f}:7: the anti-lockout guard is off"),
-                format!("{f}:8: the rescue-key guard is off"),
-                format!("{f}:9: the never-dark guard is off"),
-            ]
-        );
+        let counted: Vec<&str> = out.counted.iter().map(String::as_str).collect();
+        let at = |line: usize, word: &str| {
+            counted
+                .iter()
+                .any(|c| c.starts_with(&format!("{f}:{line}: ")) && c.contains(word))
+        };
+        assert!(at(3, "`isolated = yes`"), "{counted:?}");
+        assert!(at(6, "`policy`"), "{counted:?}");
+        assert_eq!(out.notes, [] as [String; 0]);
     }
 
     // ADR-1401 D4, probe 4 (the recommendation, WEAK_MATCH_COUNTS): input
@@ -780,7 +780,7 @@ mod tests {
                     display edid:AAA:0x0001:LARGE00001 -> desk\n\
                     input path:pci-0000:15:00.0-usb-0:3.3 serial:aaaa:0001:X1 -> desk\n\
                     input udev:VTIUM_HEAD=desk -> desk\n\
-                    input class:keyboard -> focus\n";
+                    input class:keyboard -> roaming\n";
         let (out, f) = checked("udev", text, false);
         assert_eq!(out.counted, [] as [String; 0]);
         let no = |line: usize, key: &str| {

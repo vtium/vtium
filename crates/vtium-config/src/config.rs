@@ -1,8 +1,9 @@
-//! A parsed head file: its heads, its rules and its guards (ADR-1401 D3,
+//! A parsed head file: its policy, its heads and its rules (ADR-1401 D3,
 //! D9).
 
 use crate::identity::Kind;
 use crate::matching::Match;
+use crate::outcome::Policy;
 use crate::parse::parse;
 
 /// The head file's commented template. The compiled-in configuration is
@@ -11,17 +12,18 @@ use crate::parse::parse;
 /// (ADR-1401 D6).
 pub const TEMPLATE: &str = include_str!("../templates/heads.conf");
 
-/// What a head does when it loses its last display (D8).
+/// What a head does when it loses its last display, its
+/// `when-display-lost` (D8).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum OnLoss {
-    /// The sessions keep running and come back when a display of the head
-    /// returns.
+pub enum WhenDisplayLost {
+    /// `keep`: the sessions keep running and come back when a display of
+    /// the head returns.
     #[default]
-    Nohup,
-    /// The sessions are hung up at once.
+    Keep,
+    /// `hangup`: the sessions are hung up at once.
     Hangup,
-    /// A display returning within this many seconds resumes the sessions;
-    /// after it they are hung up.
+    /// `hangup DURATION`: a display returning within this many seconds
+    /// resumes the sessions; after it they are hung up.
     HangupAfter(u32),
 }
 
@@ -40,16 +42,18 @@ pub struct Head {
     pub line: usize,
     /// The profile's name; unset, `default`.
     pub profile: String,
-    /// The number of virtual consoles, 1 to [`CONSOLES_MAX`](crate::CONSOLES_MAX).
+    /// The number of consoles, 1 to [`CONSOLES_MAX`](crate::CONSOLES_MAX).
     pub consoles: u32,
     /// The consoles' command as the file gives it, for vtium to read as
     /// kmscon.conf's `login`; unset, kmscon.conf's.
     pub login: Option<String>,
-    pub on_loss: OnLoss,
-    /// Whether the rescue key may take the keyboards this head claims.
+    pub when_display_lost: WhenDisplayLost,
+    /// `isolated` as the file writes it, `None` for unset, which the
+    /// policy decides (D5).
+    pub isolated: Option<bool>,
+    /// Whether the rescue key may take the keyboards this head claims: off
+    /// for a head the file writes `isolated = yes` (D9).
     pub rescue: bool,
-    /// The head's own font keys.
-    pub font: Font,
 }
 
 impl Head {
@@ -60,27 +64,21 @@ impl Head {
             profile: "default".to_owned(),
             consoles: 1,
             login: None,
-            on_loss: OnLoss::Nohup,
+            when_display_lost: WhenDisplayLost::Keep,
+            isolated: None,
             rescue: true,
-            font: Font::default(),
         }
     }
 
-    /// The head's font: the more specific setting wins (D3). kmscon.conf's
-    /// keys, `base`, apply to every head; the head's profile overrides what
-    /// it states; the head's own keys override both. Until profiles have
-    /// files, the `default` profile states nothing and any other profile
-    /// states only its frit, the frit of its name.
+    /// The head's font: kmscon.conf's keys, `base`, with the head's
+    /// profile over them (D3). Until profiles have files, the `default`
+    /// profile states nothing and any other profile states only its frit,
+    /// the frit of its name.
     pub fn font(&self, base: &Font) -> Font {
         let profile_name = (self.profile != "default").then(|| self.profile.clone());
         Font {
-            name: self
-                .font
-                .name
-                .clone()
-                .or(profile_name)
-                .or_else(|| base.name.clone()),
-            size: self.font.size.or(base.size),
+            name: profile_name.or_else(|| base.name.clone()),
+            size: base.size,
         }
     }
 }
@@ -90,12 +88,12 @@ impl Head {
 pub enum Target {
     /// The head at this index of [`Config::heads`].
     Head(usize),
-    /// An input follows the focus chord.
+    /// `roaming`: an input that types into the active head.
     Focus,
-    /// An input vtium never opens, but a keyboard watched for the rescue
-    /// key alone.
+    /// `ignore`: an input vtium never opens, but a keyboard watched for
+    /// the rescue key alone.
     Ignore,
-    /// A display vtium sets off.
+    /// `off`: a display vtium sets off.
     Dark,
 }
 
@@ -108,7 +106,8 @@ pub struct Rule {
     pub target: Target,
 }
 
-/// The `[guards]` switches, each on unless the file turns it off (D9).
+/// The guards placement runs (D9). No line of the head file sets them:
+/// each is on, as under `policy = open`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Guards {
     pub anti_lockout: bool,
@@ -126,9 +125,11 @@ impl Default for Guards {
     }
 }
 
-/// A valid head file.
+/// What a head file runs: a valid file, or what survives of one.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Config {
+    /// `closed` where a `policy = closed` line is readable, else `open`.
+    pub policy: Policy,
     /// The heads in the file's order.
     pub heads: Vec<Head>,
     /// The rules in the file's order, which each device walks.
@@ -138,11 +139,11 @@ pub struct Config {
 
 impl Config {
     /// The compiled-in configuration: the parse of [`TEMPLATE`], which
-    /// vtium runs with no head file, with an invalid one, and under
-    /// `vtium.heads=builtin`. `the_compiled_in_configuration_is_the_parse_of_the_template`
-    /// proves the template valid; were it not, this is the empty
-    /// configuration, whose every display the display guard lights in the
-    /// default head and whose every input follows the focus.
+    /// vtium runs with no head file and with one it cannot use.
+    /// `the_compiled_in_configuration_is_the_parse_of_the_template` proves
+    /// the template valid; were it not, this is the empty configuration,
+    /// whose every display the display guard lights in the default head
+    /// and whose every input roams.
     pub fn builtin() -> Config {
         parse(TEMPLATE).map(|p| p.config).unwrap_or_default()
     }
