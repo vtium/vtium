@@ -365,6 +365,18 @@ impl fmt::Display for Renamed {
                 dark = DARK,
                 off = OFF,
             ),
+            Renamed::FocusHead => write!(
+                f,
+                "A head cannot be named `{focus}`, the old name of the target `{roaming}`. Choose another name.",
+                focus = FOCUS,
+                roaming = ROAMING,
+            ),
+            Renamed::DarkHead => write!(
+                f,
+                "A head cannot be named `{dark}`, the old name of the target `{off}`. Choose another name.",
+                dark = DARK,
+                off = OFF,
+            ),
             Renamed::OnLoss => write!(
                 f,
                 "The key `{on_loss}` is now called `{when_display_lost}`. Rename the key.",

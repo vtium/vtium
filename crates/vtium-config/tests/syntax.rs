@@ -83,6 +83,16 @@ fn a_crlf_line_ending_is_a_newline_and_a_lone_carriage_return_an_error() {
     );
 }
 
+// a byte-order mark before the first line is no part of it
+// covers: platform.heads.policy
+#[test]
+fn a_byte_order_mark_before_the_first_line_is_dropped() {
+    let r = vtium_config::reading(b"\xef\xbb\xbfpolicy = closed\nversion = 1\n[head a]\n");
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+    assert_eq!(r.parsed.config.policy, vtium_config::Policy::Closed);
+    assert!(parse("\u{feff}version = 1\n").is_ok());
+}
+
 // covers: platform.heads.policy
 #[test]
 fn version_and_policy_come_before_the_first_section_in_either_order() {
@@ -118,14 +128,25 @@ fn roaming_ignore_and_off_are_the_targets_and_the_reserved_names() {
             "{name}"
         );
     }
-    // the first cut's targets are names a head may take
-    for name in ["focus", "dark"] {
-        let c = parse(&format!(
-            "version = 1\n[head {name}]\n[rules]\ndisplay * -> {name}\n"
-        ))
-        .unwrap_or_else(|e| panic!("{name}: {e:?}"))
-        .config;
-        assert_eq!(c.rules[0].target, Target::Head(0), "{name}");
+    // the first cut's targets stay reserved: a head of either name is an
+    // error naming the word that replaced it, and drops with its rules
+    for (name, word) in [("focus", "`roaming`"), ("dark", "`off`")] {
+        let shown = first_error(&format!("version = 1\n[head {name}]\n"));
+        assert!(shown.contains(word), "{name}: {shown}");
+        let r = vtium_config::reading(
+            format!("version = 1\n[head {name}]\n[head a]\n[rules]\ndisplay * -> {name}\ndisplay * -> a\n")
+                .as_bytes(),
+        );
+        let heads: Vec<_> = r
+            .parsed
+            .config
+            .heads
+            .iter()
+            .map(|h| h.name.as_str())
+            .collect();
+        assert_eq!(heads, ["a"], "{name}");
+        let lines: Vec<_> = r.parsed.config.rules.iter().map(|r| r.line).collect();
+        assert_eq!(lines, [6], "{name}");
     }
     assert!(matches!(
         parse("version = 1\n[rules]\ndisplay * -> roaming\n")

@@ -28,7 +28,7 @@
 //! let trusted = Trusted::of(&[], &[Scope::Trust], Kept::Heads);
 //! ```
 
-use crate::error::Problem;
+use crate::error::{Problem, Renamed};
 
 /// A fieldless enum with every value in [`ALL`](Self::ALL) and its name in the outcome table, so the table's enumeration cannot miss a value.
 macro_rules! closed {
@@ -578,7 +578,9 @@ pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
         Problem::UnknownSection(_) | Problem::DuplicateSection(_) | Problem::DuplicateHead(_) => {
             Some(Scope::Section)
         }
-        Problem::BadName(_) | Problem::ReservedName(_) => Some(Scope::Head),
+        Problem::BadName(_)
+        | Problem::ReservedName(_)
+        | Problem::Renamed(Renamed::FocusHead | Renamed::DarkHead) => Some(Scope::Head),
         // a misplaced `policy` line counts through its `PolicyLine`, and drops only itself
         Problem::UnknownMatchKey(_)
         | Problem::BadToken(_)

@@ -82,11 +82,17 @@ impl Reading {
 /// within the bound.
 pub fn reading(bytes: &[u8]) -> Reading {
     let mut p = Parser::default();
+    // a byte-order mark is no part of the first line
+    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
     let within = if bytes.len() > FILE_MAX {
         p.error(None, Problem::TooLarge, Within::Top);
         let bounded = bytes.get(..FILE_MAX).unwrap_or_default();
-        // the line the bound cuts is not read
-        let end = bounded.iter().rposition(|&b| b == b'\n').unwrap_or(0);
+        // the line the bound cuts is not read; the last line it keeps
+        // keeps its newline, so a CRLF ending stays a newline
+        let end = bounded
+            .iter()
+            .rposition(|&b| b == b'\n')
+            .map_or(0, |at| at.saturating_add(1));
         bounded.get(..end).unwrap_or_default()
     } else {
         bytes
@@ -130,7 +136,7 @@ enum Section {
 /// Where a rule sends what it matches, before every head is known.
 enum Aim {
     Fixed(Target),
-    /// A head's name, or a word of the first cut.
+    /// A head's name.
     Name(String),
 }
 
@@ -238,6 +244,7 @@ pub(crate) const YES_NO: [&str; 2] = ["yes", "no"];
 pub(crate) const WHEN_DISPLAY_LOST: [&str; 3] = ["keep", "hangup", "hangup DURATION"];
 
 /// The reserved names, a head's name no head may take: the targets.
+/// The first cut's targets, `focus` and `dark`, stay reserved too.
 const RESERVED: [&str; 3] = ["roaming", "ignore", "off"];
 
 /// What a key of the head file takes, as its parser reads it, which an
@@ -510,6 +517,10 @@ impl Parser {
             Problem::BadName(Quoted::new(name))
         } else if RESERVED.contains(&name) {
             Problem::ReservedName(Quoted::new(name))
+        } else if name == "focus" {
+            Problem::Renamed(Renamed::FocusHead)
+        } else if name == "dark" {
+            Problem::Renamed(Renamed::DarkHead)
         } else if self.heads.iter().any(|d| d.head.name == name) {
             Problem::DuplicateHead(Quoted::new(name))
         } else if self.heads.len() >= HEADS_MAX {
@@ -651,6 +662,14 @@ impl Parser {
                 self.error(Some(n), Problem::WrongKind { target, kind }, Within::Rules);
                 return;
             }
+            ("focus", _) => {
+                self.error(Some(n), Problem::Renamed(Renamed::Focus), Within::Rules);
+                return;
+            }
+            ("dark", _) => {
+                self.error(Some(n), Problem::Renamed(Renamed::Dark), Within::Rules);
+                return;
+            }
             ("roaming", _) => Aim::Fixed(Target::Focus),
             ("ignore", _) => Aim::Fixed(Target::Ignore),
             ("off", _) => Aim::Fixed(Target::Dark),
@@ -730,11 +749,7 @@ impl Parser {
                         // a rule naming a dropped head goes with it
                         None if self.dropped_names.contains(&name) => continue,
                         None => {
-                            let problem = match name.as_str() {
-                                "focus" => Problem::Renamed(Renamed::Focus),
-                                "dark" => Problem::Renamed(Renamed::Dark),
-                                _ => Problem::UndefinedHead(Quoted::new(&name)),
-                            };
+                            let problem = Problem::UndefinedHead(Quoted::new(&name));
                             self.late(Some(read.line), problem, Within::Rules);
                             continue;
                         }

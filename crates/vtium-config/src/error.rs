@@ -97,6 +97,10 @@ pub enum Renamed {
     Focus,
     /// The target `dark`, now `off`.
     Dark,
+    /// `focus` as a head's name, reserved as the first cut's target.
+    FocusHead,
+    /// `dark` as a head's name, reserved as the first cut's target.
+    DarkHead,
     /// The head key `on-loss`, now `when-display-lost`.
     OnLoss,
     /// `when-display-lost`'s value `nohup`, now `keep`.

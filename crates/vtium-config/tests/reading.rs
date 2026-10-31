@@ -224,6 +224,28 @@ fn a_file_past_its_bound_is_dropped_whole_with_the_policy_read_from_what_was_rea
     assert_eq!(r.trusted(), trusted(Stated::Closed, Rest::Broken));
 }
 
+// the last complete line within the bound is read whole, its CRLF ending
+// included, and nothing past the bound is read
+// covers: platform.heads.policy
+#[test]
+fn a_crlf_policy_line_ending_at_the_bound_is_read_and_nothing_past_it() {
+    let last = "policy = closed\r\n";
+    let mut text = String::from("version = 1\r\n");
+    // comment lines of 64 bytes, then one that fills the rest
+    while text.len() + 64 < FILE_MAX - last.len() {
+        text.push_str(&format!("#{}\r\n", "x".repeat(61)));
+    }
+    let rest = FILE_MAX - last.len() - text.len();
+    text.push_str(&format!("#{}\r\n", "y".repeat(rest - 3)));
+    text.push_str(last);
+    assert_eq!(text.len(), FILE_MAX);
+    text.push_str("policy = open\r\n");
+    let r = read(&text);
+    assert_eq!(problems(&r), [(None, Problem::TooLarge)]);
+    assert_eq!(r.policies, [PolicyLine::Closed]);
+    assert_eq!(r.trusted(), trusted(Stated::Closed, Rest::Broken));
+}
+
 // ADR-1401 D3: a readable `policy = closed` wins over every other line,
 // and a line vtium cannot read counts as no policy and is an error
 // covers: platform.heads.policy
