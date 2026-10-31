@@ -4,10 +4,13 @@ use super::*;
 
 /// Whether `path:PORT` takes an input whose `ID_PATH` is `path`.
 fn takes(port: &str, path: &str) -> bool {
-    let token = Token::parse(&format!("path:{port}")).expect("a path token");
+    assert_eq!(
+        Token::parse(&format!("path:{port}")),
+        Ok(Token::Path(port.to_owned()))
+    );
     let mut device = Identity::input();
     device.path = Some(path.to_owned());
-    token.matches(&device)
+    Token::Path(port.to_owned()).matches(&device)
 }
 
 const PORT: &str = "pci-0000:15:00.0-usb-0:3.3";
@@ -41,9 +44,8 @@ fn path_never_takes_a_port_whose_number_only_begins_with_its_own() {
     }
     let mut no_path = Identity::input();
     no_path.path = None;
-    let token = Token::parse(&format!("path:{PORT}")).expect("a path token");
     assert!(
-        !token.matches(&no_path),
+        !Token::Path(PORT.to_owned()).matches(&no_path),
         "no ID_PATH, as with no udev daemon"
     );
 }
