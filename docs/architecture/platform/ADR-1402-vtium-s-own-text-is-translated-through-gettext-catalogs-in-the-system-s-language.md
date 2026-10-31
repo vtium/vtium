@@ -19,6 +19,11 @@ basis:
     said: "Each notice says what happened, then what the person can do next, in plain words, patient with the reader. A key the person must press is named from its real binding, never typed into the text."
     via: "vtium/vtium#180, \"What is decided\", relayed in this record's brief; the wording is the team lead's"
     paraphrase: true
+  - operator: aaronsb
+    level: directed
+    said: "Configuration files and the like stay English: kmscon.conf and heads.conf keep English key names, values and comments, as do kmscon.conf.example, the docs and the log. Only the text vtium shows a person on screen is translated. Where a translated message names a configuration key, a value or a path, such as `isolated`, `policy = closed` or /etc/vtium/heads.conf, that name stays exactly as written in the file, untranslated, so the person can find it."
+    via: "the maintainer's scope decision of 2026-10-31, relayed by the team lead to this record's author; the wording is the team lead's"
+    paraphrase: true
   - upstream: "aaronsb/kmscon b1f7a7c5 and aaronsb/libtsm eeaf293, origin/main: neither calls gettext, binds a text domain or ships a message catalog, and every message is an English literal; kmscon reads the locale only for its compose table, as the first of LC_ALL, LC_CTYPE and LANG through getenv, without setlocale, else C (src/seat.c:639-657, documented in docs/man/kmscon.1.xml.in:354-368); libtsm calls setlocale only in its GTK demo (src/gtktsm/gtktsm.c:36)"
   - standard: "GNU gettext: the .po and .mo formats, the msgctxt separator U+0004, the LANGUAGE priority list ignored under the C locale, and the catalog path $prefix/share/locale/<lang>/LC_MESSAGES/<domain>.mo"
   - standard: "systemd 262: locale.conf(5), read at early boot by systemd and inherited by every service, with the kernel command line's locale.LANG=, locale.LANGUAGE= and locale.LC_*= over it; systemd.exec(5), $LANG set for spawned processes from those; getty@.service, which carries UnsetEnvironment= for every locale variable, commented \"Unset locale for the console getty since the console has problems displaying some internationalized messages\""
@@ -50,7 +55,7 @@ related: []
 
 ## Summary
 
-- **Decided:** vtium translates two kinds of text: what it draws on its own screen (its notices, the on-screen display's line and the panic screen), and the messages `vtium check-config` and `vtiumctl` print for a person. Its log stays in English. A translation is a gettext catalog: a `.po` file a translator edits, compiled to `/usr/share/locale/<lang>/LC_MESSAGES/vtium.mo`, with each message's English text as its key. vtium reads it at start with a small reader of its own in vtium-config, only when root owns it and no one else can write it, and checks each translation's placeholders before using it. The binary carries English alone. vtium shows one language, the system's, taken from its own environment as gettext takes it: `LANGUAGE`, then the first of `LC_ALL`, `LC_MESSAGES` and `LANG`; under the shipped unit that is `/etc/locale.conf`'s. A message is shown translated on a head only when the built-in font for the head's cell holds every character of it, and otherwise in English, with a log line. Keys are named from their binding at the moment the notice is drawn, joined by `+`, with arrows as symbols (`Ctrl+Super+↑`) and modifier names as messages a translator may change. The catalog has no plural forms: a count is written as a label and a number. tier 2 draws every overlay screen in a pseudo-locale, an English made strange on purpose, and each shipped language is checked by tests that need no golden.
+- **Decided:** vtium translates only the text it shows a person on its own screen: its notices, the on-screen display's line and the panic screen. Its configuration files, their key names, values and comments, the installed examples, the docs, the log and what its tools print in a terminal stay in English, and a key, value or path a translated message names stays exactly as the file has it. A translation is a gettext catalog: a `.po` file a translator edits, compiled to `/usr/share/locale/<lang>/LC_MESSAGES/vtium.mo`, with each message's English text as its key. vtium reads it at start with a small reader of its own in vtium-config, only when root owns it and no one else can write it, and checks each translation's placeholders before using it. The binary carries English alone. vtium shows one language, the system's, taken from its own environment as gettext takes it: `LANGUAGE`, then the first of `LC_ALL`, `LC_MESSAGES` and `LANG`; under the shipped unit that is `/etc/locale.conf`'s. A message is shown translated on a head only when the built-in font for the head's cell holds every character of it, and otherwise in English, with a log line. Keys are named from their binding at the moment the notice is drawn, joined by `+`, with arrows as symbols (`Ctrl+Super+↑`) and modifier names as messages a translator may change. The catalog has no plural forms: a count is written as a label and a number. tier 2 draws every overlay screen in a pseudo-locale, an English made strange on purpose, and each shipped language is checked by tests that need no golden.
 - **Trades away:** About 5 KB of the binary's remaining 9 KB. Plural forms, so a count reads `More errors: 3` rather than `3 more errors`. A frit's wider coverage, which a notice never relies on. Right-to-left scripts and scripts that need shaping, which show in English until vtium's text drawing orders and shapes them. A notice reworded in English shows in English in every language until its translator updates it.
 - **One-way?** Expensive once a release ships a translation: the text domain `vtium`, the catalog's path, English text as the key and the `{name}` placeholders are what translators' files and distributions' packages hold. Everything behind them changes in a session.
 - **Probes:**
@@ -96,9 +101,11 @@ flowchart LR
 
 ### D1: what is translated
 
-- **Translated:** the text vtium draws on its own screen (the notices, the OSD's full line and the panic screen) and the key names in them (D5); and the messages `vtium check-config` and `vtiumctl` print for a person, the head file's errors among them, so the console's notice and the tool's report name an error in the same words.
-- **Not translated:** the log, so a log line reads the same on every machine and a search for its English wording finds it; `--help` and the configuration keys' descriptions, which are generated from the same table as `docs/config.md`, the English reference; and text a message quotes, such as a head's name, a device's path or a line of the head file, which is the person's own.
-- **Commands and paths stay as they are typed.** A command or a path a message names, such as `vtium check-config /etc/vtium/heads.conf` on the panic screen, is a placeholder, so a translation cannot change what the person types.
+- **Translated:** only the text vtium shows a person on its own screen: the notices, the OSD's full line, the panic screen, and the key names in them (D5).
+- **English:** the configuration files, `kmscon.conf` and `heads.conf`, with their key names, values and comments; `kmscon.conf.example` and the other files vtium installs; the docs; the log, so a log line reads the same on every machine and a search for its English wording finds it; and everything `vtium check-config`, `vtiumctl` and `--help` print in a terminal. Text a message quotes, such as a head's name, a device's path or a line of the head file, is the person's own and is drawn as it is.
+- **Names from the files stay as written.** Where a translated message names a configuration key, a value, a path or a command, such as `isolated`, `policy = closed`, `/etc/vtium/heads.conf` or `vtium check-config`, the name is a placeholder and stays exactly as the file or the shell has it, so the person can find it there and type it. A translation cannot change a placeholder (D3).
+
+> Edited 2026-10-31: the maintainer decided the scope, relayed by the team lead: only the text vtium shows a person on screen is translated, and configuration files, their key names, values and comments, the installed examples, the docs and the log stay in English, with a key, value or path a translated message names left exactly as written. D1 read: "Translated: the text vtium draws on its own screen [...]; and the messages `vtium check-config` and `vtiumctl` print for a person, the head file's errors among them, so the console's notice and the tool's report name an error in the same words.", and D4 had the tools follow their own shell's language.
 - Each message is written twice where it is both logged and shown: in English to the log, and in the chosen language to the screen.
 - **Whole messages.** A catalog entry is a whole sentence or a whole line, with its variable parts as named placeholders such as `{head}`. The catalog never builds a sentence from pieces, since languages order a sentence's parts differently: the rescue notice, which joins one sentence to two possible endings today, becomes two messages.
 - **No plural forms.** A count is written as a label and a number, `More errors: 3`, which reads correctly in every language, so the catalog holds no message whose wording depends on a number and vtium evaluates no plural rule (D3).
@@ -107,7 +114,7 @@ flowchart LR
 
 - A translation is a gettext catalog. Its source is a `.po` file, the text format that Poedit, Weblate and the Linux distributions' translation teams work in; vtium installs it compiled, as a `.mo` file.
 - **English is the key.** Each message's `msgid` is its English text, as the catalog holds it. Where one English text needs two translations, a `msgctxt` tells them apart: the key names of D5 carry the context `key name`. English needs no file: it is compiled in, and a message a catalog lacks or leaves empty shows in English.
-- One text domain, `vtium`, holds the messages of every vtium binary, so a translator works in one file per language.
+- One text domain, `vtium`, holds every message, so a translator works in one file per language.
 - **Where the sources live.** `po/` holds `vtium.pot`, the template every translation starts from, and one `<lang>.po` for each language vtium ships. Each catalog module lists its messages in a table a test can read. A test fails when `po/vtium.pot` differs from those tables, and `VTIUM_BLESS=1` rewrites it, as for `docs/config.md`.
 - vtium's own tools, in Rust, write the template and compile `.po` files to `.mo` for the install tree, so the build needs no GNU gettext.
 - Which languages ship is decided per language, each in its own issue, with a translator.
@@ -115,10 +122,10 @@ flowchart LR
 ### D3: where translations live, and how vtium reads them
 
 - **The path is gettext's:** `/usr/share/locale/<lang>/LC_MESSAGES/vtium.mo`. Distributions package such files as they package every other program's, with RPM's `%find_lang` among the tools that find them.
-- **The reader is vtium's own,** in vtium-config, which vtium and `vtiumctl` both link: no new crate, no C library, and no call to `setlocale`.
+- **The reader is vtium's own,** in vtium-config, beside the head file's message catalog: no new crate, no C library, and no call to `setlocale`.
 - **Trust.** vtium reads a `.mo` only when it passes ADR-1401 D10's check: root owns it, neither its group nor others can write it, and the directories above it pass the same check. It must be a regular file of at most 256 KiB. Every offset and length in it is checked before use, and nothing in it can make vtium panic. A file that fails is not read: vtium shows English and logs one line naming the file and the reason.
 - **Each translation is checked when it is loaded.** It must be UTF-8, hold no control character, and use exactly the placeholders of its English. A translation that fails shows its English, and vtium logs the message's English once. vtium escapes the values it puts into placeholders, as ADR-1401 D7 escapes the text a notice quotes from a file.
-- **When.** vtium reads its catalog once, at start, before its first notice; a new or changed `.mo` applies when vtium next starts, as kmscon.conf does. `vtium check-config` and `vtiumctl` read it each time they run.
+- **When.** vtium reads its catalog once, at start, before its first notice; a new or changed `.mo` applies when vtium next starts, as kmscon.conf does.
 - **The cost.** A reader of this design, with contexts and the language search of D4 and without plural forms, measured 4,776 bytes at minspec's settings in a test program, against the 9 KB the binary has left; gettext's plural rules would add about 6 KB more (both measured 2026-10-31). Linked into vtium, whose link-time optimization shares code differently, the cost differs from the test program's, and the build measures it with `make minspec`. A catalog of today's messages is tens of kilobytes at most, held in memory for the boot.
 
 ### D4: picking the language
@@ -129,7 +136,6 @@ flowchart LR
 - **`reset-env`** sets what the session's environment starts from, and changes nothing in vtium's own environment, so vtium's language is the same with it on or off.
 - vtium run by hand, as `sudo vtium`, follows the environment it is given.
 - **One language for the process.** vtium shows the system's language on every head for the whole boot. A notice is about the machine and often shows before anyone logs in, and two heads can have two different people logged in, so vtium never follows a logged-in person's language.
-- **The tools follow their own environment,** as every program a person runs from a shell does: `vtium check-config` and `vtiumctl` take the language of the shell that runs them. They print a translation only under a UTF-8 codeset, since they convert nothing, and print English under any other.
 - **The VT review** already gives its session `LANG` and `LC_*` from `/etc/locale.conf` (docs/vt-review.md). It gives them to the vtium it starts as well, so a review shows the language a boot shows; that is the tool's change, made in the build.
 
 ### D5: key names
@@ -159,7 +165,6 @@ flowchart LR
 
 - **Counts as a label and a number** (D1). Probe 1 asks it.
 - **The system's language for the whole boot** (D4). Probe 2 states it.
-- **The tools translated beside the screen** (D1): `vtium check-config` and `vtiumctl` print in their shell's language, and `LC_ALL=C` gives English.
 - **English per message on a head that cannot draw it** (D6), rather than English for the whole notice.
 
 ## C notes: the C reference's flow
@@ -186,6 +191,7 @@ flowchart LR
 ### Negative
 
 - A count reads as a label and a number, which is plainer English than `3 more errors`.
+- A head file's error reads in the system's language in its notice and in English in `vtium check-config`'s report, so a person matches the two by the file and line both name.
 - A notice can mix two languages on a head with small cells, where some of its messages draw and others show in English.
 - Hebrew, Arabic and the scripts that need shaping show in English until vtium's text drawing orders and shapes them.
 - A notice reworded in English shows in English in every language until each translator updates it, since gettext keys a translation by its English.
@@ -193,7 +199,7 @@ flowchart LR
 
 ### Neutral
 
-- vtium-config gains the reader and the language search, shared by vtium and `vtiumctl`.
+- vtium-config gains the reader and the language search.
 - The VT review tool passes `/etc/locale.conf`'s variables to vtium as it does to the session.
 - ADR-1401's notices keep their English wording as the catalog's keys; ADR-1401 D7's console lines, such as `invalid config skipped, using builtin`, are translated as every other message.
 
@@ -209,5 +215,5 @@ flowchart LR
 - **The frit's coverage as the test** (D6). Rejected: the frit's glyphs arrive from the helper after the first frame, and a notice at start cannot wait for them.
 - **The logged-in person's language, per head.** Declined: notices are about the machine and show before anyone logs in, and two heads can hold two people. A head key choosing a language can come later, where a machine's stations serve readers of different languages.
 - **Clearing the locale in vtium's unit,** as `getty@.service` does. Rejected: it would forbid every translation, and D6 already keeps vtium from showing what its fonts cannot draw.
-- **Translating the log.** Rejected: administrators search the journal by a message's English wording, and a log in several languages defeats that.
+- **Translating the log, the tools' output or the configuration files' names.** Declined by the maintainer (D1): administrators search the journal and the tools' reports by their English wording, and a person must find a key, value or path a notice names in the file as it is written.
 - **Specimen screens for every shipped language.** Rejected: a reviewer who does not read a language cannot judge its screens, and D7's tests check its glyphs and placeholders exactly; the pseudo-locale judges layout once for every language.
