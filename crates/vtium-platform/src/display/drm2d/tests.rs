@@ -50,6 +50,12 @@ fn flip(v: &mut Drm2d<FakeCard>) {
     v.dispatch().unwrap();
 }
 
+/// Passes the next vblank and reads its events.
+fn vblank(v: &mut Drm2d<FakeCard>) {
+    v.card().vblank();
+    v.dispatch().unwrap();
+}
+
 /// Wakes `v` and completes the modeset's flip.
 fn awake(mut v: Drm2d<FakeCard>) -> Drm2d<FakeCard> {
     v.wake_up().unwrap();
@@ -261,6 +267,7 @@ fn ebusy_is_busy() {
     logs::capture();
     assert!(matches!(frame(&mut v, &[DOT]), Err(SwapError::Busy)));
     assert!(logs::at_least(Level::Warn).is_empty());
+    vblank(&mut v);
     frame(&mut v, &[DOT]).unwrap();
     assert!(v.canvas(DisplayId(A)).is_none(), "the flip is pending");
     assert!(matches!(v.swap(DisplayId(A), &[]), Err(SwapError::Busy)));
@@ -496,7 +503,7 @@ fn a_commit_that_fails_either_way_keeps_the_cursor() {
 }
 
 // A commit refused as busy is no fault of the cursor's: it waits for the
-// next swap.
+// swap after the next vblank.
 #[test]
 fn a_busy_commit_keeps_the_cursor_waiting() {
     let mut v = awake(one());
@@ -505,6 +512,7 @@ fn a_busy_commit_keeps_the_cursor_waiting() {
     v.card().state().commit_errors.push_back(Errno::BUSY);
     assert!(v.swap(DisplayId(A), &[]).is_err());
     assert!(v.need_commit(DisplayId(A)));
+    vblank(&mut v);
     v.swap(DisplayId(A), &[]).unwrap();
     assert!(!v.need_commit(DisplayId(A)));
 }
@@ -1108,6 +1116,200 @@ fn a_late_flip_event_after_the_bound_is_a_flip() {
         app.0.events().any(|e| e == Event::Flipped(DisplayId(A)))
     });
     assert_eq!(app.0.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+}
+
+// vtium/vtium#171: the card refuses a frame's commit as busy while no flip
+// of vtium's is in flight, as while a commit vtium does not track holds the
+// CRTC, and sends no flip event, since that commit is not vtium's. The
+// display waits for its next vblank as for a flip in flight, the vblank's
+// event wakes the loop, and the swap the owner tries after it puts the
+// frame on the primary plane.
+// covers: platform.drm2d-fbdev
+#[test]
+fn a_frame_refused_as_busy_with_no_flip_in_flight_reaches_the_screen() {
+    let (mut lp, mut app) = in_loop(awake(one()));
+    let o = app.0.outputs.iter().find(|o| o.id.0 == A).unwrap();
+    let (back, fb) = (o.back, o.back_fb());
+    app.0.card().state().commit_errors.push_back(Errno::BUSY);
+    logs::capture();
+    assert!(matches!(frame(&mut app.0, &[DOT]), Err(SwapError::Busy)));
+    assert!(logs::at_least(Level::Warn).is_empty());
+    assert!(
+        app.0.is_flipping(DisplayId(A)),
+        "the refused frame waits for the display's next vblank"
+    );
+    let sent = app.0.card().real_commits().len();
+    assert!(matches!(
+        app.0.swap(DisplayId(A), &[]),
+        Err(SwapError::Busy)
+    ));
+    assert_eq!(app.0.card().real_commits().len(), sent, "nothing is sent");
+    app.0.card().vblank();
+    turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
+    assert!(
+        logs::at_least(Level::Warn).is_empty(),
+        "the vblank's event ended the wait, not the flip bound"
+    );
+    assert!(events(&mut app.0).is_empty(), "no frame of vtium's flipped");
+    // The owner draws again: the back buffer still holds the frame.
+    assert!(app.0.need_commit(DisplayId(A)));
+    assert_eq!(app.0.canvas(DisplayId(A)).unwrap().age, 1);
+    assert_eq!(app.0.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+    flip(&mut app.0);
+    assert!(app.0.card().shows(100, fb), "{:?}", app.0.card().state());
+    let o = app.0.outputs.iter().find(|o| o.id.0 == A).unwrap();
+    assert_eq!(o.front(), back);
+    assert_eq!(o.buffers[back].map[0], 1, "the frame drawn is shown");
+}
+
+// A card that refuses every commit as busy is sent one commit a vblank:
+// each refusal waits for the next vblank, the loop sleeps until it passes,
+// and nothing is sent meanwhile.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test measures that the loop sleeps"
+)]
+fn a_card_refusing_every_commit_is_sent_one_a_vblank() {
+    let (mut lp, mut app) = in_loop(awake(one()));
+    let before = app.0.card().real_commits().len();
+    logs::capture();
+    for n in 1..=3 {
+        app.0.card().state().commit_errors.push_back(Errno::BUSY);
+        assert!(matches!(frame(&mut app.0, &[DOT]), Err(SwapError::Busy)));
+        assert!(app.0.canvas(DisplayId(A)).is_none());
+        assert!(matches!(
+            app.0.swap(DisplayId(A), &[]),
+            Err(SwapError::Busy)
+        ));
+        assert_eq!(app.0.card().real_commits().len(), before + n);
+        let start = std::time::Instant::now();
+        lp.dispatch(Some(std::time::Duration::from_millis(100)), &mut app)
+            .unwrap();
+        assert!(start.elapsed().as_millis() >= 90, "the loop slept");
+        assert!(app.0.is_flipping(DisplayId(A)), "still waiting");
+        app.0.card().vblank();
+        turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
+    }
+    assert!(events(&mut app.0).is_empty());
+    assert!(logs::at_least(Level::Warn).is_empty());
+}
+
+// A vblank waited for whose event is lost is taken as done after the flip
+// bound, with one warning and no `Flipped`, since no frame flipped.
+#[test]
+fn a_lost_vblank_event_is_taken_as_done_after_the_bound() {
+    let (mut lp, mut app) = in_loop(awake(one()));
+    logs::capture();
+    app.0.card().state().commit_errors.push_back(Errno::BUSY);
+    assert!(matches!(frame(&mut app.0, &[DOT]), Err(SwapError::Busy)));
+    let took = turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
+    assert!(took.as_millis() >= 900, "taken as done after {took:?}");
+    assert!(events(&mut app.0).is_empty(), "no frame flipped");
+    assert_eq!(logs::at_least(Level::Warn).len(), 1, "one warning");
+    assert_eq!(app.0.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+    // The vblank's event, arriving late, ends nothing: a flip is in flight.
+    app.0.card().state().vblanks.push(100);
+    app.0.card().vblank();
+    app.0.dispatch().unwrap();
+    assert!(app.0.is_flipping(DisplayId(A)));
+}
+
+// A card with no vblank interrupt, as virtio-gpu, udl or simpledrm, refuses
+// the wait for a vblank with EOPNOTSUPP while its commits can still be
+// refused as busy. The display then has nothing to wait for: it lends its
+// canvas again, and the frame goes with the next swap the owner tries,
+// which nothing asks for until the next draw (vtium/vtium#176).
+#[test]
+fn a_frame_refused_on_a_card_without_vblank_events_goes_with_the_next_swap() {
+    let mut v = awake(one());
+    v.card().state().commit_errors.push_back(Errno::BUSY);
+    v.card().state().no_vblank = true;
+    logs::capture();
+    assert!(matches!(frame(&mut v, &[DOT]), Err(SwapError::Busy)));
+    assert!(logs::at_least(Level::Warn).is_empty());
+    assert!(!v.is_flipping(DisplayId(A)));
+    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+}
+
+// The stand-in ends vblank waits as the kernel does: a wait on a CRTC that
+// is not active is refused (`drm_queue_vblank_event`), one on a card with no
+// vblank interrupt too (`drm_wait_vblank_ioctl`), and a CRTC that goes off
+// sends the events still waiting at once (`drm_crtc_vblank_off`).
+#[test]
+fn the_stand_in_ends_vblank_waits_as_the_kernel_does() {
+    let mut v = awake(one());
+    v.card().wait_vblank(0).unwrap();
+    v.set_dpms(DisplayId(A), Dpms::Off).unwrap();
+    let mut read = Vec::new();
+    v.card().read_events(&mut read).unwrap();
+    assert_eq!(read, [CrtcEvent::Vblank(100)]);
+    let e = v.card().wait_vblank(0).unwrap_err();
+    assert_eq!(e.raw_os_error(), Some(Errno::INVAL.raw_os_error()));
+    v.set_dpms(DisplayId(A), Dpms::On).unwrap();
+    v.card().state().no_vblank = true;
+    let e = v.card().wait_vblank(0).unwrap_err();
+    assert_eq!(e.raw_os_error(), Some(Errno::OPNOTSUPP.raw_os_error()));
+}
+
+// A display powered down while a refused frame waits for its vblank ends
+// the wait at once, as the kernel sends the vblank's event when the CRTC
+// goes off: no bound runs out, and nothing is warned.
+#[test]
+fn a_display_powered_down_during_a_vblank_wait_ends_it_at_once() {
+    let (mut lp, mut app) = in_loop(awake(one()));
+    logs::capture();
+    app.0.card().state().commit_errors.push_back(Errno::BUSY);
+    assert!(matches!(frame(&mut app.0, &[DOT]), Err(SwapError::Busy)));
+    app.0.set_dpms(DisplayId(A), Dpms::Off).unwrap();
+    let took = turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
+    assert!(took.as_millis() < 500, "the wait ended after {took:?}");
+    assert!(logs::at_least(Level::Warn).is_empty());
+    assert!(events(&mut app.0).is_empty(), "no frame flipped");
+    assert!(matches!(app.0.swap(DisplayId(A), &[]), Err(SwapError::Off)));
+}
+
+// A vblank wait that spans a VT leave ends before the sleep does, as a flip
+// in flight does. Its event, arriving during the wake-up's modeset flip,
+// must not end that flip early nor lend the canvas before it.
+#[test]
+fn a_vblank_event_left_from_before_a_sleep_ends_no_later_flip() {
+    let mut v = awake(one());
+    v.card().state().commit_errors.push_back(Errno::BUSY);
+    assert!(matches!(frame(&mut v, &[DOT]), Err(SwapError::Busy)));
+    v.sleep();
+    assert!(events(&mut v).is_empty(), "the sleep waits for the vblank");
+    // The bound runs out on the wait, so the sleep goes ahead.
+    v.flip_expired(100);
+    assert_eq!(events(&mut v), [Event::Asleep]);
+    v.wake_up().unwrap();
+    assert!(v.is_flipping(DisplayId(A)), "the modeset's flip");
+    vblank(&mut v);
+    assert!(v.is_flipping(DisplayId(A)), "the old vblank ends no flip");
+    assert!(v.canvas(DisplayId(A)).is_none());
+    flip(&mut v);
+    assert!(v.canvas(DisplayId(A)).is_some());
+}
+
+// The warning for a lost event goes once for a run of lost events, and
+// the next event the card delivers ends the run: a vblank's event lost,
+// then a flip's event that arrives, then a flip's event lost, warn twice.
+#[test]
+fn each_run_of_lost_events_warns_once() {
+    let (mut lp, mut app) = in_loop(awake(one()));
+    logs::capture();
+    app.0.card().state().commit_errors.push_back(Errno::BUSY);
+    assert!(matches!(frame(&mut app.0, &[DOT]), Err(SwapError::Busy)));
+    turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
+    assert_eq!(logs::at_least(Level::Warn).len(), 1, "the lost vblank");
+    assert_eq!(app.0.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+    app.0.card().complete_flips();
+    turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
+    app.0.card().state().lose_flips = true;
+    frame(&mut app.0, &[DOT]).unwrap();
+    app.0.card().complete_flips();
+    turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
+    assert_eq!(logs::at_least(Level::Warn).len(), 2, "the lost flip too");
 }
 
 /// A card with A online and B known to the card but not yet plugged in.

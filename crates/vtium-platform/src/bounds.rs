@@ -85,8 +85,8 @@ const EXIT_FEED: Bound = Bound {
 const FLIP_WAIT: Bound = Bound {
     name: "FLIP_WAIT_MS",
     value: 1000,
-    what: "Milliseconds each page flip in flight waits for its completion event: a swap's, a cursor commit's or a modeset's, and a modeset or a sleep waiting on it",
-    past: "The flip is taken as done, logged once at warn level: the display reports `Event::Flipped` and lends its canvas again, and a modeset or a sleep waiting on it goes ahead. The loop runs on while it waits",
+    what: "Milliseconds each page flip in flight waits for its completion event: a swap's, a cursor commit's or a modeset's, and a modeset or a sleep waiting on it. A commit the card refused as busy waits as long for the event of the display's next vblank",
+    past: "The flip is taken as done, logged at warn level for the first lost event until the card delivers one again: the display reports `Event::Flipped`, or nothing for a vblank, and lends its canvas again, and a modeset or a sleep waiting on it goes ahead. The loop runs on while it waits",
     cite: "drm_shared.c:834-859, where the C reference blocked its loop for the wait and bounded no swap's flip; the operator's decision on vtium/vtium#18",
 };
 
