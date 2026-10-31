@@ -1655,31 +1655,46 @@ fn under_oneshot_vtium_exits_when_the_last_heads_program_ends() {
     );
 }
 
-/// The operator's answers (2026-10-30): a session restarting too fast
-/// gives up on its head alone, with a notice; when every head has given
-/// up vtium exits with status 1, for the getty fallback.
+/// D1, the operator's decision of 2026-10-31: a session that keeps
+/// ending as soon as it starts, on any head, makes vtium exit with status
+/// 1, so the unit's getty takes the VT, and the exit hangs up the other
+/// head's session. No notice is drawn, since vtium leaves in that turn.
 #[test]
-fn a_head_restarting_too_fast_gives_up_alone_and_vtium_exits_after_every_head() {
-    let gave_up = |a: &App, name: &str| {
-        a.head(name)
-            .and_then(Head::notice)
-            .is_some_and(|n| n.contains("as soon as it started"))
+fn a_head_restarting_too_fast_ends_vtium_and_hangs_up_every_head() {
+    let path = |ext: &str| {
+        std::env::temp_dir().join(format!(
+            "vtium-heads-crash-loop-{}.{ext}",
+            std::process::id()
+        ))
     };
-    let mut s = logins(&[], "exit 1", "echo large; read x");
-    assert!(
-        s.until(Duration::from_secs(3), |a| gave_up(a, "small")),
-        "small gave up"
+    let (ready, mark) = (path("ready"), path("hup"));
+    let _ = std::fs::remove_file(&ready);
+    let _ = std::fs::remove_file(&mark);
+    // small's first start waits until large has set its trap, so the
+    // exit comes after it; every start after the first exits at once.
+    let small = format!(
+        "while [ ! -e {r} ]; do sleep 0.01; done; exit 1",
+        r = ready.display()
     );
-    s.until(Duration::from_millis(200), |_| false);
-    assert_eq!(s.app.finished(), None, "large's runs on");
-    assert!(head_shows(&s.app, "large", "large"));
-    let mut both = logins(&[], "exit 1", "exit 1");
-    assert!(
-        both.until(Duration::from_secs(3), |a| a.finished().is_some()),
-        "every head gave up"
+    let large = format!(
+        "trap 'echo > {m}; exit 0' HUP; : > {r}; echo large; while :; do read x; done",
+        m = mark.display(),
+        r = ready.display()
     );
-    assert_eq!(both.app.finished(), Some(vtium::app::Exit::TooQuick));
-    assert_eq!(both.app.finished().map(vtium::app::Exit::status), Some(1));
+    let mut s = logins(&[], &small, &large);
+    let finished = s.until(Duration::from_secs(3), |a| a.finished().is_some());
+    let hung_up = finished && s.until(SECOND, |_| mark.exists());
+    let _ = std::fs::remove_file(&ready);
+    let _ = std::fs::remove_file(&mark);
+    assert!(finished, "small's crash loop ended vtium");
+    assert_eq!(s.app.finished(), Some(vtium::app::Exit::TooQuick));
+    assert_eq!(s.app.finished().map(vtium::app::Exit::status), Some(1));
+    assert!(hung_up, "the exit hung large's session up");
+    assert_eq!(
+        s.app.head("small").and_then(Head::notice),
+        None,
+        "no notice"
+    );
 }
 
 /// D1: a zoom changes the grid of the console shown alone; each console
@@ -1755,18 +1770,10 @@ input class:mouse -> focus
 /// The operator's answers (2026-10-30), with the team lead's steering of
 /// 2026-10-30: a head whose display never lit has nothing left to run, so
 /// it holds up no exit. With the large display unplugged, the small
-/// head's login failing too quickly ends vtium for the getty fallback, and
-/// under `oneshot` its program ending ends vtium.
+/// head's program ending under `oneshot` ends vtium.
 #[test]
 fn a_head_that_never_lit_holds_up_no_exit() {
     let small = || [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
-    let mut quick = logins_on(&[], "exit 1", "read x", small());
-    assert!(
-        quick.until(Duration::from_secs(3), |a| a.finished().is_some()),
-        "the small head gave up, and the large never lit"
-    );
-    assert_eq!(quick.app.finished(), Some(vtium::app::Exit::TooQuick));
-    assert_eq!(quick.app.head("large").map(Head::started), Some(false));
     let mut once = logins_on(&["--oneshot"], "echo bye", "read x", small());
     assert!(
         once.until(Duration::from_secs(3), |a| a.finished().is_some()),

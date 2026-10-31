@@ -2392,8 +2392,9 @@ impl App {
     }
 
     /// The programs of head `h`'s consoles that exited
-    /// ([`session`]): each closes its console, starts again or ends the
-    /// head, and vtium ends once no head that started still runs.
+    /// ([`session`]): each closes its console, starts again, ends the head
+    /// under `oneshot`, or ends vtium after too many quick exits; under
+    /// `oneshot` vtium ends once no head that started still runs.
     fn child_exited(&mut self, h: usize, now: Instant) {
         let since = now.saturating_duration_since(self.epoch);
         let exited: Vec<(u64, std::process::ExitStatus)> = self
@@ -2413,6 +2414,7 @@ impl App {
                     self.relayout(h);
                 }
                 AfterExit::Restart => self.spawn(h, id),
+                AfterExit::GaveUp => self.request_exit(Exit::TooQuick),
                 AfterExit::Closed { shown: false } | AfterExit::Ended => {}
             }
         }

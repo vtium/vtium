@@ -113,8 +113,9 @@ pub struct Head {
     /// The configuration its consoles' command is read from: kmscon.conf's
     /// with the head's own `login` over it.
     pub(crate) login: Option<Config>,
-    /// Why the head runs no session any more.
-    pub(crate) ended: Option<Ended>,
+    /// Its last console's program ended under `oneshot`, so the head runs
+    /// no session any more.
+    pub(crate) ended: bool,
     /// vtium's notices to the head (ADR-1401 D7), each once and at most
     /// [`NOTICES_MAX`], the oldest going first, until a key reaches the
     /// head or [`NOTICE_SHOWN`] after they are first drawn, when they end.
@@ -217,28 +218,9 @@ pub(crate) fn terminal(
     Term::new(terminal, sync, Blink::configured(config), clock)
 }
 
-/// Why a head runs no session any more (the operator's answers on
-/// vtium/vtium#156).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Ended {
-    /// Its last console's program ended under `oneshot`.
-    Oneshot,
-    /// Its last console's program exited too quickly too many times
-    /// running.
-    TooQuick,
-}
-
-impl Ended {
-    /// What the head shows in place of its session.
-    pub fn notice(self) -> &'static str {
-        match self {
-            Ended::Oneshot => "The session ended, and vtium does not start it again.",
-            Ended::TooQuick => {
-                "The session kept ending as soon as it started, so vtium stopped starting it again."
-            }
-        }
-    }
-}
+/// What a head whose session ended under `oneshot` shows in place of its
+/// session (the operator's answers on vtium/vtium#156).
+pub const ENDED: &str = "The session ended, and vtium does not start it again.";
 
 /// The scrollback memory each console takes (ADR-1401 D10): `sb-memory`,
 /// at most `cap`, the most `sb-memory` may be on the machine, shared
@@ -318,7 +300,7 @@ impl Head {
             configured: (points, auto_size),
             wanted: 1,
             login: None,
-            ended: None,
+            ended: false,
             notices: Vec::new(),
             shown: String::new(),
             notice_due: None,
@@ -435,7 +417,7 @@ impl Head {
     /// for good, else its notices.
     pub fn notice(&self) -> Option<&str> {
         self.ended
-            .map(Ended::notice)
+            .then_some(ENDED)
             .or_else(|| (!self.shown.is_empty()).then_some(self.shown.as_str()))
     }
 
@@ -1261,13 +1243,10 @@ mod tests {
             head.add_notice(&format!("n{n}"));
         }
         assert_eq!(head.notice(), Some("n2\nn3\nn4\nn5"));
-        head.ended = Some(Ended::Oneshot);
+        head.ended = true;
         head.notice_due = Some(Instant::now());
         head.end_notices();
-        assert_eq!(
-            (head.notice(), head.notice_due),
-            (Some(Ended::Oneshot.notice()), None)
-        );
+        assert_eq!((head.notice(), head.notice_due), (Some(ENDED), None));
         assert!(!head.has_notices());
     }
 

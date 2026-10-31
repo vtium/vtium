@@ -176,6 +176,10 @@ considered:
     said: "VTIUM_HEAD is shared on purpose: the udev property of D4 and the environment variable of D5 both name the head a thing belongs to. The kmscon.conf key stays osd; when render-timer's on-screen mode, render-timer = osd, is built, it draws inside the OSD's box."
     via: the operator's rulings on ADR-1401's agent calls after the VT check of vtium/vtium#173, 2026-10-30, relayed in the team lead's message; the wording is the team lead's
     paraphrase: true
+  - operator: aaronsb
+    said: "A console's command that exits within 2 s of its start more than 5 times running, the C reference's limit, makes vtium exit with status 1 whichever head it runs on, so the unit's getty takes the VT, where before that head ended alone with a notice and every other head ran on. oneshot is unchanged: a head whose session exits under oneshot ends, and vtium exits with status 0 once every head has ended. Respawn, the default, is unchanged: a session that exits normally starts again. With several heads, a head that crash-loops would otherwise sit dead while the others run, and restarting it without bound brings the crash loop back; exiting hands the VT to getty and makes the failure visible to the system's service manager."
+    via: the operator's decision in conversation with the team lead, 2026-10-31, relayed in the team lead's brief; the wording is the team lead's
+    paraphrase: true
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and a roaming keyboard types into whichever head the roaming chord makes active"
@@ -287,7 +291,11 @@ flowchart TB
 - A head shows one console at a time on every display it holds. A head has exactly the number of consoles its `consoles` key gives it, 1 when unset, as today's console has one session; the count and the consoles' command are set per head in the head file (D3), and the console chords switch among them (D5). A zoom changes the grid of the console shown.
 - A head whose displays never appear starts no sessions until one does.
 - Every head's consoles keep the session rules each session has today: its own login, the respawn limit, the reply rule (docs/architecture.md, "Determinism"), and the helper's sandbox as the session's user (ADR-1400 D2, ADR-1200 D15).
+- **A session that keeps ending as soon as it starts ends vtium.** When the program of any head's last console exits less than 2 s after it started, more than 5 times running, which is the C reference's limit, vtium exits with status 1, so the unit's `OnFailure=` getty takes the VT. The exit hangs up the sessions of every other head, as any exit of vtium does: each console's pty closes and its programs get SIGHUP. vtium logs an error that names the head and the limit, and it draws no notice, since it leaves the VT in the same turn. With several heads, a head that ended alone after a crash loop would sit dead while the others ran, and starting it again without end would bring the crash loop back; exiting hands the VT to a getty and shows the failure to the system's service manager.
+- Under `oneshot`, a head ends when its last console's program exits, and shows that its session ended; vtium exits with status 0 once every head that started has ended. Under respawn, the default, any other exit starts the program again.
 - **One glyph helper for each frit in use,** and, once a session has logged in, for each session user of that frit, since ADR-1200 D15 runs the helper as the session's user. A helper is never shared across users.
+
+> Edited 2026-10-31: the operator decided that a crash loop on any head ends vtium (`considered`). D1 had neither bullet on how a head's session ends. Under the operator's answers on vtium/vtium#156, quick exits past the limit ended that head alone, which showed the notice "The session kept ending as soon as it started, so vtium stopped starting it again.", and vtium exited with status 1 only once every head that started had ended.
 
 > Edited 2026-10-30: the operator made `consoles` a fixed count (`considered`). The bullet read: "Its consoles start with one, as today's console has one session; the count, and each console's command, are set per head in the head file (D3)."
 
@@ -967,6 +975,7 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - The font layer fixed its density at 72 DPI, so a point size was a pixel height (`kmscon/src/font/font.c:198-199`).
 - The VT registered its key callback first, so its switch keys came before the seat's keys and the terminals' (`kmscon/src/uterm/vt_real.c:705`).
 - `scripts/etc/kmscon.conf.example` wrote every option as a commented line.
+- A session's child that exited less than 2 s (`MAX_RETRY_TIME`) after its last recorded start, in whole seconds of the wall clock, counted a quick exit; at 5 (`MAX_RETRY_COUNT`) the next exit logged an error and called the terminal's exit callback with no restart, as `oneshot` did (`kmscon/src/misc/pty.c:52-53, 737-768`). That callback, `pty_exit`, called `ev_eloop_exit` on the one loop every session shared, so one session's crash loop ended the process and every session in it (`kmscon/src/terminal.c:1856-1868`), and `main` then returned the seat's start error, 0 after a start that had succeeded (`kmscon/src/main.c:201-227`).
 
 ## Where vtium departs from the C reference
 
@@ -1001,6 +1010,7 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 
 ### Negative
 
+- A session that keeps ending as soon as it starts on one head ends the sessions of every head, since vtium exits (D1).
 - vtium carries a ruleset parser, a notice, the guards and the configuration crate; the parser and evaluator count against the binary's budget, which leaves less for other features.
 - **A crash's blast radius.** vtium is one process for every head (D2) and is built with `panic=abort`, so a panic takes down every head and every virtual console, closing every pty and hanging up every session, after which the unit restarts vtium or its `OnFailure=` starts a getty. Today a crash costs one session; with heads it costs all of them, and a program in one session that crashes vtium with crafted output takes the others down with it, a denial of service across sessions. The C reference had the same property. A program crashing in a session costs only that session, which the respawn policy starts again, and a glyph helper crash costs nothing: it is sandboxed, restarted at most 3 times, and the built-in fonts draw meanwhile (ADR-1200 D15). D10's requirement answers it, and D13, built directly after heads, lets the sessions survive the restart, so a crash costs the screens and the scrollback.
 - A guard or a right a head file turns off, a right a closed file does not grant, or a broken closed file can lock a machine out, and it is then recovered out of band (D9). vtium keeps no last-known-good to fall back on, so a closed file is tested by `vtiumctl`'s trial before it is relied on (D12).
