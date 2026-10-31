@@ -1,9 +1,10 @@
 //! Where each device lands: the first-match walk, each match key, and the
-//! guards over a set of devices (ADR-1401 D3, D4, D9).
+//! guards over a set of devices, under each policy (ADR-1401 D3, D4, D5,
+//! D7, D9).
 
 use vtium_config::{
-    By, Class, Config, Disposition, Edid, Guards, Identity, Lockout, Place, Placed, UsbSerial,
-    glob, parse, rule_for,
+    By, Class, Config, Disposition, Edid, Identity, Lockout, Place, Placed, Policy, UsbSerial,
+    glob, parse, reading, rule_for,
 };
 
 fn config(text: &str) -> Config {
@@ -13,12 +14,16 @@ fn config(text: &str) -> Config {
     }
 }
 
-/// `text`'s configuration with a guard turned off: no line of the head
-/// file turns one off, but placement reads each switch (ADR-1401 D9).
-fn guarded(text: &str, off: fn(&mut Guards)) -> Config {
-    let mut c = config(text);
-    off(&mut c.guards);
-    c
+/// What survives of `text`, a file with at least one error.
+fn survivors(text: &str) -> Config {
+    let r = reading(text.as_bytes());
+    assert!(!r.errors.is_empty(), "{text}");
+    r.parsed.config
+}
+
+/// `text` with `policy = closed` among its top-level keys.
+fn closed(text: &str) -> String {
+    format!("policy = closed\n{text}")
 }
 
 fn keyboard() -> Identity {
@@ -69,12 +74,13 @@ fn evidence() -> Vec<(&'static str, Identity)> {
     ]
 }
 
+// covers: platform.heads.rules
 #[test]
-fn the_shipped_rules_send_keyboards_keys_and_pointers_to_the_focus_and_close_the_rest() {
+fn the_shipped_rules_roam_keyboards_keys_and_pointers_and_close_the_rest() {
     let builtin = Config::builtin();
     let want = |name: &str| match name {
         "joystick" | "tablet" | "lid switch" | "accelerometer" | "no class" => Place::Ignore,
-        _ => Place::Focus,
+        _ => Place::Roaming,
     };
     for (name, device) in evidence() {
         assert_eq!(builtin.walk(&device).place, want(name), "{name}");
@@ -89,6 +95,7 @@ fn the_shipped_rules_send_keyboards_keys_and_pointers_to_the_focus_and_close_the
     );
 }
 
+// covers: platform.heads.rules
 #[test]
 fn the_first_matching_rule_places_a_device_and_no_match_has_a_default() {
     let c = config(
@@ -113,7 +120,7 @@ fn the_first_matching_rule_places_a_device_and_no_match_has_a_default() {
     assert_eq!(
         c.walk(&joystick),
         Placed {
-            place: Place::Focus,
+            place: Place::Roaming,
             by: By::NoMatch
         }
     );
@@ -121,7 +128,7 @@ fn the_first_matching_rule_places_a_device_and_no_match_has_a_default() {
     assert_eq!(
         c.walk(&dp),
         Placed {
-            place: Place::Dark,
+            place: Place::Off,
             by: By::NoMatch
         }
     );
@@ -132,7 +139,7 @@ fn the_first_matching_rule_places_a_device_and_no_match_has_a_default() {
 #[test]
 fn a_rule_matches_only_its_own_kind() {
     let c = config("version = 1\n[head a]\n[rules]\ninput * -> a\n");
-    assert_eq!(c.walk(&Identity::display()).place, Place::Dark);
+    assert_eq!(c.walk(&Identity::display()).place, Place::Off);
     assert_eq!(c.walk(&Identity::input()).place, Place::Head(0));
 }
 
@@ -142,7 +149,7 @@ fn a_rules_tokens_must_all_hold() {
         "version = 1\n[head a]\n[rules]\ninput path:pci-0000:15:00.0-usb-0:3.4.1 serial:aaaa:0002:NUMPAD0001 -> a\n",
     );
     let mut unit = at_path(keyboard(), "pci-0000:15:00.0-usb-0:3.4.1:1.0");
-    assert_eq!(c.walk(&unit).place, Place::Focus, "no serial");
+    assert_eq!(c.walk(&unit).place, Place::Roaming, "no serial");
     unit.serial = Some(UsbSerial {
         vendor: 0xaaaa,
         product: 2,
@@ -156,7 +163,7 @@ fn a_rules_tokens_must_all_hold() {
     elsewhere.serial = Some(moved);
     assert_eq!(
         c.walk(&elsewhere).place,
-        Place::Focus,
+        Place::Roaming,
         "the unit in another port"
     );
 }
@@ -168,15 +175,15 @@ fn path_takes_its_devices_interfaces_and_the_devices_on_a_hub_below_it_and_nothi
         ("pci-0000:15:00.0-usb-0:3.3", Place::Head(0)),
         ("pci-0000:15:00.0-usb-0:3.3:1.0", Place::Head(0)),
         ("pci-0000:15:00.0-usb-0:3.3:1.2", Place::Head(0)),
-        ("pci-0000:15:00.0-usb-0:3.30:1.0", Place::Focus),
+        ("pci-0000:15:00.0-usb-0:3.30:1.0", Place::Roaming),
         ("pci-0000:15:00.0-usb-0:3.3.1:1.0", Place::Head(0)),
-        ("pci-0000:15:00.0-usb-0:3", Place::Focus),
+        ("pci-0000:15:00.0-usb-0:3", Place::Roaming),
     ] {
         assert_eq!(c.walk(&at_path(keyboard(), path)).place, want, "{path}");
     }
     assert_eq!(
         c.walk(&keyboard()).place,
-        Place::Focus,
+        Place::Roaming,
         "no ID_PATH, as with no udev daemon"
     );
 }
@@ -225,12 +232,12 @@ fn each_input_key_reads_its_own_fact() {
     other_bt.unique = Some("AA:BB:CC:DD:EE:FF".into());
     assert_eq!(
         c.walk(&other_bt).place,
-        Place::Focus,
+        Place::Roaming,
         "a unique id matches as written"
     );
     let mut wrong = keyboard();
     wrong.properties.insert("VTIUM_HEAD".into(), "desk".into());
-    assert_eq!(c.walk(&wrong).place, Place::Focus);
+    assert_eq!(c.walk(&wrong).place, Place::Roaming);
 }
 
 #[test]
@@ -269,7 +276,7 @@ fn each_display_key_reads_its_own_fact() {
     }
     assert_eq!(
         c.walk(&monitor("pci-0000:03:00.0", "HDMI-A-1")).place,
-        Place::Dark
+        Place::Off
     );
 }
 
@@ -309,8 +316,9 @@ fn desk_and_panel() -> Vec<Identity> {
     ]
 }
 
+// covers: platform.heads.guards
 #[test]
-fn the_display_guard_lights_the_boot_display_in_the_first_head() {
+fn under_open_the_display_guard_lights_the_boot_display_in_the_first_head() {
     let devices = desk_and_panel();
     let dark = "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay * -> off\n";
     let p = config(dark).place(&devices, None);
@@ -322,7 +330,7 @@ fn the_display_guard_lights_the_boot_display_in_the_first_head() {
             by: By::NeverDark
         }
     );
-    assert_eq!(p.placed[1].place, Place::Dark);
+    assert_eq!(p.placed[1].place, Place::Off);
 
     let mut lit = devices.clone();
     lit[1].lit_at_start = true;
@@ -332,7 +340,7 @@ fn the_display_guard_lights_the_boot_display_in_the_first_head() {
         Place::Head(0),
         "the connector lit at start wins"
     );
-    assert_eq!(p.placed[0].place, Place::Dark);
+    assert_eq!(p.placed[0].place, Place::Off);
 
     let mut boot = devices.clone();
     boot[1].on_boot_card = true;
@@ -350,13 +358,6 @@ fn the_display_guard_lights_the_boot_display_in_the_first_head() {
         "a file with no head lights the default head"
     );
 
-    let p = guarded(dark, |g| g.never_dark = false).place(&devices, None);
-    assert!(!p.never_dark);
-    assert_eq!(
-        (p.placed[0].place, p.placed[1].place),
-        (Place::Dark, Place::Dark)
-    );
-
     let p = config(
         "version = 1\n[head a]\n[rules]\ndisplay connector:*/HDMI-* -> a\ndisplay * -> off\n",
     )
@@ -367,10 +368,11 @@ fn the_display_guard_lights_the_boot_display_in_the_first_head() {
     );
     assert_eq!(
         (p.placed[0].place, p.placed[1].place),
-        (Place::Dark, Place::Head(0))
+        (Place::Off, Place::Head(0))
     );
 }
 
+// covers: platform.heads.guards
 #[test]
 fn with_no_display_lit_at_start_and_none_on_the_boot_card_the_first_connected_one_lights() {
     let mut later = monitor("pci-0000:05:00.0", "DP-1");
@@ -388,13 +390,14 @@ fn with_no_display_lit_at_start_and_none_on_the_boot_card_the_first_connected_on
     let lit: Vec<Place> = p.placed.iter().map(|p| p.place).collect();
     assert_eq!(
         lit,
-        [Place::Dark, Place::Head(0), Place::Dark],
+        [Place::Off, Place::Head(0), Place::Off],
         "the first card's first connector"
     );
 }
 
+// covers: platform.heads.guards
 #[test]
-fn the_anti_lockout_guard_sends_every_keyboard_to_the_focus_while_none_reaches_a_lit_head() {
+fn under_open_the_anti_lockout_guard_makes_every_keyboard_roam_while_none_reaches_a_lit_head() {
     let mut devices = desk_and_panel();
     let mouse = at_path(
         Identity::input().with_class(Class::Mouse),
@@ -407,14 +410,14 @@ fn the_anti_lockout_guard_sends_every_keyboard_to_the_focus_while_none_reaches_a
     assert_eq!(
         p.placed[2],
         Placed {
-            place: Place::Focus,
+            place: Place::Roaming,
             by: By::AntiLockout
         }
     );
     assert_eq!(
         p.placed[3],
         Placed {
-            place: Place::Focus,
+            place: Place::Roaming,
             by: By::AntiLockout
         }
     );
@@ -424,8 +427,8 @@ fn the_anti_lockout_guard_sends_every_keyboard_to_the_focus_while_none_reaches_a
         "a pointer stays where its rule put it"
     );
 
-    let p = guarded(stranded, |g| g.anti_lockout = false).place(&devices, None);
-    assert!(!p.anti_lockout);
+    let p = config(&closed(stranded)).place(&devices, None);
+    assert!(!p.anti_lockout, "off under closed");
     assert_eq!(
         (p.placed[2].place, p.placed[3].place),
         (Place::Head(1), Place::Head(1))
@@ -438,7 +441,7 @@ fn the_anti_lockout_guard_sends_every_keyboard_to_the_focus_while_none_reaches_a
         p.anti_lockout,
         "every keyboard ignored strands the lit head"
     );
-    assert_eq!(p.placed[2].place, Place::Focus);
+    assert_eq!(p.placed[2].place, Place::Roaming);
 
     let one_reaches = "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay connector:*/DP-* -> desk\ndisplay * -> off\ninput path:pci-0000:15:00.0-usb-0:3.3 -> desk\ninput class:keyboard -> panel\n";
     let p = config(one_reaches).place(&devices, None);
@@ -449,6 +452,7 @@ fn the_anti_lockout_guard_sends_every_keyboard_to_the_focus_while_none_reaches_a
     assert_eq!(p.placed[3].place, Place::Head(1));
 }
 
+// covers: platform.heads.guards
 #[test]
 fn a_device_marked_a_token_or_a_numpad_does_not_count_as_a_keyboard() {
     let mut devices = desk_and_panel();
@@ -464,7 +468,7 @@ fn a_device_marked_a_token_or_a_numpad_does_not_count_as_a_keyboard() {
             p.anti_lockout,
             "{role}: the head's only keyboard is marked, so none counts"
         );
-        assert_eq!(p.placed[2].place, Place::Focus);
+        assert_eq!(p.placed[2].place, Place::Roaming);
     }
     devices[2]
         .properties
@@ -472,9 +476,11 @@ fn a_device_marked_a_token_or_a_numpad_does_not_count_as_a_keyboard() {
     assert!(!config(rules).place(&devices, None).anti_lockout);
 }
 
+// covers: platform.heads.rescue-key
 #[test]
-fn the_rescue_key_takes_a_keyboard_unless_its_head_is_isolated_or_the_guard_is_off() {
-    let c = config("version = 1\n[head desk]\n[head kiosk]\nisolated = yes\n");
+fn the_rescue_key_takes_a_keyboard_under_open_unless_its_head_is_isolated() {
+    let kiosk = "version = 1\n[head desk]\n[head kiosk]\nisolated = yes\n";
+    let c = config(kiosk);
     let placed = |place| Placed {
         place,
         by: By::NoMatch,
@@ -484,16 +490,33 @@ fn the_rescue_key_takes_a_keyboard_unless_its_head_is_isolated_or_the_guard_is_o
     assert!(c.rescue(&placed(Place::Ignore)));
     assert!(c.rescue(&placed(Place::DefaultHead)));
     assert!(
-        !c.rescue(&placed(Place::Focus)),
-        "a keyboard already following the focus stays"
+        !c.rescue(&placed(Place::Roaming)),
+        "a keyboard already roaming stays"
     );
-    let off = guarded("version = 1\n[head desk]\n", |g| g.rescue_key = false);
-    assert!(!off.rescue(&placed(Place::Head(0))));
-    assert!(!off.rescue(&placed(Place::Ignore)));
+    assert!(!c.rescue(&placed(Place::Head(2))), "no such head");
+
+    // under closed the rescue key is off for every head, one that writes
+    // `isolated = no` included
+    let off = config(&closed("version = 1\n[head desk]\nisolated = no\n"));
+    for place in [Place::Head(0), Place::Ignore, Place::DefaultHead] {
+        assert!(!off.rescue(&placed(place)), "{place:?}");
+    }
+
+    // what survives of an open file ignores `isolated`, so the rescue key
+    // reaches every head's keyboards
+    let partly = survivors(&format!("{kiosk}[rules]\ninput * -> nosuch\n"));
+    assert_eq!(partly.policy, Policy::Open);
+    assert!(partly.rescue(&placed(Place::Head(1))));
+    let sticky = survivors(&closed(&format!("{kiosk}[rules]\ninput * -> nosuch\n")));
+    assert!(
+        !sticky.rescue(&placed(Place::Head(0))),
+        "closed stays closed"
+    );
 }
 
+// covers: platform.heads.rescue-key
 #[test]
-fn an_ignored_keyboard_is_opened_for_the_rescue_key_alone() {
+fn an_ignored_keyboard_is_opened_for_the_rescue_key_alone_under_open() {
     let c = Config::builtin();
     let ignored = Placed {
         place: Place::Ignore,
@@ -505,13 +528,18 @@ fn an_ignored_keyboard_is_opened_for_the_rescue_key_alone() {
     );
     let mouse = Identity::input().with_class(Class::Mouse);
     assert_eq!(c.disposition(&ignored, &mouse), Disposition::Closed);
-    let focus = Placed {
-        place: Place::Focus,
+    let roaming = Placed {
+        place: Place::Roaming,
         by: By::NoMatch,
     };
-    assert_eq!(c.disposition(&focus, &mouse), Disposition::Deliver);
-    let off = guarded("version = 1\n", |g| g.rescue_key = false);
-    assert_eq!(off.disposition(&ignored, &keyboard()), Disposition::Closed);
+    assert_eq!(c.disposition(&roaming, &mouse), Disposition::Deliver);
+    let off = config(&closed("version = 1\n"));
+    assert_eq!(
+        off.disposition(&ignored, &keyboard()),
+        Disposition::Closed,
+        "under closed vtium opens no ignored device"
+    );
+    assert_eq!(off.disposition(&roaming, &mouse), Disposition::Deliver);
 }
 
 #[test]
@@ -590,10 +618,11 @@ fn a_dark_displays_log_line_carries_a_rule_ready_to_paste() {
     assert_eq!(rule_for(&keyboard(), "desk"), None);
 }
 
+// covers: platform.heads.guards, platform.heads.focus
 #[test]
-fn the_anti_lockout_guard_moves_the_focus_off_a_head_whose_display_is_gone() {
-    // the panel's display is gone; desk is lit; every keyboard follows the
-    // focus, which rests on panel: no keyboard reaches a lit head
+fn the_anti_lockout_guard_moves_the_active_head_off_a_head_whose_display_is_gone() {
+    // the panel's display is gone; desk is lit; every keyboard roams,
+    // and the active head is panel: no keyboard reaches a lit head
     let mut devices = desk_and_panel();
     devices.remove(1);
     let c = config(
@@ -602,61 +631,61 @@ fn the_anti_lockout_guard_moves_the_focus_off_a_head_whose_display_is_gone() {
     let p = c.place(&devices, Some(Place::Head(1)));
     assert!(
         p.anti_lockout,
-        "the focus on an unlit head strands every keyboard"
+        "the active head unlit strands every keyboard"
     );
     assert_eq!(
         p.focus,
         Some(Place::Head(0)),
-        "the focus moves to the boot display's head"
+        "the active head moves to the boot display's head"
     );
     assert_eq!(
         (p.placed[1].place, p.placed[2].place),
-        (Place::Focus, Place::Focus)
+        (Place::Roaming, Place::Roaming)
     );
 
     // the first lit head in the file's order, when the boot display is in
     // none: desk's display is not the boot card's
     let mut off_boot = devices.clone();
     off_boot[0].on_boot_card = false;
-    let three = guarded(
+    let three = config(
         "version = 1\n[head side]\n[head desk]\n[head panel]\n[rules]\ndisplay connector:*/DP-* -> desk\ninput class:keyboard -> roaming\n",
-        |g| g.never_dark = false,
     );
     let p = three.place(&off_boot, Some(Place::Head(2)));
     assert_eq!(p.focus, Some(Place::Head(1)));
 
-    let off = guarded(
-        "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay connector:*/DP-* -> desk\ninput class:keyboard -> roaming\n",
-        |g| g.anti_lockout = false,
-    );
+    let off = config(&closed(
+        "version = 1\n[head desk]\nisolated = no\n[head panel]\nisolated = no\n[rules]\ndisplay connector:*/DP-* -> desk\ninput class:keyboard -> roaming\n",
+    ));
     let p = off.place(&devices, Some(Place::Head(1)));
     assert!(!p.anti_lockout);
     assert_eq!(
         p.focus,
         Some(Place::Head(1)),
-        "with the guard off the focus stays"
+        "under closed the guard is off and the active head stays"
     );
 }
 
+// covers: platform.heads.focus
 #[test]
-fn a_keyboard_on_a_lit_head_leaves_the_guard_idle_and_the_focus_where_it_is() {
+fn a_keyboard_on_a_lit_head_leaves_the_guard_idle_and_the_active_head_where_it_is() {
     let devices = desk_and_panel();
-    // keyboard A types into desk, which is lit; keyboard B follows the
-    // focus on panel, whose display is dark
+    // keyboard A types into desk, which is lit; keyboard B roams, and the
+    // active head may be panel, whose display is dark
     let c = config(
         "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay connector:*/DP-* -> desk\ndisplay * -> off\ninput path:pci-0000:15:00.0-usb-0:3.3 -> desk\ninput class:keyboard -> roaming\n",
     );
     for focus in [Some(Place::Head(0)), Some(Place::Head(1))] {
         let p = c.place(&devices, focus);
         assert!(!p.anti_lockout, "{focus:?}");
-        assert_eq!(p.focus, focus, "the focus stays put, lit or not");
+        assert_eq!(p.focus, focus, "the active head stays put, lit or not");
         assert_eq!(p.placed[2].place, Place::Head(0));
-        assert_eq!(p.placed[3].place, Place::Focus);
+        assert_eq!(p.placed[3].place, Place::Roaming);
     }
 }
 
+// covers: platform.heads.focus
 #[test]
-fn with_no_focus_yet_it_starts_on_the_boot_displays_head() {
+fn with_no_active_head_yet_it_starts_on_the_boot_displays_head() {
     let devices = desk_and_panel();
     let p = Config::builtin().place(&devices, None);
     assert_eq!(p.focus, Some(Place::Head(0)));
@@ -672,4 +701,325 @@ fn with_no_focus_yet_it_starts_on_the_boot_displays_head() {
         Some(Place::Head(1)),
         "the boot display's head over the file's first"
     );
+}
+
+// covers: platform.heads.policy
+#[test]
+fn an_input_no_rule_matches_roams_under_open_and_is_ignored_under_closed() {
+    let rules = "version = 1\n[head desk]\n[rules]\ndisplay connector:*/HDMI-* -> desk\ninput class:mouse -> desk\n";
+    let joystick = Identity::input().with_class(Class::Joystick);
+    let dp = monitor("pci-0000:03:00.0", "DP-8");
+    for (text, want) in [
+        (rules.to_owned(), Place::Roaming),
+        (format!("policy = open\n{rules}"), Place::Roaming),
+        (closed(rules), Place::Ignore),
+    ] {
+        let c = config(&text);
+        for device in [keyboard(), joystick.clone()] {
+            assert_eq!(
+                c.walk(&device),
+                Placed {
+                    place: want,
+                    by: By::NoMatch
+                },
+                "{text}"
+            );
+        }
+        assert_eq!(
+            c.walk(&dp),
+            Placed {
+                place: Place::Off,
+                by: By::NoMatch
+            },
+            "a display no rule matches is off under either: {text}"
+        );
+        let mouse = Identity::input().with_class(Class::Mouse);
+        assert_eq!(c.walk(&mouse).place, Place::Head(0), "a rule still places");
+    }
+}
+
+// covers: platform.heads.policy, platform.heads.isolated
+#[test]
+fn an_unset_isolated_is_no_under_open_and_yes_under_closed_and_a_written_one_wins() {
+    let heads = "version = 1\n[head a]\n[head b]\nisolated = yes\n[head c]\nisolated = no\n";
+    let open = config(heads);
+    assert_eq!(
+        (open.isolated(0), open.isolated(1), open.isolated(2)),
+        (false, true, false)
+    );
+    let shut = config(&closed(heads));
+    assert_eq!(
+        (shut.isolated(0), shut.isolated(1), shut.isolated(2)),
+        (true, true, false)
+    );
+    assert!(!open.isolated(3) && !shut.isolated(3), "no such head");
+}
+
+// covers: platform.heads.isolated, platform.heads.focus
+#[test]
+fn the_active_head_starts_only_on_a_head_that_is_not_isolated() {
+    // the large display, the boot display, is desk's, and the small one
+    // panel's; both are lit
+    let devices = desk_and_panel();
+    let rules = "[rules]\ndisplay connector:*/DP-* -> desk\ndisplay * -> panel\n";
+    let file = |desk: &str, panel: &str| {
+        format!("version = 1\n[head desk]\n{desk}[head panel]\n{panel}{rules}")
+    };
+    let yes = "isolated = yes\n";
+    let no = "isolated = no\n";
+    let start = |text: &str| config(text).place(&devices, None).focus;
+    assert_eq!(
+        start(&file("", "")),
+        Some(Place::Head(0)),
+        "the boot display's head"
+    );
+    assert_eq!(
+        start(&file(yes, "")),
+        Some(Place::Head(1)),
+        "the boot display's head is isolated, so the next lit head"
+    );
+    assert_eq!(start(&file(yes, yes)), None, "every head isolated: none");
+    assert_eq!(
+        start(&closed(&file("", ""))),
+        None,
+        "closed isolates unset heads"
+    );
+    assert_eq!(
+        start(&closed(&file("", no))),
+        Some(Place::Head(1)),
+        "a closed file's head that writes isolated = no"
+    );
+    // an active head given that can no longer be one starts again
+    let c = config(&file("", yes));
+    assert_eq!(
+        c.place(&devices, Some(Place::Head(1))).focus,
+        Some(Place::Head(0))
+    );
+    assert_eq!(
+        c.place(&devices, Some(Place::Head(0))).focus,
+        Some(Place::Head(0))
+    );
+}
+
+// covers: platform.heads.guards, platform.heads.isolated
+#[test]
+fn the_anti_lockout_guard_makes_only_a_head_that_is_not_isolated_active() {
+    // every keyboard is claimed by panel, which has no display; desk holds
+    // the boot display, and side the other one
+    let mut devices = desk_and_panel();
+    devices[1].connector = Some("DP-1".to_owned());
+    let file = |desk: &str| {
+        format!(
+            "version = 1\n[head side]\n[head desk]\n{desk}[head panel]\n[rules]\ndisplay connector:*/DP-8 -> desk\ndisplay * -> side\ninput class:keyboard -> panel\n"
+        )
+    };
+    let p = config(&file("")).place(&devices, Some(Place::Head(2)));
+    assert!(p.anti_lockout);
+    assert_eq!(p.focus, Some(Place::Head(1)), "the boot display's head");
+    let p = config(&file("isolated = yes\n")).place(&devices, Some(Place::Head(2)));
+    assert!(p.anti_lockout);
+    assert_eq!(
+        p.focus,
+        Some(Place::Head(0)),
+        "desk is isolated, so the first lit head in the file that is not"
+    );
+    assert_eq!(
+        (p.placed[2].place, p.placed[3].place),
+        (Place::Roaming, Place::Roaming)
+    );
+}
+
+// covers: platform.heads.guards
+#[test]
+fn with_no_keyboard_present_the_anti_lockout_guard_has_none_to_strand() {
+    let mut devices = desk_and_panel();
+    devices.truncate(2);
+    devices.push(Identity::input().with_class(Class::Mouse));
+    let c = config(
+        "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay connector:*/DP-* -> desk\ndisplay * -> off\ninput * -> panel\n",
+    );
+    let p = c.place(&devices, Some(Place::Head(1)));
+    assert!(!p.anti_lockout);
+    assert_eq!(p.focus, Some(Place::Head(1)));
+}
+
+// covers: platform.heads.guards, platform.heads.rescue-key
+#[test]
+fn a_keyboard_the_rescue_key_moved_roams_and_counts_for_the_anti_lockout_guard() {
+    // both keyboards present are claimed by panel, which has no display;
+    // a third, rescued, roams
+    let devices = {
+        let mut d = desk_and_panel();
+        d.remove(1);
+        d
+    };
+    let rescued = [at_path(keyboard(), "pci-0000:15:00.0-usb-0:3.4.1:1.0")];
+    let c = config(
+        "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay connector:*/DP-* -> desk\ndisplay * -> panel\ninput class:keyboard -> panel\n",
+    );
+    let p = c.place_rescued(&devices, &rescued, Some(Place::Head(0)));
+    assert!(!p.anti_lockout, "the rescued keyboard reaches desk, lit");
+    assert_eq!(p.placed[1].place, Place::Head(1));
+    let p = c.place_rescued(&devices, &rescued, Some(Place::Head(1)));
+    assert!(p.anti_lockout, "the active head is unlit, so none reaches");
+    assert_eq!(p.focus, Some(Place::Head(0)));
+    // only rescued keyboards, the active head unlit: still one to strand
+    let p = c.place_rescued(&devices[..1], &rescued, Some(Place::Head(1)));
+    assert!(p.anti_lockout);
+    assert_eq!(p.focus, Some(Place::Head(0)));
+    assert_eq!(
+        c.place(&devices, Some(Place::Head(0))),
+        c.place_rescued(&devices, &[], Some(Place::Head(0)))
+    );
+}
+
+// covers: platform.heads.guards
+#[test]
+fn under_closed_the_display_guard_lights_the_boot_display_for_a_notice_alone() {
+    let devices = desk_and_panel();
+    let dark = "version = 1\n[head desk]\nisolated = no\n[head panel]\n[rules]\ndisplay * -> off\ninput class:keyboard -> desk\n";
+    let p = config(&closed(dark)).place(&devices, None);
+    assert!(p.never_dark);
+    assert_eq!(
+        p.placed[0],
+        Placed {
+            place: Place::Notice,
+            by: By::NeverDark
+        },
+        "never a head on a display its rules do not give it"
+    );
+    assert_eq!(p.placed[1].place, Place::Off);
+    assert_eq!(p.focus, None, "no head is lit");
+    assert!(!p.anti_lockout, "and the guard is off under closed");
+
+    let p = config(&closed("version = 1\n[rules]\ndisplay * -> off\n")).place(&devices, None);
+    assert!(
+        !p.never_dark,
+        "a closed file with no head is dark and silent"
+    );
+    assert_eq!(
+        (p.placed[0].place, p.placed[1].place),
+        (Place::Off, Place::Off)
+    );
+
+    // a closed file that failed has no head left, and shows its notice
+    let failed = survivors(&closed("[head desk]\n[rules]\ndisplay * -> desk\n"));
+    assert!(failed.heads.is_empty(), "no version drops the file");
+    let p = failed.place(&devices, None);
+    assert_eq!(p.placed[0].place, Place::Notice);
+    assert_eq!(p.focus, None);
+}
+
+// covers: platform.heads.rules
+#[test]
+fn what_survives_of_a_partly_broken_open_file_runs_then_the_shipped_rules_tail() {
+    let text = "version = 1\n[head desk]\nisolated = yes\n[rules]\ndisplay connector:*/DP-* -> desk\ninput class:mouse -> desk\ninput class:keyboard -> nosuch\n";
+    let c = survivors(text);
+    assert_eq!(
+        (c.heads.len(), c.rules.len()),
+        (1, 2),
+        "the bad rule alone dropped"
+    );
+    let mouse = Identity::input().with_class(Class::Mouse);
+    let joystick = Identity::input().with_class(Class::Joystick);
+    let pad = Identity::input().with_class(Class::Key);
+    assert_eq!(
+        c.walk(&mouse),
+        Placed {
+            place: Place::Head(0),
+            by: By::Rule(6)
+        },
+        "a surviving rule places first"
+    );
+    for (device, want) in [
+        (keyboard(), Place::Roaming),
+        (pad, Place::Roaming),
+        (joystick.clone(), Place::Ignore),
+        (Identity::input(), Place::Ignore),
+    ] {
+        assert_eq!(
+            c.walk(&device),
+            Placed {
+                place: want,
+                by: By::Tail
+            },
+            "{device:?}"
+        );
+    }
+    assert_eq!(
+        c.walk(&monitor("pci-0000:00:02.0", "HDMI-A-2")),
+        Placed {
+            place: Place::Off,
+            by: By::NoMatch
+        },
+        "the tail places inputs alone"
+    );
+    assert!(
+        !c.isolated(0),
+        "isolated is ignored, so the rescue has a way in"
+    );
+    assert_eq!(c.place(&desk_and_panel(), None).focus, Some(Place::Head(0)));
+
+    // a valid open file has no tail: what no rule matches roams
+    let valid = config(&text.replace(" -> nosuch", " -> desk"));
+    assert_eq!(valid.walk(&joystick).by, By::NoMatch);
+    assert_eq!(valid.walk(&joystick).place, Place::Roaming);
+
+    // what survives of a closed file runs as written: no tail, isolation
+    // as the file writes it
+    let shut = survivors(&closed(text));
+    assert_eq!(
+        shut.walk(&keyboard()),
+        Placed {
+            place: Place::Ignore,
+            by: By::NoMatch
+        }
+    );
+    assert!(shut.isolated(0));
+}
+
+// covers: platform.heads.policy
+#[test]
+fn placement_runs_the_switches_and_the_unplaced_inputs_the_outcome_gives() {
+    use vtium_config::{Read, Runs, SwitchKey, Unplaced, resolve};
+    let heads = "version = 1\n[head a]\nisolated = yes\n[head b]\nisolated = no\n[head c]\n[rules]\ndisplay * -> a\ninput class:keyboard -> b\n";
+    let bad = "input * -> nosuch\n";
+    let joystick = Identity::input().with_class(Class::Joystick);
+    for (text, runs) in [
+        (heads.to_owned(), Runs::File),
+        (closed(heads), Runs::File),
+        (format!("{heads}{bad}"), Runs::Survivors),
+        (closed(&format!("{heads}{bad}")), Runs::Survivors),
+    ] {
+        let r = reading(text.as_bytes());
+        let outcome = resolve(&Read::Trusted(r.trusted()));
+        assert_eq!(outcome.runs, runs, "{text}");
+        let c = r.parsed.config;
+        assert_eq!(c.policy, outcome.policy, "{text}");
+        for (i, head) in c.heads.iter().enumerate() {
+            let isolated = outcome.switch(SwitchKey::Isolated).of(head.isolated);
+            assert_eq!(c.isolated(i), isolated, "{text} head {i}");
+            let rescue = outcome.switch(SwitchKey::RescueKey).of(None) && !isolated;
+            let claimed = Placed {
+                place: Place::Head(i),
+                by: By::NoMatch,
+            };
+            assert_eq!(c.rescue(&claimed), rescue, "{text} head {i}");
+        }
+        // the only keyboard is b's, and only a's display is lit
+        let stranded = [monitor("pci-0000:03:00.0", "DP-8"), keyboard()];
+        assert_eq!(
+            c.place(&stranded, None).anti_lockout,
+            outcome.switch(SwitchKey::AntiLockout).of(None),
+            "{text}"
+        );
+        let (keys, other) = match outcome.unplaced {
+            Unplaced::Roaming => (Place::Roaming, Place::Roaming),
+            Unplaced::Shipped => (Place::Roaming, Place::Ignore),
+            Unplaced::Ignore => (Place::Ignore, Place::Ignore),
+        };
+        let pad = Identity::input().with_class(Class::Key);
+        assert_eq!(c.walk(&pad).place, keys, "{text}");
+        assert_eq!(c.walk(&joystick).place, other, "{text}");
+    }
 }

@@ -1714,12 +1714,10 @@ impl App {
         if self.start_lit.is_empty() || self.focus.is_some() && (self.focus_settled || !due) {
             return;
         }
-        // The display guard's display counts as lit; the anti-lockout
-        // guard moves the focus itself ([`App::guard`]).
-        let mut rules = self.rules.clone();
-        rules.guards.anti_lockout = false;
+        // The display guard's display counts as lit; given no keyboard, the
+        // anti-lockout guard moves nothing ([`App::guard`] runs it).
         let lit: Vec<vtium_config::Identity> = self.start_lit.values().cloned().collect();
-        self.focus = head_index(rules.place(&lit, None).focus);
+        self.focus = head_index(self.rules.place(&lit, None).focus);
         self.bound_pointers();
     }
 
@@ -1763,15 +1761,9 @@ impl App {
             .chain(self.routes.unrescued())
             .cloned()
             .collect();
-        let focus_lit = self
-            .focus
-            .and_then(|h| self.heads.get(h))
-            .is_some_and(|head| !head.views.is_empty());
-        let mut rules = self.rules.clone();
-        // With no keyboard there is none to strand, and D8's notice says
-        // so; a keyboard the rescue key moved reaches the focus's head.
-        rules.guards.anti_lockout &=
-            self.routes.any_keyboard() && !(focus_lit && self.routes.rescued_keyboard());
+        // A keyboard the rescue key moved roams, and reaches the focus's
+        // head while it is lit.
+        let rescued: Vec<vtium_config::Identity> = self.routes.rescued().cloned().collect();
         // The default head is the head of a file that declares none.
         let focus = self.focus.map(|h| {
             if self.rules.heads.is_empty() {
@@ -1780,7 +1772,7 @@ impl App {
                 vtium_config::Place::Head(h)
             }
         });
-        let placement = rules.place(&devices, focus);
+        let placement = self.rules.place_rescued(&devices, &rescued, focus);
         let (shown, rest) = placement
             .placed
             .split_at(displays.len().min(placement.placed.len()));
@@ -3035,7 +3027,7 @@ pub fn open_video(app: &mut App, node: &Path, kind: DeviceKind, card: Card) -> i
                 // While none is lit, it is announced for the display guard
                 // to light (D9), which leaves dark again the ones it lights
                 // not.
-                if rules.guards.never_dark && !lit.get() {
+                if !lit.get() {
                     return false;
                 }
                 let display = identity::display(named, &at, 0);

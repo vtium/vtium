@@ -1,17 +1,30 @@
 //! Where each device lands: the first-match walk of one device (ADR-1401
-//! D3) and the guards over a set of devices (D9).
+//! D3) and the guards over a set of devices (D9), under the file's policy.
 //!
 //! The walk reads only the device's own [`Identity`] and the rules, so a
 //! hotplugged device lands where it would at start. The guards read the
 //! set of devices present and never their order, so a placement is the
 //! same however the devices were reported (docs/architecture.md,
 //! "Determinism").
+//!
+//! The policy decides what the rules leave unsaid: where an input no rule
+//! matches goes, whether a head that leaves `isolated` unset is isolated,
+//! whether the anti-lockout guard and the rescue key are on, and what the
+//! display guard may light (D3, D9). What survives of a file with errors
+//! runs under open with the shipped rules' tail after its rules and no
+//! head isolated, and under closed as it is written (D7).
 
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
+use std::sync::LazyLock;
 
 use crate::config::{Config, Target};
 use crate::identity::{Class, Identity, Kind};
+use crate::outcome::{Policy, SwitchKey};
+
+/// The compiled-in configuration, whose input rules are the shipped rules'
+/// tail.
+static SHIPPED: LazyLock<Config> = LazyLock::new(Config::builtin);
 
 /// Where a device lands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -19,16 +32,20 @@ pub enum Place {
     /// The head at this index of [`Config::heads`].
     Head(usize),
     /// The default head, `[head console]` of the compiled-in
-    /// configuration, which the display guard lights when the file
-    /// declares no head.
+    /// configuration, which the display guard lights under open when the
+    /// file declares no head.
     DefaultHead,
-    /// An input that follows the focus.
-    Focus,
-    /// An input vtium never opens, but a keyboard watched for the rescue
-    /// key alone.
+    /// An input that roams, typing into the active head.
+    Roaming,
+    /// An input vtium never opens, but under open a keyboard watched for
+    /// the rescue key alone.
     Ignore,
     /// A display set off.
-    Dark,
+    Off,
+    /// The boot display, which the display guard lights under closed for a
+    /// notice alone: no head holds it, and no input reaches a session
+    /// through it.
+    Notice,
 }
 
 impl Place {
@@ -42,11 +59,15 @@ impl Place {
 pub enum By {
     /// The rule on this line.
     Rule(usize),
-    /// No rule matched: a display goes dark, an input follows the focus.
+    /// No rule matched: a display goes off, and an input roams under open
+    /// and is ignored under closed.
     NoMatch,
+    /// One of the shipped rules' input rules, which place what no surviving
+    /// rule of a partly broken open file places (D7).
+    Tail,
     /// The display guard lit the boot display.
     NeverDark,
-    /// The anti-lockout guard moved a keyboard to the focus.
+    /// The anti-lockout guard made a keyboard roam.
     AntiLockout,
 }
 
@@ -62,14 +83,14 @@ pub struct Placed {
 pub struct Placement {
     /// Each device's place, in the order the devices were given.
     pub placed: Vec<Placed>,
-    /// Whether the display guard lit a display.
+    /// Whether the display guard lit a display, for a head or for a notice.
     pub never_dark: bool,
-    /// Whether the anti-lockout guard acted: moved a keyboard, or the
-    /// focus.
+    /// Whether the anti-lockout guard acted: made a keyboard roam, or moved
+    /// the active head.
     pub anti_lockout: bool,
-    /// The head holding the focus once the guards have run: a
-    /// [`Place::Head`] or [`Place::DefaultHead`], or `None` with no head
-    /// to rest on.
+    /// The active head once the guards have run: a [`Place::Head`] that is
+    /// not isolated or [`Place::DefaultHead`], or `None` with no head that
+    /// can be the active head (D5).
     pub focus: Option<Place>,
 }
 
@@ -125,29 +146,98 @@ pub(crate) fn boot_display(devices: &[Identity]) -> Option<usize> {
     pick(|d| d.lit_at_start).or_else(|| pick(|_| true))
 }
 
+/// Whether `id` is a keyboard-class input, which the anti-lockout guard
+/// makes roam.
+fn keyboard_class(id: &Identity) -> bool {
+    id.kind == Kind::Input && id.classes.has(Class::Keyboard)
+}
+
+/// Whether `id` counts as a keyboard that reaches a head (D9): udev's
+/// keyboard class, less the devices marked a token or a numpad.
+fn counts(id: &Identity) -> bool {
+    id.kind == Kind::Input && id.counts_as_keyboard()
+}
+
 impl Config {
+    /// Whether the shipped rules' tail runs after the rules: for what
+    /// survives of a file with errors under open (D7).
+    fn tail(&self) -> bool {
+        self.survivors && self.policy == Policy::Open
+    }
+
+    /// Whether the head at `head` of [`Config::heads`] is isolated (D5): as
+    /// it writes `isolated`, else as the policy leaves it, `no` under open
+    /// and `yes` under closed. What survives of an open file with errors
+    /// isolates no head, so the rescue key and the active head always have
+    /// somewhere to land (D7). A head the file does not declare is not.
+    pub fn isolated(&self, head: usize) -> bool {
+        let unset = self.policy.unset(SwitchKey::Isolated);
+        !self.tail()
+            && self
+                .heads
+                .get(head)
+                .is_some_and(|h| h.isolated.unwrap_or(unset))
+    }
+
+    /// Whether a head placed at `place` can be the active head: a head the
+    /// file declares that is not isolated, or the default head of a file
+    /// that declares none, which is never isolated (D5).
+    fn can_be_active(&self, place: Place) -> bool {
+        match place {
+            Place::Head(i) => i < self.heads.len() && !self.isolated(i),
+            Place::DefaultHead => self.heads.is_empty(),
+            Place::Roaming | Place::Ignore | Place::Off | Place::Notice => false,
+        }
+    }
+
     /// Places one device by the first rule of its kind that matches it,
-    /// reading nothing but `id` and the rules. No match sends a display
-    /// dark and an input to the focus.
+    /// reading nothing but `id` and the rules. With no match a display goes
+    /// off; an input roams under open and is ignored under closed (D3),
+    /// and what survives of an open file with errors walks the shipped
+    /// rules' input rules instead, which roam the keyboard, pointer and key
+    /// classes and ignore every other input (D7).
     pub fn walk(&self, id: &Identity) -> Placed {
         let first = self
             .rules
             .iter()
             .find(|r| r.kind == id.kind && r.matcher.matches(id));
-        match first {
-            Some(rule) => Placed {
+        if let Some(rule) = first {
+            return Placed {
                 place: match rule.target {
                     Target::Head(i) => Place::Head(i),
-                    Target::Focus => Place::Focus,
+                    Target::Roaming => Place::Roaming,
                     Target::Ignore => Place::Ignore,
-                    Target::Dark => Place::Dark,
+                    Target::Off => Place::Off,
                 },
                 by: By::Rule(rule.line),
+            };
+        }
+        match id.kind {
+            Kind::Display => Placed {
+                place: Place::Off,
+                by: By::NoMatch,
             },
-            None => Placed {
-                place: match id.kind {
-                    Kind::Display => Place::Dark,
-                    Kind::Input => Place::Focus,
+            Kind::Input if self.tail() => {
+                let shipped = SHIPPED
+                    .rules
+                    .iter()
+                    .find(|r| r.kind == Kind::Input && r.matcher.matches(id));
+                Placed {
+                    // the tail names no head, and what it would not place
+                    // stays closed
+                    place: match shipped.map(|r| r.target) {
+                        Some(Target::Roaming) => Place::Roaming,
+                        Some(Target::Head(_) | Target::Ignore | Target::Off) | None => {
+                            Place::Ignore
+                        }
+                    },
+                    by: By::Tail,
+                }
+            }
+            Kind::Input => Placed {
+                place: match self.policy {
+                    Policy::Open => Place::Roaming,
+                    Policy::Closed => Place::Ignore,
                 },
                 by: By::NoMatch,
             },
@@ -156,17 +246,36 @@ impl Config {
 
     /// Places every device of a set, then runs the guards over the result,
     /// as vtium does at start and after every device added or removed
-    /// (D9): the display guard first, then the anti-lockout guard.
-    ///
-    /// `focus` is the head holding the focus, or `None` before the focus
-    /// has a head, when it starts where D5 starts it: on the head holding
-    /// the boot display, else the first head in the file with a lit
-    /// display. A device following the focus reaches a lit head only when
-    /// the focus's head is lit. When no keyboard reaches a lit head, the
-    /// anti-lockout guard sends every keyboard-class device to the focus
-    /// and moves the focus by the same rule as its start; otherwise the
-    /// focus stays where it is, lit or not.
+    /// (D9). [`Config::place_rescued`] with no keyboard the rescue key
+    /// moved.
     pub fn place(&self, devices: &[Identity], focus: Option<Place>) -> Placement {
+        self.place_rescued(devices, &[], focus)
+    }
+
+    /// Places every device of `devices`, then runs the guards over the
+    /// result: the display guard first, then the anti-lockout guard (D9).
+    /// `rescued` are the keyboards the rescue key moved, which roam
+    /// whatever the rules say and are not placed again.
+    ///
+    /// `focus` is the active head, or `None` before there is one. The
+    /// active head starts where D5 starts it: on the head holding the boot
+    /// display, else the first head in the file with a lit display, taking
+    /// only a head that can be the active head. A `focus` that cannot be
+    /// one starts again the same way. A roaming device reaches a lit head
+    /// only when the active head is lit.
+    ///
+    /// Under open, when no keyboard reaches a lit head, the anti-lockout
+    /// guard makes every keyboard-class device roam and moves the active
+    /// head by the same rule as its start, to none when no lit head can be
+    /// the active head; otherwise the active head stays where it is, lit
+    /// or not. With no keyboard present there is none to strand. Under
+    /// closed the guard is off.
+    pub fn place_rescued(
+        &self,
+        devices: &[Identity],
+        rescued: &[Identity],
+        focus: Option<Place>,
+    ) -> Placement {
         let mut placed: Vec<Placed> = devices.iter().map(|d| self.walk(d)).collect();
         let lit_heads = |placed: &[Placed]| -> BTreeSet<Place> {
             devices
@@ -177,14 +286,18 @@ impl Config {
                 .collect()
         };
         let mut never_dark = false;
-        if self.guards.never_dark && lit_heads(&placed).is_empty() {
+        if lit_heads(&placed).is_empty() {
+            // under open the first head, else the default head; under
+            // closed a notice alone, for a file with heads or one that
+            // failed, and nothing for a valid closed file with no head
+            let place = match self.policy {
+                Policy::Open if self.heads.is_empty() => Some(Place::DefaultHead),
+                Policy::Open => Some(Place::Head(0)),
+                Policy::Closed if self.heads.is_empty() && !self.survivors => None,
+                Policy::Closed => Some(Place::Notice),
+            };
             let boot = boot_display(devices).and_then(|i| placed.get_mut(i));
-            if let Some(p) = boot {
-                let place = if self.heads.is_empty() {
-                    Place::DefaultHead
-                } else {
-                    Place::Head(0)
-                };
+            if let (Some(place), Some(p)) = (place, boot) {
                 *p = Placed {
                     place,
                     by: By::NeverDark,
@@ -193,35 +306,37 @@ impl Config {
             }
         }
         let lit = lit_heads(&placed);
-        // the boot display's head, else the first lit head in the file
+        // the boot display's head, else the first lit head in the file, of
+        // the heads that can be the active head
         let start = boot_display(devices)
             .and_then(|i| placed.get(i))
             .map(|p| p.place)
-            .filter(|place| lit.contains(place))
-            .or_else(|| lit.first().copied());
-        let mut focus = focus.or(start);
+            .filter(|&place| lit.contains(&place) && self.can_be_active(place))
+            .or_else(|| lit.iter().copied().find(|&p| self.can_be_active(p)));
+        let mut focus = focus.filter(|&f| self.can_be_active(f)).or(start);
         let mut anti_lockout = false;
-        if self.guards.anti_lockout {
-            let reaches = devices.iter().zip(&placed).any(|(d, p)| {
-                d.kind == Kind::Input
-                    && d.counts_as_keyboard()
-                    && match p.place {
-                        Place::Focus => focus.is_some_and(|f| lit.contains(&f)),
-                        place => lit.contains(&place),
-                    }
-            });
-            if !reaches {
+        if self.policy.unset(SwitchKey::AntiLockout) {
+            let focus_lit = focus.is_some_and(|f| lit.contains(&f));
+            let present = devices.iter().any(keyboard_class) || rescued.iter().any(keyboard_class);
+            let reaches = rescued.iter().any(counts) && focus_lit
+                || devices.iter().zip(&placed).any(|(d, p)| {
+                    counts(d)
+                        && match p.place {
+                            Place::Roaming => focus_lit,
+                            place => lit.contains(&place),
+                        }
+                });
+            if present && !reaches {
                 for (d, p) in devices.iter().zip(placed.iter_mut()) {
-                    let keyboard = d.kind == Kind::Input && d.classes.has(Class::Keyboard);
-                    if keyboard && p.place != Place::Focus {
+                    if keyboard_class(d) && p.place != Place::Roaming {
                         *p = Placed {
-                            place: Place::Focus,
+                            place: Place::Roaming,
                             by: By::AntiLockout,
                         };
                         anti_lockout = true;
                     }
                 }
-                if start.is_some() && start != focus {
+                if start != focus {
                     focus = start;
                     anti_lockout = true;
                 }
@@ -236,28 +351,31 @@ impl Config {
     }
 
     /// Whether `Ctrl-Alt-F<n>` for the shown VT, pressed on a keyboard
-    /// placed so, moves it to the focus for the rest of the boot (D9): with
-    /// the `rescue-key` guard on, from a head whose `rescue` is on, or from
-    /// `ignore`.
+    /// placed so, makes it roam for the rest of the boot (D9): under open,
+    /// from a head that is not isolated, the default head or `ignore`.
+    /// Under closed the rescue key is off.
     pub fn rescue(&self, placed: &Placed) -> bool {
-        self.guards.rescue_key
+        self.policy.unset(SwitchKey::RescueKey)
             && match placed.place {
-                Place::Head(i) => self.heads.get(i).is_some_and(|h| h.rescue),
+                Place::Head(i) => i < self.heads.len() && !self.isolated(i),
                 Place::DefaultHead | Place::Ignore => true,
-                Place::Focus | Place::Dark => false,
+                Place::Roaming | Place::Off | Place::Notice => false,
             }
     }
 
-    /// Whether vtium opens an input placed so: an ignored keyboard-class
-    /// device is opened for the rescue key alone while that guard is on,
-    /// and every other ignored device stays closed (D9).
+    /// Whether vtium opens an input placed so: under open an ignored
+    /// keyboard-class device is opened for the rescue key alone; every
+    /// other ignored device, and under closed every ignored one, stays
+    /// closed (D9).
     pub fn disposition(&self, placed: &Placed, id: &Identity) -> Disposition {
         match placed.place {
-            Place::Ignore if self.guards.rescue_key && id.classes.has(Class::Keyboard) => {
+            Place::Ignore
+                if self.policy.unset(SwitchKey::RescueKey) && id.classes.has(Class::Keyboard) =>
+            {
                 Disposition::RescueOnly
             }
-            Place::Ignore | Place::Dark => Disposition::Closed,
-            Place::Head(_) | Place::DefaultHead | Place::Focus => Disposition::Deliver,
+            Place::Ignore | Place::Off | Place::Notice => Disposition::Closed,
+            Place::Head(_) | Place::DefaultHead | Place::Roaming => Disposition::Deliver,
         }
     }
 

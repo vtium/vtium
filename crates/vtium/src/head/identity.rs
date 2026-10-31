@@ -194,7 +194,7 @@ mod tests {
         .unwrap_or_default();
         assert_eq!(config.walk(&id).place, Place::Head(0));
         let fb = unnamed_display("fb", &Card::at(Path::new("/dev/fb0"), None, false), 0);
-        assert_eq!(config.walk(&fb).place, Place::Dark);
+        assert_eq!(config.walk(&fb).place, Place::Off);
     }
 
     #[test]

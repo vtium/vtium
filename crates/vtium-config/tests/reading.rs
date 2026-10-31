@@ -113,7 +113,11 @@ fn a_guards_section_is_dropped_with_its_lines_and_the_rest_runs() {
     );
     assert_eq!(heads(&r), ["a"]);
     assert_eq!(rule_lines(&r), [4]);
-    assert!(r.parsed.config.guards.never_dark && r.parsed.config.guards.anti_lockout);
+    assert_eq!(
+        r.parsed.config.policy,
+        vtium_config::Policy::Open,
+        "the policy alone sets the guards"
+    );
     assert_eq!(
         problems(&r),
         [(Some(5), Problem::Renamed(vtium_config::Renamed::Guards))]

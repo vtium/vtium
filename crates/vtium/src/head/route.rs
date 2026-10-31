@@ -31,7 +31,7 @@ impl Route {
     /// guarded.
     fn place(&self) -> Place {
         if self.rescued || self.guarded {
-            Place::Focus
+            Place::Roaming
         } else {
             self.place
         }
@@ -88,12 +88,13 @@ impl Routes {
         self.devices.values().any(|r| r.keyboard)
     }
 
-    /// Whether a keyboard the rescue key moved counts toward the
-    /// anti-lockout guard (D9).
-    pub(crate) fn rescued_keyboard(&self) -> bool {
+    /// The identities of the devices the rescue key moved, which roam
+    /// and count toward the anti-lockout guard (D9).
+    pub(crate) fn rescued(&self) -> impl Iterator<Item = &Identity> {
         self.devices
             .values()
-            .any(|r| r.rescued && r.identity.counts_as_keyboard())
+            .filter(|r| r.rescued)
+            .map(|r| &r.identity)
     }
 
     /// Each device [`Routes::unrescued`] gave goes to the focus where
@@ -172,7 +173,7 @@ impl Routes {
     /// ignored one reaches none.
     pub(crate) fn head(&self, node: Option<&Path>, focus: Option<usize>) -> Option<usize> {
         let place = node.and_then(|n| self.devices.get(n)).map(Route::place);
-        head_of(place.unwrap_or(Place::Focus), focus)
+        head_of(place.unwrap_or(Place::Roaming), focus)
     }
 
     /// The handles of the devices whose events go to head `h`.
@@ -215,8 +216,8 @@ fn head_of(place: Place, focus: Option<usize>) -> Option<usize> {
     match place {
         Place::Head(h) => Some(h),
         Place::DefaultHead => Some(0),
-        Place::Focus => focus,
-        Place::Ignore | Place::Dark => None,
+        Place::Roaming => focus,
+        Place::Ignore | Place::Off | Place::Notice => None,
     }
 }
 
@@ -282,7 +283,7 @@ mod tests {
             None,
             "a keyboard following the focus stays"
         );
-        assert!(!routes.rescued_keyboard());
+        assert_eq!(routes.rescued().count(), 0);
         assert!(!routes.keyboard_reaches(1, Some(0), |_| true));
         assert!(!routes.keyboard_reaches(1, Some(1), |_| false), "none open");
     }
@@ -318,7 +319,7 @@ mod tests {
         assert_eq!(back, [(a, Disposition::Deliver), (x, Disposition::Rescue)]);
         assert_eq!(routes.head(Some(Path::new("/x")), Some(0)), None);
         assert_eq!(routes.rescue(&rules, Path::new("/x")), Some(Some(x)));
-        assert!(routes.rescued_keyboard());
+        assert_eq!(routes.rescued().count(), 1);
         assert_eq!(routes.unrescued().count(), 1);
         assert_eq!(routes.guard(&rules, [false]), []);
         assert_eq!(
