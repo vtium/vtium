@@ -154,14 +154,14 @@ fn a_rules_tokens_must_all_hold() {
 }
 
 #[test]
-fn path_takes_every_interface_of_its_device_and_nothing_beside_it() {
+fn path_takes_its_devices_interfaces_and_the_devices_on_a_hub_below_it_and_nothing_beside_it() {
     let c = config("version = 1\n[head a]\n[rules]\ninput path:pci-0000:15:00.0-usb-0:3.3 -> a\n");
     for (path, want) in [
         ("pci-0000:15:00.0-usb-0:3.3", Place::Head(0)),
         ("pci-0000:15:00.0-usb-0:3.3:1.0", Place::Head(0)),
         ("pci-0000:15:00.0-usb-0:3.3:1.2", Place::Head(0)),
         ("pci-0000:15:00.0-usb-0:3.30:1.0", Place::Focus),
-        ("pci-0000:15:00.0-usb-0:3.3.1:1.0", Place::Focus),
+        ("pci-0000:15:00.0-usb-0:3.3.1:1.0", Place::Head(0)),
         ("pci-0000:15:00.0-usb-0:3", Place::Focus),
     ] {
         assert_eq!(c.walk(&at_path(keyboard(), path)).place, want, "{path}");
