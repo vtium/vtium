@@ -78,6 +78,7 @@ fn main() -> ExitCode {
     }
     log::info!(target: "log", "{}", vtium::logger::revision());
     let start = Start::new(&config, locale());
+    log::set_max_level(start.log.to_level_filter());
     let path = match start.vt.clone() {
         Some(vt) => Some(vt),
         None => match Tty::find() {

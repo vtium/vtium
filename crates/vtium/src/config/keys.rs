@@ -127,6 +127,17 @@ pub const VERSION: Key = Key {
     cite: "src/config.c:1343",
 };
 
+pub const DEBUG: Key = Key {
+    name: "debug",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Log debug messages as well, to find what went wrong. Off, vtium logs its information messages, warnings and errors.",
+    cite: "src/config.c:1346, 1515-1539",
+};
+
 pub const VT: Key = Key {
     name: "vt",
     short: None,
@@ -1214,10 +1225,11 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 90] = [
+pub const KEYS: [Key; 91] = [
     CONFIGDIR,
     HELP,
     VERSION,
+    DEBUG,
     VT,
     SWITCHVT,
     LOGIN,
