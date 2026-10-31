@@ -305,18 +305,8 @@ impl Kms for Card {
     }
 
     fn wait_vblank(&self, index: usize) -> io::Result<()> {
-        // The CRTC's index goes in the request's high bits, at most 31.
-        let high = u32::try_from(index)
-            .ok()
-            .and_then(|i| i.checked_shl(_DRM_VBLANK_HIGH_CRTC_SHIFT))
-            .filter(|&h| h & !_DRM_VBLANK_HIGH_CRTC_MASK == 0)
-            .ok_or(io::ErrorKind::InvalidInput)?;
-        drm_ffi::wait_vblank(
-            self.raw(),
-            _DRM_VBLANK_RELATIVE | _DRM_VBLANK_EVENT | high,
-            1,
-            0,
-        )?;
+        let kind = vblank_request(index).ok_or(io::ErrorKind::InvalidInput)?;
+        drm_ffi::wait_vblank(self.raw(), kind, 1, 0)?;
         Ok(())
     }
 
@@ -376,6 +366,17 @@ impl Kms for Card {
         }
         levels
     }
+}
+
+/// The request type of a `WAIT_VBLANK` that asks for an event at the next
+/// vblank of the CRTC at `index`, which goes in the type's high bits, or
+/// `None` for an index past 31, which those bits cannot hold.
+fn vblank_request(index: usize) -> Option<u32> {
+    let high = u32::try_from(index)
+        .ok()
+        .and_then(|i| i.checked_shl(_DRM_VBLANK_HIGH_CRTC_SHIFT))
+        .filter(|&h| h & !_DRM_VBLANK_HIGH_CRTC_MASK == 0)?;
+    Some(_DRM_VBLANK_RELATIVE | _DRM_VBLANK_EVENT | high)
 }
 
 /// Adds each flip completed and each vblank passed in `bytes`, what a read
@@ -496,6 +497,17 @@ mod tests {
                 CrtcEvent::Flipped(42)
             ]
         );
+    }
+
+    // drm.h: _DRM_VBLANK_RELATIVE is 0x1, _DRM_VBLANK_EVENT 0x4000000,
+    // and the CRTC's index sits in bits 1 to 5 (_DRM_VBLANK_HIGH_CRTC_MASK
+    // 0x3e).
+    #[test]
+    fn a_vblank_request_names_its_crtc_in_the_high_bits() {
+        assert_eq!(vblank_request(0), Some(0x0400_0001));
+        assert_eq!(vblank_request(1), Some(0x0400_0003));
+        assert_eq!(vblank_request(31), Some(0x0400_003f));
+        assert_eq!(vblank_request(32), None);
     }
 
     #[test]

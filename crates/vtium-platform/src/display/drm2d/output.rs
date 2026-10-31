@@ -239,7 +239,10 @@ pub(super) struct Output<M> {
     pub(super) redraw: bool,
     pub(super) flipping: bool,
     /// The flip in flight is the display's next vblank, waited for after
-    /// the card refused a commit as busy: it shows no frame.
+    /// the card refused a commit as busy: it shows no frame. It is set only
+    /// with `flipping`, and the event or the bound that ends the flip
+    /// clears both, so nothing waiting for the flips, a sleep included,
+    /// ever finds it set.
     pub(super) vblank: bool,
     /// Flips started, so the bound's timer names the flip it bounds.
     pub(super) flips: u64,

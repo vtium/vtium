@@ -126,7 +126,8 @@ pub struct Drm2d<K: Kms> {
     /// displays, and that was logged as a warning.
     dark_refused: bool,
     waiting: Option<Waiting>,
-    /// A flip's event was lost, and that was logged as a warning.
+    /// A flip's or a vblank's event was lost, and that was logged as a
+    /// warning; the next event the card delivers clears it.
     lost_flip: bool,
     /// The blank powered every display down, and no input has come since:
     /// every display online was set to a DPMS state other than on, with
@@ -458,15 +459,21 @@ impl<K: Kms> Drm2d<K> {
         };
         if let Err(e) = sent {
             if errno(&e) == Some(Errno::BUSY) {
-                // No flip of vtium's is in flight, so a commit vtium does not
-                // track holds the CRTC, and its end reaches no one. The
-                // display's next vblank stands in for it, waited for as a
-                // flip in flight is, so the owner draws again after it.
+                // Another commit holds the CRTC while vtium knows of no flip
+                // of its own in flight: a commit vtium does not track, or a
+                // flip of vtium's that the bound took as done while the
+                // kernel still had it. When the first lands, the kernel sends
+                // vtium no event. The display's next vblank stands in for
+                // that event: it is waited for as a flip in flight is, and
+                // the owner draws again after it.
                 match self.card.wait_vblank(o.pipe) {
                     Ok(()) => {
                         o.start_flip();
                         o.vblank = true;
                     }
+                    // A card with no vblank interrupt refuses the wait with
+                    // EOPNOTSUPP, and nothing then asks for the frame again
+                    // until the next draw (vtium/vtium#176).
                     Err(v) => log::debug!("cannot wait for the next vblank of {}: {v}", o.name),
                 }
                 self.settle();
@@ -833,7 +840,6 @@ impl<K: Kms> Drm2d<K> {
         self.owed = false;
         for o in &mut self.outputs {
             o.flipping = false;
-            o.vblank = false;
         }
         self.events.push(Event::Asleep);
     }
@@ -869,6 +875,10 @@ impl<K: Kms> Drm2d<K> {
     pub fn dispatch(&mut self) -> io::Result<()> {
         let mut events = Vec::new();
         let read = self.card.read_events(&mut events);
+        // The card delivers events again, so the next one lost warns.
+        if !events.is_empty() {
+            self.lost_flip = false;
+        }
         for e in events {
             match e {
                 CrtcEvent::Flipped(crtc) => self.flipped(crtc, true),
@@ -897,7 +907,7 @@ impl<K: Kms> Drm2d<K> {
                     self.events.push(Event::Flipped(o.id));
                 }
             }
-            None => log::debug!("a page flip on CRTC {crtc}, which drives no display"),
+            None => log::debug!("an event for CRTC {crtc}, which drives no display"),
         }
     }
 

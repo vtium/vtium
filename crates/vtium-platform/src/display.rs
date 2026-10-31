@@ -179,13 +179,14 @@ pub enum Swapped {
 #[derive(Debug)]
 pub enum SwapError {
     /// A flip is in flight, or a modeset or a sleep waits for one. Or the
-    /// card refused the commit as busy while no flip of vtium's was in
-    /// flight, as while a commit vtium does not track holds the CRTC: the
-    /// display then waits for its next vblank as for a flip in flight, so
-    /// [`Drm2d::is_flipping`] holds until the vblank's event, which wakes
-    /// the loop, and no [`Event::Flipped`] follows. Where the card will not
-    /// wait for the vblank either, the display has nothing to wait for and
-    /// the frame goes with the next swap the owner tries.
+    /// card refused the commit as busy while vtium knew of no flip of its
+    /// own in flight, as while a commit vtium does not track holds the
+    /// CRTC: the display then waits for its next vblank as for a flip in
+    /// flight, so [`Drm2d::is_flipping`] holds until the vblank's event,
+    /// which wakes the loop, and no [`Event::Flipped`] follows. A card with
+    /// no vblank interrupt refuses that wait, and there the frame goes with
+    /// the next swap the owner tries, which nothing asks for until the next
+    /// draw (vtium/vtium#176).
     Busy,
     /// The display is not on: offline, asleep, or powered down.
     Off,
