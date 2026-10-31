@@ -381,13 +381,13 @@ class ImplementationTest(unittest.TestCase):
         self.assertRegex(impl["tree_sha256"], r"^[0-9a-f]{64}$")
         self.assertEqual(t3_impl.describe(impl), {
             "tree": t3_common.rel(self.tree), "tree_sha256": impl["tree_sha256"],
-            "binary_bytes": 8, "installed_bytes": 21,
+            "features": [], "binary_bytes": 8, "installed_bytes": 21,
             "budget": {"binary_bytes": t3_impl.BINARY_BUDGET, "met": True}})
 
     def test_budget(self):
-        # The operator's budget is the binary's bytes, 3.5 MiB (ADR-1200 D19):
-        # at it the run passes, one byte past it fails. The rest of the tree
-        # does not count.
+        # The operator's budget is the minspec binary's bytes, 3.5 MiB
+        # (ADR-1200 D19): at it the run passes, one byte past it fails. The
+        # rest of the tree does not count.
         budget = t3_impl.BINARY_BUDGET
         self.assertEqual(budget, 3670016)
         impl = t3_impl.tree(self.tree, self.tar)
@@ -396,6 +396,50 @@ class ImplementationTest(unittest.TestCase):
             self.assertEqual(t3_impl.within_budget(impl), met, size)
             self.assertEqual(t3_impl.describe(impl)["budget"],
                              {"binary_bytes": budget, "met": met})
+        # A tree whose console is built with features is no minspec tree:
+        # the budget does not judge it, however large its binary.
+        impl = t3_impl.tree(self.tree, self.tar, features=["logind", "images"])
+        impl["binary_bytes"] = budget + 1
+        self.assertFalse(t3_impl.judged_by_budget(impl))
+        self.assertTrue(t3_impl.within_budget(impl))
+        self.assertEqual((t3_impl.describe(impl)["features"], t3_impl.describe(impl)["budget"]),
+                         (["images", "logind"], None))
+
+    def test_install_tree_features(self):
+        # make install-tree builds the console with the features its command
+        # line names, and with none from a FEATURES exported in the shell. An
+        # enclosing make's command line, which reaches these through
+        # MAKEFLAGS, is kept out.
+        bare = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS")}
+
+        def rustc(argv, env):
+            r = subprocess.run(["make", "-n", "--no-print-directory", "install-tree",
+                                "DESTDIR=/D"] + argv, cwd=t3_common.ROOT, capture_output=True,
+                               text=True, check=True, env=dict(bare, **env))
+            return [l for l in r.stdout.splitlines() if "cargo rustc" in l]
+
+        for argv, env, want in ((["FEATURES=images logind"], {}, " --features 'images logind' "),
+                                (["FEATURES=images"], {}, " --features 'images' ")):
+            with self.subTest(argv):
+                lines = rustc(argv, env)
+                self.assertEqual(len(lines), 1)
+                self.assertIn(want, lines[0])
+        for argv, env in (([], {}), ([], {"FEATURES": "images"}), (["FEATURES="], {})):
+            with self.subTest(argv=argv, env=env):
+                lines = rustc(argv, env)
+                self.assertEqual(len(lines), 1)
+                self.assertNotIn("--features", lines[0])
+        # the tier 3 targets hand the same list to t3.py, which builds the
+        # tree with it and judges the budget by it
+        for goal in ("tier3-run", "tier3", "tier3-minimal", "tier3-nosystemd"):
+            with self.subTest(goal):
+                r = subprocess.run(["make", "-n", "--no-print-directory", goal,
+                                    "FEATURES=images"], cwd=t3_common.ROOT,
+                                   capture_output=True, text=True, check=True, env=bare)
+                lines = r.stdout.replace("\\\n", " ").splitlines()
+                runs = [l for l in lines if "/t3.py run " in l]
+                self.assertEqual(len(runs), 1)
+                self.assertRegex(runs[0], r" --features 'images'( |$)")
 
     def test_refused(self):
         # No tree, a file in its place, or a tree without the binary or the
@@ -661,6 +705,11 @@ class ImplementationTest(unittest.TestCase):
         self.assertTrue(t3.summary(impl, {}).startswith(
             "tree %s: binary 2368120 B, within the budget of %d B; "
             % (t3_common.rel(self.tree), budget)))
+        impl = t3_impl.tree(self.tree, self.tar, features=["images"])
+        impl["binary_bytes"] = budget + 1
+        self.assertTrue(t3.summary(impl, {}).startswith(
+            "tree %s: built with images: binary %d B, which the budget, the minspec tree's "
+            "alone, does not judge; " % (t3_common.rel(self.tree), budget + 1)))
 
     def test_vtium_process(self):
         # vtium's process logs as vtium[pid]; its render-timer and startup
@@ -705,9 +754,13 @@ class ImplementationTest(unittest.TestCase):
         # one, so the two are refused together, before run is called.
         with mock.patch.object(t3, "run", side_effect=lambda args, log: args) as run:
             args = t3.main(["run", "--tree", "a", "2d-potato-min"])
-        self.assertEqual((args.tree, args.tree_target, args.variants),
-                         ("a", None, ["2d-potato-min"]))
+        self.assertEqual((args.tree, args.tree_target, args.features, args.variants),
+                         ("a", None, "", ["2d-potato-min"]))
         self.assertTrue(run.called)
+        # --features names them as cargo takes them, by commas or spaces
+        for text, want in (("", []), ("images", ["images"]), ("logind,images", ["images", "logind"]),
+                           (" images  logind images ", ["images", "logind"])):
+            self.assertEqual(t3.feature_list(text), want, text)
         for argv, why in ((["--tree", "a", "--tree-target", "install-tree"],
                            "--tree names a tree built already"),
                           (["2d-potato-min", "2d-potato-min"], "a variant is named twice"),
@@ -732,13 +785,20 @@ class ImplementationTest(unittest.TestCase):
             return subprocess.CompletedProcess(args, 0)
 
         with mock.patch.object(t3.subprocess, "run", side_effect=make):
-            t3.build_tree("install-tree", tree, lambda msg: None)
+            t3.build_tree("install-tree", tree, [], lambda msg: None)
+            write_tree(tree, {"stale": "from an earlier build"})
+            t3.build_tree("install-tree", tree, ["images", "logind"], lambda msg: None)
+        # FEATURES is always given, empty for the minspec tree, so make's
+        # own command line never adds features to it.
         self.assertEqual(seen, [(["make", "--no-print-directory", "install-tree",
-                                  "DESTDIR=" + tree], t3_common.ROOT, False)])
+                                  "DESTDIR=" + tree, "FEATURES="], t3_common.ROOT, False),
+                                (["make", "--no-print-directory", "install-tree",
+                                  "DESTDIR=" + tree, "FEATURES=images logind"], t3_common.ROOT,
+                                 False)])
         with mock.patch.object(t3.subprocess, "run",
                                return_value=subprocess.CompletedProcess([], 2)):
             with self.assertRaisesRegex(SystemExit, "make install-tree failed with exit code 2"):
-                t3.build_tree("install-tree", tree, lambda msg: None)
+                t3.build_tree("install-tree", tree, [], lambda msg: None)
 
 
 class ProvenanceTest(unittest.TestCase):
@@ -850,7 +910,7 @@ class ProvenanceTest(unittest.TestCase):
         # tree is built.
         rows = self.planted()
         write_tree(self.root, {"c/2d-potato-min/sgr.png": "moved"})
-        args = argparse.Namespace(variants=["2d-potato-min"], tree=None,
+        args = argparse.Namespace(variants=["2d-potato-min"], tree=None, features="",
                                   tree_target="install-tree", jobs=1, deadline=1)
         base = os.path.join(self.root, "base.qcow2")
         write_tree(self.root, {"base.qcow2": ""})

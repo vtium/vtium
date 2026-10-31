@@ -25,6 +25,9 @@ worker process.
     t3.py run --tree-target TARGET        build the tree first, with make TARGET
                                           DESTDIR=target/tier3/install, under the run lock
     t3.py run --tree DIR                  install the tree at DIR, built already
+    t3.py run --features LIST             the vtium features the tree's console is built
+                                          with, or was built with for --tree; the size
+                                          budget judges a tree built without any
     t3.py provenance --kmscon DIR         check each row of provenance.tsv against its
                                           source in the kmscon checkout DIR, read with
                                           git; a review step, never a gate
@@ -206,9 +209,10 @@ def run(args, log):
         if errors:
             raise SystemExit("\n".join(errors))
         tree = args.tree or TREE
+        features = feature_list(args.features)
         if args.tree_target:
-            build_tree(args.tree_target, tree, log)
-        impl = t3_impl.tree(tree)
+            build_tree(args.tree_target, tree, features, log)
+        impl = t3_impl.tree(tree, features=features)
         impl["features"] = build_features(variants, log)
         impl["fonts"] = build_fonts(variants, log)
         log("tree: %s, binary %d B, %s installed"
@@ -229,12 +233,22 @@ def run(args, log):
     return 0 if passed and t3_impl.within_budget(impl) else 1
 
 
-def build_tree(target, tree, log):
-    """Stage the tree afresh with make `target` DESTDIR=`tree`, so nothing an
-    earlier build left in it is installed."""
-    log("building the tree: make %s DESTDIR=%s" % (target, rel(tree)))
+def feature_list(text):
+    """The features `text` names, separated by commas or spaces as cargo
+    takes them, sorted and each once."""
+    return sorted(set(text.replace(",", " ").split()))
+
+
+def build_tree(target, tree, features, log):
+    """Stage the tree afresh with make `target` DESTDIR=`tree`
+    FEATURES=`features`, so nothing an earlier build left in it is
+    installed. FEATURES is always given, so the tree is built with these
+    features alone, whatever make's own command line named."""
+    log("building the tree: make %s DESTDIR=%s FEATURES=%s"
+        % (target, rel(tree), " ".join(features)))
     shutil.rmtree(tree, ignore_errors=True)
-    r = subprocess.run(["make", "--no-print-directory", target, "DESTDIR=" + tree], cwd=ROOT)
+    r = subprocess.run(["make", "--no-print-directory", target, "DESTDIR=" + tree,
+                        "FEATURES=" + " ".join(features)], cwd=ROOT)
     if r.returncode:
         raise SystemExit("make %s failed with exit code %d" % (target, r.returncode))
 
@@ -291,11 +305,15 @@ def summary(impl, metas):
         return t3_impl.mib(None if n is None else n * 1024)
 
     over = impl["binary_bytes"] - t3_impl.BINARY_BUDGET
-    lines = ["tree %s: binary %d B, %s the budget of %d B%s; %s installed; the console "
-             "logged %s"
-             % (rel(impl["path"]), impl["binary_bytes"],
-                "within" if over <= 0 else "over", t3_impl.BINARY_BUDGET,
-                " by %d B" % over if over > 0 else "", t3_impl.mib(impl["installed_bytes"]),
+    if t3_impl.judged_by_budget(impl):
+        size = "binary %d B, %s the budget of %d B%s" % (
+            impl["binary_bytes"], "within" if over <= 0 else "over", t3_impl.BINARY_BUDGET,
+            " by %d B" % over if over > 0 else "")
+    else:
+        size = ("built with %s: binary %d B, which the budget, the minspec tree's alone, "
+                "does not judge" % (" ".join(impl["tree_features"]), impl["binary_bytes"]))
+    lines = ["tree %s: %s; %s installed; the console logged %s"
+             % (rel(impl["path"]), size, t3_impl.mib(impl["installed_bytes"]),
                 ", ".join(t3_scenario.consoles(metas)) or "no Revision line")]
     for v, meta in metas.items():
         r = meta["resident"]
@@ -357,6 +375,10 @@ def main(argv=None):
                         "first, into %s" % rel(TREE))
     r.add_argument("--tree", metavar="DIR",
                    help="the install tree to run, built already (default %s)" % rel(TREE))
+    r.add_argument("--features", default="", metavar="LIST",
+                   help="the vtium features the tree's console is built with, or was built "
+                        "with for --tree, separated by commas or spaces (default none, the "
+                        "minspec tree, which alone the size budget judges)")
     r.add_argument("variants", nargs="*", help="any of: " + ", ".join(t3_scenario.VARIANTS))
     args = ap.parse_args(argv)
     unknown = set(getattr(args, "variants", [])) - set(t3_scenario.VARIANTS)
