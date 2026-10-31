@@ -71,6 +71,7 @@ pub mod syntax {
     pub const KEEP: &str = "keep";
     pub const RESCUE: &str = "rescue";
     pub const ISOLATED_YES: &str = "isolated = yes";
+    pub const PROFILE: &str = "profile";
     pub const ID: &str = "id";
     pub const NAME: &str = "name";
     /// The characters a name takes beyond letters and digits.
@@ -200,6 +201,11 @@ impl fmt::Display for Problem {
                 f,
                 "This section takes no key named {k}. Check the key's spelling, or remove the line."
             ),
+            // the top-level keys sit above every section
+            Problem::DuplicateKey(k) if *k == VERSION || *k == POLICY => write!(
+                f,
+                "`{k}` is already set above the first section. Keep one of the two lines."
+            ),
             Problem::DuplicateKey(k) => write!(
                 f,
                 "`{k}` is already set in this section. Keep one of the two lines."
@@ -326,7 +332,7 @@ impl fmt::Display for Problem {
             Problem::Renamed(renamed) => write!(f, "{renamed}"),
             Problem::PolicyInSection => write!(
                 f,
-                "`{policy}` belongs above the first section, beside `{version}`. Move this line there.",
+                "vtium reads `{policy}` only above the first section, so this line counts as no policy, which is open. Move it above the first section, beside `{version}`.",
                 policy = POLICY,
                 version = VERSION,
             ),
@@ -394,6 +400,11 @@ impl fmt::Display for Renamed {
                 "The key `{rescue}` is gone: `{isolated}` now keeps the rescue key away from this head's keyboards, and also keeps them from switching the VT. Write that instead, or remove the line.",
                 rescue = RESCUE,
                 isolated = ISOLATED_YES,
+            ),
+            Renamed::HeadFont(key) => write!(
+                f,
+                "A head has no `{key}` of its own: its `{profile}` sets its font. Set the font in the head's profile, or remove the line.",
+                profile = PROFILE,
             ),
             Renamed::Guards => write!(
                 f,

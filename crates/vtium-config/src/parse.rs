@@ -560,6 +560,8 @@ impl Parser {
             let problem = match key {
                 "on-loss" => Problem::Renamed(Renamed::OnLoss),
                 "rescue" => Problem::Renamed(Renamed::Rescue),
+                "font-name" => Problem::Renamed(Renamed::HeadFont("font-name")),
+                "font-size" => Problem::Renamed(Renamed::HeadFont("font-size")),
                 _ => Problem::UnknownKey(Quoted::new(key)),
             };
             self.error(Some(n), problem, Within::Head);

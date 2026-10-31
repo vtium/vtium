@@ -107,6 +107,9 @@ pub enum Renamed {
     Nohup,
     /// The head key `rescue`, which `isolated` replaced.
     Rescue,
+    /// A head's own `font-name` or `font-size`, which its `profile`
+    /// replaced.
+    HeadFont(&'static str),
     /// The `[guards]` section, which the policy replaced.
     Guards,
 }

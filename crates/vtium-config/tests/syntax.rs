@@ -177,16 +177,21 @@ fn the_first_cuts_names_are_errors_that_name_the_new_word() {
         let shown = first_error(&format!("version = 1\n{lines}"));
         assert!(shown.contains(word), "{lines:?}: {shown}");
     }
-    // a head takes its font from its profile alone
+    // a head takes its font from its profile alone, and the error says so
     for key in ["font-name = t", "font-size = 12"] {
-        assert!(
-            matches!(
-                parse(&format!("version = 1\n[head a]\n{key}\n"))
-                    .map_err(|r| r.errors[0].problem.clone()),
-                Err(Problem::UnknownKey(_))
-            ),
-            "{key}"
-        );
+        let shown = first_error(&format!("version = 1\n[head a]\n{key}\n"));
+        assert!(shown.contains("`profile`"), "{key}: {shown}");
+    }
+    // a misplaced policy line says what it means for the file
+    let shown = first_error("version = 1\npolicy = closed\n[head a]\npolicy = closed\n");
+    assert!(
+        shown.contains("counts as no policy, which is open"),
+        "{shown}"
+    );
+    // a top-level key given twice is named as one above the first section
+    for key in ["version = 1", "policy = open\npolicy = open"] {
+        let shown = first_error(&format!("version = 1\n{key}\n"));
+        assert!(shown.contains("above the first section"), "{key}: {shown}");
     }
 }
 
