@@ -182,16 +182,19 @@ mod tests {
     fn debug_logs_debug_messages_set_in_a_file_or_on_the_command_line() {
         assert_eq!(start(&["--debug"]).log, log::Level::Debug);
         assert_eq!(start(&["--no-debug"]).log, log::Level::Info);
-        let from = |args: &[&str]| {
+        // `debug` in the file at `file`, the main one or seat0's.
+        let from = |file: &str, args: &[&str]| {
             let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-            let loaded = load(&args, None, &mut |p: &Path| {
-                Ok((p == Path::new("/etc/kmscon/kmscon.conf")).then(|| b"debug\n".to_vec()))
+            let loaded = load(&args, Some("seat0"), &mut |p: &Path| {
+                Ok((p == Path::new(file)).then(|| b"debug\n".to_vec()))
             });
             assert_eq!(loaded.reports, []);
             Start::new(&loaded.config, "C".to_owned()).log
         };
-        assert_eq!(from(&[]), log::Level::Debug);
-        assert_eq!(from(&["--no-debug"]), log::Level::Info);
+        for file in ["/etc/kmscon/kmscon.conf", "/etc/kmscon/seat0.seat.conf"] {
+            assert_eq!(from(file, &[]), log::Level::Debug, "{file}");
+            assert_eq!(from(file, &["--no-debug"]), log::Level::Info, "{file}");
+        }
     }
 
     #[test]

@@ -126,7 +126,8 @@ FORBIDDEN = "#!/bin/bash\n" + RECORD + "exit 1\n"
 
 # The stand-in vtium: records its arguments, prints $BIN_LOG, then as
 # $BIN_MODE says: exit (with $BIN_STATUS), wait (until a signal, recording
-# it), or session (runs the argv after --, with $BIN_STDIN as its input, as
+# it), linger (exits, leaving a sleep of $BIN_LINGER seconds that holds its
+# output open, as a process vtium started might), or session (runs the argv after --, with $BIN_STDIN as its input, as
 # vtium runs its first head's first console: VTIUM_HEAD=console and
 # VTIUM_CONSOLE=1 in its environment, and a word that is $VTIUM_HEAD or
 # $VTIUM_CONSOLE replaced by its value).
@@ -144,6 +145,9 @@ exit) exit "${BIN_STATUS:-0}" ;;
 wait)
 	trap 'echo TERM >>"$BIN_SIGNALS"; exit 0' TERM
 	while :; do sleep 0.05; done ;;
+linger)
+	sleep "${BIN_LINGER:-20}" &
+	exit 0 ;;
 session)
 	while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done
 	shift
@@ -159,6 +163,26 @@ session)
 	exec "${argv[@]}" <"$BIN_STDIN" ;;
 esac
 """
+
+
+# The lines of vtium's log at which run-vt.sh --debug copies the DRM state:
+# the source file that logs each, its format string there, word for word,
+# the values a log fills it with, and what the line says of a display.
+DISPLAY_LINES = (
+    ("crates/vtium-platform/src/display/drm2d.rs", "display {name} at {}x{}", ("HDMI-A-2", "800", "480"), "came"),
+    ("crates/vtium-platform/src/display/drm2d.rs", "display {} is gone", ("HDMI-A-2",), "went"),
+    ("crates/vtium/src/app.rs", "a display{of} came: the session is drawn again at {cols}x{rows}",
+     (" of head panel", "100", "30"), "came"),
+    ("crates/vtium-platform/src/display/drm2d.rs", "display {}, left dark, is gone", ("DP-8",), "went"),
+    ("crates/vtium/src/app.rs", "a display{of} came: the session is drawn again at {cols}x{rows}",
+     ("", "100", "30"), "came"),
+)
+
+
+def logged(fmt, values):
+    """The line `fmt` logs with `values`, each placeholder filled in turn."""
+    parts = fmt.replace("}", "{").split("{")
+    return "".join(parts[i] if i % 2 == 0 else values[i // 2] for i in range(len(parts)))
 
 
 def write(path, text, mode=0o755):
@@ -654,15 +678,16 @@ class RunVt(Case):
         dri = self.s.cards()
         drm = os.path.join(self.s.tmp, "drm")
         os.mkdir(drm, 0o700)
-        lines = ["display HDMI-A-2 at 800x480", "preparing the modeset of HDMI-A-2 at 800x480",
-                 "display HDMI-A-2 is gone",
-                 "the last display of head panel is gone: the session runs on at 100x30 until the next comes",
-                 "a display of head panel came: the session is drawn again at 100x30",
-                 "display DP-8, left dark, is gone", "not a display HDMI-A-2 is gone", "display HDMI-A-2 at 800x480 again"]
+        changes = [logged(fmt, values) for _, fmt, values, _ in DISPLAY_LINES]
+        others = ["preparing the modeset of HDMI-A-2 at 800x480",
+                  "the last display of head panel is gone: the session runs on at 100x30 until the next comes",
+                  "not a display HDMI-A-2 is gone", "display HDMI-A-2 at 800x480 again"]
+        lines = [changes[0], others[0], changes[1], others[1], *changes[2:], *others[2:]]
         p = self.run_vt(f"--debug={drm}", "8", BIN_LOG="".join(l + "\\n" for l in lines))
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("--debug", read(self.s.bin_args).splitlines())
-        names = [f"{n}-{c}.state" for n in ("001-came", "002-went", "003-came", "004-went", "end") for c in "01"]
+        copies = [f"{n:03d}-{what}" for n, (*_, what) in enumerate(DISPLAY_LINES, 1)]
+        names = [f"{n}-{c}.state" for n in (*copies, "end") for c in "01"]
         self.assertEqual(sorted(os.listdir(drm)), names)
         for name in names:
             with self.subTest(name=name):
@@ -672,8 +697,7 @@ class RunVt(Case):
         # line that made it.
         out = p.stdout.splitlines()
         self.assertEqual([l for l in out if l in lines], lines)
-        for line, copy in ((lines[0], "001-came"), (lines[2], "002-went"), (lines[4], "003-came"),
-                           (lines[5], "004-went")):
+        for line, copy in zip(changes, copies):
             self.assertEqual(out[out.index(line) + 1],
                              f"run-vt: the DRM state, in {drm}: {copy}-0.state {copy}-1.state")
         # vtium's output ends with vtium, so the copy at the end waits for its
@@ -683,6 +707,48 @@ class RunVt(Case):
         calls = read(self.s.calls).splitlines()
         end = max(i for i, c in enumerate(calls) if c.startswith("setpriv ") and "end-1.state" in c)
         self.assertLess(end, calls.index("systemctl start kmsconvt@tty8.service"))
+
+    def test_the_watched_lines_are_the_ones_vtium_logs(self):
+        # A line reworded in the code would never make a copy again.
+        for path, fmt, _, _ in DISPLAY_LINES:
+            with self.subTest(fmt=fmt):
+                self.assertIn(f'"{fmt}"', read(os.path.join(ROOT, path)))
+
+    def test_debug_stops_the_watcher_when_something_holds_vtiums_output(self):
+        self.s.cards()
+        drm = os.path.join(self.s.tmp, "drm")
+        os.mkdir(drm, 0o700)
+        proc = subprocess.Popen(["bash", RUN_VT, f"--bin={self.s.bin}", f"--debug={drm}", "8"],
+                                env=self.s.env(BIN_MODE="linger", BIN_LOG="display HDMI-A-2 is gone\\n"),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=self.s.tmp,
+                                start_new_session=True)
+        try:
+            # The output closes after the 5 s grace, long before the sleep
+            # ends.
+            out, err = proc.communicate(timeout=15)
+            self.assertEqual(proc.returncode, 0, out + err)
+            self.assertIn("run-vt: something vtium started still holds its log open", out)
+            self.assertEqual(sorted(os.listdir(drm)), ["001-went-0.state", "001-went-1.state",
+                                                       "end-0.state", "end-1.state"])
+            self.assertEqual(self.s.changes(), ["stop kmsconvt@tty8.service", "start kmsconvt@tty8.service"])
+            # Of the run's processes, only the stand-in's sleep is left.
+            left = []
+            for pid in filter(str.isdigit, os.listdir("/proc")):
+                try:
+                    with open(f"/proc/{pid}/stat") as f:
+                        text = f.read()
+                except OSError:
+                    continue
+                if int(text[text.rindex(")") + 2:].split()[3]) == proc.pid:
+                    left.append(text[text.index("(") + 1:text.rindex(")")])
+            self.assertEqual(left, ["sleep"])
+        finally:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.kill()
+            proc.communicate()
 
     def test_debug_copies_the_state_at_the_end_of_an_interrupted_run(self):
         self.s.cards()

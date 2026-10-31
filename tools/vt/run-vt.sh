@@ -386,11 +386,16 @@ done
 
 child=
 watcher=
+fifo_dir=
 # Whether vtium still runs, asked of this shell's job table rather than of its
 # PID: once bash has reaped it, the PID may be another process's. grep reads
 # all of jobs' output, so pipefail sees no SIGPIPE.
 running() {
 	[ -n "$child" ] && jobs -rp | grep -x -- "$child" >/dev/null
+}
+# Whether watch_log still runs, asked the same way.
+watching() {
+	[ -n "$watcher" ] && jobs -rp | grep -x -- "$watcher" >/dev/null
 }
 # shellcheck disable=SC2317,SC2329 # invoked by the EXIT trap
 # A second signal, or a closed terminal or pipe, must not cut it short before
@@ -415,20 +420,22 @@ restore() {
 	fi
 	# Under --debug, vtium's last lines reach the log before the state at the
 	# end is copied, and the console unit starts after it. Something vtium
-	# started may still hold its output open; the copy waits 5 s for it.
+	# started may still hold its output open: after 5 s watch_log is stopped,
+	# so no root process outlives the run and the output closes.
 	if [ -n "$watcher" ]; then
 		exec 8>&-
 		for _ in $(seq 50); do
-			kill -0 "$watcher" 2>/dev/null || break
+			watching || break
 			sleep 0.1
 		done
-		if kill -0 "$watcher" 2>/dev/null; then
-			echo "run-vt: something vtium started still holds its log open; the DRM state at the end is copied now"
-		else
-			wait "$watcher" 2>/dev/null
+		if watching; then
+			echo "run-vt: something vtium started still holds its log open; its log ends here, and the DRM state at the end is copied now"
+			kill -KILL "$watcher" 2>/dev/null || true
 		fi
+		wait "$watcher" 2>/dev/null || true
 		capture end
 	fi
+	[ -z "$fifo_dir" ] || rm -rf -- "$fifo_dir"
 	if [ ${#active[@]} -gt 0 ] && ! act "$systemctl" start "${active[@]}"; then
 		echo "run-vt: restarting ${active[*]} failed; restore it with: sudo systemctl start ${active[*]}" >&2
 		exit 1
@@ -528,10 +535,16 @@ cmd=("$bin" --vt="tty$vt" --no-switchvt --configdir "$here/config" "${once[@]}" 
 show "${cmd[@]}"
 [ -z "$dry" ] || exit 0
 # Under --debug, vtium's output goes through watch_log, which closes the lock
-# too.
+# too. It reads a FIFO in a directory of root's alone, gone once both ends are
+# open, and runs as a job, so restore() asks the job table whether it runs.
 if [ -n "$debug" ]; then
-	exec 8> >(exec 9>&-; watch_log)
+	fifo_dir=$(mktemp -d) || die "cannot create a directory for vtium's log"
+	mkfifo -m 0600 -- "$fifo_dir/log" || die "cannot create a FIFO for vtium's log"
+	{ exec 9>&-; watch_log; } <"$fifo_dir/log" &
 	watcher=$!
+	exec 8>"$fifo_dir/log"
+	rm -rf -- "$fifo_dir"
+	fifo_dir=
 fi
 # A signal in the moment between starting vtium and setting child finds child
 # still empty, so restore() starts the units again without stopping vtium. The
