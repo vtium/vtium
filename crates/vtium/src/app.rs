@@ -648,7 +648,7 @@ impl App {
         } else {
             Erase::Backspace
         };
-        let Some(size) = self.heads.get(h).map(Head::pty_size) else {
+        let Some(size) = self.heads.get(h).and_then(|head| head.console_pty_size(id)) else {
             return;
         };
         let mut pty = match Pty::spawn(command, size, erase) {

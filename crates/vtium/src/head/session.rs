@@ -264,12 +264,18 @@ impl Head {
             term.unparsed = false;
         } else {
             console.ended = true;
-            log::warn!("head {}: console {id}: {}", self.name(), self.ended_notice);
+            log::warn!(
+                "head {}: console {id}: its program ended under oneshot, and it does not start again",
+                self.name()
+            );
         }
         // The shown console is drawn at once, a hidden one when it is shown.
         if self.console.id == id {
             self.draw_now = true;
         }
+        // The shown console's notice names the console chord while another
+        // console runs.
+        self.compose_notices();
         after
     }
 }

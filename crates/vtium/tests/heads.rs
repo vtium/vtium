@@ -1632,17 +1632,20 @@ fn under_respawn_a_hidden_consoles_program_starts_again_in_its_place() {
 
 /// D1, pending the operator's read (ADR-1401's item 1): under `oneshot` a
 /// console whose program exits ends and keeps its place. The head shows
-/// that the shown console's session ended, its other console still runs
-/// and is shown by the chord with no notice, and the head ends only when
-/// that one has ended too. vtium runs on while large runs.
+/// that the shown console's session ended, naming the console chord while
+/// its other console still runs; that one is shown by the chord with no
+/// notice, and the head ends only when it has ended too, when the notice
+/// names the roaming chord. vtium runs on while large runs.
 // covers: platform.heads
 #[test]
 fn under_oneshot_a_console_whose_program_exits_ends_in_its_place() {
     let mut s = claimed_on(&["--oneshot"], &claimed_consoles(2));
     s.type_on(KBD_SMALL, "q\r");
     assert!(
-        s.until(SECOND, |a| notice(a, "small").as_deref() == Some(ENDED)),
-        "the shown console's session ended"
+        s.until(SECOND, |a| notice(a, "small").as_deref()
+            == Some(ENDED_CONSOLE)),
+        "the shown console's session ended: {:?}",
+        notice(&s.app, "small")
     );
     assert_eq!(consoles(&s.app, "small"), Some((2, 0)), "in its place");
     s.app
@@ -1656,7 +1659,7 @@ fn under_oneshot_a_console_whose_program_exits_ends_in_its_place() {
         .device_input(Path::new(KBD_SMALL), ctrl_super(LEFT), now());
     assert_eq!(
         notice(&s.app, "small").as_deref(),
-        Some(ENDED),
+        Some(ENDED_CONSOLE),
         "still ended"
     );
     s.app
@@ -1664,6 +1667,13 @@ fn under_oneshot_a_console_whose_program_exits_ends_in_its_place() {
     s.type_on(KBD_SMALL, "q\r");
     assert!(s.until(SECOND, |a| notice(a, "small").as_deref() == Some(ENDED)));
     assert_eq!(consoles(&s.app, "small"), Some((2, 1)));
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(LEFT), now());
+    assert_eq!(
+        notice(&s.app, "small").as_deref(),
+        Some(ENDED),
+        "no console of small runs"
+    );
     s.until(Duration::from_millis(200), |_| false);
     assert_eq!(s.app.finished(), None, "large runs on");
     s.type_on(KBD_LARGE, "q\r");
@@ -1671,6 +1681,94 @@ fn under_oneshot_a_console_whose_program_exits_ends_in_its_place() {
         s.until(SECOND, |a| a.finished() == Some(vtium::app::Exit::Oneshot)),
         "every head ended"
     );
+}
+
+/// D1: a head ends only once every one of its consoles has. Under
+/// `oneshot`, with large ended first and then one of small's two
+/// consoles, vtium runs on while small's other console runs, and exits
+/// once that one ends too.
+// covers: platform.heads
+#[test]
+fn under_oneshot_vtium_runs_on_while_any_console_of_any_head_runs() {
+    let mut s = claimed_on(&["--oneshot"], &claimed_consoles(2));
+    s.type_on(KBD_LARGE, "q\r");
+    assert!(s.until(SECOND, |a| notice(a, "large").as_deref() == Some(ENDED)));
+    s.type_on(KBD_SMALL, "q\r");
+    assert!(s.until(SECOND, |a| notice(a, "small").is_some()));
+    s.until(Duration::from_millis(200), |_| false);
+    assert_eq!(s.app.finished(), None, "small's second console runs");
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RIGHT), now());
+    s.type_on(KBD_SMALL, "q\r");
+    assert!(
+        s.until(SECOND, |a| a.finished() == Some(vtium::app::Exit::Oneshot)),
+        "every console of every head ended"
+    );
+}
+
+/// D1: keys typed at a shown console whose session ended under `oneshot`
+/// reach no session: the console stays ended in its place, its notice
+/// stays, and nothing starts or ends.
+#[test]
+fn keys_at_an_ended_console_start_nothing() {
+    let mut s = claimed_with(&["--oneshot"]);
+    s.type_on(KBD_SMALL, "q\r");
+    assert!(s.until(SECOND, |a| notice(a, "small").as_deref() == Some(ENDED)));
+    s.type_on(KBD_SMALL, "x\r");
+    s.until(Duration::from_millis(200), |_| false);
+    assert_eq!(consoles(&s.app, "small"), Some((1, 0)));
+    assert_eq!(notice(&s.app, "small").as_deref(), Some(ENDED));
+    assert!(!head_shows(&s.app, "small", "got:x"));
+    assert_eq!(s.app.finished(), None, "large runs on");
+}
+
+/// D1 and D5: a hidden console's program starts again at that console's
+/// own size. Console 2, zoomed to 20 by 5, is hidden behind console 1 when
+/// its program exits, and the program started again reads 5 rows of 20.
+// covers: platform.heads
+#[test]
+fn a_hidden_console_starts_again_at_its_own_size() {
+    let dir = std::env::temp_dir().join(format!("vtium-heads-own-size-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the marks' directory");
+    let script = format!(
+        "d={d}; echo \"size:$(stty size)\"; \
+         if [ $VTIUM_CONSOLE = 2 ] && [ ! -e $d/done ]; then \
+         while [ ! -e $d/go ]; do sleep 0.02; done; : > $d/done; exit 0; fi; \
+         while read a; do echo \"got:$a\"; done",
+        d = dir.display()
+    );
+    let displays = [
+        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
+        (
+            "/dev/mem1",
+            Memory::new(640, 320, "MEM-2", "mem-large").lit(),
+        ),
+    ];
+    let mut s = Seat::with_heads(&[], Some(&claimed_consoles(2)), displays, &script);
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    let sizes = |a: &App| console_lines(a, "small", "size:");
+    assert!(s.until(SECOND, |a| sizes(a).iter().all(Option::is_some)));
+    let key = |s: &mut Seat, event: InputEvent| {
+        s.app.device_input(Path::new(KBD_SMALL), event, now());
+        s.until(Duration::from_millis(50), |_| false);
+    };
+    key(&mut s, ctrl_super(RIGHT));
+    let equal = InputEvent::Key(KeyEvent {
+        mods: Mods::CTRL,
+        ..char_key('=')
+    });
+    key(&mut s, equal);
+    assert_eq!(grid(&s.app, "small"), Some((20, 5)), "console 2 zoomed");
+    key(&mut s, ctrl_super(LEFT));
+    assert_eq!(consoles(&s.app, "small"), Some((2, 0)));
+    std::fs::write(dir.join("go"), "").expect("the go mark");
+    let again = s.until(Duration::from_secs(3), |a| {
+        dir.join("done").exists() && sizes(a).get(1) == Some(&Some("size:5 20".to_owned()))
+    });
+    let seen = sizes(&s.app);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(again, "console 2 started again at 5 rows of 20: {seen:?}");
 }
 
 /// D1, pending the operator's read (ADR-1401's item 1): every console
@@ -2211,8 +2309,17 @@ fn a_head_whose_display_never_lit_receives_no_key() {
     s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
     assert!(s.until(SECOND, |a| a.cells().len() == 1));
     s.type_on(KBD_LARGE, "never");
+    s.app
+        .device_input(Path::new(KBD_LARGE), ctrl_super(RETURN), now());
     s.until(Duration::from_millis(100), |_| false);
     assert!(!head_shows(&s.app, "large", "never"));
+    assert!(
+        s.app.head("large").is_some_and(
+            |h| h.pty().is_none() && h.screen_text().iter().all(|l| l.trim().is_empty())
+        ),
+        "the chord's Return reached no session"
+    );
+    assert_eq!(consoles(&s.app, "large"), Some((1, 0)));
 }
 
 /// D5 and D8: before the first key the focus starts over every display
@@ -2346,8 +2453,10 @@ fn a_head_hung_up_comes_back_with_the_consoles_its_file_asks_for() {
 }
 
 /// D8 and the operator's answers (2026-10-30): under `oneshot` a head
-/// hung up ends with the notice that the session ended, and vtium exits once no head has
-/// anything left to run.
+/// hung up ends with the notice that the session ended, and vtium exits
+/// once no head has anything left to run. The anti-lockout guard's
+/// notice, since small's keyboard now reaches no lit head, shows beneath
+/// it (D5, D9).
 #[test]
 fn under_oneshot_a_hang_up_ends_the_head_and_then_vtium() {
     let (mut s, f) = losing(
@@ -2359,7 +2468,15 @@ fn under_oneshot_a_hang_up_ends_the_head_and_then_vtium() {
     s.unplug("/dev/mem1", now());
     s.unplug("/dev/mem0", now());
     assert!(s.hung_up(&f.mark, SECOND));
-    assert_eq!(s.app.head("small").and_then(Head::notice), Some(ENDED));
+    let shown = notice(&s.app, "small").unwrap_or_default();
+    assert_eq!(shown.lines().next(), Some(ENDED), "{shown}");
+    assert!(
+        shown
+            .lines()
+            .nth(1)
+            .is_some_and(|l| l.starts_with(LOCKED_OUT)),
+        "{shown}"
+    );
     assert!(
         s.until(SECOND, |a| a.finished() == Some(vtium::app::Exit::Oneshot)),
         "large never lit, so nothing is left to run"
@@ -2532,6 +2649,9 @@ impl Memory {
 
 /// The notice of a head whose session ended for good under `oneshot`.
 const ENDED: &str = "This session has ended and will not start again. To keep working, press Ctrl+Super+↑ to switch to another screen.";
+
+/// The same notice while another console of its head still runs.
+const ENDED_CONSOLE: &str = "This session has ended and will not start again. To keep working, press Ctrl+Super+→ to show another console on this screen.";
 
 /// The start of the anti-lockout guard's notice.
 const LOCKED_OUT: &str = "No keyboard was reaching a screen that is on";
