@@ -249,6 +249,12 @@ pub(super) struct Output<M> {
     /// The timer bounding the flip in flight, and the flip it was armed
     /// for.
     pub(super) flip_timer: Option<(RegistrationToken, u64)>,
+    /// The next flip whose event arrives ends a modeset: the atomic
+    /// modeset's own commit, or the first frame after a legacy modeset,
+    /// which sends no event of its own. That event logs that the new mode
+    /// is on screen and clears the mark; a flip the bound takes as done
+    /// clears it with no line, so a late event logs nothing.
+    pub(super) modeset_flip: bool,
     pub(super) available: bool,
     pub(super) announced: bool,
     /// Bound after the card's first scan, as a display plugged in or

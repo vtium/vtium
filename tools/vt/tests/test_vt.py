@@ -778,6 +778,17 @@ class RunVt(Case):
         self.assertEqual(p.stdout.count(f"run-vt: no card's DRM state to copy under {dri}\n"), 2, p.stdout)
         self.assertEqual(os.listdir(drm), [])
 
+    def test_debug_keeps_the_fifo_out_of_the_callers_tmpdir(self):
+        # Root makes the FIFO's directory where it alone can write, so a
+        # TMPDIR the caller kept through sudo is never used.
+        self.s.cards()
+        drm = os.path.join(self.s.tmp, "drm")
+        os.mkdir(drm, 0o700)
+        p = self.run_vt(f"--debug={drm}", "8", BIN_LOG="display HDMI-A-2 is gone\\n",
+                        TMPDIR=os.path.join(self.s.tmp, "nowhere"))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("001-went-0.state", os.listdir(drm))
+
     def test_debug_needs_a_directory_the_user_can_write(self):
         os.symlink(self.s.tmp, os.path.join(self.s.tmp, "link"))
         for where in ("none", "link"):

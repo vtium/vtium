@@ -913,10 +913,9 @@ impl<K: Kms> Drm2d<K> {
                 if std::mem::take(&mut o.vblank) || frame {
                     o.flipping = false;
                 }
-                // A display's first flip ends its modeset: the card
-                // scans the new mode out, which a capture of the card's
-                // state at this line shows.
-                if frame && o.flips == 1 {
+                // The card scans the new mode out, which a capture of the
+                // card's state at this line shows.
+                if frame && std::mem::take(&mut o.modeset_flip) {
                     log::debug!(
                         "display {}: the first flip after its modeset is done",
                         o.name
@@ -945,6 +944,11 @@ impl<K: Kms> Drm2d<K> {
         } else {
             (true, "page flip")
         };
+        // A flip taken as done may not be on screen, so it ends a modeset
+        // without the line that says the mode is shown.
+        if frame {
+            o.modeset_flip = false;
+        }
         if std::mem::replace(&mut self.lost_flip, true) {
             log::debug!("no {event} event for {}; taking the flip as done", o.name);
         } else {
@@ -1240,6 +1244,7 @@ impl<K: Kms> Drm2d<K> {
             vblank: false,
             flips: 0,
             flip_timer: None,
+            modeset_flip: false,
             available: true,
             announced: false,
             returning: self.scanned,
@@ -1765,6 +1770,7 @@ impl<K: Kms> Drm2d<K> {
                 o.returning = false;
                 o.cursor_set = o.cursor_shown();
                 o.start_flip();
+                o.modeset_flip = true;
                 o.damage.set_whole();
             } else {
                 let _ = self.card.destroy_blob(blob);
@@ -1827,6 +1833,7 @@ impl<K: Kms> Drm2d<K> {
                     self.install(o, made);
                     o.online = true;
                     o.returning = false;
+                    o.modeset_flip = true;
                     // The CRTC is on, whatever DPMS it was at.
                     if !o.dpms_on() {
                         o.dpms = o.dpms.map(|(prop, _)| (prop, Dpms::On));

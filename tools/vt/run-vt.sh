@@ -538,10 +538,13 @@ cmd=("$bin" --vt="tty$vt" --no-switchvt --configdir "$here/config" "${once[@]}" 
 show "${cmd[@]}"
 [ -z "$dry" ] || exit 0
 # Under --debug, vtium's output goes through watch_log, which closes the lock
-# too. It reads a FIFO in a directory of root's alone, gone once both ends are
-# open, and runs as a job, so restore() asks the job table whether it runs.
+# too. It reads a FIFO in a directory of root's alone in /run, whatever TMPDIR
+# the caller kept, gone once both ends are open, and runs as a job, so
+# restore() asks the job table whether it runs.
 if [ -n "$debug" ]; then
-	fifo_dir=$(mktemp -d) || die "cannot create a directory for vtium's log"
+	fifo_base=/run
+	[ -z "$standins" ] || fifo_base=$standins
+	fifo_dir=$(mktemp -d -p "$fifo_base") || die "cannot create a directory for vtium's log"
 	mkfifo -m 0600 -- "$fifo_dir/log" || die "cannot create a FIFO for vtium's log"
 	{ exec 9>&-; watch_log; } <"$fifo_dir/log" &
 	watcher=$!
