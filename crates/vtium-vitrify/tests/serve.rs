@@ -14,7 +14,8 @@ use vtium_font::set::{Set, SetFace};
 use vtium_font::{Cell, Face};
 use vtium_vitrify::serve::{
     ASK, FILL, FRAME_DONE, FRAME_FAILED, FRAME_FILL, FRAME_FILLED, FRAME_GLYPHS, FRAME_NO_OWN_CELL,
-    FRAME_STOPPED, FritText, OWN_CELL, Paths, STOP, ServeRequest, serve,
+    FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_STOPPED, FritText, OWN_CELL, Paths, STOP,
+    ServeRequest, serve,
 };
 
 /// The frames in `bytes`, kind and payload.
@@ -284,26 +285,25 @@ fn each_fill_sends_the_cells_coverage_in_full_once() {
     assert_eq!(again, first);
 }
 
-// the operator's decision on #145, 2026-10-28: an outline frit draws in
-// the automatic cell, so the helper refuses its cell query, alone or after
-// a bitmap source
+// ADR-1200 D17 (the maintainer, 2026-11-01): an outline frit's cell query
+// names the height it is drawn at, and is answered with the W rule's cell
+// at it; with no height it is refused, naming why. After a bitmap first
+// source the bitmap's own cell is answered, the outline source drawing
+// into it
 #[test]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
-fn an_outline_frits_cell_query_is_refused() {
+fn an_outline_frits_cell_query_answers_the_w_rule_at_its_height() {
     let dir = std::env::temp_dir().join(format!("vtium-serve-outline-cell-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let font = dir.join("mono.ttf");
     std::fs::write(&font, ttf::test_mono().build()).unwrap();
-    let query = |text: String| ServeRequest {
+    let query = |text: String, height: u32| ServeRequest {
         kind: OWN_CELL,
         frit: FritText {
             name: "t".to_owned(),
             text,
         },
-        cell: Cell {
-            width: 0,
-            height: 0,
-        },
+        cell: Cell { width: 0, height },
         codepoints: Vec::new(),
         clusters: Vec::new(),
         held: Vec::new(),
@@ -311,8 +311,9 @@ fn an_outline_frits_cell_query_is_refused() {
     };
     let outline = format!("source=outline:{}\n", font.display());
     let requests = [
-        query(outline.clone()),
-        query(format!("source=builtin:unscii-8\n{outline}")),
+        query(outline.clone(), 0),
+        query(outline.clone(), 20),
+        query(format!("source=builtin:unscii-8\n{outline}"), 20),
     ];
     let bytes: Vec<u8> = requests.iter().flat_map(ServeRequest::encode).collect();
     let mut out = Vec::new();
@@ -327,13 +328,18 @@ fn an_outline_frits_cell_query_is_refused() {
     let frames = frames(&out);
     assert_eq!(
         frames.iter().map(|f| f.0).collect::<Vec<_>>(),
-        [FRAME_NO_OWN_CELL, FRAME_NO_OWN_CELL],
+        [FRAME_NO_OWN_CELL, FRAME_OUTLINE_CELL, FRAME_OWN_CELL],
         "{frames:?}"
     );
-    for (_, why) in &frames {
-        let why = String::from_utf8_lossy(why);
-        assert!(why.contains("is an outline font"), "{why}");
-    }
+    let why = String::from_utf8_lossy(&frames[0].1);
+    assert!(
+        why.contains("is an outline font, whose cell needs the height"),
+        "{why}"
+    );
+    let cell = |w: u32, h: u32| [w.to_le_bytes(), h.to_le_bytes()].concat();
+    // 19.5 pixels to the em: Test Mono's W advances 11.7, inked over 12
+    assert_eq!(frames[1].1, cell(12, 20));
+    assert_eq!(frames[2].1, cell(8, 8));
 }
 
 // ADR-1200 D21, ADR-1301 D1: an ask's clusters are shaped with HarfRust

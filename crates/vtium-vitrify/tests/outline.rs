@@ -11,7 +11,7 @@ mod ttf;
 use std::path::Path;
 
 use parser::Parser;
-use vtium_vitrify::outline::{Outline, OutlineRequest, rasterise};
+use vtium_vitrify::outline::{Outline, OutlineRequest, cell_width, rasterise};
 use vtium_vitrify::resample::{self, METHOD};
 
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-vitrify");
@@ -55,6 +55,96 @@ fn the_first_outline_font_sets_the_cell() {
     let s = &o.strikes[0];
     let at = |c| s.map.iter().find(|m| m.0 == c).map(|m| m.1);
     assert_eq!(at(0x41), at(0xe0a0));
+}
+
+// ADR-1200 D17: an outline font's own cell is as wide as the W rule gives
+// at the height asked, the widest of the faces given, as the C reference
+// took the larger of its regular and bold faces' cells. Test Mono's W
+// advances 600 of 1000 units and the bold one's 700: at 16 pixels, 15.5
+// to the em, 9.3 inked over 10 pixels and 10.85 over 11
+#[test]
+fn an_outline_cell_is_as_wide_as_the_widest_faces_w() {
+    let regular = ttf::test_mono().build();
+    let mut bold = ttf::test_mono();
+    bold.glyphs[3] = ttf::Glyph::rect(700, 0, 0, 700, 700);
+    let bold = bold.build();
+    let (r, b) = ((&regular[..], "Test Mono"), (&bold[..], "Test Mono"));
+    assert_eq!(cell_width(&[r], 16), Ok(10));
+    assert_eq!(cell_width(&[b], 16), Ok(11));
+    assert_eq!(cell_width(&[r, b], 16), Ok(11));
+    assert_eq!(cell_width(&[b, r], 16), Ok(11));
+    // the strike rasterise draws at a width of 0 takes the same width
+    let o = rasterise(&request(&[(0, 16)], &[])).expect("rasterised");
+    assert_eq!(o.strikes[0].width, 10);
+    // a face that cannot be read fails the answer, and so does no face or
+    // a height of 0
+    let other = cell_width(&[r, (&regular[..], "Other Sans")], 16).expect_err("another family");
+    assert!(other.contains("Other Sans"), "{other}");
+    assert!(cell_width(&[], 16).is_err());
+    assert!(cell_width(&[r], 0).is_err());
+}
+
+// The W rule measures W's ink on the unhinted outline, as the C
+// reference's FreeType light hinting left a TrueType glyph's width: a
+// subset of DejaVu Sans Mono keeping its hinting instructions
+// (`tests/fixtures/README.md`), whose W full hinting snaps to 8 columns
+// at 16 pixels where its outline covers 9
+#[test]
+fn the_w_rule_measures_ink_unhinted_on_a_hinted_font() {
+    let font = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/DejaVuSansMono-W-M-0.ttf"),
+    )
+    .expect("the fixture");
+    let face = (&font[..], "DejaVu Sans Mono");
+    assert_eq!(cell_width(&[face], 16), Ok(9));
+    assert_eq!(cell_width(&[face], 22), Ok(12));
+}
+
+// A face with no W takes M's width, then 0's, then half the height. At 16
+// pixels, 15.5 to the em: an M advancing 700 units of 1000 covers 11
+// columns, a 0 advancing 400 covers 7 (6.2 pixels), and half of 16 is 8
+#[test]
+fn a_face_with_no_w_takes_m_then_0_then_half_the_height() {
+    let face = |cmap: &[(u32, u16)]| {
+        let mut f = ttf::test_mono();
+        f.glyphs.push(ttf::Glyph::rect(700, 0, 0, 700, 700));
+        f.glyphs.push(ttf::Glyph::rect(400, 0, 0, 400, 700));
+        f.cmap = cmap.to_vec();
+        f.build()
+    };
+    let (m, zero) = ((0x4d, 8), (0x30, 9));
+    let both = face(&[(0x20, 1), zero, m]);
+    let only_zero = face(&[(0x20, 1), zero]);
+    let neither = face(&[(0x20, 1), (0x41, 2)]);
+    let width = |font: &[u8]| cell_width(&[(font, "Test Mono")], 16);
+    assert_eq!(width(&both), Ok(11));
+    assert_eq!(width(&only_zero), Ok(7));
+    assert_eq!(width(&neither), Ok(8));
+}
+
+// The W rule on DejaVu Sans Mono as the machine installs it: 9 wide at 16
+// pixels and 12 at 22, the cells the C reference's FreeType backend gave
+// it. It reads a font outside vtium's tree, so it runs only when asked:
+// `cargo test -p vtium-vitrify --test outline -- --ignored`
+#[test]
+#[ignore = "reads DejaVu Sans Mono from the machine's fonts"]
+fn dejavu_sans_mono_takes_the_w_rules_cell() {
+    let read = |file: &str| {
+        ["/usr/share/fonts/TTF", "/usr/share/fonts/truetype/dejavu"]
+            .into_iter()
+            .map(|dir| Path::new(dir).join(file))
+            .find(|p| p.is_file())
+            .map(|p| std::fs::read(p).expect("read"))
+            .expect("DejaVu Sans Mono installed")
+    };
+    let (regular, bold) = (read("DejaVuSansMono.ttf"), read("DejaVuSansMono-Bold.ttf"));
+    let face = (&regular[..], "DejaVu Sans Mono");
+    assert_eq!(cell_width(&[face], 16), Ok(9));
+    assert_eq!(cell_width(&[face], 22), Ok(12));
+    // the bold face's W is the regular one's, so it takes the same cell
+    let both = [face, (&bold[..], "DejaVu Sans Mono")];
+    assert_eq!(cell_width(&both, 16), Ok(9));
+    assert_eq!(cell_width(&both, 22), Ok(12));
 }
 
 #[test]
