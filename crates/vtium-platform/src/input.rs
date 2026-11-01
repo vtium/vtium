@@ -467,9 +467,14 @@ impl<O: Open + 'static> Input<O> {
         }
         if !first {
             if let Some(keyboard) = probed.keyboard.as_mut() {
-                let leds = keyboard.wake_up(&self.keymap);
+                let (leds, mods) = keyboard.wake_up(&self.keymap);
                 if probed.caps.leds {
                     write_leds(&mut dev, &device.node, leds);
+                }
+                if let Some(mods) = mods {
+                    let rescue = device.disposition == Some(Disposition::Rescue);
+                    self.queue
+                        .push(Some(device.id), rescue, InputEvent::Mods(mods));
                 }
             }
         }
@@ -590,6 +595,9 @@ impl<O: Open + 'static> Input<O> {
                     }
                     if let Some(key) = processed.key {
                         self.queue.push(from, rescue, InputEvent::Key(key));
+                    }
+                    if let Some(mods) = processed.mods {
+                        self.queue.push(from, rescue, InputEvent::Mods(mods));
                     }
                 }
                 if let (Some(p), true) = (probed.pointer.button(ev.code, ev.value, now), pointer) {

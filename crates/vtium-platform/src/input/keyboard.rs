@@ -244,6 +244,9 @@ pub(crate) struct Processed {
     pub(crate) repeat: Option<RepeatChange>,
     /// The LEDs to set, when the xkb state changed them.
     pub(crate) leds: Option<Leds>,
+    /// The keyboard's effective modifiers after the key, where the key
+    /// changed them, its release included.
+    pub(crate) mods: Option<Mods>,
 }
 
 /// A change to the keyboard's repeat.
@@ -333,9 +336,12 @@ impl Keyboard {
             KeyState::Pressed => xkb::KeyDirection::Down,
             _ => xkb::KeyDirection::Up,
         };
+        let before = self.mods();
         if self.state.update_key(keycode, direction) & xkb::STATE_LEDS != 0 {
             out.leds = Some(self.leds());
         }
+        let after = self.mods();
+        out.mods = (after != before).then_some(after);
         if syms.is_empty()
             || matches!(
                 status,
@@ -458,8 +464,10 @@ impl Keyboard {
 
     /// A fresh state on waking, keeping the locked modifiers and layout, so
     /// no key held across a VT switch sticks (input_uxkb.c:555-585). Keys
-    /// held then are pressed again.
-    pub(crate) fn wake_up(&mut self, keymap: &Keymap) -> Leds {
+    /// held then are pressed again. Returns the LEDs to set, and the
+    /// effective modifiers where the keys let go changed them.
+    pub(crate) fn wake_up(&mut self, keymap: &Keymap) -> (Leds, Option<Mods>) {
+        let before = self.mods();
         let locked_mods = self.state.serialize_mods(xkb::STATE_MODS_LOCKED);
         let locked_layout = self.state.serialize_layout(xkb::STATE_LAYOUT_LOCKED);
         self.state = xkb::State::new(&keymap.keymap);
@@ -468,6 +476,7 @@ impl Keyboard {
         if let Some(compose) = self.compose.as_mut() {
             compose.reset();
         }
-        self.leds()
+        let after = self.mods();
+        (self.leds(), (after != before).then_some(after))
     }
 }

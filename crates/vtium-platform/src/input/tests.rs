@@ -84,7 +84,7 @@ fn keys(input: &mut Input<Nodes>) -> Vec<KeyEvent> {
         .events()
         .filter_map(|e| match e {
             InputEvent::Key(k) => Some(k),
-            InputEvent::Pointer(_) => None,
+            InputEvent::Pointer(_) | InputEvent::Mods(_) => None,
         })
         .collect()
 }
@@ -314,6 +314,110 @@ fn keyboards_keep_their_own_modifiers() {
     assert_eq!(k.last().map(|k| k.mods), Some(Mods::empty()));
 }
 
+/// Each event a turn drained, as a key's first keysym or the modifiers a
+/// change reports.
+#[derive(Debug, PartialEq, Eq)]
+enum Seen {
+    Key(u32),
+    Mods(Mods),
+}
+
+fn seen(input: &mut Input<Nodes>) -> Vec<Seen> {
+    input
+        .events()
+        .filter_map(|e| match e {
+            InputEvent::Key(k) => Some(Seen::Key(k.keysyms.first().copied()?)),
+            InputEvent::Mods(m) => Some(Seen::Mods(m)),
+            InputEvent::Pointer(_) => None,
+        })
+        .collect()
+}
+
+// A press or release that changes the keyboard's effective modifiers is
+// reported after the press's own key, with the modifiers after it; a key
+// that changes none reports nothing more, and a release no key.
+#[test]
+fn a_change_of_modifiers_is_reported_with_the_modifiers_after_it() {
+    let (mut input, node, id) = with_keyboard();
+    feed(&mut input, &node, id, &[press(KEY_LEFTCTRL)]);
+    assert_eq!(
+        seen(&mut input),
+        [Seen::Key(keysyms::KEY_Control_L), Seen::Mods(Mods::CTRL)]
+    );
+    feed(&mut input, &node, id, &[press(KEY_A), release(KEY_A)]);
+    assert_eq!(seen(&mut input), [Seen::Key(keysyms::KEY_a)]);
+    feed(&mut input, &node, id, &[press(KEY_LEFTSHIFT)]);
+    assert_eq!(
+        seen(&mut input),
+        [
+            Seen::Key(keysyms::KEY_Shift_L),
+            Seen::Mods(Mods::CTRL.union(Mods::SHIFT))
+        ]
+    );
+    feed(&mut input, &node, id, &[release(KEY_LEFTCTRL)]);
+    assert_eq!(seen(&mut input), [Seen::Mods(Mods::SHIFT)]);
+    feed(&mut input, &node, id, &[release(KEY_LEFTSHIFT)]);
+    assert_eq!(seen(&mut input), [Seen::Mods(Mods::empty())]);
+    // Caps Lock locks at its press; its release changes nothing.
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[press(KEY_CAPSLOCK), release(KEY_CAPSLOCK)],
+    );
+    assert_eq!(
+        seen(&mut input),
+        [Seen::Key(keysyms::KEY_Caps_Lock), Seen::Mods(Mods::LOCK)]
+    );
+}
+
+// Each keyboard reports its own modifiers.
+#[test]
+fn a_change_of_modifiers_names_its_own_keyboard() {
+    let (mut input, devices) = with_devices(&[
+        ("/dev/input/event0", fake::keyboard(), None),
+        ("/dev/input/event1", fake::keyboard(), None),
+    ]);
+    let [(one, a), (two, b)] = devices.as_slice() else {
+        panic!("two keyboards");
+    };
+    feed(&mut input, one, *a, &[press(KEY_LEFTCTRL)]);
+    feed(&mut input, two, *b, &[press(KEY_LEFTALT)]);
+    let changes: Vec<_> = input
+        .device_events(&no_vt())
+        .filter_map(|d| match d.event {
+            InputEvent::Mods(m) => Some((d.device, m)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(changes, [(Some(*a), Mods::CTRL), (Some(*b), Mods::ALT)]);
+}
+
+// A keyboard that wakes with a modifier let go, as Ctrl held through a VT
+// switch, reports its modifiers once it is open again; a lock it keeps is
+// no change.
+#[test]
+fn a_wake_up_that_lets_a_modifier_go_reports_it() {
+    let (mut input, node, id) = with_keyboard();
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[
+            press(KEY_CAPSLOCK),
+            release(KEY_CAPSLOCK),
+            press(KEY_LEFTCTRL),
+        ],
+    );
+    seen(&mut input);
+    input.sleep();
+    input.wake_up();
+    assert_eq!(seen(&mut input), [Seen::Mods(Mods::LOCK)]);
+    input.sleep();
+    input.wake_up();
+    assert_eq!(seen(&mut input), []);
+}
+
 #[test]
 fn sleep_closes_the_devices_and_a_wake_up_drops_held_keys_but_keeps_locks() {
     let (mut input, node, id) = with_keyboard();
@@ -442,7 +546,7 @@ fn pointers(input: &mut Input<Nodes>) -> Vec<PointerEvent> {
         .events()
         .filter_map(|e| match e {
             InputEvent::Pointer(p) => Some(p),
-            InputEvent::Key(_) => None,
+            InputEvent::Key(_) | InputEvent::Mods(_) => None,
         })
         .collect()
 }
@@ -887,7 +991,7 @@ fn tagged_keys(input: &mut Input<Nodes>, vt: &dyn Vt) -> Vec<(Option<super::Devi
                  event,
              }| match event {
                 InputEvent::Key(k) => Some((device, rescue, k.keysyms.first().copied()?)),
-                InputEvent::Pointer(_) => None,
+                InputEvent::Pointer(_) | InputEvent::Mods(_) => None,
             },
         )
         .collect()
