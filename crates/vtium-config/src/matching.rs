@@ -24,7 +24,7 @@ pub enum Token {
     Edid(Edid),
     /// `connector:CARD/CONNECTOR`, a glob each.
     Connector { card: String, connector: String },
-    /// `connector-path:PATH`.
+    /// `connector-path:PATH`, a glob on the connector's `PATH`.
     ConnectorPath(String),
     /// `card:GLOB`.
     Card(String),
@@ -203,7 +203,10 @@ impl Token {
                 id.card.as_deref().is_some_and(|c| glob(card, c))
                     && id.connector.as_deref().is_some_and(|c| glob(connector, c))
             }
-            Token::ConnectorPath(want) => id.connector_path.as_deref() == Some(want.as_str()),
+            Token::ConnectorPath(pattern) => id
+                .connector_path
+                .as_deref()
+                .is_some_and(|p| glob(pattern, p)),
             Token::Card(pattern) => id.card.as_deref().is_some_and(|c| glob(pattern, c)),
             Token::Udev { name, value } => id.properties.get(name).is_some_and(|v| glob(value, v)),
         }
