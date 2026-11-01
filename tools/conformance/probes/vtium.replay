@@ -30,10 +30,11 @@ reply "\eP1+r544E=6B6D73636F6E;536D756C78=1B5B343A25703125646D\e\\"
 # --- the modes and controls beyond the C reference (#54) ---
 
 # DECALN (ESC # 8): every cell an E, origin mode off and the cursor home,
-# and the margins the whole screen, so a line feed on the last row scrolls
+# and the margins the whole screen: the region before it leaves out the
+# last row, where a line feed scrolls only once the margins are reset
 probe decaln
 size 4 3
-send "ab\e[2;3r\e[?6h\e[2;2H\e#8"
+send "ab\e[1;2r\e[?6h\e[2;2H\e#8"
 check
 want row 0 |EEEE|
 want row 1 |EEEE|
