@@ -2116,8 +2116,11 @@ impl App {
     /// is the user's activity; a pointer event is when
     /// [`App::pointer_event`] says so.
     fn deliver(&mut self, node: Option<&Path>, event: InputEvent, now: Instant) {
-        // A seat a crash loop stopped delivers nothing (D1).
-        if self.stopped {
+        // A seat a crash loop stopped delivers nothing (D1), and under
+        // closed neither does a device with no route, such as one whose
+        // event was queued before it went: no rule placed it (D3, D5).
+        let unknown = node.is_some_and(|n| !self.routes.knows(n));
+        if self.stopped || unknown && self.rules.policy == Policy::Closed {
             return;
         }
         // The shown VT's own key does nothing else (D9).
@@ -2576,6 +2579,11 @@ impl App {
                 .device
                 .and_then(|id| self.routes.node(id))
                 .map(Path::to_owned);
+            // Under closed an event of a device the seat no longer routes,
+            // queued before it went, delivers nothing (D3, D5).
+            if e.device.is_some() && node.is_none() && self.rules.policy == Policy::Closed {
+                continue;
+            }
             self.deliver(node.as_deref(), e.event, now);
         }
         self.report_focus();

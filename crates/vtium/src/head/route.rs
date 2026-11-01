@@ -176,6 +176,11 @@ impl Routes {
         head_of(place.unwrap_or(Place::Roaming), focus)
     }
 
+    /// Whether a device at `node` was placed and has not gone.
+    pub(crate) fn knows(&self, node: &Path) -> bool {
+        self.devices.contains_key(node)
+    }
+
     /// Whether the device at `node` roams, typing into the active head: one
     /// no rule placed, as one a test types on, does.
     pub(crate) fn roams(&self, node: Option<&Path>) -> bool {

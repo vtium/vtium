@@ -2543,6 +2543,42 @@ fn an_isolated_heads_keyboard_sends_the_vt_keys_to_its_session() {
     );
 }
 
+/// D3 and D5: under `policy = closed` a key from a device the seat has no
+/// route for, as one queued before its device went, delivers nothing, the
+/// VT's keys included, though a head that is not isolated is active; under
+/// open it roams as an unclaimed keyboard does.
+// covers: platform.heads.policy
+#[test]
+fn under_closed_a_device_with_no_route_delivers_nothing() {
+    let unknown = "/dev/input/event9";
+    let large_open = TWO_HEADS.replace("[head large]\n", "[head large]\nisolated = no\n");
+    let script = "echo ready; while read a; do echo \"got:$a\"; done";
+    for closed in [true, false] {
+        let heads = if closed {
+            large_open.replace("version = 1\n", "version = 1\npolicy = closed\n")
+        } else {
+            large_open.clone()
+        };
+        let [small, (node, large)] = two_displays();
+        let displays = [small, (node, large.lit())];
+        let mut s = Seat::with_heads(&[], Some(&heads), displays, script);
+        assert!(s.until(SECOND, |a| head_shows(a, "large", "ready")));
+        assert_eq!(s.app.focus_head(), Some("large"), "closed: {closed}");
+        s.type_on(unknown, "u\r");
+        if closed {
+            s.until(Duration::from_millis(200), |_| false);
+            assert!(!head_shows(&s.app, "large", "got:u"), "nothing typed");
+        } else {
+            assert!(
+                s.until(SECOND, |a| head_shows(a, "large", "got:u")),
+                "it roams"
+            );
+        }
+        s.app.device_input(Path::new(unknown), vt_key(), now());
+        assert_eq!(s.app.vt.is_active(), closed, "closed: {closed}: the VT key");
+    }
+}
+
 /// D5: a roaming keyboard asks the active head, and with none, since under
 /// `policy = closed` every head is isolated unless it says otherwise, it
 /// delivers nothing, the VT's keys included.
@@ -2840,7 +2876,7 @@ const NO_DISPLAY: &str = "vtium: no display for any head";
 
 /// A head file's head and its rule for every display, which [`d7_row`]
 /// boots on two displays.
-const DESK: &str = "[head desk]\n[rules]\ndisplay * -> desk\n";
+const DESK: &str = "[head desk]\n[rules]\ndisplay * -> desk\ninput path:kbd-desk -> desk\n";
 
 /// One row of D7's outcomes: the file, how its path is made, the heads
 /// that run, how many displays the first lights, and the console line, on
@@ -2887,13 +2923,8 @@ fn d7_row(row: &Row) {
     let before = file.listing();
     let [small, (node, large)] = two_displays();
     let displays = [small, (node, large.lit())];
-    let mut s = Seat::with_rules(
-        &[],
-        Some(file.rules()),
-        displays,
-        "echo ready; read x",
-        no_fonts(),
-    );
+    let script = "echo ready; while read a; do echo \"got:$a\"; done";
+    let mut s = Seat::with_rules(&[], Some(file.rules()), displays, script, no_fonts());
     let names: Vec<&str> = s.app.heads().iter().map(Head::name).collect();
     assert_eq!(names, row.heads, "{test}: what runs");
     s.until(Duration::from_millis(300), |_| false);
@@ -2924,7 +2955,57 @@ fn d7_row(row: &Row) {
             "{test}: drawn"
         );
     }
+    if row.text.contains("policy = closed") {
+        d7_closed_input(&mut s, row);
+    }
     assert_eq!(file.listing(), before, "{test}: the file as it was");
+}
+
+/// A closed row's input (ADR-1401 D3, D5, D9): a keyboard a surviving rule
+/// claims types into its head, which keeps its isolation, so the VT key
+/// pressed on it switches no VT; a keyboard no rule claims types nowhere
+/// and switches no VT; and a file that runs no head leaves every display
+/// powered off but the one lit for its notice.
+fn d7_closed_input(s: &mut Seat, row: &Row) {
+    let test = row.test;
+    s.app.add_input(Path::new(KBD_A), keyboard("kbd-desk"));
+    s.app.add_input(Path::new(KBD_B), keyboard("kbd-other"));
+    s.type_on(KBD_A, "c\r");
+    s.type_on(KBD_B, "u\r");
+    match row.heads.first() {
+        Some(&first) => assert!(
+            s.until(SECOND, |a| head_shows(a, first, "got:c")),
+            "{test}: the claimed keyboard types into {first}"
+        ),
+        None => {
+            s.until(Duration::from_millis(200), |_| false);
+        }
+    }
+    let typed = |a: &App, text: &str| a.heads().iter().any(|h| head_shows(a, h.name(), text));
+    assert!(
+        !typed(&s.app, "got:u"),
+        "{test}: the unclaimed keyboard types nowhere"
+    );
+    if row.heads.is_empty() {
+        assert!(!typed(&s.app, "got:c"), "{test}: no head to type into");
+    }
+    for node in [KBD_A, KBD_B] {
+        s.app.device_input(Path::new(node), vt_key(), now());
+        assert!(
+            s.app.vt.is_active(),
+            "{test}: {node}'s VT key switches no VT"
+        );
+    }
+    if row.heads.is_empty() {
+        let off = [("/dev/mem0", true), ("/dev/mem1", row.line.is_none())];
+        for (node, dark) in off {
+            assert_eq!(
+                s.memory(node).dpms == Some(Dpms::Off),
+                dark,
+                "{test}: {node}'s power"
+            );
+        }
+    }
 }
 
 /// D7 and D11: one boot for each row of D7's outcomes, each checking what
