@@ -622,12 +622,14 @@ pub(super) fn reset(state: &mut State, hard: bool) {
     }
 }
 
-/// Where XTSAVE keeps a mode's state. Modes that share one state share a
-/// slot, as xterm keeps them: the four tracking modes, the three
-/// encodings, and the three alternate screen modes.
+/// Where XTSAVE keeps a mode's state, as xterm's `savemodes` keeps it:
+/// tracking modes 1000 to 1003 share a slot and mode 9 has its own, though
+/// each holds the tracking all five set; the three encodings share one, and
+/// so do the three alternate screen modes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Slot {
     Mode(Mode),
+    X10Tracking,
     Tracking,
     Encoding,
     Screen,
@@ -653,9 +655,8 @@ impl Mode {
     /// which holds no state.
     fn slot(self) -> Option<Slot> {
         Some(match self {
-            Self::X10Mouse | Self::NormalMouse | Self::ButtonMouse | Self::AnyMouse => {
-                Slot::Tracking
-            }
+            Self::X10Mouse => Slot::X10Tracking,
+            Self::NormalMouse | Self::ButtonMouse | Self::AnyMouse => Slot::Tracking,
             Self::SgrMouse | Self::UrxvtMouse | Self::PixelMouse => Slot::Encoding,
             Self::AltScreen | Self::AltScreenClear | Self::AltScreenSaveCursor => Slot::Screen,
             Self::SaveCursor => return None,
@@ -668,7 +669,7 @@ impl State {
     fn saved_value(&self, slot: Slot) -> Value {
         match slot {
             Slot::Mode(mode) => Value::Mode(self.mode(mode)),
-            Slot::Tracking => Value::Tracking(self.modes.tracking),
+            Slot::X10Tracking | Slot::Tracking => Value::Tracking(self.modes.tracking),
             Slot::Encoding => Value::Encoding(self.modes.encoding),
             Slot::Screen => Value::Screen(self.screen.alternate()),
         }
@@ -909,7 +910,8 @@ mod tests {
              it: every supported DEC private mode but DECOM (6), which moves the cursor home, \
              47, 1047 and 1049, which switch screens, 1048 and 2026; no ANSI mode is in it. \
              Modes that share one state share one saved state, as xterm keeps them: the \
-             tracking modes 9, 1000, 1002 and 1003, the encodings 1006, 1015 and 1016, and the \
+             tracking modes 1000, 1002 and 1003, while 9 has a saved state of its own holding \
+             the same tracking, the encodings 1006, 1015 and 1016, and the \
              alternate screen modes 47, 1047 and 1049, which XTRESTORE of one of them switches \
              as 47 does, neither cleared nor the cursor moved. Mode 1048 holds no state: XTSAVE \
              of it saves the cursor as DECSC does and XTRESTORE restores it as DECRC does. DECSTR keeps what XTSAVE saved, and RIS clears it.\n\n",

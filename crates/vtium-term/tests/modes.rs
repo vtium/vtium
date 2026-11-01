@@ -859,10 +859,9 @@ fn xtrestore_restores_each_mode_xtsave_saved() {
     assert_eq!(t.screen().cursor(), (2, 1), "1048 restores the cursor");
 }
 
-// ctlseqs, XTSAVE: the four tracking modes share one saved state, as do the
-// three encodings and the three alternate screen modes, as xterm keeps
-// them; a mode nothing was saved for stays as it is, and DECSTR clears
-// what was saved, as it clears DECSC's cursor.
+// ctlseqs, XTSAVE, as xterm's `savemodes` keeps the slots: the tracking
+// modes 1000 to 1003 share one saved state, while mode 9 has its own, and
+// the three encodings share one, as do the three alternate screen modes.
 // covers: ctl.xtsave
 #[test]
 fn xtsave_keeps_one_state_for_modes_that_share_one() {
@@ -875,6 +874,12 @@ fn xtsave_keeps_one_state_for_modes_that_share_one() {
     assert_eq!(rqm(&mut t, true, 1000), 1, "1002's restore is 1000's slot");
     assert_eq!(rqm(&mut t, true, 1003), 2);
     assert_eq!(rqm(&mut t, true, 1006), 1, "1015's restore is 1006's slot");
+    t.input(b"\x1b[?1003h\x1b[?1003s\x1b[?1000h\x1b[?1000r");
+    assert_eq!(rqm(&mut t, true, 1003), 1, "1000's restore is 1003's slot");
+    t.input(b"\x1b[?9h\x1b[?9s\x1b[?1000h\x1b[?1000s\x1b[?9r");
+    assert_eq!(rqm(&mut t, true, 9), 1, "9 has a slot of its own");
+    t.input(b"\x1b[?1002r");
+    assert_eq!(rqm(&mut t, true, 1000), 1, "1000 to 1003 kept theirs");
     // The alternate screen comes back as mode 47 switches it, uncleared.
     t.input(b"\x1b[?1049h\x1b[?47s\x1b[?1049lmain\x1b[?1049h\x1b[Halt\x1b[?47s\x1b[?47l");
     assert_eq!(rows(t.screen())[0], "main");
