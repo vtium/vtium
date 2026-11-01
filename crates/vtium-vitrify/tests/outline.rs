@@ -509,12 +509,14 @@ fn the_strike_through_takes_os2s_size_and_the_x_height() {
     assert_eq!(lines(x), (10, 1), "no sxHeight, the x glyph");
 }
 
-// The lowest ink is measured on the pixels, not the image's box (review
-// finding A10): a box can hold a row whose coverage rounds to 0. A font
+// The lowest ink comes from the image's box, which swash keeps to rows of
+// ink (review finding A10): a row whose coverage rounds to 0 is not in
+// it, so it raises nothing. A font
 // of 16,384 units to the em, ascent 13,107 and descent 3,277, at 20
 // pixels has its baseline on row 16 and four rows under it; its
-// underscore reaches 3,361 units, 4.0005 pixels, below the baseline, so
-// its box ends a row past the cell where its ink does not
+// underscore reaches 3,361 units, 4.0005 pixels, below the baseline: the
+// row past the cell would hold 0.0005 of a pixel's coverage, which rounds
+// to 0, and the baseline stays on row 16
 #[test]
 fn the_lowest_ink_is_measured_on_the_pixels() {
     let font = ttf::Font {

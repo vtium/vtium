@@ -901,6 +901,10 @@ pub(crate) mod raster {
             .filter(|&g| g != 0)
             .filter_map(|g| drawer.draw(g, ppem, (u32::MAX, u32::MAX)))
             .filter(|i| i.content != Content::Color && i.placement.height > 0)
+            // the image's box: swash keeps no row in it whose coverage
+            // rounds to 0, so its bottom is the ink's; an underscore
+            // dipping 0.0005 of a pixel into a row raises nothing
+            // (tests/outline.rs, the_lowest_ink_is_measured_on_the_pixels)
             .map(|i| i64::from(base) - i64::from(i.placement.top) + i64::from(i.placement.height))
             .max();
         match lowest {
