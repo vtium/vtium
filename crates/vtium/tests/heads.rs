@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use vtium::app::App;
 use vtium::config;
 use vtium::font::Sources;
-use vtium::head::Head;
+use vtium::head::{Head, Start};
 use vtium::video::Video;
 use vtium_config::Class;
 use vtium_platform::display::{Canvas, DisplayId, Dpms, Event, Identity, Rect, SwapError, Swapped};
@@ -267,17 +267,18 @@ impl Seat {
         fonts: Sources,
     ) -> Seat {
         let rules = heads.map(|text| {
-            let parsed = vtium_config::parse(text).expect("a valid head file");
-            (parsed.config, None)
+            let start = start(text);
+            assert_eq!(start.line(), None, "a valid head file");
+            start
         });
         Seat::with_rules(args, rules, displays, script, fonts)
     }
 
-    /// [`Seat::with_fonts`], running the head file in force and the notice
-    /// of its start, as [`vtium::head::rules`] gives them, on VT 1.
+    /// [`Seat::with_fonts`], running what the start's head file resolved
+    /// to, as [`vtium::head::rules`] gives it, on VT 1.
     fn with_rules(
         args: &[&str],
-        rules: Option<(vtium_config::Config, Option<String>)>,
+        rules: Option<Start>,
         displays: impl IntoIterator<Item = (&'static str, Memory)>,
         script: &str,
         fonts: Sources,
@@ -300,11 +301,8 @@ impl Seat {
             env,
         );
         app.set_font_sources(fonts);
-        if let Some((rules, notice)) = rules {
-            app.set_heads(rules);
-            if let Some(text) = notice {
-                app.notice(&text);
-            }
+        if let Some(start) = rules {
+            app.set_heads(start);
         }
         for (node, memory) in displays {
             app.add_video(PathBuf::from(node), Box::new(memory));
@@ -376,6 +374,11 @@ impl Seat {
                 .device_input(Path::new(node), InputEvent::Key(char_key(c)), now());
         }
     }
+}
+
+/// What the start runs for a trusted head file holding `text`.
+fn start(text: &str) -> Start {
+    Start::trusted(Path::new("heads.conf"), text.as_bytes())
 }
 
 /// The key that types `c`, `\r` Return.
@@ -1123,11 +1126,12 @@ const UP: u32 = 0xff52;
 const DOWN: u32 = 0xff54;
 
 /// D5 and the operator's chord (2026-10-30): Ctrl-Super-Up moves the
-/// focus to the next head with a lit display, and Ctrl-Super-Down to the
-/// previous. The chord moves only the devices following the focus; a
-/// claimed keyboard keeps typing into its head.
+/// active head to the next head with a lit display, and Ctrl-Super-Down to
+/// the previous. Only a roaming keyboard takes the chord, and it moves only
+/// the roaming devices; a claimed keyboard keeps typing into its head.
+// covers: platform.heads.focus
 #[test]
-fn the_focus_chord_moves_only_the_devices_following_the_focus() {
+fn the_roaming_chord_moves_only_the_roaming_devices() {
     let mut s = claimed();
     s.app
         .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
@@ -1140,7 +1144,7 @@ fn the_focus_chord_moves_only_the_devices_following_the_focus() {
         "the focus's keyboard types into small, the claimed one into large"
     );
     s.app
-        .device_input(Path::new(KBD_SMALL), ctrl_super(DOWN), now());
+        .device_input(Path::new(KBD_FOCUS), ctrl_super(DOWN), now());
     assert_eq!(s.app.take_focus_move().as_deref(), Some("large"));
     s.type_on(KBD_FOCUS, "g\r");
     assert!(s.until(SECOND, |a| head_shows(a, "large", "got:g")));
@@ -1862,7 +1866,7 @@ fn under_oneshot_vtium_exits_when_the_last_heads_program_ends() {
 /// its SIGHUP in `dir`. The looping program's first start waits until both
 /// of the other head's consoles have set their trap, so the exit comes
 /// after them; every start after the first exits at once.
-fn crash_loop(dir: &Path, looping: &str) -> Seat {
+fn crash_loop(dir: &Path, looping: &str, policy: &str) -> Seat {
     let _ = std::fs::remove_dir_all(dir);
     std::fs::create_dir_all(dir).expect("the marks' directory");
     let script = format!(
@@ -1874,6 +1878,7 @@ fn crash_loop(dir: &Path, looping: &str) -> Seat {
     );
     let heads = format!(
         "version = 1
+policy = {policy}
 [head small]
 consoles = {small}
 [head large]
@@ -1901,7 +1906,7 @@ fn a_head_restarting_too_fast_ends_vtium_and_hangs_up_every_head() {
             "vtium-heads-crash-loop-{}-{looping}",
             std::process::id()
         ));
-        let mut s = crash_loop(&dir, looping);
+        let mut s = crash_loop(&dir, looping, "open");
         let finished = s.until(Duration::from_secs(3), |a| a.finished().is_some());
         let marks = [dir.join("hup-1"), dir.join("hup-2")];
         let hung_up = finished && s.until(SECOND, |_| marks.iter().all(|m| m.exists()));
@@ -1925,6 +1930,53 @@ fn a_head_restarting_too_fast_ends_vtium_and_hangs_up_every_head() {
             "no notice on {looping}"
         );
     }
+}
+
+/// D1 and D9: under `policy = closed` a crash loop ends the run the same
+/// way, every head's sessions hung up, but vtium does not exit, since a
+/// getty's login on its VT would take any keyboard. It holds its VT: every
+/// head's display goes dark, no session starts again, no keyboard
+/// delivers, and the boot display shows why on the notice screen for as
+/// long as vtium runs.
+// covers: platform.heads.policy
+#[test]
+fn under_closed_a_crash_loop_stops_every_head_and_holds_the_vt() {
+    let dir = std::env::temp_dir().join(format!(
+        "vtium-heads-crash-loop-closed-{}",
+        std::process::id()
+    ));
+    let mut s = crash_loop(&dir, "small", "closed");
+    s.app.add_input(Path::new(KBD_A), keyboard("kbd-a"));
+    let marks = [dir.join("hup-1"), dir.join("hup-2")];
+    let hung_up = s.until(Duration::from_secs(4), |_| marks.iter().all(|m| m.exists()));
+    let stopped = vtium::notice::stopped();
+    let shown = s.until(SECOND, |a| {
+        a.notice_screen().and_then(Head::notice) == Some(stopped.as_str())
+    });
+    s.until(Duration::from_millis(300), |_| false);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(hung_up, "large's consoles hung up, shown and hidden");
+    assert!(shown, "the notice on the notice screen");
+    assert_eq!(s.app.finished(), None, "vtium holds its VT");
+    assert!(s.app.vt.is_active());
+    assert_eq!(
+        s.app.notice_screen().map(|n| n.cells().len()),
+        Some(1),
+        "the boot display alone"
+    );
+    assert!(
+        s.app
+            .heads()
+            .iter()
+            .all(|h| h.cells().is_empty() && h.pty().is_none()),
+        "every head dark, no session"
+    );
+    s.app.turn(now() + Duration::from_secs(31));
+    assert_eq!(
+        s.app.notice_screen().and_then(Head::notice),
+        Some(stopped.as_str()),
+        "for good"
+    );
 }
 
 /// D1: a zoom changes the grid of the console shown alone; each console
@@ -2360,10 +2412,16 @@ fn a_key_reaching_no_head_leaves_the_start_focus_open() {
     assert_eq!(s.app.focus_head(), Some("large"), "the boot display's");
 }
 
-/// D5 and D8: the focus chord is the seat's, so it moves the focus from
-/// the keyboard of a head whose display never lit too.
+/// A session that shows each byte it reads, as hex, once a key arrives.
+const BYTES: &str =
+    "stty -icanon -echo; echo ready; while :; do echo \"k:$(head -c 1 | od -An -tx1)\"; done";
+
+/// D5: the roaming chord pressed on a keyboard a rule sends to a head moves
+/// nothing and reaches that head's session as an ordinary key, from a lit
+/// head's keyboard and from an unlit one's, which receives nothing (D8).
+// covers: platform.heads.focus
 #[test]
-fn the_focus_chord_from_a_never_lit_heads_keyboard_moves_the_focus() {
+fn the_roaming_chord_from_a_claimed_keyboard_moves_nothing_and_types_it() {
     let heads = "version = 1
 [head small]
 [head large]
@@ -2371,17 +2429,95 @@ fn the_focus_chord_from_a_never_lit_heads_keyboard_moves_the_focus() {
 [rules]
 display card:mem-small -> small
 display card:mem-large -> large
+input path:kbd-small -> small
 input path:kbd-unlit -> unlit
 ";
     let [small, (node, large)] = two_displays();
     let displays = [small, (node, large.lit())];
-    let mut s = Seat::with_heads(&[], Some(heads), displays, "read x");
+    let mut s = Seat::with_heads(&[], Some(heads), displays, BYTES);
     let unlit = "/dev/input/event3";
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
     s.app.add_input(Path::new(unlit), keyboard("kbd-unlit"));
-    assert!(s.until(SECOND, |a| a.cells().len() == 2));
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
     assert_eq!(s.app.focus_head(), Some("large"));
     s.app.device_input(Path::new(unlit), ctrl_super(UP), now());
-    assert_eq!(s.app.take_focus_move().as_deref(), Some("small"));
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(UP), now());
+    assert_eq!(s.app.take_focus_move(), None, "nothing moved");
+    assert_eq!(s.app.focus_head(), Some("large"));
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", "k: 1b")),
+        "small's session read the chord as a key"
+    );
+}
+
+/// D5: the roaming chord moves the active head only to a lit head that is
+/// not isolated, so with the other lit head isolated it moves nothing.
+// covers: platform.heads.isolated
+#[test]
+fn the_roaming_chord_skips_an_isolated_head() {
+    let heads = TWO_HEADS.replace("[head small]\n", "[head small]\nisolated = yes\n");
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let mut s = Seat::with_heads(&[], Some(&heads), displays, "read x");
+    s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
+    assert!(s.until(SECOND, |a| a.cells().len() == 2));
+    assert_eq!(s.app.focus_head(), Some("large"));
+    s.app
+        .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+    assert_eq!(s.app.take_focus_move(), None);
+    assert_eq!(s.app.focus_head(), Some("large"), "small is isolated");
+}
+
+/// The fake VT's switch key, Ctrl-Super-F12, which stands in for the
+/// kernel's `Ctrl-Alt-F<n>`.
+fn vt_key() -> InputEvent {
+    ctrl_super(0xffc9)
+}
+
+/// D5 and D11's VT-keys test: an isolated head's keyboard sends the VT's
+/// keys to its session as an ordinary key and the VT stays; a keyboard of
+/// a head that is not isolated switches the VT.
+// covers: platform.heads.isolated
+#[test]
+fn an_isolated_heads_keyboard_sends_the_vt_keys_to_its_session() {
+    let heads = CLAIMED.replace("[head small]\n", "[head small]\nisolated = yes\n");
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let mut s = Seat::with_heads(&[], Some(&heads), displays, BYTES);
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
+    s.app.device_input(Path::new(KBD_SMALL), vt_key(), now());
+    assert!(s.app.vt.is_active(), "the VT stays");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", "k: 1b")),
+        "the session read it as a key"
+    );
+    s.app.device_input(Path::new(KBD_LARGE), vt_key(), now());
+    assert!(
+        !s.app.vt.is_active(),
+        "large is not isolated: the VT switched"
+    );
+}
+
+/// D5: a roaming keyboard asks the active head, and with none, since under
+/// `policy = closed` every head is isolated unless it says otherwise, it
+/// delivers nothing, the VT's keys included.
+// covers: platform.heads.isolated
+#[test]
+fn a_roaming_keyboard_with_no_active_head_switches_no_vt() {
+    let heads = TWO_HEADS.replace("version = 1\n", "version = 1\npolicy = closed\n");
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let mut s = Seat::with_heads(&[], Some(&heads), displays, BYTES);
+    s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
+    assert!(s.until(SECOND, |a| head_shows(a, "large", "ready")));
+    assert_eq!(s.app.focus_head(), None, "no head can be the active head");
+    s.app.device_input(Path::new(KBD_FOCUS), vt_key(), now());
+    assert!(s.app.vt.is_active(), "the VT stays");
+    s.until(Duration::from_millis(100), |_| false);
+    assert!(!head_shows(&s.app, "large", "k:") && !head_shows(&s.app, "small", "k:"));
 }
 
 /// D8 and the respawn policy: a hang-up is vtium's, not the session's
@@ -2453,9 +2589,9 @@ fn a_head_hung_up_comes_back_with_the_consoles_its_file_asks_for() {
 }
 
 /// D8 and the operator's answers (2026-10-30): under `oneshot` a head
-/// hung up ends with the notice that the session ended, and vtium exits
-/// once no head has anything left to run. The ended session's notice
-/// stands first in the head's box, above any guard's.
+/// hung up ends with the notice that the session ended, which stands first
+/// in the head's box, and vtium exits once no head has anything left to
+/// run.
 #[test]
 fn under_oneshot_a_hang_up_ends_the_head_and_then_vtium() {
     let (mut s, f) = losing(
@@ -2510,8 +2646,8 @@ impl HeadFile {
         vtium_config::Trust::owner(uid).below(&self.dir)
     }
 
-    /// The rules the start runs from the file, and the notice it shows.
-    fn rules(&self) -> (vtium_config::Config, Option<String>) {
+    /// What the start runs for the file.
+    fn rules(&self) -> Start {
         vtium::head::rules(&self.path, &self.trust())
     }
 
@@ -2524,7 +2660,8 @@ impl HeadFile {
             .map(|e| {
                 let e = e.expect("an entry");
                 let mut h = std::hash::DefaultHasher::new();
-                std::fs::read(e.path()).expect("its bytes").hash(&mut h);
+                // a directory at the path has no bytes to hash
+                std::fs::read(e.path()).unwrap_or_default().hash(&mut h);
                 let modified = e.metadata().and_then(|m| m.modified()).expect("its time");
                 (e.file_name(), h.finish(), modified)
             })
@@ -2568,7 +2705,7 @@ const KBD_IGNORED: &str = "/dev/input/event3";
 
 /// Two heads booted on `rules`, the large display the boot display, so
 /// the focus rests on `large`, with [`KBD_SMALL`] and [`KBD_IGNORED`].
-fn rescue_seat(rules: (vtium_config::Config, Option<String>)) -> Seat {
+fn rescue_seat(rules: Start) -> Seat {
     let displays = [
         ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
         (
@@ -2653,120 +2790,359 @@ fn notice(app: &App, name: &str) -> Option<String> {
     app.head(name).and_then(Head::notice).map(str::to_owned)
 }
 
-/// D7 and D11: a boot with each kind of invalid head file, each row of
-/// D7's first outcome, runs the shipped rules, shows the notice naming the
-/// error's line on the display, outside the session's screen, and leaves
-/// the file's bytes, by their hash, and its directory as they were.
-#[test]
-fn a_boot_with_an_invalid_head_file_runs_the_shipped_rules_shows_the_notice_and_leaves_its_bytes() {
+/// The console lines of D7's outcomes, as the catalog words them.
+const SKIPPED: &str = "invalid config skipped, using builtin";
+const PARTLY: &str = "config partly invalid, running what's valid";
+const CLOSED_OFF: &str = "vtium: config invalid, policy closed: input off";
+const NO_DISPLAY: &str = "vtium: no display for any head";
+
+/// A head file's head and its rule for every display, which [`d7_row`]
+/// boots on two displays.
+const DESK: &str = "[head desk]\n[rules]\ndisplay * -> desk\n";
+
+/// One row of D7's outcomes: the file, how its path is made, the heads
+/// that run, how many displays the first lights, and the console line, on
+/// the heads or on the notice screen.
+struct Row {
+    test: &'static str,
+    text: String,
+    kind: Kind,
+    heads: &'static [&'static str],
+    lit: usize,
+    line: Option<&'static str>,
+}
+
+/// What stands at the head file's path.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Missing,
+    File,
+    /// A file its group may write, which fails the ownership check.
+    Writable,
+    /// A directory, which is not readable as a file.
+    Directory,
+}
+
+/// Boots `row`'s head file on two displays, the large one the boot
+/// display, and checks what runs, the console line it shows, and that the
+/// file and its directory are as they were.
+fn d7_row(row: &Row) {
     use std::os::unix::fs::PermissionsExt;
-    let rules = "[rules]\ndisplay * -> desk\n";
-    let invalid: [(&str, String, &str); 12] = [
-        (
-            "no-version",
-            format!("[head desk]\n{rules}"),
-            "above its first section",
-        ),
-        (
-            "version",
-            format!("version = 2\n[head desk]\n{rules}"),
-            ":1: ",
-        ),
-        (
-            "syntax",
-            format!("version = 1\n[head desk]\n{rules}desk\n"),
-            ":5: ",
-        ),
-        (
-            "key",
-            format!("version = 1\n[head desk]\ncolour = red\n{rules}"),
-            ":3: ",
-        ),
-        (
-            "undefined",
-            "version = 1\n[head desk]\n[rules]\ndisplay * -> desc\n".into(),
-            ":4: ",
-        ),
-        (
-            "kind",
-            "version = 1\n[head desk]\n[rules]\ninput * -> off\n".into(),
-            ":4: ",
-        ),
-        (
-            "two-heads",
-            format!("version = 1\n[head desk]\n[head desk]\n{rules}"),
-            ":3: ",
-        ),
-        (
-            "key-twice",
-            format!("version = 1\n[head desk]\nconsoles = 2\nconsoles = 2\n{rules}"),
-            ":4: ",
-        ),
-        (
-            "two-rules",
-            format!("version = 1\n[head desk]\n{rules}{rules}"),
-            ":5: ",
-        ),
-        (
-            "two-guards",
-            format!("version = 1\n[head desk]\n{rules}[guards]\n[guards]\n"),
-            ":6: ",
-        ),
-        (
-            "range",
-            format!("version = 1\n[head desk]\nconsoles = 0\n{rules}"),
-            ":3: ",
-        ),
-        (
-            "owner",
-            format!("version = 1\n[head desk]\n{rules}"),
-            "can be changed by its group or by other users",
-        ),
-    ];
-    for (test, text, says) in invalid {
-        let file = HeadFile::new(&format!("invalid-{test}"), &text);
-        if test == "owner" {
+    let test = row.test;
+    let file = HeadFile::new(&format!("d7-{test}"), &row.text);
+    match row.kind {
+        Kind::Missing => std::fs::remove_file(&file.path).expect("no file"),
+        Kind::File => {}
+        Kind::Writable => {
             std::fs::set_permissions(&file.path, std::fs::Permissions::from_mode(0o664))
-                .expect("0664");
+                .expect("0664")
         }
-        let before = file.listing();
-        let start = file.rules();
-        assert_eq!(
-            start.0,
-            vtium_config::Config::builtin(),
-            "{test}: the shipped rules"
-        );
-        let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
-        let mut s = Seat::with_rules(&[], Some(start), displays, "echo ready; read x", no_fonts());
-        assert_eq!(
-            s.app.heads().iter().map(Head::name).collect::<Vec<_>>(),
-            ["console"],
-            "{test}"
-        );
+        Kind::Directory => {
+            std::fs::remove_file(&file.path).expect("no file");
+            std::fs::create_dir(&file.path).expect("a directory");
+        }
+    }
+    let before = file.listing();
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let mut s = Seat::with_rules(
+        &[],
+        Some(file.rules()),
+        displays,
+        "echo ready; read x",
+        no_fonts(),
+    );
+    let names: Vec<&str> = s.app.heads().iter().map(Head::name).collect();
+    assert_eq!(names, row.heads, "{test}: what runs");
+    s.until(Duration::from_millis(300), |_| false);
+    match row.heads.first() {
+        Some(&first) => {
+            assert!(
+                s.until(SECOND, |a| head_shows(a, first, "ready")),
+                "{test}: its session starts"
+            );
+            assert_eq!(notice(&s.app, first).as_deref(), row.line, "{test}");
+            let lit = s.app.head(first).map(|h| h.cells().len());
+            assert_eq!(lit, Some(row.lit), "{test}: the displays it lights");
+            let lit = s.app.notice_screen().is_some_and(|n| !n.cells().is_empty());
+            assert!(!lit, "{test}: a head holds the display");
+        }
+        None => {
+            let screen = s
+                .app
+                .notice_screen()
+                .expect("a closed file's notice screen");
+            assert_eq!(screen.notice(), row.line, "{test}");
+            assert_eq!(screen.cells().len(), row.lit, "{test}: lit for it alone");
+        }
+    }
+    if row.line.is_some() {
         assert!(
-            s.until(SECOND, |a| head_shows(a, "console", "ready")),
-            "{test}: the session starts"
-        );
-        let shown = notice(&s.app, "console").unwrap_or_default();
-        assert!(shown.contains(says), "{test}: {shown:?}");
-        assert!(shown.contains("built-in rules"), "{test}: {shown:?}");
-        assert!(
-            s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)),
+            s.until_memory("/dev/mem1", SECOND, |m| m.has(PAPER)),
             "{test}: drawn"
         );
-        assert!(
-            !s.app.screen_text().iter().any(|l| l.contains("shipped")),
-            "{test}: not in the session"
-        );
-        assert_eq!(file.listing(), before, "{test}: the file as it was");
     }
+    assert_eq!(file.listing(), before, "{test}: the file as it was");
+}
+
+/// D7 and D11: one boot for each row of D7's outcomes, each checking what
+/// runs, the console line it shows, and that the file's bytes, by their
+/// hash, and its directory are as they were.
+// covers: platform.heads.policy
+#[test]
+fn each_row_of_d7s_outcomes_runs_what_it_says_and_shows_its_line() {
+    let rows = [
+        Row { test: "missing", text: String::new(), kind: Kind::Missing, heads: &["console"], lit: 2, line: None },
+        Row {
+            test: "untrusted",
+            text: format!("version = 1\n{DESK}"),
+            kind: Kind::Writable,
+            heads: &["console"], lit: 2,
+            line: Some(SKIPPED),
+        },
+        Row { test: "not-a-file", text: String::new(), kind: Kind::Directory, heads: &["console"], lit: 2, line: Some(SKIPPED) },
+        Row { test: "valid", text: format!("version = 1\n{DESK}"), kind: Kind::File, heads: &["desk"], lit: 2, line: None },
+        Row { test: "empty-open", text: "version = 1\n".into(), kind: Kind::File, heads: &["console"], lit: 2, line: None },
+        Row {
+            test: "headless-open",
+            text: "version = 1\n[rules]\ninput * -> ignore\n".into(),
+            kind: Kind::File,
+            heads: &["console"], lit: 1,
+            line: None,
+        },
+        Row {
+            test: "headless-closed",
+            text: "policy = closed\nversion = 1\n[rules]\ndisplay * -> off\n".into(),
+            kind: Kind::File,
+            heads: &[], lit: 0,
+            line: None,
+        },
+        Row {
+            test: "partly-open",
+            text: format!("version = 1\n{DESK}display * -> desc\n"),
+            kind: Kind::File,
+            heads: &["desk"], lit: 2,
+            line: Some(PARTLY),
+        },
+        Row {
+            test: "partly-policy",
+            text: format!("version = 1\npolicy = maybe\n{DESK}"),
+            kind: Kind::File,
+            heads: &["desk"], lit: 2,
+            line: Some(PARTLY),
+        },
+        Row {
+            test: "partly-closed",
+            text: format!("version = 1\npolicy = closed\n{DESK}[head bad]\ncolour = red\n"),
+            kind: Kind::File,
+            heads: &["desk"], lit: 2,
+            line: Some(PARTLY),
+        },
+        Row {
+            test: "broken-open",
+            text: "version = 1\n[head desk]\ncolour = red\n[rules]\ndisplay * -> desk\n".into(),
+            kind: Kind::File,
+            heads: &["console"], lit: 2,
+            line: Some(SKIPPED),
+        },
+        Row { test: "no-version-open", text: DESK.into(), kind: Kind::File, heads: &["console"], lit: 2, line: Some(SKIPPED) },
+        Row {
+            test: "broken-no-policy",
+            text: "version = 1\npolicy = maybe\n".into(),
+            kind: Kind::File,
+            heads: &["console"], lit: 2,
+            line: Some(SKIPPED),
+        },
+        Row {
+            test: "broken-closed",
+            text: "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> kiosk\n".into(),
+            kind: Kind::File,
+            heads: &[], lit: 1,
+            line: Some(CLOSED_OFF),
+        },
+        Row {
+            test: "no-version-closed",
+            text: format!("policy = closed\n{DESK}"),
+            kind: Kind::File,
+            heads: &[], lit: 1,
+            line: Some(CLOSED_OFF),
+        },
+    ];
+    for row in &rows {
+        d7_row(row);
+    }
+}
+
+/// D7: a partly broken open file runs what survives and then the shipped
+/// rules' tail, under which a keyboard no surviving rule places roams, and
+/// every surviving head acts as one that is not isolated, so it can be the
+/// active head the roaming keyboard types into.
+// covers: platform.heads.policy
+#[test]
+fn a_partly_broken_open_file_runs_its_survivors_then_the_shipped_tail_with_no_head_isolated() {
+    let text = "version = 1\n[head desk]\nisolated = yes\n[head bad]\ncolour = red\n[rules]\ndisplay * -> desk\ninput path:kbd-bad -> bad\n";
+    let displays = [(
+        "/dev/mem0",
+        Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+    )];
+    let mut s = Seat::with_rules(&[], Some(start(text)), displays, ECHO, no_fonts());
+    s.app.add_input(Path::new(KBD_A), keyboard("kbd-bad"));
+    assert!(s.until(SECOND, |a| head_shows(a, "desk", "ready")));
+    assert_eq!(s.app.focus_head(), Some("desk"), "not isolated");
+    s.type_on(KBD_A, "t\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "desk", "got:t")),
+        "the dropped rule's keyboard walks the tail and roams"
+    );
+}
+
+/// D7 and D9: a partly broken closed file runs what survives as written:
+/// a keyboard on a dropped rule's port is placed by no rule, so it is
+/// ignored, and a surviving rule's keyboard types into its head.
+// covers: platform.heads.policy
+#[test]
+fn a_partly_broken_closed_file_delivers_nothing_from_a_dropped_rules_keyboard() {
+    let text = "version = 1\npolicy = closed\n[head desk]\n[head bad]\ncolour = red\n[rules]\ndisplay * -> desk\ninput path:kbd-bad -> bad\ninput path:kbd-desk -> desk\n";
+    let displays = [(
+        "/dev/mem0",
+        Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+    )];
+    let mut s = Seat::with_rules(&[], Some(start(text)), displays, ECHO, no_fonts());
+    s.app.add_input(Path::new(KBD_A), keyboard("kbd-bad"));
+    s.app.add_input(Path::new(KBD_B), keyboard("kbd-desk"));
+    assert!(s.until(SECOND, |a| head_shows(a, "desk", "ready")));
+    assert_eq!(notice(&s.app, "desk").as_deref(), Some(PARTLY));
+    s.type_on(KBD_A, "x\r");
+    s.type_on(KBD_B, "d\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "desk", "got:d")));
+    s.until(Duration::from_millis(100), |_| false);
+    assert!(
+        !head_shows(&s.app, "desk", "got:x"),
+        "the dropped rule's keyboard types nowhere"
+    );
+    s.app.device_input(Path::new(KBD_A), ctrl_alt_f(1), now());
+    s.type_on(KBD_A, "y\r");
+    s.until(Duration::from_millis(100), |_| false);
+    assert!(
+        !head_shows(&s.app, "desk", "got:y"),
+        "and the rescue key is off"
+    );
+}
+
+/// D7 and D9: a broken closed file runs nothing. The boot display shows
+/// its console line alone, on the notice screen, with no session behind
+/// it, still up past 30 s, and no keyboard delivers anything. S5 draws the
+/// panic screen in place of this notice.
+// covers: platform.heads.policy
+#[test]
+fn a_broken_closed_file_runs_nothing_and_shows_its_line_on_the_boot_display_for_good() {
+    let text = "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> kiosk\ninput * -> kiosk\n";
+    let displays = [
+        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
+        (
+            "/dev/mem1",
+            Memory::new(640, 320, "MEM-2", "mem-large").lit(),
+        ),
+    ];
+    let mut s = Seat::with_rules(&[], Some(start(text)), displays, ECHO, no_fonts());
+    s.app.add_input(Path::new(KBD_A), keyboard("kbd-a"));
+    assert!(
+        s.until_memory("/dev/mem1", SECOND, |m| m.has(PAPER)),
+        "drawn on the boot display"
+    );
+    let screen = |a: &App| {
+        a.notice_screen()
+            .map(|n| (n.notice().map(str::to_owned), n.cells().len()))
+    };
+    assert_eq!(screen(&s.app), Some((Some(CLOSED_OFF.to_owned()), 1)));
+    assert_eq!(
+        s.memory("/dev/mem0").dpms,
+        Some(Dpms::Off),
+        "the other display dark"
+    );
+    assert!(s.app.heads().is_empty());
+    s.type_on(KBD_A, "x\r");
+    s.type_str("y\r");
+    s.app.turn(now() + Duration::from_secs(31));
+    assert_eq!(
+        screen(&s.app),
+        Some((Some(CLOSED_OFF.to_owned()), 1)),
+        "no timeout, no key ends it"
+    );
+    assert!(
+        s.app
+            .notice_screen()
+            .is_some_and(|n| n.pty().is_none() && n.screen_text().iter().all(|l| l.is_empty())),
+        "no session"
+    );
+}
+
+/// D9: under `policy = closed` a file whose heads have no display lights
+/// the boot display for `vtium: no display for any head` alone, which
+/// stays until a head lights, when the head takes its display.
+// covers: platform.heads.guards
+#[test]
+fn under_closed_heads_with_no_display_light_the_boot_display_for_the_notice_alone() {
+    let text =
+        "version = 1\npolicy = closed\n[head desk]\n[rules]\ndisplay card:mem-large -> desk\n";
+    let displays = [(
+        "/dev/mem0",
+        Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+    )];
+    let mut s = Seat::with_rules(&[], Some(start(text)), displays, ECHO, no_fonts());
+    assert!(s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)));
+    assert_eq!(
+        s.app.notice_screen().and_then(Head::notice),
+        Some(NO_DISPLAY)
+    );
+    s.app.turn(now() + Duration::from_secs(31));
+    assert_eq!(
+        s.app.notice_screen().and_then(Head::notice),
+        Some(NO_DISPLAY),
+        "it stays"
+    );
+    s.app.add_video(
+        PathBuf::from("/dev/mem1"),
+        Box::new(Memory::new(640, 320, "MEM-2", "mem-large")),
+    );
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "desk", "ready")),
+        "a head lit"
+    );
+    assert!(
+        s.app.notice_screen().is_some_and(|n| n.cells().is_empty()),
+        "the notice screen let go"
+    );
+    assert_eq!(s.memory("/dev/mem0").dpms, Some(Dpms::Off));
+}
+
+/// D8: under `policy = closed` vtium never gives up for lack of a
+/// display: with none, it holds its VT past `display-wait` and waits,
+/// where an open file exits with status 1.
+// covers: platform.heads.policy
+#[test]
+fn under_closed_with_no_display_vtium_waits_past_display_wait() {
+    let closed = start(&format!("version = 1\npolicy = closed\n{DESK}"));
+    let mut s = Seat::with_rules(
+        &["--display-wait=0"],
+        Some(closed),
+        [],
+        "read x",
+        no_fonts(),
+    );
+    s.until(Duration::from_millis(300), |_| false);
+    assert_eq!(s.app.finished(), None, "it holds its VT");
+    let open = start(&format!("version = 1\n{DESK}"));
+    let mut s = Seat::with_rules(&["--display-wait=0"], Some(open), [], "read x", no_fonts());
+    assert!(s.until(SECOND, |a| a.finished().is_some()));
+    assert_eq!(s.app.finished().map(vtium::app::Exit::status), Some(1));
 }
 
 /// An invalid head file's notice, on one display.
 fn noticed() -> (Seat, HeadFile) {
     let file = HeadFile::new(
         "noticed",
-        "version = 1\n[head desk]\n[rules]\ndisplay * -> desc\n",
+        "version = 1\n[head desk]\ncolour = red\n[rules]\ndisplay * -> desk\n",
     );
     let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
     let mut s = Seat::with_rules(
@@ -3225,24 +3601,13 @@ input path:kbd-large -> large
 input class:keyboard -> small
 ";
 
-/// `text`'s head file, changed by `change`; under `policy = closed` the
-/// anti-lockout guard and the rescue key are off (ADR-1401 D9).
-fn guarded(
-    text: &str,
-    change: fn(&mut vtium_config::Config),
-) -> (vtium_config::Config, Option<String>) {
-    let mut config = vtium_config::parse(text).expect("valid").config;
-    change(&mut config);
-    (config, None)
-}
-
 const KBD_A: &str = "/dev/input/event4";
 const KBD_B: &str = "/dev/input/event5";
 
-/// [`STRANDED`], with the guards `rules` gives them, booted with only the
+/// [`STRANDED`], or `rules` in its place, booted with only the
 /// large display, two keyboards claimed by `small`, each head's session
 /// echoing each line it reads.
-fn stranded(rules: (vtium_config::Config, Option<String>)) -> Seat {
+fn stranded(rules: Start) -> Seat {
     let displays = [("/dev/mem1", Memory::new(640, 320, "MEM-2", "mem-large"))];
     let script = "echo ready; while read a; do echo \"got:$a\"; done";
     let mut s = Seat::with_rules(&[], Some(rules), displays, script, no_fonts());
@@ -3258,7 +3623,7 @@ fn stranded(rules: (vtium_config::Config, Option<String>)) -> Seat {
 /// keyboard types into its rule's head again.
 #[test]
 fn every_keyboard_claimed_by_a_head_with_no_display_types_into_the_focus() {
-    let mut s = stranded(guarded(STRANDED, |_| {}));
+    let mut s = stranded(start(STRANDED));
     let shown = notice(&s.app, "large").unwrap_or_default();
     assert!(shown.contains(LOCKED_OUT), "a notice: {shown:?}");
     s.type_on(KBD_A, "a\r");
@@ -3314,24 +3679,25 @@ fn losing_with_focus() -> Seat {
     s
 }
 
-/// D9's switch: with the anti-lockout guard off a ruleset that strands
-/// every keyboard is left as it is.
+/// D9: under `policy = closed` the anti-lockout guard is off, so a
+/// ruleset that strands every keyboard is left as it is.
+// covers: platform.heads.guards
 #[test]
-fn with_anti_lockout_off_a_ruleset_stranding_every_keyboard_is_left_as_it_is() {
-    let mut s = stranded(guarded(STRANDED, |c| {
-        c.policy = vtium_config::Policy::Closed
-    }));
+fn under_closed_a_ruleset_stranding_every_keyboard_is_left_as_it_is() {
+    let closed = STRANDED.replace("version = 1\n", "version = 1\npolicy = closed\n");
+    let mut s = stranded(start(&closed));
     s.type_on(KBD_A, "a\r");
     s.until(Duration::from_millis(200), |_| false);
     assert!(!head_shows(&s.app, "large", "got:a"));
     assert_eq!(notice(&s.app, "large"), None);
 }
 
-/// D7, D9 and D11's display-guard row: a file with `version = 1` and no
-/// rules lights the boot display in a default head; every other display
-/// stays dark.
+/// D7: an open file with `version = 1` alone is valid and declares
+/// nothing, so it runs the shipped default, as no file does: every display
+/// lights in its one head, mirroring one grid, and nothing is shown.
+// covers: platform.heads.policy
 #[test]
-fn a_file_with_version_1_and_no_rules_lights_the_boot_display() {
+fn a_file_with_version_1_alone_runs_the_shipped_default() {
     let displays = [
         ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
         (
@@ -3340,41 +3706,53 @@ fn a_file_with_version_1_and_no_rules_lights_the_boot_display() {
         ),
     ];
     let mut s = Seat::with_heads(&[], Some("version = 1\n"), displays, "echo ready; read x");
-    assert!(s.until(SECOND, |a| a.cells().len() == 1), "one display lit");
-    assert_eq!(s.app.grid(), (80, 20), "the boot display, the large, alone");
-    assert!(s.until(SECOND, |a| shows(a, "ready")), "its session runs");
-    assert_eq!(
-        s.memory("/dev/mem0").dpms,
-        Some(Dpms::Off),
-        "the other stays dark"
+    assert!(
+        s.until(SECOND, |a| a.cells().len() == 2),
+        "every display lit"
     );
+    assert_eq!(
+        s.app.heads().iter().map(Head::name).collect::<Vec<_>>(),
+        ["console"]
+    );
+    assert!(s.until(SECOND, |a| shows(a, "ready")), "its session runs");
+    assert_eq!(notice(&s.app, "console"), None);
 }
 
-/// D9's switch: with the display guard off a file with `version = 1` and
-/// no rules leaves every display dark.
+/// D7 and D9: under `policy = closed` a file that declares nothing is
+/// loaded but off: the display guard lights no display, not even for a
+/// notice, and nothing is shown.
+// covers: platform.heads.policy
 #[test]
-fn with_never_dark_off_a_file_with_no_rules_leaves_every_display_dark() {
+fn under_closed_a_file_declaring_nothing_leaves_every_display_dark() {
     let displays = [(
         "/dev/mem1",
         Memory::new(640, 320, "MEM-2", "mem-large").lit(),
     )];
-    let rules = guarded("version = 1\n", |c| c.policy = vtium_config::Policy::Closed);
+    let rules = start("version = 1\npolicy = closed\n");
     let mut s = Seat::with_rules(&[], Some(rules), displays, "echo ready; read x", no_fonts());
     s.until(Duration::from_millis(200), |_| false);
     assert_eq!(s.app.cells(), Vec::<(u32, u32)>::new());
+    assert!(s.app.heads().is_empty(), "no head, not even the default");
+    assert!(
+        s.app
+            .notice_screen()
+            .is_some_and(|n| n.cells().is_empty() && n.notice().is_none()),
+        "no notice either"
+    );
     assert_eq!(s.memory("/dev/mem1").dpms, Some(Dpms::Off));
 }
 
-/// D9's switches: with the rescue key off it moves nothing, and a head's
-/// `isolated = yes` keeps the keyboards it claims while another head's
-/// move.
+/// D9: under `policy = closed` the rescue key moves nothing, and under
+/// open a head's `isolated = yes` keeps the keyboards it claims while
+/// another head's move.
+// covers: platform.heads.rescue-key
 #[test]
-fn rescue_key_off_moves_nothing_and_an_isolated_head_keeps_its_keyboard() {
+fn under_closed_the_rescue_key_moves_nothing_and_an_isolated_head_keeps_its_keyboard() {
     // under closed a head isolated by default is never the active head
-    let open_heads = RESCUE.replace("]\n[", "]\nisolated = no\n[");
-    let mut s = rescue_seat(guarded(&open_heads, |c| {
-        c.policy = vtium_config::Policy::Closed;
-    }));
+    let open_heads = RESCUE
+        .replace("version = 1\n", "version = 1\npolicy = closed\n")
+        .replace("]\n[", "]\nisolated = no\n[");
+    let mut s = rescue_seat(start(&open_heads));
     s.app
         .device_input(Path::new(KBD_SMALL), ctrl_alt_f(1), now());
     s.type_on(KBD_SMALL, "s\r");
@@ -3414,7 +3792,7 @@ fn rescue_key_off_moves_nothing_and_an_isolated_head_keeps_its_keyboard() {
 /// here `small`, which has no display and receives nothing.
 #[test]
 fn a_keyboard_the_rescue_key_moved_lets_the_anti_lockout_guard_go() {
-    let mut s = stranded(guarded(STRANDED, |_| {}));
+    let mut s = stranded(start(STRANDED));
     s.app.device_input(Path::new(KBD_A), ctrl_alt_f(1), now());
     s.app.turn(now());
     s.type_on(KBD_A, "a\r");
@@ -3462,7 +3840,10 @@ fn a_boot_with_no_head_file_writes_nothing_where_it_lives() {
     std::fs::remove_file(&file.path).expect("no head file");
     let before = file.listing();
     let start = file.rules();
-    assert_eq!(start, (vtium_config::Config::builtin(), None));
+    assert_eq!(
+        (&start.rules, start.line()),
+        (&vtium_config::Config::builtin(), None)
+    );
     let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
     let mut s = Seat::with_rules(&[], Some(start), displays, "echo ready; read x", no_fonts());
     assert!(s.until(SECOND, |a| shows(a, "ready")));
@@ -3564,7 +3945,7 @@ fn a_file_with_no_heads_runs_its_default_head_with_no_false_lockout() {
 /// first drawn.
 #[test]
 fn a_flapping_keyboard_shows_the_anti_lockout_notice_once() {
-    let mut s = stranded(guarded(STRANDED, |_| {}));
+    let mut s = stranded(start(STRANDED));
     let first = now();
     s.app.turn(first);
     for _ in 0..20 {

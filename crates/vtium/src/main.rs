@@ -178,14 +178,10 @@ fn run(
     if let Some(font) = console {
         app.set_console_font(font);
     }
-    let (rules, notice) = vtium::head::rules(
+    app.set_heads(vtium::head::rules(
         Path::new(vtium_config::HEAD_FILE),
         &vtium_config::Trust::ROOT,
-    );
-    app.set_heads(rules);
-    if let Some(text) = notice {
-        app.notice(&text);
-    }
+    ));
 
     match start.input() {
         Some(mut input) => {

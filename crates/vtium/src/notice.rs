@@ -62,11 +62,12 @@ pub fn session_ended_console() -> String {
     )
 }
 
-/// The last line of the notice of a head file with errors (ADR-1401 D7).
-pub fn head_file_ignored() -> String {
+/// What the boot display shows once a crash loop stopped every head under
+/// the closed policy, for as long as vtium runs (ADR-1401 D1).
+pub fn stopped() -> String {
     format!(
-        "This file has errors, so vtium ignored it and uses its built-in rules. Fix the errors above and check the file with `{command}`, then restart vtium or reboot to use it.",
-        command = CHECK_CONFIG,
+        "A session kept ending as soon as it started, so vtium stopped every screen, and nothing here takes input. Fix the login command in {} or kmscon.conf, then restart vtium or reboot.",
+        vtium_config::HEAD_FILE
     )
 }
 

@@ -176,6 +176,13 @@ impl Routes {
         head_of(place.unwrap_or(Place::Roaming), focus)
     }
 
+    /// Whether the device at `node` roams, typing into the active head: one
+    /// no rule placed, as one a test types on, does.
+    pub(crate) fn roams(&self, node: Option<&Path>) -> bool {
+        node.and_then(|n| self.devices.get(n))
+            .is_none_or(|r| r.place() == Place::Roaming)
+    }
+
     /// The handles of the devices whose events go to head `h`.
     pub(crate) fn devices_of(&self, h: usize, focus: Option<usize>) -> Vec<DeviceId> {
         self.devices
@@ -221,26 +228,40 @@ fn head_of(place: Place, focus: Option<usize>) -> Option<usize> {
     }
 }
 
-/// The rules in force: `rules`, with the shipped rules' pointer rules
-/// sending pointers to `ignore` under kmscon.conf's `mouse` off, its
-/// shorthand (ADR-1401 D3), so a pointer is never opened, one with udev's
-/// key class on its node too.
+/// The rules in force: `rules`, with kmscon.conf's `mouse` off, its
+/// shorthand (ADR-1401 D3), sending the shipped rules' pointer rules to
+/// `ignore`, so a pointer is never opened, one with udev's key class on its
+/// node too. The shipped rules are the compiled-in configuration's own and
+/// their tail, which a partly broken open file's inputs walk after its
+/// surviving rules (D7).
 pub(crate) fn in_force(
     mut rules: vtium_config::Config,
     config: &crate::config::Config,
 ) -> vtium_config::Config {
-    use vtium_config::{Match, Target, Token};
-    if config.switch(&crate::config::keys::MOUSE) || rules != vtium_config::Config::builtin() {
+    if config.switch(&crate::config::keys::MOUSE) {
         return rules;
     }
-    for rule in &mut rules.rules {
+    let shipped = vtium_config::Config::builtin();
+    if rules == shipped {
+        ignore_pointers(&mut rules.rules);
+    } else {
+        let mut tail = shipped.rules;
+        ignore_pointers(&mut tail);
+        rules.tail = Some(tail);
+    }
+    rules
+}
+
+/// Sends each rule of `rules` that takes a pointer class alone to `ignore`.
+fn ignore_pointers(rules: &mut [vtium_config::Rule]) {
+    use vtium_config::{Match, Target, Token};
+    for rule in rules {
         if matches!(&rule.matcher, Match::All(tokens)
             if matches!(tokens.as_slice(), [Token::Class(c)] if c.is_pointer()))
         {
             rule.target = Target::Ignore;
         }
     }
-    rules
 }
 
 #[cfg(test)]

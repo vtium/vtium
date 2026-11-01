@@ -133,7 +133,7 @@ pub(crate) enum AfterExit {
     /// place, and shows that its session ended.
     Ended,
     /// The console's program exited quickly too many times running, which
-    /// ends vtium.
+    /// ends the run (ADR-1401 D1).
     GaveUp,
 }
 
@@ -241,10 +241,10 @@ impl Head {
         let after = match next {
             Next::Restart => AfterExit::Restart,
             Next::Oneshot => AfterExit::Ended,
-            // vtium leaves the VT in this turn, so the head draws no notice.
+            // The run ends in this turn, so the head draws no notice.
             Next::TooQuick => {
                 log::error!(
-                    "head {}: the session of console {id} ended less than {} s after it started, more than {QUICK_RESTARTS} times running, so vtium exits",
+                    "head {}: the session of console {id} ended less than {} s after it started, more than {QUICK_RESTARTS} times running",
                     self.name(),
                     QUICK.as_secs()
                 );
