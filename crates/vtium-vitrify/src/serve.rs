@@ -774,18 +774,17 @@ impl Engine {
 
     /// The baseline and the underline and strike-through a strike at
     /// `cell` reports (ADR-1302 D3, ADR-1200 D2): those of the frit's
-    /// first source that has not failed, the font that sets the cell, for
-    /// an outline font; else the cell's bottom row and the lines of a face
-    /// with no metrics of its own, as a bitmap source carries no baseline
-    /// the helper reads.
+    /// first source, the font that sets the cell, for an outline font, so
+    /// every answer at one cell reports the same ones even after that
+    /// source fails as it draws; else, for a bitmap first source or one
+    /// whose font cannot be read, the cell's bottom row and the lines of a
+    /// face with no metrics of its own.
     fn metrics_at(&self, cell: Cell) -> (u32, Decorations) {
-        let first = (0..self.sources.len()).find(|i| !self.failed.borrow().contains_key(i));
         let plain = (cell.height, Decorations::for_height(cell.height));
-        let Some(i) = first else { return plain };
-        let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(i) else {
+        let Some((_, Loaded::Outline { font, family, .. })) = self.sources.first() else {
             return plain;
         };
-        let Some(base) = self.baseline(i, cell.height) else {
+        let Some(base) = self.baseline(0, cell.height) else {
             return plain;
         };
         let lines = crate::outline::decorations(font, family, cell.height, base).unwrap_or(plain.1);
@@ -2047,6 +2046,32 @@ mod tests {
         let a = face.draw(&['a'], Style::default()).unwrap();
         let inked = |y: usize| a.pixels()[y * 7..(y + 1) * 7].iter().any(|&p| p > 0);
         assert!(inked(8) && !inked(9), "a stands on row 9 asked alone");
+    }
+
+    // a strike reports its frit's first source's baseline even once that
+    // source has failed as it drew, so the answers at one cell never change
+    // mid-session (review finding A6): Test Mono with an underscore that
+    // raises its baseline at 12 pixels from 10 to 9
+    #[test]
+    fn a_strike_keeps_its_first_sources_baseline_after_it_fails() {
+        let mut font = super::ttf::test_mono();
+        font.glyphs
+            .push(super::ttf::Glyph::rect(600, 0, -200, 600, -100));
+        font.cmap.push((0x5f, 8));
+        font.cmap.sort_unstable();
+        let (frit, dir) = outline_frit("first-baseline", "", &[Ok(font), Err("builtin:unscii-8")]);
+        let engine = Engine::load(&frit, &Paths::default(), None).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
+        let cell = Cell {
+            width: 7,
+            height: 12,
+        };
+        assert_eq!(engine.metrics_at(cell).0, 9);
+        engine
+            .failed
+            .borrow_mut()
+            .insert(0, "failed as it drew".to_owned());
+        assert_eq!(engine.metrics_at(cell).0, 9, "after the source fails");
     }
 
     // ADR-1200 D17: a frit that states its cell is drawn at it, the W
