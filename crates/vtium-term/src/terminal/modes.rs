@@ -644,7 +644,7 @@ enum Value {
 }
 
 /// What XTSAVE saved, one state a slot, as DECSC keeps one cursor: until
-/// a later XTSAVE of the slot replaces it, or DECSTR or RIS clears it.
+/// a later XTSAVE of the slot replaces it, or RIS clears it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct SavedModes(BTreeMap<Slot, Value>);
 
@@ -880,7 +880,7 @@ mod tests {
              alternate screen modes 47, 1047 and 1049, which XTRESTORE switches as 47 does, \
              neither cleared nor the cursor moved. Mode 1048 holds no state: XTSAVE of it saves \
              the cursor as DECSC does and XTRESTORE restores it as DECRC does, and the empty \
-             list leaves it out. DECSTR and RIS clear what XTSAVE saved.\n\n",
+             list leaves it out. DECSTR keeps what XTSAVE saved, and RIS clears it.\n\n",
         );
         out += &format!("| {} |\n", COLUMNS.join(" | "));
         out += &format!("|{}\n", "---|".repeat(COLUMNS.len()));

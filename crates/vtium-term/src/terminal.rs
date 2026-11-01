@@ -588,10 +588,10 @@ impl State {
     }
 
     /// DECSTR, and the first half of RIS: the modes, the pen, the cursor
-    /// style, the character sets, the saved cursors and modes, the margins,
-    /// the tab stops, XTSHIFTESCAPE and the 256 palette colors return to
-    /// their initial state; the text, the cursor and the colors OSC 10 to
-    /// 19 set stay.
+    /// style, the character sets, the saved cursors, the margins, the tab
+    /// stops and the 256 palette colors return to their initial state;
+    /// the text, the cursor, the colors OSC 10 to 19 set, what XTSAVE
+    /// saved and XTSHIFTESCAPE stay, as Ghostty keeps the last two.
     fn soft_reset(&mut self) {
         self.screen.reset();
         self.screen.set_pen(Style::DEFAULT);
@@ -600,20 +600,21 @@ impl State {
         self.conformance = 62;
         self.charsets = self.default_charsets();
         self.modify_other_keys = 0;
-        self.shift_escape = false;
         self.dcs = Dcs::Ignored;
         modes::reset(self, false);
         self.saved = [Saved::HOME; 2];
-        self.xtsave = SavedModes::default();
         self.reset_colors(false);
     }
 
     /// RIS: DECSTR's reset, the modes only RIS resets, every color the
-    /// program set, the SGR and color stacks emptied, the open link ended,
-    /// the screen and the scrollback erased, the cursor home, and the
-    /// blank timeout the host's again.
+    /// program set, the SGR and color stacks emptied, what XTSAVE saved
+    /// cleared and XTSHIFTESCAPE 0, the open link ended, the screen and the
+    /// scrollback erased, the cursor home, and the blank timeout the host's
+    /// again.
     fn hard_reset(&mut self) {
         self.soft_reset();
+        self.xtsave = SavedModes::default();
+        self.shift_escape = false;
         self.screen.close_link();
         self.reset_colors(true);
         self.sgr_stack = sgr::Stack::default();

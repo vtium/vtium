@@ -881,11 +881,25 @@ fn xtsave_keeps_one_state_for_modes_that_share_one() {
     t.input(b"\x1b[?1049r");
     assert!(t.screen().alternate());
     assert_eq!(rows(t.screen())[0], "alt", "restored, not cleared");
-    // Nothing saved: XTRESTORE leaves the mode.
-    let mut t = term(8, 4, b"\x1b[?25l\x1b[?25r");
-    assert_eq!(rqm(&mut t, true, 25), 2);
-    t.input(b"\x1b[?25h\x1b[?25s\x1b[!p\x1b[?25l\x1b[?25r");
-    assert_eq!(rqm(&mut t, true, 25), 2, "DECSTR cleared what was saved");
+}
+
+// The maintainer's ruling, as Ghostty splits the resets: XTRESTORE of a
+// mode nothing was saved for leaves it as it is; DECSTR keeps what XTSAVE
+// saved, and RIS clears it, where xterm keeps it through both.
+// covers: ctl.xtsave
+#[test]
+fn decstr_keeps_what_xtsave_saved_and_ris_clears_it() {
+    // Mode 25 is set at start, and nothing was saved for it.
+    let mut t = term(8, 4, b"\x1b[?25r");
+    assert_eq!(rqm(&mut t, true, 25), 1, "nothing saved: the mode stays");
+    t.input(b"\x1b[?25l\x1b[?25s\x1b[!p");
+    assert_eq!(rqm(&mut t, true, 25), 1, "DECSTR sets 25");
+    t.input(b"\x1b[?25r");
+    assert_eq!(rqm(&mut t, true, 25), 2, "DECSTR kept what was saved");
+    t.input(b"\x1b[?25s\x1bc");
+    assert_eq!(rqm(&mut t, true, 25), 1, "RIS sets 25");
+    t.input(b"\x1b[?25r");
+    assert_eq!(rqm(&mut t, true, 25), 1, "RIS cleared what was saved");
 }
 
 // kitty's misc-protocol: XTSAVE and XTRESTORE with an empty list save and
@@ -921,12 +935,15 @@ fn the_empty_list_saves_and_restores_every_mode() {
 // ctlseqs, XTSHIFTESCAPE, as Ghostty's page reads it: `CSI > 1 s` asks
 // that Shift reach the program's mouse reports, and `CSI > 0 s` or an
 // omitted value lets the host take a Shift-click for its own selection;
-// another value does nothing. DECSTR returns it to 0.
+// another value does nothing. DECSTR keeps it and RIS returns it to 0, the
+// maintainer's ruling, as Ghostty splits the resets.
 // covers: input.xtshiftescape
 #[test]
 fn xtshiftescape_says_whether_shift_reaches_the_mouse_reports() {
     let mut t = term(8, 4, b"\x1b[?1000h\x1b[?1006h");
     assert!(!t.mouse_captures_shift());
+    t.input(b"\x1b[>2s");
+    assert!(!t.mouse_captures_shift(), "2 from 0 does nothing");
     t.input(b"\x1b[>1s");
     assert!(t.mouse_captures_shift());
     t.mouse(
@@ -946,7 +963,9 @@ fn xtshiftescape_says_whether_shift_reaches_the_mouse_reports() {
     t.input(b"\x1b[>1s\x1b[>0s");
     assert!(!t.mouse_captures_shift());
     t.input(b"\x1b[>1s\x1b[!p");
-    assert!(!t.mouse_captures_shift(), "DECSTR");
+    assert!(t.mouse_captures_shift(), "DECSTR keeps it");
+    t.input(b"\x1bc");
+    assert!(!t.mouse_captures_shift(), "RIS returns it to 0");
     t.input(b"\x1b[>1s\x1b[?1s");
     assert!(t.mouse_captures_shift(), "a private marker makes XTSAVE");
 }
