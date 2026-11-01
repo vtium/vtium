@@ -119,6 +119,14 @@ pub const TOKENS_MAX: usize = TOKENS.value as usize;
 /// with a warning.
 pub const CONSOLES_MAX: u32 = CONSOLES.value;
 
+/// Consoles a head gets at most when kmscon.conf's `head-consoles-max`
+/// is unset (ADR-1401 D10).
+pub const HEAD_CONSOLES_DEFAULT: u32 = 4;
+
+/// Consoles every head together gets at most when kmscon.conf's
+/// `consoles-max` is unset (ADR-1401 D10).
+pub const CONSOLES_TOTAL_DEFAULT: u32 = 8;
+
 /// Errors, warnings and notes kept, each kind apart; past it they are
 /// counted.
 pub const ERRORS_MAX: usize = ERRORS.value as usize;

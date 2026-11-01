@@ -22,7 +22,7 @@ use crate::bounds::{
     CONSOLES_MAX, ERRORS_MAX, FILE_MAX, HEADS_MAX, LINE_MAX, NAME_MAX, RULES_MAX, TOKENS_MAX,
 };
 use crate::config::{Config, Head, Rule, Target, WhenDisplayLost};
-use crate::error::{Error, Note, Problem, Quoted, Rejected, Renamed, Syntax, Warning};
+use crate::error::{Drops, Error, Note, Problem, Quoted, Rejected, Renamed, Syntax, Warning};
 use crate::identity::Kind;
 use crate::matching::{Match, Token, TokenError};
 use crate::outcome::{Kept, Policy, PolicyLine, Scope, Trusted, Within, scope};
@@ -356,7 +356,8 @@ impl Parser {
             }
             _ => {}
         }
-        self.errors.push(line, problem);
+        self.errors
+            .push_dropping(line, problem, Some(Drops::of(scope, within)));
     }
 
     /// Where a line sits, from the section it is read in.
@@ -579,7 +580,10 @@ impl Parser {
         let mut capped = false;
         if let Some(head) = self.heads.get_mut(index).map(|d| &mut d.head) {
             match key {
-                "profile" if good_name(value) => head.profile = value.to_owned(),
+                "profile" if good_name(value) => {
+                    head.profile = value.to_owned();
+                    head.profile_line = n;
+                }
                 "profile" => problem = Some(Problem::BadName(Quoted::new(value))),
                 "consoles" => match decimal(value) {
                     Some(Some(0)) => {
@@ -588,9 +592,13 @@ impl Parser {
                             value: Quoted::new(value),
                         });
                     }
-                    Some(Some(count)) if count <= CONSOLES_MAX => head.consoles = count,
+                    Some(Some(count)) if count <= CONSOLES_MAX => {
+                        head.consoles = count;
+                        head.consoles_line = n;
+                    }
                     Some(_) => {
                         head.consoles = CONSOLES_MAX;
+                        head.consoles_line = n;
                         capped = true;
                     }
                     None => problem = Some(bad()),
@@ -722,7 +730,11 @@ impl Parser {
         if scope == Scope::File {
             self.whole = true;
         }
-        self.late.push(Error { line, problem });
+        self.late.push(Error {
+            line,
+            problem,
+            drops: Some(Drops::of(scope, within)),
+        });
     }
 
     fn finish(mut self) -> Reading {
