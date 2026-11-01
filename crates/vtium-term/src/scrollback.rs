@@ -4,6 +4,8 @@
 
 use core::mem;
 use core::ops::Range;
+#[cfg(feature = "images")]
+use std::collections::BTreeMap;
 use std::collections::VecDeque;
 
 use crate::bounds::{
@@ -111,10 +113,15 @@ pub(crate) struct Scrollback {
     /// The rewrapped row at the top of the view, or `None` while the view
     /// shows the screen.
     view: Option<usize>,
-    /// The rows dropped from the oldest end since the screen last took
-    /// them, oldest first, whose image placements the screen clips.
+    /// What happened to rows image placements may be anchored on, in order,
+    /// since the screen last took it: rows dropped from the oldest end, and
+    /// anchors a rewrap of waiting rows carried to their new rows.
     #[cfg(feature = "images")]
-    dropped: Vec<LineId>,
+    log: Vec<Change>,
+    /// The columns placements are anchored at on waiting rows, which a
+    /// rewrap of those rows carries (ADR-1003, "Images").
+    #[cfg(feature = "images")]
+    anchors: BTreeMap<LineId, Vec<u32>>,
 }
 
 /// The scrollback's oldest rows, waiting to be rewrapped at `width`.
@@ -190,6 +197,59 @@ impl Waiting {
     }
 }
 
+/// What happened to a row an image placement may be anchored on.
+#[cfg(feature = "images")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Change {
+    /// The row left the scrollback's oldest end.
+    Dropped(LineId),
+    /// A rewrap carried the cell at `col` of row `from` to `to_col` of row
+    /// `to`.
+    Moved {
+        from: LineId,
+        col: u32,
+        to: LineId,
+        to_col: u32,
+    },
+}
+
+/// The places of the anchors recorded on `rows`, which are about to
+/// rewrap, each with its row and column; they are no longer recorded.
+#[cfg(feature = "images")]
+fn take_anchors<'a>(
+    anchors: &mut BTreeMap<LineId, Vec<u32>>,
+    rows: impl Iterator<Item = &'a Line>,
+) -> (Vec<reflow::Place>, Vec<(LineId, u32)>) {
+    let mut places = Vec::new();
+    let mut from = Vec::new();
+    if anchors.is_empty() {
+        return (places, from);
+    }
+    for (i, row) in rows.enumerate() {
+        for col in anchors.remove(&row.id()).unwrap_or_default() {
+            places.push(reflow::Place::at(i, usize::try_from(col).unwrap_or(usize::MAX)));
+            from.push((row.id(), col));
+        }
+    }
+    (places, from)
+}
+
+/// Logs where the rewrap that made `made` carried each anchor.
+#[cfg(feature = "images")]
+fn carried(log: &mut Vec<Change>, places: &[reflow::Place], from: &[(LineId, u32)], made: &[Line]) {
+    for (place, &(id, col)) in places.iter().zip(from) {
+        if let Some(row) = made.get(place.row) {
+            let to_col = u32::try_from(place.col).unwrap_or(u32::MAX);
+            log.push(Change::Moved {
+                from: id,
+                col,
+                to: row.id(),
+                to_col,
+            });
+        }
+    }
+}
+
 /// What a resize takes from the scrollback to rewrap at once.
 pub(crate) struct Taken {
     /// The rows, oldest first.
@@ -257,7 +317,9 @@ impl Scrollback {
             bytes_max: SB_MEMORY_DEFAULT,
             view: None,
             #[cfg(feature = "images")]
-            dropped: Vec::new(),
+            log: Vec::new(),
+            #[cfg(feature = "images")]
+            anchors: BTreeMap::new(),
         }
     }
 
@@ -467,7 +529,7 @@ impl Scrollback {
                 gone = gone.saturating_add(charge(w.rows.range(..len)));
                 if rows <= n {
                     #[cfg(feature = "images")]
-                    self.dropped.extend(w.rows.range(..len).map(Line::id));
+                    self.log.extend(w.rows.range(..len).map(|l| Change::Dropped(l.id())));
                     w.rows.drain(..len);
                     w.count = w.count.saturating_sub(rows);
                     let extra = u64::try_from(rows.saturating_sub(1)).unwrap_or(0);
@@ -475,14 +537,21 @@ impl Scrollback {
                     n = n.saturating_sub(rows);
                     continue;
                 }
-                if reflow::breaks_by_length(w.rows.range(..len)) {
+                // a line with an anchor on it rewraps, so the anchor is
+                // carried; the cheaper split would leave it on a row whose
+                // id changes
+                #[cfg(feature = "images")]
+                let anchored = w.rows.range(..len).any(|l| self.anchors.contains_key(&l.id()));
+                #[cfg(not(feature = "images"))]
+                let anchored = false;
+                if !anchored && reflow::breaks_by_length(w.rows.range(..len)) {
                     // The line's first `n` rows hold its first `n` widths
                     // of text: they go unrewrapped. What is left starts
                     // with the row the n-th id was reserved for, and its
                     // marks went with the first row.
                     let (at, inserted) = split_line(&mut w.rows, 0, n.saturating_mul(w.width));
                     #[cfg(feature = "images")]
-                    self.dropped.extend(w.rows.range(..at).map(Line::id));
+                    self.log.extend(w.rows.range(..at).map(|l| Change::Dropped(l.id())));
                     w.rows.drain(..at);
                     let kept = len.saturating_add(usize::from(inserted)).saturating_sub(at);
                     made_bytes = made_bytes.saturating_add(charge(w.rows.range(..kept)));
@@ -503,13 +572,19 @@ impl Scrollback {
                 }
                 let mut next_id = w.ids.start;
                 let mut made = Vec::with_capacity(rows);
+                #[cfg(feature = "images")]
+                let (mut places, from) = take_anchors(&mut self.anchors, w.rows.range(..len));
+                #[cfg(not(feature = "images"))]
+                let mut places: [reflow::Place; 0] = [];
                 reflow::rewrap_line(
                     w.rows.drain(..len),
                     w.width,
                     &mut next_id,
-                    &mut [],
+                    &mut places,
                     &mut made,
                 );
+                #[cfg(feature = "images")]
+                carried(&mut self.log, &places, &from, &made);
                 w.ids.start = next_id.min(w.ids.end);
                 w.ready = made.len();
                 made_bytes = made_bytes.saturating_add(charge(&made));
@@ -520,7 +595,7 @@ impl Scrollback {
             let k = n.min(w.ready);
             gone = gone.saturating_add(charge(w.rows.range(..k)));
             #[cfg(feature = "images")]
-            self.dropped.extend(w.rows.range(..k).map(Line::id));
+            self.log.extend(w.rows.range(..k).map(|l| Change::Dropped(l.id())));
             w.rows.drain(..k);
             w.ready = w.ready.saturating_sub(k);
             w.count = w.count.saturating_sub(k);
@@ -532,7 +607,7 @@ impl Scrollback {
         let k = n.min(self.lines.len());
         gone = gone.saturating_add(charge(self.lines.range(..k)));
         #[cfg(feature = "images")]
-        self.dropped.extend(self.lines.range(..k).map(Line::id));
+        self.log.extend(self.lines.range(..k).map(|l| Change::Dropped(l.id())));
         self.lines.drain(..k);
         self.bytes = self.bytes.saturating_add(made_bytes).saturating_sub(gone);
         self.view = self.view.map(|i| i.saturating_sub(k));
@@ -558,13 +633,19 @@ impl Scrollback {
             let mut next_id = w.ids.end.saturating_sub(extra).max(w.ids.start);
             w.ids.end = next_id;
             let mut made = Vec::with_capacity(rows);
+            #[cfg(feature = "images")]
+            let (mut places, anchored) = take_anchors(&mut self.anchors, w.rows.range(from..));
+            #[cfg(not(feature = "images"))]
+            let mut places: [reflow::Place; 0] = [];
             reflow::rewrap_line(
                 w.rows.drain(from..),
                 w.width,
                 &mut next_id,
-                &mut [],
+                &mut places,
                 &mut made,
             );
+            #[cfg(feature = "images")]
+            carried(&mut self.log, &places, &anchored, &made);
             made
         };
         w.count = w.count.saturating_sub(made.len());
@@ -704,11 +785,41 @@ impl Scrollback {
         Some(line)
     }
 
-    /// The rows dropped from the oldest end since the last call, oldest
-    /// first.
+    /// What happened to rows since the last call, in order.
     #[cfg(feature = "images")]
-    pub(crate) fn take_dropped(&mut self) -> Vec<LineId> {
-        mem::take(&mut self.dropped)
+    pub(crate) fn take_changes(&mut self) -> Vec<Change> {
+        mem::take(&mut self.log)
+    }
+
+    /// Records the columns placements are anchored at on each waiting row
+    /// of `anchors`, replacing what was recorded; a row that does not wait
+    /// is left out, since a resize carries it at once.
+    #[cfg(feature = "images")]
+    pub(crate) fn set_waiting_anchors(&mut self, anchors: Vec<(LineId, Vec<u32>)>) {
+        self.anchors.clear();
+        if anchors.is_empty() || self.waiting.rows.is_empty() {
+            return;
+        }
+        let waiting: std::collections::BTreeSet<LineId> =
+            self.waiting.rows.range(self.waiting.ready..).map(Line::id).collect();
+        for (id, cols) in anchors {
+            if waiting.contains(&id) {
+                self.anchors.insert(id, cols);
+            }
+        }
+    }
+
+    /// A placement was anchored on row `id` at column `col`; recorded when
+    /// the row waits.
+    #[cfg(feature = "images")]
+    pub(crate) fn note_anchor(&mut self, id: LineId, col: u32) {
+        let w = &self.waiting;
+        if w.rows.range(w.ready..).any(|l| l.id() == id) {
+            let cols = self.anchors.entry(id).or_default();
+            if !cols.contains(&col) {
+                cols.push(col);
+            }
+        }
     }
 
     /// The oldest row's id: the line a dropped row's placements go on

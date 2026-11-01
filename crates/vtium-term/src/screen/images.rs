@@ -15,6 +15,7 @@ mod with {
 
     use super::super::Screen;
     use crate::line::{Line, LineId};
+    use crate::scrollback::Change;
 
     fn key(line: &Line) -> LineKey {
         LineKey::new(line.id().get())
@@ -187,23 +188,62 @@ mod with {
             self.images_settled();
         }
 
-        /// The scrollback dropped its oldest rows: each one's placements
-        /// lose that row and go on from the row after it.
+        /// What the scrollback did to its rows since: each row dropped from
+        /// its oldest end clips its placements, which go on from the row
+        /// after it, and each anchor a rewrap of waiting rows carried moves
+        /// to its new row (ADR-1003, "Images").
         pub(in crate::screen) fn images_dropped(&mut self) {
-            let dropped = self.scrollback.take_dropped();
-            if dropped.is_empty() || self.images.is_empty() {
+            let changes = self.scrollback.take_changes();
+            if changes.is_empty() || self.images.is_empty() {
                 return;
             }
-            let next = self
+            let oldest = self
                 .scrollback
                 .oldest_id()
                 .or_else(|| self.main.first().map(Line::id));
-            let nexts = dropped.iter().skip(1).copied().map(Some).chain([next]);
-            for (&line, next) in dropped.iter().zip(nexts) {
-                let next = next.map(|n: LineId| LineKey::new(n.get()));
-                self.images.discard_line(LineKey::new(line.get()), next);
+            for (i, change) in changes.iter().enumerate() {
+                match *change {
+                    Change::Dropped(line) => {
+                        let next = match changes.get(i.saturating_add(1)) {
+                            Some(&Change::Dropped(next)) => Some(next),
+                            _ => oldest,
+                        };
+                        let to = next.map(|n| LineKey::new(n.get()));
+                        self.images.discard_line(LineKey::new(line.get()), to);
+                        // the piece now on a waiting row is carried when
+                        // that row rewraps
+                        if let Some(next) = next {
+                            for (_, col) in self.images.anchors_on(LineKey::new(next.get())) {
+                                self.scrollback.note_anchor(next, col);
+                            }
+                        }
+                    }
+                    Change::Moved { from, col, to, to_col } => {
+                        for (p, at) in self.images.anchors_on(LineKey::new(from.get())) {
+                            if at == col {
+                                self.images.move_anchor(p, Some((LineKey::new(to.get()), to_col)));
+                            }
+                        }
+                    }
+                }
             }
             self.images_settled();
+        }
+
+        /// After a resize: the anchors on rows left waiting are recorded,
+        /// for the rewrap that later reaches them to carry.
+        pub(in crate::screen) fn images_register_waiting(&mut self) {
+            if !self.images.main_has_placements() {
+                self.scrollback.set_waiting_anchors(Vec::new());
+                return;
+            }
+            let anchors = self
+                .images
+                .main_anchor_lines()
+                .into_iter()
+                .map(|(line, cols)| (LineId::new(line.get()), cols))
+                .collect();
+            self.scrollback.set_waiting_anchors(anchors);
         }
 
         /// ED 2's own rule, after its erase.
@@ -263,19 +303,6 @@ mod with {
         /// Starts an input call's count of image work afresh.
         pub(crate) fn take_image_work(&mut self) -> u64 {
             self.images.take_work()
-        }
-
-        /// The index of the oldest rewrapped scrollback row a placement of
-        /// the main buffer is anchored on. A rewrap takes every row from it
-        /// on, so no placement is ever anchored on a row left waiting, and
-        /// the rows that wait rewrap later with nothing to carry.
-        pub(in crate::screen) fn images_oldest_anchored(&self) -> Option<usize> {
-            if !self.images.main_has_placements() {
-                return None;
-            }
-            self.scrollback
-                .lines()
-                .position(|l| self.images.anchored_main(LineKey::new(l.id().get())))
         }
 
         /// The rows above the main screen a rewrap takes beside the screen's

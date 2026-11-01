@@ -50,7 +50,7 @@ pub(crate) struct Place {
 }
 
 impl Place {
-    fn at(row: usize, col: usize) -> Self {
+    pub(crate) fn at(row: usize, col: usize) -> Self {
         Self {
             row,
             col,
@@ -458,13 +458,8 @@ impl Screen {
         let reach = selection
             .iter()
             .filter_map(|a| self.scrollback.lines().position(|l| l.id() == a.line))
-            .chain(view);
-        // So do the rows a placement is anchored on: a row left to wait
-        // takes a new id when it rewraps later, and an anchor carried only
-        // by its old id would point at no row (ADR-1003, "Images").
-        #[cfg(feature = "images")]
-        let reach = reach.chain(self.images_oldest_anchored());
-        let reach = reach.min();
+            .chain(view)
+            .min();
         // and the rows a placement above the screen reaches down from
         #[cfg(feature = "images")]
         let margin = rows.saturating_add(self.images_reach());
@@ -558,6 +553,8 @@ impl Screen {
         self.scrollback.enforce_max();
         self.images_dropped();
         self.discard_lines(gone);
+        #[cfg(feature = "images")]
+        self.images_register_waiting();
     }
 
     /// Puts what the rewrap carried where its cells landed: rows from `top`

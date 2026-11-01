@@ -348,9 +348,10 @@ fn a_rewrap_carries_a_placement_with_its_lines_text() {
 /// Every placement the view shows at each offset back through the
 /// scrollback, as (offset, row, col, kind) tuples.
 fn at_every_offset(t: &mut Terminal) -> Vec<(usize, i64, u32, &'static str)> {
-    let depth = t.screen().scrollback().len();
+    // the rewrapped rows only, while a lazy scrollback still has rows
+    // waiting: reach past every row either can hold
     let mut out = Vec::new();
-    for offset in 0..=depth {
+    for offset in 0..=40 {
         t.screen_mut().reset_view();
         t.screen_mut().scroll_view_up(offset);
         out.extend(
