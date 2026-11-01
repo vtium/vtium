@@ -2504,10 +2504,13 @@ impl App {
         let lit = std::mem::take(&mut self.lit);
         self.dark.extend(lit);
         self.darken();
-        // no head and no rule: the display guard lights the boot display
-        // for the notice alone
+        // No rule, so no display joins a head again and the display guard
+        // lights the boot display for the notice alone. The heads stay, each
+        // isolated as the file wrote it, so a keyboard asking an isolated
+        // head still switches no VT, whatever else delivers.
         self.rules = vtium_config::Config {
             policy: Policy::Closed,
+            heads: std::mem::take(&mut self.rules.heads),
             survivors: true,
             ..vtium_config::Config::default()
         };

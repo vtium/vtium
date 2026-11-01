@@ -1883,9 +1883,12 @@ policy = {policy}
 consoles = {small}
 [head large]
 consoles = {large}
+isolated = no
 [rules]
 display card:mem-small -> small
 display card:mem-large -> large
+input path:kbd-large -> large
+input path:kbd-roaming -> roaming
 ",
         small = if looping == "small" { 1 } else { 2 },
         large = if looping == "large" { 1 } else { 2 },
@@ -1928,6 +1931,45 @@ fn a_head_restarting_too_fast_ends_vtium_and_hangs_up_every_head() {
             s.app.head(looping).and_then(Head::notice),
             None,
             "no notice on {looping}"
+        );
+    }
+}
+
+/// D1, D5 and D9: once a crash loop stopped a closed seat, no keyboard
+/// reaches anything: the VT key pressed on the keyboard of `large`, a head
+/// that is not isolated, and on a roaming keyboard switches no VT, and the
+/// keys typed on either reach no session.
+// covers: platform.heads.policy
+#[test]
+fn after_a_closed_crash_loop_no_keyboard_switches_the_vt_or_reaches_a_session() {
+    let dir = std::env::temp_dir().join(format!(
+        "vtium-heads-crash-loop-keys-{}",
+        std::process::id()
+    ));
+    let mut s = crash_loop(&dir, "small", "closed");
+    let roaming = "/dev/input/event6";
+    s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
+    s.app.add_input(Path::new(roaming), keyboard("kbd-roaming"));
+    let stopped = vtium::notice::stopped();
+    let shown = s.until(Duration::from_secs(4), |a| {
+        a.notice_screen().and_then(Head::notice) == Some(stopped.as_str())
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(shown, "the crash loop stopped the seat");
+    for node in [KBD_LARGE, roaming] {
+        s.app.device_input(Path::new(node), vt_key(), now());
+        assert!(s.app.vt.is_active(), "{node}: the VT stays");
+        s.type_on(node, "typed\r");
+    }
+    s.until(Duration::from_millis(200), |_| false);
+    for head in s.app.heads() {
+        assert!(
+            head.consoles_text()
+                .iter()
+                .flatten()
+                .all(|l| !l.contains("typed")),
+            "{}: nothing reached it",
+            head.name()
         );
     }
 }
