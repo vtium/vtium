@@ -2117,6 +2117,22 @@ impl App {
         self.deliver(Some(node), event, now);
     }
 
+    /// An event as the input drains it, from the device with the handle
+    /// `e.device` or from none, which every turn delivers.
+    pub fn drained_input(&mut self, e: DeviceInput, now: Instant) {
+        // A device watched for the rescue key sends its presses alone.
+        let node = e
+            .device
+            .and_then(|id| self.routes.node(id))
+            .map(Path::to_owned);
+        // Under closed an event of a device the seat no longer routes,
+        // queued before it went, delivers nothing (D3, D5).
+        if e.device.is_some() && node.is_none() && self.rules.policy == Policy::Closed {
+            return;
+        }
+        self.deliver(node.as_deref(), e.event, now);
+    }
+
     /// An event from the device at `node`, or from none, for the head its
     /// rule names or the head holding the focus (ADR-1401 D5). A key press
     /// is the user's activity; a pointer event is when
@@ -2580,17 +2596,7 @@ impl App {
             head.tracking_changed();
         }
         for e in inputs {
-            // A device watched for the rescue key sends its presses alone.
-            let node = e
-                .device
-                .and_then(|id| self.routes.node(id))
-                .map(Path::to_owned);
-            // Under closed an event of a device the seat no longer routes,
-            // queued before it went, delivers nothing (D3, D5).
-            if e.device.is_some() && node.is_none() && self.rules.policy == Policy::Closed {
-                continue;
-            }
-            self.deliver(node.as_deref(), e.event, now);
+            self.drained_input(e, now);
         }
         self.report_focus();
         for h in 0..self.heads.len() {

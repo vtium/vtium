@@ -2027,6 +2027,64 @@ fn under_closed_a_crash_loop_stops_every_head_and_holds_the_vt() {
     );
 }
 
+/// D1: a VT switch away and back after a closed crash loop's stop changes
+/// nothing. The acquire wakes every device, but no session starts again,
+/// no keyboard types into a session, the VT key of `large`, a head that is
+/// not isolated, switches no VT, and the notice stays.
+// covers: platform.heads.policy
+#[test]
+fn after_a_closed_crash_loop_a_vt_switch_away_and_back_changes_nothing() {
+    let dir = std::env::temp_dir().join(format!(
+        "vtium-heads-crash-loop-vt-switch-{}",
+        std::process::id()
+    ));
+    let mut s = crash_loop(&dir, "small", "closed");
+    s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
+    let stopped = vtium::notice::stopped();
+    let shown = s.until(Duration::from_secs(4), |a| {
+        a.notice_screen().and_then(Head::notice) == Some(stopped.as_str())
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(shown, "the crash loop stopped the seat");
+    // A turn takes the release and puts the displays to sleep, and the next
+    // reads them asleep and lets the VT go, so the activation takes it back.
+    s.app.vt.leave().expect("the fake VT");
+    s.app.turn(now());
+    s.app.turn(now());
+    assert!(!s.app.vt.is_active(), "the VT switched away");
+    s.app.vt.activate().expect("the fake VT");
+    assert!(s.app.vt.is_active(), "and back");
+    assert!(
+        s.until_memory("/dev/mem0", SECOND, |m| m.awake)
+            && s.until_memory("/dev/mem1", SECOND, |m| m.awake),
+        "the acquire woke every display"
+    );
+    s.until(Duration::from_millis(300), |_| false);
+    assert!(
+        s.app.heads().iter().all(|h| h.pty().is_none()),
+        "no session started again"
+    );
+    s.app.device_input(Path::new(KBD_LARGE), vt_key(), now());
+    assert!(s.app.vt.is_active(), "the VT key switches no VT");
+    s.type_on(KBD_LARGE, "typed\r");
+    s.until(Duration::from_millis(200), |_| false);
+    for head in s.app.heads() {
+        assert!(
+            head.consoles_text()
+                .iter()
+                .flatten()
+                .all(|l| !l.contains("typed")),
+            "{}: nothing reached it",
+            head.name()
+        );
+    }
+    assert_eq!(
+        s.app.notice_screen().and_then(Head::notice),
+        Some(stopped.as_str()),
+        "the notice stays"
+    );
+}
+
 /// D1: a zoom changes the grid of the console shown alone; each console
 /// keeps its own grid, which shows again with it.
 #[test]
@@ -2581,6 +2639,62 @@ fn under_closed_a_device_with_no_route_delivers_nothing() {
             );
         }
         s.app.device_input(Path::new(unknown), vt_key(), now());
+        assert_eq!(s.app.vt.is_active(), closed, "closed: {closed}: the VT key");
+    }
+}
+
+/// D3 and D5: the same through the device's handle, the path every event
+/// the input drains takes. Under `policy = closed` an event drained from a
+/// keyboard that went before its turn, whose handle the seat no longer
+/// routes, delivers nothing, the VT's keys included; under open it roams.
+// covers: platform.heads.policy
+#[test]
+fn under_closed_an_event_from_a_handle_with_no_route_delivers_nothing() {
+    use vtium_platform::input::{DeviceInput, Direct, Input, InputConfig, Keymap};
+    let gone = "/dev/input/event9";
+    let large_open = TWO_HEADS.replace("[head large]\n", "[head large]\nisolated = no\n");
+    let script = "echo ready; while read a; do echo \"got:$a\"; done";
+    for closed in [true, false] {
+        let heads = if closed {
+            large_open.replace("version = 1\n", "version = 1\npolicy = closed\n")
+        } else {
+            large_open.clone()
+        };
+        let [small, (node, large)] = two_displays();
+        let displays = [small, (node, large.lit())];
+        let mut s = Seat::with_heads(&[], Some(&heads), displays, script);
+        assert!(s.until(SECOND, |a| head_shows(a, "large", "ready")));
+        assert_eq!(s.app.focus_head(), Some("large"), "closed: {closed}");
+        // Asleep, the input opens no device but gives each its handle.
+        let keymap = Keymap::fallback().expect("the fallback keymap");
+        s.app.input = Some(Input::new(Direct, keymap, InputConfig::default()));
+        s.app.add_input(Path::new(gone), keyboard("kbd-gone"));
+        let id = s
+            .app
+            .input
+            .as_ref()
+            .and_then(|i| i.find(Path::new(gone)))
+            .expect("the keyboard's handle");
+        s.app.remove_input(Path::new(gone));
+        let drained = |event| DeviceInput {
+            device: Some(id),
+            rescue: false,
+            event,
+        };
+        for c in "u\r".chars() {
+            s.app
+                .drained_input(drained(InputEvent::Key(char_key(c))), now());
+        }
+        if closed {
+            s.until(Duration::from_millis(200), |_| false);
+            assert!(!head_shows(&s.app, "large", "got:u"), "nothing typed");
+        } else {
+            assert!(
+                s.until(SECOND, |a| head_shows(a, "large", "got:u")),
+                "it roams"
+            );
+        }
+        s.app.drained_input(drained(vt_key()), now());
         assert_eq!(s.app.vt.is_active(), closed, "closed: {closed}: the VT key");
     }
 }
