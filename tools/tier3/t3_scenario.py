@@ -304,7 +304,10 @@ DEVICE_VARIANTS = ["two-outputs-mirror", "two-cards-mirror", "usb-keyboards"]
 # None) wait for vtium on tty2 with no screen to capture, one under each
 # policy, at a display-wait of 5 s (guest/kmscon-nodisplay.conf). The kiosk
 # switches no VT ("vt_switch": False): its claimed keyboard's VT keys reach
-# its session, and the kiosk check presses them itself.
+# its session, and the kiosk check presses them itself. heads-policy-typo's
+# file holds a policy line vtium cannot read ("policy_line"), which makes
+# it closed and broken (ADR-1401 D7), so its checks expect the closed
+# policy.
 HEAD_VARIANT = dict(DEVICES, agent=True, screens=[])
 NO_DISPLAY = dict({k: v for k, v in HEAD_VARIANT.items() if k not in ("fonts", "frits")},
                   device=None, conf="kmscon-nodisplay.conf", renderer=None, login=False)
@@ -317,6 +320,11 @@ VARIANTS.update({
                                 policy="closed", first="panic", login=False,
                                 checks=["no-login", "getty-fallback"],
                                 failures=["kill", "crash", "hangup"]),
+    "heads-policy-typo": dict(HEAD_VARIANT, heads="tools/tier3/guest/heads/policy-typo.conf",
+                              policy="closed", policy_line="policy = opne",
+                              first="policy-panic", login=False,
+                              checks=["policy-line", "no-login", "getty-fallback"],
+                              failures=["kill"]),
     "heads-closed-unmatched": dict(HEAD_VARIANT,
                                    heads="tools/tier3/guest/heads/closed-unmatched.conf",
                                    policy="closed", first="no-display-notice", login=False,
@@ -342,8 +350,8 @@ VARIANTS.update({
                                  checks=["display-exit"]),
 })
 HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
-                 "heads-closed-unmatched", "heads-off", "heads-kiosk", "heads-closed-nodisplay",
-                 "heads-open-nodisplay"]
+                 "heads-policy-typo", "heads-closed-unmatched", "heads-off", "heads-kiosk",
+                 "heads-closed-nodisplay", "heads-open-nodisplay"]
 
 # Each guest's base image, the make target that provisions it, the console
 # lines its boot ends with before the driver presses Ctrl+Alt+F2, and the

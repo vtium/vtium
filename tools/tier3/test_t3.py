@@ -3047,6 +3047,7 @@ class HeadsTest(unittest.TestCase):
         "heads-partly-open": ["partly-notice", "cjk", "vt-switch", "vt-restore",
                               "getty-fallback"],
         "heads-closed-broken": ["panic", "no-login", "getty-fallback"],
+        "heads-policy-typo": ["policy-panic", "policy-line", "no-login", "getty-fallback"],
         "heads-closed-unmatched": ["no-display-notice", "no-login", "getty-fallback"],
         "heads-off": ["no-login", "getty-fallback"],
         "heads-kiosk": ["cjk", "kiosk"],
@@ -3065,7 +3066,16 @@ class HeadsTest(unittest.TestCase):
                 self.assertNotIn(name, t3_scenario.DEFAULT_VARIANTS)
                 self.assertTrue(os.path.isfile(t3_heads.head_file(v)), v["heads"])
                 with open(t3_heads.head_file(v)) as f:
-                    self.assertRegex(f.read(), r"(?m)^policy = %s\b" % v["policy"])
+                    text = f.read()
+                if "policy_line" in v:
+                    # a policy line vtium cannot read, alone among the
+                    # file's policy lines, makes the file closed
+                    self.assertEqual(v["policy"], "closed")
+                    self.assertEqual(re.findall(r"(?mi)^\s*policy.*$", text),
+                                     [v["policy_line"]])
+                    self.assertNotRegex(v["policy_line"], r"^policy = (open|closed)\b")
+                else:
+                    self.assertRegex(text, r"(?m)^policy = %s\b" % v["policy"])
                 # every check that fails vtium names its failures, each known
                 if "getty-fallback" in want:
                     self.assertTrue(set(v["failures"]) <= set(t3_heads.FAILURES))
@@ -3081,6 +3091,39 @@ class HeadsTest(unittest.TestCase):
         self.assertEqual(t3_scenario.VARIANTS["heads-open-nodisplay"]["heads"],
                          "docs/heads/default.conf")
         self.assertEqual(t3_scenario.VARIANTS["heads-off"]["heads"], "docs/heads/off.conf")
+
+    def test_policy_line(self):
+        # The console's log shows the file whose policy line vtium cannot
+        # read as closed and broken: that line's error with the head file's
+        # path and the line's number, and no outcome of the open policy.
+        v = t3_scenario.VARIANTS["heads-policy-typo"]
+        with open(t3_heads.head_file(v)) as f:
+            lines = f.read().splitlines()
+        # the line of an unknown top-level key comes before the policy line
+        self.assertEqual(lines[9:11], ["color = amber", "policy = opne"])
+        logged = ("[    9.1] vtium[502]: /etc/vtium/heads.conf:10: Above the first section "
+                  "the file takes only `version` and `policy`, and this line is neither.\n"
+                  "[    9.1] vtium[502]: /etc/vtium/heads.conf:11: `policy` cannot be "
+                  "\"opne\", so vtium cannot read this line and counts the file as closed "
+                  "and broken.\n"
+                  "[    9.2] vtium[502]: vtium: config invalid, policy closed: input off\n")
+        self.assertIsNone(t3_heads.judge_policy_line(logged, lines, v["policy_line"]))
+        # the error names another line, or none is logged
+        for wrong in (logged.replace("heads.conf:11:", "heads.conf:10:"),
+                      logged.replace("cannot be \"opne\"", "cannot be \"open\""),
+                      logged.replace("/etc/vtium/heads.conf:11", "heads.conf:11")):
+            with self.subTest(wrong=wrong):
+                self.assertRegex(t3_heads.judge_policy_line(wrong, lines, v["policy_line"]),
+                                 "logged no error '/etc/vtium/heads.conf:11: `policy` "
+                                 "cannot be \"opne\"'")
+        # the file run under the open policy, partly broken or skipped
+        for line in t3_heads.OPEN_LINES:
+            with self.subTest(line=line):
+                self.assertRegex(t3_heads.judge_policy_line(
+                    logged + "[    9.3] vtium[502]: %s\n" % line, lines, v["policy_line"]),
+                    "an outcome of the open policy")
+        with self.assertRaisesRegex(ValueError, "holds no line"):
+            t3_heads.judge_policy_line(logged, lines, "policy = maybe")
 
     def test_broken_closed_is_tier_2s_file(self):
         # The guest's broken closed file is tier 2's BROKEN_CLOSED, so the

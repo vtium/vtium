@@ -75,6 +75,15 @@ HOLD_PAST_S = 2
 # Seconds a check waits for a state it asks the agent for.
 STATE_TIMEOUT = 60
 
+# Where guest/setup installs the variant's head file, as the console's log
+# names it.
+GUEST_HEAD_FILE = "/etc/vtium/heads.conf"
+# The console lines of the outcomes that run a file under the open policy
+# (ADR-1401 D7), which a file whose policy line vtium cannot read never
+# shows, as it is closed and broken.
+OPEN_LINES = ("config partly invalid, running what's valid",
+              "invalid config skipped, using builtin")
+
 CHECKS = {
     "no-login": "A line typed on the console's keyboard, which reaches the guest (the PS/2 "
                 "keyboard's interrupt count rises). Correct: the screen as it was, no login "
@@ -107,6 +116,12 @@ CHECKS = {
              "stays 2 after the chord and the claimed keyboard still reaches the session; "
              "the guest lists the second keyboard, and the screen stays as it was while it "
              "types.",
+    "policy-line": "A head file whose policy line holds a value vtium does not know, "
+                   "`policy = opne`, read from the console's log once its panic screen "
+                   "settled. Correct: the console logged that line's error with the head "
+                   "file's path and the line's number, and logged no outcome that runs the "
+                   "file under the open policy (ADR-1401 D7). The capture is the screen "
+                   "when the log was read.",
     "display-exit": "No display device under an open policy, the control of display-held. "
                     "Correct: vtium runs when the check starts, then logs that no display "
                     "appeared within display-wait and fails, and the fallback starts a getty "
@@ -117,6 +132,7 @@ CHECKS = {
 # D9), which vtium also logs: a first screen is captured only once the
 # console has logged it.
 LINES = {"panic": "vtium: config invalid, policy closed: input off",
+         "policy-panic": "vtium: config invalid, policy closed: input off",
          "partly-notice": "config partly invalid, running what's valid",
          "no-display-notice": "vtium: no display for any head"}
 
@@ -128,6 +144,14 @@ FIRST = {
              "head that can run, each error with its line of /etc/vtium/heads.conf, and "
              "how to read the full report (ADR-1401 D7). Correct: the report alone, with "
              "no login prompt and no shell.",
+    "policy-panic": "The panic screen on the boot display of a head file whose policy line "
+                    "vtium cannot read, `policy = opne`, though the rest of the file would "
+                    "run a head with every keyboard roaming (ADR-1401 D3, D7). Correct: "
+                    "`vtium: config invalid, policy closed: input off`, then that no head "
+                    "can run, then the policy line's error with its line of "
+                    "/etc/vtium/heads.conf, listed first, before the error of the line "
+                    "above it, and how to read the full report; no login prompt and no "
+                    "shell.",
     "partly-notice": "The partly broken open head file's notice at the top of the head's "
                      "screen: `config partly invalid, running what's valid` and what to "
                      "do next (ADR-1401 D7). It covers the rows of the login prompt, "
@@ -350,6 +374,41 @@ def judge_exit(first, state, wait_s, logged):
         return "no getty runs on tty2: %s, %s" % (getty.get("active"),
                                                   " ".join(state["tty2"] or ()) or "nothing")
     return None
+
+
+def judge_policy_line(serial, lines, policy_line):
+    """Why the console's log `serial` does not show a head file whose
+    `lines` hold `policy_line`, a policy line vtium cannot read, as closed
+    and broken (CHECKS "policy-line"); None when it does."""
+    if policy_line not in lines:
+        raise ValueError("the head file holds no line %r" % policy_line)
+    n = lines.index(policy_line) + 1
+    value = policy_line.split("=", 1)[1].strip()
+    error = '%s:%d: `policy` cannot be "%s"' % (GUEST_HEAD_FILE, n, value)
+    if error not in serial:
+        return "the console logged no error %r for the policy line" % error
+    for line in OPEN_LINES:
+        if line in serial:
+            return "the console logged %r, an outcome of the open policy" % line
+    return None
+
+
+def check_policy_line(variant, vm, work, caps, errors, log):
+    """The policy-line check (CHECKS), on the console's log once the first
+    screen has settled."""
+    case = "policy-line"
+    try:
+        with open(head_file(variant)) as f:
+            lines = f.read().splitlines()
+        path = os.path.join(work, case + ".ppm")
+        wait_stable(vm, path)
+        why = judge_policy_line(serial_after(vm, 0), lines, variant["policy_line"])
+        log("%s: %s" % (case, why or "as wanted"))
+        if why:
+            raise RuntimeError(why)
+        caps[case] = path
+    except (RuntimeError, ValueError) as e:
+        errors[case] = str(e)
 
 
 def judge_kiosk(chord, plugged=None, same_screen=True):
@@ -662,4 +721,5 @@ def second_output(variant):
 
 CHECK_RUNS = {"no-login": check_no_login, "getty-fallback": check_getty_fallback,
               "display-held": check_display_held, "display-exit": check_display_exit,
-              "two-heads": check_two_heads, "kiosk": check_kiosk}
+              "two-heads": check_two_heads, "kiosk": check_kiosk,
+              "policy-line": check_policy_line}
