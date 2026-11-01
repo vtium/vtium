@@ -365,7 +365,8 @@ def summary(impl, metas):
         r = meta["resident"]
         lines.append("%s: kernel %s, resident %s after %s, peak %s after %s"
                      % (v, meta.get("kernel") or "not reported", kib(r["first_kib"]),
-                        r["first_screen"], kib(r["peak_kib"]), r["peak_screen"] or "none"))
+                        r["first_screen"] or "none", kib(r["peak_kib"]),
+                        r["peak_screen"] or "none"))
     return "\n".join(lines)
 
 

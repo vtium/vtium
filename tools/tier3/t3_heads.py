@@ -78,10 +78,11 @@ STATE_TIMEOUT = 60
 # Where guest/setup installs the variant's head file, as the console's log
 # names it.
 GUEST_HEAD_FILE = "/etc/vtium/heads.conf"
-# The console lines of the outcomes that run a file under the open policy
-# (ADR-1401 D7), which a file whose policy line vtium cannot read never
-# shows, as it is closed and broken.
-OPEN_LINES = ("config partly invalid, running what's valid",
+# The console lines of the outcomes that run some of the file, partly broken
+# under either policy, or the shipped default in its place (ADR-1401 D7). A
+# file whose policy line vtium cannot read never shows either, as it is
+# closed and broken and runs nothing.
+RUN_LINES = ("config partly invalid, running what's valid",
               "invalid config skipped, using builtin")
 
 CHECKS = {
@@ -119,8 +120,8 @@ CHECKS = {
     "policy-line": "A head file whose policy line holds a value vtium does not know, "
                    "`policy = opne`, read from the console's log once its panic screen "
                    "settled. Correct: the console logged that line's error with the head "
-                   "file's path and the line's number, and logged no outcome that runs the "
-                   "file under the open policy (ADR-1401 D7). The capture is the screen "
+                   "file's path and the line's number, and logged no outcome that runs some "
+                   "of the file or the shipped default (ADR-1401 D7). The capture is the screen "
                    "when the log was read.",
     "display-exit": "No display device under an open policy, the control of display-held. "
                     "Correct: vtium runs when the check starts, then logs that no display "
@@ -387,9 +388,10 @@ def judge_policy_line(serial, lines, policy_line):
     error = '%s:%d: `policy` cannot be "%s"' % (GUEST_HEAD_FILE, n, value)
     if error not in serial:
         return "the console logged no error %r for the policy line" % error
-    for line in OPEN_LINES:
+    for line in RUN_LINES:
         if line in serial:
-            return "the console logged %r, an outcome of the open policy" % line
+            return ("the console logged %r, an outcome that runs some of the file or the "
+                    "shipped default" % line)
     return None
 
 

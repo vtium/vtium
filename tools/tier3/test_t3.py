@@ -714,6 +714,8 @@ class ImplementationTest(unittest.TestCase):
                                    "kernel": "6.17.2-arch1-1"},
                  "2d-potato-min-psf": {"resident": t3_scenario.resident({}), "console": None,
                                        "kernel": None}}
+        metas["heads-policy-typo"] = {"resident": t3_scenario.resident({}, []),
+                                      "console": None, "kernel": "7.2.11-arch1-1"}
         self.assertEqual(t3.summary(impl, metas).splitlines(), [
             "tree %s: binary %d B, over the budget of %d B by 1 B; 2.51 MiB "
             "installed; the console logged vtium 0.1"
@@ -721,6 +723,8 @@ class ImplementationTest(unittest.TestCase):
             "2d-potato-min: kernel 6.17.2-arch1-1, resident 10.30 MiB after sgr, peak "
             "15.70 MiB after s1-scroll",
             "2d-potato-min-psf: kernel not reported, resident none after sgr, peak none "
+            "after none",
+            "heads-policy-typo: kernel 7.2.11-arch1-1, resident none after none, peak none "
             "after none"])
         impl["binary_bytes"] = 2368120
         self.assertTrue(t3.summary(impl, {}).startswith(
@@ -3093,10 +3097,18 @@ class HeadsTest(unittest.TestCase):
                          "docs/heads/default.conf")
         self.assertEqual(t3_scenario.VARIANTS["heads-off"]["heads"], "docs/heads/off.conf")
 
+    def test_every_check_runs(self):
+        # run_checks runs each check a variant names from CHECK_RUNS, so a
+        # check missing there would end the variant's run in the VM
+        for name, v in t3_scenario.VARIANTS.items():
+            with self.subTest(name):
+                self.assertLessEqual(set(v.get("checks", [])), set(t3_scenario.CHECK_RUNS))
+
     def test_policy_line(self):
         # The console's log shows the file whose policy line vtium cannot
         # read as closed and broken: that line's error with the head file's
-        # path and the line's number, and no outcome of the open policy.
+        # path and the line's number, and no outcome that runs any of the
+        # file.
         v = t3_scenario.VARIANTS["heads-policy-typo"]
         with open(t3_heads.head_file(v)) as f:
             lines = f.read().splitlines()
@@ -3117,12 +3129,15 @@ class HeadsTest(unittest.TestCase):
                 self.assertRegex(t3_heads.judge_policy_line(wrong, lines, v["policy_line"]),
                                  "logged no error '/etc/vtium/heads.conf:11: `policy` "
                                  "cannot be \"opne\"'")
-        # the file run under the open policy, partly broken or skipped
-        for line in t3_heads.OPEN_LINES:
+        # the file run, partly broken under either policy, or the shipped
+        # default in its place
+        self.assertEqual(t3_heads.RUN_LINES, ("config partly invalid, running what's valid",
+                                              "invalid config skipped, using builtin"))
+        for line in t3_heads.RUN_LINES:
             with self.subTest(line=line):
                 self.assertRegex(t3_heads.judge_policy_line(
                     logged + "[    9.3] vtium[502]: %s\n" % line, lines, v["policy_line"]),
-                    "an outcome of the open policy")
+                    "an outcome that runs some of the file or the shipped default")
         with self.assertRaisesRegex(ValueError, "holds no line"):
             t3_heads.judge_policy_line(logged, lines, "policy = maybe")
 
