@@ -461,7 +461,9 @@ The helper is `vtium-vitrify serve`, a separate process the console starts, runn
 - **Not persisted.** No state a hostile font plants survives the process, and its CPU and memory budgets reset with each start. A restart narrows the window; the console's checks and the sandbox are what contain a vulnerability.
 - **Restarted after a failure, a bounded number of times a boot.** One that crashes, reaches its CPU limit, gives no answer for `ANSWER_MS` (10,000 ms) while work is outstanding, leaves an ask unanswered for `REQUEST_MS` (60,000 ms), or exits with work outstanding is started again with its asks and fills sent again, at most `RESTARTS_MAX` times a boot. Each start re-randomizes its address layout, so an unbounded count would let an exploit retry until its guess lands. `RESTARTS_MAX` is 3.
 - **Given up for the boot on garbage.** A helper that answers what is not a frame, what was not asked, or a failure is given up for the boot, logged once, and the built-in font goes on drawing (D7).
-- **Checked, never trusted.** Each frame is checked before anything is allocated for it: its length against `FRAME_BYTES_MAX` (16 MiB), its glyphs through vtium-font's bounded reader, each at a cell asked for, an ask's glyphs among those asked for and not yet sent, a fill's among those the cell does not hold. A thread writes the requests and another reads the answers, so neither a slow nor a hung helper stalls the console's loop.
+- **Checked, never trusted.** Each frame is checked before anything is allocated for it: its length against `FRAME_BYTES_MAX` (16 MiB), its glyphs through vtium-font's bounded reader, each at a cell asked for, an ask's glyphs among those asked for and not yet sent, a fill's among those the cell does not hold, and each glyph's ink box within its reach: a box that passes more than one cell beyond the glyph's own cells, on either side, is refused (ADR-1302 D1, D6). A thread writes the requests and another reads the answers, so neither a slow nor a hung helper stalls the console's loop.
+
+> Edited 2026-11-01: glyph ink reaches one cell past its own on each side (ADR-1302, accepted 2026-11-01), so the console's check of an answer also refuses an ink box past that reach (ADR-1302 D6). The bullet ended: "a fill's among those the cell does not hold." The earlier text is in git at 1d51e46.
 
 > Edited 2026-10-29: the team lead's correction from the heads gap-check (C5), as ADR-1401 D1 decides: several consoles logged in as different users cannot share one helper running as one of them, and heads with different frits need a helper each. D15 spoke of one helper, "a separate process the console starts".
 
@@ -519,8 +521,10 @@ The console, which opens its VT as root already, reads the kernel's font once at
 
 *Intended design, not yet built.* The helper on `feat/deferred` generates regular glyphs per codepoint (`crates/vtium/src/helper.rs`, `crates/vtium/src/deferred.rs`).
 
-- **Cluster asks.** The console asks the helper for a cluster, its text as the key gives it, and the helper shapes it with HarfRust and composes its glyphs into one glyph fitted to its 1 or 2 cells (ADR-1301 D1).
-- **Style asks.** The console asks for bold and italic as part of the key. The helper draws them from the frit's bold and italic faces (`style=`, D1) where the frit names them, and from the regular glyph emboldened, as vtium-font draws a missing style today, where it does not.
+- **Cluster asks.** The console asks the helper for a cluster, its text as the key gives it, and the helper shapes it with HarfRust and composes its glyphs into one glyph fitted to its 1 or 2 cells and its reach, one cell more on each side along its row (ADR-1301 D1, ADR-1302 D1).
+- **Style asks.** The console asks for bold and italic as part of the key. The helper draws them from the frit's bold and italic faces (`style=`, D1) where the frit names them, and from the regular glyph where it does not: a missing bold is the regular glyph emboldened, as vtium-font draws it today, and a missing italic is the regular glyph slanted by 0.2 about the baseline, an outline's points before it is rasterised and a bitmap's rows one at a time (ADR-1302 D4).
+
+> Edited 2026-11-01: glyph ink reaches one cell past its own on each side, and synthetic italic is a slant (ADR-1302, accepted 2026-11-01). The cluster bullet read "fitted to its 1 or 2 cells (ADR-1301 D1).", and the style bullet ended: "and from the regular glyph emboldened, as vtium-font draws a missing style today, where it does not." The earlier text is in git at 1d51e46.
 
 ### D22: the lookup chain
 
@@ -548,10 +552,12 @@ The helper sends glyphs in the chunk format vtium-font reads, little-endian, eve
 ### D23: damage
 
 - **Arrival is a damage source on the same path as program output.** Glyphs that arrive between frames merge into one set of cells, and the next frame draws it in one pass.
-- **Damage comes from what each buffer displays,** the scrollback view and cluster cells included: the cells to redraw are those whose shown text contains an arrived character, read from the view each display's buffer shows. A fill of characters no buffer shows draws no frame.
+- **Damage comes from what each buffer displays,** the scrollback view and cluster cells included: the cells to redraw are those whose shown text contains an arrived character, and the neighbours their ink reaches before or after the arrival (ADR-1302 D9), read from the view each display's buffer shows. A fill of characters no buffer shows draws no frame.
 - **Every glyph that arrives replaces the built-in drawing** of its character in each renderer's drawn-glyph cache (ADR-1300), whether or not the character is on screen when it arrives, so a character shown later draws in the frit; only the cells that show it are damaged (the operator, 2026-10-29).
 - **Eviction damages nothing:** cells already drawn keep their pixels, and an evicted glyph is asked for again when the screen next needs it.
 - **The departure.** The C reference had no arrival: it loaded its font before drawing, rasterised a glyph inside the frame that asked for it, and redrew every cell of every buffer whenever the font changed (C notes). vtium redraws only the cells that show the arrived characters.
+
+> Edited 2026-11-01: glyph ink reaches one cell past its own on each side (ADR-1302, accepted 2026-11-01), so an arrival also damages the neighbours its ink reaches (ADR-1302 D9). The bullet read: "the cells to redraw are those whose shown text contains an arrived character, read from the view each display's buffer shows." The earlier text is in git at 1d51e46.
 
 > Edited 2026-10-29: the operator decided that every glyph the helper sends replaces the built-in drawing of its character in each renderer's cache, shown or not (`considered`), after the deferred-rendering work's verification found a glyph arriving while its character was off screen never replaced the built-in drawing. D23 named only the cells an arrival damages.
 

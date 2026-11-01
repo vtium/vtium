@@ -318,7 +318,7 @@ vtium shapes text with HarfRust, the HarfBuzz project's Rust port, only where it
 
 - **ADR-1200 D17, D10 and D2,** amended in their own commits with this revision (the maintainer, 2026-11-01): an outline frit that states no cell takes its fonts' own cell by the W rule, asked of the helper before its first frame and at each zoom, and D10's judgement of which frames wait follows; and the glyph chunk format carries an ink box for outline strikes and for bitmap strikes slanted for italic, cut to its cells past the chunk bound.
 
-This record is proposed, and these passages take dated notes pointing here once the maintainer accepts it:
+The maintainer accepted this record on 2026-11-01, and each of these passages now carries a dated note pointing here:
 
 - ADR-1200 D15: the console's check refuses a box past the reach. ADR-1200 D21: a cluster's glyph is fitted to its 1 or 2 cells and the reach of D1, and synthetic italic is D4's slant. ADR-1200 D23: an arrival damages the cells that show the arrived character and the neighbours their ink reaches (D9).
 - ADR-1301 D1, step 3: "a shaped cluster is composed into one bitmap fitted to its 1 or 2 cells" becomes its 1 or 2 cells and the reach of D1. ADR-1301's Verification gains this record's screens.
