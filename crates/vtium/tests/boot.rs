@@ -186,6 +186,8 @@ impl Video for Memory {
 struct ScriptedVt {
     events: Vec<VtEvent>,
     active: bool,
+    /// Times its bell rang.
+    bells: u32,
 }
 
 impl Vt for ScriptedVt {
@@ -221,7 +223,9 @@ impl Vt for ScriptedVt {
     fn restore(&mut self) -> io::Result<()> {
         Ok(())
     }
-    fn bell(&mut self) {}
+    fn bell(&mut self) {
+        self.bells += 1;
+    }
     fn number(&self) -> Option<u16> {
         None
     }
@@ -1913,6 +1917,99 @@ fn ctrl_shift_click_copies_a_link_while_the_program_tracks_the_pointer() {
         "{:?}",
         h.app.screen_text()
     );
+}
+
+/// Mode 1007, alternate scroll: on the alternate screen, with no
+/// tracking, a wheel step goes to the program as three cursor keys, one a
+/// line; with the mode reset it sends nothing.
+// covers: DEC-1007
+#[test]
+fn the_wheel_sends_cursor_keys_on_the_alternate_screen_under_mode_1007() {
+    for (reset, want) in [("", "[E[AE[AE[AE[BE[BE[B]"), ("\\033[?1007l", "[]")] {
+        let mut h = Harness::new(&[
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            &format!(
+                "stty raw -echo; printf '{reset}\\033[?1049hready'; \
+                 awk 'BEGIN{{RS=\"q\"}}{{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}}'; read x"
+            ),
+        ]);
+        assert!(h.until(SECOND, |a| shows(a, "ready")));
+        h.point(
+            [PointerEvent::Wheel(1), PointerEvent::Wheel(-1)],
+            Mods::empty(),
+        );
+        h.type_str("q");
+        assert!(
+            h.until(SECOND, |a| shows(a, want)),
+            "{reset:?}: {:?}",
+            h.app.screen_text()
+        );
+    }
+}
+
+/// XTSHIFTESCAPE 1: a program that asks for Shift gets it in its reports,
+/// so Shift neither selects nor scrolls back while it tracks the pointer.
+// covers: input.xtshiftescape
+#[test]
+fn a_program_that_asks_for_shift_gets_it_in_its_reports() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "i=0; while [ $i -lt 40 ]; do echo line$i; i=$((i+1)); done; \
+         stty raw -echo; printf 'pick me\\r\\n\\033[?1000h\\033[?1006h\\033[>1sready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    let row = 8;
+    h.point(
+        [
+            over(0, row, None),
+            press(Button::Left, false),
+            release(Button::Left),
+            PointerEvent::Wheel(1),
+        ],
+        Mods::SHIFT,
+    );
+    assert_eq!(h.app.selection(), None);
+    assert_eq!(
+        h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .scrolled_back(),
+        0
+    );
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(a, "E[<4;1;9ME[<4;1;9mE[<68;1;9M")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// `bell`: a BEL rings the VT's bell, once a turn however many came,
+/// while mode 1042 lets it through; with mode 1042 reset, or `bell` off,
+/// its default, nothing rings.
+// covers: ctl.bel, DEC-1042
+#[test]
+fn bell_rings_the_vt_at_a_bel_while_mode_1042_lets_it_through() {
+    let script = "printf '\\a\\a\\aone\\n'; read x; printf '\\033[?1042l\\atwo\\n'; read y";
+    for (args, want) in [(&["--bell"][..], 1), (&[][..], 0)] {
+        let mut all: Vec<&str> = args.to_vec();
+        all.extend(["--login", "--", "/bin/sh", "-c", script]);
+        let mut h = Harness::with_vt(&all, ScriptedVt::default());
+        assert!(h.until(SECOND, |a| shows(a, "one")));
+        assert_eq!(h.scripted().bells, want, "{args:?}");
+        h.type_str("\r");
+        assert!(h.until(SECOND, |a| shows(a, "two")));
+        assert_eq!(h.scripted().bells, want, "{args:?}: mode 1042 reset");
+    }
 }
 
 /// ADR-1002, "What the marks are for": Ctrl+right-click on a line of a

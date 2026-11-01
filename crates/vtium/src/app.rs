@@ -306,6 +306,8 @@ pub struct App {
     clipboard_write: bool,
     /// `program-blank`: a program's blank sequences are taken.
     program_blank: bool,
+    /// `bell`: a BEL from a program rings the VT's bell.
+    bell: bool,
     /// `dpms-timeout`, which RIS returns the blank to.
     dpms_timeout: Option<Duration>,
     /// A blank or wake sent by signal, taken at the turn's end.
@@ -386,6 +388,7 @@ impl App {
             oneshot: config.switch(&keys::ONESHOT),
             clipboard_write: config.switch(&keys::CLIPBOARD_WRITE),
             program_blank: config.switch(&keys::PROGRAM_BLANK),
+            bell: config.switch(&keys::BELL),
             dpms_timeout: dpms,
             order: None,
             selection: None,
@@ -2665,7 +2668,7 @@ impl App {
     }
 
     /// What head `h`'s programs asked this turn: each console's OSC 52
-    /// selection; the shown console's OSC 50 font and blank sequences,
+    /// selection and BEL; the shown console's OSC 50 font and blank sequences,
     /// which a hidden console's wait for it to be shown, since the font
     /// and the displays are the head's; and their exits.
     fn session_turn(&mut self, h: usize, now: Instant) {
@@ -2674,12 +2677,19 @@ impl App {
         };
         // The console has no system clipboard: a selection OSC 52 set is
         // held for a paste, or dropped under `no-clipboard-write`.
+        // Any console's BEL rings the VT under `bell`, as each of the C
+        // reference's terminals rang it; several in a turn ring once.
+        let mut bell = false;
         for console in head.consoles_mut() {
             if let Some(selection) = console.term.terminal.take_clipboard_write() {
                 if self.clipboard_write {
                     self.selection = Some(selection);
                 }
             }
+            bell |= console.term.terminal.take_bell();
+        }
+        if bell && self.bell {
+            self.vt.bell();
         }
         // The terminal takes OSC 50 only under `allow-font-ops`.
         if let Some(name) = head.console.term.terminal.take_font_request() {

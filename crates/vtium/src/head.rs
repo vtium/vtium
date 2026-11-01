@@ -861,7 +861,11 @@ impl Head {
     /// A pointer event: reported to a program that tracks the pointer,
     /// unless Shift is held, as xterm's `ShiftOverride` lets it select,
     /// paste and scroll (`button.c`); otherwise it selects, copies, pastes
-    /// and scrolls through the seat's `selection` buffer. A button keeps
+    /// and scrolls through the seat's `selection` buffer. A program that
+    /// asked with XTSHIFTESCAPE 1 that Shift reach it takes Shift as any
+    /// modifier, so then Shift selects nothing. A wheel step vtium does
+    /// not report goes to the program as cursor keys while mode 1007 asks
+    /// on the alternate screen, and scrolls the view otherwise. A button keeps
     /// to the side its press took until its release, whatever Shift does
     /// meanwhile. Returns the zoom a wheel with Ctrl asks for.
     pub(crate) fn pointer_event(
@@ -871,7 +875,8 @@ impl Head {
         selection: &mut Option<Vec<u8>>,
     ) -> Option<Zoom> {
         let tracking = self.console.term.terminal.mouse_tracking() != MouseTracking::Off;
-        let shift = mods.contains(Mods::SHIFT);
+        let terminal = &self.console.term.terminal;
+        let shift = mods.contains(Mods::SHIFT) && !terminal.mouse_captures_shift();
         let moved = matches!(event, PointerEvent::Moved { .. });
         let mut zoom = None;
         match event {
@@ -926,19 +931,16 @@ impl Head {
                 match wheel(steps, tracking && !shift, ctrl) {
                     Wheel::Report(button) => self.report_pointer(button, MouseEvent::Press, mods),
                     Wheel::Zoom(dir) => zoom = Some(dir),
-                    Wheel::Scroll { up: true } => {
-                        self.console
-                            .term
-                            .terminal
-                            .screen_mut()
-                            .scroll_view_up(WHEEL_LINES);
-                    }
-                    Wheel::Scroll { up: false } => {
-                        self.console
-                            .term
-                            .terminal
-                            .screen_mut()
-                            .scroll_view_down(WHEEL_LINES);
+                    Wheel::Scroll { up } => {
+                        let terminal = &mut self.console.term.terminal;
+                        if !terminal.alternate_scroll(up, WHEEL_LINES) {
+                            let screen = terminal.screen_mut();
+                            if up {
+                                screen.scroll_view_up(WHEEL_LINES);
+                            } else {
+                                screen.scroll_view_down(WHEEL_LINES);
+                            }
+                        }
                     }
                 }
             }
