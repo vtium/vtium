@@ -214,6 +214,7 @@ fn pictures(text: &str) -> String {
 fn the_store_meets_the_image_goldens_with_its_solid_sixels_stood_in() {
     let corpus = Corpus::open(&Path::new(TOOL).join("corpus")).unwrap_or_else(|e| panic!("{e}"));
     let mut skipped = Vec::new();
+    let mut set_only: Vec<String> = Vec::new();
     let mut failures = Vec::new();
     for case in corpus.cases.iter().filter(|c| c.name.starts_with("img-")) {
         for (view, dir) in [(View::Screen, "golden"), (View::Frame, "golden-frame")] {
@@ -240,11 +241,14 @@ fn the_store_meets_the_image_goldens_with_its_solid_sixels_stood_in() {
             } else {
                 (got, want)
             };
-            let same = if DRAW_ORDER.contains(&case.name.as_str()) {
-                as_sets(&got) == as_sets(&want)
-            } else {
-                got == want
-            };
+            // exactly where it can; as a set only where D4's draw order
+            // departs from the golden
+            let exact = got == want;
+            if !exact && DRAW_ORDER.contains(&case.name.as_str()) {
+                set_only.push(case.name.clone());
+            }
+            let same = exact
+                || (DRAW_ORDER.contains(&case.name.as_str()) && as_sets(&got) == as_sets(&want));
             if !same {
                 failures.push(format!(
                     "{} {dir}:\n--- golden\n{want}--- vtium\n{got}",
@@ -260,6 +264,17 @@ fn the_store_meets_the_image_goldens_with_its_solid_sixels_stood_in() {
         skipped,
         ["img-sixel-over golden", "img-sixel-over golden-frame"]
     );
+    // the cases whose order departs are D4's img- cases but img-ed2 and
+    // img-ed3, which match exactly, and img-sixel-over, which waits
+    set_only.sort();
+    set_only.dedup();
+    let departs: Vec<&str> = DRAW_ORDER
+        .iter()
+        .copied()
+        .filter(|c| c.starts_with("img-"))
+        .filter(|c| !["img-ed2", "img-ed3", "img-sixel-over"].contains(c))
+        .collect();
+    assert_eq!(set_only, departs);
 }
 
 #[test]
