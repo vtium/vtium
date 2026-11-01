@@ -1406,3 +1406,54 @@ fn font_hinting_takes_light_or_full() {
         assert_eq!(l.reports, [], "{args:?}");
     }
 }
+
+/// `font-line-spacing` is a whole percentage of the text's height from 0
+/// to 100: past 100 it is clamped and reported, as every number key is,
+/// and a value that is no whole number is reported and ignored. Unset,
+/// the accessor gives none and the frit's `line-spacing=` decides, 0
+/// where it states none (ADR-1302 D13).
+#[test]
+fn font_line_spacing_is_a_percentage_from_0_to_100() {
+    assert_eq!(Config::default().font_line_spacing(), None);
+    for n in [0, 1, 25, 100] {
+        let l = main_file(&format!("font-line-spacing={n}\n"));
+        assert_eq!(l.config.font_line_spacing(), Some(n), "{n}");
+        assert_eq!(l.reports, [], "{n}");
+    }
+    let l = main_file("font-line-spacing=101\n");
+    assert_eq!(l.config.font_line_spacing(), Some(100));
+    assert_eq!(
+        problems(&l),
+        [&Problem::Clamped {
+            key: "font-line-spacing",
+            value: "101".into(),
+            used: 100
+        }]
+    );
+    let l = main_file("font-line-spacing=99999999999999999999999\n");
+    assert_eq!(l.config.font_line_spacing(), Some(100));
+    for bad in ["-1", "12%", "1.5", "", "none"] {
+        let l = main_file(&format!("font-line-spacing=20\nfont-line-spacing={bad}\n"));
+        assert_eq!(l.config.font_line_spacing(), Some(20), "{bad:?}");
+        assert_eq!(
+            problems(&l),
+            [&Problem::NotANumber {
+                key: "font-line-spacing",
+                value: bad.into()
+            }],
+            "{bad:?}"
+        );
+    }
+    for args in [
+        &["--font-line-spacing=0"][..],
+        &["--font-line-spacing", "0"],
+    ] {
+        let l = load_with(
+            args,
+            None,
+            &[("/etc/kmscon/kmscon.conf", b"font-line-spacing=40\n")],
+        );
+        assert_eq!(l.config.font_line_spacing(), Some(0), "{args:?}");
+        assert_eq!(l.reports, [], "{args:?}");
+    }
+}

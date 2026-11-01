@@ -483,6 +483,14 @@ impl Config {
         }
     }
 
+    /// `font-line-spacing`: the height added to each row, a percentage
+    /// of the text's height from 0 to 100, or `None` when no source sets
+    /// it and the frit's `line-spacing=` decides (ADR-1302 D13).
+    pub fn font_line_spacing(&self) -> Option<u8> {
+        self.number(&keys::FONT_LINE_SPACING)
+            .and_then(|n| u8::try_from(n).ok())
+    }
+
     /// Where the key's value came from.
     pub fn origin(&self, key: &Key) -> Option<&Origin> {
         self.values.get(key.name).map(|(_, o)| o)

@@ -1064,6 +1064,22 @@ pub const FONT_HINTING: Key = Key {
     cite: "ADR-1200 D1; the C reference hinted every glyph lightly (`src/font/font_freetype.c:119`)",
 };
 
+pub const FONT_LINE_SPACING: Key = Key {
+    name: "font-line-spacing",
+    short: None,
+    kind: Kind::Number {
+        min: 0,
+        max: 100,
+        unit: "%",
+        word: None,
+    },
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-font",
+    what: "Height added to each row, over a frit's `line-spacing=`: a whole percentage of the text's height, rounded to whole pixels and split evenly above and below the text, so the grid has fewer rows. It adds nothing to a frit that states `cell=`. Unset, the frit's `line-spacing=` decides, 0 where it states none.",
+    cite: "ADR-1302 D13; ADR-1200 D1",
+};
+
 pub const ALLOW_FONT_OPS: Key = Key {
     name: "allow-font-ops",
     short: None,
@@ -1258,7 +1274,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 94] = [
+pub const KEYS: [Key; 95] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1340,6 +1356,7 @@ pub const KEYS: [Key; 94] = [
     FONT_NAME,
     FONT_SIZE,
     FONT_HINTING,
+    FONT_LINE_SPACING,
     ALLOW_FONT_OPS,
     GLYPH_SOURCE,
     GLYPH_SOURCE_BOX,
