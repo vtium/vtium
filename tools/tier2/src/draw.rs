@@ -262,6 +262,10 @@ pub struct Screen {
     pub depth: Depth,
     /// vtium's own drawing over the last frame.
     pub overlay: Option<Overlay>,
+    /// The notice of the screen the display guard lights for a notice
+    /// alone (ADR-1401 D7, D9), drawn over the last frame as that screen
+    /// draws it, the panic screen's report among them.
+    pub alone: Option<Words>,
 }
 
 impl Screen {
@@ -292,6 +296,7 @@ impl Screen {
             },
             depth: Depth::Color,
             overlay: None,
+            alone: None,
         }
     }
 }
@@ -541,10 +546,21 @@ fn draw_config<F: Face>(
             return Err("the frames drawn in turn differ from a fresh draw".to_owned());
         }
     }
-    if let Some(overlay) = screen.overlay {
+    let overlay = match (screen.overlay, screen.alone) {
+        (Some(_), Some(_)) => {
+            return Err("a head's overlay and a notice alone on one screen".to_owned());
+        }
+        (Some(overlay), None) => Some(overlay.console()?),
+        (None, Some(words)) => Some(vtium::term::Overlay::alone(
+            &words()?,
+            OverlayColors::default(),
+        )),
+        (None, None) => None,
+    };
+    if let Some(overlay) = overlay {
         let front = &mut display.buffers[display.back ^ 1];
         let grid = (screen.cols, screen.rows);
-        let drawn = overlay.console()?.draw(&r, grid, screen.orientation, front);
+        let drawn = overlay.draw(&r, grid, screen.orientation, front);
         if drawn.is_empty() {
             return Err("the overlay drew nothing".to_owned());
         }
@@ -667,6 +683,60 @@ mod tests {
             Ok(
                 "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/heads.conf to see why."
             )
+        );
+    }
+
+    // The panic screen is a broken closed file's console line, that no head
+    // is left, the file's first three errors with their lines and the
+    // count of the rest, and the next step (ADR-1401 D7).
+    #[test]
+    fn the_panic_screen_lists_the_files_first_errors_between_its_line_and_next_step() {
+        assert_eq!(
+            crate::notices::panic().as_deref(),
+            Ok(concat!(
+                "vtium: config invalid, policy closed: input off\n",
+                "The errors in /etc/vtium/heads.conf, listed below, leave no head that can run.\n",
+                "/etc/vtium/heads.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
+                "/etc/vtium/heads.conf:5: A head has no `font-size` of its own: its `profile` sets its font. Set the font in the head's profile, or remove the line.\n",
+                "/etc/vtium/heads.conf:7: This rule sends devices to the head \"kisok\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section.\n",
+                "More errors: 1\n",
+                "Nothing on this console takes input. Run vtium check-config /etc/vtium/heads.conf over ssh, or from other boot media, for the full report.",
+            ))
+        );
+    }
+
+    // A notice alone draws as the screen the display guard lights for it
+    // draws it, as a report: on 40 by 8 cells the panic screen keeps its
+    // console line and its next step and drops what lies between. A screen
+    // that also has a head's overlay is refused (ADR-1401 D7, D9).
+    #[test]
+    fn a_notice_alone_draws_as_the_notice_screen_does() {
+        fn ends() -> Result<String, String> {
+            let panic = crate::notices::panic()?;
+            let (first, last) = (panic.lines().next(), panic.lines().last());
+            Ok(format!("{}\n{}", first.unwrap_or(""), last.unwrap_or("")))
+        }
+        let screen = |alone: Words| Screen {
+            alone: Some(alone),
+            ..Screen::new("p", "the panic screen", b"\x1b[?25l", 40, 8)
+        };
+        let alone = screen(crate::notices::panic);
+        assert_eq!(
+            draw(&alone).unwrap().rgb(),
+            draw(&screen(ends)).unwrap().rgb()
+        );
+        let both = Screen {
+            overlay: Some(Overlay {
+                line: None,
+                notices: &[crate::notices::no_keyboard],
+                mark: None,
+                scheme: None,
+            }),
+            ..alone
+        };
+        assert_eq!(
+            draw(&both).unwrap_err(),
+            "a head's overlay and a notice alone on one screen"
         );
     }
 
