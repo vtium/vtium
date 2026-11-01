@@ -160,6 +160,7 @@ impl Screen {
             return;
         }
         let padded = self.scrollback.unwrap_newest();
+        self.images_dropped();
         // The newest scrollback row is on the screen only while the view is
         // scrolled back.
         if padded && self.scrollback.offset() != 0 {

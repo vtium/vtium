@@ -72,10 +72,15 @@ impl Screen {
         let view = self.scrollback.view_index();
         let top = view.unwrap_or(self.scrollback.len());
         match (up, view) {
-            (true, _) => match self.scrollback.find_above(top, is_prompt) {
-                Some(i) => self.scrollback.set_view(Some(i)),
-                None => return false,
-            },
+            (true, _) => {
+                let found = self.scrollback.find_above(top, is_prompt);
+                // the search may rewrap waiting rows, and drop the oldest
+                self.images_dropped();
+                match found {
+                    Some(i) => self.scrollback.set_view(Some(i)),
+                    None => return false,
+                }
+            }
             (false, None) => return false,
             (false, Some(_)) => {
                 let below = self.scrollback.find_below(top, is_prompt);

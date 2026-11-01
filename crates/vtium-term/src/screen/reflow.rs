@@ -556,6 +556,7 @@ impl Screen {
         self.cols = cols;
         self.land(&carried, Landing { top, kept, base }, saved);
         self.scrollback.enforce_max();
+        self.images_dropped();
         self.discard_lines(gone);
     }
 

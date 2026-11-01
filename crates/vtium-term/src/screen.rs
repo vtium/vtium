@@ -226,6 +226,7 @@ impl Screen {
     /// would have made.
     pub fn rewrap_scrollback(&mut self) {
         self.scrollback.rewrap_all();
+        self.images_dropped();
     }
 
     /// How many lines the view is scrolled back: 0 shows the screen.
@@ -508,6 +509,7 @@ impl Screen {
     /// Scrolls the view `n` lines back into the scrollback.
     pub fn scroll_view_up(&mut self, n: usize) {
         self.scrollback.view_up(n);
+        self.images_dropped();
         self.damage.mark_all();
         self.refresh_hover();
     }
@@ -615,10 +617,12 @@ impl Screen {
         let mut gone = Vec::new();
         for row in (0..n).rev() {
             let Some(mut line) = self.scrollback.pop_newest() else {
+                self.images_dropped();
                 #[cfg(feature = "images")]
                 self.discard_lines(gone);
                 return;
             };
+            self.images_dropped();
             line.resize(cols);
             // The line replaced is one `rotate_down` just made, which holds
             // no selection and no placement; with images it goes as every
