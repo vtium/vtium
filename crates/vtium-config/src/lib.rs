@@ -58,8 +58,8 @@ pub use bounds::{
 };
 pub use config::{Config, Font, Head, Rule, TEMPLATE, Target, WhenDisplayLost};
 pub use error::{
-    At, AtStart, Drops, Error, Fate, Note, Problem, Quoted, Rejected, Remark, Renamed, Shown,
-    Stating, Syntax, Warning, at,
+    At, AtStart, Drops, Error, Fate, Note, PolicyFault, Problem, Quoted, Rejected, Remark, Renamed,
+    Shown, Stating, Syntax, Warning, at,
 };
 pub use file::{HEAD_FILE, Inspected, Trust, Untrusted, inspect, read, text};
 pub use findings::{Against, remarks, warnings};

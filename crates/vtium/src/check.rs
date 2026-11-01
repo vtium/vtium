@@ -982,8 +982,8 @@ mod tests {
             ),
             (
                 format!("version = 1\npolicy = maybe\n{head}"),
-                PARTLY_OPEN,
-                "vtium cannot read the file's `policy` line, so the file counts as open and as partly broken, and every head acts as not isolated whatever its `isolated` says. Write one `policy = open` or `policy = closed` line above the first section.",
+                "vtium cannot read a `policy` line of this file, so a start counts the whole file as closed and broken: it delivers no input and shows the panic screen on the boot display, starting `vtium: config invalid, policy closed: input off`.",
+                "vtium cannot read a `policy` line above the first section, so the file's policy is closed. Write that line as `policy = open` or `policy = closed`.",
             ),
         ];
         for (n, (text, outcome, policy)) in rows.iter().enumerate() {

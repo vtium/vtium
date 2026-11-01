@@ -2,7 +2,7 @@
 //! endings, the top-level keys, the names and the targets, and the first
 //! cut's names, each an error that names the word that replaced it.
 
-use vtium_config::{Problem, Target, parse};
+use vtium_config::{PolicyFault, Problem, Target, parse};
 
 /// The first error's text for `text`.
 fn first_error(text: &str) -> String {
@@ -106,7 +106,7 @@ fn version_and_policy_come_before_the_first_section_in_either_order() {
     }
     assert!(matches!(
         parse("version = 1\npolicy = maybe\n").map_err(|r| r.errors[0].problem.clone()),
-        Err(Problem::BadValue { key: "policy", .. })
+        Err(Problem::UnreadablePolicy(PolicyFault::Value(_)))
     ));
 }
 

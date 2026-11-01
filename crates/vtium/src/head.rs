@@ -1127,9 +1127,16 @@ impl Start {
         let read = vtium_config::Read::Trusted(reading.trusted());
         let mut start = Start::of(&read, reading.parsed.config);
         if start.outcome.line == Some(vtium_config::Line::ClosedOff) {
+            // a policy line vtium cannot read is why the file is closed and
+            // broken, so its error comes first, then the rest in their order
+            let unreadable = |e: &&vtium_config::Error| {
+                matches!(e.problem, vtium_config::Problem::UnreadablePolicy(_))
+            };
             let errors = &reading.errors.errors;
             let first: Vec<String> = errors
                 .iter()
+                .filter(unreadable)
+                .chain(errors.iter().filter(|e| !unreadable(e)))
                 .take(PANIC_ERRORS_MAX)
                 .map(|e| at(path, e.line(), e).to_string())
                 .collect();
@@ -1395,6 +1402,49 @@ mod tests {
             start.notice(),
             Some(outcome_notice(vtium_config::Line::Partly))
         );
+    }
+
+    // ADR-1401 D7: when a policy line vtium cannot read is why the file is
+    // closed and broken, the panic screen lists that line's error first,
+    // ahead of the errors that name no line and sort first otherwise, and
+    // then the rest in their order
+    // covers: platform.heads.policy
+    #[test]
+    fn the_panic_screen_lists_an_unreadable_policy_lines_error_first() {
+        // past the file bound, with no `version` and a stray top-level line
+        // before the policy line: three errors would sort ahead of it
+        let mut text = String::from("junk\npolicy = opne\n");
+        while text.len() <= vtium_config::FILE_MAX {
+            text.push_str("# padding past the bound\n");
+        }
+        let start = Start::trusted(
+            std::path::Path::new("/etc/vtium/heads.conf"),
+            text.as_bytes(),
+        );
+        assert_eq!(start.outcome.line, Some(vtium_config::Line::ClosedOff));
+        let items = start.report().map(|r| r.items.clone()).unwrap_or_default();
+        assert_eq!(items.len(), PANIC_ERRORS_MAX, "{items:?}");
+        assert!(
+            items.first().is_some_and(
+                |i| i.starts_with("/etc/vtium/heads.conf:2: `policy` cannot be \"opne\"")
+            ),
+            "{items:?}"
+        );
+        // the others follow in their order: the two errors with no line,
+        // and the stray line's past the three shown
+        assert!(
+            items
+                .get(1)
+                .is_some_and(|i| i.starts_with("/etc/vtium/heads.conf: This file is longer")),
+            "{items:?}"
+        );
+        assert!(
+            items
+                .get(2)
+                .is_some_and(|i| i.starts_with("/etc/vtium/heads.conf: The file needs")),
+            "{items:?}"
+        );
+        assert_eq!(start.report().map(|r| r.more), Some(1));
     }
 
     // ADR-1401 D7, D9: the screen the display guard lights for a notice

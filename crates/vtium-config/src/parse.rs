@@ -13,7 +13,10 @@
 //! drops what [`scope`] says it takes: a bad rule drops that rule, an
 //! error inside a head's section drops the head with every rule naming
 //! it, and an error that leaves the file's structure untrustworthy drops
-//! everything but the `policy` lines. What survives is a [`Config`], and
+//! everything but the `policy` lines. A policy line, a line above the
+//! first section whose bytes begin with `policy` in any case, is judged
+//! before its bytes are decoded: one vtium cannot read makes the file
+//! closed and broken (ADR-1401 D7). What survives is a [`Config`], and
 //! the `policy` lines, the scopes and what survives classify the file for
 //! [`Trusted::of`]. [`parse`] is the strict reading: a [`Config`] only for
 //! a file with no error.
@@ -22,7 +25,9 @@ use crate::bounds::{
     CONSOLES_MAX, ERRORS_MAX, FILE_MAX, HEADS_MAX, LINE_MAX, NAME_MAX, RULES_MAX, TOKENS_MAX,
 };
 use crate::config::{Config, Head, Rule, Target, WhenDisplayLost};
-use crate::error::{Drops, Error, Note, Problem, Quoted, Rejected, Renamed, Syntax, Warning};
+use crate::error::{
+    Drops, Error, Note, PolicyFault, Problem, Quoted, Rejected, Renamed, Syntax, Warning,
+};
 use crate::identity::Kind;
 use crate::matching::{Match, Token, TokenError};
 use crate::outcome::{Kept, Policy, PolicyLine, Scope, Trusted, Within, scope};
@@ -79,10 +84,10 @@ impl Reading {
 /// checked on its own for UTF-8, control characters and its length, so a
 /// bad line drops what its scope takes and no more. Past [`FILE_MAX`] the
 /// file is dropped whole, and its `policy` lines are read from the lines
-/// within the bound.
+/// within the bound; a policy line the bound cuts cannot be read.
 pub fn reading(bytes: &[u8]) -> Reading {
     let mut p = Parser::default();
-    let within = if bytes.len() > FILE_MAX {
+    let (within, cut) = if bytes.len() > FILE_MAX {
         p.error(None, Problem::TooLarge, Within::Top);
         let bounded = bytes.get(..FILE_MAX).unwrap_or_default();
         // the line the bound cuts is not read; the last line it keeps
@@ -91,13 +96,17 @@ pub fn reading(bytes: &[u8]) -> Reading {
             .iter()
             .rposition(|&b| b == b'\n')
             .map_or(0, |at| at.saturating_add(1));
-        bounded.get(..end).unwrap_or_default()
+        bounded.split_at_checked(end).unwrap_or((bounded, &[]))
     } else {
-        bytes
+        (bytes, &[][..])
     };
     // a byte-order mark is no part of the first line, and counts toward
     // the bound
-    let within = within.strip_prefix(b"\xef\xbb\xbf").unwrap_or(within);
+    let (within, cut) = match within.strip_prefix(BOM) {
+        Some(rest) => (rest, cut),
+        None if within.is_empty() => (within, cut.strip_prefix(BOM).unwrap_or(cut)),
+        None => (within, cut),
+    };
     let mut lines = within.split(|&b| b == b'\n').peekable();
     let mut n = 0_usize;
     while let Some(raw) = lines.next() {
@@ -109,7 +118,47 @@ pub fn reading(bytes: &[u8]) -> Reading {
         };
         p.raw_line(n, raw);
     }
+    // the lines end in an empty one, numbered as the line the bound cuts
+    if p.top() && begins_policy(cut) {
+        p.unreadable_policy(n, PolicyFault::Cut);
+    }
     p.finish()
+}
+
+/// Whether `c` does not show on screen as itself: a space or a format
+/// character other than a blank or a tab, such as a no-break space, a
+/// zero-width space or a byte-order mark, which a quote escapes.
+fn hidden(c: char) -> bool {
+    !matches!(c, ' ' | '\t' | '"' | '\'' | '\\') && c.escape_debug().count() > 1
+}
+
+/// `line` from the character before the first one in its key that does
+/// not show on screen, or from that character when it starts the line;
+/// `None` when the key holds none.
+fn hidden_from(line: &str) -> Option<&str> {
+    let key = line.split('=').next().unwrap_or_default();
+    let at = key.char_indices().find(|&(_, c)| hidden(c))?.0;
+    let before = key
+        .get(..at)
+        .and_then(|k| k.char_indices().next_back())
+        .map_or(at, |(i, _)| i);
+    line.get(before..)
+}
+
+/// The UTF-8 byte-order mark.
+const BOM: &[u8] = b"\xef\xbb\xbf";
+
+/// Whether a line's bytes, after their leading blanks, begin with `policy`
+/// in any case: a policy line, wherever above the first section it sits,
+/// whatever bytes follow (ADR-1401 D7).
+fn begins_policy(raw: &[u8]) -> bool {
+    let start = raw
+        .iter()
+        .position(|b| !matches!(b, b' ' | b'\t'))
+        .unwrap_or(raw.len());
+    raw.get(start..)
+        .and_then(|rest| rest.get(..POLICY_KEY.len()))
+        .is_some_and(|word| word.eq_ignore_ascii_case(POLICY_KEY.as_bytes()))
 }
 
 /// Parses a head file's text, strictly: its [`Config`] when it holds no
@@ -235,6 +284,9 @@ fn keep_first<T>(findings: &mut Vec<T>) -> usize {
     past
 }
 
+/// The top-level key that states the file's policy.
+const POLICY_KEY: &str = "policy";
+
 /// The words `policy` takes.
 pub(crate) const POLICY: [&str; 2] = ["open", "closed"];
 
@@ -328,12 +380,16 @@ fn when_display_lost(value: &str) -> Result<WhenDisplayLost, Problem> {
     }
 }
 
-/// A `policy` line's value as the model reads it.
-fn policy_line(value: &str) -> PolicyLine {
-    match value {
-        "open" => PolicyLine::Open,
-        "closed" => PolicyLine::Closed,
-        _ => PolicyLine::Unknown,
+/// A policy line's text as the model reads it: `policy = open` or
+/// `policy = closed`, else why vtium cannot read it.
+fn policy_line(line: &str) -> Result<PolicyLine, PolicyFault> {
+    let [open, closed] = POLICY;
+    match key_value(line) {
+        None => Err(PolicyFault::NotKeyValue),
+        Some((key, _)) if key != POLICY_KEY => Err(PolicyFault::Key(Quoted::new(key))),
+        Some((_, value)) if value == open => Ok(PolicyLine::Open),
+        Some((_, value)) if value == closed => Ok(PolicyLine::Closed),
+        Some((_, value)) => Err(PolicyFault::Value(Quoted::new(value))),
     }
 }
 
@@ -360,6 +416,24 @@ impl Parser {
             .push_dropping(line, problem, Some(Drops::of(scope, within)));
     }
 
+    /// Whether the line read next sits above the first section.
+    fn top(&self) -> bool {
+        matches!(self.section, None | Some(Section::Top))
+    }
+
+    /// Records the policy line `n` that vtium cannot read: the file is
+    /// closed and broken, whatever its other lines hold (ADR-1401 D7). The
+    /// error takes no scope of the rest, since the second level, the
+    /// policy, settles the outcome.
+    fn unreadable_policy(&mut self, n: usize, fault: PolicyFault) {
+        self.policies.push(PolicyLine::Unreadable);
+        self.errors.push_dropping(
+            Some(n),
+            Problem::UnreadablePolicy(fault),
+            Some(Drops::Closed),
+        );
+    }
+
     /// Where a line sits, from the section it is read in.
     fn within(&self) -> Within {
         match self.section {
@@ -369,13 +443,13 @@ impl Parser {
         }
     }
 
-    /// One line's bytes, its newline apart.
+    /// One line's bytes, its newline apart. A policy line is known by its
+    /// first bytes, so one vtium cannot read for its length or its bytes
+    /// is still a policy line.
     fn raw_line(&mut self, n: usize, raw: &[u8]) {
-        if raw.len() > LINE_MAX {
-            self.error(Some(n), Problem::LineTooLong, self.within());
-            return;
-        }
-        // a heading vtium cannot read drops its section
+        let policy = self.top() && begins_policy(raw);
+        // a heading vtium cannot read drops its section, and still ends the
+        // lines above the first section
         let heading = raw
             .iter()
             .find(|b| !matches!(b, b' ' | b'\t'))
@@ -385,6 +459,17 @@ impl Parser {
         } else {
             self.within()
         };
+        if raw.len() > LINE_MAX {
+            if policy {
+                self.unreadable_policy(n, PolicyFault::LineTooLong);
+            } else {
+                if heading {
+                    self.section = Some(Section::Broken);
+                }
+                self.error(Some(n), Problem::LineTooLong, within);
+            }
+            return;
+        }
         let unreadable = match std::str::from_utf8(raw) {
             Err(_) => Err(Problem::NotUtf8),
             Ok(text) => match text.chars().find(|&c| c.is_control() && c != '\t') {
@@ -393,7 +478,14 @@ impl Parser {
             },
         };
         match unreadable {
-            Ok(text) => self.line(n, text),
+            Ok(text) => self.line(n, text, policy),
+            Err(problem) if policy => {
+                let fault = match problem {
+                    Problem::ControlCharacter(c) => PolicyFault::ControlCharacter(c),
+                    _ => PolicyFault::NotUtf8,
+                };
+                self.unreadable_policy(n, fault);
+            }
             Err(problem) => {
                 if heading {
                     self.section = Some(Section::Broken);
@@ -403,7 +495,7 @@ impl Parser {
         }
     }
 
-    fn line(&mut self, n: usize, raw: &str) {
+    fn line(&mut self, n: usize, raw: &str, policy: bool) {
         let line = content(raw);
         if line.is_empty() {
             return;
@@ -419,6 +511,7 @@ impl Parser {
             return;
         }
         match section {
+            Section::Top if policy => self.policy_key(n, &line),
             Section::Top => self.top_key(n, &line),
             Section::Head(index) => self.head_key(n, index, &line),
             Section::Rules => self.rule(n, &line),
@@ -461,22 +554,29 @@ impl Parser {
                     }
                 }
             }
-            Some(("policy", value)) => {
-                let read = policy_line(value);
-                self.policies.push(read);
-                if self.once(n, None, "policy") && read == PolicyLine::Unknown {
-                    let problem = Problem::BadValue {
-                        key: "policy",
-                        value: Quoted::new(value),
-                    };
-                    self.error(Some(n), problem, Within::Top);
-                }
+            // a key that holds a character that does not show is quoted from
+            // just before that character, so its message shows the
+            // character the owner cannot see however long the key is
+            _ => {
+                let problem = match hidden_from(line) {
+                    Some(from) => Problem::HiddenOutsideSection(Quoted::new(from)),
+                    None => Problem::Syntax(Syntax::OutsideSection),
+                };
+                self.error(Some(n), problem, Within::Top);
             }
-            _ => self.error(
-                Some(n),
-                Problem::Syntax(Syntax::OutsideSection),
-                Within::Top,
-            ),
+        }
+    }
+
+    /// A policy line vtium could decode: `policy = open` or
+    /// `policy = closed`, a second of which is a key given twice, else a
+    /// policy line vtium cannot read.
+    fn policy_key(&mut self, n: usize, line: &str) {
+        match policy_line(line) {
+            Ok(read) => {
+                self.policies.push(read);
+                self.once(n, None, POLICY_KEY);
+            }
+            Err(fault) => self.unreadable_policy(n, fault),
         }
     }
 
@@ -776,7 +876,11 @@ impl Parser {
         }
         let late = std::mem::take(&mut self.late);
         self.errors.merge(late);
-        let policy = if self.policies.contains(&PolicyLine::Closed) {
+        let closes = |p: &PolicyLine| match p {
+            PolicyLine::Closed | PolicyLine::Unreadable => true,
+            PolicyLine::Open | PolicyLine::InSection => false,
+        };
+        let policy = if self.policies.iter().any(closes) {
             Policy::Closed
         } else {
             Policy::Open

@@ -17,8 +17,8 @@ trusted	closed	headless	no-head	closed	as-set	-	rules	notice-only	-	forever	igno
 trusted	closed	empty	no-head	closed	as-set	-	rules	notice-only	-	forever	ignore	off	off	set|on	unset
 trusted	closed	partly	survivors	closed	sticky	config partly invalid, running what's valid	rules	notice-only	config partly invalid, running what's valid	forever	ignore	off	off	set|on	unset,shared,isolated
 trusted	closed	broken	off	closed	as-set	vtium: config invalid, policy closed: input off	notice	notice-only	vtium: config invalid, policy closed: input off	forever	ignore	off	off	on	unset
-trusted	unreadable	valid	survivors	open	forced	config partly invalid, running what's valid	rules	first-head	-	as-set	shipped	on	on	off	-
-trusted	unreadable	headless	builtin	open	as-set	invalid config skipped, using builtin	rules	first-head	-	as-set	shipped	on	on	off	-
-trusted	unreadable	empty	builtin	open	as-set	invalid config skipped, using builtin	rules	first-head	-	as-set	shipped	on	on	off	-
-trusted	unreadable	partly	survivors	open	forced	config partly invalid, running what's valid	rules	first-head	-	as-set	shipped	on	on	off	-
-trusted	unreadable	broken	builtin	open	as-set	invalid config skipped, using builtin	rules	first-head	-	as-set	shipped	on	on	off	-
+trusted	unreadable	valid	off	closed	as-set	vtium: config invalid, policy closed: input off	notice	notice-only	vtium: config invalid, policy closed: input off	forever	ignore	off	off	on	unset,shared,isolated
+trusted	unreadable	headless	off	closed	as-set	vtium: config invalid, policy closed: input off	notice	notice-only	vtium: config invalid, policy closed: input off	forever	ignore	off	off	on	unset
+trusted	unreadable	empty	off	closed	as-set	vtium: config invalid, policy closed: input off	notice	notice-only	vtium: config invalid, policy closed: input off	forever	ignore	off	off	on	unset
+trusted	unreadable	partly	off	closed	as-set	vtium: config invalid, policy closed: input off	notice	notice-only	vtium: config invalid, policy closed: input off	forever	ignore	off	off	on	unset,shared,isolated
+trusted	unreadable	broken	off	closed	as-set	vtium: config invalid, policy closed: input off	notice	notice-only	vtium: config invalid, policy closed: input off	forever	ignore	off	off	on	unset
