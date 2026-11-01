@@ -147,7 +147,7 @@ pub(crate) struct State {
     /// `EXTRA0` on.
     pub(crate) extra_props: BTreeMap<u32, usize>,
     /// The connectors probed, one entry a probe, as a read of a connector
-    /// with no room for modes probes it.
+    /// with no room for modes probes it while the card is master.
     pub(crate) probes: Vec<u32>,
     /// Planes whose possible CRTCs cannot be read, and the reads that
     /// fail for every object: `planes`, `crtc_mode` and `cap`. Each fails
@@ -856,7 +856,9 @@ impl Kms for FakeCard {
             .get(&id)
             .cloned()
             .ok_or_else(|| err(Errno::NOENT))?;
-        if modes.is_empty() {
+        // The kernel probes only for DRM master, and demotes anyone
+        // else's probe to a read (`drm_mode_getconnector`).
+        if modes.is_empty() && s.master {
             s.probes.push(id);
         }
         drop(s);

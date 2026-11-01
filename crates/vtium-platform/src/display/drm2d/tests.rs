@@ -2759,6 +2759,35 @@ fn a_connector_is_probed_once_a_read() {
     assert_eq!(card.connector(A).unwrap().modes.len(), 1);
     assert_eq!(card.connector(B).unwrap().modes.len(), 0);
     assert_eq!(card.state().probes, [A, B]);
+    // Without DRM master the kernel probes nothing.
+    card.state().master = false;
+    assert_eq!(card.connector(A).unwrap().modes.len(), 1);
+    assert_eq!(card.state().probes, [A, B]);
+}
+
+// The card writes a connector's modes and encoders only into a buffer that
+// holds the whole list, and gives the full counts either way.
+#[test]
+fn a_connector_read_into_short_buffers_writes_neither_list() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true), mode(320, 240, 60, false)])]);
+    card.state().connectors.get_mut(&A).unwrap().encoders = vec![200, 201];
+    let mut modes = [Mode::default()];
+    let mut encoders = [7u32];
+    let read = card.read_connector(A, &mut modes, &mut encoders).unwrap();
+    assert_eq!((read.modes, read.encoders), (2, 2));
+    assert_eq!(modes, [Mode::default()]);
+    assert_eq!(encoders, [7]);
+}
+
+// The CRTC a dark connector is on is read without probing the connector:
+// only its encoder is wanted.
+#[test]
+fn a_dark_connectors_crtc_is_read_without_a_probe() {
+    let v = with_dark("HDMI-A-2");
+    v.card().state().probes.clear();
+    assert_eq!(v.connector_crtc(B), Some(101));
+    assert_eq!(v.connector_crtc(A), None);
+    assert_eq!(v.card().state().probes, [] as [u32; 0]);
 }
 
 // A connector with more modes than `MODES_MAX`, or more encoders than
@@ -2787,7 +2816,8 @@ fn a_connector_past_its_bounds_is_refused_unread() {
 }
 
 // The scan leaves a connector that changed between its reads unbound, with
-// one warning naming it, and the next scan reads it again and binds it.
+// a warning naming it at that scan, and the next scan reads it again and
+// binds it.
 #[test]
 fn a_connector_refused_by_the_scan_is_bound_at_the_next_scan() {
     let card = dark_card();
@@ -2859,7 +2889,7 @@ fn properties_that_change_between_their_reads_are_refused() {
 }
 
 // The scan leaves a connector whose properties it cannot read unbound, with
-// one warning naming it, and binds it at the next scan, its `PATH` read
+// a warning naming it at that scan, and binds it at the next scan, its `PATH` read
 // with the rest.
 #[test]
 fn a_connector_whose_properties_are_refused_is_bound_at_the_next_scan() {

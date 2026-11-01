@@ -30,9 +30,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
 
     /// The CRTC connector `id` is on, as the kernel reports it.
     pub(super) fn connector_crtc(&self, id: u32) -> Option<u32> {
-        let conn = self.connector(id)?;
-        let crtc = (conn.encoder != 0)
-            .then(|| self.encoder(conn.encoder))
+        let encoder = self.read_logged(id, self.card.connector_encoder(id))?;
+        let crtc = (encoder != 0)
+            .then(|| self.encoder(encoder))
             .flatten()?
             .crtc;
         (crtc != 0).then_some(crtc)

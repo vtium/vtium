@@ -119,8 +119,9 @@ pub(crate) trait Kms {
     /// One read of connector `id`, a GETCONNECTOR: its modes into `modes`
     /// and its encoders into `encoders`, each list only where its buffer
     /// holds the whole list, and the counts the connector has either way.
-    /// A read whose `modes` is empty probes the connector first, so one
-    /// plugged in since the last probe shows its modes.
+    /// A read whose `modes` is empty probes the connector first while
+    /// vtium holds DRM master, so one plugged in since the last probe shows
+    /// its modes; without master the kernel reads what it knows.
     fn read_connector(
         &self,
         id: u32,
@@ -156,6 +157,15 @@ pub(crate) trait Kms {
             encoder: info.encoder,
             encoders,
         })
+    }
+
+    /// The encoder connector `id` is on, 0 for none, in one read with
+    /// room for one mode and no encoders, so the connector is not probed,
+    /// as libdrm's `drmModeGetConnectorCurrent` reads it. The read's lists
+    /// are not used, so no count of them is trusted.
+    fn connector_encoder(&self, id: u32) -> io::Result<u32> {
+        let mut one = [Mode::default()];
+        Ok(self.read_connector(id, &mut one, &mut [])?.encoder)
     }
 
     fn encoder(&self, id: u32) -> io::Result<Encoder>;

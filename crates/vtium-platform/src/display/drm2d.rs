@@ -1147,16 +1147,20 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// the connector changed between its two reads among them, is a
     /// warning.
     fn connector(&self, id: u32) -> Option<Connector> {
-        self.card
-            .connector(id)
-            .inspect_err(|e| {
-                if e.kind() == io::ErrorKind::NotFound {
-                    log::debug!("connector {id} is gone: {e}");
-                } else {
-                    log::warn!("cannot read connector {id}: {e}");
-                }
-            })
-            .ok()
+        self.read_logged(id, self.card.connector(id))
+    }
+
+    /// What a read of connector `id` gave, or `None`, logged as
+    /// [`Self::connector`] logs it.
+    pub(super) fn read_logged<T>(&self, id: u32, read: io::Result<T>) -> Option<T> {
+        read.inspect_err(|e| {
+            if e.kind() == io::ErrorKind::NotFound {
+                log::debug!("connector {id} is gone: {e}");
+            } else {
+                log::warn!("cannot read connector {id}: {e}");
+            }
+        })
+        .ok()
     }
 
     /// What a scan finds of connector `conn`, or the failure to read its
