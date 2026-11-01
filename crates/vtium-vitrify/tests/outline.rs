@@ -437,6 +437,36 @@ fn the_underline_is_centred_below_the_baseline_as_freetype_gives_it() {
     assert_eq!((d.underline, d.underline_thickness), (18, 1));
 }
 
+// The lines a strike reports, each pinned to the C reference's formula
+// (kmscon_font_freetype_get_deco, kmscon_font_get_deco), for Test Mono at
+// 20 pixels, baseline 16, 0.0195 of a pixel to the unit. With an OS/2
+// strikeout 50 units thick at 300: a row thick, its top row floor(16 -
+// 5.85 + 0.5) = 10. With no post underline and no OS/2: the underline a
+// fourteenth of the cell thick, floor(20 / 14) = 1, centred 1.5 rows above
+// the bottom, row 18; the strike-through as thick, centred on half the
+// x-height, which the font lacks, so on half the baseline: 16 - 4 = 12,
+// its top row floor(12 - 0.5 + 0.5) = 12
+// covers: text.overhang
+#[test]
+fn the_lines_follow_the_font_as_the_c_reference_placed_them() {
+    let lines = |font: ttf::Font| {
+        let d = decorations(&font.build(), "Test Mono", 20, 16).expect("the lines");
+        (
+            d.underline,
+            d.underline_thickness,
+            d.strike,
+            d.strike_thickness,
+        )
+    };
+    let both = ttf::Font {
+        underline: Some((-100, 50)),
+        os2: Some((50, 300, 0)),
+        ..ttf::test_mono()
+    };
+    assert_eq!(lines(both), (18, 1, 10, 1), "post and OS/2");
+    assert_eq!(lines(ttf::test_mono()), (18, 1, 12, 1), "neither");
+}
+
 #[test]
 fn a_later_source_draws_at_the_cell_it_is_given_and_only_what_it_covers() {
     let o =
