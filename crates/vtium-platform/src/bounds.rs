@@ -142,7 +142,7 @@ const BLOB: Bound = Bound {
     name: "BLOB_MAX",
     value: 4096,
     what: "Bytes of a KMS property blob vtium reads, as a connector's `PATH`",
-    past: "The blob is not read: a warning names the connector, which has no path until a later scan reads one",
+    past: "The blob is not read: a warning names the connector, whose display is bound without a path and keeps none while the connector stays connected",
     cite: "the kernel builds a DisplayPort multi-stream connector's `PATH` in a 255-byte buffer; drm-ffi's `get_property_blob` read a blob of any length the kernel gave",
 };
 
