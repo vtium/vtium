@@ -143,7 +143,7 @@ any, 0 when there is none. It notes on standard output what it does not\n\
 count: the density font sizes in points convert at, which the start\n\
 reads from each display, and of the head file a weak match, a rule that\n\
 needs a udev daemon where none runs, a rule using connector-path:, which\n\
-it cannot check without opening a display, a head no rule names, every\n\
+it cannot check without opening the card, a head no rule names, every\n\
 head isolated, and, of the devices present, each rule matching none, each\n\
 device no rule places and what the policy does with it, no head that\n\
 can be the active head, under closed no keyboard reaching any head, a\n\
@@ -236,11 +236,12 @@ and the devices present from /sys and udev's database, /run/udev/data.\n";
         format!("no udev daemon runs, so `{key}:` matches nothing")
     }
 
-    /// A rule using `connector-path:`, which the start matches and
-    /// check-config cannot check against the displays present.
-    pub fn no_connector_path() -> String {
+    /// A rule using `connector-path:`, which vtium matches when it finds
+    /// the display and check-config cannot check against the displays
+    /// present.
+    pub fn unchecked_connector_path() -> String {
         format!(
-            "check-config opens no display, so it cannot read a connector's PATH and does not check `{token}` against the displays present; vtium matches it at start",
+            "check-config opens no card, so it cannot read a connector's PATH and does not check `{token}` against the displays present; vtium matches it when it finds the display",
             token = "connector-path:",
         )
     }

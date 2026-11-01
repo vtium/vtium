@@ -498,7 +498,7 @@ fn findings(
     for line in connector_path_rules(&parsed.config) {
         noted.push(line);
         out.notes
-            .push(at(path, Some(line), check_config::no_connector_path()).to_string());
+            .push(at(path, Some(line), check_config::unchecked_connector_path()).to_string());
     }
     if let Some(devices) = machine.devices.filter(|_| runs_file) {
         out.notes
@@ -511,10 +511,11 @@ fn findings(
     );
 }
 
-/// The lines of the rules using `connector-path:`. The start reads each
-/// display's connector `PATH` from its card, but the listing opens no
-/// device and sysfs shows no `PATH`, so no listed display carries one and
-/// check-config cannot check these rules against the displays present.
+/// The lines of the rules using `connector-path:`. vtium reads each
+/// display's connector `PATH` from its card when it finds the display, at
+/// start and on a hotplug, but the listing opens no card and sysfs shows
+/// no `PATH`, so no listed display carries one and check-config cannot
+/// check these rules against the displays present.
 fn connector_path_rules(config: &Heads) -> Vec<usize> {
     config
         .rules
@@ -1542,7 +1543,7 @@ mod tests {
         );
     }
 
-    // ADR-1401 D4, vtium/vtium#157: check-config opens no display, so no
+    // ADR-1401 D4, vtium/vtium#157: check-config opens no card, so no
     // listed display carries a KMS connector's PATH; each `connector-path:`
     // rule is noted as unchecked, with or without a udev daemon
     #[test]
@@ -1562,9 +1563,9 @@ mod tests {
                 .collect();
             let none = |line: usize| {
                 format!(
-                    "{f}:{line}: check-config opens no display, so it cannot read a \
+                    "{f}:{line}: check-config opens no card, so it cannot read a \
                      connector's PATH and does not check `connector-path:` against the \
-                     displays present; vtium matches it at start"
+                     displays present; vtium matches it when it finds the display"
                 )
             };
             assert_eq!(mst, [&none(5), &none(7)], "udev {udev}");
@@ -2088,7 +2089,7 @@ mod tests {
             [
                 format!("{f}:5: no udev daemon runs, so `path:` matches nothing"),
                 format!(
-                    "{f}:4: check-config opens no display, so it cannot read a connector's PATH and does not check `connector-path:` against the displays present; vtium matches it at start"
+                    "{f}:4: check-config opens no card, so it cannot read a connector's PATH and does not check `connector-path:` against the displays present; vtium matches it when it finds the display"
                 ),
                 format!("{f}:6: the rule matches no device present"),
                 format!(
@@ -2117,5 +2118,8 @@ mod tests {
         assert_eq!(status, 0);
         assert_eq!(lines, [HELP.trim_end()]);
         assert!(HELP.contains("It only checks"));
+        assert!(HELP.replace('\n', " ").contains(
+            "a rule using connector-path:, which it cannot check without opening the card,"
+        ));
     }
 }
