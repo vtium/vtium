@@ -65,7 +65,7 @@
 
 ## dark: Both boxes are dark, for a dark terminal background: a notice is deep red with pale text and a light red edge, and the on-screen display near black with light grey text and a grey edge.
 #notice-foreground=254,226,226
-#notice-background=127,29,29
+#notice-background=185,28,28
 #notice-border=248,113,113
 #osd-foreground=209,213,219
 #osd-background=17,24,39

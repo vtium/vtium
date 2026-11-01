@@ -334,7 +334,7 @@ pub const LIGHT: Scheme = Scheme {
 pub const DARK: Scheme = Scheme {
     name: "dark",
     what: "Both boxes are dark, for a dark terminal background: a notice is deep red with pale text and a light red edge, and the on-screen display near black with light grey text and a grey edge.",
-    notice: [[254, 226, 226], [127, 29, 29], [248, 113, 113]],
+    notice: [[254, 226, 226], [185, 28, 28], [248, 113, 113]],
     osd: [[209, 213, 219], [17, 24, 39], [75, 85, 99]],
 };
 
