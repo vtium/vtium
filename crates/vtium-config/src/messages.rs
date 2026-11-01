@@ -14,13 +14,16 @@
 //! message as a placeholder's value from [`syntax`], so a translation of
 //! the words can never change it; so does the system's own error text,
 //! named `system_error` where a message carries it.
+//!
+//! The four console lines of D7's outcomes keep ADR-1401's wording, and
+//! each gains a sentence that says what to do next ([`Line::next`]).
 
 use std::fmt;
 
-use crate::error::{Note, Problem, Renamed, Syntax, Untrusted, Warning};
+use crate::error::{AtStart, Drops, Note, Problem, Renamed, Shown, Syntax, Untrusted, Warning};
 use crate::identity::{Class, Kind};
 use crate::matching::Token;
-use crate::outcome::Line;
+use crate::outcome::{Line, Policy, Read, Runs, Stated, resolve};
 use crate::parse::{Takes, range, takes};
 
 /// The file's own words `items`, each in backticks, separated by commas:
@@ -71,6 +74,12 @@ pub mod syntax {
     pub const KEEP: &str = "keep";
     pub const RESCUE: &str = "rescue";
     pub const ISOLATED_YES: &str = "isolated = yes";
+    pub const ISOLATED: &str = "isolated";
+    pub const CONSOLES: &str = "consoles";
+    /// kmscon.conf's key for a head's console cap.
+    pub const HEAD_CONSOLES_MAX: &str = "head-consoles-max";
+    /// The command that checks the head file, as a next step names it.
+    pub const CHECK_CONFIG: &str = "vtium check-config";
     pub const PROFILE: &str = "profile";
     pub const ID: &str = "id";
     pub const NAME: &str = "name";
@@ -345,8 +354,15 @@ impl fmt::Display for Warning {
         match self {
             Warning::ConsolesCapped { .. } => write!(
                 f,
-                "more consoles than the cap; the head gets {max}",
+                "`{consoles}` is past {max}, the most consoles a head may have, so the head gets {max} at most. Lower it to {max} or fewer.",
+                consoles = CONSOLES,
                 max = crate::CONSOLES_MAX,
+            ),
+            Warning::PastHeadCap { head, cap, .. } => write!(
+                f,
+                "The head {head} asks for more consoles than `{key}` allows, {cap}, so it gets {cap}. Lower its `{consoles}` to {cap} or fewer, or raise `{key}` in kmscon.conf.",
+                key = HEAD_CONSOLES_MAX,
+                consoles = CONSOLES,
             ),
             Warning::Shadowed { by, .. } => write!(
                 f,
@@ -419,7 +435,9 @@ impl fmt::Display for Renamed {
 }
 
 impl Line {
-    /// The line as the console shows it.
+    /// The line as the console shows it, worded exactly as ADR-1401's
+    /// outcomes table words it, since the observables and `outcomes.tsv`
+    /// quote it.
     pub fn text(self) -> &'static str {
         match self {
             Line::Skipped => "invalid config skipped, using builtin",
@@ -427,6 +445,142 @@ impl Line {
             Line::ClosedOff => "vtium: config invalid, policy closed: input off",
             // nothing about input: each head's own keyboards still deliver to it while it is unlit
             Line::NoDisplay => "vtium: no display for any head",
+        }
+    }
+
+    /// The sentence the notice shows after [`text`](Self::text): what to
+    /// do next about the head file at `path` (D7, "What to do next").
+    pub fn next(self, path: &std::path::Path) -> Next<'_> {
+        Next { line: self, path }
+    }
+}
+
+/// What to do next after a console line, about the head file at `path`.
+#[derive(Clone, Copy, Debug)]
+pub struct Next<'a> {
+    line: Line,
+    path: &'a std::path::Path,
+}
+
+impl fmt::Display for Next<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let path = Shown(self.path);
+        match self.line {
+            Line::Skipped | Line::Partly => {
+                write!(f, "Run {check} {path} to see why.", check = CHECK_CONFIG,)
+            }
+            Line::ClosedOff => write!(
+                f,
+                "Nothing on this console takes input. Run {check} {path} over ssh, or from other boot media, for the full report.",
+                check = CHECK_CONFIG,
+            ),
+            Line::NoDisplay => write!(
+                f,
+                "Connect a display that a rule in {path} sends to a head."
+            ),
+        }
+    }
+}
+
+impl fmt::Display for Drops {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Drops::File => write!(
+                f,
+                "For this error vtium drops the whole file but its `{policy}`.",
+                policy = POLICY,
+            ),
+            Drops::Head => f.write_str(
+                "For this error vtium drops this head, with every rule that names it.",
+            ),
+            Drops::Section => {
+                f.write_str("For this error vtium drops this section, with every line in it.")
+            }
+            Drops::Rule => f.write_str(
+                "For this error vtium drops this rule alone, and a device walks on to the next rule.",
+            ),
+            Drops::Line => f.write_str("For this error vtium drops this line alone."),
+        }
+    }
+}
+
+impl fmt::Display for AtStart {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let outcome = resolve(&self.0);
+        let line = outcome.line.map_or("", Line::text);
+        match self.0 {
+            Read::Missing => f.write_str(
+                "There is no head file here, so a start runs the compiled-in configuration and shows nothing.",
+            ),
+            Read::Untrusted => write!(
+                f,
+                "A start never reads a file it does not trust, so it runs the shipped default and shows `{line}`."
+            ),
+            Read::Inaccessible => write!(
+                f,
+                "A start cannot read this file, so it runs the shipped default and shows `{line}`."
+            ),
+            Read::Trusted(_) => match (outcome.runs, outcome.policy, outcome.line) {
+                (Runs::File, Policy::Open | Policy::Closed, _) => {
+                    f.write_str("A start runs this file as written and shows nothing.")
+                }
+                (Runs::NoHead, Policy::Open, _) => f.write_str(
+                    "This file has rules and declares no head, so a start runs its rules, and the display guard lights the boot display for the default head.",
+                ),
+                (Runs::NoHead, Policy::Closed, _) => f.write_str(
+                    "This file declares no head under the closed policy, so a start lights no display, delivers no input and shows nothing: loaded but off.",
+                ),
+                (Runs::Survivors, Policy::Open, _) => write!(
+                    f,
+                    "A start runs the heads and rules that survive, then the shipped rules' tail, and shows `{line}`."
+                ),
+                (Runs::Survivors, Policy::Closed, _) => write!(
+                    f,
+                    "A start runs the heads and rules that survive, with the rescue key off and every head isolated as written, and shows `{line}`."
+                ),
+                (Runs::Builtin, Policy::Open | Policy::Closed, None) => f.write_str(
+                    "This file declares nothing, so a start runs the shipped default and shows nothing.",
+                ),
+                (Runs::Builtin, Policy::Open | Policy::Closed, Some(_)) => write!(
+                    f,
+                    "No head survives this file's errors, so a start runs the shipped default and shows `{line}`."
+                ),
+                (Runs::Off, Policy::Open | Policy::Closed, _) => write!(
+                    f,
+                    "No head survives this file's errors under the closed policy, so a start delivers no input and shows the panic screen on the boot display, starting `{line}`."
+                ),
+            },
+        }
+    }
+}
+
+impl fmt::Display for Stated {
+    /// The policy a trusted file states, and what it sets.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Stated::Unset => write!(
+                f,
+                "The file sets no `{policy}`, so its policy is open: an input no rule places roams, a head is isolated only where it says `{isolated}`, and the anti-lockout guard and the rescue key are on.",
+                policy = POLICY,
+                isolated = ISOLATED_YES,
+            ),
+            Stated::Open => write!(
+                f,
+                "The policy is open: an input no rule places roams, a head is isolated only where it says `{isolated}`, and the anti-lockout guard and the rescue key are on.",
+                isolated = ISOLATED_YES,
+            ),
+            Stated::Closed => write!(
+                f,
+                "The policy is closed: an input no rule places is ignored, a head that leaves `{isolated}` unset is isolated, and the anti-lockout guard and the rescue key are off.",
+                isolated = ISOLATED,
+            ),
+            Stated::Unreadable => write!(
+                f,
+                "vtium cannot read the file's `{policy}` line, so the file counts as open and as at least partly broken. Write one `{open}` or `{closed}` line above the first section.",
+                policy = POLICY,
+                open = POLICY_OPEN,
+                closed = POLICY_CLOSED,
+            ),
         }
     }
 }
@@ -441,5 +595,58 @@ impl fmt::Display for Note {
                 name = NAME,
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use crate::outcome::Line;
+
+    // ADR-1401 D7, "What to do next": each console line keeps the record's
+    // wording, which the observables and `outcomes.tsv` quote, and gains a
+    // next step naming the file from its path
+    // covers: platform.heads.rules
+    #[test]
+    fn each_console_line_keeps_its_wording_and_gains_a_next_step() {
+        let path = Path::new("/etc/vtium/heads.conf");
+        let shown: Vec<(&str, String)> = Line::ALL
+            .iter()
+            .map(|l| (l.text(), l.next(path).to_string()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (
+                    "invalid config skipped, using builtin",
+                    "Run vtium check-config /etc/vtium/heads.conf to see why.".to_owned()
+                ),
+                (
+                    "config partly invalid, running what's valid",
+                    "Run vtium check-config /etc/vtium/heads.conf to see why.".to_owned()
+                ),
+                (
+                    "vtium: config invalid, policy closed: input off",
+                    "Nothing on this console takes input. Run vtium check-config /etc/vtium/heads.conf over ssh, or from other boot media, for the full report.".to_owned()
+                ),
+                (
+                    "vtium: no display for any head",
+                    "Connect a display that a rule in /etc/vtium/heads.conf sends to a head."
+                        .to_owned()
+                ),
+            ]
+        );
+    }
+
+    // the path is the file's, escaped, so a control character in it never
+    // reaches the screen as itself
+    #[test]
+    fn the_next_step_shows_its_path_escaped() {
+        let path = Path::new("/tmp/a\nb\u{1b}[2J.conf");
+        assert_eq!(
+            Line::Partly.next(path).to_string(),
+            "Run vtium check-config /tmp/a\\nb\\u{1b}[2J.conf to see why."
+        );
     }
 }

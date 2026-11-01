@@ -5,16 +5,17 @@
 //!
 //! The head file goes through vtium-config's reader, parser and
 //! evaluator, the ones the start runs (ADR-1401 D7): the file's own
-//! errors and warnings go to standard error and make the status 1, and
-//! what depends on the machine it is checked on, or is a choice rather
-//! than a fault, is noted on standard output outside the status, so a
-//! file can be checked away from its machine.
+//! errors, each with what it drops, and its warnings go to standard error
+//! and make the status 1. What depends on the machine it is checked on,
+//! or is a choice rather than a fault, is noted on standard output outside
+//! the status, so a file can be checked away from its machine, and the
+//! notes end on what a start does with the file and the policy it states.
 
 use std::path::{Path, PathBuf};
 
 use vtium_config::{
-    Config as Heads, Identity, Lockout, Match, Note, Parsed, Problem, Rejected, Token, Trust,
-    Untrusted, at,
+    AtStart, Config as Heads, Identity, Lockout, Match, Note, Parsed, Problem, Read, Rejected,
+    Token, Trust, Untrusted, Warning, at,
 };
 
 use vtium_platform::listing::{self, Listing, Roots};
@@ -241,9 +242,10 @@ pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
         udev_daemon: udev_daemon_runs(&host.udev_control),
         devices: Some(&devices),
     };
+    let cap = head_cap(&loaded.config);
     let heads = match loaded.candidate.as_deref() {
-        Some(path) => head_file(path, true, &Trust::ROOT, &machine),
-        None => head_file(&host.head_file, false, &Trust::ROOT, &machine),
+        Some(path) => head_file(path, true, &Trust::ROOT, &machine, cap),
+        None => head_file(&host.head_file, false, &Trust::ROOT, &machine, cap),
     };
     let status = u8::from(status != 0 || !heads.counted.is_empty());
     Outcome {
@@ -278,10 +280,31 @@ pub struct HeadCheck {
     pub notes: Vec<String>,
 }
 
+/// A head's console cap, kmscon.conf's `head-consoles-max` (ADR-1401
+/// D10).
+pub fn head_cap(config: &Config) -> u32 {
+    config
+        .number(&keys::HEAD_CONSOLES_MAX)
+        .map_or(vtium_config::CONSOLES_MAX, |n| {
+            u32::try_from(n).unwrap_or(u32::MAX)
+        })
+}
+
 /// Checks the head file at `path`, the installed one or, with
 /// `candidate`, one given to check before it is installed, its bytes read
-/// under `trust`, against `machine`.
-pub fn head_file(path: &Path, candidate: bool, trust: &Trust, machine: &Machine) -> HeadCheck {
+/// under `trust`, against `machine`, with `head_cap` the most consoles a
+/// head gets. It reads the file as the start does (ADR-1401 D7): each
+/// error, counted, with what it drops, then what survives, and last, as
+/// notes, what a start does with the file and the policy it states. A
+/// candidate the ownership check fails is read as the start would read it
+/// once installed.
+pub fn head_file(
+    path: &Path,
+    candidate: bool,
+    trust: &Trust,
+    machine: &Machine,
+    head_cap: u32,
+) -> HeadCheck {
     let mut out = HeadCheck::default();
     let inspected = match vtium_config::inspect(path, trust) {
         Ok(Some(inspected)) => inspected,
@@ -292,7 +315,7 @@ pub fn head_file(path: &Path, candidate: bool, trust: &Trust, machine: &Machine)
         }
         Ok(None) => {
             out.notes
-                .push(at(path, None, check_config::ABSENT).to_string());
+                .push(at(path, None, AtStart(Read::Missing)).to_string());
             return out;
         }
         Err(rejected) if denied(&rejected) => {
@@ -301,7 +324,9 @@ pub fn head_file(path: &Path, candidate: bool, trust: &Trust, machine: &Machine)
             return out;
         }
         Err(rejected) => {
-            reject(&mut out, path, &rejected);
+            errors(&mut out, path, &rejected);
+            out.notes
+                .push(at(path, None, AtStart(Read::Inaccessible)).to_string());
             return out;
         }
     };
@@ -314,20 +339,19 @@ pub fn head_file(path: &Path, candidate: bool, trust: &Trust, machine: &Machine)
             out.notes.push(at(path, None, note).to_string());
         } else {
             let problem = Problem::Untrusted(why);
-            let mut rejected = Rejected::default();
-            rejected.errors.push(vtium_config::Error {
-                line: None,
-                problem,
-            });
-            reject(&mut out, path, &rejected);
+            out.counted.push(at(path, None, problem).to_string());
+            out.notes
+                .push(at(path, None, AtStart(Read::Untrusted)).to_string());
             return out;
         }
     }
-    let parsed = inspected.text.and_then(|text| vtium_config::parse(&text));
-    match parsed {
-        Ok(parsed) => findings(&mut out, path, &parsed, machine),
-        Err(rejected) => reject(&mut out, path, &rejected),
-    }
+    let reading = vtium_config::reading(&inspected.bytes);
+    errors(&mut out, path, &reading.errors);
+    findings(&mut out, path, &reading.parsed, machine, head_cap);
+    let trusted = reading.trusted();
+    out.notes
+        .push(at(path, None, AtStart(Read::Trusted(trusted))).to_string());
+    out.notes.push(at(path, None, trusted.stated).to_string());
     out
 }
 
@@ -343,24 +367,34 @@ fn denied(rejected: &Rejected) -> bool {
     )
 }
 
-/// A file rejected whole: each error at its line, counted.
-fn reject(out: &mut HeadCheck, path: &Path, rejected: &Rejected) {
+/// Each error at its line, counted, with what it drops of a file that is
+/// read (ADR-1401 D7, "The rest").
+fn errors(out: &mut HeadCheck, path: &Path, rejected: &Rejected) {
     for e in &rejected.errors {
         out.counted.push(at(path, e.line(), e).to_string());
+        if let Some(drops) = e.drops {
+            out.counted.push(at(path, e.line(), drops).to_string());
+        }
     }
     if rejected.more > 0 {
         out.counted
             .push(at(path, None, crate::notice::more_errors(rejected.more)).to_string());
     }
-    out.counted
-        .push(at(path, None, check_config::REJECTED).to_string());
 }
 
-/// A valid file's warnings, counted, and its notes: each rule that needs
-/// a udev daemon where none runs, each `connector-path:` rule, and what
-/// the devices present find (ADR-1401 D4, D7, D9).
-fn findings(out: &mut HeadCheck, path: &Path, parsed: &Parsed, machine: &Machine) {
-    for w in &parsed.warnings {
+/// What survives of the file: its warnings, a head's `consoles` past
+/// `head_cap` among them, counted, and its notes: each rule that needs a
+/// udev daemon where none runs, each `connector-path:` rule, and what the
+/// devices present find (ADR-1401 D4, D7, D9, D10).
+fn findings(out: &mut HeadCheck, path: &Path, parsed: &Parsed, machine: &Machine, head_cap: u32) {
+    let capped = parsed
+        .config
+        .heads
+        .iter()
+        .filter_map(|h| Warning::past_head_cap(h, head_cap));
+    let mut warnings: Vec<Warning> = parsed.warnings.iter().cloned().chain(capped).collect();
+    warnings.sort_by_key(Warning::line);
+    for w in &warnings {
         out.counted.push(at(path, Some(w.line()), w).to_string());
     }
     if parsed.more_warnings > 0 {
@@ -706,7 +740,7 @@ mod tests {
 
     fn checked(name: &str, text: &str, udev: bool) -> (HeadCheck, String) {
         let (file, trust) = heads_fixture(name, text, 0o644);
-        let out = head_file(&file, false, &trust, &machine(udev));
+        let out = head_file(&file, false, &trust, &machine(udev), 4);
         std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
         (out, file.display().to_string())
     }
@@ -725,7 +759,200 @@ mod tests {
                 "{f}:6: the rule on line 5 takes every device this one matches"
             )]
         );
-        assert_eq!(out.notes, [] as [String; 0]);
+        assert_eq!(verdict(&out, &f), [AS_WRITTEN, UNSET]);
+        assert_eq!(out.notes.len(), 2, "{:?}", out.notes);
+    }
+
+    /// The last two notes of `out`, the outcome and the policy, without
+    /// the path `f` before them.
+    fn verdict<'a>(out: &'a HeadCheck, f: &str) -> Vec<&'a str> {
+        let prefix = format!("{f}: ");
+        let at = out.notes.len().saturating_sub(2);
+        out.notes
+            .get(at..)
+            .unwrap_or_default()
+            .iter()
+            .map(|n| n.strip_prefix(&prefix).unwrap_or(n))
+            .collect()
+    }
+
+    const OPEN: &str = "The policy is open: an input no rule places roams, a head is isolated only where it says `isolated = yes`, and the anti-lockout guard and the rescue key are on.";
+    const UNSET: &str = "The file sets no `policy`, so its policy is open: an input no rule places roams, a head is isolated only where it says `isolated = yes`, and the anti-lockout guard and the rescue key are on.";
+    const CLOSED: &str = "The policy is closed: an input no rule places is ignored, a head that leaves `isolated` unset is isolated, and the anti-lockout guard and the rescue key are off.";
+    const AS_WRITTEN: &str = "A start runs this file as written and shows nothing.";
+    const PARTLY_OPEN: &str = "A start runs the heads and rules that survive, then the shipped rules' tail, and shows `config partly invalid, running what's valid`.";
+
+    // ADR-1401 D7, level 3: each error names its line and what it drops,
+    // and the file is read on past it, so what survives is checked too
+    // covers: platform.heads.rules
+    #[test]
+    fn each_error_names_its_line_and_what_it_drops() {
+        let (out, f) = checked(
+            "drops",
+            "version = 1\n\
+             [head desk]\n\
+             frob = 1\n\
+             [head kiosk]\n\
+             [head kiosk]\n\
+             consoles = 2\n\
+             [rules]\n\
+             display * -> kiosk\n\
+             input path:pci-0000:15:00.0-usb-0:3.3 -> desc\n\
+             input * -> roaming\n\
+             input * -> desk\n\
+             input class:keyboard -> roaming\n",
+            true,
+        );
+        let at = |line: usize, what: &str| format!("{f}:{line}: {what}");
+        assert_eq!(
+            out.counted,
+            [
+                at(
+                    3,
+                    "This section takes no key named \"frob\". Check the key's spelling, or remove the line."
+                ),
+                at(
+                    3,
+                    "For this error vtium drops this head, with every rule that names it."
+                ),
+                at(
+                    5,
+                    "The file already declares a head named \"kiosk\". Give one of the two another name."
+                ),
+                at(
+                    5,
+                    "For this error vtium drops this section, with every line in it."
+                ),
+                at(
+                    9,
+                    "This rule sends devices to the head \"desc\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section."
+                ),
+                at(
+                    9,
+                    "For this error vtium drops this rule alone, and a device walks on to the next rule."
+                ),
+                // the survivors' own warning: line 11 went with head desk
+                at(
+                    12,
+                    "the rule on line 10 takes every device this one matches"
+                ),
+            ]
+        );
+        assert_eq!(verdict(&out, &f), [PARTLY_OPEN, UNSET]);
+    }
+
+    // ADR-1401 D7: after its errors the report gives what a start does
+    // with the file, by D7's outcomes table, and the policy it states
+    // covers: platform.heads.policy
+    #[test]
+    fn the_outcome_and_the_policy_close_the_report() {
+        let head = "[head a]\n[rules]\ndisplay * -> a\n";
+        let rows = [
+            (
+                format!("version = 1\npolicy = open\n{head}"),
+                "A start runs this file as written and shows nothing.",
+                OPEN,
+            ),
+            (
+                format!("policy = closed\nversion = 1\n{head}"),
+                "A start runs this file as written and shows nothing.",
+                CLOSED,
+            ),
+            (
+                "version = 1\n".to_owned(),
+                "This file declares nothing, so a start runs the shipped default and shows nothing.",
+                UNSET,
+            ),
+            (
+                "version = 1\n[rules]\ninput * -> roaming\n".to_owned(),
+                "This file has rules and declares no head, so a start runs its rules, and the display guard lights the boot display for the default head.",
+                UNSET,
+            ),
+            (
+                "version = 1\npolicy = closed\n".to_owned(),
+                "This file declares no head under the closed policy, so a start lights no display, delivers no input and shows nothing: loaded but off.",
+                CLOSED,
+            ),
+            (
+                format!("version = 1\n{head}display * -> b\n"),
+                PARTLY_OPEN,
+                UNSET,
+            ),
+            (
+                format!("version = 1\npolicy = closed\n{head}display * -> b\n"),
+                "A start runs the heads and rules that survive, with the rescue key off and every head isolated as written, and shows `config partly invalid, running what's valid`.",
+                CLOSED,
+            ),
+            (
+                format!("version = 2\n{head}"),
+                "No head survives this file's errors, so a start runs the shipped default and shows `invalid config skipped, using builtin`.",
+                UNSET,
+            ),
+            (
+                format!("version = 2\npolicy = closed\n{head}"),
+                "No head survives this file's errors under the closed policy, so a start delivers no input and shows the panic screen on the boot display, starting `vtium: config invalid, policy closed: input off`.",
+                CLOSED,
+            ),
+            (
+                format!("version = 1\npolicy = maybe\n{head}"),
+                PARTLY_OPEN,
+                "vtium cannot read the file's `policy` line, so the file counts as open and as at least partly broken. Write one `policy = open` or `policy = closed` line above the first section.",
+            ),
+        ];
+        for (n, (text, outcome, policy)) in rows.iter().enumerate() {
+            let (out, f) = checked(&format!("row-{n}"), text, true);
+            assert_eq!(verdict(&out, &f), [*outcome, *policy], "{text}");
+            // an error, and only an error, counts against the file
+            let broken = text.contains("-> b") || text.contains("= 2") || text.contains("maybe");
+            assert_eq!(out.counted.is_empty(), !broken, "{text}: {:?}", out.counted);
+        }
+    }
+
+    // ADR-1401 D7: a line that is not UTF-8 drops only its rule, and the
+    // file runs what survives
+    // covers: platform.heads.rules
+    #[test]
+    fn a_line_that_is_not_utf8_drops_only_its_rule() {
+        let (file, trust) = heads_fixture("bytes", "", 0o644);
+        std::fs::write(
+            &file,
+            b"version = 1\n[head a]\n[rules]\ndisplay * -> a\ninput name:\xff -> a\n",
+        )
+        .ok();
+        let f = file.display().to_string();
+        let out = head_file(&file, false, &trust, &machine(true), 4);
+        std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
+        assert_eq!(
+            out.counted,
+            [
+                format!("{f}:5: This line is not UTF-8 text. Save the file as UTF-8."),
+                format!(
+                    "{f}:5: For this error vtium drops this rule alone, and a device walks on to the next rule."
+                ),
+            ]
+        );
+        assert_eq!(verdict(&out, &f), [PARTLY_OPEN, UNSET]);
+    }
+
+    // ADR-1401 D10: a head's `consoles` past kmscon.conf's
+    // `head-consoles-max` gets the cap, and counts against the file
+    // covers: platform.heads.rules
+    #[test]
+    fn consoles_past_the_head_cap_count_against_the_file() {
+        let text = "version = 1\n[head a]\nconsoles = 5\n[rules]\ndisplay * -> a\n";
+        let (file, trust) = heads_fixture("cap", text, 0o644);
+        let f = file.display().to_string();
+        let past = head_file(&file, false, &trust, &machine(true), 4);
+        let within = head_file(&file, false, &trust, &machine(true), 6);
+        std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
+        assert_eq!(
+            past.counted,
+            [format!(
+                "{f}:2: The head \"a\" asks for more consoles than `head-consoles-max` allows, 4, so it gets 4. Lower its `consoles` to 4 or fewer, or raise `head-consoles-max` in kmscon.conf."
+            )]
+        );
+        assert_eq!(within.counted, [] as [String; 0]);
+        assert_eq!(head_cap(&config::Config::default()), 4);
     }
 
     // ADR-1401 D3, D9: the head file has no `[guards]` and no `rescue`, so
@@ -747,7 +974,13 @@ mod tests {
         };
         assert!(at(3, "`isolated = yes`"), "{counted:?}");
         assert!(at(6, "`policy`"), "{counted:?}");
-        assert_eq!(out.notes, [] as [String; 0]);
+        assert_eq!(
+            verdict(&out, &f),
+            [
+                "No head survives this file's errors, so a start runs the shipped default and shows `invalid config skipped, using builtin`.",
+                UNSET
+            ]
+        );
     }
 
     // ADR-1401 D4, probe 4 (the recommendation, WEAK_MATCH_COUNTS): input
@@ -767,7 +1000,11 @@ mod tests {
                 "{f}:{line}: input reaches a head by `id` or `name` alone, which any device can claim"
             )
         };
-        assert_eq!(out.notes, [weak(5), weak(6),]);
+        let shown = |what: &str| format!("{f}: {what}");
+        assert_eq!(
+            out.notes,
+            [weak(5), weak(6), shown(AS_WRITTEN), shown(UNSET)]
+        );
     }
 
     // ADR-1401 D4: with no udev daemon, each rule using a key that reads
@@ -846,16 +1083,16 @@ mod tests {
         let trust = Trust::ROOT;
         let shown = path.display();
         assert_eq!(
-            head_file(&path, false, &trust, &machine(true)),
+            head_file(&path, false, &trust, &machine(true), 4),
             HeadCheck {
                 counted: Vec::new(),
                 notes: vec![format!(
-                    "{shown}: absent, so the start runs the shipped rules"
+                    "{shown}: There is no head file here, so a start runs the compiled-in configuration and shows nothing."
                 )],
             }
         );
         assert_eq!(
-            head_file(&path, true, &trust, &machine(true)),
+            head_file(&path, true, &trust, &machine(true), 4),
             HeadCheck {
                 counted: vec![format!("{shown}: does not exist")],
                 notes: Vec::new(),
@@ -874,15 +1111,24 @@ mod tests {
         let untrusted = format!(
             "{f}: vtium does not trust this file, because \"{f}\" can be changed by its group or by other users (mode 666). Make root the owner of that path, and let only root write to it."
         );
-        let rejected = format!("{f}: rejected whole, so a start reading it runs the shipped rules");
-        let installed = head_file(&file, false, &trust, &machine(true));
-        assert_eq!(installed.counted, [untrusted.clone(), rejected.clone()]);
-        let candidate = head_file(&file, true, &trust, &machine(true));
+        let installed = head_file(&file, false, &trust, &machine(true), 4);
+        assert_eq!(installed.counted, [untrusted]);
+        assert_eq!(
+            installed.notes,
+            [format!(
+                "{f}: A start never reads a file it does not trust, so it runs the shipped default and shows `invalid config skipped, using builtin`."
+            )]
+        );
+        let candidate = head_file(&file, true, &trust, &machine(true), 4);
         assert_eq!(
             candidate.notes,
-            [format!(
-                "{f}: \"{f}\" can be changed by its group or by other users (mode 666). The start reads this file once it is installed, owned by root and writable only by root."
-            )]
+            [
+                format!(
+                    "{f}: \"{f}\" can be changed by its group or by other users (mode 666). The start reads this file once it is installed, owned by root and writable only by root."
+                ),
+                format!("{f}: {PARTLY_OPEN}"),
+                format!("{f}: {UNSET}"),
+            ]
         );
         assert_eq!(
             candidate.counted,
@@ -890,7 +1136,9 @@ mod tests {
                 format!(
                     "{f}:5: This rule sends devices to the head \"desc\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section."
                 ),
-                rejected,
+                format!(
+                    "{f}:5: For this error vtium drops this rule alone, and a device walks on to the next rule."
+                ),
             ]
         );
         std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
@@ -967,19 +1215,19 @@ mod tests {
             notes: Vec::new(),
         };
         assert_eq!(
-            head_file(&file, false, &trust, &machine(true)),
+            head_file(&file, false, &trust, &machine(true), 4),
             denied,
             "the file"
         );
         assert_eq!(
-            head_file(&file, true, &trust, &machine(true)),
+            head_file(&file, true, &trust, &machine(true), 4),
             denied,
             "a candidate"
         );
         mode(&file, 0o644);
         mode(&dir, 0o000);
         assert_eq!(
-            head_file(&file, false, &trust, &machine(true)),
+            head_file(&file, false, &trust, &machine(true), 4),
             denied,
             "its directory"
         );
@@ -1026,13 +1274,17 @@ mod tests {
         assert_eq!(out.status, 1);
         assert_eq!(
             out.stderr,
-            [
-                format!(
-                    "{f}: vtium does not trust this file, because \"{f}\" belongs to user {} and not to root. Make root the owner of that path, and let only root write to it.",
-                    rustix::process::geteuid().as_raw()
-                ),
-                format!("{f}: rejected whole, so a start reading it runs the shipped rules"),
-            ]
+            [format!(
+                "{f}: vtium does not trust this file, because \"{f}\" belongs to user {} and not to root. Make root the owner of that path, and let only root write to it.",
+                rustix::process::geteuid().as_raw()
+            ),]
+        );
+        assert!(
+            out.stdout.contains(&format!(
+                "{f}: A start never reads a file it does not trust, so it runs the shipped default and shows `invalid config skipped, using builtin`."
+            )),
+            "{:?}",
+            out.stdout
         );
         let out = outcome_on(&[file.to_str().unwrap()], &host);
         assert_eq!((out.status, out.stderr), (0, Vec::new()));
@@ -1062,7 +1314,9 @@ mod tests {
         assert!(
             out.stdout
                 .iter()
-                .any(|n| n.ends_with("absent.conf: absent, so the start runs the shipped rules"))
+                .any(|n| n.ends_with(
+                    "absent.conf: There is no head file here, so a start runs the compiled-in configuration and shows nothing."
+                ))
         );
         std::fs::remove_dir_all(file.parent().unwrap()).ok();
     }
@@ -1220,6 +1474,8 @@ mod tests {
                 &format!(
                     "{f}: head panel claims pointers and no keyboard, and every keyboard is claimed by another head"
                 ),
+                &format!("{f}: {AS_WRITTEN}"),
+                &format!("{f}: {UNSET}"),
             ]
         );
         std::fs::remove_dir_all(file.parent().unwrap()).ok();
@@ -1239,7 +1495,7 @@ mod tests {
             udev_daemon: false,
             devices: Some(&[]),
         };
-        let out = head_file(&file, false, &trust, &machine);
+        let out = head_file(&file, false, &trust, &machine, 4);
         std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
         assert_eq!(
             out.notes,
@@ -1249,6 +1505,8 @@ mod tests {
                     "{f}:4: this build reads no connector's PATH, so `connector-path:` matches nothing (vtium/vtium#157)"
                 ),
                 format!("{f}:6: the rule matches no device present"),
+                format!("{f}: {AS_WRITTEN}"),
+                format!("{f}: {UNSET}"),
             ]
         );
     }
@@ -1259,7 +1517,7 @@ mod tests {
     fn a_control_character_in_the_path_is_shown_escaped() {
         let path = Path::new("/tmp/vtium-check-heads-a\nb\u{1b}[2J.conf");
         assert_eq!(
-            head_file(path, true, &Trust::ROOT, &machine(true)).counted,
+            head_file(path, true, &Trust::ROOT, &machine(true), 4).counted,
             ["/tmp/vtium-check-heads-a\\nb\\u{1b}[2J.conf: does not exist"]
         );
     }

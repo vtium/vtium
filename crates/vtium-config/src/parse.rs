@@ -22,7 +22,7 @@ use crate::bounds::{
     CONSOLES_MAX, ERRORS_MAX, FILE_MAX, HEADS_MAX, LINE_MAX, NAME_MAX, RULES_MAX, TOKENS_MAX,
 };
 use crate::config::{Config, Head, Rule, Target, WhenDisplayLost};
-use crate::error::{Error, Note, Problem, Quoted, Rejected, Renamed, Syntax, Warning};
+use crate::error::{Drops, Error, Note, Problem, Quoted, Rejected, Renamed, Syntax, Warning};
 use crate::identity::Kind;
 use crate::matching::{Match, Token, TokenError};
 use crate::outcome::{Kept, Policy, PolicyLine, Scope, Trusted, Within, scope};
@@ -356,7 +356,8 @@ impl Parser {
             }
             _ => {}
         }
-        self.errors.push(line, problem);
+        self.errors
+            .push_dropping(line, problem, Some(Drops::of(scope, within)));
     }
 
     /// Where a line sits, from the section it is read in.
@@ -722,7 +723,11 @@ impl Parser {
         if scope == Scope::File {
             self.whole = true;
         }
-        self.late.push(Error { line, problem });
+        self.late.push(Error {
+            line,
+            problem,
+            drops: Some(Drops::of(scope, within)),
+        });
     }
 
     fn finish(mut self) -> Reading {

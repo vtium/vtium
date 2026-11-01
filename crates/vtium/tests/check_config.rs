@@ -314,6 +314,92 @@ fn check_config_lists_each_planted_head_file_error_with_its_line_and_exits_1() {
     std::fs::remove_dir_all(d).ok();
 }
 
+// ADR-1401 D7: each error says what it drops, and standard output ends on
+// what a start does with the file and the policy it states
+// covers: platform.heads.rules
+#[test]
+fn each_error_says_what_it_drops_and_the_outcome_follows() {
+    let (d, file) = head_file(
+        "drops",
+        "version = 1
+         policy = closed
+         [head desk]
+         [head kiosk]
+         frob = 1
+         [rules]
+         display * -> desk
+         input * -> kiosk
+         input name:Foo -> nosuch
+",
+    );
+    let out = check(&d, &[]);
+    assert_eq!(out.status.code(), Some(1));
+    let f = file.display();
+    let err = String::from_utf8_lossy(&out.stderr);
+    let lines: Vec<&str> = err.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            format!(
+                "{f}:5: This section takes no key named \"frob\". Check the key's spelling, or remove the line."
+            ),
+            format!("{f}:5: For this error vtium drops this head, with every rule that names it."),
+            format!(
+                "{f}:9: This rule sends devices to the head \"nosuch\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section."
+            ),
+            format!(
+                "{f}:9: For this error vtium drops this rule alone, and a device walks on to the next rule."
+            ),
+        ],
+        "{err}"
+    );
+    let notes = String::from_utf8_lossy(&out.stdout);
+    let tail: Vec<&str> = notes.lines().rev().take(2).collect();
+    assert_eq!(
+        tail,
+        [
+            format!(
+                "{f}: The policy is closed: an input no rule places is ignored, a head that leaves `isolated` unset is isolated, and the anti-lockout guard and the rescue key are off."
+            ),
+            format!(
+                "{f}: A start runs the heads and rules that survive, with the rescue key off and every head isolated as written, and shows `config partly invalid, running what's valid`."
+            ),
+        ],
+        "{notes}"
+    );
+    std::fs::remove_dir_all(d).ok();
+}
+
+// ADR-1401 D9, D10: a head's `consoles` past kmscon.conf's
+// `head-consoles-max` counts against the file, so the check exits 1
+// covers: platform.heads.rules
+#[test]
+fn consoles_past_head_consoles_max_exit_1() {
+    let (d, file) = head_file(
+        "cap",
+        "version = 1
+[head desk]
+consoles = 5
+[rules]
+display * -> desk
+input * -> roaming
+",
+    );
+    let out = check(&d, &[]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stderr),
+        format!(
+            "{}:2: The head \"desk\" asks for more consoles than `head-consoles-max` allows, 4, so it gets 4. Lower its `consoles` to 4 or fewer, or raise `head-consoles-max` in kmscon.conf.\n",
+            file.display()
+        )
+    );
+    let out = check(&d, &["--head-consoles-max=5"]);
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&out.stderr), "");
+    std::fs::remove_dir_all(d).ok();
+}
+
 // ADR-1401 D4, D7: input sent to a head by `name` alone is a note on
 // standard output, outside the exit status
 #[test]
