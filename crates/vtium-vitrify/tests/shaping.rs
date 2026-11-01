@@ -386,3 +386,18 @@ fn a_right_to_left_mark_is_fitted_to_the_row() {
     assert!(!inked(alef, 0), "the alef alone leaves the top row clear");
     assert!(inked(g, 0), "the damma brought into the top row");
 }
+
+// a beh keyed with U+200D after it, as the console asks for it, is judged
+// a joining form (review finding B4): drawn one cell wide in its initial
+// form, a bar from 300 to 600 units, stretched to its 12-pixel cell from
+// column 6 to its right edge
+#[test]
+fn a_letter_with_a_joiner_draws_one_cell_wide_and_stretched() {
+    let key = [BEH, ZWJ];
+    let asked = vtium_vitrify::shaping::ask(&key.map(u32::from));
+    let o = rasterise(&request(vec![asked])).expect("rasterised");
+    let init = cluster(&o, &key).expect("the initial beh");
+    assert!(!init.wide, "one cell");
+    let row = &init.pixels[10 * 12..11 * 12];
+    assert!(row[5] == 0 && row[6] > 200 && row[11] == 255, "{row:?}");
+}

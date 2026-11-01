@@ -68,11 +68,17 @@ const TAGS: std::ops::RangeInclusive<u32> = 0xe0020..=0xe007f;
 /// COMBINING ENCLOSING KEYCAP.
 const KEYCAP: u32 = 0x20e3;
 
-/// How the cluster `key` is judged and placed: an emoji sequence when
+/// How the cluster `key` is judged and placed: a joining form when it
+/// holds U+200D and every other character joins ([`joins`]), as a letter
+/// keyed with the joiner on the side it joins; else an emoji sequence when
 /// Unicode lists it as one or it holds U+200D, U+FE0F, a regional
 /// indicator, an emoji modifier, a tag or the keycap mark; else a letter
 /// and its marks.
 pub fn kind(key: &[u32]) -> Kind {
+    let letters = key.iter().filter(|&&c| c != ZWJ);
+    if key.contains(&ZWJ) && letters.clone().count() > 0 && letters.clone().all(|&c| joins(c)) {
+        return Kind::Joining;
+    }
     let emoji = key.iter().any(|c| {
         matches!(*c, ZWJ | VS16 | KEYCAP)
             || REGIONAL.contains(c)
@@ -126,6 +132,19 @@ mod tests {
     // ADR-1302 D2 names every joining script: Arabic and its tatweel,
     // Syriac, N'Ko, Mongolian, Mandaic, Adlam and the rest, of Joining_Type
     // D, R, L or C; a letter that does not join and a mark do not
+    // a letter keyed with U+200D is a joining form, not an emoji sequence
+    // (review finding B4); a ZWJ sequence of emoji, or a letter that does
+    // not join beside a joiner, is judged as before
+    #[test]
+    fn a_letter_with_a_joiner_is_a_joining_form() {
+        assert_eq!(kind(&[0x628, ZWJ]), Kind::Joining);
+        assert_eq!(kind(&[ZWJ, 0x628, ZWJ]), Kind::Joining);
+        assert_eq!(kind(&[ZWJ, 0x7ca]), Kind::Joining, "N'Ko");
+        assert_eq!(kind(&[0x1f468, ZWJ, 0x1f469]), Kind::Emoji);
+        assert_eq!(kind(&[0x41, ZWJ]), Kind::Emoji);
+        assert_eq!(kind(&[0x628, 0x64e]), Kind::Marks);
+    }
+
     #[test]
     fn the_letters_of_every_joining_script_join() {
         for (c, what) in [
