@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1250" height="800" viewBox="0 0 1250 800" font-family="DejaVu Sans, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1250" height="840" viewBox="0 0 1250 840" font-family="DejaVu Sans, sans-serif">
 <title>vtium's image pipeline</title>
-<rect width="1250" height="800" fill="#ffffff"/>
+<rect width="1250" height="840" fill="#ffffff"/>
 <defs><marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f2933"/></marker></defs>
 <rect x="20" y="30" width="200" height="94" rx="6" fill="#fbecd0" stroke="#c28a1e" stroke-width="1.5"/>
 <text x="32" y="52" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">one console's pty</text>
@@ -26,22 +26,25 @@
 <line x1="220" y1="77" x2="248" y2="77" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
 <line x1="480" y1="77" x2="508" y2="77" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
 <line x1="730" y1="77" x2="758" y2="77" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
-<rect x="1010" y="30" width="220" height="112" rx="6" fill="#fbe3e8" stroke="#c0566b" stroke-width="1.5"/>
-<text x="1022" y="52" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">request path</text>
-<text x="1022" y="70" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the binary sends it and</text>
-<text x="1022" y="88" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">hands the reply back;</text>
-<text x="1022" y="106" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">vtium-platform holds</text>
-<text x="1022" y="124" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the 2 s timer</text>
-<rect x="1010" y="190" width="220" height="112" rx="6" fill="#fbecd0" stroke="#c28a1e" stroke-width="1.5"/>
-<text x="1022" y="212" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">image helper</text>
-<text x="1022" y="230" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the session's user, sand-</text>
-<text x="1022" y="248" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">boxed (ADR-1400): PNG,</text>
-<text x="1022" y="266" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">zlib, files, temporary</text>
-<text x="1022" y="284" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">files, shm, iTerm2 formats</text>
-<line x1="980" y1="64" x2="1008" y2="64" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
-<line x1="1008" y1="108" x2="982" y2="108" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
-<line x1="1100" y1="142" x2="1100" y2="188" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
-<line x1="1140" y1="188" x2="1140" y2="144" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<rect x="1010" y="30" width="220" height="76" rx="6" fill="#fbe3e8" stroke="#c0566b" stroke-width="1.5"/>
+<text x="1022" y="52" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">request path (vtium)</text>
+<text x="1022" y="70" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">sends the request and</text>
+<text x="1022" y="88" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">hands the reply back</text>
+<rect x="1010" y="300" width="220" height="76" rx="6" fill="#fbecd0" stroke="#c28a1e" stroke-width="1.5"/>
+<text x="1022" y="322" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">vtium-platform</text>
+<text x="1022" y="340" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the 2 s timer on each</text>
+<text x="1022" y="358" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">request; stops the helper</text>
+<rect x="1010" y="150" width="220" height="112" rx="6" fill="#fbecd0" stroke="#c28a1e" stroke-width="1.5"/>
+<text x="1022" y="172" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">image helper</text>
+<text x="1022" y="190" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the session's user, sand-</text>
+<text x="1022" y="208" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">boxed (ADR-1400): PNG,</text>
+<text x="1022" y="226" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">zlib, files, temporary</text>
+<text x="1022" y="244" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">files, shm, iTerm2 formats</text>
+<line x1="980" y1="56" x2="1008" y2="56" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<line x1="1008" y1="92" x2="982" y2="92" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<line x1="1100" y1="106" x2="1100" y2="148" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<line x1="1140" y1="148" x2="1140" y2="108" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<line x1="1120" y1="262" x2="1120" y2="300" stroke="#c28a1e" stroke-width="1.5" stroke-dasharray="5 4"/>
 <text x="700" y="168" font-size="12" text-anchor="middle" fill="#52606d" font-weight="normal">input stops after the string's end</text>
 <text x="700" y="184" font-size="12" text-anchor="middle" fill="#52606d" font-weight="normal">until the reply, or FAILED after 2 s</text>
 <rect x="20" y="210" width="250" height="112" rx="6" fill="#dbe7f6" stroke="#2f6fb0" stroke-width="1.5"/>
@@ -50,59 +53,62 @@
 <text x="32" y="268" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">reflow, alternate screen,</text>
 <text x="32" y="286" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">RIS: each event calls</text>
 <text x="32" y="304" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the store</text>
-<rect x="300" y="210" width="610" height="150" rx="6" fill="#d5f0ea" stroke="#2d8e7a" stroke-width="1.5"/>
+<rect x="300" y="210" width="610" height="204" rx="6" fill="#d5f0ea" stroke="#2d8e7a" stroke-width="1.5"/>
 <text x="312" y="232" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">store, one per console (vtium-image)</text>
 <text x="312" y="250" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">main and alternate buffers: images and placements; a placement has</text>
 <text x="312" y="268" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">an anchor line and column, box, crop, z, layer, sequence number, tag</text>
-<text x="312" y="286" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">a budget for each console; auto from the head's displays</text>
-<text x="312" y="304" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">a use clock moved by transmissions, placements and references</text>
-<text x="312" y="322" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">placements handed out in draw order: layer, then z, then the stack</text>
-<text x="312" y="340" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">at that z: a later picture on top, kitty pictures in id order</text>
-<rect x="1010" y="340" width="220" height="76" rx="6" fill="#d5f0ea" stroke="#2d8e7a" stroke-width="1.5"/>
-<text x="1022" y="362" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">rules(tag)</text>
-<text x="1022" y="380" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the one place each</text>
-<text x="1022" y="398" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">protocol's rules live</text>
-<line x1="910" y1="330" x2="1010" y2="375" stroke="#2d8e7a" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="312" y="286" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">and its place in the stack at its depth</text>
+<text x="312" y="304" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">a budget for each console, whose limit the binary sets (auto from the</text>
+<text x="312" y="322" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">head's displays, by vtium-image's rule)</text>
+<text x="312" y="340" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">a use clock moved by transmissions, placements and references</text>
+<text x="312" y="358" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">draw order: layer, then z, then the stack at that z: a later picture</text>
+<text x="312" y="376" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">on top, but a kitty picture slides beneath the first higher kitty id</text>
+<rect x="20" y="350" width="250" height="76" rx="6" fill="#d5f0ea" stroke="#2d8e7a" stroke-width="1.5"/>
+<text x="32" y="372" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">rules(tag)</text>
+<text x="32" y="390" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the one place each protocol's</text>
+<text x="32" y="408" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">rules live; asked by both</text>
+<line x1="145" y1="322" x2="145" y2="350" stroke="#2d8e7a" stroke-width="1.5" stroke-dasharray="5 4"/>
+<line x1="270" y1="388" x2="300" y2="388" stroke="#2d8e7a" stroke-width="1.5" stroke-dasharray="5 4"/>
 <line x1="870" y1="142" x2="870" y2="208" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
 <line x1="270" y1="266" x2="298" y2="266" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
-<rect x="300" y="410" width="610" height="76" rx="6" fill="#dbe7f6" stroke="#2f6fb0" stroke-width="1.5"/>
-<text x="312" y="432" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">frame (vtium-term)</text>
-<text x="312" y="450" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the placements on the visible rows, in the store's order, with</text>
-<text x="312" y="468" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">each image's size and its pixels shared; no tag</text>
-<line x1="605" y1="360" x2="605" y2="408" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
-<rect x="300" y="530" width="610" height="76" rx="6" fill="#fbe3e8" stroke="#c0566b" stroke-width="1.5"/>
-<text x="312" y="552" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">snapshot per head (the binary)</text>
-<text x="312" y="570" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">taken at a turn and shared by the displays ready then; during</text>
-<text x="312" y="588" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">a mode 2026 hold a display keeps its last drawn picture</text>
-<line x1="605" y1="486" x2="605" y2="528" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
-<rect x="300" y="660" width="290" height="94" rx="6" fill="#e9e2f8" stroke="#7c5cc4" stroke-width="1.5"/>
-<text x="312" y="682" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">compositor, display 1</text>
-<text x="312" y="700" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">draws the placements in the</text>
-<text x="312" y="718" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">order the frame hands them,</text>
-<text x="312" y="736" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">at its own scale</text>
-<rect x="620" y="660" width="290" height="94" rx="6" fill="#e9e2f8" stroke="#7c5cc4" stroke-width="1.5"/>
-<text x="632" y="682" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">compositor, display 2</text>
-<text x="632" y="700" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the same, at its own scale,</text>
-<text x="632" y="718" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">from the snapshot it took</text>
-<rect x="1010" y="660" width="220" height="94" rx="6" fill="#e9e2f8" stroke="#7c5cc4" stroke-width="1.5"/>
-<text x="1022" y="682" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">scaled copies</text>
-<text x="1022" y="700" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">each display's own cache,</text>
-<text x="1022" y="718" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">outside the budget; never</text>
-<text x="1022" y="736" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">evicts a stored picture</text>
-<line x1="445" y1="606" x2="445" y2="658" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
-<line x1="765" y1="606" x2="765" y2="658" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
-<line x1="910" y1="707" x2="1010" y2="707" stroke="#7c5cc4" stroke-width="1.5" stroke-dasharray="5 4"/>
-<text x="20" y="420" font-size="13" text-anchor="start" fill="#1f2933" font-weight="bold">who owns it</text>
-<rect x="20" y="434" width="18" height="14" rx="3" fill="#fbecd0" stroke="#c28a1e"/>
-<text x="46" y="446" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium-platform, the helper</text>
-<rect x="20" y="458" width="18" height="14" rx="3" fill="#e4e7eb" stroke="#7b8794"/>
-<text x="46" y="470" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium-parse</text>
-<rect x="20" y="482" width="18" height="14" rx="3" fill="#dbe7f6" stroke="#2f6fb0"/>
-<text x="46" y="494" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium-term</text>
-<rect x="20" y="506" width="18" height="14" rx="3" fill="#d5f0ea" stroke="#2d8e7a"/>
-<text x="46" y="518" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium-image</text>
-<rect x="20" y="530" width="18" height="14" rx="3" fill="#fbe3e8" stroke="#c0566b"/>
-<text x="46" y="542" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium, the binary</text>
-<rect x="20" y="554" width="18" height="14" rx="3" fill="#e9e2f8" stroke="#7c5cc4"/>
-<text x="46" y="566" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium-render</text>
+<rect x="300" y="464" width="610" height="76" rx="6" fill="#dbe7f6" stroke="#2f6fb0" stroke-width="1.5"/>
+<text x="312" y="486" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">frame (vtium-term)</text>
+<text x="312" y="504" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the placements on the visible rows, in the store's order, with</text>
+<text x="312" y="522" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">each image's size and its pixels shared; no tag</text>
+<line x1="605" y1="414" x2="605" y2="462" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<rect x="300" y="584" width="610" height="76" rx="6" fill="#fbe3e8" stroke="#c0566b" stroke-width="1.5"/>
+<text x="312" y="606" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">snapshot per head (the binary)</text>
+<text x="312" y="624" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">taken at a turn and shared by the displays ready then; during</text>
+<text x="312" y="642" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">a mode 2026 hold a display keeps its last drawn picture</text>
+<line x1="605" y1="540" x2="605" y2="582" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<rect x="300" y="714" width="290" height="94" rx="6" fill="#e9e2f8" stroke="#7c5cc4" stroke-width="1.5"/>
+<text x="312" y="736" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">compositor, display 1</text>
+<text x="312" y="754" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">draws the placements in the</text>
+<text x="312" y="772" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">order the frame hands them,</text>
+<text x="312" y="790" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">at its own scale</text>
+<rect x="620" y="714" width="290" height="94" rx="6" fill="#e9e2f8" stroke="#7c5cc4" stroke-width="1.5"/>
+<text x="632" y="736" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">compositor, display 2</text>
+<text x="632" y="754" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the same, at its own scale,</text>
+<text x="632" y="772" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">from the snapshot it took</text>
+<rect x="1010" y="714" width="220" height="94" rx="6" fill="#e9e2f8" stroke="#7c5cc4" stroke-width="1.5"/>
+<text x="1022" y="736" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">scaled copies</text>
+<text x="1022" y="754" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">each display's own cache,</text>
+<text x="1022" y="772" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">outside the budget; never</text>
+<text x="1022" y="790" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">evicts a stored picture</text>
+<line x1="445" y1="660" x2="445" y2="712" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<line x1="765" y1="660" x2="765" y2="712" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<line x1="910" y1="761" x2="1010" y2="761" stroke="#7c5cc4" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="20" y="470" font-size="13" text-anchor="start" fill="#1f2933" font-weight="bold">who owns it</text>
+<rect x="20" y="484" width="18" height="14" rx="3" fill="#fbecd0" stroke="#c28a1e"/>
+<text x="46" y="496" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium-platform, the helper</text>
+<rect x="20" y="508" width="18" height="14" rx="3" fill="#e4e7eb" stroke="#7b8794"/>
+<text x="46" y="520" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium-parse</text>
+<rect x="20" y="532" width="18" height="14" rx="3" fill="#dbe7f6" stroke="#2f6fb0"/>
+<text x="46" y="544" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium-term</text>
+<rect x="20" y="556" width="18" height="14" rx="3" fill="#d5f0ea" stroke="#2d8e7a"/>
+<text x="46" y="568" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium-image</text>
+<rect x="20" y="580" width="18" height="14" rx="3" fill="#fbe3e8" stroke="#c0566b"/>
+<text x="46" y="592" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium, the binary</text>
+<rect x="20" y="604" width="18" height="14" rx="3" fill="#e9e2f8" stroke="#7c5cc4"/>
+<text x="46" y="616" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium-render</text>
 </svg>
