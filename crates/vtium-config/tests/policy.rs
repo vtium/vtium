@@ -185,13 +185,24 @@ fn a_line_that_begins_with_policy_and_names_another_key_makes_the_file_closed_an
         });
     }
     // `policies` does not begin with `policy`, so the rule's own words
-    // leave it a top-level line of no key, which drops that line alone
-    // (item 11)
+    // leave it a top-level line of no key, which drops that line alone; its
+    // error names the keys the top level takes and picks neither, since
+    // vtium does not guess what an invalid file meant (the maintainer's
+    // answer of 2026-11-01)
     let r = reading(format!("version = 1\npolicies = closed\n{BODY}").as_bytes());
     let o = outcome(&r);
     assert_eq!(
         (o.runs, o.policy, o.line),
         (Runs::Survivors, Policy::Open, Some(Line::Partly))
+    );
+    let [error] = r.errors.errors.as_slice() else {
+        panic!("{:?}", r.errors);
+    };
+    assert_eq!(error.line, Some(2));
+    let shown = error.to_string();
+    assert!(
+        shown.contains("`version`") && shown.contains("`policy`"),
+        "{shown}"
     );
 }
 
