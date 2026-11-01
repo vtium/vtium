@@ -88,6 +88,9 @@ pub(crate) struct Pointer {
     /// Left presses in a row, each soon after the last: one selects
     /// characters, two a word, three a line, and a fourth starts again.
     clicks: u8,
+    /// The right button's press, with Ctrl, selected a command's output,
+    /// which its release keeps (ADR-1002, "What the marks are for").
+    output: bool,
 }
 
 /// A drag that extends the selection from the cell it started in.
@@ -887,7 +890,8 @@ impl Head {
                     self.pointer.ours = !tracking || shift;
                 }
                 if self.pointer.ours {
-                    self.select_button(button, pressed, double_click, selection);
+                    let ctrl = mods.contains(Mods::CTRL);
+                    self.select_button(button, pressed, double_click, ctrl, selection);
                 } else {
                     self.pointer.clicks = 0;
                     let event = if pressed {
@@ -927,6 +931,7 @@ impl Head {
                 self.console.term.terminal.screen_mut().clear_selection();
             }
         }
+        self.hover(mods.contains(Mods::CTRL));
         // Only motion may be coalesced while the child does not read; a
         // press, a release, a wheel report or a paste is queued whole.
         let bytes = self.console.term.terminal.take_replies();
@@ -968,6 +973,30 @@ impl Head {
         )
     }
 
+    /// Tells the shown console's screen which cell the pointer is over,
+    /// and whether `ctrl` is held, which shows the hovered link's URI on an
+    /// overlay row (ADR-1002, "What a link does"). A pointer that hides,
+    /// or that is in the strip a display leaves past the grid, is over no
+    /// cell, so it hovers no link.
+    pub(crate) fn hover(&mut self, ctrl: bool) {
+        let at = self.pointer_over();
+        self.console
+            .term
+            .terminal
+            .screen_mut()
+            .set_pointer(at, ctrl);
+    }
+
+    /// The cell under the pointer while it shows and is inside the grid.
+    fn pointer_over(&self) -> Option<(usize, usize)> {
+        if !self.pointer.visible {
+            return None;
+        }
+        let col = usize::try_from(self.pointer.x.checked_div(self.cell.0)?).ok()?;
+        let row = usize::try_from(self.pointer.y.checked_div(self.cell.1)?).ok()?;
+        (col < self.grid.0 && row < self.grid.1).then_some((col, row))
+    }
+
     /// Reports a pointer event at the pointer to the program.
     fn report_pointer(&mut self, button: MouseButton, event: MouseEvent, mods: Mods) {
         let (col, row) = self.pointer_cell();
@@ -986,15 +1015,39 @@ impl Head {
     /// xterm's does, and the right clears the selection. A release that
     /// ends no drag clears the selection and leaves the buffer as it was,
     /// as xterm takes no empty selection.
+    ///
+    /// With `ctrl` held (ADR-1002, "What a link does" and "What the marks
+    /// are for"), the left button on a link copies its URI into the
+    /// buffer, replacing what it held, and clears the selection; nothing
+    /// is opened and nothing is sent to the program. The right button on a
+    /// line of a command's output, as OSC 133 marked it, selects that
+    /// output as whole lines and copies it, and its release keeps the
+    /// selection. Anywhere else the buttons do what they do without Ctrl.
     fn select_button(
         &mut self,
         button: Button,
         pressed: bool,
         double_click: bool,
+        ctrl: bool,
         selection: &mut Option<Vec<u8>>,
     ) {
         let (col, row) = self.pointer_cell();
         match (button, pressed) {
+            (Button::Left, true) if ctrl && self.copy_link(selection) => {
+                self.pointer.clicks = 0;
+                self.pointer.drag = None;
+            }
+            (Button::Right, true) if ctrl => {
+                self.pointer.drag = None;
+                let screen = self.console.term.terminal.screen_mut();
+                self.pointer.output = screen.select_output(col, row);
+                if self.pointer.output {
+                    self.copy(selection);
+                } else {
+                    screen.clear_selection();
+                }
+            }
+            (Button::Right, false) if std::mem::take(&mut self.pointer.output) => {}
             (Button::Left, true) => {
                 self.pointer.clicks = match self.pointer.clicks {
                     1 if double_click => 2,
@@ -1038,6 +1091,23 @@ impl Head {
                 self.console.term.terminal.screen_mut().clear_selection();
             }
         }
+    }
+
+    /// Copies the URI of the link under the pointer into the selection
+    /// buffer and clears the selection. Returns false, changing nothing,
+    /// when the pointer is over no link.
+    fn copy_link(&mut self, selection: &mut Option<Vec<u8>>) -> bool {
+        let over = self.pointer_over();
+        let screen = self.console.term.terminal.screen_mut();
+        let Some(uri) = over
+            .and_then(|(x, y)| screen.link_at(x, y))
+            .and_then(|link| screen.link_uri(link))
+        else {
+            return false;
+        };
+        *selection = Some(uri.as_bytes().to_vec());
+        screen.clear_selection();
+        true
     }
 
     /// Copies the selected text into the selection buffer; with nothing

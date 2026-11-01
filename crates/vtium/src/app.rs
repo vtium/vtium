@@ -2342,6 +2342,9 @@ impl App {
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
+        // A press of Ctrl shows the hovered link's URI, and a key pressed
+        // without Ctrl hides it; letting go of Ctrl sends no key.
+        head.hover(key.mods.contains(InputMods::CTRL));
         head.console.term.terminal.screen_mut().clear_selection();
         if grab::matches(&self.paste_keys, bits, &key.keysyms) {
             // One paste a press, however long the key repeats.
@@ -2352,7 +2355,12 @@ impl App {
             head.draw_now = true;
             return;
         }
-        if let Some(g) = grab::grab(bits, &key.keysyms) {
+        // The prompt jumps are the main screen's: on the alternate screen
+        // the keys go to the program (ADR-1002, "What the marks are for").
+        let alternate = head.console.term.terminal.screen().alternate();
+        if let Some(g) =
+            grab::grab(bits, &key.keysyms).filter(|g| !(g.is_prompt_jump() && alternate))
+        {
             let screen = head.console.term.terminal.screen_mut();
             let page = head.grid.1.saturating_sub(1).max(1);
             head.draw_now = true;
@@ -2361,6 +2369,9 @@ impl App {
                 Grab::ScrollDown => screen.scroll_view_down(1),
                 Grab::PageUp => screen.scroll_view_up(page),
                 Grab::PageDown => screen.scroll_view_down(page),
+                Grab::PromptUp | Grab::PromptDown => {
+                    screen.jump_to_prompt(g == Grab::PromptUp);
+                }
                 Grab::ZoomIn => self.zoom(h, Zoom::In),
                 Grab::ZoomOut => self.zoom(h, Zoom::Out),
                 Grab::RotateCw | Grab::RotateCcw => {

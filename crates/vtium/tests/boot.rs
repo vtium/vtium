@@ -1727,6 +1727,303 @@ fn shift_pressed_during_a_reported_drag_changes_nothing() {
     );
 }
 
+/// What the shown screen's frame says of links: the hovered link's URI,
+/// the columns of row 0 that draw it hovered, and the overlay's row and
+/// text.
+fn links(app: &App) -> (Option<String>, Vec<usize>, Option<(usize, String)>) {
+    let terminal = &app.term().expect("a head").terminal;
+    let screen = terminal.screen();
+    let frame = screen.frame(terminal.palette(), vtium_term::Age::NEVER);
+    let uri = screen
+        .hovered_link()
+        .and_then(|l| screen.link_uri(l))
+        .map(str::to_owned);
+    let hovered = (0..frame.cols())
+        .filter(|&c| frame.cell(0, c).is_some_and(|fc| fc.hovered))
+        .collect();
+    let overlay = frame.overlay().map(|o| (o.row, o.uri.to_owned()));
+    (uri, hovered, overlay)
+}
+
+/// The text of view row `row`, what the display shows there.
+fn view_row(app: &App, row: usize) -> String {
+    let terminal = &app.term().expect("a head").terminal;
+    let frame = terminal
+        .screen()
+        .frame(terminal.palette(), vtium_term::Age::NEVER);
+    frame.line(row).map_or_else(String::new, |line| {
+        line.cells()
+            .iter()
+            .map(|c| match c.content() {
+                vtium_term::Content::Char(ch) => ch,
+                _ => ' ',
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_owned()
+    })
+}
+
+const LINKED: &str = "printf 'see \\033]8;;file://pixie/home/a.md\\007link\\033]8;;\\007 here\\n'";
+
+/// ADR-1002, "What a link does": the pointer over a link hovers all of
+/// it, Ctrl shows its URI on the bottom row, and the pointer leaving or
+/// hiding ends both. Ctrl pressed with the pointer still shows the URI
+/// too.
+// covers: osc.8
+#[test]
+fn the_pointer_over_a_link_hovers_it_and_ctrl_shows_its_uri() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        &format!("{LINKED}; read x"),
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "see link here")));
+    let uri = || Some("file://pixie/home/a.md".to_owned());
+    assert_eq!(links(&h.app), (None, vec![], None));
+    h.point([over(5, 0, None)], Mods::empty());
+    assert_eq!(links(&h.app), (uri(), vec![4, 5, 6, 7], None));
+    h.point([over(4, 0, None)], Mods::CTRL);
+    assert_eq!(
+        links(&h.app),
+        (
+            uri(),
+            vec![4, 5, 6, 7],
+            Some((9, "file://pixie/home/a.md".into()))
+        )
+    );
+    // Off the link, the hover and the overlay end.
+    h.point([over(10, 0, None)], Mods::CTRL);
+    assert_eq!(links(&h.app), (None, vec![], None));
+    // Ctrl pressed with the pointer still over the link shows the URI.
+    h.point([over(6, 0, None)], Mods::empty());
+    h.app.input_event(key(Mods::CTRL, 0xffe3), now());
+    assert_eq!(links(&h.app).2, Some((9, "file://pixie/home/a.md".into())));
+    // The pointer hiding hovers nothing.
+    h.point([PointerEvent::Hide], Mods::empty());
+    assert_eq!(links(&h.app), (None, vec![], None));
+}
+
+/// ADR-1002, "What a link does": Ctrl+click on a link copies its URI
+/// into the selection buffer, replacing what it held, and clears the
+/// selection; nothing reaches the program but the paste the middle
+/// button then makes.
+// covers: osc.8
+#[test]
+fn ctrl_click_on_a_link_copies_its_uri_and_the_middle_button_pastes_it() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        &format!("{LINKED}; read x; echo \"got:$x\"; read y"),
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "see link here")));
+    let none = Mods::empty();
+    h.point(
+        [
+            over(1, 0, None),
+            press(Button::Left, false),
+            release(Button::Left),
+            press(Button::Left, true),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"see"[..]));
+    h.point(
+        [
+            over(5, 0, None),
+            press(Button::Left, false),
+            release(Button::Left),
+        ],
+        Mods::CTRL,
+    );
+    assert_eq!(h.app.selection(), Some(&b"file://pixie/home/a.md"[..]));
+    let screen = |h: &Harness| {
+        h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .has_selection()
+    };
+    assert!(!screen(&h));
+    // Ctrl+click off a link selects as a click does.
+    h.point(
+        [
+            over(9, 0, None),
+            press(Button::Left, false),
+            over(12, 0, Some(Button::Left)),
+            release(Button::Left),
+        ],
+        Mods::CTRL,
+    );
+    assert_eq!(h.app.selection(), Some(&b"here"[..]));
+    h.point(
+        [
+            over(5, 0, None),
+            press(Button::Left, false),
+            release(Button::Left),
+        ],
+        Mods::CTRL,
+    );
+    h.point(
+        [press(Button::Middle, false), release(Button::Middle)],
+        none,
+    );
+    h.type_str("\r");
+    assert!(
+        h.until(SECOND, |a| shows(a, "got:file://pixie/home/a.md")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// ADR-1002, "What a link does": while a program tracks the pointer,
+/// Ctrl+click is reported, and Ctrl+Shift+click copies the link.
+// covers: osc.8, input.shift-override
+#[test]
+fn ctrl_shift_click_copies_a_link_while_the_program_tracks_the_pointer() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        &format!(
+            "{LINKED}; stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
+             awk 'BEGIN{{RS=\"q\"}}{{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}}'; read x"
+        ),
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    let click = [
+        over(5, 0, None),
+        press(Button::Left, false),
+        release(Button::Left),
+    ];
+    h.point(click, Mods::CTRL);
+    assert_eq!(h.app.selection(), None);
+    h.point(click, Mods::CTRL.union(Mods::SHIFT));
+    assert_eq!(h.app.selection(), Some(&b"file://pixie/home/a.md"[..]));
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(a, "E[<16;6;1ME[<16;6;1m")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// ADR-1002, "What the marks are for": Ctrl+right-click on a line of a
+/// command's output selects that output as whole lines and copies it; the
+/// release keeps the selection, and a right click without Ctrl clears it.
+/// On the prompt's line it selects nothing.
+// covers: osc.133
+#[test]
+fn ctrl_right_click_copies_the_output_of_the_command_under_the_pointer() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf '\\033]133;A\\007$ \\033]133;B\\007ls\\n\\033]133;C\\007one\\ntwo\\n\\033]133;A\\007$ '; read x",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "two")));
+    let selected = |h: &Harness| {
+        h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .has_selection()
+    };
+    h.point(
+        [
+            over(1, 2, None),
+            press(Button::Right, false),
+            release(Button::Right),
+        ],
+        Mods::CTRL,
+    );
+    assert_eq!(h.app.selection(), Some(&b"one\ntwo\n"[..]));
+    assert!(selected(&h));
+    h.point(
+        [press(Button::Right, false), release(Button::Right)],
+        Mods::empty(),
+    );
+    assert!(!selected(&h));
+    h.point(
+        [
+            over(3, 0, None),
+            press(Button::Right, false),
+            release(Button::Right),
+        ],
+        Mods::CTRL,
+    );
+    assert!(!selected(&h));
+    assert_eq!(h.app.selection(), Some(&b"one\ntwo\n"[..]));
+}
+
+/// ADR-1002, "What the marks are for": Ctrl+Shift+Up lands each marked
+/// prompt in the scrollback at the view's top row, one a press, and
+/// Ctrl+Shift+Down goes back down and past the newest to the live
+/// screen; neither reaches the program on the main screen. On the
+/// alternate screen both reach the program.
+// covers: osc.133
+#[test]
+fn ctrl_shift_up_and_down_jump_between_the_marked_prompts() {
+    let mut h = Harness::new(&[
+        "--font-size=16",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "i=0; while [ $i -lt 3 ]; do printf '\\033]133;A\\007$ p%d\\n' $i; j=0; \
+         while [ $j -lt 12 ]; do echo out$i.$j; j=$((j+1)); done; i=$((i+1)); done; \
+         printf '\\033]133;A\\007$ last'; read x; echo \"got:$x\"; \
+         printf '\\033[?1049h'; stty raw -echo; printf 'alt'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read y",
+    ]);
+    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "$ last")));
+    let back = |h: &Harness| {
+        h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .scrolled_back()
+    };
+    let jump = |h: &mut Harness, up: bool| {
+        let keysym = if up { 0xff52 } else { 0xff54 };
+        h.app
+            .input_event(key(Mods::CTRL.union(Mods::SHIFT), keysym), now());
+    };
+    assert_eq!(back(&h), 0);
+    for (want, top) in [(4, "$ p2"), (17, "$ p1"), (30, "$ p0"), (30, "$ p0")] {
+        jump(&mut h, true);
+        assert_eq!((back(&h), view_row(&h.app, 0)), (want, top.to_owned()));
+    }
+    for (want, top) in [(17, "$ p1"), (4, "$ p2"), (0, "out2.3")] {
+        jump(&mut h, false);
+        assert_eq!((back(&h), view_row(&h.app, 0)), (want, top.to_owned()));
+    }
+    h.type_str("\r");
+    assert!(
+        h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "alt")),
+        "the keys reached the program on the main screen: {:?}",
+        h.app.screen_text()
+    );
+    jump(&mut h, true);
+    jump(&mut h, false);
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(a, "E[1;6AE[1;6B")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
 /// `grab-paste` binds the paste to the chords it names, in place of
 /// Shift+Insert, and empty to none, so Shift+Insert reaches the program.
 // covers: clipboard.paste
