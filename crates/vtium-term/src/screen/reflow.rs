@@ -388,16 +388,22 @@ struct Carried {
     saved: Option<Place>,
     view: Option<Place>,
     selection: Vec<(Anchor, Place)>,
+    /// Each image placement's anchor, its line's top cell (ADR-1003,
+    /// "Images").
+    #[cfg(feature = "images")]
+    images: Vec<(vtium_image::PlacementKey, Place)>,
 }
 
 impl Carried {
     fn places(&self) -> Vec<Place> {
-        [self.anchor, self.top]
+        let places = [self.anchor, self.top]
             .into_iter()
             .chain(self.saved)
             .chain(self.view)
-            .chain(self.selection.iter().map(|&(_, p)| p))
-            .collect()
+            .chain(self.selection.iter().map(|&(_, p)| p));
+        #[cfg(feature = "images")]
+        let places = places.chain(self.images.iter().map(|&(_, p)| p));
+        places.collect()
     }
 
     fn update(&mut self, places: &[Place]) {
@@ -416,6 +422,10 @@ impl Carried {
             next(p);
         }
         for (_, p) in &mut self.selection {
+            next(p);
+        }
+        #[cfg(feature = "images")]
+        for (_, p) in &mut self.images {
             next(p);
         }
     }
@@ -450,9 +460,14 @@ impl Screen {
             .filter_map(|a| self.scrollback.lines().position(|l| l.id() == a.line))
             .chain(view)
             .min();
+        // and the rows a placement above the screen reaches down from
+        #[cfg(feature = "images")]
+        let margin = rows.saturating_add(self.images_reach());
+        #[cfg(not(feature = "images"))]
+        let margin = rows;
         let taken = self
             .scrollback
-            .take_for_reflow(cols, rows, reach, &mut self.next_id);
+            .take_for_reflow(cols, margin, reach, &mut self.next_id);
         let (older, split) = taken.offset;
         let continues = taken.continues;
         let mut run = taken.rows;
@@ -483,6 +498,20 @@ impl Screen {
                 .filter_map(|a| {
                     let row = run.iter().position(|l| l.id() == a.line)?;
                     Some((*a, Place::at(row, a.x)))
+                })
+                .collect(),
+            #[cfg(feature = "images")]
+            images: run
+                .iter()
+                .enumerate()
+                .flat_map(|(row, line)| {
+                    let anchors = self.images_anchors(line.id());
+                    anchors.into_iter().map(move |(p, col)| {
+                        (
+                            p,
+                            Place::at(row, usize::try_from(col).unwrap_or(usize::MAX)),
+                        )
+                    })
                 })
                 .collect(),
         };
@@ -565,6 +594,18 @@ impl Screen {
             })
             .collect();
         self.selection.carry(&moved);
+        #[cfg(feature = "images")]
+        {
+            let moved: Vec<_> = carried
+                .images
+                .iter()
+                .map(|&(p, place)| {
+                    let col = u32::try_from(place.col).unwrap_or(u32::MAX);
+                    (p, line(place.row).map(|line| (line, col)))
+                })
+                .collect();
+            self.images_carry(&moved);
+        }
         let view = carried
             .view
             .filter(|p| p.row < top)

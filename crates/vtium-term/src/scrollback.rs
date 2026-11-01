@@ -111,6 +111,10 @@ pub(crate) struct Scrollback {
     /// The rewrapped row at the top of the view, or `None` while the view
     /// shows the screen.
     view: Option<usize>,
+    /// The rows dropped from the oldest end since the screen last took
+    /// them, oldest first, whose image placements the screen clips.
+    #[cfg(feature = "images")]
+    dropped: Vec<LineId>,
 }
 
 /// The scrollback's oldest rows, waiting to be rewrapped at `width`.
@@ -252,6 +256,8 @@ impl Scrollback {
             bytes: 0,
             bytes_max: SB_MEMORY_DEFAULT,
             view: None,
+            #[cfg(feature = "images")]
+            dropped: Vec::new(),
         }
     }
 
@@ -460,6 +466,8 @@ impl Scrollback {
                 let (len, rows) = w.oldest();
                 gone = gone.saturating_add(charge(w.rows.range(..len)));
                 if rows <= n {
+                    #[cfg(feature = "images")]
+                    self.dropped.extend(w.rows.range(..len).map(Line::id));
                     w.rows.drain(..len);
                     w.count = w.count.saturating_sub(rows);
                     let extra = u64::try_from(rows.saturating_sub(1)).unwrap_or(0);
@@ -473,6 +481,8 @@ impl Scrollback {
                     // with the row the n-th id was reserved for, and its
                     // marks went with the first row.
                     let (at, inserted) = split_line(&mut w.rows, 0, n.saturating_mul(w.width));
+                    #[cfg(feature = "images")]
+                    self.dropped.extend(w.rows.range(..at).map(Line::id));
                     w.rows.drain(..at);
                     let kept = len.saturating_add(usize::from(inserted)).saturating_sub(at);
                     made_bytes = made_bytes.saturating_add(charge(w.rows.range(..kept)));
@@ -509,6 +519,8 @@ impl Scrollback {
             }
             let k = n.min(w.ready);
             gone = gone.saturating_add(charge(w.rows.range(..k)));
+            #[cfg(feature = "images")]
+            self.dropped.extend(w.rows.range(..k).map(Line::id));
             w.rows.drain(..k);
             w.ready = w.ready.saturating_sub(k);
             w.count = w.count.saturating_sub(k);
@@ -519,6 +531,8 @@ impl Scrollback {
         }
         let k = n.min(self.lines.len());
         gone = gone.saturating_add(charge(self.lines.range(..k)));
+        #[cfg(feature = "images")]
+        self.dropped.extend(self.lines.range(..k).map(Line::id));
         self.lines.drain(..k);
         self.bytes = self.bytes.saturating_add(made_bytes).saturating_sub(gone);
         self.view = self.view.map(|i| i.saturating_sub(k));
@@ -688,6 +702,29 @@ impl Scrollback {
             self.view = None;
         }
         Some(line)
+    }
+
+    /// The rows dropped from the oldest end since the last call, oldest
+    /// first.
+    #[cfg(feature = "images")]
+    pub(crate) fn take_dropped(&mut self) -> Vec<LineId> {
+        mem::take(&mut self.dropped)
+    }
+
+    /// The oldest row's id: the line a dropped row's placements go on
+    /// from.
+    #[cfg(feature = "images")]
+    pub(crate) fn oldest_id(&self) -> Option<LineId> {
+        self.waiting
+            .rows
+            .front()
+            .or(self.lines.front())
+            .map(Line::id)
+    }
+
+    /// Whether a line leaving the screen's top enters the scrollback.
+    pub(crate) fn keeps_lines(&self) -> bool {
+        self.max > 0
     }
 
     pub(crate) fn clear(&mut self) {

@@ -99,6 +99,7 @@ impl Screen {
     /// Drops lines the screen discards; one that holds the selection takes
     /// it with it.
     pub(super) fn discard_lines(&mut self, lines: Vec<Line>) {
+        self.images_free(&lines);
         if self.selection.holds_any(&lines) {
             self.selection.reset();
             self.damage.mark_all();

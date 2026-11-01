@@ -21,6 +21,7 @@
 //! margin.
 
 mod edit;
+mod images;
 mod links;
 mod marks;
 mod print;
@@ -132,6 +133,9 @@ pub struct Screen {
     cursor_blink: bool,
     /// DECSACE's extent for DECCARA and DECRARA.
     extent: Extent,
+    /// The images and placements of both screens (ADR-1100).
+    #[cfg(feature = "images")]
+    images: vtium_image::Store,
 }
 
 impl Screen {
@@ -168,6 +172,8 @@ impl Screen {
             cursor_shape: CursorShape::default(),
             cursor_blink: true,
             extent: Extent::Stream,
+            #[cfg(feature = "images")]
+            images: vtium_image::Store::new(),
         };
         for _ in 0..rows {
             let line = screen.new_line(cols, &Style::DEFAULT);
@@ -350,6 +356,7 @@ impl Screen {
             return;
         }
         self.flags.alternate = on;
+        self.images_alternate(on);
         self.segment = None;
         self.close_link();
         self.selection.reset();
@@ -381,6 +388,9 @@ impl Screen {
     /// and the pen stay; the terminal's reset clears and moves them. Mode
     /// 2028 stays: the mode table sets it on RIS only.
     pub fn reset(&mut self) {
+        if self.flags.alternate {
+            self.images_alternate(false);
+        }
         self.segment = None;
         self.last_printed = None;
         self.flags = Flags {
@@ -422,7 +432,9 @@ impl Screen {
             color: palette.cursor(),
         };
         let selected = self.selected_columns(&lines);
-        Frame::new(
+        #[cfg(feature = "images")]
+        let placements = self.placements();
+        let frame = Frame::new(
             lines,
             &self.damage,
             palette,
@@ -436,7 +448,10 @@ impl Screen {
             self.hover
                 .overlay
                 .zip(self.hover.link.and_then(|l| self.link_uri(l))),
-        )
+        );
+        #[cfg(feature = "images")]
+        let frame = frame.with_placements(placements);
+        frame
     }
 
     /// The lines the view shows, top to bottom: from the scrollback while
@@ -464,6 +479,7 @@ impl Screen {
     /// was made with; the oldest lines past it go.
     pub fn set_scrollback_max(&mut self, lines: usize) {
         self.scrollback.set_max(lines);
+        self.images_dropped();
         self.damage.mark_all();
     }
 
@@ -472,6 +488,7 @@ impl Screen {
     /// A line that alone passes it does not enter.
     pub fn set_scrollback_memory(&mut self, bytes: usize) {
         self.scrollback.set_bytes_max(bytes);
+        self.images_dropped();
         self.damage.mark_all();
     }
 
@@ -483,6 +500,7 @@ impl Screen {
 
     /// Empties the scrollback (ED 3).
     pub fn clear_scrollback(&mut self) {
+        self.images_clear_scrollback();
         self.scrollback.clear();
         self.damage.mark_all();
     }

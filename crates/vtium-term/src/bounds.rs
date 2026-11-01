@@ -185,9 +185,17 @@ const LINKS_BYTES: Bound = Bound {
     cite: "ADR-1002, \"Link storage\": about 2,300 links of 50-byte URIs, which keeps the worst default scrollback under the minspec peak; VTE caps a screen at 2^20-2 links (`src/vtedefines.hh:101-119` at `5d75dcf`)",
 };
 
+const INPUT_WORK: Bound = Bound {
+    name: "INPUT_WORK_MAX",
+    value: 1 << 24,
+    what: "Image work one input call does, in a build with images: each placement or image a scroll, an ED 2, an eviction or a handler's search visits, and each pixel a handler decodes",
+    past: "The input call stops after the byte that passed it and returns what it took, and the next call takes the rest; the state that results does not change",
+    cite: "The C reference's `VTE_INPUT_WORK`, 2^24 a call; ADR-1100, D5",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 21] = [
+pub(crate) const BOUNDS: [Bound; 22] = [
     COLUMNS,
     ROWS,
     CLUSTER,
@@ -209,6 +217,7 @@ pub(crate) const BOUNDS: [Bound; 21] = [
     LINKS_BYTES,
     SGR_STACK,
     COLOR_STACK,
+    INPUT_WORK,
 ];
 
 /// Cells a line holds, and columns a screen and its damage have. The
@@ -266,6 +275,10 @@ pub const SB_MEMORY_MAX: usize = SB_MEMORY_MAX_BOUND.value;
 
 /// The most bytes of replies held before the host takes them.
 pub const REPLIES_PENDING_MAX: usize = REPLIES_PENDING.value;
+
+/// Image work an input call does before it stops, in a build with images.
+#[cfg_attr(not(feature = "images"), allow(dead_code))]
+pub(crate) const INPUT_WORK_MAX: u64 = INPUT_WORK.value as u64;
 
 /// The most bytes of XTVERSION's text.
 pub const VERSION_MAX: usize = VERSION.value;

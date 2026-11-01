@@ -16,11 +16,15 @@ use crate::screen::Extent;
 use crate::style::{Attrs, Color, Rgb, UnderlineStyle};
 
 macro_rules! queries {
-    ($($(#[$doc:meta])* $name:ident,)*) => {
+    (
+        $($(#[$doc:meta])* $name:ident,)*
+        ; unprobed: $($(#[$udoc:meta])* $uname:ident,)*
+    ) => {
         /// Every query vtium answers.
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub(super) enum Query {
             $($(#[$doc])* $name,)*
+            $($(#[$udoc])* $uname,)*
         }
 
         impl Query {
@@ -80,6 +84,13 @@ queries! {
     ColorStack,
     /// OSC 50's query of the font set in use.
     Font,
+    ; unprobed:
+    /// The image protocols' replies (ADR-1100, D6): each `ReplyKind` a
+    /// handler writes. The reply rule's test sends hostile text through it
+    /// once a handler that replies is built; none is in the pipeline's
+    /// first step.
+    #[cfg(feature = "images")]
+    ImageGraphics,
 }
 
 /// XTVERSION's text until the host sets one.
@@ -422,6 +433,12 @@ mod tests {
         let tok = rng.token();
         let cat = |parts: &[&[u8]]| parts.concat();
         let (request, text, numbers) = match query {
+            #[cfg(feature = "images")]
+            #[expect(
+                clippy::unreachable,
+                reason = "Query::ALL leaves it out until a handler replies"
+            )]
+            Query::ImageGraphics => unreachable!("no handler that replies is built yet"),
             Query::Decrqm => {
                 let number = u32::try_from(rng.next() % 70_000).expect("small");
                 let n = rng.padded(number);
@@ -620,6 +637,12 @@ mod tests {
     fn each_reply_is_pinned() {
         for &query in Query::ALL {
             let (request, want): (&[u8], &[u8]) = match query {
+                #[cfg(feature = "images")]
+                #[expect(
+                    clippy::unreachable,
+                    reason = "Query::ALL leaves it out until a handler replies"
+                )]
+                Query::ImageGraphics => unreachable!("no handler that replies is built yet"),
                 Query::Decrqm => (b"\x1b[?25$p", b"\x1b[?25;1$y"),
                 Query::Da1 => (b"\x1b[c", b"\x1b[?62;22c"),
                 Query::Da2 => (b"\x1b[>c", b"\x1b[>1;1;0c"),

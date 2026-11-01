@@ -113,6 +113,7 @@ impl Screen {
         self.segment = None;
         let (pen, link) = (self.pen, self.link);
         for y in rect.top..=rect.bottom {
+            self.images_cut(y, rect.left, rect.right);
             self.split_wide(y, rect.left);
             self.split_wide(y, rect.right.saturating_add(1));
             if let Some(line) = self.line_mut(y) {
@@ -135,6 +136,7 @@ impl Screen {
         self.bottom = self.rows.saturating_sub(1);
         let right = self.cols.saturating_sub(1);
         for y in 0..self.rows {
+            self.images_cut(y, 0, right);
             if let Some(line) = self.line_mut(y) {
                 line.flags_mut().set_size(crate::LineSize::Single);
                 for x in 0..=right {
@@ -183,6 +185,7 @@ impl Screen {
             let Some(from) = self.line(source.top.saturating_add(k)).cloned() else {
                 continue;
             };
+            self.images_cut(y, target.left, target.right);
             self.split_wide(y, target.left);
             self.split_wide(y, target.right.saturating_add(1));
             let Some(line) = self.line_mut(y) else {
