@@ -3022,12 +3022,13 @@ const NO_DISPLAY: &str = "vtium: no display for any head\nConnect a display that
 
 /// The panic screen of a broken closed file whose one error, on line 4,
 /// is the key `focs`, read as `heads.conf` (D7): the console line, that
-/// no head is left, the error with its file and line, and the next step.
+/// no head is left, the error with its file and line, and the next step,
+/// each naming the file the start read.
 const PANIC: &str = concat!(
     "vtium: config invalid, policy closed: input off\n",
-    "The errors in /etc/vtium/heads.conf, listed below, leave no head that can run.\n",
+    "The errors in heads.conf, listed below, leave no head that can run.\n",
     "heads.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
-    "Nothing on this console takes input. Run vtium check-config /etc/vtium/heads.conf over ssh, or from other boot media, for the full report.",
+    "Nothing on this console takes input. Run vtium check-config heads.conf over ssh, or from other boot media, for the full report.",
 );
 
 /// A head file's head and its rule for every display, which [`d7_row`]
@@ -3102,32 +3103,31 @@ fn d7_row(row: &Row) {
                 .notice_screen()
                 .expect("a closed file's notice screen");
             if row.line == Some(CLOSED_OFF) {
-                // the panic screen opens with the console line and ends
-                // with its next step, the file's errors between
-                fn ends(n: &str) -> (Option<&str>, Option<&str>) {
-                    (n.lines().next(), n.lines().last())
-                }
-                let shown = screen.notice().map(ends);
-                assert_eq!(shown, row.line.map(ends), "{test}");
-                // between the two lines of what happened and the next
-                // step, the file's errors, each after the file and its line
-                let lines: Vec<&str> = screen.notice().map_or(Vec::new(), |n| n.lines().collect());
-                let errors = lines
-                    .get(2..lines.len().saturating_sub(1))
-                    .unwrap_or_default();
-                let at =
-                    |line: &str, error: &str| format!("{}{line}: {error}", file.path.display());
-                let want = match test {
-                    "broken-closed" => vec![at(
+                // the panic screen: the console line, that no head can run,
+                // the file's errors, each after the file and its line, and
+                // the next step, every line naming the file the start read
+                let path = file.path.display();
+                let at = |line: &str, error: &str| format!("{path}{line}: {error}");
+                let error = match test {
+                    "broken-closed" => at(
                         ":4",
                         "This section takes no key named \"focs\". Check the key's spelling, or remove the line.",
-                    )],
-                    _ => vec![at(
+                    ),
+                    _ => at(
                         "",
                         "The file needs `version = 1` above its first section. Add that line at the top.",
-                    )],
+                    ),
                 };
-                assert_eq!(errors, want, "{test}: the errors shown");
+                let want = [
+                    "vtium: config invalid, policy closed: input off".to_owned(),
+                    format!("The errors in {path}, listed below, leave no head that can run."),
+                    error,
+                    format!(
+                        "Nothing on this console takes input. Run vtium check-config {path} over ssh, or from other boot media, for the full report."
+                    ),
+                ];
+                let errors: Vec<&str> = screen.notice().map_or(Vec::new(), |n| n.lines().collect());
+                assert_eq!(errors, want, "{test}: the panic screen");
             } else {
                 assert_eq!(screen.notice(), row.line, "{test}");
             }

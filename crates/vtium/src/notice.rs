@@ -71,30 +71,32 @@ pub fn stopped() -> String {
     )
 }
 
-/// The panic screen's second line (ADR-1401 D7): what the errors of a
-/// broken closed head file left.
-pub fn no_head_left() -> String {
+/// The panic screen's second line (ADR-1401 D7): what the errors of the
+/// broken closed head file at `path` left.
+pub fn no_head_left(path: &std::path::Path) -> String {
     format!(
         "The errors in {}, listed below, leave no head that can run.",
-        vtium_config::HEAD_FILE
+        vtium_config::Shown(path)
     )
 }
 
-/// The panic screen (ADR-1401 D7), which a broken closed head file shows
-/// on the boot display for as long as vtium runs: its console line, that
-/// no head is left, the file's first `errors`, each with its file and line,
-/// the count of the `more` past them and of any the display has no room
-/// for, and what to do next.
-pub fn panic(errors: Vec<String>, more: usize) -> vtium_render::NoticeReport {
+/// The panic screen (ADR-1401 D7), which the broken closed head file at
+/// `path` shows on the boot display for as long as vtium runs: its console
+/// line, that no head is left, the file's first `errors`, each with its
+/// file and line, the count of the `more` past them and of any the display
+/// has no room for, and what to do next, each naming that file.
+pub fn panic(
+    path: &std::path::Path,
+    errors: Vec<String>,
+    more: usize,
+) -> vtium_render::NoticeReport {
     let line = vtium_config::Line::ClosedOff;
     vtium_render::NoticeReport {
-        happened: vec![line.text().to_owned(), no_head_left()],
+        happened: vec![line.text().to_owned(), no_head_left(path)],
         items: errors,
         more,
         label: MORE_ERRORS.to_owned(),
-        next: line
-            .next(std::path::Path::new(vtium_config::HEAD_FILE))
-            .to_string(),
+        next: line.next(path).to_string(),
     }
 }
 

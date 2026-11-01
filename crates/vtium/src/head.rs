@@ -1137,7 +1137,7 @@ impl Start {
                 .len()
                 .saturating_sub(first.len())
                 .saturating_add(reading.errors.more);
-            start.report = Some(crate::notice::panic(first, more));
+            start.report = Some(crate::notice::panic(path, first, more));
         }
         start
     }
@@ -1407,7 +1407,11 @@ mod tests {
         let config = crate::config::load(&[], None, &mut |_: &std::path::Path| Ok(None)).config;
         let clock: Clock = std::rc::Rc::new(Instant::now);
         let term = || terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
-        let report = crate::notice::panic(vec!["heads.conf:4: an error".to_owned()], 0);
+        let report = crate::notice::panic(
+            std::path::Path::new("heads.conf"),
+            vec!["heads.conf:4: an error".to_owned()],
+            0,
+        );
         let mut screen = Head::notice_screen(&config, term());
         assert_eq!(screen.overlay().notice, None, "nothing yet");
         screen.set_report(report.clone());
