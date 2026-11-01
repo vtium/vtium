@@ -495,11 +495,22 @@ impl Store {
         }
     }
 
-    /// Whether a placement of the main buffer is anchored on `line`.
-    pub fn anchored_main(&self, line: LineKey) -> bool {
-        self.buffers
-            .get(MAIN)
-            .is_some_and(|buf| buf.by_line.contains_key(&line))
+    /// Every line the main buffer's placements are anchored on, each with
+    /// their columns.
+    pub fn main_anchor_lines(&self) -> Vec<(LineKey, Vec<u32>)> {
+        let Some(buf) = self.buffers.get(MAIN) else {
+            return Vec::new();
+        };
+        buf.by_line
+            .iter()
+            .map(|(&line, keys)| {
+                let cols = keys
+                    .iter()
+                    .filter_map(|k| buf.placements.get(k).map(|p| p.col))
+                    .collect();
+                (line, cols)
+            })
+            .collect()
     }
 
     /// The main buffer's placements anchored on `line`, each with its
