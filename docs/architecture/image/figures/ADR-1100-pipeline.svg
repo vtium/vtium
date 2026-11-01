@@ -19,10 +19,16 @@
 <text x="522" y="106" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">protocol's on/off switch</text>
 <rect x="760" y="30" width="220" height="112" rx="6" fill="#d5f0ea" stroke="#2d8e7a" stroke-width="1.5"/>
 <text x="772" y="52" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">handlers (vtium-image)</text>
-<text x="772" y="70" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">sixel, kitty, iTerm2,</text>
-<text x="772" y="88" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">in stream order; decode</text>
+<text x="772" y="70" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">sixel and kitty, in</text>
+<text x="772" y="88" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">stream order; decode</text>
 <text x="772" y="106" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">sixel, base64 and raw</text>
 <text x="772" y="124" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">RGB and RGBA here</text>
+<rect x="510" y="134" width="220" height="66" rx="6" fill="#d5f0ea" stroke="#2d8e7a" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="522" y="153" font-size="13" text-anchor="start" fill="#1f2933" font-weight="bold">iTerm2, for compatibility</text>
+<text x="522" y="171" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">thin front end for File=;</text>
+<text x="522" y="188" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">each picture placed as a sixel</text>
+<line x1="620" y1="124" x2="620" y2="132" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<line x1="620" y1="200" x2="620" y2="208" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
 <line x1="220" y1="77" x2="248" y2="77" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
 <line x1="480" y1="77" x2="508" y2="77" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
 <line x1="730" y1="77" x2="758" y2="77" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
@@ -45,8 +51,8 @@
 <line x1="1100" y1="106" x2="1100" y2="148" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
 <line x1="1140" y1="148" x2="1140" y2="108" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
 <line x1="1120" y1="262" x2="1120" y2="300" stroke="#c28a1e" stroke-width="1.5" stroke-dasharray="5 4"/>
-<text x="700" y="168" font-size="12" text-anchor="middle" fill="#52606d" font-weight="normal">input stops after the string's end</text>
-<text x="700" y="184" font-size="12" text-anchor="middle" fill="#52606d" font-weight="normal">until the reply, or FAILED after 2 s</text>
+<text x="770" y="168" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">input stops after the string's end</text>
+<text x="770" y="184" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">until the reply, or FAILED after 2 s</text>
 <rect x="20" y="210" width="250" height="112" rx="6" fill="#dbe7f6" stroke="#2f6fb0" stroke-width="1.5"/>
 <text x="32" y="232" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">vtium-term screen</text>
 <text x="32" y="250" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">write, erase, scroll,</text>
@@ -69,7 +75,7 @@
 <text x="32" y="408" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">rules live; asked by both</text>
 <line x1="145" y1="322" x2="145" y2="350" stroke="#2d8e7a" stroke-width="1.5" stroke-dasharray="5 4"/>
 <line x1="270" y1="388" x2="300" y2="388" stroke="#2d8e7a" stroke-width="1.5" stroke-dasharray="5 4"/>
-<line x1="870" y1="142" x2="870" y2="208" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<line x1="760" y1="142" x2="760" y2="208" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
 <line x1="270" y1="266" x2="298" y2="266" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
 <rect x="300" y="464" width="610" height="76" rx="6" fill="#dbe7f6" stroke="#2f6fb0" stroke-width="1.5"/>
 <text x="312" y="486" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">frame (vtium-term)</text>
