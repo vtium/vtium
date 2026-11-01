@@ -125,13 +125,16 @@ considered:
     said: "iTerm2's path, stated plainly: an iTerm2 File= picture is decoded on the kitty path (the whole image file goes to the sandboxed helper, as kitty's PNG payloads do) and placed under sixel's rules (at the cursor, moving with the text, cut by text written over it and by erases), since iTerm2 gives a program no ids or delete command to manage a picture afterwards. Behaviour unchanged; the record says the split in words."
     via: the maintainer's framing in the steering session, 2026-11-01, relayed by the team lead in scratchpad/answers-2026-11-01.md; the wording is the team lead's
     paraphrase: true
+  - operator: aaronsb
+    said: "I think we can accept adr1100"
+    via: the maintainer in the steering session, 2026-11-01, after reading the record at c1ed1be on GitHub and its two figures, and seeing its five observables listed
 observable:
   - "`cargo tree -p vtium -e normal` with default features lists no vtium-image, and with `--features images` lists it"
   - "The flood test feeds a stream of transmissions and placements past a full store whole and cut at random points, with frames drawn at different points, and every run ends in the same store; with the input-work count removed from a scan, planted, it fails"
   - "A test feeds an interleaved sixel and kitty stream across a pending decode, and the placements land in stream order; with the barrier removed, planted, it fails"
   - "A `compile_fail` doctest in vtium-image shows that code outside the rules module cannot match on a protocol tag"
   - "tier 1's image cases (`img-`, `six-` and `kit-` in `tools/conformance/corpus/cases.list`) pass through vtium-replay built with `images`, apart from the cases the conformance runner's departures list names for the draw order at equal z (D4)"
-status: proposed
+status: accepted
 date: 2026-11-01
 deciders:
   - aaronsb
