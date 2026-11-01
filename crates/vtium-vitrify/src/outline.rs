@@ -33,8 +33,11 @@
 //! and descent span the cell's height less half a pixel, the baseline sits
 //! the ascent below the top, and the font that sets the cell sets its width
 //! from `W`'s advance or ink, whichever is wider. A glyph is placed by its
-//! own bearing on the baseline, moved left by half of what passes the
-//! cell's right edge and cut at the cell's edges. A glyph advancing more
+//! font (ADR-1302 D2): its pen at the cell's left edge, moved by half of
+//! what its cells exceed its advance rounded, rounded down, and its ink at
+//! its bearing from the pen on the baseline; its pixels are cut at its
+//! cells' edges, and the ink past them goes to its ink box, cut one cell
+//! past its cells. A glyph advancing more
 //! than one and a half cells is two cells wide. A color glyph larger than
 //! its cells is drawn again at the size that fits them, centred across
 //! them and kept inside the cell's height. Outlines are hinted; color
@@ -947,17 +950,29 @@ pub(crate) mod raster {
     /// it.
     fn place(drawer: &mut Drawer<'_>, g: u16, advance: f32, cell: &Cell) -> Option<Placed> {
         let wide = advance > cell.width as f32 * 1.5;
-        place_drawn(&mut |ppem, fit| drawer.draw(g, ppem, fit), wide, cell)
+        place_drawn(
+            &mut |ppem, fit| drawer.draw(g, ppem, fit),
+            wide,
+            Some(advance),
+            cell,
+        )
     }
 
     /// What `draw` draws at a size and within a box, placed in `cell`, two
-    /// cells wide when `wide`: a mask by its own bearing on the baseline,
-    /// moved left by half of what passes the cell's right edge, a color
-    /// image larger than its cells drawn again at the size that fits them
-    /// and centred across them.
+    /// cells wide when `wide`. A mask is placed by the font (ADR-1302 D2):
+    /// its pen starts at the cell's left edge, moved right by half of what
+    /// its cells' width exceeds its advance rounded to the nearest pixel,
+    /// rounded down, which is a move left when the advance is wider, and
+    /// its ink lies at its bearing from the pen; with no advance, as for a
+    /// ligature shaping places, the pen stays on the left edge. Nothing
+    /// moves it to keep its ink inside its cells: the ink past them goes
+    /// to its ink box, cut at its reach. A color image larger than its
+    /// cells is drawn again at the size that fits them and centred across
+    /// them.
     pub(crate) fn place_drawn(
         draw: &mut dyn FnMut(f32, (u32, u32)) -> Option<Image>,
         wide: bool,
+        advance: Option<f32>,
         cell: &Cell,
     ) -> Option<Placed> {
         let h = cell.height;
@@ -976,11 +991,9 @@ pub(crate) mod raster {
             let top = (base - image.placement.top).clamp(0, (h_i - ih).max(0));
             ((bw_i - iw) / 2, top)
         } else {
-            let mut left = image.placement.left;
-            if left + iw > bw_i {
-                left -= (left + iw - bw_i) / 2;
-            }
-            (left, base - image.placement.top)
+            // the C reference's `centre_dx` rounded the advance, (adv + 32) >> 6
+            let pen = advance.map_or(0, |a| (bw_i - a.round() as i32).div_euclid(2));
+            (pen + image.placement.left, base - image.placement.top)
         };
         let ink = if color {
             None

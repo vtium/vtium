@@ -247,18 +247,61 @@ fn ink_past_a_cell_is_kept_in_the_glyphs_ink_box() {
     }
 }
 
-// ink past one cell beyond the glyph's is cut at the reach: R, a bar 2000
-// units wide, 39 pixels, is moved left by half of what passes its cell,
-// 13 pixels, and passes it by more than a cell on each side
+// ink past one cell beyond the glyph's is cut at the reach, and nothing
+// moves a glyph to keep its ink in (ADR-1302 D1, D2): R, a bar 2000 units
+// wide, 39 pixels, stays at its pen and is cut one cell past its own
 #[test]
 fn ink_past_the_reach_is_cut() {
     let o = rasterise(&overhanging(2000)).expect("rasterised");
     let r = glyph(&o, 0, 0x52);
     let ink = r.ink.as_ref().expect("R's box");
-    assert_eq!((ink.left, ink.width), (-12, 36), "a cell each side");
-    assert!(vtium_vitrify::outline::in_reach(
-        ink.left, ink.width, 12, 12
-    ));
+    assert_eq!((ink.left, ink.width), (0, 24), "to one cell past its own");
+    assert!(
+        ink.pixels[..24].iter().all(|&p| p == 0),
+        "nothing above the bar"
+    );
+    assert!(
+        ink.pixels[10 * 24..11 * 24].iter().all(|&p| p == 255),
+        "the bar fills the reach"
+    );
+}
+
+// ADR-1302 D2: the pen starts at the cell's left edge, moved by half of
+// what the cells exceed the advance rounded, rounded down. At 19.5 pixels
+// to the em: U+4E00 advances 19.5, rounded 20, in its two 12-pixel cells,
+// so its pen is 2 pixels in and its ink, from 0.98 pixels past the pen,
+// starts in column 2; C advances 750 units, 14.6 rounded 15, in one cell,
+// so its pen moves half of -3, rounded down, 2 pixels left, and its ink
+// runs from 2 left of the cell to 12.6
+// covers: text.overhang
+#[test]
+fn a_glyph_is_placed_by_its_rounded_advance() {
+    let mut font = ttf::test_mono();
+    font.glyphs.push(ttf::Glyph::rect(750, 0, 0, 750, 700));
+    font.cmap.push((0x43, 8));
+    font.cmap.sort_unstable();
+    let o = rasterise(&OutlineRequest {
+        font: font.build().into(),
+        ..request(&[(0, 20)], &[])
+    })
+    .expect("rasterised");
+    let column = |g: &vtium_vitrify::outline::Placed, w: usize, x: usize| {
+        (0..20).map(|y| g.pixels[y * w + x]).max().unwrap_or(0)
+    };
+    let wide = glyph(&o, 0, 0x4e00);
+    assert_eq!(column(wide, 24, 1), 0, "left of the pen's ink");
+    assert!(column(wide, 24, 2) > 0, "the ink's first column");
+    assert!(wide.ink.is_none(), "its ink lies inside its cells");
+    let c = glyph(&o, 0, 0x43);
+    let ink = c.ink.as_ref().expect("C's box");
+    assert_eq!(
+        (ink.left, ink.width),
+        (-2, 15),
+        "from 2 left of the cell to 12.6"
+    );
+    // W: an advance of 11.7, rounded 12, in a 12-pixel cell keeps the pen
+    // on the cell's left edge, as the C reference drew it
+    assert!(column(glyph(&o, 0, 0x57), 12, 0) > 0);
 }
 
 // ADR-1302 D6: a glyph whose box would pass the 16 KiB chunk keeps its

@@ -102,9 +102,14 @@ pub(crate) fn draw_all(
             // a cell for each letter: lam-alef takes the two its letters do
             Kind::Joining => s.key.iter().filter(|&&c| c != super::ZWJ).count() > 1,
         };
+        // ADR-1302 D2: a cluster is placed by its advance, but a joining
+        // letter or ligature, which shaping places, keeps its pen on the
+        // cell's left edge
+        let advance = (s.kind != Kind::Joining).then_some(s.advance as f32 * scale);
         let Some(placed) = place_drawn(
             &mut |ppem, fit| compose(drawer, &s.glyphs, ppem / upem.max(1.0), ppem, fit),
             wide,
+            advance,
             cell,
         )
         .filter(|p| p.pixels.len() <= vtium_font::SET_CHUNK_BYTES as usize) else {
