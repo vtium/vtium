@@ -28,3 +28,9 @@ two-cards-mirror/sgr@card1	vtium's capture at 7da1d7a on two cards, from the sec
 two-cards-mirror/cjk	vtium's capture at 7da1d7a on two cards, the first output, pixel for pixel the 2d-640x480-psf16 golden of the same screen, itself provisional: one grid on every output (ADR-1401, checklist 11.12); not yet reviewed
 two-cards-mirror/cjk@card1	vtium's capture at 7da1d7a on two cards, from the second card, pixel for pixel the first output's: one grid on every output (ADR-1401, checklist 11.12); not yet reviewed
 usb-keyboards/cjk	vtium's capture at 7da1d7a with a USB keyboard beside the PS/2 one, pixel for pixel the 2d-640x480-psf16 golden of the same screen, itself provisional; not yet reviewed
+heads-two-heads/cjk	vtium's capture of the head desk on the first of two outputs, each output its own head (t3_heads.py), pixel for pixel the reviewed 2d-640x480-psf16 golden of the same screen; not yet reviewed
+heads-partly-open/partly-notice	vtium's capture of a partly broken open head file's notice over the head's first screen (ADR-1401 D7); not yet reviewed
+heads-partly-open/cjk	vtium's capture under a partly broken open head file, pixel for pixel the reviewed 2d-640x480-psf16 golden of the same screen; not yet reviewed
+heads-closed-broken/panic	vtium's capture of a broken closed head file's panic screen on the boot display (ADR-1401 D7); not yet reviewed
+heads-closed-unmatched/no-display-notice	vtium's capture of a closed head file whose head has no display: the boot display lit for the notice alone (ADR-1401 D9); not yet reviewed
+heads-kiosk/cjk	vtium's capture of the closed kiosk, typed through the keyboard that claims its head (t3_heads.py), pixel for pixel the reviewed 2d-640x480-psf16 golden of the same screen; not yet reviewed

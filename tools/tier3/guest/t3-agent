@@ -1,0 +1,152 @@
+#!/bin/bash
+# The head-file variants' agent (t3_heads.py), run as root by t3-agent.service
+# in a guest whose console gives no login. It reads one request a line from
+# the third serial port, ttyS2, which the driver reaches over a unix socket,
+# and answers on the same port, which only root can open, so no other program
+# in the guest can forge an answer: each line of the answer to request N is
+# "T3-AGENT N ...", and "T3-AGENT-END N" ends it. Its few requests:
+#   state            the units of VT 2, when each getty that could run on
+#                    tty2 last left its inactive state and how often it
+#                    restarted, the jobs and timers systemd has, the login
+#                    sessions and their ttys, the getty marker, the programs
+#                    on tty2, the logins, the VT shown, the PS/2 keyboard's
+#                    and the USB controller's interrupts, the keyboards the
+#                    guest lists, the key presses the second keyboard sent
+#                    once watched, and the PID and age of vtium on tty2, one
+#                    line each
+#   watch            counts the key presses of the keyboard in the USB hub's
+#                    port 3.3, the kiosk's second keyboard, read from its own
+#                    evdev node, until it is pulled out
+#   kill SIGNAL      sends SIGNAL to vtium on tty2, its unit's main process
+#                    (KILL, a kill; ABRT, a crash)
+#   hangup           hangs tty2 up, as the kernel's vhangup does
+#   start            starts vtium's unit on tty2 again
+# Any other request, spelled even one character differently, answers
+# "T3-AGENT N refused REQUEST" and runs nothing. T3_AGENT_PORT names another
+# port, as the harness's self-test does with a pty.
+set -u
+port=${T3_AGENT_PORT:-/dev/ttyS2}
+vt=tty2
+units=("kmsconvt@$vt.service" "kmsconvt-getty@$vt.service" "getty@$vt.service")
+# The gettys the guest could start on tty2. autovt@tty2 is not one: in this
+# guest it is vtium's unit (guest/user-data.in).
+gettys=("getty@$vt.service" "serial-getty@$vt.service")
+# The kiosk's second keyboard, which t3_devices plugs into the hub's port
+# 3.3, and the count of its key presses that `watch` keeps.
+second=/dev/input/by-path/pci-0000:15:00.0-usb-0:3.3:1.0-event-kbd
+keys=/run/t3-agent/second.keys
+
+# The PID of vtium on tty2, its unit's main process, and its age in seconds,
+# from its start time in clock ticks against the guest's uptime; none when
+# the unit runs nothing.
+vtium_age() {
+    local pid
+    pid=$(systemctl show -P MainPID "${units[0]}")
+    [ "${pid:-0}" != 0 ] || return 0
+    awk -v pid="$pid" -v hz="$(getconf CLK_TCK)" '
+        NR == FNR { up = $1; next }
+        { sub(/^.*\) /, ""); printf "vtium %s %.1f\n", pid, up - $20 / hz }
+    ' /proc/uptime "/proc/$pid/stat"
+}
+
+# The interrupts so far of the lines of /proc/interrupts that awk's test
+# `$1` selects, summed over the CPUs.
+interrupts() {
+    awk "$1"' { for (i = 2; i <= NF && $i ~ /^[0-9]+$/; i++) n += $i } END { print n + 0 }' \
+        /proc/interrupts
+}
+
+state() {
+    local u link
+    for u in "${units[@]}"; do
+        echo "unit $u $(systemctl show -P ActiveState "$u") $(systemctl show -P Result "$u")" \
+            "$(systemctl show -P ConditionResult "$u") $(systemctl show -P ConditionTimestampMonotonic "$u")"
+    done
+    # A getty that started and ended between two requests leaves these set.
+    for u in "${gettys[@]}"; do
+        echo "getty $u $(systemctl show -P InactiveExitTimestampMonotonic "$u")" \
+            "$(systemctl show -P NRestarts "$u")"
+    done
+    # Every job systemd has queued, and every timer with its state, which a
+    # start delayed by a timer waits in, one line each.
+    systemctl list-jobs --no-legend | awk '{ print "job", $2, $3, $4 }'
+    systemctl list-units --all --type=timer --no-legend --plain | awk '{ print "timer", $1, $4 }'
+    for u in $(loginctl list-sessions --no-legend | awk '{ print $1 }'); do
+        echo "session $u $(loginctl show-session -P TTY "$u")"
+    done
+    if [ -e "/run/vtium/$vt.closed" ]; then echo "marker yes"; else echo "marker no"; fi
+    echo "tty2 $(ps -t "$vt" -o comm= | tr '\n' ' ')"
+    echo "logins $(pgrep -c -x login)"
+    echo "fgconsole $(fgconsole)"
+    echo "i8042 $(interrupts '$1 == "1:"')"
+    echo "xhci $(interrupts '/xhci_hcd/')"
+    udevadm settle --timeout=10
+    for link in /dev/input/by-path/*-event-kbd; do
+        [ -e "$link" ] && echo "kbd ${link##*/}"
+    done
+    [ -e "$keys" ] && echo "keys $(cat "$keys")"
+    vtium_age
+}
+
+answer() {
+    local n=$1 request=$2 pid
+    case "$request" in
+        state) state ;;
+        "kill KILL" | "kill ABRT")
+            pid=$(systemctl show -P MainPID "${units[0]}")
+            if [ "${pid:-0}" = 0 ]; then
+                echo "refused: ${units[0]} runs no process"
+            else
+                kill -s "${request#kill }" "$pid" && echo "sent ${request#kill } to $pid"
+            fi
+            ;;
+        # TIOCVHANGUP, 0x5437: the call systemd's TTYVHangup= makes.
+        hangup)
+            python3 -I -c 'import fcntl, os; fd = os.open("/dev/tty2", os.O_RDWR | os.O_NOCTTY); fcntl.ioctl(fd, 0x5437)' \
+                && echo "hung up /dev/$vt"
+            ;;
+        start) systemctl start --no-block "${units[0]}" && echo "started ${units[0]}" ;;
+        # A reader of the second keyboard's evdev node, apart from the agent
+        # and its port, which ends when the keyboard is pulled out; the
+        # answer comes once it has opened the node and counted none.
+        watch)
+            mkdir -p "${keys%/*}" && rm -f "$keys"
+            python3 -I -c '
+import os, struct, sys
+fd, out, n = os.open(sys.argv[1], os.O_RDONLY), sys.argv[2], 0
+event = struct.Struct("llHHi")  # struct input_event: time, type, code, value
+def put():
+    with open(out + ".new", "w") as f:
+        f.write("%d\n" % n)
+    os.replace(out + ".new", out)
+put()
+while True:
+    try:
+        data = os.read(fd, event.size * 64)
+    except OSError:
+        break
+    if not data:
+        break
+    # EV_KEY, 1, with the value 1 of a press
+    n += sum(1 for _, _, t, _, v in event.iter_unpack(data) if t == 1 and v == 1)
+    put()
+' "$second" "$keys" < /dev/null > /dev/null 2>&1 3>&- &
+            for _ in $(seq 50); do
+                [ -e "$keys" ] && break
+                sleep 0.2
+            done
+            if [ -e "$keys" ]; then echo "watching $second"; else echo "refused: $second unread"; fi
+            ;;
+        *) echo "refused $request" ;;
+    esac 2>&1 | while IFS= read -r line; do echo "T3-AGENT $n $line"; done
+    echo "T3-AGENT-END $n"
+}
+
+exec 3<> "$port"
+stty raw -echo clocal 115200 <&3
+while IFS= read -r line <&3; do
+    line=${line%$'\r'}
+    n=${line%% *}
+    [ -n "$n" ] && [ "$n" != "$line" ] || continue
+    answer "$n" "${line#* }" >&3
+done

@@ -7,6 +7,7 @@ import subprocess
 
 import t3_bench
 import t3_devices
+import t3_heads
 import t3_pointer
 import t3_power
 import t3img
@@ -127,9 +128,13 @@ CHECKS = {
     **t3_power.CHECKS,
     **t3_pointer.CHECKS,
     **t3_devices.CHECKS,
+    **t3_heads.CHECKS,
 }
-# The checks without a golden: each passes when its capture was taken.
-NO_GOLDEN = {"vt-switch", *t3_power.CHECKS, *t3_pointer.CHECKS, *t3_devices.CHECKS}
+# The checks without a golden: each passes when its capture was taken, or,
+# on a guest with no display to capture, when the scenario reports it
+# passed (the variant's metadata, "passed").
+NO_GOLDEN = {"vt-switch", *t3_power.CHECKS, *t3_pointer.CHECKS, *t3_devices.CHECKS,
+             *t3_heads.CHECKS}
 
 DEPARTURES_FILE = os.path.join(HERE, "departures.tsv")
 
@@ -299,6 +304,8 @@ def describe(case):
         return "%s Captured from the output %s." % (caption, output[1:]), wrong
     if case in CHECKS:
         return CHECKS[case], None
+    if case in t3_heads.FIRST:
+        return t3_heads.FIRST[case], None
     fields = header(case)
     caption = " ".join(fields[""])
     if fields["look-for"]:
@@ -377,6 +384,10 @@ def evaluate(variant, case, ppm, meta, log, golden_root=None):
         tol = entry["tolerance"] = t3img.load_tol(tolpath)
     except ValueError as e:  # a malformed sidecar fails its case, loudly
         entry["status"], entry["error"] = "fail", str(e)
+        return entry
+    if ppm is None and golden is None and case in meta.get("passed", ()):
+        entry["status"] = "pass"
+        entry["note"] = "passed on the guest's state; the guest has no display to capture"
         return entry
     if ppm is None:
         entry["status"] = "fail"
