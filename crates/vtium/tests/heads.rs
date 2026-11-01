@@ -24,6 +24,11 @@ use vtium_platform::vt::FakeVt;
 const ID: DisplayId = DisplayId(1);
 const SECOND: Duration = Duration::from_secs(5);
 
+/// How long a wait on a frame, drawn by a head's render thread, may run
+/// before the test fails: long enough for a loaded machine, and only a
+/// bound, since each wait ends at the state it waits for.
+const BOUND: Duration = Duration::from_secs(10);
+
 /// A device with one display, its frame buffer in memory, named for the
 /// rules by its connector and its card.
 struct Memory {
@@ -532,13 +537,15 @@ display card:mem-large -> off
     ];
     let mut s = Seat::with_heads(&[], Some(heads), displays, "read x");
     assert!(s.until(SECOND, |a| a.cells().len() == 1));
-    s.until(Duration::from_millis(200), |_| false);
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0),
+        "the small display draws"
+    );
     assert_eq!(s.app.cells(), [(8, 16)]);
     for node in ["/dev/mem1", "/dev/mem2"] {
         let m = s.memory(node);
         assert_eq!((m.dpms, m.frames), (Some(Dpms::Off), 0), "{node} is dark");
     }
-    assert!(s.memory("/dev/mem0").frames > 0, "the small display draws");
 }
 
 /// D5: every keyboard types into the head holding the focus, which starts
@@ -1552,13 +1559,13 @@ fn answered(app: &App, line: &str) -> bool {
 /// The pixels of each display of `s` after the frames the turn just run
 /// asked for: each display's frame count is taken before the turn, and
 /// the loop runs until the head's render thread has handed each display
-/// its next frame, which [`SECOND`] bounds.
+/// its next frame, which [`BOUND`] bounds.
 fn next_frames(s: &mut Seat, turn: impl FnOnce(&mut Seat)) -> [Vec<u8>; 2] {
     let before = MIRRORED.map(|node| s.memory(node).frames);
     turn(s);
     for (node, before) in MIRRORED.into_iter().zip(before) {
         assert!(
-            s.until_memory(node, SECOND, |m| m.frames > before),
+            s.until_memory(node, BOUND, |m| m.frames > before),
             "{node} draws a frame"
         );
     }
@@ -3073,6 +3080,17 @@ fn the_rescue_key_moves_a_claimed_keyboard_and_an_ignored_one_to_the_focus_and_w
 const PAPER: [u8; 3] = [0xe2, 0xe2, 0xfe];
 
 impl Memory {
+    /// Whether any pixel of the 8 by 16 cells `cols` of text row `row`
+    /// is lit: the display shows something drawn there.
+    fn inked(&self, row: u32, cols: std::ops::Range<u32>) -> bool {
+        (row * 16..row * 16 + 16).any(|y| {
+            cols.clone().flat_map(|c| c * 8..c * 8 + 8).any(|x| {
+                let at = ((y * self.w + x) * 4) as usize;
+                self.pixels.get(at..at + 3).is_some_and(|p| p != [0, 0, 0])
+            })
+        })
+    }
+
     /// Whether a pixel of the frame is `bgr`.
     fn has(&self, bgr: [u8; 3]) -> bool {
         self.pixels.chunks_exact(4).any(|p| p[..3] == bgr)
@@ -3715,6 +3733,11 @@ fn the_osd_shows_on_a_head_whose_console_changes_or_whose_display_returns() {
             [Some(line.to_owned()), None],
             "{what}: on small alone"
         );
+        // Its time runs from the first frame that draws it.
+        assert!(
+            s.until_memory("/dev/mem0", BOUND, |m| m.has(STATUS_PAPER)),
+            "{what}: drawn"
+        );
         s.app.turn(t + Duration::from_secs(10));
         assert_eq!(statuses(&s.app), [None, None], "{what}: gone");
     };
@@ -3793,12 +3816,8 @@ fn osd_timeout_never_keeps_it_up_and_osd_off_draws_none() {
     use vtium_render::Mark;
     for args in [["--osd-timeout=never"], ["--focus-mark=always"]] {
         let mut s = claimed_with(&args);
-        s.until(Duration::from_millis(50), |_| false);
-        assert_eq!(
-            marks(&s.app),
-            [Some(Mark::NoFocus), Some(Mark::Focus)],
-            "{args:?}"
-        );
+        let both = [Some(Mark::NoFocus), Some(Mark::Focus)];
+        assert!(s.until(BOUND, |a| marks(a) == both), "{args:?}");
         s.app.turn(now() + Duration::from_secs(60));
         assert_eq!(
             marks(&s.app),
@@ -4007,7 +4026,12 @@ fn under_osd_off_a_move_composes_no_frame() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     for (osd, drawn) in [("--osd=off", false), ("--osd=minimal", true)] {
         let mut s = claimed_with(&[osd, "--no-blink"]);
-        s.until(Duration::from_millis(200), |_| false);
+        // The large display shows "ready", past the cursor's first cell:
+        // its last frame of the start is drawn and no other is on its way.
+        assert!(
+            s.until_memory("/dev/mem1", BOUND, |m| m.inked(0, 1..5)),
+            "the start drawn"
+        );
         let composed = Arc::new(AtomicUsize::new(0));
         let count = Arc::clone(&composed);
         let hook = move || {
@@ -4016,8 +4040,17 @@ fn under_osd_off_a_move_composes_no_frame() {
         s.app.set_draw_hook("large", Some(Arc::new(hook)));
         s.app
             .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
-        s.until(Duration::from_millis(200), |_| false);
-        assert_eq!(composed.load(Ordering::SeqCst) > 0, drawn, "{osd}");
+        if drawn {
+            assert!(
+                s.until(BOUND, |_| composed.load(Ordering::SeqCst) > 0),
+                "{osd}: a frame composed"
+            );
+        } else {
+            // No frame comes to wait for: the window only gives one the
+            // chance to.
+            s.until(Duration::from_millis(200), |_| false);
+            assert_eq!(composed.load(Ordering::SeqCst), 0, "{osd}");
+        }
     }
 }
 

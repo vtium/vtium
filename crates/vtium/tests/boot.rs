@@ -898,8 +898,10 @@ fn a_device_added_while_the_vt_is_not_shown_sleeps_until_the_acquire() {
     assert_eq!(counts(&mut h, "/dev/mem2"), (1, 0), "not shown: slept");
     h.scripted().active = true;
     h.scripted().events.push(VtEvent::Acquired);
-    h.until(Duration::from_millis(200), |_| false);
-    assert_eq!(counts(&mut h, "/dev/mem2"), (1, 1), "woken by the acquire");
+    assert!(
+        h.eventually(BOUND, |h| counts(h, "/dev/mem2") == (1, 1)),
+        "woken by the acquire"
+    );
 }
 
 #[test]
@@ -4726,7 +4728,8 @@ fn a_scrolled_back_cell_draws_the_helpers_glyph_once_it_lands() {
 fn glyphs_no_buffer_shows_start_no_draw() {
     let (_dir, mut h, go) = frit_session("unseen", "read x");
     assert!(h.until_memory(Duration::from_secs(10), |m| m.frames > 0));
-    h.until(Duration::from_millis(200), |_| false);
+    // Drawn from the screen as it is, with no older frame on its way.
+    h.drawn_now();
     let (frames, passes) = (h.memory().frames, h.memory().ages.len());
     std::fs::write(&go, b"").expect("the go file");
     // the helper answers and exits; the screen shows none of its glyphs
