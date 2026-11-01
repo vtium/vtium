@@ -329,7 +329,7 @@ class ImplementationTest(unittest.TestCase):
 
     UNIT = t3_impl.VT_UNIT
     TREE = {"usr/bin/vtium": "12345678", UNIT: "[Service]\n", "usr/share/doc/x": "abc"}
-    LINE = "[  12.3] TIER3-INSTALL-OK packages: ; tree: %s"
+    LINE = "[  12.3] TIER3-INSTALL-OK packages: ; kernel: 6.17.2-arch1-1; tree: %s"
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -471,7 +471,14 @@ class ImplementationTest(unittest.TestCase):
         # run packed; anything else, or no account, fails the variant.
         impl = t3_impl.tree(self.tree, self.tar)
         sha = impl["tree_sha256"]
-        self.assertEqual(t3_scenario.check_install(self.LINE % sha, impl), {"tree": sha})
+        self.assertEqual(t3_scenario.check_install(self.LINE % sha, impl),
+                         {"kernel": "6.17.2-arch1-1", "tree": sha})
+        # a guest that names no kernel leaves the result without the kernel
+        # it ran on, so the variant fails
+        for line in ((self.LINE % sha).replace(" kernel: 6.17.2-arch1-1;", ""),
+                     (self.LINE % sha).replace("6.17.2-arch1-1", "")):
+            with self.assertRaisesRegex(RuntimeError, "the guest reported no kernel version"):
+                t3_scenario.check_install(line, impl)
         with self.assertRaisesRegex(RuntimeError, "the guest installed tree 0+, the run's is"):
             t3_scenario.check_install(self.LINE % ("0" * 64), impl)
         with self.assertRaisesRegex(RuntimeError, "packages installed that are not the run's "
@@ -486,6 +493,7 @@ class ImplementationTest(unittest.TestCase):
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             text = f.read()
         self.assertIn('"TIER3-INSTALL-OK packages: ', text)
+        self.assertIn('"kernel: $(uname -r);"', text)
         self.assertIn('"tree: $tree"', text)
         self.assertNotIn("pacman -U", text)
 
@@ -702,14 +710,22 @@ class ImplementationTest(unittest.TestCase):
         impl["binary_bytes"], impl["installed_bytes"] = budget + 1, 2630443
         metas = {"2d-potato-min": {"resident": t3_scenario.resident({"sgr": 10547,
                                                                      "s1-scroll": 16077}),
-                                   "console": {"name": "vtium", "revision": "0.1"}},
-                 "2d-potato-min-psf": {"resident": t3_scenario.resident({}), "console": None}}
+                                   "console": {"name": "vtium", "revision": "0.1"},
+                                   "kernel": "6.17.2-arch1-1"},
+                 "2d-potato-min-psf": {"resident": t3_scenario.resident({}), "console": None,
+                                       "kernel": None}}
+        metas["heads-policy-typo"] = {"resident": t3_scenario.resident({}, []),
+                                      "console": None, "kernel": "7.2.11-arch1-1"}
         self.assertEqual(t3.summary(impl, metas).splitlines(), [
             "tree %s: binary %d B, over the budget of %d B by 1 B; 2.51 MiB "
             "installed; the console logged vtium 0.1"
             % (t3_common.rel(self.tree), budget + 1, budget),
-            "2d-potato-min: resident 10.30 MiB after sgr, peak 15.70 MiB after s1-scroll",
-            "2d-potato-min-psf: resident none after sgr, peak none after none"])
+            "2d-potato-min: kernel 6.17.2-arch1-1, resident 10.30 MiB after sgr, peak "
+            "15.70 MiB after s1-scroll",
+            "2d-potato-min-psf: kernel not reported, resident none after sgr, peak none "
+            "after none",
+            "heads-policy-typo: kernel 7.2.11-arch1-1, resident none after none, peak none "
+            "after none"])
         impl["binary_bytes"] = 2368120
         self.assertTrue(t3.summary(impl, {}).startswith(
             "tree %s: binary 2368120 B, within the budget of %d B; "
@@ -1245,7 +1261,8 @@ class VtiumGoldenTest(unittest.TestCase):
                    "two-cards-mirror/sgr", "two-cards-mirror/sgr@card1",
                    "two-cards-mirror/cjk", "two-cards-mirror/cjk@card1", "usb-keyboards/cjk"]
         heads = ["heads-two-heads/cjk", "heads-partly-open/partly-notice", "heads-partly-open/cjk",
-                 "heads-closed-broken/panic", "heads-closed-unmatched/no-display-notice",
+                 "heads-closed-broken/panic", "heads-policy-typo/policy-panic",
+                 "heads-closed-unmatched/no-display-notice",
                  "heads-kiosk/cjk"]
         self.assertEqual(sorted(prov), sorted(["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
                                                "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
@@ -1970,8 +1987,8 @@ class SysvinitTest(unittest.TestCase):
     """The guest without systemd (guest-sysvinit/): its variants, its disc,
     its account of PID 1 and udev, and its base image."""
 
-    LINE = ("[  12.3] TIER3-INSTALL-OK packages: ; init: init /usr/sbin/init; systemd: no; "
-            "udev: %s; tree: %s")
+    LINE = ("[  12.3] TIER3-INSTALL-OK packages: ; kernel: 6.12.48+deb13-amd64; "
+            "init: init /usr/sbin/init; systemd: no; udev: %s; tree: %s")
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -2067,7 +2084,8 @@ class SysvinitTest(unittest.TestCase):
         # stops udev for a variant without it, and installs t3-console.
         with open(os.path.join(t3_common.GUEST_SYSVINIT, "setup")) as f:
             text = f.read()
-        for field in ('"TIER3-INSTALL-OK packages: ', '"init: $(cat /proc/1/comm) ',
+        for field in ('"TIER3-INSTALL-OK packages: ', '"kernel: $(uname -r);"',
+                      '"init: $(cat /proc/1/comm) ',
                       '"systemd: $systemd;"', '"udev: $(pidof systemd-udevd udevd || echo none);"',
                       '"tree: $tree"', 'if [ -f "$disc"/no-udev ]; then',
                       'if [ -f "$disc"/two-vts ]; then', "telinit q",
@@ -2077,7 +2095,8 @@ class SysvinitTest(unittest.TestCase):
     def test_install_fields(self):
         impl = {"tree_sha256": "a" * 64}
         installed = t3_scenario.check_install(self.LINE % ("none", "a" * 64), impl)
-        self.assertEqual(installed, {"init": "init /usr/sbin/init", "systemd": "no",
+        self.assertEqual(installed, {"kernel": "6.12.48+deb13-amd64",
+                                     "init": "init /usr/sbin/init", "systemd": "no",
                                      "udev": "none", "tree": "a" * 64})
         with self.assertRaisesRegex(RuntimeError, "packages installed that are not the run's"):
             t3_scenario.check_install((self.LINE % ("none", "a" * 64)).replace(
@@ -3033,6 +3052,7 @@ class HeadsTest(unittest.TestCase):
         "heads-partly-open": ["partly-notice", "cjk", "vt-switch", "vt-restore",
                               "getty-fallback"],
         "heads-closed-broken": ["panic", "no-login", "getty-fallback"],
+        "heads-policy-typo": ["policy-panic", "policy-line", "no-login", "getty-fallback"],
         "heads-closed-unmatched": ["no-display-notice", "no-login", "getty-fallback"],
         "heads-off": ["no-login", "getty-fallback"],
         "heads-kiosk": ["cjk", "kiosk"],
@@ -3051,7 +3071,16 @@ class HeadsTest(unittest.TestCase):
                 self.assertNotIn(name, t3_scenario.DEFAULT_VARIANTS)
                 self.assertTrue(os.path.isfile(t3_heads.head_file(v)), v["heads"])
                 with open(t3_heads.head_file(v)) as f:
-                    self.assertRegex(f.read(), r"(?m)^policy = %s\b" % v["policy"])
+                    text = f.read()
+                if "policy_line" in v:
+                    # a policy line vtium cannot read, alone among the
+                    # file's policy lines, makes the file closed
+                    self.assertEqual(v["policy"], "closed")
+                    self.assertEqual(re.findall(r"(?mi)^\s*policy.*$", text),
+                                     [v["policy_line"]])
+                    self.assertNotRegex(v["policy_line"], r"^policy = (open|closed)\b")
+                else:
+                    self.assertRegex(text, r"(?m)^policy = %s\b" % v["policy"])
                 # every check that fails vtium names its failures, each known
                 if "getty-fallback" in want:
                     self.assertTrue(set(v["failures"]) <= set(t3_heads.FAILURES))
@@ -3067,6 +3096,50 @@ class HeadsTest(unittest.TestCase):
         self.assertEqual(t3_scenario.VARIANTS["heads-open-nodisplay"]["heads"],
                          "docs/heads/default.conf")
         self.assertEqual(t3_scenario.VARIANTS["heads-off"]["heads"], "docs/heads/off.conf")
+
+    def test_every_check_runs(self):
+        # run_checks runs each check a variant names from CHECK_RUNS, so a
+        # check missing there would end the variant's run in the VM
+        for name, v in t3_scenario.VARIANTS.items():
+            with self.subTest(name):
+                self.assertLessEqual(set(v.get("checks", [])), set(t3_scenario.CHECK_RUNS))
+
+    def test_policy_line(self):
+        # The console's log shows the file whose policy line vtium cannot
+        # read as closed and broken: that line's error with the head file's
+        # path and the line's number, and no outcome that runs any of the
+        # file.
+        v = t3_scenario.VARIANTS["heads-policy-typo"]
+        with open(t3_heads.head_file(v)) as f:
+            lines = f.read().splitlines()
+        # the line of an unknown top-level key comes before the policy line
+        self.assertEqual(lines[9:11], ["color = amber", "policy = opne"])
+        logged = ("[    9.1] vtium[502]: /etc/vtium/heads.conf:10: Above the first section "
+                  "the file takes only `version` and `policy`, and this line is neither.\n"
+                  "[    9.1] vtium[502]: /etc/vtium/heads.conf:11: `policy` cannot be "
+                  "\"opne\", so vtium cannot read this line and counts the file as closed "
+                  "and broken.\n"
+                  "[    9.2] vtium[502]: vtium: config invalid, policy closed: input off\n")
+        self.assertIsNone(t3_heads.judge_policy_line(logged, lines, v["policy_line"]))
+        # the error names another line, or none is logged
+        for wrong in (logged.replace("heads.conf:11:", "heads.conf:10:"),
+                      logged.replace("cannot be \"opne\"", "cannot be \"open\""),
+                      logged.replace("/etc/vtium/heads.conf:11", "heads.conf:11")):
+            with self.subTest(wrong=wrong):
+                self.assertRegex(t3_heads.judge_policy_line(wrong, lines, v["policy_line"]),
+                                 "logged no error '/etc/vtium/heads.conf:11: `policy` "
+                                 "cannot be \"opne\"'")
+        # the file run, partly broken under either policy, or the shipped
+        # default in its place
+        self.assertEqual(t3_heads.RUN_LINES, ("config partly invalid, running what's valid",
+                                              "invalid config skipped, using builtin"))
+        for line in t3_heads.RUN_LINES:
+            with self.subTest(line=line):
+                self.assertRegex(t3_heads.judge_policy_line(
+                    logged + "[    9.3] vtium[502]: %s\n" % line, lines, v["policy_line"]),
+                    "an outcome that runs some of the file or the shipped default")
+        with self.assertRaisesRegex(ValueError, "holds no line"):
+            t3_heads.judge_policy_line(logged, lines, "policy = maybe")
 
     def test_broken_closed_is_tier_2s_file(self):
         # The guest's broken closed file is tier 2's BROKEN_CLOSED, so the

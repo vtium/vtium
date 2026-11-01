@@ -48,14 +48,16 @@ if [ -f "$disc"/no-udev ]; then
     /etc/init.d/udev stop
     rm -rf /run/udev
 fi
-# Any kmscon, libtsm or vtium package installed, which must be none; PID 1,
-# whether systemd's directory exists, and the udev daemons running, which
-# the driver holds to the variant; and the tree unpacked, so the log shows
-# which build drew the screens.
+# Any kmscon, libtsm or vtium package installed, which must be none; the
+# kernel the guest runs, which the report records; PID 1, whether systemd's
+# directory exists, and the udev daemons running, which the driver holds to
+# the variant; and the tree unpacked, so the log shows which build drew the
+# screens.
 systemd=no
 [ -d /run/systemd/system ] && systemd=yes
 echo "TIER3-INSTALL-OK packages: $(dpkg-query -W -f '${Package} ${Version}\n' |
     grep -e kmscon -e libtsm -e vtium | tr '\n' ' ');" \
+    "kernel: $(uname -r);" \
     "init: $(cat /proc/1/comm) $(readlink /proc/1/exe);" \
     "systemd: $systemd;" \
     "udev: $(pidof systemd-udevd udevd || echo none);" \
