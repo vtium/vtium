@@ -1183,7 +1183,8 @@ pub(crate) mod raster {
             ((bw_i - iw) / 2, top)
         } else {
             // the C reference's `centre_dx` rounded the advance, (adv + 32) >> 6
-            let pen = advance.map_or(0, |a| (bw_i - a.round() as i32).div_euclid(2));
+            // a negative advance counts as none, as centre_dx clamped it at 0
+            let pen = advance.map_or(0, |a| (bw_i - a.max(0.0).round() as i32).div_euclid(2));
             (pen + image.placement.left, base - image.placement.top)
         };
         let ink = if color {
@@ -1242,5 +1243,47 @@ pub(crate) mod raster {
             width,
             pixels,
         })
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::indexing_slicing, reason = "a test fails by panicking")]
+mod tests {
+    use super::raster::{Cell, place_drawn};
+    use swash::scale::Source;
+    use swash::scale::image::{Content, Image};
+    use swash::zeno::Placement;
+
+    /// A mask one pixel wide and the cell's height, at its pen.
+    fn bar(h: u32) -> Image {
+        Image {
+            source: Source::Outline,
+            content: Content::Mask,
+            placement: Placement {
+                left: 0,
+                top: 10,
+                width: 1,
+                height: h,
+            },
+            data: vec![255; h as usize],
+        }
+    }
+
+    // a negative advance, which a shaped cluster's pen sum can give, is
+    // taken as 0, as the C reference's centre_dx clamped it (review finding
+    // A9): in a 12-pixel cell the pen goes half the cell in, column 6,
+    // where an unclamped advance of -10 would put it at column 11
+    #[test]
+    fn a_negative_advance_is_taken_as_none() {
+        let cell = Cell {
+            width: 12,
+            height: 10,
+            baseline: 10,
+            ppem: 10.0,
+        };
+        let placed =
+            place_drawn(&mut |_, _| Some(bar(10)), false, Some(-10.0), &cell).expect("placed");
+        let row: Vec<usize> = (0..12).filter(|&x| placed.pixels[x] > 0).collect();
+        assert_eq!(row, [6]);
     }
 }
