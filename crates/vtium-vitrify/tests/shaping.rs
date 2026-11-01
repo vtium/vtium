@@ -401,3 +401,45 @@ fn a_letter_with_a_joiner_draws_one_cell_wide_and_stretched() {
     let row = &init.pixels[10 * 12..11 * 12];
     assert!(row[5] == 0 && row[6] > 200 && row[11] == 255, "{row:?}");
 }
+
+// A mark the shaper leaves at the pen, with no advance and no offset, as
+// HarfRust leaves an acute after a circumflex in DejaVu Sans Mono (review
+// finding B5), goes where the C reference put it (render_cluster):
+// centred over its base's ink, a row above all the ink since the base.
+// Here x's ink fills rows 8 to 15 of columns 1 to 9; the font's empty
+// GPOS leaves the circumflex and the acute, zero-width bars drawn right of
+// the pen, where HarfRust put them, which is in the next cell
+#[test]
+fn a_mark_left_at_the_pen_is_centred_over_its_base() {
+    let mut f = ttf::Font {
+        empty_gpos: true,
+        ..ttf::test_mono()
+    };
+    f.glyphs.push(ttf::Glyph::rect(600, 100, 0, 500, 400));
+    f.glyphs.push(ttf::Glyph::rect(0, 0, 0, 200, 50));
+    f.glyphs.push(ttf::Glyph::rect(0, 50, 0, 150, 100));
+    f.cmap.extend([(0x78, 8), (0x302, 9), (0x301, 10)]);
+    f.cmap.sort_unstable();
+    let key = ['x', '\u{302}', '\u{301}'];
+    let o = rasterise(&OutlineRequest {
+        font: f.build().into(),
+        family: "Test Mono".to_owned(),
+        cells: vec![(0, 20)],
+        cover: Vec::new(),
+        clusters: vec![ask(&key, Kind::Marks)],
+        baselines: Vec::new(),
+    })
+    .expect("rasterised");
+    let g = cluster(&o, &key).expect("x and its marks");
+    assert!(!g.wide && g.ink.is_none(), "nothing past the cell");
+    let cols = |y: usize| -> Vec<usize> { (0..12).filter(|&x| g.pixels[y * 12 + x] > 0).collect() };
+    let rows: Vec<usize> = (0..8).filter(|&y| !cols(y).is_empty()).collect();
+    assert!(rows.len() >= 2, "both marks above x: {rows:?}");
+    assert!(cols(7).is_empty(), "a row clear between x and its marks");
+    for &y in &rows {
+        let c = cols(y);
+        let (first, last) = (c[0], c[c.len() - 1]);
+        assert!(first >= 1 && last <= 9, "row {y} over x's ink: {c:?}");
+        assert!((first + last).abs_diff(10) <= 1, "row {y} centred: {c:?}");
+    }
+}

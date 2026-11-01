@@ -58,6 +58,10 @@ pub struct Font {
     /// An `OS/2` table, version 2: its strikeout's size and position, the
     /// stroke's top above the baseline, and its x-height.
     pub os2: Option<(i16, i16, i16)>,
+    /// An empty `GPOS` table: no script, feature or lookup. HarfRust then
+    /// positions no mark itself, as in a font whose `GPOS` has no anchor
+    /// for a mark, and leaves each at the pen.
+    pub empty_gpos: bool,
 }
 
 /// A GSUB lookup.
@@ -428,6 +432,16 @@ impl Font {
         name.extend(data);
         tables.push((*b"name", name));
 
+        if self.empty_gpos {
+            let mut gpos = Vec::new();
+            p16(&mut gpos, 1);
+            p16(&mut gpos, 0);
+            for offset in [10u16, 12, 14] {
+                p16(&mut gpos, offset);
+            }
+            gpos.extend([0u8; 6]); // empty script, feature and lookup lists
+            tables.push((*b"GPOS", gpos));
+        }
         if let Some((position, thickness)) = self.underline {
             let mut post = Vec::new();
             p32(&mut post, 0x0003_0000);
@@ -618,6 +632,7 @@ pub fn test_mono() -> Font {
         gsub: Vec::new(),
         underline: None,
         os2: None,
+        empty_gpos: false,
     }
 }
 
@@ -660,6 +675,7 @@ pub fn test_emoji() -> Font {
         gsub: Vec::new(),
         underline: None,
         os2: None,
+        empty_gpos: false,
     }
 }
 

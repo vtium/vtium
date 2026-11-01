@@ -20,13 +20,15 @@ use crate::outline::raster::{Cell, Drawer, FOREGROUND, div255, pixel, place_draw
 /// One glyph of a shaped cluster: its glyph, its position from the
 /// cluster's origin in font units, whether its character is a mark and on
 /// which side of its base the mark's combining class puts it
-/// ([`super::mark_side`]: 1 above, 2 below, else 0).
+/// ([`super::mark_side`]: 1 above, 2 below, else 0), and whether the shaper
+/// placed it, with an advance or an offset.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct At {
     g: u16,
     x: i32,
     y: i32,
     mark: Option<u8>,
+    placed: bool,
 }
 
 /// A cluster as the font shapes it: each glyph and the cluster's advance,
@@ -82,6 +84,7 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
                 x: pen.saturating_add(pos.x_offset),
                 y: pos.y_offset,
                 mark,
+                placed: pos.x_advance != 0 || pos.x_offset != 0 || pos.y_offset != 0,
             });
             pen = pen.saturating_add(pos.x_advance);
         }
@@ -203,7 +206,15 @@ fn compose(
 ) -> Option<Image> {
     let mut parts = Vec::new();
     let mut marks = Vec::new();
-    for &At { g, x, y, mark, .. } in glyphs {
+    let mut unplaced = Vec::new();
+    for &At {
+        g,
+        x,
+        y,
+        mark,
+        placed,
+    } in glyphs
+    {
         let image = drawer.draw_stretched(g, ppem, fit, sx)?;
         let (dx, dy) = (
             (x as f32 * scale * sx).round() as i32,
@@ -211,6 +222,7 @@ fn compose(
         );
         parts.push((image, dx, dy));
         marks.push(mark.is_some());
+        unplaced.push(mark.filter(|&side| !placed && side != 0));
     }
     if let [(image, 0, 0)] = parts.as_slice() {
         return Some(image.clone());
@@ -218,6 +230,7 @@ fn compose(
     if let Some(row) = row
         && parts.iter().all(|(i, ..)| i.content != Content::Color)
     {
+        place_unplaced(&mut parts, &marks, &unplaced);
         fit_marks(&mut parts, &marks, row);
     }
     let color = parts.iter().any(|(i, _, _)| i.content == Content::Color);
@@ -288,6 +301,44 @@ fn compose(
 fn span((image, _, dy): &(Image, i32, i32)) -> (i32, i32) {
     let top = dy + image.placement.top;
     (top, top - image.placement.height as i32)
+}
+
+/// Places each mark above or below its base that the shaper left at the
+/// pen, with no advance and no offset, as the C reference did after
+/// HarfBuzz's fallback mark positioning (`render_cluster`): centred over
+/// the ink of the base before it, a row above all the ink since that base
+/// for a mark above, `unplaced` 1, or directly under it for one below, 2.
+/// Without it such a mark, a zero-width glyph drawn at the pen, would land
+/// past its base, in the next cell.
+fn place_unplaced(parts: &mut [(Image, i32, i32)], marks: &[bool], unplaced: &[Option<u8>]) {
+    // the base's ink columns, and the ink's top and bottom edges since it
+    let mut base: Option<(i32, i32)> = None;
+    let (mut top, mut bottom) = (0, 0);
+    for i in 0..parts.len() {
+        let Some(part) = parts.get_mut(i) else {
+            continue;
+        };
+        let (w, h) = (
+            part.0.placement.width as i32,
+            part.0.placement.height as i32,
+        );
+        if let (Some(Some(side)), Some((x0, x1))) = (unplaced.get(i), base) {
+            part.1 = (x0 + x1 - w).div_euclid(2) - part.0.placement.left;
+            let new_top = if *side == 1 { top + 1 + h } else { bottom };
+            part.2 = new_top - part.0.placement.top;
+        }
+        if w == 0 || h == 0 {
+            continue;
+        }
+        let (t, b) = span(part);
+        let left = part.1 + part.0.placement.left;
+        if marks.get(i) == Some(&false) {
+            base = Some((left, left + w));
+            (top, bottom) = (t, b);
+        } else {
+            (top, bottom) = (top.max(t), bottom.min(b));
+        }
+    }
 }
 
 /// The mark rule (ADR-1302 D3, the maintainer's decisions of 2026-11-01):
