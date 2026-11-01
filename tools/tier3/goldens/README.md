@@ -62,3 +62,13 @@ vtium draws only vitrified sets, so the small displays draw sets the guest build
 - `2d-640x480-psf16/strike`: 292 px; rows 7: cols 20-23,29-34
 - `2d-640x480-psf16/underline-styles`: 305 px; rows 14: cols 16-19,25-30
 - `2d-640x480-psf16/wide-margin`: 295 px; rows 2: cols 79-80; 4: cols 1-2; 6: cols 1-2; 7: cols 79-80; 10: cols 1-2
+
+The goldens of the head-file variants (`../README.md`, Head files) are vtium's captures from `make tier3` with those variants at a717d83: 640x480, the console's first screen of each head file and the `cjk` screen of the two that give a login, in the 8x16 test font with unifont after it. They stay in `../provisional.tsv` until the operator reviews them. Each first screen was the same, pixel for pixel, on three runs.
+
+| Golden | What it shows |
+|---|---|
+| `heads-two-heads/cjk.png` | The `cjk` screen on the head desk, the first output; the second output is the head panel, with its own login prompt. Pixel for pixel `2d-640x480-psf16/cjk.png`. `vt-restore` is compared with it. |
+| `heads-partly-open/partly-notice.png` | A red-bordered notice over the top two rows on a black screen: `config partly invalid, running what's valid`, then `Run vtium check-config /etc/vtium/heads.conf to see why.` The notice covers the row of the login prompt. |
+| `heads-partly-open/cjk.png` | The `cjk` screen, typed into the surviving head after the notice. Pixel for pixel `2d-640x480-psf16/cjk.png`. `vt-restore` is compared with it. |
+| `heads-closed-broken/panic.png` | The panic screen in a red-bordered box over the top twelve rows: `vtium: config invalid, policy closed: input off`; that the errors in `/etc/vtium/heads.conf`, listed below, leave no head that can run; the errors of lines 4, 5 and 7, each wrapped at 80 columns; `More errors: 1`; and that nothing on this console takes input, with the `vtium check-config` command for the full report. The rest of the screen is black, with no login prompt. |
+| `heads-closed-unmatched/no-display-notice.png` | A red-bordered notice over the top two rows on a black screen: `vtium: no display for any head`, then `Connect a display that a rule in /etc/vtium/heads.conf sends to a head.` |
