@@ -182,11 +182,29 @@ pub fn quote(text: &str) -> String {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Notice {
     text: String,
+    /// A report, whose last paragraph is kept on a display too small for
+    /// all of it ([`Notice::report`]).
+    report: bool,
 }
 
 impl Notice {
     pub fn new(text: impl Into<String>) -> Notice {
-        Notice { text: text.into() }
+        Notice {
+            text: text.into(),
+            report: false,
+        }
+    }
+
+    /// A notice whose last paragraph says what to do next, such as the
+    /// panic screen's report (ADR-1401 D7). On a display too small for all
+    /// of it, the paragraphs before the last go, the later ones first, so
+    /// the first and the last still show; only when those two do not fit
+    /// is the rest cut, as any notice's is.
+    pub fn report(text: impl Into<String>) -> Notice {
+        Notice {
+            text: text.into(),
+            report: true,
+        }
     }
 
     pub fn text(&self) -> &str {
@@ -245,7 +263,12 @@ impl Notice {
             }
         };
         let glyphs = Glyphs::new(font, display.depth, &self.text);
-        let lines = wrap(&self.text, room, cols_at, |c| glyphs.width(c));
+        let width = |c| glyphs.width(c);
+        let lines = if self.report {
+            fitted(&self.text, room, cols_at, width)
+        } else {
+            wrap(&self.text, room, cols_at, width)
+        };
         let shown = u32::try_from(lines.len().max(1)).unwrap_or(1);
         let colors = colors.at(display.depth);
         let mut picture = Picture::new(
@@ -447,6 +470,40 @@ fn wrap(
         }
     }
     out
+}
+
+/// A report's lines on a display of `room` lines (ADR-1401 D7): every
+/// paragraph while they fit, else the first and the last with as many of
+/// those between as fit, in order, the later ones going first; only when
+/// the first and the last do not fit is the rest cut, as [`wrap`] cuts.
+fn fitted(
+    text: &str,
+    room: usize,
+    cols: impl Fn(usize) -> u32,
+    width: impl Fn(char) -> Width,
+) -> Vec<Vec<(char, Width)>> {
+    let paragraphs: Vec<&str> = text.split('\n').collect();
+    // a report of one paragraph or two has nothing between to drop
+    let (Some(first), Some(between), Some(last)) = (
+        paragraphs.first(),
+        paragraphs.get(1..paragraphs.len().saturating_sub(1)),
+        paragraphs.last().filter(|_| paragraphs.len() > 1),
+    ) else {
+        return wrap(text, room, cols, width);
+    };
+    // one line past the room shows whether a choice fits
+    let over = room.saturating_add(1);
+    let kept = (0..=between.len())
+        .rev()
+        .map(|n| {
+            let mut shown = vec![*first];
+            shown.extend(between.iter().take(n));
+            shown.push(last);
+            shown.join("\n")
+        })
+        .find(|shown| wrap(shown, over, &cols, &width).len() <= room)
+        .unwrap_or_else(|| format!("{first}\n{last}"));
+    wrap(&kept, room, cols, width)
 }
 
 /// The view's pixels of what the console draws, row by row.
@@ -812,6 +869,58 @@ mod tests {
         );
         assert_eq!(none, None);
         assert!(small.pixels().iter().all(|&p| p == 7));
+    }
+
+    // ADR-1401 D7: a report too tall for its display drops the paragraphs
+    // between its first and its last, the later ones first, so its next
+    // step still shows
+    #[test]
+    fn a_report_too_tall_for_its_display_keeps_its_first_and_last_paragraphs() {
+        let report = "happened\nerror one\nerror two\nerror three\nnext step";
+        let font = font("unscii-8", 8);
+        // 3 lines of 8 between the edges and the quarter-cell insets
+        let (w, h) = (320, 6 + 3 * 8);
+        let drawn = |notice: Notice| {
+            let mut canvas = Canvas::new(w, h, 0);
+            notice
+                .draw(&font, display(w, h), Colors::NOTICE, None, &mut canvas)
+                .expect("it fits");
+            canvas
+        };
+        assert_eq!(
+            drawn(Notice::report(report)),
+            drawn(Notice::new("happened\nerror one\nnext step"))
+        );
+        assert_eq!(
+            drawn(Notice::new(report)),
+            drawn(Notice::new("happened\nerror one\nerror two")),
+            "any other notice is cut"
+        );
+        // with room for every paragraph, nothing goes
+        let (w, h) = (320, 240);
+        let mut whole = Canvas::new(w, h, 0);
+        let mut plain = Canvas::new(w, h, 0);
+        Notice::report(report).draw(&font, display(w, h), Colors::NOTICE, None, &mut whole);
+        Notice::new(report).draw(&font, display(w, h), Colors::NOTICE, None, &mut plain);
+        assert_eq!(whole, plain);
+        // a last paragraph that wraps keeps every line of its own
+        let lines = |shown: &str, room| text(&fitted(shown, room, |_| 38, narrow));
+        assert_eq!(
+            lines(
+                &format!("happened\nerror one\n{}", ["word"; 10].join(" ")),
+                3
+            ),
+            [
+                "happened",
+                "word word word word word word word",
+                "word word word"
+            ]
+        );
+        // with room for less than the first and the last, the rest is cut
+        assert_eq!(lines(report, 1), ["happened"]);
+        // a report of one paragraph or two shows each once
+        assert_eq!(lines("happened", 3), ["happened"]);
+        assert_eq!(lines("happened\nnext step", 3), ["happened", "next step"]);
     }
 
     // the notice and the mark turn with the display, as the grid does
