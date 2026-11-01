@@ -356,16 +356,21 @@ vtium's performance targets are its own, set and measured on vtium (the maintain
 - **Tier 1:** the corpus's image cases pass through vtium-replay built with `images`, through the conformance runner, apart from the draw-order cases D4 names, and the capability probes that need `images` pass in that build and fail without it.
 - **Coverage:** each test that drives an `image.*` row of ADR-1000 through vtium-image carries its `covers:` tag.
 
-### Passages this record changes once accepted
+### Passages this record changes
 
-These passages say something this record decides otherwise. Each changes in its owner's change after ADR-1100 is accepted; this record edits none of them.
+These passages said something this record decides otherwise. Each changes in its owner's change, and this record edits none of them. The first three changed on 2026-11-01, after the maintainer accepted this record:
 
-- **`docs/architecture.md`, the crate tree (lines 5-13),** draws vtium-image under the binary alone. Under D1 and D10, vtium-term takes it as an optional dependency, and vtium-render reaches its types through vtium-term's frame.
-- **`docs/architecture.md`, "Eviction follows the bytes",** names "a transmission or a placement" as the events that advance the use clock. D5 adds a command that names an existing image, as the maintainer's determinism comment does.
-- **ADR-1001, "The frame",** says vtium-image "marks its boxes through `Damage`". Under D1 vtium-term marks the boxes the store reports changed, so vtium-image never depends on vtium-term.
+- **`docs/architecture.md`, the crate tree,** drew vtium-image under the binary alone. It now draws vtium-image under vtium-term, which takes it as an optional dependency (D1, D10), and says that vtium-render reaches its types through vtium-term's frame.
+- **`docs/architecture.md`, "Eviction follows the bytes",** named "a transmission or a placement" as the events that advance the use clock. It now names the command that names an existing image too (D5), as the maintainer's determinism comment does.
+- **ADR-1001, "The frame",** said vtium-image "marks its boxes through `Damage`". It now says that vtium-term marks the boxes the store reports changed (D1), with a dated note.
+
+These wait for their owners:
+
 - **`docs/c-reference.md` §9** says the C reference bounded "a box of 10,000 cells"; the bound was 10,000 cells a side (`libtsm/src/tsm/tsm-image.c:1899`). Its "Check" and "Not planned" are answered by D5.
 - **`tools/conformance/README.md`** says vtium-replay is built without images. D12 gives it a build with `images` and the features that go with it.
 - **The conformance runner's departures list** gains the draw-order cases D4 names.
+
+> Edited 2026-11-01: the first three passages changed after the maintainer accepted this record. The section was headed "Passages this record changes once accepted" and said each would change "after ADR-1100 is accepted". The earlier text is in git at 1d51e46.
 
 ### For the operator's check
 
