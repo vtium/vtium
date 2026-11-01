@@ -1887,6 +1887,7 @@ isolated = no
 [rules]
 display card:mem-small -> small
 display card:mem-large -> large
+input path:kbd-small -> small
 input path:kbd-large -> large
 input path:kbd-roaming -> roaming
 ",
@@ -1936,9 +1937,12 @@ fn a_head_restarting_too_fast_ends_vtium_and_hangs_up_every_head() {
 }
 
 /// D1, D5 and D9: once a crash loop stopped a closed seat, no keyboard
-/// reaches anything: the VT key pressed on the keyboard of `large`, a head
-/// that is not isolated, and on a roaming keyboard switches no VT, and the
-/// keys typed on either reach no session.
+/// reaches anything: the VT key pressed on the keyboard of `small`, a head
+/// isolated by the closed policy, on that of `large`, which is not
+/// isolated, and on a roaming keyboard switches no VT, and the keys typed
+/// on each reach no session. Two defences hold this: the stopped seat
+/// delivers nothing, and the stopped seat's rules keep each head's
+/// isolation, which alone keeps `small`'s keyboard from the VT.
 // covers: platform.heads.policy
 #[test]
 fn after_a_closed_crash_loop_no_keyboard_switches_the_vt_or_reaches_a_session() {
@@ -1948,6 +1952,7 @@ fn after_a_closed_crash_loop_no_keyboard_switches_the_vt_or_reaches_a_session() 
     ));
     let mut s = crash_loop(&dir, "small", "closed");
     let roaming = "/dev/input/event6";
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
     s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
     s.app.add_input(Path::new(roaming), keyboard("kbd-roaming"));
     let stopped = vtium::notice::stopped();
@@ -1956,7 +1961,8 @@ fn after_a_closed_crash_loop_no_keyboard_switches_the_vt_or_reaches_a_session() 
     });
     let _ = std::fs::remove_dir_all(&dir);
     assert!(shown, "the crash loop stopped the seat");
-    for node in [KBD_LARGE, roaming] {
+    // the isolated head's keyboard first, so its check stands alone
+    for node in [KBD_SMALL, KBD_LARGE, roaming] {
         s.app.device_input(Path::new(node), vt_key(), now());
         assert!(s.app.vt.is_active(), "{node}: the VT stays");
         s.type_on(node, "typed\r");
