@@ -66,6 +66,15 @@ pub enum Value {
     DecoColor(DecoColor),
 }
 
+/// How the font helper hints outline glyphs, `font-hinting`'s value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hinting {
+    /// `light`: each glyph fits the pixel grid up and down only.
+    Light,
+    /// `full`: each glyph fits the pixel grid both ways.
+    Full,
+}
+
 /// One `mode` line: the mode, and the card and connector it is for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModeSpec {
@@ -461,6 +470,17 @@ impl Config {
     pub fn display_buffers(&self) -> Option<u8> {
         self.text(&keys::DISPLAY_BUFFERS)
             .and_then(|t| t.parse().ok())
+    }
+
+    /// `font-hinting`: how the font helper hints outline glyphs, or
+    /// `None` when no source sets it and the frit's `hinting=` decides
+    /// (ADR-1200 D1).
+    pub fn font_hinting(&self) -> Option<Hinting> {
+        match self.text(&keys::FONT_HINTING) {
+            Some("light") => Some(Hinting::Light),
+            Some("full") => Some(Hinting::Full),
+            _ => None,
+        }
     }
 
     /// Where the key's value came from.

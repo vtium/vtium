@@ -1053,6 +1053,17 @@ pub const FONT_SIZE: Key = Key {
     cite: "src/config.c:1423; vtium-font's `CELL_SIDE_MAX`; the operator on vtium/vtium#145",
 };
 
+pub const FONT_HINTING: Key = Key {
+    name: "font-hinting",
+    short: None,
+    kind: Kind::Choice(&["light", "full"]),
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-font",
+    what: "How the font helper hints outline glyphs, over a frit's `hinting=`: `light` fits each glyph to the pixel grid up and down only; `full` fits it both ways. Bitmap fonts take no hinting. Unset, the frit's `hinting=` decides, `light` where it states none.",
+    cite: "ADR-1200 D1; the C reference hinted every glyph lightly (`src/font/font_freetype.c:119`)",
+};
+
 pub const ALLOW_FONT_OPS: Key = Key {
     name: "allow-font-ops",
     short: None,
@@ -1247,7 +1258,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 93] = [
+pub const KEYS: [Key; 94] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1328,6 +1339,7 @@ pub const KEYS: [Key; 93] = [
     FONT_ENGINE,
     FONT_NAME,
     FONT_SIZE,
+    FONT_HINTING,
     ALLOW_FONT_OPS,
     GLYPH_SOURCE,
     GLYPH_SOURCE_BOX,

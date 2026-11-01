@@ -1372,3 +1372,37 @@ fn display_buffers_takes_one_two_or_three() {
     assert_eq!(l.config.display_buffers(), Some(3), "the file's value kept");
     assert_eq!(l.reports.len(), 1);
 }
+
+/// `font-hinting` takes `light` or `full` as written, any other value
+/// reported and ignored. Unset, the accessor gives none and the frit's
+/// `hinting=` decides, `light` where it says nothing (ADR-1200 D1).
+#[test]
+fn font_hinting_takes_light_or_full() {
+    assert_eq!(Config::default().font_hinting(), None);
+    for (text, h) in [("light", Hinting::Light), ("full", Hinting::Full)] {
+        let l = main_file(&format!("font-hinting={text}\n"));
+        assert_eq!(l.config.font_hinting(), Some(h), "{text}");
+        assert_eq!(l.reports, [], "{text}");
+    }
+    for bad in ["Light", "FULL", "none", "slight", "", "1"] {
+        let l = main_file(&format!("font-hinting=full\nfont-hinting={bad}\n"));
+        assert_eq!(l.config.font_hinting(), Some(Hinting::Full), "{bad:?}");
+        assert_eq!(
+            problems(&l),
+            [&Problem::NotAChoice {
+                key: "font-hinting",
+                value: bad.into()
+            }],
+            "{bad:?}"
+        );
+    }
+    for args in [&["--font-hinting=light"][..], &["--font-hinting", "light"]] {
+        let l = load_with(
+            args,
+            None,
+            &[("/etc/kmscon/kmscon.conf", b"font-hinting=full\n")],
+        );
+        assert_eq!(l.config.font_hinting(), Some(Hinting::Light), "{args:?}");
+        assert_eq!(l.reports, [], "{args:?}");
+    }
+}
