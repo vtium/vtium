@@ -14,11 +14,13 @@
 //!          sets it) and height u32, range count u32, each range's first
 //!          and last codepoint u32, cluster count u32, each cluster's kind
 //!          u8, length u8 and scalar values u32
-//! answer   magic "VTVOUTL2", family length u32, the family, format length
+//! answer   magic "VTVOUTL3", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
 //!          u32, then each strike: cell width u32, cell height u32, baseline
 //!          u32, glyph count u32, map length u32, cluster count u32, each
-//!          glyph's flags u8 (1 two cells wide, 2 RGBA) and its rows, then
+//!          glyph's flags u8 (1 two cells wide, 2 RGBA, 4 an ink box) and
+//!          its rows, cut to its cells, then for an ink box its left i32,
+//!          width u32 and R8 rows, then
 //!          the map: each (codepoint u32, glyph u32), sorted, then the
 //!          clusters: each length u8, scalar values u32 and glyph u32,
 //!          sorted
@@ -72,10 +74,13 @@ const GLYPHS_MAX: usize = 65536;
 pub const CLUSTERS_MAX: usize = 1 << 14;
 
 pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT2\0";
-const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL2";
+const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL3";
 
 const GLYPH_WIDE: u8 = 1;
 const GLYPH_COLOR: u8 = 2;
+/// The glyph's ink box follows its pixels: its left i32, its width u32
+/// and its R8 pixels.
+const GLYPH_INK: u8 = 4;
 
 /// What the parser is given to rasterise an outline font.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -97,12 +102,40 @@ pub struct OutlineRequest {
 }
 
 /// One glyph placed in its cells: R8 coverage or premultiplied RGBA, row
-/// by row.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// by row, cut to its cells, and the ink box of an R8 glyph whose ink
+/// passes them.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Placed {
     pub wide: bool,
     pub color: bool,
     pub pixels: Vec<u8>,
+    pub ink: Option<InkBox>,
+}
+
+/// The columns an R8 glyph's ink covers past its cells (ADR-1302 D1,
+/// D6): `width` columns from `left`, the offset of the box's first column
+/// from the left edge of the glyph's first cell, 0 or negative, over the
+/// cell's height, R8. The box spans the glyph's cells and its ink, cut to
+/// its reach, one cell past its cells on each side.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct InkBox {
+    pub left: i32,
+    pub width: u32,
+    pub pixels: Vec<u8>,
+}
+
+/// Whether a box `width` columns from `left` spans a glyph `span` pixels
+/// wide in cells `cell` pixels wide, passes it on one side at least, and
+/// reaches no further than one cell past it on either side: the rule
+/// vtium-font's reader holds a set's boxes to.
+pub fn in_reach(left: i32, width: u32, cell: u32, span: u32) -> bool {
+    let (left, cell, span) = (i64::from(left), i64::from(cell), i64::from(span));
+    let right = left.saturating_add(i64::from(width));
+    left <= 0
+        && left.saturating_add(cell) >= 0
+        && right >= span
+        && right <= span.saturating_add(cell)
+        && (left, right) != (0, span)
 }
 
 /// An outline font's glyphs at one cell.
@@ -318,10 +351,16 @@ impl Outline {
                 put32(&mut out, v);
             }
             for g in &s.glyphs {
-                let flags =
-                    if g.wide { GLYPH_WIDE } else { 0 } | if g.color { GLYPH_COLOR } else { 0 };
+                let flags = if g.wide { GLYPH_WIDE } else { 0 }
+                    | if g.color { GLYPH_COLOR } else { 0 }
+                    | if g.ink.is_some() { GLYPH_INK } else { 0 };
                 out.push(flags);
                 out.extend_from_slice(&g.pixels);
+                if let Some(ink) = &g.ink {
+                    out.extend_from_slice(&ink.left.to_le_bytes());
+                    put32(&mut out, ink.width);
+                    out.extend_from_slice(&ink.pixels);
+                }
             }
             for &(c, g) in &s.map {
                 put32(&mut out, c);
@@ -383,7 +422,7 @@ impl Outline {
             let mut glyphs = Vec::new();
             for _ in 0..glyph_count {
                 let flags = r.u8()?;
-                if flags & !(GLYPH_WIDE | GLYPH_COLOR) != 0 {
+                if flags & !(GLYPH_WIDE | GLYPH_COLOR | GLYPH_INK) != 0 {
                     return Err("an unknown glyph flag");
                 }
                 let (wide, color) = (flags & GLYPH_WIDE != 0, flags & GLYPH_COLOR != 0);
@@ -400,10 +439,34 @@ impl Outline {
                 {
                     return Err("an RGBA glyph that is not premultiplied");
                 }
+                let ink = if flags & GLYPH_INK == 0 {
+                    None
+                } else {
+                    if color {
+                        return Err("an ink box on a color glyph");
+                    }
+                    let left = i32::from_le_bytes(r.take(4)?.try_into().map_err(|_| "cut short")?);
+                    let box_width = r.u32()?;
+                    let span = if wide { width.saturating_mul(2) } else { width };
+                    if !in_reach(left, box_width, width, span) {
+                        return Err("an ink box past its glyph's reach, or not past its cells");
+                    }
+                    let n = Placed::bytes(false, false, box_width, height)
+                        .ok_or("an ink box past usize")?;
+                    if n > usize::try_from(SET_CHUNK_BYTES).unwrap_or(0) {
+                        return Err("an ink box larger than a set's chunk");
+                    }
+                    Some(InkBox {
+                        left,
+                        width: box_width,
+                        pixels: r.take(n)?.to_vec(),
+                    })
+                };
                 glyphs.push(Placed {
                     wide,
                     color,
                     pixels,
+                    ink,
                 });
             }
             if map_len > r.0.len() / 8 {
@@ -481,7 +544,7 @@ pub use raster::{cell_width, rasterise};
 /// the child, which fails the source and nothing else (ADR-1200 D14).
 pub(crate) mod raster {
     use super::{
-        LICENSE_MAX, Outline, OutlineRequest, Placed, SET_CHUNK_BYTES, Strike, family_key,
+        InkBox, LICENSE_MAX, Outline, OutlineRequest, Placed, SET_CHUNK_BYTES, Strike, family_key,
     };
     use swash::scale::image::{Content, Image};
     use swash::scale::{Render, ScaleContext, Source, StrikeWith};
@@ -919,10 +982,61 @@ pub(crate) mod raster {
             }
             (left, base - image.placement.top)
         };
+        let ink = if color {
+            None
+        } else {
+            ink_box(&image, cell.width, bw, h, left, top)
+        };
         Some(Placed {
             wide,
             color,
             pixels: copy(&image, color, bw, h, left, top),
+            ink,
+        })
+    }
+
+    /// The ink box of a mask placed at `left`, `top` of a glyph `bw`
+    /// pixels wide in cells `cell` pixels wide and `h` high (ADR-1302 D1,
+    /// D6): its ink copied into its reach, one cell past its cells on each
+    /// side, and cut to the columns that span its cells and its ink;
+    /// `None` when its ink lies inside its cells, or when the box would
+    /// pass a set's chunk, where the glyph is cut to its cells.
+    fn ink_box(image: &Image, cell: u32, bw: u32, h: u32, left: i32, top: i32) -> Option<InkBox> {
+        let reach = bw.checked_add(cell.checked_mul(2)?)?;
+        let all = copy(
+            image,
+            false,
+            reach,
+            h,
+            left.checked_add(i32::try_from(cell).ok()?)?,
+            top,
+        );
+        let inked =
+            |x: u32| (0..h).any(|y| all.get((y * reach + x) as usize).is_some_and(|&p| p != 0));
+        let first = (0..reach).find(|&x| inked(x))?;
+        let last = (0..reach).rev().find(|&x| inked(x))?;
+        let from = first.min(cell);
+        let to = (last + 1).max(cell + bw);
+        if from == cell && to == cell + bw {
+            return None;
+        }
+        let width = to - from;
+        if u64::from(width) * u64::from(h) > u64::from(SET_CHUNK_BYTES) {
+            return None;
+        }
+        let pixels = (0..h)
+            .flat_map(|y| {
+                let row = (y * reach) as usize;
+                all.get(row + from as usize..row + to as usize)
+                    .unwrap_or_default()
+                    .iter()
+                    .copied()
+            })
+            .collect();
+        Some(InkBox {
+            left: i32::try_from(from).ok()? - i32::try_from(cell).ok()?,
+            width,
+            pixels,
         })
     }
 }

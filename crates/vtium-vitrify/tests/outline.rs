@@ -200,6 +200,124 @@ fn a_color_glyph_is_premultiplied_rgba_two_cells_wide() {
     assert_eq!(px(0, 0), [0; 4], "outside both");
 }
 
+/// Test Mono with `L` (U+004C), a bar from 150 units left of its pen to
+/// 450 right of it, advancing 600, whose ink passes its cell's left edge,
+/// and `R` (U+0052), a bar from 0 to `right` units.
+fn overhanging(right: i16) -> OutlineRequest {
+    let mut font = ttf::test_mono();
+    font.glyphs.push(ttf::Glyph::rect(600, -150, 0, 450, 700));
+    font.glyphs.push(ttf::Glyph::rect(600, 0, 0, right, 700));
+    font.cmap.push((0x4c, 8));
+    font.cmap.push((0x52, 9));
+    font.cmap.sort_unstable();
+    OutlineRequest {
+        font: font.build().into(),
+        ..request(&[(0, 20)], &[])
+    }
+}
+
+// ADR-1302 D1, D6: ink past a glyph's cell is kept in its ink box, up to
+// one cell past it, and the glyph's own pixels stay cut to its cell. At
+// 19.5 pixels to the em, L spans -2.9 to 8.8 pixels: its box starts 3
+// columns left of its 12-pixel cell and ends at the cell's right edge
+// covers: text.overhang
+#[test]
+fn ink_past_a_cell_is_kept_in_the_glyphs_ink_box() {
+    let o = rasterise(&overhanging(600)).expect("rasterised");
+    let l = glyph(&o, 0, 0x4c);
+    assert_eq!(l.pixels.len(), 12 * 20);
+    let ink = l.ink.as_ref().expect("L's box");
+    assert_eq!((ink.left, ink.width), (-3, 15));
+    let at = |y: usize, x: usize| ink.pixels[y * 15 + x];
+    // the box's columns 3 to 14 are the cell's own pixels
+    for y in 0..20 {
+        assert_eq!(
+            &ink.pixels[y * 15 + 3..y * 15 + 15],
+            &l.pixels[y * 12..y * 12 + 12]
+        );
+    }
+    assert_eq!(at(10, 1), 255, "ink two columns left of the cell");
+    assert!(
+        at(10, 0) > 0 && at(10, 0) < 255,
+        "the bar's edge, 0.9 of a pixel in"
+    );
+    // A, W and the space keep their ink in their cells
+    for c in [0x41, 0x57, 0x20] {
+        assert!(glyph(&o, 0, c).ink.is_none(), "{c:#x}");
+    }
+}
+
+// ink past one cell beyond the glyph's is cut at the reach: R, a bar 2000
+// units wide, 39 pixels, is moved left by half of what passes its cell,
+// 13 pixels, and passes it by more than a cell on each side
+#[test]
+fn ink_past_the_reach_is_cut() {
+    let o = rasterise(&overhanging(2000)).expect("rasterised");
+    let r = glyph(&o, 0, 0x52);
+    let ink = r.ink.as_ref().expect("R's box");
+    assert_eq!((ink.left, ink.width), (-12, 36), "a cell each side");
+    assert!(vtium_vitrify::outline::in_reach(
+        ink.left, ink.width, 12, 12
+    ));
+}
+
+// ADR-1302 D6: a glyph whose box would pass the 16 KiB chunk keeps its
+// pixels cut to its cell and carries no box. At 128 pixels high, a 77-pixel
+// cell, R's box would be the whole reach, 231 by 128 pixels, where L's,
+// from 19.1 pixels left of its cell, 97 by 128, fits
+#[test]
+fn a_box_past_the_chunk_bound_leaves_the_glyph_cut_to_its_cell() {
+    let o = rasterise(&OutlineRequest {
+        cells: vec![(0, 128)],
+        ..overhanging(2000)
+    })
+    .expect("rasterised");
+    let s = &o.strikes[0];
+    assert_eq!(s.width, 77);
+    let r = glyph(&o, 0, 0x52);
+    assert!(r.ink.is_none());
+    assert_eq!(r.pixels.len(), 77 * 128);
+    let l = glyph(&o, 0, 0x4c);
+    assert_eq!(l.ink.as_ref().map(|i| (i.left, i.width)), Some((-20, 97)));
+}
+
+// the parent checks each ink box in the child's answer: R8 only, inside
+// the glyph's reach and past its cells, and no larger than a chunk
+#[test]
+fn an_answer_with_a_box_past_the_reach_is_refused() {
+    let req = overhanging(600);
+    let o = rasterise(&req).expect("rasterised");
+    assert_eq!(Outline::decode(&o.encode(), &req), Ok(o.clone()));
+    let l = o.strikes[0].map.iter().find(|m| m.0 == 0x4c).expect("L").1 as usize;
+    let mut bad = o.clone();
+    let ink = bad.strikes[0].glyphs[l].ink.as_mut().expect("a box");
+    ink.left = -13;
+    ink.width = 25;
+    ink.pixels = vec![0; 25 * 20];
+    assert!(
+        Outline::decode(&bad.encode(), &req).is_err(),
+        "a box past the reach"
+    );
+    let mut inside = o.clone();
+    let ink = inside.strikes[0].glyphs[l].ink.as_mut().expect("a box");
+    (ink.left, ink.width, ink.pixels) = (0, 12, vec![0; 12 * 20]);
+    assert!(
+        Outline::decode(&inside.encode(), &req).is_err(),
+        "a box of the cell alone"
+    );
+    let mut short = o.clone();
+    short.strikes[0].glyphs[l]
+        .ink
+        .as_mut()
+        .expect("a box")
+        .pixels
+        .pop();
+    assert!(
+        Outline::decode(&short.encode(), &req).is_err(),
+        "a box cut short"
+    );
+}
+
 #[test]
 fn a_later_source_draws_at_the_cell_it_is_given_and_only_what_it_covers() {
     let o =

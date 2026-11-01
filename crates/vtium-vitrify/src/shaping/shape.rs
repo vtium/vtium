@@ -93,7 +93,7 @@ pub(crate) fn draw_all(
 ) -> Result<Vec<(Vec<u32>, u32)>, String> {
     let upem = f32::from(drawer.font.metrics(&[]).units_per_em);
     let scale = cell.ppem / upem.max(1.0);
-    let mut seen: BTreeMap<(bool, bool, Vec<u8>), u32> = BTreeMap::new();
+    let mut seen: BTreeMap<Placed, u32> = BTreeMap::new();
     let mut out = Vec::new();
     for s in shaped {
         let wide = match s.kind {
@@ -110,7 +110,7 @@ pub(crate) fn draw_all(
         .filter(|p| p.pixels.len() <= vtium_font::SET_CHUNK_BYTES as usize) else {
             continue;
         };
-        let key = (placed.wide, placed.color, placed.pixels.clone());
+        let key = placed.clone();
         let g = match seen.get(&key) {
             Some(&g) => g,
             None => {

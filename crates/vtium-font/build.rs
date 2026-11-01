@@ -148,6 +148,7 @@ fn pack(b: &Builtin) -> Vec<u8> {
         glyphs,
         map,
         clusters: Vec::new(),
+        inks: Vec::new(),
     };
     let meta = [
         ("name", b.name.to_owned()),

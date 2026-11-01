@@ -902,7 +902,11 @@ impl Engine {
                             } else {
                                 Width::Narrow
                             };
-                            target.glyph(width, glyph.pixels.clone())
+                            let at = target.glyph(width, glyph.pixels.clone());
+                            if let Some(ink) = &glyph.ink {
+                                target.ink(at, ink.left, ink.width, ink.pixels.clone());
+                            }
+                            at
                         })
                     };
                     for &(c, g) in &s.map {
@@ -1923,6 +1927,36 @@ mod tests {
             why.contains("failed as it drew") && why.contains("no source left"),
             "{why}"
         );
+    }
+
+    // ADR-1302 D6: the helper sends a glyph's ink box in the set beside its
+    // pixels cut to its cell, and the console's reader gives it back. Test
+    // Mono's L here spans -2.9 to 8.8 pixels of a 12-pixel cell
+    // covers: text.overhang
+    #[test]
+    fn an_asks_glyph_carries_its_ink_box() {
+        let mut font = super::ttf::test_mono();
+        font.glyphs
+            .push(super::ttf::Glyph::rect(600, -150, 0, 450, 700));
+        font.cmap.push((0x4c, 8));
+        font.cmap.sort_unstable();
+        let (frit, dir) = outline_frit("ink", "", &[Ok(font)]);
+        let cell = Cell {
+            width: 12,
+            height: 20,
+        };
+        let frames = run(&[ServeRequest {
+            cell,
+            ..request(ASK, frit, &['L', 'A'])
+        }]);
+        let _ = std::fs::remove_dir_all(dir);
+        assert_eq!(frames[0].0, FRAME_GLYPHS);
+        let set = Arc::new(Set::from_bytes(frames[0].1.clone()).unwrap());
+        let face = SetFace::new(set, 20).unwrap();
+        let l = face.draw(&['L'], Style::default()).unwrap();
+        let ink = l.ink().unwrap();
+        assert_eq!((ink.left(), ink.width()), (-3, 15));
+        assert!(face.draw(&['A'], Style::default()).unwrap().ink().is_none());
     }
 
     // ADR-1200 D17: a frit that states its cell is drawn at it, the W
