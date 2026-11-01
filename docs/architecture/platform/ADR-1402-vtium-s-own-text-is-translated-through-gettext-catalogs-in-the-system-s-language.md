@@ -38,6 +38,10 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "Yes to 'More errors: 3' as the form for counts, and to the machine's language for the whole boot. check-config's output is translated; the VT scripts stay English. The CJK line-start gap is noted for when a CJK translation exists."
+    via: the maintainer's interview in the steering session, 2026-11-01
 observable:
   - "With LANG=de_DE.UTF-8 in /etc/locale.conf and a German vtium.mo installed, the anti-lockout notice shows in German on a head with 16-pixel cells, and its log line in the journal is in English"
   - "With LC_ALL=C, with no locale set, or with no vtium.mo for the language, every notice shows in English"
