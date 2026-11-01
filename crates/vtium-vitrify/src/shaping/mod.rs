@@ -86,6 +86,17 @@ pub fn kind(key: &[u32]) -> Kind {
     }
 }
 
+/// Whether `c` joins to its neighbours: Joining_Type D, R, L or C in any
+/// script (ADR-1302 D2), the characters whose outline glyphs are stretched
+/// to their cells. U+200D, which is join-causing, draws nothing.
+pub fn joins(c: u32) -> bool {
+    let after = data::JOINS.partition_point(|&(a, _)| a <= c);
+    after
+        .checked_sub(1)
+        .and_then(|i| data::JOINS.get(i))
+        .is_some_and(|&(_, b)| c <= b)
+}
+
 /// `key` as the engine asks a source for it.
 pub fn ask(key: &[u32]) -> Ask {
     Ask {
@@ -98,6 +109,30 @@ pub fn ask(key: &[u32]) -> Ask {
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
+
+    // ADR-1302 D2 names every joining script: Arabic and its tatweel,
+    // Syriac, N'Ko, Mongolian, Mandaic, Adlam and the rest, of Joining_Type
+    // D, R, L or C; a letter that does not join and a mark do not
+    #[test]
+    fn the_letters_of_every_joining_script_join() {
+        for (c, what) in [
+            (0x628, "Arabic beh, dual-joining"),
+            (0x627, "Arabic alef, right-joining"),
+            (0x640, "the tatweel, join-causing"),
+            (0x710, "Syriac alaph"),
+            (0x7ca, "N'Ko a"),
+            (0x1820, "Mongolian a"),
+            (0x841, "Mandaic ab"),
+            (0x1e900, "Adlam capital alif"),
+            (0xa840, "Phags-pa ka"),
+            (0xa872, "Phags-pa superfixed ra, left-joining"),
+        ] {
+            assert!(joins(c), "{what}");
+        }
+        for c in [0x41, 0x5d0, 0x64e, 0x300] {
+            assert!(!joins(c), "{c:#x}");
+        }
+    }
 
     // PROVENANCE names the HarfRust the manifest pins and the Unicode the
     // tables were generated from

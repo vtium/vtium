@@ -170,17 +170,20 @@ fn run(ucd: &Path) -> Result<(), String> {
     emoji.sort();
     emoji.dedup();
     let scripts = scripts(&read("Scripts.txt")?)?;
-    let joining = joining(&read("ArabicShaping.txt")?, &scripts)?;
+    let shaping = read("ArabicShaping.txt")?;
+    let joining = joining(&shaping, &scripts)?;
+    let joins = joins(&shaping)?;
     let decomposed = decomposed(&read("UnicodeData.txt")?)?;
     let on_demand = on_demand(&scripts);
     let path = root.join("src/shaping/data.rs");
-    let text = data_rs(&emoji, &joining, &decomposed, &on_demand);
+    let text = data_rs(&emoji, &joining, &joins, &decomposed, &on_demand);
     std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
     println!(
         "src/shaping/data.rs: Unicode {VERSION}, {} emoji sequences, {} joining letters, \
-         {} decomposed keys, {} scripts shaped on demand",
+         {} ranges of characters that join, {} decomposed keys, {} scripts shaped on demand",
         emoji.len(),
         joining.len(),
+        joins.len(),
         decomposed.len(),
         on_demand.len()
     );
@@ -289,6 +292,33 @@ fn joining(text: &str, scripts: &BTreeMap<u32, String>) -> Result<Vec<(u32, char
     Ok(out)
 }
 
+/// The characters that join to their neighbours in every script
+/// ArabicShaping.txt lists, as ranges: those of Joining_Type D (dual), R
+/// (right), L (left) or C (join-causing, as the tatweel), the letters
+/// ADR-1302 D2 stretches to their cells. Characters it does not list are
+/// non-joining or transparent.
+fn joins(text: &str) -> Result<Vec<(u32, u32)>, String> {
+    let mut cps = Vec::new();
+    for f in fields(text) {
+        let (Some(cp), Some(kind)) = (f.first(), f.get(2)) else {
+            return Err(format!("a line of fewer than three fields: {f:?}"));
+        };
+        if matches!(*kind, "D" | "R" | "L" | "C") {
+            cps.push(codepoint(cp)?);
+        }
+    }
+    cps.sort_unstable();
+    cps.dedup();
+    let mut out: Vec<(u32, u32)> = Vec::new();
+    for c in cps {
+        match out.last_mut() {
+            Some((_, b)) if *b + 1 == c => *b = c,
+            _ => out.push((c, c)),
+        }
+    }
+    Ok(out)
+}
+
 /// The canonical decompositions of two or more scalar values, each key
 /// the precomposed character decomposed one step at a time from its first
 /// scalar: `U+1EBF` gives `U+00EA U+0301` and `U+0065 U+0302 U+0301`.
@@ -362,6 +392,7 @@ fn seq(s: &[u32]) -> String {
 fn data_rs(
     emoji: &[Vec<u32>],
     joining: &[(u32, char, u8)],
+    joins: &[(u32, u32)],
     decomposed: &[Vec<u32>],
     on_demand: &[(&str, Vec<(u32, u32)>)],
 ) -> String {
@@ -389,6 +420,16 @@ fn data_rs(
     );
     for (c, kind, group) in joining {
         let _ = writeln!(out, "    (0x{c:x}, '{kind}', {group}),");
+    }
+    out.push_str(
+        "];\n\n/// The characters that join to their neighbours, in every script\n\
+         /// ArabicShaping.txt lists, as sorted ranges: Joining_Type D, R, L or\n\
+         /// C. ADR-1302 D2 stretches an outline glyph of one of them to its\n\
+         /// cells.\n\
+         pub const JOINS: &[(u32, u32)] = &[\n",
+    );
+    for (a, b) in joins {
+        let _ = writeln!(out, "    (0x{a:x}, 0x{b:x}),");
     }
     out.push_str(
         "];\n\n/// The canonical decompositions of two or more scalar values, each\n\
