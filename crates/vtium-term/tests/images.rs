@@ -200,6 +200,95 @@ fn dl_at_the_first_row_clips_what_it_deletes() {
 }
 
 #[test]
+fn decsed_2_removes_no_kitty_placement() {
+    let mut t = term();
+    two(&mut t);
+    t.input(b"\x1b[?2J");
+    assert_eq!(
+        shown(&t),
+        [(1, 6, 3, 2, "kitty")],
+        "the selective erase cuts the sixel only"
+    );
+}
+
+#[test]
+fn printing_in_insert_mode_cuts_a_sixel_to_the_rows_end() {
+    let mut t = term();
+    let six = image(&mut t, Protocol::SIXEL, 80, 16, 0);
+    place(&mut t, six, 1, 1);
+    t.input(b"\x1b[4h\x1b[2;3Hx");
+    assert_eq!(shown(&t), [(1, 1, 1, 1, "sixel")]);
+}
+
+#[test]
+fn decaln_and_a_vs16_widening_cut_a_sixel() {
+    let mut t = term();
+    two(&mut t);
+    t.input(b"\x1b#8");
+    assert_eq!(shown(&t), [(1, 6, 3, 2, "kitty")]);
+    let mut t = term();
+    let six = image(&mut t, Protocol::SIXEL, 24, 16, 0);
+    place(&mut t, six, 1, 0);
+    // a heart and a VS16 at column 0 widen into column 1
+    t.input("\u{2764}\u{fe0f}".as_bytes());
+    assert_eq!(shown(&t), [(0, 2, 2, 1, "sixel")]);
+}
+
+#[test]
+fn a_smaller_scrollback_clips_the_placements_on_the_lines_it_drops() {
+    let mut t = term();
+    t.screen_mut().set_scrollback_max(10);
+    let k = image(&mut t, Protocol::KITTY, 8, 64, 1);
+    place(&mut t, k, 0, 0);
+    t.input(b"\x1b[4;1H\n\n");
+    t.screen_mut().set_scrollback_max(1);
+    t.screen_mut().scroll_view_up(1);
+    assert_eq!(
+        shown(&t),
+        [(0, 0, 1, 3, "kitty")],
+        "it lost the top row that went"
+    );
+}
+
+#[test]
+fn a_taller_screen_brings_a_scrollback_placement_back() {
+    let mut t = term();
+    t.screen_mut().set_scrollback_max(10);
+    let k = image(&mut t, Protocol::KITTY, 8, 16, 1);
+    place(&mut t, k, 3, 0);
+    t.input(b"\x1b[4;1H");
+    t.resize(COLS, 2);
+    assert_eq!(shown(&t), []);
+    t.resize(COLS, 4);
+    assert_eq!(shown(&t), [(0, 3, 1, 1, "kitty")]);
+    assert_eq!(t.screen().images().placement_count(), 1);
+}
+
+#[test]
+fn the_charges_of_cut_pieces_settle_per_event_however_the_input_is_cut() {
+    // a sixel 7 cells wide, cut twice in one stream under a budget with no
+    // room for a piece's charge: each cut's smallest piece goes when that
+    // cut ends, so which piece stays follows the events and not the input
+    // call they fell in
+    let stream = b"\x1b[1;5Hx\x1b[1;2Hy";
+    let fresh = || {
+        let mut t = term();
+        t.screen_mut().set_image_limit(56 * 16 * 4 + 512);
+        let six = image(&mut t, Protocol::SIXEL, 56, 16, 0);
+        place(&mut t, six, 0, 0);
+        t
+    };
+    let mut whole = fresh();
+    whole.input(stream);
+    let mut cut = fresh();
+    cut.input(&stream[..7]);
+    cut.input(&stream[7..]);
+    assert_eq!(cut.screen().images(), whole.screen().images());
+    // the first cut's right piece went, then the second cut's left one
+    assert_eq!(shown(&whole), [(0, 2, 2, 1, "sixel")]);
+}
+
+#[test]
 fn a_line_dropped_from_the_scrollback_clips_the_placements_on_it() {
     let mut t = term();
     t.screen_mut().set_scrollback_max(2);
@@ -256,6 +345,68 @@ fn a_rewrap_carries_a_placement_with_its_lines_text() {
     assert_eq!(shown(&t), [(1, 2, 1, 1, "kitty")]);
 }
 
+/// Every placement the view shows at each offset back through the
+/// scrollback, as (offset, row, col, kind) tuples.
+fn at_every_offset(t: &mut Terminal) -> Vec<(usize, i64, u32, &'static str)> {
+    let depth = t.screen().scrollback().len();
+    let mut out = Vec::new();
+    for offset in 0..=depth {
+        t.screen_mut().reset_view();
+        t.screen_mut().scroll_view_up(offset);
+        out.extend(
+            t.screen()
+                .placements()
+                .iter()
+                .map(|p| (offset, p.row, p.col, p.kind)),
+        );
+    }
+    t.screen_mut().reset_view();
+    out
+}
+
+// covers: image.pipeline
+#[test]
+fn a_rewrap_carries_the_anchors_in_the_scrollback_lazily_as_eagerly() {
+    // a placement on a wrapped line's continuation row, and one whose
+    // column a narrower width moves to the line's next row, both pushed
+    // deep into the scrollback before the width changes
+    for (to, text, col, row) in [
+        (20, &b"abcdefghijklmno"[..], 2, 1),
+        (5, b"abcdefghij", 8, 0),
+    ] {
+        // eagerly, the view at the scrollback's top takes every row into
+        // the resize's rewrap
+        let fresh = |eager: bool| {
+            let mut t = Terminal::new(10, 4, 100);
+            t.screen_mut().set_image_limit(1 << 30);
+            t.screen_mut().set_scrollback_max(100);
+            t.input(text);
+            let k = image(&mut t, Protocol::SIXEL, 8, 16, 0);
+            place(&mut t, k, col, row);
+            t.input(&[b'\n'; 20]);
+            if eager {
+                t.screen_mut().scroll_view_up(100);
+            }
+            t.resize(to, 4);
+            t.screen_mut().reset_view();
+            t
+        };
+        let mut lazy = fresh(false);
+        let mut eager = fresh(true);
+        let lazily = at_every_offset(&mut lazy);
+        let eagerly = at_every_offset(&mut eager);
+        assert!(
+            !eagerly.is_empty(),
+            "to {to}: the placement shows somewhere"
+        );
+        assert_eq!(
+            lazily, eagerly,
+            "to {to}: lazy and eager rewraps place it alike"
+        );
+        assert_eq!(lazy.screen().images().image_count(), 1);
+    }
+}
+
 #[test]
 fn a_frame_shares_its_images_pixels() {
     let mut t = term();
@@ -273,11 +424,12 @@ fn a_frame_shares_its_images_pixels() {
     }
 }
 
-/// A stand-in handler: each string it finishes places a 1x1 picture of its
-/// protocol at the cursor, after a request to the helper when `ask`.
-#[derive(Clone, Debug)]
+/// A stand-in handler: each string it finishes places a 1x1 picture, a
+/// sixel or with `kitty` a kitty picture, at the cursor, after a request to
+/// the helper when `ask`.
+#[derive(Clone, Debug, PartialEq)]
 struct Stand {
-    protocol: Protocol,
+    kitty: bool,
     ask: bool,
     id: u32,
 }
@@ -286,7 +438,11 @@ impl Stand {
     fn show(&mut self, ctx: &mut dyn Context) {
         let (col, row) = ctx.cursor();
         let new = NewImage {
-            protocol: self.protocol,
+            protocol: if self.kitty {
+                Protocol::KITTY
+            } else {
+                Protocol::SIXEL
+            },
             width: 8,
             height: 16,
             pixels: vec![0xffff_ffff; 128],
@@ -294,7 +450,7 @@ impl Stand {
             number: 0,
             transient: false,
         };
-        if let Ok(key) = ctx.add_image(new) {
+        if let Ok(key) = ctx.add_image(new, None) {
             let at = Place {
                 col: u32::try_from(col).unwrap_or(0),
                 row: u32::try_from(row).unwrap_or(0),
@@ -336,6 +492,12 @@ impl Handler for Stand {
     fn clone_box(&self) -> Box<dyn Handler> {
         Box::new(self.clone())
     }
+    fn as_any(&self) -> &dyn core::any::Any {
+        self
+    }
+    fn same(&self, other: &dyn Handler) -> bool {
+        other.as_any().downcast_ref::<Self>() == Some(self)
+    }
 }
 
 fn routed(ask: bool) -> Terminal {
@@ -347,12 +509,12 @@ fn routed(ask: bool) -> Terminal {
     });
     t.set_image_helper(true);
     let six = Stand {
-        protocol: Protocol::SIXEL,
+        kitty: false,
         ask: false,
         id: 0,
     };
     let kit = Stand {
-        protocol: Protocol::KITTY,
+        kitty: true,
         ask,
         id: 1,
     };
@@ -425,6 +587,32 @@ fn an_off_protocol_or_a_cancelled_string_places_nothing() {
     );
     t.input(b"\x1b_Gx\x1b\\");
     assert_eq!(shown(&t), [(0, 0, 1, 1, "kitty")]);
+}
+
+#[test]
+fn a_protocol_switched_off_or_a_budget_of_0_mid_string_stores_nothing() {
+    for off in [
+        |t: &mut Terminal| {
+            t.set_image_switches(Switches {
+                sixel: false,
+                kitty: true,
+                iterm2: false,
+            })
+        },
+        |t: &mut Terminal| t.screen_mut().set_image_limit(0),
+    ] {
+        let mut t = routed(false);
+        t.input(b"\x1bPq#0~");
+        off(&mut t);
+        t.input(b"~\x1b\\");
+        assert_eq!(shown(&t), []);
+        assert_eq!(t.screen().images().image_count(), 0);
+    }
+    // a budget of 0 offers nothing from the string's start either
+    let mut t = routed(false);
+    t.screen_mut().set_image_limit(0);
+    t.input(b"\x1b_Gx\x1b\\");
+    assert_eq!(t.screen().images().image_count(), 0);
 }
 
 // covers: image.pipeline

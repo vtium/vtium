@@ -16,6 +16,7 @@
 
 mod events;
 mod frame;
+mod reserve;
 #[cfg(test)]
 mod tests;
 
@@ -29,6 +30,7 @@ use crate::image::{ImageKey, LineKey, NewImage, Pixels, Place, PlacementKey, Ref
 use crate::rules::{Kept, Layer, rules};
 
 pub use frame::FramePlacement;
+pub use reserve::Reservation;
 
 /// The lines of one buffer's screen, as the terminal holds them when an
 /// event reaches the store: `screen` the screen's rows top to bottom, and
@@ -168,6 +170,11 @@ struct Buffer {
     by_line: BTreeMap<LineKey, Vec<PlacementKey>>,
     /// The stack at each layer and z, bottom to top (D4).
     stacks: BTreeMap<(Layer, i32), Vec<PlacementKey>>,
+    /// How many placements are each height in rows, all of them and those
+    /// text cuts, so the tallest is known without a walk and a buffer with
+    /// nothing text cuts answers a cut at once.
+    heights: BTreeMap<u32, u32>,
+    cut_heights: BTreeMap<u32, u32>,
 }
 
 impl Buffer {
@@ -258,14 +265,44 @@ impl Buffer {
 
     /// The tallest placement's rows, and the tallest one text cuts.
     fn tallest(&self) -> (u32, u32) {
-        self.placements.values().fold((0, 0), |(all, cut), p| {
-            let cut = if rules(p.protocol.0).cut_by_text {
-                cut.max(p.rows)
+        let top = |m: &BTreeMap<u32, u32>| m.keys().next_back().copied().unwrap_or(0);
+        (top(&self.heights), top(&self.cut_heights))
+    }
+
+    /// Counts placement `key`'s height in, or with `inward` false out.
+    fn count_height(&mut self, key: PlacementKey, inward: bool) {
+        let Some(p) = self.placements.get(&key) else {
+            return;
+        };
+        let (rows, cuts) = (p.rows, rules(p.protocol.0).cut_by_text);
+        let step = |m: &mut BTreeMap<u32, u32>| {
+            let n = m.entry(rows).or_insert(0);
+            *n = if inward {
+                n.saturating_add(1)
             } else {
-                cut
+                n.saturating_sub(1)
             };
-            (all.max(p.rows), cut)
-        })
+            if *n == 0 {
+                m.remove(&rows);
+            }
+        };
+        step(&mut self.heights);
+        if cuts {
+            step(&mut self.cut_heights);
+        }
+    }
+
+    /// Adds or replaces a placement, keeping the height counts.
+    fn put(&mut self, key: PlacementKey, p: Placement) {
+        self.count_height(key, false);
+        self.placements.insert(key, p);
+        self.count_height(key, true);
+    }
+
+    /// Removes a placement, keeping the height counts.
+    fn take(&mut self, key: PlacementKey) -> Option<Placement> {
+        self.count_height(key, false);
+        self.placements.remove(&key)
     }
 
     fn find_id(&self, id: u32) -> Option<ImageKey> {
@@ -366,6 +403,14 @@ impl Store {
     /// Whether either buffer holds an image or a placement.
     pub fn is_empty(&self) -> bool {
         self.buffers.iter().all(|b| b.images.is_empty())
+    }
+
+    /// Whether the buffer in use has a placement that text cuts: without
+    /// one, a write or an erase has nothing to tell the store.
+    pub fn has_cuttable(&self) -> bool {
+        self.buffers
+            .get(self.active())
+            .is_some_and(|b| !b.cut_heights.is_empty())
     }
 
     /// Whether the buffer in use has a placement.
@@ -509,47 +554,80 @@ impl Store {
     }
 
     /// Stores an image in the buffer in use, reserving its whole cost first
-    /// (D5). An image of a kitty id already in the buffer replaces it, with
-    /// its placements, once the new one has its bytes; refused, the old one
-    /// stays.
-    pub fn add_image(&mut self, new: NewImage, screens: Screens<'_>) -> Result<ImageKey, Refusal> {
-        let side = |s: u32| s > 0 && u64::from(s) <= IMAGE_SIDE_MAX;
-        if !side(new.width) || !side(new.height) {
-            return Err(Refusal::Invalid);
-        }
-        let n = u64::from(new.width).saturating_mul(u64::from(new.height));
-        if u64::try_from(new.pixels.len()).ok() != Some(n) {
-            return Err(Refusal::Invalid);
-        }
-        let bytes = n
-            .checked_mul(4)
-            .and_then(|b| b.checked_add(IMAGE_OVERHEAD))
-            .ok_or(Refusal::Invalid)?;
+    /// (D5): what `reservation` already holds, which a handler reserved as
+    /// its payload arrived, and the rest now. An image of a kitty id already
+    /// in the buffer replaces it, with its placements, once the new one has
+    /// its bytes; refused, the old one stays, and so does nothing of the
+    /// reservation.
+    pub fn add_image(
+        &mut self,
+        new: NewImage,
+        reservation: Option<Reservation>,
+        screens: Screens<'_>,
+    ) -> Result<ImageKey, Refusal> {
         let b = self.active();
-        let old = if rules(new.protocol).ids && new.id != 0 {
-            let count = self.buffers.get(b).map_or(0, |buf| buf.images.len());
-            self.count(count);
-            self.buffers.get(b).and_then(|buf| buf.find_id(new.id))
-        } else {
-            None
+        // the image a reservation held for its replacement, when it is
+        // still in the buffer in use with the id; it is held no more
+        let (mut reserved, held) = match reservation {
+            Some(r) => {
+                self.hold(r.buffer, r.old, false);
+                let still = r
+                    .old
+                    .filter(|&o| r.buffer == b && self.image(b, o).is_some_and(|i| i.id == new.id));
+                (r.bytes, still)
+            }
+            None => (0, None),
         };
+        let refuse = |s: &mut Self, reserved: u64, why: Refusal| {
+            s.used = s.used.saturating_sub(reserved);
+            Err(why)
+        };
+        let side = |s: u32| s > 0 && u64::from(s) <= IMAGE_SIDE_MAX;
+        let n = u64::from(new.width).saturating_mul(u64::from(new.height));
+        let bytes = n.checked_mul(4).and_then(|b| b.checked_add(IMAGE_OVERHEAD));
+        let fits =
+            side(new.width) && side(new.height) && u64::try_from(new.pixels.len()).ok() == Some(n);
+        let Some(bytes) = bytes.filter(|_| fits) else {
+            return refuse(self, reserved, Refusal::Invalid);
+        };
+        let old = match held {
+            Some(o) => Some(o),
+            None if rules(new.protocol).ids && new.id != 0 => {
+                let count = self.buffers.get(b).map_or(0, |buf| buf.images.len());
+                self.count(count);
+                self.buffers.get(b).and_then(|buf| buf.find_id(new.id))
+            }
+            None => None,
+        };
+        if reserved > bytes {
+            self.used = self.used.saturating_sub(reserved.saturating_sub(bytes));
+            reserved = bytes;
+        }
         self.hold(b, old, true);
         self.settle(screens);
         let made = match old {
             Some(_) => Ok(()),
             None => self.make_image_room(b, screens),
         };
-        let added = made.and_then(|()| self.reserve(bytes, old.map(|o| (b, o)), screens));
+        let added = made.and_then(|()| {
+            self.reserve_bytes(bytes.saturating_sub(reserved), old.map(|o| (b, o)), screens)
+        });
         self.hold(b, old, false);
-        let added = added?;
+        let added = match added {
+            Ok(added) => added,
+            Err(why) => return refuse(self, reserved, why),
+        };
+        let credit = reserved.saturating_add(added);
         let key = ImageKey(self.next_image);
         self.next_image = self.next_image.saturating_add(1);
         let stamp = self.tick();
         let revision = self.bump();
         let opaque = new.pixels.iter().all(|&px| px >> 24 == 0xff);
         if let Some(o) = old {
+            // the old image's bytes beyond what was reserved pass to the new
+            // one; freeing it gives back only what is left
             if let Some(image) = self.image_mut(b, o) {
-                image.bytes = image.bytes.saturating_sub(bytes.saturating_sub(added));
+                image.bytes = image.bytes.saturating_sub(bytes.saturating_sub(credit));
             }
             self.free_image(b, o);
         }
@@ -621,12 +699,17 @@ impl Store {
         } else {
             None
         };
+        // a placement past the image's first carries its charge
+        let charged = replaced.is_none() && self.image(b, image).is_some_and(|i| i.placements > 0);
         if replaced.is_none() {
             self.hold(b, Some(image), true);
             let room = self.make_placement_room(b, image, screens);
             self.hold(b, Some(image), false);
             room?;
         }
+        // the image being placed is held through the cut, so a cut that
+        // removes its own last placement leaves it to the new one
+        self.hold(b, Some(image), true);
         if rules(protocol).covered_by_same && opaque {
             let last = place
                 .row
@@ -638,6 +721,15 @@ impl Store {
                     crate::rules::same(p.protocol.0, protocol)
                 });
             }
+        }
+        self.hold(b, Some(image), false);
+        // the cut took the image's other placements: the new one is its
+        // first again, and the image pays for it
+        if charged && self.image(b, image).is_some_and(|i| i.placements == 0) {
+            if let Some(img) = self.image_mut(b, image) {
+                img.bytes = img.bytes.saturating_sub(PLACEMENT_OVERHEAD);
+            }
+            self.give_back(b, image, PLACEMENT_OVERHEAD);
         }
         let (z, layer) = (rules(protocol).depth)(place.z);
         let seq = self.next_seq;
@@ -675,7 +767,7 @@ impl Store {
                 if let Some(buf) = self.buffers.get_mut(b) {
                     buf.unstack(k);
                     buf.detach(k);
-                    buf.placements.insert(k, placement);
+                    buf.put(k, placement);
                 }
                 k
             }
@@ -683,7 +775,7 @@ impl Store {
                 let k = PlacementKey(self.next_placement);
                 self.next_placement = self.next_placement.saturating_add(1);
                 if let Some(buf) = self.buffers.get_mut(b) {
-                    buf.placements.insert(k, placement);
+                    buf.put(k, placement);
                 }
                 if let Some(img) = self.image_mut(b, image) {
                     img.placements = img.placements.saturating_add(1);
@@ -737,7 +829,7 @@ impl Store {
     /// free, already holds, and returns what it added. A request that
     /// cannot fit once everything that may go has gone evicts nothing and
     /// is refused; otherwise images go in the eviction order until it fits.
-    fn reserve(
+    fn reserve_bytes(
         &mut self,
         bytes: u64,
         keep: Option<(usize, ImageKey)>,
@@ -786,7 +878,7 @@ impl Store {
         let mut drop = 1usize;
         while self.owed > 0 {
             let owed = self.owed;
-            if self.reserve(owed, None, screens).is_ok() {
+            if self.reserve_bytes(owed, None, screens).is_ok() {
                 // images evicted took their pieces' debts with them
                 self.used = self.used.saturating_sub(owed.saturating_sub(self.owed));
                 for buf in &mut self.buffers {
@@ -960,7 +1052,7 @@ impl Store {
         }
         if self.image(b, image).is_some_and(|i| i.placements > 0) {
             self.settle(screens);
-            self.reserve(PLACEMENT_OVERHEAD, None, screens)?;
+            self.reserve_bytes(PLACEMENT_OVERHEAD, None, screens)?;
             if let Some(img) = self.image_mut(b, image) {
                 img.bytes = img.bytes.saturating_add(PLACEMENT_OVERHEAD);
             }
@@ -979,7 +1071,7 @@ impl Store {
         };
         buf.detach(key);
         buf.unstack(key);
-        let Some(p) = buf.placements.remove(&key) else {
+        let Some(p) = buf.take(key) else {
             return;
         };
         self.pending.retain(|&(pb, pk, _)| (pb, pk) != (b, key));
@@ -991,11 +1083,12 @@ impl Store {
         };
         image.placements = image.placements.saturating_sub(1);
         let left = image.placements;
+        let held = image.hold > 0;
         if left > 0 && !dying {
             image.bytes = image.bytes.saturating_sub(PLACEMENT_OVERHEAD);
             self.give_back(b, p.image, PLACEMENT_OVERHEAD);
         }
-        if free_image && left == 0 && rules(p.protocol.0).freed_with_last_placement {
+        if free_image && left == 0 && !held && rules(p.protocol.0).freed_with_last_placement {
             self.free_image(b, p.image);
         }
     }

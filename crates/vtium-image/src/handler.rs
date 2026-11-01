@@ -14,7 +14,8 @@ use vtium_parse::{Chunk, Params};
 
 use crate::decode::{Reply, Request};
 use crate::image::{ImageKey, NewImage, Place, PlacementKey, Refusal};
-use crate::store::Store;
+use crate::rules::Protocol;
+use crate::store::{Reservation, Store};
 
 /// A control string's introducer.
 #[derive(Clone, Copy, Debug)]
@@ -68,8 +69,30 @@ impl Default for Limits {
 pub trait Context {
     /// The store, to read.
     fn store(&self) -> &Store;
-    /// Stores an image in the buffer in use.
-    fn add_image(&mut self, image: NewImage) -> Result<ImageKey, Refusal>;
+    /// Reserves `bytes` of the budget before they are allocated, for an
+    /// image of `protocol` with kitty id `id` (0 for none) to come; an image
+    /// of that id is held until the reservation is used or given back (D5).
+    fn reserve(&mut self, protocol: Protocol, id: u32, bytes: u64) -> Result<Reservation, Refusal>;
+    /// Reserves `more` as a buffered payload grows.
+    fn grow(&mut self, reservation: &mut Reservation, more: u64) -> Result<(), Refusal>;
+    /// Gives a reservation back unused.
+    fn unreserve(&mut self, reservation: Reservation);
+    /// Stores an image in the buffer in use, taking what `reservation`
+    /// holds toward its cost.
+    fn add_image(
+        &mut self,
+        image: NewImage,
+        reservation: Option<Reservation>,
+    ) -> Result<ImageKey, Refusal>;
+    /// Frees an image of the buffer in use, as a picture that could not be
+    /// placed is.
+    fn drop_image(&mut self, image: ImageKey);
+    /// The image a kitty command names: by its id, or by its number.
+    fn find_image(&mut self, id: u32, number: u32) -> Option<ImageKey>;
+    /// A command named an existing image: the use clock moves (D5).
+    fn touch(&mut self, image: ImageKey);
+    /// The lowest kitty id no image of the buffer in use has.
+    fn free_id(&mut self) -> u32;
     /// Places an image of the buffer in use on its screen.
     fn place(&mut self, image: ImageKey, place: Place) -> Result<PlacementKey, Refusal>;
     /// Whether the host has an image helper to answer requests. Without
@@ -115,6 +138,13 @@ pub trait Handler: core::fmt::Debug {
     fn decoded(&mut self, ctx: &mut dyn Context, reply: Reply);
     /// A copy of the handler, for a terminal that is cloned.
     fn clone_box(&self) -> Box<dyn Handler>;
+    /// The handler as `Any`, so [`same`](Self::same) can compare it.
+    fn as_any(&self) -> &dyn core::any::Any;
+    /// Whether `other` is a handler of the same type in the same state, so
+    /// two terminals compare by what their handlers hold, a string half
+    /// fed among it. An implementation reads
+    /// `other.as_any().downcast_ref::<Self>() == Some(self)`.
+    fn same(&self, other: &dyn Handler) -> bool;
 }
 
 impl Clone for Box<dyn Handler> {

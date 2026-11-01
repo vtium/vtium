@@ -13,8 +13,8 @@ use core::fmt;
 
 use vtium_image::decode::{Reply, Request};
 use vtium_image::{
-    Context, Handler, ImageKey, Intro, Limits, NewImage, Place, PlacementKey, Refusal, ReplyKind,
-    Store, Switches,
+    Context, Handler, ImageKey, Intro, Limits, NewImage, Place, PlacementKey, Protocol, Refusal,
+    ReplyKind, Reservation, Store, Switches,
 };
 use vtium_parse::{Chunk, Intermediates, Params, StringEnd};
 
@@ -88,12 +88,18 @@ impl fmt::Debug for Router {
     }
 }
 
-/// Two routers compare by what they route and what is out; a handler's
-/// own state is its own.
+/// Two routers compare by their handlers, each in its state, by what they
+/// route and by what is out.
 impl PartialEq for Router {
     fn eq(&self, other: &Self) -> bool {
-        let slots = |r: &Self| (r.sixel.is_some(), r.kitty.is_some(), r.iterm2.is_some());
-        slots(self) == slots(other)
+        let same = |a: &Option<Box<dyn Handler>>, b: &Option<Box<dyn Handler>>| match (a, b) {
+            (Some(a), Some(b)) => a.same(b.as_ref()),
+            (None, None) => true,
+            _ => false,
+        };
+        same(&self.sixel, &other.sixel)
+            && same(&self.kitty, &other.kitty)
+            && same(&self.iterm2, &other.iterm2)
             && self.active == other.active
             && self.apc_open == other.apc_open
             && self.switches == other.switches
@@ -138,8 +144,54 @@ impl Context for Ctx<'_> {
         self.state.screen.images()
     }
 
-    fn add_image(&mut self, image: NewImage) -> Result<ImageKey, Refusal> {
-        self.state.screen.add_image(image)
+    fn reserve(&mut self, protocol: Protocol, id: u32, bytes: u64) -> Result<Reservation, Refusal> {
+        self.state
+            .screen
+            .with_images(|store, screens, _| store.reserve(protocol, id, bytes, screens))
+    }
+
+    fn grow(&mut self, reservation: &mut Reservation, more: u64) -> Result<(), Refusal> {
+        self.state
+            .screen
+            .with_images(|store, screens, _| store.grow(reservation, more, screens))
+    }
+
+    fn unreserve(&mut self, reservation: Reservation) {
+        self.state
+            .screen
+            .with_images(|store, _, _| store.unreserve(reservation));
+    }
+
+    fn add_image(
+        &mut self,
+        image: NewImage,
+        reservation: Option<Reservation>,
+    ) -> Result<ImageKey, Refusal> {
+        self.state
+            .screen
+            .with_images(|store, screens, _| store.add_image(image, reservation, screens))
+    }
+
+    fn drop_image(&mut self, image: ImageKey) {
+        self.state
+            .screen
+            .with_images(|store, _, _| store.drop_image(image));
+    }
+
+    fn find_image(&mut self, id: u32, number: u32) -> Option<ImageKey> {
+        self.state
+            .screen
+            .with_images(|store, _, _| store.find_image(id, number))
+    }
+
+    fn touch(&mut self, image: ImageKey) {
+        self.state
+            .screen
+            .with_images(|store, _, _| store.touch(image));
+    }
+
+    fn free_id(&mut self) -> u32 {
+        self.state.screen.with_images(|store, _, _| store.free_id())
     }
 
     fn place(&mut self, image: ImageKey, place: Place) -> Result<PlacementKey, Refusal> {
@@ -212,6 +264,12 @@ impl State {
         *self.images.slot(which) = Some(handler);
     }
 
+    /// Whether the router sends `which` to its handler: the protocol is
+    /// switched on, a handler is installed, and the budget is above 0.
+    fn image_offered(&self, which: ImageString) -> bool {
+        self.images.on(which) && self.screen.images().limit() > 0
+    }
+
     /// DCS `q` with no intermediate goes to the sixel handler while sixel
     /// is on: returns whether it did.
     pub(super) fn image_dcs_hook(
@@ -222,7 +280,7 @@ impl State {
     ) -> bool {
         let sixel =
             params.marker().is_none() && intermediates.as_bytes().is_empty() && final_byte == b'q';
-        if !sixel || !self.images.on(ImageString::Sixel) {
+        if !sixel || !self.image_offered(ImageString::Sixel) {
             return false;
         }
         self.images.active = Some(ImageString::Sixel);
@@ -244,7 +302,9 @@ impl State {
         let Some(which) = self.images.active.take() else {
             return;
         };
-        if end.is_complete() {
+        // a protocol switched off, or a budget set to 0, while the string
+        // streamed in stores nothing (D10)
+        if end.is_complete() && self.image_offered(which) {
             self.with_handler(which, |h, ctx| h.finish(ctx));
         } else {
             self.with_handler(which, |h, ctx| h.cancel(ctx));
@@ -261,7 +321,7 @@ impl State {
     pub(super) fn image_apc_put(&mut self, data: Chunk<'_>) {
         if core::mem::take(&mut self.images.apc_open) {
             let kitty = matches!(data, Chunk::Bytes([b'G', ..]));
-            if !kitty || !self.images.on(ImageString::Kitty) {
+            if !kitty || !self.image_offered(ImageString::Kitty) {
                 return;
             }
             self.images.active = Some(ImageString::Kitty);
@@ -287,7 +347,7 @@ impl State {
         let Some(args) = data.strip_prefix(b"1337;") else {
             return false;
         };
-        if !args.starts_with(b"File=") || !self.images.on(ImageString::Iterm2) {
+        if !args.starts_with(b"File=") || !self.image_offered(ImageString::Iterm2) {
             return false;
         }
         self.with_handler(ImageString::Iterm2, |h, ctx| {
@@ -362,5 +422,62 @@ impl Terminal {
         let reply = reply.checked(&request);
         self.state
             .with_handler(which, |h, ctx| h.decoded(ctx, reply));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A handler that keeps the bytes it was fed.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    struct Keep(Vec<u8>);
+
+    impl Handler for Keep {
+        fn start(&mut self, _: &mut dyn Context, _: Intro<'_>) {}
+        fn feed(&mut self, _: &mut dyn Context, data: Chunk<'_>) {
+            if let Chunk::Bytes(b) = data {
+                self.0.extend_from_slice(b);
+            }
+        }
+        fn finish(&mut self, _: &mut dyn Context) {}
+        fn cancel(&mut self, _: &mut dyn Context) {}
+        fn decoded(&mut self, _: &mut dyn Context, _: Reply) {}
+        fn clone_box(&self) -> Box<dyn Handler> {
+            Box::new(self.clone())
+        }
+        fn as_any(&self) -> &dyn core::any::Any {
+            self
+        }
+        fn same(&self, other: &dyn Handler) -> bool {
+            other.as_any().downcast_ref::<Self>() == Some(self)
+        }
+    }
+
+    fn fed(bytes: &[u8]) -> Terminal {
+        let mut t = Terminal::new(4, 2, 0);
+        t.screen_mut().set_image_limit(1 << 20);
+        t.set_image_switches(Switches {
+            sixel: false,
+            kitty: true,
+            iterm2: false,
+        });
+        t.set_image_handler(ImageString::Kitty, Some(Box::new(Keep::default())));
+        let _ = t.input(bytes);
+        t
+    }
+
+    #[test]
+    fn two_terminals_compare_by_their_handlers_state() {
+        assert!(fed(b"\x1b_Gab").state == fed(b"\x1b_Gab").state);
+        assert!(
+            fed(b"\x1b_Gab").state != fed(b"\x1b_Gax").state,
+            "a half-fed string differs"
+        );
+        let t = fed(b"\x1b_Gab");
+        assert!(
+            t.state.clone() == t.state,
+            "a clone keeps the handler's state"
+        );
     }
 }

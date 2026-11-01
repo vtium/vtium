@@ -114,6 +114,10 @@ pub struct Rules {
     /// A new opaque picture of the same tag over it removes the parts under
     /// the cells the new picture covers.
     pub covered_by_same: bool,
+    /// ED 2 removes it from the screen's own lines, as kitty's spec asks
+    /// of the clear screen code. A placement text cuts loses those cells to
+    /// the erase itself instead, keeping any part in the scrollback.
+    pub erased_by_clear_screen: bool,
     /// What a region scroll does to it.
     pub region_scroll: RegionScroll,
     /// It may be evicted while placed on the screen's own lines, oldest
@@ -136,6 +140,7 @@ const SIXEL: Rules = Rules {
     name: "sixel",
     cut_by_text: true,
     covered_by_same: true,
+    erased_by_clear_screen: false,
     region_scroll: RegionScroll::Split,
     evict_on_screen: false,
     freed_with_last_placement: true,
@@ -148,6 +153,7 @@ const KITTY: Rules = Rules {
     name: "kitty",
     cut_by_text: false,
     covered_by_same: false,
+    erased_by_clear_screen: true,
     region_scroll: RegionScroll::WholeOnly,
     evict_on_screen: true,
     freed_with_last_placement: false,
@@ -195,6 +201,7 @@ mod tests {
         let kit = rules(Protocol::KITTY);
         assert_eq!((six.name, kit.name), ("sixel", "kitty"));
         assert!(six.cut_by_text && !kit.cut_by_text);
+        assert!(!six.erased_by_clear_screen && kit.erased_by_clear_screen);
         assert_eq!(six.region_scroll, RegionScroll::Split);
         assert_eq!(kit.region_scroll, RegionScroll::WholeOnly);
         assert!(!six.evict_on_screen && kit.evict_on_screen);

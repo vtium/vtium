@@ -55,16 +55,25 @@ mod with {
             self.images.set_cell(width, height)
         }
 
-        /// Stores an image in the buffer in use.
-        pub fn add_image(&mut self, image: NewImage) -> Result<ImageKey, Refusal> {
+        /// Runs `f` over the store with both buffers' lines, then settles
+        /// and marks what it changed, as a screen event does.
+        pub(crate) fn with_images<R>(
+            &mut self,
+            f: impl FnOnce(&mut Store, Screens<'_>, usize) -> R,
+        ) -> R {
             let (main, alt) = (self.keys(false), self.keys(true));
             let screens = Screens {
                 main: main.rows(),
                 alt: alt.rows(),
             };
-            let out = self.images.add_image(image, screens);
+            let out = f(&mut self.images, screens, self.cols);
             self.images_settled();
             out
+        }
+
+        /// Stores an image in the buffer in use.
+        pub fn add_image(&mut self, image: NewImage) -> Result<ImageKey, Refusal> {
+            self.with_images(|store, screens, _| store.add_image(image, None, screens))
         }
 
         /// Places an image of the buffer in use on its screen.
@@ -73,14 +82,7 @@ mod with {
             image: ImageKey,
             place: Place,
         ) -> Result<PlacementKey, Refusal> {
-            let (main, alt) = (self.keys(false), self.keys(true));
-            let screens = Screens {
-                main: main.rows(),
-                alt: alt.rows(),
-            };
-            let out = self.images.place(image, place, screens, self.cols);
-            self.images_settled();
-            out
+            self.with_images(|store, screens, cols| store.place(image, place, screens, cols))
         }
 
         /// The placements the view shows, in draw order (D9).
@@ -138,7 +140,7 @@ mod with {
 
         /// Cells `x0` to `x1` of row `y` were written or erased.
         pub(in crate::screen) fn images_cut(&mut self, y: usize, x0: usize, x1: usize) {
-            if !self.images.has_placements() {
+            if !self.images.has_cuttable() {
                 return;
             }
             let keys = self.active_keys();
@@ -261,6 +263,19 @@ mod with {
         /// Starts an input call's count of image work afresh.
         pub(crate) fn take_image_work(&mut self) -> u64 {
             self.images.take_work()
+        }
+
+        /// The index of the oldest rewrapped scrollback row a placement of
+        /// the main buffer is anchored on. A rewrap takes every row from it
+        /// on, so no placement is ever anchored on a row left waiting, and
+        /// the rows that wait rewrap later with nothing to carry.
+        pub(in crate::screen) fn images_oldest_anchored(&self) -> Option<usize> {
+            if !self.images.main_has_placements() {
+                return None;
+            }
+            self.scrollback
+                .lines()
+                .position(|l| self.images.anchored_main(LineKey::new(l.id().get())))
         }
 
         /// The rows above the main screen a rewrap takes beside the screen's

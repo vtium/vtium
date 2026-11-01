@@ -62,7 +62,7 @@ fn image(protocol: Protocol, w: u32, h: u32, id: u32) -> NewImage {
 }
 
 fn add(s: &mut Store, f: &Fake, protocol: Protocol, w: u32, h: u32, id: u32) -> ImageKey {
-    s.add_image(image(protocol, w, h, id), f.screens())
+    s.add_image(image(protocol, w, h, id), None, f.screens())
         .expect("stored")
 }
 
@@ -97,7 +97,7 @@ fn a_reservation_eviction_could_not_cover_evicts_nothing_and_is_refused() {
     put(&mut s, &f, six, 0, 0);
     // four cells' worth more cannot fit even with the kitty image gone
     let big = image(Protocol::KITTY, 8, 64, 2);
-    assert_eq!(s.add_image(big, f.screens()), Err(Refusal::NoSpace));
+    assert_eq!(s.add_image(big, None, f.screens()), Err(Refusal::NoSpace));
     assert_eq!(
         s.image_count(),
         2,
@@ -118,7 +118,10 @@ fn a_refused_kitty_replacement_keeps_the_old_image() {
     let old = add(&mut s, &f, Protocol::KITTY, 8, 16, 7);
     let p = put(&mut s, &f, old, 2, 1);
     let bigger = image(Protocol::KITTY, 8, 64, 7);
-    assert_eq!(s.add_image(bigger, f.screens()), Err(Refusal::NoSpace));
+    assert_eq!(
+        s.add_image(bigger, None, f.screens()),
+        Err(Refusal::NoSpace)
+    );
     assert!(s.image(MAIN, old).is_some());
     assert!(s.placement(MAIN, p).is_some());
     // a replacement that fits takes the old one's bytes and placements
@@ -143,6 +146,7 @@ fn images_go_in_the_eviction_order_rank_by_rank() {
                 transient: true,
                 ..image(Protocol::KITTY, 8, 16, 5)
             },
+            None,
             f.screens(),
         )
         .unwrap();
@@ -499,7 +503,7 @@ fn the_alternate_buffer_empties_both_ways_and_ris_empties_both() {
         alt: f.rows(),
     };
     let alt = s
-        .add_image(image(Protocol::KITTY, 8, 16, 1), screens)
+        .add_image(image(Protocol::KITTY, 8, 16, 1), None, screens)
         .unwrap();
     assert_ne!(main, alt, "kitty ids are per buffer");
     assert_eq!(s.image_count(), 2);
@@ -592,7 +596,7 @@ fn place_refuses_what_its_bounds_refuse() {
         width: 0,
         ..image(Protocol::KITTY, 8, 16, 2)
     };
-    assert_eq!(s.add_image(bad, f.screens()), Err(Refusal::Invalid));
+    assert_eq!(s.add_image(bad, None, f.screens()), Err(Refusal::Invalid));
 }
 
 #[test]
@@ -619,4 +623,133 @@ fn a_box_fits_and_centres_its_picture() {
     s.place(k, wide, f.screens(), COLS).unwrap();
     let p = &s.frame(f.rows(), COLS)[1];
     assert_eq!((p.cols, p.rows, p.width, p.height), (4, 2, 32, 32));
+}
+
+#[test]
+fn an_opaque_sixel_placed_twice_over_itself_keeps_its_image() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    let six = add(&mut s, &f, Protocol::SIXEL, 8, 16, 0);
+    put(&mut s, &f, six, 0, 0);
+    // the second placement's cover cut removes the first, its image's last
+    put(&mut s, &f, six, 0, 0);
+    assert_eq!(s.image_count(), 1, "the image being placed is never freed");
+    assert_eq!(shown(&s, &f), [(0, 0, 1, 1, six)]);
+    assert_eq!(s.bytes(), ONE_CELL);
+}
+
+#[test]
+fn a_reservation_holds_its_bytes_and_the_image_it_replaces() {
+    let f = Fake::new(4);
+    let mut s = store(3 * ONE_CELL);
+    let old = add(&mut s, &f, Protocol::KITTY, 8, 16, 7);
+    let other = add(&mut s, &f, Protocol::KITTY, 8, 16, 8);
+    // two cells for id 7, counting the one it holds: one more is reserved
+    let mut r = s
+        .reserve(Protocol::KITTY, 7, 2 * ONE_CELL, f.screens())
+        .unwrap();
+    assert_eq!(r.bytes(), ONE_CELL);
+    assert_eq!(s.bytes(), 3 * ONE_CELL);
+    // the budget is full, and what may go is the other image alone: the
+    // held one is never evicted
+    assert_eq!(s.grow(&mut r, ONE_CELL, f.screens()), Ok(()));
+    assert!(s.image(MAIN, other).is_none(), "the unheld image made room");
+    assert!(s.image(MAIN, old).is_some(), "the held image stays");
+    assert_eq!(s.grow(&mut r, ONE_CELL, f.screens()), Err(Refusal::NoSpace));
+    // stored, the new image takes the reservation and the old one's bytes
+    let new = s
+        .add_image(image(Protocol::KITTY, 8, 48, 7), Some(r), f.screens())
+        .unwrap();
+    assert!(s.image(MAIN, old).is_none());
+    assert_eq!(s.bytes(), 8 * 48 * 4 + IMAGE_OVERHEAD);
+    assert_eq!(s.find_image(7, 0), Some(new));
+}
+
+#[test]
+fn a_reservation_given_back_frees_its_bytes_and_its_hold() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    let old = add(&mut s, &f, Protocol::KITTY, 8, 16, 7);
+    let r = s.reserve(Protocol::KITTY, 7, 4096, f.screens()).unwrap();
+    assert_eq!(s.image(MAIN, old).map(|i| i.hold), Some(1));
+    s.unreserve(r);
+    assert_eq!(s.image(MAIN, old).map(|i| i.hold), Some(0));
+    assert_eq!(s.bytes(), ONE_CELL);
+    // a refused image gives its reservation back too
+    let r = s.reserve(Protocol::SIXEL, 0, 4096, f.screens()).unwrap();
+    let bad = NewImage {
+        width: 0,
+        ..image(Protocol::SIXEL, 8, 16, 0)
+    };
+    assert_eq!(
+        s.add_image(bad, Some(r), f.screens()),
+        Err(Refusal::Invalid)
+    );
+    assert_eq!(s.bytes(), ONE_CELL);
+}
+
+#[test]
+fn a_command_finds_an_image_by_id_or_newest_number_and_stamps_it() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    let numbered = |id, number| NewImage {
+        number,
+        ..image(Protocol::KITTY, 8, 16, id)
+    };
+    let a = s.add_image(numbered(1, 5), None, f.screens()).unwrap();
+    let b = s.add_image(numbered(3, 5), None, f.screens()).unwrap();
+    assert_eq!(s.find_image(1, 0), Some(a));
+    assert_eq!(s.find_image(0, 5), Some(b), "the newest of the number");
+    assert_eq!(s.find_image(0, 0), None);
+    assert_eq!(s.free_id(), 2);
+    let clock = s.clock;
+    s.touch(a);
+    assert_eq!(s.clock, clock + 1, "naming an image is a stream event");
+    assert_eq!(s.image(MAIN, a).map(|i| i.used_at), Some(clock + 1));
+    s.drop_image(b);
+    assert_eq!(s.find_image(0, 5), Some(a), "then the older one");
+}
+
+#[test]
+fn a_box_is_bounded_on_each_side_not_by_its_area() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    let k = add(&mut s, &f, Protocol::KITTY, 8, 16, 1);
+    let at = |cols, rows| Place {
+        cols,
+        rows,
+        ..Place::default()
+    };
+    assert!(s.place(k, at(200, 200), f.screens(), COLS).is_ok());
+    assert_eq!(
+        s.place(k, at(10_001, 1), f.screens(), COLS),
+        Err(Refusal::Invalid)
+    );
+    assert!(s.place(k, at(10_000, 1), f.screens(), COLS).is_ok());
+}
+
+#[test]
+fn a_cut_placements_pieces_stay_beneath_a_later_picture() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    let a = add(&mut s, &f, Protocol::SIXEL, 24, 16, 0);
+    // a picture with clear pixels covers nothing beneath it
+    let clear = NewImage {
+        pixels: vec![0x8000_0080; 24 * 16],
+        ..image(Protocol::SIXEL, 24, 16, 0)
+    };
+    let b = s.add_image(clear, None, f.screens()).unwrap();
+    put(&mut s, &f, a, 0, 0);
+    put(&mut s, &f, b, 0, 0);
+    s.cut(0, 1, 1, f.rows(), COLS);
+    let order: Vec<(ImageKey, u32)> = s
+        .frame(f.rows(), COLS)
+        .iter()
+        .map(|p| (p.image, p.col))
+        .collect();
+    assert_eq!(
+        order,
+        [(a, 0), (a, 2), (b, 0), (b, 2)],
+        "a's pieces stay where a was, beneath b's"
+    );
 }

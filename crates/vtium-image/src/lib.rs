@@ -48,4 +48,4 @@ pub use bounds::{
 pub use handler::{Context, Handler, Intro, Limits, ReplyKind, Switches};
 pub use image::{ImageKey, LineKey, NewImage, Pixels, Place, PlacementKey, Refusal};
 pub use rules::{Layer, Protocol, RegionScroll, Rules, rules};
-pub use store::{FramePlacement, Region, Rows, Screens, Store};
+pub use store::{FramePlacement, Region, Reservation, Rows, Screens, Store};

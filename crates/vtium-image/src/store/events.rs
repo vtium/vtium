@@ -68,6 +68,9 @@ impl Store {
     /// placements whose rules say text cuts them lose those cells (D3).
     pub fn cut(&mut self, y: usize, x0: usize, x1: usize, rows: Rows<'_>, cols: usize) {
         let to_u32 = |v: usize| u32::try_from(v).unwrap_or(u32::MAX);
+        if !self.has_cuttable() {
+            return;
+        }
         self.cut_where(to_u32(y), to_u32(x0), to_u32(x1), rows, cols, |p| {
             rules(p.protocol.0).cut_by_text
         });
@@ -96,21 +99,18 @@ impl Store {
         }
         let last_col = u32::try_from(cols.saturating_sub(1)).unwrap_or(u32::MAX);
         let x1 = x1.min(last_col);
-        let tallest = buf
-            .placements
-            .values()
-            .filter(|p| cuts(p))
-            .map(|p| p.rows)
-            .max()
-            .unwrap_or(0);
+        // the placements a cut can reach are anchored at most the tallest
+        // of them, less one row, above the row
+        let (_, tallest) = buf.tallest();
         let mut hits: Vec<(PlacementKey, u32)> = Vec::new();
-        let mut visited = buf.placements.len();
+        let mut visited = 0usize;
         for k in 0..tallest {
             let Some(line) = rows.at(y64.saturating_sub(i64::from(k))) else {
                 break;
             };
             visited = visited.saturating_add(1);
             for &key in buf.by_line.get(&line).into_iter().flatten() {
+                visited = visited.saturating_add(1);
                 let Some(p) = buf.placements.get(&key) else {
                     continue;
                 };
@@ -246,7 +246,7 @@ impl Store {
                     ..o.clone()
                 };
                 if let Some(buf) = self.buffers.get_mut(b) {
-                    buf.placements.insert(k, piece);
+                    buf.put(k, piece);
                     buf.stack_after(k, prev);
                 }
                 if let Some(image) = self.image_mut(b, o.image) {
@@ -261,6 +261,7 @@ impl Store {
             let Some(buf) = self.buffers.get_mut(b) else {
                 return;
             };
+            buf.count_height(k, false);
             if let Some(p) = buf.placements.get_mut(&k) {
                 p.col = col;
                 p.cols = cols;
@@ -269,6 +270,7 @@ impl Store {
                 p.oy = oy;
                 p.revision = revision;
             }
+            buf.count_height(k, true);
             match pc.anchor {
                 Anchor::Line(line) => {
                     buf.attach(k, line);
@@ -476,8 +478,8 @@ impl Store {
     }
 
     /// ED 2, after its erase cut what text cuts: every placement with a row
-    /// on the screen's own lines that no erase but ED 2 reaches is removed,
-    /// its image kept as its rules say (D8).
+    /// on the screen's own lines whose rules say ED 2 removes it goes, its
+    /// image kept as its rules say (D8).
     pub fn erase_screen(&mut self, rows: Rows<'_>) {
         let b = self.active();
         let height = rows.height();
@@ -487,10 +489,17 @@ impl Store {
                 continue;
             };
             let on = top.saturating_add(i64::from(p.rows)) > 0 && top < height;
-            if on && !rules(p.protocol.0).cut_by_text {
+            if on && rules(p.protocol.0).erased_by_clear_screen {
                 self.free_placement(b, key, true);
             }
         }
+    }
+
+    /// Whether a placement of the main buffer is anchored on `line`.
+    pub fn anchored_main(&self, line: LineKey) -> bool {
+        self.buffers
+            .get(MAIN)
+            .is_some_and(|buf| buf.by_line.contains_key(&line))
     }
 
     /// The main buffer's placements anchored on `line`, each with its
