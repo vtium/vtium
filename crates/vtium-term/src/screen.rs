@@ -611,18 +611,28 @@ impl Screen {
     /// the newest at the bottom of them, painted to the screen's width.
     fn pull_from_scrollback(&mut self, n: usize) {
         let cols = self.cols;
+        #[cfg(feature = "images")]
         let mut gone = Vec::new();
         for row in (0..n).rev() {
             let Some(mut line) = self.scrollback.pop_newest() else {
-                break;
+                #[cfg(feature = "images")]
+                self.discard_lines(gone);
+                return;
             };
             line.resize(cols);
+            // The line replaced is one `rotate_down` just made, which holds
+            // no selection and no placement; with images it goes as every
+            // replaced line does, so the store hears of it.
             if let Some(slot) = self.main.get_mut(row) {
+                #[cfg(feature = "images")]
                 gone.push(core::mem::replace(slot, line));
+                #[cfg(not(feature = "images"))]
+                {
+                    *slot = line;
+                }
             }
         }
-        // the lines replaced are ones `rotate_down` just made, which hold
-        // no selection and no placement; they go as every replaced line does
+        #[cfg(feature = "images")]
         self.discard_lines(gone);
     }
 

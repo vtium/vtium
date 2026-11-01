@@ -455,19 +455,16 @@ impl Screen {
         // once with the screen and the rows that could reach it.
         let selection = self.selection.anchors();
         let view = self.scrollback.view_index();
+        let reach = selection
+            .iter()
+            .filter_map(|a| self.scrollback.lines().position(|l| l.id() == a.line))
+            .chain(view);
         // So do the rows a placement is anchored on: a row left to wait
         // takes a new id when it rewraps later, and an anchor carried only
         // by its old id would point at no row (ADR-1003, "Images").
         #[cfg(feature = "images")]
-        let anchored = self.images_oldest_anchored();
-        #[cfg(not(feature = "images"))]
-        let anchored = None;
-        let reach = selection
-            .iter()
-            .filter_map(|a| self.scrollback.lines().position(|l| l.id() == a.line))
-            .chain(view)
-            .chain(anchored)
-            .min();
+        let reach = reach.chain(self.images_oldest_anchored());
+        let reach = reach.min();
         // and the rows a placement above the screen reaches down from
         #[cfg(feature = "images")]
         let margin = rows.saturating_add(self.images_reach());
