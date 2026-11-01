@@ -290,87 +290,154 @@ fn span((image, _, dy): &(Image, i32, i32)) -> (i32, i32) {
     (top, top - image.placement.height as i32)
 }
 
-/// The mark rule (ADR-1302 D3, the maintainer, 2026-11-01): the marks of a
-/// cluster whose ink passes the row's top or bottom edge, `row` in pixels
-/// up from the baseline, move toward the baseline until they fit, and a
-/// mark or a stack of marks that still cannot fit is squeezed vertically
-/// toward its base letter until it does. Marks over the base's middle are
-/// one stack and those under it another; a stack moves as one, no closer
-/// to its base letter than the letter's ink, and squeezes about its edge
-/// nearest the letter. Base letters never move, and a mark's sideways
-/// place stays where the shaper put it.
+/// The mark rule (ADR-1302 D3, the maintainer's decisions of 2026-11-01):
+/// the marks of a cluster, `row` its top and bottom edges in pixels up
+/// from the baseline, are fitted to the row. Marks over the middle of the
+/// base letter's ink form one stack and those under it another. A stack
+/// whose ink passes the row's edge moves toward the baseline until it
+/// fits, unless that would lay its ink on the letter's or pass the row's
+/// other edge: there the letter's own ink already reaches the edge the
+/// marks must go past, and the whole cluster, letter and marks together,
+/// is scaled vertically just enough to fit the row, keeping the font's
+/// arrangement. Otherwise base letters never move, and a mark keeps the
+/// sideways place the shaper gave it.
 fn fit_marks(parts: &mut [(Image, i32, i32)], marks: &[bool], row: (i32, i32)) {
     let (row_top, row_bottom) = row;
-    let base: Vec<(i32, i32)> = parts
-        .iter()
-        .zip(marks)
-        .filter(|&(p, &m)| !m && p.0.placement.height > 0)
-        .map(|(p, _)| span(p))
+    let inked = |p: &(Image, i32, i32)| p.0.placement.height > 0 && p.0.placement.width > 0;
+    let bases: Vec<usize> = (0..parts.len())
+        .filter(|&i| marks.get(i) == Some(&false) && parts.get(i).is_some_and(inked))
         .collect();
-    let base_top = base.iter().map(|s| s.0).max().unwrap_or(0);
-    let base_bottom = base.iter().map(|s| s.1).min().unwrap_or(0);
+    let base_ink = ink_set(parts, &bases);
+    let (base_top, base_bottom) = edges(parts, &bases).unwrap_or((0, 0));
     let middle = (base_top + base_bottom) / 2;
+    let mut scale = false;
     for above in [true, false] {
         let stack: Vec<usize> = (0..parts.len())
-            .filter(|&i| marks.get(i) == Some(&true))
-            .filter(|&i| parts.get(i).is_some_and(|p| p.0.placement.height > 0))
+            .filter(|&i| marks.get(i) == Some(&true) && parts.get(i).is_some_and(inked))
             .filter(|&i| {
                 let (t, b) = parts.get(i).map(span).unwrap_or_default();
                 (t + b >= 2 * middle) == above
             })
             .collect();
-        let edges = |parts: &[(Image, i32, i32)]| {
+        let Some((top, bottom)) = edges(parts, &stack) else {
+            continue;
+        };
+        let over = if above {
+            top - row_top
+        } else {
+            row_bottom - bottom
+        };
+        if over <= 0 {
+            continue;
+        }
+        let shift = if above { -over } else { over };
+        let fits = if above {
+            bottom - over >= row_bottom
+        } else {
+            top + over <= row_top
+        };
+        let touches = |shift: i32| {
             stack
                 .iter()
-                .filter_map(|&i| parts.get(i).map(span))
-                .fold((i32::MIN, i32::MAX), |(t, b), (t2, b2)| {
-                    (t.max(t2), b.min(b2))
-                })
+                .filter_map(|&i| parts.get(i))
+                .map(|p| overlap(p, shift, &base_ink))
+                .sum::<usize>()
         };
-        let (top, bottom) = edges(parts);
-        if stack.is_empty() {
-            continue;
-        }
-        // the move toward the baseline, no further than the base's ink
-        let shift = if above {
-            (top - row_top).min(bottom - base_top).max(0)
-        } else {
-            (row_bottom - bottom).min(base_bottom - top).max(0)
-        };
-        for &i in &stack {
-            if let Some(p) = parts.get_mut(i) {
-                p.2 += if above { -shift } else { shift };
+        if fits && touches(shift) <= touches(0) {
+            for &i in &stack {
+                if let Some(p) = parts.get_mut(i) {
+                    p.2 += shift;
+                }
             }
-        }
-        let (top, bottom) = edges(parts);
-        let (anchor, far, limit) = if above {
-            (bottom.min(row_top - 1), top, row_top)
         } else {
-            (top.max(row_bottom + 1), bottom, row_bottom)
-        };
-        if (above && far <= limit) || (!above && far >= limit) {
-            continue;
+            scale = true;
         }
-        let f = (limit - anchor) as f32 / (far - anchor) as f32;
-        for &i in &stack {
-            if let Some(p) = parts.get_mut(i) {
-                squeeze(p, anchor, f);
+    }
+    if !scale {
+        return;
+    }
+    let all: Vec<usize> = (0..parts.len())
+        .filter(|&i| parts.get(i).is_some_and(inked))
+        .collect();
+    let Some((top, bottom)) = edges(parts, &all) else {
+        return;
+    };
+    let (to_top, to_bottom) = (top.min(row_top), bottom.max(row_bottom));
+    if top <= bottom || (to_top, to_bottom) == (top, bottom) {
+        return;
+    }
+    let f = (to_top - to_bottom) as f32 / (top - bottom) as f32;
+    for &i in &all {
+        if let Some(p) = parts.get_mut(i) {
+            remap(p, bottom, to_bottom, f);
+        }
+    }
+}
+
+/// The top and bottom edges of `parts`' `which`, in pixels up from the
+/// baseline; `None` for none.
+fn edges(parts: &[(Image, i32, i32)], which: &[usize]) -> Option<(i32, i32)> {
+    which
+        .iter()
+        .filter_map(|&i| parts.get(i).map(span))
+        .reduce(|(t, b), (t2, b2)| (t.max(t2), b.min(b2)))
+}
+
+/// Each inked pixel of `parts`' `which`, as its column and its row up from
+/// the baseline, the row's top edge.
+fn ink_set(parts: &[(Image, i32, i32)], which: &[usize]) -> std::collections::BTreeSet<(i32, i32)> {
+    let mut out = std::collections::BTreeSet::new();
+    for p in which.iter().filter_map(|&i| parts.get(i)) {
+        for_ink(p, 0, |x, y| {
+            out.insert((x, y));
+        });
+    }
+    out
+}
+
+/// How many of `part`'s inked pixels, moved up by `shift`, land on `ink`.
+fn overlap(
+    part: &(Image, i32, i32),
+    shift: i32,
+    ink: &std::collections::BTreeSet<(i32, i32)>,
+) -> usize {
+    let mut n = 0;
+    for_ink(part, shift, |x, y| {
+        if ink.contains(&(x, y)) {
+            n += 1;
+        }
+    });
+    n
+}
+
+/// Calls `f` with the column and the row up from the baseline of each
+/// pixel `part` inks, moved up by `shift`.
+fn for_ink(part: &(Image, i32, i32), shift: i32, mut f: impl FnMut(i32, i32)) {
+    let (image, dx, dy) = part;
+    let w = image.placement.width as usize;
+    for (row, line) in image.data.chunks(w.max(1)).enumerate() {
+        for (col, &p) in line.iter().enumerate() {
+            if p > 0 {
+                f(
+                    dx + image.placement.left + col as i32,
+                    dy + shift + image.placement.top - row as i32,
+                );
             }
         }
     }
 }
 
-/// `part`'s mask squeezed vertically by `f` about the row `anchor`, in
-/// pixels up from the baseline: each row of the result the average of the
+/// `part`'s mask scaled vertically by `f`, its row `from` up from the
+/// baseline going to row `to`: each row of the result the average of the
 /// rows it covers.
-fn squeeze(part: &mut (Image, i32, i32), anchor: i32, f: f32) {
+fn remap(part: &mut (Image, i32, i32), from: i32, to: i32, f: f32) {
     let (image, _, dy) = part;
     let (w, h) = (
         image.placement.width as usize,
         image.placement.height as i32,
     );
     let top = *dy + image.placement.top;
-    let map = |y: i32| anchor as f32 + (y - anchor) as f32 * f;
+    let map = |y: i32| to as f32 + (y - from) as f32 * f;
     let (new_top, new_bottom) = (map(top), map(top - h));
     let (hi, lo) = (
         new_top.max(new_bottom).ceil() as i32,
@@ -381,7 +448,7 @@ fn squeeze(part: &mut (Image, i32, i32), anchor: i32, f: f32) {
     for r in 0..rows {
         // the destination row's span, then the source's, in y up
         let (d_hi, d_lo) = ((hi - r as i32) as f32, (hi - r as i32 - 1) as f32);
-        let back = |y: f32| anchor as f32 + (y - anchor as f32) / f;
+        let back = |y: f32| from as f32 + (y - to as f32) / f;
         let (s_hi, s_lo) = (back(d_hi).max(back(d_lo)), back(d_hi).min(back(d_lo)));
         let span = (s_hi - s_lo).max(f32::EPSILON);
         for x in 0..w {

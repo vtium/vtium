@@ -230,116 +230,124 @@ fn a_form_the_font_does_not_join_is_left_out() {
     assert!(o.strikes[0].clusters.is_empty());
 }
 
-/// Test Mono with a circumflex (U+0302), a bar across the whole cell on
-/// top of a narrow stem at its right end, beside `A`'s ink, 250 units tall from 900 above the baseline, and a
-/// dot below (U+0323) 150 tall, 350 under it, each of no advance: marks
-/// HarfRust places on `A`, whose ink is 0 to 700 units.
-fn marked() -> OutlineRequest {
+/// Test Mono with letters and marks of no advance, each a bar, which
+/// HarfRust places on their letters: `x` (0 to 400 units) and a dot above
+/// (U+0307) 380 units tall; `A` (0 to 700) and a dot below (U+0323)
+/// from 100 to 150 units under the baseline; an alef (U+0627) reaching 800, near the row's top, and a damma
+/// (U+064F) 200 tall; and a jeem (U+062C) from 200 below the baseline,
+/// near the row's bottom, to 400, and a kasratan (U+064D) 150 tall.
+fn marked(keys: &[&[char]], height: u32) -> OutlineRequest {
     let mut f = ttf::test_mono();
-    let rect = |x0, y0, x1, y1| vec![(x0, y0), (x0, y1), (x1, y1), (x1, y0)];
-    f.glyphs.push(ttf::Glyph {
-        advance: 0,
-        contours: vec![rect(-600, 1050, 0, 1150), rect(-100, 900, 0, 1050)],
-    });
-    f.glyphs.push(ttf::Glyph::rect(0, -400, -500, -200, -350));
-    f.cmap.push((0x302, 8));
-    f.cmap.push((0x323, 9));
+    let mut add = |cp: u32, g: ttf::Glyph| {
+        f.glyphs.push(g);
+        let i = u16::try_from(f.glyphs.len() - 1).expect("a glyph id");
+        f.cmap.push((cp, i));
+    };
+    add(0x78, ttf::Glyph::rect(600, 100, 0, 500, 400));
+    add(0x307, ttf::Glyph::rect(0, -350, 0, -250, 380));
+    add(0x323, ttf::Glyph::rect(0, -400, -150, -200, -100));
+    add(0x627, ttf::Glyph::rect(600, 250, 0, 350, 800));
+    add(0x64f, ttf::Glyph::rect(0, -400, 0, -200, 200));
+    add(0x62c, ttf::Glyph::rect(600, 100, -200, 500, 400));
+    add(0x64d, ttf::Glyph::rect(0, -400, 0, -200, 150));
     f.cmap.sort_unstable();
     OutlineRequest {
         font: f.build().into(),
         family: "Test Mono".to_owned(),
-        cells: vec![(0, 20)],
-        cover: vec![(0x41, 0x41)],
-        clusters: vec![
-            ask(&['A', '\u{302}'], Kind::Marks),
-            ask(&['A', '\u{323}'], Kind::Marks),
-        ],
+        cells: vec![(0, height)],
+        cover: Vec::new(),
+        clusters: keys.iter().map(|k| ask(k, Kind::Marks)).collect(),
         baselines: Vec::new(),
     }
 }
 
-// ADR-1302 D3 (the maintainer, 2026-11-01): a mark whose ink passes the
-// row moves toward the baseline, no closer to its letter than the
-// letter's ink, and squeezes toward it where it still cannot fit; the base
-// letter never moves. In the 12x20 cell, baseline 16, A's ink fills rows
-// 2 to 15: the circumflex, placed above A by HarfRust and cut away whole
-// at the row's top without the rule, is squeezed into rows 0 to 2, and
-// the dot below ends in the cell's bottom rows
+/// Row `y` of a glyph one 12-pixel cell wide.
+fn row(p: &Placed, y: usize) -> &[u8] {
+    &p.pixels[y * 12..(y + 1) * 12]
+}
+
+// ADR-1302 D3: a mark that passes the row and can move in without its ink
+// touching its letter's moves toward the baseline until it fits, its
+// letter untouched. In the 12x20 cell, baseline 16, x's ink fills rows 8
+// to 15, and the dot above, placed from 9 to 16.4 pixels up, ends a row
+// over the top; moved in, it fills rows 0 to 7
 // covers: text.overhang
 #[test]
-fn a_mark_that_passes_the_row_moves_in_and_squeezes() {
-    let o = rasterise(&marked()).expect("rasterised");
-    let s = &o.strikes[0];
-    let a = codepoint(&o, 'A');
-    let rows = |p: &Placed, y: usize| p.pixels[y * 12..(y + 1) * 12].to_vec();
-    let inked = |p: &Placed, y: usize| rows(p, y).iter().any(|&v| v > 0);
-    let above = cluster(&o, &['A', '\u{302}']).expect("A and the circumflex");
-    let below = cluster(&o, &['A', '\u{323}']).expect("A and the dot below");
-    assert_eq!(s.baseline, 16);
+fn a_mark_that_passes_the_row_moves_in() {
+    let o = rasterise(&marked(&[&['x', '\u{307}']], 20)).expect("rasterised");
+    assert_eq!(o.strikes[0].baseline, 16);
+    let x = codepoint(&o, 'x');
+    let g = cluster(&o, &['x', '\u{307}']).expect("x and its dot");
     assert!(
-        inked(above, 0) && inked(above, 1),
-        "the circumflex in the top rows"
+        row(g, 0)[5] > 0 && row(g, 7)[5] > 0,
+        "the dot from row 0 to row 7"
     );
-    // squeezed whole, its bar is on top; cut, only its stem would show; and
-    // moved past A's top, its stem would ink A's rows beside A
-    let wide = rows(above, 0).iter().filter(|&&v| v > 0).count();
-    assert!(
-        wide >= 10,
-        "the bar across the top row: {:?}",
-        rows(above, 0)
-    );
-    assert!(!inked(a, 0) && !inked(a, 1), "A alone leaves them clear");
-    assert!(inked(below, 19), "the dot below ends in the bottom row");
-    for y in 3..16 {
-        assert_eq!(
-            rows(above, y),
-            rows(a, y),
-            "A's row {y} under the circumflex"
-        );
-        assert_eq!(rows(below, y), rows(a, y), "A's row {y} over the dot");
+    for y in 8..20 {
+        assert_eq!(row(g, y), row(x, y), "x's row {y}");
     }
 }
 
-// ADR-1302 D2: a joining letter of an outline font is stretched sideways
-// to its cells before it is rasterised, its pen on the cell's left edge,
-// so its joining strokes meet the next letter's. Test Shaping's medial beh
-// is a bar across its whole advance, 600 units, 11.7 pixels in a 12-pixel
-// cell: stretched, it covers the cell's last column whole, where unstretched
-// it covered 0.7 of it. Lam-alef, a ligature shaping places, keeps its
-// pen on the left edge, unstretched and uncentred, its bar from 1.95
-// pixels
+// ADR-1302 D3 (the maintainer, 2026-11-01): where the letter's own ink
+// already reaches the edge its marks must pass, the whole stack, letter
+// and marks, is scaled vertically just enough to fit the row, keeping the
+// font's arrangement. The alef alone fills rows 0 to 15 of its stem's
+// columns, 5 and 6; with its damma, columns 4 to 7, the damma takes the top
+// rows and the alef still ends on the baseline. The jeem alone fills rows
+// 8 to 19 of columns 2 to 9; with its kasratan, columns 4 to 7, it keeps
+// its top row and the kasratan takes the bottom rows
 // covers: text.overhang
 #[test]
-fn a_joining_letter_is_stretched_to_its_cell() {
-    let medial = [ZWJ, BEH, ZWJ];
-    let lam_alef = [LAM, ALEF];
-    let o = rasterise(&request(vec![
-        ask(&medial, Kind::Joining),
-        ask(&lam_alef, Kind::Joining),
-    ]))
+fn a_stack_whose_letter_reaches_the_edge_is_scaled_to_fit() {
+    let o = rasterise(&marked(
+        &[&['\u{627}', '\u{64f}'], &['\u{62c}', '\u{64d}']],
+        20,
+    ))
     .expect("rasterised");
-    let s = &o.strikes[0];
-    assert_eq!((s.width, s.height), (12, 20));
-    let medi = cluster(&o, &medial).expect("the medial beh");
-    let bar_row = 10;
-    let row = &medi.pixels[bar_row * 12..(bar_row + 1) * 12];
-    assert_eq!(row, &[255; 12], "the bar fills its cell");
-    assert!(medi.ink.is_none(), "its ink lies inside its cell");
-    let la = cluster(&o, &lam_alef).expect("lam-alef");
-    let row = &la.pixels[bar_row * 24..(bar_row + 1) * 24];
-    assert_eq!(row[0], 0, "left of the ligature's bar");
+    let alef = codepoint(&o, '\u{627}');
+    let g = cluster(&o, &['\u{627}', '\u{64f}']).expect("alef and damma");
+    assert_eq!(row(alef, 0)[4], 0, "the alef alone has no ink in column 4");
+    assert!(row(g, 0)[4] > 0, "the damma in the top row");
     assert!(
-        row[1] > 0 && row[2] == 255,
-        "its bar from 1.95 pixels: {row:?}"
+        row(g, 15)[5] > 0 && row(g, 16)[5] == 0,
+        "the alef ends on the baseline"
     );
-    // the isolated beh, a codepoint, stretches too: 100 to 500 units of an
-    // advance of 600 become 2 to 10 pixels of 12
-    let iso = codepoint(&o, BEH);
-    let row = &iso.pixels[bar_row * 12..(bar_row + 1) * 12];
-    assert_eq!(
-        (row[1], row[2], row[9], row[10]),
-        (0, 255, 255, 0),
-        "{row:?}"
+    let gap = (1..15).any(|y| row(g, y)[4] == 0 && row(g, y)[5] > 0);
+    assert!(
+        gap,
+        "the alef's stem below the damma, as the font arranged them"
+    );
+    let jeem = codepoint(&o, '\u{62c}');
+    let g = cluster(&o, &['\u{62c}', '\u{64d}']).expect("jeem and kasratan");
+    assert!(
+        row(jeem, 19)[2] > 0,
+        "the jeem alone reaches the bottom row"
+    );
+    let top = |p: &Placed| (0..20).find(|&y| row(p, y)[2] > 0);
+    assert_eq!(top(g), top(jeem), "the jeem keeps its top row");
+    assert_eq!(row(g, 19)[2], 0, "the jeem lifted off the bottom row");
+    assert!(row(g, 19)[5] > 0, "the kasratan in the bottom row");
+}
+
+// a letter and a mark that fit the row are drawn as the shaper placed
+// them: in a 32-pixel cell, baseline 26, A fills rows 4 to 25 and its dot
+// below lies well inside the 6 rows under the baseline
+#[test]
+fn a_letter_and_mark_that_fit_are_untouched() {
+    let o = rasterise(&marked(&[&['A', '\u{323}']], 32)).expect("rasterised");
+    assert_eq!(o.strikes[0].baseline, 26);
+    let w = o.strikes[0].width as usize;
+    let rows = |p: &Placed, y: usize| p.pixels[y * w..(y + 1) * w].to_vec();
+    let a = codepoint(&o, 'A');
+    let g = cluster(&o, &['A', '\u{323}']).expect("A and the dot below");
+    for y in 0..26 {
+        assert_eq!(rows(g, y), rows(a, y), "A's row {y}");
+    }
+    let dot: Vec<usize> = (26..32)
+        .filter(|&y| rows(g, y).iter().any(|&v| v > 0))
+        .collect();
+    assert!(
+        !dot.is_empty() && !dot.contains(&31),
+        "the dot inside the row: {dot:?}"
     );
 }
 
