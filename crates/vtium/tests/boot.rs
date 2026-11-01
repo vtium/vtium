@@ -403,20 +403,27 @@ impl Harness {
         any.downcast_mut::<Memory>().expect("the memory device")
     }
 
-    /// The pixels of a frame drawn from the screen as it is now. The
-    /// display is asked to draw whole twice, and the second frame is the
-    /// one: a display has one frame on its way at a time, so the second is
-    /// taken from the screen after the first came back, and a frame of an
-    /// older state, still on its way, can only be the first.
+    /// Turns the loop until no display has a frame composing, so the
+    /// next frame a display shows is composed from the screen as it is
+    /// then.
+    fn settled(&mut self) {
+        assert!(
+            self.until(BOUND, |a| a.heads().iter().all(|h| h.frames_out() == 0)),
+            "no frame composing"
+        );
+    }
+
+    /// The pixels of a frame drawn whole from the screen as it is now,
+    /// with no frame left composing after it.
     fn drawn_now(&mut self) -> Vec<u8> {
-        for _ in 0..2 {
-            let before = self.memory().frames;
-            self.memory().events.push(Event::Redraw(ID));
-            assert!(
-                self.until_memory(BOUND, |m| m.frames > before),
-                "a frame drawn"
-            );
-        }
+        self.settled();
+        let before = self.memory().frames;
+        self.memory().events.push(Event::Redraw(ID));
+        assert!(
+            self.until_memory(BOUND, |m| m.frames > before),
+            "a frame drawn"
+        );
+        self.settled();
         self.memory().pixels.clone()
     }
 

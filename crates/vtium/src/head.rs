@@ -685,6 +685,13 @@ impl Head {
         all
     }
 
+    /// How many of the head's displays have a frame composing on its
+    /// render thread, for tests: none, and the next frame a display shows
+    /// is one composed after it.
+    pub fn frames_out(&self) -> usize {
+        self.views.values().filter(|v| v.away()).count()
+    }
+
     /// The URI the shown console's overlay row shows, for tests.
     pub fn link_overlay(&self) -> Option<String> {
         let terminal = &self.console.term.terminal;

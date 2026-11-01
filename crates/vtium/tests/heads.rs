@@ -1557,10 +1557,16 @@ fn answered(app: &App, line: &str) -> bool {
 }
 
 /// The pixels of each display of `s` after the frames the turn just run
-/// asked for: each display's frame count is taken before the turn, and
-/// the loop runs until the head's render thread has handed each display
-/// its next frame, which [`BOUND`] bounds.
+/// asked for: the loop first runs until no display has a frame
+/// composing, so the next frame each display shows is the turn's; each
+/// display's frame count is taken before the turn, and the loop runs
+/// until the head's render thread has handed each display its next
+/// frame, which [`BOUND`] bounds.
 fn next_frames(s: &mut Seat, turn: impl FnOnce(&mut Seat)) -> [Vec<u8>; 2] {
+    assert!(
+        s.until(BOUND, |a| a.heads().iter().all(|h| h.frames_out() == 0)),
+        "no frame composing"
+    );
     let before = MIRRORED.map(|node| s.memory(node).frames);
     turn(s);
     for (node, before) in MIRRORED.into_iter().zip(before) {
