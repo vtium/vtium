@@ -234,7 +234,9 @@ An example. A program shows kitty picture 2, then a sixel chart over it, then ki
 
 The store hands the frame its placements already in this order (D9), and the compositor draws them as handed.
 
-The C reference drew every sixel above every kitty placement at equal z, and kitty placements among themselves by image id, lower first, as the kitty spec asks. vtium keeps the second and lists the first as a departure. Twenty-eight of the C reference's cases place a sixel before a kitty picture and print both at z 0 in one block, so their goldens can differ from vtium's draw order; the build of the image pipeline confirms each when it runs them and adds those that differ to the conformance runner's departures list: `img-alt-1049`, `img-dch`, `img-decsed`, `img-decsel`, `img-decstr`, `img-discard-alt`, `img-discard-sb`, `img-dl`, `img-ech`, `img-ed0`, `img-ed1`, `img-ed2`, `img-ed3`, `img-el0`, `img-el1`, `img-el2`, `img-ich`, `img-il`, `img-print`, `img-region`, `img-resize`, `img-resize-shrink`, `img-scroll-down`, `img-scroll-down-sb`, `img-scroll-up`, `img-sixel-over`, `kit-evict` and `kit-replace-refused`, in both the screen and the frame view.
+The C reference drew every sixel above every kitty placement at equal z, and kitty placements among themselves by image id, lower first, as the kitty spec asks. vtium keeps the second and lists the first as a departure. Twenty-six of the C reference's cases place a sixel before a kitty picture and print both at z 0 in one block, so their goldens can differ from vtium's draw order; the build of the image pipeline confirms each when it runs them and adds those that differ to the conformance runner's departures list: `img-alt-1049`, `img-dch`, `img-decsed`, `img-decsel`, `img-decstr`, `img-discard-alt`, `img-discard-sb`, `img-dl`, `img-ech`, `img-ed0`, `img-ed1`, `img-el0`, `img-el1`, `img-el2`, `img-ich`, `img-il`, `img-print`, `img-region`, `img-resize`, `img-resize-shrink`, `img-scroll-down`, `img-scroll-down-sb`, `img-scroll-up`, `img-sixel-over`, `kit-evict` and `kit-replace-refused`, in both the screen and the frame view.
+
+> Edited 2026-11-01: `img-ed2` and `img-ed3` leave the list of cases that can differ in draw order. The image build's stand-in test compares each case exactly where it can, and both match the C reference's goldens exactly, since after ED 2 and ED 3 nothing is left whose order could differ, so neither needs a set comparison. The paragraph counted twenty-eight cases and named both; the earlier text is in git at 37f8563.
 
 The figure shows the layers, the order within a layer, and what one erase does to each kind of placement.
 
@@ -356,16 +358,22 @@ vtium's performance targets are its own, set and measured on vtium (the maintain
 - **Tier 1:** the corpus's image cases pass through vtium-replay built with `images`, through the conformance runner, apart from the draw-order cases D4 names, and the capability probes that need `images` pass in that build and fail without it.
 - **Coverage:** each test that drives an `image.*` row of ADR-1000 through vtium-image carries its `covers:` tag.
 
-### Passages this record changes once accepted
+### Passages this record changes
 
-These passages say something this record decides otherwise. Each changes in its owner's change after ADR-1100 is accepted; this record edits none of them.
+These passages said something this record decides otherwise. Each changes in its owner's change, and this record edits none of them. These changed on 2026-11-01, after the maintainer accepted this record:
 
-- **`docs/architecture.md`, the crate tree (lines 5-13),** draws vtium-image under the binary alone. Under D1 and D10, vtium-term takes it as an optional dependency, and vtium-render reaches its types through vtium-term's frame.
-- **`docs/architecture.md`, "Eviction follows the bytes",** names "a transmission or a placement" as the events that advance the use clock. D5 adds a command that names an existing image, as the maintainer's determinism comment does.
-- **ADR-1001, "The frame",** says vtium-image "marks its boxes through `Damage`". Under D1 vtium-term marks the boxes the store reports changed, so vtium-image never depends on vtium-term.
+- **`docs/architecture.md`, "Eviction follows the bytes",** named "a transmission or a placement" as the events that advance the use clock. It now names the command that names an existing image too (D5), as the maintainer's determinism comment does.
+- **ADR-1001, "The frame",** said vtium-image "marks its boxes through `Damage`". It now says that vtium-term marks the boxes the store reports changed (D1), with a dated note.
+
+These wait for their owners:
+
+- **`docs/architecture.md`, the crate tree,** draws vtium-image under the binary alone, as the workspace is built today, and says that this record moves it under vtium-term when the image build lands. The tree changes when that build merges (D1, D10).
+
 - **`docs/c-reference.md` §9** says the C reference bounded "a box of 10,000 cells"; the bound was 10,000 cells a side (`libtsm/src/tsm/tsm-image.c:1899`). Its "Check" and "Not planned" are answered by D5.
 - **`tools/conformance/README.md`** says vtium-replay is built without images. D12 gives it a build with `images` and the features that go with it.
 - **The conformance runner's departures list** gains the draw-order cases D4 names.
+
+> Edited 2026-11-01: two of the passages changed after the maintainer accepted this record, and the crate tree waits for the image build, since vtium-term has no vtium-image dependency yet. The section was headed "Passages this record changes once accepted" and said each would change "after ADR-1100 is accepted". The earlier text is in git at 1d51e46.
 
 ### For the operator's check
 
