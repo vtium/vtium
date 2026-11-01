@@ -304,7 +304,10 @@ DEVICE_VARIANTS = ["two-outputs-mirror", "two-cards-mirror", "usb-keyboards"]
 # None) wait for vtium on tty2 with no screen to capture, one under each
 # policy, at a display-wait of 5 s (guest/kmscon-nodisplay.conf). The kiosk
 # switches no VT ("vt_switch": False): its claimed keyboard's VT keys reach
-# its session, and the kiosk check presses them itself.
+# its session, and the kiosk check presses them itself. heads-policy-typo's
+# file holds a policy line vtium cannot read ("policy_line"), which makes
+# it closed and broken (ADR-1401 D7), so its checks expect the closed
+# policy.
 HEAD_VARIANT = dict(DEVICES, agent=True, screens=[])
 NO_DISPLAY = dict({k: v for k, v in HEAD_VARIANT.items() if k not in ("fonts", "frits")},
                   device=None, conf="kmscon-nodisplay.conf", renderer=None, login=False)
@@ -317,6 +320,11 @@ VARIANTS.update({
                                 policy="closed", first="panic", login=False,
                                 checks=["no-login", "getty-fallback"],
                                 failures=["kill", "crash", "hangup"]),
+    "heads-policy-typo": dict(HEAD_VARIANT, heads="tools/tier3/guest/heads/policy-typo.conf",
+                              policy="closed", policy_line="policy = opne",
+                              first="policy-panic", login=False,
+                              checks=["policy-line", "no-login", "getty-fallback"],
+                              failures=["kill"]),
     "heads-closed-unmatched": dict(HEAD_VARIANT,
                                    heads="tools/tier3/guest/heads/closed-unmatched.conf",
                                    policy="closed", first="no-display-notice", login=False,
@@ -342,8 +350,8 @@ VARIANTS.update({
                                  checks=["display-exit"]),
 })
 HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
-                 "heads-closed-unmatched", "heads-off", "heads-kiosk", "heads-closed-nodisplay",
-                 "heads-open-nodisplay"]
+                 "heads-policy-typo", "heads-closed-unmatched", "heads-off", "heads-kiosk",
+                 "heads-closed-nodisplay", "heads-open-nodisplay"]
 
 # Each guest's base image, the make target that provisions it, the console
 # lines its boot ends with before the driver presses Ctrl+Alt+F2, and the
@@ -445,12 +453,14 @@ def evaluate_variant(variant, caps, meta, log):
 
 def check_install(line, impl):
     """The guest's account of what it installed (the TIER3-INSTALL-OK line
-    of guest/setup or guest-sysvinit/setup), as metadata: the tree, and any
-    other field the guest reports, such as guest-sysvinit's init, systemd
-    and udev. Raises when the guest holds a kmscon, libtsm or vtium
-    package, which the base image never installs, or unpacked a tree other
-    than the run's: either would let another build's results stand for
-    this one's."""
+    of guest/setup or guest-sysvinit/setup), as metadata: the tree, the
+    kernel the guest runs (`uname -r`), and any other field the guest
+    reports, such as guest-sysvinit's init, systemd and udev. Raises when
+    the guest holds a kmscon, libtsm or vtium package, which the base image
+    never installs, or unpacked a tree other than the run's: either would
+    let another build's results stand for this one's. Raises too when the
+    guest names no kernel, as the result would not say which kernel it ran
+    on."""
     m = re.search(r"TIER3-INSTALL-OK packages: (.*?);((?: \w+: [^;]*;)*) tree: (\S+)", line)
     if not m:
         raise RuntimeError("cannot read the installed tree from %r" % line)
@@ -460,7 +470,10 @@ def check_install(line, impl):
     if m.group(3) != impl["tree_sha256"]:
         raise RuntimeError("the guest installed tree %s, the run's is %s"
                            % (m.group(3), impl["tree_sha256"]))
-    return dict(re.findall(r" (\w+): ([^;]*);", m.group(2)), tree=m.group(3))
+    fields = dict(re.findall(r" (\w+): ([^;]*);", m.group(2)), tree=m.group(3))
+    if not fields.get("kernel", "").strip():
+        raise RuntimeError("the guest reported no kernel version in %r" % line)
+    return fields
 
 
 def check_guest(variant, installed):
@@ -761,7 +774,8 @@ def run_variant(variant, timing, impl, log):
     passed = sorted(case for case, path in caps.items() if path is None)
     caps = {case: path for case, path in caps.items() if path is not None}
     rss = resident_kb(vm)
-    meta = {"installed": installed, "passed": passed,
+    meta = {"installed": installed, "kernel": installed and installed["kernel"],
+            "passed": passed,
             "displays": displays, "errors": errors, "notes": notes, "device": v["device"],
             "qemu": list(v.get("qemu", ())), "config": conf,
             "cell": console_cell(vm.serial), "cpus": v["cpus"], "memory_mb": v["memory_mb"],
