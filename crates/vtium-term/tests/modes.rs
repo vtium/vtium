@@ -609,6 +609,10 @@ fn mode_45_wraps_backwards_into_the_row_that_wrapped() {
     assert_eq!(t.screen().cursor(), (4, 0));
     t.input(b"\x08");
     assert_eq!(t.screen().cursor(), (3, 0), "the pending wrap is the step");
+    // CUB 2 from a pending wrap ends one column left of the last, where
+    // xterm counts the pending wrap twice and ends on the last column.
+    t.input(b"\x1b[2J\x1b[Habcd\x1b[2D");
+    assert_eq!(t.screen().cursor(), (2, 0), "CUB n from a pending wrap");
     // With DECAWM reset the mode does nothing.
     t.input(b"\x1b[2J\x1b[Habcdefg\x1b[?7l\r\x08");
     assert_eq!(t.screen().cursor(), (0, 1), "DECAWM reset");
