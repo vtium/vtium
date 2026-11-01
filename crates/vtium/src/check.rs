@@ -1201,10 +1201,11 @@ mod tests {
     }
 
     /// `text` checked against the devices `devices`, its notes but the
-    /// outcome and the policy, without the path before them.
+    /// outcome and the policy, without the path before them: a note on a
+    /// line starts with the line.
     fn remarked(name: &str, text: &str, devices: &[Identity]) -> (Vec<String>, Vec<String>) {
         let (file, trust) = heads_fixture(name, text, 0o644);
-        let f = format!("{}: ", file.display());
+        let f = format!("{}:", file.display());
         let m = Machine {
             udev_daemon: true,
             devices: Some(devices),
@@ -1217,7 +1218,10 @@ mod tests {
             .get(..notes)
             .unwrap_or_default()
             .iter()
-            .map(|n| n.strip_prefix(&f).unwrap_or(n).to_owned())
+            .map(|n| {
+                let n = n.strip_prefix(&f).unwrap_or(n);
+                n.strip_prefix(' ').unwrap_or(n).to_owned()
+            })
             .collect();
         (out.counted, notes)
     }
@@ -1335,10 +1339,112 @@ mod tests {
         assert_eq!(
             notes,
             [
-                "No surviving rule matches the input \"Keyboard A\", so it walks the shipped rules' tail and roams into the active head.",
-                "No surviving rule matches the input \"Pad\", so it walks the shipped rules' tail and is ignored.",
+                "No surviving rule matches the input \"Keyboard A\", so it walks the shipped rules' tail and roams into the active head. Fix the file's errors, or add an `input` rule for it to place it anywhere else.",
+                "No surviving rule matches the input \"Pad\", so it walks the shipped rules' tail and is ignored. Fix the file's errors, or add an `input` rule for it if it should reach a head.",
             ]
         );
+    }
+
+    // ADR-1401 D5, D9: under open the display guard gives the first head
+    // the boot display while no head has a display, so the first head no
+    // rule names is not left unreached, with the devices present or away
+    // from them
+    // covers: platform.heads.guards
+    #[test]
+    fn the_first_head_no_rule_names_is_lit_by_the_display_guard() {
+        let file = "version = 1\n[head a]\n[rules]\ninput * -> roaming\n";
+        let lit = "No rule names the head \"a\", so it has a display only when the display guard gives it the boot display, which the guard does under the open policy while no other head has a display. Add a rule that sends a display to it, or remove the head.";
+        let (counted, notes) = remarked("unnamed-guard", file, &present());
+        assert_eq!(counted, [] as [String; 0]);
+        assert_eq!(notes, [format!("2: {lit}")]);
+        let (out, f) = checked("unnamed-guard-away", file, true);
+        assert_eq!(
+            out.notes,
+            [
+                format!("{f}:2: {lit}"),
+                format!("{f}: {AS_WRITTEN}"),
+                format!("{f}: {UNSET}")
+            ]
+        );
+    }
+
+    /// A keyboard and a joystick, each named, and no display.
+    fn dark() -> Vec<Identity> {
+        present().into_iter().skip(1).collect()
+    }
+
+    // ADR-1401 D5, D9: an input that roams while no head can be the active
+    // head reaches no head, under the file's rules and under the shipped
+    // rules' tail alike
+    // covers: platform.heads.focus
+    #[test]
+    fn an_input_that_roams_with_no_active_head_is_noted_as_reaching_none() {
+        let (counted, notes) = remarked(
+            "roams-nowhere",
+            "version = 1\n[head a]\nisolated = yes\n[head b]\n[rules]\ndisplay * -> a\n\
+             input class:joystick -> a\n",
+            &present(),
+        );
+        assert_eq!(counted, [] as [String; 0]);
+        assert_eq!(
+            notes,
+            [
+                "No head that can be the active head has a display present, so a keyboard that roams reaches no head until one lights. Connect a display for a head that is not isolated.",
+                "No rule matches the input \"Keyboard A\", so the open policy lets it roam, but no head that can be the active head has a display present, so it reaches no head. Add an `input` rule that sends it to a head.",
+                "4: No rule names the head \"b\", so no display or input reaches it. Add a rule that sends a display to it, or remove the head.",
+            ]
+        );
+        let (counted, notes) = remarked(
+            "roams-nowhere-tail",
+            "version = 1\n[head a]\n[rules]\ndisplay * -> a\ndisplay * -> b\n",
+            &dark(),
+        );
+        assert_eq!(counted.len(), 2, "{counted:?}");
+        assert!(
+            notes.contains(&"No surviving rule matches the input \"Keyboard A\", so it walks the shipped rules' tail and roams, but no head that can be the active head has a display present, so it reaches no head. Fix the file's errors, or add an `input` rule that sends it to a head.".to_owned()),
+            "{notes:?}"
+        );
+    }
+
+    // ADR-1401 D5, D9: under closed a keyboard sent to `roaming` while no
+    // head can be the active head reaches none, which is a lockout
+    // covers: platform.heads.policy
+    #[test]
+    fn a_closed_keyboard_roaming_with_no_active_head_is_a_lockout() {
+        let (counted, notes) = remarked(
+            "roams-closed",
+            "version = 1\npolicy = closed\n[head a]\n[rules]\ndisplay * -> a\ninput * -> roaming\n",
+            &present(),
+        );
+        assert_eq!(counted, [] as [String; 0]);
+        assert_eq!(
+            notes.first().map(String::as_str),
+            Some(
+                "No keyboard present reaches any head, so under the closed policy nobody can type at this machine. Send a keyboard to a head, or to `roaming` with a head that is not isolated, before you install the file."
+            ),
+            "{notes:?}"
+        );
+    }
+
+    // ADR-1401 D7: a start that runs the shipped default runs none of the
+    // file, so a broken file checked on its machine draws no remark and no
+    // device note
+    #[test]
+    fn a_file_the_start_drops_draws_no_device_notes() {
+        for (name, file) in [
+            (
+                "dropped-version",
+                "version = 2\n[head a]\n[rules]\ninput * -> a\n",
+            ),
+            (
+                "dropped-heads",
+                "version = 1\n[head kiosk]\nrescue = off\n[rules]\ninput * -> kiosk\n",
+            ),
+        ] {
+            let (counted, notes) = remarked(name, file, &present());
+            assert!(!counted.is_empty(), "{name}");
+            assert_eq!(notes, [] as [String; 0], "{name}");
+        }
     }
 
     // ADR-1401 D3, D9: the head file has no `[guards]` and no `rescue`, so

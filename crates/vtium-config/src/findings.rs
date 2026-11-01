@@ -98,7 +98,8 @@ fn reported(id: &Identity) -> Quoted {
 }
 
 /// The remarks about `config`, each with the line it names, `None` for
-/// the file as a whole: a head no rule names (D3); every head isolated
+/// the file as a whole: a head no rule names, which under open the display
+/// guard still lights when it is the first (D3, D9); every head isolated
 /// (D5, D9); and on `devices`, the devices present, when given: no head
 /// that can be the active head with a display, under closed no keyboard
 /// reaching any head, and each device that no rule places and no guard
@@ -136,9 +137,15 @@ pub fn remarks(config: &Config, devices: Option<&[Identity]>) -> Vec<(Option<usi
             let fate = match (id.kind, placed.by, placed.place) {
                 (_, By::Rule(_) | By::NeverDark | By::AntiLockout, _) => None,
                 (Kind::Display, By::NoMatch | By::Tail, _) => Some(Fate::Dark),
-                (Kind::Input, By::NoMatch, Place::Roaming) => Some(Fate::Roams),
+                (Kind::Input, By::NoMatch, Place::Roaming) if placement.focus.is_some() => {
+                    Some(Fate::Roams)
+                }
+                (Kind::Input, By::NoMatch, Place::Roaming) => Some(Fate::RoamsNowhere),
                 (Kind::Input, By::NoMatch, _) => Some(Fate::Ignored),
-                (Kind::Input, By::Tail, Place::Roaming) => Some(Fate::TailRoams),
+                (Kind::Input, By::Tail, Place::Roaming) if placement.focus.is_some() => {
+                    Some(Fate::TailRoams)
+                }
+                (Kind::Input, By::Tail, Place::Roaming) => Some(Fate::TailRoamsNowhere),
                 (Kind::Input, By::Tail, _) => Some(Fate::TailIgnored),
             };
             if let Some(fate) = fate {
@@ -161,12 +168,15 @@ pub fn remarks(config: &Config, devices: Option<&[Identity]>) -> Vec<(Option<usi
             .iter()
             .any(|r| matches!(r.target, Target::Head(t) if t == i));
         if !named {
-            out.push((
-                Some(h.line),
-                Remark::Unnamed {
-                    head: Quoted::new(&h.name),
-                },
-            ));
+            let head = Quoted::new(&h.name);
+            // under open the display guard gives the first head the boot
+            // display while no head has one
+            let remark = if i == 0 && config.policy == Policy::Open {
+                Remark::UnnamedLitByGuard { head }
+            } else {
+                Remark::Unnamed { head }
+            };
+            out.push((Some(h.line), remark));
         }
     }
     out

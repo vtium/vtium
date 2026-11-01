@@ -648,6 +648,10 @@ impl fmt::Display for Remark {
                 f,
                 "No rule names the head {head}, so no display or input reaches it. Add a rule that sends a display to it, or remove the head."
             ),
+            Remark::UnnamedLitByGuard { head } => write!(
+                f,
+                "No rule names the head {head}, so it has a display only when the display guard gives it the boot display, which the guard does under the open policy while no other head has a display. Add a rule that sends a display to it, or remove the head."
+            ),
             Remark::EveryHeadIsolated => write!(
                 f,
                 "Every head is isolated, so no keyboard can switch the VT and no head can be the active head: only a keyboard a head's own rule claims reaches it. Write `{isolated}` on a head if a keyboard should roam to it.",
@@ -672,6 +676,11 @@ impl fmt::Display for Remark {
                     "No rule matches the input {device}, so the open policy lets it roam into the active head. Add an `{input}` rule for it to place it anywhere else.",
                     input = INPUT,
                 ),
+                Fate::RoamsNowhere => write!(
+                    f,
+                    "No rule matches the input {device}, so the open policy lets it roam, but no head that can be the active head has a display present, so it reaches no head. Add an `{input}` rule that sends it to a head.",
+                    input = INPUT,
+                ),
                 Fate::Ignored => write!(
                     f,
                     "No rule matches the input {device}, so the closed policy ignores it. Add an `{input}` rule for it if it should reach a head.",
@@ -679,11 +688,18 @@ impl fmt::Display for Remark {
                 ),
                 Fate::TailRoams => write!(
                     f,
-                    "No surviving rule matches the input {device}, so it walks the shipped rules' tail and roams into the active head."
+                    "No surviving rule matches the input {device}, so it walks the shipped rules' tail and roams into the active head. Fix the file's errors, or add an `{input}` rule for it to place it anywhere else.",
+                    input = INPUT,
+                ),
+                Fate::TailRoamsNowhere => write!(
+                    f,
+                    "No surviving rule matches the input {device}, so it walks the shipped rules' tail and roams, but no head that can be the active head has a display present, so it reaches no head. Fix the file's errors, or add an `{input}` rule that sends it to a head.",
+                    input = INPUT,
                 ),
                 Fate::TailIgnored => write!(
                     f,
-                    "No surviving rule matches the input {device}, so it walks the shipped rules' tail and is ignored."
+                    "No surviving rule matches the input {device}, so it walks the shipped rules' tail and is ignored. Fix the file's errors, or add an `{input}` rule for it if it should reach a head.",
+                    input = INPUT,
                 ),
             },
         }

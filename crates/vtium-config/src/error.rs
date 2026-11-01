@@ -357,13 +357,20 @@ impl Warning {
 pub enum Fate {
     /// A display: it stays dark.
     Dark,
-    /// An input under open: it roams.
+    /// An input under open: it roams into the active head.
     Roams,
+    /// An input under open that roams while no head can be the active
+    /// head: it reaches none.
+    RoamsNowhere,
     /// An input under closed: it is ignored.
     Ignored,
     /// An input of a partly broken open file that walks the shipped rules'
-    /// tail and roams.
+    /// tail and roams into the active head.
     TailRoams,
+    /// An input of a partly broken open file that walks the shipped rules'
+    /// tail and roams while no head can be the active head: it reaches
+    /// none.
+    TailRoamsNowhere,
     /// An input of a partly broken open file that walks the shipped rules'
     /// tail and is ignored.
     TailIgnored,
@@ -375,6 +382,9 @@ pub enum Fate {
 pub enum Remark {
     /// No rule names the head declared on the line it names.
     Unnamed { head: Quoted },
+    /// No rule names the first head of an open file, which the display
+    /// guard gives the boot display while no head has a display.
+    UnnamedLitByGuard { head: Quoted },
     /// Every head is isolated, so no keyboard can switch the VT and no head
     /// can be the active head.
     EveryHeadIsolated,
