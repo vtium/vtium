@@ -1247,7 +1247,11 @@ pub(crate) mod raster {
 }
 
 #[cfg(test)]
-#[expect(clippy::indexing_slicing, reason = "a test fails by panicking")]
+#[expect(
+    clippy::indexing_slicing,
+    clippy::expect_used,
+    reason = "a test fails by panicking"
+)]
 mod tests {
     use super::raster::{Cell, place_drawn};
     use swash::scale::Source;
