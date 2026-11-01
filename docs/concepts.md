@@ -101,7 +101,7 @@ The other VT's owner can be a desktop, a getty or another vtium.
 
 ## Heads: a terminal per display
 
-This section describes the design [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) decides. Proposed still: the panic screen of a closed file with nothing left (vtium/vtium#186), `connector-path:` (vtium/vtium#157), a reload of the head file (vtium/vtium#86), the state under `/run/vtium/<tty>/` (ADR-1401 D10), and `vtiumctl` (ADR-1401 D12).
+This section describes the design [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) decides. Proposed still: `connector-path:` (vtium/vtium#157), a reload of the head file (vtium/vtium#86), the state under `/run/vtium/<tty>/` (ADR-1401 D10), and `vtiumctl` (ADR-1401 D12).
 
 The kernel shows one VT on every display, so vtium keeps its one VT and drives every display from one process as a set of heads. A head is a terminal for one or more displays, with its own inputs, its own look and a fixed number of consoles, each a session of its own, so a small panel and a large monitor each get a grid sized for them, with a keyboard typing into each.
 
