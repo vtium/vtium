@@ -135,7 +135,7 @@ Work happens on this machine first. GitHub's runners are slow, so the steering s
 4. **The author commits locally and runs the gates.** The author does not push or open a PR. The author's report gives the branch, the head commit, the gate results and the departures, the way a PR body would.
 5. **A fresh reviewer reads the diff** (`git diff integration...<branch>`), runs the gates, and plants the defects that the change claims to catch. The author fixes the findings on the same branch, in up to two fix rounds, and a third round goes to a newly briefed agent.
 6. **The reviewed branch merges into `integration`** with `git merge --no-ff`, and the steering session runs the full gates again on the merged tree.
-7. **At a merge point,** the steering session pushes `integration`, opens one PR to main, and waits for that PR's CI. The PR merges only once every CI job has passed. The `arm-native` job is never skipped, because it is the only check that runs on real ARM hardware. A PR merges with a regular merge commit, never a squash or a rebase.
+7. **At a merge point,** the steering session pushes `integration`, opens one PR to main, and waits for that PR's CI. A PR merges only once every CI job has passed, `arm-native` included. vtium has to keep working on platforms other than the x86 machines it is written on, and `arm-native` runs on ARM hardware like the hardware vtium's smallest build is most likely to run on. A PR merges with a regular merge commit, never a squash or a rebase.
 
 ### Testing rules
 
