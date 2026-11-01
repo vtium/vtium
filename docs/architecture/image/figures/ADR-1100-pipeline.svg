@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="620" viewBox="0 0 1000 620" font-family="DejaVu Sans, sans-serif">
+<title>vtium's image pipeline</title>
+<rect width="1000" height="620" fill="#ffffff"/>
+<defs><marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f2933"/></marker></defs>
+<rect x="20" y="30" width="200" height="76" rx="6" fill="#dbe7f6" stroke="#2f6fb0" stroke-width="1.5"/>
+<text x="32" y="52" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">one console's pty</text>
+<text x="32" y="70" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">program output, in order</text>
+<text x="32" y="88" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">a hold of mode 2026</text>
+<rect x="260" y="30" width="210" height="76" rx="6" fill="#e4e7eb" stroke="#7b8794" stroke-width="1.5"/>
+<text x="272" y="52" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">vtium-parse</text>
+<text x="272" y="70" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">DCS q, APC G,</text>
+<text x="272" y="88" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">OSC 1337 File=</text>
+<rect x="510" y="30" width="230" height="94" rx="6" fill="#d5f0ea" stroke="#2d8e7a" stroke-width="1.5"/>
+<text x="522" y="52" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">handlers</text>
+<text x="522" y="70" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">sixel, kitty, iTerm2</text>
+<text x="522" y="88" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">in stream order; decode</text>
+<text x="522" y="106" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">sixel, base64, raw RGBA here</text>
+<rect x="780" y="30" width="180" height="94" rx="6" fill="#fbecd0" stroke="#c28a1e" stroke-width="1.5"/>
+<text x="792" y="52" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">image helper</text>
+<text x="792" y="70" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the session's user,</text>
+<text x="792" y="88" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">sandboxed (ADR-1400)</text>
+<text x="792" y="106" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">PNG, zlib, files, shm</text>
+<line x1="220" y1="68" x2="258" y2="68" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<line x1="470" y1="68" x2="508" y2="68" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<line x1="740" y1="60" x2="778" y2="60" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<line x1="778" y1="96" x2="742" y2="96" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<text x="760" y="148" font-size="12" text-anchor="middle" fill="#52606d" font-weight="normal">input paused until the reply,</text>
+<text x="760" y="164" font-size="12" text-anchor="middle" fill="#52606d" font-weight="normal">or FAILED after 2 s</text>
+<rect x="20" y="210" width="200" height="112" rx="6" fill="#dbe7f6" stroke="#2f6fb0" stroke-width="1.5"/>
+<text x="32" y="232" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">vtium-term screen</text>
+<text x="32" y="250" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">write, erase, scroll,</text>
+<text x="32" y="268" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">reflow, alternate</text>
+<text x="32" y="286" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">screen, RIS: each</text>
+<text x="32" y="304" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">event calls the store</text>
+<rect x="260" y="200" width="480" height="132" rx="6" fill="#d5f0ea" stroke="#2d8e7a" stroke-width="1.5"/>
+<text x="272" y="222" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">store, one per console (vtium-image)</text>
+<text x="272" y="240" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">main and alternate buffers: images and placements</text>
+<text x="272" y="258" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">a placement: anchor line and column, box, crop,</text>
+<text x="272" y="276" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">z, layer, sequence number, protocol tag</text>
+<text x="272" y="294" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">budget and eviction; its use clock moves only on</text>
+<text x="272" y="312" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">a transmission, a placement or a reference</text>
+<rect x="780" y="214" width="180" height="76" rx="6" fill="#d5f0ea" stroke="#2d8e7a" stroke-width="1.5"/>
+<text x="792" y="236" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">rules(tag)</text>
+<text x="792" y="254" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the one place each</text>
+<text x="792" y="272" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">protocol's rules live</text>
+<line x1="740" y1="252" x2="780" y2="252" stroke="#2d8e7a" stroke-width="1.5" stroke-dasharray="5 4"/>
+<line x1="625" y1="124" x2="625" y2="198" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<line x1="220" y1="266" x2="258" y2="266" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<rect x="260" y="380" width="480" height="76" rx="6" fill="#e9e2f8" stroke="#7c5cc4" stroke-width="1.5"/>
+<text x="272" y="402" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">snapshot per head (the binary)</text>
+<text x="272" y="420" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">visible cells and placements in draw order, pixels</text>
+<text x="272" y="438" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">shared; the last complete one stays while 2026 holds</text>
+<line x1="500" y1="332" x2="500" y2="378" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<text x="512" y="362" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">frame: placements on the visible rows</text>
+<rect x="260" y="510" width="225" height="76" rx="6" fill="#e9e2f8" stroke="#7c5cc4" stroke-width="1.5"/>
+<text x="272" y="532" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">compositor, display 1</text>
+<text x="272" y="550" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">layer, then z, then</text>
+<text x="272" y="568" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">sequence number</text>
+<rect x="515" y="510" width="225" height="76" rx="6" fill="#e9e2f8" stroke="#7c5cc4" stroke-width="1.5"/>
+<text x="527" y="532" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">compositor, display 2</text>
+<text x="527" y="550" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the same snapshot,</text>
+<text x="527" y="568" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">at its own scale</text>
+<line x1="372" y1="456" x2="372" y2="508" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<line x1="627" y1="456" x2="627" y2="508" stroke="#1f2933" stroke-width="1.5" marker-end="url(#head)"/>
+<text x="780" y="380" font-size="13" text-anchor="start" fill="#1f2933" font-weight="bold">who owns it</text>
+<rect x="780" y="394" width="18" height="14" rx="3" fill="#dbe7f6" stroke="#2f6fb0"/>
+<text x="806" y="406" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium-term</text>
+<rect x="780" y="418" width="18" height="14" rx="3" fill="#e4e7eb" stroke="#7b8794"/>
+<text x="806" y="430" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium-parse</text>
+<rect x="780" y="442" width="18" height="14" rx="3" fill="#d5f0ea" stroke="#2d8e7a"/>
+<text x="806" y="454" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium-image</text>
+<rect x="780" y="466" width="18" height="14" rx="3" fill="#fbecd0" stroke="#c28a1e"/>
+<text x="806" y="478" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium-platform, the helper</text>
+<rect x="780" y="490" width="18" height="14" rx="3" fill="#e9e2f8" stroke="#7c5cc4"/>
+<text x="806" y="502" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">vtium and vtium-render</text>
+</svg>

@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="400" viewBox="0 0 980 400" font-family="DejaVu Sans, sans-serif">
+<title>The layers of a frame, and what EL does to each kind of placement</title>
+<rect width="980" height="400" fill="#ffffff"/>
+<text x="20" y="30" font-size="15" text-anchor="start" fill="#1f2933" font-weight="bold">A: the layers of a frame, from the bottom</text>
+<rect x="20" y="340" width="430" height="34" rx="4" fill="#e4e7eb" stroke="#9aa5b1"/>
+<text x="32" y="362" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">1  the default background</text>
+<rect x="20" y="298" width="430" height="34" rx="4" fill="#d5f0ea" stroke="#9aa5b1"/>
+<text x="32" y="320" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">2  kitty placements with z below -1,073,741,824</text>
+<rect x="20" y="256" width="430" height="34" rx="4" fill="#e4e7eb" stroke="#9aa5b1"/>
+<text x="32" y="278" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">3  cell backgrounds that are not the default</text>
+<rect x="20" y="214" width="430" height="34" rx="4" fill="#d5f0ea" stroke="#9aa5b1"/>
+<text x="32" y="236" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">4  kitty placements with z from -1,073,741,824 to -1</text>
+<rect x="20" y="172" width="430" height="34" rx="4" fill="#dbe7f6" stroke="#9aa5b1"/>
+<text x="32" y="194" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">5  glyphs and decorations</text>
+<rect x="20" y="130" width="430" height="34" rx="4" fill="#d5f0ea" stroke="#9aa5b1"/>
+<text x="32" y="152" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">6  kitty placements with z of 0 or more; sixel and iTerm2 at z 0</text>
+<rect x="20" y="88" width="430" height="34" rx="4" fill="#fbecd0" stroke="#9aa5b1"/>
+<text x="32" y="110" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">7  the cursor, the pointer and vtium's own notices</text>
+<text x="520" y="30" font-size="15" text-anchor="start" fill="#1f2933" font-weight="bold">B: EL 2 on row 3, before and after</text>
+<rect x="520" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="538" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="556" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="574" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="592" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="610" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="628" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="646" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="664" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="682" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="520" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="538" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="556" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="574" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="592" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="610" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="628" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="646" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="664" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="682" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="520" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="538" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="556" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="574" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="592" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="610" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="628" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="646" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="664" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="682" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="520" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="538" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="556" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="574" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="592" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="610" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="628" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="646" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="664" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="682" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="538" y="60" width="72" height="104" fill="#f6a35c" fill-opacity="0.85" stroke="#b45309" stroke-width="1.5"/>
+<rect x="628" y="60" width="54" height="104" fill="#5fb3a1" fill-opacity="0.85" stroke="#1f6f5f" stroke-width="1.5"/>
+<text x="520" y="186" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">before</text>
+<rect x="760" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="778" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="796" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="814" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="832" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="850" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="868" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="886" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="904" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="922" y="60" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="760" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="778" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="796" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="814" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="832" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="850" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="868" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="886" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="904" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="922" y="86" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="760" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="778" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="796" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="814" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="832" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="850" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="868" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="886" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="904" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="922" y="112" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="760" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="778" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="796" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="814" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="832" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="850" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="868" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="886" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="904" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="922" y="138" width="18" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="778" y="60" width="72" height="52" fill="#f6a35c" fill-opacity="0.85" stroke="#b45309" stroke-width="1.5"/>
+<rect x="778" y="138" width="72" height="26" fill="#f6a35c" fill-opacity="0.85" stroke="#b45309" stroke-width="1.5"/>
+<rect x="868" y="60" width="54" height="104" fill="#5fb3a1" fill-opacity="0.85" stroke="#1f6f5f" stroke-width="1.5"/>
+<rect x="760" y="112" width="180" height="26" fill="none" stroke="#1f2933" stroke-width="1.5" stroke-dasharray="5 3"/>
+<text x="760" y="186" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">after: the erased row is dashed</text>
+<rect x="520" y="220" width="18" height="14" fill="#f6a35c" stroke="#b45309"/>
+<text x="546" y="232" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">a sixel: the erase cuts it, and it stays as two pieces</text>
+<rect x="520" y="246" width="18" height="14" fill="#5fb3a1" stroke="#1f6f5f"/>
+<text x="546" y="258" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">a kitty placement: only ED 2 erases it, so it is unchanged</text>
+<text x="520" y="292" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">Each piece shows part of the same picture;</text>
+<text x="520" y="310" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the picture itself is never cut.</text>
+</svg>
