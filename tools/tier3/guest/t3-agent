@@ -1,21 +1,24 @@
 #!/bin/bash
 # The head-file variants' agent (t3_heads.py), run as root by t3-agent.service
 # in a guest whose console gives no login. It reads one request a line from
-# the third serial port, ttyS2, which the driver writes over a unix socket,
-# and answers on the event port, ttyS1: each line of the answer to request N
-# is "T3-AGENT N ...", and "T3-AGENT-END N" ends it. Its few requests:
-#   state            the units of VT 2, the getty marker, the programs on
-#                    tty2, the logins, the VT shown, the PS/2 keyboard's
-#                    interrupts and the PID and age of vtium on tty2, one
-#                    line each
+# the third serial port, ttyS2, which the driver reaches over a unix socket,
+# and answers on the same port, which only root can open, so no other program
+# in the guest can forge an answer: each line of the answer to request N is
+# "T3-AGENT N ...", and "T3-AGENT-END N" ends it. Its few requests:
+#   state            the units of VT 2, the jobs systemd has queued, the
+#                    getty marker, the programs on tty2, the logins, the VT
+#                    shown, the PS/2 keyboard's and the USB controller's
+#                    interrupts, the keyboards the guest lists and the PID
+#                    and age of vtium on tty2, one line each
 #   kill SIGNAL      sends SIGNAL to vtium on tty2, its unit's main process
 #                    (KILL, a kill; ABRT, a crash)
 #   hangup           hangs tty2 up, as the kernel's vhangup does
 #   start            starts vtium's unit on tty2 again
-# Any other request answers "T3-AGENT N refused REQUEST".
+# Any other request, spelled even one character differently, answers
+# "T3-AGENT N refused REQUEST" and runs nothing. T3_AGENT_PORT names another
+# port, as the harness's self-test does with a pty.
 set -u
-port=/dev/ttyS2
-events=/dev/ttyS1
+port=${T3_AGENT_PORT:-/dev/ttyS2}
 vt=tty2
 units=("kmsconvt@$vt.service" "kmsconvt-getty@$vt.service" "getty@$vt.service")
 
@@ -32,17 +35,31 @@ vtium_age() {
     ' /proc/uptime "/proc/$pid/stat"
 }
 
+# The interrupts so far of the lines of /proc/interrupts that awk's test
+# `$1` selects, summed over the CPUs.
+interrupts() {
+    awk "$1"' { for (i = 2; i <= NF && $i ~ /^[0-9]+$/; i++) n += $i } END { print n + 0 }' \
+        /proc/interrupts
+}
+
 state() {
-    local u
+    local u link
     for u in "${units[@]}"; do
         echo "unit $u $(systemctl show -P ActiveState "$u") $(systemctl show -P Result "$u")" \
             "$(systemctl show -P ConditionResult "$u") $(systemctl show -P ConditionTimestampMonotonic "$u")"
     done
+    # Every job systemd has queued, one line each.
+    systemctl list-jobs --no-legend | awk '{ print "job", $2, $3, $4 }'
     if [ -e "/run/vtium/$vt.closed" ]; then echo "marker yes"; else echo "marker no"; fi
     echo "tty2 $(ps -t "$vt" -o comm= | tr '\n' ' ')"
     echo "logins $(pgrep -c -x login)"
     echo "fgconsole $(fgconsole)"
-    echo "i8042 $(awk '$1 == "1:" { n = 0; for (i = 2; i <= NF && $i ~ /^[0-9]+$/; i++) n += $i; print n }' /proc/interrupts)"
+    echo "i8042 $(interrupts '$1 == "1:"')"
+    echo "xhci $(interrupts '/xhci_hcd/')"
+    udevadm settle --timeout=10
+    for link in /dev/input/by-path/*-event-kbd; do
+        [ -e "$link" ] && echo "kbd ${link##*/}"
+    done
     vtium_age
 }
 
@@ -69,11 +86,11 @@ answer() {
     echo "T3-AGENT-END $n"
 }
 
-exec 3< "$port"
+exec 3<> "$port"
 stty raw -echo clocal 115200 <&3
 while IFS= read -r line <&3; do
     line=${line%$'\r'}
     n=${line%% *}
     [ -n "$n" ] && [ "$n" != "$line" ] || continue
-    answer "$n" "${line#* }" > "$events"
+    answer "$n" "${line#* }" >&3
 done

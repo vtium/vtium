@@ -28,6 +28,7 @@ import sys
 import tarfile
 import tempfile
 import threading
+import time
 import unittest
 from unittest import mock
 
@@ -2996,13 +2997,18 @@ class DevicesTest(unittest.TestCase):
                 self.assertTrue(got.startswith(why), got)
 
 
+# Jobs the guest's boot leaves queued for good (guest/t3-agent).
+BOOT_JOBS = ["systemd-time-wait-sync.service", "multi-user.target"]
+
+
 def agent_state(vtium=("active", "success"), fallback=("inactive", "success", "no", 0),
-                getty="inactive", marker=True, tty2="", logins=0, fg=2, i8042=15,
+                getty="inactive", queued=(), marker=True, tty2="", logins=0, fg=2, i8042=15,
                 pid=(410, 3.0)):
     """The agent's answer to `state` (guest/t3-agent), as lines."""
     lines = ["unit kmsconvt@tty2.service %s %s yes 6418546" % vtium,
              "unit kmsconvt-getty@tty2.service %s %s %s %d" % fallback,
              "unit getty@tty2.service %s success no 0" % getty,
+             *("job %s start waiting" % u for u in BOOT_JOBS + list(queued)),
              "marker %s" % ("yes" if marker else "no"), "tty2 %s" % tty2,
              "logins %d" % logins, "fgconsole %d" % fg, "i8042 %d" % i8042]
     return lines + (["vtium %d %.1f" % pid] if pid else [])
@@ -3020,6 +3026,7 @@ class HeadsTest(unittest.TestCase):
         "heads-closed-broken": ["panic", "no-login", "getty-fallback"],
         "heads-closed-unmatched": ["no-display-notice", "no-login", "getty-fallback"],
         "heads-off": ["no-login", "getty-fallback"],
+        "heads-kiosk": ["cjk", "kiosk"],
         "heads-closed-nodisplay": ["display-held", "getty-fallback"],
         "heads-open-nodisplay": ["display-exit"],
     }
@@ -3136,28 +3143,55 @@ class HeadsTest(unittest.TestCase):
 
     def test_ask(self):
         # A request goes out numbered on the agent's socket, and its answer
-        # is the event port's lines of that number up to its end line.
+        # is the lines of that number that come back on the socket, up to
+        # its end line; another request's lines, and lines written
+        # anywhere else, are not its answer.
         vm = t3_qemu.Qemu.__new__(t3_qemu.Qemu)
+        vm.proc = mock.Mock(**{"poll.return_value": None})
+        vm.asked, vm.agent_buf = 0, b""
+        ours, theirs = socket.socketpair()
+        self.addCleanup(ours.close)
+        self.addCleanup(theirs.close)
+        vm.agent_sock = ours
+        theirs.sendall(b"T3-AGENT 9 marker no\nT3-AGENT-END 9\n")
+        theirs.sendall(b"T3-AGENT 1 marker yes\nT3-AGENT 1 job x.service start running\n"
+                       b"T3-AGENT-END 1\n")
+        self.assertEqual(vm.ask("state"), ["marker yes", "job x.service start running"])
+        self.assertEqual(theirs.recv(100), b"1 state\n")
+        with self.assertRaises(RuntimeError):
+            vm._ask("state", 1)
+
+    def test_the_agent_refuses_every_other_request(self):
+        # The agent on a pty in place of ttyS2: each request it does not
+        # know, spelled even one character differently, is refused and runs
+        # nothing.
+        import pty
         d = tempfile.TemporaryDirectory()
         self.addCleanup(d.cleanup)
-        vm.events = os.path.join(d.name, "events.log")
-        vm.proc = mock.Mock(**{"poll.return_value": None})
-        vm.asked = 0
-        sent = []
-
-        class Sock:
-            def sendall(self, data):
-                sent.append(data)
-                n = data.split()[0].decode()
-                with open(vm.events, "a") as f:
-                    f.write("T3-AGENT 9 stale\nT3-AGENT %s marker yes\nT3-AGENT-END %s\n"
-                            % (n, n))
-
-        open(vm.events, "w").close()
-        vm.agent_sock = Sock()
-        self.assertEqual(vm.ask("state"), ["marker yes"])
-        self.assertEqual(sent, [b"1 state\n"])
-        self.assertEqual(t3_heads.parse_state(agent_state())["marker"], True)
+        master, slave = pty.openpty()
+        self.addCleanup(os.close, master)
+        # held open here too, so the pty stays up until the agent opens it
+        self.addCleanup(os.close, slave)
+        agent = subprocess.Popen(["bash", os.path.join(t3_common.GUEST, "t3-agent")],
+                                 cwd=d.name, stdin=subprocess.DEVNULL,
+                                 env=dict(os.environ, T3_AGENT_PORT=os.ttyname(slave)))
+        self.addCleanup(agent.wait)
+        self.addCleanup(agent.kill)
+        requests = ["kill TERM", "kill KILL; touch pwned", "$(touch %s/pwned-sub)" % d.name,
+                    "`touch %s/pwned-tick`" % d.name, "state ", "start now", "Start",
+                    "hangup && touch pwned-and"]
+        for n, request in enumerate(requests, 1):
+            with self.subTest(request):
+                os.write(master, b"%d %s\n" % (n, request.encode()))
+                answer, buf = [], b""
+                deadline = time.time() + 10
+                while ("T3-AGENT-END %d" % n).encode() not in buf:
+                    self.assertLess(time.time(), deadline, buf)
+                    buf += os.read(master, 4096)
+                answer = [l.strip() for l in buf.decode().splitlines()
+                          if l.startswith("T3-AGENT %d " % n)]
+                self.assertEqual(answer, ["T3-AGENT %d refused %s" % (n, request.strip())])
+        self.assertEqual(os.listdir(d.name), [])
 
     def test_parse_state(self):
         st = t3_heads.parse_state(agent_state(tty2="agetty", fallback=("inactive", "success",
@@ -3165,9 +3199,11 @@ class HeadsTest(unittest.TestCase):
         self.assertEqual(st["units"]["kmsconvt-getty@tty2.service"],
                          {"active": "inactive", "result": "success", "condition": "yes",
                           "checked": 99})
-        self.assertEqual((st["marker"], st["tty2"], st["logins"], st["fgconsole"], st["i8042"],
-                          st["vtium"]), (True, ["agetty"], 0, 2, 15, (410, 3.0)))
+        self.assertEqual((len(st["queued"]), st["marker"], st["tty2"], st["logins"], st["fgconsole"],
+                          st["i8042"], st["vtium"]), (2, True, ["agetty"], 0, 2, 15, (410, 3.0)))
         self.assertTrue(t3_heads.getty_on_tty2(st))
+        st = t3_heads.parse_state(["xhci 7", "kbd a-event-kbd", "kbd b-event-kbd"])
+        self.assertEqual((st["xhci"], st["kbds"]), (7, ["a-event-kbd", "b-event-kbd"]))
         empty = t3_heads.parse_state([])
         self.assertEqual((empty["units"], empty["marker"], empty["vtium"]), ({}, None, None))
 
@@ -3211,6 +3247,11 @@ class HeadsTest(unittest.TestCase):
                                "after the kill vtium's unit is failed with result exit-code"),
             "never checked": (dict(failed, fallback=("inactive", "success", "no", 50)),
                               "after the kill systemd never checked"),
+            # a getty's start still queued reads inactive until it runs
+            "a job queued": (dict(failed, fallback=("inactive", "success", "no", 90),
+                                  queued=["t3-plant@tty2.service"]),
+                             "after the kill systemd still has jobs queued: "
+                             "t3-plant@tty2.service start waiting"),
             "condition held": (dict(failed, fallback=("inactive", "success", "yes", 90)),
                                "after the kill the fallback's condition held"),
             "marker gone": (dict(failed, fallback=("inactive", "success", "no", 90),
@@ -3265,11 +3306,62 @@ class HeadsTest(unittest.TestCase):
                 self.assertTrue(got.startswith(why), got)
         ran = dict(vtium=("failed", "exit-code"), fallback=("inactive", "success", "yes", 90),
                    getty="active", tty2="agetty", marker=False, pid=None)
-        self.assertIsNone(t3_heads.judge_exit(t3_heads.parse_state(agent_state(**ran)), 5, 5))
-        self.assertTrue(t3_heads.judge_exit(t3_heads.parse_state(agent_state(**ran)), 5, 10)
-                        .startswith("vtium gave up after 10 s"))
-        self.assertTrue(t3_heads.judge_exit(t3_heads.parse_state(agent_state(
+        boot = t3_heads.parse_state(agent_state())
+        self.assertIsNone(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(**ran)),
+                                              5, 5))
+        self.assertTrue(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(**ran)), 5,
+                                            10).startswith("vtium gave up after 10 s"))
+        self.assertTrue(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(
             **dict(ran, getty="inactive", tty2=""))), 5, 5).startswith("no getty runs"))
+        self.assertTrue(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(
+            **dict(ran, queued=["getty@tty2.service"]))), 5, 5)
+            .startswith("systemd still has jobs queued: getty@tty2.service"))
+
+    def test_the_fallback_waits_end_on_a_skip_and_on_no_jobs(self):
+        # The wait after a failure ends once the fallback ran and systemd
+        # queues nothing; under open a fallback that skipped itself ends it
+        # too, so its verdict says why rather than a timeout.
+        skipped = t3_heads.parse_state(agent_state(
+            vtium=("failed", "signal"), fallback=("inactive", "success", "no", 90), pid=None))
+        before = t3_heads.parse_state(agent_state(fallback=("inactive", "success", "no", 50),
+                                                  marker=False))
+        # the boot's own jobs, queued throughout, are no reason to wait
+        self.assertTrue(t3_heads.fallback_ran(skipped, 50, before))
+        self.assertFalse(t3_heads.fallback_ran(skipped, 90, before))
+        queued = t3_heads.parse_state(agent_state(
+            vtium=("failed", "signal"), fallback=("inactive", "success", "no", 90),
+            queued=["getty@tty2.service"], pid=None))
+        self.assertFalse(t3_heads.fallback_ran(queued, 50, before))
+        self.assertTrue(t3_heads.judge_fallback(False, "kill", before, skipped)
+                        .startswith("after the kill the fallback skipped the getty"))
+
+    def test_kiosk(self):
+        def st(xhci, **kw):
+            return t3_heads.parse_state(agent_state(**kw) + ["xhci %d" % xhci])
+        listed = t3_heads.parse_state(agent_state() + ["xhci 20",
+                                                       "kbd " + t3_heads.KIOSK_SECOND])
+        chord = (st(10), st(12))
+        plugged = (listed, st(25))
+        self.assertIsNone(t3_heads.judge_kiosk(chord, plugged, True))
+        # the chord is judged alone first, before the second keyboard types
+        self.assertIsNone(t3_heads.judge_kiosk(chord))
+        self.assertTrue(t3_heads.judge_kiosk((st(10), st(12, fg=3)))
+                        .startswith("after Ctrl+Alt+F3: the VT shown is 3"))
+        wrong = {
+            "chord never came": (dict(chord=(st(10), st(10))), "the USB controller's"),
+            "the VT switched": (dict(chord=(st(10), st(12, fg=3))),
+                                "after Ctrl+Alt+F3: the VT shown is 3"),
+            "keys never came": (dict(plugged=(listed, st(20))), "the USB controller's"),
+            "not listed": (dict(plugged=(st(20), st(25))), "plugged in, the guest lists"),
+            "it typed": (dict(same=False), "the screen changed"),
+        }
+        for name, (change, why) in wrong.items():
+            with self.subTest(name):
+                got = t3_heads.judge_kiosk(change.get("chord", chord),
+                                           change.get("plugged", plugged),
+                                           change.get("same", True))
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
 
     def test_two_heads(self):
         lines = ["Display Virtual-1 with backend [drm2d] text renderer [bbulk], cell size 8x16",

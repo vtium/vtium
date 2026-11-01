@@ -61,11 +61,11 @@ class Qemu:
         # (guest/setup), so the driver can wait for a login or a drawn screen.
         self.serial = os.path.join(workdir, "serial.log")
         self.events = os.path.join(workdir, "events.log")
-        # ttyS2, for a variant that runs the agent (guest/t3-agent), takes
-        # the driver's requests from a unix socket; the agent answers on
-        # the event port.
+        # ttyS2, for a variant that runs the agent (guest/t3-agent), carries
+        # the driver's requests and the agent's answers over a unix socket.
         self.agent_path = os.path.join(workdir, "ttyS2") if agent else None
         self.agent_sock = None
+        self.agent_buf = b""
         self.asked = 0
         sockets = (self.sock_path, self.vnc_path, *(h[3] for h in heads),
                    *((self.agent_path,) if agent else ()))
@@ -230,7 +230,7 @@ class Qemu:
 
     def ask(self, request, timeout=30):
         """The agent's answer to `request` (guest/t3-agent): the lines it
-        wrote on the event port for it, each without its "T3-AGENT N "
+        wrote back on its port for it, each without its "T3-AGENT N "
         prefix. The first request also waits for the agent to start: a
         request the guest reads before the agent opens its port is lost,
         so until one is answered `state`, which changes nothing, is asked
@@ -247,27 +247,36 @@ class Qemu:
                 except RuntimeError:
                     if time.time() > deadline:
                         raise RuntimeError("the agent did not answer within 120 s; see %s"
-                                           % rel(self.events)) from None
+                                           % rel(self.serial)) from None
         return self._ask(request, timeout)
 
     def _ask(self, request, timeout):
         self.asked += 1
         n = self.asked
-        with open(self.events, "rb") as f:
-            since = len(f.read())
         self.agent_sock.sendall(b"%d %s\n" % (n, request.encode()))
         prefix, end = "T3-AGENT %d " % n, "T3-AGENT-END %d" % n
         deadline = time.time() + timeout
+        answer = []
         while True:
-            with open(self.events, "rb") as f:
-                text = f.read()[since:].decode(errors="replace")
-            lines = [l.strip() for l in text[:text.rfind("\n") + 1].splitlines()]
-            if end in lines:
-                return [l[len(prefix):] for l in lines if l.startswith(prefix)]
-            if self.proc.poll() is not None or time.time() > deadline:
-                raise RuntimeError("the agent did not answer %r within %d s; see %s"
-                                   % (request, timeout, rel(self.events)))
-            time.sleep(0.2)
+            while b"\n" in self.agent_buf:
+                line, self.agent_buf = self.agent_buf.split(b"\n", 1)
+                line = line.decode(errors="replace").strip()
+                if line == end:
+                    return answer
+                if line.startswith(prefix):
+                    answer.append(line[len(prefix):])
+            left = deadline - time.time()
+            if self.proc.poll() is not None or left <= 0:
+                raise RuntimeError("the agent did not answer %r within %d s"
+                                   % (request, timeout))
+            self.agent_sock.settimeout(min(left, 1.0))
+            try:
+                chunk = self.agent_sock.recv(65536)
+            except TimeoutError:
+                continue
+            if not chunk:
+                raise RuntimeError("the agent's socket closed")
+            self.agent_buf += chunk
 
     def status(self):
         """The guest's run state, as QMP's query-status names it ("running",

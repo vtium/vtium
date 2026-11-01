@@ -302,7 +302,9 @@ DEVICE_VARIANTS = ["two-outputs-mirror", "two-cards-mirror", "usb-keyboards"]
 # heads-partly-open is the open control of the closed variants' fallback:
 # there the getty does start. The two without a display device ("device":
 # None) wait for vtium on tty2 with no screen to capture, one under each
-# policy, at a display-wait of 5 s (guest/kmscon-nodisplay.conf).
+# policy, at a display-wait of 5 s (guest/kmscon-nodisplay.conf). The kiosk
+# switches no VT ("vt_switch": False): its claimed keyboard's VT keys reach
+# its session, and the kiosk check presses them itself.
 HEAD_VARIANT = dict(DEVICES, agent=True, screens=[])
 NO_DISPLAY = dict({k: v for k, v in HEAD_VARIANT.items() if k not in ("fonts", "frits")},
                   device=None, conf="kmscon-nodisplay.conf", renderer=None, login=False)
@@ -330,6 +332,9 @@ VARIANTS.update({
     "heads-off": dict(HEAD_VARIANT, heads="docs/heads/off.conf", policy="closed",
                       renderer=None, login=False, checks=["no-login", "getty-fallback"],
                       failures=["kill"]),
+    "heads-kiosk": dict(HEAD_VARIANT, qemu=t3_devices.USB,
+                        heads="tools/tier3/guest/heads/kiosk.conf", policy="closed",
+                        screens=["cjk"], vt_switch=False, checks=["kiosk"]),
     "heads-closed-nodisplay": dict(NO_DISPLAY, heads="tools/tier3/guest/heads/closed-valid.conf",
                                    policy="closed", checks=["display-held", "getty-fallback"],
                                    failures=["kill"]),
@@ -337,7 +342,7 @@ VARIANTS.update({
                                  checks=["display-exit"]),
 })
 HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
-                 "heads-closed-unmatched", "heads-off", "heads-closed-nodisplay",
+                 "heads-closed-unmatched", "heads-off", "heads-kiosk", "heads-closed-nodisplay",
                  "heads-open-nodisplay"]
 
 # Each guest's base image, the make target that provisions it, the console
@@ -404,6 +409,8 @@ def variant_cases(variant):
     if not v.get("login", True):
         return first + list(v.get("checks", []))
     out = first + (CASES if "screens" not in v else cases(screens_of(variant)))
+    if not v.get("vt_switch", True):
+        out = [c for c in out if c not in ("vt-switch", "vt-restore")]
     if not v.get("images", True):
         skipped = {case for screen, case, _ in KEYED if screen in IMAGE_SCREENS}
         out = [c for c in out if c not in skipped]
@@ -722,16 +729,17 @@ def run_variant(variant, timing, impl, log):
             wait_stable(vm, os.path.join(work, "two-heads-start.ppm"), settle=2.0, timeout=90,
                         want=not_blank, output=t3_heads.second_output(v))
         if "first" in v:
-            # The first screen shows the outcome the console logged
-            # (t3_heads.LINES), else its capture is not the outcome's.
+            # The first screen is captured once the console has logged the
+            # outcome it shows (t3_heads.LINES), and once settled after it.
             line = t3_heads.LINES[v["first"]]
             try:
                 vm.wait_serial(line, timeout=10)
-                path = os.path.join(work, v["first"] + ".ppm")
-                shutil.copy(tmp, path)
-                caps[v["first"]] = path
             except RuntimeError as e:
                 errors[v["first"]] = "the console did not log its outcome: %s" % e
+            else:
+                path = os.path.join(work, v["first"] + ".ppm")
+                wait_stable(vm, path, settle=2.0, timeout=90, want=not_blank)
+                caps[v["first"]] = path
         phase("console")
         if "power" in v:
             press_power_keys(vm, v["power"], work, caps, errors, notes, log, phase)
@@ -777,8 +785,9 @@ def run_variant(variant, timing, impl, log):
 
 def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
     """Log in at the console's `prompt`, draw every screen and its keyed
-    cases, then switch VTs away and back, filling `caps` with each case's
-    capture and `errors` with each case's error."""
+    cases, then switch VTs away and back unless the variant switches none,
+    and run its checks, filling `caps` with each case's capture and
+    `errors` with each case's error."""
     v = VARIANTS[variant]
     outputs = v.get("outputs", [])
     tmp = os.path.join(work, "wait.ppm")
@@ -835,6 +844,23 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
             phase(case)
         for chord in KEYS_AFTER.get(name, []) if v.get("images", True) and not refused else []:
             vm.keys(*chord)
+    if v.get("vt_switch", True):
+        switch_vts(variant, vm, work, last, caps, errors, phase)
+    if v.get("mirror"):
+        check_mirror(variant, caps, errors)
+    if v.get("pointer"):
+        check_pointer(variant, vm, work, caps, errors, log)
+        phase(t3_pointer.CASE)
+    run_checks(variant, vm, work, caps, errors, log, phase)
+
+
+def switch_vts(variant, vm, work, last, caps, errors, phase):
+    """The VT switch away from tty2 and back, the vt-switch and vt-restore
+    cases, `last` the screen tty2 showed before it."""
+    v = VARIANTS[variant]
+    outputs = v.get("outputs", [])
+    tmp = os.path.join(work, "wait.ppm")
+    lasts = {}
     # VT switch away and back. vt-switch: tty3, where logind starts a
     # second console at the switch, or the inittab a second console or a
     # getty at the boot, must show a screen (its login prompt). vt-restore:
@@ -864,12 +890,6 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
     caps["vt-restore"] = path
     capture_outputs(vm, outputs, work, "vt-restore", caps, lasts)
     phase("vt-restore")
-    if v.get("mirror"):
-        check_mirror(variant, caps, errors)
-    if v.get("pointer"):
-        check_pointer(variant, vm, work, caps, errors, log)
-        phase(t3_pointer.CASE)
-    run_checks(variant, vm, work, caps, errors, log, phase)
 
 
 def run_checks(variant, vm, work, caps, errors, log, phase):

@@ -4,8 +4,8 @@ device and systemd make of it, which unit tests cannot show.
 
 A console that gives no login leaves the driver no shell in the guest, so
 these variants run the agent (guest/t3-agent), a root program on the third
-serial port that answers a few fixed requests on the event port: the state
-of VT 2's units, the closed policy's getty marker and the programs on tty2,
+serial port that answers a few fixed requests on that same port, which only
+root can open: the state of VT 2's units and the jobs systemd has queued, the closed policy's getty marker and the programs on tty2,
 and the failures it can cause vtium, a kill, a crash and a hangup. Each
 check below waits on that state and sleeps no fixed time; the one that must
 see vtium outlast display-wait waits for vtium's age, read in the guest.
@@ -23,9 +23,10 @@ import os
 import re
 import time
 
+import t3_devices
 import t3img
 from t3_common import GUEST, ROOT, rel
-from t3_qemu import wait_stable
+from t3_qemu import char_qcodes, wait_stable
 
 # The guest's head files, beside the screens; a variant names one of these,
 # or a shipped one under docs/heads.
@@ -53,6 +54,10 @@ NO_DISPLAY_LINE = re.compile(r"no display appeared within (\d+) s")
 # each head's frit states, desk's 8x16 on the first output and panel's 8x8
 # on the second.
 TWO_HEADS = {"Virtual-1": "8x16", "Virtual-2": "8x8"}
+
+# The second keyboard the kiosk check plugs into the hub's port 3.3, by the
+# name the guest's udev gives it.
+KIOSK_SECOND = t3_devices.HOT_NAME
 
 # How far past display-wait, in seconds, the held check reads vtium's state:
 # the wait's FLIP_WAIT (crates/vtium/src/wait.rs) and as long again for the
@@ -84,6 +89,13 @@ CHECKS = {
                  "Correct: desk's display in 8x16 cells and panel's in 8x8; panel's "
                  "screen, its own login prompt, as it was before the login, and not "
                  "desk's.",
+    "kiosk": "A closed kiosk whose one keyboard, in the hub's port 3.2, claims its head, "
+             "logged in and drawing cjk through it. Its Ctrl+Alt+F3, read once the USB "
+             "controller's interrupt count has risen, then the sgr screen drawn through it; "
+             "then a line typed on a second USB keyboard plugged into port 3.3 through QMP, "
+             "read the same way. Correct: the VT shown stays 2 after the chord and the "
+             "claimed keyboard still reaches the session; the guest lists the second "
+             "keyboard, and the screen stays as it was while it types.",
     "display-exit": "No display device under an open policy, the control of display-held. "
                     "Correct: vtium logs that no display appeared within display-wait and "
                     "fails, and the fallback starts a getty on tty2.",
@@ -118,11 +130,13 @@ FIRST = {
 
 def parse_state(lines):
     """The agent's answer to `state` (guest/t3-agent) as {"units": {unit:
-    {"active", "result", "condition", "checked"}}, "marker", "tty2",
-    "logins", "fgconsole", "i8042", "vtium": (pid, age) or None}; a field
-    the answer lacks is None."""
-    out = {"units": {}, "marker": None, "tty2": None, "logins": None, "fgconsole": None,
-           "i8042": None, "vtium": None}
+    {"active", "result", "condition", "checked"}}, "queued", "marker", "tty2",
+    "logins", "fgconsole", "i8042", "xhci", "kbds", "vtium": (pid, age) or
+    None}; a field the answer lacks is None, but "kbds", the keyboards the
+    guest lists, which is empty."""
+    out = {"units": {}, "marker": None, "tty2": None, "logins": None,
+           "fgconsole": None, "i8042": None, "xhci": None, "kbds": [], "queued": [],
+           "vtium": None}
     for line in lines:
         f = line.split()
         if not f:
@@ -134,8 +148,13 @@ def parse_state(lines):
             out["marker"] = f[1] == "yes"
         elif f[0] == "tty2":
             out["tty2"] = f[1:]
-        elif f[0] in ("logins", "fgconsole", "i8042") and len(f) == 2 and f[1].isdigit():
+        elif (f[0] in ("logins", "fgconsole", "i8042", "xhci") and len(f) == 2
+              and f[1].isdigit()):
             out[f[0]] = int(f[1])
+        elif f[0] == "kbd" and len(f) == 2:
+            out["kbds"].append(f[1])
+        elif f[0] == "job" and len(f) >= 2:
+            out["queued"].append(" ".join(f[1:]))
         elif f[0] == "vtium" and len(f) == 3:
             out["vtium"] = (int(f[1]), float(f[2]))
     return out
@@ -149,6 +168,23 @@ def unit(state, name):
 def getty_on_tty2(state):
     """Whether a getty or a login runs on tty2."""
     return any(p in ("agetty", "login") for p in state["tty2"] or ())
+
+
+def new_jobs(state, before):
+    """The jobs queued in `state` for a unit that had none in `before`. The
+    guest's boot never ends, as systemd-time-wait-sync waits for a network
+    the guest lacks, so its jobs stay queued throughout and only a job that
+    came since `before` is the scenario's."""
+    known = {job.split()[0] for job in before["queued"]}
+    return sorted(job for job in state["queued"] if job.split()[0] not in known)
+
+
+def fallback_ran(state, checked, before):
+    """Whether systemd has checked the fallback's condition since the
+    timestamp `checked`, and has no job queued that came since `before`, so
+    no unit is about to start or stop and the units' states are final."""
+    return (unit(state, FALLBACK_UNIT).get("checked") not in (None, 0, checked)
+            and not new_jobs(state, before))
 
 
 def judge_running(state, closed):
@@ -193,6 +229,9 @@ def judge_fallback(closed, failure, before, state):
     checked again; None when it is right."""
     vt, fallback, getty = (unit(state, u) for u in (VTIUM_UNIT, FALLBACK_UNIT, GETTY_UNIT))
     results = FAILURES[failure][1]
+    if new_jobs(state, before):
+        return "after the %s systemd still has jobs queued: %s" % (
+            failure, ", ".join(new_jobs(state, before)))
     if vt.get("active") != "failed" or vt.get("result") not in results:
         return "after the %s vtium's unit is %s with result %s, not failed with %s" % (
             failure, vt.get("active"), vt.get("result"), " or ".join(results))
@@ -239,13 +278,15 @@ def judge_held(first, state, serial, wait_s):
     return None
 
 
-def judge_exit(state, wait_s, logged):
+def judge_exit(first, state, wait_s, logged):
     """Why vtium did not end at display-wait (`wait_s`) with no display under
-    open (CHECKS "display-exit"), from the agent's state once the fallback
-    ran and the wait vtium logged it gave up after (`logged`); None when it
-    did."""
+    open (CHECKS "display-exit"), from the agent's first state and its state
+    once the fallback ran, and the wait vtium logged it gave up after
+    (`logged`); None when it did."""
     if logged != wait_s:
         return "vtium gave up after %s s, not the display-wait of %d s" % (logged, wait_s)
+    if new_jobs(state, first):
+        return "systemd still has jobs queued: %s" % ", ".join(new_jobs(state, first))
     vt, fallback, getty = (unit(state, u) for u in (VTIUM_UNIT, FALLBACK_UNIT, GETTY_UNIT))
     if vt.get("active") != "failed" or vt.get("result") != "exit-code":
         return "vtium's unit is %s with result %s, not failed with exit-code" % (
@@ -258,6 +299,78 @@ def judge_exit(state, wait_s, logged):
         return "no getty runs on tty2: %s, %s" % (getty.get("active"),
                                                   " ".join(state["tty2"] or ()) or "nothing")
     return None
+
+
+def judge_kiosk(chord, plugged=None, same_screen=True):
+    """Why the kiosk check failed (CHECKS "kiosk"), from the agent's
+    states before and after the claimed keyboard's Ctrl+Alt+F3 (`chord`)
+    and before and after the second keyboard's line (`plugged`, None while
+    it has not typed), each pair read once the screen settled, and whether
+    the screen stayed as it was while the second keyboard typed; None when
+    it passed."""
+    pairs = [(chord, "Ctrl+Alt+F3")] + ([(plugged, "the second keyboard's line")]
+                                         if plugged else [])
+    for (before, after), what in pairs:
+        if before["xhci"] is None or after["xhci"] is None or after["xhci"] <= before["xhci"]:
+            return ("the USB controller's interrupt count did not rise for %s (%s, then %s)"
+                    % (what, before["xhci"], after["xhci"]))
+        why = judge_running(after, closed=True)
+        if why:
+            return "after %s: %s" % (what, why)
+    if plugged is None:
+        return None
+    if KIOSK_SECOND not in plugged[0]["kbds"]:
+        return "plugged in, the guest lists %s, not %s" % (plugged[0]["kbds"], KIOSK_SECOND)
+    if not same_screen:
+        return "the screen changed while the second keyboard typed"
+    return None
+
+
+def check_kiosk(variant, vm, work, caps, errors, log):
+    """The kiosk check (CHECKS), after the scenario logged in and drew cjk
+    through the claimed keyboard. The claimed keyboard types last before
+    the second keyboard is plugged in: QEMU sends its keys to the keyboard
+    that took input last, which once the second is pulled out need not be
+    the claimed one. The capture is the screen after the second keyboard's
+    line."""
+    case = "kiosk"
+    tmp = os.path.join(work, "wait.ppm")
+    try:
+        shown = wait_stable(vm, tmp)
+        before = ask_state(vm)
+        vm.keys("ctrl", "alt", "f3")
+        wait_state(vm, lambda s: (s["xhci"] or 0) > (before["xhci"] or 0),
+                   "the chord reaching the guest")
+        wait_stable(vm, tmp)
+        chord = (before, ask_state(vm))
+        why = judge_kiosk(chord)
+        if why:
+            raise RuntimeError(why)
+        # the claimed keyboard still reaches the session after its chord
+        t3_devices.run_screen(vm, "sgr", STATE_TIMEOUT)
+        drawn = wait_stable(vm, tmp, want=lambda i: i.data != shown.data)
+        vm.cmd("device_add", driver="usb-kbd", id=t3_devices.HOT_ID, bus=t3_devices.USB_BUS,
+               port=t3_devices.HOT_PORT, display="video0")
+        listed = wait_state(vm, lambda s: KIOSK_SECOND in s["kbds"], "the second keyboard listed")
+        for ch in "t3 cjk\n":
+            for down in (True, False):
+                vm.cmd("input-send-event", device="video0",
+                       events=t3_devices.key_events(char_qcodes(ch), down))
+            time.sleep(0.05)  # QEMU's bounded input queue, as Qemu.keys
+        wait_state(vm, lambda s: (s["xhci"] or 0) > (listed["xhci"] or 0),
+                   "the second keyboard's keys reaching the guest")
+        path = os.path.join(work, case + ".ppm")
+        img = wait_stable(vm, path)
+        plugged = (listed, ask_state(vm))
+        vm.cmd("device_del", id=t3_devices.HOT_ID)
+        t3_devices.wait_qmp_event(vm, "DEVICE_DELETED", t3_devices.HOT_ID, 30)
+        why = judge_kiosk(chord, plugged, img.data == drawn.data)
+        log("%s: %s" % (case, why or "as wanted"))
+        if why:
+            raise RuntimeError(why)
+        caps[case] = path
+    except RuntimeError as e:
+        errors[case] = str(e)
 
 
 def display_wait(variant):
@@ -313,11 +426,13 @@ def check_no_login(variant, vm, work, caps, errors, log):
         since = os.path.getsize(vm.events)
         vm.type("tester\n")
         # Seven keys pressed and released: the kernel took at least seven
-        # of the PS/2 keyboard's interrupts.
-        after = wait_state(vm, lambda s: (s["i8042"] or 0) >= (before["i8042"] or 0) + 7,
-                           "the typed keys reaching the guest")
+        # of the PS/2 keyboard's interrupts. The state judged is read once
+        # the screen has settled after them.
+        wait_state(vm, lambda s: (s["i8042"] or 0) >= (before["i8042"] or 0) + 7,
+                   "the typed keys reaching the guest")
         path = os.path.join(work, case + ".ppm")
         img = wait_stable(vm, path)
+        after = ask_state(vm)
         with open(vm.events, errors="replace") as f:
             logged_in = "T3-LOGIN" in f.read()[since:]
         why = judge_no_login(before, after, img.data == shown.data, logged_in)
@@ -343,10 +458,13 @@ def check_getty_fallback(variant, vm, work, caps, errors, log):
             answer = vm.ask(FAILURES[failure][0])
             log("%s: %s: %s" % (case, failure, " ".join(answer)))
 
+            # Under open a fallback that ran ends the wait once its getty
+            # runs, and one that skipped itself at once, to be judged.
             def fell_back(s):
-                ran = unit(s, FALLBACK_UNIT).get("checked") not in (None, 0, checked)
-                done = unit(s, VTIUM_UNIT).get("active") == "failed" and ran
-                return done and (closed or getty_on_tty2(s))
+                done = (unit(s, VTIUM_UNIT).get("active") == "failed"
+                        and fallback_ran(s, checked, before))
+                return done and (closed or getty_on_tty2(s)
+                                 or unit(s, FALLBACK_UNIT).get("condition") == "no")
 
             state = wait_state(vm, fell_back, "the fallback after the %s" % failure)
             why = judge_fallback(closed, failure, before, state)
@@ -397,11 +515,15 @@ def check_display_exit(variant, vm, work, caps, errors, log):
     case = "display-exit"
     try:
         wait_s = display_wait(variant)
+        # The boot's own jobs, read while the console waits; a job queued
+        # since then is the scenario's.
+        first = ask_state(vm)
         line = vm.wait_serial("no display appeared within", timeout=wait_s + STATE_TIMEOUT)
         logged = int(NO_DISPLAY_LINE.search(line).group(1))
-        state = wait_state(vm, lambda s: unit(s, FALLBACK_UNIT).get("checked")
-                           and getty_on_tty2(s), "the fallback's getty on tty2")
-        why = judge_exit(state, wait_s, logged)
+        state = wait_state(vm, lambda s: fallback_ran(s, 0, first) and (
+            getty_on_tty2(s) or unit(s, FALLBACK_UNIT).get("condition") == "no"),
+            "the fallback's getty on tty2")
+        why = judge_exit(first, state, wait_s, logged)
         log("%s: %s" % (case, why or "as wanted"))
         if why:
             raise RuntimeError(why)
@@ -459,4 +581,4 @@ def second_output(variant):
 
 CHECK_RUNS = {"no-login": check_no_login, "getty-fallback": check_getty_fallback,
               "display-held": check_display_held, "display-exit": check_display_exit,
-              "two-heads": check_two_heads}
+              "two-heads": check_two_heads, "kiosk": check_kiosk}
