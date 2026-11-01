@@ -113,7 +113,7 @@ A line may hold fewer cells than the screen is wide. A line entering the scrollb
 | Overline, conceal, rapid blink | Style attributes | SGR overline, superscript and subscript |
 | Superscript and subscript | Style attributes, the script | SGR overline, superscript and subscript |
 | A hyperlink id | Cell link index; the line's link table | OSC 8 hyperlinks and OSC 133 prompt marks |
-| The default background mark | The style's background is `Color::Default`; the frame cell's `default_bg` | the C fork's mark for the default background |
+| The default background mark | The style's background is `Color::Default`; the frame cell's `default_bg` | the C fork's issue on marking the default background |
 | The change age | `Damage`, by screen position | the screen, scrollback and Unicode |
 | The continuation flag | Line flags, wrapped | reflow on resize |
 | Prompt marks | Line flags, prompt, input and output | OSC 8 hyperlinks and OSC 133 prompt marks |

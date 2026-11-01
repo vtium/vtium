@@ -78,7 +78,7 @@ The tables are `ADR-1000-modes.tsv` (128 rows: 40 supported, 4 ignored, 4 refuse
 - **refused**: deliberately not built, with the reason.
 - **no row** (modes): vtium does not recognise the number; DECRQM replies 0 and SM and RM change nothing.
 - **parked** (features): its own issue designs it before anything is built: input methods and Braille displays.
-- **weighed** (features): another issue decides whether vtium builds it, and the row takes that decision: baked glyph atlases (vtium-vitrify's profile builder), weighed in the work on outline fonts.
+- **weighed** (features): another issue decides whether vtium builds it, and the row takes that decision: baked glyph atlases (carried by the work on vtium-vitrify, the profile builder), weighed in the work on outline fonts.
 
 An ignored or refused mode answers DECRQM with its fixed default, as the C reference did: 3 (permanently set) for DECANM, and 4 (permanently reset) for the rest, KAM, DECCOLM, DECNRCM and 1001 among them.
 
@@ -155,7 +155,7 @@ Each row proves its coverage by the contract of the issue that traces each row t
 
 ### Neutral
 
-- Eleven issues carry the new rows: modes and controls beyond the C reference, left and right margins, rectangular areas and protection, in-band reports, SGR and colour stacks, pointer shapes, kitty text sizing, double-width and double-height lines, iTerm2 inline images, a static image at the login prompt and font merging, with one more for VT52. The issues for SGR overline, superscript and subscript, for the OSC 4, 10, 11 and 12 colors, and for outline fonts are widened for SGR 6 and 8, the pointer, selection and kitty colors, and ligatures as an option.
+- Eleven issues carry the new rows, one each on modes and controls beyond the C reference, left and right margins, rectangular areas and protection, in-band reports, SGR and colour stacks, pointer shapes, kitty text sizing, double-width and double-height lines, iTerm2 inline images, a static image at the login prompt and font merging, with one more for VT52. The issues for SGR overline, superscript and subscript, for the OSC 4, 10, 11 and 12 colors, and for outline fonts are widened for SGR 6 and 8, the pointer, selection and kitty colors, and ligatures as an option.
 - The conformance work's departures list gains ENQ's empty answerback, DA1's conformance level (one of xterm's in place of the C reference's 60), and, as a departure from kitty, OSC 21's omission of unknown keys.
 
 ## Alternatives Considered

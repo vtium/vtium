@@ -109,7 +109,7 @@ basis:
     via: the body of the GitHub issue that replaces the prerendered store with deferred rendering, "The operator's decision (2026-10-28)"; posted from the operator's account, the wording agent-written
   - operator: aaronsb
     level: directed
-    said: "What goes: the root-owned store and its manifest; `vtium-vitrify create`, `install`, `list`, `verify` and `remove`; the console's store check and set loading; target matching for built sets ([the target-display issue's] prebuilt half), named targets, the build-time half of the rule checker; package hooks that build sets."
+    said: "What goes: the root-owned store and its manifest; `vtium-vitrify create`, `install`, `list`, `verify` and `remove`; the console's store check and set loading; target matching for built sets ([the prebuilt half of the work on recording a set's target display and reading the live display]), named targets, the build-time half of the rule checker; package hooks that build sets."
     via: the same issue's body, the same decision
   - operator: aaronsb
     level: directed
@@ -331,7 +331,7 @@ The figure follows a glyph from the profile to the frame: the profile's cell and
 
 > Edited 2026-10-30: the operator gave a head's font one path, head to profile to frit (ADR-1401's `considered`). The bullet read: "a head's profile overrides them for that head; and a `font-name` or `font-size` in the head's own section of the head file overrides both (ADR-1401 D3)." The heads first cut still parses a head's `font-name` and `font-size`; their removal is not built yet.
 
-> Edited 2026-10-29: ADR-1401, accepted by the operator, gives profiles their place: a head names one, the compiled-in configuration holds the default profile and its default frit, an invalid profile falls back to the default, and vtium writes neither profiles nor frits. D16 read: "Where profiles are kept, and the commands that write them, are [the guided builder's, the target-display issue's and the rule checker's]."
+> Edited 2026-10-29: ADR-1401, accepted by the operator, gives profiles their place: a head names one, the compiled-in configuration holds the default profile and its default frit, an invalid profile falls back to the default, and vtium writes neither profiles nor frits. D16 read: "Where profiles are kept, and the commands that write them, are [the guided builder's, the target-display work's and the rule checker's]."
 
 ### D1: the frit
 
@@ -386,7 +386,7 @@ source=bdf:/usr/share/fonts/fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.bd
 | `set NAME` | the session's user | Switches the console's frit (D5). |
 | `serve` | the account D15 names | The helper (D15). |
 
-Each command is non-interactive where it writes, prints one line a result, and exits 0 on success, 1 on a failure and 2 on a usage error; The tool's banner shows only at an interactive terminal. An issue of its own tracks the tool.
+Each command is non-interactive where it writes, prints one line a result, and exits 0 on success, 1 on a failure and 2 on a usage error; the tool's banner shows only at an interactive terminal. The tracker issue for vtium-vitrify follows the tool's work.
 
 > Edited 2026-10-29: the team lead's correction from the heads gap-check (C9): ADR-1401 D12's `check FILE` and the rule checker are one command. The row read: "| The rule checker | the user | Lints a profile and its frit against a display (ADR-1301 D8, [the rule checker's issue]). |"
 
@@ -422,7 +422,7 @@ The C reference loaded its font before its first frame and took the font's cell;
 
 > Edited 2026-10-29: the operator accepted an independent advisor's review of ADR-1401 (ADR-1401's `considered`): the more specific setting wins, and the `font-size` bullet takes D16's order. It read: "A configured `font-size` sets the height the automatic rule would pick, in points, and wins over a profile's cell (D16)."
 
-> Edited 2026-10-29: the operator decided that an OSC 50 switch to a bitmap frit with no `cell=` waits for its fonts' own cell as the start does (`considered`), as the code already did (`crates/vtium/src/app.rs`, `osc_50_to_a_bitmap_frit_with_no_cell_takes_its_fonts_own_cell`); that zoom steps by the frit's engine, a mixed frit as an outline one (`considered`, the open glyph questions' item 4); and ADR-1401 D1 accepted that the lowest density converts where displays share one grid. The roles of `cell=` and `size=` moved into a bullet of their own. The bitmap bullet read "it asks the helper for the cell before the first frame [...] the one case where a frame waits on the helper, and takes"; the sizes bullet ended "and `cell=` stays in pixels, an exact override."; and the zoom bullet read "A zoom steps through the frit's sizes, as the C reference's zoom stepped by its font's `increase_step` [...] an outline frit by 1 point [...] and an all-bitmap frit by whole multiples of its cell."
+> Edited 2026-10-29: the operator decided that an OSC 50 switch to a bitmap frit with no `cell=` waits for its fonts' own cell as the start does (`considered`), as the code already did (`crates/vtium/src/app.rs`, `osc_50_to_a_bitmap_frit_with_no_cell_takes_its_fonts_own_cell`); that zoom steps by the frit's engine, a mixed frit as an outline one (`considered`, item 4 of the open glyph questions); and ADR-1401 D1 accepted that the lowest density converts where displays share one grid. The roles of `cell=` and `size=` moved into a bullet of their own. The bitmap bullet read "it asks the helper for the cell before the first frame [...] the one case where a frame waits on the helper, and takes"; the sizes bullet ended "and `cell=` stays in pixels, an exact override."; and the zoom bullet read "A zoom steps through the frit's sizes, as the C reference's zoom stepped by its font's `increase_step` [...] an outline frit by 1 point [...] and an all-bitmap frit by whole multiples of its cell."
 
 > Edited 2026-10-28: the operator decided that sizes are points converted at the display's density, with `display-dpi` stating it (`considered`), which D1's `size=`, this decision and the departures now carry. `size=` and a configured `font-size` were pixel heights, a bitmap frit's `size=` set its height, and an outline frit zoomed by 1 pixel; the earlier text is in git at 9ccffbc.
 
@@ -448,7 +448,7 @@ The C reference loaded its font before its first frame and took the font's cell;
 
 > Edited 2026-10-29: the operator accepted an independent advisor's review of ADR-1401 (ADR-1401's `considered`): the more specific setting wins, and the first bullet takes D16's order. It read: "The font is `font-name` from the command line or kmscon.conf, which wins over the profile (D16); unset, the frit the head's profile names; unset, `vconsole.font=` [...]".
 
-> Edited 2026-10-29: the operator decided that a family under `font-engine=pango` or `freetype` with no frit becomes a one-source `font:<family>` frit (`considered`, the open glyph questions' item 5). The bullet read: "A kbd name, a font path given with `font-engine=psf`, or vconsole.conf's `FONT=` that no frit bears becomes a one-source frit made on the fly, with a `kbd:`, `file:` or `vconsole` source (D1)".
+> Edited 2026-10-29: the operator decided that a family under `font-engine=pango` or `freetype` with no frit becomes a one-source `font:<family>` frit (`considered`, item 5 of the open glyph questions). The bullet read: "A kbd name, a font path given with `font-engine=psf`, or vconsole.conf's `FONT=` that no frit bears becomes a one-source frit made on the fly, with a `kbd:`, `file:` or `vconsole` source (D1)".
 - A name that is neither a frit nor a source the helper can read draws the built-in font and logs one line: the name and the reason. A console with no font named draws the built-in font and logs nothing.
 
 ### D15: the helper
@@ -492,7 +492,7 @@ The console, which opens its VT as root already, reads the kernel's font once at
 
 > Edited 2026-10-28: the fill skipped what the console held and what the helper had sent at the cell in any earlier request, so the helper kept a second record of what the console held. The team lead's reading of the operator's design rule, one side owns each fact (`considered`), leaves the store as the only record: the helper skips repeats within one request only. The earlier text is in git at e807139.
 
-> Edited 2026-10-29: the operator decided the helper's memory of what it sent lasts one request (`considered`, the open glyph questions' item 6), the rule the bullet already stated; the bullet gains the decision's reason, that the console decides when a glyph is needed.
+> Edited 2026-10-29: the operator decided the helper's memory of what it sent lasts one request (`considered`, item 6 of the open glyph questions), the rule the bullet already stated; the bullet gains the decision's reason, that the console decides when a glyph is needed.
 
 ### D19: the store
 

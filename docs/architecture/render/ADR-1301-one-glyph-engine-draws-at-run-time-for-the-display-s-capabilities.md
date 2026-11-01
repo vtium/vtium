@@ -23,7 +23,7 @@ basis:
   - operator: aaronsb
     level: directed
     said: "When a set's target differs from the display, vtium prefers a build of the same frit made for this display, else draws with one log line. The fallback is generation at run time from the same frit, as the C reference rendered at run time; a prerendered set is the performance, security and repeatability gain over it."
-    via: the GitHub issue for reading the display vtium draws on, comment of 2026-10-28 headed "The operator's decisions (2026-10-28)"; posted from the operator's account, the wording agent-written
+    via: the GitHub issue for recording a set's target display and reading the live display, comment of 2026-10-28 headed "The operator's decisions (2026-10-28)"; posted from the operator's account, the wording agent-written
   - operator: aaronsb
     level: directed
     said: "The four target fields stand: resolution, density, depth (`1`, gray at N levels, `565`, `color`) and subpixel order, with rotation folded into the order."
@@ -59,7 +59,7 @@ basis:
   - operator: aaronsb
     level: directed
     said: "Where pixels are scarce (1-bit, and 8 to 12 px cells at low resolution), outline glyphs draw crisp: 1-bit, hinted to the grid. Elsewhere they draw with whole-pixel grayscale antialiasing. Subpixel strikes and subpixel antialiasing are options."
-    via: the body of the GitHub issue for reading the display vtium draws on, "Decided (the operator, 2026-10-28)", the item headed "Pixels"; posted from the operator's account, the wording agent-written
+    via: the body of the GitHub issue for recording a set's target display and reading the live display, "Decided (the operator, 2026-10-28)", the item headed "Pixels"; posted from the operator's account, the wording agent-written
   - operator: aaronsb
     level: directed
     said: "Dithering is an option in the set's definition (the frit), not a default. A set built with dithering on, loaded on a full-color display, draws with a warning."
@@ -164,7 +164,7 @@ related: []
 
 > Edited 2026-10-28: the operator's answers on the first draft and the operator's framing of the record around one engine with two schedules, relayed by the team lead. The Summary read: "Decided: vtium reads four capabilities of each display without DRM master [...] Outline glyphs draw crisp where pixels are scarce and with whole-pixel grayscale antialiasing elsewhere; gray panels take that antialiasing quantized to their levels [...]" The probes stand as asked.
 
-> Edited 2026-10-28: the operator decided that a set does not have to be built, that both schedules respect every frit option, that a minspec machine may generate at run time, and that a target mismatch falls back to generation from the same frit (on the display-reading issue). The decided line read, in part: "dynamic, when ADR-1200's sandboxed helper rasterises a missing size for the live display ([the dynamic-strike issue]) [...] a dynamic strike, made for the live display, needs no check at load." The trades read, first: "The sharper edges subpixel rendering gives a desktop LCD, until a set is built for it." The one-way answer read: "Expensive once sets ship: a prerendered set's strikes are baked for its target, so changing what a class gets rebuilds every set built for it; a dynamic strike is rebuilt each boot and costs nothing to change."
+> Edited 2026-10-28: the operator decided that a set does not have to be built, that both schedules respect every frit option, that a minspec machine may generate at run time, and that a target mismatch falls back to generation from the same frit (on the work on recording a set's target display and reading the live display). The decided line read, in part: "dynamic, when ADR-1200's sandboxed helper rasterises a missing size for the live display ([the dynamic-strike issue]) [...] a dynamic strike, made for the live display, needs no check at load." The trades read, first: "The sharper edges subpixel rendering gives a desktop LCD, until a set is built for it." The one-way answer read: "Expensive once sets ship: a prerendered set's strikes are baked for its target, so changing what a class gets rebuilds every set built for it; a dynamic strike is rebuilt each boot and costs nothing to change."
 
 > Edited 2026-10-28: the operator decided the helper's lifetime, the polarity of a 1-bit display and the replacement glyph. The decided line read: "How long the helper lives is proposed here, not decided."; the 1-bit sentence ended "by cell."
 
@@ -278,7 +278,7 @@ One reader in vtium-platform serves the console and `vtium-vitrify new`, and the
 - `display-depth` takes `auto`, the default, or a depth from the table. `display-subpixel` takes `auto`, the default, or a value from the table but `unknown`. `display-dpi` is unset by default, or a density, which wins over the measured one with no line logged. A key applies to every display of the seat; a key per display waits for a seat with mixed displays to need one.
 - The subpixel value is the panel's own order, as the connector reports it. vtium turns it by its rotation: a quarter turn makes a horizontal stripe vertical, and a half turn reverses its order. Every rule below reads the order after the turn.
 - The 1-bit display work's table lists the drivers of 1-bit panels, each with its source line in Linux. It gains the gray panels its sources already name, each with its levels: st7586's 2-bit gray, the SSD132x panels' 4-bit gray, and st7571's gray mode. The SSD1331's RGB332 is `565`'s class: a color panel of fewer bits than true color.
-- A 16-bit DRM panel behind a driver that converts XRGB8888 is not told apart: it reads as `color`. Whether a plane's format list tells it apart is to be confirmed by the display-reading issue. Read as `color`, such a panel loses only what its driver's conversion loses, so `display-depth` has no `565` value.
+- A 16-bit DRM panel behind a driver that converts XRGB8888 is not told apart: it reads as `color`. Whether a plane's format list tells it apart is to be confirmed by the target-display work. Read as `color`, such a panel loses only what its driver's conversion loses, so `display-depth` has no `565` value.
 - Which DRM drivers fill the connector's `subpixel` is unchecked (the outline-font issue's comment of 2026-10-27), and no source vtium reads says a panel is PenTile, WOLED RGBW or QD-OLED. Such a panel is known only through `display-subpixel=none`.
 - The console converts point sizes with the density: pixels = points × DPI ÷ 72 (ADR-1200 D17, the operator, 2026-10-28).
 - A reading that fails leaves its axis at the safe end: depth `color`, subpixel `unknown`, density assumed at 96 DPI, with one logged warning for each display that reports no physical size and no `display-dpi` configured. A display read as `1` or gray is logged once with the source that said so: the driver's name and device-tree node, or the fbdev visual.
@@ -295,7 +295,7 @@ One reader in vtium-platform serves the console and `vtium-vitrify new`, and the
 | `antialias=` | `auto`, the default, follows the grid; `no` makes every outline glyph crisp at any size | the frit |
 | `font-antialias=` | The same, `auto` or `no`, for the console, over the frit's | the configuration |
 | Subpixel strikes and subpixel antialiasing | Coverage computed for each color channel of a stripe; a subpixel strike holds it in ADR-1300's reserved per-channel format for one order, and subpixel antialiasing draws it, for glyphs and possibly vtium's sprites | the frit; never a default |
-| Dithering | Color glyphs taken to the target's gray levels, or to 1 bit, with a dither pattern; the pattern is the display-reading issue's to choose | the frit; never a default |
+| Dithering | Color glyphs taken to the target's gray levels, or to 1 bit, with a dither pattern; the pattern is the target-display work's to choose | the frit; never a default |
 | Color glyphs | Premultiplied RGBA strikes (ADR-1200 D13) | the source |
 
 ### D5: the display classes
@@ -313,7 +313,7 @@ The first class whose test holds is the display's class.
 | Known stripe | subpixel `rgb`, `bgr`, `vrgb` or `vbgr` | a desktop LCD at about 100 DPI that reports its order |
 | Order unknown | anything else | most monitors, and every display whose connector reports nothing |
 
-The list of virtual drivers is to be confirmed by the display-reading issue against the Linux source, as the 1-bit display work's table was.
+The list of virtual drivers is to be confirmed by the target-display work against the Linux source, as the 1-bit display work's table was.
 
 ### D6: the grid
 
@@ -370,18 +370,18 @@ One table of rules, each with an id, its reason, a severity (note or warning) an
 
 A combination never refuses a frit: vtium draws it as the table says and logs the finding.
 
-> Edited 2026-10-28: the operator's decisions on the display-reading issue, that a mismatched set falls back to the same frit generated at run time and that `antialias=no` is a choice, not a poor combination. The mismatch row read: "warning; [the display-reading issue's] second question decides what is drawn". Two rows are gone: "Antialiased strikes on a 1-bit display, or with `font-antialias=no`", which read "warning" and "note; thresholded at half, and a set rebuilt with `antialias=no` draws better", and "A strike crisp or antialiased against the boundary".
+> Edited 2026-10-28: the operator's decisions on the target-display work, that a mismatched set falls back to the same frit generated at run time and that `antialias=no` is a choice, not a poor combination. The mismatch row read: "warning; [the target-display work's] second question decides what is drawn". Two rows are gone: "Antialiased strikes on a 1-bit display, or with `font-antialias=no`", which read "warning" and "note; thresholded at half, and a set rebuilt with `antialias=no` draws better", and "A strike crisp or antialiased against the boundary".
 
 ### D9: profiles
 
-A target is a profile (ADR-1200 D16): a display's four capabilities of D3, named freely, with the frit, the cell and the options that suit it. This record gives profiles their engine and grid: `vtium-vitrify` lints a profile's frit for the class its capabilities place it in (D8), and `antialias=` joins the frit's keys. The operator answered the display-reading issue's questions on 2026-10-28:
+A target is a profile (ADR-1200 D16): a display's four capabilities of D3, named freely, with the frit, the cell and the options that suit it. This record gives profiles their engine and grid: `vtium-vitrify` lints a profile's frit for the class its capabilities place it in (D8), and `antialias=` joins the frit's keys. The operator answered the target-display work's questions on 2026-10-28:
 
 1. The four fields stand: resolution, density, depth (`1`, gray at N levels, `565`, `color`) and subpixel order, with rotation folded into the order.
 2. Profiles are named freely, a name being the user's, such as a display's model, and vtium ships example profiles with descriptive names, each expanding to the four fields (ADR-1200 D16).
 
-The display-reading issue's answer on a set built for another display is retired with the built sets (Alternatives Considered).
+The target-display work's answer on a set built for another display is retired with the built sets (Alternatives Considered).
 
-> Edited 2026-10-28: the operator answered the display-reading issue's questions, which this section listed as open.
+> Edited 2026-10-28: the operator answered the target-display work's questions, which this section listed as open.
 
 ### For the operator's check
 
@@ -432,8 +432,8 @@ These are agent calls the operator has not yet looked at: a combination never re
 
 ### Neutral
 
-- The shaping issue builds shaping and cluster asks (ADR-1200 D21), and keeps the cell mapping of syllabic scripts and bidirectional text open; an issue of its own builds the console's fallback to the built-in font.
-- The 1-bit display work builds the 1-bit path and the depth table; the subpixel issue judges subpixel at 320x240; the display-reading issue gives profiles their fields and `antialias=`; the rule checker's issue builds the checker; the dynamic-strike work runs the engine at run time; the outline-font work's strikes give the measurement that sets the crisp boundary.
+- The shaping issue builds shaping and cluster asks (ADR-1200 D21), and keeps the cell mapping of syllabic scripts and bidirectional text open; the work on per-character fallback builds the console's fallback to the built-in font.
+- The 1-bit display work builds the 1-bit path and the depth table; the subpixel issue judges subpixel at 320x240; the target-display work gives profiles their fields and `antialias=`; the rule checker's issue builds the checker; the dynamic-strike work runs the engine at run time; the outline-font work's strikes give the measurement that sets the crisp boundary.
 - The reader in vtium-platform gains the connector's subpixel, its physical size and EDID, beside the 1-bit display work's driver table.
 
 ## Alternatives Considered

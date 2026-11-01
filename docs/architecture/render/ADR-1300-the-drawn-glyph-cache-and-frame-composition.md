@@ -129,7 +129,7 @@ A third format is reserved (added 2026-10-26, the operator's agreement): a per-c
 
 - **The C reference:** bbulk drew a cell blank when its glyph could not be cached and tried again on the next frame (`kmscon/src/render/bbulk.c:1426-1432`). gltex drew blank past its hard stop.
 - **vtium:** a pool is full for a glyph when taking it would evict a glyph the frame draws, or when the glyph alone passes the pool's byte ceiling. The glyph is then drawn without being cached: on the CPU path from one reused glyph buffer; on the GPU path from a slot held for that frame and given back after it, which is gltex's growth past full with the frame's cells as its bound.
-- **Why:** a blank cell makes the cache change pixels, which the verification forbids. A glyph past the ceiling is real once the kitty text sizing protocol lets a stream set the cell size: at 2048 pixels a side a wide mask is 8 MiB and a color glyph 32 MiB.
+- **Why:** a blank cell makes the cache change pixels, which the verification forbids. A glyph past the ceiling is real once vtium supports the kitty text sizing protocol, which lets a stream set the cell size: at 2048 pixels a side a wide mask is 8 MiB and a color glyph 32 MiB.
 - **Cost or saving:** a font call each frame for each uncached glyph: 212 ns at 8x16, 666 ns at 16x32, 2,435 ns at 32x64 (measured with unifont). A whole 8x16 screen of them is about 1.7 ms a frame (estimate).
 - **Pixels:** the C reference's blank cells are drawn with their glyphs. No other pixel changes.
 
