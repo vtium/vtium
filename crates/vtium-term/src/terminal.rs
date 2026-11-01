@@ -44,7 +44,7 @@ pub use reply::VersionError;
 
 use charset::{Charset, Charsets};
 use inband::Inband;
-use modes::Modes;
+use modes::{Modes, SavedModes};
 use reply::Query;
 
 /// DECSCUSR's cursor styles: the host's default, or a shape that blinks or
@@ -195,10 +195,15 @@ struct State {
     /// The level DECSCL set, 61 to 64; 62, DA1's, until one is set.
     conformance: u8,
     charsets: Charsets,
-    /// DECKPAM: the keypad sends application sequences.
-    keypad_application: bool,
     /// xterm's modifyOtherKeys level, 0 to 2.
     modify_other_keys: u8,
+    /// XTSHIFTESCAPE 1: the program asks that Shift reach its mouse
+    /// reports.
+    shift_escape: bool,
+    /// What XTSAVE saved.
+    xtsave: SavedModes,
+    /// A BEL arrived while mode 1042 was set, until the host takes it.
+    bell: bool,
     /// The cell the pointer was last reported in, for motion reports.
     mouse_last: Option<(usize, usize)>,
     /// Mode 2026 holds that have ended, by any cause.
@@ -252,8 +257,10 @@ impl Terminal {
             input_mode: InputMode::Utf8,
             conformance: 62,
             charsets: Charsets::initial(false),
-            keypad_application: false,
             modify_other_keys: 0,
+            shift_escape: false,
+            xtsave: SavedModes::default(),
+            bell: false,
             mouse_last: None,
             sync_frames: 0,
             pause: false,
@@ -389,6 +396,20 @@ impl Terminal {
     /// Which pointer events the program asked for.
     pub fn mouse_tracking(&self) -> MouseTracking {
         self.state.modes.tracking()
+    }
+
+    /// Whether a BEL arrived since the last call while mode 1042 was set;
+    /// several count as one. The host rings the VT's bell when its own
+    /// bell setting is on.
+    pub fn take_bell(&mut self) -> bool {
+        core::mem::take(&mut self.state.bell)
+    }
+
+    /// Whether the program asked with XTSHIFTESCAPE 1 that Shift reach its
+    /// mouse reports. While it has not, the host may take a pointer event
+    /// with Shift held for its own selection, as xterm does.
+    pub fn mouse_captures_shift(&self) -> bool {
+        self.state.shift_escape
     }
 
     /// Whether the host presents frames by mode 2026; turning it off ends a
@@ -567,9 +588,10 @@ impl State {
     }
 
     /// DECSTR, and the first half of RIS: the modes, the pen, the cursor
-    /// style, the character sets, the saved cursors, the margins, the tab
-    /// stops and the 256 palette colors return to their initial state;
-    /// the text, the cursor and the colors OSC 10 to 19 set stay.
+    /// style, the character sets, the saved cursors and modes, the margins,
+    /// the tab stops, XTSHIFTESCAPE and the 256 palette colors return to
+    /// their initial state; the text, the cursor and the colors OSC 10 to
+    /// 19 set stay.
     fn soft_reset(&mut self) {
         self.screen.reset();
         self.screen.set_pen(Style::DEFAULT);
@@ -577,11 +599,12 @@ impl State {
         self.input_mode = InputMode::Utf8;
         self.conformance = 62;
         self.charsets = self.default_charsets();
-        self.keypad_application = false;
         self.modify_other_keys = 0;
+        self.shift_escape = false;
         self.dcs = Dcs::Ignored;
         modes::reset(self, false);
         self.saved = [Saved::HOME; 2];
+        self.xtsave = SavedModes::default();
         self.reset_colors(false);
     }
 
@@ -620,6 +643,57 @@ impl State {
         self.charsets = self.default_charsets();
     }
 
+    /// BS and CUB: `n` columns left, wrapping back into the row above
+    /// while mode 45 and DECAWM are both set.
+    fn cursor_back(&mut self, n: usize) {
+        if self.modes.reverse_wrap() && self.screen.auto_wrap() {
+            self.screen.move_left_reverse_wrap(n);
+        } else {
+            self.screen.move_left(n);
+        }
+    }
+
+    /// DECALN, `ESC # 8`, as xterm runs it: origin mode off, the margins
+    /// the whole screen, every cell an `E` in the default style, the cursor
+    /// home with no pending wrap, and the pen keeping its colors and
+    /// losing its other attributes.
+    fn screen_alignment(&mut self) {
+        modes::set(self, true, 6, false);
+        self.screen.align();
+        let pen = *self.screen.pen();
+        self.screen.set_pen(Style {
+            fg: pen.fg,
+            bg: pen.bg,
+            ..Style::DEFAULT
+        });
+        self.screen.move_to(0, 0);
+    }
+
+    /// XTSAVE and XTRESTORE, `CSI ? Pm s` and `CSI ? Pm r`, of each
+    /// parameter in order; with every parameter omitted, kitty's empty
+    /// list, of every mode.
+    fn save_modes(&mut self, params: &Params, save: bool) {
+        let run = if save { modes::save } else { modes::restore };
+        let listed: Vec<u32> = (0..params.count()).filter_map(|i| params.get(i)).collect();
+        if listed.is_empty() {
+            return run(self, None);
+        }
+        for n in listed {
+            run(self, Some(n));
+        }
+    }
+
+    /// XTSHIFTESCAPE, `CSI > Ps s`: 1 asks that Shift reach the program's
+    /// mouse reports, and 0 or an omitted `Ps` lets the host take Shift for
+    /// itself; another value does nothing, as xterm takes it.
+    fn set_shift_escape(&mut self, params: &Params) {
+        match params.get(0).unwrap_or(0) {
+            0 => self.shift_escape = false,
+            1 => self.shift_escape = true,
+            _ => {}
+        }
+    }
+
     /// SM or RM of each parameter, in order.
     fn set_modes(&mut self, params: &Params, dec: bool, on: bool) {
         for i in 0..params.count() {
@@ -637,7 +711,7 @@ impl State {
             b'A' => s.move_up(n, false),
             b'B' => s.move_down(n, false),
             b'C' | b'a' => s.move_right(n),
-            b'D' => s.move_left(n),
+            b'D' => self.cursor_back(n),
             b'E' => {
                 s.move_down(n, false);
                 s.move_line_home();
@@ -706,8 +780,9 @@ impl State {
             b'|' => self.charsets.lock_right(3),
             b'7' => self.save_cursor(),
             b'8' => self.restore_cursor(),
-            b'=' => self.keypad_application = true,
-            b'>' => self.keypad_application = false,
+            // DECKPAM and DECKPNM set and reset DECNKM's state.
+            b'=' => modes::set(self, true, 66, true),
+            b'>' => modes::set(self, true, 66, false),
             b'Z' => self.reply_da1(),
             b'c' => self.hard_reset(),
             _ => {}
@@ -761,7 +836,8 @@ impl Consumer for State {
         match control {
             // ENQ answers an empty answerback (ADR-1000), so nothing.
             0x05 => {}
-            0x08 => s.move_left(1),
+            0x07 if self.modes.bell() => self.bell = true,
+            0x08 => self.cursor_back(1),
             0x09 => s.tab_right(1),
             0x0a..=0x0c if self.modes.newline() => s.newline(),
             0x0a..=0x0c => s.move_down(1, true),
@@ -785,6 +861,7 @@ impl Consumer for State {
         // SCS for a 94-character set: ESC (, ), * or + designates G0 to G3.
         let slot = match intermediates.as_bytes() {
             [] => return self.esc_plain(final_byte),
+            [b'#'] if final_byte == b'8' => return self.screen_alignment(),
             [b'('] => 0,
             [b')'] => 1,
             [b'*'] => 2,
@@ -814,6 +891,9 @@ impl Consumer for State {
             (Some(b'?'), [], b'J' | b'K') => self.erase(params, final_byte, Erase::Unprotected),
             (Some(b'?'), [], b'h') => self.set_modes(params, true, true),
             (Some(b'?'), [], b'l') => self.set_modes(params, true, false),
+            (Some(b'?'), [], b's') => self.save_modes(params, true),
+            (Some(b'?'), [], b'r') => self.save_modes(params, false),
+            (Some(b'>'), [], b's') => self.set_shift_escape(params),
             (None, [b'$'], b'p') => self.reply_mode(params, false),
             (Some(b'?'), [b'$'], b'p') => self.reply_mode(params, true),
             (None, [b'!'], b'p') => self.soft_reset(),

@@ -14,6 +14,8 @@
 //! reaches; the state the screen holds is behind the screen's setters,
 //! which a source check keeps to this module.
 
+use std::collections::BTreeMap;
+
 use super::{CursorStyle, State};
 use crate::screen::{Erase, WidthMethod};
 
@@ -53,7 +55,8 @@ pub(crate) enum Reset {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Host {
     Nothing,
-    /// It reports pointer or focus events, or stops repeating keys.
+    /// It reports pointer or focus events, NumLock with each key, or wheel
+    /// steps it does not report, or stops repeating keys.
     Input,
     /// It pastes through [`Terminal::paste`](crate::Terminal::paste).
     Paste,
@@ -65,10 +68,13 @@ pub(crate) enum Host {
     /// ([`Terminal::resize`](crate::Terminal::resize),
     /// [`Terminal::set_visible`](crate::Terminal::set_visible)).
     Notify,
+    /// It rings the bell by its setting when it takes one
+    /// ([`Terminal::take_bell`](crate::Terminal::take_bell)).
+    Bell,
 }
 
 /// The accessors of a supported row.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Mode {
     Irm,
     Srm,
@@ -81,13 +87,21 @@ pub(crate) enum Mode {
     X10Mouse,
     CursorBlink,
     Dectcem,
+    ReverseWrap,
     AltScreen,
+    Decnkm,
     NormalMouse,
     ButtonMouse,
     AnyMouse,
     Focus,
     SgrMouse,
+    AlternateScroll,
+    UrxvtMouse,
     PixelMouse,
+    EightBitMeta,
+    NumLock,
+    MetaEscape,
+    Bell,
     AltScreenClear,
     SaveCursor,
     AltScreenSaveCursor,
@@ -182,14 +196,22 @@ pub(crate) static MODES: &[Row] = &[
     row!(DEC, 19, "DECPEX", Ignored, RESET, Never, Nothing, "", "ctlseqs; VT510; a console has no printer", FIXED, None),
     row!(DEC, 25, "DECTCEM", Supported, SET, Soft, Nothing, "civis cnorm", "ctlseqs; VT510", &["modes.rs::dectcem_shows_and_hides_the_cursor"], Some(Mode::Dectcem)),
     row!(DEC, 42, "DECNRCM", Refused, RESET, Never, Nothing, "", "ctlseqs; VT510; refused: national replacement sets are obsolete next to UTF-8 (libtsm#57)", FIXED, None),
+    row!(DEC, 45, "XTREVWRAP", Supported, RESET, Soft, Nothing, "", "ctlseqs, reverse wraparound: while DECAWM is set, BS and CUB go on from the first column to the last column of the row above when printing wrapped from that row, a pending wrap taking the first step, as xterm moves", &["modes.rs::mode_45_wraps_backwards_into_the_row_that_wrapped"], Some(Mode::ReverseWrap)),
     row!(DEC, 47, "ALTBUF", Supported, RESET, Soft, Nothing, "", "ctlseqs, the alternate screen, neither cleared nor the cursor saved", &["modes.rs::mode_47_switches_screens_only"], Some(Mode::AltScreen)),
+    row!(DEC, 66, "DECNKM", Supported, RESET, Soft, Nothing, "", "ctlseqs; VT510; the keypad's application mode, which DECKPAM sets and DECKPNM resets", &["modes.rs::decnkm_switches_the_keypad_as_deckpam_and_deckpnm_do"], Some(Mode::Decnkm)),
     row!(DEC, 1000, "VT200MOUSE", Supported, RESET, Soft, Input, "", "ctlseqs, normal tracking; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", MOUSE, Some(Mode::NormalMouse)),
     row!(DEC, 1001, "HILITEMOUSE", Refused, RESET, Never, Nothing, "", "ctlseqs; refused: the terminal waits on the program's XTHIMOUSE answer before it can show a selection (ADR-1000)", FIXED, None),
     row!(DEC, 1002, "BTNMOUSE", Supported, RESET, Soft, Input, "", "ctlseqs, button-event tracking; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", MOUSE, Some(Mode::ButtonMouse)),
     row!(DEC, 1003, "ANYMOUSE", Supported, RESET, Soft, Input, "", "ctlseqs, any-event tracking; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", MOUSE, Some(Mode::AnyMouse)),
     row!(DEC, 1004, "FOCUS", Supported, RESET, Soft, Input, "fe fd", "ctlseqs, FocusIn and FocusOut; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", &["modes.rs::focus_events_are_reported_while_set"], Some(Mode::Focus)),
     row!(DEC, 1006, "SGRMOUSE", Supported, RESET, Soft, Input, "XM", "ctlseqs, SGR encoding, whatever order the modes were set in; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", SGR_MOUSE, Some(Mode::SgrMouse)),
+    row!(DEC, 1007, "ALTSCROLL", Supported, SET, Soft, Input, "", "ctlseqs, alternate scroll: on the alternate screen, a wheel step the host does not report is sent as cursor-up or cursor-down keys, one a line, as DECCKM encodes them; set at start, as foot and Ghostty start it", &["modes.rs::mode_1007_sends_wheel_steps_as_cursor_keys_on_the_alternate_screen"], Some(Mode::AlternateScroll)),
+    row!(DEC, 1015, "URXVTMOUSE", Supported, RESET, Soft, Input, "", "ctlseqs, urxvt encoding: CSI Cb ; Cx ; Cy M in decimal, Cb as the X10 encoding's byte and the cell counted from 1, with no limit; one encoding at a time, as 1006; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", &["modes.rs::urxvt_mouse_encoding_reports_in_decimal"], Some(Mode::UrxvtMouse)),
     row!(DEC, 1016, "PIXMOUSE", Supported, RESET, Soft, Input, "", "ctlseqs, SGR-Pixels encoding, pixels counted from 1; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", SGR_MOUSE, Some(Mode::PixelMouse)),
+    row!(DEC, 1034, "META8BIT", Supported, SET, Soft, Nothing, "", "ctlseqs, eightBitInput: while 1036 is reset, Alt sets the eighth bit of a key that sends one byte below 0x80, sent as U+0080 to U+00FF in the input's encoding; neither set, Alt sends nothing of its own", &["modes.rs::modes_1034_and_1036_choose_what_alt_sends"], Some(Mode::EightBitMeta)),
+    row!(DEC, 1035, "NUMLOCK", Supported, SET, Soft, Input, "", "ctlseqs, numLock: while NumLock is on, a keypad key that makes a character sends it whatever DECKPAM says; set at start, as xterm's numLock resource; vtium has one Alt modifier, so the mode changes only how NumLock reads", &["modes.rs::mode_1035_lets_numlock_override_the_application_keypad"], Some(Mode::NumLock)),
+    row!(DEC, 1036, "METAESC", Supported, SET, Soft, Nothing, "", "ctlseqs, metaSendsEscape: Alt puts ESC before a key's bytes; set at start, as the C reference sent Alt", &["modes.rs::modes_1034_and_1036_choose_what_alt_sends"], Some(Mode::MetaEscape)),
+    row!(DEC, 1042, "BELL", Supported, SET, Soft, Bell, "", "ctlseqs, bellIsUrgent; vtium has no window to mark urgent, so set lets BEL reach the host, which rings the VT bell by its bell setting, and reset BEL does nothing; set at start, so BEL rings as the C reference rang it", &["modes.rs::mode_1042_lets_bel_reach_the_host"], Some(Mode::Bell)),
     row!(DEC, 1047, "ALTBUF1047", Supported, RESET, Soft, Nothing, "", "ctlseqs, the alternate screen, cleared as it is left", &["modes.rs::mode_1047_clears_the_alternate_screen_as_it_leaves"], Some(Mode::AltScreenClear)),
     row!(DEC, 1048, "SAVECUR", Supported, RESET, Never, Nothing, "", "ctlseqs, \"Save cursor as in DECSC\": set saves, reset restores as DECRC does, and nothing stays set", &["modes.rs::mode_1048_saves_and_restores_the_cursor_as_decsc_does"], Some(Mode::SaveCursor)),
     row!(DEC, 1049, "ALTBUF1049", Supported, RESET, Soft, Nothing, "smcup rmcup", "ctlseqs, the cursor saved as in DECSC and the alternate screen cleared as it is entered; leaving restores the cursor and the pen as DECRC does (libtsm#20)", &["modes.rs::mode_1049_saves_the_cursor_and_the_pen_around_the_alternate_screen"], Some(Mode::AltScreenSaveCursor)),
@@ -222,13 +244,14 @@ pub enum MouseTracking {
     Any,
 }
 
-/// How a pointer event is encoded (modes 1006 and 1016, one at a time);
-/// with neither, the X10 encoding.
+/// How a pointer event is encoded (modes 1006, 1015 and 1016, one at a
+/// time); with none of them, the X10 encoding.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum MouseEncoding {
     #[default]
     X10,
     Sgr,
+    Urxvt,
     Pixels,
 }
 
@@ -240,9 +263,16 @@ pub(super) struct Modes {
     lnm: bool,
     decckm: bool,
     decarm: bool,
+    reverse_wrap: bool,
+    keypad: bool,
     tracking: MouseTracking,
     encoding: MouseEncoding,
     focus: bool,
+    alternate_scroll: bool,
+    eight_bit_meta: bool,
+    num_lock: bool,
+    meta_escape: bool,
+    bell: bool,
     bracketed_paste: bool,
     sync: bool,
     scheme_report: bool,
@@ -257,9 +287,16 @@ impl Modes {
         lnm: false,
         decckm: false,
         decarm: true,
+        reverse_wrap: false,
+        keypad: false,
         tracking: MouseTracking::Off,
         encoding: MouseEncoding::X10,
         focus: false,
+        alternate_scroll: true,
+        eight_bit_meta: true,
+        num_lock: true,
+        meta_escape: true,
+        bell: true,
         bracketed_paste: false,
         sync: false,
         scheme_report: false,
@@ -287,6 +324,16 @@ impl Modes {
         self.decarm
     }
 
+    /// Mode 45.
+    pub(super) fn reverse_wrap(&self) -> bool {
+        self.reverse_wrap
+    }
+
+    /// DECNKM, which DECKPAM sets: the keypad sends application sequences.
+    pub(super) fn keypad_application(&self) -> bool {
+        self.keypad
+    }
+
     pub(super) fn tracking(&self) -> MouseTracking {
         self.tracking
     }
@@ -298,6 +345,31 @@ impl Modes {
     /// Mode 1004.
     pub(super) fn focus(&self) -> bool {
         self.focus
+    }
+
+    /// Mode 1007.
+    pub(super) fn alternate_scroll(&self) -> bool {
+        self.alternate_scroll
+    }
+
+    /// Mode 1034.
+    pub(super) fn eight_bit_meta(&self) -> bool {
+        self.eight_bit_meta
+    }
+
+    /// Mode 1035.
+    pub(super) fn num_lock(&self) -> bool {
+        self.num_lock
+    }
+
+    /// Mode 1036.
+    pub(super) fn meta_escape(&self) -> bool {
+        self.meta_escape
+    }
+
+    /// Mode 1042.
+    pub(super) fn bell(&self) -> bool {
+        self.bell
     }
 
     /// Mode 2004.
@@ -348,11 +420,19 @@ impl State {
             // one that blinks.
             Mode::CursorBlink => self.host.cursor_blink && self.cursor_style.blinks(),
             Mode::Dectcem => s.cursor_visible(),
+            Mode::ReverseWrap => m.reverse_wrap,
+            Mode::Decnkm => m.keypad,
             Mode::AltScreen | Mode::AltScreenClear | Mode::AltScreenSaveCursor => s.alternate(),
             Mode::SaveCursor => false,
             Mode::Focus => m.focus,
             Mode::SgrMouse => m.encoding == MouseEncoding::Sgr,
+            Mode::UrxvtMouse => m.encoding == MouseEncoding::Urxvt,
             Mode::PixelMouse => m.encoding == MouseEncoding::Pixels,
+            Mode::AlternateScroll => m.alternate_scroll,
+            Mode::EightBitMeta => m.eight_bit_meta,
+            Mode::NumLock => m.num_lock,
+            Mode::MetaEscape => m.meta_escape,
+            Mode::Bell => m.bell,
             Mode::BracketedPaste => m.bracketed_paste,
             Mode::Sync => m.sync,
             Mode::GraphemeWidth => s.width_method() == WidthMethod::Unicode,
@@ -390,6 +470,8 @@ impl State {
                 self.set_cursor_style(style);
             }
             Mode::Dectcem => self.screen.set_cursor_visible(on),
+            Mode::ReverseWrap => self.modes.reverse_wrap = on,
+            Mode::Decnkm => self.modes.keypad = on,
             Mode::AltScreen => self.screen.set_alternate(on),
             Mode::AltScreenClear => {
                 if !on && self.screen.alternate() {
@@ -410,7 +492,13 @@ impl State {
             }
             Mode::Focus => self.modes.focus = on,
             Mode::SgrMouse => self.encode(MouseEncoding::Sgr, on),
+            Mode::UrxvtMouse => self.encode(MouseEncoding::Urxvt, on),
             Mode::PixelMouse => self.encode(MouseEncoding::Pixels, on),
+            Mode::AlternateScroll => self.modes.alternate_scroll = on,
+            Mode::EightBitMeta => self.modes.eight_bit_meta = on,
+            Mode::NumLock => self.modes.num_lock = on,
+            Mode::MetaEscape => self.modes.meta_escape = on,
+            Mode::Bell => self.modes.bell = on,
             Mode::BracketedPaste => self.modes.bracketed_paste = on,
             Mode::Sync if on => self.modes.sync = self.host.sync_enabled,
             Mode::Sync => self.end_sync(),
@@ -534,6 +622,131 @@ pub(super) fn reset(state: &mut State, hard: bool) {
     }
 }
 
+/// Where XTSAVE keeps a mode's state. Modes that share one state share a
+/// slot, as xterm keeps them: the four tracking modes, the three
+/// encodings, and the three alternate screen modes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Slot {
+    Mode(Mode),
+    Tracking,
+    Encoding,
+    Screen,
+}
+
+/// A slot's saved state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Value {
+    Mode(bool),
+    Tracking(MouseTracking),
+    Encoding(MouseEncoding),
+    /// The alternate screen is shown.
+    Screen(bool),
+}
+
+/// What XTSAVE saved, one state a slot, as DECSC keeps one cursor: until
+/// a later XTSAVE of the slot replaces it, or DECSTR or RIS clears it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct SavedModes(BTreeMap<Slot, Value>);
+
+impl Mode {
+    /// The slot XTSAVE keeps the mode's state in; none for mode 1048,
+    /// which holds no state.
+    fn slot(self) -> Option<Slot> {
+        Some(match self {
+            Self::X10Mouse | Self::NormalMouse | Self::ButtonMouse | Self::AnyMouse => {
+                Slot::Tracking
+            }
+            Self::SgrMouse | Self::UrxvtMouse | Self::PixelMouse => Slot::Encoding,
+            Self::AltScreen | Self::AltScreenClear | Self::AltScreenSaveCursor => Slot::Screen,
+            Self::SaveCursor => return None,
+            mode => Slot::Mode(mode),
+        })
+    }
+}
+
+impl State {
+    fn saved_value(&self, slot: Slot) -> Value {
+        match slot {
+            Slot::Mode(mode) => Value::Mode(self.mode(mode)),
+            Slot::Tracking => Value::Tracking(self.modes.tracking),
+            Slot::Encoding => Value::Encoding(self.modes.encoding),
+            Slot::Screen => Value::Screen(self.screen.alternate()),
+        }
+    }
+
+    /// Restores a slot's state: a mode through its setter where its state
+    /// differs, and the alternate screen as mode 47 switches it, neither
+    /// cleared nor the cursor moved, as xterm restores it.
+    fn restore_value(&mut self, slot: Slot, value: Value) {
+        match (slot, value) {
+            (Slot::Mode(mode), Value::Mode(on)) if self.mode(mode) != on => {
+                self.set_mode(mode, on);
+            }
+            (_, Value::Tracking(tracking)) => self.track(tracking, true),
+            (_, Value::Encoding(encoding)) => self.modes.encoding = encoding,
+            (_, Value::Screen(on)) => self.screen.set_alternate(on),
+            _ => {}
+        }
+    }
+}
+
+/// The supported mode a DEC private mode number names.
+fn dec_mode(number: u32) -> Option<Mode> {
+    match find(true, number) {
+        Some(Row {
+            status: Status::Supported,
+            mode,
+            ..
+        }) => *mode,
+        _ => None,
+    }
+}
+
+/// XTSAVE, `CSI ? Pm s`, of one DEC private mode, or with `None`, kitty's
+/// empty list, of every supported mode in the table, the ANSI modes among
+/// them, apart from 1048. XTSAVE of 1048 saves the cursor as DECSC does,
+/// as xterm takes it. A number with no supported row saves nothing.
+pub(super) fn save(state: &mut State, number: Option<u32>) {
+    let modes: Vec<Mode> = match number {
+        Some(n) => dec_mode(n).into_iter().collect(),
+        None => MODES
+            .iter()
+            .filter(|r| r.status == Status::Supported && r.mode != Some(Mode::SaveCursor))
+            .filter_map(|r| r.mode)
+            .collect(),
+    };
+    for mode in modes {
+        match mode.slot() {
+            Some(slot) => {
+                let value = state.saved_value(slot);
+                state.xtsave.0.insert(slot, value);
+            }
+            None => state.save_cursor(),
+        }
+    }
+}
+
+/// XTRESTORE, `CSI ? Pm r`, of one DEC private mode, or with `None` of
+/// every slot XTSAVE filled, the alternate screen last. A slot nothing was saved in stays as it is; XTRESTORE of
+/// 1048 restores the cursor as DECRC does, as xterm takes it.
+pub(super) fn restore(state: &mut State, number: Option<u32>) {
+    let slots: Vec<(Slot, Value)> = match number {
+        Some(n) => match dec_mode(n) {
+            Some(Mode::SaveCursor) => return state.restore_cursor(),
+            Some(mode) => mode
+                .slot()
+                .and_then(|slot| Some((slot, *state.xtsave.0.get(&slot)?)))
+                .into_iter()
+                .collect(),
+            None => Vec::new(),
+        },
+        None => state.xtsave.0.iter().map(|(s, v)| (*s, *v)).collect(),
+    };
+    for (slot, value) in slots {
+        state.restore_value(slot, value);
+    }
+}
+
 impl CursorStyle {
     /// Whether the style blinks: the default one blinks as the host says.
     fn blinks(self) -> bool {
@@ -598,6 +811,7 @@ mod tests {
             Host::Paste => "pastes",
             Host::Draw => "presents by it",
             Host::Notify => "tells of changes",
+            Host::Bell => "rings the bell",
         }
     }
 
@@ -656,7 +870,17 @@ mod tests {
              vtium-term generated_documents` rewrites it and `docs/modes.tsv`. ADR-1000 decides \
              each row's status. A number with no row is not recognised: DECRQM reports 0, and \
              SM and RM change nothing. An ignored or refused row reports its default as \
-             permanent, 3 when set and 4 when reset.\n\n",
+             permanent, 3 when set and 4 when reset.\n\n\
+             XTSAVE (`CSI ? Pm s`) saves the state of each DEC private mode it lists, and \
+             XTRESTORE (`CSI ? Pm r`) sets each mode it lists back to the state saved, through \
+             SM or RM; a mode nothing was saved for stays as it is. With an empty list, as \
+             kitty takes it, they save and restore every supported row, the ANSI modes among \
+             them. Modes that share one state share one saved state, as xterm keeps them: the \
+             tracking modes 9, 1000, 1002 and 1003, the encodings 1006, 1015 and 1016, and the \
+             alternate screen modes 47, 1047 and 1049, which XTRESTORE switches as 47 does, \
+             neither cleared nor the cursor moved. Mode 1048 holds no state: XTSAVE of it saves \
+             the cursor as DECSC does and XTRESTORE restores it as DECRC does, and the empty \
+             list leaves it out. DECSTR and RIS clear what XTSAVE saved.\n\n",
         );
         out += &format!("| {} |\n", COLUMNS.join(" | "));
         out += &format!("|{}\n", "---|".repeat(COLUMNS.len()));
@@ -696,8 +920,8 @@ mod tests {
     }
 
     // ADR-1000, "The tables as data": each row's status is the ADR's, and
-    // every mode the ADR gives #12 with a status other than "no row" has a
-    // row.
+    // every mode the ADR gives #12 or #54 with a status other than "no row"
+    // has a row.
     #[test]
     fn the_table_agrees_with_adr_1000() {
         let path = format!("{CRATE}/../../docs/architecture/term/ADR-1000-modes.tsv");
@@ -715,7 +939,7 @@ mod tests {
             assert_eq!(adr_row[status_col], status(row), "{}'s status", row.id());
         }
         for r in &rows {
-            let ours = r[issue].split(", ").any(|i| i == "#12");
+            let ours = r[issue].split(", ").any(|i| i == "#12" || i == "#54");
             if ours && r[status_col] != "no row" {
                 assert!(
                     MODES.iter().any(|m| m.id() == r[id]),
@@ -815,9 +1039,9 @@ mod tests {
 
     // docs/architecture.md, "Tables, references and maps": every DEC mode
     // number from 0 to 65535 and every ANSI mode number from 0 to 255
-    // without a row replies 0 to DECRQM, and SM and RM of it change none of
-    // the terminal's state, compared whole; a number with a row replies
-    // something else.
+    // without a row replies 0 to DECRQM, and SM and RM of it, and of a DEC
+    // number XTSAVE and XTRESTORE, change none of the terminal's state,
+    // compared whole; a number with a row replies something else.
     #[test]
     fn a_number_with_no_row_replies_0_and_changes_nothing() {
         let mut t = busy();
@@ -837,9 +1061,13 @@ mod tests {
                     continue;
                 }
                 t.input(format!("\x1b[{q}{n}h\x1b[{q}{n}l").as_bytes());
+                if dec {
+                    // XTSAVE and XTRESTORE of it too.
+                    t.input(format!("\x1b[?{n}s\x1b[?{n}r").as_bytes());
+                }
                 assert!(
                     t.state == before,
-                    "SM or RM {q}{n} changed the state:\n{:?}\n{:?}",
+                    "SM, RM, XTSAVE or XTRESTORE {q}{n} changed the state:\n{:?}\n{:?}",
                     t.state,
                     before
                 );

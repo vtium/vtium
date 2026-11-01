@@ -125,6 +125,33 @@ impl Screen {
         self.end_rect_wraps(rect, true);
     }
 
+    /// DECALN's screen: the margins become the whole screen, every line of
+    /// the screen in use single size, and every cell an `E` in the default
+    /// style with no hyperlink, as xterm fills it. The cursor is the
+    /// terminal's to move.
+    pub(crate) fn align(&mut self) {
+        self.segment = None;
+        self.top = 0;
+        self.bottom = self.rows.saturating_sub(1);
+        let right = self.cols.saturating_sub(1);
+        for y in 0..self.rows {
+            if let Some(line) = self.line_mut(y) {
+                line.flags_mut().set_size(crate::LineSize::Single);
+                for x in 0..=right {
+                    line.write(x, Glyph::Char('E'), Width::Narrow, &Style::DEFAULT, None);
+                }
+            }
+        }
+        self.damage.mark_all();
+        let rect = Rect {
+            top: 0,
+            left: 0,
+            bottom: self.rows.saturating_sub(1),
+            right,
+        };
+        self.end_rect_wraps(rect, true);
+    }
+
     /// DECCRA: copies `source` with each cell's style and hyperlink to the
     /// rectangle of its size whose top left is row `top`, column `left`,
     /// counted as a rectangle's corners are and clipped to the screen, or
