@@ -37,6 +37,7 @@ _Cells and images to pixels - the renderer and its display interface_
 |-----|-------|--------|
 | [ADR-1300](./render/ADR-1300-the-drawn-glyph-cache-and-frame-composition.md) | The drawn-glyph cache and frame composition | accepted |
 | [ADR-1301](./render/ADR-1301-one-glyph-engine-draws-at-run-time-for-the-display-s-capabilities.md) | One glyph engine draws at run time for the display's capabilities | accepted |
+| [ADR-1302](./render/ADR-1302-glyph-ink-reaches-one-cell-past-its-own-side-to-side-and-is-cut-at-its-row.md) | Glyph ink reaches one cell past its own, side to side, and is cut at its row | accepted |
 
 ## Platform
 _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_

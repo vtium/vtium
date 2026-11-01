@@ -122,12 +122,15 @@ considered:
     said: "Hebrew marks: one rule for every script; Liberation Mono's telisha gedola and shalshelet and Miriam Mono's tipeha move 1 px inside the row; everyday Hebrew is untouched: yes. This corrects the earlier premise that Hebrew marks were unchanged."
     via: the maintainer's answers in the steering session, 2026-11-01, sixth round, relayed by the team lead; the wording is the team lead's
     paraphrase: true
+  - operator: aaronsb
+    said: "1302 is written well, let's accept it"
+    via: the maintainer in the steering session, 2026-11-01, after reading the record at 4a631f9 on GitHub with its figure, the ADR-1200 amendment beside it, and its four observables listed
 observable:
   - "Tier 2's `overhang-italic` screen shows an italic run whose letters lean into the next cell, unbroken across cell edges, over cells of alternating background colors"
   - "Tier 2's `overhang-underscore` screen shows a whole underscore in the bottom rows of every cell height from 12 to 32 pixels"
   - "Typing over an italic letter, and erasing it, leaves no ink behind in the cell beside it, in every buffer at every age"
   - "Every tier 2 and tier 3 screen drawn with a bitmap font draws byte for byte as it does today, but the screens that hold italic text, which lean in a commit of their own that lists their cells"
-status: proposed
+status: accepted
 date: 2026-11-01
 deciders:
   - aaronsb
