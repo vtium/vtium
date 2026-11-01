@@ -12,7 +12,12 @@ use super::{Screens, Store};
 use crate::image::{ImageKey, Refusal};
 use crate::rules::{Protocol, rules};
 
-/// Bytes a handler reserved for an image to come.
+/// Bytes a handler reserved for an image to come. It is spent once, by
+/// [`Store::add_image`] or [`Store::unreserve`], which take it by value. It
+/// is `Clone` only so a handler holding one can be cloned with the
+/// terminal whose store holds its bytes; a clone belongs to the cloned
+/// store, and spending one reservation twice in one store gives back bytes
+/// that store never granted.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reservation {
     pub(super) bytes: u64,

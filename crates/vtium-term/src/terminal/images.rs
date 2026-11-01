@@ -367,7 +367,13 @@ impl State {
 
 impl Terminal {
     /// Installs the handler the router sends `which` to, or removes it.
+    /// The outgoing handler is cancelled first, so it gives back what it
+    /// reserved, and a string it was being fed ends.
     pub fn set_image_handler(&mut self, which: ImageString, handler: Option<Box<dyn Handler>>) {
+        self.state.with_handler(which, |h, ctx| h.cancel(ctx));
+        if self.state.images.active == Some(which) {
+            self.state.images.active = None;
+        }
         *self.state.images.slot(which) = handler;
     }
 

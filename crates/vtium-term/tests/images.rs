@@ -615,6 +615,46 @@ fn a_protocol_switched_off_or_a_budget_of_0_mid_string_stores_nothing() {
     assert_eq!(t.screen().images().image_count(), 0);
 }
 
+/// A handler that reserves a cell's bytes when a string starts and gives
+/// them back when it is cancelled.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Reserving(Option<vtium_term::images::Reservation>);
+
+impl Handler for Reserving {
+    fn start(&mut self, ctx: &mut dyn Context, _: Intro<'_>) {
+        self.0 = ctx.reserve(Protocol::SIXEL, 0, 4096).ok();
+    }
+    fn feed(&mut self, _: &mut dyn Context, _: Chunk<'_>) {}
+    fn finish(&mut self, _: &mut dyn Context) {}
+    fn cancel(&mut self, ctx: &mut dyn Context) {
+        if let Some(r) = self.0.take() {
+            ctx.unreserve(r);
+        }
+    }
+    fn decoded(&mut self, _: &mut dyn Context, _: Reply) {}
+    fn clone_box(&self) -> Box<dyn Handler> {
+        Box::new(self.clone())
+    }
+    fn as_any(&self) -> &dyn core::any::Any {
+        self
+    }
+    fn same(&self, other: &dyn Handler) -> bool {
+        other.as_any().downcast_ref::<Self>() == Some(self)
+    }
+}
+
+#[test]
+fn a_handler_replaced_mid_string_is_cancelled_and_gives_its_bytes_back() {
+    let mut t = routed(false);
+    t.set_image_handler(ImageString::Sixel, Some(Box::new(Reserving::default())));
+    t.input(b"\x1bPq#0~");
+    assert_eq!(t.screen().images().bytes(), 4096);
+    t.set_image_handler(ImageString::Sixel, None);
+    assert_eq!(t.screen().images().bytes(), 0, "the reservation went back");
+    t.input(b"~\x1b\\");
+    assert_eq!(shown(&t), []);
+}
+
 // covers: image.pipeline
 #[test]
 fn the_store_follows_the_bytes_whole_or_cut_and_whatever_was_drawn() {
