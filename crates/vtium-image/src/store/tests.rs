@@ -76,7 +76,25 @@ fn put(s: &mut Store, f: &Fake, img: ImageKey, col: u32, row: u32) -> PlacementK
 }
 
 /// The frame's placements as (row, col, cols, rows, image) tuples.
+/// The height counts each buffer keeps, recomputed from its placements:
+/// a piece counted wrong fails here.
+fn check_heights(s: &Store) {
+    for buf in &s.buffers {
+        let mut all: BTreeMap<u32, u32> = BTreeMap::new();
+        let mut cut: BTreeMap<u32, u32> = BTreeMap::new();
+        for p in buf.placements.values() {
+            *all.entry(p.rows).or_insert(0) += 1;
+            if rules(p.protocol.0).cut_by_text {
+                *cut.entry(p.rows).or_insert(0) += 1;
+            }
+        }
+        assert_eq!(buf.heights, all, "the heights of every placement");
+        assert_eq!(buf.cut_heights, cut, "the heights of those text cuts");
+    }
+}
+
 fn shown(s: &Store, f: &Fake) -> Vec<(i64, u32, u32, u32, ImageKey)> {
+    check_heights(s);
     s.frame(f.rows(), COLS)
         .iter()
         .map(|p| (p.row, p.col, p.cols, p.rows, p.image))
