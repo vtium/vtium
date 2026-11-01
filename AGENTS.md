@@ -38,7 +38,7 @@ Upstream means the original projects the forks came from, `kmscon/kmscon` and `k
 - A spec describes behaviour that vtium implements. Put C function names in a section marked as C notes, not in the behaviour spec.
 - Never scope vtium work as "what the C reference does". vtium does that and more. Where the C reference departed from the specification, vtium follows the specification and lists each such case as a departure.
 - Say each fact once. Don't hard-wrap prose: one paragraph is one line in the file.
-- Write the way a person explains something to a colleague out loud: in whole sentences with a subject and a verb, in plain words. The test is whether a reader new to the project understands each sentence on the first read.
+- Write the way a person explains something to a colleague out loud: in whole sentences with a subject and a verb, in plain words. Don't be clever. Write so that someone who has never seen this code understands it the first time they read it. If that takes more words, use more words.
 - Unpack a compressed phrase into what it means. For example, "A frit of bitmap sources that states no cell takes its fonts' own cell" becomes "A frit made only of bitmap fonts, with no `cell=` line, draws at the fonts' own glyph size."
 - Define a project term the first time a section uses it, in the words a newcomer would use, as in "a frit (a font set file)". Prefer the everyday word where one exists.
 - Name who does what. Write "vtium ignores the keyboard", not "the keyboard falls to the policy's input default".
@@ -54,6 +54,7 @@ A gate is a check that must pass before a change goes to review. The gate line b
 cargo fmt --all --check \
   && cargo clippy --workspace --all-features --all-targets -- -D warnings \
   && cargo test --workspace --all-features \
+  && cargo test --workspace \
   && cargo build --profile minspec \
   && docs/scripts/adr lint --check \
   && docs/scripts/adr cite --check \
@@ -150,7 +151,7 @@ Several agents work at once, each in its own worktree, and the steering session 
 - **Picking up others' work.** When a branch lands on `integration` and a running agent needs it, the steering session sends that agent a message. The message reaches the agent when its current turn ends, and the agent then runs `git merge integration` in its own worktree. For example, every agent needed #67's ids. Agents never rebase a branch that has been shared.
 - **Order follows the dependency graph.** A wave includes only items whose dependencies have already landed on `integration`. Work that others are waiting on, such as a contract that several branches cite, merges first.
 - **Scratch is per agent.** An agent keeps its scratch files in a directory named for it, never at a shared path that another agent might also write to.
-- **Reports, not chatter.** A delegated agent can message the steering session at any time, and it does so when it finishes, when it is blocked, or when it needs a file it does not own. The steering session passes on what one agent needs from another.
+- **Reports, not chatter.** A delegated agent messages the steering session only when it finishes, when it is blocked, or when it needs a file it does not own. The steering session passes on what one agent needs from another.
 - **The brief carries everything.** A message to a delegated agent reaches it only when it ends a turn, so a follow-up sent while the agent is working may arrive after it has already reported. The steering session therefore puts every instruction in the brief.
 - **Gates run in the foreground.** A delegated agent runs every gate in the foreground. It never ends its turn to wait on a Monitor (Claude Code's tool for watching a background job) or on a background task of its own, because the notices from those go to the steering session.
 
