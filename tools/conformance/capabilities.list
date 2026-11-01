@@ -70,3 +70,12 @@ kitty-graphics                works   -Dimages image.kitty                  a ki
 mode-80                       works   -Dimages DEC-80                       DECRQM 80 (DECSDM) replies 1 or 2 while sixel is on (#48)
 mode-1070                     works   -Dimages DEC-1070                     DECRQM 1070 (private sixel registers) replies 1 or 2 (#48)
 mode-8452                     works   -Dimages DEC-8452                     DECRQM 8452 (sixel cursor right) replies 1 or 2 (#48)
+
+# the modes and controls beyond the C reference (#54); 1007, 1035, 1042
+# and XTSHIFTESCAPE need host calls the interface has no command for
+decaln                        works   -     ctl.decaln                     ESC # 8 fills the screen with E, origin mode off, the margins the whole screen
+reverse-wrap                  works   -     DEC-45                         mode 45: BS reverse-wraps only into the row that wrapped
+xtsave                        works   -     ctl.xtsave                     XTSAVE and XTRESTORE of one mode, and the empty list, which leaves DECOM
+mouse-1015                    works   -     DEC-1015                       mode 1015: the urxvt mouse encoding
+decnkm                        works   -     DEC-66                         mode 66: the keypad's application mode, which DECKPNM resets
+meta-keys                     works   -     DEC-1034,DEC-1036              modes 1036 and 1034: ESC before an Alt key, or its eighth bit
