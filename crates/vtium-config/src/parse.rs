@@ -428,15 +428,8 @@ impl Parser {
     /// is still a policy line.
     fn raw_line(&mut self, n: usize, raw: &[u8]) {
         let policy = self.top() && begins_policy(raw);
-        if raw.len() > LINE_MAX {
-            if policy {
-                self.unreadable_policy(n, PolicyFault::LineTooLong);
-            } else {
-                self.error(Some(n), Problem::LineTooLong, self.within());
-            }
-            return;
-        }
-        // a heading vtium cannot read drops its section
+        // a heading vtium cannot read drops its section, and still ends the
+        // lines above the first section
         let heading = raw
             .iter()
             .find(|b| !matches!(b, b' ' | b'\t'))
@@ -446,6 +439,17 @@ impl Parser {
         } else {
             self.within()
         };
+        if raw.len() > LINE_MAX {
+            if policy {
+                self.unreadable_policy(n, PolicyFault::LineTooLong);
+            } else {
+                if heading {
+                    self.section = Some(Section::Broken);
+                }
+                self.error(Some(n), Problem::LineTooLong, within);
+            }
+            return;
+        }
         let unreadable = match std::str::from_utf8(raw) {
             Err(_) => Err(Problem::NotUtf8),
             Ok(text) => match text.chars().find(|&c| c.is_control() && c != '\t') {

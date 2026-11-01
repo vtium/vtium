@@ -341,3 +341,19 @@ fn a_policy_lines_error_is_kept_past_the_error_bound() {
         |f| matches!(f, PolicyFault::Value(v) if v.raw() == "opne"),
     );
 }
+
+// a heading past the line bound still starts its section, as a heading
+// with a bad byte does, so a `policy` line after it is inside a section
+// and drops only itself (ADR-1401 D7)
+// covers: platform.heads.policy
+#[test]
+fn a_heading_past_the_line_bound_still_ends_the_top_level() {
+    let heading = format!("[head a]{}", " ".repeat(LINE_MAX));
+    let r = reading(format!("version = 1\n{heading}\npolicy = opne\n").as_bytes());
+    assert_eq!(r.policies, [PolicyLine::InSection]);
+    let o = outcome(&r);
+    assert_eq!(
+        (o.runs, o.policy, o.line),
+        (Runs::Builtin, Policy::Open, Some(Line::Skipped))
+    );
+}
