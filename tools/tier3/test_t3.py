@@ -329,7 +329,7 @@ class ImplementationTest(unittest.TestCase):
 
     UNIT = t3_impl.VT_UNIT
     TREE = {"usr/bin/vtium": "12345678", UNIT: "[Service]\n", "usr/share/doc/x": "abc"}
-    LINE = "[  12.3] TIER3-INSTALL-OK packages: ; tree: %s"
+    LINE = "[  12.3] TIER3-INSTALL-OK packages: ; kernel: 6.17.2-arch1-1; tree: %s"
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -471,7 +471,14 @@ class ImplementationTest(unittest.TestCase):
         # run packed; anything else, or no account, fails the variant.
         impl = t3_impl.tree(self.tree, self.tar)
         sha = impl["tree_sha256"]
-        self.assertEqual(t3_scenario.check_install(self.LINE % sha, impl), {"tree": sha})
+        self.assertEqual(t3_scenario.check_install(self.LINE % sha, impl),
+                         {"kernel": "6.17.2-arch1-1", "tree": sha})
+        # a guest that names no kernel leaves the result without the kernel
+        # it ran on, so the variant fails
+        for line in ((self.LINE % sha).replace(" kernel: 6.17.2-arch1-1;", ""),
+                     (self.LINE % sha).replace("6.17.2-arch1-1", "")):
+            with self.assertRaisesRegex(RuntimeError, "the guest reported no kernel version"):
+                t3_scenario.check_install(line, impl)
         with self.assertRaisesRegex(RuntimeError, "the guest installed tree 0+, the run's is"):
             t3_scenario.check_install(self.LINE % ("0" * 64), impl)
         with self.assertRaisesRegex(RuntimeError, "packages installed that are not the run's "
@@ -486,6 +493,7 @@ class ImplementationTest(unittest.TestCase):
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             text = f.read()
         self.assertIn('"TIER3-INSTALL-OK packages: ', text)
+        self.assertIn('"kernel: $(uname -r);"', text)
         self.assertIn('"tree: $tree"', text)
         self.assertNotIn("pacman -U", text)
 
@@ -702,14 +710,18 @@ class ImplementationTest(unittest.TestCase):
         impl["binary_bytes"], impl["installed_bytes"] = budget + 1, 2630443
         metas = {"2d-potato-min": {"resident": t3_scenario.resident({"sgr": 10547,
                                                                      "s1-scroll": 16077}),
-                                   "console": {"name": "vtium", "revision": "0.1"}},
-                 "2d-potato-min-psf": {"resident": t3_scenario.resident({}), "console": None}}
+                                   "console": {"name": "vtium", "revision": "0.1"},
+                                   "kernel": "6.17.2-arch1-1"},
+                 "2d-potato-min-psf": {"resident": t3_scenario.resident({}), "console": None,
+                                       "kernel": None}}
         self.assertEqual(t3.summary(impl, metas).splitlines(), [
             "tree %s: binary %d B, over the budget of %d B by 1 B; 2.51 MiB "
             "installed; the console logged vtium 0.1"
             % (t3_common.rel(self.tree), budget + 1, budget),
-            "2d-potato-min: resident 10.30 MiB after sgr, peak 15.70 MiB after s1-scroll",
-            "2d-potato-min-psf: resident none after sgr, peak none after none"])
+            "2d-potato-min: kernel 6.17.2-arch1-1, resident 10.30 MiB after sgr, peak "
+            "15.70 MiB after s1-scroll",
+            "2d-potato-min-psf: kernel not reported, resident none after sgr, peak none "
+            "after none"])
         impl["binary_bytes"] = 2368120
         self.assertTrue(t3.summary(impl, {}).startswith(
             "tree %s: binary 2368120 B, within the budget of %d B; "
@@ -1970,8 +1982,8 @@ class SysvinitTest(unittest.TestCase):
     """The guest without systemd (guest-sysvinit/): its variants, its disc,
     its account of PID 1 and udev, and its base image."""
 
-    LINE = ("[  12.3] TIER3-INSTALL-OK packages: ; init: init /usr/sbin/init; systemd: no; "
-            "udev: %s; tree: %s")
+    LINE = ("[  12.3] TIER3-INSTALL-OK packages: ; kernel: 6.12.48+deb13-amd64; "
+            "init: init /usr/sbin/init; systemd: no; udev: %s; tree: %s")
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -2067,7 +2079,8 @@ class SysvinitTest(unittest.TestCase):
         # stops udev for a variant without it, and installs t3-console.
         with open(os.path.join(t3_common.GUEST_SYSVINIT, "setup")) as f:
             text = f.read()
-        for field in ('"TIER3-INSTALL-OK packages: ', '"init: $(cat /proc/1/comm) ',
+        for field in ('"TIER3-INSTALL-OK packages: ', '"kernel: $(uname -r);"',
+                      '"init: $(cat /proc/1/comm) ',
                       '"systemd: $systemd;"', '"udev: $(pidof systemd-udevd udevd || echo none);"',
                       '"tree: $tree"', 'if [ -f "$disc"/no-udev ]; then',
                       'if [ -f "$disc"/two-vts ]; then', "telinit q",
@@ -2077,7 +2090,8 @@ class SysvinitTest(unittest.TestCase):
     def test_install_fields(self):
         impl = {"tree_sha256": "a" * 64}
         installed = t3_scenario.check_install(self.LINE % ("none", "a" * 64), impl)
-        self.assertEqual(installed, {"init": "init /usr/sbin/init", "systemd": "no",
+        self.assertEqual(installed, {"kernel": "6.12.48+deb13-amd64",
+                                     "init": "init /usr/sbin/init", "systemd": "no",
                                      "udev": "none", "tree": "a" * 64})
         with self.assertRaisesRegex(RuntimeError, "packages installed that are not the run's"):
             t3_scenario.check_install((self.LINE % ("none", "a" * 64)).replace(

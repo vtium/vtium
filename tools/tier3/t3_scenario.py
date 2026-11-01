@@ -445,12 +445,14 @@ def evaluate_variant(variant, caps, meta, log):
 
 def check_install(line, impl):
     """The guest's account of what it installed (the TIER3-INSTALL-OK line
-    of guest/setup or guest-sysvinit/setup), as metadata: the tree, and any
-    other field the guest reports, such as guest-sysvinit's init, systemd
-    and udev. Raises when the guest holds a kmscon, libtsm or vtium
-    package, which the base image never installs, or unpacked a tree other
-    than the run's: either would let another build's results stand for
-    this one's."""
+    of guest/setup or guest-sysvinit/setup), as metadata: the tree, the
+    kernel the guest runs (`uname -r`), and any other field the guest
+    reports, such as guest-sysvinit's init, systemd and udev. Raises when
+    the guest holds a kmscon, libtsm or vtium package, which the base image
+    never installs, or unpacked a tree other than the run's: either would
+    let another build's results stand for this one's. Raises too when the
+    guest names no kernel, as the result would not say which kernel it ran
+    on."""
     m = re.search(r"TIER3-INSTALL-OK packages: (.*?);((?: \w+: [^;]*;)*) tree: (\S+)", line)
     if not m:
         raise RuntimeError("cannot read the installed tree from %r" % line)
@@ -460,7 +462,10 @@ def check_install(line, impl):
     if m.group(3) != impl["tree_sha256"]:
         raise RuntimeError("the guest installed tree %s, the run's is %s"
                            % (m.group(3), impl["tree_sha256"]))
-    return dict(re.findall(r" (\w+): ([^;]*);", m.group(2)), tree=m.group(3))
+    fields = dict(re.findall(r" (\w+): ([^;]*);", m.group(2)), tree=m.group(3))
+    if not fields.get("kernel", "").strip():
+        raise RuntimeError("the guest reported no kernel version in %r" % line)
+    return fields
 
 
 def check_guest(variant, installed):
@@ -761,7 +766,8 @@ def run_variant(variant, timing, impl, log):
     passed = sorted(case for case, path in caps.items() if path is None)
     caps = {case: path for case, path in caps.items() if path is not None}
     rss = resident_kb(vm)
-    meta = {"installed": installed, "passed": passed,
+    meta = {"installed": installed, "kernel": installed and installed["kernel"],
+            "passed": passed,
             "displays": displays, "errors": errors, "notes": notes, "device": v["device"],
             "qemu": list(v.get("qemu", ())), "config": conf,
             "cell": console_cell(vm.serial), "cpus": v["cpus"], "memory_mb": v["memory_mb"],

@@ -345,7 +345,8 @@ def build_fonts(variants, log):
 
 def summary(impl, metas):
     """The tree, its binary against the budget, the consoles that ran, and
-    each variant's resident memory after the first screen and at its peak."""
+    each variant's guest kernel and its resident memory after the first
+    screen and at its peak."""
     def kib(n):
         return t3_impl.mib(None if n is None else n * 1024)
 
@@ -362,9 +363,9 @@ def summary(impl, metas):
                 ", ".join(t3_scenario.consoles(metas)) or "no Revision line")]
     for v, meta in metas.items():
         r = meta["resident"]
-        lines.append("%s: resident %s after %s, peak %s after %s"
-                     % (v, kib(r["first_kib"]), r["first_screen"], kib(r["peak_kib"]),
-                        r["peak_screen"] or "none"))
+        lines.append("%s: kernel %s, resident %s after %s, peak %s after %s"
+                     % (v, meta.get("kernel") or "not reported", kib(r["first_kib"]),
+                        r["first_screen"], kib(r["peak_kib"]), r["peak_screen"] or "none"))
     return "\n".join(lines)
 
 
