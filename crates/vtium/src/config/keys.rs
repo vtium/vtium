@@ -1375,7 +1375,12 @@ pub const KEYS: [Key; 95] = [
 /// The keys vtium takes and does not act on yet, which the crate
 /// README's "Not yet built" lists; `check::semantics` warns when one is
 /// set.
-pub const NOT_BUILT: [&Key; 1] = [&HWACCEL];
+pub const NOT_BUILT: [&Key; 4] = [
+    &HWACCEL,
+    &DISPLAY_BUFFERS,
+    &FONT_HINTING,
+    &FONT_LINE_SPACING,
+];
 
 /// The key named `name`.
 pub fn find(name: &str) -> Option<&'static Key> {
