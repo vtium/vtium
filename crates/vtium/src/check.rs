@@ -1927,6 +1927,7 @@ mod tests {
             connector: connector.to_owned(),
             card: Some("pci-0000:03:00.0".to_owned()),
             edid: None,
+            connector_path: None,
             lit_at_start: false,
         };
         let listing = Listing {

@@ -30,6 +30,7 @@ use rustix::io::Errno;
 use super::edid::Edid;
 use super::kms::{Connector, CrtcEvent, Encoder, Kms, Object, Property, Request, Resources};
 use super::mode::{self, Mode, ModePolicy};
+use super::path;
 use super::{
     Ages, Canvas, Damage, DarkPolicy, Density, DisplayId, Dpms, Event, Identity, Rect, SwapError,
     Swapped,
@@ -73,6 +74,8 @@ struct Found {
     /// one, either read as on where the property is missing.
     visible: bool,
     edid: Option<Edid>,
+    /// The text of its `PATH` property, where it has one.
+    path: Option<String>,
 }
 
 /// An operation that waits until no page flip is in flight.
@@ -1166,6 +1169,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             None => false,
         };
         let edid = self.card.sysfs().and_then(|dir| Edid::sysfs(&dir, &name));
+        let path = self.path(&name, &props);
         Found {
             name,
             current,
@@ -1173,7 +1177,23 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             shown,
             props,
             edid,
+            path,
         }
+    }
+
+    /// The text of connector `name`'s `PATH` property, read from the blob
+    /// its value names in `props`; `None` where it has no `PATH`, its
+    /// value names no blob (0), or the card cannot give the blob.
+    fn path(&self, name: &str, props: &[Property]) -> Option<String> {
+        let blob = value(props, "PATH")
+            .filter(|&b| b != 0)
+            .and_then(|b| u32::try_from(b).ok())?;
+        let bytes = self
+            .card
+            .blob(blob)
+            .inspect_err(|e| log::warn!("cannot read the PATH of connector {name}: {e}"))
+            .ok()?;
+        path::text(&bytes)
     }
 
     /// The identity of the connector `found` describes.
@@ -1182,6 +1202,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             connector: found.name.clone(),
             card: self.card_path.clone(),
             edid: found.edid.as_ref().map(|e| e.id.clone()),
+            connector_path: found.path.clone(),
             lit_at_start: !self.scanned && found.visible,
         }
     }

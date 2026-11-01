@@ -321,6 +321,7 @@ fn the_listing_reads_the_seats_inputs_cards_and_displays_from_sysfs_and_udev() {
         connector: connector.to_owned(),
         card: Some("pci-0000:03:00.0".to_owned()),
         edid,
+        connector_path: None,
         lit_at_start: false,
     };
     assert_eq!(

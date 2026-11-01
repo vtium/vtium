@@ -11,8 +11,9 @@
 //! `ID_PATH` is its database entry's, and it is primary by the monitor's
 //! rule. A display is a connector whose sysfs `status` is `connected` and
 //! whose `modes` lists a mode, named as the kernel names it, with the
-//! monitor its sysfs `edid` names; whether it was lit at start takes
-//! opening the card, so a listed display was never lit at start. A
+//! monitor its sysfs `edid` names; whether it was lit at start and its
+//! connector's `PATH` take opening the card, so a listed display was never
+//! lit at start and carries no `PATH`. A
 //! framebuffer no DRM driver backs is listed by the monitor's rule, read
 //! from the id its sysfs `name` shows.
 
@@ -210,6 +211,7 @@ fn displays(dir: &Path, name: &str, id_path: Option<&str>) -> Vec<display::Ident
         .into_iter()
         .map(|connector| display::Identity {
             edid: Edid::sysfs(dir, &connector).map(|e| e.id),
+            connector_path: None,
             connector,
             card: id_path.map(str::to_owned),
             lit_at_start: false,

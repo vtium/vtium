@@ -259,6 +259,12 @@ impl Kms for Card {
         Ok(())
     }
 
+    fn blob(&self, id: u32) -> io::Result<Vec<u8>> {
+        let mut data = Vec::new();
+        drm_ffi::mode::get_property_blob(self.raw(), id, Some(&mut data))?;
+        Ok(data)
+    }
+
     fn commit(&self, request: &Request, flags: u32) -> io::Result<()> {
         // The kernel takes the properties grouped by object.
         let mut objects: Vec<u32> = Vec::new();

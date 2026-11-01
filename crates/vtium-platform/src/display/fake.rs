@@ -130,6 +130,10 @@ pub(crate) struct State {
     pub(crate) dpms: BTreeMap<u32, u64>,
     /// Connectors that have no DPMS property.
     pub(crate) no_dpms: Vec<u32>,
+    /// The `PATH` property of each connector that has one, a blob's id,
+    /// as a driver gives a DisplayPort multi-stream connector its own; one
+    /// absent here has no `PATH` property, as every other connector.
+    pub(crate) paths: BTreeMap<u32, u32>,
     /// Objects whose properties cannot be read: the read fails with
     /// EFAULT.
     pub(crate) unreadable: Vec<u32>,
@@ -455,6 +459,16 @@ impl FakeCard {
         card
     }
 
+    /// Gives connector `conn` a `PATH` property naming a blob of `bytes`,
+    /// as a driver gives a DisplayPort multi-stream connector the path
+    /// `mst:<parent connector>-<port>...`, NUL-terminated.
+    pub(crate) fn set_path(&self, conn: u32, bytes: &[u8]) {
+        let blob = self.id();
+        let mut s = self.state.borrow_mut();
+        s.blobs.insert(blob, bytes.to_vec());
+        s.paths.insert(conn, blob);
+    }
+
     /// The kernel's hotplug, before the process sees it: while no process
     /// holds master, the console lights each connected connector on no
     /// CRTC with its own framebuffer on the first free CRTC's primary
@@ -765,9 +779,11 @@ impl Kms for FakeCard {
             Object::Connector => {
                 let dpms = *s.dpms.get(&id).ok_or_else(|| err(Errno::NOENT))?;
                 let with = !s.no_dpms.contains(&id);
+                let path = s.paths.get(&id).copied();
                 drop(s);
                 let names: Vec<(&str, u64)> = std::iter::once(("CRTC_ID", 0))
                     .chain(with.then_some(("DPMS", dpms)))
+                    .chain(path.map(|b| ("PATH", u64::from(b))))
                     .collect();
                 Ok(self.props(&names))
             }
@@ -924,6 +940,15 @@ impl Kms for FakeCard {
         s.blobs
             .remove(&id)
             .map(|_| ())
+            .ok_or_else(|| err(Errno::NOENT))
+    }
+
+    fn blob(&self, id: u32) -> io::Result<Vec<u8>> {
+        self.state
+            .borrow()
+            .blobs
+            .get(&id)
+            .cloned()
             .ok_or_else(|| err(Errno::NOENT))
     }
 

@@ -128,6 +128,9 @@ pub(crate) trait Kms {
     fn rm_fb(&self, id: u32) -> io::Result<()>;
     fn create_blob(&self, data: &[u8]) -> io::Result<u32>;
     fn destroy_blob(&self, id: u32) -> io::Result<()>;
+    /// The bytes of the property blob `id`, as a blob property's value
+    /// names it. A blob the card does not hold is `ENOENT`, 0 included.
+    fn blob(&self, id: u32) -> io::Result<Vec<u8>>;
 
     /// An atomic commit with `DRM_MODE_*` flags.
     fn commit(&self, request: &Request, flags: u32) -> io::Result<()>;

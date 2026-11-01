@@ -119,6 +119,7 @@ impl Video for Memory {
             connector: self.connector.to_owned(),
             card: Some(self.card.to_owned()),
             edid: None,
+            connector_path: None,
             lit_at_start: self.lit,
         })
     }

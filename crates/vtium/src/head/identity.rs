@@ -46,6 +46,7 @@ pub fn display(identity: &display::Identity, card: &Card, order: u32) -> Identit
             .as_ref()
             .map(|e| edid(e.maker(), e.product(), e.serial())),
         connector: Some(identity.connector.clone()),
+        connector_path: identity.connector_path.clone(),
         card: identity.card.clone().or_else(|| card.id_path.clone()),
         lit_at_start: identity.lit_at_start,
         on_boot_card: card.primary,
@@ -180,6 +181,7 @@ mod tests {
             connector: "DP-8".into(),
             card: None,
             edid: None,
+            connector_path: None,
             lit_at_start: true,
         };
         let id = display(&platform, &card, 4);
@@ -195,6 +197,49 @@ mod tests {
         assert_eq!(config.walk(&id).place, Place::Head(0));
         let fb = unnamed_display("fb", &Card::at(Path::new("/dev/fb0"), None, false), 0);
         assert_eq!(config.walk(&fb).place, Place::Off);
+    }
+
+    // ADR-1401 D4: a DisplayPort multi-stream hub's port carries its
+    // connector's `PATH`, which `connector-path:` matches whole and exactly,
+    // whatever name the driver gave the connector.
+    #[test]
+    fn a_hub_port_carries_its_connector_path_and_a_connector_path_rule_places_it() {
+        let card = Card::at(Path::new("/dev/dri/card1"), Some("pci-0000:03:00.0"), true);
+        let port = |connector: &str, path: Option<&str>| display::Identity {
+            connector: connector.into(),
+            card: None,
+            edid: None,
+            connector_path: path.map(str::to_owned),
+            lit_at_start: false,
+        };
+        let config = parse(
+            "version = 1\n[head desk]\n[head side]\n[rules]\ndisplay connector-path:mst:213-1 -> desk\ndisplay connector-path:mst:213-2 -> side\n",
+        )
+        .map(|p| p.config)
+        .unwrap_or_default();
+        let place = |connector: &str, path: Option<&str>| {
+            let id = display(&port(connector, path), &card, 0);
+            config.walk(&id).place
+        };
+        assert_eq!(
+            display(&port("DP-8", Some("mst:213-1")), &card, 0)
+                .connector_path
+                .as_deref(),
+            Some("mst:213-1")
+        );
+        // the port renamed after a replug keeps its head
+        assert_eq!(place("DP-8", Some("mst:213-1")), Place::Head(0));
+        assert_eq!(place("DP-11", Some("mst:213-1")), Place::Head(0));
+        assert_eq!(place("DP-9", Some("mst:213-2")), Place::Head(1));
+        // a port further down the chain, a prefix, or no path takes neither
+        for other in [
+            Some("mst:213-1-1"),
+            Some("mst:213"),
+            Some("MST:213-1"),
+            None,
+        ] {
+            assert_eq!(place("DP-8", other), Place::Off, "{other:?}");
+        }
     }
 
     #[test]

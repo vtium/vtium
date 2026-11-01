@@ -2396,6 +2396,7 @@ fn identity(name: &str, lit_at_start: bool) -> Identity {
         connector: String::from(name),
         card: Some(String::from("pci-0000:03:00.0")),
         edid: None,
+        connector_path: None,
         lit_at_start,
     }
 }
@@ -2607,6 +2608,41 @@ fn a_displays_identity_names_its_connector_card_and_monitor() {
         Some(27.0)
     );
     assert_eq!(v.dark().count(), 0);
+}
+
+// ADR-1401 D4: a DisplayPort multi-stream hub's port carries its connector's
+// `PATH` in its identity, the text before the blob's NUL, read through the
+// card as any other connector property is; a connector with no `PATH`
+// carries none.
+#[test]
+fn a_hub_ports_identity_carries_its_connectors_path() {
+    let card = dark_card();
+    card.set_path(B, b"mst:213-1\0");
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    let b = v.identity(DisplayId(B)).unwrap();
+    assert_eq!(b.connector_path.as_deref(), Some("mst:213-1"));
+    assert_eq!(b.connector, "HDMI-A-2");
+    assert_eq!(v.identity(DisplayId(A)).unwrap().connector_path, None);
+}
+
+// A `PATH` naming no blob, as 0 or a blob the card no longer holds, leaves
+// the display bound and without a path; so does an empty one.
+#[test]
+fn a_path_the_card_cannot_give_leaves_the_display_bound_without_one() {
+    let card = dark_card();
+    card.state().paths.insert(A, 0);
+    card.state().paths.insert(B, 999_999);
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(
+        v.displays().collect::<Vec<_>>(),
+        [DisplayId(A), DisplayId(B)]
+    );
+    assert_eq!(v.identity(DisplayId(A)).unwrap().connector_path, None);
+    assert_eq!(v.identity(DisplayId(B)).unwrap().connector_path, None);
+    let card = dark_card();
+    card.set_path(B, b"\0");
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(v.identity(DisplayId(B)).unwrap().connector_path, None);
 }
 
 // With no display, the card keeps master; a dark connector plugged in then
