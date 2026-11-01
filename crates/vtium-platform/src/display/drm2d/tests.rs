@@ -18,7 +18,7 @@ use rustix::io::Errno;
 use super::output::signed;
 use super::*;
 use crate::display::blank::Due;
-use crate::display::fake::{BufferCall, Commit, FakeCard, Plane, RemoveFb, logs};
+use crate::display::fake::{BufferCall, Commit, FakeCard, ListRead, Plane, RemoveFb, logs};
 use crate::display::mode::mode;
 use crate::display::{Blank, DPMS_TIMEOUT, Wanted};
 
@@ -2705,6 +2705,278 @@ fn a_path_blob_past_blob_max_is_refused_unread() {
     let a = v.identity(DisplayId(A)).unwrap();
     assert_eq!(a.connector_path.as_deref().map(str::len), Some(4096));
     assert_eq!(v.identity(DisplayId(B)).unwrap().connector_path, None);
+}
+
+// vtium/vtium#192: a connector is read in two, its counts and then its
+// lists into buffers of those counts. A connector that changes between the
+// two reads, as one torn down and its id given to another, is refused,
+// whichever list changed and whichever way, and the next read gives it
+// whole.
+#[test]
+fn a_connector_whose_lists_change_between_its_reads_is_refused() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.after_read(ListRead::Connector(A), |s| {
+        let c = s.connectors.get_mut(&A).unwrap();
+        c.modes.push(mode(320, 240, 60, false));
+    });
+    let e = card.connector(A).unwrap_err();
+    assert_eq!(
+        e.to_string(),
+        "its modes changed from 1 to 2 between two reads"
+    );
+    let read = card.connector(A).unwrap();
+    assert_eq!(
+        read.modes,
+        [mode(640, 480, 60, true), mode(320, 240, 60, false)]
+    );
+
+    card.after_read(ListRead::Connector(A), |s| {
+        s.connectors.get_mut(&A).unwrap().modes.pop();
+    });
+    let e = card.connector(A).unwrap_err();
+    assert_eq!(
+        e.to_string(),
+        "its modes changed from 2 to 1 between two reads"
+    );
+
+    card.after_read(ListRead::Connector(A), |s| {
+        s.connectors.get_mut(&A).unwrap().encoders.push(299);
+    });
+    let e = card.connector(A).unwrap_err();
+    assert_eq!(
+        e.to_string(),
+        "its encoders changed from 1 to 2 between two reads"
+    );
+    assert_eq!(card.connector(A).unwrap().encoders, [200, 299]);
+}
+
+// The first read of a connector probes it, as one with no room for modes
+// does; the second gives room for one mode where the first found none, so
+// it does not probe again and find modes the first did not count.
+#[test]
+fn a_connector_is_probed_once_a_read() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)]), (B, Vec::new())]);
+    assert_eq!(card.connector(A).unwrap().modes.len(), 1);
+    assert_eq!(card.connector(B).unwrap().modes.len(), 0);
+    assert_eq!(card.state().probes, [A, B]);
+    // Without DRM master the kernel probes nothing.
+    card.state().master = false;
+    assert_eq!(card.connector(A).unwrap().modes.len(), 1);
+    assert_eq!(card.state().probes, [A, B]);
+}
+
+// The card writes a connector's modes and encoders only into a buffer that
+// holds the whole list, and gives the full counts either way.
+#[test]
+fn a_connector_read_into_short_buffers_writes_neither_list() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true), mode(320, 240, 60, false)])]);
+    card.state().connectors.get_mut(&A).unwrap().encoders = vec![200, 201];
+    let mut modes = [Mode::default()];
+    let mut encoders = [7u32];
+    let read = card.read_connector(A, &mut modes, &mut encoders).unwrap();
+    assert_eq!((read.modes, read.encoders), (2, 2));
+    assert_eq!(modes, [Mode::default()]);
+    assert_eq!(encoders, [7]);
+}
+
+// The CRTC a dark connector is on is read without probing the connector:
+// only its encoder is wanted.
+#[test]
+fn a_dark_connectors_crtc_is_read_without_a_probe() {
+    let v = with_dark("HDMI-A-2");
+    v.card().state().probes.clear();
+    assert_eq!(v.connector_crtc(B), Some(101));
+    assert_eq!(v.connector_crtc(A), None);
+    assert_eq!(v.card().state().probes, [] as [u32; 0]);
+}
+
+// A connector with more modes than `MODES_MAX`, or more encoders than
+// `ENCODERS_MAX`, is refused unread; one with as many is read.
+#[test]
+fn a_connector_past_its_bounds_is_refused_unread() {
+    use crate::bounds::{ENCODERS_MAX, MODES_MAX};
+    let modes = |n: usize| -> Vec<Mode> {
+        (0..n)
+            .map(|i| mode(640 + u16::try_from(i).unwrap(), 480, 60, i == 0))
+            .collect()
+    };
+    let card = FakeCard::new(&[(A, modes(MODES_MAX)), (B, modes(MODES_MAX + 1))]);
+    assert_eq!(card.connector(A).unwrap().modes.len(), MODES_MAX);
+    assert_eq!(
+        card.connector(B).unwrap_err().to_string(),
+        "it has 1025 modes, past the 1024 vtium reads"
+    );
+    card.state().connectors.get_mut(&A).unwrap().encoders = (0..33).collect();
+    assert_eq!(
+        card.connector(A).unwrap_err().to_string(),
+        "it has 33 encoders, past the 32 vtium reads"
+    );
+    card.state().connectors.get_mut(&A).unwrap().encoders = (0..32).collect();
+    assert_eq!(card.connector(A).unwrap().encoders.len(), ENCODERS_MAX);
+}
+
+// The scan leaves a connector that changed between its reads unbound, with
+// a warning naming it at that scan, and the next scan reads it again and
+// binds it.
+#[test]
+fn a_connector_refused_by_the_scan_is_bound_at_the_next_scan() {
+    let card = dark_card();
+    card.after_read(ListRead::Connector(B), |s| {
+        let c = s.connectors.get_mut(&B).unwrap();
+        c.modes.push(mode(320, 240, 60, false));
+    });
+    logs::capture();
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(
+        logs::at_least(Level::Warn),
+        ["cannot read connector 42: its modes changed from 1 to 2 between two reads"]
+    );
+    assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(A)]);
+    logs::capture();
+    v.poll().unwrap();
+    flip(&mut v);
+    assert_eq!(logs::at_least(Level::Warn), [] as [String; 0]);
+    assert_eq!(
+        v.displays().collect::<Vec<_>>(),
+        [DisplayId(A), DisplayId(B)]
+    );
+}
+
+// An object's properties are read in two, their count and then their ids
+// and values into buffers of that count. A count that changed between the
+// two reads is refused, and so is one past `OBJECT_PROPERTIES_MAX`.
+#[test]
+fn properties_that_change_between_their_reads_are_refused() {
+    use crate::bounds::OBJECT_PROPERTIES_MAX;
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    let plane = 300;
+    let own = card.properties(plane, Object::Plane).unwrap().len();
+    card.after_read(ListRead::Properties(plane), |s| {
+        s.planes.get_mut(&300).unwrap().damage = false;
+    });
+    let e = card.properties(plane, Object::Plane).unwrap_err();
+    assert_eq!(
+        e.to_string(),
+        format!(
+            "its properties changed from {own} to {} between two reads",
+            own - 1
+        )
+    );
+    let names: Vec<String> = card
+        .properties(plane, Object::Plane)
+        .unwrap()
+        .into_iter()
+        .map(|p| p.name)
+        .collect();
+    assert!(!names.iter().any(|n| n == "FB_DAMAGE_CLIPS"), "{names:?}");
+
+    card.state()
+        .extra_props
+        .insert(plane, OBJECT_PROPERTIES_MAX - (own - 1));
+    assert_eq!(
+        card.properties(plane, Object::Plane).unwrap().len(),
+        OBJECT_PROPERTIES_MAX
+    );
+    card.state()
+        .extra_props
+        .insert(plane, OBJECT_PROPERTIES_MAX - (own - 1) + 1);
+    assert_eq!(
+        card.properties(plane, Object::Plane)
+            .unwrap_err()
+            .to_string(),
+        "it has 65 properties, past the 64 vtium reads"
+    );
+}
+
+// The scan leaves a connector whose properties it cannot read unbound, with
+// a warning naming it at that scan, and binds it at the next scan, its `PATH` read
+// with the rest.
+#[test]
+fn a_connector_whose_properties_are_refused_is_bound_at_the_next_scan() {
+    let card = dark_card();
+    card.set_path(B, b"mst:213-1\0");
+    let blob = *card.state().paths.get(&B).unwrap();
+    card.state().paths.remove(&B);
+    card.after_read(ListRead::Properties(B), move |s| {
+        s.paths.insert(B, blob);
+    });
+    logs::capture();
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(
+        logs::at_least(Level::Warn),
+        [
+            "cannot read the properties of connector HDMI-A-2: its properties changed from 2 to 3 between two reads"
+        ]
+    );
+    assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(A)]);
+    logs::capture();
+    v.poll().unwrap();
+    flip(&mut v);
+    assert_eq!(logs::at_least(Level::Warn), [] as [String; 0]);
+    assert_eq!(
+        v.displays().collect::<Vec<_>>(),
+        [DisplayId(A), DisplayId(B)]
+    );
+    assert_eq!(
+        v.identity(DisplayId(B)).unwrap().connector_path.as_deref(),
+        Some("mst:213-1")
+    );
+}
+
+// The card's planes are read in two, their count and then their ids into a
+// buffer of that count. A count that changed between the reads is refused,
+// and so is one past `PLANES_MAX`.
+#[test]
+fn planes_that_change_between_their_reads_are_refused() {
+    use crate::bounds::PLANES_MAX;
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    let overlay = || Plane {
+        crtcs: 1,
+        kind: PLANE_OVERLAY,
+        damage: false,
+    };
+    card.after_read(ListRead::Planes, move |s| {
+        s.planes.insert(398, overlay());
+    });
+    let e = card.planes().unwrap_err();
+    assert_eq!(
+        e.to_string(),
+        "its planes changed from 3 to 4 between two reads"
+    );
+    assert_eq!(card.planes().unwrap(), [300, 301, 398, 399]);
+    for id in 0..u32::try_from(PLANES_MAX - 4).unwrap() {
+        card.state().planes.insert(500 + id, overlay());
+    }
+    assert_eq!(card.planes().unwrap().len(), PLANES_MAX);
+    card.state().planes.insert(499, overlay());
+    assert_eq!(
+        card.planes().unwrap_err().to_string(),
+        "it has 33 planes, past the 32 vtium reads"
+    );
+}
+
+// A display whose planes the scan cannot list finds no primary plane: the
+// refusal is a warning, and the next scan reads the planes again and binds
+// the display.
+#[test]
+fn a_display_whose_planes_are_refused_is_bound_at_the_next_scan() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.after_read(ListRead::Planes, |s| {
+        s.planes.remove(&399);
+    });
+    logs::capture();
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(
+        logs::at_least(Level::Warn),
+        [
+            "cannot list the card's planes: its planes changed from 3 to 2 between two reads",
+            "no primary plane for HDMI-A-1",
+        ]
+    );
+    assert!(v.outputs.is_empty());
+    v.poll().unwrap();
+    flip(&mut v);
+    assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(A)]);
 }
 
 // With no display, the card keeps master; a dark connector plugged in then

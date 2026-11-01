@@ -146,6 +146,38 @@ const BLOB: Bound = Bound {
     cite: "the kernel builds a DisplayPort multi-stream connector's `PATH` in a 255-byte buffer; drm-ffi's `get_property_blob` read a blob of any length the kernel gave",
 };
 
+const MODES: Bound = Bound {
+    name: "MODES_MAX",
+    value: 1024,
+    what: "Modes of a DRM connector vtium reads",
+    past: "The connector is not read: a warning names it, the scan leaves it unbound, and the next scan reads it again. The operator's monitor lists 40 modes (measured on Linux 7.2)",
+    cite: "vtium/vtium#192; the kernel sets no limit on a connector's modes. The C reference read them through libdrm with no bound (drm_shared.c:734, 1485)",
+};
+
+const ENCODERS: Bound = Bound {
+    name: "ENCODERS_MAX",
+    value: 32,
+    what: "Encoders of a DRM connector vtium reads",
+    past: "The connector is not read, as past `MODES_MAX`",
+    cite: "vtium/vtium#192; the kernel gives a card at most 32 encoders, since it keeps their indices in 32-bit masks (`__drm_encoder_init`)",
+};
+
+const OBJECT_PROPERTIES: Bound = Bound {
+    name: "OBJECT_PROPERTIES_MAX",
+    value: 64,
+    what: "Properties of one KMS object (a connector, CRTC or plane) vtium reads",
+    past: "The object's properties are not read: a warning names the object. A connector found by the scan is left unbound and read again at the next scan; a plane is passed over, as one whose properties cannot be read",
+    cite: "vtium/vtium#192; the kernel attaches at most 64 properties to an object (`DRM_OBJECT_MAX_PROPERTY`). The C reference read them through libdrm with no bound (drm_shared.c:114)",
+};
+
+const PLANES: Bound = Bound {
+    name: "PLANES_MAX",
+    value: 32,
+    what: "Planes of a DRM card vtium reads",
+    past: "The planes are not listed: a warning says so, and a display bound meanwhile finds no primary plane and is bound again at the next scan",
+    cite: "vtium/vtium#192; the kernel gives a card at most 32 planes, since it keeps their indices in 32-bit masks (`__drm_universal_plane_init`). The C reference read them through libdrm with no bound (drm_shared.c:238)",
+};
+
 const PROPERTIES: Bound = Bound {
     name: "UDEV_PROPERTIES_MAX",
     value: 128,
@@ -164,7 +196,7 @@ const PROPERTY: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 18] = [
+pub(crate) const BOUNDS: [Bound; 22] = [
     READ,
     READS,
     BUDGET,
@@ -181,6 +213,10 @@ pub(crate) const BOUNDS: [Bound; 18] = [
     RETAKE_QUIET,
     RESOURCE_READS,
     BLOB,
+    MODES,
+    ENCODERS,
+    OBJECT_PROPERTIES,
+    PLANES,
     PROPERTIES,
     PROPERTY,
 ];
@@ -249,6 +285,18 @@ pub const RESOURCE_READS_MAX: usize = RESOURCE_READS.value;
 
 /// Bytes of a KMS property blob vtium reads.
 pub(crate) const BLOB_MAX: usize = BLOB.value;
+
+/// Modes of a DRM connector vtium reads.
+pub(crate) const MODES_MAX: usize = MODES.value;
+
+/// Encoders of a DRM connector vtium reads.
+pub(crate) const ENCODERS_MAX: usize = ENCODERS.value;
+
+/// Properties of one KMS object vtium reads.
+pub(crate) const OBJECT_PROPERTIES_MAX: usize = OBJECT_PROPERTIES.value;
+
+/// Planes of a DRM card vtium reads.
+pub(crate) const PLANES_MAX: usize = PLANES.value;
 
 /// udev properties an input device's identity keeps.
 pub(crate) const UDEV_PROPERTIES_MAX: usize = PROPERTIES.value;

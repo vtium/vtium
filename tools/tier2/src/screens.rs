@@ -180,6 +180,25 @@ const BOX: &[u8] = concat!(
 )
 .as_bytes();
 
+/// Links (OSC 8), one of them under the pointer: its pieces on several
+/// rows share an id, so they are one link, in each of the styles a cell
+/// can carry, and one wraps from the last column (ADR-1002, "Drawing").
+const LINK_HOVER: &[u8] = concat!(
+    "see \x1b]8;id=a;https://example.com/docs\x1b\\the docs\x1b]8;;\x1b\\ or \x1b]8;;https://example.com/b\x1b\\another link\x1b]8;;\x1b\\\r\n",
+    "\x1b[4m\x1b]8;id=a;https://example.com/docs\x1b\\an underlined piece\x1b]8;;\x1b\\\x1b[0m plain text\r\n",
+    "\x1b[4:3;58:5:46m\x1b]8;id=a;https://example.com/docs\x1b\\a green curl\x1b]8;;\x1b\\\x1b[0m, \x1b[4:3mthe text's curl\x1b[0m\r\n",
+    "\x1b[31;47m\x1b]8;id=a;https://example.com/docs\x1b\\red on white\x1b]8;;\x1b\\\x1b[0m \x1b[7m\x1b]8;id=a;https://example.com/docs\x1b\\reversed\x1b]8;;\x1b\\\x1b[0m\r\n",
+    "\x1b[5;29H\x1b]8;id=a;https://example.com/docs\x1b\\a piece that wraps\x1b]8;;\x1b\\",
+)
+.as_bytes();
+
+const LINK_HOVER_DESC: &str = "Links (OSC 8) with the pointer over the first, whose pieces on \
+every row share its id: plain, underlined, under a green SGR 58 curl, red on white, reversed, \
+and one piece that wraps from the last column onto the next row. In unifont. Correct: every \
+piece of the first link takes a dashed underline in place of its own, in the text's color or \
+in green under the SGR 58 curl, the wrapped piece on both rows; `another link` and the text \
+outside the links draw as plain text, and the curl outside the link stays curly.";
+
 /// The C reference's `underline` screen.
 const UNDERLINE: &[u8] = concat!(
     "\x1b[4mSingle gjpqy\x1b[0m  \x1b[4;58:5:196mSingle gjpqy\x1b[0m\r\n",
@@ -801,6 +820,29 @@ pub const CASES: &[Case] = &[
         },
         source: Source::Vtium,
         ported: Some("underline"),
+    },
+    Case {
+        screen: Screen {
+            pointer: Some((5, 0)),
+            ..Screen::new("link-hover-unifont", LINK_HOVER_DESC, LINK_HOVER, 40, 7)
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
+    Case {
+        screen: Screen {
+            pointer: Some((5, 0)),
+            depth: Depth::One,
+            ..Screen::new(
+                "link-hover-unifont-1bit",
+                "link-hover-unifont on a 1-bit display. Correct: the hovered link's dashes lit like its text, unlit on the white and reversed pieces, where the text is unlit too.",
+                LINK_HOVER,
+                40,
+                7,
+            )
+        },
+        source: Source::Vtium,
+        ported: None,
     },
     Case {
         screen: Screen {

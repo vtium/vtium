@@ -871,7 +871,14 @@ impl<F: Face> Renderer<F> {
         let (deco_ul, deco_strike) = self.deco;
         // the frame has dimmed the foreground; the cursor draws over it
         let (mut fg, mut bg) = (fc.fg, fc.bg);
-        let mut underline = fc.attrs.underline();
+        // A cell of the link under the pointer draws a dashed underline in
+        // place of its own style, in its own underline color (ADR-1002,
+        // "Drawing").
+        let mut underline = if fc.hovered {
+            vtium_term::UnderlineStyle::Dashed
+        } else {
+            fc.attrs.underline()
+        };
         let mut ul_cursor = false;
         let mut bar = false;
         let mut cell_lit = lit;

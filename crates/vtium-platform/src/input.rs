@@ -146,11 +146,42 @@ struct Device<E> {
     disposition: Option<Disposition>,
     /// The screen its pointer moves within, where it is not the seat's.
     pointer_max: Option<(i32, i32)>,
+    /// The modifiers the owner was last told this keyboard holds.
+    told: Mods,
 }
 
 impl<E> Device<E> {
     fn rescue(&self) -> bool {
         self.disposition == Some(Disposition::Rescue)
+    }
+
+    /// The modifiers this keyboard holds: its own while it is open, none
+    /// while it is closed.
+    fn mods(&self) -> Mods {
+        match (
+            &self.open,
+            self.probed.as_ref().and_then(|p| p.keyboard.as_ref()),
+        ) {
+            (Some(_), Some(keyboard)) => keyboard.mods(),
+            _ => Mods::empty(),
+        }
+    }
+
+    /// Queues [`InputEvent::Mods`] when the modifiers the owner sees it
+    /// hold differ from those the owner was last told. The owner sees none
+    /// on a device watched for the rescue key, as [`Input::mods`] counts
+    /// none there, so a keyboard moved to the rescue reports none, and one
+    /// moved back reports what it holds; neither event is a rescue's.
+    fn tell_mods(&mut self, queue: &mut Queue) {
+        let mods = if self.rescue() {
+            Mods::empty()
+        } else {
+            self.mods()
+        };
+        if mods != self.told {
+            self.told = mods;
+            queue.push(Some(self.id), false, InputEvent::Mods(mods));
+        }
     }
 }
 
@@ -306,6 +337,11 @@ impl<O: Open + 'static> Input<O> {
         } else if self.awake > 0 {
             self.wake_device(id);
         }
+        // A keyboard open before and after moves between the rescue and
+        // delivery, which changes the modifiers its owner sees.
+        if let Some(device) = self.devices.iter_mut().find(|d| d.id == id) {
+            device.tell_mods(&mut self.queue);
+        }
     }
 
     fn add_device(&mut self, node: &Path, disposition: Option<Disposition>) -> Option<DeviceId> {
@@ -320,6 +356,7 @@ impl<O: Open + 'static> Input<O> {
             repeat_serial: 0,
             disposition,
             pointer_max: None,
+            told: Mods::empty(),
         });
         if self.awake > 0 && !self.wake_device(id) {
             return None;
@@ -405,8 +442,7 @@ impl<O: Open + 'static> Input<O> {
         self.devices
             .iter()
             .filter(|d| wanted(d))
-            .filter_map(|d| d.probed.as_ref()?.keyboard.as_ref())
-            .fold(Mods::empty(), |mods, k| mods.union(k.mods()))
+            .fold(Mods::empty(), |mods, d| mods.union(d.mods()))
     }
 
     /// Opens a device, probing it the first time. Returns whether it is
@@ -482,6 +518,7 @@ impl<O: Open + 'static> Input<O> {
             _ => None,
         };
         device.open = Some(dev);
+        device.tell_mods(&mut self.queue);
         true
     }
 
@@ -503,6 +540,7 @@ impl<O: Open + 'static> Input<O> {
         if let Some(dev) = device.open.take() {
             self.opener.close(dev);
         }
+        device.tell_mods(&mut self.queue);
     }
 
     /// Reads a device's events at `now` until none are waiting, at most
@@ -620,6 +658,8 @@ impl<O: Open + 'static> Input<O> {
             }
             _ => {}
         }
+        // A key's change of the modifiers follows the key.
+        device.tell_mods(&mut self.queue);
     }
 
     /// The repeat timer of a device fired: sends its held key again.
