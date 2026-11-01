@@ -34,7 +34,7 @@ use crate::bounds::REPLIES_PENDING_MAX;
 use crate::frame::CursorShape;
 use crate::palette::Palette;
 use crate::screen::{Erase, Screen, WidthMethod};
-use crate::style::Style;
+use crate::style::{Attrs, Style};
 use crate::termcap::Termcap;
 
 pub use blank::{BlankRequest, BlankTimeout};
@@ -656,15 +656,22 @@ impl State {
 
     /// DECALN, `ESC # 8`, as xterm runs it: origin mode off, the margins
     /// the whole screen, every cell an `E` in the default style, the cursor
-    /// home with no pending wrap, and the pen keeping its colors and
-    /// losing its other attributes.
+    /// home with no pending wrap. The pen keeps its colors and DECSCA's
+    /// protection, as xterm's `resetRendition` keeps them, and loses its
+    /// other attributes and its underline color, which xterm does not have
+    /// and Ghostty drops.
     fn screen_alignment(&mut self) {
         modes::set(self, true, 6, false);
         self.screen.align();
         let pen = *self.screen.pen();
+        let mut attrs = Attrs::empty();
+        if pen.attrs.contains(Attrs::PROTECTED) {
+            attrs.insert(Attrs::PROTECTED);
+        }
         self.screen.set_pen(Style {
             fg: pen.fg,
             bg: pen.bg,
+            attrs,
             ..Style::DEFAULT
         });
         self.screen.move_to(0, 0);

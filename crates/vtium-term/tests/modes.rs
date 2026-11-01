@@ -1022,28 +1022,48 @@ fn xtshiftescape_says_whether_shift_reaches_the_mouse_reports() {
 
 // ctlseqs and the VT510 manual, DECALN, as xterm runs it: every cell an E
 // in the default style, the margins the whole screen, origin mode off and
-// the cursor home with no pending wrap; the pen keeps its colors and loses
-// its other attributes.
+// the cursor home with no pending wrap, every row unwrapped and every cell
+// marked changed. The pen keeps its colors and DECSCA's protection, as
+// xterm's `resetRendition` keeps them, and loses its other attributes and
+// its underline color, which xterm does not have and Ghostty drops.
 // covers: ctl.decaln
 #[test]
 fn decaln_fills_the_screen_with_e_and_resets_the_margins_and_cursor() {
-    let mut t = term(5, 4, b"ab\x1b[1;4;31;44m\x1b[2;3r\x1b[?6h\x1b[2;5Hxyz");
+    let mut t = term(
+        5,
+        4,
+        b"ab\x1b[1;4;31;44;58;5;3m\x1b[1\"q\x1b[2;3r\x1b[?6h\x1b[2;5Hxyz",
+    );
     assert_eq!(t.screen().margins(), (1, 2));
+    let wrapped = |t: &Terminal, row| {
+        let line = t.screen().line(row).unwrap();
+        line.flags().contains(vtium_term::LineFlags::WRAPPED)
+    };
+    assert!(wrapped(&t, 1), "row 1 wrapped into row 2");
+    let seen = t.screen_mut().checkpoint();
     t.input(b"\x1b#8");
     assert_eq!(rows(t.screen()), ["EEEEE"; 4]);
     assert_eq!(t.screen().margins(), (0, 3));
     assert_eq!(t.screen().cursor(), (0, 0));
     assert_eq!(rqm(&mut t, true, 6), 2, "origin mode off");
+    let palette = Palette::default();
+    let frame = t.screen().frame(&palette, seen);
     for row in 0..4 {
+        assert!(!wrapped(&t, row), "row {row} unwrapped");
         let line = t.screen().line(row).unwrap();
         for col in 0..5 {
             assert_eq!(line.style(line.cell(col)), vtium_term::Style::DEFAULT);
+            assert!(frame.cell(row, col).unwrap().changed, "{row},{col} marked");
         }
     }
     let pen = t.screen().pen();
     assert_eq!(pen.fg, vtium_term::Color::Indexed(1));
     assert_eq!(pen.bg, vtium_term::Color::Indexed(4));
-    assert_eq!(pen.attrs, vtium_term::Attrs::empty());
+    assert_eq!(pen.attrs, vtium_term::Attrs::PROTECTED);
+    assert_eq!(pen.underline_color, vtium_term::Color::Default);
+    // With no wrap left, mode 45's BS stops at the first column.
+    t.input(b"\x1b[?45h\x1b[3;1H\x08");
+    assert_eq!(t.screen().cursor(), (0, 2));
     // The region is the whole screen: a line feed at the last row scrolls.
     t.input(b"\x1b[4;1H\n");
     assert_eq!(rows(t.screen()), ["EEEEE", "EEEEE", "EEEEE", ""]);

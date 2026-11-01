@@ -301,3 +301,33 @@ impl Screen {
         }
     }
 }
+
+#[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails by panicking")]
+mod tests {
+    use crate::{LineSize, Terminal, Width};
+
+    // ctlseqs, DECALN, as xterm's `CASE_DECALN` runs `xterm_ResetDouble`:
+    // a double-width line, and a wide character, become single cells of E.
+    // No byte stream makes a double-width line yet, so the test sets one.
+    // covers: ctl.decaln
+    #[test]
+    fn decaln_returns_a_double_width_line_to_single_size() {
+        let mut t = Terminal::new(5, 3, 10);
+        t.input("\r\n\u{4E2D}x".as_bytes());
+        t.screen_mut()
+            .line_mut(1)
+            .expect("row 1")
+            .flags_mut()
+            .set_size(LineSize::DoubleWidth);
+        t.input(b"\x1b#8");
+        for row in 0..3 {
+            let line = t.screen().line(row).expect("a row");
+            assert_eq!(line.flags().size(), LineSize::Single, "row {row}");
+            for col in 0..5 {
+                let cell = line.cell(col);
+                assert_eq!(cell.width(), Width::Narrow, "{row},{col}");
+            }
+        }
+    }
+}
