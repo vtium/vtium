@@ -59,6 +59,7 @@ cargo fmt --all --check \
   && cargo build --profile minspec \
   && docs/scripts/adr lint --check \
   && docs/scripts/adr cite --check \
+  && docs/scripts/issue-refs \
   && docs/scripts/coverage \
   && make test-tools \
   && make conformance \

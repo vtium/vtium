@@ -71,6 +71,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: docs/scripts/adr lint --check
       - run: docs/scripts/adr cite --check
+      - run: docs/scripts/issue-refs
       - name: ADR-1000 coverage ledger
         run: docs/scripts/coverage
 
