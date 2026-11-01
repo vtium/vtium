@@ -464,7 +464,11 @@ pub fn rule_for(id: &Identity, target: &str) -> Option<String> {
     });
     let token = if let Some(e) = edid {
         format!("edid:{}:{:#06x}:{}", e.maker, e.product, e.serial)
-    } else if let Some(path) = id.connector_path.as_deref().filter(|p| writable(p)) {
+    } else if let Some(path) = id
+        .connector_path
+        .as_deref()
+        .filter(|p| writable(p) && !p.contains(['*', '?']))
+    {
         format!("connector-path:{path}")
     } else {
         let card = id

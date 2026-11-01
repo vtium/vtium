@@ -200,8 +200,8 @@ mod tests {
     }
 
     // ADR-1401 D4: a DisplayPort multi-stream hub's port carries its
-    // connector's `PATH`, which `connector-path:` matches whole and exactly,
-    // whatever name the driver gave the connector.
+    // connector's `PATH`, which a `connector-path:` rule with no glob matches
+    // whole and exactly, whatever name the driver gave the connector.
     #[test]
     fn a_hub_port_carries_its_connector_path_and_a_connector_path_rule_places_it() {
         let card = Card::at(Path::new("/dev/dri/card1"), Some("pci-0000:03:00.0"), true);

@@ -193,6 +193,10 @@ considered:
   - operator: aaronsb
     said: "Keep the literal rule: a line such as policies = open does not begin with policy, so it is no policy line; it is a top-level line that is neither key, an error that drops that line alone. A file that fails the check, a misspelled key included, is already visible to its owner, and vtium does not guess what the owner meant when the file's own syntax is invalid. The error for such a line names the keys the top level takes, version and policy, so check-config shows the valid words without picking one."
     via: the maintainer's answer in the steering session, 2026-11-01
+  - operator: aaronsb
+    said: "connector-path: takes wildcards, with the same syntax as connector: and card:. The template's comment beside connector-path, and D4, say that the path's first number holds across a replug or a resume but can change across a kernel or firmware update. A byte of a PATH that a head-file token cannot hold keeps reading as _, as an EDID serial's does."
+    via: the maintainer's answers in the steering session, 2026-11-01
+    paraphrase: true
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and a roaming keyboard types into whichever head the roaming chord makes active"
@@ -495,7 +499,7 @@ stateDiagram-v2
 | `class` | udev's input class: `keyboard` (`ID_INPUT_KEYBOARD`, every key code 1 to 31, Escape through S), `key` (`ID_INPUT_KEY`, any key: media-key devices), `mouse`, `touchpad`, `touchscreen`, `trackball`, `pointingstick`, `tablet`, `tablet-pad`, `joystick`, `accelerometer`, `switch` | what kind of device it is; the shipped allowlist | none |
 | `edid` | `MAKER:PRODUCT:SERIAL`: the PNP maker id, the product code in hex, the serial string, else the serial number | one monitor; copyable by an EDID emulator | strong |
 | `connector` | `CARD/CONNECTOR`, the card's udev `ID_PATH` as `mode=` names it and the kernel's connector name, globs allowed (`pci-0000:03:00.0/DP-*`) | a port of a GPU | strong |
-| `connector-path` | the KMS connector's `PATH` property (`mst:...`), which a DisplayPort multi-stream connector carries | one port of a multi-stream hub, stable across a replug or resume | strong |
+| `connector-path` | the KMS connector's `PATH` property (`mst:...`), which a DisplayPort multi-stream connector carries, a glob (`mst:213-*`); a byte of the `PATH` that a token cannot hold reads as `_` | one port of a multi-stream hub, stable across a replug or resume | strong |
 | `card` | the card's udev `ID_PATH`, a glob | every output of a GPU | strong |
 | `udev` | `NAME=VALUE`: any udev property of the device, a glob on the value (`udev:VTIUM_HEAD=panel`) | whatever the administrator's udev rules and hwdb say, as `ID_SEAT` and `uaccess` do | as strong as the rule that set it |
 
@@ -530,7 +534,7 @@ The hwdb fragment uses udev's own `evdev:` prefix, which systemd's stock `60-evd
 
 > Edited 2026-10-29: the operator corrected the shipped udev material to example patterns only (basis). This read: "vtium's udev files, package files in udev's vendor locations [...] `/usr/lib/udev/hwdb.d/70-vtium.hwdb`, a small device database setting `VTIUM_ROLE=token` [...] `/usr/lib/udev/rules.d/70-vtium.rules`, which imports that hwdb", and the shipped rules began with `input udev:VTIUM_IGNORE=1 -> ignore`.
 
-- **`edid` is the recommended way to match a display.** A DisplayPort multi-stream connector's name, such as `DP-8`, is assigned by the driver when it detects the display, and may change after a replug or a resume; its `PATH` property (`mst:...`) stays stable, and `connector-path:` matches it. The template warns that such a connector's name can move. A USB port path through a dock or a KVM can shift in the same way.
+- **`edid` is the recommended way to match a display.** A DisplayPort multi-stream connector's name, such as `DP-8`, is assigned by the driver when it detects the display, and may change after a replug or a resume; its `PATH` property (`mst:...`) stays the same across a replug or a resume, and `connector-path:` matches it. The `PATH`'s first number, the id of the card's connector the hub is plugged into, can change across a kernel or firmware update. The template warns that such a connector's name can move, and that its `PATH` can change across such an update. A USB port path through a dock or a KVM can shift in the same way.
 - A card is named by its `ID_PATH`, never by `cardN`, whose number can change between boots on a machine with several GPUs.
 - A rule's tokens combine: `input path:... serial:...` binds that unit in that port, the strongest binding; `display connector:... edid:...` binds that monitor on that port.
 - Monitors with the same EDID, such as two of one model that report serial 0, both match one `edid:` rule; `connector:` tells them apart by the GPU port, and `card:` by the GPU.
@@ -546,6 +550,8 @@ The hwdb fragment uses udev's own `evdev:` prefix, which systemd's stock `60-evd
 > Edited 2026-10-30: the team lead's brief from a cold read of the user guide asked how `path:` matches and what a misspelt key does; `path:` matching a hub on the port is the agent's call, from the stations scenario the operator read, where a hub on a station's port carries its keyboard and mouse. The `path` row read: "matching every interface below it (`pci-0000:15:00.0-usb-0:3.3` takes `...:3.3:1.0` and `...:3.3:1.2`)", and D4 named neither monitors with one EDID nor a misspelt key. The heads first cut matches a `path:` exactly or followed by `:`, so a hub on the port is not matched yet.
 
 > Edited 2026-10-31: the `path:` matcher now takes a path that continues with `.` as well as `:`, so a port takes every device on a hub in it (vtium/vtium#186, slice S2b). The note above read: "The heads first cut matches a `path:` exactly or followed by `:`, so a hub on the port is not matched yet."
+
+> Edited 2026-11-01: the maintainer answered three questions from the work that reads a connector's `PATH` (`considered`, 2026-11-01): `connector-path:` takes globs, as `connector:` and `card:` do; the `PATH`'s first number can change across a kernel or firmware update, which D4 and the template say; and a byte a token cannot hold reads as `_`, as in an EDID serial. The `connector-path` row's value read: "the KMS connector's `PATH` property (`mst:...`), which a DisplayPort multi-stream connector carries", and the `edid` bullet read: "its `PATH` property (`mst:...`) stays stable, and `connector-path:` matches it. The template warns that such a connector's name can move."
 
 ### D5: the active head and input
 
