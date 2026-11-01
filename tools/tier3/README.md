@@ -50,7 +50,8 @@ The image pins live in the Makefile, and the guest's package list in `guest/user
 | Path | From |
 |---|---|
 | `/usr/bin/vtium` | the console binary built with the minspec profile and the features FEATURES names, `target/x86_64-unknown-linux-gnu/minspec/vtium` |
-| `/usr/lib/systemd/system/kmsconvt@.service` | `crates/vtium/install/kmsconvt@.service`: `vtium --vt=%I --no-switchvt` in place of getty, with getty's TTY settings and `OnFailure=getty@%i` (ADR-1400, D3) |
+| `/usr/lib/systemd/system/kmsconvt@.service` | `crates/vtium/install/kmsconvt@.service`: `vtium --vt=%I --no-switchvt` in place of getty, with getty's TTY settings and `OnFailure=kmsconvt-getty@%i` (ADR-1400, D3) |
+| `/usr/lib/systemd/system/kmsconvt-getty@.service` | `crates/vtium/install/kmsconvt-getty@.service`: the getty fallback, which starts getty on the VT unless vtium's marker of a closed head-file policy exists (ADR-1401 D9) |
 | `/usr/share/terminfo/k/kmscon` | `crates/vtium/install/kmscon.ti`, compiled with `tic -x` |
 | `/etc/kmscon/kmscon.conf.example` | `crates/vtium/install/kmscon.conf.example` |
 | `/usr/share/doc/vtium/examples/71-vtium-local.rules`, `/usr/share/doc/vtium/examples/vtium.hwdb` | `crates/vtium/install/examples/`: ADR-1401 D4's example udev rules and hwdb fragment, documentation an administrator copies into `/etc/udev` to use; a run refuses a tree holding anything under `/usr/lib/udev`, `/lib/udev` or `/etc/udev` |

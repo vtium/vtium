@@ -74,7 +74,7 @@ minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, 
 	$(call check-glibc,$(VTIUM_MINSPEC))
 
 # vtium as a system installs it, staged under DESTDIR: the console binary,
-# built with the minspec profile and FEATURES, vtium-vitrify, the VT unit, the compiled terminfo entry, the example
+# built with the minspec profile and FEATURES, vtium-vitrify, the VT unit and its getty fallback, the compiled terminfo entry, the example
 # configuration and the example udev rules and hwdb fragment, which are
 # documentation and never active (ADR-1401 D4). Tier 3 installs this tree in
 # its guest.
@@ -91,6 +91,7 @@ install-tree: minspec ## Stage vtium's install tree under DESTDIR (default targe
 	install -Dm755 $(VTIUM_VITRIFY) $(DESTDIR)/usr/bin/vtium-vitrify
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium-vitrify)
 	install -Dm644 $(VTIUM_INSTALL)/kmsconvt@.service $(DESTDIR)/usr/lib/systemd/system/kmsconvt@.service
+	install -Dm644 $(VTIUM_INSTALL)/kmsconvt-getty@.service $(DESTDIR)/usr/lib/systemd/system/kmsconvt-getty@.service
 	install -dm755 $(DESTDIR)/usr/share/terminfo
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/kmscon.ti
 	install -Dm644 $(VTIUM_INSTALL)/kmscon.conf.example $(DESTDIR)/etc/kmscon/kmscon.conf.example

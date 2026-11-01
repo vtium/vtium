@@ -80,7 +80,7 @@ related: []
 
 ## Summary
 
-- **Decided:** vtium carries the C reference's security model forward as its logic flow, not its C. The main process holds root for life, launched by a plain unit, an init script or by hand, and forks the login child as root to run `/bin/login`; nothing else drops. Image media are read and decoded in a helper process following the C reference's flow, as the session's user and never as root by fallback (#31). The units match the C reference's: getty parity and no hardening directives, since the login session would inherit them. logind and libseat are an optional layer, each a Cargo feature, and vtium runs without them as the C reference did. vtium departs only where the C reference had a listed defect or gap: a test of the login child's descriptors, the helper controls #31 does not yet list, and the shared-memory unlink consequence.
+- **Decided:** vtium carries the C reference's security model forward as its logic flow, not its C. The main process holds root for life, launched by a plain unit, an init script or by hand, and forks the login child as root to run `/bin/login`; nothing else drops. Image media are read and decoded in a helper process following the C reference's flow, as the session's user and never as root by fallback (#31). The units keep getty's ordering and TTY settings, as the C reference's did, and set no hardening directive, since the login session would inherit it. They differ from the C reference's units in one place: under a closed head-file policy, the getty fallback skips the getty (ADR-1401 D9). logind and libseat are an optional layer, each a Cargo feature, and vtium runs without them as the C reference did. vtium departs only where the C reference had a listed defect or gap: a test of the login child's descriptors, the helper controls #31 does not yet list, and the shared-memory unlink consequence.
 - **Trades away:** A defect in the code that reads the pty stream runs as root, as it did in the C reference. The unit uses none of systemd's sandboxing.
 - **One-way?** No. A privilege split stays open (Alternatives), and nothing here forecloses it.
 - **Probes:**
@@ -169,10 +169,12 @@ The C reference recorded no reason for its units' lack of hardening. The likely 
 
 vtium's units match the C reference's, with getty parity and no hardening directive:
 
-- getty's `TTYPath`, `TTYReset`, `TTYVHangup`, `TTYVTDisallocate` and `UtmpIdentifier`, its ordering, `Conflicts=getty@%i` and `OnFailure=getty@%i`;
+- getty's `TTYPath`, `TTYReset`, `TTYVHangup`, `TTYVTDisallocate` and `UtmpIdentifier`, its ordering, `Conflicts=getty@%i`, and a getty fallback: `OnFailure=` starts `kmsconvt-getty@%i`, which starts `getty@%i` unless vtium's closed marker exists (ADR-1401 D9);
 - the names tier 3 needs, `kmsconvt@.service` among them (#21);
 - in a `libseat` build, `User=root` and `PAMName` with the C reference's greeter PAM file. The login child inherits that greeter session, and the helper treats it as no session of the login's own, as the C reference's did;
 - an optional sysusers file creating the pre-login account, with no home, shell or files.
+
+> Edited 2026-10-31: slice S6 of vtium/vtium#186 sends the getty fallback through `kmsconvt-getty@%i`, which starts `getty@%i` unless the closed marker exists (ADR-1401 D9), a departure from the C reference's unit. The bullet read: "`Conflicts=getty@%i` and `OnFailure=getty@%i`;", and the Summary read: "The units match the C reference's: getty parity and no hardening directives".
 
 ### What the stream reaches beyond the screen
 
